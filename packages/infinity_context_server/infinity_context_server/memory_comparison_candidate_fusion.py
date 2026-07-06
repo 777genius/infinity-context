@@ -27,10 +27,14 @@ class CandidateFusionConfig:
 
 
 DEFAULT_CANDIDATE_FUSION_CONFIG = CandidateFusionConfig()
-_TURN_REF_RE = re.compile(r"\bD\d+:\d+\b")
+_TURN_REF_RE = re.compile(r"\bD\d+[:-]\d+\b")
 _SOURCE_SESSION_TURN_RE = re.compile(
-    r"(?:^|:)session_(?P<session>\d+):(?P<turn_ref>D\d+:\d+):"
+    r"(?:^|[:_-])session[-_](?P<session>\d+)[:_-](?P<turn_ref>D\d+[:-]\d+)[:_-]"
     r"(?:turn|chunk|fact)(?:[-_][^:]*)?$",
+    re.IGNORECASE,
+)
+_SESSION_TURN_REF_RE = re.compile(
+    r"^session[-_](?P<session>\d+):(?P<turn_ref>D\d+[:-]\d+)$",
     re.IGNORECASE,
 )
 _BROAD_SUMMARY_SURFACE_RE = re.compile(
@@ -252,9 +256,10 @@ def _fuse_candidate(
         score_winner,
         evidence_winner,
     )
+    dedupe_key = _fusion_dedupe_key(key, occurrences)
     fusion = {
         "schema_version": "candidate_fusion.v1",
-        "dedupe_key": key,
+        "dedupe_key": dedupe_key,
         "query_match_count": len(query_indices),
         "query_indices": list(query_indices),
         "query_roles": list(query_roles),
@@ -565,7 +570,7 @@ def _selected_evidence_quality_score(fusion: Mapping[str, object]) -> float:
 def _turn_refs_from_values(values: Sequence[str]) -> tuple[str, ...]:
     return tuple(
         dict.fromkeys(
-            ref
+            _canonical_turn_ref(ref)
             for value in values
             for ref in _TURN_REF_RE.findall(str(value))
         )
@@ -650,11 +655,26 @@ def _memory_merge_keys(memory: RetrievedMemory) -> tuple[str, ...]:
     return tuple(dict.fromkeys(keys))
 
 
+def _fusion_dedupe_key(
+    default_key: str,
+    occurrences: Sequence[_CandidateOccurrence],
+) -> str:
+    merge_keys = tuple(
+        merge_key
+        for occurrence in occurrences
+        for merge_key in _memory_merge_keys(occurrence.memory)
+    )
+    session_turn_refs = _session_turn_refs_from_merge_keys(merge_keys)
+    if 0 < len(session_turn_refs) <= 3:
+        return "source_session_turn_refs:" + "|".join(sorted(session_turn_refs))
+    return default_key
+
+
 def _precise_source_ref_merge_key(source_refs: Sequence[str]) -> str:
     session_turn_refs = _session_turn_refs_from_source_refs(source_refs)
     turn_refs = tuple(
         dict.fromkeys(
-            ref
+            _canonical_turn_ref(ref)
             for source_ref in source_refs
             for ref in _TURN_REF_RE.findall(str(source_ref))
         )
@@ -755,7 +775,10 @@ def _session_turn_fallback_groups(
 def _session_turn_refs_from_source_refs(source_refs: Sequence[str]) -> tuple[str, ...]:
     return tuple(
         dict.fromkeys(
-            f"session_{match.group('session')}:{match.group('turn_ref')}"
+            (
+                f"session_{match.group('session')}:"
+                f"{_canonical_turn_ref(match.group('turn_ref'))}"
+            )
             for source_ref in source_refs
             if (match := _SOURCE_SESSION_TURN_RE.search(str(source_ref)))
         )
@@ -771,9 +794,9 @@ def _session_turn_refs_from_merge_keys(keys: Sequence[str]) -> tuple[str, ...]:
         if not value.startswith("source_session_turn_refs:"):
             continue
         refs.extend(
-            ref
+            canonical_ref
             for ref in value.removeprefix("source_session_turn_refs:").split("|")
-            if ref
+            if (canonical_ref := _canonical_session_turn_ref(ref))
         )
     return tuple(dict.fromkeys(refs))
 
@@ -786,7 +809,7 @@ def _unqualified_turn_refs_from_merge_keys(keys: Sequence[str]) -> set[str]:
             value = value.removeprefix("source_identity:")
         if value.startswith(("source_turn_refs:", "turn_refs:")):
             refs.update(
-                f"source_turn_refs:{ref}"
+                f"source_turn_refs:{_canonical_turn_ref(ref)}"
                 for ref in value.split(":", maxsplit=1)[1].split("|")
                 if ref
             )
@@ -798,12 +821,33 @@ def _unqualified_turn_refs_from_session_refs(session_refs: Sequence[str]) -> set
     for ref in session_refs:
         match = _TURN_REF_RE.search(str(ref))
         if match is not None:
-            refs.add(f"source_turn_refs:{match.group(0)}")
+            refs.add(f"source_turn_refs:{_canonical_turn_ref(match.group(0))}")
     return refs
 
 
 def _turn_ref_count(values: Sequence[str]) -> int:
     return sum(1 for value in values if _TURN_REF_RE.search(str(value)))
+
+
+def _canonical_session_turn_ref(value: str) -> str:
+    match = _SESSION_TURN_REF_RE.fullmatch(str(value or "").strip())
+    if match is None:
+        return ""
+    return (
+        f"session_{match.group('session')}:"
+        f"{_canonical_turn_ref(match.group('turn_ref'))}"
+    )
+
+
+def _canonical_turn_ref(value: str) -> str:
+    match = re.fullmatch(
+        r"D(?P<dialogue>\d+)[:-](?P<turn>\d+)",
+        str(value or "").strip(),
+        re.IGNORECASE,
+    )
+    if match is None:
+        return str(value or "")
+    return f"D{match.group('dialogue')}:{match.group('turn')}"
 
 
 def _source_refs(

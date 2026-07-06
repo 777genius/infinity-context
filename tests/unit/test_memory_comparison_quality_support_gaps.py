@@ -71,6 +71,7 @@ def test_answer_context_support_gap_samples_include_safe_context_identity() -> N
                             "memory_count": 2,
                             "source_ref_item_count": 0,
                             "source_refless_item_count": 2,
+                            "missing_required_roles": ["primary"],
                             "source_identity_ref_count": 5,
                             "source_identity_item_count": 2,
                             "source_identity_refs": [
@@ -111,6 +112,98 @@ def test_answer_context_support_gap_samples_include_safe_context_identity() -> N
     assert "raw payload source identity must not appear" not in serialized
 
 
+def test_answer_context_support_gaps_accept_source_identity_grounding() -> None:
+    summary = answer_context_support_gap_summary(
+        (
+            {
+                "case_id": "source-identity-grounded-context",
+                "group": "single-hop",
+                "cutoff_results": {
+                    "10": {
+                        "answer_context": {
+                            "source": "evidence_bundle",
+                            "memory_count": 0,
+                            "source_ref_item_count": 0,
+                            "source_refless_item_count": 2,
+                            "source_identity_ref_count": 2,
+                            "source_identity_item_count": 2,
+                            "source_identity_refs": [
+                                "source_turn_refs:D1:1",
+                                "source_turn_refs:D1:2",
+                            ],
+                        }
+                    }
+                },
+            },
+        )
+    )
+
+    assert summary["support_gap_context_count"] == 0
+    assert summary["gap_reason_counts"] == {}
+    assert summary["samples"] == []
+
+
+def test_answer_context_support_gaps_do_not_double_count_identity_refless_items() -> None:
+    summary = answer_context_support_gap_summary(
+        (
+            {
+                "case_id": "identity-grounded-refless-context",
+                "group": "single-hop",
+                "cutoff_results": {
+                    "10": {
+                        "answer_context": {
+                            "source": "evidence_bundle",
+                            "memory_count": 2,
+                            "source_ref_item_count": 0,
+                            "source_refless_item_count": 2,
+                            "source_identity_ref_count": 2,
+                            "source_identity_item_count": 2,
+                            "source_identity_refs": [
+                                "source_turn_refs:D1:1",
+                                "source_turn_refs:D1:2",
+                            ],
+                        }
+                    }
+                },
+            },
+        )
+    )
+
+    assert summary["support_gap_context_count"] == 0
+    assert summary["gap_reason_counts"] == {}
+    assert summary["samples"] == []
+
+
+def test_answer_context_support_gaps_flag_partial_source_identity_grounding() -> None:
+    summary = answer_context_support_gap_summary(
+        (
+            {
+                "case_id": "partial-source-identity-grounded-context",
+                "group": "temporal",
+                "cutoff_results": {
+                    "10": {
+                        "answer_context": {
+                            "source": "evidence_bundle",
+                            "memory_count": 2,
+                            "source_ref_item_count": 0,
+                            "source_refless_item_count": 2,
+                            "source_identity_ref_count": 1,
+                            "source_identity_item_count": 1,
+                            "source_identity_refs": ["source_turn_refs:D1:1"],
+                        }
+                    }
+                },
+            },
+        )
+    )
+
+    assert summary["gap_reason_counts"] == {"partial_context_source_refs": 1}
+    sample = summary["samples"][0]
+    assert sample["gap_reasons"] == ["partial_context_source_refs"]
+    assert sample["source_identity_ref_count"] == 1
+    assert sample["source_identity_item_count"] == 1
+
+
 def test_answer_context_support_gap_sample_metrics_are_json_safe() -> None:
     summary = answer_context_support_gap_summary(
         (
@@ -136,6 +229,179 @@ def test_answer_context_support_gap_sample_metrics_are_json_safe() -> None:
     assert sample["avg_measured_answerability_score"] == 0.0
     assert sample["avg_measured_source_locality_score"] == 0.0
     json.dumps(sample, allow_nan=False)
+
+
+def test_answer_context_support_gap_samples_include_skipped_bundle_counts() -> None:
+    summary = answer_context_support_gap_summary(
+        (
+            {
+                "case_id": "skipped-answer-context-support",
+                "cutoff_results": {
+                    "5": {
+                        "answer_context": {
+                            "source": "evidence_bundle",
+                            "memory_count": 2,
+                            "source_ref_item_count": 2,
+                            "skipped_duplicate_source_bundle_item_count": 1,
+                            "skipped_noisy_overlap_bundle_item_count": 2,
+                            "skipped_redundant_risky_backfill_count": 3,
+                            "backfilled_retrieval_item_count": 4,
+                        }
+                    }
+                },
+            },
+        )
+    )
+
+    sample = summary["samples"][0]
+
+    assert summary["gap_reason_counts"] == {
+        "skipped_duplicate_source_bundle_item": 1,
+        "skipped_noisy_overlap_bundle_item": 1,
+        "skipped_redundant_risky_backfill": 1,
+    }
+    assert sample["backfilled_retrieval_item_count"] == 4
+    assert sample["skipped_redundant_risky_backfill_count"] == 3
+    assert sample["skipped_duplicate_source_bundle_item_count"] == 1
+    assert sample["skipped_noisy_overlap_bundle_item_count"] == 2
+
+
+def test_answer_context_support_gaps_report_all_backfill_skip_counts() -> None:
+    summary = answer_context_support_gap_summary(
+        (
+            {
+                "case_id": "backfill-skip-context-support",
+                "cutoff_results": {
+                    "5": {
+                        "answer_context": {
+                            "source": "evidence_bundle",
+                            "memory_count": 2,
+                            "source_ref_item_count": 2,
+                            "skipped_redundant_risky_backfill_count": 1,
+                            "skipped_redundant_source_backfill_count": 2,
+                            "skipped_redundant_role_backfill_count": 3,
+                            "skipped_target_limit_backfill_count": 4,
+                        }
+                    }
+                },
+            },
+        )
+    )
+
+    sample = summary["samples"][0]
+
+    assert summary["gap_reason_counts"] == {
+        "skipped_redundant_risky_backfill": 1,
+        "skipped_redundant_source_backfill": 1,
+        "skipped_redundant_role_backfill": 1,
+        "skipped_target_limit_backfill": 1,
+    }
+    assert sample["gap_reasons"] == [
+        "skipped_redundant_risky_backfill",
+        "skipped_redundant_source_backfill",
+        "skipped_redundant_role_backfill",
+        "skipped_target_limit_backfill",
+    ]
+    assert sample["skipped_redundant_risky_backfill_count"] == 1
+    assert sample["skipped_redundant_source_backfill_count"] == 2
+    assert sample["skipped_redundant_role_backfill_count"] == 3
+    assert sample["skipped_target_limit_backfill_count"] == 4
+
+
+def test_answer_context_support_gap_samples_omit_zero_skipped_bundle_counts() -> None:
+    summary = answer_context_support_gap_summary(
+        (
+            {
+                "case_id": "zero-skipped-answer-context-support",
+                "cutoff_results": {
+                    "5": {
+                        "answer_context": {
+                            "source": "evidence_bundle",
+                            "memory_count": 2,
+                            "source_ref_item_count": 0,
+                            "source_refless_item_count": 2,
+                            "skipped_duplicate_source_bundle_item_count": 0,
+                            "skipped_noisy_overlap_bundle_item_count": 0,
+                        }
+                    }
+                },
+            },
+        )
+    )
+
+    sample = summary["samples"][0]
+
+    assert sample["source_refless_item_count"] == 2
+    assert "skipped_duplicate_source_bundle_item_count" not in sample
+    assert "skipped_noisy_overlap_bundle_item_count" not in sample
+
+def test_answer_context_support_gaps_report_missing_and_unsupported_contexts() -> None:
+    summary = answer_context_support_gap_summary(
+        (
+            {
+                "case_id": "missing-answer-context",
+                "group": "single-hop",
+                "cutoff_results": {
+                    "3": {},
+                    "5": {"answer_context": []},
+                    "10": {
+                        "answer_context": {
+                            "source": "evidence_bundle",
+                            "memory_count": 1,
+                            "source_ref_item_count": 1,
+                        }
+                    },
+                },
+            },
+        )
+    )
+
+    assert summary["expected_context_count"] == 3
+    assert summary["context_count"] == 1
+    assert summary["answer_context_availability_gap_count"] == 2
+    assert summary["missing_answer_context_count"] == 1
+    assert summary["unsupported_answer_context_count"] == 1
+    assert summary["availability_gap_samples"] == [
+        {
+            "case_id": "missing-answer-context",
+            "group": "single-hop",
+            "cutoff": "3",
+            "source": "missing",
+            "gap_reasons": ["missing_answer_context"],
+        },
+        {
+            "case_id": "missing-answer-context",
+            "group": "single-hop",
+            "cutoff": "5",
+            "source": "unsupported",
+            "gap_reasons": ["unsupported_answer_context"],
+        },
+    ]
+
+
+def test_answer_context_support_gaps_derive_low_confidence_context() -> None:
+    items = (
+        _item(
+            case_id="preserved-low-confidence-context",
+            cutoff_results={
+                "10": {
+                    "answer_context": {
+                        "source": "evidence_bundle",
+                        "memory_count": 1,
+                        "source_ref_item_count": 1,
+                        "bundle_confidence_score": 0.42,
+                        "bundle_confidence_band": "low",
+                        "bundle_source_ref_support_item_count": 1,
+                    }
+                }
+            },
+        ),
+    )
+
+    summary = answer_context_support_gap_summary(items)
+
+    assert summary["gap_reason_counts"] == {"low_bundle_confidence": 1}
+    assert summary["samples"][0]["gap_reasons"] == ["low_bundle_confidence"]
 
 
 def test_fast_gate_metrics_rejects_contrast_role_label_without_surface() -> None:
@@ -2973,6 +3239,52 @@ def test_fast_gate_metrics_caps_selected_low_answerability_samples() -> None:
         "planner-reason-5",
     ]
     assert samples[0]["planner_reason_count"] == 8
+
+
+def test_fast_gate_metrics_dedupes_derived_selected_source_turn_refs() -> None:
+    gate = fast_gate_metrics(
+        (
+            _item(
+                case_id="selected-source-ref-dedupe",
+                evidence_bundle={
+                    "bundle_complete": True,
+                    "items": [
+                        {
+                            "id": "derived-turn-ref",
+                            "role": "primary",
+                            "answerability_score": 0.2,
+                            "source_locality_score": 0.2,
+                            "source_refs": [
+                                "source_session_turn_refs:session_4:D4:5",
+                                "D4:5",
+                            ],
+                        },
+                        {
+                            "id": "explicit-turn-ref",
+                            "role": "supporting",
+                            "answerability_score": 0.2,
+                            "source_locality_score": 0.2,
+                            "source_refs": [
+                                "source_session_turn_refs:session_4:D4:6",
+                                "source_turn_refs:D4:6",
+                            ],
+                        },
+                    ],
+                },
+            ),
+        ),
+        expected_case_count=1,
+    )
+
+    samples = gate["selected_evidence_weakness"]["low_answerability_samples"]
+
+    assert samples[0]["source_refs"] == [
+        "source_session_turn_refs:session_4:D4:5",
+    ]
+    assert samples[1]["source_refs"] == [
+        "source_session_turn_refs:session_4:D4:6",
+        "source_turn_refs:D4:6",
+    ]
 
 
 def test_fast_gate_metrics_caps_selected_evidence_weakness_sample_values() -> None:

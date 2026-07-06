@@ -39,6 +39,12 @@ from infinity_context_server.memory_comparison_quality_accessors import (
     sequence as _sequence,
 )
 from infinity_context_server.memory_comparison_quality_accessors import (
+    source_refs_from_bundle_item as _source_refs_from_bundle_item,
+)
+from infinity_context_server.memory_comparison_quality_accessors import (
+    source_refs_from_memory as _source_refs_from_memory,
+)
+from infinity_context_server.memory_comparison_quality_accessors import (
     str_tuple as _str_tuple,
 )
 from infinity_context_server.memory_comparison_quality_accessors import (
@@ -49,6 +55,9 @@ from infinity_context_server.memory_comparison_quality_accessors import (
 )
 from infinity_context_server.memory_comparison_source_identity import (
     safe_item_id_for_output as _safe_item_id_for_output,
+)
+from infinity_context_server.memory_comparison_source_identity import (
+    safe_source_refs_for_output as _safe_source_refs_for_output,
 )
 
 
@@ -342,6 +351,12 @@ def _selected_without_positive_rerank_sample(
     cap_signals = _visible_signal_values(score_signals, "cap")
     if cap_signals:
         sample["cap_signals"] = cap_signals
+    source_identity_refs = _safe_source_refs_for_output(
+        _source_refs_from_bundle_item(selected_item)
+        or (_source_refs_from_memory(matched_memory) if matched_memory else ())
+    )
+    if source_identity_refs:
+        sample["source_identity_refs"] = source_identity_refs
     return sample
 
 
@@ -385,6 +400,9 @@ def _rerank_gap_candidate_sample(
     penalty_signals = _visible_signal_values(score_signals, "penalty")
     if penalty_signals:
         sample["penalty_signals"] = penalty_signals
+    source_identity_refs = _safe_source_refs_for_output(_source_refs_from_memory(memory))
+    if source_identity_refs:
+        sample["source_identity_refs"] = source_identity_refs
     return sample
 
 

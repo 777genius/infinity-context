@@ -2495,10 +2495,26 @@ def _compact_fast_gate_summary(
             ),
         },
         "answer_context_support_gap_counts": {
+            "expected_context_count": _positive_int(
+                answer_context_gaps.get("expected_context_count")
+            )
+            or 0,
             "context_count": _positive_int(answer_context_gaps.get("context_count"))
             or 0,
             "support_gap_context_count": _positive_int(
                 answer_context_gaps.get("support_gap_context_count")
+            )
+            or 0,
+            "answer_context_availability_gap_count": _positive_int(
+                answer_context_gaps.get("answer_context_availability_gap_count")
+            )
+            or 0,
+            "missing_answer_context_count": _positive_int(
+                answer_context_gaps.get("missing_answer_context_count")
+            )
+            or 0,
+            "unsupported_answer_context_count": _positive_int(
+                answer_context_gaps.get("unsupported_answer_context_count")
             )
             or 0,
             "gap_reason_counts": _compact_count_mapping(
@@ -2516,6 +2532,11 @@ def _compact_fast_gate_summary(
                 answer_context_gaps.get("samples")
             )
         ),
+        "answer_context_availability_gap_samples": (
+            _compact_answer_context_support_gap_samples(
+                answer_context_gaps.get("availability_gap_samples")
+            )
+        ),
         "temporal_grounding_counts": {
             "temporal_case_count": _positive_int(
                 temporal_grounding.get("temporal_case_count")
@@ -2531,6 +2552,12 @@ def _compact_fast_gate_summary(
                 )
             )
             or 0,
+            "retrieval_bounded_window_grounded_candidate_count": _positive_int(
+                temporal_grounding.get(
+                    "retrieval_bounded_window_grounded_candidate_count"
+                )
+            )
+            or 0,
             "selected_item_count": _positive_int(
                 temporal_grounding.get("selected_item_count")
             )
@@ -2541,6 +2568,10 @@ def _compact_fast_gate_summary(
             or 0,
             "selected_relative_date_grounded_item_count": _positive_int(
                 temporal_grounding.get("selected_relative_date_grounded_item_count")
+            )
+            or 0,
+            "selected_bounded_window_grounded_item_count": _positive_int(
+                temporal_grounding.get("selected_bounded_window_grounded_item_count")
             )
             or 0,
             "selected_strong_temporal_grounding_item_count": _positive_int(
@@ -2876,6 +2907,11 @@ def _compact_answerability_gap_samples(
                 values = _compact_sample_values(sample.get(key), limit=6)
                 if values:
                     compact[key] = values
+        source_identity_refs = _compact_source_identity_refs(
+            sample.get("source_identity_refs")
+        )
+        if source_identity_refs:
+            compact["source_identity_refs"] = list(source_identity_refs)
         if compact:
             samples.append(compact)
         if len(samples) >= limit:
@@ -2903,6 +2939,9 @@ def _compact_answer_context_support_gap_samples(
         "source_identity_item_count",
         "backfilled_retrieval_item_count",
         "skipped_redundant_risky_backfill_count",
+        "skipped_redundant_source_backfill_count",
+        "skipped_redundant_role_backfill_count",
+        "skipped_target_limit_backfill_count",
         "avg_measured_answerability_score",
         "avg_measured_source_locality_score",
         "fallback_reason",
@@ -2946,8 +2985,15 @@ def _compact_answer_context_support_gap_samples(
 
 
 def _compact_source_identity_refs(value: object, *, limit: int = 8) -> tuple[str, ...]:
-    refs = (_safe_source_identity_ref(raw_ref) for raw_ref in _str_tuple(value))
-    return tuple(dict.fromkeys(ref for ref in refs if ref))[:limit]
+    refs = _compact_diagnostic_source_refs(value, limit=limit)
+    if not refs:
+        return refs
+    return tuple(
+        _drop_redundant_unqualified_turn_refs(
+            refs,
+            source_ref_count=len(_str_tuple(value)),
+        )
+    )
 
 
 def _compact_temporal_grounding_issue_samples(
@@ -3005,6 +3051,7 @@ def _compact_temporal_grounding_issue_samples(
                 "session_boundary",
                 "date_or_range",
                 "relative_date",
+                "bounded_window",
                 "temporal_order",
             )
             if key in signals
@@ -3029,9 +3076,18 @@ def _compact_diagnostic_source_refs(
     *,
     limit: int,
 ) -> tuple[str, ...]:
+    raw_refs = _str_tuple(value)
+    has_explicit_identity_ref = any(_safe_source_identity_ref(raw_ref) for raw_ref in raw_refs)
     refs: list[str] = []
-    for raw_ref in _str_tuple(value):
+    for raw_ref in raw_refs:
+        raw_safe_ref = _safe_source_identity_ref(raw_ref)
         for ref in _safe_diagnostic_source_refs_for_value(raw_ref):
+            if (
+                has_explicit_identity_ref
+                and raw_safe_ref is None
+                and ref.startswith("source_turn_refs:")
+            ):
+                continue
             if ref and ref not in refs:
                 refs.append(ref)
             if len(refs) >= limit:
@@ -3175,6 +3231,7 @@ def _compact_rerank_gap_sample(sample: Mapping[str, object]) -> dict[str, object
         "query_roles",
         "relation_category_hits",
         "selected_item_ids",
+        "source_identity_refs",
     }
     mapping_keys = {
         "cap_signals",
@@ -3194,11 +3251,12 @@ def _compact_rerank_gap_sample(sample: Mapping[str, object]) -> dict[str, object
     for key in sorted(sequence_keys):
         if key not in sample:
             continue
-        values = (
-            _compact_item_ids(sample.get(key), limit=6)
-            if key == "selected_item_ids"
-            else _compact_sample_values(sample.get(key), limit=6)
-        )
+        if key == "selected_item_ids":
+            values = _compact_item_ids(sample.get(key), limit=6)
+        elif key == "source_identity_refs":
+            values = list(_compact_source_identity_refs(sample.get(key), limit=6))
+        else:
+            values = _compact_sample_values(sample.get(key), limit=6)
         if values:
             compact[key] = values
     for key in sorted(mapping_keys):
@@ -3308,6 +3366,11 @@ def _compact_selected_evidence_weakness_samples(
             )
             if sanitized_source_ref_count is not None:
                 source_ref_count = sanitized_source_ref_count
+        if source_refs and source_ref_count is not None:
+            compact["source_refs"] = _drop_redundant_unqualified_turn_refs(
+                source_refs,
+                source_ref_count=source_ref_count,
+            )
         if source_ref_count is not None:
             compact["source_ref_count"] = source_ref_count
         if compact:
@@ -3315,6 +3378,36 @@ def _compact_selected_evidence_weakness_samples(
         if len(samples) >= limit:
             break
     return samples
+
+
+def _drop_redundant_unqualified_turn_refs(
+    refs: Sequence[str],
+    *,
+    source_ref_count: int,
+) -> list[str]:
+    session_turn_refs = {
+        _source_turn_from_session_ref(ref)
+        for ref in refs
+        if ref.startswith("source_session_turn_refs:")
+    }
+    session_turn_refs.discard("")
+    if source_ref_count > len(refs):
+        return list(refs)
+    return [
+        ref
+        for ref in refs
+        if not (
+            ref.startswith("source_turn_refs:")
+            and ref.removeprefix("source_turn_refs:") in session_turn_refs
+        )
+    ]
+
+
+def _source_turn_from_session_ref(ref: str) -> str:
+    parts = ref.split(":")
+    if len(parts) < 4:
+        return ""
+    return f"{parts[-2]}:{parts[-1]}"
 
 
 def _compact_evidence_bundle_coverage(

@@ -10,11 +10,10 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+from infinity_context_core.application.sensitive_text import contains_sensitive_text
+
 from infinity_context_server.memory_comparison_source_identity import (
     safe_source_refs_for_output as _safe_source_refs_for_output,
-)
-from infinity_context_server.public_benchmark_case_diagnostics import (
-    artifact_text_value as _artifact_text_value,
 )
 from infinity_context_server.public_benchmark_case_diagnostics import (
     preview_value as _preview_value,
@@ -523,7 +522,10 @@ def _checkpoint_failure_diagnostic(
     payload: dict[str, object] = {
         "case_id": _safe_preview(result.case_id, max_chars=_MAX_FAILURE_REF_CHARS),
         "category": _safe_preview(result.benchmark, max_chars=_MAX_FAILURE_REASON_CHARS),
-        "capability": _artifact_text_value(result.capability, max_chars=_MAX_FAILURE_REF_CHARS),
+        "capability": _safe_capability_preview(
+            result.capability,
+            max_chars=_MAX_FAILURE_REF_CHARS,
+        ),
         "reason": _safe_preview(reason, max_chars=_MAX_FAILURE_REASON_CHARS),
         "missing_terms": _bounded_str_list(result.missing_terms),
         "leaked_terms": _bounded_str_list(result.leaked_terms),
@@ -625,6 +627,44 @@ def _safe_preview(
     max_chars: int = _MAX_FAILURE_TEXT_CHARS,
 ) -> str:
     return _preview_value(value, max_chars=max_chars)
+
+
+def _safe_capability_preview(value: object, *, max_chars: int) -> str:
+    text = str(value or "").strip()
+    if _looks_like_public_capability_label(text):
+        return text[:max_chars]
+    return _safe_preview(text, max_chars=max_chars)
+
+
+def _looks_like_public_capability_label(value: str) -> bool:
+    if not value or contains_sensitive_text(value):
+        return False
+    text = value.casefold()
+    if text.startswith(
+        (
+            "backend:",
+            "graphiti:",
+            "mem0:",
+            "memory://",
+            "openai:",
+            "provider:",
+            "qdrant:",
+        )
+    ):
+        return False
+    if any(
+        marker in text
+        for marker in (
+            "conv-private",
+            "private-token",
+            "provider",
+            "session_",
+            "session-",
+            "turn-secret",
+        )
+    ):
+        return False
+    return all(char.isalnum() or char in {"_", "-", ".", ":", "/"} for char in value)
 
 
 def _as_sequence(value: object) -> Sequence[object]:

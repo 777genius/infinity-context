@@ -94,6 +94,34 @@ def test_candidate_fusion_dedupes_order_insensitive_source_refs() -> None:
     assert fused[0].metadata["diagnostics"]["benchmark_query_match_count"] == 2
 
 
+def test_candidate_fusion_merges_spaced_split_session_and_turn_source_refs() -> None:
+    split_refs = RetrievedMemory(
+        item_id="split-session-turn",
+        rank=1,
+        score=0.7,
+        text="D4:3 Alex confirmed the workshop date.",
+        source_refs=("conversation session #4", "D4:3"),
+        metadata={"item_type": "chunk"},
+    )
+    canonical_ref = RetrievedMemory(
+        item_id="canonical-session-turn",
+        rank=1,
+        score=0.72,
+        text="D4:3 Alex confirmed the workshop date.",
+        source_refs=("locomo:conv-51:session_4:D4:3:turn",),
+        metadata={"item_type": "raw_turn"},
+    )
+
+    fused, diagnostics = fuse_query_results(
+        (("semantic", (split_refs,)), ("raw-turn", (canonical_ref,)))
+    )
+
+    assert len(fused) == 1
+    assert diagnostics["duplicate_result_count"] == 1
+    fusion = fused[0].metadata["diagnostics"]["benchmark_candidate_fusion"]
+    assert fusion["dedupe_key"] == "source_session_turn_refs:session_4:D4:3"
+
+
 def test_candidate_fusion_preserves_non_winning_source_refs() -> None:
     semantic_winner = RetrievedMemory(
         item_id="adoption-support",
@@ -170,6 +198,44 @@ def test_candidate_fusion_merges_distinct_ids_for_same_precise_turn_ref() -> Non
         "locomo:conv-26:session_2:D2:8:turn",
     ]
     assert fusion["source_types"] == ["chunk", "raw_turn"]
+
+
+def test_candidate_fusion_merges_hyphenated_precise_turn_refs() -> None:
+    chunk = RetrievedMemory(
+        item_id="chunk-hyphen",
+        rank=2,
+        score=0.82,
+        text="Caroline looked into adoption agencies.",
+        source_refs=("locomo:conv-26:session_2:D2-8:chunk",),
+        metadata={
+            "item_type": "chunk",
+            "diagnostics": {"retrieval_sources": ["semantic_chunks"]},
+        },
+    )
+    raw_turn = RetrievedMemory(
+        item_id="raw-turn-colon",
+        rank=1,
+        score=0.79,
+        text="D2:8 Caroline: I looked into adoption agencies.",
+        source_refs=("locomo:conv-26:session_2:D2:8:turn",),
+        metadata={
+            "item_type": "raw_turn",
+            "diagnostics": {"retrieval_sources": ["raw_turns"]},
+        },
+    )
+
+    fused, diagnostics = fuse_query_results(
+        (("semantic", (chunk,)), ("raw-turn", (raw_turn,)))
+    )
+
+    assert len(fused) == 1
+    assert diagnostics["duplicate_result_count"] == 1
+    fusion = fused[0].metadata["diagnostics"]["benchmark_candidate_fusion"]
+    assert fusion["dedupe_key"] == "source_session_turn_refs:session_2:D2:8"
+    assert fusion["source_refs"] == [
+        "locomo:conv-26:session_2:D2-8:chunk",
+        "locomo:conv-26:session_2:D2:8:turn",
+    ]
 
 
 def test_candidate_fusion_keeps_cross_session_canonical_turn_refs_distinct() -> None:
@@ -316,6 +382,74 @@ def test_candidate_fusion_merges_canonical_source_ref_with_text_turn_identity() 
     assert fused[0].source_refs == ("locomo:conv-26:session_2:D2:8:chunk",)
     fusion = fused[0].metadata["diagnostics"]["benchmark_candidate_fusion"]
     assert fusion["dedupe_key"] == "source_session_turn_refs:session_2:D2:8"
+    assert fusion["source_types"] == ["chunk", "raw_turn"]
+
+
+def test_candidate_fusion_merges_canonical_source_ref_with_reversed_text_identity() -> None:
+    chunk = RetrievedMemory(
+        item_id="chunk-123",
+        rank=2,
+        score=0.82,
+        text="Caroline looked into adoption agencies.",
+        source_refs=("locomo:conv-26:session_2:D2:8:chunk",),
+        metadata={
+            "item_type": "chunk",
+            "diagnostics": {"retrieval_sources": ["semantic_chunks"]},
+        },
+    )
+    raw_turn = RetrievedMemory(
+        item_id="raw-turn-456",
+        rank=1,
+        score=0.79,
+        text="turn D2:8 in session 2 Caroline: I looked into adoption agencies.",
+        metadata={
+            "item_type": "raw_turn",
+            "diagnostics": {"retrieval_sources": ["raw_turns"]},
+        },
+    )
+
+    fused, diagnostics = fuse_query_results(
+        (("semantic", (chunk,)), ("raw-turn", (raw_turn,)))
+    )
+
+    assert len(fused) == 1
+    assert diagnostics["duplicate_result_count"] == 1
+    fusion = fused[0].metadata["diagnostics"]["benchmark_candidate_fusion"]
+    assert fusion["dedupe_key"] == "source_session_turn_refs:session_2:D2:8"
+    assert fusion["source_types"] == ["chunk", "raw_turn"]
+
+
+def test_candidate_fusion_merges_canonical_source_ref_with_punctuated_text_identity() -> None:
+    chunk = RetrievedMemory(
+        item_id="chunk-789",
+        rank=2,
+        score=0.82,
+        text="Alex confirmed the planning date.",
+        source_refs=("locomo:conv-51:session_3:D3:9:chunk",),
+        metadata={
+            "item_type": "chunk",
+            "diagnostics": {"retrieval_sources": ["semantic_chunks"]},
+        },
+    )
+    raw_turn = RetrievedMemory(
+        item_id="raw-turn-789",
+        rank=1,
+        score=0.79,
+        text="Session 3 - turn # D3-9 Alex confirmed the planning date.",
+        metadata={
+            "item_type": "raw_turn",
+            "diagnostics": {"retrieval_sources": ["raw_turns"]},
+        },
+    )
+
+    fused, diagnostics = fuse_query_results(
+        (("semantic", (chunk,)), ("raw-turn", (raw_turn,)))
+    )
+
+    assert len(fused) == 1
+    assert diagnostics["duplicate_result_count"] == 1
+    fusion = fused[0].metadata["diagnostics"]["benchmark_candidate_fusion"]
+    assert fusion["dedupe_key"] == "source_session_turn_refs:session_3:D3:9"
     assert fusion["source_types"] == ["chunk", "raw_turn"]
 
 

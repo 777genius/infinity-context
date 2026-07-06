@@ -119,6 +119,12 @@ from infinity_context_server.memory_comparison_quality_actionable_gaps import (
 from infinity_context_server.memory_comparison_quality_answer_context_gaps import (
     answer_context_support_gap_summary as _answer_context_support_gap_summary,
 )
+from infinity_context_server.memory_comparison_quality_answer_context_risks import (
+    answer_context_risk_sample as _answer_context_risk_sample,
+)
+from infinity_context_server.memory_comparison_quality_answer_context_risks import (
+    ranked_answer_context_risk_samples as _ranked_answer_context_risk_samples,
+)
 from infinity_context_server.memory_comparison_quality_bundle_gaps import (
     bundle_gap_breakdown as _bundle_gap_breakdown,
 )
@@ -168,7 +174,16 @@ from infinity_context_server.memory_comparison_quality_selected_weakness import 
     selected_evidence_weakness_breakdown as _selected_evidence_weakness_breakdown,
 )
 from infinity_context_server.memory_comparison_source_identity import (
+    looks_like_raw_source_ref as _looks_like_raw_source_ref,
+)
+from infinity_context_server.memory_comparison_source_identity import (
     safe_item_id_for_output as _safe_item_id_for_output,
+)
+from infinity_context_server.memory_comparison_source_identity import (
+    safe_source_refs_for_output as _safe_source_refs_for_output,
+)
+from infinity_context_server.memory_comparison_source_identity import (
+    source_identity_refs_from_source_refs as _source_identity_refs_from_source_refs,
 )
 from infinity_context_server.memory_comparison_temporal_grounding import (
     temporal_grounding_table as _temporal_grounding_table,
@@ -458,6 +473,7 @@ def fast_gate_metrics(
             temporal_grounding=temporal_grounding,
             source_ref_provenance=source_ref_provenance,
             answer_context_provenance=answer_context_provenance,
+            answer_context_support_gap_summary=answer_context_support_gaps,
         ),
         "gates": gates,
     }
@@ -587,8 +603,10 @@ def _evidence_recall_gap_summary(
     missing_term_counts: Counter[str] = Counter()
     for item in missing_ref_items:
         missing_term_counts.update(
-            _str_tuple(
-                _mapping(item.get("retrieval_quality")).get("missing_evidence_terms")
+            _safe_evidence_ref_terms(
+                _mapping(item.get("retrieval_quality")).get(
+                    "missing_evidence_terms"
+                )
             )
         )
     return {
@@ -649,21 +667,32 @@ def _evidence_recall_gap_samples(
         quality = _mapping(item.get("retrieval_quality"))
         measured = _has_evidence_recall(item)
         missing_terms = _str_tuple(quality.get("missing_evidence_terms"))
+        sample_missing_terms = _safe_evidence_ref_terms(
+            missing_terms[:_EVIDENCE_RECALL_MISSING_TERM_SAMPLE_LIMIT]
+        )
         sample: dict[str, object] = {
             "case_id": str(item.get("case_id") or ""),
             "group": str(item.get("group") or ""),
             "expected_term_recall": round(_expected_recall(item), 6),
             "evidence_term_recall_measured": measured,
             "missing_evidence_term_count": len(missing_terms),
-            "missing_evidence_terms": list(
-                missing_terms[:_EVIDENCE_RECALL_MISSING_TERM_SAMPLE_LIMIT]
-            ),
+            "missing_evidence_terms": list(sample_missing_terms),
             "bundle_complete": _bundle_complete(item),
         }
         if measured:
             sample["evidence_term_recall"] = round(_evidence_recall(item), 6)
         samples.append(sample)
     return samples
+
+
+def _safe_evidence_ref_terms(value: object) -> tuple[str, ...]:
+    terms: list[str] = []
+    for term in _str_tuple(value):
+        if not _looks_like_raw_source_ref(term):
+            terms.append(term)
+            continue
+        terms.extend(_safe_source_refs_for_output((term,)))
+    return tuple(dict.fromkeys(terms))
 
 
 def _risk_flag_table(items: Sequence[Mapping[str, object]]) -> dict[str, object]:
@@ -820,40 +849,38 @@ def _answerability_gap_breakdown(
                 if lifted:
                     lifted_low_answerability_candidate_count += 1
                 if len(low_answerability_samples) < 10:
-                    low_answerability_samples.append(
-                        {
-                            "case_id": case_id,
-                            "group": group,
-                            "memory_id": _safe_item_id_for_output(
-                                _memory_id(memory)
-                            ),
-                            "rank": _positive_int(memory.get("rank")),
-                            "lifted": lifted,
-                            "positive_policy_score": round(
-                                _positive_policy_score(diagnostics),
-                                6,
-                            ),
-                            "answerability_score": round(answerability_score, 6),
-                            "answerability_reason_codes": [
-                                _compact_answerability_gap_text(reason)
-                                for reason in answerability_reason_codes[
-                                    :_ANSWERABILITY_GAP_REASON_LIMIT
-                                ]
-                            ],
-                            "answerability_reason_count": (
-                                len(answerability_reason_codes)
-                            ),
-                            "relation_categories": list(
-                                _str_tuple(features.get("relation_categories"))
-                            ),
-                            "relation_category_hits": list(
-                                _str_tuple(features.get("relation_category_hits"))
-                            ),
-                            "query_roles": list(
-                                _str_tuple(features.get("query_roles"))
-                            ),
-                        }
+                    sample = {
+                        "case_id": case_id,
+                        "group": group,
+                        "memory_id": _safe_item_id_for_output(_memory_id(memory)),
+                        "rank": _positive_int(memory.get("rank")),
+                        "lifted": lifted,
+                        "positive_policy_score": round(
+                            _positive_policy_score(diagnostics),
+                            6,
+                        ),
+                        "answerability_score": round(answerability_score, 6),
+                        "answerability_reason_codes": [
+                            _compact_answerability_gap_text(reason)
+                            for reason in answerability_reason_codes[
+                                :_ANSWERABILITY_GAP_REASON_LIMIT
+                            ]
+                        ],
+                        "answerability_reason_count": len(answerability_reason_codes),
+                        "relation_categories": list(
+                            _str_tuple(features.get("relation_categories"))
+                        ),
+                        "relation_category_hits": list(
+                            _str_tuple(features.get("relation_category_hits"))
+                        ),
+                        "query_roles": list(_str_tuple(features.get("query_roles"))),
+                    }
+                    source_identity_refs = _answerability_sample_source_identity_refs(
+                        memory
                     )
+                    if source_identity_refs:
+                        sample["source_identity_refs"] = list(source_identity_refs)
+                    low_answerability_samples.append(sample)
             if not reasons:
                 continue
             candidate_count += 1
@@ -872,42 +899,44 @@ def _answerability_gap_breakdown(
                     if lifted:
                         lifted_category_counts[category] += 1
             if len(samples) < 10:
-                samples.append(
-                    {
-                        "case_id": case_id,
-                        "group": group,
-                        "memory_id": _safe_item_id_for_output(_memory_id(memory)),
-                        "rank": _positive_int(memory.get("rank")),
-                        "reasons": list(reasons),
-                        "answerability_reason_codes": [
-                            _compact_answerability_gap_text(reason)
-                            for reason in answerability_reason_codes[
-                                :_ANSWERABILITY_GAP_REASON_LIMIT
-                            ]
-                        ],
-                        "answerability_reason_count": len(answerability_reason_codes),
-                        "lifted": lifted,
-                        "positive_policy_score": round(
-                            _positive_policy_score(diagnostics),
-                            6,
-                        ),
-                        "answerability_score": round(
-                            answerability_score,
-                            6,
-                        ),
-                        "source_locality_score": round(
-                            _metric_value(features, "source_locality_score"),
-                            6,
-                        ),
-                        "relation_categories": list(
-                            _str_tuple(features.get("relation_categories"))
-                        ),
-                        "relation_category_hits": list(
-                            _str_tuple(features.get("relation_category_hits"))
-                        ),
-                        "query_roles": list(_str_tuple(features.get("query_roles"))),
-                    }
-                )
+                sample = {
+                    "case_id": case_id,
+                    "group": group,
+                    "memory_id": _safe_item_id_for_output(_memory_id(memory)),
+                    "rank": _positive_int(memory.get("rank")),
+                    "reasons": list(reasons),
+                    "answerability_reason_codes": [
+                        _compact_answerability_gap_text(reason)
+                        for reason in answerability_reason_codes[
+                            :_ANSWERABILITY_GAP_REASON_LIMIT
+                        ]
+                    ],
+                    "answerability_reason_count": len(answerability_reason_codes),
+                    "lifted": lifted,
+                    "positive_policy_score": round(
+                        _positive_policy_score(diagnostics),
+                        6,
+                    ),
+                    "answerability_score": round(
+                        answerability_score,
+                        6,
+                    ),
+                    "source_locality_score": round(
+                        _metric_value(features, "source_locality_score"),
+                        6,
+                    ),
+                    "relation_categories": list(
+                        _str_tuple(features.get("relation_categories"))
+                    ),
+                    "relation_category_hits": list(
+                        _str_tuple(features.get("relation_category_hits"))
+                    ),
+                    "query_roles": list(_str_tuple(features.get("query_roles"))),
+                }
+                source_identity_refs = _answerability_sample_source_identity_refs(memory)
+                if source_identity_refs:
+                    sample["source_identity_refs"] = list(source_identity_refs)
+                samples.append(sample)
     return {
         "schema_version": "answerability_gap_breakdown.v1",
         "gap_candidate_count": candidate_count,
@@ -929,6 +958,15 @@ def _answerability_gap_breakdown(
         "samples": samples,
         "low_answerability_samples": low_answerability_samples,
     }
+
+
+def _answerability_sample_source_identity_refs(
+    memory: Mapping[str, object],
+) -> tuple[str, ...]:
+    return _source_identity_refs_from_source_refs(
+        _source_refs_from_memory(memory),
+        include_exact_turn_refs=True,
+    )[:_ANSWER_CONTEXT_SAMPLE_IDENTITY_LIMIT]
 
 
 def _compact_answerability_gap_values(values: Sequence[str]) -> tuple[str, ...]:
@@ -1272,6 +1310,9 @@ def _answer_context_provenance_table(
     missing_required_role_counts: Counter[str] = Counter()
     backfilled_missing_required_role_counts: Counter[str] = Counter()
     risk_reason_counts: Counter[str] = Counter()
+    risk_reason_source_counts: defaultdict[str, Counter[str]] = defaultdict(Counter)
+    risk_reason_context_count = 0
+    fallback_risk_context_count = 0
     missing_required_role_context_count = 0
     source_refless_context_samples: list[dict[str, object]] = []
     backfilled_context_samples: list[dict[str, object]] = []
@@ -1279,6 +1320,7 @@ def _answer_context_provenance_table(
     noisy_overlap_bundle_skip_context_samples: list[dict[str, object]] = []
     backfill_skip_context_samples: list[dict[str, object]] = []
     mixed_source_context_samples: list[dict[str, object]] = []
+    risk_reason_context_samples: list[dict[str, object]] = []
 
     for item in items:
         for cutoff, context in _answer_contexts(item):
@@ -1465,6 +1507,22 @@ def _answer_context_provenance_table(
                 },
             )
             risk_reason_counts.update(risk_reasons)
+            for reason in risk_reasons:
+                risk_reason_source_counts[reason][source] += 1
+            if risk_reasons:
+                risk_reason_context_count += 1
+                if fallback_reason:
+                    fallback_risk_context_count += 1
+                risk_reason_context_samples.append(
+                    _answer_context_risk_sample(
+                        item=item,
+                        cutoff=cutoff,
+                        source=source,
+                        context=context,
+                        risk_reasons=risk_reasons,
+                        missing_required_roles=missing_required_roles,
+                    )
+                )
             memory_count += context_memory_count
             source_ref_count += context_source_ref_count
             source_ref_item_count += context_source_ref_item_count
@@ -1917,7 +1975,16 @@ def _answer_context_provenance_table(
         "backfilled_missing_required_role_counts": _top_counts(
             backfilled_missing_required_role_counts
         ),
+        "risk_reason_context_count": risk_reason_context_count,
+        "fallback_risk_context_count": fallback_risk_context_count,
         "risk_reason_counts": _top_counts(risk_reason_counts),
+        "risk_reason_source_counts": {
+            reason: dict(sorted(source_counts.items()))
+            for reason, source_counts in sorted(risk_reason_source_counts.items())
+        },
+        "risk_reason_context_samples": _ranked_answer_context_risk_samples(
+            risk_reason_context_samples
+        ),
         "backfilled_context_samples": backfilled_context_samples,
         "backfill_skip_context_samples": backfill_skip_context_samples,
         "duplicate_source_bundle_skip_context_samples": (
@@ -2102,6 +2169,7 @@ def _query_plan_integrity_table(
     type_limit_replacement_role_counts: Counter[str] = Counter()
     required_evidence_role_counts: Counter[str] = Counter()
     missing_evidence_role_query_family_counts: Counter[str] = Counter()
+    query_profile_flag_counts: Counter[str] = Counter()
     gap_reason_counts: Counter[str] = Counter()
     samples: list[dict[str, object]] = []
 
@@ -2110,6 +2178,7 @@ def _query_plan_integrity_table(
         if not query_plan:
             continue
         plan_count += 1
+        query_profile_flag_counts.update(_query_profile_flags(item))
         selected_query_counts.append(
             _positive_int(query_plan.get("selected_query_count")) or 0
         )
@@ -2239,6 +2308,7 @@ def _query_plan_integrity_table(
         "missing_evidence_role_query_family_counts": _top_counts(
             missing_evidence_role_query_family_counts
         ),
+        "query_profile_flag_counts": _top_counts(query_profile_flag_counts),
         "role_family_counts": _top_counts(role_family_counts),
         "selected_role_family_counts": _top_counts(selected_family_counts),
         "dropped_role_family_counts": _top_counts(dropped_family_counts),
@@ -2256,6 +2326,16 @@ def _query_plan_integrity_table(
         "gap_reason_counts": _top_counts(gap_reason_counts),
         "samples": samples,
     }
+
+
+def _query_profile_flags(item: Mapping[str, object]) -> tuple[str, ...]:
+    metadata = _retrieval_metadata(item)
+    flags: list[str] = []
+    for payload in _diagnostic_query_payloads(metadata):
+        query_profile = _mapping(payload.get("query_profile"))
+        if query_profile.get("comparative_option_preference_query") is True:
+            flags.append("comparative_option_preference_query")
+    return tuple(dict.fromkeys(flags))
 
 
 def _query_plan_gap_sample(
@@ -2660,13 +2740,27 @@ def _evidence_ref_failure_sample(
     required_refs: Sequence[str],
     ref_positions: Mapping[str, int],
 ) -> dict[str, object]:
+    missing_refs = [ref for ref in required_refs if ref not in ref_positions]
     return {
         "case_id": str(item.get("case_id") or ""),
-        "required_refs": list(required_refs),
-        "found_refs": sorted(ref_positions),
-        "missing_refs": [ref for ref in required_refs if ref not in ref_positions],
-        "ref_positions": dict(ref_positions),
+        "required_refs": list(_safe_evidence_ref_terms(required_refs)),
+        "found_refs": sorted(_safe_evidence_ref_terms(tuple(ref_positions))),
+        "missing_refs": list(_safe_evidence_ref_terms(missing_refs)),
+        "ref_positions": _safe_ref_positions_for_output(ref_positions),
     }
+
+
+def _safe_ref_positions_for_output(
+    ref_positions: Mapping[str, int],
+) -> dict[str, int]:
+    safe_positions: dict[str, int] = {}
+    for ref, position in ref_positions.items():
+        for safe_ref in _safe_evidence_ref_terms((ref,)):
+            safe_positions[safe_ref] = min(
+                safe_positions.get(safe_ref, position),
+                position,
+            )
+    return dict(sorted(safe_positions.items()))
 
 
 def _required_evidence_refs(item: Mapping[str, object]) -> tuple[str, ...]:

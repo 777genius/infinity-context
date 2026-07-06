@@ -16,7 +16,7 @@ from infinity_context_core.domain.entities import SourceRef
 _MAX_EXACT_LITERAL_TURN_ITEMS_PER_RULE = 2
 _MAX_CITY_LOCATION_LITERAL_TURN_ITEMS = 4
 _CITY_LOCATION_RULE_INDEX = 8
-_DIALOGUE_MARKER_RE = re.compile(r"\bD\d+:\d+\b")
+_DIALOGUE_MARKER_RE = re.compile(r"\bD\d+[:-]\d+\b")
 _QUOTED_QUERY_TEXT_RE = re.compile(
     r"[\"'“”‘’](?P<quote>[^\"'“”‘’]{4,160})[\"'“”‘’]"
 )
@@ -526,7 +526,7 @@ def _query_primary_person_name(query: str) -> str:
 
 def _focused_literal_speaker(text: str) -> str:
     speaker_match = re.match(
-        r"\s*D\d+:\d+\s+([A-Z][A-Za-z'’. -]{1,40})\s*:",
+        r"\s*D\d+[:-]\d+\s+([A-Z][A-Za-z'’. -]{1,40})\s*:",
         text,
     )
     if speaker_match is None:
@@ -538,14 +538,14 @@ def _focused_turn_text(*, text: str, source_id: str) -> str:
     marker_match = _DIALOGUE_MARKER_RE.search(source_id)
     if marker_match is None:
         return text
-    marker = marker_match.group(0)
-    matches = tuple(re.finditer(rf"\b{re.escape(marker)}\b", text))
+    marker = _canonical_dialogue_marker(marker_match.group(0))
+    matches = tuple(re.finditer(_dialogue_marker_pattern(marker), text))
     if not matches:
         return text
     text_match = matches[0]
     for match in matches:
         following = text[match.end() : match.end() + 48]
-        if re.match(r"\s+(?!D\d+:)[A-Z][A-Za-z'. -]{0,40}:", following):
+        if re.match(r"\s+(?!D\d+[:-])[A-Z][A-Za-z'. -]{0,40}:", following):
             text_match = match
             break
     next_match = _DIALOGUE_MARKER_RE.search(text[text_match.end() :])
@@ -564,9 +564,13 @@ def _text_match_literal_turn_candidate(
     )
     if marker_match is None:
         return None
-    marker = marker_match.group(0)
+    marker = _canonical_dialogue_marker(marker_match.group(0))
     ref = next(
-        (ref for ref in _exact_turn_refs(item) if marker in str(ref.source_id)),
+        (
+            ref
+            for ref in _exact_turn_refs(item)
+            if marker in _canonical_dialogue_markers(str(ref.source_id))
+        ),
         None,
     )
     if ref is None:
@@ -617,16 +621,41 @@ def _derive_exact_turn_ref(item: ContextItem, *, marker: str) -> SourceRef | Non
 
 
 def _derive_exact_turn_source_id(source_id: str, *, marker: str) -> str:
-    turn_match = re.match(r"(?P<prefix>.*:session_\d+):D\d+:\d+:turn$", source_id)
+    canonical_marker = _canonical_dialogue_marker(marker)
+    turn_match = re.match(r"(?P<prefix>.*:session_\d+):D\d+[:-]\d+:turn$", source_id)
     if turn_match is not None:
-        return f"{turn_match.group('prefix')}:{marker}:turn"
+        return f"{turn_match.group('prefix')}:{canonical_marker}:turn"
     session_match = re.match(
         r"(?P<prefix>.*:session_\d+)(?::(?:events|observation|summary))?$",
         source_id,
     )
     if session_match is not None:
-        return f"{session_match.group('prefix')}:{marker}:turn"
+        return f"{session_match.group('prefix')}:{canonical_marker}:turn"
     return ""
+
+
+def _dialogue_marker_pattern(marker: str) -> str:
+    canonical_marker = _canonical_dialogue_marker(marker)
+    if ":" not in canonical_marker:
+        return rf"\b{re.escape(canonical_marker)}\b"
+    dialogue, turn = canonical_marker.split(":", 1)
+    return rf"\b{re.escape(dialogue)}[:-]{re.escape(turn)}\b"
+
+
+def _canonical_dialogue_markers(value: str) -> tuple[str, ...]:
+    return tuple(
+        dict.fromkeys(
+            _canonical_dialogue_marker(match.group(0))
+            for match in _DIALOGUE_MARKER_RE.finditer(value)
+        )
+    )
+
+
+def _canonical_dialogue_marker(value: str) -> str:
+    match = re.fullmatch(r"D(?P<dialogue>\d+)[:-](?P<turn>\d+)", value.strip())
+    if match is None:
+        return value
+    return f"D{match.group('dialogue')}:{match.group('turn')}"
 
 
 def _nearest_preceding_dialogue_marker(

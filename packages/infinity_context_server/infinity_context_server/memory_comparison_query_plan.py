@@ -13,6 +13,7 @@ _RELATION_COMPACT_SUPPORT_ROLES = frozenset(
         "age_support",
         "alias_support",
         "commitment_support",
+        "community_membership_support",
         "contact_support",
         "current_goal_support",
         "date_support",
@@ -47,6 +48,7 @@ class QueryPlanCandidate:
     def to_diagnostics(self) -> dict[str, object]:
         return {
             "role": self.role,
+            "role_families": list(_role_families(self.role)),
             "priority": self.priority,
             "query_type": self.query_type,
             "query": self.query,

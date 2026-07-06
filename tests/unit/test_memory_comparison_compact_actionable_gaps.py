@@ -120,6 +120,96 @@ def test_compact_fast_gate_summary_surfaces_bounded_actionable_gaps(
     assert all("evidence" not in gap for gap in summary["top_actionable_gaps"])
 
 
+def test_compact_fast_gate_summary_keeps_low_confidence_context_gap() -> None:
+    summary = benchmark._compact_fast_gate_summary(
+        (
+            {
+                "case_id": "preserved-low-confidence-context",
+                "group": "multi-hop",
+                "scored": True,
+                "judgment": {"score": 1.0},
+                "retrieval_quality": {},
+                "evidence_bundle": {},
+                "retrieval": {"metadata": {}, "results": []},
+                "cutoff_results": {
+                    "10": {
+                        "answer_context": {
+                            "source": "evidence_bundle",
+                            "memory_count": 1,
+                            "source_ref_item_count": 1,
+                            "bundle_confidence_score": 0.42,
+                            "bundle_confidence_band": "low",
+                            "bundle_source_ref_support_item_count": 1,
+                        }
+                    }
+                },
+            },
+        )
+    )
+
+    assert summary["answer_context_support_gap_counts"]["gap_reason_counts"] == {
+        "low_bundle_confidence": 1
+    }
+    assert summary["answer_context_support_gap_samples"][0]["gap_reasons"] == [
+        "low_bundle_confidence"
+    ]
+
+
+def test_compact_fast_gate_summary_surfaces_missing_answer_contexts() -> None:
+    summary = benchmark._compact_fast_gate_summary(
+        (
+            {
+                "case_id": "missing-answer-context",
+                "group": "single-hop",
+                "scored": True,
+                "judgment": {"score": 1.0},
+                "retrieval_quality": {},
+                "evidence_bundle": {},
+                "retrieval": {"metadata": {}, "results": []},
+                "cutoff_results": {
+                    "3": {},
+                    "5": {"answer_context": []},
+                    "10": {
+                        "answer_context": {
+                            "source": "evidence_bundle",
+                            "memory_count": 1,
+                            "source_ref_item_count": 1,
+                        }
+                    },
+                },
+            },
+        )
+    )
+
+    assert summary["answer_context_support_gap_counts"] == {
+        "expected_context_count": 3,
+        "context_count": 1,
+        "support_gap_context_count": 0,
+        "answer_context_availability_gap_count": 2,
+        "missing_answer_context_count": 1,
+        "unsupported_answer_context_count": 1,
+        "gap_reason_counts": {},
+        "missing_required_role_counts": {},
+        "risk_reason_counts": {},
+    }
+    assert summary["answer_context_availability_gap_samples"] == [
+        {
+            "case_id": "missing-answer-context",
+            "group": "single-hop",
+            "cutoff": "3",
+            "source": "missing",
+            "gap_reasons": ["missing_answer_context"],
+        },
+        {
+            "case_id": "missing-answer-context",
+            "group": "single-hop",
+            "cutoff": "5",
+            "source": "unsupported",
+            "gap_reasons": ["unsupported_answer_context"],
+        },
+    ]
+
+
 def test_compact_fast_gate_summary_bounds_temporal_grounding_issue_fields(
     monkeypatch,
 ) -> None:

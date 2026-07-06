@@ -135,6 +135,7 @@ def test_public_benchmark_payloads_sanitize_auth_previews_refs_and_item_ids() ->
     assert "safe-chunk" in rendered
     assert "source_session_turn_refs:session_3:D3:11" in rendered
     assert "source_turn_refs:D4:5" in rendered
+    assert '"capability": "locomo:temporal_reasoning"' in rendered
     assert "[redacted]" in rendered
 
 

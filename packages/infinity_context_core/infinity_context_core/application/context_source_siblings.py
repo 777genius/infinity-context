@@ -799,7 +799,7 @@ _BIRDWATCHING_CITY_SCHEDULE_HOBBY_SLOT_RE = re.compile(
     re.IGNORECASE,
 )
 _TURN_SOURCE_ID_RE = re.compile(
-    r"^(?P<group>.+):(?P<dialogue>D\d+):(?P<turn>\d+):turn$",
+    r"^(?P<group>.+):(?P<dialogue>D\d+)[:-](?P<turn>\d+):turn$",
     re.IGNORECASE,
 )
 _DIALOGUE_MARKER_RE = re.compile(r"\bD\d+:\d+\b")

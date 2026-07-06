@@ -2239,7 +2239,10 @@ def test_compact_fast_gate_summary_surfaces_computed_gap_diagnostics() -> None:
                     ],
                     "source_locality_reason_codes": ["broad_source_refs"],
                     "query_roles": ["relation_compact"],
-                    "source_refs": ["D1:1"],
+                    "source_refs": [
+                        "source_session_turn_refs:session_1:D1:1",
+                        "D1:1",
+                    ],
                     "text": "raw selected evidence should stay out of compact summary",
                 }
             ],
@@ -2309,7 +2312,7 @@ def test_compact_fast_gate_summary_surfaces_computed_gap_diagnostics() -> None:
             "role": "primary",
             "source_locality_score": 0.1,
             "source_locality_reason_count": 1,
-            "source_ref_count": 1,
+            "source_ref_count": 2,
             "answerability_reason_codes": ["missing_emotion_response_evidence"],
             "query_roles": ["relation_compact"],
             "reasons": [
@@ -2317,15 +2320,20 @@ def test_compact_fast_gate_summary_surfaces_computed_gap_diagnostics() -> None:
                 "selected_weak_source_locality",
             ],
             "source_locality_reason_codes": ["broad_source_refs"],
-            "source_refs": ["D1:1"],
+            "source_refs": ["source_session_turn_refs:session_1:D1:1"],
         }
     ]
     assert "text" not in weakness_samples["samples"][0]
     assert summary["answer_context_support_gap_counts"] == {
+        "expected_context_count": 1,
         "context_count": 1,
         "support_gap_context_count": 1,
+        "answer_context_availability_gap_count": 0,
+        "missing_answer_context_count": 0,
+        "unsupported_answer_context_count": 0,
         "gap_reason_counts": {
             "low_answerability_backfill": 1,
+            "low_bundle_confidence": 1,
             "low_context_answerability": 1,
             "missing_context_source_refs": 1,
             "missing_required_roles": 1,
@@ -2355,6 +2363,7 @@ def test_compact_fast_gate_summary_surfaces_computed_gap_diagnostics() -> None:
             "gap_reasons": [
                 "missing_context_source_refs",
                 "missing_required_roles",
+                "low_bundle_confidence",
                 "weak_bundle_source_support",
                 "low_answerability_backfill",
                 "low_context_answerability",
@@ -2414,6 +2423,7 @@ def test_compact_fast_gate_summary_surfaces_computed_gap_diagnostics() -> None:
             "source_locality_score": 0.1,
             "source_type": "unknown",
             "query_roles": ["relation_compact"],
+            "source_identity_refs": ["source_session_turn_refs:session_1:D1:1"],
         }
     ]
     assert rerank_samples["selection_conflict_samples"] == [
@@ -2434,6 +2444,29 @@ def test_compact_fast_gate_summary_surfaces_computed_gap_diagnostics() -> None:
         }
     ]
     assert summary["top_gap"] is not None
+    top_actionable_gaps = summary["top_actionable_gaps"]
+    assert top_actionable_gaps[0] == summary["top_gap"]
+    assert isinstance(top_actionable_gaps[0].get("action"), str)
+    assert len(top_actionable_gaps[0]["action"]) <= 180
+    assert any(
+        gap.get("category") == "selected_evidence_weakness"
+        and gap.get("gap") == "selected_low_answerability"
+        and gap.get("source_metric") == "selected_evidence_weakness.reason_counts"
+        and gap.get("action")
+        and gap.get("sample_case_ids") == ["compact-fastgate-gap"]
+        for gap in top_actionable_gaps
+    )
+    assert any(
+        gap.get("category") == "query_plan"
+        and gap.get("gap") == "emotion_response_support"
+        and gap.get("failed_gate") == "query_plan_evidence_roles_clear"
+        and gap.get("source_metric")
+        == "query_plan_gap_breakdown.missing_evidence_role_query_family_counts"
+        and gap.get("action")
+        and gap.get("sample_case_ids") == ["compact-fastgate-gap"]
+        for gap in top_actionable_gaps
+    )
+    assert all("samples" not in gap for gap in summary["top_actionable_gaps"])
 
 
 def test_compact_fast_gate_summary_surfaces_lifted_answerability_gaps() -> None:
@@ -3266,6 +3299,106 @@ def test_memory_comparison_official_locomo_turn_mode_uses_mem0_style_chunks(
     assert case.metadata["answer_preview"] == "blue notebook"
     assert case.metadata["answer_terms"] == ("blue notebook",)
     assert case.metadata["evidence_terms"] == ("D1:1",)
+
+
+def test_memory_comparison_official_locomo_turn_mode_accepts_wrapped_dataset(
+    tmp_path: Path,
+) -> None:
+    dataset = tmp_path / "locomo10-wrapped.json"
+    dataset.write_text(
+        json.dumps(
+            {
+                "data": [
+                    {
+                        "sample_id": "conv-wrapped-turns",
+                        "conversation": {
+                            "speaker_a": "Caroline",
+                            "session_1": [
+                                {
+                                    "speaker": "Caroline",
+                                    "dia_id": "D1:1",
+                                    "text": "I keep the launch notes in the blue binder.",
+                                }
+                            ],
+                        },
+                        "qa": [
+                            {
+                                "question": "Where are the launch notes?",
+                                "answer": "blue binder",
+                                "evidence": ["D1:1"],
+                                "category": 4,
+                            }
+                        ],
+                    }
+                ],
+                "metadata": {"source": "locomo"},
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    cases = _load_memory_comparison_cases(
+        dataset,
+        locomo_ingest_mode=LOCOMO_INGEST_OFFICIAL_TURNS,
+    )
+
+    assert len(cases) == 1
+    assert cases[0].case_id == "conv-wrapped-turns:qa:1"
+    assert cases[0].memories[0].source_external_id == (
+        "locomo:conv-wrapped-turns:session_1:D1:1:turn"
+    )
+    assert cases[0].expected_terms == ("blue binder",)
+
+
+def test_memory_comparison_official_locomo_turn_mode_synthesizes_missing_dia_ids(
+    tmp_path: Path,
+) -> None:
+    dataset = tmp_path / "locomo10-missing-dia.json"
+    dataset.write_text(
+        json.dumps(
+            [
+                {
+                    "sample_id": "conv-missing-dia",
+                    "conversation": {
+                        "speaker_a": "Caroline",
+                        "session_2": [
+                            {
+                                "speaker": "Caroline",
+                                "text": "I left the museum pass on the hall table.",
+                            },
+                            {
+                                "speaker": "Melanie",
+                                "id": "7",
+                                "text": "I moved it into the red envelope.",
+                            },
+                        ],
+                    },
+                    "qa": [
+                        {
+                            "question": "Where is the museum pass?",
+                            "answer": "red envelope",
+                            "evidence": ["D2:1", "D2:7"],
+                            "category": 4,
+                        }
+                    ],
+                }
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    cases = _load_memory_comparison_cases(
+        dataset,
+        locomo_ingest_mode=LOCOMO_INGEST_OFFICIAL_TURNS,
+    )
+
+    assert len(cases) == 1
+    assert [memory.source_external_id for memory in cases[0].memories] == [
+        "locomo:conv-missing-dia:session_2:D2:1:turn",
+        "locomo:conv-missing-dia:session_2:D2:7:turn",
+    ]
+    assert "D2:1 Caroline:" in cases[0].memories[0].text
+    assert "D2:7 Melanie:" in cases[0].memories[1].text
 
 
 def test_memory_comparison_official_locomo_turn_mode_normalizes_speaker_identity(

@@ -8,7 +8,7 @@ from infinity_context_core.application.context_ranking_reason_policy import (
     PRECISE_TURN_SOURCE_SIBLING_REASONS,
 )
 
-_DIALOGUE_MARKER_RE = re.compile(r"\bD\d+:\d+\b")
+_DIALOGUE_MARKER_RE = re.compile(r"\bD\d+[:-]\d+\b")
 _MAX_ANSWER_SUPPORT_DIVERSITY_ITEMS = 8
 _MAX_INVENTORY_ANSWER_SUPPORT_DIVERSITY_ITEMS = 12
 _MAX_ANSWER_SUPPORT_SOURCE_GROUP_DIVERSITY_ITEMS_PER_REASON = 1

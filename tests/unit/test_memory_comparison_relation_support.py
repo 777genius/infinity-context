@@ -47,6 +47,43 @@ def test_team_member_question_promotes_status_support_role() -> None:
     )
 
 
+def test_community_membership_question_promotes_support_role() -> None:
+    time_intent = RetrievalTimeIntent(
+        is_temporal=False,
+        terms=(),
+        surface_terms=(),
+        kind="none",
+    )
+    relation_intents = infer_relation_intents(
+        question="Is Alex part of the LGBTQ community?",
+        relation_terms=("part", "lgbtq", "community"),
+        relation_variant_terms=("member", "joined", "pride"),
+        time_intent=time_intent,
+        visual_terms=(),
+        multi_hop_markers=(),
+    )
+    evidence_need = merge_relation_evidence_needs(
+        infer_evidence_need(
+            question="Is Alex part of the LGBTQ community?",
+            relation_terms=("part", "lgbtq", "community"),
+            time_intent=time_intent,
+            visual_terms=(),
+            multi_hop_markers=(),
+            benchmark_category=4,
+        ),
+        relation_intents,
+    )
+
+    assert [intent.category for intent in relation_intents] == [
+        "community_membership"
+    ]
+    assert evidence_need == ("community_membership",)
+    assert infer_bundle_evidence_roles(evidence_need=evidence_need) == (
+        "primary",
+        "community_membership_support",
+    )
+
+
 def test_status_profile_support_accepts_explicit_team_member_evidence() -> None:
     assert (
         typed_relation_category_support(
@@ -63,6 +100,36 @@ def test_status_profile_support_accepts_explicit_team_member_evidence() -> None:
             memory_text="D1:2 Alex and Maria are on the same team.",
         )
         is True
+    )
+
+
+def test_community_membership_support_requires_membership_not_ally_noise() -> None:
+    assert (
+        typed_relation_category_support(
+            "community_membership",
+            {"alex", "part", "lgbtq", "community"},
+            memory_text="D1:5 Alex is part of the LGBTQ community.",
+        )
+        is True
+    )
+    assert (
+        typed_relation_category_support(
+            "community_membership",
+            {"alex", "joined", "lgbtq", "support", "group"},
+            memory_text="D1:6 Alex joined an LGBTQ support group.",
+        )
+        is True
+    )
+    assert (
+        typed_relation_category_support(
+            "community_membership",
+            {"melanie", "supportive", "caroline", "transgender", "community"},
+            memory_text=(
+                "D1:7 Melanie is supportive of Caroline's transgender journey "
+                "and encourages the LGBTQ community as an ally."
+            ),
+        )
+        is False
     )
 
 

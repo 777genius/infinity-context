@@ -1,6 +1,12 @@
 import json
 
-from scripts.locomo_failure_analysis import _failures, _filter_failures, _summary, main
+from scripts.locomo_failure_analysis import (
+    _failures,
+    _filter_failures,
+    _summary,
+    _summary_from_report,
+    main,
+)
 
 
 def test_locomo_failure_analysis_summarizes_failure_patterns(tmp_path) -> None:
@@ -62,6 +68,129 @@ def test_locomo_failure_analysis_summarizes_failure_patterns(tmp_path) -> None:
         "D1:2: Maria visited Spain.": 1
     }
     assert json.loads(summary_out.read_text(encoding="utf-8"))["failure_count"] == 2
+
+
+def test_locomo_failure_analysis_reads_failure_analysis_entries() -> None:
+    report = {
+        "failure_analysis": [
+            {
+                "case_id": "locomo:conv-1:qa:1",
+                "capability": "locomo_category_2",
+                "reason": "retrieval_or_judgment_failed",
+                "missing_evidence_terms": ["D2:4", "source_session_turn_refs:D2:5"],
+            }
+        ]
+    }
+
+    summary = _summary(_failures(report), top=5)
+
+    assert summary["failure_count"] == 1
+    assert summary["case_ids"] == ["locomo:conv-1:qa:1"]
+    assert summary["top_missing_evidence_refs"] == {
+        "D2:4": 1,
+        "source_session_turn_refs:D2:5": 1,
+    }
+    assert summary["top_missing_evidence_sources"] == {"D2": 2}
+
+
+def test_locomo_failure_analysis_falls_back_to_failure_analysis_when_failures_empty() -> None:
+    report = {
+        "failures": [],
+        "failure_analysis": [
+            {
+                "case_id": "locomo:conv-1:qa:2",
+                "capability": "locomo_category_2",
+                "reason": "expected_terms_missing",
+            }
+        ],
+    }
+
+    summary = _summary(_failures(report), top=5)
+
+    assert summary["failure_count"] == 1
+    assert summary["case_ids"] == ["locomo:conv-1:qa:2"]
+
+
+def test_locomo_failure_analysis_uses_compact_provenance_summary_counts() -> None:
+    report = {
+        "failures": [],
+        "failure_analysis": [
+            {
+                "case_id": "shown-sample",
+                "capability": "locomo_category_2",
+                "reason": "expected_terms_missing",
+                "diagnostic_reason_codes": ["missing_evidence_refs"],
+                "diagnostics": {"missing_evidence_terms": ["D2:5"]},
+            }
+        ],
+        "diagnostics": {
+            "failure_provenance_summary": {
+                "schema_version": "compact_failure_provenance_summary.v1",
+                "failure_count": 3,
+                "diagnostic_reason_counts": {
+                    "missing_evidence_refs": 3,
+                    "missing_evidence_source_window_miss": 2,
+                    "answer_context_fallback": 1,
+                    "bundle_incomplete": 1,
+                },
+                "missing_evidence_source_locality": {
+                    "missing_turn_ref_count": 3,
+                    "same_source_missing_count": 3,
+                    "near_retrieved_window_count": 2,
+                    "source_absent_count": 1,
+                    "top_missing_source_ids": {"D2": 2, "D7": 1},
+                },
+            }
+        },
+    }
+
+    summary = _summary_from_report(report, failures=_failures(report), top=10)
+
+    assert summary["failure_count"] == 3
+    assert summary["case_ids"] == ["shown-sample"]
+    assert summary["root_cause_tag_count"] == {
+        "evidence:missing_refs": 3,
+        "evidence:source_window_miss": 2,
+        "answer_context:fallback": 1,
+        "bundle:incomplete": 1,
+    }
+    assert summary["top_missing_evidence_sources"] == {"D2": 2, "D7": 1}
+    assert summary["provenance_gap_cause_count"] == {
+        "near_retrieved_window": 2,
+        "source_absent": 1,
+        "same_source_miss": 1,
+    }
+
+
+def test_locomo_failure_analysis_reads_diagnostic_missing_evidence_refs() -> None:
+    report = {
+        "failures": [
+            {
+                "case_id": "diagnostic-refs",
+                "capability": "locomo_category_2",
+                "reason": "expected_terms_missing",
+                "diagnostic_reason_codes": ["missing_evidence_refs"],
+                "diagnostics": {
+                    "missing_evidence_refs": [
+                        "source_turn_refs:D5:7",
+                        "source_session_turn_refs:session_2:D5:8",
+                    ],
+                    "missing_evidence_terms": ["should-not-win"],
+                },
+            }
+        ]
+    }
+
+    summary = _summary(_failures(report), top=5)
+
+    assert summary["top_missing_evidence_refs"] == {
+        "source_turn_refs:D5:7": 1,
+        "source_session_turn_refs:session_2:D5:8": 1,
+    }
+    assert summary["top_missing_evidence_sources"] == {"D5": 2}
+    assert summary["root_cause_examples"]["evidence:missing_refs"][0][
+        "missing_evidence_ref_count"
+    ] == 2
 
 
 def test_locomo_failure_analysis_filters_and_writes_benchmark_args(tmp_path) -> None:
@@ -455,6 +584,130 @@ def test_locomo_failure_analysis_prefers_reported_provenance_gap_causes() -> Non
     ]["cause_counts"] == {"same_source_miss": 1}
 
 
+def test_locomo_failure_analysis_summarizes_source_locality_windows_safely() -> None:
+    report = {
+        "failures": [
+            {
+                "case_id": "source-window-miss",
+                "capability": "locomo_category_2",
+                "reason": "expected_terms_missing",
+                "diagnostic_reason_codes": ["missing_evidence_refs"],
+                "diagnostics": {
+                    "missing_evidence_terms": ["D4:9", "D4:10", "D8:1", "D9:2"],
+                    "missing_evidence_source_locality": {
+                        "missing_turn_ref_count": 4,
+                        "retrieved_source_id_count": 2,
+                        "retrieved_source_ids": ["D4", "D7"],
+                        "bundle_source_id_count": 1,
+                        "bundle_source_ids": ["D4"],
+                        "same_source_missing_count": 2,
+                        "near_retrieved_window_count": 1,
+                        "source_absent_count": 2,
+                        "missing_ref_window_count": 4,
+                        "missing_ref_window_omitted_count": 1,
+                        "cause_counts": {
+                            "near_retrieved_window": 1,
+                            "source_absent": 2,
+                            "same_source_miss": 1,
+                        },
+                        "missing_ref_windows": [
+                            {
+                                "ref": "D4:9",
+                                "source_id": "D4",
+                                "retrieved_same_source": True,
+                                "bundle_same_source": True,
+                                "nearest_retrieved_turn_ref": "D4:8",
+                                "nearest_retrieved_turn_distance": 1,
+                                "nearest_bundle_turn_ref": "D4:1",
+                                "nearest_bundle_turn_distance": 8,
+                                "cause": "near_retrieved_window",
+                                "text": "raw source text must not be copied",
+                            },
+                            {
+                                "ref": "D4:10",
+                                "source_id": "D4",
+                                "retrieved_same_source": True,
+                                "bundle_same_source": True,
+                                "nearest_retrieved_turn_ref": "D4:2",
+                                "nearest_retrieved_turn_distance": 8,
+                                "cause": "same_source_miss",
+                            },
+                            {
+                                "ref": "D8:1",
+                                "source_id": "D8",
+                                "retrieved_same_source": False,
+                                "bundle_same_source": False,
+                                "cause": "source_absent",
+                            },
+                            {
+                                "ref": "D9:2",
+                                "source_id": "D9",
+                                "retrieved_same_source": False,
+                                "bundle_same_source": False,
+                                "cause": "source_absent",
+                            },
+                        ],
+                    },
+                },
+            }
+        ]
+    }
+
+    summary = _summary(_failures(report), top=10)
+
+    locality = summary["root_cause_examples"]["evidence:missing_refs"][0][
+        "missing_evidence_source_locality"
+    ]
+    assert locality == {
+        "missing_turn_ref_count": 4,
+        "same_source_missing_count": 2,
+        "near_retrieved_window_count": 1,
+        "source_absent_count": 2,
+        "retrieved_source_id_count": 2,
+        "bundle_source_id_count": 1,
+        "missing_ref_window_count": 4,
+        "missing_ref_window_omitted_count": 1,
+        "retrieved_source_ids": ["D4", "D7"],
+        "bundle_source_ids": ["D4"],
+        "missing_ref_windows": [
+            {
+                "ref": "D4:9",
+                "source_id": "D4",
+                "retrieved_same_source": True,
+                "bundle_same_source": True,
+                "nearest_retrieved_turn_ref": "D4:8",
+                "nearest_retrieved_turn_distance": 1,
+                "nearest_bundle_turn_ref": "D4:1",
+                "nearest_bundle_turn_distance": 8,
+                "cause": "near_retrieved_window",
+            },
+            {
+                "ref": "D4:10",
+                "source_id": "D4",
+                "retrieved_same_source": True,
+                "bundle_same_source": True,
+                "nearest_retrieved_turn_ref": "D4:2",
+                "nearest_retrieved_turn_distance": 8,
+                "cause": "same_source_miss",
+            },
+            {
+                "ref": "D8:1",
+                "source_id": "D8",
+                "retrieved_same_source": False,
+                "bundle_same_source": False,
+                "cause": "source_absent",
+            },
+        ],
+        "cause_counts": {
+            "near_retrieved_window": 1,
+            "same_source_miss": 1,
+            "source_absent": 2,
+        },
+    }
+    assert "raw source text must not be copied" not in json.dumps(summary)
+    assert len(locality["missing_ref_windows"]) == 3
+
+
 def test_locomo_failure_analysis_tags_answer_context_gaps() -> None:
     report = {
         "failures": [
@@ -558,6 +811,10 @@ def test_locomo_failure_analysis_counts_answer_context_identity_provenance() -> 
                         "source_refless_item_count": 2,
                         "source_identity_ref_count": 3,
                         "source_identity_item_count": 2,
+                        "source_identity_ref_omitted_count": 1,
+                        "source_identity_ref_sample_limit": 8,
+                        "source_identity_item_omitted_count": 1,
+                        "source_identity_item_sample_limit": 8,
                         "backfilled_retrieval_item_count": 1,
                     },
                 },
@@ -588,6 +845,8 @@ def test_locomo_failure_analysis_counts_answer_context_identity_provenance() -> 
         "source_identity_refs_present": 1,
         "source_identity_items_present": 1,
         "identity_only_provenance_present": 1,
+        "source_identity_ref_samples_omitted": 1,
+        "source_identity_item_samples_omitted": 1,
         "fallback_present": 1,
         "backfilled_retrieval_present": 1,
         "source_refs_present": 1,
@@ -607,7 +866,11 @@ def test_locomo_failure_analysis_counts_answer_context_identity_provenance() -> 
         "source_refless_item_count": 2,
         "backfilled_retrieval_item_count": 1,
         "source_identity_ref_count": 3,
+        "source_identity_ref_omitted_count": 1,
+        "source_identity_ref_sample_limit": 8,
         "source_identity_item_count": 2,
+        "source_identity_item_omitted_count": 1,
+        "source_identity_item_sample_limit": 8,
         "fallback_reason": "no_bundle_items_within_cutoff",
     }
 
@@ -886,6 +1149,57 @@ def test_locomo_failure_analysis_summarizes_query_role_gap_causes() -> None:
         }
     ]
     assert "raw text must not be copied" not in json.dumps(summary)
+
+
+def test_locomo_failure_analysis_reports_query_role_gap_sample_bounds() -> None:
+    report = {
+        "failures": [
+            {
+                "case_id": "many-query-role-gaps",
+                "capability": "locomo_category_2",
+                "reason": "expected_terms_missing",
+                "diagnostics": {
+                    "query_role_gap_breakdown": {
+                        "role_gap_count": 10,
+                        "role_family_gap_count": 9,
+                        "role_gaps": {
+                            f"role-{index:02d}": {
+                                "candidate_count": 1,
+                                "selected_item_count": 0,
+                                "gap_reasons": ["not_selected"],
+                                "samples": [f"raw role sample {index} must stay out"],
+                            }
+                            for index in range(10)
+                        },
+                        "role_family_gaps": {
+                            f"family-{index:02d}": {
+                                "candidate_count": 1,
+                                "selected_item_count": 0,
+                                "gap_reasons": ["family_not_selected"],
+                                "samples": [f"raw family sample {index} must stay out"],
+                            }
+                            for index in range(9)
+                        },
+                    }
+                },
+            }
+        ]
+    }
+
+    summary = _summary(_failures(report), top=10)
+
+    query_role_gap = summary["root_cause_examples"]["query_role_gap:present"][0][
+        "query_role_gap"
+    ]
+    assert len(query_role_gap["top_role_gaps"]) == 8
+    assert query_role_gap["top_role_gap_omitted_count"] == 2
+    assert query_role_gap["top_role_gap_sample_limit"] == 8
+    assert len(query_role_gap["top_role_family_gaps"]) == 8
+    assert query_role_gap["top_role_family_gap_omitted_count"] == 1
+    assert query_role_gap["top_role_family_gap_sample_limit"] == 8
+    serialized = json.dumps(summary, sort_keys=True)
+    assert "raw role sample" not in serialized
+    assert "raw family sample" not in serialized
 
 
 def test_locomo_failure_analysis_summary_bounds_text_lists_and_dynamic_keys() -> None:

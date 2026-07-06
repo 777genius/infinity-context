@@ -102,6 +102,85 @@ def test_candidate_features_capture_focused_direct_turn_and_provenance() -> None
 
 
 @pytest.mark.parametrize(
+    "text",
+    (
+        (
+            "turn D2:14 in session 2 Caroline: Family will be a challenge "
+            "as a parent after the breakup, but my friends support me."
+        ),
+        (
+            "session 2 turn D2:14 Caroline: Family will be a challenge "
+            "as a parent after the breakup, but my friends support me."
+        ),
+        (
+            "session 2 turn D2-14 Caroline: Family will be a challenge "
+            "as a parent after the breakup, but my friends support me."
+        ),
+        (
+            "session 2 - turn # D2-14 Caroline: Family will be a challenge "
+            "as a parent after the breakup, but my friends support me."
+        ),
+    ),
+)
+def test_candidate_features_capture_turn_prefixed_direct_session_turn(
+    text: str,
+) -> None:
+    memory = RetrievedMemory(
+        item_id="turn-prefixed-direct-session-turn",
+        rank=1,
+        text=text,
+        metadata={"item_type": "raw_turn"},
+    )
+
+    features = build_candidate_evidence_features(
+        memory,
+        memory_terms={
+            "caroline",
+            "family",
+            "challenge",
+            "parent",
+            "breakup",
+            "friend",
+            "support",
+        },
+        query_terms=("caroline", "relationship", "status"),
+        relation_terms=("relationship", "status"),
+        relation_variant_terms=("parent", "breakup", "family", "support"),
+        relation_category_terms={
+            "status_profile": (
+                "relationship",
+                "status",
+                "parent",
+                "breakup",
+                "family",
+                "support",
+            )
+        },
+        entities=("caroline",),
+        entity_hits=("caroline",),
+        speaker_hits=("caroline",),
+        high_signal_relation_terms={"support"},
+        is_temporal_query=False,
+        is_preference_query=False,
+        has_visual_terms=False,
+        has_multi_hop_markers=False,
+        has_temporal_surface=True,
+        has_sequence_surface=True,
+        has_preference_evidence=False,
+        has_visual_evidence=False,
+        has_focused_turn_surface=True,
+    )
+
+    assert features.direct_speaker_turn is True
+    assert features.source_locality_score == 1.0
+    assert features.source_locality_reason_codes == ("direct_localized_turn",)
+    assert features.source_ref_dedupe_key == "source_session_turn_refs:session_2:D2:14"
+    assert features.source_identity_audit_gap_codes == (
+        "missing_source_refs_with_text_turn_identity",
+    )
+
+
+@pytest.mark.parametrize(
     ("category", "relation_terms", "relation_variant_terms", "support_terms"),
     (
         (
@@ -1223,6 +1302,11 @@ def test_candidate_features_report_missing_source_refs_text_identity_gap() -> No
             ("locomo:conv-26:session_6:D5:7:turn",),
             "source_text_session_turn_mismatch",
         ),
+        (
+            "D5:7 in session 6 Caroline: The support group meets on Thursday evenings.",
+            ("locomo:conv-26:session_5:D5:7:turn",),
+            "source_text_session_turn_mismatch",
+        ),
     ),
 )
 def test_candidate_features_report_source_text_identity_mismatch(
@@ -1263,6 +1347,40 @@ def test_candidate_features_report_source_text_identity_mismatch(
     )
     assert features.source_locality_score == 1.0
     assert features.answerability_score >= 0.8
+
+
+def test_candidate_features_do_not_promote_safe_turn_like_source_labels() -> None:
+    features = build_candidate_evidence_features(
+        RetrievedMemory(
+            item_id="safe-turn-like-label",
+            rank=1,
+            text="Caroline mentioned a support group.",
+            source_refs=("session_2", "chunk-D2-6", "document:D3-7"),
+            metadata={"item_type": "chunk"},
+        ),
+        memory_terms={"caroline", "support", "group"},
+        query_terms=("caroline", "support"),
+        relation_terms=("support",),
+        relation_variant_terms=("group",),
+        entities=("caroline",),
+        entity_hits=("caroline",),
+        speaker_hits=("caroline",),
+        high_signal_relation_terms={"support"},
+        is_temporal_query=False,
+        is_preference_query=False,
+        has_visual_terms=False,
+        has_multi_hop_markers=False,
+        has_temporal_surface=False,
+        has_sequence_surface=False,
+        has_preference_evidence=False,
+        has_visual_evidence=False,
+        has_focused_turn_surface=False,
+    )
+
+    assert features.source_ref_count == 3
+    assert features.turn_ref_count == 0
+    assert features.source_ref_dedupe_key == ""
+    assert "localized_turn_refs" not in features.source_locality_reason_codes
 
 
 def test_candidate_features_use_source_ref_turns_for_locality_and_dedupe() -> None:
@@ -1322,6 +1440,317 @@ def test_candidate_features_use_source_ref_turns_for_locality_and_dedupe() -> No
     diagnostics = features.to_diagnostics()
     assert diagnostics["source_turn_refs"] == ["D2:8", "D2:9"]
     assert diagnostics["source_turn_span"] == 2
+
+
+@pytest.mark.parametrize(
+    ("text", "expected_dedupe_key"),
+    (
+        (
+            "session 2 turn D2:8 Caroline reviewed adoption options. "
+            "session #2 turn D2:9 Caroline chose an inclusive agency.",
+            "source_session_turn_refs:session_2:D2:8|session_2:D2:9",
+        ),
+        (
+            "session 2 date: Monday D2:8 Caroline reviewed adoption options. "
+            "session_2 date: Tuesday D2:9 Caroline chose an inclusive agency.",
+            "source_session_turn_refs:session_2:D2:8|session_2:D2:9",
+        ),
+        (
+            "turn D2:8 in session 2 Caroline reviewed adoption options. "
+            "turn D2:9 in session 2 Caroline chose an inclusive agency.",
+            "source_session_turn_refs:session_2:D2:8|session_2:D2:9",
+        ),
+    ),
+)
+def test_candidate_features_use_spaced_text_session_turns_for_locality(
+    text: str,
+    expected_dedupe_key: str,
+) -> None:
+    memory = RetrievedMemory(
+        item_id="spaced-text-session-turns",
+        rank=1,
+        text=text,
+        metadata={"item_type": "fact"},
+    )
+
+    features = build_candidate_evidence_features(
+        memory,
+        memory_terms={"caroline", "adoption", "agency", "inclusive"},
+        query_terms=("caroline", "adoption", "agency"),
+        relation_terms=("adoption", "agency"),
+        relation_variant_terms=("inclusive",),
+        entities=("caroline",),
+        entity_hits=("caroline",),
+        speaker_hits=("caroline",),
+        high_signal_relation_terms={"inclusive"},
+        is_temporal_query=False,
+        is_preference_query=False,
+        has_visual_terms=False,
+        has_multi_hop_markers=False,
+        has_temporal_surface=False,
+        has_sequence_surface=False,
+        has_preference_evidence=False,
+        has_visual_evidence=False,
+        has_focused_turn_surface=True,
+    )
+
+    assert features.source_turn_refs == ()
+    assert features.turn_ref_count == 2
+    assert features.source_turn_span == 2
+    assert features.source_locality_score == 0.95
+    assert features.source_ref_dedupe_key == expected_dedupe_key
+    assert features.source_identity_audit_gap_codes == (
+        "missing_source_refs_with_text_turn_identity",
+    )
+
+
+@pytest.mark.parametrize(
+    "source_refs",
+    (
+        ("locomo:conv-26:session_4", "D4:3"),
+        ("conversation session #4", "D4:3"),
+    ),
+)
+def test_candidate_features_qualify_split_session_and_turn_source_refs(
+    source_refs: tuple[str, ...],
+) -> None:
+    memory = RetrievedMemory(
+        item_id="split-session-turn-source-refs",
+        rank=1,
+        text="Caroline said the adoption agency felt inclusive.",
+        source_refs=source_refs,
+        metadata={"item_type": "chunk"},
+    )
+
+    features = build_candidate_evidence_features(
+        memory,
+        memory_terms={"caroline", "adoption", "agency", "inclusive"},
+        query_terms=("caroline", "adoption", "agency"),
+        relation_terms=("adoption", "agency"),
+        relation_variant_terms=("inclusive",),
+        entities=("caroline",),
+        entity_hits=("caroline",),
+        speaker_hits=(),
+        high_signal_relation_terms={"inclusive"},
+        is_temporal_query=False,
+        is_preference_query=False,
+        has_visual_terms=False,
+        has_multi_hop_markers=False,
+        has_temporal_surface=False,
+        has_sequence_surface=False,
+        has_preference_evidence=False,
+        has_visual_evidence=False,
+        has_focused_turn_surface=False,
+    )
+
+    assert features.source_turn_refs == ("D4:3",)
+    assert features.turn_ref_count == 1
+    assert features.source_ref_dedupe_key == (
+        "source_session_turn_refs:session_4:D4:3"
+    )
+    assert features.source_identity_audit_gap_codes == ()
+    assert features.to_diagnostics()["source_ref_dedupe_key"] == (
+        "source_session_turn_refs:session_4:D4:3"
+    )
+
+
+def test_candidate_features_use_metadata_source_ref_payloads_for_identity() -> None:
+    memory = RetrievedMemory(
+        item_id="metadata-source-ref-payloads",
+        rank=1,
+        text="Caroline said the adoption agency felt inclusive.",
+        source_refs=(),
+        metadata={
+            "item_type": "chunk",
+            "source_ref_payloads": [
+                {
+                    "session_key": "session_12",
+                    "source_dialogue_index": "D12",
+                    "source_turn_index": "6",
+                }
+            ],
+        },
+    )
+
+    features = build_candidate_evidence_features(
+        memory,
+        memory_terms={"caroline", "adoption", "agency", "inclusive"},
+        query_terms=("caroline", "adoption", "agency"),
+        relation_terms=("adoption", "agency"),
+        relation_variant_terms=("inclusive",),
+        entities=("caroline",),
+        entity_hits=("caroline",),
+        speaker_hits=(),
+        high_signal_relation_terms={"inclusive"},
+        is_temporal_query=False,
+        is_preference_query=False,
+        has_visual_terms=False,
+        has_multi_hop_markers=False,
+        has_temporal_surface=False,
+        has_sequence_surface=False,
+        has_preference_evidence=False,
+        has_visual_evidence=False,
+        has_focused_turn_surface=False,
+    )
+
+    assert features.source_ref_count == 2
+    assert features.source_turn_refs == ("D12:6",)
+    assert features.turn_ref_count == 1
+    assert features.source_ref_dedupe_key == (
+        "source_session_turn_refs:session_12:D12:6"
+    )
+    assert features.source_identity_audit_gap_codes == ()
+    assert features.to_diagnostics()["source_ref_dedupe_key"] == (
+        "source_session_turn_refs:session_12:D12:6"
+    )
+
+
+def test_candidate_features_use_source_evidence_refs_payloads_for_identity() -> None:
+    memory = RetrievedMemory(
+        item_id="metadata-source-evidence-refs",
+        rank=1,
+        text="Alex confirmed the workshop date.",
+        source_refs=(),
+        metadata={
+            "item_type": "chunk",
+            "source_ref_payloads": [
+                {
+                    "source_external_id": "locomo:conv-private:turn-secret",
+                    "session_key": "session_4",
+                    "source_evidence_refs": ("locomo:conv-private:D4:5",),
+                }
+            ],
+        },
+    )
+
+    features = build_candidate_evidence_features(
+        memory,
+        memory_terms={"alex", "workshop", "date"},
+        query_terms=("alex", "workshop", "date"),
+        relation_terms=("workshop", "date"),
+        relation_variant_terms=(),
+        entities=("alex",),
+        entity_hits=("alex",),
+        speaker_hits=(),
+        high_signal_relation_terms={"workshop", "date"},
+        is_temporal_query=False,
+        is_preference_query=False,
+        has_visual_terms=False,
+        has_multi_hop_markers=False,
+        has_temporal_surface=False,
+        has_sequence_surface=False,
+        has_preference_evidence=False,
+        has_visual_evidence=False,
+        has_focused_turn_surface=False,
+    )
+
+    assert features.source_ref_count == 2
+    assert features.source_turn_refs == ("D4:5",)
+    assert features.turn_ref_count == 1
+    assert features.source_ref_dedupe_key == (
+        "source_session_turn_refs:session_4:D4:5"
+    )
+    assert features.source_identity_audit_gap_codes == ()
+
+
+def test_candidate_features_use_supporting_evidence_payloads_for_identity() -> None:
+    memory = RetrievedMemory(
+        item_id="metadata-supporting-evidence-refs",
+        rank=1,
+        text="Alex confirmed the workshop date.",
+        source_refs=(),
+        metadata={
+            "item_type": "chunk",
+            "source_ref_payloads": [
+                {
+                    "source_external_id": "locomo:conv-private:turn-secret",
+                    "session_key": "session_4",
+                    "supporting_evidence": [
+                        {"source_evidence_ref": "locomo:conv-private:D4:5"}
+                    ],
+                }
+            ],
+        },
+    )
+
+    features = build_candidate_evidence_features(
+        memory,
+        memory_terms={"alex", "workshop", "date"},
+        query_terms=("alex", "workshop", "date"),
+        relation_terms=("workshop", "date"),
+        relation_variant_terms=(),
+        entities=("alex",),
+        entity_hits=("alex",),
+        speaker_hits=(),
+        high_signal_relation_terms={"workshop", "date"},
+        is_temporal_query=False,
+        is_preference_query=False,
+        has_visual_terms=False,
+        has_multi_hop_markers=False,
+        has_temporal_surface=False,
+        has_sequence_surface=False,
+        has_preference_evidence=False,
+        has_visual_evidence=False,
+        has_focused_turn_surface=False,
+    )
+
+    assert features.source_ref_count == 2
+    assert features.source_turn_refs == ("D4:5",)
+    assert features.turn_ref_count == 1
+    assert features.source_ref_dedupe_key == (
+        "source_session_turn_refs:session_4:D4:5"
+    )
+    assert features.source_identity_audit_gap_codes == ()
+
+
+def test_candidate_features_use_nested_evidence_payloads_for_identity() -> None:
+    memory = RetrievedMemory(
+        item_id="metadata-nested-evidence-refs",
+        rank=1,
+        text="Alex confirmed the workshop date.",
+        source_refs=(),
+        metadata={
+            "item_type": "chunk",
+            "source_ref_payloads": [
+                {
+                    "source_external_id": "locomo:conv-private:turn-secret",
+                    "session_key": "session_4",
+                    "evidence": [
+                        {"source_evidence_ref": "locomo:conv-private:D4:5"}
+                    ],
+                }
+            ],
+        },
+    )
+
+    features = build_candidate_evidence_features(
+        memory,
+        memory_terms={"alex", "workshop", "date"},
+        query_terms=("alex", "workshop", "date"),
+        relation_terms=("workshop", "date"),
+        relation_variant_terms=(),
+        entities=("alex",),
+        entity_hits=("alex",),
+        speaker_hits=(),
+        high_signal_relation_terms={"workshop", "date"},
+        is_temporal_query=False,
+        is_preference_query=False,
+        has_visual_terms=False,
+        has_multi_hop_markers=False,
+        has_temporal_surface=False,
+        has_sequence_surface=False,
+        has_preference_evidence=False,
+        has_visual_evidence=False,
+        has_focused_turn_surface=False,
+    )
+
+    assert features.source_ref_count == 2
+    assert features.source_turn_refs == ("D4:5",)
+    assert features.turn_ref_count == 1
+    assert features.source_ref_dedupe_key == (
+        "source_session_turn_refs:session_4:D4:5"
+    )
+    assert features.source_identity_audit_gap_codes == ()
 
 
 def test_candidate_features_do_not_treat_split_direct_refs_as_perfect_locality() -> None:
@@ -2465,6 +2894,122 @@ def test_candidate_features_score_during_event_temporal_evidence() -> None:
     assert during_event.answerability_score > no_temporal_content.answerability_score
 
 
+def test_candidate_features_bind_explicit_dates_to_local_event_sentence() -> None:
+    unrelated_date = _temporal_candidate_features(
+        text=(
+            "D8:2 Alex: In 2022, I moved apartments. "
+            "I met Riley after the conference."
+        ),
+        memory_terms={
+            "alex",
+            "2022",
+            "moved",
+            "apartments",
+            "met",
+            "riley",
+            "after",
+            "conference",
+        },
+        relation_terms=("meet", "conference"),
+        relation_variant_terms=("met",),
+        time_intent_kind="explicit_time",
+    )
+    local_date = _temporal_candidate_features(
+        text="D8:3 Alex: I met Riley on Friday after the conference.",
+        memory_terms={"alex", "met", "riley", "friday", "after", "conference"},
+        relation_terms=("meet", "conference"),
+        relation_variant_terms=("met",),
+        time_intent_kind="explicit_time",
+    )
+
+    assert unrelated_date.has_explicit_time_surface is True
+    assert unrelated_date.has_explicit_time_content_surface is False
+    assert "explicit_temporal_evidence_partial" in (
+        unrelated_date.answerability_reason_codes
+    )
+    assert local_date.has_explicit_time_content_surface is True
+    assert "explicit_temporal_evidence" in local_date.answerability_reason_codes
+    assert local_date.answerability_score > unrelated_date.answerability_score
+
+
+def test_candidate_features_ignore_unrelated_current_and_stale_surfaces() -> None:
+    unrelated_stale = _temporal_candidate_features(
+        text=(
+            "D4:1 Alex: I used to live in Boston. "
+            "I currently work on Atlas."
+        ),
+        memory_terms={
+            "alex",
+            "used",
+            "live",
+            "boston",
+            "currently",
+            "work",
+            "atlas",
+        },
+        query_terms=("alex", "current", "work", "atlas"),
+        relation_terms=("work", "atlas"),
+        relation_variant_terms=("currently",),
+        time_intent_kind="relative_time",
+    )
+    local_stale = _temporal_candidate_features(
+        text="D4:2 Alex: I used to work on Atlas before the team changed.",
+        memory_terms={"alex", "used", "work", "atlas", "before", "team", "changed"},
+        query_terms=("alex", "current", "work", "atlas"),
+        relation_terms=("work", "atlas"),
+        relation_variant_terms=("currently",),
+        time_intent_kind="relative_time",
+    )
+
+    assert unrelated_stale.currentness_surface is True
+    assert unrelated_stale.stale_surface is False
+    assert local_stale.currentness_surface is False
+    assert local_stale.stale_surface is True
+
+
+def test_candidate_features_use_ordered_local_boundary_evidence() -> None:
+    unordered_neighbor = _temporal_candidate_features(
+        text=(
+            "D5:1 Alex: Before lunch, Jordan moved the boxes. "
+            "I met Riley after the conference."
+        ),
+        memory_terms={
+            "alex",
+            "before",
+            "lunch",
+            "jordan",
+            "moved",
+            "boxes",
+            "met",
+            "riley",
+            "after",
+            "conference",
+        },
+        relation_terms=("meet", "conference"),
+        relation_variant_terms=("met",),
+        time_intent_kind="temporal_sequence",
+    )
+    until_boundary = _temporal_candidate_features(
+        text="D5:2 Alex: Until June, I met Riley at the old studio.",
+        memory_terms={"alex", "until", "june", "met", "riley", "old", "studio"},
+        relation_terms=("meet", "studio"),
+        relation_variant_terms=("met",),
+        time_intent_kind="temporal_sequence",
+    )
+    since_boundary = _temporal_candidate_features(
+        text="D5:3 Alex: Since June, I met Riley at the new studio.",
+        memory_terms={"alex", "since", "june", "met", "riley", "new", "studio"},
+        relation_terms=("meet", "studio"),
+        relation_variant_terms=("met",),
+        time_intent_kind="temporal_sequence",
+    )
+
+    assert unordered_neighbor.has_temporal_sequence_surface is True
+    assert unordered_neighbor.temporal_sequence_direction == "after"
+    assert until_boundary.temporal_sequence_direction == "before"
+    assert since_boundary.temporal_sequence_direction == "after"
+
+
 def test_candidate_features_do_not_count_question_echo_as_category_hit() -> None:
     memory = RetrievedMemory(
         item_id="current-group-distractor",
@@ -2567,3 +3112,40 @@ def test_candidate_features_credit_book_author_preference_evidence() -> None:
     assert "preference_evidence" in liked_author.answerability_reason_codes
     assert liked_author.answerability_score > generic_book_reference.answerability_score
     assert liked_author.answerability_score >= 0.8
+
+
+def _temporal_candidate_features(
+    *,
+    text: str,
+    memory_terms: set[str],
+    relation_terms: tuple[str, ...],
+    relation_variant_terms: tuple[str, ...] = (),
+    time_intent_kind: str,
+    query_terms: tuple[str, ...] = ("alex", "after", "conference"),
+):
+    return build_candidate_evidence_features(
+        RetrievedMemory(
+            item_id="temporal-locality",
+            rank=1,
+            text=text,
+            source_refs=("D8:2",),
+        ),
+        memory_terms=memory_terms,
+        query_terms=query_terms,
+        relation_terms=relation_terms,
+        relation_variant_terms=relation_variant_terms,
+        entities=("alex",),
+        entity_hits=("alex",),
+        speaker_hits=("alex",),
+        high_signal_relation_terms=set(relation_terms),
+        is_temporal_query=True,
+        time_intent_kind=time_intent_kind,
+        is_preference_query=False,
+        has_visual_terms=False,
+        has_multi_hop_markers=False,
+        has_temporal_surface=True,
+        has_sequence_surface=True,
+        has_preference_evidence=False,
+        has_visual_evidence=False,
+        has_focused_turn_surface=True,
+    )

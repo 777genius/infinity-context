@@ -3,7 +3,9 @@ from infinity_context_server.memory_comparison_answer_context import (
     answer_context_from_evidence_bundle,
     answer_context_metrics,
 )
+from infinity_context_server.memory_comparison_llm import render_answer_prompt
 from infinity_context_server.memory_comparison_models import RetrievedMemory
+from infinity_context_server.public_benchmark_models import PublicBenchmarkCase
 
 
 def test_answer_context_risk_reasons_are_deduped_across_sources() -> None:
@@ -88,6 +90,118 @@ def test_answer_context_propagates_selected_item_risk_reasons() -> None:
         "risk:wide_relation_expansion",
         "risk:selected_item_specific",
     ]
+
+
+def test_answer_context_filters_private_provider_source_labels_from_metadata_and_prompt() -> None:
+    context = answer_context_from_evidence_bundle(
+        (
+            RetrievedMemory(
+                text="D1:1 Morgan chose the evening class.",
+                rank=1,
+                item_id="selected",
+                source_refs=("D1:1",),
+            ),
+        ),
+        {
+            "items": [
+                {
+                    "id": "selected",
+                    "retrieval_order": 1,
+                    "role": "primary",
+                    "source_type": "openai",
+                    "source_types": [
+                        "openai",
+                        "raw_turn",
+                        "provider-auth-private-marker",
+                    ],
+                    "retrieval_sources": [
+                        "qdrant",
+                        "semantic_chunks",
+                    ],
+                }
+            ]
+        },
+        cutoff=1,
+    )
+
+    metadata = context.memories[0].metadata
+    assert "answer_context_source_type" not in metadata
+    assert metadata["answer_context_source_types"] == ("raw_turn",)
+    assert metadata["answer_context_retrieval_sources"] == ("semantic_chunks",)
+
+    prompt = render_answer_prompt(
+        PublicBenchmarkCase(
+            benchmark="locomo",
+            case_id="conv-1:qa:source-label-prompt",
+            question="Which class did Morgan choose?",
+            expected_terms=("evening class",),
+            memory_scope_external_ref="locomo-conv-1",
+            thread_external_ref="locomo-conv-1",
+        ),
+        context.memories,
+        cutoff=1,
+    )
+
+    assert "source_types=raw_turn" in prompt
+    assert "retrieval_sources=semantic_chunks" in prompt
+    assert "openai" not in prompt
+    assert "qdrant" not in prompt
+    assert "provider-auth-private-marker" not in prompt
+
+
+def test_answer_context_fallback_filters_private_provider_source_labels() -> None:
+    context = answer_context_from_evidence_bundle(
+        (
+            RetrievedMemory(
+                text="D1:1 Morgan chose the evening class.",
+                rank=1,
+                item_id="selected",
+                source_refs=("D1:1",),
+                metadata={
+                    "diagnostics": {
+                        "benchmark_candidate_features": {
+                            "source_type": "openai",
+                            "source_types": [
+                                "openai",
+                                "raw_turn",
+                                "provider-auth-private-marker",
+                            ],
+                            "retrieval_sources": [
+                                "qdrant",
+                                "semantic_chunks",
+                            ],
+                        }
+                    }
+                },
+            ),
+        ),
+        {"items": []},
+        cutoff=1,
+    )
+
+    metadata = context.memories[0].metadata
+    assert "answer_context_source_type" not in metadata
+    assert metadata["answer_context_source_types"] == ("raw_turn",)
+    assert metadata["answer_context_retrieval_sources"] == ("semantic_chunks",)
+
+    prompt = render_answer_prompt(
+        PublicBenchmarkCase(
+            benchmark="locomo",
+            case_id="conv-1:qa:fallback-source-label-prompt",
+            question="Which class did Morgan choose?",
+            expected_terms=("evening class",),
+            memory_scope_external_ref="locomo-conv-1",
+            thread_external_ref="locomo-conv-1",
+        ),
+        context.memories,
+        cutoff=1,
+    )
+
+    assert "source_types=raw_turn" in prompt
+    assert "retrieval_sources=semantic_chunks" in prompt
+    assert "openai" not in prompt
+    assert "qdrant" not in prompt
+    assert "provider-auth-private-marker" not in prompt
 
 
 def test_answer_context_keeps_scalar_bundle_risk_reason_through_skip_and_backfill() -> None:
@@ -181,6 +295,37 @@ def test_answer_context_keeps_scalar_bundle_risk_reason_through_skip_and_backfil
         "risk:skipped_duplicate_source_bundle_item",
         "risk:retrieval_backfill",
         "risk:backfill_candidate_specific",
+    ]
+
+
+def test_answer_context_marks_selected_weak_source_locality_risk() -> None:
+    context = answer_context_from_evidence_bundle(
+        (
+            RetrievedMemory(
+                text="D1:1 Morgan mentioned a weakly localized detail.",
+                rank=1,
+                item_id="selected",
+                source_refs=("D1:1",),
+            ),
+        ),
+        {
+            "items": [
+                {
+                    "id": "selected",
+                    "retrieval_order": 1,
+                    "role": "primary",
+                    "source_locality_score": 0.44,
+                }
+            ]
+        },
+        cutoff=1,
+    )
+
+    assert context.memories[0].metadata["answer_context_risk_reason_codes"] == (
+        "risk:selected_weak_source_locality",
+    )
+    assert context.to_diagnostics()["risk_reason_codes"] == [
+        "risk:selected_weak_source_locality",
     ]
 
 
@@ -922,6 +1067,65 @@ def test_answer_context_matches_canonical_source_ref_to_source_turn_key() -> Non
         "source_turn_refs:D4:2",
     )
     assert context.memories[0].metadata["answer_context_retrieval_order"] == 2
+
+
+def test_answer_context_uses_metadata_source_ref_payloads_for_identity() -> None:
+    memories = (
+        RetrievedMemory(
+            text="Caroline found the support group helpful.",
+            rank=1,
+            item_id="payload-a",
+            metadata={
+                "source_ref_payloads": [
+                    {
+                        "source_external_id": (
+                            "locomo:conv-19:session_4:D4:2:chunk-a"
+                        )
+                    }
+                ]
+            },
+        ),
+        RetrievedMemory(
+            text="Caroline found the support group helpful again.",
+            rank=2,
+            item_id="payload-b",
+            metadata={
+                "metadata": {
+                    "source_refs": [
+                        {
+                            "source_id": (
+                                "locomo:conv-19:session_4:D4:2:chunk-b"
+                            )
+                        }
+                    ]
+                }
+            },
+        ),
+    )
+
+    context = answer_context_from_evidence_bundle(
+        memories,
+        {
+            "items": [
+                {"id": "payload-a", "retrieval_order": 1, "role": "primary"},
+                {"id": "payload-b", "retrieval_order": 2, "role": "support"},
+            ]
+        },
+        cutoff=2,
+    )
+
+    assert [memory.item_id for memory in context.memories] == ["payload-a"]
+    assert context.memories[0].source_refs == (
+        "source_session_turn_refs:session_4:D4:2",
+        "source_turn_refs:D4:2",
+    )
+    assert context.skipped_duplicate_source_bundle_item_count == 1
+    diagnostics = context.to_diagnostics()
+    assert diagnostics["source_ref_count"] == 2
+    assert diagnostics["source_identity_refs"] == [
+        "source_session_turn_refs:session_4:D4:2",
+        "source_turn_refs:D4:2",
+    ]
 
 
 def test_answer_context_reports_bounded_safe_source_identity_diagnostics() -> None:

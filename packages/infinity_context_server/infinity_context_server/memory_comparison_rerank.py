@@ -37,6 +37,9 @@ from infinity_context_server.memory_comparison_intent import (
     infer_time_intent_kind,
     merge_relation_evidence_needs,
 )
+from infinity_context_server.memory_comparison_location_roles import (
+    has_current_location_query as _has_current_location_query,
+)
 from infinity_context_server.memory_comparison_models import RetrievedMemory
 from infinity_context_server.memory_comparison_query_plan import (
     QueryPlanCandidate,
@@ -134,6 +137,9 @@ from infinity_context_server.memory_comparison_rerank_text import (
 )
 from infinity_context_server.memory_comparison_rerank_text import (
     visual_surface_terms as _visual_surface_terms,
+)
+from infinity_context_server.memory_comparison_source_identity import (
+    source_identity_refs_from_source_refs as _source_identity_refs_from_source_refs,
 )
 from infinity_context_server.public_benchmark_models import PublicBenchmarkCase
 
@@ -283,6 +289,8 @@ _RELATION_QUERY_TERMS.update(
         "adoption",
         "agency",
         "ally",
+        "belong",
+        "belongs",
         "boyfriend",
         "boss",
         "brother",
@@ -309,8 +317,11 @@ _RELATION_QUERY_TERMS.update(
         "husband",
         "engag",
         "individual",
+        "lgbt",
+        "lgbtq",
         "kid",
         "member",
+        "membership",
         "manager",
         "mentor",
         "mother",
@@ -321,6 +332,7 @@ _RELATION_QUERY_TERMS.update(
         "park",
         "parent",
         "partner",
+        "part",
         "path",
         "personality",
         "pet",
@@ -343,6 +355,8 @@ _RELATION_QUERY_TERMS.update(
         "sunrise",
         "summer",
         "teammate",
+        "trans",
+        "transgender",
         "trait",
         "wife",
         "write",
@@ -873,7 +887,14 @@ def decomposed_search_queries(
             relation_variant_terms=relation_variant_terms,
             lexical_terms=lexical_terms,
         )
-        if "location_support" in intent.evidence_need and "current" not in relation_terms
+        if "location_support" in intent.evidence_need
+        and (
+            "current" not in relation_terms
+            or (
+                _has_current_location_query(intent.question)
+                and "city" not in lexical_terms
+            )
+        )
         else ()
     )
     if location_query_terms and (entity_surfaces or len(location_query_terms) >= 4):
@@ -1598,6 +1619,8 @@ def _compact_relation_query_role(intent: RetrievalIntent) -> str:
         return "diet_support"
     if "identity_profile" in evidence_needs:
         return "identity_support"
+    if "community_membership" in evidence_needs:
+        return "community_membership_support"
     if "communication" in evidence_needs:
         return "communication_support"
     if "causal_support" in evidence_needs and "reason" in set(intent.relation_terms):
@@ -2977,7 +3000,7 @@ def _benchmark_rerank_boost(
         has_preference_evidence=_memory_has_preference_evidence(memory),
         has_visual_evidence=_memory_has_visual_evidence(memory),
         has_focused_turn_surface=_memory_has_focused_turn_surface(memory),
-        question=str(profile.get("question") or ""),
+        question=question or str(profile.get("question") or ""),
     )
     intent_policy_boosts = focused_intent_policy_boosts(
         memory_terms=set(candidate_features.memory_terms),
@@ -3106,6 +3129,13 @@ def _memory_source_refs_for_grounding(memory: RetrievedMemory) -> tuple[SourceRe
             )
         )
     for raw_ref in _metadata_source_ref_payloads(memory.metadata):
+        for identity_ref in _source_identity_refs_from_source_refs((raw_ref,)):
+            refs.append(
+                SourceRef(
+                    source_type="benchmark",
+                    source_id=identity_ref,
+                )
+            )
         source_id = _mapping_text(raw_ref, "source_id", "source_external_id", "id")
         if not source_id:
             continue

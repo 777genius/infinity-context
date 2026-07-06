@@ -212,6 +212,28 @@ def test_chunk_source_refs_add_dialogue_turn_refs_for_visible_session_markers() 
     assert refs[2].quote_preview.startswith("D7:4 Melanie praises")
 
 
+def test_chunk_source_refs_canonicalize_hyphenated_dialogue_turn_markers() -> None:
+    chunk = _chunk(
+        metadata={},
+        source_type="locomo_observation",
+        source_external_id="locomo:conv-26:session_7:observation",
+        text=(
+            "D7-2 Melanie supports Caroline. "
+            "D7-4 Melanie praises Caroline's drive to help. "
+            "D8-1 Different session marker should not be linked."
+        ),
+    )
+
+    refs = chunk_source_refs(chunk, text_preview=chunk.text)
+
+    assert [ref.source_id for ref in refs] == [
+        "locomo:conv-26:session_7:observation",
+        "locomo:conv-26:session_7:D7:2:turn",
+        "locomo:conv-26:session_7:D7:4:turn",
+    ]
+    assert refs[1].quote_preview == "D7-2 Melanie supports Caroline."
+
+
 def test_chunk_source_refs_do_not_infer_dialogue_refs_over_structured_metadata() -> None:
     chunk = _chunk(
         metadata={

@@ -352,6 +352,70 @@ def test_failure_diagnostics_reports_bounded_temporal_grounding_issue_summary() 
     assert "selected_temporal_grounding_issues" in reasons
 
 
+def test_failure_diagnostics_does_not_over_penalize_current_goal_recency() -> None:
+    evaluation = {
+        "case_id": "locomo:conv-1:qa:current-goal",
+        "group": "temporal",
+        "retrieval": {
+            "metadata": {
+                "query_decomposition": {
+                    "query_profile": {"evidence_need": ["current_goal"]}
+                }
+            },
+            "results": [
+                {
+                    "id": "current-goal",
+                    "source_refs": ["D2:4"],
+                    "memory": "D2:4 Caroline: My current goal is to stay local now.",
+                    "metadata": {
+                        "diagnostics": {
+                            "benchmark_candidate_features": {
+                                "query_roles": ["current_goal_support"],
+                                "relation_category_hits": ["current_goal"],
+                            }
+                        }
+                    },
+                }
+            ],
+        },
+        "retrieval_quality": {
+            "expected_term_recall": 1.0,
+            "evidence_term_recall": 1.0,
+        },
+        "evidence_bundle": {
+            "bundle_complete": True,
+            "items": [
+                {
+                    "id": "current-goal",
+                    "role": "current_goal_support",
+                    "query_roles": ["current_goal_support"],
+                    "source_refs": ["D2:4"],
+                    "text": "D2:4 Caroline: My current goal is to stay local now.",
+                }
+            ],
+        },
+        "generation": {},
+        "judgment": {},
+    }
+
+    diagnostics = failure_diagnostics(evaluation)
+    reasons = failure_diagnostic_reason_codes(
+        evaluation,
+        score=0.0,
+        retrieval_recall=1.0,
+        diagnostics=diagnostics,
+    )
+
+    temporal = diagnostics["temporal_grounding"]
+    assert temporal["temporal_case"] is True
+    assert temporal["selected_item_count"] == 1
+    assert temporal["strong_item_count"] == 1
+    assert temporal["issue_item_count"] == 0
+    assert temporal["issue_reason_counts"] == {}
+    assert temporal["issue_samples"] == []
+    assert "selected_temporal_grounding_issues" not in reasons
+
+
 def test_failure_diagnostics_counts_source_identity_refs_as_provenance() -> None:
     evaluation = {
         "retrieval": {
@@ -513,6 +577,67 @@ def test_failure_diagnostics_uses_dedupe_identity_when_direct_refs_are_generic()
     assert diagnostics["bundle"]["selected_bundle_source_refless_item_count"] == 0
     assert "missing_evidence_source_window_miss" in reasons
     assert "missing_evidence_source_absent" not in reasons
+
+
+def test_failure_diagnostics_normalizes_hyphenated_source_identity_windows() -> None:
+    evaluation = {
+        "retrieval": {
+            "total_results": 1,
+            "results": [
+                {
+                    "id": "hyphenated-source-identity",
+                    "rank": 1,
+                    "metadata": {
+                        "diagnostics": {
+                            "benchmark_candidate_features": {
+                                "source_ref_dedupe_key": (
+                                    "source_session_turn_refs:session-4:D4-2"
+                                ),
+                            }
+                        }
+                    },
+                }
+            ],
+        },
+        "retrieval_quality": {
+            "expected_term_recall": 0.5,
+            "evidence_term_recall": 0.0,
+            "missing_evidence_terms": ["source_session_turn_refs:session-4:D4-3"],
+        },
+        "evidence_bundle": {
+            "bundle_complete": False,
+            "items": [
+                {
+                    "id": "hyphenated-source-identity",
+                    "role": "primary",
+                    "source_ref_dedupe_key": (
+                        "source_session_turn_refs:session-4:D4-2"
+                    ),
+                }
+            ],
+        },
+        "generation": {},
+        "judgment": {},
+    }
+
+    diagnostics = failure_diagnostics(evaluation)
+    locality = diagnostics["missing_evidence_source_locality"]
+
+    assert locality["retrieved_source_ids"] == ["session_4:D4"]
+    assert locality["bundle_source_ids"] == ["session_4:D4"]
+    assert locality["missing_ref_windows"] == [
+        {
+            "ref": "session_4:D4:3",
+            "source_id": "session_4:D4",
+            "retrieved_same_source": True,
+            "bundle_same_source": True,
+            "nearest_retrieved_turn_ref": "session_4:D4:2",
+            "nearest_retrieved_turn_distance": 1,
+            "nearest_bundle_turn_ref": "session_4:D4:2",
+            "nearest_bundle_turn_distance": 1,
+            "cause": "near_retrieved_window",
+        }
+    ]
 
 
 def test_failure_diagnostics_uses_bundle_quality_weak_locality_fallback() -> None:
@@ -854,6 +979,13 @@ def test_failure_diagnostics_report_primary_answer_context_support_gaps() -> Non
             "source_turn_refs:D1:2",
             "source_session_turn_refs:session_1:D1:3",
         ),
+        "source_identity_ref_sample_limit": 8,
+        "source_identity_ref_sample_count": 2,
+        "source_identity_ref_omitted_count": 1,
+        "source_identity_item_sample_limit": 8,
+        "source_identity_item_sample_count": 2,
+        "source_identity_item_omitted_count": 0,
+        "source_identity_refs_per_item_limit": 4,
         "source_identity_items": (
             {
                 "source_identity_refs": ("source_turn_refs:D1:2",),
@@ -891,3 +1023,59 @@ def test_failure_diagnostics_report_primary_answer_context_support_gaps() -> Non
     )
     assert "raw memory text should not pass through" not in rendered_source_identity
     assert "provider payload should not pass through" not in rendered_source_identity
+
+
+def test_failure_diagnostics_reports_answer_context_identity_sample_bounds() -> None:
+    source_identity_refs = [f"source_turn_refs:D{index}:2" for index in range(1, 11)]
+    source_identity_items = [
+        {
+            "item_id": f"fallback-{index}",
+            "retrieval_order": index,
+            "source_identity_refs": [
+                f"source_turn_refs:D{index}:{turn}" for turn in range(1, 6)
+            ],
+        }
+        for index in range(1, 11)
+    ]
+    evaluation = {
+        "retrieval": {"total_results": 10, "results": []},
+        "retrieval_quality": {
+            "expected_term_recall": 0.5,
+            "evidence_term_recall": 0.0,
+        },
+        "evidence_bundle": {"bundle_complete": False, "items": []},
+        "generation": {},
+        "judgment": {},
+        "answer_context": {
+            "source": "retrieval_slice",
+            "memory_count": 10,
+            "source_ref_count": 0,
+            "source_ref_item_count": 0,
+            "source_refless_item_count": 10,
+            "source_identity_ref_count": 10,
+            "source_identity_item_count": 10,
+            "source_identity_refs": source_identity_refs,
+            "source_identity_items": source_identity_items,
+        },
+    }
+
+    diagnostics = failure_diagnostics(evaluation)
+
+    context = diagnostics["answer_context"]
+    assert context["source_identity_ref_count"] == 10
+    assert context["source_identity_ref_sample_limit"] == 8
+    assert context["source_identity_ref_sample_count"] == 8
+    assert context["source_identity_ref_omitted_count"] == 2
+    assert context["source_identity_refs"] == tuple(source_identity_refs[:8])
+    assert context["source_identity_item_count"] == 10
+    assert context["source_identity_item_sample_limit"] == 8
+    assert context["source_identity_item_sample_count"] == 8
+    assert context["source_identity_item_omitted_count"] == 2
+    assert context["source_identity_refs_per_item_limit"] == 4
+    assert len(context["source_identity_items"]) == 8
+    assert context["source_identity_items"][0]["source_identity_refs"] == (
+        "source_turn_refs:D1:1",
+        "source_turn_refs:D1:2",
+        "source_turn_refs:D1:3",
+        "source_turn_refs:D1:4",
+    )

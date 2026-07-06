@@ -1410,6 +1410,7 @@ _TYPED_RELATION_SUPPORT_ROLE_CATEGORIES = {
     "age_support": frozenset({"age_profile"}),
     "alias_support": frozenset({"alias_profile"}),
     "commitment_support": frozenset({"commitment_profile"}),
+    "community_membership_support": frozenset({"community_membership"}),
     "communication_support": frozenset({"communication"}),
     "contact_support": frozenset({"contact_profile"}),
     "current_goal_support": frozenset({"current_goal"}),
@@ -1470,6 +1471,7 @@ _MISSING_REQUIRED_ANSWER_EVIDENCE_REASONS = frozenset(
         "missing_alias_profile_evidence",
         "missing_causal_evidence",
         "missing_commitment_profile_evidence",
+        "missing_community_membership_evidence",
         "missing_communication_evidence",
         "missing_contact_profile_evidence",
         "missing_contrast_evidence",
@@ -1508,6 +1510,7 @@ _TYPED_RELATION_SUPPORT_NEEDS = {
     "age_support": frozenset({"age_profile"}),
     "alias_support": frozenset({"alias_profile"}),
     "commitment_support": frozenset({"commitment_profile"}),
+    "community_membership_support": frozenset({"community_membership"}),
     "communication_support": frozenset({"communication"}),
     "contact_support": frozenset({"contact_profile"}),
     "current_goal_support": frozenset({"current_goal"}),
@@ -1638,7 +1641,8 @@ _TYPED_PROFILE_SUPPORT_CATEGORIES = {
     role: frozenset(
         category
         for category in categories
-        if category.endswith("_profile") or category == "favorite_preference"
+        if category.endswith("_profile")
+        or category in {"community_membership", "favorite_preference"}
     )
     for role, categories in _TYPED_RELATION_SUPPORT_ROLE_CATEGORIES.items()
 }

@@ -138,13 +138,14 @@ def retrieval_quality(
     evidence_terms, unsupported_evidence_term_count = _case_evidence_term_specs(case)
     evidence_term_count = len(evidence_terms) + unsupported_evidence_term_count
     if evidence_terms or unsupported_evidence_term_count:
-        evidence_ref_corpus = _normalize_text(
-            " ".join(_memory_evidence_surface(memory) for memory in memories)
+        evidence_ref_surface = " ".join(
+            _memory_evidence_surface(memory) for memory in memories
         )
+        evidence_ref_corpus = _normalize_text(evidence_ref_surface)
         covered_evidence_terms = tuple(
             term
             for term in evidence_terms
-            if _evidence_term_in_text(evidence_ref_corpus, term)
+            if _evidence_term_in_text(evidence_ref_corpus, term, evidence_ref_surface)
         )
         missing_evidence_terms = tuple(
             term for term in evidence_terms if term not in covered_evidence_terms
@@ -187,7 +188,8 @@ def evidence_bundle(
 
     for retrieval_order, memory in enumerate(memories, 1):
         text = _normalize_text(memory.text)
-        evidence_ref_text = _normalize_text(_memory_evidence_surface(memory))
+        evidence_ref_surface = _memory_evidence_surface(memory)
+        evidence_ref_text = _normalize_text(evidence_ref_surface)
         expected_hits = tuple(
             term
             for term in case.expected_terms
@@ -196,7 +198,7 @@ def evidence_bundle(
         evidence_hits = tuple(
             term
             for term in evidence_terms
-            if _evidence_term_in_text(evidence_ref_text, term)
+            if _evidence_term_in_text(evidence_ref_text, term, evidence_ref_surface)
         )
         evidence_hit_outputs = tuple(term.output for term in evidence_hits)
         support_hits = tuple(
@@ -606,14 +608,13 @@ def _focused_evidence_score(memory: RetrievedMemory) -> int:
     turn_refs = tuple(dict.fromkeys(_TURN_REF_RE.findall(text)))
     if 0 < len(turn_refs) <= 2:
         return 1
-    source_turn_refs = tuple(
-        ref for ref in memory.source_refs if _TURN_REF_RE.search(str(ref))
-    )
-    return 1 if source_turn_refs and len(memory.source_refs) <= 3 else 0
+    source_refs = _memory_source_refs(memory)
+    source_turn_refs = tuple(ref for ref in source_refs if _TURN_REF_RE.search(str(ref)))
+    return 1 if source_turn_refs and len(source_refs) <= 3 else 0
 
 
 def _memory_evidence_surface(memory: RetrievedMemory) -> str:
-    return " ".join((memory.text, *memory.source_refs))
+    return " ".join((memory.text, *_memory_source_refs(memory)))
 
 
 def _source_type(memory: RetrievedMemory, features: Mapping[str, object]) -> str:
@@ -723,17 +724,42 @@ def _evidence_term_match_terms(raw_term: str, output_term: str) -> tuple[str, ..
 def _evidence_term_in_text(
     normalized_text: str,
     evidence_term: _EvidenceTerm,
+    raw_text: str,
 ) -> bool:
+    if turn_refs := _safe_evidence_turn_refs(evidence_term):
+        return any(_turn_ref_in_raw_evidence_text(raw_text, ref) for ref in turn_refs)
     return any(
         _normalized_phrase_in_text(normalized_text, term)
         for term in evidence_term.match_terms
     )
 
 
+def _safe_evidence_turn_refs(evidence_term: _EvidenceTerm) -> tuple[str, ...]:
+    return tuple(
+        dict.fromkeys(
+            ref
+            for term in evidence_term.match_terms
+            for ref in _TURN_REF_RE.findall(str(term))
+        )
+    )
+
+
+def _turn_ref_in_raw_evidence_text(raw_text: str, turn_ref: str) -> bool:
+    return bool(
+        re.search(
+            rf"(?<![A-Za-z0-9_-]){re.escape(turn_ref)}(?![A-Za-z0-9_-])",
+            raw_text,
+            re.IGNORECASE,
+        )
+    )
+
+
 def _memory_source_refs(memory: RetrievedMemory) -> tuple[str, ...]:
-    return _safe_source_refs_for_output(
+    direct_refs = _safe_source_refs_for_output(
         tuple(str(ref).strip() for ref in memory.source_refs if str(ref).strip())
     )
+    metadata_refs = _safe_source_refs_for_output((memory.metadata,))
+    return tuple(dict.fromkeys((*direct_refs, *metadata_refs)))
 
 
 def _safe_dedupe_key(value: object) -> str:

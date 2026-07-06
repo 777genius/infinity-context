@@ -67,6 +67,42 @@ def test_fast_gate_metrics_compacts_bundle_coverage_and_provenance_gaps() -> Non
     assert report["top_action"]
 
 
+def test_fast_gate_metrics_sanitizes_legacy_raw_evidence_refs() -> None:
+    raw_locomo_ref = "locomo:conv-private:session_1:D1:2:turn-secret"
+    raw_provider_ref = "provider-auth-private-marker"
+    gate = fast_gate_metrics(
+        (
+            _item(
+                case_id="legacy-raw-ref-gap",
+                retrieval_quality={
+                    "missing_evidence_terms": [raw_locomo_ref, raw_provider_ref]
+                },
+                evidence_bundle={
+                    "bundle_complete": False,
+                    "item_count": 1,
+                    "covered_evidence_terms": [raw_locomo_ref, raw_provider_ref],
+                    "items": [{"role": "primary", "focused_evidence_score": 0.0}],
+                },
+            ),
+        ),
+        expected_case_count=1,
+    )
+
+    serialized = json.dumps(gate)
+    sample = gate["bundle_gap_breakdown"]["samples"][0]
+    assert sample["covered_evidence_terms"] == (
+        "source_session_turn_refs:session_1:D1:2",
+        "source_turn_refs:D1:2",
+    )
+    assert sample["missing_evidence_terms"] == (
+        "source_session_turn_refs:session_1:D1:2",
+        "source_turn_refs:D1:2",
+    )
+    assert "locomo:conv-private" not in serialized
+    assert raw_provider_ref not in serialized
+    assert "session_1:D1:2" in serialized
+
+
 def test_fast_gate_metrics_reports_bounded_source_window_samples_without_text() -> None:
     gate = fast_gate_metrics(
         tuple(

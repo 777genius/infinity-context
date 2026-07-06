@@ -43,6 +43,39 @@ def test_evidence_ref_rank_gate_counts_ref_positions_and_focused_refs() -> None:
     assert metrics["focused_refs_top5_count"] == 1
 
 
+def test_evidence_ref_rank_gate_sanitizes_failure_sample_refs() -> None:
+    raw_locomo_ref = "locomo:conv-private:session_1:D1:2:chunk"
+    raw_provider_ref = "provider:private-token:selected-evidence"
+
+    metrics = evidence_ref_rank_gate_metrics(
+        (
+            _item(
+                case_id="case-raw-refs",
+                retrieval_quality={
+                    "missing_evidence_terms": [raw_locomo_ref, raw_provider_ref]
+                },
+                evidence_bundle={
+                    "evidence_term_count": 2,
+                    "bundle_complete": False,
+                    "covered_evidence_terms": [raw_locomo_ref],
+                    "items": [
+                        {
+                            "retrieval_order": 9,
+                            "covered_evidence_terms": [raw_locomo_ref],
+                        }
+                    ],
+                },
+            ),
+        )
+    )
+
+    serialized = json.dumps(metrics["samples"], sort_keys=True)
+
+    assert raw_locomo_ref not in serialized
+    assert raw_provider_ref not in serialized
+    assert "source_session_turn_refs:session_1:D1:2" in serialized
+
+
 def test_quality_diagnostics_reports_intents_policies_bundle_gaps_and_leakage() -> None:
     diagnostics = quality_diagnostics(
         (
@@ -859,6 +892,119 @@ def test_quality_diagnostics_counts_source_ref_dedupe_identity() -> None:
     assert table["source_refless_selected_samples"] == []
 
 
+def test_quality_diagnostics_counts_official_turn_metadata_identity() -> None:
+    official_turn_payload = {
+        "source_external_id": "locomo:conv-private:turn-secret",
+        "session_key": "session_4",
+        "dia_id": "D4:5",
+    }
+    diagnostics = quality_diagnostics(
+        (
+            _item(
+                case_id="official-turn-metadata",
+                retrieval={
+                    "metadata": {},
+                    "results": [
+                        {
+                            "id": "official-turn",
+                            "rank": 1,
+                            "text": "D4:5 Alex confirmed the workshop date.",
+                            "metadata": {
+                                "source_ref_payloads": [official_turn_payload]
+                            },
+                        }
+                    ],
+                },
+                evidence_bundle={
+                    "items": [
+                        {
+                            "id": "official-turn",
+                            "role": "primary",
+                            "retrieval_order": 1,
+                            "source_ref_payloads": [official_turn_payload],
+                        }
+                    ]
+                },
+            ),
+        )
+    )
+
+    table = diagnostics["source_ref_provenance_table"]
+    assert table["retrieval_source_ref_candidate_count"] == 1
+    assert table["retrieval_source_ref_count"] == 2
+    assert table["retrieval_source_ref_shape_counts"] == {
+        "locomo_session_turn_identity": 1,
+        "locomo_turn_identity": 1,
+    }
+    assert table["retrieval_source_refless_candidate_count"] == 0
+    assert table["selected_bundle_source_ref_item_count"] == 1
+    assert table["selected_bundle_source_ref_count"] == 2
+    assert table["selected_bundle_source_ref_shape_counts"] == {
+        "locomo_session_turn_identity": 1,
+        "locomo_turn_identity": 1,
+    }
+    assert table["selected_bundle_source_refless_item_count"] == 0
+    assert table["source_refless_selected_samples"] == []
+
+
+def test_quality_diagnostics_counts_numeric_turn_metadata_identity() -> None:
+    numeric_turn_payload = {
+        "source_external_id": "locomo:conv-private:turn-secret",
+        "session_key": "session_12",
+        "turn_id": "6",
+    }
+    diagnostics = quality_diagnostics(
+        (
+            _item(
+                case_id="numeric-turn-metadata",
+                retrieval={
+                    "metadata": {},
+                    "results": [
+                        {
+                            "id": "numeric-turn",
+                            "rank": 1,
+                            "text": "D12:6 Riley confirmed the studio visit.",
+                            "metadata": {
+                                "source_ref_payloads": [numeric_turn_payload]
+                            },
+                        }
+                    ],
+                },
+                evidence_bundle={
+                    "items": [
+                        {
+                            "id": "numeric-turn",
+                            "role": "primary",
+                            "retrieval_order": 1,
+                            "source_ref_payloads": [numeric_turn_payload],
+                        }
+                    ]
+                },
+            ),
+        )
+    )
+
+    table = diagnostics["source_ref_provenance_table"]
+    assert table["retrieval_source_ref_candidate_count"] == 1
+    assert table["retrieval_source_ref_count"] == 2
+    assert table["retrieval_source_ref_shape_counts"] == {
+        "locomo_session_turn_identity": 1,
+        "locomo_turn_identity": 1,
+    }
+    assert table["retrieval_source_refless_candidate_count"] == 0
+    assert table["selected_bundle_source_ref_item_count"] == 1
+    assert table["selected_bundle_source_ref_count"] == 2
+    assert table["selected_bundle_source_ref_shape_counts"] == {
+        "locomo_session_turn_identity": 1,
+        "locomo_turn_identity": 1,
+    }
+    assert table["selected_bundle_source_refless_item_count"] == 0
+    assert table["source_refless_selected_samples"] == []
+    serialized = json.dumps(table)
+    assert "locomo:conv-private" not in serialized
+    assert "turn-secret" not in serialized
+
+
 def test_quality_diagnostics_counts_fusion_turn_ref_dedupe_identity() -> None:
     diagnostics = quality_diagnostics(
         (
@@ -1008,6 +1154,7 @@ def test_quality_diagnostics_reports_answer_context_provenance_table() -> None:
                                 "risk:backfilled_broad_summary",
                                 "risk:backfilled_low_answerability",
                                 "risk:backfilled_weak_source_locality",
+                                "risk:selected_weak_source_locality",
                                 "risk:skipped_redundant_risky_backfill",
                                 "risk:skipped_redundant_source_backfill",
                                 "risk:skipped_redundant_role_backfill",
@@ -1105,12 +1252,44 @@ def test_quality_diagnostics_reports_answer_context_provenance_table() -> None:
         "risk:backfilled_low_answerability": 1,
         "risk:backfilled_weak_source_locality": 1,
         "risk:retrieval_backfill": 1,
+        "risk:selected_weak_source_locality": 1,
         "risk:skipped_duplicate_source_bundle_item": 1,
         "risk:skipped_noisy_overlap_bundle_item": 1,
         "risk:skipped_redundant_risky_backfill": 1,
         "risk:skipped_redundant_role_backfill": 1,
         "risk:skipped_redundant_source_backfill": 1,
     }
+    assert table["risk_reason_context_count"] == 1
+    assert table["fallback_risk_context_count"] == 0
+    assert table["risk_reason_source_counts"] == {
+        reason: {"evidence_bundle": 1}
+        for reason in table["risk_reason_counts"]
+    }
+    assert table["risk_reason_context_samples"] == [
+        {
+            "case_id": "bundle-context",
+            "cutoff": "200",
+            "source": "evidence_bundle",
+            "memory_count": 2,
+            "risk_score": 18,
+            "risk_reason_codes": [
+                "risk:skipped_duplicate_source_bundle_item",
+                "risk:skipped_noisy_overlap_bundle_item",
+                "risk:retrieval_backfill",
+                "risk:backfilled_broad_summary",
+                "risk:backfilled_low_answerability",
+                "risk:backfilled_weak_source_locality",
+                "risk:selected_weak_source_locality",
+                "risk:skipped_redundant_risky_backfill",
+                "risk:skipped_redundant_source_backfill",
+                "risk:skipped_redundant_role_backfill",
+            ],
+            "missing_required_roles": ["contrast"],
+            "backfilled_retrieval_item_count": 1,
+            "skipped_bundle_item_count": 2,
+            "skipped_redundant_backfill_item_count": 3,
+        }
+    ]
     assert table["backfilled_context_samples"] == [
         {
             "case_id": "bundle-context",
@@ -1141,6 +1320,7 @@ def test_quality_diagnostics_reports_answer_context_provenance_table() -> None:
                 "risk:backfilled_broad_summary",
                 "risk:backfilled_low_answerability",
                 "risk:backfilled_weak_source_locality",
+                "risk:selected_weak_source_locality",
                 "risk:skipped_redundant_risky_backfill",
                 "risk:skipped_redundant_source_backfill",
                 "risk:skipped_redundant_role_backfill",
@@ -1165,6 +1345,7 @@ def test_quality_diagnostics_reports_answer_context_provenance_table() -> None:
                 "risk:backfilled_broad_summary",
                 "risk:backfilled_low_answerability",
                 "risk:backfilled_weak_source_locality",
+                "risk:selected_weak_source_locality",
                 "risk:skipped_redundant_risky_backfill",
                 "risk:skipped_redundant_source_backfill",
                 "risk:skipped_redundant_role_backfill",
@@ -1187,6 +1368,7 @@ def test_quality_diagnostics_reports_answer_context_provenance_table() -> None:
                 "risk:backfilled_broad_summary",
                 "risk:backfilled_low_answerability",
                 "risk:backfilled_weak_source_locality",
+                "risk:selected_weak_source_locality",
                 "risk:skipped_redundant_risky_backfill",
                 "risk:skipped_redundant_source_backfill",
                 "risk:skipped_redundant_role_backfill",
@@ -1209,6 +1391,7 @@ def test_quality_diagnostics_reports_answer_context_provenance_table() -> None:
                 "risk:backfilled_broad_summary",
                 "risk:backfilled_low_answerability",
                 "risk:backfilled_weak_source_locality",
+                "risk:selected_weak_source_locality",
                 "risk:skipped_redundant_risky_backfill",
                 "risk:skipped_redundant_source_backfill",
                 "risk:skipped_redundant_role_backfill",
@@ -1357,12 +1540,28 @@ def test_quality_diagnostics_reports_actionable_answer_context_support_gaps() ->
     summary = diagnostics["answer_context_support_gap_summary"]
 
     assert gate["answer_context_support_gap_summary"] == summary
+    actionable_support_gap = next(
+        gap
+        for gap in gate["actionable_gap_summary"]["ranked_gaps"]
+        if gap["category"] == "answer_context_support"
+        and gap["gap"] == "low_answerability_backfill"
+    )
+    actionable_role_gap = next(
+        gap
+        for gap in gate["actionable_gap_summary"]["ranked_gaps"]
+        if gap["category"] == "answer_context_required_role"
+        and gap["gap"] == "temporal_support"
+    )
+    assert actionable_support_gap["impact_count"] == 1
+    assert actionable_support_gap["sample_case_ids"] == ["missing-support-context"]
+    assert actionable_role_gap["sample_case_ids"] == ["missing-support-context"]
     assert summary["schema_version"] == "answer_context_support_gaps.v1"
     assert summary["context_count"] == 3
     assert summary["support_gap_context_count"] == 2
     assert summary["support_gap_context_rate"] == 0.6667
     assert summary["gap_reason_counts"] == {
         "low_answerability_backfill": 1,
+        "low_bundle_confidence": 1,
         "low_context_answerability": 1,
         "missing_context_source_refs": 1,
         "missing_required_roles": 1,
@@ -1390,6 +1589,7 @@ def test_quality_diagnostics_reports_actionable_answer_context_support_gaps() ->
             "gap_reasons": [
                 "missing_context_source_refs",
                 "missing_required_roles",
+                "low_bundle_confidence",
                 "weak_bundle_source_support",
                 "low_answerability_backfill",
                 "low_context_answerability",
@@ -1428,6 +1628,56 @@ def test_quality_diagnostics_reports_actionable_answer_context_support_gaps() ->
             "fallback_reason": "empty_bundle",
         },
     ]
+
+
+def test_quality_diagnostics_reports_answer_context_risks_by_source() -> None:
+    diagnostics = quality_diagnostics(
+        (
+            _item(
+                case_id="bundle-risk",
+                cutoff_results={
+                    "3": {
+                        "answer_context": {
+                            "source": "evidence_bundle",
+                            "memory_count": 1,
+                            "risk_reason_codes": [
+                                "risk:backfilled_low_answerability",
+                            ],
+                        }
+                    }
+                },
+            ),
+            _item(
+                case_id="fallback-risk",
+                cutoff_results={
+                    "3": {
+                        "answer_context": {
+                            "source": "retrieval_slice",
+                            "memory_count": 1,
+                            "risk_reason_codes": [
+                                "risk:backfilled_low_answerability",
+                                "risk:source_refless",
+                            ],
+                        }
+                    }
+                },
+            ),
+        )
+    )
+
+    table = diagnostics["answer_context_provenance_table"]
+
+    assert table["risk_reason_counts"] == {
+        "risk:backfilled_low_answerability": 2,
+        "risk:source_refless": 1,
+    }
+    assert table["risk_reason_source_counts"] == {
+        "risk:backfilled_low_answerability": {
+            "evidence_bundle": 1,
+            "retrieval_slice": 1,
+        },
+        "risk:source_refless": {"retrieval_slice": 1},
+    }
 
 
 def test_quality_diagnostics_merges_explicit_and_derived_answer_context_risks() -> None:
@@ -4432,6 +4682,47 @@ def test_query_plan_integrity_requires_typed_favorite_query_family() -> None:
     assert table["samples"][0]["missing_evidence_role_query_families"] == (
         "favorite_support",
     )
+
+
+def test_query_plan_integrity_counts_comparative_preference_query_profiles() -> None:
+    plan = {
+        "schema_version": "query_plan.v2",
+        "selected_query_count": 2,
+        "dropped_query_count": 0,
+        "selected_roles": ["original_question", "preference_support"],
+        "dropped_roles": [],
+        "recommended_role_families": ["base_query", "preference_support"],
+        "selected_role_families": ["base_query", "preference_support"],
+        "missing_recommended_role_families": [],
+        "selected_role_family_counts": {
+            "base_query": 1,
+            "preference_support": 1,
+        },
+        "fanout_integrity": {"bounded": True},
+    }
+    retrieval = _retrieval_payload(
+        evidence_need=("preference",),
+        bundle_evidence_roles=("primary", "preference_support"),
+        relation_categories=("preference",),
+        policy_score=0.0,
+        query_plan=plan,
+    )
+    retrieval["metadata"]["query_decomposition"]["query_profile"][
+        "comparative_option_preference_query"
+    ] = True
+    item = _item(
+        case_id="comparative-preference-plan",
+        group="single-hop",
+        retrieval=retrieval,
+    )
+
+    diagnostics = quality_diagnostics((item,))
+    table = diagnostics["query_plan_integrity_table"]
+
+    assert table["query_profile_flag_counts"] == {
+        "comparative_option_preference_query": 1
+    }
+    assert table["plan_gap_case_count"] == 0
 
 
 def test_fast_gate_metrics_blocks_missing_query_plan_evidence_role_family() -> None:

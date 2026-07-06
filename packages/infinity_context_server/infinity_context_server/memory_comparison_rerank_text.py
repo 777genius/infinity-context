@@ -24,7 +24,8 @@ _TIME_SURFACE_RE = re.compile(
 _SEQUENCE_SURFACE_RE = re.compile(r"\b(?:session[_\s-]?\d+|D\d+:\d+|date:)\b")
 _TURN_REF_RE = re.compile(r"\bD\d+:\d+\b")
 _DIRECT_TURN_SPEAKER_RE = re.compile(
-    r"\bD\d+:\d+\s+[A-Z][a-zA-Z0-9_-]{1,40}\s*:"
+    r"\bD\d+:\d+\s+[A-Z][a-zA-Z0-9_-]{1,40}"
+    r"(?:\s+[A-Z][a-zA-Z0-9_-]{1,40}){0,2}\s*:"
 )
 _BROAD_SUMMARY_SURFACE_RE = re.compile(
     r"\b(?:observations|events date|related turns)\b",
@@ -426,7 +427,8 @@ def question_phrase_terms(text: str) -> tuple[str, ...]:
         terms.append("go")
     if re.search(
         r"\bwhat\s+(?:name|nickname|alias)\b.+\bgo(?:es|ing)?\s+by\b|"
-        r"\bwhat\s+(?:does|did)\b.+\bgo\s+by\b",
+        r"\bwhat\s+(?:does|did)\b.+\bgo\s+by\b|"
+        r"\bwho\b.+\bgo(?:es|ing)?\s+by\b",
         text,
         flags=re.IGNORECASE,
     ):
@@ -563,9 +565,13 @@ def question_phrase_terms(text: str) -> tuple[str, ...]:
     if re.search(
         r"\bnicknames?\b|\balias\b|"
         r"\bwhat\s+(?:is|was)\b.+\b(?:middle|legal|full)\s+name\b|"
+        r"\bwhat\s+(?:is|was)\b.+\b(?:called|known\s+as)\b|"
+        r"\bwho\s+(?:is|was)\b.+\b(?:called|known\s+as|"
+        r"referred\s+to\s+as|nicknamed)\b|"
         r"\bwhat\s+(?:does|did)\b.+\bcall\b(?!.*\b(?:about|to|with)\b)|"
         r"\bwhat\s+(?:name|nickname|alias)\b.+\bgo(?:es|ing)?\s+by\b|"
-        r"\bwhat\s+(?:does|did)\b.+\bgo\s+by\b",
+        r"\bwhat\s+(?:does|did)\b.+\bgo\s+by\b|"
+        r"\bwho\b.+\bgo(?:es|ing)?\s+by\b",
         text,
         flags=re.IGNORECASE,
     ):

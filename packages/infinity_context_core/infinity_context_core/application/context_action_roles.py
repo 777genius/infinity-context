@@ -669,10 +669,15 @@ def _action_role_query(query: str) -> _ActionRoleQuery | None:
     if match is not None:
         actor = _clean_label(match.group("actor"))
         verb_key = _canonical_verb_key(match.group("verb"))
+        context_terms = _action_context_terms(
+            match.groupdict().get("object") or "",
+            verb_key=verb_key,
+        )
         if actor and verb_key:
             return _ActionRoleQuery(
                 verb_key=verb_key,
                 actor_label=actor,
+                context_terms=context_terms,
                 recipient_requested=True,
             )
 

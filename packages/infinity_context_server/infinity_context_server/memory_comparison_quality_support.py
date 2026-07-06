@@ -5,6 +5,9 @@ from __future__ import annotations
 from collections.abc import Mapping, Sequence
 
 from infinity_context_server.memory_comparison_source_identity import (
+    looks_like_raw_source_ref as _looks_like_raw_source_ref,
+)
+from infinity_context_server.memory_comparison_source_identity import (
     safe_source_refs_for_output as _safe_source_refs_for_output,
 )
 
@@ -619,7 +622,7 @@ def bundle_support_audit_items(
                 "source_refs": _safe_source_refs_for_output(
                     _bounded_str_tuple(item.get("source_refs"))
                 ),
-                "covered_evidence_terms": _bounded_str_tuple(
+                "covered_evidence_terms": _safe_support_audit_terms(
                     item.get("covered_evidence_terms")
                 ),
                 "entity_hit_count": len(_str_tuple(item.get("entity_hits"))),
@@ -636,6 +639,16 @@ def bundle_support_audit_items(
         if len(rows) >= limit:
             break
     return tuple(rows)
+
+
+def _safe_support_audit_terms(value: object) -> tuple[str, ...]:
+    terms: list[str] = []
+    for term in _bounded_str_tuple(value):
+        if not _looks_like_raw_source_ref(term):
+            terms.append(term)
+            continue
+        terms.extend(_safe_source_refs_for_output((term,)))
+    return tuple(dict.fromkeys(terms))
 
 
 def _bounded_str_tuple(
@@ -764,6 +777,14 @@ def _passes_support_quality(item: Mapping[str, object]) -> bool:
 
 def _support_quality_risk_reasons(item: Mapping[str, object]) -> tuple[str, ...]:
     reasons: list[str] = []
+    planner_reasons = set(_str_tuple(item.get("planner_reason_codes")))
+    if item.get("broad_summary") is True or "broad_summary" in planner_reasons:
+        reasons.append("broad_summary_support")
+    if (
+        item.get("conflict_or_stale") is True
+        or "conflict_or_stale" in planner_reasons
+    ):
+        reasons.append("conflict_or_stale_support")
     answerability_score = _float_value(item.get("answerability_score"))
     if answerability_score is not None and 0 < answerability_score < 0.55:
         reasons.append("low_answerability_support")

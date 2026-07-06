@@ -3145,6 +3145,142 @@ def test_evidence_bundle_planner_completes_required_bridge_with_grounded_relatio
     assert diagnostics["bundle_quality"]["bridge_count"] == 1
 
 
+def test_evidence_bundle_planner_requires_complementary_bridge_value() -> None:
+    primary = _candidate(
+        item_id="primary",
+        covered_evidence_terms=("D1:1",),
+        primary_signal=True,
+        query_support_terms=("caroline", "agency", "support"),
+        relation_hits=("agency", "support"),
+        entity_hits=("caroline",),
+        source_refs=("D1:1",),
+        source_locality_score=1.0,
+        answerability_score=0.88,
+    )
+    duplicate_bridge = _candidate(
+        item_id="duplicate-bridge",
+        dedupe_key="refs:D2:3",
+        query_support_terms=("caroline", "agency", "support"),
+        focused_evidence_score=1.0,
+        relation_hits=("agency", "support"),
+        entity_hits=("caroline",),
+        source_refs=("D2:3",),
+        source_locality_score=0.9,
+        answerability_score=0.82,
+        query_roles=("multi_hop_bridge",),
+        bridge_query_hit=True,
+    )
+
+    plan = EvidenceBundlePlanner().plan(
+        (primary, duplicate_bridge),
+        case_group="multi-hop",
+        required_roles=("primary", "bridge"),
+    )
+
+    assert [item.role for item in plan.items] == ["primary", "entity_disambiguation"]
+    assert plan.satisfied_required_roles == ("primary",)
+    assert plan.missing_required_roles == ("bridge",)
+    diagnostics = plan.to_diagnostics()
+    assert diagnostics["bundle_quality"]["bridge_count"] == 0
+    assert "risk:missing_required_bridge" in diagnostics["bundle_quality"][
+        "reason_codes"
+    ]
+
+
+def test_evidence_bundle_planner_prefers_complementary_bridge_over_duplicate() -> None:
+    primary = _candidate(
+        item_id="primary",
+        covered_evidence_terms=("D1:1",),
+        primary_signal=True,
+        query_support_terms=("caroline", "agency", "support"),
+        relation_hits=("agency", "support"),
+        entity_hits=("caroline",),
+        source_refs=("D1:1",),
+        source_locality_score=1.0,
+        answerability_score=0.88,
+    )
+    duplicate_bridge = _candidate(
+        item_id="duplicate-bridge",
+        dedupe_key="refs:D2:3",
+        query_support_terms=("caroline", "agency", "support"),
+        relation_hits=("agency", "support"),
+        entity_hits=("caroline",),
+        source_refs=("D2:3",),
+        source_locality_score=0.9,
+        answerability_score=0.9,
+        bundle_strength_score=10.0,
+        query_roles=("multi_hop_bridge",),
+        bridge_query_hit=True,
+    )
+    complementary_bridge = _candidate(
+        item_id="complementary-bridge",
+        dedupe_key="refs:D2:4",
+        query_support_terms=("caroline", "agency", "fit"),
+        relation_hits=("agency", "fit"),
+        relation_category_hits=("causal",),
+        entity_hits=("caroline",),
+        source_refs=("D2:4",),
+        source_locality_score=0.9,
+        answerability_score=0.8,
+        bundle_strength_score=1.0,
+        query_roles=("multi_hop_bridge",),
+        bridge_query_hit=True,
+    )
+
+    plan = EvidenceBundlePlanner(max_items=2).plan(
+        (primary, duplicate_bridge, complementary_bridge),
+        case_group="multi-hop",
+        required_roles=("primary", "bridge"),
+    )
+
+    assert [item.candidate.item_id for item in plan.items] == [
+        "primary",
+        "complementary-bridge",
+    ]
+    assert [item.role for item in plan.items] == ["primary", "bridge"]
+    assert plan.satisfied_required_roles == ("primary", "bridge")
+    assert plan.to_diagnostics()["bundle_quality"]["bridge_count"] == 1
+
+
+def test_evidence_bundle_planner_rejects_broad_summary_bridge_false_positive() -> None:
+    primary = _candidate(
+        item_id="primary",
+        covered_evidence_terms=("D1:1",),
+        primary_signal=True,
+        source_refs=("D1:1",),
+        source_locality_score=1.0,
+        answerability_score=0.9,
+    )
+    broad_summary_bridge = _candidate(
+        item_id="broad-summary-bridge",
+        dedupe_key="summary:D2",
+        query_support_terms=("caroline", "agency", "fit"),
+        relation_hits=("agency", "fit"),
+        relation_category_hits=("causal",),
+        entity_hits=("caroline",),
+        broad_summary=True,
+        source_refs=("D2:1", "D2:8", "D2:14"),
+        source_locality_score=0.45,
+        answerability_score=0.72,
+        query_roles=("multi_hop_bridge",),
+        bridge_query_hit=True,
+    )
+
+    plan = EvidenceBundlePlanner().plan(
+        (primary, broad_summary_bridge),
+        case_group="multi-hop",
+        required_roles=("primary", "bridge"),
+    )
+
+    assert [item.role for item in plan.items] == ["primary", "entity_disambiguation"]
+    assert plan.satisfied_required_roles == ("primary",)
+    assert plan.missing_required_roles == ("bridge",)
+    diagnostics = plan.to_diagnostics()
+    assert diagnostics["bundle_quality"]["bridge_count"] == 0
+    assert diagnostics["bundle_quality"]["broad_summary_count"] == 1
+    assert "has_bridge_evidence" not in diagnostics["bundle_quality"]["reason_codes"]
+
+
 def test_evidence_bundle_planner_rejects_diffuse_same_entity_bridge() -> None:
     primary = _candidate(
         item_id="primary",

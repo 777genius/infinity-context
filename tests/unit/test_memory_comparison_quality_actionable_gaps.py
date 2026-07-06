@@ -466,6 +466,382 @@ def test_actionable_summary_reports_answer_context_provenance_gap() -> None:
     ]
 
 
+def test_actionable_summary_reports_answer_context_support_gaps() -> None:
+    summary = actionable_gap_summary(
+        evaluation_count=3,
+        expected_case_count=3,
+        failed_gates=(),
+        query_overlap_count=0,
+        profile_overlap_count=0,
+        intent_overlap_count=0,
+        answer_context_support_gap_summary={
+            "support_gap_context_count": 2,
+            "gap_reason_counts": {
+                "missing_context_source_refs": 2,
+                "missing_required_roles": 1,
+            },
+            "source_counts": {"evidence_bundle": 2},
+            "missing_required_role_counts": {"temporal_support": 1},
+            "samples": [
+                {
+                    "case_id": "context-source-gap",
+                    "group": "multi-hop",
+                    "cutoff": "5",
+                    "source": "evidence_bundle",
+                    "gap_reasons": ["missing_context_source_refs"],
+                    "item_ids": ["safe-item"],
+                    "memory_count": 2,
+                    "source_ref_item_count": 0,
+                    "source_refless_item_count": 2,
+                    "avg_measured_answerability_score": 0.42,
+                },
+                {
+                    "case_id": "context-role-gap",
+                    "group": "temporal",
+                    "cutoff": "5",
+                    "source": "evidence_bundle",
+                    "gap_reasons": ["missing_required_roles"],
+                    "missing_required_roles": ["temporal_support"],
+                    "source_identity_refs": [
+                        "source_session_turn_refs:session_2:D2:7",
+                    ],
+                    "raw_provider_payload": "private",
+                },
+            ],
+        },
+    )
+
+    source_gap = next(
+        gap
+        for gap in summary["ranked_gaps"]
+        if gap["category"] == "answer_context_support"
+        and gap["gap"] == "missing_context_source_refs"
+    )
+    role_gap = next(
+        gap
+        for gap in summary["ranked_gaps"]
+        if gap["category"] == "answer_context_required_role"
+    )
+
+    assert source_gap["severity"] == "diagnostic"
+    assert source_gap["impact_count"] == 2
+    assert source_gap["source_metric"] == (
+        "answer_context_support_gap_summary.gap_reason_counts"
+    )
+    assert source_gap["sample_case_ids"] == ["context-source-gap"]
+    assert source_gap["samples"] == [
+        {
+            "case_id": "context-source-gap",
+            "cutoff": "5",
+            "source": "evidence_bundle",
+            "item_ids": ["safe-item"],
+            "gap_reasons": ["missing_context_source_refs"],
+            "memory_count": 2,
+            "source_refless_item_count": 2,
+            "avg_measured_answerability_score": 0.42,
+        }
+    ]
+    assert role_gap["gap"] == "temporal_support"
+    assert role_gap["sample_case_ids"] == ["context-role-gap"]
+    assert role_gap["samples"] == [
+        {
+            "case_id": "context-role-gap",
+            "cutoff": "5",
+            "source": "evidence_bundle",
+            "gap_reasons": ["missing_required_roles"],
+            "missing_required_roles": ["temporal_support"],
+            "source_identity_refs": ["source_session_turn_refs:session_2:D2:7"],
+        }
+    ]
+    assert "raw_provider_payload" not in json.dumps(role_gap, sort_keys=True)
+
+
+
+def test_actionable_summary_prioritizes_answer_context_support_before_risk_ties() -> None:
+    summary = actionable_gap_summary(
+        evaluation_count=1,
+        expected_case_count=1,
+        failed_gates=(),
+        query_overlap_count=0,
+        profile_overlap_count=0,
+        intent_overlap_count=0,
+        answer_context_support_gap_summary={
+            "support_gap_context_count": 1,
+            "gap_reason_counts": {"missing_context_source_refs": 1},
+            "risk_reason_counts": {"risk:missing_required_role": 1},
+            "source_counts": {"evidence_bundle": 1},
+        },
+    )
+
+    ranked_gaps = summary["ranked_gaps"]
+    support_index = next(
+        index
+        for index, gap in enumerate(ranked_gaps)
+        if gap["category"] == "answer_context_support"
+        and gap["gap"] == "missing_context_source_refs"
+    )
+    risk_index = next(
+        index
+        for index, gap in enumerate(ranked_gaps)
+        if gap["category"] == "answer_context_risk"
+        and gap["gap"] == "risk:missing_required_role"
+    )
+
+    assert support_index < risk_index
+
+def test_actionable_summary_reports_answer_context_risk_reason_gaps() -> None:
+    summary = actionable_gap_summary(
+        evaluation_count=3,
+        expected_case_count=3,
+        failed_gates=(),
+        query_overlap_count=0,
+        profile_overlap_count=0,
+        intent_overlap_count=0,
+        answer_context_support_gap_summary={
+            "support_gap_context_count": 3,
+            "gap_reason_counts": {"low_answerability_backfill": 1},
+            "risk_reason_counts": {
+                "risk:backfilled_low_answerability": 1,
+                "risk:skipped_target_limit_backfill": 1,
+            },
+            "source_counts": {"retrieval_backfill": 2},
+            "samples": [
+                {
+                    "case_id": "low-answerability-risk",
+                    "cutoff": "5",
+                    "source": "retrieval_backfill",
+                    "gap_reasons": ["low_answerability_backfill"],
+                    "risk_reason_codes": ["risk:backfilled_low_answerability"],
+                    "avg_measured_answerability_score": 0.4,
+                    "raw_provider_payload": "excluded",
+                },
+                {
+                    "case_id": "target-limit-risk",
+                    "cutoff": "5",
+                    "source": "retrieval_backfill",
+                    "risk_reason_codes": ["risk:skipped_target_limit_backfill"],
+                    "source_identity_refs": [
+                        "source_session_turn_refs:session_1:D1:2",
+                    ],
+                },
+                {
+                    "case_id": "unrelated-context-gap",
+                    "cutoff": "5",
+                    "source": "evidence_bundle",
+                    "gap_reasons": ["missing_context_source_refs"],
+                },
+            ],
+        },
+    )
+
+    answerability_gap = next(
+        gap
+        for gap in summary["ranked_gaps"]
+        if gap["category"] == "answer_context_risk"
+        and gap["gap"] == "risk:backfilled_low_answerability"
+    )
+    target_limit_gap = next(
+        gap
+        for gap in summary["ranked_gaps"]
+        if gap["category"] == "answer_context_risk"
+        and gap["gap"] == "risk:skipped_target_limit_backfill"
+    )
+
+    assert answerability_gap["source_metric"] == (
+        "answer_context_support_gap_summary.risk_reason_counts"
+    )
+    assert answerability_gap["action"] == (
+        "Backfill answer context with evidence that has stronger measured "
+        "answerability."
+    )
+    assert answerability_gap["sample_case_ids"] == ["low-answerability-risk"]
+    assert answerability_gap["evidence"] == {
+        "support_gap_context_count": 3,
+        "source_counts": {"retrieval_backfill": 2},
+    }
+    assert answerability_gap["samples"] == [
+        {
+            "case_id": "low-answerability-risk",
+            "cutoff": "5",
+            "source": "retrieval_backfill",
+            "gap_reasons": ["low_answerability_backfill"],
+            "risk_reason_codes": ["risk:backfilled_low_answerability"],
+            "avg_measured_answerability_score": 0.4,
+        }
+    ]
+    assert target_limit_gap["sample_case_ids"] == ["target-limit-risk"]
+    assert target_limit_gap["samples"] == [
+        {
+            "case_id": "target-limit-risk",
+            "cutoff": "5",
+            "source": "retrieval_backfill",
+            "risk_reason_codes": ["risk:skipped_target_limit_backfill"],
+            "source_identity_refs": ["source_session_turn_refs:session_1:D1:2"],
+        }
+    ]
+    assert "unrelated-context-gap" not in json.dumps(
+        (answerability_gap, target_limit_gap),
+        sort_keys=True,
+    )
+    assert "raw_provider_payload" not in json.dumps(answerability_gap, sort_keys=True)
+
+
+def test_actionable_summary_preserves_skipped_answer_context_counts() -> None:
+    summary = actionable_gap_summary(
+        evaluation_count=2,
+        expected_case_count=2,
+        failed_gates=(),
+        query_overlap_count=0,
+        profile_overlap_count=0,
+        intent_overlap_count=0,
+        answer_context_support_gap_summary={
+            "support_gap_context_count": 1,
+            "gap_reason_counts": {
+                "skipped_redundant_source_backfill": 1,
+                "skipped_redundant_role_backfill": 1,
+                "skipped_target_limit_backfill": 1,
+                "skipped_duplicate_source_bundle_item": 1,
+                "skipped_noisy_overlap_bundle_item": 1,
+            },
+            "source_counts": {"evidence_bundle": 1},
+            "samples": [
+                {
+                    "case_id": "skipped-context-support",
+                    "cutoff": "5",
+                    "source": "evidence_bundle",
+                    "gap_reasons": [
+                        "skipped_redundant_source_backfill",
+                        "skipped_redundant_role_backfill",
+                        "skipped_target_limit_backfill",
+                        "skipped_duplicate_source_bundle_item",
+                        "skipped_noisy_overlap_bundle_item",
+                    ],
+                    "backfilled_retrieval_item_count": 4,
+                    "skipped_redundant_risky_backfill_count": 3,
+                    "skipped_redundant_source_backfill_count": 2,
+                    "skipped_redundant_role_backfill_count": 1,
+                    "skipped_target_limit_backfill_count": 5,
+                    "skipped_duplicate_source_bundle_item_count": 1,
+                    "skipped_noisy_overlap_bundle_item_count": 2,
+                    "raw_provider_payload": "private",
+                }
+            ],
+        },
+    )
+
+    duplicate_gap = next(
+        gap
+        for gap in summary["ranked_gaps"]
+        if gap["gap"] == "skipped_duplicate_source_bundle_item"
+    )
+    noisy_gap = next(
+        gap
+        for gap in summary["ranked_gaps"]
+        if gap["gap"] == "skipped_noisy_overlap_bundle_item"
+    )
+
+    assert duplicate_gap["action"] == (
+        "Diversify selected answer-context bundle sources before duplicate-source "
+        "suppression drops supporting evidence."
+    )
+    assert noisy_gap["action"] == (
+        "Select cleaner supporting evidence so noisy-overlap suppression does "
+        "not remove answer-context support."
+    )
+    assert duplicate_gap["samples"] == [
+        {
+            "case_id": "skipped-context-support",
+            "cutoff": "5",
+            "source": "evidence_bundle",
+            "gap_reasons": [
+                "skipped_redundant_source_backfill",
+                "skipped_redundant_role_backfill",
+                "skipped_target_limit_backfill",
+                "skipped_duplicate_source_bundle_item",
+                "skipped_noisy_overlap_bundle_item",
+            ],
+            "backfilled_retrieval_item_count": 4,
+            "skipped_redundant_risky_backfill_count": 3,
+            "skipped_redundant_source_backfill_count": 2,
+            "skipped_redundant_role_backfill_count": 1,
+            "skipped_target_limit_backfill_count": 5,
+            "skipped_duplicate_source_bundle_item_count": 1,
+            "skipped_noisy_overlap_bundle_item_count": 2,
+        }
+    ]
+    assert noisy_gap["samples"] == duplicate_gap["samples"]
+    assert "raw_provider_payload" not in json.dumps(
+        (duplicate_gap, noisy_gap),
+        sort_keys=True,
+    )
+
+
+def test_actionable_summary_reports_answer_context_availability_gaps() -> None:
+    summary = actionable_gap_summary(
+        evaluation_count=2,
+        expected_case_count=2,
+        failed_gates=(),
+        query_overlap_count=0,
+        profile_overlap_count=0,
+        intent_overlap_count=0,
+        answer_context_support_gap_summary={
+            "expected_context_count": 2,
+            "context_count": 0,
+            "missing_answer_context_count": 1,
+            "unsupported_answer_context_count": 1,
+            "availability_gap_samples": [
+                {
+                    "case_id": "missing-context",
+                    "cutoff": "3",
+                    "source": "missing",
+                    "gap_reasons": ["missing_answer_context"],
+                },
+                {
+                    "case_id": "unsupported-context",
+                    "cutoff": "5",
+                    "source": "unsupported",
+                    "gap_reasons": ["unsupported_answer_context"],
+                },
+            ],
+        },
+    )
+
+    missing_gap = next(
+        gap
+        for gap in summary["ranked_gaps"]
+        if gap["category"] == "answer_context_availability"
+        and gap["gap"] == "missing_answer_context"
+    )
+    unsupported_gap = next(
+        gap
+        for gap in summary["ranked_gaps"]
+        if gap["category"] == "answer_context_availability"
+        and gap["gap"] == "unsupported_answer_context"
+    )
+
+    assert missing_gap["source_metric"] == (
+        "answer_context_support_gap_summary.missing_answer_context_count"
+    )
+    assert missing_gap["sample_case_ids"] == ["missing-context"]
+    assert missing_gap["samples"] == [
+        {
+            "case_id": "missing-context",
+            "cutoff": "3",
+            "source": "missing",
+            "gap_reasons": ["missing_answer_context"],
+        }
+    ]
+    assert unsupported_gap["sample_case_ids"] == ["unsupported-context"]
+    assert unsupported_gap["samples"] == [
+        {
+            "case_id": "unsupported-context",
+            "cutoff": "5",
+            "source": "unsupported",
+            "gap_reasons": ["unsupported_answer_context"],
+        }
+    ]
+
+
 def test_actionable_summary_bounds_answer_context_provenance_samples() -> None:
     long_value = "x" * 200
     summary = actionable_gap_summary(

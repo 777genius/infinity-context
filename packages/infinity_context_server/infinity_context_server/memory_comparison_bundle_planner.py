@@ -14,6 +14,9 @@ from infinity_context_server.memory_comparison_bundle_source_windows import (
     is_redundant_source_window_filler,
 )
 from infinity_context_server.memory_comparison_source_identity import (
+    safe_source_label_for_output as _safe_source_label_for_output,
+)
+from infinity_context_server.memory_comparison_source_identity import (
     source_identity_refs_from_dedupe_key as _source_identity_refs_from_dedupe_key,
 )
 from infinity_context_server.memory_comparison_source_identity import (
@@ -35,6 +38,7 @@ _TYPED_RELATION_SUPPORT_CATEGORIES = {
     "age_support": frozenset({"age_profile"}),
     "alias_support": frozenset({"alias_profile"}),
     "commitment_support": frozenset({"commitment_profile"}),
+    "community_membership_support": frozenset({"community_membership"}),
     "contact_support": frozenset({"contact_profile"}),
     "current_goal_support": frozenset({"current_goal"}),
     "date_support": frozenset({"date_profile"}),
@@ -212,12 +216,17 @@ class PlannedEvidenceItem:
             ("source_refs:", "source_turn_refs:", "source_session_turn_refs:")
         ):
             payload["source_ref_dedupe_key"] = self.candidate.dedupe_key
-        if self.candidate.source_type != "unknown":
-            payload["source_type"] = self.candidate.source_type
-        if self.candidate.source_types:
-            payload["source_types"] = list(self.candidate.source_types)
-        if self.candidate.retrieval_sources:
-            payload["retrieval_sources"] = list(self.candidate.retrieval_sources)
+        source_type = _safe_source_label_for_output(self.candidate.source_type)
+        if source_type and source_type != "unknown":
+            payload["source_type"] = source_type
+        source_types = _safe_source_labels_for_output(self.candidate.source_types)
+        if source_types:
+            payload["source_types"] = list(source_types)
+        retrieval_sources = _safe_source_labels_for_output(
+            self.candidate.retrieval_sources
+        )
+        if retrieval_sources:
+            payload["retrieval_sources"] = list(retrieval_sources)
         if self.candidate.query_roles:
             payload["query_roles"] = list(self.candidate.query_roles)
         if self.candidate.relation_categories:
@@ -304,8 +313,10 @@ class EvidenceBundlePlan:
             "role_requirement_complete": self.role_requirement_complete,
             "required_role_repair_count": len(self.repaired_required_roles),
             "repaired_required_roles": list(self.repaired_required_roles),
-            "source_type_counts": dict(self.source_type_counts),
-            "retrieval_source_counts": dict(self.retrieval_source_counts),
+            "source_type_counts": _safe_source_label_counts(self.source_type_counts),
+            "retrieval_source_counts": _safe_source_label_counts(
+                self.retrieval_source_counts
+            ),
             "covered_required_term_count": len(
                 {
                     term
@@ -550,6 +561,7 @@ class EvidenceBundlePlanner:
         covered_terms: set[str] = set()
         covered_support_terms: set[str] = set()
         covered_list_items: set[str] = set()
+        covered_bridge_value_terms: set[str] = set()
         dropped_diversity_count = 0
         dropped_source_type_diversity_count = 0
         dropped_retrieval_source_diversity_count = 0
@@ -601,6 +613,12 @@ class EvidenceBundlePlanner:
                 and not adds_required_terms
                 and not adds_query_support_terms
             )
+            bridge_value_terms = _candidate_bridge_value_terms(item.candidate)
+            redundant_bridge_value = (
+                item.role == "bridge"
+                and bool(bridge_value_terms)
+                and bridge_value_terms.issubset(covered_bridge_value_terms)
+            )
             redundant_source_window = is_redundant_source_window_filler(
                 item,
                 remaining=remaining,
@@ -643,6 +661,7 @@ class EvidenceBundlePlanner:
                 or noisy_source_overlap
                 or redundant_source_window
                 or redundant_list_items
+                or redundant_bridge_value
             )
             if should_drop:
                 dropped_diversity_count += 1
@@ -675,6 +694,8 @@ class EvidenceBundlePlanner:
             covered_terms.update(item.candidate.required_terms)
             covered_support_terms.update(item.candidate.query_support_terms)
             covered_list_items.update(_candidate_list_items(item.candidate))
+            if item.role == "bridge":
+                covered_bridge_value_terms.update(bridge_value_terms)
         if remaining:
             (
                 max_dropped_count,
@@ -730,7 +751,7 @@ def _role_for_candidate(
         return "negative_support"
     if candidate.conflict_or_stale or candidate.contrast_surface:
         return "contrast"
-    if _is_bridge_candidate(candidate, case_group=case_group):
+    if _is_bridge_candidate(candidate, primary=primary, case_group=case_group):
         return "bridge"
     if _candidate_has_negative_absence_support(candidate):
         return "negative_support"
@@ -834,9 +855,15 @@ def _role_for_candidate(
 def _is_bridge_candidate(
     candidate: EvidenceBundleCandidate,
     *,
+    primary: EvidenceBundleCandidate | None,
     case_group: str,
 ) -> bool:
     if case_group != "multi-hop":
+        return False
+    if primary is not None and not _candidate_has_complementary_bridge_value(
+        candidate,
+        primary,
+    ):
         return False
     return _candidate_has_bridge_grounding(candidate)
 
@@ -875,6 +902,37 @@ def _candidate_has_bridge_query_provenance(
     return bool(
         candidate.bridge_query_hit
         or "multi_hop_bridge" in set(candidate.query_roles)
+    )
+
+
+def _candidate_has_complementary_bridge_value(
+    candidate: EvidenceBundleCandidate,
+    primary: EvidenceBundleCandidate,
+) -> bool:
+    bridge_terms = _candidate_bridge_value_terms(candidate)
+    if not bridge_terms:
+        return False
+    primary_terms = _candidate_bridge_value_terms(primary)
+    if not primary_terms:
+        return True
+    return bool(bridge_terms.difference(primary_terms))
+
+
+def _candidate_bridge_value_terms(
+    candidate: EvidenceBundleCandidate,
+) -> frozenset[str]:
+    person_terms = set(_candidate_person_grounding_terms(candidate))
+    return frozenset(
+        normalized
+        for value in (
+            *candidate.covered_expected_terms,
+            *candidate.covered_evidence_terms,
+            *candidate.query_support_terms,
+            *candidate.relation_hits,
+            *candidate.relation_category_hits,
+        )
+        for normalized in (str(value).strip().casefold(),)
+        if normalized and normalized not in person_terms
     )
 
 
@@ -1684,12 +1742,20 @@ def _selection_has_bridge_support(selected: Sequence[PlannedEvidenceItem]) -> bo
     if any(
         _candidate_has_bridge_grounding(item.candidate)
         and _candidate_is_distinct_from_primary(item.candidate, primary_items)
+        and _candidate_has_complementary_bridge_value_for_primary_items(
+            item.candidate,
+            primary_items,
+        )
         for item in non_primary_items
     ):
         return True
     return any(
         _candidate_has_distinct_multi_hop_support(item)
         and _candidate_is_distinct_from_primary(item.candidate, primary_items)
+        and _candidate_has_complementary_bridge_value_for_primary_items(
+            item.candidate,
+            primary_items,
+        )
         for item in non_primary_items
     ) or _selection_has_source_chain_bridge_support(
         non_primary_items,
@@ -1714,6 +1780,16 @@ def _candidate_has_distinct_multi_hop_support(item: PlannedEvidenceItem) -> bool
     support_terms = tuple(dict.fromkeys(candidate.query_support_terms))
     return bool(
         candidate.focused_evidence_score > 0 and len(support_terms) >= 2
+    )
+
+
+def _candidate_has_complementary_bridge_value_for_primary_items(
+    candidate: EvidenceBundleCandidate,
+    primary_items: Sequence[PlannedEvidenceItem],
+) -> bool:
+    return any(
+        _candidate_has_complementary_bridge_value(candidate, primary_item.candidate)
+        for primary_item in primary_items
     )
 
 
@@ -1747,6 +1823,10 @@ def _selection_has_source_chain_bridge_support(
         if (
             _candidate_has_source_chain_multi_hop_support(candidate)
             and _candidate_is_distinct_from_primary(candidate, primary_items)
+            and _candidate_has_complementary_bridge_value_for_primary_items(
+                candidate,
+                primary_items,
+            )
             and (
                 (
                     primary_distance is not None
@@ -1838,27 +1918,42 @@ def _candidate_has_obsolete_primary_surface(
 
 def _retrieval_source_keys(candidate: EvidenceBundleCandidate) -> tuple[str, ...]:
     if candidate.retrieval_sources:
-        return tuple(
-            dict.fromkeys(
-                source
-                for source in candidate.retrieval_sources
-                if str(source).strip()
-            )
-        )
+        sources = _safe_source_labels_for_output(candidate.retrieval_sources)
+        if sources:
+            return sources
     source_types = _source_type_keys(candidate)
     if source_types:
         return tuple(f"source_type:{source_type}" for source_type in source_types)
-    return (f"source_type:{candidate.source_type}",)
+    source_type = _safe_source_label_for_output(candidate.source_type)
+    if source_type and source_type != "unknown":
+        return (f"source_type:{source_type}",)
+    return ()
+
+
+def _safe_source_labels_for_output(values: Sequence[object]) -> tuple[str, ...]:
+    return tuple(
+        dict.fromkeys(
+            label
+            for value in values
+            for label in (_safe_source_label_for_output(value),)
+            if label
+        )
+    )
+
+
+def _safe_source_label_counts(values: Mapping[str, int]) -> dict[str, int]:
+    counts: Counter[str] = Counter()
+    for value, count in values.items():
+        label = _safe_source_label_for_output(value)
+        if label:
+            counts[label] += count
+    return dict(counts)
 
 
 def _source_type_keys(candidate: EvidenceBundleCandidate) -> tuple[str, ...]:
     values = candidate.source_types or (candidate.source_type,)
-    return tuple(
-        dict.fromkeys(
-            value
-            for value in values
-            if str(value).strip() and str(value).strip() != "unknown"
-        )
+    return _safe_source_labels_for_output(
+        tuple(value for value in values if str(value).strip() != "unknown")
     )
 
 

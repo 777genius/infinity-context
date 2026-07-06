@@ -10,8 +10,8 @@ from infinity_context_core.domain.entities import SourceRef
 
 _SOURCE_GROUNDING_QUERY_RE = re.compile(
     r"\b(?:which|what|where)\b.{0,80}\b"
-    r"(?:dialogue|source|turn|evidence|citation|quote|support(?:s|ed)?)\b"
-    r"|\b(?:dialogue|source|turn|conversation|evidence|citation|quote)\b"
+    r"(?:dialog(?:ue)?|source|turn|evidence|citation|quote|support(?:s|ed)?)\b"
+    r"|\b(?:dialog(?:ue)?|source|turn|conversation|evidence|citation|quote)\b"
     r".{0,80}\b(?:support(?:s|ed)?|show(?:s|ed)?|prove(?:s|d)?|say|said|told|mentioned)\b"
     r"|\bwhere\b.{0,80}\b(?:came|come)\s+from\b"
     r"|\bwho\b.{0,80}\b"
@@ -37,7 +37,7 @@ _NEGATION_RE = re.compile(
     re.IGNORECASE,
 )
 _DIALOGUE_SOURCE_QUERY_RE = re.compile(
-    r"\b(?:dialogue|turn)\b|\bwho\b.{0,80}\b"
+    r"\b(?:dialog(?:ue)?|turn)\b|\bwho\b.{0,80}\b"
     r"(?:said|told|mentioned|recommended|suggested|asked|advised|invited|"
     r"called|texted|messaged|discussed|talked)\b",
     re.IGNORECASE | re.DOTALL,
@@ -50,6 +50,7 @@ _QUERY_STOPWORDS = frozenset(
         "came",
         "citation",
         "conversation",
+        "dialog",
         "dialogue",
         "did",
         "does",

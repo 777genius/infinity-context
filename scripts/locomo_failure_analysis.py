@@ -39,6 +39,7 @@ _LIST_QUESTION_MARKERS = (
 )
 _MAX_TEMPORAL_GROUNDING_EXAMPLES = 5
 _MAX_TEMPORAL_GROUNDING_SAMPLE_EXAMPLES = 2
+_MAX_SOURCE_LOCALITY_WINDOWS = 3
 _MAX_SUMMARY_TEXT_CHARS = 240
 _MAX_SUMMARY_LIST_ITEMS = 8
 _MAX_SUMMARY_MAPPING_ITEMS = 20
@@ -51,6 +52,17 @@ _TEMPORAL_GROUNDING_SAMPLE_KEYS = (
     "source_refs",
     "issue_reasons",
     "grounding_signals",
+)
+_SOURCE_LOCALITY_WINDOW_KEYS = (
+    "ref",
+    "source_id",
+    "retrieved_same_source",
+    "bundle_same_source",
+    "nearest_retrieved_turn_ref",
+    "nearest_retrieved_turn_distance",
+    "nearest_bundle_turn_ref",
+    "nearest_bundle_turn_distance",
+    "cause",
 )
 
 
@@ -113,7 +125,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         args.benchmark_args_out.parent.mkdir(parents=True, exist_ok=True)
         args.benchmark_args_out.write_text(_benchmark_args(case_ids), encoding="utf-8")
 
-    summary = _summary(failures, top=args.top)
+    summary = _summary_from_report(report, failures=failures, top=args.top)
     if args.summary_out is not None:
         args.summary_out.parent.mkdir(parents=True, exist_ok=True)
         args.summary_out.write_text(
@@ -135,7 +147,16 @@ def _load_report(path: Path) -> Mapping[str, object]:
 def _failures(report: Mapping[str, object]) -> tuple[Mapping[str, object], ...]:
     failures = report.get("failures")
     if isinstance(failures, list):
-        return tuple(item for item in failures if isinstance(item, Mapping))
+        failure_rows = tuple(item for item in failures if isinstance(item, Mapping))
+        if failure_rows:
+            return failure_rows
+    failure_analysis = report.get("failure_analysis")
+    if isinstance(failure_analysis, list):
+        analysis_rows = tuple(
+            item for item in failure_analysis if isinstance(item, Mapping)
+        )
+        if analysis_rows:
+            return analysis_rows
     cases = report.get("cases")
     if isinstance(cases, list):
         return tuple(
@@ -294,6 +315,135 @@ def _summary(failures: Sequence[Mapping[str, object]], *, top: int) -> dict[str,
     }
 
 
+def _summary_from_report(
+    report: Mapping[str, object],
+    *,
+    failures: Sequence[Mapping[str, object]],
+    top: int,
+) -> dict[str, object]:
+    summary = _summary(failures, top=top)
+    provenance = _compact_failure_provenance_summary(report)
+    if not provenance:
+        return summary
+    return _with_compact_failure_provenance(summary, provenance, top=top)
+
+
+def _compact_failure_provenance_summary(
+    report: Mapping[str, object],
+) -> Mapping[str, object]:
+    diagnostics = _mapping(report.get("diagnostics"))
+    provenance = _mapping(diagnostics.get("failure_provenance_summary"))
+    if str(provenance.get("schema_version") or "") != (
+        "compact_failure_provenance_summary.v1"
+    ):
+        return {}
+    return provenance
+
+
+def _with_compact_failure_provenance(
+    summary: dict[str, object],
+    provenance: Mapping[str, object],
+    *,
+    top: int,
+) -> dict[str, object]:
+    top_limit = max(0, top)
+    failure_count = _non_negative_int(provenance.get("failure_count"))
+    if failure_count is not None:
+        summary["failure_count"] = max(
+            int(summary.get("failure_count") or 0),
+            failure_count,
+        )
+
+    root_tags = Counter(_mapping(summary.get("root_cause_tag_count")))
+    for tag, count in _compact_root_cause_tag_counts(provenance).items():
+        root_tags[tag] = max(root_tags.get(tag, 0), count)
+    summary["root_cause_tag_count"] = dict(root_tags.most_common(top_limit))
+
+    locality = _mapping(provenance.get("missing_evidence_source_locality"))
+    source_counts = Counter(_mapping(summary.get("top_missing_evidence_sources")))
+    for source_id, count in _count_mapping(
+        locality.get("top_missing_source_ids")
+    ).items():
+        source_counts[source_id] = max(source_counts.get(source_id, 0), count)
+    summary["top_missing_evidence_sources"] = dict(
+        source_counts.most_common(top_limit)
+    )
+
+    gap_causes = Counter(_mapping(summary.get("provenance_gap_cause_count")))
+    for cause, count in _compact_provenance_gap_cause_counts(locality).items():
+        gap_causes[cause] = max(gap_causes.get(cause, 0), count)
+    summary["provenance_gap_cause_count"] = dict(gap_causes.most_common(top_limit))
+    return summary
+
+
+def _compact_root_cause_tag_counts(
+    provenance: Mapping[str, object],
+) -> Counter[str]:
+    reason_counts = _count_mapping(provenance.get("diagnostic_reason_counts"))
+    tag_counts: Counter[str] = Counter()
+    for reason, count in reason_counts.items():
+        tag = _compact_diagnostic_reason_root_tag(reason)
+        if tag:
+            tag_counts[tag] += count
+    return tag_counts
+
+
+def _compact_diagnostic_reason_root_tag(reason: str) -> str:
+    return {
+        "no_retrieved_items": "retrieval:no_retrieved_items",
+        "no_expected_term_support": "retrieval:no_expected_term_support",
+        "partial_expected_term_support": "retrieval:partial_expected_term_support",
+        "missing_evidence_refs": "evidence:missing_refs",
+        "partial_evidence_ref_support": "evidence:partial_refs",
+        "missing_evidence_source_absent": "evidence:missing_source_absent",
+        "missing_evidence_source_window_miss": "evidence:source_window_miss",
+        "selected_low_answerability_evidence": "evidence:selected_low_answerability",
+        "selected_weak_source_locality_evidence": (
+            "evidence:selected_weak_source_locality"
+        ),
+        "selected_bundle_source_refless_evidence": (
+            "evidence:selected_bundle_source_refless"
+        ),
+        "selected_temporal_grounding_issues": "temporal_grounding:issue",
+        "answer_context_fallback": "answer_context:fallback",
+        "answer_context_source_refless": "answer_context:source_refless",
+        "answer_context_missing_required_roles": (
+            "answer_context:missing_required_roles"
+        ),
+        "answer_context_backfilled_retrieval": (
+            "answer_context:backfilled_retrieval"
+        ),
+        "answer_context_risk_reasons_present": "answer_context:risk_reasons",
+        "bundle_incomplete": "bundle:incomplete",
+        "weak_evidence_bundle": "bundle:weak",
+        "judge_score_below_threshold": "judgment:score_below_threshold",
+    }.get(reason, "")
+
+
+def _compact_provenance_gap_cause_counts(
+    locality: Mapping[str, object],
+) -> Counter[str]:
+    source_absent_count = _positive_int(locality.get("source_absent_count")) or 0
+    near_retrieved_window_count = (
+        _positive_int(locality.get("near_retrieved_window_count")) or 0
+    )
+    same_source_count = _positive_int(locality.get("same_source_missing_count")) or 0
+    return Counter(
+        {
+            cause: count
+            for cause, count in {
+                "source_absent": source_absent_count,
+                "near_retrieved_window": near_retrieved_window_count,
+                "same_source_miss": max(
+                    same_source_count - near_retrieved_window_count,
+                    0,
+                ),
+            }.items()
+            if count > 0
+        }
+    )
+
+
 def _strings(value: object) -> tuple[str, ...]:
     if not isinstance(value, Sequence) or isinstance(value, str | bytes):
         return ()
@@ -344,7 +494,13 @@ def _missing_evidence_refs(failure: Mapping[str, object]) -> tuple[str, ...]:
     direct = _strings(failure.get("missing_evidence_refs"))
     if direct:
         return direct
+    direct_terms = _strings(failure.get("missing_evidence_terms"))
+    if direct_terms:
+        return direct_terms
     diagnostics = _mapping(failure.get("diagnostics"))
+    diagnostic_refs = _strings(diagnostics.get("missing_evidence_refs"))
+    if diagnostic_refs:
+        return diagnostic_refs
     return _strings(diagnostics.get("missing_evidence_terms"))
 
 
@@ -514,10 +670,41 @@ def _missing_evidence_source_locality_summary(
         or 0,
         "source_absent_count": _positive_int(locality.get("source_absent_count")) or 0,
     }
+    for key in (
+        "retrieved_source_id_count",
+        "bundle_source_id_count",
+        "missing_ref_window_count",
+        "missing_ref_window_omitted_count",
+    ):
+        if (count := _non_negative_int(locality.get(key))) is not None:
+            summary[key] = count
+    for key in ("retrieved_source_ids", "bundle_source_ids"):
+        values = _strings(locality.get(key))
+        if values:
+            summary[key] = list(values[:_MAX_SUMMARY_LIST_ITEMS])
+    windows = _safe_source_locality_windows(locality.get("missing_ref_windows"))
+    if windows:
+        summary["missing_ref_windows"] = windows
     cause_counts = _provenance_gap_cause_counts(failure)
     if cause_counts:
         summary["cause_counts"] = dict(cause_counts)
     return summary if any(summary.values()) else None
+
+
+def _safe_source_locality_windows(value: object) -> list[dict[str, object]]:
+    windows: list[dict[str, object]] = []
+    for raw_window in _sequence(value)[:_MAX_SOURCE_LOCALITY_WINDOWS]:
+        window = _mapping(raw_window)
+        if not window:
+            continue
+        payload = {
+            key: _safe_summary_value(window[key])
+            for key in _SOURCE_LOCALITY_WINDOW_KEYS
+            if key in window
+        }
+        if payload:
+            windows.append(payload)
+    return windows
 
 
 def _provenance_gap_cause_counts(failure: Mapping[str, object]) -> Counter[str]:
@@ -594,11 +781,31 @@ def _answer_context_summary(failure: Mapping[str, object]) -> dict[str, object] 
     )
     if source_identity_ref_count:
         summary["source_identity_ref_count"] = source_identity_ref_count
+    source_identity_ref_omitted_count = (
+        _positive_int(context.get("source_identity_ref_omitted_count")) or 0
+    )
+    if source_identity_ref_omitted_count:
+        summary["source_identity_ref_omitted_count"] = (
+            source_identity_ref_omitted_count
+        )
+        summary["source_identity_ref_sample_limit"] = (
+            _positive_int(context.get("source_identity_ref_sample_limit")) or 0
+        )
     source_identity_item_count = (
         _positive_int(context.get("source_identity_item_count")) or 0
     )
     if source_identity_item_count:
         summary["source_identity_item_count"] = source_identity_item_count
+    source_identity_item_omitted_count = (
+        _positive_int(context.get("source_identity_item_omitted_count")) or 0
+    )
+    if source_identity_item_omitted_count:
+        summary["source_identity_item_omitted_count"] = (
+            source_identity_item_omitted_count
+        )
+        summary["source_identity_item_sample_limit"] = (
+            _positive_int(context.get("source_identity_item_sample_limit")) or 0
+        )
     fallback_reason = str(context.get("fallback_reason") or "")
     if fallback_reason:
         summary["fallback_reason"] = _compact_summary_text(fallback_reason)
@@ -642,6 +849,10 @@ def _answer_context_provenance_counts(failure: Mapping[str, object]) -> Counter[
         counts["source_identity_items_present"] += 1
     if source_ref_count <= 0 and source_ref_item_count <= 0 and source_identity_ref_count > 0:
         counts["identity_only_provenance_present"] += 1
+    if (_positive_int(context.get("source_identity_ref_omitted_count")) or 0) > 0:
+        counts["source_identity_ref_samples_omitted"] += 1
+    if (_positive_int(context.get("source_identity_item_omitted_count")) or 0) > 0:
+        counts["source_identity_item_samples_omitted"] += 1
     if str(context.get("fallback_reason") or ""):
         counts["fallback_present"] += 1
     if backfilled_count > 0:
@@ -729,12 +940,25 @@ def _query_role_gap_summary(failure: Mapping[str, object]) -> dict[str, object] 
         summary["gap_reason_counts"] = dict(reason_counts.most_common(_MAX_SUMMARY_LIST_ITEMS))
     if role_counts:
         summary["gap_role_counts"] = dict(role_counts.most_common(_MAX_SUMMARY_LIST_ITEMS))
-    top_role_gaps = _safe_query_role_gaps(_mapping(breakdown.get("role_gaps")))
+    role_gaps = _mapping(breakdown.get("role_gaps"))
+    top_role_gaps = _safe_query_role_gaps(role_gaps)
     if top_role_gaps:
         summary["top_role_gaps"] = top_role_gaps
-    top_family_gaps = _safe_query_role_gaps(_mapping(breakdown.get("role_family_gaps")))
+        omitted_count = _query_role_gap_omitted_count(role_gaps, shown_count=len(top_role_gaps))
+        if omitted_count:
+            summary["top_role_gap_omitted_count"] = omitted_count
+            summary["top_role_gap_sample_limit"] = _MAX_SUMMARY_LIST_ITEMS
+    role_family_gaps = _mapping(breakdown.get("role_family_gaps"))
+    top_family_gaps = _safe_query_role_gaps(role_family_gaps)
     if top_family_gaps:
         summary["top_role_family_gaps"] = top_family_gaps
+        omitted_count = _query_role_gap_omitted_count(
+            role_family_gaps,
+            shown_count=len(top_family_gaps),
+        )
+        if omitted_count:
+            summary["top_role_family_gap_omitted_count"] = omitted_count
+            summary["top_role_family_gap_sample_limit"] = _MAX_SUMMARY_LIST_ITEMS
     return summary or None
 
 
@@ -774,6 +998,19 @@ def _safe_query_role_gaps(
         if len(safe_gaps) >= _MAX_SUMMARY_LIST_ITEMS:
             break
     return safe_gaps
+
+
+def _query_role_gap_omitted_count(
+    role_gaps: Mapping[str, object],
+    *,
+    shown_count: int,
+) -> int:
+    eligible_count = sum(
+        1
+        for raw_gap in role_gaps.values()
+        if _strings(_mapping(raw_gap).get("gap_reasons"))
+    )
+    return max(eligible_count - shown_count, 0)
 
 
 def _temporal_grounding_summary(
@@ -872,6 +1109,16 @@ def _positive_int(value: object) -> int | None:
     except (TypeError, ValueError):
         return None
     return parsed if parsed > 0 else None
+
+
+def _non_negative_int(value: object) -> int | None:
+    if isinstance(value, bool):
+        return None
+    try:
+        parsed = int(value)  # type: ignore[arg-type]
+    except (TypeError, ValueError):
+        return None
+    return parsed if parsed >= 0 else None
 
 
 def _filter_failures(

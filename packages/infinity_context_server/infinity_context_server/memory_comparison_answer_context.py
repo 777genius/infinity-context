@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from collections import Counter
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
@@ -40,6 +41,9 @@ from infinity_context_server.memory_comparison_source_identity import (
 )
 from infinity_context_server.memory_comparison_source_identity import (
     safe_source_identity_ref as _safe_source_identity_ref,
+)
+from infinity_context_server.memory_comparison_source_identity import (
+    safe_source_label_for_output as _safe_source_label_for_output,
 )
 from infinity_context_server.memory_comparison_source_identity import (
     safe_source_refs_for_output as _safe_source_refs_for_output,
@@ -1821,13 +1825,13 @@ def _with_answer_context_metadata(
     query_roles = _string_tuple(bundle_item.get("query_roles"))
     if query_roles:
         metadata["answer_context_query_roles"] = query_roles
-    source_type = str(bundle_item.get("source_type") or "").strip()
+    source_type = _safe_source_label_for_output(bundle_item.get("source_type"))
     if source_type:
         metadata["answer_context_source_type"] = source_type
-    source_types = _string_tuple(bundle_item.get("source_types"))
+    source_types = _safe_source_label_tuple(bundle_item.get("source_types"))
     if source_types:
         metadata["answer_context_source_types"] = source_types
-    retrieval_sources = _string_tuple(bundle_item.get("retrieval_sources"))
+    retrieval_sources = _safe_source_label_tuple(bundle_item.get("retrieval_sources"))
     if retrieval_sources:
         metadata["answer_context_retrieval_sources"] = retrieval_sources
     relation_category_hits = _string_tuple(bundle_item.get("relation_category_hits"))
@@ -1851,6 +1855,11 @@ def _with_answer_context_metadata(
             source_locality_score,
             6,
         )
+        if _is_measured_weak_source_locality(source_locality_score):
+            _add_answer_context_risk_codes(
+                metadata,
+                ("risk:selected_weak_source_locality",),
+            )
     source_refs = _merged_source_refs(memory, bundle_item)
     return RetrievedMemory(
         text=memory.text,
@@ -2491,7 +2500,10 @@ def _source_identity_stats(memories: Sequence[RetrievedMemory]) -> dict[str, obj
         retrieval_order = _positive_int(
             memory.metadata.get("answer_context_retrieval_order")
         )
-        if retrieval_order is not None:
+        if (
+            retrieval_order is not None
+            and memory.metadata.get("answer_context_role") != "retrieval_slice"
+        ):
             item["retrieval_order"] = retrieval_order
         source_identity_items.append(item)
 
@@ -2692,10 +2704,12 @@ def _source_identity_refs_from_memory(
         if include_compacted_fusion_refs or not compacted_fusion_refs
         else ()
     )
+    metadata_source_refs = _metadata_source_ref_values(memory.metadata)
     source_refs = tuple(
         dict.fromkeys(
             (
                 *(str(ref).strip() for ref in memory.source_refs if str(ref).strip()),
+                *metadata_source_refs,
                 *fusion_source_refs,
             )
         )
@@ -2720,6 +2734,175 @@ def _source_identity_refs_from_memory(
     )
 
 
+def _metadata_source_ref_values(metadata: Mapping[str, object]) -> tuple[str, ...]:
+    refs: list[str] = []
+    for key in (
+        "source_identity",
+        "source_identity_ref",
+        "source_identity_refs",
+        "source_identity_items",
+        "source_ref",
+        "source_refs",
+        "source_ref_payloads",
+    ):
+        refs.extend(_source_ref_values_from_payload(metadata.get(key)))
+    nested = metadata.get("metadata")
+    if isinstance(nested, Mapping):
+        refs.extend(_metadata_source_ref_values(nested))
+    return tuple(dict.fromkeys(refs))
+
+
+def _source_ref_values_from_payload(value: object) -> tuple[str, ...]:
+    if isinstance(value, str):
+        stripped = value.strip()
+        return (stripped,) if stripped else ()
+    if isinstance(value, Mapping):
+        return _source_ref_values_from_mapping(value)
+    return tuple(
+        ref
+        for item in _sequence(value)
+        for ref in _source_ref_values_from_payload(item)
+    )
+
+
+def _source_ref_values_from_mapping(value: Mapping[str, object]) -> tuple[str, ...]:
+    safe_refs = _safe_source_refs_for_output((value,))
+    if safe_refs:
+        return safe_refs
+
+    refs: list[str] = []
+    for key in (
+        "source_id",
+        "source_external_id",
+        "source_identity",
+        "source_identity_ref",
+        "source_ref",
+        "session_key",
+        "dia_id",
+        "locomo_evidence_ref",
+        "evidence_id",
+        "evidence_ref",
+        "source_evidence_ref",
+        "turn_ref",
+        "turn_id",
+        "source_turn_ref",
+    ):
+        raw_ref = value.get(key)
+        if isinstance(raw_ref, str) and raw_ref.strip():
+            refs.append(raw_ref.strip())
+    structured_turn_ref = _structured_turn_ref_from_mapping(value)
+    if structured_turn_ref:
+        refs.append(structured_turn_ref)
+    for key in (
+        "source_refs",
+        "source_identity_refs",
+        "source_identity_items",
+        "source_ref_payloads",
+        "evidence",
+        "evidence_refs",
+        "locomo_evidence_refs",
+        "source_evidence_refs",
+        "supporting_evidence",
+        "supporting_facts",
+    ):
+        refs.extend(_source_ref_values_from_payload(value.get(key)))
+    nested = value.get("metadata")
+    if isinstance(nested, Mapping):
+        refs.extend(_source_ref_values_from_mapping(nested))
+    raw_id = value.get("id")
+    if isinstance(raw_id, str) and _source_ref_value_has_turn_identity(raw_id):
+        refs.append(raw_id.strip())
+    return tuple(dict.fromkeys(refs))
+
+
+def _structured_turn_ref_from_mapping(value: Mapping[str, object]) -> str:
+    turn_ref = _safe_turn_ref_from_mapping_value(
+        value.get("dia_id")
+        or value.get("locomo_evidence_ref")
+        or value.get("source_dia_id")
+        or value.get("evidence_id")
+        or value.get("evidence_ref")
+        or value.get("source_evidence_ref")
+        or value.get("source_turn_ref")
+        or value.get("turn_ref")
+        or value.get("source_turn_id")
+        or value.get("turn_id")
+    )
+    if turn_ref:
+        return turn_ref
+    dialogue = _dialogue_number_from_mapping(value)
+    turn = _positive_int_string(
+        value.get("source_turn_id")
+        or value.get("source_turn")
+        or value.get("source_turn_index")
+        or value.get("turn")
+        or value.get("turn_id")
+        or value.get("turn_index")
+    )
+    if dialogue and turn:
+        return f"source_turn_refs:D{dialogue}:{turn}"
+    return ""
+
+
+def _safe_turn_ref_from_mapping_value(value: object) -> str:
+    turn_refs = _source_identity_refs_from_source_refs(
+        (str(value or ""),),
+        include_exact_turn_refs=True,
+    )
+    for ref in turn_refs:
+        if ref.startswith("source_turn_refs:"):
+            return ref.removeprefix("source_turn_refs:")
+    return ""
+
+
+def _dialogue_number_from_mapping(value: Mapping[str, object]) -> str:
+    for key in (
+        "source_dialogue_id",
+        "source_dialogue",
+        "source_dialogue_index",
+        "dialogue_id",
+        "dialogue",
+        "dialogue_index",
+        "dia_id",
+        "source_dia_id",
+        "session_key",
+        "session_id",
+    ):
+        dialogue = _dialogue_number_from_value(value.get(key))
+        if dialogue:
+            return dialogue
+    return ""
+
+
+def _dialogue_number_from_value(value: object) -> str:
+    text = str(value or "").strip()
+    if not text:
+        return ""
+    if match := re.fullmatch(
+        r"(?:(?:session|dialogue)[-_]?|D)?(?P<number>\d+)",
+        text,
+        re.IGNORECASE,
+    ):
+        return match.group("number")
+    return ""
+
+
+def _positive_int_string(value: object) -> str:
+    text = str(value or "").strip()
+    if not text.isdigit():
+        return ""
+    parsed = int(text)
+    return str(parsed) if parsed > 0 else ""
+
+
+def _source_ref_value_has_turn_identity(value: str) -> bool:
+    return bool(
+        _safe_source_identity_ref(value)
+        or _source_identity_refs_from_source_refs((value,), include_exact_turn_refs=True)
+        or _source_identity_refs_from_dedupe_key(value)
+    )
+
+
 def _source_match_refs_from_memory(
     memory: RetrievedMemory,
     *,
@@ -2733,10 +2916,12 @@ def _source_match_refs_from_memory(
         if include_compacted_fusion_refs
         else ()
     )
+    metadata_source_refs = _metadata_source_ref_values(memory.metadata)
     source_refs = tuple(
         dict.fromkeys(
             (
                 *(str(ref).strip() for ref in memory.source_refs if str(ref).strip()),
+                *metadata_source_refs,
                 *fusion_source_refs,
             )
         )
@@ -2876,6 +3061,17 @@ def _string_tuple(value: object) -> tuple[str, ...]:
         stripped = value.strip()
         return (stripped,) if stripped else ()
     return tuple(str(item).strip() for item in _sequence(value) if str(item).strip())
+
+
+def _safe_source_label_tuple(value: object) -> tuple[str, ...]:
+    return tuple(
+        dict.fromkeys(
+            label
+            for item in _string_tuple(value)
+            for label in (_safe_source_label_for_output(item),)
+            if label
+        )
+    )
 
 
 def _ratio(numerator: int, denominator: int) -> float:

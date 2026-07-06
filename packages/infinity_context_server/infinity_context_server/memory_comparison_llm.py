@@ -24,6 +24,9 @@ from infinity_context_server.memory_comparison_models import (
     TokenUsage,
 )
 from infinity_context_server.memory_comparison_source_identity import (
+    safe_source_label_for_output as _safe_source_label_for_output,
+)
+from infinity_context_server.memory_comparison_source_identity import (
     safe_source_refs_for_output as _safe_source_refs_for_output,
 )
 from infinity_context_server.public_benchmark_models import PublicBenchmarkCase
@@ -123,13 +126,17 @@ def _render_memory_evidence_line(memory: RetrievedMemory, *, index: int) -> str:
     locality = _prompt_score(metadata.get("answer_context_source_locality_score"))
     if locality is not None:
         labels.append(f"locality={locality}")
-    source_type = str(metadata.get("answer_context_source_type") or "").strip()
+    source_type = _safe_source_label_for_output(
+        metadata.get("answer_context_source_type")
+    )
     if source_type:
         labels.append(f"source_type={source_type}")
-    source_types = _string_sequence(metadata.get("answer_context_source_types"))
+    source_types = _safe_source_label_sequence(
+        metadata.get("answer_context_source_types")
+    )
     if source_types:
         labels.append(f"source_types={','.join(source_types[:3])}")
-    retrieval_sources = _string_sequence(
+    retrieval_sources = _safe_source_label_sequence(
         metadata.get("answer_context_retrieval_sources")
     )
     if retrieval_sources:
@@ -500,6 +507,17 @@ def _string_sequence(value: object) -> tuple[str, ...]:
     if isinstance(value, Sequence) and not isinstance(value, str | bytes):
         return tuple(str(item).strip() for item in value if str(item).strip())
     return ()
+
+
+def _safe_source_label_sequence(value: object) -> tuple[str, ...]:
+    return tuple(
+        dict.fromkeys(
+            label
+            for item in _string_sequence(value)
+            for label in (_safe_source_label_for_output(item),)
+            if label
+        )
+    )
 
 
 def _render_prompt_evidence_text(value: str) -> str:

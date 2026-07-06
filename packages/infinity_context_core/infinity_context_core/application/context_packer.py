@@ -149,7 +149,7 @@ _SENSITIVE_QUOTE_MARKERS = (
     "credential",
     "authorization",
 )
-_DIALOGUE_MARKER_RE = re.compile(r"\bD\d+:\d+\b")
+_DIALOGUE_MARKER_RE = re.compile(r"\bD\d+[:-]\d+\b")
 _GAME_INVENTORY_QUERY_RE = re.compile(
     r"\b(?:board\s+games?|tabletop\s+games?|video\s+games?|videogames?)\b",
     re.IGNORECASE,
@@ -1977,24 +1977,26 @@ def _is_pottery_type_query_reason(query_reason: str) -> bool:
 
 def _source_ref_marker(ref: SourceRef) -> str:
     match = _DIALOGUE_MARKER_RE.search(str(ref.source_id))
-    return match.group(0) if match is not None else ""
+    return _canonical_dialogue_marker(match.group(0)) if match is not None else ""
 
 
 def _source_session_identity(source_id: str) -> str:
     parts = str(source_id or "").split(":")
     if len(parts) >= 6 and parts[-1] == "turn" and parts[-3].startswith("D"):
         return ":".join(parts[:-3])
+    if len(parts) >= 5 and parts[-1] == "turn" and re.fullmatch(r"D\d+-\d+", parts[-2]):
+        return ":".join(parts[:-2])
     if len(parts) >= 4 and parts[-1] in {"events", "observation", "summary"}:
         return ":".join(parts[:-1])
     return ""
 
 
 def _marker_coverage_anchor_rank(text: str, *, marker: str) -> int:
-    marker_matches = tuple(re.finditer(rf"\b{re.escape(marker)}\b", text))
+    marker_matches = tuple(re.finditer(_dialogue_marker_pattern(marker), text))
     if not marker_matches:
         return 3
     all_markers = tuple(_DIALOGUE_MARKER_RE.finditer(text))
-    if all_markers and all_markers[0].group(0) == marker:
+    if all_markers and _canonical_dialogue_marker(all_markers[0].group(0)) == marker:
         return 0
     for marker_match in marker_matches:
         segment_start = marker_match.start()
@@ -2031,7 +2033,7 @@ def _nearest_dialogue_marker_distance(
 
 
 def _dialogue_marker_parts(marker: str) -> tuple[int, int] | None:
-    match = re.fullmatch(r"D(\d+):(\d+)", marker)
+    match = re.fullmatch(r"D(\d+)[:-](\d+)", marker)
     if match is None:
         return None
     return int(match.group(1)), int(match.group(2))
@@ -2058,8 +2060,8 @@ def _focused_turn_text(*, text: str, source_id: str) -> str:
     marker_match = _DIALOGUE_MARKER_RE.search(source_id)
     if marker_match is None:
         return text
-    marker = marker_match.group(0)
-    matches = tuple(re.finditer(rf"\b{re.escape(marker)}\b", text))
+    marker = _canonical_dialogue_marker(marker_match.group(0))
+    matches = tuple(re.finditer(_dialogue_marker_pattern(marker), text))
     if not matches:
         return text
     text_match = matches[0]
@@ -2182,9 +2184,13 @@ def _source_coverage_keys(item: ContextItem) -> set[str]:
         if ref.source_id:
             keys.add(f"{ref.source_type}:{ref.source_id}")
             keys.update(
-                f"dialogue:{marker}" for marker in _DIALOGUE_MARKER_RE.findall(ref.source_id)
+                f"dialogue:{_canonical_dialogue_marker(marker)}"
+                for marker in _DIALOGUE_MARKER_RE.findall(ref.source_id)
             )
-    keys.update(f"dialogue:{marker}" for marker in _DIALOGUE_MARKER_RE.findall(item.text))
+    keys.update(
+        f"dialogue:{_canonical_dialogue_marker(marker)}"
+        for marker in _DIALOGUE_MARKER_RE.findall(item.text)
+    )
     return keys
 
 
@@ -2270,8 +2276,8 @@ def _focused_primary_exact_turn_text(item: ContextItem) -> str:
     marker_match = _DIALOGUE_MARKER_RE.search(source_id)
     if marker_match is None:
         return item.text
-    marker = marker_match.group(0)
-    matches = tuple(re.finditer(rf"\b{re.escape(marker)}\b", item.text))
+    marker = _canonical_dialogue_marker(marker_match.group(0))
+    matches = tuple(re.finditer(_dialogue_marker_pattern(marker), item.text))
     if not matches:
         return item.text
     text_match = matches[0]
@@ -2288,7 +2294,24 @@ def _focused_primary_exact_turn_text(item: ContextItem) -> str:
 def _primary_exact_turn_marker(item: ContextItem) -> str:
     source_id = _primary_exact_turn_source_id(item)
     marker_match = _DIALOGUE_MARKER_RE.search(source_id)
-    return marker_match.group(0) if marker_match is not None else ""
+    if marker_match is None:
+        return ""
+    return _canonical_dialogue_marker(marker_match.group(0))
+
+
+def _dialogue_marker_pattern(marker: str) -> str:
+    canonical_marker = _canonical_dialogue_marker(marker)
+    if ":" not in canonical_marker:
+        return rf"\b{re.escape(canonical_marker)}\b"
+    dialogue, turn = canonical_marker.split(":", 1)
+    return rf"\b{re.escape(dialogue)}[:-]{re.escape(turn)}\b"
+
+
+def _canonical_dialogue_marker(value: str) -> str:
+    match = re.fullmatch(r"D(?P<dialogue>\d+)[:-](?P<turn>\d+)", value.strip())
+    if match is None:
+        return value
+    return f"D{match.group('dialogue')}:{match.group('turn')}"
 
 
 def _select_item(

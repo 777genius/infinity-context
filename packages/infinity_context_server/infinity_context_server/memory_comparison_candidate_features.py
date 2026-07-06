@@ -21,9 +21,13 @@ from infinity_context_server.memory_comparison_candidate_risks import (
     memory_has_broad_summary,
     memory_has_conflict_or_stale,
 )
+from infinity_context_server.memory_comparison_location_roles import (
+    has_location_role_grounding as _has_location_role_grounding,
+)
 from infinity_context_server.memory_comparison_models import RetrievedMemory
 from infinity_context_server.memory_comparison_relation_support import (
     has_alias_go_by_surface,
+    has_alias_profile_surface,
     has_date_profile_surface,
     has_employment_occupation_surface,
     has_vehicle_model_surface,
@@ -33,31 +37,68 @@ from infinity_context_server.memory_comparison_rerank_text import (
     normalized_terms as _normalized_terms,
 )
 from infinity_context_server.memory_comparison_source_identity import (
+    safe_source_refs_for_output as _safe_source_refs_for_output,
+)
+from infinity_context_server.memory_comparison_source_identity import (
     source_identity_audit_gap_codes as _source_identity_audit_gap_codes,
 )
 
-_TURN_REF_RE = re.compile(r"\bD\d+:\d+\b")
-_TURN_REF_PARTS_RE = re.compile(r"\bD(?P<dialogue>\d+):(?P<turn>\d+)\b")
+_TURN_REF_RE = re.compile(r"\bD\d+[:-]\d+\b", re.IGNORECASE)
+_TURN_REF_PARTS_RE = re.compile(r"\bD(?P<dialogue>\d+)[:-](?P<turn>\d+)\b")
 _SOURCE_SESSION_TURN_RE = re.compile(
     r"(?:^|[:_-])session[-_](?P<session>\d+)[:_-](?P<turn_ref>D\d+[:-]\d+)"
     r"[:_-](?:turn|chunk|fact)(?:[-_][^:]*)?$",
     re.IGNORECASE,
 )
+_SOURCE_SESSION_IDENTITY_REF_RE = re.compile(
+    r"(?:^|\|)(?:source_session_turn_refs:)?"
+    r"session[-_](?P<session>\d+):(?P<turn_ref>D\d+[:-]\d+)(?=$|\|)",
+    re.IGNORECASE,
+)
+_SOURCE_SESSION_RE = re.compile(
+    r"(?:^|[:_\-\s])session(?:[-_]\s*|\s+#?\s*)(?P<session>\d+)"
+    r"(?=$|[:_\-\s](?!(?:D\d+[:-]\d+)\b))",
+    re.IGNORECASE,
+)
 _TEXT_SESSION_TURN_RE = re.compile(
-    r"\bsession[-_](?P<session>\d+)\s+(?:turn\s+)?"
-    r"(?P<turn_ref>D\d+[:-]\d+)\b",
+    r"\bsession(?:[-_]\s*|\s+#?\s*)(?P<session>\d+)"
+    r"\s*[,;:-]?\s+(?:turn\s*[:#-]?\s+)?(?P<turn_ref>D\d+[:-]\d+)\b",
     re.IGNORECASE,
 )
 _TEXT_SESSION_DATE_TURN_RE = re.compile(
-    r"\bsession[-_](?P<session>\d+)\s+date:\s*[^.\n]{0,80}?\s"
+    r"\bsession(?:[-_]\s*|\s+#?\s*)(?P<session>\d+)"
+    r"\s*[,;:-]?\s+date:\s*[^.\n]{0,80}?\s"
     r"(?P<turn_ref>D\d+[:-]\d+)\b",
     re.IGNORECASE,
 )
+_TEXT_TURN_SESSION_RE = re.compile(
+    r"\b(?:turn\s*[:#-]?\s+)?(?P<turn_ref>D\d+[:-]\d+)\b"
+    r"\s*(?:[,;:-]?\s+|\s+)"
+    r"(?:in|from|for|within|during|of)\s+(?:the\s+)?"
+    r"session(?:[-_]\s*|\s+#?\s*)(?P<session>\d+)\b",
+    re.IGNORECASE,
+)
+_DIRECT_SPEAKER_LABEL_PATTERN = (
+    r"[A-Z][a-zA-Z0-9_-]{1,40}"
+    r"(?:\s+[A-Z][a-zA-Z0-9_-]{1,40}){0,2}"
+)
+_DIRECT_TURN_SESSION_PREFIX_PATTERN = (
+    r"(?:(?:session(?:[-_]\s*|\s+#?\s*)\d+)"
+    r"\s*[,;:-]?\s+(?:turn\s*[:#-]?\s+)?)?"
+)
+_DIRECT_TURN_SESSION_SCOPE_PATTERN = (
+    r"(?:\s+(?:in|from|for|within|during|of)\s+(?:the\s+)?"
+    r"session(?:[-_]\s*|\s+#?\s*)\d+)?"
+)
 _DIRECT_TURN_SPEAKER_RE = re.compile(
-    r"\bD\d+:\d+\s+[A-Z][a-zA-Z0-9_-]{1,40}\s*:"
+    rf"\b{_DIRECT_TURN_SESSION_PREFIX_PATTERN}"
+    rf"(?:turn\s*[:#-]?\s+)?D\d+[:-]\d+{_DIRECT_TURN_SESSION_SCOPE_PATTERN}\s+"
+    rf"{_DIRECT_SPEAKER_LABEL_PATTERN}\s*:"
 )
 _DIRECT_TURN_SPEAKER_CAPTURE_RE = re.compile(
-    r"\bD\d+:\d+\s+(?P<speaker>[A-Z][a-zA-Z0-9_-]{1,40})\s*:"
+    rf"\b{_DIRECT_TURN_SESSION_PREFIX_PATTERN}"
+    rf"(?:turn\s*[:#-]?\s+)?D\d+[:-]\d+{_DIRECT_TURN_SESSION_SCOPE_PATTERN}\s+"
+    rf"(?P<speaker>{_DIRECT_SPEAKER_LABEL_PATTERN})\s*:"
 )
 _FIRST_PERSON_SURFACE_RE = re.compile(
     r"\b(?:I|I'm|I've|I'd|I'll|me|my|mine|we|we're|we've|we'd|we'll|"
@@ -144,12 +185,19 @@ _EXPLICIT_TIME_CONTENT_RE = re.compile(
 )
 _TEMPORAL_SEQUENCE_EVIDENCE_RE = re.compile(
     r"\b(?:before|beforehand|after|afterward|afterwards|during|then|"
-    r"following|subsequent|subsequently|previously|earlier|later|prior)\b",
+    r"following|subsequent|subsequently|previously|earlier|later|prior|"
+    r"since|until)\b",
     re.IGNORECASE,
 )
 _TEMPORAL_SEQUENCE_DIRECTION_RE = re.compile(
     r"\b(?P<direction>before|beforehand|after|afterward|afterwards|during|"
-    r"following|subsequent|subsequently|previously|earlier|later|prior)\b",
+    r"following|subsequent|subsequently|previously|earlier|later|prior|"
+    r"since|until)\b",
+    re.IGNORECASE,
+)
+_TEMPORAL_LOCAL_SEGMENT_SPLIT_RE = re.compile(r"(?<=[.!?])\s+|\n+")
+_FIRST_PERSON_SURFACE_RE = re.compile(
+    r"\b(?:i|i'm|i've|me|my|mine|we|we're|our|ours)\b",
     re.IGNORECASE,
 )
 _LIST_ITEM_INTRO_RE = re.compile(
@@ -393,6 +441,7 @@ def build_candidate_evidence_features(
         query_terms=query_terms,
         entities=entities,
         memory_text=text,
+        question=question,
     )
     relation_target_specificity_reasons = _relation_target_specificity_reason_codes(
         memory_terms,
@@ -411,15 +460,13 @@ def build_candidate_evidence_features(
     high_signal_hit_count = sum(
         1 for term in relation_hits if term in high_signal_relation_terms
     )
-    contrast_features = _contrast_features(text)
-    temporal_features = _temporal_evidence_features(text)
     answer_unit_shapes = covered_answer_unit_shapes(text)
     content_text = _evidence_content_text(text)
     exact_count_evidence = has_exact_count_cardinality_evidence(content_text)
     list_items = _list_items(content_text)
     list_item_count = len(list_items)
-    source_refs = tuple(str(ref) for ref in memory.source_refs if str(ref).strip())
-    text_turn_refs = tuple(dict.fromkeys(_TURN_REF_RE.findall(text)))
+    source_refs = _candidate_source_refs(memory)
+    text_turn_refs = _safe_turn_refs(_TURN_REF_RE.findall(text))
     text_session_turn_refs = _text_session_turn_refs(text)
     source_turn_refs = _source_turn_refs(source_refs)
     turn_refs = tuple(
@@ -441,6 +488,17 @@ def build_candidate_evidence_features(
     direct_turn_speakers = _direct_turn_speakers(text)
     direct_turn_mentioned_entity_without_speaker_hit = bool(
         direct_speaker_turn and direct_turn_speakers and entity_hits and not speaker_hits
+    )
+    local_binding_terms = relation_hits or overlap_terms or (*entity_hits, *speaker_hits)
+    contrast_features = _contrast_features(
+        text,
+        local_terms=local_binding_terms,
+        direct_speaker_turn=direct_speaker_turn and not relation_hits,
+    )
+    temporal_features = _temporal_evidence_features(
+        text,
+        local_terms=local_binding_terms,
+        direct_speaker_turn=direct_speaker_turn and not relation_hits,
     )
     communication_grounding = communication_direction_grounding(
         query=question,
@@ -609,11 +667,21 @@ def build_candidate_evidence_features(
     )
 
 
-def _contrast_features(text: str) -> dict[str, bool]:
-    negation_surface = bool(_NEGATION_SURFACE_RE.search(text))
-    currentness_surface = bool(_CURRENTNESS_SURFACE_RE.search(text))
-    stale_surface = bool(_STALE_SURFACE_RE.search(text))
-    contrast_surface = bool(_CONTRAST_SURFACE_RE.search(text)) or (
+def _contrast_features(
+    text: str,
+    *,
+    local_terms: Sequence[str] = (),
+    direct_speaker_turn: bool = False,
+) -> dict[str, bool]:
+    local_text = _locally_bound_evidence_text(
+        _evidence_content_text(text),
+        local_terms=local_terms,
+        direct_speaker_turn=direct_speaker_turn,
+    )
+    negation_surface = bool(_NEGATION_SURFACE_RE.search(local_text))
+    currentness_surface = bool(_CURRENTNESS_SURFACE_RE.search(local_text))
+    stale_surface = bool(_STALE_SURFACE_RE.search(local_text))
+    contrast_surface = bool(_CONTRAST_SURFACE_RE.search(local_text)) or (
         negation_surface and stale_surface
     )
     return {
@@ -624,14 +692,24 @@ def _contrast_features(text: str) -> dict[str, bool]:
     }
 
 
-def _temporal_evidence_features(text: str) -> dict[str, bool]:
+def _temporal_evidence_features(
+    text: str,
+    *,
+    local_terms: Sequence[str] = (),
+    direct_speaker_turn: bool = False,
+) -> dict[str, bool]:
     content_text = _evidence_content_text(text)
-    duration_surface = bool(_DURATION_EVIDENCE_RE.search(text))
-    relative_time_surface = bool(_RELATIVE_TIME_EVIDENCE_RE.search(text))
+    local_text = _locally_bound_evidence_text(
+        content_text,
+        local_terms=local_terms,
+        direct_speaker_turn=direct_speaker_turn,
+    )
+    duration_surface = bool(_DURATION_EVIDENCE_RE.search(local_text))
+    relative_time_surface = bool(_RELATIVE_TIME_EVIDENCE_RE.search(local_text))
     explicit_time_surface = bool(_EXPLICIT_TIME_EVIDENCE_RE.search(text))
-    explicit_time_content_surface = bool(_EXPLICIT_TIME_CONTENT_RE.search(content_text))
-    temporal_sequence_surface = bool(_TEMPORAL_SEQUENCE_EVIDENCE_RE.search(text))
-    temporal_sequence_direction = _temporal_sequence_direction(content_text)
+    explicit_time_content_surface = bool(_EXPLICIT_TIME_CONTENT_RE.search(local_text))
+    temporal_sequence_surface = bool(_TEMPORAL_SEQUENCE_EVIDENCE_RE.search(local_text))
+    temporal_sequence_direction = _temporal_sequence_direction(local_text)
     return {
         "has_duration_surface": duration_surface,
         "has_relative_time_surface": relative_time_surface,
@@ -653,14 +731,64 @@ def _temporal_sequence_direction(text: str) -> str:
         return "before"
     if direction in {"subsequent", "subsequently"}:
         return "after"
+    if direction == "since":
+        return "after"
+    if direction == "until":
+        return "before"
     if direction == "during":
         return "during"
     return ""
 
 
+def _locally_bound_evidence_text(
+    text: str,
+    *,
+    local_terms: Sequence[str],
+    direct_speaker_turn: bool,
+) -> str:
+    terms = _local_binding_terms(local_terms)
+    if not terms:
+        return text
+    segments = tuple(
+        segment.strip()
+        for segment in _TEMPORAL_LOCAL_SEGMENT_SPLIT_RE.split(text)
+        if segment.strip()
+    )
+    if len(segments) <= 1:
+        return text
+    local_segments = tuple(
+        segment
+        for segment in segments
+        if _segment_locally_bound(
+            segment,
+            terms=terms,
+            direct_speaker_turn=direct_speaker_turn,
+        )
+    )
+    return " ".join(local_segments)
+
+
+def _local_binding_terms(local_terms: Sequence[str]) -> frozenset[str]:
+    terms: set[str] = set()
+    for term in local_terms:
+        terms.update(_normalized_terms(str(term)))
+    return frozenset(terms)
+
+
+def _segment_locally_bound(
+    segment: str,
+    *,
+    terms: frozenset[str],
+    direct_speaker_turn: bool,
+) -> bool:
+    if terms.intersection(_normalized_terms(segment)):
+        return True
+    return bool(direct_speaker_turn and _FIRST_PERSON_SURFACE_RE.search(segment))
+
+
 def _evidence_content_text(text: str) -> str:
     match = re.search(
-        r"\bD\d+:\d+\s+[A-Z][a-zA-Z0-9_-]{1,40}\s*:\s*",
+        rf"\bD\d+:\d+\s+{_DIRECT_SPEAKER_LABEL_PATTERN}\s*:\s*",
         text,
     )
     if match:
@@ -727,11 +855,18 @@ def _relation_category_hits(
     query_terms: Sequence[str],
     entities: Sequence[str],
     memory_text: str = "",
+    question: str = "",
 ) -> tuple[str, ...]:
     hits: list[str] = []
     query_term_set = set(query_terms)
     for category, terms in relation_category_terms.items():
         term_values = _relation_term_values(terms)
+        if str(category) == "location_transition" and not _has_location_role_grounding(
+            question=question,
+            memory_terms=memory_terms,
+            memory_text=memory_text,
+        ):
+            continue
         typed_support = typed_relation_category_support(
             str(category),
             memory_terms,
@@ -887,7 +1022,9 @@ def _typed_category_has_query_grounding(
         return True
     if category == "vehicle_profile" and has_vehicle_model_surface(memory_text):
         return True
-    if category == "alias_profile" and has_alias_go_by_surface(memory_text):
+    if category == "alias_profile" and (
+        has_alias_go_by_surface(memory_text) or has_alias_profile_surface(memory_text)
+    ):
         return True
     if category == "date_profile" and has_date_profile_surface(memory_text):
         return True
@@ -1595,6 +1732,24 @@ def _duplicate_key(memory: RetrievedMemory, source_refs: Sequence[str]) -> str:
     return f"text_sha1:{digest}"
 
 
+def _candidate_source_refs(memory: RetrievedMemory) -> tuple[str, ...]:
+    direct_values = tuple(
+        str(ref).strip() for ref in memory.source_refs if str(ref).strip()
+    )
+    ordered_direct_refs = tuple(
+        safe_ref
+        for raw_ref in direct_values
+        for safe_ref in _safe_source_refs_for_output((raw_ref,))
+    )
+    direct_refs = tuple(
+        dict.fromkeys(
+            (*ordered_direct_refs, *_safe_source_refs_for_output(direct_values))
+        )
+    )
+    metadata_refs = _safe_source_refs_for_output(memory.metadata)
+    return tuple(dict.fromkeys((*direct_refs, *metadata_refs)))
+
+
 def _source_ref_dedupe_key(
     source_refs: Sequence[str],
     *,
@@ -1628,7 +1783,7 @@ def _source_turn_refs(source_refs: Sequence[str]) -> tuple[str, ...]:
             ref
             for source_ref in source_refs
             for ref in (
-                *_TURN_REF_RE.findall(str(source_ref)),
+                *_source_turn_values(str(source_ref)),
                 *_source_session_turn_values(str(source_ref)),
             )
         )
@@ -1637,21 +1792,76 @@ def _source_turn_refs(source_refs: Sequence[str]) -> tuple[str, ...]:
 
 def _source_session_turn_refs(source_refs: Sequence[str]) -> tuple[str, ...]:
     refs: list[str] = []
+    session_refs: list[str] = []
+    turn_refs: list[str] = []
     for source_ref in source_refs:
-        match = _SOURCE_SESSION_TURN_RE.search(str(source_ref))
+        source_ref_text = str(source_ref)
+        for identity_match in _SOURCE_SESSION_IDENTITY_REF_RE.finditer(
+            source_ref_text
+        ):
+            turn_ref = _normalized_turn_ref(identity_match.group("turn_ref"))
+            if turn_ref:
+                refs.append(f"session_{identity_match.group('session')}:{turn_ref}")
+        session_refs.extend(_source_session_refs(source_ref_text))
+        turn_refs.extend(_source_turn_values(source_ref_text))
+        match = _SOURCE_SESSION_TURN_RE.search(source_ref_text)
         if match is None:
             continue
         turn_ref = _normalized_turn_ref(match.group("turn_ref"))
         if turn_ref:
             refs.append(f"session_{match.group('session')}:{turn_ref}")
+    refs.extend(_session_turn_refs_from_split_refs(session_refs, turn_refs))
     return tuple(dict.fromkeys(refs))
+
+
+def _source_session_refs(source_ref: str) -> tuple[str, ...]:
+    return tuple(
+        dict.fromkeys(
+            f"session_{match.group('session')}"
+            for match in _SOURCE_SESSION_RE.finditer(source_ref or "")
+        )
+    )
+
+
+def _session_turn_refs_from_split_refs(
+    session_refs: Sequence[str],
+    turn_refs: Sequence[str],
+) -> tuple[str, ...]:
+    session_numbers = tuple(
+        dict.fromkeys(
+            match.group("session")
+            for ref in session_refs
+            for match in (
+                re.fullmatch(r"session[-_](?P<session>\d+)", ref, re.IGNORECASE),
+            )
+            if match is not None
+        )
+    )
+    safe_turn_refs = _safe_turn_refs(turn_refs)
+    if len(session_numbers) != 1 or not 0 < len(safe_turn_refs) <= 3:
+        return ()
+    session_number = session_numbers[0]
+    return tuple(
+        f"session_{session_number}:{turn_ref}"
+        for turn_ref in safe_turn_refs
+        if _turn_ref_dialogue_number(turn_ref) == session_number
+    )
+
+
+def _turn_ref_dialogue_number(turn_ref: str) -> str:
+    match = _TURN_REF_PARTS_RE.fullmatch(turn_ref)
+    return match.group("dialogue") if match is not None else ""
 
 
 def _text_session_turn_refs(text: str) -> tuple[str, ...]:
     return tuple(
         dict.fromkeys(
             f"session_{match.group('session')}:{turn_ref}"
-            for pattern in (_TEXT_SESSION_TURN_RE, _TEXT_SESSION_DATE_TURN_RE)
+            for pattern in (
+                _TEXT_SESSION_TURN_RE,
+                _TEXT_SESSION_DATE_TURN_RE,
+                _TEXT_TURN_SESSION_RE,
+            )
             for match in pattern.finditer(text)
             for turn_ref in (_normalized_turn_ref(match.group("turn_ref")),)
             if turn_ref
@@ -1660,11 +1870,27 @@ def _text_session_turn_refs(text: str) -> tuple[str, ...]:
 
 
 def _source_session_turn_values(source_ref: str) -> tuple[str, ...]:
+    identity_refs = tuple(
+        turn_ref
+        for match in _SOURCE_SESSION_IDENTITY_REF_RE.finditer(source_ref)
+        for turn_ref in (_normalized_turn_ref(match.group("turn_ref")),)
+        if turn_ref
+    )
+    if identity_refs:
+        return tuple(dict.fromkeys(identity_refs))
     match = _SOURCE_SESSION_TURN_RE.search(source_ref)
     if match is None:
         return ()
     turn_ref = _normalized_turn_ref(match.group("turn_ref"))
     return (turn_ref,) if turn_ref else ()
+
+
+def _source_turn_values(source_ref: str) -> tuple[str, ...]:
+    if turn_ref := _normalized_turn_ref(source_ref):
+        return (turn_ref,)
+    if not source_ref.lower().startswith("source_turn_refs:"):
+        return ()
+    return _safe_turn_refs(_TURN_REF_RE.findall(source_ref))
 
 
 def _turn_refs_from_session_turn_refs(session_turn_refs: Sequence[str]) -> tuple[str, ...]:
@@ -1674,7 +1900,19 @@ def _turn_refs_from_session_turn_refs(session_turn_refs: Sequence[str]) -> tuple
             for session_turn_ref in session_turn_refs
             for match in (_TURN_REF_RE.search(str(session_turn_ref)),)
             if match is not None
-            for ref in (match.group(0),)
+            for ref in (_normalized_turn_ref(match.group(0)),)
+            if ref
+        )
+    )
+
+
+def _safe_turn_refs(values: Sequence[object]) -> tuple[str, ...]:
+    return tuple(
+        dict.fromkeys(
+            turn_ref
+            for value in values
+            for turn_ref in (_normalized_turn_ref(value),)
+            if turn_ref
         )
     )
 

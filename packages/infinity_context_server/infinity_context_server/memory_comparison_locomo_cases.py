@@ -62,6 +62,10 @@ def _load_memory_comparison_cases(
 def _official_locomo_turn_cases_from_payload(payload: object) -> tuple[PublicBenchmarkCase, ...]:
     if isinstance(payload, Mapping) and _is_official_locomo_sample(payload):
         return _official_locomo_turn_cases(payload)
+    if isinstance(payload, Mapping):
+        raw_samples = payload.get("data") or payload.get("cases") or payload.get("items")
+        if raw_samples is not None:
+            return _official_locomo_turn_cases_from_payload(raw_samples)
     if isinstance(payload, Sequence) and not isinstance(payload, str | bytes):
         cases: list[PublicBenchmarkCase] = []
         for item in payload:
@@ -145,7 +149,11 @@ def _official_locomo_turn_memories(
         for index, turn in enumerate(turns):
             if not isinstance(turn, Mapping):
                 continue
-            dia_id = _first_str(turn, "dia_id", "id") or f"{session_key}:{index + 1}"
+            dia_id = _locomo_turn_dia_id(
+                turn,
+                session_key=session_key,
+                turn_index=index,
+            )
             speaker = _first_str(turn, "speaker", "role", "author") or "speaker"
             text = _official_locomo_turn_memory_text(
                 turn,
@@ -204,6 +212,39 @@ def _official_locomo_turn_memory_text(
         return ""
     date_prefix = f"{session_key} date: {date_value}\n" if date_value.strip() else ""
     return f"{date_prefix}{dia_id} {speaker}: {text.strip()}"
+
+
+def _locomo_turn_dia_id(
+    turn: Mapping[str, object],
+    *,
+    session_key: str,
+    turn_index: int,
+) -> str:
+    raw_dia_id = _first_str(turn, "dia_id", "id")
+    if raw_dia_id and _looks_like_locomo_dia_id(raw_dia_id):
+        return raw_dia_id
+
+    session_number = _locomo_session_number(session_key)
+    if session_number is None:
+        return raw_dia_id or f"{session_key}:{turn_index + 1}"
+    if raw_dia_id and raw_dia_id.isdigit() and int(raw_dia_id) > 0:
+        return f"D{session_number}:{int(raw_dia_id)}"
+    return f"D{session_number}:{turn_index + 1}"
+
+
+def _looks_like_locomo_dia_id(value: str) -> bool:
+    stripped = value.strip()
+    return bool(
+        stripped.upper().startswith("D") and (":" in stripped or "-" in stripped)
+    )
+
+
+def _locomo_session_number(session_key: str) -> int | None:
+    parts = session_key.rsplit("_", 1)
+    if len(parts) != 2 or not parts[1].isdigit():
+        return None
+    parsed = int(parts[1])
+    return parsed if parsed > 0 else None
 
 
 def _normalized_locomo_speaker(speaker: str) -> str:

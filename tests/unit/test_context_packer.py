@@ -2230,7 +2230,7 @@ def test_temporal_answer_support_family_uses_exact_turn_ref_before_text_marker()
             SourceRef(source_type="locomo_session", source_id="locomo:conv-26:session_6"),
             SourceRef(
                 source_type="locomo_turn",
-                source_id="locomo:conv-26:session_6:D6:11:turn",
+                source_id="locomo:conv-26:session_6:D6-11:turn",
             ),
         ),
         diagnostics={
@@ -2262,6 +2262,51 @@ def test_temporal_answer_support_family_uses_exact_turn_ref_before_text_marker()
 
     assert "D6:11" in result.bundle.rendered_text
     assert "We even had a picnic" in result.bundle.rendered_text
+
+
+def test_exact_literal_turn_candidates_match_hyphenated_text_marker() -> None:
+    broad_window = ContextItem(
+        item_id="session_6_hyphen_window",
+        item_type="chunk",
+        text=(
+            "D6-5 Caroline discussed counseling. "
+            "D6-11 Caroline: My friends and family helped with my transition. "
+            "We even had a picnic."
+        ),
+        score=0.78,
+        source_refs=(
+            SourceRef(source_type="locomo_session", source_id="locomo:conv-26:session_6"),
+            SourceRef(
+                source_type="locomo_turn",
+                source_id="locomo:conv-26:session_6:D6:11:turn",
+            ),
+        ),
+        diagnostics={
+            "retrieval_source": "keyword_source_sibling_chunks",
+            "retrieval_sources": ["keyword_source_sibling_chunks"],
+            "score_signals": {
+                "query_expansion_reason": "decomposition_temporal_answer",
+                "source_sibling_answer_evidence": 1,
+            },
+        },
+    )
+
+    assert _answer_support_diversity_family(broad_window).startswith(
+        "temporal_source_sibling_marker_source_group:d6-11:"
+    )
+
+    result = ContextPacker().pack(
+        bundle_id="ctx_temporal_hyphen_exact_ref_marker",
+        items=(broad_window,),
+        token_budget=120,
+        query='Who said "My friends and family helped with my transition"?',
+        max_rendered_chars=600,
+    )
+
+    rendered = result.bundle.rendered_text
+    assert "D6-11 Caroline" in rendered
+    assert "We even had a picnic" in rendered
+    assert "D6-5 Caroline discussed counseling" not in rendered
 
 
 def test_answer_support_family_prefers_exact_turn_for_attribute_trait_inventory() -> None:

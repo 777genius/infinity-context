@@ -50,6 +50,8 @@ def typed_relation_category_support(
         return _has_date_profile_support(memory_terms, memory_text=memory_text)
     if category == "health_profile":
         return _has_health_profile_support(memory_terms, memory_text=memory_text)
+    if category == "community_membership":
+        return _has_community_membership_support(memory_terms, memory_text=memory_text)
     if category == "pet_profile":
         return _has_pet_profile_support(memory_terms, memory_text=memory_text)
     if category == "skill_profile":
@@ -377,28 +379,38 @@ def _has_age_profile_support(
     )
 
 
-_ALIAS_GO_BY_SURFACE_PATTERN = (
-    r"\b(?:go|goes|went)\s+by\s+"
-    r"(?:[A-Z][a-zA-Z0-9_-]+|[\"'][^\"']+[\"'])\b"
-)
+_ALIAS_VALUE_PATTERN = r"(?:[A-Z][a-zA-Z0-9_-]+|[\"'][^\"']+[\"'])"
+_ALIAS_GO_BY_SURFACE_PATTERN = rf"\b(?:go|goes|went)\s+by\s+{_ALIAS_VALUE_PATTERN}\b"
 _ALIAS_GO_BY_SURFACE_RE = re.compile(_ALIAS_GO_BY_SURFACE_PATTERN)
 
 _ALIAS_PROFILE_SURFACE_RE = re.compile(
     r"\b(?:nickname|alias)\s+(?:is|was|for)\s+"
-    r"(?:[A-Z][a-zA-Z0-9_-]+|[\"'][^\"']+[\"'])\b"
+    rf"{_ALIAS_VALUE_PATTERN}\b"
     r"|\b(?:middle|legal|full)\s+name\s+(?:is|was|:)\s+"
-    r"(?:[A-Z][a-zA-Z0-9_-]+|[\"'][^\"']+[\"'])\b"
+    rf"{_ALIAS_VALUE_PATTERN}\b"
     r"|\b(?:my|his|her|their|our)\s+(?:middle|legal|full)\s+name\s+"
-    r"(?:is|was|:)\s+(?:[A-Z][a-zA-Z0-9_-]+|[\"'][^\"']+[\"'])\b"
+    rf"(?:is|was|:)\s+{_ALIAS_VALUE_PATTERN}\b"
+    r"|\b(?:I|i|he|she|they|we|[A-Z][a-zA-Z0-9_-]+"
+    r"(?:\s+[A-Z][a-zA-Z0-9_-]+){0,2})\s+"
+    r"(?:am|is|are|was|were)\s+"
+    rf"(?:called|known\s+as|referred\s+to\s+as|nicknamed)\s+{_ALIAS_VALUE_PATTERN}\b"
+    r"|\b(?:refer|refers|referred)\s+to\s+"
+    r"(?:me|him|her|them|us|you|[A-Z][a-zA-Z0-9_-]+"
+    r"(?:\s+[A-Z][a-zA-Z0-9_-]+){0,2})\s+"
+    rf"as\s+{_ALIAS_VALUE_PATTERN}\b"
     r"|\b(?:call|calls|called)\s+"
     r"(?:me|him|her|them|us|you|[A-Z][a-zA-Z0-9_-]+)\s+"
-    r"(?:[A-Z][a-zA-Z0-9_-]+|[\"'][^\"']+[\"'])\b"
+    rf"{_ALIAS_VALUE_PATTERN}\b"
     rf"|{_ALIAS_GO_BY_SURFACE_PATTERN}",
 )
 
 
 def has_alias_go_by_surface(memory_text: str) -> bool:
     return bool(_ALIAS_GO_BY_SURFACE_RE.search(memory_text))
+
+
+def has_alias_profile_surface(memory_text: str) -> bool:
+    return bool(_ALIAS_PROFILE_SURFACE_RE.search(memory_text))
 
 
 def _has_alias_profile_support(
@@ -410,8 +422,8 @@ def _has_alias_profile_support(
     naming_surface = {"call", "called", "calls", "name", "named"} & memory_terms
     return bool(
         alias_surface
-        or (naming_surface and _ALIAS_PROFILE_SURFACE_RE.search(memory_text))
-        or _ALIAS_PROFILE_SURFACE_RE.search(memory_text)
+        or (naming_surface and has_alias_profile_surface(memory_text))
+        or has_alias_profile_surface(memory_text)
     )
 
 
@@ -1235,6 +1247,18 @@ _CAUSAL_EXPLANATION_SURFACE_RE = re.compile(
     r"left|looked|moved|started|wanted)\b",
     re.IGNORECASE,
 )
+_CAUSAL_PURPOSE_SURFACE_RE = re.compile(
+    r"\b(?:began|changed|created|joined|launched|opened|ran|started|"
+    r"volunteered)\b"
+    r"(?=.{0,120}\b(?:in\s+order\s+to|so\s+(?:i|he|she|they|we)\s+could|to)\b)"
+    r"(?=.{0,180}\b(?:blend\s+dance\s+and\s+fashion|clear\s+"
+    r"(?:my|her|his|their|our)?\s*head|feel\s+safe|give\s+back|"
+    r"help\s+(?:kids|others|people)|improve\s+"
+    r"(?:my|her|his|their|our)?\s*health|make\s+a\s+difference|"
+    r"pursue\s+(?:my|her|his|their|our)?\s*passion|relax|"
+    r"stress\s+relief)\b)",
+    re.IGNORECASE | re.DOTALL,
+)
 
 
 def _has_causal_support(
@@ -1366,6 +1390,7 @@ def _has_causal_support(
     return bool(
         direct_cause
         or _CAUSAL_EXPLANATION_SURFACE_RE.search(memory_text)
+        or _CAUSAL_PURPOSE_SURFACE_RE.search(memory_text)
         or (decision_surface and causal_context)
         or (reason_surface and causal_context)
         or (contextual_cause_surface and causal_context)
@@ -1991,11 +2016,68 @@ def _has_identity_profile_support(memory_terms: set[str]) -> bool:
     )
 
 
+_COMMUNITY_MEMBERSHIP_MARKER_RE = re.compile(
+    r"\b(?:identif(?:y|ies|ied)|member|part\s+of|belong(?:s|ed|ing)?\s+to|"
+    r"came\s+out|is\s+(?:transgender|queer|lgbtq?)|joined)\b"
+    r".{0,120}\b(?:lgbtq?|trans(?:gender)?|queer|pride|support\s+group|community)\b|"
+    r"\b(?:lgbtq?|trans(?:gender)?|queer|pride|support\s+group|community)\b"
+    r".{0,120}\b(?:identif(?:y|ies|ied)|member|part\s+of|belong(?:s|ed|ing)?|"
+    r"came\s+out|joined)\b",
+    re.IGNORECASE | re.DOTALL,
+)
+_COMMUNITY_ALLY_NOISE_RE = re.compile(
+    r"\b(?:ally|allies|supportive|supported|encourag(?:e|ed|es|ing)|"
+    r"advocat(?:e|ed|es|ing))\b.{0,100}\b(?:lgbtq?|trans(?:gender)?|"
+    r"queer|community|rights)\b|"
+    r"\b(?:lgbtq?|trans(?:gender)?|queer|pride|community|rights)\b.{0,100}"
+    r"\b(?:ally|allies|supportive|supported|encourag(?:e|ed|es|ing)|"
+    r"advocat(?:e|ed|es|ing))\b",
+    re.IGNORECASE | re.DOTALL,
+)
+
+
+def _has_community_membership_support(
+    memory_terms: set[str],
+    *,
+    memory_text: str = "",
+) -> bool:
+    community_domain = {
+        "lgbt",
+        "lgbtq",
+        "lgbtq+",
+        "pride",
+        "queer",
+        "trans",
+        "transgender",
+    } & memory_terms
+    membership_surface = {
+        "belong",
+        "belonged",
+        "belonging",
+        "identifies",
+        "identify",
+        "identified",
+        "joined",
+        "member",
+        "membership",
+    } & memory_terms
+    if not community_domain:
+        return False
+    if _COMMUNITY_ALLY_NOISE_RE.search(memory_text):
+        return False
+    return bool(
+        membership_surface
+        or {"part", "community"} <= memory_terms
+        or _COMMUNITY_MEMBERSHIP_MARKER_RE.search(memory_text)
+    )
+
+
 _TYPED_SUPPORT_CHECKS: dict[str, Callable[[set[str]], bool]] = {
     "activity": _has_activity_support,
     "age_profile": _has_age_profile_support,
     "alias_profile": _has_alias_profile_support,
     "commitment_profile": _has_commitment_profile_support,
+    "community_membership": _has_community_membership_support,
     "contact_profile": _has_contact_profile_support,
     "contrast": _has_contrast_support,
     "current_goal": _has_current_goal_support,

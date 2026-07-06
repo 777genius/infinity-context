@@ -127,6 +127,27 @@ def test_bundle_support_audit_items_reports_negative_support_facts() -> None:
     )
 
 
+def test_bundle_support_audit_items_reports_noise_risk_reasons() -> None:
+    bundle = {
+        "items": [
+            {
+                "role": "supporting",
+                "retrieval_order": 1,
+                "planner_reason_codes": ["conflict_or_stale"],
+                "broad_summary": True,
+            }
+        ]
+    }
+
+    rows = bundle_support_audit_items(bundle)
+
+    assert rows[0]["support_quality_passed"] is False
+    assert rows[0]["support_risk_reasons"] == (
+        "broad_summary_support",
+        "conflict_or_stale_support",
+    )
+
+
 def test_bundle_support_audit_items_bounds_ref_like_fields() -> None:
     source_refs = [f"D1:{index}" for index in range(1, 13)]
     relation_categories = [f"category_{index}" for index in range(1, 13)]
@@ -154,6 +175,40 @@ def test_bundle_support_audit_items_bounds_ref_like_fields() -> None:
     serialized = json.dumps(rows)
     assert "PRIVATE SELECTED TEXT" not in serialized
     assert "PRIVATE PROVIDER PAYLOAD" not in serialized
+
+
+def test_bundle_support_audit_items_sanitizes_raw_evidence_ref_terms() -> None:
+    raw_locomo_ref = "locomo:conv-private:session_1:D1:2:turn-secret"
+    raw_provider_ref = "provider-auth-private-marker"
+    bundle = {
+        "items": [
+            {
+                "role": "supporting",
+                "source_refs": [raw_locomo_ref, raw_provider_ref, "D2:3"],
+                "covered_evidence_terms": [
+                    raw_locomo_ref,
+                    raw_provider_ref,
+                    "D2:3",
+                ],
+            }
+        ]
+    }
+
+    rows = bundle_support_audit_items(bundle)
+
+    assert rows[0]["source_refs"] == (
+        "source_session_turn_refs:session_1:D1:2",
+        "source_turn_refs:D1:2",
+        "D2:3",
+    )
+    assert rows[0]["covered_evidence_terms"] == (
+        "source_session_turn_refs:session_1:D1:2",
+        "source_turn_refs:D1:2",
+        "D2:3",
+    )
+    serialized = json.dumps(rows)
+    assert "locomo:conv-private" not in serialized
+    assert raw_provider_ref not in serialized
 
 
 def test_bundle_weak_support_reasons_marks_low_answerability_support() -> None:
@@ -332,11 +387,16 @@ def test_quality_diagnostics_marks_noisy_complete_bundle_as_weak_support() -> No
     assert table["weak_support_bundle_count"] == 1
     assert table["weak_support_reason_counts"] == {
         "all_selected_support_weak": 1,
+        "broad_summary_support": 1,
         "low_answerability_support": 1,
     }
     assert table["risk_reason_counts"]["risk:all_selected_support_weak"] == 1
+    assert table["risk_reason_counts"]["risk:broad_summary_support"] == 1
     assert table["risk_reason_counts"]["risk:low_answerability_support"] == 1
     assert "risk:all_selected_support_weak" in table["weak_samples"][0][
+        "reason_codes"
+    ]
+    assert "risk:broad_summary_support" in table["weak_samples"][0][
         "reason_codes"
     ]
     assert "risk:low_answerability_support" in table["weak_samples"][0][
