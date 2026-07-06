@@ -2766,6 +2766,10 @@ def _source_ref_values_from_payload(value: object) -> tuple[str, ...]:
 
 
 def _source_ref_values_from_mapping(value: Mapping[str, object]) -> tuple[str, ...]:
+    safe_refs = _safe_source_refs_for_output((value,))
+    if safe_refs:
+        return safe_refs
+
     refs: list[str] = []
     for key in (
         "source_id",

@@ -19,17 +19,18 @@ _SOURCE_SESSION_TURN_RE = re.compile(
     re.IGNORECASE,
 )
 _SOURCE_SESSION_RE = re.compile(
-    r"(?:^|[:_\-\s])session(?:[-_]\s*|\s+#?\s*)(?P<session>\d+)"
+    r"(?:^|[:_\-\s])(?:session|dialogue|dialog)(?:[-_]\s*|\s+#?\s*)"
+    r"(?P<session>\d+)"
     r"(?=$|[:_-](?!(?:D\d+[:-]\d+)\b))",
     re.IGNORECASE,
 )
 _TEXT_SESSION_TURN_RE = re.compile(
-    r"\bsession(?:[-_]\s*|\s+#?\s*)(?P<session>\d+)"
+    r"\b(?:session|dialogue|dialog)(?:[-_]\s*|\s+#?\s*)(?P<session>\d+)"
     r"\s*[,;:-]?\s+(?:turn\s*[:#-]?\s+)?(?P<turn_ref>D\d+[:-]\d+)\b",
     re.IGNORECASE,
 )
 _TEXT_SESSION_DATE_TURN_RE = re.compile(
-    r"\bsession(?:[-_]\s*|\s+#?\s*)(?P<session>\d+)"
+    r"\b(?:session|dialogue|dialog)(?:[-_]\s*|\s+#?\s*)(?P<session>\d+)"
     r"\s*[,;:-]?\s+date:\s*[^.\n]{0,80}?\s"
     r"(?P<turn_ref>D\d+[:-]\d+)\b",
     re.IGNORECASE,
@@ -38,7 +39,13 @@ _TEXT_TURN_SESSION_RE = re.compile(
     r"\b(?:turn\s*[:#-]?\s+)?(?P<turn_ref>D\d+[:-]\d+)\b"
     r"\s*(?:[,;:-]?\s+|\s+)"
     r"(?:in|from|for|within|during|of)\s+(?:the\s+)?"
-    r"session(?:[-_]\s*|\s+#?\s*)(?P<session>\d+)\b",
+    r"(?:session|dialogue|dialog)(?:[-_]\s*|\s+#?\s*)(?P<session>\d+)\b",
+    re.IGNORECASE,
+)
+_TEXT_TURN_PUNCT_SESSION_RE = re.compile(
+    r"\b(?:turn\s*[:#-]?\s+)?(?P<turn_ref>D\d+[:-]\d+)\b"
+    r"\s*[,;:-]\s*(?:the\s+)?"
+    r"(?:session|dialogue|dialog)(?:[-_]\s*|\s+#?\s*)(?P<session>\d+)\b",
     re.IGNORECASE,
 )
 _SAFE_SOURCE_IDENTITY_REF_RE = re.compile(
@@ -108,6 +115,22 @@ _PRIVATE_PATH_NAME_MARKERS = (
     "credential",
     "secret",
     "token",
+)
+_NUMERIC_EVIDENCE_LIST_KEYS = frozenset(
+    {
+        "evidence_refs",
+        "evidence_ids",
+        "locomo_evidence_refs",
+        "source_evidence_refs",
+        "turn_ids",
+    }
+)
+_NESTED_EVIDENCE_CONTEXT_KEYS = frozenset(
+    {
+        "evidence",
+        "supporting_evidence",
+        "supporting_facts",
+    }
 )
 
 
@@ -529,9 +552,7 @@ def _source_ref_values_from_mapping(value: Mapping[object, object]) -> tuple[obj
     structured_session_ref = _structured_session_ref_from_mapping(value)
     if structured_session_ref:
         refs.append(structured_session_ref)
-    structured_turn_ref = _structured_turn_ref_from_mapping(value)
-    if structured_turn_ref:
-        refs.append(structured_turn_ref)
+    refs.extend(_structured_turn_refs_from_mapping(value))
     for key in (
         "source_refs",
         "source_identity_refs",
@@ -539,12 +560,14 @@ def _source_ref_values_from_mapping(value: Mapping[object, object]) -> tuple[obj
         "source_ref_payloads",
         "evidence",
         "evidence_refs",
+        "evidence_ids",
         "locomo_evidence_refs",
         "source_evidence_refs",
+        "turn_ids",
         "supporting_evidence",
         "supporting_facts",
     ):
-        refs.extend(_source_ref_values(value.get(key)))
+        refs.extend(_nested_source_ref_values_from_mapping(value, key))
     nested = value.get("metadata")
     if isinstance(nested, Mapping):
         refs.extend(_source_ref_values_from_mapping(nested))
@@ -554,7 +577,52 @@ def _source_ref_values_from_mapping(value: Mapping[object, object]) -> tuple[obj
     return tuple(dict.fromkeys(refs))
 
 
-def _structured_turn_ref_from_mapping(value: Mapping[object, object]) -> str:
+def _nested_source_ref_values_from_mapping(
+    value: Mapping[object, object],
+    key: str,
+) -> tuple[object, ...]:
+    dialogue = _dialogue_number_from_mapping(value)
+    refs = _source_ref_values_from_nested_value(
+        value.get(key),
+        parent_dialogue=dialogue if key in _NESTED_EVIDENCE_CONTEXT_KEYS else "",
+    )
+    if key not in _NUMERIC_EVIDENCE_LIST_KEYS or not dialogue:
+        return refs
+    return tuple(ref for ref in refs if not _positive_int_string(ref))
+
+
+def _source_ref_values_from_nested_value(
+    value: object,
+    *,
+    parent_dialogue: str,
+) -> tuple[object, ...]:
+    if (
+        parent_dialogue
+        and isinstance(value, Mapping)
+        and not _dialogue_number_from_mapping(value)
+    ):
+        return _source_ref_values_from_mapping(
+            {**value, "source_dialogue_id": parent_dialogue}
+        )
+    if (
+        parent_dialogue
+        and isinstance(value, Sequence)
+        and not isinstance(value, str | bytes)
+    ):
+        return tuple(
+            ref
+            for item in value
+            for ref in _source_ref_values_from_nested_value(
+                item,
+                parent_dialogue=parent_dialogue,
+            )
+        )
+    return _source_ref_values(value)
+
+
+def _structured_turn_refs_from_mapping(
+    value: Mapping[object, object],
+) -> tuple[str, ...]:
     turn_ref = _safe_turn_ref_from_mapping_value(
         value.get("dia_id")
         or value.get("locomo_evidence_ref")
@@ -568,19 +636,53 @@ def _structured_turn_ref_from_mapping(value: Mapping[object, object]) -> str:
         or value.get("turn_id")
     )
     if turn_ref:
-        return turn_ref
+        return (turn_ref,)
     dialogue = _dialogue_number_from_mapping(value)
-    turn = _positive_int_string(
-        value.get("source_turn_id")
-        or value.get("source_turn")
-        or value.get("source_turn_index")
-        or value.get("turn")
-        or value.get("turn_id")
-        or value.get("turn_index")
+    turns = _structured_turn_values_from_mapping(value)
+    if not dialogue or not 0 < len(turns) <= 3:
+        return ()
+    return tuple(f"source_turn_refs:D{dialogue}:{turn}" for turn in turns)
+
+
+def _structured_turn_values_from_mapping(
+    value: Mapping[object, object],
+) -> tuple[str, ...]:
+    return tuple(
+        dict.fromkeys(
+            turn
+            for key in (
+                "source_turn_id",
+                "source_turn",
+                "source_turn_index",
+                "source_evidence_ref",
+                "source_evidence_refs",
+                "evidence_ref",
+                "evidence_refs",
+                "evidence_id",
+                "evidence_ids",
+                "locomo_evidence_ref",
+                "locomo_evidence_refs",
+                "turn",
+                "turn_id",
+                "turn_ids",
+                "turn_index",
+            )
+            for turn in _positive_int_values(value.get(key))
+        )
     )
-    if dialogue and turn:
-        return f"source_turn_refs:D{dialogue}:{turn}"
-    return ""
+
+
+def _positive_int_values(value: object) -> tuple[str, ...]:
+    if isinstance(value, Mapping):
+        return ()
+    if isinstance(value, Sequence) and not isinstance(value, str | bytes):
+        return tuple(
+            turn
+            for item in value
+            for turn in _positive_int_values(item)
+        )
+    turn = _positive_int_string(value)
+    return (turn,) if turn else ()
 
 
 def _structured_session_ref_from_mapping(value: Mapping[object, object]) -> str:
@@ -621,7 +723,7 @@ def _dialogue_number_from_value(value: object) -> str:
     if not text:
         return ""
     if match := re.fullmatch(
-        r"(?:(?:session|dialogue)[-_]?|D)?(?P<number>\d+)",
+        r"(?:(?:session|dialogue|dialog)[-_]?|D)?(?P<number>\d+)",
         text,
         re.IGNORECASE,
     ):
@@ -982,6 +1084,7 @@ def _session_turn_refs_from_text(
                 _TEXT_SESSION_TURN_RE,
                 _TEXT_SESSION_DATE_TURN_RE,
                 _TEXT_TURN_SESSION_RE,
+                _TEXT_TURN_PUNCT_SESSION_RE,
             )
             for match in pattern.finditer(text or "")
             for turn_ref in (safe_turn_ref(match.group("turn_ref")),)
@@ -1042,7 +1145,7 @@ def _session_count(session_turn_refs: Sequence[str]) -> int:
 def _normalized_session_ref(value: object) -> str:
     text = str(value or "").strip()
     match = re.fullmatch(
-        r"session(?:[-_]\s*|\s+#?\s*)(?P<session>\d+)",
+        r"(?:session|dialogue|dialog)(?:[-_]\s*|\s+#?\s*)(?P<session>\d+)",
         text,
         re.IGNORECASE,
     )

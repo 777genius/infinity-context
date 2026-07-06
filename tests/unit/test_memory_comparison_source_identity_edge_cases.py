@@ -120,6 +120,20 @@ def test_source_identity_refs_normalize_spaced_session_text_variants() -> None:
         "source_turn_refs:D3:6",
     )
     assert source_identity_refs_from_text(
+        "Dialogue 3 turn D3:6 Alex confirmed the planning date.",
+        source_refs=("profile:alex-summary",),
+    ) == (
+        "source_session_turn_refs:session_3:D3:6",
+        "source_turn_refs:D3:6",
+    )
+    assert source_identity_refs_from_text(
+        "Dialog 3 turn D3:6 Alex confirmed the planning date.",
+        source_refs=("profile:alex-summary",),
+    ) == (
+        "source_session_turn_refs:session_3:D3:6",
+        "source_turn_refs:D3:6",
+    )
+    assert source_identity_refs_from_text(
         "Session #3 date: 2024-01-11 D3:7 Alex confirmed the planning date.",
         source_refs=("profile:alex-summary",),
     ) == (
@@ -218,11 +232,22 @@ def test_source_identity_refs_normalize_reversed_session_text_variants() -> None
     assert source_identity_refs_from_text(
         "D2:8, session 2, Priya confirmed the plan.",
         source_refs=("conversation-summary",),
-    ) == ("source_turn_refs:D2:8",)
+    ) == (
+        "source_session_turn_refs:session_2:D2:8",
+        "source_turn_refs:D2:8",
+    )
     assert source_identity_audit_gap_codes(
         source_refs=("conversation-summary",),
         text="D2:8, session 2, Priya confirmed the plan.",
     ) == ("generic_source_refs_with_text_turn_identity",)
+    assert source_identity_audit_gap_codes(
+        source_refs=("locomo:conversation:session_2", "D2:8"),
+        text="D2:8, session 2, Priya confirmed the plan.",
+    ) == ()
+    assert source_identity_audit_gap_codes(
+        source_refs=("locomo:conversation:session_2", "D2:8"),
+        text="D2:8, session 3, Priya confirmed the plan.",
+    ) == ("source_text_session_turn_mismatch",)
 
 
 def test_source_identity_refs_do_not_qualify_mismatched_session_text_variants() -> None:
@@ -292,6 +317,18 @@ def test_source_identity_refs_qualify_split_session_and_turn_refs() -> None:
         "source_turn_refs:D4:7",
     )
     assert source_identity_refs_from_source_refs(
+        ("conversation dialogue #4", "D4:8")
+    ) == (
+        "source_session_turn_refs:session_4:D4:8",
+        "source_turn_refs:D4:8",
+    )
+    assert source_identity_refs_from_source_refs(
+        ("conversation dialog #4", "D4:8")
+    ) == (
+        "source_session_turn_refs:session_4:D4:8",
+        "source_turn_refs:D4:8",
+    )
+    assert source_identity_refs_from_source_refs(
         ("locomo:conversation:session_9", "D7:2")
     ) == ()
     assert source_identity_refs_from_source_refs(
@@ -336,6 +373,81 @@ def test_source_identity_refs_qualify_structured_session_id_and_turn_id() -> Non
         "source_session_turn_refs:session_12:D12:5",
         "source_turn_refs:D12:5",
     )
+
+
+def test_source_identity_refs_qualify_numeric_evidence_aliases_with_session() -> None:
+    for evidence_key in (
+        "evidence_ref",
+        "evidence_id",
+        "locomo_evidence_ref",
+        "source_evidence_ref",
+    ):
+        assert safe_source_refs_for_output(
+            (
+                {
+                    "source_external_id": "locomo:conv-private:turn-secret",
+                    "session_key": "session_4",
+                    evidence_key: "5",
+                },
+            )
+        ) == (
+            "source_session_turn_refs:session_4:D4:5",
+            "source_turn_refs:D4:5",
+        )
+
+
+def test_source_identity_refs_qualify_numeric_plural_evidence_aliases_with_session() -> None:
+    for evidence_key in (
+        "evidence_refs",
+        "evidence_ids",
+        "locomo_evidence_refs",
+        "source_evidence_refs",
+        "turn_ids",
+    ):
+        assert safe_source_refs_for_output(
+            (
+                {
+                    "source_external_id": "locomo:conv-private:turn-secret",
+                    "session_key": "session_4",
+                    evidence_key: ("5", "6"),
+                },
+            )
+        ) == (
+            "source_session_turn_refs:session_4:D4:5",
+            "source_session_turn_refs:session_4:D4:6",
+            "source_turn_refs:D4:5",
+            "source_turn_refs:D4:6",
+        )
+
+
+def test_source_identity_refs_suppress_broad_numeric_evidence_aliases() -> None:
+    assert safe_source_refs_for_output(
+        (
+            {
+                "source_external_id": "locomo:conv-private:turn-secret",
+                "session_key": "session_4",
+                "source_evidence_refs": ("1", "2", "3", "4"),
+            },
+        )
+    ) == ("session_4",)
+
+
+def test_source_identity_refs_read_plural_evidence_alias_turn_refs() -> None:
+    for evidence_key in ("evidence_ids", "turn_ids"):
+        assert safe_source_refs_for_output(
+            (
+                {
+                    "source_external_id": "locomo:conv-private:turn-secret",
+                    "session_key": "session_4",
+                    evidence_key: ("D4:5", "D4:6"),
+                },
+            )
+        ) == (
+            "source_session_turn_refs:session_4:D4:5",
+            "source_session_turn_refs:session_4:D4:6",
+            "source_turn_refs:D4:5",
+            "source_turn_refs:D4:6",
+        )
 
 
 def test_safe_source_refs_for_output_filters_raw_provider_refs() -> None:

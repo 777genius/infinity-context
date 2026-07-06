@@ -2,7 +2,9 @@ from __future__ import annotations
 
 from infinity_context_server.memory_comparison_source_identity import (
     safe_source_refs_for_output,
+    source_identity_audit_gap_codes,
     source_identity_refs_from_source_refs,
+    source_identity_refs_from_text,
 )
 
 
@@ -136,6 +138,89 @@ def test_source_identity_refs_read_locomo_evidence_ref_alias() -> None:
     )
 
 
+def test_source_identity_refs_qualify_numeric_evidence_aliases_with_session() -> None:
+    for evidence_key in (
+        "evidence_ref",
+        "evidence_id",
+        "locomo_evidence_ref",
+        "source_evidence_ref",
+    ):
+        refs = safe_source_refs_for_output(
+            (
+                {
+                    "source_external_id": "locomo:conv-private:turn-secret",
+                    "session_key": "session_4",
+                    evidence_key: "5",
+                },
+            )
+        )
+
+        assert refs == (
+            "source_session_turn_refs:session_4:D4:5",
+            "source_turn_refs:D4:5",
+        )
+
+
+def test_source_identity_refs_qualify_numeric_plural_evidence_aliases_with_session() -> None:
+    for evidence_key in (
+        "evidence_refs",
+        "evidence_ids",
+        "locomo_evidence_refs",
+        "source_evidence_refs",
+        "turn_ids",
+    ):
+        refs = safe_source_refs_for_output(
+            (
+                {
+                    "source_external_id": "locomo:conv-private:turn-secret",
+                    "session_key": "session_4",
+                    evidence_key: ("5", "6"),
+                },
+            )
+        )
+
+        assert refs == (
+            "source_session_turn_refs:session_4:D4:5",
+            "source_session_turn_refs:session_4:D4:6",
+            "source_turn_refs:D4:5",
+            "source_turn_refs:D4:6",
+        )
+
+
+def test_source_identity_refs_suppress_broad_numeric_evidence_aliases() -> None:
+    refs = safe_source_refs_for_output(
+        (
+            {
+                "source_external_id": "locomo:conv-private:turn-secret",
+                "session_key": "session_4",
+                "source_evidence_refs": ("1", "2", "3", "4"),
+            },
+        )
+    )
+
+    assert refs == ("session_4",)
+
+
+def test_source_identity_refs_read_plural_evidence_alias_turn_refs() -> None:
+    for evidence_key in ("evidence_ids", "turn_ids"):
+        refs = safe_source_refs_for_output(
+            (
+                {
+                    "source_external_id": "locomo:conv-private:turn-secret",
+                    "session_key": "session_4",
+                    evidence_key: ("D4:5", "D4:6"),
+                },
+            )
+        )
+
+        assert refs == (
+            "source_session_turn_refs:session_4:D4:5",
+            "source_session_turn_refs:session_4:D4:6",
+            "source_turn_refs:D4:5",
+            "source_turn_refs:D4:6",
+        )
+
+
 def test_source_identity_refs_read_evidence_ref_aliases() -> None:
     refs = safe_source_refs_for_output(
         (
@@ -215,6 +300,30 @@ def test_source_identity_refs_read_nested_evidence_aliases() -> None:
     assert refs == (
         "source_session_turn_refs:session_4:D4:5",
         "source_turn_refs:D4:5",
+    )
+
+
+def test_source_identity_refs_qualify_nested_numeric_evidence_aliases() -> None:
+    refs = safe_source_refs_for_output(
+        (
+            {
+                "source_external_id": "locomo:conv-private:turn-secret",
+                "metadata": {
+                    "session_key": "session_4",
+                    "supporting_evidence": [
+                        {"source_evidence_ref": "5"},
+                        {"turn_ids": ("6",)},
+                    ],
+                },
+            },
+        )
+    )
+
+    assert refs == (
+        "source_session_turn_refs:session_4:D4:5",
+        "source_session_turn_refs:session_4:D4:6",
+        "source_turn_refs:D4:5",
+        "source_turn_refs:D4:6",
     )
 
 
@@ -385,4 +494,64 @@ def test_safe_source_refs_suppress_split_dialogue_and_turn_fields() -> None:
     assert refs == (
         "source_session_turn_refs:session_12:D12:6",
         "source_turn_refs:D12:6",
+    )
+
+
+def test_source_identity_refs_qualify_reversed_punctuated_session_text() -> None:
+    refs = source_identity_refs_from_text(
+        "D2:8, session 2, Priya confirmed the plan.",
+        source_refs=("conversation-summary",),
+    )
+
+    assert refs == (
+        "source_session_turn_refs:session_2:D2:8",
+        "source_turn_refs:D2:8",
+    )
+    assert source_identity_audit_gap_codes(
+        source_refs=("locomo:conversation:session_2", "D2:8"),
+        text="D2:8, session 2, Priya confirmed the plan.",
+    ) == ()
+    assert source_identity_audit_gap_codes(
+        source_refs=("locomo:conversation:session_2", "D2:8"),
+        text="D2:8, session 3, Priya confirmed the plan.",
+    ) == ("source_text_session_turn_mismatch",)
+
+
+def test_source_identity_refs_accept_dialogue_as_session_surface() -> None:
+    assert source_identity_refs_from_text(
+        "Dialogue 3 turn D3:6 Alex confirmed the planning date.",
+        source_refs=("profile:alex-summary",),
+    ) == (
+        "source_session_turn_refs:session_3:D3:6",
+        "source_turn_refs:D3:6",
+    )
+    assert source_identity_refs_from_source_refs(
+        ("conversation dialogue #4", "D4:8")
+    ) == (
+        "source_session_turn_refs:session_4:D4:8",
+        "source_turn_refs:D4:8",
+    )
+    assert safe_source_refs_for_output(("dialogue #4", "D4:8")) == (
+        "source_session_turn_refs:session_4:D4:8",
+        "source_turn_refs:D4:8",
+    )
+
+
+def test_source_identity_refs_accept_dialog_as_session_surface() -> None:
+    assert source_identity_refs_from_text(
+        "Dialog 3 turn D3:6 Alex confirmed the planning date.",
+        source_refs=("profile:alex-summary",),
+    ) == (
+        "source_session_turn_refs:session_3:D3:6",
+        "source_turn_refs:D3:6",
+    )
+    assert source_identity_refs_from_source_refs(
+        ("conversation dialog #4", "D4:8")
+    ) == (
+        "source_session_turn_refs:session_4:D4:8",
+        "source_turn_refs:D4:8",
+    )
+    assert safe_source_refs_for_output(("dialog #4", "D4:8")) == (
+        "source_session_turn_refs:session_4:D4:8",
+        "source_turn_refs:D4:8",
     )
