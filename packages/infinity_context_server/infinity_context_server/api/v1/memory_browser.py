@@ -6,7 +6,6 @@ from typing import Annotated, Any
 
 from fastapi import APIRouter, Depends, Query
 from infinity_context_core.application import MemoryBrowserQuery
-from infinity_context_core.domain.entities import MemoryThread
 
 from infinity_context_server.api.auth import require_service_token
 from infinity_context_server.api.dependencies import get_container
@@ -93,7 +92,9 @@ async def get_memory_browser(
             "extraction_jobs": [
                 asset_extraction_to_response(job) for job in result.extraction_jobs
             ],
-            "threads": [thread_to_response(thread) for thread in result.threads],
+            "threads": [
+                memory_scopes_feature.thread_to_response(thread) for thread in result.threads
+            ],
             "captures": [capture_to_response(capture) for capture in result.captures],
             "assets": [asset_to_response(asset) for asset in result.assets],
             "anchors": [anchor_to_response(anchor) for anchor in result.anchors],
@@ -107,18 +108,6 @@ async def get_memory_browser(
             "quick_actions": list(result.quick_actions),
             "diagnostics": result.diagnostics,
         }
-    }
-
-
-def thread_to_response(thread: MemoryThread) -> dict[str, Any]:
-    return {
-        "id": str(thread.id),
-        "space_id": str(thread.space_id),
-        "memory_scope_id": str(thread.memory_scope_id),
-        "external_ref": thread.external_ref,
-        "status": thread.status.value,
-        "created_at": thread.created_at.isoformat(),
-        "updated_at": thread.updated_at.isoformat(),
     }
 
 

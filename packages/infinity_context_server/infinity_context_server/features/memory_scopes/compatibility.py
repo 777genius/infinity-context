@@ -143,6 +143,20 @@ def memory_scope_to_response(memory_scope: object) -> dict[str, Any]:
     }
 
 
+def thread_to_response(thread: object) -> dict[str, Any]:
+    """Map a memory thread entity-like object to the legacy browser response body."""
+
+    return {
+        "id": str(_required_value(thread, "id")),
+        "space_id": str(_required_value(thread, "space_id")),
+        "memory_scope_id": str(_required_value(thread, "memory_scope_id")),
+        "external_ref": _value(thread, "external_ref", None),
+        "status": _enum_or_text(_required_value(thread, "status")),
+        "created_at": _datetime_to_string(_required_value(thread, "created_at")),
+        "updated_at": _datetime_to_string(_required_value(thread, "updated_at")),
+    }
+
+
 def _required_value(source: object, name: str) -> object:
     value = _value(source, name, None)
     if value is None:
@@ -191,5 +205,6 @@ __all__ = (
     "memory_scope_collection_compatibility_response",
     "memory_scope_compatibility_response",
     "memory_scope_to_response",
+    "thread_to_response",
     "update_memory_scope_compatibility_command_from_request",
 )

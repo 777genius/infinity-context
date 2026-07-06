@@ -59,6 +59,47 @@ def test_memory_browser_delegates_scope_mapping_to_memory_scopes_public(
     assert browser.queries[0].memory_scope_id == "scope_1"
 
 
+def test_memory_browser_delegates_thread_mapping_to_memory_scopes_public(
+    monkeypatch: Any,
+) -> None:
+    thread = SimpleNamespace(id="thread_1")
+    result = _browser_result(memory_scope=_memory_scope(), threads=(thread,))
+    browser = RecordingBuildMemoryBrowser(result)
+    container = SimpleNamespace(build_memory_browser=browser)
+    mapped_threads: list[object] = []
+
+    async def resolve_scope(_container: object, **_kwargs: object) -> object:
+        return SimpleNamespace(space_id="space_1", memory_scope_id="scope_1")
+
+    def public_thread_response(scope_thread: object) -> dict[str, str]:
+        mapped_threads.append(scope_thread)
+        return {"mapped_by": "memory_scopes_public"}
+
+    monkeypatch.setattr(
+        memory_browser_api,
+        "resolve_existing_single_scope",
+        resolve_scope,
+    )
+    monkeypatch.setattr(
+        memory_browser_api.memory_scopes_feature,
+        "thread_to_response",
+        public_thread_response,
+    )
+
+    response = asyncio.run(
+        memory_browser_api.get_memory_browser(
+            container=container,
+            space_id="space_1",
+            memory_scope_id="scope_1",
+        )
+    )
+
+    assert response["data"]["threads"] == [
+        {"mapped_by": "memory_scopes_public"},
+    ]
+    assert mapped_threads == [thread]
+
+
 def test_memory_browser_returns_scope_threads_and_visual_summary(
     monkeypatch: Any,
 ) -> None:

@@ -180,6 +180,7 @@ def test_memory_scopes_server_feature_public_surface_composes_router() -> None:
         "memory_scope_to_response",
         "restore_memory_scope_command_from_http",
         "restore_memory_scope_result_to_response",
+        "thread_to_response",
         "transfer_memory_scope_ownership_command_from_http",
         "transfer_memory_scope_ownership_result_to_response",
         "update_memory_scope_compatibility_command_from_request",
@@ -406,12 +407,22 @@ def test_memory_browser_route_uses_memory_scopes_public_response_mapping() -> No
         and isinstance(node.func.value, ast.Name)
         and node.func.value.id == "memory_scopes_feature"
     ]
+    api_function_names = {
+        node.name
+        for node in ast.walk(api_tree)
+        if isinstance(node, ast.FunctionDef | ast.AsyncFunctionDef)
+    }
 
     assert "infinity_context_server.api.v1.spaces_memory_scopes" not in _imports(
         MEMORY_BROWSER_API_PATH,
     )
+    assert "infinity_context_core.domain.entities" not in _imports(
+        MEMORY_BROWSER_API_PATH,
+    )
     assert public_import_aliases == ["memory_scopes_feature"]
     assert "memory_scope_to_response" in public_calls
+    assert "thread_to_response" in public_calls
+    assert "thread_to_response" not in api_function_names
 
 
 def test_memory_scopes_feature_owns_snapshot_compatibility_api_mapping() -> None:
@@ -807,6 +818,30 @@ def test_memory_scopes_feature_owns_legacy_v1_memory_scope_api_responses() -> No
     }
     assert server_public.memory_scope_collection_compatibility_response([scope]) == {
         "data": [expected_scope],
+    }
+
+
+def test_memory_scopes_feature_owns_memory_browser_thread_response_mapping() -> None:
+    created_at = datetime(2026, 1, 2, 3, 4, 5, tzinfo=UTC)
+    updated_at = datetime(2026, 1, 3, 4, 5, 6, tzinfo=UTC)
+    thread = SimpleNamespace(
+        id="thread_1",
+        space_id="space_1",
+        memory_scope_id="scope_1",
+        external_ref="alex-call",
+        status=SimpleNamespace(value="active"),
+        created_at=created_at,
+        updated_at=updated_at,
+    )
+
+    assert server_public.thread_to_response(thread) == {
+        "id": "thread_1",
+        "space_id": "space_1",
+        "memory_scope_id": "scope_1",
+        "external_ref": "alex-call",
+        "status": "active",
+        "created_at": created_at.isoformat(),
+        "updated_at": updated_at.isoformat(),
     }
 
 
