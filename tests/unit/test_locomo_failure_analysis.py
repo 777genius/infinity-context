@@ -478,6 +478,130 @@ def test_locomo_failure_analysis_prefers_reported_provenance_gap_causes() -> Non
     ]["cause_counts"] == {"same_source_miss": 1}
 
 
+def test_locomo_failure_analysis_summarizes_source_locality_windows_safely() -> None:
+    report = {
+        "failures": [
+            {
+                "case_id": "source-window-miss",
+                "capability": "locomo_category_2",
+                "reason": "expected_terms_missing",
+                "diagnostic_reason_codes": ["missing_evidence_refs"],
+                "diagnostics": {
+                    "missing_evidence_terms": ["D4:9", "D4:10", "D8:1", "D9:2"],
+                    "missing_evidence_source_locality": {
+                        "missing_turn_ref_count": 4,
+                        "retrieved_source_id_count": 2,
+                        "retrieved_source_ids": ["D4", "D7"],
+                        "bundle_source_id_count": 1,
+                        "bundle_source_ids": ["D4"],
+                        "same_source_missing_count": 2,
+                        "near_retrieved_window_count": 1,
+                        "source_absent_count": 2,
+                        "missing_ref_window_count": 4,
+                        "missing_ref_window_omitted_count": 1,
+                        "cause_counts": {
+                            "near_retrieved_window": 1,
+                            "source_absent": 2,
+                            "same_source_miss": 1,
+                        },
+                        "missing_ref_windows": [
+                            {
+                                "ref": "D4:9",
+                                "source_id": "D4",
+                                "retrieved_same_source": True,
+                                "bundle_same_source": True,
+                                "nearest_retrieved_turn_ref": "D4:8",
+                                "nearest_retrieved_turn_distance": 1,
+                                "nearest_bundle_turn_ref": "D4:1",
+                                "nearest_bundle_turn_distance": 8,
+                                "cause": "near_retrieved_window",
+                                "text": "raw source text must not be copied",
+                            },
+                            {
+                                "ref": "D4:10",
+                                "source_id": "D4",
+                                "retrieved_same_source": True,
+                                "bundle_same_source": True,
+                                "nearest_retrieved_turn_ref": "D4:2",
+                                "nearest_retrieved_turn_distance": 8,
+                                "cause": "same_source_miss",
+                            },
+                            {
+                                "ref": "D8:1",
+                                "source_id": "D8",
+                                "retrieved_same_source": False,
+                                "bundle_same_source": False,
+                                "cause": "source_absent",
+                            },
+                            {
+                                "ref": "D9:2",
+                                "source_id": "D9",
+                                "retrieved_same_source": False,
+                                "bundle_same_source": False,
+                                "cause": "source_absent",
+                            },
+                        ],
+                    },
+                },
+            }
+        ]
+    }
+
+    summary = _summary(_failures(report), top=10)
+
+    locality = summary["root_cause_examples"]["evidence:missing_refs"][0][
+        "missing_evidence_source_locality"
+    ]
+    assert locality == {
+        "missing_turn_ref_count": 4,
+        "same_source_missing_count": 2,
+        "near_retrieved_window_count": 1,
+        "source_absent_count": 2,
+        "retrieved_source_id_count": 2,
+        "bundle_source_id_count": 1,
+        "missing_ref_window_count": 4,
+        "missing_ref_window_omitted_count": 1,
+        "retrieved_source_ids": ["D4", "D7"],
+        "bundle_source_ids": ["D4"],
+        "missing_ref_windows": [
+            {
+                "ref": "D4:9",
+                "source_id": "D4",
+                "retrieved_same_source": True,
+                "bundle_same_source": True,
+                "nearest_retrieved_turn_ref": "D4:8",
+                "nearest_retrieved_turn_distance": 1,
+                "nearest_bundle_turn_ref": "D4:1",
+                "nearest_bundle_turn_distance": 8,
+                "cause": "near_retrieved_window",
+            },
+            {
+                "ref": "D4:10",
+                "source_id": "D4",
+                "retrieved_same_source": True,
+                "bundle_same_source": True,
+                "nearest_retrieved_turn_ref": "D4:2",
+                "nearest_retrieved_turn_distance": 8,
+                "cause": "same_source_miss",
+            },
+            {
+                "ref": "D8:1",
+                "source_id": "D8",
+                "retrieved_same_source": False,
+                "bundle_same_source": False,
+                "cause": "source_absent",
+            },
+        ],
+        "cause_counts": {
+            "near_retrieved_window": 1,
+            "same_source_miss": 1,
+            "source_absent": 2,
+        },
+    }
+    assert "raw source text must not be copied" not in json.dumps(summary)
+    assert len(locality["missing_ref_windows"]) == 3
+
+
 def test_locomo_failure_analysis_tags_answer_context_gaps() -> None:
     report = {
         "failures": [

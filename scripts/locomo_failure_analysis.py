@@ -39,6 +39,7 @@ _LIST_QUESTION_MARKERS = (
 )
 _MAX_TEMPORAL_GROUNDING_EXAMPLES = 5
 _MAX_TEMPORAL_GROUNDING_SAMPLE_EXAMPLES = 2
+_MAX_SOURCE_LOCALITY_WINDOWS = 3
 _MAX_SUMMARY_TEXT_CHARS = 240
 _MAX_SUMMARY_LIST_ITEMS = 8
 _MAX_SUMMARY_MAPPING_ITEMS = 20
@@ -51,6 +52,17 @@ _TEMPORAL_GROUNDING_SAMPLE_KEYS = (
     "source_refs",
     "issue_reasons",
     "grounding_signals",
+)
+_SOURCE_LOCALITY_WINDOW_KEYS = (
+    "ref",
+    "source_id",
+    "retrieved_same_source",
+    "bundle_same_source",
+    "nearest_retrieved_turn_ref",
+    "nearest_retrieved_turn_distance",
+    "nearest_bundle_turn_ref",
+    "nearest_bundle_turn_distance",
+    "cause",
 )
 
 
@@ -520,10 +532,41 @@ def _missing_evidence_source_locality_summary(
         or 0,
         "source_absent_count": _positive_int(locality.get("source_absent_count")) or 0,
     }
+    for key in (
+        "retrieved_source_id_count",
+        "bundle_source_id_count",
+        "missing_ref_window_count",
+        "missing_ref_window_omitted_count",
+    ):
+        if (count := _non_negative_int(locality.get(key))) is not None:
+            summary[key] = count
+    for key in ("retrieved_source_ids", "bundle_source_ids"):
+        values = _strings(locality.get(key))
+        if values:
+            summary[key] = list(values[:_MAX_SUMMARY_LIST_ITEMS])
+    windows = _safe_source_locality_windows(locality.get("missing_ref_windows"))
+    if windows:
+        summary["missing_ref_windows"] = windows
     cause_counts = _provenance_gap_cause_counts(failure)
     if cause_counts:
         summary["cause_counts"] = dict(cause_counts)
     return summary if any(summary.values()) else None
+
+
+def _safe_source_locality_windows(value: object) -> list[dict[str, object]]:
+    windows: list[dict[str, object]] = []
+    for raw_window in _sequence(value)[:_MAX_SOURCE_LOCALITY_WINDOWS]:
+        window = _mapping(raw_window)
+        if not window:
+            continue
+        payload = {
+            key: _safe_summary_value(window[key])
+            for key in _SOURCE_LOCALITY_WINDOW_KEYS
+            if key in window
+        }
+        if payload:
+            windows.append(payload)
+    return windows
 
 
 def _provenance_gap_cause_counts(failure: Mapping[str, object]) -> Counter[str]:
@@ -928,6 +971,16 @@ def _positive_int(value: object) -> int | None:
     except (TypeError, ValueError):
         return None
     return parsed if parsed > 0 else None
+
+
+def _non_negative_int(value: object) -> int | None:
+    if isinstance(value, bool):
+        return None
+    try:
+        parsed = int(value)  # type: ignore[arg-type]
+    except (TypeError, ValueError):
+        return None
+    return parsed if parsed >= 0 else None
 
 
 def _filter_failures(
