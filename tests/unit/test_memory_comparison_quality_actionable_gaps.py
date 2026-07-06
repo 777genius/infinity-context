@@ -17,6 +17,64 @@ from tests.unit.test_memory_comparison_quality_diagnostics import (
     _retrieval_payload,
 )
 
+_ACTIONABLE_SUMMARY_CONTRACT_KEYS = {
+    "schema_version",
+    "evaluation_count",
+    "expected_case_count",
+    "gap_count",
+    "blocking_gap_count",
+    "diagnostic_gap_count",
+    "rank_basis",
+    "top_gap",
+    "ranked_gaps",
+}
+
+_ACTIONABLE_GAP_CONTRACT_KEYS = {
+    "rank",
+    "category",
+    "gap",
+    "impact_count",
+    "impact_rate",
+    "severity",
+    "failed_gate",
+    "source_metric",
+    "action",
+    "sample_case_ids",
+    "evidence",
+}
+
+_FAST_GATE_COMPATIBILITY_KEYS = {
+    "schema_version",
+    "expected_case_count",
+    "evaluation_count",
+    "evidence_ref_evaluation_count",
+    "passed",
+    "ready_for_full_locomo",
+    "failed_gates",
+    "query_overlap_count",
+    "profile_overlap_count",
+    "bundle_quality_gate_applied",
+    "bundle_quality_count",
+    "weak_bundle_count",
+    "bundle_quality_failure_breakdown",
+    "bundle_support_counts",
+    "bundle_support_bundle_counts",
+    "bundle_source_identity",
+    "bundle_source_proximity",
+    "bundle_gap_breakdown",
+    "answerability_gap_breakdown",
+    "selected_evidence_weakness",
+    "query_role_gap_breakdown",
+    "query_plan_gap_breakdown",
+    "source_ref_provenance",
+    "answer_context_provenance",
+    "candidate_fusion",
+    "rerank_signal_gap_breakdown",
+    "risk_flag_table",
+    "actionable_gap_summary",
+    "gates",
+}
+
 
 def test_fast_gate_metrics_ranks_actionable_gaps_by_observed_impact() -> None:
     items: list[dict[str, object]] = []
@@ -73,13 +131,17 @@ def test_fast_gate_metrics_ranks_actionable_gaps_by_observed_impact() -> None:
     summary = gate["actionable_gap_summary"]
     ranked_gaps = summary["ranked_gaps"]
 
+    assert set(gate) >= _FAST_GATE_COMPATIBILITY_KEYS
     assert summary["schema_version"] == "actionable_gap_summary.v1"
+    assert set(summary) >= _ACTIONABLE_SUMMARY_CONTRACT_KEYS
     assert summary["evaluation_count"] == 5
+    assert summary["rank_basis"] == "observed_impact_desc_blocking_tie_break"
     assert ranked_gaps[0]["category"] == "bundle_quality"
     assert ranked_gaps[0]["gap"] == "weak_bundle_quality"
     assert ranked_gaps[0]["impact_count"] == 3
     assert ranked_gaps[0]["failed_gate"] == "bundle_quality_medium_or_high"
     assert ranked_gaps[0]["sample_case_ids"] == ["weak-1", "weak-2", "weak-3"]
+    assert set(ranked_gaps[0]) >= _ACTIONABLE_GAP_CONTRACT_KEYS
     selected_gap = next(
         gap for gap in ranked_gaps if gap["gap"] == "selected_low_answerability"
     )
@@ -842,6 +904,7 @@ def test_actionable_gap_summary_caps_ranked_gaps_and_sample_case_ids() -> None:
 
     assert summary["gap_count"] == 13
     assert len(ranked_gaps) == 10
+    assert summary["top_gap"] == ranked_gaps[0]
     assert ranked_gaps[0]["gap"] == "selected_low_answerability"
     assert ranked_gaps[0]["sample_case_ids"] == [
         "case-1",
@@ -849,6 +912,65 @@ def test_actionable_gap_summary_caps_ranked_gaps_and_sample_case_ids() -> None:
         "case-3",
         "case-4",
         "case-5",
+    ]
+
+
+def test_actionable_gap_summary_caps_compact_sample_payloads() -> None:
+    samples = [
+        {
+            "case_id": f"case-{index}",
+            "group": "multi-hop",
+            "gap_reasons": ["missing_evidence_role_query_family"],
+            "missing_evidence_role_query_families": ["favorite_support"],
+            "selected_role_families": ["base_query"],
+            "required_evidence_roles": ["primary", "favorite_support"],
+            "selected_query_count": index,
+        }
+        for index in range(1, 7)
+    ]
+    summary = actionable_gap_summary(
+        evaluation_count=6,
+        expected_case_count=6,
+        failed_gates=("query_plan_evidence_roles_clear",),
+        query_overlap_count=0,
+        profile_overlap_count=0,
+        intent_overlap_count=0,
+        ref_gate={},
+        bundle_quality_failure_breakdown={},
+        bundle_gap_breakdown={},
+        answerability_gap_breakdown={},
+        selected_evidence_weakness={},
+        query_role_gap_breakdown={},
+        query_plan_gap_breakdown={
+            "missing_evidence_role_query_family_counts": {
+                "favorite_support": 6,
+            },
+            "samples": samples,
+        },
+        source_ref_provenance={},
+    )
+
+    role_gap = next(
+        gap
+        for gap in summary["ranked_gaps"]
+        if gap["source_metric"]
+        == (
+            "query_plan_gap_breakdown."
+            "missing_evidence_role_query_family_counts"
+        )
+    )
+
+    assert role_gap["sample_case_ids"] == [
+        "case-1",
+        "case-2",
+        "case-3",
+        "case-4",
+        "case-5",
+    ]
+    assert [sample["case_id"] for sample in role_gap["samples"]] == [
+        "case-1",
+        "case-2",
+        "case-3",
     ]
 
 
