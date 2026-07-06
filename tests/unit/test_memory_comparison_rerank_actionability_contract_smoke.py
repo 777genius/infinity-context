@@ -62,6 +62,9 @@ def test_compact_fast_gate_keeps_rerank_samples_bounded_and_diagnostic_only() ->
                         score=0.91,
                         memory=raw_memory_text,
                         raw_provider_payload=raw_payload,
+                        source_refs=(
+                            "locomo:conv-private:session_2:D2:8:turn-secret",
+                        ),
                         score_signals={
                             "benchmark_answerability_boost": 0.07,
                             "benchmark_effective_boost_cap": 0.22,
@@ -120,6 +123,10 @@ def test_compact_fast_gate_keeps_rerank_samples_bounded_and_diagnostic_only() ->
             "score": 0.91,
             "source_locality_score": 0.86,
             "source_type": "raw_turn",
+            "source_identity_refs": [
+                "source_session_turn_refs:session_2:D2:8",
+                "source_turn_refs:D2:8",
+            ],
             "query_roles": ["contrast_support"],
             "relation_category_hits": ["status_profile"],
             "selected_item_ids": ["selected-without-positive"],
@@ -145,6 +152,7 @@ def test_compact_fast_gate_keeps_rerank_samples_bounded_and_diagnostic_only() ->
             "role": "primary",
             "source_locality_score": 0.8,
             "source_type": "unknown",
+            "source_identity_refs": ["D1:1"],
             "query_roles": ["contrast_support"],
             "penalty_signals": {"benchmark_rank_penalty": -0.03},
         }
@@ -153,6 +161,7 @@ def test_compact_fast_gate_keeps_rerank_samples_bounded_and_diagnostic_only() ->
     serialized = json.dumps(summary)
     assert raw_memory_text not in serialized
     assert raw_payload not in serialized
+    assert "locomo:conv-private" not in serialized
     assert "unsupported_stale_evidence_cap" not in serialized
 
 
@@ -467,6 +476,7 @@ def _retrieved_candidate(
     score_signals: dict[str, object] | None = None,
     policy_score: float = 0.0,
     candidate_features: dict[str, object] | None = None,
+    source_refs: tuple[str, ...] = (),
 ) -> dict[str, object]:
     diagnostics = {
         "benchmark_rerank_boosted": bool(policy_score),
@@ -489,6 +499,7 @@ def _retrieved_candidate(
         "rank": rank,
         "score": score,
         "memory": memory,
+        "source_refs": list(source_refs),
         "metadata": {"diagnostics": diagnostics},
     }
 

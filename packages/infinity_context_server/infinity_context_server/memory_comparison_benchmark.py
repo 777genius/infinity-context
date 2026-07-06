@@ -3175,6 +3175,7 @@ def _compact_rerank_gap_sample(sample: Mapping[str, object]) -> dict[str, object
         "query_roles",
         "relation_category_hits",
         "selected_item_ids",
+        "source_identity_refs",
     }
     mapping_keys = {
         "cap_signals",

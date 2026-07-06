@@ -2416,6 +2416,7 @@ def test_compact_fast_gate_summary_surfaces_computed_gap_diagnostics() -> None:
             "source_locality_score": 0.1,
             "source_type": "unknown",
             "query_roles": ["relation_compact"],
+            "source_identity_refs": ["D1:1"],
         }
     ]
     assert rerank_samples["selection_conflict_samples"] == [
