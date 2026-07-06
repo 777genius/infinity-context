@@ -21,6 +21,7 @@ from infinity_context_core.features.context_building.public import (
     ContextScope,
     ContextSourceRef,
 )
+from sdk_module_isolation import provider_sdk_modules_unloaded
 
 FEATURE_ROOT = (
     Path(__file__).resolve().parents[2]
@@ -60,16 +61,16 @@ def test_context_building_adapter_package_mirrors_feature_id() -> None:
 
 
 def test_context_building_adapter_imports_do_not_load_provider_sdks() -> None:
-    for module_name in ("sqlalchemy", "qdrant_client", "graphiti", "graphiti_core", "openai"):
-        sys.modules.pop(module_name, None)
+    with provider_sdk_modules_unloaded(
+        "sqlalchemy", "qdrant_client", "graphiti", "graphiti_core", "openai"
+    ):
+        importlib.import_module("infinity_context_adapters.features.context_building")
 
-    importlib.import_module("infinity_context_adapters.features.context_building")
-
-    assert "sqlalchemy" not in sys.modules
-    assert "qdrant_client" not in sys.modules
-    assert "graphiti" not in sys.modules
-    assert "graphiti_core" not in sys.modules
-    assert "openai" not in sys.modules
+        assert "sqlalchemy" not in sys.modules
+        assert "qdrant_client" not in sys.modules
+        assert "graphiti" not in sys.modules
+        assert "graphiti_core" not in sys.modules
+        assert "openai" not in sys.modules
 
 
 def test_context_building_adapter_imports_only_public_core_feature_api() -> None:
@@ -86,9 +87,7 @@ def test_context_building_adapter_imports_only_public_core_feature_api() -> None
 
 
 def test_in_memory_candidate_provider_maps_records_through_context_port() -> None:
-    module = importlib.import_module(
-        "infinity_context_adapters.features.context_building"
-    )
+    module = importlib.import_module("infinity_context_adapters.features.context_building")
     source_ref = ContextSourceRef(
         source_type="document",
         source_id="doc-1",
@@ -158,9 +157,7 @@ def test_in_memory_candidate_provider_maps_records_through_context_port() -> Non
 
 
 def test_adapter_query_maps_feature_owned_candidate_request_plan() -> None:
-    module = importlib.import_module(
-        "infinity_context_adapters.features.context_building"
-    )
+    module = importlib.import_module("infinity_context_adapters.features.context_building")
     original_query = _query(tags=("Deploy Ops", "deploy ops"))
     query_plan = ContextQueryExpansionPolicy().plan(original_query)
     request = ContextCandidateRequest(
@@ -183,9 +180,7 @@ def test_adapter_query_maps_feature_owned_candidate_request_plan() -> None:
 
 
 def test_records_match_candidate_request_query_plan_normalized_tags() -> None:
-    module = importlib.import_module(
-        "infinity_context_adapters.features.context_building"
-    )
+    module = importlib.import_module("infinity_context_adapters.features.context_building")
     source_ref = ContextSourceRef(source_type="document", source_id="doc-1")
     record = module.ContextCandidateRecord(
         item_id="normalized-tag",
@@ -206,9 +201,7 @@ def test_records_match_candidate_request_query_plan_normalized_tags() -> None:
 
 
 def test_in_memory_provider_can_drive_core_build_context_handler() -> None:
-    module = importlib.import_module(
-        "infinity_context_adapters.features.context_building"
-    )
+    module = importlib.import_module("infinity_context_adapters.features.context_building")
     source_ref = ContextSourceRef(
         source_type="document",
         source_id="doc-1",
@@ -247,9 +240,7 @@ def test_in_memory_provider_can_drive_core_build_context_handler() -> None:
 
 
 def test_candidate_provider_chain_deduplicates_and_respects_limit() -> None:
-    module = importlib.import_module(
-        "infinity_context_adapters.features.context_building"
-    )
+    module = importlib.import_module("infinity_context_adapters.features.context_building")
     first = _StaticProvider(
         (
             _item(module, "duplicate"),
@@ -276,9 +267,7 @@ def test_candidate_provider_chain_deduplicates_and_respects_limit() -> None:
 
 
 def test_candidate_provider_chain_requests_remaining_limit_from_later_providers() -> None:
-    module = importlib.import_module(
-        "infinity_context_adapters.features.context_building"
-    )
+    module = importlib.import_module("infinity_context_adapters.features.context_building")
     first = _StaticProvider(
         (
             _item(module, "first-a"),
@@ -359,9 +348,7 @@ def _item(module: object, item_id: str) -> ContextItem:
         space_id="space-1",
         memory_scope_id="scope-1",
         text=f"Evidence for {item_id}",
-        source_refs=(
-            ContextSourceRef(source_type="document", source_id=f"doc-{item_id}"),
-        ),
+        source_refs=(ContextSourceRef(source_type="document", source_id=f"doc-{item_id}"),),
     )
     return record.to_context_item()
 

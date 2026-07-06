@@ -25,6 +25,7 @@ from infinity_context_core.features.memory_facts.public import (
     UpdateFactHandler,
 )
 from infinity_context_core.ports.capabilities import CapabilityStatus
+from sdk_module_isolation import provider_sdk_modules_unloaded
 
 NOW = datetime(2026, 1, 2, 3, 4, 5, tzinfo=UTC)
 EARLIER = datetime(2026, 1, 1, 2, 3, 4, tzinfo=UTC)
@@ -44,16 +45,16 @@ def test_memory_facts_adapter_package_mirrors_feature_id() -> None:
 
 
 def test_memory_facts_adapter_imports_do_not_load_provider_sdks() -> None:
-    for module_name in ("sqlalchemy", "qdrant_client", "graphiti", "openai", "fastapi"):
-        sys.modules.pop(module_name, None)
+    with provider_sdk_modules_unloaded(
+        "sqlalchemy", "qdrant_client", "graphiti", "openai", "fastapi"
+    ):
+        importlib.import_module("infinity_context_adapters.features.memory_facts")
 
-    importlib.import_module("infinity_context_adapters.features.memory_facts")
-
-    assert "sqlalchemy" not in sys.modules
-    assert "qdrant_client" not in sys.modules
-    assert "graphiti" not in sys.modules
-    assert "openai" not in sys.modules
-    assert "fastapi" not in sys.modules
+        assert "sqlalchemy" not in sys.modules
+        assert "qdrant_client" not in sys.modules
+        assert "graphiti" not in sys.modules
+        assert "openai" not in sys.modules
+        assert "fastapi" not in sys.modules
 
 
 def test_in_memory_fact_store_uses_full_identity_and_requires_existing_on_save() -> None:
@@ -242,8 +243,7 @@ def test_fact_projection_seams_report_disabled_health() -> None:
     assert qdrant_health.status is CapabilityStatus.DISABLED
     assert graphiti_health.status is CapabilityStatus.DISABLED
     assert all(
-        descriptor.metadata["feature_id"] == FEATURE_ID
-        for descriptor in qdrant_health.capabilities
+        descriptor.metadata["feature_id"] == FEATURE_ID for descriptor in qdrant_health.capabilities
     )
     assert all(
         descriptor.metadata["feature_id"] == FEATURE_ID

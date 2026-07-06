@@ -25,6 +25,7 @@ from infinity_context_core.features.document_ingestion.public import (
     StableDocumentIngestionIdentityFactory,
     content_hash_for_text,
 )
+from sdk_module_isolation import provider_sdk_modules_unloaded
 
 FEATURE_ROOT = (
     Path(__file__).resolve().parents[2]
@@ -66,16 +67,16 @@ def test_document_ingestion_adapter_package_mirrors_feature_id() -> None:
 
 
 def test_document_ingestion_adapter_imports_do_not_load_provider_sdks() -> None:
-    for module_name in ("sqlalchemy", "qdrant_client", "docling", "openai", "graphiti"):
-        sys.modules.pop(module_name, None)
+    with provider_sdk_modules_unloaded(
+        "sqlalchemy", "qdrant_client", "docling", "openai", "graphiti"
+    ):
+        importlib.import_module("infinity_context_adapters.features.document_ingestion")
 
-    importlib.import_module("infinity_context_adapters.features.document_ingestion")
-
-    assert "sqlalchemy" not in sys.modules
-    assert "qdrant_client" not in sys.modules
-    assert "docling" not in sys.modules
-    assert "openai" not in sys.modules
-    assert "graphiti" not in sys.modules
+        assert "sqlalchemy" not in sys.modules
+        assert "qdrant_client" not in sys.modules
+        assert "docling" not in sys.modules
+        assert "openai" not in sys.modules
+        assert "graphiti" not in sys.modules
 
 
 def test_document_ingestion_adapter_imports_only_public_core_feature_api() -> None:
@@ -92,41 +93,37 @@ def test_document_ingestion_adapter_imports_only_public_core_feature_api() -> No
 
 
 def test_document_ingestion_extraction_composition_builds_standard_components() -> None:
-    for module_name in ("sqlalchemy", "qdrant_client", "docling", "openai", "graphiti"):
-        sys.modules.pop(module_name, None)
+    with provider_sdk_modules_unloaded(
+        "sqlalchemy", "qdrant_client", "docling", "openai", "graphiti"
+    ):
+        module = importlib.import_module("infinity_context_adapters.features.document_ingestion")
 
-    module = importlib.import_module(
-        "infinity_context_adapters.features.document_ingestion"
-    )
+        components = module.create_document_ingestion_extraction_components(
+            openai_api_key=None,
+            vision_model="gpt-4.1-mini",
+            vision_detail="high",
+            provider_timeout_seconds=60,
+            transcription_provider="openai",
+            transcription_model="gpt-4o-mini-transcribe",
+            transcription_max_upload_bytes=25 * 1024 * 1024,
+            asr_model="base",
+            asr_device="auto",
+            asr_compute_type="default",
+        )
 
-    components = module.create_document_ingestion_extraction_components(
-        openai_api_key=None,
-        vision_model="gpt-4.1-mini",
-        vision_detail="high",
-        provider_timeout_seconds=60,
-        transcription_provider="openai",
-        transcription_model="gpt-4o-mini-transcribe",
-        transcription_max_upload_bytes=25 * 1024 * 1024,
-        asr_model="base",
-        asr_device="auto",
-        asr_compute_type="default",
-    )
-
-    assert components.feature_id == FEATURE_ID
-    assert components.adapter_name == "standard_asset_extraction"
-    assert hasattr(components.detector, "detect")
-    assert hasattr(components.extractor, "extract")
-    assert "sqlalchemy" not in sys.modules
-    assert "qdrant_client" not in sys.modules
-    assert "docling" not in sys.modules
-    assert "openai" not in sys.modules
-    assert "graphiti" not in sys.modules
+        assert components.feature_id == FEATURE_ID
+        assert components.adapter_name == "standard_asset_extraction"
+        assert hasattr(components.detector, "detect")
+        assert hasattr(components.extractor, "extract")
+        assert "sqlalchemy" not in sys.modules
+        assert "qdrant_client" not in sys.modules
+        assert "docling" not in sys.modules
+        assert "openai" not in sys.modules
+        assert "graphiti" not in sys.modules
 
 
 def test_in_memory_document_store_persists_and_queries_documents_and_chunks() -> None:
-    module = importlib.import_module(
-        "infinity_context_adapters.features.document_ingestion"
-    )
+    module = importlib.import_module("infinity_context_adapters.features.document_ingestion")
     document, chunk = _document_and_chunk()
     source_documents = module.create_in_memory_source_document_store()
     chunks = module.create_in_memory_document_chunk_store()
@@ -161,9 +158,7 @@ def test_in_memory_document_store_persists_and_queries_documents_and_chunks() ->
 
 
 def test_in_memory_document_store_can_drive_core_ingest_handler() -> None:
-    module = importlib.import_module(
-        "infinity_context_adapters.features.document_ingestion"
-    )
+    module = importlib.import_module("infinity_context_adapters.features.document_ingestion")
     store = module.create_in_memory_document_ingestion_store()
     handler = IngestDocumentHandler(
         source_documents=store.source_documents,
@@ -185,9 +180,7 @@ def test_in_memory_document_store_can_drive_core_ingest_handler() -> None:
 
 
 def test_in_memory_chunk_index_upserts_latest_items_and_accepts_deletes() -> None:
-    module = importlib.import_module(
-        "infinity_context_adapters.features.document_ingestion"
-    )
+    module = importlib.import_module("infinity_context_adapters.features.document_ingestion")
     document, chunk = _document_and_chunk()
     item = module.document_chunk_index_projection_from_chunk(
         document=document,
@@ -215,9 +208,7 @@ def test_in_memory_chunk_index_upserts_latest_items_and_accepts_deletes() -> Non
 
 
 def test_in_memory_chunk_index_drives_ingest_handler_for_non_duplicate_chunks() -> None:
-    module = importlib.import_module(
-        "infinity_context_adapters.features.document_ingestion"
-    )
+    module = importlib.import_module("infinity_context_adapters.features.document_ingestion")
     command = _ingest_command(
         text=(
             "First section has enough detail for the chunker to create a "
@@ -277,9 +268,7 @@ def test_in_memory_chunk_index_drives_ingest_handler_for_non_duplicate_chunks() 
 
 
 def test_document_chunk_index_projection_maps_public_document_state() -> None:
-    module = importlib.import_module(
-        "infinity_context_adapters.features.document_ingestion"
-    )
+    module = importlib.import_module("infinity_context_adapters.features.document_ingestion")
     document, chunk = _document_and_chunk()
 
     projection = module.DocumentChunkIndexProjection.from_document_chunk(
@@ -304,9 +293,7 @@ def test_document_chunk_index_projection_maps_public_document_state() -> None:
 
 
 def test_document_chunk_index_projection_rejects_cross_document_chunks() -> None:
-    module = importlib.import_module(
-        "infinity_context_adapters.features.document_ingestion"
-    )
+    module = importlib.import_module("infinity_context_adapters.features.document_ingestion")
     document, chunk = _document_and_chunk()
     other_document = SourceDocument.from_draft(
         document_id="doc-2",
@@ -454,7 +441,4 @@ def _imports(path: Path) -> list[str]:
 
 
 def _matches_prefix(imported: str, prefixes: tuple[str, ...]) -> bool:
-    return any(
-        imported == prefix or imported.startswith(f"{prefix}.")
-        for prefix in prefixes
-    )
+    return any(imported == prefix or imported.startswith(f"{prefix}.") for prefix in prefixes)

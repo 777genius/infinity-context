@@ -28,6 +28,7 @@ from infinity_context_core.features.memory_scopes.public import (
     TransferMemoryScopeOwnershipCommand,
     TransferMemoryScopeOwnershipHandler,
 )
+from sdk_module_isolation import provider_sdk_modules_unloaded
 
 FEATURE_ROOT = (
     Path(__file__).resolve().parents[2]
@@ -67,7 +68,7 @@ def test_memory_scopes_adapter_package_mirrors_feature_id() -> None:
 
 
 def test_memory_scopes_adapter_imports_do_not_load_provider_sdks() -> None:
-    for module_name in (
+    with provider_sdk_modules_unloaded(
         "sqlalchemy",
         "qdrant_client",
         "graphiti",
@@ -75,16 +76,14 @@ def test_memory_scopes_adapter_imports_do_not_load_provider_sdks() -> None:
         "openai",
         "fastapi",
     ):
-        sys.modules.pop(module_name, None)
+        importlib.import_module("infinity_context_adapters.features.memory_scopes")
 
-    importlib.import_module("infinity_context_adapters.features.memory_scopes")
-
-    assert "sqlalchemy" not in sys.modules
-    assert "qdrant_client" not in sys.modules
-    assert "graphiti" not in sys.modules
-    assert "graphiti_core" not in sys.modules
-    assert "openai" not in sys.modules
-    assert "fastapi" not in sys.modules
+        assert "sqlalchemy" not in sys.modules
+        assert "qdrant_client" not in sys.modules
+        assert "graphiti" not in sys.modules
+        assert "graphiti_core" not in sys.modules
+        assert "openai" not in sys.modules
+        assert "fastapi" not in sys.modules
 
 
 def test_memory_scopes_adapter_imports_only_public_core_feature_api() -> None:
@@ -230,12 +229,15 @@ def test_in_memory_memory_scope_uow_supports_external_ref_uniqueness_checks() ->
             )
         )
 
-    assert asyncio.run(
-        _load_scope(
-            factory,
-            MemoryScopeIdentity(space_id="space-1", memory_scope_id="scope-2"),
+    assert (
+        asyncio.run(
+            _load_scope(
+                factory,
+                MemoryScopeIdentity(space_id="space-1", memory_scope_id="scope-2"),
+            )
         )
-    ) is None
+        is None
+    )
 
 
 def test_memory_scope_record_round_trips_public_snapshot() -> None:
@@ -387,7 +389,4 @@ def _imports(path: Path) -> list[str]:
 
 
 def _matches_prefix(imported: str, prefixes: tuple[str, ...]) -> bool:
-    return any(
-        imported == prefix or imported.startswith(f"{prefix}.")
-        for prefix in prefixes
-    )
+    return any(imported == prefix or imported.startswith(f"{prefix}.") for prefix in prefixes)
