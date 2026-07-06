@@ -999,6 +999,74 @@ def test_actionable_gap_summary_caps_non_query_plan_sample_case_id_text() -> Non
     assert top_gap["sample_case_ids"] == [long_case_id[:125] + "..."]
 
 
+def test_actionable_summary_reports_source_ref_provenance_samples() -> None:
+    long_value = "x" * 200
+    summary = actionable_gap_summary(
+        evaluation_count=2,
+        expected_case_count=2,
+        failed_gates=(),
+        query_overlap_count=0,
+        profile_overlap_count=0,
+        intent_overlap_count=0,
+        source_ref_provenance={
+            "selected_bundle_item_count": 3,
+            "selected_bundle_source_ref_item_count": 1,
+            "selected_bundle_source_refless_item_count": 2,
+            "selected_bundle_source_ref_coverage_rate": 0.333333333,
+            "source_refless_selected_samples": [
+                {
+                    "case_id": f"missing-source-ref-{long_value}",
+                    "group": "multi-hop",
+                    "item_id": "support-item",
+                    "role": "supporting",
+                    "retrieval_order": 2,
+                    "raw_provider_payload": "excluded",
+                },
+                {
+                    "case_id": "private-item",
+                    "item_id": "locomo:conv-private:session_1:D1:2:turn-secret",
+                    "role": "primary",
+                    "retrieval_order": 1,
+                },
+            ],
+        },
+    )
+
+    gap = summary["top_gap"]
+
+    assert isinstance(gap, dict)
+    assert gap["category"] == "source_ref_provenance"
+    assert gap["gap"] == "selected_bundle_missing_source_refs"
+    assert gap["impact_count"] == 2
+    assert gap["evidence"] == {
+        "selected_bundle_item_count": 3,
+        "selected_bundle_source_ref_item_count": 1,
+        "selected_bundle_source_ref_coverage_rate": 0.333333,
+    }
+    assert gap["sample_case_ids"] == [
+        f"missing-source-ref-{long_value[:106]}...",
+        "private-item",
+    ]
+    assert gap["samples"] == [
+        {
+            "case_id": f"missing-source-ref-{long_value[:106]}...",
+            "group": "multi-hop",
+            "role": "supporting",
+            "item_id": "support-item",
+            "retrieval_order": 2,
+        },
+        {
+            "case_id": "private-item",
+            "role": "primary",
+            "retrieval_order": 1,
+        },
+    ]
+    serialized = json.dumps(summary)
+    assert "raw_provider_payload" not in serialized
+    assert "locomo:conv-private" not in serialized
+    assert "turn-secret" not in serialized
+
+
 def test_actionable_gap_summary_includes_selected_weakness_sample_payloads() -> None:
     long_value = "x" * 200
     summary = actionable_gap_summary(
