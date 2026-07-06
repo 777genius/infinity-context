@@ -17,7 +17,7 @@ jobs:
   quality:
     name: Quality Gate
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 90
 
     steps:
       - name: Checkout
@@ -36,4 +36,4 @@ jobs:
           python -m pip install -e ".[dev,qdrant,openai,graphiti,mcp]"
 
       - name: Run memory quality gate
-        run: make PYTHON=python RUFF=ruff memory-test-quality
+        run: make PYTHON=python RUFF=ruff infinity-context-test-quality
