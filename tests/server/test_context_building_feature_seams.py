@@ -13,7 +13,6 @@ from infinity_context_contracts.features.context_building import (
     BuildContextRequestDto,
     ContextBudgetDto,
 )
-from infinity_context_server.api.v1 import context as legacy_context_api
 from infinity_context_server.features.context_building import public as server_public
 
 MemoryInsightsResponseMapper = server_public.LegacyMemoryInsightsApiResponseMapper
@@ -116,8 +115,10 @@ def test_context_building_server_feature_public_surface_composes_router() -> Non
 
     assert feature.feature_id == "context_building"
     assert server_public.__all__ == (
+        "BenchmarkContextRequest",
         "BuildContextHttpRequest",
         "ContextBudgetHttpRequest",
+        "ContextRequest",
         "MemoryInsightsHttpRequest",
         "ContextBuildingServerFeature",
         "FEATURE_ID",
@@ -127,6 +128,7 @@ def test_context_building_server_feature_public_surface_composes_router() -> Non
         "build_context_building_server_feature",
         "build_context_query_from_contract",
         "build_context_result_to_contract",
+        "build_legacy_context_query_from_request",
         "create_context_building_router",
     )
     assert server_public.FEATURE_ID == "context_building"
@@ -599,6 +601,11 @@ def test_context_building_server_slice_uses_only_public_feature_boundaries() -> 
 
     for path in sorted(FEATURE_ROOT.rglob("*.py")):
         for imported in _imports(path):
+            if (
+                path == FEATURE_ROOT / "context_requests.py"
+                and imported == "infinity_context_core.application"
+            ):
+                continue
             rel = path.relative_to(REPO_ROOT)
             if imported.startswith(
                 "infinity_context_core.features."
@@ -622,11 +629,17 @@ def test_legacy_context_api_uses_context_building_server_public_seam_only() -> N
         "from infinity_context_server.features.context_building "
         "import public as context_building_server"
     ) in source
-    assert "context_building_server.build_context_query_from_contract" in source
+    assert "request: context_building_server.ContextRequest" in source
+    assert "request: context_building_server.BenchmarkContextRequest" in source
+    assert "context_building_server.build_legacy_context_query_from_request" in source
     assert "context_building_server.LegacyContextApiResponseMapper" in source
     assert (
         "return _LEGACY_CONTEXT_API_RESPONSES.context_item_to_response(item)"
     ) in source
+    assert "class ContextRequest" not in source
+    assert "class BenchmarkContextRequest" not in source
+    assert "def _normalize_label(" not in source
+    assert "def _normalize_tags(" not in source
     assert "def _source_ref_to_citation(" not in source
     assert "def _answer_support_coverage(" not in source
     assert "def _top_evidence_candidate(" not in source
@@ -703,27 +716,13 @@ def test_legacy_insights_api_uses_context_building_server_public_seam_only() -> 
     assert violations == []
 
 
-def test_legacy_context_query_builder_delegates_to_server_public_mapper(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    calls: list[BuildContextRequestDto] = []
-    original_mapper = legacy_context_api.context_building_server.build_context_query_from_contract
-
-    def record_mapper(request: BuildContextRequestDto) -> context_building.BuildContextQuery:
-        calls.append(request)
-        return original_mapper(request)
-
-    monkeypatch.setattr(
-        legacy_context_api.context_building_server,
-        "build_context_query_from_contract",
-        record_mapper,
-    )
+def test_legacy_context_query_builder_is_owned_by_server_public_seam() -> None:
     scope = SimpleNamespace(
         space_id="space_1",
         memory_scope_ids=("scope_1", "scope_2"),
         thread_id="thread_1",
     )
-    request = legacy_context_api.ContextRequest(
+    request = server_public.ContextRequest(
         query="  keep the legacy query text  ",
         token_budget=777,
         max_facts=3,
@@ -738,18 +737,11 @@ def test_legacy_context_query_builder_delegates_to_server_public_mapper(
         tags_none=["draft only"],
     )
 
-    query = legacy_context_api._legacy_build_context_query_from_feature_seam(
+    query = server_public.build_legacy_context_query_from_request(
         request,
         scope=scope,
         max_rendered_chars=1234,
     )
-
-    assert len(calls) == 1
-    assert calls[0].space_id == "space_1"
-    assert calls[0].memory_scope_id == "scope_1"
-    assert calls[0].thread_id == "thread_1"
-    assert calls[0].budget is not None
-    assert calls[0].budget.max_context_tokens == 777
 
     assert query.space_id == "space_1"
     assert query.memory_scope_ids == ("scope_1", "scope_2")

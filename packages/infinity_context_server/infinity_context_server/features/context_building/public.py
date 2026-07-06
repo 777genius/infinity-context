@@ -8,6 +8,11 @@ from infinity_context_server.features.context_building.composition import (
     ContextBuildingServerFeature,
     build_context_building_server_feature,
 )
+from infinity_context_server.features.context_building.context_requests import (
+    BenchmarkContextRequest,
+    ContextRequest,
+    build_legacy_context_query_from_request,
+)
 from infinity_context_server.features.context_building.contracts import (
     BuildContextHttpRequest,
     ContextBudgetHttpRequest,
@@ -33,8 +38,10 @@ from infinity_context_server.features.context_building.routes import (
 FEATURE_ID = context_building.FEATURE_ID
 
 __all__ = (
+    "BenchmarkContextRequest",
     "BuildContextHttpRequest",
     "ContextBudgetHttpRequest",
+    "ContextRequest",
     "MemoryInsightsHttpRequest",
     "ContextBuildingServerFeature",
     "FEATURE_ID",
@@ -44,5 +51,6 @@ __all__ = (
     "build_context_building_server_feature",
     "build_context_query_from_contract",
     "build_context_result_to_contract",
+    "build_legacy_context_query_from_request",
     "create_context_building_router",
 )
