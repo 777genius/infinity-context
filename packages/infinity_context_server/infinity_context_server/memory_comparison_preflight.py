@@ -46,6 +46,7 @@ _SAFE_REPORTING_CONTRACTS = (
     ("temporal_grounding_table", "temporal_grounding.v1"),
 )
 _LOCOMO_DIA_ID_RE = re.compile(r"\bD\d+[:-]\d+\b", re.IGNORECASE)
+_LOCOMO_SESSION_KEY_RE = re.compile(r"^session_(?P<session>\d+)$", re.IGNORECASE)
 
 
 @dataclass(frozen=True)
@@ -790,8 +791,18 @@ def _official_locomo_sample_turn_evidence_ids(
             if evidence_id:
                 evidence_ids.add(evidence_id)
                 evidence_ids.update(_locomo_dia_ids_from_text(evidence_id))
+                if canonical_id := _locomo_dia_id_from_session_turn_key(
+                    key,
+                    evidence_id,
+                ):
+                    evidence_ids.add(canonical_id)
             else:
                 evidence_ids.add(f"{key}:{index + 1}")
+                if canonical_id := _locomo_dia_id_from_session_turn_key(
+                    key,
+                    str(index + 1),
+                ):
+                    evidence_ids.add(canonical_id)
     return frozenset(evidence_ids)
 
 
@@ -850,6 +861,21 @@ def _locomo_dia_ids_from_text(value: str) -> tuple[str, ...]:
             for match in _LOCOMO_DIA_ID_RE.finditer(value)
         )
     )
+
+
+def _locomo_dia_id_from_session_turn_key(session_key: object, turn_key: object) -> str:
+    session_match = _LOCOMO_SESSION_KEY_RE.fullmatch(str(session_key or "").strip())
+    if session_match is None:
+        return ""
+    turn_text = str(turn_key or "").strip()
+    if _locomo_dia_ids_from_text(turn_text):
+        return ""
+    if not turn_text.isdigit():
+        return ""
+    turn_number = int(turn_text)
+    if turn_number <= 0:
+        return ""
+    return f"D{session_match.group('session')}:{turn_number}"
 
 
 def _official_locomo_qa_group(qa: Mapping[str, object]) -> str | None:
