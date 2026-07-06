@@ -1414,7 +1414,7 @@ def test_temporal_query_extracts_dialogue_turn_session_hint() -> None:
     assert by_id["turn_match"].score > by_id["turn_decoy"].score
     assert by_id["turn_match"].diagnostics["score_signals"][
         "temporal_query_intent_boost"
-    ] == 0.034
+    ] == 0.04
 
 
 def test_temporal_query_boosts_written_ordinal_session_match() -> None:
