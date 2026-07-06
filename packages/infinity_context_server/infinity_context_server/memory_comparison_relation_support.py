@@ -1247,6 +1247,18 @@ _CAUSAL_EXPLANATION_SURFACE_RE = re.compile(
     r"left|looked|moved|started|wanted)\b",
     re.IGNORECASE,
 )
+_CAUSAL_PURPOSE_SURFACE_RE = re.compile(
+    r"\b(?:began|changed|created|joined|launched|opened|ran|started|"
+    r"volunteered)\b"
+    r"(?=.{0,120}\b(?:in\s+order\s+to|so\s+(?:i|he|she|they|we)\s+could|to)\b)"
+    r"(?=.{0,180}\b(?:blend\s+dance\s+and\s+fashion|clear\s+"
+    r"(?:my|her|his|their|our)?\s*head|feel\s+safe|give\s+back|"
+    r"help\s+(?:kids|others|people)|improve\s+"
+    r"(?:my|her|his|their|our)?\s*health|make\s+a\s+difference|"
+    r"pursue\s+(?:my|her|his|their|our)?\s*passion|relax|"
+    r"stress\s+relief)\b)",
+    re.IGNORECASE | re.DOTALL,
+)
 
 
 def _has_causal_support(
@@ -1378,6 +1390,7 @@ def _has_causal_support(
     return bool(
         direct_cause
         or _CAUSAL_EXPLANATION_SURFACE_RE.search(memory_text)
+        or _CAUSAL_PURPOSE_SURFACE_RE.search(memory_text)
         or (decision_surface and causal_context)
         or (reason_surface and causal_context)
         or (contextual_cause_surface and causal_context)

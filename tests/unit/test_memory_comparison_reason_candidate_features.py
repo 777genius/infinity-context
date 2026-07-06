@@ -102,6 +102,85 @@ def test_vehicle_frustration_context_without_reason_surface_is_causal_evidence()
     assert "causal_evidence" in features.answerability_reason_codes
 
 
+def test_purpose_clause_counts_as_causal_candidate_evidence() -> None:
+    features = build_candidate_evidence_features(
+        RetrievedMemory(
+            item_id="purpose-running-turn",
+            rank=1,
+            text=(
+                "D1:5 Alex: I started running in order to clear my head "
+                "after stressful shifts."
+            ),
+            source_refs=("D1:5",),
+        ),
+        memory_terms={
+            "alex",
+            "started",
+            "running",
+            "clear",
+            "head",
+            "stressful",
+            "shifts",
+        },
+        query_terms=("alex", "reason", "running"),
+        relation_terms=("reason",),
+        relation_variant_terms=("because", "cause", "caus", "explain"),
+        relation_category_terms={
+            "causal": ("reason", "because", "cause", "caus", "explain")
+        },
+        entities=("alex",),
+        entity_hits=("alex",),
+        speaker_hits=("alex",),
+        high_signal_relation_terms={"because", "cause"},
+        is_temporal_query=False,
+        is_preference_query=False,
+        has_visual_terms=False,
+        has_multi_hop_markers=False,
+        has_temporal_surface=False,
+        has_sequence_surface=False,
+        has_preference_evidence=False,
+        has_visual_evidence=False,
+        has_focused_turn_surface=True,
+    )
+
+    assert features.relation_category_hits == ("causal",)
+    assert "causal_evidence" in features.answerability_reason_codes
+
+
+def test_directional_to_clause_without_purpose_is_not_causal_evidence() -> None:
+    features = build_candidate_evidence_features(
+        RetrievedMemory(
+            item_id="running-location-turn",
+            rank=1,
+            text="D1:5 Alex: I started running to the park after work.",
+            source_refs=("D1:5",),
+        ),
+        memory_terms={"alex", "started", "running", "park", "work"},
+        query_terms=("alex", "reason", "running"),
+        relation_terms=("reason",),
+        relation_variant_terms=("because", "cause", "caus", "explain"),
+        relation_category_terms={
+            "causal": ("reason", "because", "cause", "caus", "explain")
+        },
+        entities=("alex",),
+        entity_hits=("alex",),
+        speaker_hits=("alex",),
+        high_signal_relation_terms={"because", "cause"},
+        is_temporal_query=False,
+        is_preference_query=False,
+        has_visual_terms=False,
+        has_multi_hop_markers=False,
+        has_temporal_surface=False,
+        has_sequence_surface=False,
+        has_preference_evidence=False,
+        has_visual_evidence=False,
+        has_focused_turn_surface=True,
+    )
+
+    assert features.relation_category_hits == ()
+    assert "missing_causal_evidence" in features.answerability_reason_codes
+
+
 def test_frustration_surface_without_context_is_not_causal_evidence() -> None:
     features = build_candidate_evidence_features(
         RetrievedMemory(
