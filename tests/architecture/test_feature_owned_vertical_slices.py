@@ -296,6 +296,17 @@ def _is_external_server_feature_internal_import(imported: str) -> bool:
     return not (imports_package_public or imports_public_api)
 
 
+def _target_core_feature_import_id(imported: str) -> str | None:
+    prefix = "infinity_context_core.features."
+    if not imported.startswith(prefix):
+        return None
+
+    imported_parts = imported.removeprefix(prefix).split(".")
+    if not imported_parts or imported_parts[0] not in FEATURE_IDS:
+        return None
+    return imported_parts[0]
+
+
 def _is_allowed_core_feature_import(feature_id: str, path: Path, imported: str) -> bool:
     if not imported.startswith("infinity_context_core."):
         return True
@@ -790,10 +801,8 @@ def test_core_features_do_not_import_other_feature_internals() -> None:
     assert violations == []
 
 
-def test_memory_facts_external_core_imports_use_public_api() -> None:
-    memory_facts_feature_dir = CORE_FEATURE_ROOT / "memory_facts"
-    memory_facts_prefix = "infinity_context_core.features.memory_facts"
-    memory_facts_public = f"{memory_facts_prefix}.public"
+def test_target_core_feature_external_imports_use_public_api() -> None:
+    core_feature_prefix = "infinity_context_core.features"
     scan_roots = (
         REPO_ROOT / "packages",
         REPO_ROOT / "tests",
@@ -802,12 +811,14 @@ def test_memory_facts_external_core_imports_use_public_api() -> None:
     violations: list[str] = []
     for scan_root in scan_roots:
         for path in _python_modules(scan_root):
-            if path.is_relative_to(memory_facts_feature_dir):
-                continue
             for imported in _import_targets(path):
-                if not _matches_module_prefix(imported, (memory_facts_prefix,)):
+                feature_id = _target_core_feature_import_id(imported)
+                if feature_id is None:
                     continue
-                if _matches_module_prefix(imported, (memory_facts_public,)):
+                if path.is_relative_to(CORE_FEATURE_ROOT / feature_id):
+                    continue
+                public_api = f"{core_feature_prefix}.{feature_id}.public"
+                if _matches_module_prefix(imported, (public_api,)):
                     continue
                 rel = path.relative_to(REPO_ROOT)
                 violations.append(f"{rel}: imports {imported}")
