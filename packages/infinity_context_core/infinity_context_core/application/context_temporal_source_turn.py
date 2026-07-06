@@ -959,9 +959,11 @@ def _structured_source_turn_label(value: Mapping[str, object]) -> str:
         value.get("dialogue")
         or value.get("dialogue_id")
         or value.get("dialogue_index")
+        or value.get("dia_id")
         or value.get("source_dialogue")
         or value.get("source_dialogue_id")
         or value.get("source_dialogue_index")
+        or value.get("source_dia_id")
         or value.get("session")
         or value.get("session_id")
         or value.get("session_index")
@@ -988,6 +990,14 @@ def _positive_int_value(value: object) -> int:
     if isinstance(value, float):
         return int(value) if value.is_integer() and value > 0 else 0
     text = str(value).strip()
+    if match := re.fullmatch(
+        r"(?:session|dialogue)[-_](?P<number>\d{1,4})",
+        text,
+        re.IGNORECASE,
+    ):
+        return int(match.group("number"))
+    if match := re.fullmatch(r"D(?P<number>\d{1,4})", text, re.IGNORECASE):
+        return int(match.group("number"))
     if re.fullmatch(r"\d{1,4}", text):
         return int(text)
     return 0

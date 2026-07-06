@@ -95,6 +95,92 @@ def test_recent_event_query_uses_structured_session_order_metadata() -> None:
     )
 
 
+def test_recent_event_query_uses_official_locomo_dia_id_metadata() -> None:
+    intent = build_temporal_query_intent("What was the latest conversation with Sam?")
+    older = _item(
+        "older",
+        text="Sam: We talked about the Atlas prototype during the call.",
+        score=0.71,
+        source_id="locomo:conv-fixture:turn-older",
+        metadata={"dia_id": "D4", "turn_id": "6"},
+    )
+    newer = _item(
+        "newer",
+        text="Sam: We talked about the Atlas prototype in the latest call.",
+        score=0.7,
+        source_id="locomo:conv-fixture:turn-newer",
+        metadata={"source_dia_id": "D20", "source_turn_index": "8"},
+    )
+
+    boosted = apply_temporal_query_intent_boosts((older, newer), intent=intent)
+    by_id = {item.item_id: item for item in boosted}
+
+    assert by_id["newer"].score > by_id["older"].score
+    assert by_id["newer"].diagnostics["temporal_query_intent_reason"] == (
+        "query asks for recent event and item has session-order evidence"
+    )
+    assert (
+        by_id["newer"].diagnostics["score_signals"]["temporal_query_intent_boost"]
+        > by_id["older"].diagnostics["score_signals"]["temporal_query_intent_boost"]
+    )
+
+
+def test_recent_event_query_uses_bare_official_locomo_dia_id_metadata() -> None:
+    intent = build_temporal_query_intent("What was the latest conversation with Sam?")
+    older = _item(
+        "older",
+        text="Sam: We talked about the Atlas prototype during the call.",
+        score=0.71,
+        source_id="locomo:conv-fixture:turn-older",
+        metadata={"dia_id": "D4"},
+    )
+    newer = _item(
+        "newer",
+        text="Sam: We talked about the Atlas prototype in the latest call.",
+        score=0.7,
+        source_id="locomo:conv-fixture:turn-newer",
+        metadata={"source_dia_id": "D20"},
+    )
+
+    boosted = apply_temporal_query_intent_boosts((older, newer), intent=intent)
+    by_id = {item.item_id: item for item in boosted}
+
+    assert by_id["newer"].score > by_id["older"].score
+    assert by_id["newer"].diagnostics["temporal_query_intent_reason"] == (
+        "query asks for recent event and item has session-order evidence"
+    )
+    assert (
+        by_id["newer"].diagnostics["score_signals"]["temporal_query_intent_boost"]
+        > by_id["older"].diagnostics["score_signals"]["temporal_query_intent_boost"]
+    )
+
+
+def test_recent_event_query_uses_session_prefixed_dialogue_metadata() -> None:
+    intent = build_temporal_query_intent("What was the latest conversation with Sam?")
+    older = _item(
+        "older",
+        text="Sam: We talked about the Atlas prototype during the call.",
+        score=0.71,
+        source_id="locomo:conv-fixture:turn-older",
+        metadata={"source_dialogue_id": "session_4", "source_turn_index": "6"},
+    )
+    newer = _item(
+        "newer",
+        text="Sam: We talked about the Atlas prototype in the latest call.",
+        score=0.7,
+        source_id="locomo:conv-fixture:turn-newer",
+        metadata={"source_dialogue_id": "dialogue_20", "source_turn_index": "8"},
+    )
+
+    boosted = apply_temporal_query_intent_boosts((older, newer), intent=intent)
+    by_id = {item.item_id: item for item in boosted}
+
+    assert by_id["newer"].score > by_id["older"].score
+    assert by_id["newer"].diagnostics["temporal_query_intent_reason"] == (
+        "query asks for recent event and item has session-order evidence"
+    )
+
+
 def test_recent_event_query_uses_hyphenated_dialogue_turn_order() -> None:
     intent = build_temporal_query_intent("What was the latest conversation with Sam?")
     older = _item(

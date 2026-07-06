@@ -859,6 +859,84 @@ def test_temporal_query_uses_top_level_structured_diagnostic_source_turn_refs() 
     assert by_id["outside_top_level_structured_diagnostics"].score == 0.694
 
 
+def test_temporal_query_uses_official_locomo_dia_id_with_turn_id() -> None:
+    intent = build_temporal_query_intent(
+        "What did Riley mention between D12:4 and D12:8?"
+    )
+    inside_item = ContextItem(
+        item_id="inside_locomo_dia_id",
+        item_type="fact",
+        text="Riley said the studio visit was confirmed.",
+        score=0.7,
+        source_refs=(SourceRef(source_type="document", source_id="conversation-summary"),),
+        diagnostics={
+            "retrieval_source": "canonical_anchors",
+            "dia_id": "D12",
+            "turn_id": "6",
+        },
+    )
+    outside_item = ContextItem(
+        item_id="outside_locomo_dia_id",
+        item_type="fact",
+        text="Riley changed the topic to dinner plans.",
+        score=0.72,
+        source_refs=(SourceRef(source_type="document", source_id="conversation-summary"),),
+        diagnostics={
+            "retrieval_source": "canonical_anchors",
+            "dia_id": "D12",
+            "turn_id": "9",
+        },
+    )
+
+    boosted = apply_temporal_query_intent_boosts(
+        (outside_item, inside_item),
+        intent=intent,
+    )
+    by_id = {item.item_id: item for item in boosted}
+
+    assert by_id["inside_locomo_dia_id"].score == 0.74
+    assert by_id["outside_locomo_dia_id"].score == 0.694
+
+
+def test_temporal_query_uses_session_prefixed_dialogue_turn_metadata() -> None:
+    intent = build_temporal_query_intent(
+        "What did Riley mention between D12:4 and D12:8?"
+    )
+    inside_item = ContextItem(
+        item_id="inside_session_dialogue_id",
+        item_type="fact",
+        text="Riley said the studio visit was confirmed.",
+        score=0.7,
+        source_refs=(SourceRef(source_type="document", source_id="conversation-summary"),),
+        diagnostics={
+            "retrieval_source": "canonical_anchors",
+            "source_dialogue_id": "session_12",
+            "source_turn_index": "6",
+        },
+    )
+    outside_item = ContextItem(
+        item_id="outside_session_dialogue_id",
+        item_type="fact",
+        text="Riley changed the topic to dinner plans.",
+        score=0.72,
+        source_refs=(SourceRef(source_type="document", source_id="conversation-summary"),),
+        diagnostics={
+            "retrieval_source": "canonical_anchors",
+            "source_dialogue_id": "dialogue_12",
+            "source_turn_index": "9",
+        },
+    )
+
+    boosted = apply_temporal_query_intent_boosts(
+        (outside_item, inside_item),
+        intent=intent,
+    )
+    by_id = {item.item_id: item for item in boosted}
+
+    assert by_id["inside_session_dialogue_id"].score == 0.74
+    assert by_id["outside_session_dialogue_id"].score == 0.694
+
+
 def _item(
     item_id: str,
     *,

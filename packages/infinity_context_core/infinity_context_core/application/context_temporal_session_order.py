@@ -87,6 +87,9 @@ _QUERY_SESSION_WORD_ORDINAL_RE = re.compile(
 )
 _SESSION_ORDER_METADATA_KEYS = frozenset(
     {
+        "dia_id",
+        "dialogue_id",
+        "dialogue_index",
         "locomo_session_index",
         "locomo_session_key",
         "locomo_session_number",
@@ -94,6 +97,9 @@ _SESSION_ORDER_METADATA_KEYS = frozenset(
         "session_key",
         "session_number",
         "session_order",
+        "source_dia_id",
+        "source_dialogue_id",
+        "source_dialogue_index",
         "source_session_index",
         "source_session_key",
     }
@@ -208,6 +214,8 @@ def _session_orders_from_metadata_value(value: object) -> tuple[int, ...]:
     text = str(value).strip()
     if not text:
         return ()
+    if match := re.fullmatch(r"D(?P<dialogue>\d{1,4})", text, re.IGNORECASE):
+        return (int(match.group("dialogue")),)
     if re.fullmatch(r"\d{1,4}", text):
         return (int(text),)
     return _session_orders_from_values((text,))
@@ -249,9 +257,11 @@ def _structured_source_turn_label(value: Mapping[str, object]) -> str:
         value.get("dialogue")
         or value.get("dialogue_id")
         or value.get("dialogue_index")
+        or value.get("dia_id")
         or value.get("source_dialogue")
         or value.get("source_dialogue_id")
         or value.get("source_dialogue_index")
+        or value.get("source_dia_id")
         or value.get("session")
         or value.get("session_id")
         or value.get("session_index")
@@ -278,6 +288,14 @@ def _positive_int_value(value: object) -> int:
     if isinstance(value, float):
         return int(value) if value.is_integer() and value > 0 else 0
     text = str(value).strip()
+    if match := re.fullmatch(
+        r"(?:session|dialogue)[-_](?P<number>\d{1,4})",
+        text,
+        re.IGNORECASE,
+    ):
+        return int(match.group("number"))
+    if match := re.fullmatch(r"D(?P<number>\d{1,4})", text, re.IGNORECASE):
+        return int(match.group("number"))
     if re.fullmatch(r"\d{1,4}", text):
         return int(text)
     return 0
