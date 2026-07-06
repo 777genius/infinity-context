@@ -782,6 +782,112 @@ def test_locomo_failure_analysis_summarizes_temporal_grounding_issue_causes() ->
     ) == 2
 
 
+def test_locomo_failure_analysis_summarizes_query_role_gap_causes() -> None:
+    report = {
+        "failures": [
+            {
+                "case_id": "query-role-gap",
+                "capability": "locomo_category_2",
+                "reason": "expected_terms_missing",
+                "diagnostics": {
+                    "query_role_gap_breakdown": {
+                        "role_gap_count": 1,
+                        "role_family_gap_count": 1,
+                        "required_role_coverage_gap_count": 1,
+                        "role_gaps": {
+                            "multi_hop_bridge": {
+                                "candidate_count": 3,
+                                "lifted_candidate_count": 1,
+                                "selected_item_count": 0,
+                                "bridge_query_hit_candidate_count": 2,
+                                "bridge_query_hit_selected_count": 0,
+                                "gap_reasons": [
+                                    "not_selected",
+                                    "bridge_hit_not_selected",
+                                ],
+                                "samples": ["raw text must not be copied"],
+                            }
+                        },
+                        "role_family_gaps": {
+                            "multi_hop": {
+                                "candidate_count": 3,
+                                "lifted_candidate_count": 1,
+                                "selected_item_count": 0,
+                                "gap_reasons": ["not_selected"],
+                            }
+                        },
+                    }
+                },
+            }
+        ]
+    }
+
+    summary = _summary(_failures(report), top=10)
+
+    assert summary["primary_root_cause_count"] == {"query_role_gap:present": 1}
+    assert summary["root_cause_tag_count"] == {
+        "query_role_gap:present": 1,
+        "query_role_gap:not_selected": 1,
+        "query_role_gap:bridge_hit_not_selected": 1,
+        "query_role_gap:required_role_coverage": 1,
+    }
+    assert summary["query_role_gap_reason_count"] == {
+        "not_selected": 2,
+        "bridge_hit_not_selected": 1,
+    }
+    assert summary["query_role_gap_role_count"] == {
+        "multi_hop_bridge": 1,
+        "multi_hop": 1,
+    }
+    assert summary["root_cause_examples"]["query_role_gap:present"] == [
+        {
+            "case_id": "query-role-gap",
+            "capability": "locomo_category_2",
+            "reason": "expected_terms_missing",
+            "root_cause_tags": [
+                "query_role_gap:present",
+                "query_role_gap:not_selected",
+                "query_role_gap:bridge_hit_not_selected",
+                "query_role_gap:required_role_coverage",
+            ],
+            "query_role_gap": {
+                "role_gap_count": 1,
+                "role_family_gap_count": 1,
+                "required_role_coverage_gap_count": 1,
+                "gap_reason_counts": {
+                    "not_selected": 2,
+                    "bridge_hit_not_selected": 1,
+                },
+                "gap_role_counts": {
+                    "multi_hop_bridge": 1,
+                    "multi_hop": 1,
+                },
+                "top_role_gaps": [
+                    {
+                        "role": "multi_hop_bridge",
+                        "gap_reasons": [
+                            "not_selected",
+                            "bridge_hit_not_selected",
+                        ],
+                        "candidate_count": 3,
+                        "lifted_candidate_count": 1,
+                        "bridge_query_hit_candidate_count": 2,
+                    }
+                ],
+                "top_role_family_gaps": [
+                    {
+                        "role": "multi_hop",
+                        "gap_reasons": ["not_selected"],
+                        "candidate_count": 3,
+                        "lifted_candidate_count": 1,
+                    }
+                ],
+            },
+        }
+    ]
+    assert "raw text must not be copied" not in json.dumps(summary)
+
+
 def test_locomo_failure_analysis_summary_bounds_text_lists_and_dynamic_keys() -> None:
     long_text = "x" * 320
     failures = [
