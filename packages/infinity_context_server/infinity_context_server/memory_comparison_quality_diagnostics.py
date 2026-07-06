@@ -119,6 +119,12 @@ from infinity_context_server.memory_comparison_quality_actionable_gaps import (
 from infinity_context_server.memory_comparison_quality_answer_context_gaps import (
     answer_context_support_gap_summary as _answer_context_support_gap_summary,
 )
+from infinity_context_server.memory_comparison_quality_answer_context_risks import (
+    answer_context_risk_sample as _answer_context_risk_sample,
+)
+from infinity_context_server.memory_comparison_quality_answer_context_risks import (
+    ranked_answer_context_risk_samples as _ranked_answer_context_risk_samples,
+)
 from infinity_context_server.memory_comparison_quality_bundle_gaps import (
     bundle_gap_breakdown as _bundle_gap_breakdown,
 )
@@ -1272,6 +1278,9 @@ def _answer_context_provenance_table(
     missing_required_role_counts: Counter[str] = Counter()
     backfilled_missing_required_role_counts: Counter[str] = Counter()
     risk_reason_counts: Counter[str] = Counter()
+    risk_reason_source_counts: defaultdict[str, Counter[str]] = defaultdict(Counter)
+    risk_reason_context_count = 0
+    fallback_risk_context_count = 0
     missing_required_role_context_count = 0
     source_refless_context_samples: list[dict[str, object]] = []
     backfilled_context_samples: list[dict[str, object]] = []
@@ -1279,6 +1288,7 @@ def _answer_context_provenance_table(
     noisy_overlap_bundle_skip_context_samples: list[dict[str, object]] = []
     backfill_skip_context_samples: list[dict[str, object]] = []
     mixed_source_context_samples: list[dict[str, object]] = []
+    risk_reason_context_samples: list[dict[str, object]] = []
 
     for item in items:
         for cutoff, context in _answer_contexts(item):
@@ -1465,6 +1475,22 @@ def _answer_context_provenance_table(
                 },
             )
             risk_reason_counts.update(risk_reasons)
+            for reason in risk_reasons:
+                risk_reason_source_counts[reason][source] += 1
+            if risk_reasons:
+                risk_reason_context_count += 1
+                if fallback_reason:
+                    fallback_risk_context_count += 1
+                risk_reason_context_samples.append(
+                    _answer_context_risk_sample(
+                        item=item,
+                        cutoff=cutoff,
+                        source=source,
+                        context=context,
+                        risk_reasons=risk_reasons,
+                        missing_required_roles=missing_required_roles,
+                    )
+                )
             memory_count += context_memory_count
             source_ref_count += context_source_ref_count
             source_ref_item_count += context_source_ref_item_count
@@ -1917,7 +1943,16 @@ def _answer_context_provenance_table(
         "backfilled_missing_required_role_counts": _top_counts(
             backfilled_missing_required_role_counts
         ),
+        "risk_reason_context_count": risk_reason_context_count,
+        "fallback_risk_context_count": fallback_risk_context_count,
         "risk_reason_counts": _top_counts(risk_reason_counts),
+        "risk_reason_source_counts": {
+            reason: dict(sorted(source_counts.items()))
+            for reason, source_counts in sorted(risk_reason_source_counts.items())
+        },
+        "risk_reason_context_samples": _ranked_answer_context_risk_samples(
+            risk_reason_context_samples
+        ),
         "backfilled_context_samples": backfilled_context_samples,
         "backfill_skip_context_samples": backfill_skip_context_samples,
         "duplicate_source_bundle_skip_context_samples": (
@@ -2102,6 +2137,7 @@ def _query_plan_integrity_table(
     type_limit_replacement_role_counts: Counter[str] = Counter()
     required_evidence_role_counts: Counter[str] = Counter()
     missing_evidence_role_query_family_counts: Counter[str] = Counter()
+    query_profile_flag_counts: Counter[str] = Counter()
     gap_reason_counts: Counter[str] = Counter()
     samples: list[dict[str, object]] = []
 
@@ -2110,6 +2146,7 @@ def _query_plan_integrity_table(
         if not query_plan:
             continue
         plan_count += 1
+        query_profile_flag_counts.update(_query_profile_flags(item))
         selected_query_counts.append(
             _positive_int(query_plan.get("selected_query_count")) or 0
         )
@@ -2239,6 +2276,7 @@ def _query_plan_integrity_table(
         "missing_evidence_role_query_family_counts": _top_counts(
             missing_evidence_role_query_family_counts
         ),
+        "query_profile_flag_counts": _top_counts(query_profile_flag_counts),
         "role_family_counts": _top_counts(role_family_counts),
         "selected_role_family_counts": _top_counts(selected_family_counts),
         "dropped_role_family_counts": _top_counts(dropped_family_counts),
@@ -2256,6 +2294,16 @@ def _query_plan_integrity_table(
         "gap_reason_counts": _top_counts(gap_reason_counts),
         "samples": samples,
     }
+
+
+def _query_profile_flags(item: Mapping[str, object]) -> tuple[str, ...]:
+    metadata = _retrieval_metadata(item)
+    flags: list[str] = []
+    for payload in _diagnostic_query_payloads(metadata):
+        query_profile = _mapping(payload.get("query_profile"))
+        if query_profile.get("comparative_option_preference_query") is True:
+            flags.append("comparative_option_preference_query")
+    return tuple(dict.fromkeys(flags))
 
 
 def _query_plan_gap_sample(

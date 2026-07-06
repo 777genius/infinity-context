@@ -1113,6 +1113,37 @@ def test_quality_diagnostics_reports_answer_context_provenance_table() -> None:
         "risk:skipped_redundant_role_backfill": 1,
         "risk:skipped_redundant_source_backfill": 1,
     }
+    assert table["risk_reason_context_count"] == 1
+    assert table["fallback_risk_context_count"] == 0
+    assert table["risk_reason_source_counts"] == {
+        reason: {"evidence_bundle": 1}
+        for reason in table["risk_reason_counts"]
+    }
+    assert table["risk_reason_context_samples"] == [
+        {
+            "case_id": "bundle-context",
+            "cutoff": "200",
+            "source": "evidence_bundle",
+            "memory_count": 2,
+            "risk_score": 18,
+            "risk_reason_codes": [
+                "risk:skipped_duplicate_source_bundle_item",
+                "risk:skipped_noisy_overlap_bundle_item",
+                "risk:retrieval_backfill",
+                "risk:backfilled_broad_summary",
+                "risk:backfilled_low_answerability",
+                "risk:backfilled_weak_source_locality",
+                "risk:selected_weak_source_locality",
+                "risk:skipped_redundant_risky_backfill",
+                "risk:skipped_redundant_source_backfill",
+                "risk:skipped_redundant_role_backfill",
+            ],
+            "missing_required_roles": ["contrast"],
+            "backfilled_retrieval_item_count": 1,
+            "skipped_bundle_item_count": 2,
+            "skipped_redundant_backfill_item_count": 3,
+        }
+    ]
     assert table["backfilled_context_samples"] == [
         {
             "case_id": "bundle-context",
@@ -1434,6 +1465,56 @@ def test_quality_diagnostics_reports_actionable_answer_context_support_gaps() ->
             "fallback_reason": "empty_bundle",
         },
     ]
+
+
+def test_quality_diagnostics_reports_answer_context_risks_by_source() -> None:
+    diagnostics = quality_diagnostics(
+        (
+            _item(
+                case_id="bundle-risk",
+                cutoff_results={
+                    "3": {
+                        "answer_context": {
+                            "source": "evidence_bundle",
+                            "memory_count": 1,
+                            "risk_reason_codes": [
+                                "risk:backfilled_low_answerability",
+                            ],
+                        }
+                    }
+                },
+            ),
+            _item(
+                case_id="fallback-risk",
+                cutoff_results={
+                    "3": {
+                        "answer_context": {
+                            "source": "retrieval_slice",
+                            "memory_count": 1,
+                            "risk_reason_codes": [
+                                "risk:backfilled_low_answerability",
+                                "risk:source_refless",
+                            ],
+                        }
+                    }
+                },
+            ),
+        )
+    )
+
+    table = diagnostics["answer_context_provenance_table"]
+
+    assert table["risk_reason_counts"] == {
+        "risk:backfilled_low_answerability": 2,
+        "risk:source_refless": 1,
+    }
+    assert table["risk_reason_source_counts"] == {
+        "risk:backfilled_low_answerability": {
+            "evidence_bundle": 1,
+            "retrieval_slice": 1,
+        },
+        "risk:source_refless": {"retrieval_slice": 1},
+    }
 
 
 def test_quality_diagnostics_merges_explicit_and_derived_answer_context_risks() -> None:
@@ -4438,6 +4519,47 @@ def test_query_plan_integrity_requires_typed_favorite_query_family() -> None:
     assert table["samples"][0]["missing_evidence_role_query_families"] == (
         "favorite_support",
     )
+
+
+def test_query_plan_integrity_counts_comparative_preference_query_profiles() -> None:
+    plan = {
+        "schema_version": "query_plan.v2",
+        "selected_query_count": 2,
+        "dropped_query_count": 0,
+        "selected_roles": ["original_question", "preference_support"],
+        "dropped_roles": [],
+        "recommended_role_families": ["base_query", "preference_support"],
+        "selected_role_families": ["base_query", "preference_support"],
+        "missing_recommended_role_families": [],
+        "selected_role_family_counts": {
+            "base_query": 1,
+            "preference_support": 1,
+        },
+        "fanout_integrity": {"bounded": True},
+    }
+    retrieval = _retrieval_payload(
+        evidence_need=("preference",),
+        bundle_evidence_roles=("primary", "preference_support"),
+        relation_categories=("preference",),
+        policy_score=0.0,
+        query_plan=plan,
+    )
+    retrieval["metadata"]["query_decomposition"]["query_profile"][
+        "comparative_option_preference_query"
+    ] = True
+    item = _item(
+        case_id="comparative-preference-plan",
+        group="single-hop",
+        retrieval=retrieval,
+    )
+
+    diagnostics = quality_diagnostics((item,))
+    table = diagnostics["query_plan_integrity_table"]
+
+    assert table["query_profile_flag_counts"] == {
+        "comparative_option_preference_query": 1
+    }
+    assert table["plan_gap_case_count"] == 0
 
 
 def test_fast_gate_metrics_blocks_missing_query_plan_evidence_role_family() -> None:
