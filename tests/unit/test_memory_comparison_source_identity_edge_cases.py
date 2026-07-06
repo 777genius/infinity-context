@@ -166,6 +166,17 @@ def test_source_identity_refs_normalize_punctuated_session_text_variants() -> No
         "source_session_turn_refs:session_3:D3:7",
         "source_turn_refs:D3:7",
     )
+    assert source_identity_refs_from_text(
+        "Session 3, turn: D3:8 Alex confirmed the planning date.",
+        source_refs=("profile:alex-summary",),
+    ) == (
+        "source_session_turn_refs:session_3:D3:8",
+        "source_turn_refs:D3:8",
+    )
+    assert source_identity_audit_gap_codes(
+        source_refs=("profile:alex-summary",),
+        text="Session 3 - turn # D3-9 Alex confirmed the planning date.",
+    ) == ("generic_source_refs_with_text_turn_identity",)
 
 
 def test_safe_source_refs_for_output_filters_raw_provider_refs() -> None:

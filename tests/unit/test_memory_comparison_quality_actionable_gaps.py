@@ -653,6 +653,81 @@ def test_actionable_summary_reports_answer_context_risk_reason_gaps() -> None:
     assert "raw_provider_payload" not in json.dumps(answerability_gap, sort_keys=True)
 
 
+def test_actionable_summary_preserves_skipped_answer_context_counts() -> None:
+    summary = actionable_gap_summary(
+        evaluation_count=2,
+        expected_case_count=2,
+        failed_gates=(),
+        query_overlap_count=0,
+        profile_overlap_count=0,
+        intent_overlap_count=0,
+        answer_context_support_gap_summary={
+            "support_gap_context_count": 1,
+            "gap_reason_counts": {
+                "skipped_duplicate_source_bundle_item": 1,
+                "skipped_noisy_overlap_bundle_item": 1,
+            },
+            "source_counts": {"evidence_bundle": 1},
+            "samples": [
+                {
+                    "case_id": "skipped-context-support",
+                    "cutoff": "5",
+                    "source": "evidence_bundle",
+                    "gap_reasons": [
+                        "skipped_duplicate_source_bundle_item",
+                        "skipped_noisy_overlap_bundle_item",
+                    ],
+                    "backfilled_retrieval_item_count": 4,
+                    "skipped_redundant_risky_backfill_count": 3,
+                    "skipped_duplicate_source_bundle_item_count": 1,
+                    "skipped_noisy_overlap_bundle_item_count": 2,
+                    "raw_provider_payload": "private",
+                }
+            ],
+        },
+    )
+
+    duplicate_gap = next(
+        gap
+        for gap in summary["ranked_gaps"]
+        if gap["gap"] == "skipped_duplicate_source_bundle_item"
+    )
+    noisy_gap = next(
+        gap
+        for gap in summary["ranked_gaps"]
+        if gap["gap"] == "skipped_noisy_overlap_bundle_item"
+    )
+
+    assert duplicate_gap["action"] == (
+        "Diversify selected answer-context bundle sources before duplicate-source "
+        "suppression drops supporting evidence."
+    )
+    assert noisy_gap["action"] == (
+        "Select cleaner supporting evidence so noisy-overlap suppression does "
+        "not remove answer-context support."
+    )
+    assert duplicate_gap["samples"] == [
+        {
+            "case_id": "skipped-context-support",
+            "cutoff": "5",
+            "source": "evidence_bundle",
+            "gap_reasons": [
+                "skipped_duplicate_source_bundle_item",
+                "skipped_noisy_overlap_bundle_item",
+            ],
+            "backfilled_retrieval_item_count": 4,
+            "skipped_redundant_risky_backfill_count": 3,
+            "skipped_duplicate_source_bundle_item_count": 1,
+            "skipped_noisy_overlap_bundle_item_count": 2,
+        }
+    ]
+    assert noisy_gap["samples"] == duplicate_gap["samples"]
+    assert "raw_provider_payload" not in json.dumps(
+        (duplicate_gap, noisy_gap),
+        sort_keys=True,
+    )
+
+
 def test_actionable_summary_reports_answer_context_availability_gaps() -> None:
     summary = actionable_gap_summary(
         evaluation_count=2,

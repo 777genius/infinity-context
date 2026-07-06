@@ -19,7 +19,7 @@ _SOURCE_SESSION_TURN_RE = re.compile(
 )
 _TEXT_SESSION_TURN_RE = re.compile(
     r"\bsession(?:[-_]\s*|\s+#?\s*)(?P<session>\d+)"
-    r"\s*[,;:-]?\s+(?:turn\s+)?(?P<turn_ref>D\d+[:-]\d+)\b",
+    r"\s*[,;:-]?\s+(?:turn\s*[:#-]?\s+)?(?P<turn_ref>D\d+[:-]\d+)\b",
     re.IGNORECASE,
 )
 _TEXT_SESSION_DATE_TURN_RE = re.compile(

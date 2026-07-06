@@ -280,6 +280,13 @@ def _support_gap_sample(
         "skipped_redundant_risky_backfill_count": (
             _positive_int(context.get("skipped_redundant_risky_backfill_count")) or 0
         ),
+        "skipped_duplicate_source_bundle_item_count": (
+            _positive_int(context.get("skipped_duplicate_source_bundle_item_count"))
+            or 0
+        ),
+        "skipped_noisy_overlap_bundle_item_count": (
+            _positive_int(context.get("skipped_noisy_overlap_bundle_item_count")) or 0
+        ),
         "avg_measured_answerability_score": round(
             _metric_scalar(context.get("avg_measured_answerability_score")),
             6,

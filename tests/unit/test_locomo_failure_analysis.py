@@ -1,6 +1,12 @@
 import json
 
-from scripts.locomo_failure_analysis import _failures, _filter_failures, _summary, main
+from scripts.locomo_failure_analysis import (
+    _failures,
+    _filter_failures,
+    _summary,
+    _summary_from_report,
+    main,
+)
 
 
 def test_locomo_failure_analysis_summarizes_failure_patterns(tmp_path) -> None:
@@ -85,6 +91,75 @@ def test_locomo_failure_analysis_reads_failure_analysis_entries() -> None:
         "source_session_turn_refs:D2:5": 1,
     }
     assert summary["top_missing_evidence_sources"] == {"D2": 2}
+
+
+def test_locomo_failure_analysis_falls_back_to_failure_analysis_when_failures_empty() -> None:
+    report = {
+        "failures": [],
+        "failure_analysis": [
+            {
+                "case_id": "locomo:conv-1:qa:2",
+                "capability": "locomo_category_2",
+                "reason": "expected_terms_missing",
+            }
+        ],
+    }
+
+    summary = _summary(_failures(report), top=5)
+
+    assert summary["failure_count"] == 1
+    assert summary["case_ids"] == ["locomo:conv-1:qa:2"]
+
+
+def test_locomo_failure_analysis_uses_compact_provenance_summary_counts() -> None:
+    report = {
+        "failures": [],
+        "failure_analysis": [
+            {
+                "case_id": "shown-sample",
+                "capability": "locomo_category_2",
+                "reason": "expected_terms_missing",
+                "diagnostic_reason_codes": ["missing_evidence_refs"],
+                "diagnostics": {"missing_evidence_terms": ["D2:5"]},
+            }
+        ],
+        "diagnostics": {
+            "failure_provenance_summary": {
+                "schema_version": "compact_failure_provenance_summary.v1",
+                "failure_count": 3,
+                "diagnostic_reason_counts": {
+                    "missing_evidence_refs": 3,
+                    "missing_evidence_source_window_miss": 2,
+                    "answer_context_fallback": 1,
+                    "bundle_incomplete": 1,
+                },
+                "missing_evidence_source_locality": {
+                    "missing_turn_ref_count": 3,
+                    "same_source_missing_count": 3,
+                    "near_retrieved_window_count": 2,
+                    "source_absent_count": 1,
+                    "top_missing_source_ids": {"D2": 2, "D7": 1},
+                },
+            }
+        },
+    }
+
+    summary = _summary_from_report(report, failures=_failures(report), top=10)
+
+    assert summary["failure_count"] == 3
+    assert summary["case_ids"] == ["shown-sample"]
+    assert summary["root_cause_tag_count"] == {
+        "evidence:missing_refs": 3,
+        "evidence:source_window_miss": 2,
+        "answer_context:fallback": 1,
+        "bundle:incomplete": 1,
+    }
+    assert summary["top_missing_evidence_sources"] == {"D2": 2, "D7": 1}
+    assert summary["provenance_gap_cause_count"] == {
+        "near_retrieved_window": 2,
+        "source_absent": 1,
+        "same_source_miss": 1,
+    }
 
 
 def test_locomo_failure_analysis_reads_diagnostic_missing_evidence_refs() -> None:

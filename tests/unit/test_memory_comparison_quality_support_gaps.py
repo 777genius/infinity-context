@@ -138,6 +138,41 @@ def test_answer_context_support_gap_sample_metrics_are_json_safe() -> None:
     json.dumps(sample, allow_nan=False)
 
 
+def test_answer_context_support_gap_samples_include_skipped_bundle_counts() -> None:
+    summary = answer_context_support_gap_summary(
+        (
+            {
+                "case_id": "skipped-answer-context-support",
+                "cutoff_results": {
+                    "5": {
+                        "answer_context": {
+                            "source": "evidence_bundle",
+                            "memory_count": 2,
+                            "source_ref_item_count": 2,
+                            "skipped_duplicate_source_bundle_item_count": 1,
+                            "skipped_noisy_overlap_bundle_item_count": 2,
+                            "skipped_redundant_risky_backfill_count": 3,
+                            "backfilled_retrieval_item_count": 4,
+                        }
+                    }
+                },
+            },
+        )
+    )
+
+    sample = summary["samples"][0]
+
+    assert summary["gap_reason_counts"] == {
+        "skipped_duplicate_source_bundle_item": 1,
+        "skipped_noisy_overlap_bundle_item": 1,
+        "skipped_redundant_risky_backfill": 1,
+    }
+    assert sample["backfilled_retrieval_item_count"] == 4
+    assert sample["skipped_redundant_risky_backfill_count"] == 3
+    assert sample["skipped_duplicate_source_bundle_item_count"] == 1
+    assert sample["skipped_noisy_overlap_bundle_item_count"] == 2
+
+
 def test_answer_context_support_gaps_report_missing_and_unsupported_contexts() -> None:
     summary = answer_context_support_gap_summary(
         (

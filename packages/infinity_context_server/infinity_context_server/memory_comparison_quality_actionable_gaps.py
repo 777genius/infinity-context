@@ -1113,6 +1113,16 @@ def _answer_context_support_action(reason: str) -> str:
         return "Replace low-answerability answer-context items with stronger selected evidence."
     if reason in {"weak_source_locality_backfill", "weak_context_source_locality"}:
         return "Prefer source-local evidence when backfilling answer context."
+    if reason == "skipped_duplicate_source_bundle_item":
+        return (
+            "Diversify selected answer-context bundle sources before duplicate-source "
+            "suppression drops supporting evidence."
+        )
+    if reason == "skipped_noisy_overlap_bundle_item":
+        return (
+            "Select cleaner supporting evidence so noisy-overlap suppression does "
+            "not remove answer-context support."
+        )
     if reason.startswith("skipped_"):
         return "Inspect skipped answer-context backfills and add grounded bundle coverage."
     return f"Resolve answer-context support gap '{reason}'."
@@ -1519,6 +1529,10 @@ def _compact_answer_context_actionable_samples(
             "source_refless_item_count",
             "source_identity_ref_count",
             "source_identity_item_count",
+            "backfilled_retrieval_item_count",
+            "skipped_redundant_risky_backfill_count",
+            "skipped_duplicate_source_bundle_item_count",
+            "skipped_noisy_overlap_bundle_item_count",
         ):
             value = _positive_int(sample.get(key)) or 0
             if value:
