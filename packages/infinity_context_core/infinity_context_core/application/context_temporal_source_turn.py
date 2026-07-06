@@ -1006,6 +1006,7 @@ def _structured_source_turn_label(value: Mapping[str, object]) -> str:
         or value.get("source_ref")
         or value.get("source_ref_id")
         or value.get("source_identity")
+        or value.get("source_identity_ref")
         or value.get("source_key")
         or value.get("locomo_session_index")
         or value.get("locomo_session_key")

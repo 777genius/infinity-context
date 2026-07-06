@@ -63,6 +63,7 @@ def source_scope_identity_from_mapping(mapping: Mapping[str, object]) -> str:
         "source_ref",
         "source_ref_id",
         "source_identity",
+        "source_identity_ref",
         "source_key",
     ):
         value = mapping.get(key)
