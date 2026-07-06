@@ -2627,7 +2627,7 @@ def _with_same_person_topic_disambiguation_penalty(
     if (
         not profile.matches_query_person
         or profile.has_anchor_conflict
-        or profile.topic_hits > 0
+        or profile.covers_topic
         or not profile.explicit_topic_decoy_shape
     ):
         return item
