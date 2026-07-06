@@ -2859,6 +2859,13 @@ def test_fast_gate_metrics_surfaces_selected_evidence_weakness() -> None:
         "selected_low_answerability": {"primary": 1},
         "selected_weak_source_locality": {"supporting": 1},
     }
+    assert weakness["weak_support_role_reason_counts"] == {
+        "supporting": {
+            "selected_broad_summary": 1,
+            "selected_conflict_or_stale": 1,
+            "selected_weak_source_locality": 1,
+        }
+    }
     assert weakness["role_counts"] == {"primary": 1, "supporting": 3}
     assert weakness["query_role_counts"] == {
         "location_support": 1,

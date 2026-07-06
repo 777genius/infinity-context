@@ -67,6 +67,7 @@ def selected_evidence_weakness_breakdown(
     group_case_ids: dict[str, set[str]] = defaultdict(set)
     reason_group_counts: dict[str, Counter[str]] = defaultdict(Counter)
     reason_role_counts: dict[str, Counter[str]] = defaultdict(Counter)
+    weak_support_role_reason_counts: dict[str, Counter[str]] = defaultdict(Counter)
     group_counts: Counter[str] = Counter()
     role_counts: Counter[str] = Counter()
     query_role_counts: Counter[str] = Counter()
@@ -145,6 +146,8 @@ def selected_evidence_weakness_breakdown(
             reason_counts.update(reasons)
             for reason in reasons:
                 reason_role_counts[reason][role] += 1
+                if _is_support_role(role):
+                    weak_support_role_reason_counts[role][reason] += 1
             risk_reason_counts.update(risk_reasons)
             sample = _selected_evidence_weakness_sample(
                 bundle_item,
@@ -223,6 +226,10 @@ def selected_evidence_weakness_breakdown(
         "reason_role_counts": {
             reason: dict(sorted(role_counts.items()))
             for reason, role_counts in sorted(reason_role_counts.items())
+        },
+        "weak_support_role_reason_counts": {
+            role: dict(sorted(reason_counts.items()))
+            for role, reason_counts in sorted(weak_support_role_reason_counts.items())
         },
         "role_counts": dict(sorted(role_counts.items())),
         "query_role_counts": dict(sorted(query_role_counts.items())),
@@ -343,6 +350,13 @@ def _selected_evidence_weakness_category_sample(
             :_SELECTED_WEAKNESS_CATEGORY_SOURCE_REF_LIMIT
         ]
     return category_sample
+
+
+def _is_support_role(role: str) -> bool:
+    role_key = role.strip()
+    return role_key in {"bridge", "support", "supporting"} or role_key.endswith(
+        "_support"
+    )
 
 
 def _has_selected_broad_summary_risk(
