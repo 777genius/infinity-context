@@ -167,10 +167,18 @@ def _support_gap_reasons(context: Mapping[str, object]) -> tuple[str, ...]:
         _positive_int(context.get("source_refless_item_count")) or 0
     )
     source_grounded_item_count = max(source_ref_item_count, source_identity_item_count)
-    source_ungrounded_item_count = (
+    inferred_ungrounded_item_count = (
         max(0, memory_count - source_grounded_item_count)
         if memory_count > 0
-        else source_refless_item_count
+        else 0
+    )
+    explicit_refless_ungrounded_item_count = max(
+        0,
+        source_refless_item_count - source_identity_item_count,
+    )
+    source_ungrounded_item_count = max(
+        inferred_ungrounded_item_count,
+        explicit_refless_ungrounded_item_count,
     )
 
     if (

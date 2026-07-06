@@ -122,6 +122,37 @@ def test_answer_context_support_gaps_accept_source_identity_grounding() -> None:
                     "10": {
                         "answer_context": {
                             "source": "evidence_bundle",
+                            "memory_count": 0,
+                            "source_ref_item_count": 0,
+                            "source_refless_item_count": 2,
+                            "source_identity_ref_count": 2,
+                            "source_identity_item_count": 2,
+                            "source_identity_refs": [
+                                "source_turn_refs:D1:1",
+                                "source_turn_refs:D1:2",
+                            ],
+                        }
+                    }
+                },
+            },
+        )
+    )
+
+    assert summary["support_gap_context_count"] == 0
+    assert summary["gap_reason_counts"] == {}
+    assert summary["samples"] == []
+
+
+def test_answer_context_support_gaps_do_not_double_count_identity_refless_items() -> None:
+    summary = answer_context_support_gap_summary(
+        (
+            {
+                "case_id": "identity-grounded-refless-context",
+                "group": "single-hop",
+                "cutoff_results": {
+                    "10": {
+                        "answer_context": {
+                            "source": "evidence_bundle",
                             "memory_count": 2,
                             "source_ref_item_count": 0,
                             "source_refless_item_count": 2,
