@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import math
 import os
+import re
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -44,6 +45,7 @@ _SAFE_REPORTING_CONTRACTS = (
     ("answer_context_support_gaps", "answer_context_support_gaps.v1"),
     ("temporal_grounding_table", "temporal_grounding.v1"),
 )
+_LOCOMO_DIA_ID_RE = re.compile(r"\bD\d+:\d+\b", re.IGNORECASE)
 
 
 @dataclass(frozen=True)
@@ -784,9 +786,10 @@ def _official_locomo_sample_turn_evidence_ids(
                 "visual_query",
             ):
                 continue
-            evidence_id = _text_field(turn, "dia_id", "id")
+            evidence_id = _text_field(turn, "dia_id", "dialogue_id", "turn_id", "id")
             if evidence_id:
                 evidence_ids.add(evidence_id)
+                evidence_ids.update(_locomo_dia_ids_from_text(evidence_id))
             else:
                 evidence_ids.add(f"{key}:{index + 1}")
     return frozenset(evidence_ids)
@@ -807,6 +810,7 @@ def _locomo_qa_evidence_ids(value: object) -> tuple[str, ...]:
     for item in _locomo_qa_evidence_values(value):
         evidence_id = str(item).strip()
         if evidence_id:
+            evidence_ids.extend(_locomo_dia_ids_from_text(evidence_id))
             evidence_ids.append(evidence_id)
     return tuple(dict.fromkeys(evidence_ids))
 
@@ -816,10 +820,15 @@ def _locomo_qa_evidence_values(value: object) -> tuple[object, ...]:
         values: list[object] = []
         for key in (
             "dia_id",
+            "dialogue_id",
             "evidence",
             "evidence_id",
             "evidence_ids",
+            "evidence_ref",
+            "evidence_refs",
             "id",
+            "supporting_evidence",
+            "supporting_facts",
             "turn_id",
             "turn_ids",
         ):
@@ -832,6 +841,14 @@ def _locomo_qa_evidence_values(value: object) -> tuple[object, ...]:
             values.extend(_locomo_qa_evidence_values(item))
         return tuple(values)
     return (value,) if value is not None else ()
+
+
+def _locomo_dia_ids_from_text(value: str) -> tuple[str, ...]:
+    return tuple(
+        dict.fromkeys(
+            match.group(0).upper() for match in _LOCOMO_DIA_ID_RE.finditer(value)
+        )
+    )
 
 
 def _official_locomo_qa_group(qa: Mapping[str, object]) -> str | None:
