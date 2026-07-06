@@ -3,14 +3,12 @@
 from __future__ import annotations
 
 from time import perf_counter
-from typing import Annotated, Any, Literal
+from typing import Annotated, Any
 
 from fastapi import APIRouter, Depends
-from infinity_context_core.application import BuildMemoryDigestQuery, ConsistencyMode
 from infinity_context_core.application.context_diagnostics import (
     normalize_context_diagnostics,
 )
-from pydantic import BaseModel, ConfigDict, Field
 
 from infinity_context_server.api.auth import require_service_token
 from infinity_context_server.api.dependencies import get_container
@@ -22,6 +20,8 @@ from infinity_context_server.features.context_building import public as context_
 
 router = APIRouter(tags=["digest"], dependencies=[Depends(require_service_token)])
 
+DigestRequest = context_building_server.DigestRequest
+
 _LEGACY_DIGEST_API_RESPONSES = context_building_server.LegacyDigestApiResponseMapper(
     normalize_context_diagnostics=normalize_context_diagnostics,
     safe_public_metadata=safe_public_metadata,
@@ -30,31 +30,9 @@ _LEGACY_DIGEST_API_RESPONSES = context_building_server.LegacyDigestApiResponseMa
 digest_to_response = _LEGACY_DIGEST_API_RESPONSES.digest_to_response
 
 
-class DigestRequest(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
-    space_id: str | None = Field(default=None, min_length=1, max_length=80)
-    memory_scope_ids: list[str] | None = Field(default=None, min_length=1, max_length=20)
-    thread_id: str | None = Field(default=None, max_length=80)
-    space_slug: str | None = Field(default=None, min_length=1, max_length=160)
-    memory_scope_external_ref: str | None = Field(default=None, min_length=1, max_length=200)
-    memory_scope_external_refs: list[str] | None = Field(default=None, min_length=1, max_length=20)
-    thread_external_ref: str | None = Field(default=None, min_length=1, max_length=200)
-    topic: str = Field(min_length=1, max_length=12000)
-    consistency_mode: ConsistencyMode = Field(default=ConsistencyMode.BEST_EFFORT)
-    token_budget: int = Field(default=2400, ge=128, le=24000)
-    max_facts: int = Field(default=20, ge=0, le=100)
-    max_chunks: int = Field(default=20, ge=0, le=200)
-    max_suggestions: int = Field(default=10, ge=0, le=100)
-    include_pending_suggestions: bool = True
-    include_superseded: bool = False
-    include_related: bool = True
-    format: Literal["markdown", "json"] = "markdown"
-
-
 @router.post("/digest")
 async def build_digest(
-    request: DigestRequest,
+    request: context_building_server.DigestRequest,
     container: Annotated[Container, Depends(get_container)],
 ) -> dict[str, Any]:
     started = perf_counter()
@@ -99,20 +77,10 @@ async def build_digest(
         return response
 
     digest = await container.build_memory_digest.execute(
-        BuildMemoryDigestQuery(
-            space_id=scope.space_id,
-            memory_scope_ids=scope.memory_scope_ids,
-            thread_id=scope.thread_id,
-            topic=request.topic,
-            consistency_mode=request.consistency_mode,
-            token_budget=request.token_budget,
+        context_building_server.build_legacy_digest_query_from_request(
+            request,
+            scope=scope,
             max_rendered_chars=container.settings.max_context_chars,
-            max_facts=request.max_facts,
-            max_chunks=request.max_chunks,
-            max_suggestions=request.max_suggestions,
-            include_pending_suggestions=request.include_pending_suggestions,
-            include_superseded=request.include_superseded,
-            include_related=request.include_related,
         )
     )
     response = {

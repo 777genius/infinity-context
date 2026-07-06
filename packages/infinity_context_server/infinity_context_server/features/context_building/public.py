@@ -21,6 +21,10 @@ from infinity_context_server.features.context_building.contracts import (
 from infinity_context_server.features.context_building.digest_api_responses import (
     LegacyDigestApiResponseMapper,
 )
+from infinity_context_server.features.context_building.digest_requests import (
+    DigestRequest,
+    build_legacy_digest_query_from_request,
+)
 from infinity_context_server.features.context_building.insights_api_responses import (
     LegacyMemoryInsightsApiResponseMapper,
 )
@@ -42,6 +46,7 @@ __all__ = (
     "BuildContextHttpRequest",
     "ContextBudgetHttpRequest",
     "ContextRequest",
+    "DigestRequest",
     "MemoryInsightsHttpRequest",
     "ContextBuildingServerFeature",
     "FEATURE_ID",
@@ -52,5 +57,6 @@ __all__ = (
     "build_context_query_from_contract",
     "build_context_result_to_contract",
     "build_legacy_context_query_from_request",
+    "build_legacy_digest_query_from_request",
     "create_context_building_router",
 )

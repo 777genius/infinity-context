@@ -119,6 +119,7 @@ def test_context_building_server_feature_public_surface_composes_router() -> Non
         "BuildContextHttpRequest",
         "ContextBudgetHttpRequest",
         "ContextRequest",
+        "DigestRequest",
         "MemoryInsightsHttpRequest",
         "ContextBuildingServerFeature",
         "FEATURE_ID",
@@ -129,6 +130,7 @@ def test_context_building_server_feature_public_surface_composes_router() -> Non
         "build_context_query_from_contract",
         "build_context_result_to_contract",
         "build_legacy_context_query_from_request",
+        "build_legacy_digest_query_from_request",
         "create_context_building_router",
     )
     assert server_public.FEATURE_ID == "context_building"
@@ -601,10 +603,10 @@ def test_context_building_server_slice_uses_only_public_feature_boundaries() -> 
 
     for path in sorted(FEATURE_ROOT.rglob("*.py")):
         for imported in _imports(path):
-            if (
-                path == FEATURE_ROOT / "context_requests.py"
-                and imported == "infinity_context_core.application"
-            ):
+            if path in {
+                FEATURE_ROOT / "context_requests.py",
+                FEATURE_ROOT / "digest_requests.py",
+            } and imported == "infinity_context_core.application":
                 continue
             rel = path.relative_to(REPO_ROOT)
             if imported.startswith(
@@ -660,9 +662,13 @@ def test_legacy_digest_api_uses_context_building_server_public_seam_only() -> No
         "from infinity_context_server.features.context_building "
         "import public as context_building_server"
     ) in source
+    assert "request: context_building_server.DigestRequest" in source
     assert "context_building_server.LegacyDigestApiResponseMapper" in source
+    assert "context_building_server.build_legacy_digest_query_from_request" in source
     assert "_LEGACY_DIGEST_API_RESPONSES.digest_to_response(digest)" in source
     assert "_LEGACY_DIGEST_API_RESPONSES.empty_digest_response" in source
+    assert "class DigestRequest" not in source
+    assert "BuildMemoryDigestQuery" not in source
     assert "def digest_to_response(" not in source
     assert "def _empty_digest_response(" not in source
     assert "def _digest_diagnostics_to_response(" not in source
@@ -759,6 +765,43 @@ def test_legacy_context_query_builder_is_owned_by_server_public_seam() -> None:
     assert query.tags_any == ("architecture",)
     assert query.tags_all == ("core-lite",)
     assert query.tags_none == ("draft_only",)
+
+
+def test_legacy_digest_query_builder_is_owned_by_server_public_seam() -> None:
+    scope = SimpleNamespace(
+        space_id="space_1",
+        memory_scope_ids=("scope_1", "scope_2"),
+        thread_id="thread_1",
+    )
+    request = server_public.DigestRequest(
+        topic="  keep the legacy digest topic  ",
+        token_budget=777,
+        max_facts=3,
+        max_chunks=4,
+        max_suggestions=5,
+        include_pending_suggestions=False,
+        include_superseded=True,
+        include_related=False,
+    )
+
+    query = server_public.build_legacy_digest_query_from_request(
+        request,
+        scope=scope,
+        max_rendered_chars=1234,
+    )
+
+    assert query.space_id == "space_1"
+    assert query.memory_scope_ids == ("scope_1", "scope_2")
+    assert query.thread_id == "thread_1"
+    assert query.topic == "  keep the legacy digest topic  "
+    assert query.token_budget == 777
+    assert query.max_rendered_chars == 1234
+    assert query.max_facts == 3
+    assert query.max_chunks == 4
+    assert query.max_suggestions == 5
+    assert query.include_pending_suggestions is False
+    assert query.include_superseded is True
+    assert query.include_related is False
 
 
 def _imports(path: Path) -> list[str]:
