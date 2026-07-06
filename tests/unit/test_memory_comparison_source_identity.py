@@ -104,3 +104,33 @@ def test_source_identity_refs_qualify_numeric_turn_id_with_session_key() -> None
         "source_session_turn_refs:session_12:D12:6",
         "source_turn_refs:D12:6",
     )
+
+
+def test_source_identity_refs_qualify_split_dialogue_id_and_turn_id() -> None:
+    refs = source_identity_refs_from_source_refs(
+        (
+            {
+                "source_external_id": "locomo:conv-private:turn-secret",
+                "dia_id": "D12",
+                "turn_id": "6",
+            },
+        )
+    )
+
+    assert refs == ("source_turn_refs:D12:6",)
+
+
+def test_safe_source_refs_qualify_split_dialogue_id_and_turn_id() -> None:
+    refs = safe_source_refs_for_output(
+        (
+            {
+                "source_id": "locomo:conv-private:turn-secret",
+                "metadata": {
+                    "dia_id": "D12",
+                    "turn_id": "6",
+                },
+            },
+        )
+    )
+
+    assert refs == ("source_turn_refs:D12:6",)

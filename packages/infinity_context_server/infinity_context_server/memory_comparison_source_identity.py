@@ -473,6 +473,9 @@ def _source_ref_values(value: object) -> tuple[object, ...]:
 
 def _source_ref_values_from_mapping(value: Mapping[object, object]) -> tuple[object, ...]:
     refs: list[object] = []
+    structured_turn_ref = _structured_turn_ref_from_mapping(value)
+    if structured_turn_ref:
+        refs.append(structured_turn_ref)
     for key in (
         "source_id",
         "source_external_id",
@@ -486,9 +489,6 @@ def _source_ref_values_from_mapping(value: Mapping[object, object]) -> tuple[obj
         raw_ref = value.get(key)
         if isinstance(raw_ref, str) and raw_ref.strip():
             refs.append(raw_ref.strip())
-    structured_turn_ref = _structured_turn_ref_from_mapping(value)
-    if structured_turn_ref:
-        refs.append(structured_turn_ref)
     for key in ("source_refs", "source_ref_payloads"):
         refs.extend(_source_ref_values(value.get(key)))
     nested = value.get("metadata")
@@ -528,7 +528,15 @@ def _safe_turn_ref_from_mapping_value(value: object) -> str:
 
 
 def _dialogue_number_from_mapping(value: Mapping[object, object]) -> str:
-    for key in ("source_dialogue_id", "dialogue_id", "dialogue", "session_key", "session_id"):
+    for key in (
+        "source_dialogue_id",
+        "dialogue_id",
+        "dialogue",
+        "dia_id",
+        "source_dia_id",
+        "session_key",
+        "session_id",
+    ):
         dialogue = _dialogue_number_from_value(value.get(key))
         if dialogue:
             return dialogue
@@ -579,6 +587,12 @@ def _safe_output_ref_is_covered_by_identity(
         if identity_ref.startswith("source_turn_refs:")
     ):
         return True
+    dialogue_number = _dialogue_number_from_ref(ref)
+    if dialogue_number and any(
+        identity_ref.startswith(f"source_turn_refs:D{dialogue_number}:")
+        for identity_ref in source_identity_refs
+    ):
+        return True
     session_ref = _normalized_session_ref(ref)
     return bool(
         session_ref
@@ -587,6 +601,11 @@ def _safe_output_ref_is_covered_by_identity(
             for identity_ref in source_identity_refs
         )
     )
+
+
+def _dialogue_number_from_ref(value: object) -> str:
+    match = re.fullmatch(r"D(?P<number>\d+)", str(value or "").strip(), re.IGNORECASE)
+    return match.group("number") if match is not None else ""
 
 
 def _safe_identity_refs(values: Iterable[object]) -> tuple[str, ...]:
