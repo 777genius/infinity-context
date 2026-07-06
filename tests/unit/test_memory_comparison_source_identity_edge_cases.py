@@ -873,6 +873,207 @@ def test_source_identity_refs_from_source_refs_dedupe_key_normalizes_safely() ->
     assert "provider:private-token-abc123" not in refs
 
 
+def test_source_identity_refs_from_structured_prefixed_turn_ids() -> None:
+    refs = source_identity_refs_from_source_refs(
+        {
+            "source_session_number": "12",
+            "source_turn_id": "turn-6",
+            "evidence_refs": ("utt_7", "utterance:8"),
+        }
+    )
+
+    assert refs == (
+        "source_session_turn_refs:session_12:D12:6",
+        "source_session_turn_refs:session_12:D12:7",
+        "source_session_turn_refs:session_12:D12:8",
+        "source_turn_refs:D12:6",
+        "source_turn_refs:D12:7",
+        "source_turn_refs:D12:8",
+    )
+
+
+def test_source_identity_refs_from_locomo_session_metadata_aliases() -> None:
+    for session_key in (
+        "locomo_session_index",
+        "locomo_session_key",
+        "locomo_session_number",
+        "session_index",
+        "session_number",
+        "session_order",
+    ):
+        assert source_identity_refs_from_source_refs(
+            {
+                session_key: "session_12",
+                "turn_index": "t6",
+            }
+        ) == (
+            "source_session_turn_refs:session_12:D12:6",
+            "source_turn_refs:D12:6",
+        )
+
+
+def test_source_identity_refs_from_structured_session_label_variants() -> None:
+    for session_value in (
+        "session #12",
+        "session 12",
+        "dialogue #12",
+        "dialog 12",
+    ):
+        assert source_identity_refs_from_source_refs(
+            {
+                "source_session_id": session_value,
+                "turn_index": "t6",
+            }
+        ) == (
+            "source_session_turn_refs:session_12:D12:6",
+            "source_turn_refs:D12:6",
+        )
+
+
+def test_source_identity_refs_from_single_plural_session_metadata_aliases() -> None:
+    for session_key in (
+        "locomo_session_ids",
+        "locomo_session_numbers",
+        "session_ids",
+        "session_numbers",
+        "source_session_ids",
+        "source_session_numbers",
+    ):
+        assert source_identity_refs_from_source_refs(
+            {
+                session_key: ("session #12",),
+                "turn_index": "t6",
+            }
+        ) == (
+            "source_session_turn_refs:session_12:D12:6",
+            "source_turn_refs:D12:6",
+        )
+
+
+def test_source_identity_refs_do_not_qualify_ambiguous_plural_sessions() -> None:
+    assert source_identity_refs_from_source_refs(
+        {
+            "source_session_ids": ("session #12", "session #13"),
+            "turn_index": "t6",
+        }
+    ) == ()
+
+
+def test_source_identity_refs_from_single_plural_dialogue_metadata_aliases() -> None:
+    for dialogue_key in (
+        "dialogue_ids",
+        "dialogue_indexes",
+        "dia_ids",
+        "source_dialogue_ids",
+        "source_dialogue_indexes",
+        "source_dia_ids",
+    ):
+        assert source_identity_refs_from_source_refs(
+            {
+                dialogue_key: ("D12",),
+                "turn_index": "t6",
+            }
+        ) == ("source_turn_refs:D12:6",)
+
+
+def test_source_identity_refs_do_not_qualify_ambiguous_plural_dialogues() -> None:
+    assert source_identity_refs_from_source_refs(
+        {
+            "source_dialogue_ids": ("D12", "D13"),
+            "turn_index": "t6",
+        }
+    ) == ()
+
+
+def test_source_identity_refs_from_structured_turn_label_variants() -> None:
+    for turn_value, expected_turn in (
+        ("turn #6", "D12:6"),
+        ("turn 6", "D12:6"),
+        ("utt #7", "D12:7"),
+        ("utt 7", "D12:7"),
+        ("utterance #8", "D12:8"),
+        ("utterance 8", "D12:8"),
+        ("t #9", "D12:9"),
+    ):
+        assert source_identity_refs_from_source_refs(
+            {
+                "source_session_number": "12",
+                "source_turn_id": turn_value,
+            }
+        ) == (
+            f"source_session_turn_refs:session_12:{expected_turn}",
+            f"source_turn_refs:{expected_turn}",
+        )
+
+
+def test_source_identity_refs_from_locomo_turn_metadata_aliases() -> None:
+    for turn_key in (
+        "dialogue_turn_id",
+        "dialogue_turn_ids",
+        "locomo_turn_id",
+        "locomo_turn_index",
+        "locomo_turn_number",
+        "locomo_dialogue_turn_id",
+        "locomo_dialogue_turn_ids",
+        "source_dialogue_turn_id",
+        "source_dialogue_turn_ids",
+        "source_turn_ref",
+        "source_turn_refs",
+        "source_utterance_id",
+        "source_utterance_index",
+        "source_utterance_number",
+        "turn_ref",
+        "turn_refs",
+        "turn_number",
+        "utt_id",
+        "utt_index",
+        "utt_number",
+        "utterance_id",
+        "utterance_index",
+        "utterance_number",
+    ):
+        assert source_identity_refs_from_source_refs(
+            {
+                "locomo_session_number": "12",
+                turn_key: "utt_6",
+            }
+        ) == (
+            "source_session_turn_refs:session_12:D12:6",
+            "source_turn_refs:D12:6",
+        )
+
+
+def test_source_identity_refs_from_plural_dialogue_turn_metadata_aliases() -> None:
+    for turn_key in (
+        "dialogue_turn_ids",
+        "locomo_turn_ids",
+        "locomo_turn_indexes",
+        "locomo_turn_numbers",
+        "locomo_dialogue_turn_ids",
+        "source_dialogue_turn_ids",
+        "source_utterance_ids",
+        "source_utterance_indexes",
+        "source_utterance_numbers",
+        "utt_ids",
+        "utt_indexes",
+        "utt_numbers",
+        "utterance_ids",
+        "utterance_indexes",
+        "utterance_numbers",
+    ):
+        assert source_identity_refs_from_source_refs(
+            {
+                "locomo_session_number": "12",
+                turn_key: ("turn-6", "utt_7"),
+            }
+        ) == (
+            "source_session_turn_refs:session_12:D12:6",
+            "source_session_turn_refs:session_12:D12:7",
+            "source_turn_refs:D12:6",
+            "source_turn_refs:D12:7",
+        )
+
+
 def test_source_identity_refs_from_source_refs_dedupe_key_bounds_generic_refs() -> None:
     long_ref = "document-" + ("x" * 200)
     raw_refs = (

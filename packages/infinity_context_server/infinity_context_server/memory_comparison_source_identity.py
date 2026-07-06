@@ -626,7 +626,10 @@ def _structured_turn_refs_from_mapping(
     turn_ref = _safe_turn_ref_from_mapping_value(
         value.get("dia_id")
         or value.get("locomo_evidence_ref")
+        or value.get("dialogue_turn_id")
+        or value.get("locomo_dialogue_turn_id")
         or value.get("source_dia_id")
+        or value.get("source_dialogue_turn_id")
         or value.get("evidence_id")
         or value.get("evidence_ref")
         or value.get("source_evidence_ref")
@@ -660,12 +663,50 @@ def _structured_turn_values_from_mapping(
                 "evidence_refs",
                 "evidence_id",
                 "evidence_ids",
+                "dialogue_turn_id",
+                "dialogue_turn_ids",
                 "locomo_evidence_ref",
                 "locomo_evidence_refs",
+                "locomo_dialogue_turn_id",
+                "locomo_dialogue_turn_ids",
+                "locomo_turn",
+                "locomo_turn_id",
+                "locomo_turn_ids",
+                "locomo_turn_index",
+                "locomo_turn_indexes",
+                "locomo_turn_number",
+                "locomo_turn_numbers",
+                "source_dialogue_turn_id",
+                "source_dialogue_turn_ids",
+                "source_turn_ref",
+                "source_turn_refs",
+                "source_utterance",
+                "source_utterance_id",
+                "source_utterance_ids",
+                "source_utterance_index",
+                "source_utterance_indexes",
+                "source_utterance_number",
+                "source_utterance_numbers",
                 "turn",
+                "turn_ref",
+                "turn_refs",
                 "turn_id",
                 "turn_ids",
                 "turn_index",
+                "turn_number",
+                "utt",
+                "utt_id",
+                "utt_ids",
+                "utt_index",
+                "utt_indexes",
+                "utt_number",
+                "utt_numbers",
+                "utterance_id",
+                "utterance_ids",
+                "utterance_index",
+                "utterance_indexes",
+                "utterance_number",
+                "utterance_numbers",
             )
             for turn in _positive_int_values(value.get(key))
         )
@@ -686,8 +727,34 @@ def _positive_int_values(value: object) -> tuple[str, ...]:
 
 
 def _structured_session_ref_from_mapping(value: Mapping[object, object]) -> str:
-    for key in ("source_session_id", "session_id", "session_key"):
-        session = _dialogue_number_from_value(value.get(key))
+    for key in (
+        "locomo_session_index",
+        "locomo_session_indexes",
+        "locomo_session_ids",
+        "locomo_session_key",
+        "locomo_session_keys",
+        "locomo_session_number",
+        "locomo_session_numbers",
+        "source_session_id",
+        "source_session_ids",
+        "source_session_index",
+        "source_session_indexes",
+        "source_session_key",
+        "source_session_keys",
+        "source_session_number",
+        "source_session_numbers",
+        "session_id",
+        "session_ids",
+        "session_index",
+        "session_indexes",
+        "session_key",
+        "session_keys",
+        "session_number",
+        "session_numbers",
+        "session_order",
+        "session_orders",
+    ):
+        session = _single_dialogue_number_from_value(value.get(key))
         if session:
             return f"session_{session}"
     return ""
@@ -702,20 +769,67 @@ def _safe_turn_ref_from_mapping_value(value: object) -> str:
 def _dialogue_number_from_mapping(value: Mapping[object, object]) -> str:
     for key in (
         "source_dialogue_id",
+        "source_dialogue_ids",
         "source_dialogue",
+        "source_dialogues",
         "source_dialogue_index",
+        "source_dialogue_indexes",
         "dialogue_id",
+        "dialogue_ids",
         "dialogue",
+        "dialogues",
         "dialogue_index",
+        "dialogue_indexes",
         "dia_id",
+        "dia_ids",
         "source_dia_id",
+        "source_dia_ids",
+        "locomo_session_index",
+        "locomo_session_indexes",
+        "locomo_session_ids",
+        "locomo_session_key",
+        "locomo_session_keys",
+        "locomo_session_number",
+        "locomo_session_numbers",
         "session_key",
+        "session_keys",
         "session_id",
+        "session_ids",
+        "session_index",
+        "session_indexes",
+        "session_number",
+        "session_numbers",
+        "session_order",
+        "session_orders",
+        "source_session_id",
+        "source_session_ids",
+        "source_session_index",
+        "source_session_indexes",
+        "source_session_key",
+        "source_session_keys",
+        "source_session_number",
+        "source_session_numbers",
     ):
-        dialogue = _dialogue_number_from_value(value.get(key))
+        dialogue = _single_dialogue_number_from_value(value.get(key))
         if dialogue:
             return dialogue
     return ""
+
+
+def _single_dialogue_number_from_value(value: object) -> str:
+    if isinstance(value, Mapping):
+        return ""
+    if isinstance(value, Sequence) and not isinstance(value, str | bytes):
+        values = tuple(
+            dict.fromkeys(
+                dialogue
+                for item in value
+                for dialogue in (_dialogue_number_from_value(item),)
+                if dialogue
+            )
+        )
+        return values[0] if len(values) == 1 else ""
+    return _dialogue_number_from_value(value)
 
 
 def _dialogue_number_from_value(value: object) -> str:
@@ -723,7 +837,7 @@ def _dialogue_number_from_value(value: object) -> str:
     if not text:
         return ""
     if match := re.fullmatch(
-        r"(?:(?:session|dialogue|dialog)[-_]?|D)?(?P<number>\d+)",
+        r"(?:(?:session|dialogue|dialog)[-_\s#]*|D)?(?P<number>\d+)",
         text,
         re.IGNORECASE,
     ):
@@ -741,6 +855,12 @@ def _safe_dialogue_ref(value: object) -> str:
 
 def _positive_int_string(value: object) -> str:
     text = str(value or "").strip()
+    if match := re.fullmatch(
+        r"(?:turn|utt|utterance|t)[-_:\s#]*(?P<turn>\d+)",
+        text,
+        re.IGNORECASE,
+    ):
+        text = match.group("turn")
     if not text.isdigit():
         return ""
     parsed = int(text)
