@@ -45,7 +45,7 @@ _SAFE_REPORTING_CONTRACTS = (
     ("answer_context_support_gaps", "answer_context_support_gaps.v1"),
     ("temporal_grounding_table", "temporal_grounding.v1"),
 )
-_LOCOMO_DIA_ID_RE = re.compile(r"\bD\d+:\d+\b", re.IGNORECASE)
+_LOCOMO_DIA_ID_RE = re.compile(r"\bD\d+[:-]\d+\b", re.IGNORECASE)
 
 
 @dataclass(frozen=True)
@@ -846,7 +846,8 @@ def _locomo_qa_evidence_values(value: object) -> tuple[object, ...]:
 def _locomo_dia_ids_from_text(value: str) -> tuple[str, ...]:
     return tuple(
         dict.fromkeys(
-            match.group(0).upper() for match in _LOCOMO_DIA_ID_RE.finditer(value)
+            match.group(0).upper().replace("-", ":")
+            for match in _LOCOMO_DIA_ID_RE.finditer(value)
         )
     )
 

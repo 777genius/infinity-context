@@ -245,6 +245,40 @@ def test_memory_comparison_preflight_accepts_nested_textual_locomo_evidence_refs
     }
 
 
+def test_memory_comparison_preflight_accepts_hyphenated_locomo_turn_refs(
+    tmp_path: Path,
+) -> None:
+    dataset = tmp_path / "locomo-hyphenated-evidence.json"
+    payload = _official_locomo_fast_dataset_payload()
+    for sample in payload:
+        conversation = sample["conversation"]
+        assert isinstance(conversation, dict)
+        turns = conversation["session_1"]
+        assert isinstance(turns, list)
+        turns[0]["dia_id"] = "D1-1"
+        for qa in sample["qa"]:
+            assert isinstance(qa, dict)
+            qa["evidence"] = [{"supporting_facts": [{"evidence_ref": "turn D1-1"}]}]
+    dataset.write_text(json.dumps(payload), encoding="utf-8")
+
+    result = run_memory_comparison_preflight(
+        _config(
+            dataset_path=dataset,
+            env={"MEM0_API_KEY": "secret-mem0"},
+        )
+    )
+
+    assert result["ready_for_locomo_fast"] is True
+    check = _check(result, "locomo_fast_dataset_case_coverage")
+    assert check["passed"] is True
+    assert check["details"]["selected_with_turn_evidence_by_group"] == {
+        "multi-hop": 10,
+        "temporal": 10,
+        "open-domain": 10,
+        "single-hop": 10,
+    }
+
+
 def test_memory_comparison_preflight_blocks_any_underfilled_requested_group(
     tmp_path: Path,
 ) -> None:
