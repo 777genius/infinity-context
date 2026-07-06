@@ -590,6 +590,7 @@ def test_answer_context_uses_bundle_order_within_cutoff() -> None:
         "unmeasured_source_locality_count": 1,
         "selected_bundle_item_count": 2,
         "skipped_bundle_item_count": 0,
+        "skipped_bundle_item_reason_counts": {},
         "skipped_duplicate_source_bundle_item_count": 0,
         "skipped_noisy_overlap_bundle_item_count": 0,
         "backfilled_retrieval_item_count": 1,
@@ -1598,6 +1599,9 @@ def test_answer_context_respects_cutoff_and_falls_back_to_raw_slice() -> None:
     assert context.source == "retrieval_slice"
     assert context.fallback_reason == "no_bundle_items_within_cutoff"
     assert context.skipped_bundle_item_count == 1
+    assert context.to_diagnostics()["skipped_bundle_item_reason_counts"] == {
+        "outside_cutoff": 1
+    }
     assert context.memories[0].metadata["answer_context_retrieval_order"] == 1
     assert context.memories[0].metadata["answer_context_fallback_reason"] == (
         "no_bundle_items_within_cutoff"
@@ -2828,6 +2832,32 @@ def test_answer_context_backfills_required_role_skipped_after_bundle_planning() 
     ] == ("causal_support",)
 
 
+def test_answer_context_reports_missing_bundle_item_skip_reasons() -> None:
+    memories = (
+        RetrievedMemory(text="first", rank=1, item_id="first"),
+        RetrievedMemory(text="late", rank=2, item_id="late"),
+    )
+
+    context = answer_context_from_evidence_bundle(
+        memories,
+        {
+            "items": [
+                {"id": "missing", "source_refs": ["D9:9"], "role": "primary"},
+                {"id": "late", "retrieval_order": 2, "role": "support"},
+            ]
+        },
+        cutoff=1,
+    )
+
+    assert context.source == "retrieval_slice"
+    assert context.fallback_reason == "no_bundle_items_within_cutoff"
+    assert context.skipped_bundle_item_count == 2
+    assert context.to_diagnostics()["skipped_bundle_item_reason_counts"] == {
+        "missing_memory": 1,
+        "outside_cutoff": 1,
+    }
+
+
 def test_answer_context_falls_back_for_empty_bundle() -> None:
     memories = (
         RetrievedMemory(text="first", rank=1, item_id="first"),
@@ -2866,7 +2896,11 @@ def test_answer_context_metrics_aggregates_sources_and_compression() -> None:
                             "avg_measured_source_locality_score": 0.7,
                             "unmeasured_source_locality_count": 1,
                             "selected_bundle_item_count": 1,
-                            "skipped_bundle_item_count": 0,
+                            "skipped_bundle_item_count": 2,
+                            "skipped_bundle_item_reason_counts": {
+                                "duplicate_source": 1,
+                                "noisy_source_overlap": 1,
+                            },
                             "skipped_duplicate_source_bundle_item_count": 1,
                             "skipped_noisy_overlap_bundle_item_count": 1,
                             "backfilled_retrieval_item_count": 1,
@@ -2968,6 +3002,7 @@ def test_answer_context_metrics_aggregates_sources_and_compression() -> None:
                             "fallback_reason": "empty_bundle",
                             "selected_bundle_item_count": 0,
                             "skipped_bundle_item_count": 0,
+                            "skipped_bundle_item_reason_counts": {},
                             "skipped_duplicate_source_bundle_item_count": 0,
                             "skipped_noisy_overlap_bundle_item_count": 0,
                             "inspection_flags": ["retrieval_slice_fallback"],
@@ -2995,6 +3030,10 @@ def test_answer_context_metrics_aggregates_sources_and_compression() -> None:
     assert metrics["primary_total_skipped_target_limit_backfill_count"] == 1
     assert metrics["primary_avg_skipped_target_limit_backfill_count"] == 0.5
     assert metrics["primary_total_skipped_duplicate_source_bundle_item_count"] == 1
+    assert metrics["primary_skipped_bundle_item_reason_counts"] == {
+        "duplicate_source": 1,
+        "noisy_source_overlap": 1,
+    }
     assert metrics["primary_avg_skipped_duplicate_source_bundle_item_count"] == 0.5
     assert metrics["primary_total_skipped_noisy_overlap_bundle_item_count"] == 1
     assert metrics["primary_avg_skipped_noisy_overlap_bundle_item_count"] == 0.5
@@ -3124,6 +3163,10 @@ def test_answer_context_metrics_aggregates_sources_and_compression() -> None:
     assert primary["avg_skipped_target_limit_backfill_count"] == 0.5
     assert primary["total_skipped_target_limit_backfill_count"] == 1
     assert primary["avg_skipped_duplicate_source_bundle_item_count"] == 0.5
+    assert primary["skipped_bundle_item_reason_counts"] == {
+        "duplicate_source": 1,
+        "noisy_source_overlap": 1,
+    }
     assert primary["total_skipped_duplicate_source_bundle_item_count"] == 1
     assert primary["avg_skipped_noisy_overlap_bundle_item_count"] == 0.5
     assert primary["total_skipped_noisy_overlap_bundle_item_count"] == 1
