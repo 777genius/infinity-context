@@ -87,6 +87,37 @@ def test_locomo_failure_analysis_reads_failure_analysis_entries() -> None:
     assert summary["top_missing_evidence_sources"] == {"D2": 2}
 
 
+def test_locomo_failure_analysis_reads_diagnostic_missing_evidence_refs() -> None:
+    report = {
+        "failures": [
+            {
+                "case_id": "diagnostic-refs",
+                "capability": "locomo_category_2",
+                "reason": "expected_terms_missing",
+                "diagnostic_reason_codes": ["missing_evidence_refs"],
+                "diagnostics": {
+                    "missing_evidence_refs": [
+                        "source_turn_refs:D5:7",
+                        "source_session_turn_refs:session_2:D5:8",
+                    ],
+                    "missing_evidence_terms": ["should-not-win"],
+                },
+            }
+        ]
+    }
+
+    summary = _summary(_failures(report), top=5)
+
+    assert summary["top_missing_evidence_refs"] == {
+        "source_turn_refs:D5:7": 1,
+        "source_session_turn_refs:session_2:D5:8": 1,
+    }
+    assert summary["top_missing_evidence_sources"] == {"D5": 2}
+    assert summary["root_cause_examples"]["evidence:missing_refs"][0][
+        "missing_evidence_ref_count"
+    ] == 2
+
+
 def test_locomo_failure_analysis_filters_and_writes_benchmark_args(tmp_path) -> None:
     report = {
         "failures": [

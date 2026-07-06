@@ -363,6 +363,9 @@ def _missing_evidence_refs(failure: Mapping[str, object]) -> tuple[str, ...]:
     if direct_terms:
         return direct_terms
     diagnostics = _mapping(failure.get("diagnostics"))
+    diagnostic_refs = _strings(diagnostics.get("missing_evidence_refs"))
+    if diagnostic_refs:
+        return diagnostic_refs
     return _strings(diagnostics.get("missing_evidence_terms"))
 
 
