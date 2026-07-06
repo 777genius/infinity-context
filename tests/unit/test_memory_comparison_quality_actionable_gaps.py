@@ -983,6 +983,13 @@ def test_answer_context_provenance_samples_include_safe_audit_detail() -> None:
                 "source_turn_refs:D1:2",
                 "source_session_turn_refs:session_1:D1:3",
             ],
+            "source_identity_items": [
+                {
+                    "item_id": "selected",
+                    "retrieval_order": 1,
+                    "source_identity_refs": ["source_turn_refs:D1:2"],
+                }
+            ],
             "retrieval_orders": [1, 2],
             "memory_count": 2,
             "source_ref_count": 1,
