@@ -17,6 +17,7 @@ from pathlib import Path
 _BOUNDED_LIST_COUNT_RE = re.compile(
     r"\b(?:one|two|three|four|five|six|seven|eight|nine|ten|\d+)\b"
 )
+_EVIDENCE_SOURCE_REF_RE = re.compile(r"\b([DS]\d+):\d+\b", re.IGNORECASE)
 _LIST_QUESTION_MARKERS = (
     " activities",
     " areas",
@@ -141,6 +142,7 @@ def _summary(failures: Sequence[Mapping[str, object]], *, top: int) -> dict[str,
     reasons: Counter[str] = Counter()
     missing_terms: Counter[str] = Counter()
     missing_evidence_refs: Counter[str] = Counter()
+    missing_evidence_sources: Counter[str] = Counter()
     missing_evidence_ref_previews: Counter[str] = Counter()
     capability_reasons: dict[str, Counter[str]] = defaultdict(Counter)
     answer_shapes: Counter[str] = Counter()
@@ -153,6 +155,7 @@ def _summary(failures: Sequence[Mapping[str, object]], *, top: int) -> dict[str,
     root_cause_examples: dict[str, list[dict[str, object]]] = defaultdict(list)
     provenance_gap_causes: Counter[str] = Counter()
     answer_context_provenance: Counter[str] = Counter()
+    answer_context_risk_reasons: Counter[str] = Counter()
     temporal_grounding_issue_reasons: Counter[str] = Counter()
     temporal_grounding_issue_examples: dict[str, list[dict[str, object]]] = (
         defaultdict(list)
@@ -176,6 +179,9 @@ def _summary(failures: Sequence[Mapping[str, object]], *, top: int) -> dict[str,
         answer_context_provenance.update(
             _answer_context_provenance_counts(failure)
         )
+        answer_context_risk_reasons.update(
+            _answer_context_risk_reason_counts(failure)
+        )
         if len(root_cause_examples[primary_root_cause]) < 5:
             root_cause_examples[primary_root_cause].append(
                 _root_cause_example(failure, root_tags)
@@ -197,7 +203,9 @@ def _summary(failures: Sequence[Mapping[str, object]], *, top: int) -> dict[str,
                 )
         failure_patterns[(capability, reason)] += 1
         missing_terms.update(_strings(failure.get("missing_terms")))
-        missing_evidence_refs.update(_missing_evidence_refs(failure))
+        missing_refs = _missing_evidence_refs(failure)
+        missing_evidence_refs.update(missing_refs)
+        missing_evidence_sources.update(_evidence_source_refs(missing_refs))
         missing_evidence_ref_previews.update(
             _strings(failure.get("missing_evidence_ref_previews"))
         )
@@ -226,6 +234,9 @@ def _summary(failures: Sequence[Mapping[str, object]], *, top: int) -> dict[str,
         ),
         "answer_context_provenance_count": dict(
             answer_context_provenance.most_common(top_limit)
+        ),
+        "answer_context_risk_reason_count": dict(
+            answer_context_risk_reasons.most_common(top_limit)
         ),
         "root_cause_examples": {
             root_cause: examples
@@ -256,6 +267,9 @@ def _summary(failures: Sequence[Mapping[str, object]], *, top: int) -> dict[str,
         },
         "top_missing_terms": dict(missing_terms.most_common(top_limit)),
         "top_missing_evidence_refs": dict(missing_evidence_refs.most_common(top_limit)),
+        "top_missing_evidence_sources": dict(
+            missing_evidence_sources.most_common(top_limit)
+        ),
         "top_missing_evidence_ref_previews": dict(
             missing_evidence_ref_previews.most_common(top_limit)
         ),
@@ -316,6 +330,15 @@ def _missing_evidence_refs(failure: Mapping[str, object]) -> tuple[str, ...]:
     return _strings(diagnostics.get("missing_evidence_terms"))
 
 
+def _evidence_source_refs(refs: Sequence[str]) -> tuple[str, ...]:
+    sources: list[str] = []
+    for ref in refs:
+        match = _EVIDENCE_SOURCE_REF_RE.search(ref)
+        if match is not None:
+            sources.append(match.group(1).upper())
+    return tuple(sources)
+
+
 def _diagnostic_reason_codes(failure: Mapping[str, object]) -> tuple[str, ...]:
     return _strings(failure.get("diagnostic_reason_codes"))
 
@@ -365,12 +388,22 @@ def _root_cause_tags(failure: Mapping[str, object]) -> tuple[str, ...]:
         tags.append("answer_context:fallback")
     if "answer_context_source_refless" in reason_codes:
         tags.append("answer_context:source_refless")
+        answer_context = _mapping(diagnostics.get("answer_context"))
+        if (
+            (_positive_int(answer_context.get("source_ref_count")) or 0) == 0
+            and (_positive_int(answer_context.get("source_ref_item_count")) or 0) == 0
+            and (_positive_int(answer_context.get("source_identity_ref_count")) or 0)
+            > 0
+        ):
+            tags.append("answer_context:identity_only_provenance")
     if "answer_context_missing_required_roles" in reason_codes:
         tags.append("answer_context:missing_required_roles")
     if "answer_context_backfilled_retrieval" in reason_codes:
         tags.append("answer_context:backfilled_retrieval")
     if "answer_context_risk_reasons_present" in reason_codes:
         tags.append("answer_context:risk_reasons")
+    for reason in _answer_context_risk_reason_counts(failure):
+        tags.append(f"answer_context:{_normalize_tag_value(reason)}")
     for role in _strings(bundle.get("missing_required_roles")):
         tags.append(f"bundle:missing_role:{_normalize_tag_value(role)}")
     if "bundle_incomplete" in reason_codes:
@@ -556,6 +589,7 @@ def _answer_context_provenance_counts(failure: Mapping[str, object]) -> Counter[
     if context.get("present") is not True:
         return Counter()
     source_ref_item_count = _positive_int(context.get("source_ref_item_count")) or 0
+    source_ref_count = _positive_int(context.get("source_ref_count")) or 0
     source_refless_item_count = (
         _positive_int(context.get("source_refless_item_count")) or 0
     )
@@ -577,6 +611,8 @@ def _answer_context_provenance_counts(failure: Mapping[str, object]) -> Counter[
         counts["source_identity_refs_present"] += 1
     if source_identity_item_count > 0:
         counts["source_identity_items_present"] += 1
+    if source_ref_count <= 0 and source_ref_item_count <= 0 and source_identity_ref_count > 0:
+        counts["identity_only_provenance_present"] += 1
     if str(context.get("fallback_reason") or ""):
         counts["fallback_present"] += 1
     if backfilled_count > 0:
@@ -584,6 +620,15 @@ def _answer_context_provenance_counts(failure: Mapping[str, object]) -> Counter[
     if context.get("role_requirement_complete") is False:
         counts["missing_required_roles_present"] += 1
     return counts
+
+
+def _answer_context_risk_reason_counts(failure: Mapping[str, object]) -> Counter[str]:
+    context = _mapping(_mapping(failure.get("diagnostics")).get("answer_context"))
+    if context.get("present") is not True:
+        return Counter()
+    return Counter(
+        reason for reason in _strings(context.get("risk_reason_codes")) if reason
+    )
 
 
 def _selected_evidence_weakness_summary(
