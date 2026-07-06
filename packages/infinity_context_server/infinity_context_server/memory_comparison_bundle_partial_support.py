@@ -4,7 +4,6 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 
-
 _PARTIAL_REQUIRED_ROLE_CATEGORY_HINTS = {
     "causal_support": frozenset(
         {

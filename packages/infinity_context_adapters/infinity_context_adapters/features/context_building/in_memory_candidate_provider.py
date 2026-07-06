@@ -13,11 +13,11 @@ from infinity_context_core.features.context_building.public import (
     ContextItem,
 )
 
-from infinity_context_adapters.features.context_building.records import (
-    ContextCandidateRecord,
-)
 from infinity_context_adapters.features.context_building.query_request import (
     ContextCandidateAdapterQuery,
+)
+from infinity_context_adapters.features.context_building.records import (
+    ContextCandidateRecord,
 )
 
 

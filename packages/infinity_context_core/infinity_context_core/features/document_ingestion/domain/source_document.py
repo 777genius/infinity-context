@@ -11,7 +11,6 @@ from infinity_context_core.features.document_ingestion.domain.errors import (
     DocumentIngestionValidationError,
 )
 
-
 SourceDocumentStatus: TypeAlias = str
 SourceDocumentClassification: TypeAlias = str
 

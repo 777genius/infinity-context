@@ -9,7 +9,6 @@ import inspect
 from dataclasses import FrozenInstanceError, fields, is_dataclass
 from pathlib import Path
 
-
 APPLICATION_MODULE = "infinity_context_core.features.document_ingestion.application"
 DOMAIN_MODULE = "infinity_context_core.features.document_ingestion.domain"
 PORTS_MODULE = "infinity_context_core.features.document_ingestion.ports"

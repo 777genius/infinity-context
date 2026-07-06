@@ -46,9 +46,9 @@ from infinity_context_core.features.memory_scopes.domain import (
     MemoryScopeOwnershipError,
     MemoryScopeOwnershipPolicy,
     MemoryScopePrincipalKind,
+    MemoryScopesFeature,
     MemoryScopeSnapshot,
     MemoryScopeStatus,
-    MemoryScopesFeature,
 )
 from infinity_context_core.features.memory_scopes.ports import (
     MemoryScopeClockPort,

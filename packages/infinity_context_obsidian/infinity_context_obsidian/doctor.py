@@ -237,7 +237,11 @@ def _check_plugin_enabled(vault: Path, obsidian_config_dir: str) -> DoctorCheck:
     return DoctorCheck(
         name="plugin_enabled",
         ok=ok,
-        message="Infinity Context plugin is enabled" if ok else "Infinity Context plugin is not enabled",
+        message=(
+            "Infinity Context plugin is enabled"
+            if ok
+            else "Infinity Context plugin is not enabled"
+        ),
     )
 
 

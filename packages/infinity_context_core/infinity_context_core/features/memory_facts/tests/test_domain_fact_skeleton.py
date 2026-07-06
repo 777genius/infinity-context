@@ -7,7 +7,6 @@ import importlib
 from dataclasses import FrozenInstanceError, is_dataclass
 from pathlib import Path
 
-
 DOMAIN_MODULE = "infinity_context_core.features.memory_facts.domain"
 FACT_MODULE = f"{DOMAIN_MODULE}.fact"
 FEATURE_ROOT = Path(__file__).resolve().parents[1]

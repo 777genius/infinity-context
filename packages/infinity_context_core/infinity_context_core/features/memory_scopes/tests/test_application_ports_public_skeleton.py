@@ -7,9 +7,8 @@ import asyncio
 import importlib
 import inspect
 from dataclasses import FrozenInstanceError, fields, is_dataclass
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
-
 
 APPLICATION_MODULE = "infinity_context_core.features.memory_scopes.application"
 DOMAIN_MODULE = "infinity_context_core.features.memory_scopes.domain"
@@ -245,7 +244,7 @@ def test_create_handler_allocates_canonical_identity_and_checks_external_ref() -
     application = importlib.import_module(APPLICATION_MODULE)
     domain = importlib.import_module(DOMAIN_MODULE)
 
-    now = datetime(2026, 1, 1, tzinfo=timezone.utc)
+    now = datetime(2026, 1, 1, tzinfo=UTC)
     repo = _MemoryScopeRepository()
     uow = _MemoryScopeUnitOfWork(repo)
     handler = application.CreateMemoryScopeHandler(
@@ -295,7 +294,7 @@ def test_create_handler_rejects_duplicate_space_external_ref() -> None:
     handler = application.CreateMemoryScopeHandler(
         uow_factory=_UnitOfWorkFactory(uow),
         ids=_MemoryScopeIds("scope-new"),
-        clock=_MemoryScopeClock(datetime(2026, 1, 1, tzinfo=timezone.utc)),
+        clock=_MemoryScopeClock(datetime(2026, 1, 1, tzinfo=UTC)),
     )
 
     try:
@@ -323,7 +322,7 @@ def test_transfer_handler_uses_policy_and_preserves_scope_identity() -> None:
     application = importlib.import_module(APPLICATION_MODULE)
     domain = importlib.import_module(DOMAIN_MODULE)
 
-    now = datetime(2026, 1, 1, tzinfo=timezone.utc)
+    now = datetime(2026, 1, 1, tzinfo=UTC)
     owner = domain.MemoryScopeOwner(principal_id="owner-1")
     identity = domain.MemoryScopeIdentity(
         space_id="space-1",
@@ -367,7 +366,7 @@ def test_transfer_handler_rejects_missing_scope_without_commit() -> None:
     application = importlib.import_module(APPLICATION_MODULE)
     domain = importlib.import_module(DOMAIN_MODULE)
 
-    now = datetime(2026, 1, 1, tzinfo=timezone.utc)
+    now = datetime(2026, 1, 1, tzinfo=UTC)
     identity = domain.MemoryScopeIdentity(
         space_id="space-1",
         memory_scope_id="scope-missing",
@@ -402,7 +401,7 @@ def test_transfer_handler_rejects_expected_owner_conflict_without_save() -> None
     application = importlib.import_module(APPLICATION_MODULE)
     domain = importlib.import_module(DOMAIN_MODULE)
 
-    now = datetime(2026, 1, 1, tzinfo=timezone.utc)
+    now = datetime(2026, 1, 1, tzinfo=UTC)
     owner = domain.MemoryScopeOwner(principal_id="owner-1")
     identity = domain.MemoryScopeIdentity(
         space_id="space-1",
@@ -447,7 +446,7 @@ def test_transfer_handler_rolls_back_policy_denial_without_save() -> None:
     application = importlib.import_module(APPLICATION_MODULE)
     domain = importlib.import_module(DOMAIN_MODULE)
 
-    now = datetime(2026, 1, 1, tzinfo=timezone.utc)
+    now = datetime(2026, 1, 1, tzinfo=UTC)
     owner = domain.MemoryScopeOwner(principal_id="owner-1")
     identity = domain.MemoryScopeIdentity(
         space_id="space-1",
@@ -489,7 +488,7 @@ def test_archive_handler_archives_scope_without_hard_delete() -> None:
     application = importlib.import_module(APPLICATION_MODULE)
     domain = importlib.import_module(DOMAIN_MODULE)
 
-    now = datetime(2026, 1, 1, tzinfo=timezone.utc)
+    now = datetime(2026, 1, 1, tzinfo=UTC)
     owner = domain.MemoryScopeOwner(principal_id="owner-1")
     identity = domain.MemoryScopeIdentity(
         space_id="space-1",
@@ -533,8 +532,8 @@ def test_restore_handler_restores_archived_scope() -> None:
     application = importlib.import_module(APPLICATION_MODULE)
     domain = importlib.import_module(DOMAIN_MODULE)
 
-    archived_at = datetime(2026, 1, 1, tzinfo=timezone.utc)
-    restored_at = datetime(2026, 1, 2, tzinfo=timezone.utc)
+    archived_at = datetime(2026, 1, 1, tzinfo=UTC)
+    restored_at = datetime(2026, 1, 2, tzinfo=UTC)
     owner = domain.MemoryScopeOwner(principal_id="owner-1")
     identity = domain.MemoryScopeIdentity(
         space_id="space-1",
@@ -578,7 +577,7 @@ def test_archive_handler_rejects_expected_status_conflict_without_save() -> None
     application = importlib.import_module(APPLICATION_MODULE)
     domain = importlib.import_module(DOMAIN_MODULE)
 
-    now = datetime(2026, 1, 1, tzinfo=timezone.utc)
+    now = datetime(2026, 1, 1, tzinfo=UTC)
     identity = domain.MemoryScopeIdentity(
         space_id="space-1",
         memory_scope_id="scope-1",
@@ -619,7 +618,7 @@ def test_restore_handler_rolls_back_lifecycle_denial_without_save() -> None:
     application = importlib.import_module(APPLICATION_MODULE)
     domain = importlib.import_module(DOMAIN_MODULE)
 
-    now = datetime(2026, 1, 1, tzinfo=timezone.utc)
+    now = datetime(2026, 1, 1, tzinfo=UTC)
     identity = domain.MemoryScopeIdentity(
         space_id="space-1",
         memory_scope_id="scope-1",

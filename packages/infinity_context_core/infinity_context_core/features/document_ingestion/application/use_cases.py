@@ -14,8 +14,8 @@ from infinity_context_core.features.document_ingestion.domain import (
     ChunkingPolicy,
     DocumentChunk,
     DocumentChunkDraft,
-    SourceDocumentDraft,
     SourceDocument,
+    SourceDocumentDraft,
     content_hash_for_text,
 )
 from infinity_context_core.features.document_ingestion.ports import (

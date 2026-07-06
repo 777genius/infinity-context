@@ -26,8 +26,9 @@ def register_obsidian_tools(
         name="memory_obsidian_prepare",
         title="Prepare Infinity Context Obsidian Vault",
         description=(
-            "Run the safe first-use setup flow for a local Infinity Context Obsidian vault. Dry-run "
-            "by default. With apply=true it initializes local Infinity Context config, writes vault "
+            "Run the safe first-use setup flow for a local Infinity Context Obsidian vault. "
+            "Dry-run by default. With apply=true it initializes local Infinity Context config, "
+            "writes vault "
             "setup/plugin files, checks local backend status, and runs preview only if the API "
             "is already ready. It never starts Docker, launches Obsidian, runs a watcher, or "
             "runs mutating sync."

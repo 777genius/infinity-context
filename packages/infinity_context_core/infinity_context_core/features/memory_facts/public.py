@@ -25,12 +25,12 @@ from infinity_context_core.features.memory_facts.domain import (
     MemoryFactIdentity,
     MemoryFactKind,
     MemoryFactScope,
+    MemoryFactsFeature,
     MemoryFactSnapshot,
     MemoryFactSourceRef,
     MemoryFactStatus,
     MemoryFactTrustLevel,
     MemoryFactVisibility,
-    MemoryFactsFeature,
 )
 from infinity_context_core.features.memory_facts.ports import (
     MemoryFactClockPort,

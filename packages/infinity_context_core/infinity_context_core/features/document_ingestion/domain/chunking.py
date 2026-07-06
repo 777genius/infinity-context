@@ -14,7 +14,6 @@ from infinity_context_core.features.document_ingestion.domain.source_document im
     normalize_document_text,
 )
 
-
 DocumentChunkKind: TypeAlias = str
 DocumentChunkStatus: TypeAlias = str
 CHUNKING_POLICY_VERSION: Final = "text-window-v1"

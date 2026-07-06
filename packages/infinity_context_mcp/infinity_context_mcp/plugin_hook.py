@@ -396,7 +396,10 @@ class MemoryPluginHookApp:
         try:
             response = self._gateway.build_context(event, query)
         except HookGatewayError as exc:
-            return "", f"infinity-context-plugin-hook: context unavailable: {safe_message(str(exc))}\n"
+            return (
+                "",
+                f"infinity-context-plugin-hook: context unavailable: {safe_message(str(exc))}\n",
+            )
 
         data = response.get("data")
         if not isinstance(data, dict):
@@ -406,7 +409,10 @@ class MemoryPluginHookApp:
             return "", ""
         rendered = _truncate(rendered.strip(), self._settings.max_output_chars)
         if contains_sensitive_value(rendered):
-            return "", "infinity-context-plugin-hook: skipped context output because it looks sensitive\n"
+            return (
+                "",
+                "infinity-context-plugin-hook: skipped context output because it looks sensitive\n",
+            )
         return rendered, ""
 
     def _render_context_for_host(self, event: HookEvent, rendered_context: str) -> str:
@@ -425,7 +431,10 @@ class MemoryPluginHookApp:
         try:
             self._gateway.ingest_episode(event, text)
         except HookGatewayError as exc:
-            return f"infinity-context-plugin-hook: episode capture skipped: {safe_message(str(exc))}\n"
+            return (
+                "infinity-context-plugin-hook: episode capture skipped: "
+                f"{safe_message(str(exc))}\n"
+            )
         if self._settings.verbose:
             return "infinity-context-plugin-hook: episode captured\n"
         return ""
@@ -436,8 +445,8 @@ class MemoryPluginHookApp:
         except HookGatewayError as exc:
             if self._settings.verbose:
                 return (
-                    "infinity-context-plugin-hook: capture skipped: capture capabilities unavailable: "
-                    f"{safe_message(str(exc))}\n"
+                    "infinity-context-plugin-hook: capture skipped: capture capabilities "
+                    f"unavailable: {safe_message(str(exc))}\n"
                 )
             return ""
         captures = payload.get("captures")
@@ -450,7 +459,10 @@ class MemoryPluginHookApp:
             return ""
         if int(captures.get("api_version") or 0) < 1 or captures.get("enabled") is not True:
             if self._settings.verbose:
-                return "infinity-context-plugin-hook: capture skipped: server capture mode is disabled\n"
+                return (
+                    "infinity-context-plugin-hook: capture skipped: "
+                    "server capture mode is disabled\n"
+                )
             return ""
         return None
 

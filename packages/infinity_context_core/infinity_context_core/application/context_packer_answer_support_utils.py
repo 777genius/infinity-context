@@ -233,7 +233,9 @@ def _answer_support_semantic_query_object_hits(*, query: str, text: str) -> int:
     if (
         "art" in normalized_query
         and ("kind" in normalized_query or "style" in normalized_query)
-        and re.search(r"\b(?:art show|painting for the art show|image caption:.{0,80}painting)\b", text)
+        and re.search(
+            r"\b(?:art show|painting for the art show|image caption:.{0,80}painting)\b", text
+        )
     ):
         hits += 3
     if (

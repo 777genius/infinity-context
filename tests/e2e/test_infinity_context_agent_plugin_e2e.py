@@ -8,13 +8,15 @@ from pathlib import Path
 from typing import Any
 
 import httpx
+from infinity_context_server_harness import run_infinity_context_server
 from mcp import ClientSession, StdioServerParameters
 from mcp.client.stdio import stdio_client
-from infinity_context_server_harness import run_infinity_context_server
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 PLUGIN_ROOT = PROJECT_ROOT / "plugins" / "infinity-context-agent-plugin"
-CURSOR_WORKSPACE_PLUGIN_ROOT = PROJECT_ROOT / "plugins" / "infinity-context-agent-plugin-cursor-workspace"
+CURSOR_WORKSPACE_PLUGIN_ROOT = (
+    PROJECT_ROOT / "plugins" / "infinity-context-agent-plugin-cursor-workspace"
+)
 GEMINI_HOOK_PLUGIN_ROOT = PROJECT_ROOT / "plugins" / "infinity-context-agent-plugin-gemini-hooks"
 DOCTOR_PLUGIN_ROOTS = (PLUGIN_ROOT, CURSOR_WORKSPACE_PLUGIN_ROOT, GEMINI_HOOK_PLUGIN_ROOT)
 NO_DEFAULT_THREAD_SENTINEL = "__INFINITY_CONTEXT_NO_DEFAULT_THREAD__"

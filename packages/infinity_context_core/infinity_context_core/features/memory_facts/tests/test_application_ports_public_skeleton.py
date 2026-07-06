@@ -8,7 +8,6 @@ import inspect
 from dataclasses import FrozenInstanceError, fields, is_dataclass
 from pathlib import Path
 
-
 APPLICATION_MODULE = "infinity_context_core.features.memory_facts.application"
 DOMAIN_MODULE = "infinity_context_core.features.memory_facts.domain"
 PORTS_MODULE = "infinity_context_core.features.memory_facts.ports"

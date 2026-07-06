@@ -5,9 +5,8 @@ from __future__ import annotations
 import ast
 import importlib
 from dataclasses import FrozenInstanceError, is_dataclass
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
-
 
 DOMAIN_MODULE = "infinity_context_core.features.memory_scopes.domain"
 SCOPE_MODULE = f"{DOMAIN_MODULE}.scope"
@@ -275,9 +274,9 @@ def test_lifecycle_policy_allows_owner_admin_or_lifecycle_actor() -> None:
 def test_scope_snapshot_transfer_archive_and_restore_preserve_identity() -> None:
     domain = importlib.import_module(DOMAIN_MODULE)
 
-    updated_at = datetime(2026, 1, 1, tzinfo=timezone.utc)
-    archived_at = datetime(2026, 1, 2, tzinfo=timezone.utc)
-    restored_at = datetime(2026, 1, 3, tzinfo=timezone.utc)
+    updated_at = datetime(2026, 1, 1, tzinfo=UTC)
+    archived_at = datetime(2026, 1, 2, tzinfo=UTC)
+    restored_at = datetime(2026, 1, 3, tzinfo=UTC)
     identity = domain.MemoryScopeIdentity(
         space_id="space-1",
         memory_scope_id="scope-1",

@@ -232,7 +232,9 @@ def _rates(counters: dict[str, int], iterations: int) -> dict[str, float]:
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Benchmark Infinity Context MCP adapter CRUD/retrieval.")
+    parser = argparse.ArgumentParser(
+        description="Benchmark Infinity Context MCP adapter CRUD/retrieval."
+    )
     parser.add_argument("--iterations", type=int, default=10)
     parser.add_argument("--api-url", default=None)
     parser.add_argument("--space-slug", default=None)

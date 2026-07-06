@@ -16,7 +16,6 @@ from infinity_context_core.features.document_ingestion.domain import (
     SourceDocumentOrigin,
 )
 
-
 DocumentIndexingStatus: TypeAlias = str
 
 

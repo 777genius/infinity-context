@@ -11,7 +11,6 @@ from infinity_context_contracts import (
     ResponseEnvelopeDto,
 )
 
-
 CURRENT_CAPABILITIES_TOP_LEVEL_KEYS = {
     "api_version",
     "server_version",

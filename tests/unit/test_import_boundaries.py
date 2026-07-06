@@ -50,7 +50,9 @@ def test_capability_contracts_are_importable_without_provider_adapters() -> None
 
 
 def test_routes_do_not_import_provider_adapter_packages() -> None:
-    api_root = PROJECT_ROOT / "packages" / "infinity_context_server" / "infinity_context_server" / "api"
+    api_root = (
+        PROJECT_ROOT / "packages" / "infinity_context_server" / "infinity_context_server" / "api"
+    )
     forbidden_prefixes = ("infinity_context_adapters", "sqlalchemy")
     forbidden_calls = {"AsyncSession", "create_engine", "create_async_engine"}
 
@@ -81,7 +83,9 @@ def test_routes_do_not_import_provider_adapter_packages() -> None:
 
 
 def test_routes_do_not_use_unit_of_work_directly() -> None:
-    api_root = PROJECT_ROOT / "packages" / "infinity_context_server" / "infinity_context_server" / "api"
+    api_root = (
+        PROJECT_ROOT / "packages" / "infinity_context_server" / "infinity_context_server" / "api"
+    )
     offenders = []
     for path in api_root.rglob("*.py"):
         source = path.read_text(encoding="utf-8")

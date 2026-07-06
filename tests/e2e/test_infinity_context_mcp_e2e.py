@@ -5,10 +5,10 @@ import time
 from pathlib import Path
 from typing import Any
 
+from infinity_context_server_harness import python_env, run_infinity_context_server
 from mcp import ClientSession, StdioServerParameters
 from mcp.client.stdio import stdio_client
 from mcp.shared.version import LATEST_PROTOCOL_VERSION
-from infinity_context_server_harness import python_env, run_infinity_context_server
 
 
 def test_memory_mcp_fact_lifecycle_and_document_recall_e2e(tmp_path: Path) -> None:
@@ -119,7 +119,8 @@ async def _run_mcp_lifecycle(base_url: str, token: str) -> None:
         _assert_text_fallback_matches_structured(rejected)
         assert rejected.structuredContent["ok"] is False
         assert (
-            rejected.structuredContent["error"]["code"] == "infinity_context_mcp.policy.secret_detected"
+            rejected.structuredContent["error"]["code"]
+            == "infinity_context_mcp.policy.secret_detected"
         )
         assert "sk-test" not in rejected.content[0].text
 
@@ -674,7 +675,10 @@ async def _run_mcp_policy_modes(base_url: str, token: str) -> None:
         )
         assert blocked.isError is True
         _assert_text_fallback_matches_structured(blocked)
-        assert blocked.structuredContent["error"]["code"] == "infinity_context_mcp.policy.write_mode_off"
+        assert (
+            blocked.structuredContent["error"]["code"]
+            == "infinity_context_mcp.policy.write_mode_off"
+        )
         assert "test-token" not in blocked.content[0].text
 
 
@@ -701,7 +705,9 @@ async def _run_mcp_auth_failure(base_url: str) -> None:
         )
         assert failed.isError is True
         _assert_text_fallback_matches_structured(failed)
-        assert failed.structuredContent["error"]["code"] == "infinity_context_mcp.gateway.auth_failed"
+        assert (
+            failed.structuredContent["error"]["code"] == "infinity_context_mcp.gateway.auth_failed"
+        )
         assert failed.structuredContent["error"]["retryable"] is False
         assert "wrong-e2e-token" not in failed.content[0].text
         assert "real-e2e-token" not in failed.content[0].text

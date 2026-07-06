@@ -5,7 +5,6 @@ from __future__ import annotations
 from dataclasses import FrozenInstanceError, fields
 
 import pytest
-
 from infinity_context_core.features.document_ingestion import public
 
 
