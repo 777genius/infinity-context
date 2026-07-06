@@ -1394,6 +1394,21 @@ def test_quality_diagnostics_reports_actionable_answer_context_support_gaps() ->
     summary = diagnostics["answer_context_support_gap_summary"]
 
     assert gate["answer_context_support_gap_summary"] == summary
+    actionable_support_gap = next(
+        gap
+        for gap in gate["actionable_gap_summary"]["ranked_gaps"]
+        if gap["category"] == "answer_context_support"
+        and gap["gap"] == "low_answerability_backfill"
+    )
+    actionable_role_gap = next(
+        gap
+        for gap in gate["actionable_gap_summary"]["ranked_gaps"]
+        if gap["category"] == "answer_context_required_role"
+        and gap["gap"] == "temporal_support"
+    )
+    assert actionable_support_gap["impact_count"] == 1
+    assert actionable_support_gap["sample_case_ids"] == ["missing-support-context"]
+    assert actionable_role_gap["sample_case_ids"] == ["missing-support-context"]
     assert summary["schema_version"] == "answer_context_support_gaps.v1"
     assert summary["context_count"] == 3
     assert summary["support_gap_context_count"] == 2

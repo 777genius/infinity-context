@@ -466,6 +466,96 @@ def test_actionable_summary_reports_answer_context_provenance_gap() -> None:
     ]
 
 
+def test_actionable_summary_reports_answer_context_support_gaps() -> None:
+    summary = actionable_gap_summary(
+        evaluation_count=3,
+        expected_case_count=3,
+        failed_gates=(),
+        query_overlap_count=0,
+        profile_overlap_count=0,
+        intent_overlap_count=0,
+        answer_context_support_gap_summary={
+            "support_gap_context_count": 2,
+            "gap_reason_counts": {
+                "missing_context_source_refs": 2,
+                "missing_required_roles": 1,
+            },
+            "source_counts": {"evidence_bundle": 2},
+            "missing_required_role_counts": {"temporal_support": 1},
+            "samples": [
+                {
+                    "case_id": "context-source-gap",
+                    "group": "multi-hop",
+                    "cutoff": "5",
+                    "source": "evidence_bundle",
+                    "gap_reasons": ["missing_context_source_refs"],
+                    "item_ids": ["safe-item"],
+                    "memory_count": 2,
+                    "source_ref_item_count": 0,
+                    "source_refless_item_count": 2,
+                    "avg_measured_answerability_score": 0.42,
+                },
+                {
+                    "case_id": "context-role-gap",
+                    "group": "temporal",
+                    "cutoff": "5",
+                    "source": "evidence_bundle",
+                    "gap_reasons": ["missing_required_roles"],
+                    "missing_required_roles": ["temporal_support"],
+                    "source_identity_refs": [
+                        "source_session_turn_refs:session_2:D2:7",
+                    ],
+                    "raw_provider_payload": "private",
+                },
+            ],
+        },
+    )
+
+    source_gap = next(
+        gap
+        for gap in summary["ranked_gaps"]
+        if gap["category"] == "answer_context_support"
+        and gap["gap"] == "missing_context_source_refs"
+    )
+    role_gap = next(
+        gap
+        for gap in summary["ranked_gaps"]
+        if gap["category"] == "answer_context_required_role"
+    )
+
+    assert source_gap["severity"] == "diagnostic"
+    assert source_gap["impact_count"] == 2
+    assert source_gap["source_metric"] == (
+        "answer_context_support_gap_summary.gap_reason_counts"
+    )
+    assert source_gap["sample_case_ids"] == ["context-source-gap"]
+    assert source_gap["samples"] == [
+        {
+            "case_id": "context-source-gap",
+            "cutoff": "5",
+            "source": "evidence_bundle",
+            "item_ids": ["safe-item"],
+            "gap_reasons": ["missing_context_source_refs"],
+            "memory_count": 2,
+            "source_refless_item_count": 2,
+            "avg_measured_answerability_score": 0.42,
+        }
+    ]
+    assert role_gap["gap"] == "temporal_support"
+    assert role_gap["sample_case_ids"] == ["context-role-gap"]
+    assert role_gap["samples"] == [
+        {
+            "case_id": "context-role-gap",
+            "cutoff": "5",
+            "source": "evidence_bundle",
+            "gap_reasons": ["missing_required_roles"],
+            "missing_required_roles": ["temporal_support"],
+            "source_identity_refs": ["source_session_turn_refs:session_2:D2:7"],
+        }
+    ]
+    assert "raw_provider_payload" not in json.dumps(role_gap, sort_keys=True)
+
+
 def test_actionable_summary_bounds_answer_context_provenance_samples() -> None:
     long_value = "x" * 200
     summary = actionable_gap_summary(

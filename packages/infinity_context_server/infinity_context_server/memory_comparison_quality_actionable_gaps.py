@@ -74,6 +74,7 @@ def actionable_gap_summary(
     temporal_grounding: Mapping[str, object] | None = None,
     source_ref_provenance: Mapping[str, object] | None = None,
     answer_context_provenance: Mapping[str, object] | None = None,
+    answer_context_support_gap_summary: Mapping[str, object] | None = None,
 ) -> dict[str, object]:
     failed_gate_set = set(failed_gates)
     ref_gate = _mapping(ref_gate)
@@ -88,6 +89,7 @@ def actionable_gap_summary(
     temporal_grounding = _mapping(temporal_grounding)
     source_ref_provenance = _mapping(source_ref_provenance)
     answer_context_provenance = _mapping(answer_context_provenance)
+    answer_context_support_gap_summary = _mapping(answer_context_support_gap_summary)
     gaps: list[dict[str, object]] = []
     _append_bundle_quality_gaps(
         gaps,
@@ -170,6 +172,11 @@ def actionable_gap_summary(
         gaps,
         evaluation_count=evaluation_count,
         answer_context_provenance=answer_context_provenance,
+    )
+    _append_answer_context_support_gaps(
+        gaps,
+        evaluation_count=evaluation_count,
+        summary=answer_context_support_gap_summary,
     )
     ranked = _rank_actionable_gaps(gaps)
     return {
@@ -827,6 +834,63 @@ def _append_answer_context_provenance_gap(
     )
 
 
+def _append_answer_context_support_gaps(
+    gaps: list[dict[str, object]],
+    *,
+    evaluation_count: int,
+    summary: Mapping[str, object],
+) -> None:
+    samples = _sequence(summary.get("samples"))
+    for reason, count in sorted(_count_mapping(summary.get("gap_reason_counts")).items()):
+        matched_samples = _samples_for_gap(samples, str(reason))
+        compact_samples = _compact_answer_context_actionable_samples(matched_samples)
+        _append_actionable_gap(
+            gaps,
+            evaluation_count=evaluation_count,
+            category="answer_context_support",
+            gap=str(reason),
+            impact_count=count,
+            source_metric="answer_context_support_gap_summary.gap_reason_counts",
+            action=_answer_context_support_action(str(reason)),
+            evidence={
+                "support_gap_context_count": (
+                    _positive_int(summary.get("support_gap_context_count")) or 0
+                ),
+                "source_counts": _count_mapping(summary.get("source_counts")),
+            },
+            samples=matched_samples,
+            sample_payloads=compact_samples,
+        )
+
+    for role, count in sorted(
+        _count_mapping(summary.get("missing_required_role_counts")).items()
+    ):
+        matched_samples = _answer_context_samples_for_missing_role(samples, str(role))
+        compact_samples = _compact_answer_context_actionable_samples(matched_samples)
+        _append_actionable_gap(
+            gaps,
+            evaluation_count=evaluation_count,
+            category="answer_context_required_role",
+            gap=str(role),
+            impact_count=count,
+            source_metric=(
+                "answer_context_support_gap_summary.missing_required_role_counts"
+            ),
+            action=(
+                "Render answer context with selected evidence for the "
+                f"{_role_family_label(str(role))} required role."
+            ),
+            evidence={
+                "support_gap_context_count": (
+                    _positive_int(summary.get("support_gap_context_count")) or 0
+                ),
+                "role": str(role),
+            },
+            samples=matched_samples,
+            sample_payloads=compact_samples,
+        )
+
+
 def _append_counted_gap_map(
     gaps: list[dict[str, object]],
     *,
@@ -970,6 +1034,30 @@ def _action_for_gap(category: str, gap: str, *, default: str) -> str:
     return default
 
 
+def _answer_context_support_action(reason: str) -> str:
+    if reason in {"missing_context_source_refs", "partial_context_source_refs"}:
+        return "Preserve source refs when selected evidence is rendered into answer context."
+    if reason == "missing_required_roles":
+        return "Render answer context from bundle items that cover required roles before fallback."
+    if reason == "retrieval_slice_fallback":
+        return (
+            "Fix bundle planning or selection so answer context does not fall "
+            "back to retrieval slices."
+        )
+    if reason == "weak_bundle_source_support":
+        return (
+            "Use bundle evidence with direct source-ref or source-identity "
+            "support in answer context."
+        )
+    if reason in {"low_answerability_backfill", "low_context_answerability"}:
+        return "Replace low-answerability answer-context items with stronger selected evidence."
+    if reason in {"weak_source_locality_backfill", "weak_context_source_locality"}:
+        return "Prefer source-local evidence when backfilling answer context."
+    if reason.startswith("skipped_"):
+        return "Inspect skipped answer-context backfills and add grounded bundle coverage."
+    return f"Resolve answer-context support gap '{reason}'."
+
+
 def _query_plan_samples(
     breakdown: Mapping[str, object],
 ) -> tuple[Mapping[str, object], ...]:
@@ -998,6 +1086,21 @@ def _query_plan_samples_for_gap(
         sample
         for sample in samples
         if isinstance(sample, Mapping) and gap in _str_tuple(sample.get(key))
+    ]
+    if matched:
+        return tuple(matched)
+    return tuple(sample for sample in samples if isinstance(sample, Mapping))
+
+
+def _answer_context_samples_for_missing_role(
+    samples: Sequence[object],
+    role: str,
+) -> tuple[Mapping[str, object], ...]:
+    matched = [
+        sample
+        for sample in samples
+        if isinstance(sample, Mapping)
+        and role in _str_tuple(sample.get("missing_required_roles"))
     ]
     if matched:
         return tuple(matched)
@@ -1292,6 +1395,7 @@ def _compact_answer_context_actionable_samples(
                 compact[key] = value
         for key in (
             "item_ids",
+            "gap_reasons",
             "missing_required_roles",
             "risk_reason_codes",
         ):
@@ -1333,6 +1437,13 @@ def _compact_answer_context_actionable_samples(
             value = _positive_int(sample.get(key)) or 0
             if value:
                 compact[key] = value
+        for key in (
+            "avg_measured_answerability_score",
+            "avg_measured_source_locality_score",
+        ):
+            value = sample.get(key)
+            if isinstance(value, (int, float)) and not isinstance(value, bool):
+                compact[key] = round(float(value), 6)
         if compact:
             compact_samples.append(compact)
         if len(compact_samples) >= _MAX_ANSWER_CONTEXT_ACTIONABLE_SAMPLES:

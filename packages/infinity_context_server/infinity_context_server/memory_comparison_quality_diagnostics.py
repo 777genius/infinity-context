@@ -464,6 +464,7 @@ def fast_gate_metrics(
             temporal_grounding=temporal_grounding,
             source_ref_provenance=source_ref_provenance,
             answer_context_provenance=answer_context_provenance,
+            answer_context_support_gap_summary=answer_context_support_gaps,
         ),
         "gates": gates,
     }
