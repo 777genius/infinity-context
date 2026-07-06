@@ -11,6 +11,7 @@ from infinity_context_server.features.context_building.composition import (
 from infinity_context_server.features.context_building.contracts import (
     BuildContextHttpRequest,
     ContextBudgetHttpRequest,
+    MemoryInsightsHttpRequest,
 )
 from infinity_context_server.features.context_building.digest_api_responses import (
     LegacyDigestApiResponseMapper,
@@ -34,6 +35,7 @@ FEATURE_ID = context_building.FEATURE_ID
 __all__ = (
     "BuildContextHttpRequest",
     "ContextBudgetHttpRequest",
+    "MemoryInsightsHttpRequest",
     "ContextBuildingServerFeature",
     "FEATURE_ID",
     "LegacyContextApiResponseMapper",

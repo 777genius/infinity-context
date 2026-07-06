@@ -7,7 +7,6 @@ from typing import Annotated, Any
 
 from fastapi import APIRouter, Depends
 from infinity_context_core.application import BuildMemoryInsightsQuery
-from pydantic import BaseModel, ConfigDict, Field
 
 from infinity_context_server.api.auth import require_service_token
 from infinity_context_server.api.dependencies import get_container
@@ -26,27 +25,9 @@ _LEGACY_MEMORY_INSIGHTS_API_RESPONSES = (
 )
 
 
-class InsightsRequest(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
-    space_id: str | None = Field(default=None, min_length=1, max_length=80)
-    memory_scope_ids: list[str] | None = Field(default=None, min_length=1, max_length=20)
-    thread_id: str | None = Field(default=None, max_length=80)
-    space_slug: str | None = Field(default=None, min_length=1, max_length=160)
-    memory_scope_external_ref: str | None = Field(default=None, min_length=1, max_length=200)
-    memory_scope_external_refs: list[str] | None = Field(default=None, min_length=1, max_length=20)
-    thread_external_ref: str | None = Field(default=None, min_length=1, max_length=200)
-    max_facts: int = Field(default=200, ge=0, le=1000)
-    max_documents: int = Field(default=100, ge=0, le=500)
-    max_episodes: int = Field(default=100, ge=0, le=500)
-    max_suggestions: int = Field(default=100, ge=0, le=500)
-    max_captures: int = Field(default=100, ge=0, le=500)
-    max_activity: int = Field(default=50, ge=0, le=100)
-
-
 @router.post("/insights")
 async def build_insights(
-    request: InsightsRequest,
+    request: context_building_server.MemoryInsightsHttpRequest,
     container: Annotated[Container, Depends(get_container)],
 ) -> dict[str, Any]:
     started = perf_counter()

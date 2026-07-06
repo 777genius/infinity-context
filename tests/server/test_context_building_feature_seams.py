@@ -118,6 +118,7 @@ def test_context_building_server_feature_public_surface_composes_router() -> Non
     assert server_public.__all__ == (
         "BuildContextHttpRequest",
         "ContextBudgetHttpRequest",
+        "MemoryInsightsHttpRequest",
         "ContextBuildingServerFeature",
         "FEATURE_ID",
         "LegacyContextApiResponseMapper",
@@ -237,6 +238,20 @@ def test_context_building_route_maps_http_contract_to_feature_use_case() -> None
         "char_end": 37,
         "occurred_at": None,
     }
+
+
+def test_context_building_public_seam_exports_memory_insights_http_request() -> None:
+    request = server_public.MemoryInsightsHttpRequest(
+        space_slug="client-app",
+        memory_scope_external_refs=["default"],
+        thread_external_ref="thread-1",
+        max_activity=7,
+    )
+
+    assert request.space_id is None
+    assert request.memory_scope_external_refs == ["default"]
+    assert request.max_facts == 200
+    assert request.max_activity == 7
 
 
 def test_context_building_legacy_response_mapper_shapes_context_and_search_payloads() -> None:
@@ -666,6 +681,8 @@ def test_legacy_insights_api_uses_context_building_server_public_seam_only() -> 
         "_LEGACY_MEMORY_INSIGHTS_API_RESPONSES.insights_response_from_result"
         in source
     )
+    assert "context_building_server.MemoryInsightsHttpRequest" in source
+    assert "class InsightsRequest" not in source
     assert "def insights_to_response(" not in source
     assert "def _empty_insights_response(" not in source
     assert "def _action_item_to_response(" not in source

@@ -65,7 +65,32 @@ class BuildContextHttpRequest(BaseModel):
         )
 
 
+class MemoryInsightsHttpRequest(BaseModel):
+    """HTTP request accepted by the legacy memory insights route seam."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    space_id: str | None = Field(default=None, min_length=1, max_length=80)
+    memory_scope_ids: list[str] | None = Field(default=None, min_length=1, max_length=20)
+    thread_id: str | None = Field(default=None, max_length=80)
+    space_slug: str | None = Field(default=None, min_length=1, max_length=160)
+    memory_scope_external_ref: str | None = Field(default=None, min_length=1, max_length=200)
+    memory_scope_external_refs: list[str] | None = Field(
+        default=None,
+        min_length=1,
+        max_length=20,
+    )
+    thread_external_ref: str | None = Field(default=None, min_length=1, max_length=200)
+    max_facts: int = Field(default=200, ge=0, le=1000)
+    max_documents: int = Field(default=100, ge=0, le=500)
+    max_episodes: int = Field(default=100, ge=0, le=500)
+    max_suggestions: int = Field(default=100, ge=0, le=500)
+    max_captures: int = Field(default=100, ge=0, le=500)
+    max_activity: int = Field(default=50, ge=0, le=100)
+
+
 __all__ = (
     "BuildContextHttpRequest",
     "ContextBudgetHttpRequest",
+    "MemoryInsightsHttpRequest",
 )
