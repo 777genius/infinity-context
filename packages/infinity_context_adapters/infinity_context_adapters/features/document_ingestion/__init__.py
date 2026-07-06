@@ -17,6 +17,10 @@ from infinity_context_adapters.features.document_ingestion.extraction_adapter im
     ExtractedDocumentText,
     create_document_extraction_ingestion_adapter,
 )
+from infinity_context_adapters.features.document_ingestion.in_memory_chunk_index import (
+    InMemoryDocumentChunkIndex,
+    create_in_memory_document_chunk_index,
+)
 from infinity_context_adapters.features.document_ingestion.in_memory_document_store import (
     InMemoryDocumentChunkStore,
     InMemoryDocumentIngestionStore,
@@ -48,6 +52,7 @@ __all__ = (
     "DocumentIngestionExtractionComponents",
     "DocumentExtractionIngestionAdapter",
     "ExtractedDocumentText",
+    "InMemoryDocumentChunkIndex",
     "InMemoryDocumentChunkStore",
     "InMemoryDocumentIngestionStore",
     "InMemorySourceDocumentStore",
@@ -57,6 +62,7 @@ __all__ = (
     "QdrantDocumentChunkIndex",
     "create_document_extraction_ingestion_adapter",
     "create_document_ingestion_extraction_components",
+    "create_in_memory_document_chunk_index",
     "create_in_memory_document_chunk_store",
     "create_in_memory_document_ingestion_store",
     "create_in_memory_source_document_store",

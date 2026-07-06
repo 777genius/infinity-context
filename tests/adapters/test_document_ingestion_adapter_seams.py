@@ -6,6 +6,7 @@ import ast
 import asyncio
 import importlib
 import sys
+from dataclasses import replace
 from pathlib import Path
 
 import pytest
@@ -17,9 +18,11 @@ from infinity_context_core.features.document_ingestion.public import (
     DocumentIngestionValidationError,
     IngestDocumentCommand,
     IngestDocumentHandler,
+    PrepareDocumentIngestionHandler,
     SourceDocument,
     SourceDocumentDraft,
     SourceDocumentOrigin,
+    StableDocumentIngestionIdentityFactory,
     content_hash_for_text,
 )
 
@@ -50,6 +53,7 @@ def test_document_ingestion_adapter_package_mirrors_feature_id() -> None:
 
     assert module.FEATURE_ID == FEATURE_ID == "document_ingestion"
     assert module.DocumentChunkIndexProjection.feature_id == FEATURE_ID
+    assert module.InMemoryDocumentChunkIndex.feature_id == FEATURE_ID
     assert module.InMemorySourceDocumentStore.feature_id == FEATURE_ID
     assert module.InMemoryDocumentChunkStore.feature_id == FEATURE_ID
     assert module.InMemoryDocumentIngestionStore.feature_id == FEATURE_ID
@@ -180,6 +184,98 @@ def test_in_memory_document_store_can_drive_core_ingest_handler() -> None:
     assert duplicate.indexing_status == "already_indexed_or_pending"
 
 
+def test_in_memory_chunk_index_upserts_latest_items_and_accepts_deletes() -> None:
+    module = importlib.import_module(
+        "infinity_context_adapters.features.document_ingestion"
+    )
+    document, chunk = _document_and_chunk()
+    item = module.document_chunk_index_projection_from_chunk(
+        document=document,
+        chunk=chunk,
+    ).to_index_item()
+    updated_item = replace(item, text="Updated chunk text.", sequence=7)
+    other_item = replace(item, chunk_id="chunk-2", text="Second chunk text.", sequence=2)
+    index = module.create_in_memory_document_chunk_index(items=(item,))
+
+    upsert = asyncio.run(index.upsert_chunks((other_item, updated_item)))
+
+    assert upsert.accepted_chunk_ids == ("chunk-2", "chunk-1")
+    assert upsert.failed_chunk_ids == ()
+    assert upsert.retryable is False
+    assert index.get("chunk-1") == updated_item
+    assert index.list_items() == (updated_item, other_item)
+
+    delete = asyncio.run(index.delete_chunks(("missing", "chunk-2")))
+
+    assert delete.accepted_chunk_ids == ("missing", "chunk-2")
+    assert delete.failed_chunk_ids == ()
+    assert delete.retryable is False
+    assert index.get("chunk-2") is None
+    assert index.list_items() == (updated_item,)
+
+
+def test_in_memory_chunk_index_drives_ingest_handler_for_non_duplicate_chunks() -> None:
+    module = importlib.import_module(
+        "infinity_context_adapters.features.document_ingestion"
+    )
+    command = _ingest_command(
+        text=(
+            "First section has enough detail for the chunker to create a "
+            "stable first chunk. Second section keeps separate retrieval text "
+            "for the derived index."
+        ),
+        chunking_policy=ChunkingPolicy(
+            target_chars=72,
+            overlap_chars=0,
+            min_chars=24,
+            boundary_scan_chars=0,
+        ),
+    )
+    prepare = PrepareDocumentIngestionHandler()
+    prepared = asyncio.run(prepare.execute(command))
+    identity_factory = StableDocumentIngestionIdentityFactory()
+    document = SourceDocument.from_draft(
+        document_id=identity_factory.new_document_id(prepared),
+        draft=prepared.document,
+    )
+    duplicate_chunk = DocumentChunk.from_draft(
+        chunk_id=identity_factory.new_chunk_id(
+            document=document,
+            draft=prepared.chunks[0],
+        ),
+        document_id=document.identity.document_id,
+        scope=document.identity.scope,
+        draft=prepared.chunks[0],
+    )
+    store = module.create_in_memory_document_ingestion_store(
+        document_chunks=(duplicate_chunk,),
+    )
+    index = module.create_in_memory_document_chunk_index()
+    handler = IngestDocumentHandler(
+        source_documents=store.source_documents,
+        chunks=store.chunks,
+        chunk_index=index,
+        prepare_document_ingestion=prepare,
+        identity_factory=identity_factory,
+    )
+
+    result = asyncio.run(handler.execute(command))
+    indexed_items = index.list_items()
+    indexed_chunk_ids = {item.chunk_id for item in indexed_items}
+    non_duplicate_chunk_ids = {
+        chunk.identity.chunk_id
+        for chunk in result.chunks
+        if chunk.identity.chunk_id != duplicate_chunk.identity.chunk_id
+    }
+
+    assert len(prepared.chunks) > 1
+    assert result.indexing_status == "indexed"
+    assert result.duplicate_chunk_count == 1
+    assert duplicate_chunk.identity.chunk_id not in indexed_chunk_ids
+    assert indexed_chunk_ids == non_duplicate_chunk_ids
+    assert len(indexed_items) == len(prepared.chunks) - 1
+
+
 def test_document_chunk_index_projection_maps_public_document_state() -> None:
     module = importlib.import_module(
         "infinity_context_adapters.features.document_ingestion"
@@ -306,7 +402,11 @@ def test_extraction_seam_builds_ingestion_command_without_provider_runtime() -> 
     assert command.idempotency_key == "ingest-asset-1"
 
 
-def _ingest_command() -> IngestDocumentCommand:
+def _ingest_command(
+    *,
+    text: str = "Postgres owns canonical document lifecycle for ingested text.",
+    chunking_policy: ChunkingPolicy | None = None,
+) -> IngestDocumentCommand:
     return IngestDocumentCommand(
         scope=DocumentIngestionScope(space_id="space-1", memory_scope_id="scope-1"),
         title="Runbook",
@@ -314,8 +414,9 @@ def _ingest_command() -> IngestDocumentCommand:
             source_type="upload",
             source_external_id="runbook.md",
         ),
-        text="Postgres owns canonical document lifecycle for ingested text.",
+        text=text,
         classification="internal",
+        chunking_policy=chunking_policy,
     )
 
 
