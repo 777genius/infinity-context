@@ -225,6 +225,56 @@ def test_deterministic_rerank_prefers_passive_requested_recipient_evidence() -> 
     )
 
 
+def test_deterministic_rerank_uses_passive_requested_recipient_context() -> None:
+    query = "Who was sent the Atlas invoice by Alex?"
+    plan = build_query_expansion_plan(query)
+    intent = build_query_anchor_intent(query)
+    correct = _item(
+        "alex_sent_invoice_to_maria",
+        score=0.7,
+        text="Alex sent the Atlas invoice to Maria after the finance review.",
+    )
+    wrong_object = _item(
+        "alex_sent_notes_to_dana",
+        score=0.73,
+        text="Alex sent the budget notes to Dana after the finance review.",
+    )
+    actor_only = _item(
+        "alex_sent_invoice",
+        score=0.72,
+        text="Alex sent the Atlas invoice after the finance review.",
+    )
+
+    reranked = apply_deterministic_rerank_adjustments(
+        (actor_only, wrong_object, correct),
+        query=query,
+        plan=plan,
+        query_anchor_intent=intent,
+    )
+    by_id = {item.item_id: item for item in reranked}
+
+    assert by_id["alex_sent_invoice_to_maria"].score > by_id["alex_sent_invoice"].score
+    assert by_id["alex_sent_invoice_to_maria"].score > by_id["alex_sent_notes_to_dana"].score
+    assert (
+        "action_role_actor_to_recipient_evidence"
+        in by_id["alex_sent_invoice_to_maria"].diagnostics["provenance"][
+            "deterministic_rerank_reasons"
+        ]
+    )
+    assert (
+        "action_role_requested_recipient_missing"
+        in by_id["alex_sent_invoice"].diagnostics["provenance"][
+            "deterministic_rerank_reasons"
+        ]
+    )
+    assert (
+        "action_role_requested_context_mismatch"
+        in by_id["alex_sent_notes_to_dana"].diagnostics["provenance"][
+            "deterministic_rerank_reasons"
+        ]
+    )
+
+
 def test_deterministic_rerank_does_not_treat_action_object_as_recipient() -> None:
     cases = (
         (
