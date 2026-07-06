@@ -392,6 +392,312 @@ def test_temporal_query_does_not_cross_source_identity_for_direction_radius() ->
     ] == "query asks for source turn and item source identity differs"
 
 
+def test_temporal_query_does_not_cross_source_identity_for_scoped_turn_radius() -> None:
+    intent = build_temporal_query_intent(
+        "What did Riley mention within 2 turns of D12:4 in source "
+        "locomo:conv-1:session_12?"
+    )
+    same_source_within_radius = ContextItem(
+        item_id="same_source_within_radius",
+        item_type="fact",
+        text="Riley said the studio visit was confirmed.",
+        score=0.7,
+        source_refs=(
+            SourceRef(
+                source_type="document",
+                source_id="locomo:conv-1:session_12",
+                quote_preview="D12:6 Riley said the studio visit was confirmed.",
+            ),
+        ),
+        diagnostics={"retrieval_source": "keyword_chunks"},
+    )
+    different_source_within_radius = ContextItem(
+        item_id="different_source_within_radius",
+        item_type="fact",
+        text="Riley discussed a different conversation.",
+        score=0.72,
+        source_refs=(
+            SourceRef(
+                source_type="document",
+                source_id="locomo:conv-2:session_12",
+                quote_preview="D12:6 Riley discussed a different conversation.",
+            ),
+        ),
+        diagnostics={"retrieval_source": "keyword_chunks"},
+    )
+
+    boosted = apply_temporal_query_intent_boosts(
+        (different_source_within_radius, same_source_within_radius),
+        intent=intent,
+    )
+
+    by_id = {item.item_id: item for item in boosted}
+    assert by_id["same_source_within_radius"].score == 0.722
+    assert by_id["same_source_within_radius"].diagnostics[
+        "temporal_query_intent_reason"
+    ] == "query asks around source turn and item source turn is within radius"
+    assert by_id["different_source_within_radius"].score == 0.694
+    assert by_id["different_source_within_radius"].diagnostics[
+        "temporal_query_intent_reason"
+    ] == "query asks for source turn and item source identity differs"
+
+
+def test_temporal_query_requires_candidate_source_identity_for_scoped_turn_radius() -> None:
+    intent = build_temporal_query_intent(
+        "What did Riley mention within 2 turns of D12:4 in source "
+        "locomo:conv-1:session_12?"
+    )
+    unidentified_within_radius = _item(
+        "unidentified_within_radius",
+        score=0.7,
+        retrieval_source="keyword_chunks",
+        fact_status="active",
+        text="D12:6 Riley said the studio visit was confirmed.",
+    )
+
+    boosted = apply_temporal_query_intent_boosts(
+        (unidentified_within_radius,),
+        intent=intent,
+    )
+
+    assert boosted[0].score == 0.7
+    assert "temporal_query_intent_reason" not in boosted[0].diagnostics
+
+
+def test_temporal_query_does_not_cross_source_identity_for_scoped_turn_window() -> None:
+    intent = build_temporal_query_intent(
+        "What did Riley mention between D12:4 and D12:8 in source "
+        "locomo:conv-1:session_12?"
+    )
+    same_source_inside_window = ContextItem(
+        item_id="same_source_inside_window",
+        item_type="fact",
+        text="Riley said the studio visit was confirmed.",
+        score=0.7,
+        source_refs=(
+            SourceRef(
+                source_type="document",
+                source_id="locomo:conv-1:session_12",
+                quote_preview="D12:6 Riley said the studio visit was confirmed.",
+            ),
+        ),
+        diagnostics={"retrieval_source": "keyword_chunks"},
+    )
+    different_source_inside_window = ContextItem(
+        item_id="different_source_inside_window",
+        item_type="fact",
+        text="Riley discussed a different conversation.",
+        score=0.72,
+        source_refs=(
+            SourceRef(
+                source_type="document",
+                source_id="locomo:conv-2:session_12",
+                quote_preview="D12:6 Riley discussed a different conversation.",
+            ),
+        ),
+        diagnostics={"retrieval_source": "keyword_chunks"},
+    )
+
+    boosted = apply_temporal_query_intent_boosts(
+        (different_source_inside_window, same_source_inside_window),
+        intent=intent,
+    )
+
+    by_id = {item.item_id: item for item in boosted}
+    assert by_id["same_source_inside_window"].score == 0.74
+    assert by_id["same_source_inside_window"].diagnostics[
+        "temporal_query_intent_reason"
+    ] == "query asks for source-turn window and item source turn is inside boundaries"
+    assert by_id["different_source_inside_window"].score == 0.694
+    assert by_id["different_source_inside_window"].diagnostics[
+        "temporal_query_intent_reason"
+    ] == "query asks for source turn and item source identity differs"
+
+
+def test_temporal_query_shares_source_identity_across_mixed_source_turn_window() -> None:
+    intent = build_temporal_query_intent(
+        "What did Riley mention between source ref "
+        "locomo:conv-1:session_12:D12:4:turn and D12:8?"
+    )
+    assert intent.source_turn_sequence.after_turns[0].source_identity
+    assert (
+        intent.source_turn_sequence.before_turns[0].source_identity
+        == intent.source_turn_sequence.after_turns[0].source_identity
+    )
+    same_source_inside_window = ContextItem(
+        item_id="same_source_inside_window",
+        item_type="fact",
+        text="Riley said the studio visit was confirmed.",
+        score=0.7,
+        source_refs=(
+            SourceRef(
+                source_type="document",
+                source_id="locomo:conv-1:session_12",
+                quote_preview="D12:6 Riley said the studio visit was confirmed.",
+            ),
+        ),
+        diagnostics={"retrieval_source": "keyword_chunks"},
+    )
+    unidentified_inside_window = _item(
+        "unidentified_inside_window",
+        score=0.72,
+        retrieval_source="keyword_chunks",
+        fact_status="active",
+        text="D12:6 Riley discussed an unidentified conversation.",
+    )
+
+    boosted = apply_temporal_query_intent_boosts(
+        (unidentified_inside_window, same_source_inside_window),
+        intent=intent,
+    )
+
+    by_id = {item.item_id: item for item in boosted}
+    assert by_id["same_source_inside_window"].score == 0.74
+    assert by_id["same_source_inside_window"].diagnostics[
+        "temporal_query_intent_reason"
+    ] == "query asks for source-turn window and item source turn is inside boundaries"
+    assert by_id["unidentified_inside_window"].score == 0.72
+    assert "temporal_query_intent_reason" not in by_id[
+        "unidentified_inside_window"
+    ].diagnostics
+
+
+def test_temporal_query_shares_source_identity_from_second_mixed_window_boundary() -> None:
+    intent = build_temporal_query_intent(
+        "What did Riley mention between D12:4 and source ref "
+        "locomo:conv-1:session_12:D12:8:turn?"
+    )
+    assert intent.source_turn_sequence.after_turns[0].source_identity
+    assert (
+        intent.source_turn_sequence.after_turns[0].source_identity
+        == intent.source_turn_sequence.before_turns[0].source_identity
+    )
+    same_source_inside_window = ContextItem(
+        item_id="same_source_inside_window",
+        item_type="fact",
+        text="Riley said the studio visit was confirmed.",
+        score=0.7,
+        source_refs=(
+            SourceRef(
+                source_type="document",
+                source_id="locomo:conv-1:session_12",
+                quote_preview="D12:6 Riley said the studio visit was confirmed.",
+            ),
+        ),
+        diagnostics={"retrieval_source": "keyword_chunks"},
+    )
+
+    boosted = apply_temporal_query_intent_boosts(
+        (same_source_inside_window,),
+        intent=intent,
+    )
+
+    assert boosted[0].score == 0.74
+    assert boosted[0].diagnostics["temporal_query_intent_reason"] == (
+        "query asks for source-turn window and item source turn is inside boundaries"
+    )
+
+
+def test_temporal_query_does_not_cross_source_identity_for_scoped_next_turn() -> None:
+    intent = build_temporal_query_intent(
+        "What did Riley mention next turn after D12:4 in source "
+        "locomo:conv-1:session_12?"
+    )
+    same_source_next_turn = ContextItem(
+        item_id="same_source_next_turn",
+        item_type="fact",
+        text="Riley said Morgan confirmed the studio visit.",
+        score=0.7,
+        source_refs=(
+            SourceRef(
+                source_type="document",
+                source_id="locomo:conv-1:session_12",
+                quote_preview="D12:5 Riley said Morgan confirmed the studio visit.",
+            ),
+        ),
+        diagnostics={"retrieval_source": "keyword_chunks"},
+    )
+    different_source_next_turn = ContextItem(
+        item_id="different_source_next_turn",
+        item_type="fact",
+        text="Riley discussed a different conversation.",
+        score=0.72,
+        source_refs=(
+            SourceRef(
+                source_type="document",
+                source_id="locomo:conv-2:session_12",
+                quote_preview="D12:5 Riley discussed a different conversation.",
+            ),
+        ),
+        diagnostics={"retrieval_source": "keyword_chunks"},
+    )
+
+    boosted = apply_temporal_query_intent_boosts(
+        (different_source_next_turn, same_source_next_turn),
+        intent=intent,
+    )
+
+    by_id = {item.item_id: item for item in boosted}
+    assert by_id["same_source_next_turn"].score == 0.74
+    assert by_id["same_source_next_turn"].diagnostics[
+        "temporal_query_intent_reason"
+    ] == "query asks within 1 turns after source turn and item source turn is inside radius"
+    assert by_id["different_source_next_turn"].score == 0.694
+    assert by_id["different_source_next_turn"].diagnostics[
+        "temporal_query_intent_reason"
+    ] == "query asks for source turn and item source identity differs"
+
+
+def test_temporal_query_does_not_cross_source_identity_for_scoped_previous_turn() -> None:
+    intent = build_temporal_query_intent(
+        "What did Riley mention previous turn before D12:8 in source "
+        "locomo:conv-1:session_12?"
+    )
+    same_source_previous_turn = ContextItem(
+        item_id="same_source_previous_turn",
+        item_type="fact",
+        text="Riley said the studio visit was confirmed.",
+        score=0.7,
+        source_refs=(
+            SourceRef(
+                source_type="document",
+                source_id="locomo:conv-1:session_12",
+                quote_preview="D12:7 Riley said the studio visit was confirmed.",
+            ),
+        ),
+        diagnostics={"retrieval_source": "keyword_chunks"},
+    )
+    different_source_previous_turn = ContextItem(
+        item_id="different_source_previous_turn",
+        item_type="fact",
+        text="Riley discussed a different conversation.",
+        score=0.72,
+        source_refs=(
+            SourceRef(
+                source_type="document",
+                source_id="locomo:conv-2:session_12",
+                quote_preview="D12:7 Riley discussed a different conversation.",
+            ),
+        ),
+        diagnostics={"retrieval_source": "keyword_chunks"},
+    )
+
+    boosted = apply_temporal_query_intent_boosts(
+        (different_source_previous_turn, same_source_previous_turn),
+        intent=intent,
+    )
+
+    by_id = {item.item_id: item for item in boosted}
+    assert by_id["same_source_previous_turn"].score == 0.74
+    assert by_id["same_source_previous_turn"].diagnostics[
+        "temporal_query_intent_reason"
+    ] == "query asks within 1 turns before source turn and item source turn is inside radius"
+    assert by_id["different_source_previous_turn"].score == 0.694
+    assert by_id["different_source_previous_turn"].diagnostics[
+        "temporal_query_intent_reason"
+    ] == "query asks for source turn and item source identity differs"
+
+
 def test_temporal_query_boosts_within_two_turns_before_source_turn() -> None:
     intent = build_temporal_query_intent(
         "What did Riley mention within two turns before D12:8?"

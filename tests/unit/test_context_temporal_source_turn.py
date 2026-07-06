@@ -60,6 +60,35 @@ def test_source_turn_sequence_before_accepts_hyphenated_query_turn_refs() -> Non
     assert after_signal.boost < 0
 
 
+def test_source_turn_sequence_scoped_query_rejects_bare_turn_evidence() -> None:
+    request = source_turn_sequence_request(
+        "What did Sam say after source ref locomo:conv-fixture:session_4:D4:3:turn?"
+    )
+    bare_after = _item(
+        "bare_after",
+        text="D4:5 Sam confirmed the workshop was moved.",
+        source_id="manual-note",
+    )
+
+    signal = source_turn_sequence_boost_signal(bare_after, request=request)
+
+    assert signal.empty
+
+
+def test_source_turn_sequence_unscoped_query_accepts_scoped_turn_evidence() -> None:
+    request = source_turn_sequence_request("What did Sam say after D4:3?")
+    scoped_after = _item(
+        "scoped_after",
+        text="Sam confirmed the workshop was moved.",
+        source_id="locomo:conv-fixture:session_4:D4:5:turn",
+    )
+
+    signal = source_turn_sequence_boost_signal(scoped_after, request=request)
+
+    assert signal.code == "after_source_turn_match"
+    assert signal.boost > 0
+
+
 def _item(item_id: str, *, text: str, source_id: str) -> ContextItem:
     return ContextItem(
         item_id=item_id,

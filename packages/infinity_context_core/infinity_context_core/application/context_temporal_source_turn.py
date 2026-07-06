@@ -4,230 +4,143 @@ from __future__ import annotations
 
 import re
 from collections.abc import Mapping
-from dataclasses import dataclass
 
 from infinity_context_core.application.context_diagnostics import safe_diagnostic_mapping
+from infinity_context_core.application.context_temporal_source_identity import (
+    conversation_source_scope_identity_from_label,
+    direct_source_scope_identity_from_label,
+    source_identity_from_label,
+    source_identity_matches,
+    source_scope_identity_from_label,
+    source_scope_identity_from_mapping,
+)
+from infinity_context_core.application.context_temporal_source_turn_patterns import (
+    _AFTER_SCOPED_SOURCE_TURN_RE,
+    _AFTER_SOURCE_TURN_RE,
+    _BEFORE_SCOPED_SOURCE_TURN_RE,
+    _BEFORE_SOURCE_TURN_RE,
+    _BETWEEN_SCOPED_SOURCE_TURN_RE,
+    _BETWEEN_SOURCE_TURN_RE,
+    _NEAR_SCOPED_SOURCE_TURN_RE,
+    _NEAR_SOURCE_TURN_RE,
+    _NEXT_AFTER_SCOPED_SOURCE_TURN_RE,
+    _NEXT_AFTER_SOURCE_TURN_RE,
+    _NEXT_ONE_AFTER_SCOPED_SOURCE_TURN_RE,
+    _NEXT_ONE_AFTER_SOURCE_TURN_RE,
+    _PREVIOUS_BEFORE_SCOPED_SOURCE_TURN_RE,
+    _PREVIOUS_BEFORE_SOURCE_TURN_RE,
+    _PREVIOUS_ONE_BEFORE_SCOPED_SOURCE_TURN_RE,
+    _PREVIOUS_ONE_BEFORE_SOURCE_TURN_RE,
+    _QUERY_DIRECT_SOURCE_SCOPE_RE,
+    _QUERY_SOURCE_SCOPE_RE,
+    _SOURCE_TURN_RE,
+    _WITHIN_AFTER_SCOPED_SOURCE_TURN_RE,
+    _WITHIN_AFTER_SOURCE_TURN_RE,
+    _WITHIN_BEFORE_SCOPED_SOURCE_TURN_RE,
+    _WITHIN_BEFORE_SOURCE_TURN_RE,
+    _WITHIN_SCOPED_SOURCE_TURN_RE,
+    _WITHIN_SOURCE_TURN_RE,
+)
+from infinity_context_core.application.context_temporal_source_turn_types import (
+    SourceTurnRef,
+    SourceTurnSequenceRequest,
+    SourceTurnSequenceSignal,
+)
 from infinity_context_core.application.dto import ContextItem
 
-
-@dataclass(frozen=True)
-class SourceTurnRef:
-    dialogue: int
-    turn: int
-    source_identity: str = ""
-
-    def label(self) -> str:
-        return f"D{self.dialogue}:{self.turn}"
-
-    def _order_key(self) -> tuple[int, int]:
-        return self.dialogue, self.turn
-
-    def __lt__(self, other: SourceTurnRef) -> bool:
-        return self._order_key() < other._order_key()
-
-    def __le__(self, other: SourceTurnRef) -> bool:
-        return self._order_key() <= other._order_key()
-
-    def __gt__(self, other: SourceTurnRef) -> bool:
-        return self._order_key() > other._order_key()
-
-    def __ge__(self, other: SourceTurnRef) -> bool:
-        return self._order_key() >= other._order_key()
-
-
-@dataclass(frozen=True)
-class SourceTurnSequenceRequest:
-    after_turns: tuple[SourceTurnRef, ...] = ()
-    before_turns: tuple[SourceTurnRef, ...] = ()
-    near_turns: tuple[SourceTurnRef, ...] = ()
-    after_turn_radius: int = 0
-    before_turn_radius: int = 0
-    near_turn_radius: int = 1
-
-    @property
-    def empty(self) -> bool:
-        return not self.after_turns and not self.before_turns and not self.near_turns
-
-
-@dataclass(frozen=True)
-class SourceTurnSequenceSignal:
-    boost: float = 0.0
-    reason: str = ""
-    code: str = ""
-
-    @property
-    def empty(self) -> bool:
-        return self.boost == 0.0
-
-
-_SOURCE_TURN_LABEL_PATTERN = r"D\d{1,4}[:-]\d{1,4}"
-_SOURCE_TURN_RE = re.compile(
-    r"\bD(?P<dialogue>\d{1,4})[:-](?P<turn>\d{1,4})\b",
-    re.IGNORECASE,
-)
-_SOURCE_TURN_IDENTITY_RE = re.compile(rf"\b{_SOURCE_TURN_LABEL_PATTERN}\b", re.IGNORECASE)
-_SOURCE_TURN_REF_TOKEN = rf"[^\s]*{_SOURCE_TURN_LABEL_PATTERN}[^\s]*"
-_TURN_RADIUS_TOKEN = r"\d{1,2}|one|two|three|four|five|(?:a\s+)?couple(?:\s+of)?"
-_AFTER_SOURCE_TURN_RE = re.compile(
-    r"\b(?:right\s+after|immediately\s+after|shortly\s+after|after|following|since)"
-    r"\s+(?:the\s+)?(?:(?:source\s+)?(?:ref|reference)\s+)?"
-    r"(?:source\s+)?(?:turn\s+)?"
-    rf"(?P<ref>{_SOURCE_TURN_REF_TOKEN})",
-    re.IGNORECASE,
-)
-_AFTER_SCOPED_SOURCE_TURN_RE = re.compile(
-    r"\b(?:right\s+after|immediately\s+after|shortly\s+after|after|following|since)"
-    r"\s+(?:the\s+)?(?:(?:source\s+)?(?:ref|reference)\s+)?"
-    r"(?:source\s+)?(?:turn\s+)?"
-    rf"(?P<ref>{_SOURCE_TURN_REF_TOKEN})"
-    r"\s+(?:in|from|for|within)\s+(?:the\s+)?"
-    r"(?:(?:source\s+)?(?:ref|reference)|source|conversation|conv)\s+"
-    r"(?P<scope>[^\s]+)",
-    re.IGNORECASE,
-)
-_BEFORE_SOURCE_TURN_RE = re.compile(
-    r"\b(?:right\s+before|immediately\s+before|shortly\s+before|before|prior\s+to|"
-    r"until|up\s+to)\s+(?:the\s+)?(?:(?:source\s+)?(?:ref|reference)\s+)?"
-    r"(?:source\s+)?(?:turn\s+)?"
-    rf"(?P<ref>{_SOURCE_TURN_REF_TOKEN})",
-    re.IGNORECASE,
-)
-_BEFORE_SCOPED_SOURCE_TURN_RE = re.compile(
-    r"\b(?:right\s+before|immediately\s+before|shortly\s+before|before|prior\s+to|"
-    r"until|up\s+to)\s+(?:the\s+)?(?:(?:source\s+)?(?:ref|reference)\s+)?"
-    r"(?:source\s+)?(?:turn\s+)?"
-    rf"(?P<ref>{_SOURCE_TURN_REF_TOKEN})"
-    r"\s+(?:in|from|for|within)\s+(?:the\s+)?"
-    r"(?:(?:source\s+)?(?:ref|reference)|source|conversation|conv)\s+"
-    r"(?P<scope>[^\s]+)",
-    re.IGNORECASE,
-)
-_BETWEEN_SOURCE_TURN_RE = re.compile(
-    r"\b(?:between|from)\s+(?:the\s+)?(?:(?:source\s+)?(?:ref|reference)s?\s+)?"
-    r"(?:source\s+)?(?:turn\s+)?"
-    rf"(?P<after_ref>{_SOURCE_TURN_REF_TOKEN})"
-    r"\s+(?:and|to|through|until)\s+(?:the\s+)?"
-    r"(?:(?:source\s+)?(?:ref|reference)\s+)?(?:source\s+)?(?:turn\s+)?"
-    rf"(?P<before_ref>{_SOURCE_TURN_REF_TOKEN})",
-    re.IGNORECASE,
-)
-_NEAR_SOURCE_TURN_RE = re.compile(
-    r"\b(?:around|near|nearby|close\s+to|adjacent\s+to|same\s+turn\s+as)"
-    r"\s+(?:the\s+)?(?:(?:source\s+)?(?:ref|reference)\s+)?"
-    r"(?:source\s+)?(?:turn\s+)?"
-    rf"(?P<ref>{_SOURCE_TURN_REF_TOKEN})",
-    re.IGNORECASE,
-)
-_NEAR_SCOPED_SOURCE_TURN_RE = re.compile(
-    r"\b(?:around|near|nearby|close\s+to|adjacent\s+to|same\s+turn\s+as)"
-    r"\s+(?:the\s+)?(?:(?:source\s+)?(?:ref|reference)\s+)?"
-    r"(?:source\s+)?(?:turn\s+)?"
-    rf"(?P<ref>{_SOURCE_TURN_REF_TOKEN})"
-    r"\s+(?:in|from|for|within)\s+(?:the\s+)?"
-    r"(?:(?:source\s+)?(?:ref|reference)|source|conversation|conv)\s+"
-    r"(?P<scope>[^\s]+)",
-    re.IGNORECASE,
-)
-_WITHIN_SOURCE_TURN_RE = re.compile(
-    rf"\bwithin\s+(?P<radius>{_TURN_RADIUS_TOKEN})\s+"
-    r"(?:source\s+)?turns?\s+(?:of|around|near)\s+"
-    r"(?:the\s+)?(?:(?:source\s+)?(?:ref|reference)\s+)?"
-    r"(?:source\s+)?(?:turn\s+)?"
-    rf"(?P<ref>{_SOURCE_TURN_REF_TOKEN})",
-    re.IGNORECASE,
-)
-_WITHIN_AFTER_SOURCE_TURN_RE = re.compile(
-    rf"\bwithin\s+(?P<radius>{_TURN_RADIUS_TOKEN})\s+"
-    r"(?:source\s+)?turns?\s+"
-    r"(?:right\s+after|immediately\s+after|shortly\s+after|after|following)\s+"
-    r"(?:the\s+)?(?:(?:source\s+)?(?:ref|reference)\s+)?"
-    r"(?:source\s+)?(?:turn\s+)?"
-    rf"(?P<ref>{_SOURCE_TURN_REF_TOKEN})",
-    re.IGNORECASE,
-)
-_WITHIN_BEFORE_SOURCE_TURN_RE = re.compile(
-    rf"\bwithin\s+(?P<radius>{_TURN_RADIUS_TOKEN})\s+"
-    r"(?:source\s+)?turns?\s+"
-    r"(?:right\s+before|immediately\s+before|shortly\s+before|before|prior\s+to)\s+"
-    r"(?:the\s+)?(?:(?:source\s+)?(?:ref|reference)\s+)?"
-    r"(?:source\s+)?(?:turn\s+)?"
-    rf"(?P<ref>{_SOURCE_TURN_REF_TOKEN})",
-    re.IGNORECASE,
-)
-_NEXT_AFTER_SOURCE_TURN_RE = re.compile(
-    rf"\b(?:next|following)\s+(?P<radius>{_TURN_RADIUS_TOKEN})\s+"
-    r"(?:source\s+)?turns?\s+"
-    r"(?:right\s+after|immediately\s+after|shortly\s+after|after|following)\s+"
-    r"(?:the\s+)?(?:(?:source\s+)?(?:ref|reference)\s+)?"
-    r"(?:source\s+)?(?:turn\s+)?"
-    rf"(?P<ref>{_SOURCE_TURN_REF_TOKEN})",
-    re.IGNORECASE,
-)
-_PREVIOUS_BEFORE_SOURCE_TURN_RE = re.compile(
-    rf"\b(?:previous|prior|preceding)\s+(?P<radius>{_TURN_RADIUS_TOKEN})\s+"
-    r"(?:source\s+)?turns?\s+"
-    r"(?:right\s+before|immediately\s+before|shortly\s+before|before|prior\s+to)\s+"
-    r"(?:the\s+)?(?:(?:source\s+)?(?:ref|reference)\s+)?"
-    r"(?:source\s+)?(?:turn\s+)?"
-    rf"(?P<ref>{_SOURCE_TURN_REF_TOKEN})",
-    re.IGNORECASE,
-)
-_NEXT_ONE_AFTER_SOURCE_TURN_RE = re.compile(
-    r"\b(?:next|following)\s+(?:source\s+)?turn\s+"
-    r"(?:right\s+after|immediately\s+after|shortly\s+after|after|following)\s+"
-    r"(?:the\s+)?(?:(?:source\s+)?(?:ref|reference)\s+)?"
-    r"(?:source\s+)?(?:turn\s+)?"
-    rf"(?P<ref>{_SOURCE_TURN_REF_TOKEN})",
-    re.IGNORECASE,
-)
-_PREVIOUS_ONE_BEFORE_SOURCE_TURN_RE = re.compile(
-    r"\b(?:previous|prior|preceding)\s+(?:source\s+)?turn\s+"
-    r"(?:right\s+before|immediately\s+before|shortly\s+before|before|prior\s+to)\s+"
-    r"(?:the\s+)?(?:(?:source\s+)?(?:ref|reference)\s+)?"
-    r"(?:source\s+)?(?:turn\s+)?"
-    rf"(?P<ref>{_SOURCE_TURN_REF_TOKEN})",
-    re.IGNORECASE,
-)
 
 def source_turn_sequence_request(query: str) -> SourceTurnSequenceRequest:
     """Return explicit before/after source-turn boundaries from a query."""
 
+    query_scope_identity = _query_source_scope_identity(query)
     between_after, between_before = _source_turn_pairs_for_regex(
         _BETWEEN_SOURCE_TURN_RE,
+        query,
+    )
+    scoped_between_after, scoped_between_before = _source_turn_pairs_with_scope_for_regex(
+        _BETWEEN_SCOPED_SOURCE_TURN_RE,
         query,
     )
     within_turns, within_radius = _source_turns_and_radius_for_regex(
         _WITHIN_SOURCE_TURN_RE,
         query,
     )
+    scoped_within_turns, scoped_within_radius = (
+        _source_turns_and_radius_with_scope_for_regex(
+            _WITHIN_SCOPED_SOURCE_TURN_RE,
+            query,
+        )
+    )
     within_after_turns, within_after_radius = _source_turns_and_radius_for_regex(
         _WITHIN_AFTER_SOURCE_TURN_RE,
         query,
         default_radius=0,
+    )
+    scoped_within_after_turns, scoped_within_after_radius = (
+        _source_turns_and_radius_with_scope_for_regex(
+            _WITHIN_AFTER_SCOPED_SOURCE_TURN_RE,
+            query,
+            default_radius=0,
+        )
     )
     next_after_turns, next_after_radius = _source_turns_and_radius_for_regex(
         _NEXT_AFTER_SOURCE_TURN_RE,
         query,
         default_radius=0,
     )
+    scoped_next_after_turns, scoped_next_after_radius = (
+        _source_turns_and_radius_with_scope_for_regex(
+            _NEXT_AFTER_SCOPED_SOURCE_TURN_RE,
+            query,
+            default_radius=0,
+        )
+    )
     next_one_after_turns, next_one_after_radius = _source_turns_for_regex_with_radius(
         _NEXT_ONE_AFTER_SOURCE_TURN_RE,
         query,
         radius=1,
+    )
+    scoped_next_one_after_turns, scoped_next_one_after_radius = (
+        _source_turns_with_scope_for_regex_with_radius(
+            _NEXT_ONE_AFTER_SCOPED_SOURCE_TURN_RE,
+            query,
+            radius=1,
+        )
     )
     within_before_turns, within_before_radius = _source_turns_and_radius_for_regex(
         _WITHIN_BEFORE_SOURCE_TURN_RE,
         query,
         default_radius=0,
     )
+    scoped_within_before_turns, scoped_within_before_radius = (
+        _source_turns_and_radius_with_scope_for_regex(
+            _WITHIN_BEFORE_SCOPED_SOURCE_TURN_RE,
+            query,
+            default_radius=0,
+        )
+    )
     previous_before_turns, previous_before_radius = _source_turns_and_radius_for_regex(
         _PREVIOUS_BEFORE_SOURCE_TURN_RE,
         query,
         default_radius=0,
     )
+    scoped_previous_before_turns, scoped_previous_before_radius = (
+        _source_turns_and_radius_with_scope_for_regex(
+            _PREVIOUS_BEFORE_SCOPED_SOURCE_TURN_RE,
+            query,
+            default_radius=0,
+        )
+    )
     previous_one_before_turns, previous_one_before_radius = (
         _source_turns_for_regex_with_radius(
             _PREVIOUS_ONE_BEFORE_SOURCE_TURN_RE,
+            query,
+            radius=1,
+        )
+    )
+    scoped_previous_one_before_turns, scoped_previous_one_before_radius = (
+        _source_turns_with_scope_for_regex_with_radius(
+            _PREVIOUS_ONE_BEFORE_SCOPED_SOURCE_TURN_RE,
             query,
             radius=1,
         )
@@ -244,45 +157,149 @@ def source_turn_sequence_request(query: str) -> SourceTurnSequenceRequest:
         _NEAR_SCOPED_SOURCE_TURN_RE,
         query,
     )
+    shared_source_identity = _shared_source_identity(
+        query_scope_identity,
+        (
+            *between_after,
+            *scoped_between_after,
+            *within_after_turns,
+            *scoped_within_after_turns,
+            *next_after_turns,
+            *scoped_next_after_turns,
+            *next_one_after_turns,
+            *scoped_next_one_after_turns,
+            *scoped_after_turns,
+            *_source_turns_for_regex(_AFTER_SOURCE_TURN_RE, query),
+            *between_before,
+            *scoped_between_before,
+            *within_before_turns,
+            *scoped_within_before_turns,
+            *previous_before_turns,
+            *scoped_previous_before_turns,
+            *previous_one_before_turns,
+            *scoped_previous_one_before_turns,
+            *scoped_before_turns,
+            *_source_turns_for_regex(_BEFORE_SOURCE_TURN_RE, query),
+            *within_turns,
+            *scoped_within_turns,
+            *scoped_near_turns,
+            *_source_turns_for_regex(_NEAR_SOURCE_TURN_RE, query),
+        ),
+    )
     return SourceTurnSequenceRequest(
         after_turns=_dedupe_source_turns(
-            (
-                *between_after,
-                *within_after_turns,
-                *next_after_turns,
-                *next_one_after_turns,
-                *scoped_after_turns,
-                *_source_turns_for_regex(_AFTER_SOURCE_TURN_RE, query),
+            _source_turns_with_query_scope(
+                (
+                    *between_after,
+                    *scoped_between_after,
+                    *within_after_turns,
+                    *scoped_within_after_turns,
+                    *next_after_turns,
+                    *scoped_next_after_turns,
+                    *next_one_after_turns,
+                    *scoped_next_one_after_turns,
+                    *scoped_after_turns,
+                    *_source_turns_for_regex(_AFTER_SOURCE_TURN_RE, query),
+                ),
+                shared_source_identity,
             )
         ),
         before_turns=_dedupe_source_turns(
-            (
-                *between_before,
-                *within_before_turns,
-                *previous_before_turns,
-                *previous_one_before_turns,
-                *scoped_before_turns,
-                *_source_turns_for_regex(_BEFORE_SOURCE_TURN_RE, query),
+            _source_turns_with_query_scope(
+                (
+                    *between_before,
+                    *scoped_between_before,
+                    *within_before_turns,
+                    *scoped_within_before_turns,
+                    *previous_before_turns,
+                    *scoped_previous_before_turns,
+                    *previous_one_before_turns,
+                    *scoped_previous_one_before_turns,
+                    *scoped_before_turns,
+                    *_source_turns_for_regex(_BEFORE_SOURCE_TURN_RE, query),
+                ),
+                shared_source_identity,
             )
         ),
         near_turns=_dedupe_source_turns(
-            (
-                *within_turns,
-                *scoped_near_turns,
-                *_source_turns_for_regex(_NEAR_SOURCE_TURN_RE, query),
+            _source_turns_with_query_scope(
+                (
+                    *within_turns,
+                    *scoped_within_turns,
+                    *scoped_near_turns,
+                    *_source_turns_for_regex(_NEAR_SOURCE_TURN_RE, query),
+                ),
+                shared_source_identity,
             )
         ),
         after_turn_radius=max(
             within_after_radius,
+            scoped_within_after_radius,
             next_after_radius,
+            scoped_next_after_radius,
             next_one_after_radius,
+            scoped_next_one_after_radius,
         ),
         before_turn_radius=max(
             within_before_radius,
+            scoped_within_before_radius,
             previous_before_radius,
+            scoped_previous_before_radius,
             previous_one_before_radius,
+            scoped_previous_one_before_radius,
         ),
-        near_turn_radius=within_radius,
+        near_turn_radius=max(within_radius, scoped_within_radius),
+    )
+
+
+def _shared_source_identity(
+    query_scope_identity: str,
+    source_turns: tuple[SourceTurnRef, ...],
+) -> str:
+    identities: list[str] = []
+    if query_scope_identity:
+        identities.append(query_scope_identity)
+    for source_turn in source_turns:
+        if source_turn.source_identity and source_turn.source_identity not in identities:
+            identities.append(source_turn.source_identity)
+    if not identities:
+        return ""
+    first_identity = identities[0]
+    if not all(source_identity_matches(identity, first_identity) for identity in identities[1:]):
+        return ""
+    return first_identity
+
+
+def _query_source_scope_identity(query: str) -> str:
+    scope_identities: dict[str, None] = {}
+    for match in _QUERY_SOURCE_SCOPE_RE.finditer(query):
+        if scope_identity := source_scope_identity_from_label(match.group("scope")):
+            scope_identities.setdefault(scope_identity, None)
+    for match in _QUERY_DIRECT_SOURCE_SCOPE_RE.finditer(query):
+        if scope_identity := direct_source_scope_identity_from_label(
+            match.group("scope")
+        ):
+            scope_identities.setdefault(scope_identity, None)
+    if len(scope_identities) != 1:
+        return ""
+    return next(iter(scope_identities))
+
+
+def _source_turns_with_query_scope(
+    values: tuple[SourceTurnRef, ...],
+    source_identity: str,
+) -> tuple[SourceTurnRef, ...]:
+    if not source_identity:
+        return values
+    return tuple(
+        source_turn
+        if source_turn.source_identity
+        else SourceTurnRef(
+            dialogue=source_turn.dialogue,
+            turn=source_turn.turn,
+            source_identity=source_identity,
+        )
+        for source_turn in values
     )
 
 
@@ -356,15 +373,30 @@ def source_turn_refs_from_item(item: ContextItem) -> tuple[SourceTurnRef, ...]:
             )
             if value
         )
-        scope_identity = _source_scope_identity_from_label(ref.source_id)
+        scope_identity = source_scope_identity_from_label(ref.source_id)
         for value in (ref.chunk_id, ref.quote_preview):
             if value:
                 source_ref_turns.extend(
                     _source_turns_from_value(value, source_identity=scope_identity)
                 )
+    if text_identity := _single_source_ref_scope_identity(item):
+        source_ref_turns.extend(
+            _source_turns_from_value(item.text, source_identity=text_identity)
+        )
     return _prefer_identified_source_turns(
         _dedupe_source_turns((*_source_turns_from_values(tuple(values)), *source_ref_turns))
     )
+
+
+def _single_source_ref_scope_identity(item: ContextItem) -> str:
+    identities: list[str] = []
+    for ref in item.source_refs:
+        identity = conversation_source_scope_identity_from_label(ref.source_id)
+        if identity and not any(
+            source_identity_matches(identity, existing) for existing in identities
+        ):
+            identities.append(identity)
+    return identities[0] if len(identities) == 1 else ""
 
 
 def _source_turn_proximity_signal(
@@ -533,8 +565,10 @@ def _source_turn_scope_matches(
 ) -> bool:
     if item_turn.dialogue != boundary.dialogue:
         return False
+    if boundary.source_identity and not item_turn.source_identity:
+        return False
     if item_turn.source_identity and boundary.source_identity:
-        return _source_identity_matches(item_turn.source_identity, boundary.source_identity)
+        return source_identity_matches(item_turn.source_identity, boundary.source_identity)
     return True
 
 
@@ -546,7 +580,7 @@ def _has_source_turn_identity_conflict(
         item_turn.dialogue == boundary.dialogue
         and item_turn.source_identity
         and boundary.source_identity
-        and not _source_identity_matches(
+        and not source_identity_matches(
             item_turn.source_identity,
             boundary.source_identity,
         )
@@ -634,7 +668,7 @@ def _source_turns_with_scope_for_regex(
     turns: list[SourceTurnRef] = []
     for match in regex.finditer(text):
         source_turn = _source_turn_from_label(match.group("ref"))
-        scope_identity = _source_scope_identity_from_label(match.group("scope"))
+        scope_identity = source_scope_identity_from_label(match.group("scope"))
         if source_turn and scope_identity:
             turns.append(
                 SourceTurnRef(
@@ -656,9 +690,59 @@ def _source_turn_pairs_for_regex(
         after_turn = _source_turn_from_label(match.group("after_ref"))
         before_turn = _source_turn_from_label(match.group("before_ref"))
         if after_turn and before_turn:
+            after_turn, before_turn = _source_turn_pair_with_shared_identity(
+                after_turn,
+                before_turn,
+            )
             after_turns.append(after_turn)
             before_turns.append(before_turn)
     return _dedupe_source_turns(after_turns), _dedupe_source_turns(before_turns)
+
+
+def _source_turn_pairs_with_scope_for_regex(
+    regex: re.Pattern[str],
+    text: str,
+) -> tuple[tuple[SourceTurnRef, ...], tuple[SourceTurnRef, ...]]:
+    after_turns: list[SourceTurnRef] = []
+    before_turns: list[SourceTurnRef] = []
+    for match in regex.finditer(text):
+        scope_identity = source_scope_identity_from_label(match.group("scope"))
+        after_turn = _source_turn_with_identity(match.group("after_ref"), scope_identity)
+        before_turn = _source_turn_with_identity(match.group("before_ref"), scope_identity)
+        if after_turn and before_turn:
+            after_turns.append(after_turn)
+            before_turns.append(before_turn)
+    return _dedupe_source_turns(after_turns), _dedupe_source_turns(before_turns)
+
+
+def _source_turn_with_identity(value: str, source_identity: str) -> SourceTurnRef | None:
+    source_turn = _source_turn_from_label(value)
+    if source_turn is None:
+        return None
+    return SourceTurnRef(
+        dialogue=source_turn.dialogue,
+        turn=source_turn.turn,
+        source_identity=source_turn.source_identity or source_identity,
+    )
+
+
+def _source_turn_pair_with_shared_identity(
+    first: SourceTurnRef,
+    second: SourceTurnRef,
+) -> tuple[SourceTurnRef, SourceTurnRef]:
+    if first.source_identity and not second.source_identity:
+        return first, SourceTurnRef(
+            dialogue=second.dialogue,
+            turn=second.turn,
+            source_identity=first.source_identity,
+        )
+    if second.source_identity and not first.source_identity:
+        return SourceTurnRef(
+            dialogue=first.dialogue,
+            turn=first.turn,
+            source_identity=second.source_identity,
+        ), second
+    return first, second
 
 
 def _source_turns_and_radius_for_regex(
@@ -678,6 +762,24 @@ def _source_turns_and_radius_for_regex(
     return _dedupe_source_turns(turns), _bounded_turn_radius(radius)
 
 
+def _source_turns_and_radius_with_scope_for_regex(
+    regex: re.Pattern[str],
+    text: str,
+    *,
+    default_radius: int = 1,
+) -> tuple[tuple[SourceTurnRef, ...], int]:
+    turns: list[SourceTurnRef] = []
+    radius = default_radius
+    for match in regex.finditer(text):
+        scope_identity = source_scope_identity_from_label(match.group("scope"))
+        if source_turn := _source_turn_with_identity(match.group("ref"), scope_identity):
+            turns.append(source_turn)
+            radius = max(radius, _turn_radius_from_token(match.group("radius")))
+    if radius == 0:
+        return _dedupe_source_turns(turns), 0
+    return _dedupe_source_turns(turns), _bounded_turn_radius(radius)
+
+
 def _source_turns_for_regex_with_radius(
     regex: re.Pattern[str],
     text: str,
@@ -685,6 +787,18 @@ def _source_turns_for_regex_with_radius(
     radius: int,
 ) -> tuple[tuple[SourceTurnRef, ...], int]:
     turns = _source_turns_for_regex(regex, text)
+    if not turns:
+        return (), 0
+    return turns, _bounded_turn_radius(radius)
+
+
+def _source_turns_with_scope_for_regex_with_radius(
+    regex: re.Pattern[str],
+    text: str,
+    *,
+    radius: int,
+) -> tuple[tuple[SourceTurnRef, ...], int]:
+    turns = _source_turns_with_scope_for_regex(regex, text)
     if not turns:
         return (), 0
     return turns, _bounded_turn_radius(radius)
@@ -734,7 +848,7 @@ def _source_turns_from_value(
     source_identity: str = "",
 ) -> tuple[SourceTurnRef, ...]:
     turns: list[SourceTurnRef] = []
-    value_identity = _source_identity_from_label(value)
+    value_identity = source_identity_from_label(value)
     for match in _SOURCE_TURN_RE.finditer(value):
         turns.append(
             SourceTurnRef(
@@ -750,7 +864,7 @@ def _identified_source_turns_from_mapping(
     mapping: Mapping[str, object],
 ) -> tuple[SourceTurnRef, ...]:
     turns: list[SourceTurnRef] = []
-    scope_identity = _source_scope_identity_from_mapping(mapping)
+    scope_identity = source_scope_identity_from_mapping(mapping)
     if scope_identity:
         turns.extend(
             source_turn
@@ -792,7 +906,7 @@ def _source_turn_from_label(value: str) -> SourceTurnRef | None:
     return SourceTurnRef(
         dialogue=int(match.group("dialogue")),
         turn=int(match.group("turn")),
-        source_identity=_source_identity_from_label(value),
+        source_identity=source_identity_from_label(value),
     )
 
 
@@ -807,73 +921,6 @@ def _prefer_identified_source_turns(
         for value in values
         if value.source_identity or (value.dialogue, value.turn) not in identified_positions
     )
-
-
-def _source_identity_from_label(value: str) -> str:
-    text = value.strip().strip(".,!?;()[]{}<>\"'")
-    if not text or re.search(r"\s", text):
-        return ""
-    if _SOURCE_TURN_RE.fullmatch(text):
-        return ""
-    normalized = _SOURCE_TURN_IDENTITY_RE.sub("D*:T*", text.casefold())
-    return normalized.strip(":-_")
-
-
-def _source_scope_identity_from_label(value: str) -> str:
-    text = value.strip().strip(".,!?;()[]{}<>\"'")
-    if not text or re.search(r"\s", text):
-        return ""
-    if identity := _source_identity_from_label(text):
-        return identity
-    normalized = text.casefold().strip(":-_")
-    if (
-        "locomo" in normalized
-        or re.search(r"(?:^|[:_-])conv[-_:]?\d", normalized)
-        or re.search(r"(?:^|[:_-])session[-_:]?\d", normalized)
-    ):
-        return normalized
-    return ""
-
-
-def _source_scope_identity_from_mapping(mapping: Mapping[str, object]) -> str:
-    for key in (
-        "source_id",
-        "source_ref",
-        "source_ref_id",
-        "source_identity",
-        "source_key",
-    ):
-        value = mapping.get(key)
-        if isinstance(value, str) and (
-            scope_identity := _source_scope_identity_from_label(value)
-        ):
-            return scope_identity
-    return ""
-
-
-def _source_identity_matches(first: str, second: str) -> bool:
-    if first == second:
-        return True
-    normalized_first = _normalized_source_identity(first)
-    normalized_second = _normalized_source_identity(second)
-    if normalized_first == normalized_second:
-        return True
-    return _source_identity_has_scope(first, second) or _source_identity_has_scope(
-        second,
-        first,
-    )
-
-
-def _source_identity_has_scope(identity: str, scope: str) -> bool:
-    if identity.startswith(f"{scope}:") or identity.startswith(f"{scope}-"):
-        return True
-    normalized_identity = _normalized_source_identity(identity)
-    normalized_scope = _normalized_source_identity(scope)
-    return normalized_identity.startswith(f"{normalized_scope}:")
-
-
-def _normalized_source_identity(value: str) -> str:
-    return re.sub(r"[:_-]+", ":", value.casefold()).strip(":")
 
 
 def _string_values(mapping: Mapping[str, object]) -> tuple[str, ...]:

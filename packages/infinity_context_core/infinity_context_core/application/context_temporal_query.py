@@ -33,6 +33,7 @@ from infinity_context_core.application.context_temporal_session_order import (
 )
 from infinity_context_core.application.context_temporal_source_turn import (
     SourceTurnSequenceRequest,
+    source_turn_refs_from_item,
     source_turn_sequence_boost_signal,
     source_turn_sequence_request,
 )
@@ -495,6 +496,7 @@ class TemporalQueryIntent:
 
     def diagnostics(self) -> dict[str, object]:
         reasons: list[str] = []
+        source_turn_identities = _source_turn_identities(self.source_turn_sequence)
         if self.prefers_current:
             reasons.append("prefers_current")
         if self.requests_previous:
@@ -564,6 +566,7 @@ class TemporalQueryIntent:
             "temporal_query_after_date": self.after_date,
             "temporal_query_before_date": self.before_date,
             "temporal_query_event_sequence_terms": list(self.event_sequence_terms),
+            "temporal_query_source_turn_identities": list(source_turn_identities),
             "temporal_query_after_source_turns": [
                 turn.label() for turn in self.source_turn_sequence.after_turns
             ],
@@ -584,6 +587,20 @@ class TemporalQueryIntent:
             ),
             "temporal_query_intent_reasons": reasons,
         }
+
+
+def _source_turn_identities(
+    source_turn_sequence: SourceTurnSequenceRequest,
+) -> tuple[str, ...]:
+    identities: dict[str, None] = {}
+    for source_turn in (
+        *source_turn_sequence.after_turns,
+        *source_turn_sequence.before_turns,
+        *source_turn_sequence.near_turns,
+    ):
+        if source_turn.source_identity:
+            identities.setdefault(source_turn.source_identity, None)
+    return tuple(identities)
 
 
 @dataclass(frozen=True)
@@ -747,13 +764,19 @@ def temporal_query_boost_signal(
     if intent.session_ordinals:
         item_session_orders = set(temporal_session_orders(item))
         query_session_orders = set(intent.session_ordinals)
-        if item_session_orders.intersection(query_session_orders):
+        has_source_scoped_turn_query = intent.source_turn_sequence.has_source_identity
+        if (
+            not has_source_scoped_turn_query
+            and item_session_orders.intersection(query_session_orders)
+        ):
             return TemporalQueryBoostSignal(
                 boost=0.034,
                 reason="query asks for an explicit session and item matches it",
                 code="exact_session_order_match",
             )
-        if item_session_orders:
+        if item_session_orders and (
+            not has_source_scoped_turn_query or _item_has_source_turn_identity(item)
+        ):
             return TemporalQueryBoostSignal(
                 boost=-0.018,
                 reason="query asks for an explicit session and item has a different session",
@@ -910,6 +933,10 @@ def temporal_query_boost_signal(
             code="current_active_match",
         )
     return TemporalQueryBoostSignal()
+
+
+def _item_has_source_turn_identity(item: ContextItem) -> bool:
+    return any(source_turn.source_identity for source_turn in source_turn_refs_from_item(item))
 
 
 def _apply_temporal_query_intent(
