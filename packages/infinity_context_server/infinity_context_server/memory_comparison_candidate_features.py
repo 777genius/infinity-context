@@ -149,12 +149,19 @@ _EXPLICIT_TIME_CONTENT_RE = re.compile(
 )
 _TEMPORAL_SEQUENCE_EVIDENCE_RE = re.compile(
     r"\b(?:before|beforehand|after|afterward|afterwards|during|then|"
-    r"following|subsequent|subsequently|previously|earlier|later|prior)\b",
+    r"following|subsequent|subsequently|previously|earlier|later|prior|"
+    r"since|until)\b",
     re.IGNORECASE,
 )
 _TEMPORAL_SEQUENCE_DIRECTION_RE = re.compile(
     r"\b(?P<direction>before|beforehand|after|afterward|afterwards|during|"
-    r"following|subsequent|subsequently|previously|earlier|later|prior)\b",
+    r"following|subsequent|subsequently|previously|earlier|later|prior|"
+    r"since|until)\b",
+    re.IGNORECASE,
+)
+_TEMPORAL_LOCAL_SEGMENT_SPLIT_RE = re.compile(r"(?<=[.!?])\s+|\n+")
+_FIRST_PERSON_SURFACE_RE = re.compile(
+    r"\b(?:i|i'm|i've|me|my|mine|we|we're|our|ours)\b",
     re.IGNORECASE,
 )
 _LIST_ITEM_INTRO_RE = re.compile(
@@ -416,8 +423,6 @@ def build_candidate_evidence_features(
     high_signal_hit_count = sum(
         1 for term in relation_hits if term in high_signal_relation_terms
     )
-    contrast_features = _contrast_features(text)
-    temporal_features = _temporal_evidence_features(text)
     answer_unit_shapes = covered_answer_unit_shapes(text)
     content_text = _evidence_content_text(text)
     exact_count_evidence = has_exact_count_cardinality_evidence(content_text)
@@ -446,6 +451,17 @@ def build_candidate_evidence_features(
     direct_turn_speakers = _direct_turn_speakers(text)
     direct_turn_mentioned_entity_without_speaker_hit = bool(
         direct_speaker_turn and direct_turn_speakers and entity_hits and not speaker_hits
+    )
+    local_binding_terms = relation_hits or overlap_terms or (*entity_hits, *speaker_hits)
+    contrast_features = _contrast_features(
+        text,
+        local_terms=local_binding_terms,
+        direct_speaker_turn=direct_speaker_turn and not relation_hits,
+    )
+    temporal_features = _temporal_evidence_features(
+        text,
+        local_terms=local_binding_terms,
+        direct_speaker_turn=direct_speaker_turn and not relation_hits,
     )
     communication_grounding = communication_direction_grounding(
         query=question,
@@ -614,11 +630,21 @@ def build_candidate_evidence_features(
     )
 
 
-def _contrast_features(text: str) -> dict[str, bool]:
-    negation_surface = bool(_NEGATION_SURFACE_RE.search(text))
-    currentness_surface = bool(_CURRENTNESS_SURFACE_RE.search(text))
-    stale_surface = bool(_STALE_SURFACE_RE.search(text))
-    contrast_surface = bool(_CONTRAST_SURFACE_RE.search(text)) or (
+def _contrast_features(
+    text: str,
+    *,
+    local_terms: Sequence[str] = (),
+    direct_speaker_turn: bool = False,
+) -> dict[str, bool]:
+    local_text = _locally_bound_evidence_text(
+        _evidence_content_text(text),
+        local_terms=local_terms,
+        direct_speaker_turn=direct_speaker_turn,
+    )
+    negation_surface = bool(_NEGATION_SURFACE_RE.search(local_text))
+    currentness_surface = bool(_CURRENTNESS_SURFACE_RE.search(local_text))
+    stale_surface = bool(_STALE_SURFACE_RE.search(local_text))
+    contrast_surface = bool(_CONTRAST_SURFACE_RE.search(local_text)) or (
         negation_surface and stale_surface
     )
     return {
@@ -629,14 +655,24 @@ def _contrast_features(text: str) -> dict[str, bool]:
     }
 
 
-def _temporal_evidence_features(text: str) -> dict[str, bool]:
+def _temporal_evidence_features(
+    text: str,
+    *,
+    local_terms: Sequence[str] = (),
+    direct_speaker_turn: bool = False,
+) -> dict[str, bool]:
     content_text = _evidence_content_text(text)
-    duration_surface = bool(_DURATION_EVIDENCE_RE.search(text))
-    relative_time_surface = bool(_RELATIVE_TIME_EVIDENCE_RE.search(text))
+    local_text = _locally_bound_evidence_text(
+        content_text,
+        local_terms=local_terms,
+        direct_speaker_turn=direct_speaker_turn,
+    )
+    duration_surface = bool(_DURATION_EVIDENCE_RE.search(local_text))
+    relative_time_surface = bool(_RELATIVE_TIME_EVIDENCE_RE.search(local_text))
     explicit_time_surface = bool(_EXPLICIT_TIME_EVIDENCE_RE.search(text))
-    explicit_time_content_surface = bool(_EXPLICIT_TIME_CONTENT_RE.search(content_text))
-    temporal_sequence_surface = bool(_TEMPORAL_SEQUENCE_EVIDENCE_RE.search(text))
-    temporal_sequence_direction = _temporal_sequence_direction(content_text)
+    explicit_time_content_surface = bool(_EXPLICIT_TIME_CONTENT_RE.search(local_text))
+    temporal_sequence_surface = bool(_TEMPORAL_SEQUENCE_EVIDENCE_RE.search(local_text))
+    temporal_sequence_direction = _temporal_sequence_direction(local_text)
     return {
         "has_duration_surface": duration_surface,
         "has_relative_time_surface": relative_time_surface,
@@ -658,9 +694,59 @@ def _temporal_sequence_direction(text: str) -> str:
         return "before"
     if direction in {"subsequent", "subsequently"}:
         return "after"
+    if direction == "since":
+        return "after"
+    if direction == "until":
+        return "before"
     if direction == "during":
         return "during"
     return ""
+
+
+def _locally_bound_evidence_text(
+    text: str,
+    *,
+    local_terms: Sequence[str],
+    direct_speaker_turn: bool,
+) -> str:
+    terms = _local_binding_terms(local_terms)
+    if not terms:
+        return text
+    segments = tuple(
+        segment.strip()
+        for segment in _TEMPORAL_LOCAL_SEGMENT_SPLIT_RE.split(text)
+        if segment.strip()
+    )
+    if len(segments) <= 1:
+        return text
+    local_segments = tuple(
+        segment
+        for segment in segments
+        if _segment_locally_bound(
+            segment,
+            terms=terms,
+            direct_speaker_turn=direct_speaker_turn,
+        )
+    )
+    return " ".join(local_segments)
+
+
+def _local_binding_terms(local_terms: Sequence[str]) -> frozenset[str]:
+    terms: set[str] = set()
+    for term in local_terms:
+        terms.update(_normalized_terms(str(term)))
+    return frozenset(terms)
+
+
+def _segment_locally_bound(
+    segment: str,
+    *,
+    terms: frozenset[str],
+    direct_speaker_turn: bool,
+) -> bool:
+    if terms.intersection(_normalized_terms(segment)):
+        return True
+    return bool(direct_speaker_turn and _FIRST_PERSON_SURFACE_RE.search(segment))
 
 
 def _evidence_content_text(text: str) -> str:

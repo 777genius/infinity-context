@@ -2465,6 +2465,122 @@ def test_candidate_features_score_during_event_temporal_evidence() -> None:
     assert during_event.answerability_score > no_temporal_content.answerability_score
 
 
+def test_candidate_features_bind_explicit_dates_to_local_event_sentence() -> None:
+    unrelated_date = _temporal_candidate_features(
+        text=(
+            "D8:2 Alex: In 2022, I moved apartments. "
+            "I met Riley after the conference."
+        ),
+        memory_terms={
+            "alex",
+            "2022",
+            "moved",
+            "apartments",
+            "met",
+            "riley",
+            "after",
+            "conference",
+        },
+        relation_terms=("meet", "conference"),
+        relation_variant_terms=("met",),
+        time_intent_kind="explicit_time",
+    )
+    local_date = _temporal_candidate_features(
+        text="D8:3 Alex: I met Riley on Friday after the conference.",
+        memory_terms={"alex", "met", "riley", "friday", "after", "conference"},
+        relation_terms=("meet", "conference"),
+        relation_variant_terms=("met",),
+        time_intent_kind="explicit_time",
+    )
+
+    assert unrelated_date.has_explicit_time_surface is True
+    assert unrelated_date.has_explicit_time_content_surface is False
+    assert "explicit_temporal_evidence_partial" in (
+        unrelated_date.answerability_reason_codes
+    )
+    assert local_date.has_explicit_time_content_surface is True
+    assert "explicit_temporal_evidence" in local_date.answerability_reason_codes
+    assert local_date.answerability_score > unrelated_date.answerability_score
+
+
+def test_candidate_features_ignore_unrelated_current_and_stale_surfaces() -> None:
+    unrelated_stale = _temporal_candidate_features(
+        text=(
+            "D4:1 Alex: I used to live in Boston. "
+            "I currently work on Atlas."
+        ),
+        memory_terms={
+            "alex",
+            "used",
+            "live",
+            "boston",
+            "currently",
+            "work",
+            "atlas",
+        },
+        query_terms=("alex", "current", "work", "atlas"),
+        relation_terms=("work", "atlas"),
+        relation_variant_terms=("currently",),
+        time_intent_kind="relative_time",
+    )
+    local_stale = _temporal_candidate_features(
+        text="D4:2 Alex: I used to work on Atlas before the team changed.",
+        memory_terms={"alex", "used", "work", "atlas", "before", "team", "changed"},
+        query_terms=("alex", "current", "work", "atlas"),
+        relation_terms=("work", "atlas"),
+        relation_variant_terms=("currently",),
+        time_intent_kind="relative_time",
+    )
+
+    assert unrelated_stale.currentness_surface is True
+    assert unrelated_stale.stale_surface is False
+    assert local_stale.currentness_surface is False
+    assert local_stale.stale_surface is True
+
+
+def test_candidate_features_use_ordered_local_boundary_evidence() -> None:
+    unordered_neighbor = _temporal_candidate_features(
+        text=(
+            "D5:1 Alex: Before lunch, Jordan moved the boxes. "
+            "I met Riley after the conference."
+        ),
+        memory_terms={
+            "alex",
+            "before",
+            "lunch",
+            "jordan",
+            "moved",
+            "boxes",
+            "met",
+            "riley",
+            "after",
+            "conference",
+        },
+        relation_terms=("meet", "conference"),
+        relation_variant_terms=("met",),
+        time_intent_kind="temporal_sequence",
+    )
+    until_boundary = _temporal_candidate_features(
+        text="D5:2 Alex: Until June, I met Riley at the old studio.",
+        memory_terms={"alex", "until", "june", "met", "riley", "old", "studio"},
+        relation_terms=("meet", "studio"),
+        relation_variant_terms=("met",),
+        time_intent_kind="temporal_sequence",
+    )
+    since_boundary = _temporal_candidate_features(
+        text="D5:3 Alex: Since June, I met Riley at the new studio.",
+        memory_terms={"alex", "since", "june", "met", "riley", "new", "studio"},
+        relation_terms=("meet", "studio"),
+        relation_variant_terms=("met",),
+        time_intent_kind="temporal_sequence",
+    )
+
+    assert unordered_neighbor.has_temporal_sequence_surface is True
+    assert unordered_neighbor.temporal_sequence_direction == "after"
+    assert until_boundary.temporal_sequence_direction == "before"
+    assert since_boundary.temporal_sequence_direction == "after"
+
+
 def test_candidate_features_do_not_count_question_echo_as_category_hit() -> None:
     memory = RetrievedMemory(
         item_id="current-group-distractor",
@@ -2567,3 +2683,40 @@ def test_candidate_features_credit_book_author_preference_evidence() -> None:
     assert "preference_evidence" in liked_author.answerability_reason_codes
     assert liked_author.answerability_score > generic_book_reference.answerability_score
     assert liked_author.answerability_score >= 0.8
+
+
+def _temporal_candidate_features(
+    *,
+    text: str,
+    memory_terms: set[str],
+    relation_terms: tuple[str, ...],
+    relation_variant_terms: tuple[str, ...] = (),
+    time_intent_kind: str,
+    query_terms: tuple[str, ...] = ("alex", "after", "conference"),
+):
+    return build_candidate_evidence_features(
+        RetrievedMemory(
+            item_id="temporal-locality",
+            rank=1,
+            text=text,
+            source_refs=("D8:2",),
+        ),
+        memory_terms=memory_terms,
+        query_terms=query_terms,
+        relation_terms=relation_terms,
+        relation_variant_terms=relation_variant_terms,
+        entities=("alex",),
+        entity_hits=("alex",),
+        speaker_hits=("alex",),
+        high_signal_relation_terms=set(relation_terms),
+        is_temporal_query=True,
+        time_intent_kind=time_intent_kind,
+        is_preference_query=False,
+        has_visual_terms=False,
+        has_multi_hop_markers=False,
+        has_temporal_surface=True,
+        has_sequence_surface=True,
+        has_preference_evidence=False,
+        has_visual_evidence=False,
+        has_focused_turn_surface=True,
+    )
