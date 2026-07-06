@@ -21,8 +21,8 @@ from infinity_context_server.api.v1.documents import chunk_to_response, document
 from infinity_context_server.api.v1.episodes import episode_to_response
 from infinity_context_server.api.v1.facts import fact_to_response
 from infinity_context_server.api.v1.scope_resolution import resolve_existing_single_scope
-from infinity_context_server.api.v1.spaces_memory_scopes import memory_scope_to_response
 from infinity_context_server.composition import Container
+from infinity_context_server.features.memory_scopes import public as memory_scopes_feature
 
 router = APIRouter(
     tags=["memory-browser"],
@@ -83,7 +83,9 @@ async def get_memory_browser(
     return {
         "data": {
             "generated_at": result.generated_at.isoformat(),
-            "memory_scope": memory_scope_to_response(result.memory_scope),
+            "memory_scope": memory_scopes_feature.memory_scope_to_response(
+                result.memory_scope,
+            ),
             "facts": [fact_to_response(fact) for fact in result.facts],
             "episodes": [episode_to_response(episode) for episode in result.episodes],
             "documents": [document_to_response(document) for document in result.documents],

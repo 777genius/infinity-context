@@ -31,6 +31,15 @@ EXPORT_API_PATH = (
     / "v1"
     / "export.py"
 )
+MEMORY_BROWSER_API_PATH = (
+    REPO_ROOT
+    / "packages"
+    / "infinity_context_server"
+    / "infinity_context_server"
+    / "api"
+    / "v1"
+    / "memory_browser.py"
+)
 
 
 class RecordingCreateMemoryScope:
@@ -376,6 +385,33 @@ def test_memory_scopes_feature_owns_legacy_v1_memory_scope_api_mapping() -> None
             "scope_1",
             server_public.UpdateMemoryScopeRequest(),
         )
+
+
+def test_memory_browser_route_uses_memory_scopes_public_response_mapping() -> None:
+    source = MEMORY_BROWSER_API_PATH.read_text(encoding="utf-8")
+    api_tree = ast.parse(source, filename=str(MEMORY_BROWSER_API_PATH))
+    public_import_aliases = [
+        alias.asname
+        for node in ast.walk(api_tree)
+        if isinstance(node, ast.ImportFrom)
+        and node.module == "infinity_context_server.features.memory_scopes"
+        for alias in node.names
+        if alias.name == "public"
+    ]
+    public_calls = [
+        node.func.attr
+        for node in ast.walk(api_tree)
+        if isinstance(node, ast.Call)
+        and isinstance(node.func, ast.Attribute)
+        and isinstance(node.func.value, ast.Name)
+        and node.func.value.id == "memory_scopes_feature"
+    ]
+
+    assert "infinity_context_server.api.v1.spaces_memory_scopes" not in _imports(
+        MEMORY_BROWSER_API_PATH,
+    )
+    assert public_import_aliases == ["memory_scopes_feature"]
+    assert "memory_scope_to_response" in public_calls
 
 
 def test_memory_scopes_feature_owns_snapshot_compatibility_api_mapping() -> None:

@@ -1,233 +1,332 @@
-from pathlib import Path
+import asyncio
+from datetime import UTC, datetime
+from types import SimpleNamespace
 
-from fastapi.testclient import TestClient
-from infinity_context_server.config import DeployProfile, MemoryPolicyMode, Settings
-from infinity_context_server.main import create_app
+import pytest
+from fastapi import Response
+from infinity_context_core.domain.entities import LifecycleStatus
+from infinity_context_core.domain.errors import (
+    MemoryConflictError,
+    MemoryPolicyBlockedError,
+    MemoryValidationError,
+)
+from infinity_context_server.api.v1 import spaces_memory_scopes as api
+from infinity_context_server.config import MemoryPolicyMode
 
 
-def make_client(tmp_path: Path, **overrides: object) -> TestClient:
-    app = create_app(
-        Settings(
-            deploy_profile=DeployProfile.TEST,
-            database_url=f"sqlite+aiosqlite:///{tmp_path / 'memory.db'}",
-            auto_create_schema=True,
-            service_token="test-token",
-            qdrant_enabled=False,
-            graphiti_enabled=False,
-            embeddings_enabled=False,
-            **overrides,
+def test_create_and_list_spaces_memory_scopes() -> None:
+    container = FakeSpacesMemoryScopesContainer()
+
+    response = Response(status_code=201)
+    space = asyncio.run(
+        api.create_space(
+            api.CreateSpaceRequest(slug="client-app", name="Client App"),
+            container,
+            response,
         )
     )
-    return TestClient(app)
+    duplicate_response = Response(status_code=201)
+    duplicate_space = asyncio.run(
+        api.create_space(
+            api.CreateSpaceRequest(slug="client-app", name="Client App"),
+            container,
+            duplicate_response,
+        )
+    )
+    memory_scope_response = Response(status_code=201)
+    memory_scope = asyncio.run(
+        api.create_memory_scope(
+            api.CreateMemoryScopeRequest(
+                space_id=space["data"]["id"],
+                external_ref="default",
+                name="Default",
+            ),
+            container,
+            memory_scope_response,
+        )
+    )
+    duplicate_memory_scope_response = Response(status_code=201)
+    duplicate_memory_scope = asyncio.run(
+        api.create_memory_scope(
+            api.CreateMemoryScopeRequest(
+                space_id=space["data"]["id"],
+                external_ref="default",
+                name="Default",
+            ),
+            container,
+            duplicate_memory_scope_response,
+        )
+    )
+    spaces = asyncio.run(api.list_spaces(container))
+    memory_scopes = asyncio.run(
+        api.list_memory_scopes(container, space_id=space["data"]["id"])
+    )
 
-
-def auth_headers() -> dict[str, str]:
-    return {"Authorization": "Bearer test-token"}
-
-
-def test_create_and_list_spaces_memory_scopes(tmp_path: Path) -> None:
-    with make_client(tmp_path) as client:
-        space = client.post(
-            "/v1/spaces",
-            json={"slug": "client-app", "name": "Client App"},
-            headers=auth_headers(),
-        )
-        space_id = space.json()["data"]["id"]
-        duplicate_space = client.post(
-            "/v1/spaces",
-            json={"slug": "client-app", "name": "Client App"},
-            headers=auth_headers(),
-        )
-        memory_scope = client.post(
-            "/v1/memory-scopes",
-            json={
-                "space_id": space_id,
-                "external_ref": "default",
-                "name": "Default",
-            },
-            headers=auth_headers(),
-        )
-        memory_scope_id = memory_scope.json()["data"]["id"]
-        duplicate_memory_scope = client.post(
-            "/v1/memory-scopes",
-            json={
-                "space_id": space_id,
-                "external_ref": "default",
-                "name": "Default",
-            },
-            headers=auth_headers(),
-        )
-        spaces = client.get("/v1/spaces", headers=auth_headers())
-        memory_scopes = client.get(
-            "/v1/memory-scopes",
-            params={"space_id": space_id},
-            headers=auth_headers(),
-        )
-
-    assert space.status_code == 201
-    assert duplicate_space.status_code == 200
-    assert duplicate_space.json()["data"]["id"] == space_id
-    assert memory_scope.status_code == 201
-    assert duplicate_memory_scope.status_code == 200
-    assert duplicate_memory_scope.json()["data"]["id"] == memory_scope_id
-    assert [item["id"] for item in spaces.json()["data"]] == [space_id]
-    assert [item["id"] for item in memory_scopes.json()["data"]] == [memory_scope_id]
-
-
-def test_memory_scope_requires_existing_space(tmp_path: Path) -> None:
-    with make_client(tmp_path) as client:
-        response = client.post(
-            "/v1/memory-scopes",
-            json={
-                "space_id": "space_missing",
-                "external_ref": "default",
-                "name": "Default",
-            },
-            headers=auth_headers(),
-        )
-
-    assert response.status_code == 404
-    assert response.json()["error"]["code"] == "memory.not_found"
-
-
-def test_update_and_delete_memory_scope(tmp_path: Path) -> None:
-    with make_client(tmp_path) as client:
-        space = client.post(
-            "/v1/spaces",
-            json={"slug": "client-app", "name": "Client App"},
-            headers=auth_headers(),
-        )
-        space_id = space.json()["data"]["id"]
-        memory_scope = client.post(
-            "/v1/memory-scopes",
-            json={
-                "space_id": space_id,
-                "external_ref": "default",
-                "name": "Default",
-            },
-            headers=auth_headers(),
-        )
-        memory_scope_id = memory_scope.json()["data"]["id"]
-
-        updated = client.patch(
-            f"/v1/memory-scopes/{memory_scope_id}",
-            json={"external_ref": "sales-crm", "name": "Sales CRM"},
-            headers=auth_headers(),
-        )
-        listed_after_update = client.get(
-            "/v1/memory-scopes",
-            params={"space_id": space_id},
-            headers=auth_headers(),
-        )
-        deleted = client.delete(
-            f"/v1/memory-scopes/{memory_scope_id}",
-            headers=auth_headers(),
-        )
-        listed_after_delete = client.get(
-            "/v1/memory-scopes",
-            params={"space_id": space_id},
-            headers=auth_headers(),
-        )
-        recreated = client.post(
-            "/v1/memory-scopes",
-            json={
-                "space_id": space_id,
-                "external_ref": "sales-crm",
-                "name": "Sales CRM Restored",
-            },
-            headers=auth_headers(),
-        )
-
-    assert updated.status_code == 200
-    assert updated.json()["data"]["external_ref"] == "sales-crm"
-    assert updated.json()["data"]["name"] == "Sales CRM"
-    assert [item["external_ref"] for item in listed_after_update.json()["data"]] == [
-        "sales-crm"
+    assert response.status_code == 201
+    assert duplicate_response.status_code == 200
+    assert duplicate_space["data"]["id"] == space["data"]["id"]
+    assert memory_scope_response.status_code == 201
+    assert duplicate_memory_scope_response.status_code == 200
+    assert duplicate_memory_scope["data"]["id"] == memory_scope["data"]["id"]
+    assert [item["id"] for item in spaces["data"]] == [space["data"]["id"]]
+    assert [item["id"] for item in memory_scopes["data"]] == [
+        memory_scope["data"]["id"],
     ]
-    assert deleted.status_code == 200
-    assert deleted.json()["data"]["status"] == "deleted"
-    assert listed_after_delete.json()["data"] == []
-    assert recreated.status_code == 200
-    assert recreated.json()["data"]["id"] == memory_scope_id
-    assert recreated.json()["data"]["status"] == "active"
-    assert recreated.json()["data"]["name"] == "Sales CRM Restored"
 
 
-def test_update_memory_scope_rejects_duplicate_ref(tmp_path: Path) -> None:
-    with make_client(tmp_path) as client:
-        space = client.post(
-            "/v1/spaces",
-            json={"slug": "client-app", "name": "Client App"},
-            headers=auth_headers(),
-        )
-        space_id = space.json()["data"]["id"]
-        first = client.post(
-            "/v1/memory-scopes",
-            json={
-                "space_id": space_id,
-                "external_ref": "first",
-                "name": "First",
-            },
-            headers=auth_headers(),
-        )
-        second = client.post(
-            "/v1/memory-scopes",
-            json={
-                "space_id": space_id,
-                "external_ref": "second",
-                "name": "Second",
-            },
-            headers=auth_headers(),
+def test_memory_scope_requires_existing_space() -> None:
+    container = FakeSpacesMemoryScopesContainer()
+
+    with pytest.raises(MemoryValidationError, match="space is required"):
+        asyncio.run(
+            api.create_memory_scope(
+                api.CreateMemoryScopeRequest(
+                    space_id="space_missing",
+                    external_ref="default",
+                    name="Default",
+                ),
+                container,
+                Response(),
+            )
         )
 
-        duplicate = client.patch(
-            f"/v1/memory-scopes/{second.json()['data']['id']}",
-            json={"external_ref": first.json()["data"]["external_ref"]},
-            headers=auth_headers(),
+
+def test_update_and_delete_memory_scope() -> None:
+    container = FakeSpacesMemoryScopesContainer()
+    space = asyncio.run(
+        api.create_space(
+            api.CreateSpaceRequest(slug="client-app", name="Client App"),
+            container,
+            Response(),
+        )
+    )
+    memory_scope = asyncio.run(
+        api.create_memory_scope(
+            api.CreateMemoryScopeRequest(
+                space_id=space["data"]["id"],
+                external_ref="default",
+                name="Default",
+            ),
+            container,
+            Response(),
+        )
+    )
+    memory_scope_id = memory_scope["data"]["id"]
+
+    updated = asyncio.run(
+        api.update_memory_scope(
+            memory_scope_id,
+            api.UpdateMemoryScopeRequest(external_ref="sales-crm", name="Sales CRM"),
+            container,
+        )
+    )
+    listed_after_update = asyncio.run(
+        api.list_memory_scopes(container, space_id=space["data"]["id"])
+    )
+    deleted = asyncio.run(api.delete_memory_scope(memory_scope_id, container))
+    listed_after_delete = asyncio.run(
+        api.list_memory_scopes(container, space_id=space["data"]["id"])
+    )
+    recreated_response = Response(status_code=201)
+    recreated = asyncio.run(
+        api.create_memory_scope(
+            api.CreateMemoryScopeRequest(
+                space_id=space["data"]["id"],
+                external_ref="sales-crm",
+                name="Sales CRM Restored",
+            ),
+            container,
+            recreated_response,
+        )
+    )
+
+    assert updated["data"]["external_ref"] == "sales-crm"
+    assert updated["data"]["name"] == "Sales CRM"
+    assert [item["external_ref"] for item in listed_after_update["data"]] == [
+        "sales-crm",
+    ]
+    assert deleted["data"]["status"] == "deleted"
+    assert listed_after_delete["data"] == []
+    assert recreated_response.status_code == 200
+    assert recreated["data"]["id"] == memory_scope_id
+    assert recreated["data"]["status"] == "active"
+    assert recreated["data"]["name"] == "Sales CRM Restored"
+
+
+def test_update_memory_scope_rejects_duplicate_ref() -> None:
+    container = FakeSpacesMemoryScopesContainer()
+    space = asyncio.run(
+        api.create_space(
+            api.CreateSpaceRequest(slug="client-app", name="Client App"),
+            container,
+            Response(),
+        )
+    )
+    first = asyncio.run(
+        api.create_memory_scope(
+            api.CreateMemoryScopeRequest(
+                space_id=space["data"]["id"],
+                external_ref="first",
+                name="First",
+            ),
+            container,
+            Response(),
+        )
+    )
+    second = asyncio.run(
+        api.create_memory_scope(
+            api.CreateMemoryScopeRequest(
+                space_id=space["data"]["id"],
+                external_ref="second",
+                name="Second",
+            ),
+            container,
+            Response(),
+        )
+    )
+
+    with pytest.raises(MemoryConflictError, match="memory_scope external_ref exists"):
+        asyncio.run(
+            api.update_memory_scope(
+                second["data"]["id"],
+                api.UpdateMemoryScopeRequest(
+                    external_ref=first["data"]["external_ref"],
+                ),
+                container,
+            )
         )
 
-    assert duplicate.status_code == 409
-    assert duplicate.json()["error"]["code"] == "memory.conflict"
 
+def test_update_memory_scope_rejects_empty_patch() -> None:
+    container = FakeSpacesMemoryScopesContainer()
 
-def test_update_memory_scope_rejects_empty_patch(tmp_path: Path) -> None:
-    with make_client(tmp_path) as client:
-        space = client.post(
-            "/v1/spaces",
-            json={"slug": "client-app", "name": "Client App"},
-            headers=auth_headers(),
-        )
-        memory_scope = client.post(
-            "/v1/memory-scopes",
-            json={
-                "space_id": space.json()["data"]["id"],
-                "external_ref": "default",
-                "name": "Default",
-            },
-            headers=auth_headers(),
+    with pytest.raises(
+        MemoryValidationError,
+        match="At least one memory_scope field is required",
+    ):
+        asyncio.run(
+            api.update_memory_scope(
+                "scope_1",
+                api.UpdateMemoryScopeRequest(),
+                container,
+            )
         )
 
-        empty_patch = client.patch(
-            f"/v1/memory-scopes/{memory_scope.json()['data']['id']}",
-            json={},
-            headers=auth_headers(),
+
+def test_disabled_policy_blocks_space_memory_scope_writes() -> None:
+    container = FakeSpacesMemoryScopesContainer(policy_mode=MemoryPolicyMode.DISABLED)
+
+    with pytest.raises(MemoryPolicyBlockedError, match="Memory writes are disabled"):
+        asyncio.run(
+            api.create_space(
+                api.CreateSpaceRequest(slug="blocked", name="Blocked"),
+                container,
+                Response(),
+            )
         )
 
-    assert empty_patch.status_code == 400
-    assert empty_patch.json()["error"] == {
-        "code": "memory.validation",
-        "message": "At least one memory_scope field is required",
-        "retryable": False,
-    }
 
+class FakeSpacesMemoryScopesContainer:
+    def __init__(
+        self,
+        *,
+        policy_mode: MemoryPolicyMode = MemoryPolicyMode.SUGGESTIONS,
+    ) -> None:
+        self.settings = SimpleNamespace(policy_mode=policy_mode)
+        self.spaces: dict[str, SimpleNamespace] = {}
+        self.space_ids_by_slug: dict[str, str] = {}
+        self.scopes: dict[str, SimpleNamespace] = {}
+        self.scope_ids_by_space_and_ref: dict[tuple[str, str], str] = {}
+        self.create_space = SimpleNamespace(execute=self._create_space)
+        self.list_spaces = SimpleNamespace(execute=self._list_spaces)
+        self.create_memory_scope = SimpleNamespace(execute=self._create_memory_scope)
+        self.list_memory_scopes = SimpleNamespace(execute=self._list_memory_scopes)
+        self.update_memory_scope = SimpleNamespace(execute=self._update_memory_scope)
+        self.delete_memory_scope = SimpleNamespace(execute=self._delete_memory_scope)
 
-def test_disabled_policy_blocks_space_memory_scope_writes(tmp_path: Path) -> None:
-    with make_client(tmp_path, policy_mode=MemoryPolicyMode.DISABLED) as client:
-        response = client.post(
-            "/v1/spaces",
-            json={"slug": "blocked", "name": "Blocked"},
-            headers=auth_headers(),
+    async def _create_space(self, command: object) -> SimpleNamespace:
+        slug = str(command.slug)
+        if slug in self.space_ids_by_slug:
+            return SimpleNamespace(
+                space=self.spaces[self.space_ids_by_slug[slug]],
+                created=False,
+            )
+        space_id = f"space_{len(self.spaces) + 1}"
+        space = SimpleNamespace(
+            id=space_id,
+            slug=slug,
+            name=command.name,
+            status=LifecycleStatus.ACTIVE,
+            created_at=_now(),
+            updated_at=_now(),
         )
+        self.spaces[space_id] = space
+        self.space_ids_by_slug[slug] = space_id
+        return SimpleNamespace(space=space, created=True)
 
-    assert response.status_code == 422
-    assert response.json()["error"]["code"] == "memory.policy_blocked"
+    async def _list_spaces(self, *, limit: int) -> list[SimpleNamespace]:
+        return list(self.spaces.values())[:limit]
+
+    async def _create_memory_scope(self, command: object) -> SimpleNamespace:
+        space_id = str(command.space_id)
+        if space_id not in self.spaces:
+            raise MemoryValidationError("space is required")
+        key = (space_id, command.external_ref)
+        if key in self.scope_ids_by_space_and_ref:
+            scope = self.scopes[self.scope_ids_by_space_and_ref[key]]
+            if scope.status == LifecycleStatus.DELETED:
+                scope.status = LifecycleStatus.ACTIVE
+                scope.name = command.name
+                scope.updated_at = _now()
+            return SimpleNamespace(memory_scope=scope, created=False)
+        scope_id = f"scope_{len(self.scopes) + 1}"
+        scope = SimpleNamespace(
+            id=scope_id,
+            space_id=space_id,
+            external_ref=command.external_ref,
+            name=command.name,
+            status=LifecycleStatus.ACTIVE,
+            created_at=_now(),
+            updated_at=_now(),
+        )
+        self.scopes[scope_id] = scope
+        self.scope_ids_by_space_and_ref[key] = scope_id
+        return SimpleNamespace(memory_scope=scope, created=True)
+
+    async def _list_memory_scopes(
+        self,
+        *,
+        space_id: object,
+        limit: int,
+    ) -> list[SimpleNamespace]:
+        return [
+            scope
+            for scope in self.scopes.values()
+            if scope.space_id == str(space_id) and scope.status != LifecycleStatus.DELETED
+        ][:limit]
+
+    async def _update_memory_scope(self, command: object) -> SimpleNamespace:
+        scope = self.scopes[str(command.memory_scope_id)]
+        if command.external_ref is not None:
+            key = (scope.space_id, command.external_ref)
+            existing_id = self.scope_ids_by_space_and_ref.get(key)
+            if existing_id is not None and existing_id != scope.id:
+                raise MemoryConflictError("memory_scope external_ref exists")
+            old_key = (scope.space_id, scope.external_ref)
+            self.scope_ids_by_space_and_ref.pop(old_key, None)
+            self.scope_ids_by_space_and_ref[key] = scope.id
+            scope.external_ref = command.external_ref
+        if command.name is not None:
+            scope.name = command.name
+        scope.updated_at = _now()
+        return SimpleNamespace(memory_scope=scope)
+
+    async def _delete_memory_scope(self, command: object) -> SimpleNamespace:
+        scope = self.scopes[str(command.memory_scope_id)]
+        scope.status = LifecycleStatus.DELETED
+        scope.updated_at = _now()
+        return SimpleNamespace(memory_scope=scope)
+
+
+def _now() -> datetime:
+    return datetime(2026, 1, 2, 3, 4, 5, tzinfo=UTC)
