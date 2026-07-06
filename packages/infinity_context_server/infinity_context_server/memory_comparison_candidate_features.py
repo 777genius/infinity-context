@@ -21,6 +21,9 @@ from infinity_context_server.memory_comparison_candidate_risks import (
     memory_has_broad_summary,
     memory_has_conflict_or_stale,
 )
+from infinity_context_server.memory_comparison_location_roles import (
+    has_location_role_grounding as _has_location_role_grounding,
+)
 from infinity_context_server.memory_comparison_models import RetrievedMemory
 from infinity_context_server.memory_comparison_relation_support import (
     has_alias_go_by_surface,
@@ -405,6 +408,7 @@ def build_candidate_evidence_features(
         query_terms=query_terms,
         entities=entities,
         memory_text=text,
+        question=question,
     )
     relation_target_specificity_reasons = _relation_target_specificity_reason_codes(
         memory_terms,
@@ -818,11 +822,18 @@ def _relation_category_hits(
     query_terms: Sequence[str],
     entities: Sequence[str],
     memory_text: str = "",
+    question: str = "",
 ) -> tuple[str, ...]:
     hits: list[str] = []
     query_term_set = set(query_terms)
     for category, terms in relation_category_terms.items():
         term_values = _relation_term_values(terms)
+        if str(category) == "location_transition" and not _has_location_role_grounding(
+            question=question,
+            memory_terms=memory_terms,
+            memory_text=memory_text,
+        ):
+            continue
         typed_support = typed_relation_category_support(
             str(category),
             memory_terms,

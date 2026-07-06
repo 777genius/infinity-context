@@ -37,6 +37,9 @@ from infinity_context_server.memory_comparison_intent import (
     infer_time_intent_kind,
     merge_relation_evidence_needs,
 )
+from infinity_context_server.memory_comparison_location_roles import (
+    has_current_location_query as _has_current_location_query,
+)
 from infinity_context_server.memory_comparison_models import RetrievedMemory
 from infinity_context_server.memory_comparison_query_plan import (
     QueryPlanCandidate,
@@ -881,7 +884,11 @@ def decomposed_search_queries(
             relation_variant_terms=relation_variant_terms,
             lexical_terms=lexical_terms,
         )
-        if "location_support" in intent.evidence_need and "current" not in relation_terms
+        if "location_support" in intent.evidence_need
+        and (
+            "current" not in relation_terms
+            or _has_current_location_query(intent.question)
+        )
         else ()
     )
     if location_query_terms and (entity_surfaces or len(location_query_terms) >= 4):
@@ -2987,7 +2994,7 @@ def _benchmark_rerank_boost(
         has_preference_evidence=_memory_has_preference_evidence(memory),
         has_visual_evidence=_memory_has_visual_evidence(memory),
         has_focused_turn_surface=_memory_has_focused_turn_surface(memory),
-        question=str(profile.get("question") or ""),
+        question=question or str(profile.get("question") or ""),
     )
     intent_policy_boosts = focused_intent_policy_boosts(
         memory_terms=set(candidate_features.memory_terms),

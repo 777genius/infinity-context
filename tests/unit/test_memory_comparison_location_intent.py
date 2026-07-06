@@ -68,6 +68,84 @@ def test_location_transition_relation_category_boosts_origin_evidence() -> None:
     assert origin_signals["benchmark_location_support_boost"] > 0
 
 
+def test_move_from_location_rerank_avoids_destination_role_mixup() -> None:
+    case = _case("Where did Caroline move from?")
+    origin_evidence = RetrievedMemory(
+        item_id="origin-evidence",
+        rank=2,
+        score=0.5,
+        text="D1:4 Caroline: I moved from my home country, Canada, years ago.",
+        source_refs=("D1:4",),
+        metadata={"item_type": "raw_turn"},
+    )
+    destination_evidence = RetrievedMemory(
+        item_id="destination-mixup",
+        rank=1,
+        score=0.57,
+        text="D1:5 Caroline: I moved to Toronto after finishing school.",
+        source_refs=("D1:5",),
+        metadata={"item_type": "raw_turn"},
+    )
+
+    reranked, _diagnostics = benchmark_rerank_memories(
+        case,
+        (destination_evidence, origin_evidence),
+    )
+
+    diagnostics_by_id = {
+        memory.item_id: memory.metadata["diagnostics"] for memory in reranked
+    }
+    origin_signals = diagnostics_by_id["origin-evidence"]["score_signals"]
+    destination_features = diagnostics_by_id["destination-mixup"][
+        "benchmark_candidate_features"
+    ]
+    destination_signals = diagnostics_by_id["destination-mixup"]["score_signals"]
+
+    assert reranked[0].item_id == "origin-evidence"
+    assert destination_features["relation_category_hits"] == []
+    assert destination_signals["benchmark_location_support_boost"] == 0.0
+    assert origin_signals["benchmark_location_support_boost"] > 0
+
+
+def test_move_to_location_rerank_avoids_origin_role_mixup() -> None:
+    case = _case("Where did Alex move to?")
+    destination_evidence = RetrievedMemory(
+        item_id="destination-evidence",
+        rank=2,
+        score=0.5,
+        text="D2:4 Alex: I moved to Seattle for the new role.",
+        source_refs=("D2:4",),
+        metadata={"item_type": "raw_turn"},
+    )
+    origin_evidence = RetrievedMemory(
+        item_id="origin-mixup",
+        rank=1,
+        score=0.57,
+        text="D2:3 Alex: I moved from Boston before changing jobs.",
+        source_refs=("D2:3",),
+        metadata={"item_type": "raw_turn"},
+    )
+
+    reranked, _diagnostics = benchmark_rerank_memories(
+        case,
+        (origin_evidence, destination_evidence),
+    )
+
+    diagnostics_by_id = {
+        memory.item_id: memory.metadata["diagnostics"] for memory in reranked
+    }
+    destination_signals = diagnostics_by_id["destination-evidence"]["score_signals"]
+    origin_features = diagnostics_by_id["origin-mixup"][
+        "benchmark_candidate_features"
+    ]
+    origin_signals = diagnostics_by_id["origin-mixup"]["score_signals"]
+
+    assert reranked[0].item_id == "destination-evidence"
+    assert origin_features["relation_category_hits"] == []
+    assert origin_signals["benchmark_location_support_boost"] == 0.0
+    assert destination_signals["benchmark_location_support_boost"] > 0
+
+
 def test_location_transition_decomposition_adds_location_support_query() -> None:
     case = _case("Where did Caroline relocate from?")
 
@@ -139,6 +217,62 @@ def test_workplace_location_query_gets_location_support_without_answer_leakage()
     )
     assert intent.to_diagnostics()["uses_ground_truth"] is False
     assert "Canada" not in str(intent.to_diagnostics())
+
+
+def test_current_location_query_gets_location_support_without_answer_leakage() -> None:
+    case = _case("Where does Alex currently live?")
+
+    intent = query_retrieval_intent(case)
+    queries, diagnostics = decomposed_search_queries(case)
+    profile = intent.to_query_profile()
+
+    assert "location_transition" in profile["relation_categories"]
+    assert "location_support" in profile["evidence_need"]
+    assert "location_support" in diagnostics["query_plan"]["selected_roles"]
+    assert any(
+        query.startswith("alex live liv bas home city place") for query in queries
+    )
+    assert intent.to_diagnostics()["uses_ground_truth"] is False
+    assert "Seattle" not in str(intent.to_diagnostics())
+
+
+def test_current_location_rerank_avoids_origin_role_mixup() -> None:
+    case = _case("Where does Alex currently live?")
+    current_evidence = RetrievedMemory(
+        item_id="current-location",
+        rank=2,
+        score=0.5,
+        text="D2:9 Alex: I currently live in Seattle near the lake.",
+        source_refs=("D2:9",),
+        metadata={"item_type": "raw_turn"},
+    )
+    origin_evidence = RetrievedMemory(
+        item_id="origin-mixup",
+        rank=1,
+        score=0.57,
+        text="D2:2 Alex: I moved from Boston after college.",
+        source_refs=("D2:2",),
+        metadata={"item_type": "raw_turn"},
+    )
+
+    reranked, _diagnostics = benchmark_rerank_memories(
+        case,
+        (origin_evidence, current_evidence),
+    )
+
+    diagnostics_by_id = {
+        memory.item_id: memory.metadata["diagnostics"] for memory in reranked
+    }
+    current_signals = diagnostics_by_id["current-location"]["score_signals"]
+    origin_features = diagnostics_by_id["origin-mixup"][
+        "benchmark_candidate_features"
+    ]
+    origin_signals = diagnostics_by_id["origin-mixup"]["score_signals"]
+
+    assert reranked[0].item_id == "current-location"
+    assert origin_features["relation_category_hits"] == []
+    assert origin_signals["benchmark_location_support_boost"] == 0.0
+    assert current_signals["benchmark_location_support_boost"] > 0
 
 
 def test_workplace_location_rerank_boosts_place_evidence_over_generic_work() -> None:
