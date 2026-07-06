@@ -64,6 +64,16 @@ from infinity_context_server.features.memory_scopes.snapshot_compatibility impor
     validate_memory_scope_snapshot_preview_request,
     verify_memory_scope_snapshot_manifest,
 )
+from infinity_context_server.features.memory_scopes.thread_memory_requests import (
+    ThreadMemoryScopeRequest,
+    empty_thread_memory_delete_counts,
+    empty_thread_memory_delete_response,
+    empty_thread_memory_status_counts,
+    empty_thread_memory_status_response,
+    thread_memory_delete_response,
+    thread_memory_scope_resolution_kwargs,
+    thread_memory_status_response,
+)
 
 FEATURE_ID = memory_scopes.FEATURE_ID
 
@@ -82,6 +92,7 @@ __all__ = (
     "MemoryScopeSnapshotCompatibilityError",
     "PreviewMemoryScopeSnapshotRequest",
     "RestoreMemoryScopeHttpRequest",
+    "ThreadMemoryScopeRequest",
     "TransferMemoryScopeOwnershipHttpRequest",
     "UpdateMemoryScopeCompatibilityCommand",
     "UpdateMemoryScopeRequest",
@@ -95,6 +106,10 @@ __all__ = (
     "create_memory_scope_result_to_contract",
     "create_memory_scopes_router",
     "delete_memory_scope_compatibility_command_from_path",
+    "empty_thread_memory_delete_counts",
+    "empty_thread_memory_delete_response",
+    "empty_thread_memory_status_counts",
+    "empty_thread_memory_status_response",
     "graph_export_scope_not_found_response",
     "graph_export_to_response",
     "memory_scope_collection_compatibility_response",
@@ -108,6 +123,9 @@ __all__ = (
     "restore_memory_scope_command_from_http",
     "restore_memory_scope_result_to_response",
     "space_to_response",
+    "thread_memory_delete_response",
+    "thread_memory_scope_resolution_kwargs",
+    "thread_memory_status_response",
     "thread_to_response",
     "transfer_memory_scope_ownership_command_from_http",
     "transfer_memory_scope_ownership_result_to_response",

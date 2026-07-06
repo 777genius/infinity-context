@@ -123,63 +123,39 @@ def test_memory_facts_server_feature_public_surface_composes_router() -> None:
 
     assert feature.feature_id == "memory_facts"
     assert server_public.FEATURE_ID == "memory_facts"
-    assert server_public.__all__ == (
-        "ForgetFactHttpRequest",
-        "LinkFactRequest",
-        "MemoryFactSourceRefHttpRequest",
-        "MemoryFactsServerComposition",
-        "MemoryFactsServerFeature",
-        "RememberFactRequest",
-        "RememberFactHttpRequest",
-        "SourceRefRequest",
-        "UpdateFactRequest",
-        "UpdateFactHttpRequest",
-        "FEATURE_ID",
-        "build_memory_facts_server_composition",
-        "build_memory_facts_server_feature",
-        "create_memory_facts_router",
-        "create_suggestions_batch_to_response",
-        "evidence_ref_request_to_public",
-        "evidence_ref_to_response",
-        "fact_relation_item_to_response",
-        "fact_relation_to_response",
-        "fact_result_to_response",
-        "fact_to_response",
-        "forget_fact_command_from_v1_path",
-        "forget_fact_command_from_http",
-        "forget_fact_request_to_command",
-        "forget_fact_result_to_contract",
-        "legacy_interview_kind",
-        "legacy_interview_source",
-        "legacy_interview_speaker",
-        "legacy_interview_trust",
-        "legacy_memory_fact_to_response",
-        "link_fact_relation_command_from_v1_request",
-        "memory_kind_from_v1_request",
-        "memory_fact_result_to_response",
-        "memory_fact_scope_from_contract",
-        "memory_fact_scope_from_ids",
-        "memory_fact_snapshot_to_contract",
-        "memory_fact_snapshot_to_response",
-        "related_fact_to_response",
-        "remember_fact_command_from_v1_request",
-        "remember_fact_command_from_contract",
-        "remember_fact_request_to_command",
-        "remember_fact_result_to_contract",
-        "review_suggestions_batch_to_response",
-        "source_ref_from_v1_request",
-        "source_ref_request_to_public",
-        "source_ref_to_contract",
-        "source_ref_to_response",
-        "suggestion_result_to_response",
-        "suggestion_to_response",
-        "unlink_fact_relation_command_from_v1_path",
-        "update_fact_command_from_v1_request",
-        "update_fact_command_from_http",
-        "update_fact_request_to_command",
-        "update_fact_result_to_contract",
-        "validate_fact_status_filter",
-        "validate_fact_relation_status_filter",
+    assert server_public.__all__ == tuple(
+        (  # noqa: SIM905 - keep the exact ordered public surface compact.
+            "CreateSuggestionBatchItemRequest CreateSuggestionRequest CreateSuggestionsBatchRequest "  # noqa: E501
+            "ForgetFactHttpRequest LinkFactRequest MemoryFactSourceRefHttpRequest "
+            "MemoryFactsServerComposition MemoryFactsServerFeature RememberFactRequest "
+            "RememberFactHttpRequest ResolveDuplicateMergeRequest "
+            "ResolveSuggestionConflictRequest ReviewSuggestionBatchItemRequest "
+            "ReviewSuggestionRequest ReviewSuggestionsBatchRequest SourceRefRequest "
+            "UpdateFactRequest UpdateFactHttpRequest FEATURE_ID "
+            "build_memory_facts_server_composition build_memory_facts_server_feature "
+            "create_memory_facts_router create_suggestion_command_from_v1_request "
+            "create_suggestions_batch_to_response create_suggestions_batch_command_from_v1_request "
+            "evidence_ref_request_to_public evidence_ref_to_response fact_relation_item_to_response "  # noqa: E501
+            "fact_relation_to_response fact_result_to_response fact_to_response "
+            "forget_fact_command_from_v1_path forget_fact_command_from_http "
+            "forget_fact_request_to_command forget_fact_result_to_contract legacy_interview_kind "
+            "legacy_interview_source legacy_interview_speaker legacy_interview_trust "
+            "legacy_memory_fact_to_response link_fact_relation_command_from_v1_request "
+            "memory_kind_from_v1_request memory_fact_result_to_response "
+            "memory_fact_scope_from_contract memory_fact_scope_from_ids "
+            "memory_fact_snapshot_to_contract memory_fact_snapshot_to_response "
+            "normalize_suggestion_tag_filter related_fact_to_response "
+            "remember_fact_command_from_v1_request remember_fact_command_from_contract "
+            "remember_fact_request_to_command remember_fact_result_to_contract "
+            "review_suggestions_batch_command_from_v1_request review_suggestions_batch_to_response "
+            "source_ref_from_v1_request source_ref_request_to_public source_ref_to_contract "
+            "source_ref_to_response suggestion_result_to_response suggestion_to_response "
+            "unlink_fact_relation_command_from_v1_path update_fact_command_from_v1_request "
+            "update_fact_command_from_http update_fact_request_to_command update_fact_result_to_contract "  # noqa: E501
+            "validate_fact_status_filter validate_fact_relation_status_filter "
+            "validate_suggestion_confidence_and_trust validate_suggestion_operation "
+            "validate_suggestion_review_action validate_suggestion_status_filter"
+        ).split()
     )
     assert {route.path for route in feature.create_router().routes} == {
         "/memory-facts-feature/facts",
@@ -618,6 +594,82 @@ def test_memory_facts_public_seam_maps_suggestion_responses_and_batches() -> Non
     assert create_batch["results"][0]["suggestion"]["id"] == "sug_1"
 
 
+def test_memory_facts_public_seam_maps_suggestion_requests_to_commands() -> None:
+    source_ref = server_public.SourceRefRequest(**_source_ref_json())
+    request = server_public.CreateSuggestionRequest(
+        candidate_text="  Batch suggest routes through the feature seam.  ",
+        kind="note", source_refs=[source_ref],
+        confidence="high", trust_level="medium",
+        safe_reason="human reviewed",
+        operation="add", category="architecture",
+        tags=["RAG", "cognee", "rag", " "],
+        review_payload={"review_kind": "candidate_review"},
+    )
+    command = server_public.create_suggestion_command_from_v1_request(
+        request,
+        space_id="space_1",
+        memory_scope_id="scope_1",
+    )
+
+    assert isinstance(command, legacy_application.CreateSuggestionCommand)
+    assert command.space_id == "space_1"
+    assert command.memory_scope_id == "scope_1"
+    assert (command.confidence, command.trust_level) == ("high", "medium")
+    assert command.tags == ("rag", "cognee")
+    assert command.review_payload == {"review_kind": "candidate_review"}
+    assert command.kind is legacy_entities.MemoryKind.NOTE
+    assert isinstance(command.source_refs[0], legacy_entities.SourceRef)
+    assert command.source_refs[0].source_id == "doc_1"
+
+    batch_command = server_public.create_suggestions_batch_command_from_v1_request(
+        server_public.CreateSuggestionsBatchRequest(
+            items=[
+                server_public.CreateSuggestionBatchItemRequest(
+                    candidate_text="Batch suggestion one.", source_refs=[source_ref],
+                    safe_reason="human reviewed", tags=["Queue"],
+                )
+            ],
+            continue_on_error=True,
+        ),
+        space_id="space_1",
+        memory_scope_id="scope_1",
+    )
+
+    assert isinstance(batch_command, legacy_application.CreateSuggestionsBatchCommand)
+    assert batch_command.continue_on_error is True
+    assert batch_command.items[0].tags == ("queue",)
+
+    review_command = server_public.review_suggestions_batch_command_from_v1_request(
+        server_public.ReviewSuggestionsBatchRequest(
+            items=[
+                server_public.ReviewSuggestionBatchItemRequest(
+                    suggestion_id="sug_1", action="approve", reason="accurate", force=True,
+                )
+            ],
+            continue_on_error=True,
+        ),
+    )
+
+    assert isinstance(review_command, legacy_application.ReviewSuggestionsBatchCommand)
+    assert review_command.continue_on_error is True
+    review_item_command = review_command.items[0]
+    assert (
+        review_item_command.suggestion_id,
+        review_item_command.action,
+        review_item_command.reason,
+        review_item_command.force,
+    ) == ("sug_1", "approve", "accurate", True)
+    assert isinstance(review_item_command, legacy_application.ReviewSuggestionBatchItemCommand)
+
+    assert server_public.normalize_suggestion_tag_filter(" Queue ") == "queue"
+    server_public.validate_suggestion_status_filter("pending")
+
+    with pytest.raises(MemoryValidationError, match="Unknown suggestion operation"):
+        server_public.validate_suggestion_operation("unknown")
+    with pytest.raises(MemoryValidationError, match="Unknown suggestion review action"):
+        server_public.validate_suggestion_review_action("resolve_duplicate")
+
+
 def test_memory_facts_public_seam_validates_relation_status_filter() -> None:
     server_public.validate_fact_status_filter(None)
     server_public.validate_fact_status_filter("active")
@@ -785,20 +837,54 @@ def test_v1_suggestions_route_delegates_feature_helpers_to_public_seam() -> None
     assert memory_facts_imports == [
         ("infinity_context_server.features.memory_facts", ("public",))
     ]
-    assert "def suggestion_to_response" not in source
-    assert "def _review_batch_to_response" not in source
-    assert "def _create_batch_to_response" not in source
-    assert "review_payload_with_default_contract" not in source
+    for removed in (
+        "class CreateSuggestionRequest",
+        "class CreateSuggestionBatchItemRequest",
+        "class CreateSuggestionsBatchRequest",
+        "class ReviewSuggestionRequest",
+        "class ResolveSuggestionConflictRequest",
+        "class ResolveDuplicateMergeRequest",
+        "class ReviewSuggestionBatchItemRequest",
+        "class ReviewSuggestionsBatchRequest",
+        "def suggestion_to_response",
+        "def _review_batch_to_response",
+        "def _create_batch_to_response",
+        "def _create_suggestion_command",
+        "def _validate_confidence_and_trust",
+        "def _validate_suggestion_status",
+        "def _validate_operation",
+        "def _validate_review_action",
+        "def _normalize_tags",
+        "CreateSuggestionCommand(",
+        "CreateSuggestionsBatchCommand(",
+        "ReviewSuggestionBatchItemCommand(",
+        "ReviewSuggestionsBatchCommand(",
+        "review_payload_with_default_contract",
+        "memory_facts_feature.memory_kind_from_v1_request",
+        "memory_facts_feature.source_ref_from_v1_request",
+    ):
+        assert removed not in source
     assert "infinity_context_server.api.public_payload" not in imports
     assert "infinity_context_server.api.v1.facts" not in imports
     assert "infinity_context_server.api.v1.source_refs" not in imports
     assert "infinity_context_core.application.review_payloads" not in imports
-    assert "memory_facts_feature.suggestion_to_response" in source
-    assert "memory_facts_feature.suggestion_result_to_response" in source
-    assert "memory_facts_feature.create_suggestions_batch_to_response" in source
-    assert "memory_facts_feature.review_suggestions_batch_to_response" in source
-    assert "memory_facts_feature.memory_kind_from_v1_request" in source
-    assert "memory_facts_feature.source_ref_from_v1_request" in source
+    for delegated in (
+        "memory_facts_feature.suggestion_to_response",
+        "memory_facts_feature.suggestion_result_to_response",
+        "memory_facts_feature.create_suggestions_batch_to_response",
+        "memory_facts_feature.review_suggestions_batch_to_response",
+        "memory_facts_feature.CreateSuggestionRequest",
+        "memory_facts_feature.CreateSuggestionsBatchRequest",
+        "memory_facts_feature.ReviewSuggestionRequest",
+        "memory_facts_feature.ReviewSuggestionsBatchRequest",
+        "memory_facts_feature.create_suggestion_command_from_v1_request",
+        "memory_facts_feature.create_suggestions_batch_command_from_v1_request",
+        "memory_facts_feature.review_suggestions_batch_command_from_v1_request",
+        "memory_facts_feature.validate_suggestion_status_filter",
+        "memory_facts_feature.validate_suggestion_operation",
+        "memory_facts_feature.normalize_suggestion_tag_filter",
+    ):
+        assert delegated in source
 
 
 def test_memory_facts_server_slice_uses_only_public_feature_boundaries() -> None:
@@ -815,7 +901,7 @@ def test_memory_facts_server_slice_uses_only_public_feature_boundaries() -> None
         "qdrant_client",
         "sqlalchemy",
     )
-    legacy_v1_compat_imports = {
+    legacy_v1_memory_facts_seam_imports = {
         "infinity_context_core.application",
         "infinity_context_core.domain.entities",
         "infinity_context_core.domain.errors",
@@ -824,7 +910,10 @@ def test_memory_facts_server_slice_uses_only_public_feature_boundaries() -> None
     for path in sorted(FEATURE_ROOT.rglob("*.py")):
         for imported in _imports(path):
             rel = path.relative_to(REPO_ROOT)
-            if path.name == "compatibility.py" and imported in legacy_v1_compat_imports:
+            if path.name in {
+                "compatibility.py",
+                "suggestion_requests.py",
+            } and imported in legacy_v1_memory_facts_seam_imports:
                 continue
             if imported.startswith(
                 "infinity_context_core.features."

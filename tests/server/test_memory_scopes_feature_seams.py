@@ -12,6 +12,7 @@ from infinity_context_contracts.features.memory_scopes import (
     CreateMemoryScopeRequestDto,
 )
 from infinity_context_server.features.memory_scopes import public as server_public
+from pydantic import ValidationError
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 FEATURE_ROOT = (
@@ -39,6 +40,15 @@ MEMORY_BROWSER_API_PATH = (
     / "api"
     / "v1"
     / "memory_browser.py"
+)
+THREAD_MEMORY_API_PATH = (
+    REPO_ROOT
+    / "packages"
+    / "infinity_context_server"
+    / "infinity_context_server"
+    / "api"
+    / "v1"
+    / "thread_memory.py"
 )
 
 
@@ -156,6 +166,7 @@ def test_memory_scopes_server_feature_public_surface_composes_router() -> None:
         "MemoryScopeSnapshotCompatibilityError",
         "PreviewMemoryScopeSnapshotRequest",
         "RestoreMemoryScopeHttpRequest",
+        "ThreadMemoryScopeRequest",
         "TransferMemoryScopeOwnershipHttpRequest",
         "UpdateMemoryScopeCompatibilityCommand",
         "UpdateMemoryScopeRequest",
@@ -169,6 +180,10 @@ def test_memory_scopes_server_feature_public_surface_composes_router() -> None:
         "create_memory_scope_result_to_contract",
         "create_memory_scopes_router",
         "delete_memory_scope_compatibility_command_from_path",
+        "empty_thread_memory_delete_counts",
+        "empty_thread_memory_delete_response",
+        "empty_thread_memory_status_counts",
+        "empty_thread_memory_status_response",
         "graph_export_scope_not_found_response",
         "graph_export_to_response",
         "memory_scope_collection_compatibility_response",
@@ -182,6 +197,9 @@ def test_memory_scopes_server_feature_public_surface_composes_router() -> None:
         "restore_memory_scope_command_from_http",
         "restore_memory_scope_result_to_response",
         "space_to_response",
+        "thread_memory_delete_response",
+        "thread_memory_scope_resolution_kwargs",
+        "thread_memory_status_response",
         "thread_to_response",
         "transfer_memory_scope_ownership_command_from_http",
         "transfer_memory_scope_ownership_result_to_response",
@@ -462,6 +480,164 @@ def test_memory_browser_route_uses_public_feature_response_mapping() -> None:
     assert ("document_ingestion_feature", "asset_to_response") in public_calls
     assert ("document_ingestion_feature", "asset_extraction_to_response") in public_calls
     assert "thread_to_response" not in api_function_names
+
+
+def test_memory_scopes_feature_owns_thread_memory_request_response_seam(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from infinity_context_server.api.v1 import thread_memory as thread_memory_api
+
+    api_source = THREAD_MEMORY_API_PATH.read_text(encoding="utf-8")
+    api_tree = ast.parse(api_source, filename=str(THREAD_MEMORY_API_PATH))
+    api_class_names = {
+        node.name for node in ast.walk(api_tree) if isinstance(node, ast.ClassDef)
+    }
+    api_function_names = {
+        node.name
+        for node in ast.walk(api_tree)
+        if isinstance(node, ast.FunctionDef | ast.AsyncFunctionDef)
+    }
+    route_paths = {
+        (route.path, frozenset(route.methods or ()))
+        for route in thread_memory_api.router.routes
+    }
+
+    assert "ThreadMemoryScopeRequest" not in api_class_names
+    assert "_empty_status_counts" not in api_function_names
+    assert "_empty_delete_counts" not in api_function_names
+    assert "infinity_context_server.features.memory_scopes" in _imports(
+        THREAD_MEMORY_API_PATH
+    )
+    assert "memory_scopes_feature.thread_memory_scope_resolution_kwargs" in api_source
+    assert "memory_scopes_feature.empty_thread_memory_status_response" in api_source
+    assert "memory_scopes_feature.thread_memory_status_response" in api_source
+    assert "memory_scopes_feature.empty_thread_memory_delete_response" in api_source
+    assert "memory_scopes_feature.thread_memory_delete_response" in api_source
+    assert (
+        "/thread-memory/delete",
+        frozenset({"POST"}),
+    ) in route_paths
+    assert thread_memory_api.ThreadMemoryScopeRequest is server_public.ThreadMemoryScopeRequest
+    assert server_public.ThreadMemoryScopeRequest.__name__ == "ThreadMemoryScopeRequest"
+
+    with pytest.raises(ValidationError) as exc_info:
+        server_public.ThreadMemoryScopeRequest.model_validate(
+            {
+                "space_id": "space_1",
+                "memory_scope_id": "scope_1",
+                "thread_id": "thread_1",
+                "unexpected": "raw",
+            }
+        )
+    assert any(
+        error["loc"] == ("unexpected",) and error["type"] == "extra_forbidden"
+        for error in exc_info.value.errors()
+    )
+
+    request = server_public.ThreadMemoryScopeRequest(
+        space_slug="team",
+        memory_scope_external_ref="atlas",
+        thread_external_ref="planning",
+    )
+    assert server_public.thread_memory_scope_resolution_kwargs(request) == {
+        "space_id": None,
+        "memory_scope_id": None,
+        "thread_id": None,
+        "space_slug": "team",
+        "memory_scope_external_ref": "atlas",
+        "thread_external_ref": "planning",
+        "thread_required": True,
+    }
+    assert server_public.empty_thread_memory_status_response() == {
+        "data": {
+            "chunks": 0,
+            "facts": 0,
+            "jobs": 0,
+            "pending_jobs": 0,
+        }
+    }
+    assert server_public.thread_memory_status_response(
+        SimpleNamespace(chunks=1, facts=2, jobs=3, pending_jobs=4)
+    ) == {
+        "data": {
+            "chunks": 1,
+            "facts": 2,
+            "jobs": 3,
+            "pending_jobs": 4,
+        }
+    }
+    assert server_public.empty_thread_memory_delete_response() == {
+        "data": {
+            "deleted_chunks": 0,
+            "deleted_facts": 0,
+            "deleted_jobs": 0,
+        }
+    }
+    assert server_public.thread_memory_delete_response(
+        SimpleNamespace(deleted_chunks=1, deleted_facts=2, deleted_jobs=3)
+    ) == {
+        "data": {
+            "deleted_chunks": 1,
+            "deleted_facts": 2,
+            "deleted_jobs": 3,
+        }
+    }
+
+    calls: list[tuple[str, object]] = []
+
+    async def fake_resolve_existing_single_scope(
+        _container: object,
+        **kwargs: object,
+    ) -> None:
+        calls.append(("resolve", kwargs))
+        return None
+
+    def fake_status_response() -> dict[str, object]:
+        calls.append(("empty_status", {}))
+        return {"delegated": "status"}
+
+    def fake_delete_response() -> dict[str, object]:
+        calls.append(("empty_delete", {}))
+        return {"delegated": "delete"}
+
+    monkeypatch.setattr(
+        thread_memory_api,
+        "resolve_existing_single_scope",
+        fake_resolve_existing_single_scope,
+    )
+    monkeypatch.setattr(
+        thread_memory_api,
+        "ensure_server_writes_enabled",
+        lambda _container: None,
+    )
+    monkeypatch.setattr(
+        thread_memory_api.memory_scopes_feature,
+        "empty_thread_memory_status_response",
+        fake_status_response,
+    )
+    monkeypatch.setattr(
+        thread_memory_api.memory_scopes_feature,
+        "empty_thread_memory_delete_response",
+        fake_delete_response,
+    )
+
+    status_response = asyncio.run(
+        thread_memory_api.thread_memory_status(request, SimpleNamespace())
+    )
+    delete_response = asyncio.run(
+        thread_memory_api.delete_thread_memory(request, SimpleNamespace())
+    )
+
+    assert status_response == {"delegated": "status"}
+    assert delete_response == {"delegated": "delete"}
+    assert [name for name, _payload in calls] == [
+        "resolve",
+        "empty_status",
+        "resolve",
+        "empty_delete",
+    ]
+    assert calls[0][1] == server_public.thread_memory_scope_resolution_kwargs(request)
+    assert calls[2][1] == server_public.thread_memory_scope_resolution_kwargs(request)
 
 
 def test_memory_scopes_feature_owns_snapshot_compatibility_api_mapping() -> None:
