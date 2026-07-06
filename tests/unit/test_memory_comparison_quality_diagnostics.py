@@ -43,6 +43,39 @@ def test_evidence_ref_rank_gate_counts_ref_positions_and_focused_refs() -> None:
     assert metrics["focused_refs_top5_count"] == 1
 
 
+def test_evidence_ref_rank_gate_sanitizes_failure_sample_refs() -> None:
+    raw_locomo_ref = "locomo:conv-private:session_1:D1:2:chunk"
+    raw_provider_ref = "provider:private-token:selected-evidence"
+
+    metrics = evidence_ref_rank_gate_metrics(
+        (
+            _item(
+                case_id="case-raw-refs",
+                retrieval_quality={
+                    "missing_evidence_terms": [raw_locomo_ref, raw_provider_ref]
+                },
+                evidence_bundle={
+                    "evidence_term_count": 2,
+                    "bundle_complete": False,
+                    "covered_evidence_terms": [raw_locomo_ref],
+                    "items": [
+                        {
+                            "retrieval_order": 9,
+                            "covered_evidence_terms": [raw_locomo_ref],
+                        }
+                    ],
+                },
+            ),
+        )
+    )
+
+    serialized = json.dumps(metrics["samples"], sort_keys=True)
+
+    assert raw_locomo_ref not in serialized
+    assert raw_provider_ref not in serialized
+    assert "source_session_turn_refs:session_1:D1:2" in serialized
+
+
 def test_quality_diagnostics_reports_intents_policies_bundle_gaps_and_leakage() -> None:
     diagnostics = quality_diagnostics(
         (

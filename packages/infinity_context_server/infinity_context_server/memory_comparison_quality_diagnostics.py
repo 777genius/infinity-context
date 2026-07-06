@@ -2728,13 +2728,27 @@ def _evidence_ref_failure_sample(
     required_refs: Sequence[str],
     ref_positions: Mapping[str, int],
 ) -> dict[str, object]:
+    missing_refs = [ref for ref in required_refs if ref not in ref_positions]
     return {
         "case_id": str(item.get("case_id") or ""),
-        "required_refs": list(required_refs),
-        "found_refs": sorted(ref_positions),
-        "missing_refs": [ref for ref in required_refs if ref not in ref_positions],
-        "ref_positions": dict(ref_positions),
+        "required_refs": list(_safe_evidence_ref_terms(required_refs)),
+        "found_refs": sorted(_safe_evidence_ref_terms(tuple(ref_positions))),
+        "missing_refs": list(_safe_evidence_ref_terms(missing_refs)),
+        "ref_positions": _safe_ref_positions_for_output(ref_positions),
     }
+
+
+def _safe_ref_positions_for_output(
+    ref_positions: Mapping[str, int],
+) -> dict[str, int]:
+    safe_positions: dict[str, int] = {}
+    for ref, position in ref_positions.items():
+        for safe_ref in _safe_evidence_ref_terms((ref,)):
+            safe_positions[safe_ref] = min(
+                safe_positions.get(safe_ref, position),
+                position,
+            )
+    return dict(sorted(safe_positions.items()))
 
 
 def _required_evidence_refs(item: Mapping[str, object]) -> tuple[str, ...]:
