@@ -871,6 +871,85 @@ def test_actionable_gap_summary_uses_stable_tie_breaks_and_gap_schema() -> None:
     assert diagnostic_gap["evidence"] == {"gap_reasons": ["not_selected"]}
 
 
+def test_actionable_gap_summary_compacts_query_role_family_samples() -> None:
+    long_value = "x" * 200
+    summary = actionable_gap_summary(
+        evaluation_count=1,
+        expected_case_count=1,
+        failed_gates=(),
+        query_overlap_count=0,
+        profile_overlap_count=0,
+        intent_overlap_count=0,
+        query_role_gap_breakdown={
+            "role_family_gaps": {
+                "temporal_support": {
+                    "candidate_count": 1,
+                    "selected_item_count": 0,
+                    "gap_reasons": ["not_selected", "not_lifted"],
+                }
+            },
+            "samples": [
+                {
+                    "case_id": "query-role-action-gap",
+                    "group": "temporal",
+                    "query_role": "visual_temporal_support",
+                    "query_role_families": ["visual_support", "temporal_support"],
+                    "query_role_gap_families": ["temporal_support"],
+                    "gap_reasons": ["not_selected", "not_lifted"],
+                    "memory_id": f"candidate-{long_value}",
+                    "rank": 7,
+                    "lifted": False,
+                    "bridge_query_hit": True,
+                    "positive_policy_score": 0.125,
+                    "answerability_score": 0.51,
+                    "source_locality_score": 0.42,
+                    "positive_signal_names": [
+                        f"signal-{index}-{long_value}" for index in range(6)
+                    ],
+                    "positive_signal_count": 6,
+                    "policy_reason_codes": ["no_selection"],
+                    "selected_bundle_role_families": ["primary", "supporting"],
+                    "selected_bundle_role_family_count": 2,
+                    "selected_bundle_query_role_families": [],
+                    "selected_bundle_query_role_family_count": 0,
+                }
+            ],
+        },
+    )
+
+    gap = summary["ranked_gaps"][0]
+
+    assert gap["category"] == "query_role_family"
+    assert gap["gap"] == "temporal_support"
+    assert gap["sample_case_ids"] == ["query-role-action-gap"]
+    assert gap["samples"] == [
+        {
+            "case_id": "query-role-action-gap",
+            "group": "temporal",
+            "query_role": "visual_temporal_support",
+            "memory_id": f"candidate-{long_value[:115]}...",
+            "query_role_families": ["visual_support", "temporal_support"],
+            "query_role_gap_families": ["temporal_support"],
+            "gap_reasons": ["not_selected", "not_lifted"],
+            "positive_signal_names": [
+                f"signal-{index}-{long_value[:116]}..." for index in range(5)
+            ],
+            "policy_reason_codes": ["no_selection"],
+            "selected_bundle_role_families": ["primary", "supporting"],
+            "rank": 7,
+            "positive_signal_count": 6,
+            "selected_bundle_role_family_count": 2,
+            "positive_policy_score": 0.125,
+            "answerability_score": 0.51,
+            "source_locality_score": 0.42,
+            "bridge_query_hit": True,
+        }
+    ]
+    assert len(gap["samples"][0]["positive_signal_names"]) == 5
+    assert len(gap["samples"][0]["memory_id"]) <= 128
+    json.dumps(gap)
+
+
 def test_actionable_gap_summary_caps_ranked_gaps_and_sample_case_ids() -> None:
     samples = [
         {"case_id": f"case-{index}", "reasons": ["selected_low_answerability"]}

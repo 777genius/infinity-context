@@ -39,16 +39,18 @@ from infinity_context_server.memory_comparison_source_identity import (
 _TURN_REF_RE = re.compile(r"\bD\d+:\d+\b")
 _TURN_REF_PARTS_RE = re.compile(r"\bD(?P<dialogue>\d+):(?P<turn>\d+)\b")
 _SOURCE_SESSION_TURN_RE = re.compile(
-    r"(?:^|:)session_(?P<session>\d+):D\d+:\d+:(?:turn|chunk|fact)$",
+    r"(?:^|[:_-])session[-_](?P<session>\d+)[:_-](?P<turn_ref>D\d+[:-]\d+)"
+    r"[:_-](?:turn|chunk|fact)(?:[-_][^:]*)?$",
     re.IGNORECASE,
 )
 _TEXT_SESSION_TURN_RE = re.compile(
-    r"\bsession_(?P<session>\d+)\s+(?:turn\s+)?(?P<turn_ref>D\d+:\d+)\b",
+    r"\bsession[-_](?P<session>\d+)\s+(?:turn\s+)?"
+    r"(?P<turn_ref>D\d+[:-]\d+)\b",
     re.IGNORECASE,
 )
 _TEXT_SESSION_DATE_TURN_RE = re.compile(
-    r"\bsession_(?P<session>\d+)\s+date:\s*[^.\n]{0,80}?\s"
-    r"(?P<turn_ref>D\d+:\d+)\b",
+    r"\bsession[-_](?P<session>\d+)\s+date:\s*[^.\n]{0,80}?\s"
+    r"(?P<turn_ref>D\d+[:-]\d+)\b",
     re.IGNORECASE,
 )
 _DIRECT_TURN_SPEAKER_RE = re.compile(
@@ -420,7 +422,15 @@ def build_candidate_evidence_features(
     text_turn_refs = tuple(dict.fromkeys(_TURN_REF_RE.findall(text)))
     text_session_turn_refs = _text_session_turn_refs(text)
     source_turn_refs = _source_turn_refs(source_refs)
-    turn_refs = tuple(dict.fromkeys((*text_turn_refs, *source_turn_refs)))
+    turn_refs = tuple(
+        dict.fromkeys(
+            (
+                *text_turn_refs,
+                *_turn_refs_from_session_turn_refs(text_session_turn_refs),
+                *source_turn_refs,
+            )
+        )
+    )
     source_turn_span = _source_turn_span(
         turn_refs,
         source_refs=source_refs,
@@ -1617,7 +1627,10 @@ def _source_turn_refs(source_refs: Sequence[str]) -> tuple[str, ...]:
         dict.fromkeys(
             ref
             for source_ref in source_refs
-            for ref in _TURN_REF_RE.findall(str(source_ref))
+            for ref in (
+                *_TURN_REF_RE.findall(str(source_ref)),
+                *_source_session_turn_values(str(source_ref)),
+            )
         )
     )
 
@@ -1628,19 +1641,53 @@ def _source_session_turn_refs(source_refs: Sequence[str]) -> tuple[str, ...]:
         match = _SOURCE_SESSION_TURN_RE.search(str(source_ref))
         if match is None:
             continue
-        if turn_match := _TURN_REF_RE.search(str(source_ref)):
-            refs.append(f"session_{match.group('session')}:{turn_match.group(0)}")
+        turn_ref = _normalized_turn_ref(match.group("turn_ref"))
+        if turn_ref:
+            refs.append(f"session_{match.group('session')}:{turn_ref}")
     return tuple(dict.fromkeys(refs))
 
 
 def _text_session_turn_refs(text: str) -> tuple[str, ...]:
     return tuple(
         dict.fromkeys(
-            f"session_{match.group('session')}:{match.group('turn_ref')}"
+            f"session_{match.group('session')}:{turn_ref}"
             for pattern in (_TEXT_SESSION_TURN_RE, _TEXT_SESSION_DATE_TURN_RE)
             for match in pattern.finditer(text)
+            for turn_ref in (_normalized_turn_ref(match.group("turn_ref")),)
+            if turn_ref
         )
     )
+
+
+def _source_session_turn_values(source_ref: str) -> tuple[str, ...]:
+    match = _SOURCE_SESSION_TURN_RE.search(source_ref)
+    if match is None:
+        return ()
+    turn_ref = _normalized_turn_ref(match.group("turn_ref"))
+    return (turn_ref,) if turn_ref else ()
+
+
+def _turn_refs_from_session_turn_refs(session_turn_refs: Sequence[str]) -> tuple[str, ...]:
+    return tuple(
+        dict.fromkeys(
+            ref
+            for session_turn_ref in session_turn_refs
+            for match in (_TURN_REF_RE.search(str(session_turn_ref)),)
+            if match is not None
+            for ref in (match.group(0),)
+        )
+    )
+
+
+def _normalized_turn_ref(value: object) -> str:
+    match = re.fullmatch(
+        r"D(?P<dialogue>\d+)[:-](?P<turn>\d+)",
+        str(value or "").strip(),
+        re.IGNORECASE,
+    )
+    if match is None:
+        return ""
+    return f"D{match.group('dialogue')}:{match.group('turn')}"
 
 
 def _source_turn_span(

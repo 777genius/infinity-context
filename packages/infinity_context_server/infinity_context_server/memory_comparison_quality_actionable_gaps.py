@@ -46,6 +46,8 @@ _MAX_RERANK_SIGNAL_ACTIONABLE_SAMPLES = 3
 _MAX_RERANK_SIGNAL_ACTIONABLE_SAMPLE_VALUES = 5
 _MAX_EVIDENCE_RECALL_ACTIONABLE_SAMPLES = 3
 _MAX_EVIDENCE_RECALL_ACTIONABLE_SAMPLE_VALUES = 5
+_MAX_QUERY_ROLE_ACTIONABLE_SAMPLES = 3
+_MAX_QUERY_ROLE_ACTIONABLE_SAMPLE_VALUES = 5
 _MAX_TEMPORAL_GROUNDING_ACTIONABLE_SAMPLES = 3
 _MAX_TEMPORAL_GROUNDING_ACTIONABLE_SAMPLE_VALUES = 5
 _MAX_QUERY_ROLE_COVERAGE_ACTIONABLE_SAMPLES = 3
@@ -496,6 +498,7 @@ def _append_query_role_gaps(
     evaluation_count: int,
     breakdown: Mapping[str, object],
 ) -> None:
+    samples = _sequence(breakdown.get("samples"))
     _append_required_query_role_coverage_gaps(
         gaps,
         evaluation_count=evaluation_count,
@@ -514,6 +517,8 @@ def _append_query_role_gaps(
             selected_evidence_count,
         )
         candidate_count = _positive_int(role_gap.get("candidate_count")) or 0
+        matched_samples = _query_role_samples_for_family(samples, str(family))
+        compact_samples = _compact_query_role_actionable_samples(matched_samples)
         _append_actionable_gap(
             gaps,
             evaluation_count=evaluation_count,
@@ -526,6 +531,8 @@ def _append_query_role_gaps(
                 "but no bundle coverage."
             ),
             evidence={"gap_reasons": list(_str_tuple(role_gap.get("gap_reasons")))},
+            samples=compact_samples,
+            sample_payloads=compact_samples,
         )
 
 
@@ -1044,6 +1051,92 @@ def _compact_query_plan_actionable_samples(
         if compact:
             compact_samples.append(compact)
         if len(compact_samples) >= limit:
+            break
+    return tuple(compact_samples)
+
+
+def _query_role_samples_for_family(
+    samples: Sequence[object],
+    family: str,
+) -> tuple[Mapping[str, object], ...]:
+    mapped = tuple(sample for sample in samples if isinstance(sample, Mapping))
+    matched = [
+        sample
+        for sample in mapped
+        if family in _str_tuple(sample.get("query_role_gap_families"))
+        or family in _str_tuple(sample.get("query_role_families"))
+        or family == str(sample.get("query_role") or "").strip()
+    ]
+    return tuple(matched or mapped)
+
+
+def _compact_query_role_actionable_samples(
+    samples: Sequence[Mapping[str, object]],
+) -> tuple[dict[str, object], ...]:
+    compact_samples: list[dict[str, object]] = []
+    for sample in samples:
+        compact: dict[str, object] = {}
+        for key in (
+            "case_id",
+            "group",
+            "query_role",
+            "memory_id",
+            "fusion_score_winner_query_role",
+            "fusion_selected_evidence_query_role",
+        ):
+            value = _compact_query_plan_sample_text(sample.get(key))
+            if value:
+                compact[key] = value
+        for key in (
+            "query_role_families",
+            "query_role_gap_families",
+            "gap_reasons",
+            "positive_signal_names",
+            "policy_reason_codes",
+            "answerability_reason_codes",
+            "source_locality_reason_codes",
+            "fusion_selected_evidence_query_role_families",
+            "fusion_evidence_selection_reason_codes",
+            "selected_bundle_role_families",
+            "selected_bundle_query_role_families",
+        ):
+            values = tuple(
+                value
+                for value in (
+                    _compact_query_plan_sample_text(raw_value)
+                    for raw_value in _str_tuple(sample.get(key))
+                )
+                if value
+            )
+            if values:
+                compact[key] = list(values[:_MAX_QUERY_ROLE_ACTIONABLE_SAMPLE_VALUES])
+        for key in (
+            "rank",
+            "positive_signal_count",
+            "policy_reason_count",
+            "answerability_reason_count",
+            "source_locality_reason_count",
+            "fusion_evidence_selection_reason_count",
+            "selected_bundle_role_family_count",
+            "selected_bundle_query_role_family_count",
+        ):
+            value = _positive_int(sample.get(key)) or 0
+            if value:
+                compact[key] = value
+        for key in (
+            "positive_policy_score",
+            "answerability_score",
+            "source_locality_score",
+        ):
+            value = sample.get(key)
+            if isinstance(value, (int, float)) and not isinstance(value, bool):
+                compact[key] = round(float(value), 6)
+        for key in ("lifted", "bridge_query_hit"):
+            if sample.get(key) is True:
+                compact[key] = True
+        if compact:
+            compact_samples.append(compact)
+        if len(compact_samples) >= _MAX_QUERY_ROLE_ACTIONABLE_SAMPLES:
             break
     return tuple(compact_samples)
 
