@@ -102,6 +102,43 @@ def test_memory_comparison_preflight_accepts_wrapped_locomo_fast_dataset(
     }
 
 
+def test_memory_comparison_preflight_accepts_textual_locomo_category_labels(
+    tmp_path: Path,
+) -> None:
+    dataset = tmp_path / "locomo-textual-categories.json"
+    payload = _official_locomo_fast_dataset_payload()
+    labels = {
+        1: "multi hop",
+        2: "temporal",
+        3: "open_domain",
+        4: "single-hop",
+    }
+    for sample in payload:
+        for qa in sample["qa"]:
+            assert isinstance(qa, dict)
+            category = qa["category"]
+            assert isinstance(category, int)
+            qa["category"] = labels[category]
+    dataset.write_text(json.dumps(payload), encoding="utf-8")
+
+    result = run_memory_comparison_preflight(
+        _config(
+            dataset_path=dataset,
+            env={"MEM0_API_KEY": "secret-mem0"},
+        )
+    )
+
+    assert result["ready_for_locomo_fast"] is True
+    check = _check(result, "locomo_fast_dataset_case_coverage")
+    assert check["passed"] is True
+    assert check["details"]["selected_by_group"] == {
+        "multi-hop": 10,
+        "temporal": 10,
+        "open-domain": 10,
+        "single-hop": 10,
+    }
+
+
 @pytest.mark.parametrize(
     "payload",
     [

@@ -34,6 +34,27 @@ def test_source_grounding_signal_requires_answer_context_and_source_anchor() -> 
     ) == (0.0, 0.0, "")
 
 
+def test_source_grounding_signal_accepts_dialog_spelling_as_dialogue_query() -> None:
+    query = "Which dialog supports that Alex moved to Denver?"
+
+    assert source_grounding_signal(
+        query=query,
+        text="D1:2 Jamie: Alex moved to Denver after the promotion.",
+        source_refs=(),
+    ) == (0.026, 0.0, "source_grounding_match")
+    assert source_grounding_signal(
+        query=query,
+        text="Alex moved to Denver after the promotion.",
+        source_refs=(
+            SourceRef(
+                source_type="document",
+                source_id="profile-note",
+                quote_preview="Jamie said Alex moved to Denver after the promotion.",
+            ),
+        ),
+    ) == (0.0, 0.034, "source_grounding_answer_without_source")
+
+
 def test_source_grounding_signal_uses_relevant_source_quotes() -> None:
     query = "Which source supports that Alex moved to Denver?"
 

@@ -1007,6 +1007,14 @@ def _official_locomo_qa_group(qa: Mapping[str, object]) -> str | None:
     category = qa.get("category")
     if isinstance(category, bool):
         return None
+    if isinstance(category, str):
+        normalized = re.sub(r"[\s_]+", "-", category.strip().lower())
+        return {
+            "multi-hop": "multi-hop",
+            "temporal": "temporal",
+            "open-domain": "open-domain",
+            "single-hop": "single-hop",
+        }.get(normalized)
     try:
         category_id = int(category) if category is not None else None
     except (TypeError, ValueError):
