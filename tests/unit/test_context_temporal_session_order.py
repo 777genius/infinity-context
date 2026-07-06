@@ -95,6 +95,34 @@ def test_recent_event_query_uses_structured_session_order_metadata() -> None:
     )
 
 
+def test_recent_event_query_uses_hyphenated_dialogue_turn_order() -> None:
+    intent = build_temporal_query_intent("What was the latest conversation with Sam?")
+    older = _item(
+        "older",
+        text="D4-6 Sam: We talked about the Atlas prototype during the call.",
+        score=0.71,
+        source_id="locomo:conv-fixture:turn-older",
+    )
+    newer = _item(
+        "newer",
+        text="D20-8 Sam: We talked about the Atlas prototype in the latest call.",
+        score=0.7,
+        source_id="locomo:conv-fixture:turn-newer",
+    )
+
+    boosted = apply_temporal_query_intent_boosts((older, newer), intent=intent)
+    by_id = {item.item_id: item for item in boosted}
+
+    assert by_id["newer"].score > by_id["older"].score
+    assert by_id["newer"].diagnostics["temporal_query_intent_reason"] == (
+        "query asks for recent event and item has session-order evidence"
+    )
+    assert (
+        by_id["newer"].diagnostics["score_signals"]["temporal_query_intent_boost"]
+        > by_id["older"].diagnostics["score_signals"]["temporal_query_intent_boost"]
+    )
+
+
 def test_earliest_event_query_prefers_earlier_locomo_session_evidence() -> None:
     intent = build_temporal_query_intent("What was the first conversation with Sam?")
     older = _item(

@@ -179,6 +179,49 @@ def test_source_identity_refs_normalize_punctuated_session_text_variants() -> No
     ) == ("generic_source_refs_with_text_turn_identity",)
 
 
+def test_source_identity_refs_qualify_split_session_and_turn_refs() -> None:
+    assert source_identity_refs_from_source_refs(
+        ("locomo:conversation:session_4", "D4:3")
+    ) == (
+        "source_session_turn_refs:session_4:D4:3",
+        "source_turn_refs:D4:3",
+    )
+    assert source_identity_refs_from_source_refs(
+        ("locomo-conversation-session-4-chunk", "chunk:D4-5")
+    ) == (
+        "source_session_turn_refs:session_4:D4:5",
+        "source_turn_refs:D4:5",
+    )
+    assert source_identity_refs_from_source_refs(
+        ("locomo:conversation:session_9", "D7:2")
+    ) == ()
+    assert source_identity_refs_from_source_refs(
+        ("locomo:conversation:session_9", "D7:2"),
+        include_exact_turn_refs=True,
+    ) == ("source_turn_refs:D7:2",)
+    assert source_identity_refs_from_dedupe_key(
+        "source_refs:locomo:conversation:session_4|D4:3"
+    ) == (
+        "source_session_turn_refs:session_4:D4:3",
+        "source_turn_refs:D4:3",
+    )
+    assert source_identity_refs_from_dedupe_key(
+        "source_refs:document:profile-note|locomo:conversation:session_4|D4:3"
+    ) == (
+        "document:profile-note",
+        "source_session_turn_refs:session_4:D4:3",
+        "source_turn_refs:D4:3",
+    )
+    assert source_identity_audit_gap_codes(
+        source_refs=("locomo:conversation:session_4", "D4:3"),
+        text="session_4 date: 9 October, 2022 D4:3 Alex confirmed the date.",
+    ) == ()
+    assert source_identity_audit_gap_codes(
+        source_refs=("locomo:conversation:session_4", "D4:3"),
+        text="session_5 date: 9 October, 2022 D4:3 Alex confirmed the date.",
+    ) == ("source_text_session_turn_mismatch",)
+
+
 def test_safe_source_refs_for_output_filters_raw_provider_refs() -> None:
     assert safe_source_refs_for_output(
         (

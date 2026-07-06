@@ -410,6 +410,49 @@ def test_temporal_grounding_counts_hyphenated_raw_refs_as_source_windows() -> No
     assert table["selected_temporal_grounding_issue_reason_counts"] == {}
 
 
+def test_temporal_grounding_qualifies_split_session_and_turn_source_refs() -> None:
+    diagnostics = quality_diagnostics(
+        (
+            _item(
+                case_id="temporal-split-session-turn-ref",
+                group="temporal",
+                retrieval=_retrieval_payload(
+                    evidence_need=("temporal_support",),
+                    bundle_evidence_roles=("primary", "temporal_sequence_support"),
+                    relation_categories=("temporal",),
+                    policy_score=0.2,
+                    candidate_features={
+                        "query_roles": ["temporal_sequence_support"],
+                        "time_intent_kind": "temporal_sequence",
+                    },
+                ),
+                evidence_bundle={
+                    "items": [
+                        {
+                            "id": "split-session-turn-ref",
+                            "role": "temporal_sequence_support",
+                            "query_roles": ["temporal_sequence_support"],
+                            "source_refs": [
+                                "locomo:conv-1:session_4",
+                                "D4:3",
+                            ],
+                            "text": "session_4 date: 9 October, 2022",
+                        }
+                    ]
+                },
+            ),
+        )
+    )
+
+    table = diagnostics["temporal_grounding_table"]
+
+    assert table["selected_source_window_item_count"] == 1
+    assert table["selected_missing_source_window_item_count"] == 0
+    assert table["selected_session_boundary_item_count"] == 1
+    assert table["selected_strong_temporal_grounding_item_count"] == 1
+    assert table["selected_temporal_grounding_issue_item_count"] == 0
+
+
 def test_temporal_grounding_counts_hyphenated_exact_turn_refs_as_session_boundary() -> None:
     diagnostics = quality_diagnostics(
         (

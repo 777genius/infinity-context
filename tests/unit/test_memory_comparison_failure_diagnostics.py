@@ -579,6 +579,67 @@ def test_failure_diagnostics_uses_dedupe_identity_when_direct_refs_are_generic()
     assert "missing_evidence_source_absent" not in reasons
 
 
+def test_failure_diagnostics_normalizes_hyphenated_source_identity_windows() -> None:
+    evaluation = {
+        "retrieval": {
+            "total_results": 1,
+            "results": [
+                {
+                    "id": "hyphenated-source-identity",
+                    "rank": 1,
+                    "metadata": {
+                        "diagnostics": {
+                            "benchmark_candidate_features": {
+                                "source_ref_dedupe_key": (
+                                    "source_session_turn_refs:session-4:D4-2"
+                                ),
+                            }
+                        }
+                    },
+                }
+            ],
+        },
+        "retrieval_quality": {
+            "expected_term_recall": 0.5,
+            "evidence_term_recall": 0.0,
+            "missing_evidence_terms": ["source_session_turn_refs:session-4:D4-3"],
+        },
+        "evidence_bundle": {
+            "bundle_complete": False,
+            "items": [
+                {
+                    "id": "hyphenated-source-identity",
+                    "role": "primary",
+                    "source_ref_dedupe_key": (
+                        "source_session_turn_refs:session-4:D4-2"
+                    ),
+                }
+            ],
+        },
+        "generation": {},
+        "judgment": {},
+    }
+
+    diagnostics = failure_diagnostics(evaluation)
+    locality = diagnostics["missing_evidence_source_locality"]
+
+    assert locality["retrieved_source_ids"] == ["session_4:D4"]
+    assert locality["bundle_source_ids"] == ["session_4:D4"]
+    assert locality["missing_ref_windows"] == [
+        {
+            "ref": "session_4:D4:3",
+            "source_id": "session_4:D4",
+            "retrieved_same_source": True,
+            "bundle_same_source": True,
+            "nearest_retrieved_turn_ref": "session_4:D4:2",
+            "nearest_retrieved_turn_distance": 1,
+            "nearest_bundle_turn_ref": "session_4:D4:2",
+            "nearest_bundle_turn_distance": 1,
+            "cause": "near_retrieved_window",
+        }
+    ]
+
+
 def test_failure_diagnostics_uses_bundle_quality_weak_locality_fallback() -> None:
     evaluation = {
         "retrieval": {"total_results": 1, "results": []},

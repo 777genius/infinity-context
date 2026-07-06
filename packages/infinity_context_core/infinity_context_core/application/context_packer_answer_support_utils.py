@@ -6,8 +6,8 @@ import re
 
 from infinity_context_core.application.dto import ContextItem
 
-_TURN_SOURCE_ORDER_RE = re.compile(r"(?:^|:)session_(\d+):D\d+:(\d+):turn$")
-_DIALOGUE_MARKER_RE = re.compile(r"\bD\d+:\d+\b")
+_TURN_SOURCE_ORDER_RE = re.compile(r"(?:^|:)session_(\d+):D\d+[:-](\d+):turn$")
+_DIALOGUE_MARKER_RE = re.compile(r"\bD\d+[:-]\d+\b")
 _QUERY_OBJECT_TOKEN_RE = re.compile(r"\b[\w']+\b", re.UNICODE)
 _RECENCY_QUERY_RE = re.compile(
     r"\b(?:current|currently|latest|most\s+recent|recently|last|newest|now|today|"
@@ -113,9 +113,10 @@ def _source_group_key(item: ContextItem) -> str:
 
 def _source_group_identity(source_id: str | None) -> str:
     text = _one_line(str(source_id or "unknown"))
+    turn_group = _turn_source_group_identity(text)
+    if turn_group:
+        return turn_group
     parts = text.split(":")
-    if len(parts) >= 6 and parts[-1] == "turn" and parts[-3].startswith("D"):
-        return ":".join(parts[:-3])
     if len(parts) >= 4 and parts[-1] in {"events", "observation", "summary"}:
         return ":".join(parts[:-1])
     return text
@@ -233,7 +234,10 @@ def _answer_support_semantic_query_object_hits(*, query: str, text: str) -> int:
     if (
         "art" in normalized_query
         and ("kind" in normalized_query or "style" in normalized_query)
-        and re.search(r"\b(?:art show|painting for the art show|image caption:.{0,80}painting)\b", text)
+        and re.search(
+            r"\b(?:art show|painting for the art show|image caption:.{0,80}painting)\b",
+            text,
+        )
     ):
         hits += 3
     if (
@@ -281,20 +285,20 @@ def _focused_dialogue_turn_text(*, text: str, source_id: str) -> str:
     marker_match = _DIALOGUE_MARKER_RE.search(source_id)
     if marker_match is None:
         return text
-    marker = marker_match.group(0)
+    marker = _canonical_dialogue_marker(marker_match.group(0))
     text_match = _dialogue_turn_marker_text_match(text=text, marker=marker)
     if text_match is None:
         return text
     end = len(text)
     for next_match in _DIALOGUE_MARKER_RE.finditer(text, text_match.end()):
-        if next_match.group(0) != marker:
+        if _canonical_dialogue_marker(next_match.group(0)) != marker:
             end = next_match.start()
             break
     return text[text_match.start() : end].strip() or text
 
 
 def _dialogue_turn_marker_text_match(*, text: str, marker: str) -> re.Match[str] | None:
-    matches = tuple(re.finditer(rf"\b{re.escape(marker)}\b", text))
+    matches = tuple(re.finditer(_dialogue_marker_pattern(marker), text))
     if not matches:
         return None
     for match in matches:
@@ -302,6 +306,21 @@ def _dialogue_turn_marker_text_match(*, text: str, marker: str) -> re.Match[str]
         if re.match(r"\s+[A-Z][^:\n]{0,40}:", following):
             return match
     return matches[0]
+
+
+def _dialogue_marker_pattern(marker: str) -> str:
+    canonical_marker = _canonical_dialogue_marker(marker)
+    if ":" not in canonical_marker:
+        return rf"\b{re.escape(canonical_marker)}\b"
+    dialogue, turn = canonical_marker.split(":", 1)
+    return rf"\b{re.escape(dialogue)}[:-]{re.escape(turn)}\b"
+
+
+def _canonical_dialogue_marker(value: str) -> str:
+    match = re.fullmatch(r"D(?P<dialogue>\d+)[:-](?P<turn>\d+)", value.strip())
+    if match is None:
+        return value
+    return f"D{match.group('dialogue')}:{match.group('turn')}"
 
 
 def _inventory_first_mention_rank(
@@ -319,8 +338,21 @@ def _inventory_first_mention_rank(
 
 
 def _is_exact_turn_source_id(source_id: str | None) -> bool:
-    parts = (source_id or "").split(":")
-    return len(parts) >= 6 and parts[-1] == "turn" and parts[-3].startswith("D")
+    return bool(_turn_source_group_identity(source_id or ""))
+
+
+def _turn_source_group_identity(source_id: str) -> str:
+    parts = str(source_id or "").split(":")
+    if (
+        len(parts) >= 6
+        and parts[-1] == "turn"
+        and re.fullmatch(r"D\d+", parts[-3])
+        and parts[-2].isdigit()
+    ):
+        return ":".join(parts[:-3])
+    if len(parts) >= 5 and parts[-1] == "turn" and re.fullmatch(r"D\d+-\d+", parts[-2]):
+        return ":".join(parts[:-2])
+    return ""
 
 
 def _diversity_family_base(family: str) -> str:

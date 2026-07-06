@@ -20,16 +20,18 @@ from infinity_context_server.memory_comparison_temporal_grounding import (
 )
 
 _TURN_REF_RE = re.compile(
-    r"\b(?:(?P<session>session_\d+):)?D(?P<source>\d+):(?P<turn>\d+)\b",
+    r"\b(?:(?P<session>session[-_]\d+):)?D(?P<source>\d+)[:-](?P<turn>\d+)\b",
     re.IGNORECASE,
 )
 _MAX_TEMPORAL_GROUNDING_ISSUE_SAMPLES = 5
 _MAX_MISSING_EVIDENCE_SOURCE_IDS = 12
 _MAX_MISSING_EVIDENCE_REF_WINDOWS = 8
 _SAFE_SOURCE_IDENTITY_REF_RE = re.compile(
-    r"^(?:(?P<turn_prefix>source_turn_refs):(?P<turn_ref>D\d+:\d+)|"
-    r"(?P<session_prefix>source_session_turn_refs):(?P<session>session_\d+):"
-    r"(?P<session_turn_ref>D\d+:\d+))$",
+    r"^(?:(?P<turn_prefix>source_turn_refs):"
+    r"D(?P<turn_dialogue>\d+)[:-](?P<turn>\d+)|"
+    r"(?P<session_prefix>source_session_turn_refs):"
+    r"session[-_](?P<session>\d+):"
+    r"D(?P<session_turn_dialogue>\d+)[:-](?P<session_turn>\d+))$",
     re.IGNORECASE,
 )
 _MAX_ANSWER_CONTEXT_SOURCE_IDENTITY_REFS = 8
@@ -453,11 +455,15 @@ def _safe_source_identity_ref(value: object) -> str | None:
     match = _SAFE_SOURCE_IDENTITY_REF_RE.fullmatch(ref)
     if match is None:
         return None
-    if match.group("turn_ref"):
-        return f"source_turn_refs:{match.group('turn_ref').upper()}"
+    if match.group("turn_prefix"):
+        return (
+            "source_turn_refs:"
+            f"D{match.group('turn_dialogue')}:{match.group('turn')}"
+        )
     return (
         "source_session_turn_refs:"
-        f"{match.group('session').lower()}:{match.group('session_turn_ref').upper()}"
+        f"session_{match.group('session')}:"
+        f"D{match.group('session_turn_dialogue')}:{match.group('session_turn')}"
     )
 
 
@@ -619,7 +625,12 @@ def _turn_refs(values: Iterable[str]) -> tuple[tuple[str, int], ...]:
     for value in values:
         for match in _TURN_REF_RE.finditer(str(value)):
             source_id = f"D{match.group('source')}"
-            session_id = str(match.group("session") or "").strip().lower()
+            session_id = (
+                str(match.group("session") or "")
+                .strip()
+                .lower()
+                .replace("-", "_")
+            )
             if session_id:
                 source_id = f"{session_id}:{source_id}"
             ref = (source_id, int(match.group("turn")))

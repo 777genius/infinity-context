@@ -10,7 +10,10 @@ from infinity_context_core.application.dto import ContextItem
 _SESSION_ORDINAL_RE = re.compile(
     r"\bsession(?:[\s_-]+)(?P<session>\d{1,4})\b", re.IGNORECASE
 )
-_DIALOGUE_TURN_RE = re.compile(r"\bD(?P<dialogue>\d{1,4}):\d{1,4}\b", re.IGNORECASE)
+_DIALOGUE_TURN_RE = re.compile(
+    r"\bD(?P<dialogue>\d{1,4})[:-]\d{1,4}\b",
+    re.IGNORECASE,
+)
 _ORDINAL_WORDS = {
     "first": 1,
     "second": 2,

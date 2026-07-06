@@ -40,11 +40,16 @@ from infinity_context_server.memory_comparison_source_identity import (
     source_identity_audit_gap_codes as _source_identity_audit_gap_codes,
 )
 
-_TURN_REF_RE = re.compile(r"\bD\d+:\d+\b")
-_TURN_REF_PARTS_RE = re.compile(r"\bD(?P<dialogue>\d+):(?P<turn>\d+)\b")
+_TURN_REF_RE = re.compile(r"\bD\d+[:-]\d+\b", re.IGNORECASE)
+_TURN_REF_PARTS_RE = re.compile(r"\bD(?P<dialogue>\d+)[:-](?P<turn>\d+)\b")
 _SOURCE_SESSION_TURN_RE = re.compile(
     r"(?:^|[:_-])session[-_](?P<session>\d+)[:_-](?P<turn_ref>D\d+[:-]\d+)"
     r"[:_-](?:turn|chunk|fact)(?:[-_][^:]*)?$",
+    re.IGNORECASE,
+)
+_SOURCE_SESSION_RE = re.compile(
+    r"(?:^|[:_-])session[-_](?P<session>\d+)"
+    r"(?=$|[:_-](?!(?:D\d+[:-]\d+)\b))",
     re.IGNORECASE,
 )
 _TEXT_SESSION_TURN_RE = re.compile(
@@ -433,7 +438,7 @@ def build_candidate_evidence_features(
     list_items = _list_items(content_text)
     list_item_count = len(list_items)
     source_refs = tuple(str(ref) for ref in memory.source_refs if str(ref).strip())
-    text_turn_refs = tuple(dict.fromkeys(_TURN_REF_RE.findall(text)))
+    text_turn_refs = _safe_turn_refs(_TURN_REF_RE.findall(text))
     text_session_turn_refs = _text_session_turn_refs(text)
     source_turn_refs = _source_turn_refs(source_refs)
     turn_refs = tuple(
@@ -1732,7 +1737,7 @@ def _source_turn_refs(source_refs: Sequence[str]) -> tuple[str, ...]:
             ref
             for source_ref in source_refs
             for ref in (
-                *_TURN_REF_RE.findall(str(source_ref)),
+                *_safe_turn_refs(_TURN_REF_RE.findall(str(source_ref))),
                 *_source_session_turn_values(str(source_ref)),
             )
         )
@@ -1741,14 +1746,59 @@ def _source_turn_refs(source_refs: Sequence[str]) -> tuple[str, ...]:
 
 def _source_session_turn_refs(source_refs: Sequence[str]) -> tuple[str, ...]:
     refs: list[str] = []
+    session_refs: list[str] = []
+    turn_refs: list[str] = []
     for source_ref in source_refs:
-        match = _SOURCE_SESSION_TURN_RE.search(str(source_ref))
+        source_ref_text = str(source_ref)
+        session_refs.extend(_source_session_refs(source_ref_text))
+        turn_refs.extend(_safe_turn_refs(_TURN_REF_RE.findall(source_ref_text)))
+        match = _SOURCE_SESSION_TURN_RE.search(source_ref_text)
         if match is None:
             continue
         turn_ref = _normalized_turn_ref(match.group("turn_ref"))
         if turn_ref:
             refs.append(f"session_{match.group('session')}:{turn_ref}")
+    refs.extend(_session_turn_refs_from_split_refs(session_refs, turn_refs))
     return tuple(dict.fromkeys(refs))
+
+
+def _source_session_refs(source_ref: str) -> tuple[str, ...]:
+    return tuple(
+        dict.fromkeys(
+            f"session_{match.group('session')}"
+            for match in _SOURCE_SESSION_RE.finditer(source_ref or "")
+        )
+    )
+
+
+def _session_turn_refs_from_split_refs(
+    session_refs: Sequence[str],
+    turn_refs: Sequence[str],
+) -> tuple[str, ...]:
+    session_numbers = tuple(
+        dict.fromkeys(
+            match.group("session")
+            for ref in session_refs
+            for match in (
+                re.fullmatch(r"session[-_](?P<session>\d+)", ref, re.IGNORECASE),
+            )
+            if match is not None
+        )
+    )
+    safe_turn_refs = _safe_turn_refs(turn_refs)
+    if len(session_numbers) != 1 or not 0 < len(safe_turn_refs) <= 3:
+        return ()
+    session_number = session_numbers[0]
+    return tuple(
+        f"session_{session_number}:{turn_ref}"
+        for turn_ref in safe_turn_refs
+        if _turn_ref_dialogue_number(turn_ref) == session_number
+    )
+
+
+def _turn_ref_dialogue_number(turn_ref: str) -> str:
+    match = _TURN_REF_PARTS_RE.fullmatch(turn_ref)
+    return match.group("dialogue") if match is not None else ""
 
 
 def _text_session_turn_refs(text: str) -> tuple[str, ...]:
@@ -1778,7 +1828,19 @@ def _turn_refs_from_session_turn_refs(session_turn_refs: Sequence[str]) -> tuple
             for session_turn_ref in session_turn_refs
             for match in (_TURN_REF_RE.search(str(session_turn_ref)),)
             if match is not None
-            for ref in (match.group(0),)
+            for ref in (_normalized_turn_ref(match.group(0)),)
+            if ref
+        )
+    )
+
+
+def _safe_turn_refs(values: Sequence[object]) -> tuple[str, ...]:
+    return tuple(
+        dict.fromkeys(
+            turn_ref
+            for value in values
+            for turn_ref in (_normalized_turn_ref(value),)
+            if turn_ref
         )
     )
 

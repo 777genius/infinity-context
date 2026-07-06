@@ -2499,7 +2499,10 @@ def _source_identity_stats(memories: Sequence[RetrievedMemory]) -> dict[str, obj
         retrieval_order = _positive_int(
             memory.metadata.get("answer_context_retrieval_order")
         )
-        if retrieval_order is not None:
+        if (
+            retrieval_order is not None
+            and memory.metadata.get("answer_context_role") != "retrieval_slice"
+        ):
             item["retrieval_order"] = retrieval_order
         source_identity_items.append(item)
 

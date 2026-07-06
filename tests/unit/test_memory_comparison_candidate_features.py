@@ -1324,6 +1324,47 @@ def test_candidate_features_use_source_ref_turns_for_locality_and_dedupe() -> No
     assert diagnostics["source_turn_span"] == 2
 
 
+def test_candidate_features_qualify_split_session_and_turn_source_refs() -> None:
+    memory = RetrievedMemory(
+        item_id="split-session-turn-source-refs",
+        rank=1,
+        text="Caroline said the adoption agency felt inclusive.",
+        source_refs=("locomo:conv-26:session_4", "D4:3"),
+        metadata={"item_type": "chunk"},
+    )
+
+    features = build_candidate_evidence_features(
+        memory,
+        memory_terms={"caroline", "adoption", "agency", "inclusive"},
+        query_terms=("caroline", "adoption", "agency"),
+        relation_terms=("adoption", "agency"),
+        relation_variant_terms=("inclusive",),
+        entities=("caroline",),
+        entity_hits=("caroline",),
+        speaker_hits=(),
+        high_signal_relation_terms={"inclusive"},
+        is_temporal_query=False,
+        is_preference_query=False,
+        has_visual_terms=False,
+        has_multi_hop_markers=False,
+        has_temporal_surface=False,
+        has_sequence_surface=False,
+        has_preference_evidence=False,
+        has_visual_evidence=False,
+        has_focused_turn_surface=False,
+    )
+
+    assert features.source_turn_refs == ("D4:3",)
+    assert features.turn_ref_count == 1
+    assert features.source_ref_dedupe_key == (
+        "source_session_turn_refs:session_4:D4:3"
+    )
+    assert features.source_identity_audit_gap_codes == ()
+    assert features.to_diagnostics()["source_ref_dedupe_key"] == (
+        "source_session_turn_refs:session_4:D4:3"
+    )
+
+
 def test_candidate_features_do_not_treat_split_direct_refs_as_perfect_locality() -> None:
     memory = RetrievedMemory(
         item_id="split-direct-source-refs",

@@ -2186,6 +2186,19 @@ def test_source_sibling_rank_keeps_primary_seed_turn_available_for_hybrid_boost(
     assert rank.score > 0.96
 
 
+def test_source_sibling_rank_accepts_hyphenated_turn_source_ids() -> None:
+    seed = SimpleNamespace(source_external_id="locomo:conv-26:session_7:D7-4:turn")
+    candidate = SimpleNamespace(source_external_id="locomo:conv-26:session_7:D7-6:turn")
+    source_groups = _source_group_seed_turns((seed,))
+
+    rank = _source_sibling_rank(candidate, source_groups=source_groups)
+
+    assert tuple(source_groups) == ("locomo:conv-26:session_7",)
+    assert rank is not None
+    assert rank.turn_distance == 2
+    assert rank.turn_delta == 2
+
+
 def test_source_sibling_rank_uses_session_events_as_group_level_seed() -> None:
     seed = SimpleNamespace(source_external_id="locomo:conv-41:session_24:events")
     candidate = SimpleNamespace(source_external_id="locomo:conv-41:session_24:D24:3:turn")

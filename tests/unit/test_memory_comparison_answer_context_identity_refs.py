@@ -408,6 +408,39 @@ def test_answer_context_preserves_punctuated_session_turn_identity() -> None:
     ]
 
 
+def test_answer_context_qualifies_split_session_and_turn_source_refs() -> None:
+    context = answer_context_from_evidence_bundle(
+        (
+            RetrievedMemory(
+                text="D4:5 Alex confirmed the workshop date.",
+                rank=1,
+                item_id="split-session-turn",
+                source_refs=("locomo:conv-private:session_4", "D4:5"),
+            ),
+        ),
+        {},
+        cutoff=1,
+    )
+
+    diagnostics = context.to_diagnostics()
+
+    assert diagnostics["source_identity_refs"] == [
+        "source_session_turn_refs:session_4:D4:5",
+        "source_turn_refs:D4:5",
+    ]
+    assert diagnostics["source_identity_items"] == [
+        {
+            "source_identity_refs": [
+                "source_session_turn_refs:session_4:D4:5",
+                "source_turn_refs:D4:5",
+            ],
+            "item_id": "split-session-turn",
+        }
+    ]
+    serialized = json.dumps((context.memories[0].source_refs, diagnostics))
+    assert "locomo:conv-private" not in serialized
+
+
 def test_answer_context_diagnostics_filters_raw_provider_item_ids() -> None:
     context = answer_context_from_evidence_bundle(
         (
