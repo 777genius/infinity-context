@@ -473,6 +473,9 @@ def _source_ref_values(value: object) -> tuple[object, ...]:
 
 def _source_ref_values_from_mapping(value: Mapping[object, object]) -> tuple[object, ...]:
     refs: list[object] = []
+    structured_session_ref = _structured_session_ref_from_mapping(value)
+    if structured_session_ref:
+        refs.append(structured_session_ref)
     structured_turn_ref = _structured_turn_ref_from_mapping(value)
     if structured_turn_ref:
         refs.append(structured_turn_ref)
@@ -500,6 +503,14 @@ def _source_ref_values_from_mapping(value: Mapping[object, object]) -> tuple[obj
     if isinstance(raw_id, str) and _source_ref_value_has_turn_identity(raw_id):
         refs.append(raw_id.strip())
     return tuple(dict.fromkeys(refs))
+
+
+def _structured_session_ref_from_mapping(value: Mapping[object, object]) -> str:
+    for key in ("source_session_id", "session_id", "session_key"):
+        session = _dialogue_number_from_value(value.get(key))
+        if session:
+            return f"session_{session}"
+    return ""
 
 
 def _structured_turn_ref_from_mapping(value: Mapping[object, object]) -> str:
@@ -597,6 +608,9 @@ def _safe_output_ref_is_covered_by_identity(
     ):
         return True
     session_ref = _normalized_session_ref(ref)
+    numeric_session = _positive_int_string(ref)
+    if numeric_session:
+        session_ref = f"session_{numeric_session}"
     return bool(
         session_ref
         and any(
