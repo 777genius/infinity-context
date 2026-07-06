@@ -160,8 +160,17 @@ def _support_gap_reasons(context: Mapping[str, object]) -> tuple[str, ...]:
     fallback_reason = str(context.get("fallback_reason") or "").strip()
     memory_count = _positive_int(context.get("memory_count")) or 0
     source_ref_item_count = _positive_int(context.get("source_ref_item_count")) or 0
+    source_identity_item_count = (
+        _positive_int(context.get("source_identity_item_count")) or 0
+    )
     source_refless_item_count = (
         _positive_int(context.get("source_refless_item_count")) or 0
+    )
+    source_grounded_item_count = max(source_ref_item_count, source_identity_item_count)
+    source_ungrounded_item_count = (
+        max(0, memory_count - source_grounded_item_count)
+        if memory_count > 0
+        else source_refless_item_count
     )
 
     if (
@@ -170,12 +179,12 @@ def _support_gap_reasons(context: Mapping[str, object]) -> tuple[str, ...]:
         flags.append("retrieval_slice_fallback")
     if (
         memory_count > 0
-        and source_ref_item_count <= 0
+        and source_grounded_item_count <= 0
         and "missing_context_source_refs" not in flags
     ):
         flags.append("missing_context_source_refs")
     elif (
-        source_refless_item_count > 0
+        source_ungrounded_item_count > 0
         and "partial_context_source_refs" not in flags
     ):
         flags.append("partial_context_source_refs")

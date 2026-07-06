@@ -71,6 +71,7 @@ def test_answer_context_support_gap_samples_include_safe_context_identity() -> N
                             "memory_count": 2,
                             "source_ref_item_count": 0,
                             "source_refless_item_count": 2,
+                            "missing_required_roles": ["primary"],
                             "source_identity_ref_count": 5,
                             "source_identity_item_count": 2,
                             "source_identity_refs": [
@@ -109,6 +110,67 @@ def test_answer_context_support_gap_samples_include_safe_context_identity() -> N
     serialized = json.dumps(summary)
     assert "locomo:conv-private" not in serialized
     assert "raw payload source identity must not appear" not in serialized
+
+
+def test_answer_context_support_gaps_accept_source_identity_grounding() -> None:
+    summary = answer_context_support_gap_summary(
+        (
+            {
+                "case_id": "source-identity-grounded-context",
+                "group": "single-hop",
+                "cutoff_results": {
+                    "10": {
+                        "answer_context": {
+                            "source": "evidence_bundle",
+                            "memory_count": 2,
+                            "source_ref_item_count": 0,
+                            "source_refless_item_count": 2,
+                            "source_identity_ref_count": 2,
+                            "source_identity_item_count": 2,
+                            "source_identity_refs": [
+                                "source_turn_refs:D1:1",
+                                "source_turn_refs:D1:2",
+                            ],
+                        }
+                    }
+                },
+            },
+        )
+    )
+
+    assert summary["support_gap_context_count"] == 0
+    assert summary["gap_reason_counts"] == {}
+    assert summary["samples"] == []
+
+
+def test_answer_context_support_gaps_flag_partial_source_identity_grounding() -> None:
+    summary = answer_context_support_gap_summary(
+        (
+            {
+                "case_id": "partial-source-identity-grounded-context",
+                "group": "temporal",
+                "cutoff_results": {
+                    "10": {
+                        "answer_context": {
+                            "source": "evidence_bundle",
+                            "memory_count": 2,
+                            "source_ref_item_count": 0,
+                            "source_refless_item_count": 2,
+                            "source_identity_ref_count": 1,
+                            "source_identity_item_count": 1,
+                            "source_identity_refs": ["source_turn_refs:D1:1"],
+                        }
+                    }
+                },
+            },
+        )
+    )
+
+    assert summary["gap_reason_counts"] == {"partial_context_source_refs": 1}
+    sample = summary["samples"][0]
+    assert sample["gap_reasons"] == ["partial_context_source_refs"]
+    assert sample["source_identity_ref_count"] == 1
+    assert sample["source_identity_item_count"] == 1
 
 
 def test_answer_context_support_gap_sample_metrics_are_json_safe() -> None:
