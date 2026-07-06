@@ -48,6 +48,7 @@ class QueryPlanCandidate:
     def to_diagnostics(self) -> dict[str, object]:
         return {
             "role": self.role,
+            "role_families": list(_role_families(self.role)),
             "priority": self.priority,
             "query_type": self.query_type,
             "query": self.query,

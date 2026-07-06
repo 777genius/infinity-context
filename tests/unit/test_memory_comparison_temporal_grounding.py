@@ -243,6 +243,52 @@ def test_temporal_grounding_counts_current_goal_recency_as_relative_range() -> N
     assert table["selected_temporal_grounding_issue_reason_counts"] == {}
 
 
+def test_temporal_grounding_counts_numeric_date_surfaces() -> None:
+    retrieval = _retrieval_payload(
+        evidence_need=("temporal_support",),
+        bundle_evidence_roles=("primary", "temporal_sequence_support"),
+        relation_categories=("temporal",),
+        policy_score=0.2,
+        memory_text="On 10/09/2022 D3:5 Alex confirmed the planning date.",
+        candidate_features={
+            "query_roles": ["temporal_sequence_support"],
+            "time_intent_kind": "temporal_sequence",
+        },
+    )
+    retrieval["results"][0]["source_refs"] = ["D3:5"]
+
+    diagnostics = quality_diagnostics(
+        (
+            _item(
+                case_id="temporal-numeric-date",
+                group="temporal",
+                retrieval=retrieval,
+                evidence_bundle={
+                    "items": [
+                        {
+                            "id": "numeric-date",
+                            "role": "temporal_sequence_support",
+                            "query_roles": ["temporal_sequence_support"],
+                            "source_refs": ["D3:5"],
+                            "text": (
+                                "D3:5 Alex confirmed the planning date on "
+                                "2022/10/09."
+                            ),
+                        }
+                    ]
+                },
+            ),
+        )
+    )
+
+    table = diagnostics["temporal_grounding_table"]
+
+    assert table["retrieval_date_grounded_candidate_count"] == 1
+    assert table["selected_date_grounded_item_count"] == 1
+    assert table["selected_strong_temporal_grounding_item_count"] == 1
+    assert table["selected_temporal_grounding_issue_item_count"] == 0
+
+
 def test_temporal_grounding_reports_bounded_relative_windows() -> None:
     retrieval = _retrieval_payload(
         evidence_need=("temporal_support",),

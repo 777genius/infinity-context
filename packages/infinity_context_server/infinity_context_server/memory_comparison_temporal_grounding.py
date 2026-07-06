@@ -74,7 +74,8 @@ _SOURCE_WINDOW_REF_RE = re.compile(
     re.IGNORECASE,
 )
 _DATE_RE = re.compile(
-    r"\b(?:\d{4}-\d{2}-\d{2}|\d{1,2}\s+"
+    r"\b(?:\d{4}[-/]\d{1,2}[-/]\d{1,2}|"
+    r"\d{1,2}/\d{1,2}/\d{2,4}|\d{1,2}\s+"
     r"(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Sept|Oct|Nov|Dec)"
     r"[a-z]*,?\s+\d{4}|"
     r"(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Sept|Oct|Nov|Dec)"

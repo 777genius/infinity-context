@@ -547,6 +547,91 @@ def test_query_planner_preserves_commonality_support_family() -> None:
     assert diagnostics["missing_recommended_role_families"] == []
 
 
+def test_query_planner_reports_language_skill_profile_support_family() -> None:
+    plan = QueryPlannerV2(max_queries=3).plan(
+        (
+            _candidate(
+                "original_question",
+                "What languages does Alex speak?",
+                priority=0,
+                query_type="semantic",
+            ),
+            _candidate(
+                "skill_support",
+                "alex language languages speak know fluent bilingual",
+                priority=30,
+            ),
+        ),
+        fallback_query="What languages does Alex speak?",
+        recommended_role_families=("base_query", "relation_compact"),
+    )
+
+    diagnostics = plan.to_diagnostics()
+
+    assert diagnostics["selected_roles"] == [
+        "original_question",
+        "skill_support",
+    ]
+    assert diagnostics["selected_role_families"] == [
+        "base_query",
+        "relation_compact",
+    ]
+    assert diagnostics["role_family_counts"] == {
+        "base_query": 1,
+        "relation_compact": 1,
+    }
+    assert diagnostics["selected"][1]["role_families"] == ["relation_compact"]
+    assert diagnostics["candidates"][1]["role_families"] == ["relation_compact"]
+    assert diagnostics["missing_recommended_role_families"] == []
+
+
+def test_query_planner_reports_temporal_support_role_variants() -> None:
+    plan = QueryPlannerV2(max_queries=4, max_queries_per_type=4).plan(
+        (
+            _candidate(
+                "original_question",
+                "What did Alex say last week?",
+                priority=0,
+                query_type="semantic",
+            ),
+            _candidate(
+                "explicit_temporal_support",
+                "alex may 2024 date time transcript",
+                priority=20,
+            ),
+            _candidate(
+                "relative_temporal_support",
+                "alex last week previous_week transcript notes",
+                priority=30,
+            ),
+            _candidate(
+                "temporal_sequence_support",
+                "alex after following later next timeline",
+                priority=40,
+            ),
+        ),
+        fallback_query="What did Alex say last week?",
+        recommended_role_families=("base_query", "temporal_support"),
+    )
+
+    diagnostics = plan.to_diagnostics()
+
+    assert diagnostics["selected_roles"] == [
+        "original_question",
+        "explicit_temporal_support",
+        "relative_temporal_support",
+        "temporal_sequence_support",
+    ]
+    assert diagnostics["selected_role_family_counts"] == {
+        "base_query": 1,
+        "temporal_support": 3,
+    }
+    assert diagnostics["selected"][1]["role_families"] == ["temporal_support"]
+    assert diagnostics["selected"][2]["role_families"] == ["temporal_support"]
+    assert diagnostics["selected"][3]["role_families"] == ["temporal_support"]
+    assert diagnostics["missing_recommended_role_families"] == []
+
+
 def _candidate(
     role: str,
     query: str,
