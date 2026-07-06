@@ -561,6 +561,7 @@ class EvidenceBundlePlanner:
         covered_terms: set[str] = set()
         covered_support_terms: set[str] = set()
         covered_list_items: set[str] = set()
+        covered_bridge_value_terms: set[str] = set()
         dropped_diversity_count = 0
         dropped_source_type_diversity_count = 0
         dropped_retrieval_source_diversity_count = 0
@@ -612,6 +613,12 @@ class EvidenceBundlePlanner:
                 and not adds_required_terms
                 and not adds_query_support_terms
             )
+            bridge_value_terms = _candidate_bridge_value_terms(item.candidate)
+            redundant_bridge_value = (
+                item.role == "bridge"
+                and bool(bridge_value_terms)
+                and bridge_value_terms.issubset(covered_bridge_value_terms)
+            )
             redundant_source_window = is_redundant_source_window_filler(
                 item,
                 remaining=remaining,
@@ -654,6 +661,7 @@ class EvidenceBundlePlanner:
                 or noisy_source_overlap
                 or redundant_source_window
                 or redundant_list_items
+                or redundant_bridge_value
             )
             if should_drop:
                 dropped_diversity_count += 1
@@ -686,6 +694,8 @@ class EvidenceBundlePlanner:
             covered_terms.update(item.candidate.required_terms)
             covered_support_terms.update(item.candidate.query_support_terms)
             covered_list_items.update(_candidate_list_items(item.candidate))
+            if item.role == "bridge":
+                covered_bridge_value_terms.update(bridge_value_terms)
         if remaining:
             (
                 max_dropped_count,
@@ -741,7 +751,7 @@ def _role_for_candidate(
         return "negative_support"
     if candidate.conflict_or_stale or candidate.contrast_surface:
         return "contrast"
-    if _is_bridge_candidate(candidate, case_group=case_group):
+    if _is_bridge_candidate(candidate, primary=primary, case_group=case_group):
         return "bridge"
     if _candidate_has_negative_absence_support(candidate):
         return "negative_support"
@@ -845,9 +855,15 @@ def _role_for_candidate(
 def _is_bridge_candidate(
     candidate: EvidenceBundleCandidate,
     *,
+    primary: EvidenceBundleCandidate | None,
     case_group: str,
 ) -> bool:
     if case_group != "multi-hop":
+        return False
+    if primary is not None and not _candidate_has_complementary_bridge_value(
+        candidate,
+        primary,
+    ):
         return False
     return _candidate_has_bridge_grounding(candidate)
 
@@ -886,6 +902,37 @@ def _candidate_has_bridge_query_provenance(
     return bool(
         candidate.bridge_query_hit
         or "multi_hop_bridge" in set(candidate.query_roles)
+    )
+
+
+def _candidate_has_complementary_bridge_value(
+    candidate: EvidenceBundleCandidate,
+    primary: EvidenceBundleCandidate,
+) -> bool:
+    bridge_terms = _candidate_bridge_value_terms(candidate)
+    if not bridge_terms:
+        return False
+    primary_terms = _candidate_bridge_value_terms(primary)
+    if not primary_terms:
+        return True
+    return bool(bridge_terms.difference(primary_terms))
+
+
+def _candidate_bridge_value_terms(
+    candidate: EvidenceBundleCandidate,
+) -> frozenset[str]:
+    person_terms = set(_candidate_person_grounding_terms(candidate))
+    return frozenset(
+        normalized
+        for value in (
+            *candidate.covered_expected_terms,
+            *candidate.covered_evidence_terms,
+            *candidate.query_support_terms,
+            *candidate.relation_hits,
+            *candidate.relation_category_hits,
+        )
+        for normalized in (str(value).strip().casefold(),)
+        if normalized and normalized not in person_terms
     )
 
 
@@ -1695,12 +1742,20 @@ def _selection_has_bridge_support(selected: Sequence[PlannedEvidenceItem]) -> bo
     if any(
         _candidate_has_bridge_grounding(item.candidate)
         and _candidate_is_distinct_from_primary(item.candidate, primary_items)
+        and _candidate_has_complementary_bridge_value_for_primary_items(
+            item.candidate,
+            primary_items,
+        )
         for item in non_primary_items
     ):
         return True
     return any(
         _candidate_has_distinct_multi_hop_support(item)
         and _candidate_is_distinct_from_primary(item.candidate, primary_items)
+        and _candidate_has_complementary_bridge_value_for_primary_items(
+            item.candidate,
+            primary_items,
+        )
         for item in non_primary_items
     ) or _selection_has_source_chain_bridge_support(
         non_primary_items,
@@ -1725,6 +1780,16 @@ def _candidate_has_distinct_multi_hop_support(item: PlannedEvidenceItem) -> bool
     support_terms = tuple(dict.fromkeys(candidate.query_support_terms))
     return bool(
         candidate.focused_evidence_score > 0 and len(support_terms) >= 2
+    )
+
+
+def _candidate_has_complementary_bridge_value_for_primary_items(
+    candidate: EvidenceBundleCandidate,
+    primary_items: Sequence[PlannedEvidenceItem],
+) -> bool:
+    return any(
+        _candidate_has_complementary_bridge_value(candidate, primary_item.candidate)
+        for primary_item in primary_items
     )
 
 
@@ -1758,6 +1823,10 @@ def _selection_has_source_chain_bridge_support(
         if (
             _candidate_has_source_chain_multi_hop_support(candidate)
             and _candidate_is_distinct_from_primary(candidate, primary_items)
+            and _candidate_has_complementary_bridge_value_for_primary_items(
+                candidate,
+                primary_items,
+            )
             and (
                 (
                     primary_distance is not None
