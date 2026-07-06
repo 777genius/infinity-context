@@ -975,6 +975,15 @@ def _locomo_positive_int(
         )
         if match is not None:
             return int(match.group("dialogue"))
+    else:
+        match = re.fullmatch(
+            r"(?:turn|utt|utterance|t)[-_]?(?P<turn>\d+)",
+            stripped,
+            re.IGNORECASE,
+        )
+        if match is not None:
+            parsed = int(match.group("turn"))
+            return parsed if parsed > 0 else None
     if stripped.isdigit():
         parsed = int(stripped)
         return parsed if parsed > 0 else None

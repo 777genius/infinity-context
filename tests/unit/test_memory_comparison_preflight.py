@@ -595,6 +595,77 @@ def test_memory_comparison_preflight_accepts_session_prefixed_dialogue_aliases(
     assert check["passed"] is True
 
 
+def test_memory_comparison_preflight_accepts_prefixed_source_turn_aliases(
+    tmp_path: Path,
+) -> None:
+    dataset = tmp_path / "locomo-prefixed-source-turn.json"
+    payload = _official_locomo_fast_dataset_payload()
+    conversation = payload[0]["conversation"]
+    assert isinstance(conversation, dict)
+    session = conversation["session_1"]
+    assert isinstance(session, list)
+    turn = session[0]
+    assert isinstance(turn, dict)
+    del turn["dia_id"]
+    turn["source_dialogue_id"] = "session_1"
+    turn["source_turn_id"] = "turn_1"
+    for sample in payload:
+        for qa in sample["qa"]:
+            assert isinstance(qa, dict)
+            qa["evidence"] = [
+                {"source_dialogue_id": "D1", "source_turn_id": "T1"}
+            ]
+    dataset.write_text(json.dumps(payload), encoding="utf-8")
+
+    result = run_memory_comparison_preflight(
+        _config(
+            dataset_path=dataset,
+            env={"MEM0_API_KEY": "secret-mem0"},
+        )
+    )
+
+    assert result["ready_for_locomo_fast"] is True
+    check = _check(result, "locomo_fast_dataset_case_coverage")
+    assert check["passed"] is True
+    assert check["details"]["selected_with_turn_evidence_by_group"] == {
+        "multi-hop": 10,
+        "temporal": 10,
+        "open-domain": 10,
+        "single-hop": 10,
+    }
+
+
+def test_memory_comparison_preflight_rejects_zero_prefixed_source_turn_alias(
+    tmp_path: Path,
+) -> None:
+    dataset = tmp_path / "locomo-zero-prefixed-source-turn.json"
+    payload = _official_locomo_fast_dataset_payload()
+    for sample in payload:
+        for qa in sample["qa"]:
+            assert isinstance(qa, dict)
+            qa["evidence"] = [
+                {"source_dialogue_id": "D1", "source_turn_id": "T0"}
+            ]
+    dataset.write_text(json.dumps(payload), encoding="utf-8")
+
+    result = run_memory_comparison_preflight(
+        _config(
+            dataset_path=dataset,
+            env={"MEM0_API_KEY": "secret-mem0"},
+        )
+    )
+
+    assert result["ready_for_locomo_fast"] is False
+    check = _check(result, "locomo_fast_dataset_case_coverage")
+    assert check["reason_code"] == "locomo_fast_dataset_unbacked_evidence_refs"
+    assert check["details"]["selected_with_turn_evidence_by_group"] == {
+        "multi-hop": 0,
+        "temporal": 0,
+        "open-domain": 0,
+        "single-hop": 0,
+    }
+
+
 def test_memory_comparison_preflight_blocks_any_underfilled_requested_group(
     tmp_path: Path,
 ) -> None:
