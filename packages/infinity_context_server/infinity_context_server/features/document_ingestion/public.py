@@ -4,6 +4,9 @@ from __future__ import annotations
 
 import infinity_context_core.features.document_ingestion.public as document_ingestion
 
+from infinity_context_server.features.document_ingestion.asset_requests import (
+    read_limited_asset_upload_body,
+)
 from infinity_context_server.features.document_ingestion.asset_responses import (
     asset_extraction_error_to_response,
     asset_extraction_to_response,
@@ -51,4 +54,5 @@ __all__ = (
     "ingest_document_command_from_contract",
     "ingest_document_result_to_contract",
     "legacy_ingest_document_command_from_request",
+    "read_limited_asset_upload_body",
 )

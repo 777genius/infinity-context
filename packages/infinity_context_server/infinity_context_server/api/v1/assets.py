@@ -65,9 +65,11 @@ async def upload_asset(
     parser_profile: Annotated[str | None, Query(max_length=80)] = None,
 ) -> dict[str, Any]:
     ensure_server_writes_enabled(container)
-    content = await _read_limited_request_body(
+    content = await document_ingestion_server.read_limited_asset_upload_body(
         request,
         max_bytes=container.settings.max_asset_upload_bytes,
+        ingress_limit_error=MemoryIngressLimitError,
+        validation_error=MemoryValidationError,
     )
     if not content:
         raise MemoryValidationError("Asset content is required")
@@ -374,28 +376,6 @@ async def download_asset(
 
 def _request_content_type(request: Request) -> str:
     return (request.headers.get("content-type") or "application/octet-stream").split(";")[0]
-
-
-async def _read_limited_request_body(request: Request, *, max_bytes: int) -> bytes:
-    content_length = request.headers.get("content-length")
-    if content_length:
-        try:
-            declared_size = int(content_length)
-        except ValueError as exc:
-            raise MemoryValidationError("Invalid Content-Length header") from exc
-        if declared_size > max_bytes:
-            raise MemoryIngressLimitError("Asset exceeds configured upload limit")
-
-    chunks: list[bytes] = []
-    total_bytes = 0
-    async for chunk in request.stream():
-        if not chunk:
-            continue
-        total_bytes += len(chunk)
-        if total_bytes > max_bytes:
-            raise MemoryIngressLimitError("Asset exceeds configured upload limit")
-        chunks.append(chunk)
-    return b"".join(chunks)
 
 
 def _artifact_content_type(artifact: ExtractionArtifact) -> str:

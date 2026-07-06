@@ -146,6 +146,7 @@ def test_document_ingestion_server_feature_public_surface_composes_router() -> N
         "ingest_document_command_from_contract",
         "ingest_document_result_to_contract",
         "legacy_ingest_document_command_from_request",
+        "read_limited_asset_upload_body",
     )
     assert server_public.FEATURE_ID == "document_ingestion"
     assert {route.path for route in feature.create_router().routes} == {
@@ -655,10 +656,14 @@ def test_assets_api_delegates_response_mapping_to_public_server_seam() -> None:
     assert "document_ingestion_server.asset_extraction_to_response(" in source
     assert "document_ingestion_server.extraction_artifact_to_response(" in source
     assert "document_ingestion_server.asset_extraction_error_to_response(" in source
+    assert "document_ingestion_server.read_limited_asset_upload_body(" in source
     assert "def asset_to_response(" not in source
     assert "def deduplication_to_response(" not in source
     assert "def asset_extraction_to_response(" not in source
     assert "def extraction_artifact_to_response(" not in source
+    assert "def _read_limited_request_body(" not in source
+    assert "content-length" not in source
+    assert "request.stream()" not in source
     assert "def _extraction_execution(" not in source
     assert "def _extraction_progress(" not in source
     assert "def _extraction_usage(" not in source
