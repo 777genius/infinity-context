@@ -1014,6 +1014,65 @@ def test_answer_context_matches_canonical_source_ref_to_source_turn_key() -> Non
     assert context.memories[0].metadata["answer_context_retrieval_order"] == 2
 
 
+def test_answer_context_uses_metadata_source_ref_payloads_for_identity() -> None:
+    memories = (
+        RetrievedMemory(
+            text="Caroline found the support group helpful.",
+            rank=1,
+            item_id="payload-a",
+            metadata={
+                "source_ref_payloads": [
+                    {
+                        "source_external_id": (
+                            "locomo:conv-19:session_4:D4:2:chunk-a"
+                        )
+                    }
+                ]
+            },
+        ),
+        RetrievedMemory(
+            text="Caroline found the support group helpful again.",
+            rank=2,
+            item_id="payload-b",
+            metadata={
+                "metadata": {
+                    "source_refs": [
+                        {
+                            "source_id": (
+                                "locomo:conv-19:session_4:D4:2:chunk-b"
+                            )
+                        }
+                    ]
+                }
+            },
+        ),
+    )
+
+    context = answer_context_from_evidence_bundle(
+        memories,
+        {
+            "items": [
+                {"id": "payload-a", "retrieval_order": 1, "role": "primary"},
+                {"id": "payload-b", "retrieval_order": 2, "role": "support"},
+            ]
+        },
+        cutoff=2,
+    )
+
+    assert [memory.item_id for memory in context.memories] == ["payload-a"]
+    assert context.memories[0].source_refs == (
+        "source_session_turn_refs:session_4:D4:2",
+        "source_turn_refs:D4:2",
+    )
+    assert context.skipped_duplicate_source_bundle_item_count == 1
+    diagnostics = context.to_diagnostics()
+    assert diagnostics["source_ref_count"] == 2
+    assert diagnostics["source_identity_refs"] == [
+        "source_session_turn_refs:session_4:D4:2",
+        "source_turn_refs:D4:2",
+    ]
+
+
 def test_answer_context_reports_bounded_safe_source_identity_diagnostics() -> None:
     memories = tuple(
         RetrievedMemory(

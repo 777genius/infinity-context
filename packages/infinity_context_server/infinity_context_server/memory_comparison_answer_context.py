@@ -2700,10 +2700,12 @@ def _source_identity_refs_from_memory(
         if include_compacted_fusion_refs or not compacted_fusion_refs
         else ()
     )
+    metadata_source_refs = _metadata_source_ref_values(memory.metadata)
     source_refs = tuple(
         dict.fromkeys(
             (
                 *(str(ref).strip() for ref in memory.source_refs if str(ref).strip()),
+                *metadata_source_refs,
                 *fusion_source_refs,
             )
         )
@@ -2728,6 +2730,49 @@ def _source_identity_refs_from_memory(
     )
 
 
+def _metadata_source_ref_values(metadata: Mapping[str, object]) -> tuple[str, ...]:
+    refs: list[str] = []
+    for key in ("source_ref", "source_refs", "source_ref_payloads"):
+        refs.extend(_source_ref_values_from_payload(metadata.get(key)))
+    nested = metadata.get("metadata")
+    if isinstance(nested, Mapping):
+        refs.extend(_metadata_source_ref_values(nested))
+    return tuple(dict.fromkeys(refs))
+
+
+def _source_ref_values_from_payload(value: object) -> tuple[str, ...]:
+    if isinstance(value, str):
+        stripped = value.strip()
+        return (stripped,) if stripped else ()
+    if isinstance(value, Mapping):
+        return _source_ref_values_from_mapping(value)
+    return tuple(
+        ref
+        for item in _sequence(value)
+        for ref in _source_ref_values_from_payload(item)
+    )
+
+
+def _source_ref_values_from_mapping(value: Mapping[str, object]) -> tuple[str, ...]:
+    refs: list[str] = []
+    for key in ("source_id", "source_external_id", "source_ref"):
+        raw_ref = value.get(key)
+        if isinstance(raw_ref, str) and raw_ref.strip():
+            refs.append(raw_ref.strip())
+    raw_id = value.get("id")
+    if isinstance(raw_id, str) and _source_ref_value_has_turn_identity(raw_id):
+        refs.append(raw_id.strip())
+    return tuple(dict.fromkeys(refs))
+
+
+def _source_ref_value_has_turn_identity(value: str) -> bool:
+    return bool(
+        _safe_source_identity_ref(value)
+        or _source_identity_refs_from_source_refs((value,), include_exact_turn_refs=True)
+        or _source_identity_refs_from_dedupe_key(value)
+    )
+
+
 def _source_match_refs_from_memory(
     memory: RetrievedMemory,
     *,
@@ -2741,10 +2786,12 @@ def _source_match_refs_from_memory(
         if include_compacted_fusion_refs
         else ()
     )
+    metadata_source_refs = _metadata_source_ref_values(memory.metadata)
     source_refs = tuple(
         dict.fromkeys(
             (
                 *(str(ref).strip() for ref in memory.source_refs if str(ref).strip()),
+                *metadata_source_refs,
                 *fusion_source_refs,
             )
         )
