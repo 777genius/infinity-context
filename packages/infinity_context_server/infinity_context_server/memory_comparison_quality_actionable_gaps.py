@@ -45,6 +45,8 @@ _MAX_EVIDENCE_RECALL_ACTIONABLE_SAMPLES = 3
 _MAX_EVIDENCE_RECALL_ACTIONABLE_SAMPLE_VALUES = 5
 _MAX_TEMPORAL_GROUNDING_ACTIONABLE_SAMPLES = 3
 _MAX_TEMPORAL_GROUNDING_ACTIONABLE_SAMPLE_VALUES = 5
+_MAX_QUERY_ROLE_COVERAGE_ACTIONABLE_SAMPLES = 3
+_MAX_QUERY_ROLE_COVERAGE_ACTIONABLE_SAMPLE_VALUES = 5
 
 
 def actionable_gap_summary(
@@ -491,6 +493,11 @@ def _append_query_role_gaps(
     evaluation_count: int,
     breakdown: Mapping[str, object],
 ) -> None:
+    _append_required_query_role_coverage_gaps(
+        gaps,
+        evaluation_count=evaluation_count,
+        breakdown=breakdown,
+    )
     for family, payload in _mapping(breakdown.get("role_family_gaps")).items():
         role_gap = _mapping(payload)
         selected_evidence_count = (
@@ -516,6 +523,38 @@ def _append_query_role_gaps(
                 "but no bundle coverage."
             ),
             evidence={"gap_reasons": list(_str_tuple(role_gap.get("gap_reasons")))},
+        )
+
+
+def _append_required_query_role_coverage_gaps(
+    gaps: list[dict[str, object]],
+    *,
+    evaluation_count: int,
+    breakdown: Mapping[str, object],
+) -> None:
+    samples = _sequence(breakdown.get("required_role_coverage_gap_samples"))
+    for reason, count in _count_mapping(
+        breakdown.get("required_role_coverage_gap_counts")
+    ).items():
+        matched_samples = _samples_for_gap(samples, str(reason))
+        compact_samples = _compact_query_role_coverage_actionable_samples(
+            matched_samples
+        )
+        _append_actionable_gap(
+            gaps,
+            evaluation_count=evaluation_count,
+            category="query_role_coverage",
+            gap=str(reason),
+            impact_count=count,
+            source_metric=(
+                "query_role_gap_breakdown.required_role_coverage_gap_counts"
+            ),
+            action=_query_role_coverage_action(str(reason)),
+            evidence={
+                "required_roles": _required_roles_from_samples(matched_samples),
+            },
+            samples=matched_samples,
+            sample_payloads=compact_samples,
         )
 
 
@@ -987,6 +1026,44 @@ def _compact_query_plan_actionable_samples(
     return tuple(compact_samples)
 
 
+def _compact_query_role_coverage_actionable_samples(
+    samples: Sequence[object],
+) -> tuple[dict[str, object], ...]:
+    compact_samples: list[dict[str, object]] = []
+    for sample in samples:
+        if not isinstance(sample, Mapping):
+            continue
+        compact: dict[str, object] = {}
+        for key in ("case_id", "group", "required_role", "required_query_family"):
+            value = _compact_query_plan_sample_text(sample.get(key))
+            if value:
+                compact[key] = value
+        for key in (
+            "gap_reasons",
+            "required_selected_query_families",
+            "candidate_query_role_families",
+            "selected_query_role_families",
+            "selected_evidence_query_role_families",
+        ):
+            values = tuple(
+                value
+                for value in (
+                    _compact_query_plan_sample_text(raw_value)
+                    for raw_value in _str_tuple(sample.get(key))
+                )
+                if value
+            )
+            if values:
+                compact[key] = list(
+                    values[:_MAX_QUERY_ROLE_COVERAGE_ACTIONABLE_SAMPLE_VALUES]
+                )
+        if compact:
+            compact_samples.append(compact)
+        if len(compact_samples) >= _MAX_QUERY_ROLE_COVERAGE_ACTIONABLE_SAMPLES:
+            break
+    return tuple(compact_samples)
+
+
 def _compact_selected_evidence_actionable_samples(
     samples: Sequence[Mapping[str, object]],
 ) -> tuple[dict[str, object], ...]:
@@ -1450,6 +1527,38 @@ def _compact_query_plan_sample_text(value: object) -> str:
     if len(text) <= _MAX_QUERY_PLAN_ACTIONABLE_SAMPLE_TEXT:
         return text
     return f"{text[: _MAX_QUERY_PLAN_ACTIONABLE_SAMPLE_TEXT - 3]}..."
+
+
+def _required_roles_from_samples(samples: Sequence[object]) -> list[str]:
+    roles: list[str] = []
+    for sample in samples:
+        if not isinstance(sample, Mapping):
+            continue
+        role = _compact_query_plan_sample_text(sample.get("required_role"))
+        if role and role not in roles:
+            roles.append(role)
+        if len(roles) >= _MAX_QUERY_ROLE_COVERAGE_ACTIONABLE_SAMPLE_VALUES:
+            break
+    return roles
+
+
+def _query_role_coverage_action(reason: str) -> str:
+    return {
+        "candidate_query": (
+            "Add candidate query families for required evidence roles before "
+            "rerank and bundle selection."
+        ),
+        "selected_query": (
+            "Keep selected query families aligned with required evidence roles."
+        ),
+        "selected_evidence_query": (
+            "Tag selected evidence with the query families that satisfy required "
+            "evidence roles."
+        ),
+        "missing_required_evidence": (
+            "Select evidence that satisfies each required bundle role."
+        ),
+    }.get(reason, "Close required evidence role coverage gaps in query planning.")
 
 
 def _query_plan_reason_action(reason: str) -> str:

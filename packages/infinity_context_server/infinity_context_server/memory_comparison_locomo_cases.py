@@ -132,6 +132,7 @@ def _official_locomo_turn_memories(
     if not isinstance(conversation, Mapping):
         return ()
     speaker_a = _first_str(conversation, "speaker_a") or ""
+    speaker_a_identity = _normalized_locomo_speaker(speaker_a)
     memories: list[BenchmarkMemoryInput] = []
     for session_key in sorted(conversation, key=_session_sort_key):
         if not _is_session_key(session_key):
@@ -155,7 +156,12 @@ def _official_locomo_turn_memories(
             )
             if not text:
                 continue
-            role = "user" if speaker == speaker_a else "assistant"
+            role = (
+                "user"
+                if speaker_a_identity
+                and _normalized_locomo_speaker(speaker) == speaker_a_identity
+                else "assistant"
+            )
             memories.append(
                 BenchmarkMemoryInput(
                     text=text,
@@ -198,6 +204,10 @@ def _official_locomo_turn_memory_text(
         return ""
     date_prefix = f"{session_key} date: {date_value}\n" if date_value.strip() else ""
     return f"{date_prefix}{dia_id} {speaker}: {text.strip()}"
+
+
+def _normalized_locomo_speaker(speaker: str) -> str:
+    return " ".join(str(speaker or "").casefold().split())
 
 
 def _locomo_date_to_epoch(date_value: str) -> int | None:

@@ -71,11 +71,12 @@ def test_answer_context_support_gap_samples_include_safe_context_identity() -> N
                             "memory_count": 2,
                             "source_ref_item_count": 0,
                             "source_refless_item_count": 2,
-                            "source_identity_ref_count": 4,
+                            "source_identity_ref_count": 5,
                             "source_identity_item_count": 2,
                             "source_identity_refs": [
                                 "source_turn_refs:D1:2",
                                 "source_session_turn_refs:session_1:D1:3",
+                                "source_session_turn_refs:session-2:D2-5",
                                 "locomo:conv-private:session_1:D1:4:turn-secret",
                                 "raw payload source identity must not appear",
                             ],
@@ -96,11 +97,12 @@ def test_answer_context_support_gap_samples_include_safe_context_identity() -> N
 
     assert sample["item_ids"] == ["selected", "backfilled"]
     assert sample["retrieval_orders"] == [1, 3]
-    assert sample["source_identity_ref_count"] == 4
+    assert sample["source_identity_ref_count"] == 5
     assert sample["source_identity_item_count"] == 2
     assert sample["source_identity_refs"] == [
         "source_turn_refs:D1:2",
         "source_session_turn_refs:session_1:D1:3",
+        "source_session_turn_refs:session_2:D2:5",
     ]
     assert sample["risk_reason_codes"] == ["risk:missing_required_role"]
     assert "text" not in sample

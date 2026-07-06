@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import re
 from collections import Counter
 from collections.abc import Mapping, Sequence
 
@@ -33,13 +32,10 @@ from infinity_context_server.memory_comparison_quality_accessors import (
 from infinity_context_server.memory_comparison_source_identity import (
     safe_item_id_for_output as _safe_item_id_for_output,
 )
-
-_SAFE_SOURCE_IDENTITY_REF_RE = re.compile(
-    r"^(?:(?P<turn_prefix>source_turn_refs):(?P<turn_ref>D\d+:\d+)|"
-    r"(?P<session_prefix>source_session_turn_refs):(?P<session>session_\d+):"
-    r"(?P<session_turn_ref>D\d+:\d+))$",
-    re.IGNORECASE,
+from infinity_context_server.memory_comparison_source_identity import (
+    safe_source_identity_ref as _canonical_safe_source_identity_ref,
 )
+
 _MAX_SAMPLE_SOURCE_IDENTITY_REFS = 8
 
 
@@ -293,18 +289,7 @@ def _safe_source_identity_refs(value: object) -> tuple[str, ...]:
 
 
 def _safe_source_identity_ref(value: object) -> str | None:
-    ref = str(value or "").strip()
-    if not ref or len(ref) > 80:
-        return None
-    match = _SAFE_SOURCE_IDENTITY_REF_RE.fullmatch(ref)
-    if match is None:
-        return None
-    if match.group("turn_ref"):
-        return f"source_turn_refs:{match.group('turn_ref').upper()}"
-    return (
-        "source_session_turn_refs:"
-        f"{match.group('session').lower()}:{match.group('session_turn_ref').upper()}"
-    )
+    return _canonical_safe_source_identity_ref(value)
 
 
 def _metric_scalar(value: object) -> float:
