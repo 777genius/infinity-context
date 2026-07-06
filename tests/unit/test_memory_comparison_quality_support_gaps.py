@@ -266,6 +266,47 @@ def test_answer_context_support_gap_samples_include_skipped_bundle_counts() -> N
     assert sample["skipped_noisy_overlap_bundle_item_count"] == 2
 
 
+def test_answer_context_support_gaps_report_all_backfill_skip_counts() -> None:
+    summary = answer_context_support_gap_summary(
+        (
+            {
+                "case_id": "backfill-skip-context-support",
+                "cutoff_results": {
+                    "5": {
+                        "answer_context": {
+                            "source": "evidence_bundle",
+                            "memory_count": 2,
+                            "source_ref_item_count": 2,
+                            "skipped_redundant_risky_backfill_count": 1,
+                            "skipped_redundant_source_backfill_count": 2,
+                            "skipped_redundant_role_backfill_count": 3,
+                            "skipped_target_limit_backfill_count": 4,
+                        }
+                    }
+                },
+            },
+        )
+    )
+
+    sample = summary["samples"][0]
+
+    assert summary["gap_reason_counts"] == {
+        "skipped_redundant_risky_backfill": 1,
+        "skipped_redundant_source_backfill": 1,
+        "skipped_redundant_role_backfill": 1,
+        "skipped_target_limit_backfill": 1,
+    }
+    assert sample["gap_reasons"] == [
+        "skipped_redundant_risky_backfill",
+        "skipped_redundant_source_backfill",
+        "skipped_redundant_role_backfill",
+        "skipped_target_limit_backfill",
+    ]
+    assert sample["skipped_redundant_risky_backfill_count"] == 1
+    assert sample["skipped_redundant_source_backfill_count"] == 2
+    assert sample["skipped_redundant_role_backfill_count"] == 3
+    assert sample["skipped_target_limit_backfill_count"] == 4
+
 
 def test_answer_context_support_gap_samples_omit_zero_skipped_bundle_counts() -> None:
     summary = answer_context_support_gap_summary(

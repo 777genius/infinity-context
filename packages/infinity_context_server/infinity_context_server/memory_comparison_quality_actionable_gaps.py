@@ -1540,6 +1540,9 @@ def _compact_answer_context_actionable_samples(
             "source_identity_item_count",
             "backfilled_retrieval_item_count",
             "skipped_redundant_risky_backfill_count",
+            "skipped_redundant_source_backfill_count",
+            "skipped_redundant_role_backfill_count",
+            "skipped_target_limit_backfill_count",
             "skipped_duplicate_source_bundle_item_count",
             "skipped_noisy_overlap_bundle_item_count",
         ):

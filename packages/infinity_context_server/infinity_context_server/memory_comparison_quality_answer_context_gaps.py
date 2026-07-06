@@ -222,6 +222,12 @@ def _support_gap_reasons(context: Mapping[str, object]) -> tuple[str, ...]:
         flags.append("weak_context_source_locality")
     if _positive_int(context.get("skipped_redundant_risky_backfill_count")):
         flags.append("skipped_redundant_risky_backfill")
+    if _positive_int(context.get("skipped_redundant_source_backfill_count")):
+        flags.append("skipped_redundant_source_backfill")
+    if _positive_int(context.get("skipped_redundant_role_backfill_count")):
+        flags.append("skipped_redundant_role_backfill")
+    if _positive_int(context.get("skipped_target_limit_backfill_count")):
+        flags.append("skipped_target_limit_backfill")
     if _positive_int(context.get("skipped_duplicate_source_bundle_item_count")):
         flags.append("skipped_duplicate_source_bundle_item")
     if _positive_int(context.get("skipped_noisy_overlap_bundle_item_count")):
@@ -320,6 +326,14 @@ def _support_gap_sample(
         sample["skipped_noisy_overlap_bundle_item_count"] = (
             skipped_noisy_overlap_bundle_item_count
         )
+    for key in (
+        "skipped_redundant_source_backfill_count",
+        "skipped_redundant_role_backfill_count",
+        "skipped_target_limit_backfill_count",
+    ):
+        value = _positive_int(context.get(key)) or 0
+        if value:
+            sample[key] = value
     fallback_reason = str(context.get("fallback_reason") or "").strip()
     if fallback_reason:
         sample["fallback_reason"] = fallback_reason
