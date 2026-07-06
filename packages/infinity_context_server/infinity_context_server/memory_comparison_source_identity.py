@@ -134,18 +134,48 @@ def safe_turn_ref(value: object) -> str | None:
 
 def safe_source_refs_for_output(source_refs: object) -> tuple[str, ...]:
     source_ref_values = _source_ref_values(source_refs)
-    source_identity_refs = source_identity_refs_from_source_refs(source_ref_values)
     refs: list[str] = []
-    for ref in source_identity_refs:
-        if ref not in refs:
-            refs.append(ref)
+    source_identity_refs: list[str] = list(
+        _split_source_identity_refs(source_ref_values)
+    )
+    refs.extend(source_identity_refs)
     for raw_ref in source_ref_values:
         for ref in _safe_source_refs_for_output_value(raw_ref):
             if _safe_output_ref_is_covered_by_identity(ref, source_identity_refs):
                 continue
             if ref and ref not in refs:
                 refs.append(ref)
+                if safe_source_identity_ref(ref):
+                    source_identity_refs.append(ref)
     return tuple(refs)
+
+
+def _split_source_identity_refs(source_refs: object) -> tuple[str, ...]:
+    source_ref_values = tuple(
+        str(ref or "").strip()
+        for ref in _source_ref_values(source_refs)
+        if str(ref or "").strip()
+    )
+    session_refs = tuple(
+        ref for ref in source_ref_values if _normalized_session_ref(ref)
+    )
+    turn_refs = tuple(
+        turn_ref
+        for ref in source_ref_values
+        for turn_ref in (
+            safe_turn_ref(ref) or _source_turn_ref_from_identity_ref(ref),
+        )
+        if turn_ref
+    )
+    session_turn_refs = _session_turn_refs_from_split_refs(session_refs, turn_refs)
+    return _session_identity_refs(session_turn_refs) if session_turn_refs else ()
+
+
+def _source_turn_ref_from_identity_ref(value: object) -> str:
+    identity_ref = safe_source_identity_ref(value)
+    if identity_ref is None or not identity_ref.startswith("source_turn_refs:"):
+        return ""
+    return identity_ref.removeprefix("source_turn_refs:")
 
 
 def safe_source_label_for_output(value: object) -> str | None:
