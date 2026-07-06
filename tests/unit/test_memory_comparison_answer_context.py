@@ -3,7 +3,9 @@ from infinity_context_server.memory_comparison_answer_context import (
     answer_context_from_evidence_bundle,
     answer_context_metrics,
 )
+from infinity_context_server.memory_comparison_llm import render_answer_prompt
 from infinity_context_server.memory_comparison_models import RetrievedMemory
+from infinity_context_server.public_benchmark_models import PublicBenchmarkCase
 
 
 def test_answer_context_risk_reasons_are_deduped_across_sources() -> None:
@@ -88,6 +90,63 @@ def test_answer_context_propagates_selected_item_risk_reasons() -> None:
         "risk:wide_relation_expansion",
         "risk:selected_item_specific",
     ]
+
+
+def test_answer_context_filters_private_provider_source_labels_from_metadata_and_prompt() -> None:
+    context = answer_context_from_evidence_bundle(
+        (
+            RetrievedMemory(
+                text="D1:1 Morgan chose the evening class.",
+                rank=1,
+                item_id="selected",
+                source_refs=("D1:1",),
+            ),
+        ),
+        {
+            "items": [
+                {
+                    "id": "selected",
+                    "retrieval_order": 1,
+                    "role": "primary",
+                    "source_type": "openai",
+                    "source_types": [
+                        "openai",
+                        "raw_turn",
+                        "provider-auth-private-marker",
+                    ],
+                    "retrieval_sources": [
+                        "qdrant",
+                        "semantic_chunks",
+                    ],
+                }
+            ]
+        },
+        cutoff=1,
+    )
+
+    metadata = context.memories[0].metadata
+    assert "answer_context_source_type" not in metadata
+    assert metadata["answer_context_source_types"] == ("raw_turn",)
+    assert metadata["answer_context_retrieval_sources"] == ("semantic_chunks",)
+
+    prompt = render_answer_prompt(
+        PublicBenchmarkCase(
+            benchmark="locomo",
+            case_id="conv-1:qa:source-label-prompt",
+            question="Which class did Morgan choose?",
+            expected_terms=("evening class",),
+            memory_scope_external_ref="locomo-conv-1",
+            thread_external_ref="locomo-conv-1",
+        ),
+        context.memories,
+        cutoff=1,
+    )
+
+    assert "source_types=raw_turn" in prompt
+    assert "retrieval_sources=semantic_chunks" in prompt
+    assert "openai" not in prompt
+    assert "qdrant" not in prompt
+    assert "provider-auth-private-marker" not in prompt
 
 
 def test_answer_context_keeps_scalar_bundle_risk_reason_through_skip_and_backfill() -> None:

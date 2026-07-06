@@ -42,6 +42,9 @@ from infinity_context_server.memory_comparison_source_identity import (
     safe_source_identity_ref as _safe_source_identity_ref,
 )
 from infinity_context_server.memory_comparison_source_identity import (
+    safe_source_label_for_output as _safe_source_label_for_output,
+)
+from infinity_context_server.memory_comparison_source_identity import (
     safe_source_refs_for_output as _safe_source_refs_for_output,
 )
 from infinity_context_server.memory_comparison_source_identity import (
@@ -1821,13 +1824,13 @@ def _with_answer_context_metadata(
     query_roles = _string_tuple(bundle_item.get("query_roles"))
     if query_roles:
         metadata["answer_context_query_roles"] = query_roles
-    source_type = str(bundle_item.get("source_type") or "").strip()
+    source_type = _safe_source_label_for_output(bundle_item.get("source_type"))
     if source_type:
         metadata["answer_context_source_type"] = source_type
-    source_types = _string_tuple(bundle_item.get("source_types"))
+    source_types = _safe_source_label_tuple(bundle_item.get("source_types"))
     if source_types:
         metadata["answer_context_source_types"] = source_types
-    retrieval_sources = _string_tuple(bundle_item.get("retrieval_sources"))
+    retrieval_sources = _safe_source_label_tuple(bundle_item.get("retrieval_sources"))
     if retrieval_sources:
         metadata["answer_context_retrieval_sources"] = retrieval_sources
     relation_category_hits = _string_tuple(bundle_item.get("relation_category_hits"))
@@ -2881,6 +2884,17 @@ def _string_tuple(value: object) -> tuple[str, ...]:
         stripped = value.strip()
         return (stripped,) if stripped else ()
     return tuple(str(item).strip() for item in _sequence(value) if str(item).strip())
+
+
+def _safe_source_label_tuple(value: object) -> tuple[str, ...]:
+    return tuple(
+        dict.fromkeys(
+            label
+            for item in _string_tuple(value)
+            for label in (_safe_source_label_for_output(item),)
+            if label
+        )
+    )
 
 
 def _ratio(numerator: int, denominator: int) -> float:

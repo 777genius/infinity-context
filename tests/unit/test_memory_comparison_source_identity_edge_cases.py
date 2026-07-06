@@ -15,6 +15,7 @@ from infinity_context_server.memory_comparison_source_identity import (
     looks_like_raw_source_ref,
     safe_item_id_for_output,
     safe_source_identity_ref,
+    safe_source_label_for_output,
     safe_source_refs_for_output,
     safe_turn_ref,
     source_identity_audit_gap_codes,
@@ -178,6 +179,14 @@ def test_safe_source_refs_for_output_filters_backend_index_and_provider_refs() -
             "document:profile-note",
         )
     ) == ("document:profile-note",)
+
+
+def test_safe_source_label_for_output_filters_private_provider_labels() -> None:
+    assert safe_source_label_for_output("raw_turn") == "raw_turn"
+    assert safe_source_label_for_output("semantic_chunks") == "semantic_chunks"
+    assert safe_source_label_for_output("provider-auth-private-marker") is None
+    assert safe_source_label_for_output("openai") is None
+    assert safe_source_label_for_output("qdrant") is None
 
 
 def test_safe_source_refs_for_output_preserves_safe_refs_with_hyphenated_raw_noise() -> None:

@@ -14,6 +14,9 @@ from infinity_context_server.memory_comparison_bundle_source_windows import (
     is_redundant_source_window_filler,
 )
 from infinity_context_server.memory_comparison_source_identity import (
+    safe_source_label_for_output as _safe_source_label_for_output,
+)
+from infinity_context_server.memory_comparison_source_identity import (
     source_identity_refs_from_dedupe_key as _source_identity_refs_from_dedupe_key,
 )
 from infinity_context_server.memory_comparison_source_identity import (
@@ -212,12 +215,17 @@ class PlannedEvidenceItem:
             ("source_refs:", "source_turn_refs:", "source_session_turn_refs:")
         ):
             payload["source_ref_dedupe_key"] = self.candidate.dedupe_key
-        if self.candidate.source_type != "unknown":
-            payload["source_type"] = self.candidate.source_type
-        if self.candidate.source_types:
-            payload["source_types"] = list(self.candidate.source_types)
-        if self.candidate.retrieval_sources:
-            payload["retrieval_sources"] = list(self.candidate.retrieval_sources)
+        source_type = _safe_source_label_for_output(self.candidate.source_type)
+        if source_type and source_type != "unknown":
+            payload["source_type"] = source_type
+        source_types = _safe_source_labels_for_output(self.candidate.source_types)
+        if source_types:
+            payload["source_types"] = list(source_types)
+        retrieval_sources = _safe_source_labels_for_output(
+            self.candidate.retrieval_sources
+        )
+        if retrieval_sources:
+            payload["retrieval_sources"] = list(retrieval_sources)
         if self.candidate.query_roles:
             payload["query_roles"] = list(self.candidate.query_roles)
         if self.candidate.relation_categories:
@@ -304,8 +312,10 @@ class EvidenceBundlePlan:
             "role_requirement_complete": self.role_requirement_complete,
             "required_role_repair_count": len(self.repaired_required_roles),
             "repaired_required_roles": list(self.repaired_required_roles),
-            "source_type_counts": dict(self.source_type_counts),
-            "retrieval_source_counts": dict(self.retrieval_source_counts),
+            "source_type_counts": _safe_source_label_counts(self.source_type_counts),
+            "retrieval_source_counts": _safe_source_label_counts(
+                self.retrieval_source_counts
+            ),
             "covered_required_term_count": len(
                 {
                     term
@@ -1849,6 +1859,26 @@ def _retrieval_source_keys(candidate: EvidenceBundleCandidate) -> tuple[str, ...
     if source_types:
         return tuple(f"source_type:{source_type}" for source_type in source_types)
     return (f"source_type:{candidate.source_type}",)
+
+
+def _safe_source_labels_for_output(values: Sequence[object]) -> tuple[str, ...]:
+    return tuple(
+        dict.fromkeys(
+            label
+            for value in values
+            for label in (_safe_source_label_for_output(value),)
+            if label
+        )
+    )
+
+
+def _safe_source_label_counts(values: Mapping[str, int]) -> dict[str, int]:
+    counts: Counter[str] = Counter()
+    for value, count in values.items():
+        label = _safe_source_label_for_output(value)
+        if label:
+            counts[label] += count
+    return dict(counts)
 
 
 def _source_type_keys(candidate: EvidenceBundleCandidate) -> tuple[str, ...]:

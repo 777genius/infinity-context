@@ -38,6 +38,16 @@ _MAX_SAFE_SOURCE_IDENTITY_REF_LENGTH = 80
 _MAX_SAFE_TURN_REF_LENGTH = 32
 _MAX_SAFE_GENERIC_SOURCE_REF_LENGTH = 128
 _MAX_SAFE_ITEM_ID_LENGTH = 128
+_MAX_SAFE_SOURCE_LABEL_LENGTH = 64
+_PRIVATE_SOURCE_LABELS = frozenset(
+    {
+        "graphiti",
+        "mem0",
+        "openai",
+        "provider",
+        "qdrant",
+    }
+)
 _INSTRUCTION_LIKE_ITEM_ID_RE = re.compile(
     r"\b(?:ignore\s+previous\s+instructions|reveal\s+(?:the\s+)?"
     r"(?:system|developer)\s+prompt|system\s+prompt|developer\s+message)\b",
@@ -122,6 +132,17 @@ def safe_source_refs_for_output(source_refs: object) -> tuple[str, ...]:
             if ref and ref not in refs:
                 refs.append(ref)
     return tuple(refs)
+
+
+def safe_source_label_for_output(value: object) -> str | None:
+    label = str(value or "").strip()
+    if not label or len(label) > _MAX_SAFE_SOURCE_LABEL_LENGTH:
+        return None
+    if _looks_like_raw_ref(label):
+        return None
+    if label.casefold() in _PRIVATE_SOURCE_LABELS:
+        return None
+    return label
 
 
 def looks_like_raw_source_ref(value: object) -> bool:
