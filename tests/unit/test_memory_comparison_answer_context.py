@@ -184,6 +184,37 @@ def test_answer_context_keeps_scalar_bundle_risk_reason_through_skip_and_backfil
     ]
 
 
+def test_answer_context_marks_selected_weak_source_locality_risk() -> None:
+    context = answer_context_from_evidence_bundle(
+        (
+            RetrievedMemory(
+                text="D1:1 Morgan mentioned a weakly localized detail.",
+                rank=1,
+                item_id="selected",
+                source_refs=("D1:1",),
+            ),
+        ),
+        {
+            "items": [
+                {
+                    "id": "selected",
+                    "retrieval_order": 1,
+                    "role": "primary",
+                    "source_locality_score": 0.44,
+                }
+            ]
+        },
+        cutoff=1,
+    )
+
+    assert context.memories[0].metadata["answer_context_risk_reason_codes"] == (
+        "risk:selected_weak_source_locality",
+    )
+    assert context.to_diagnostics()["risk_reason_codes"] == [
+        "risk:selected_weak_source_locality",
+    ]
+
+
 def test_answer_context_uses_bundle_order_within_cutoff() -> None:
     memories = (
         RetrievedMemory(text="noise", rank=1, item_id="noise"),

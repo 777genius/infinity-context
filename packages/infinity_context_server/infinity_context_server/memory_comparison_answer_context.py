@@ -1851,6 +1851,11 @@ def _with_answer_context_metadata(
             source_locality_score,
             6,
         )
+        if _is_measured_weak_source_locality(source_locality_score):
+            _add_answer_context_risk_codes(
+                metadata,
+                ("risk:selected_weak_source_locality",),
+            )
     source_refs = _merged_source_refs(memory, bundle_item)
     return RetrievedMemory(
         text=memory.text,
