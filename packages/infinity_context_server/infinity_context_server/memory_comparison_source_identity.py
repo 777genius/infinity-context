@@ -480,6 +480,8 @@ def _source_ref_values_from_mapping(value: Mapping[object, object]) -> tuple[obj
         "source_id",
         "source_external_id",
         "source_ref",
+        "source_session_id",
+        "session_id",
         "session_key",
         "dia_id",
         "turn_ref",

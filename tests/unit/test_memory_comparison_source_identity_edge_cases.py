@@ -222,6 +222,23 @@ def test_source_identity_refs_qualify_split_session_and_turn_refs() -> None:
     ) == ("source_text_session_turn_mismatch",)
 
 
+def test_source_identity_refs_qualify_structured_session_id_and_turn_id() -> None:
+    source_ref = {
+        "session_id": "session_12",
+        "turn_id": "5",
+        "metadata": {"source_dialogue_id": "12", "source_turn_id": "5"},
+    }
+
+    assert source_identity_refs_from_source_refs((source_ref,)) == (
+        "source_session_turn_refs:session_12:D12:5",
+        "source_turn_refs:D12:5",
+    )
+    assert safe_source_refs_for_output((source_ref,)) == (
+        "source_session_turn_refs:session_12:D12:5",
+        "source_turn_refs:D12:5",
+    )
+
+
 def test_safe_source_refs_for_output_filters_raw_provider_refs() -> None:
     assert safe_source_refs_for_output(
         (
