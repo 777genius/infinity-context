@@ -13,6 +13,7 @@ _RELATION_COMPACT_SUPPORT_ROLES = frozenset(
         "age_support",
         "alias_support",
         "commitment_support",
+        "community_membership_support",
         "contact_support",
         "current_goal_support",
         "date_support",

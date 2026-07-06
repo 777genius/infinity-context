@@ -283,6 +283,8 @@ _RELATION_QUERY_TERMS.update(
         "adoption",
         "agency",
         "ally",
+        "belong",
+        "belongs",
         "boyfriend",
         "boss",
         "brother",
@@ -309,8 +311,11 @@ _RELATION_QUERY_TERMS.update(
         "husband",
         "engag",
         "individual",
+        "lgbt",
+        "lgbtq",
         "kid",
         "member",
+        "membership",
         "manager",
         "mentor",
         "mother",
@@ -321,6 +326,7 @@ _RELATION_QUERY_TERMS.update(
         "park",
         "parent",
         "partner",
+        "part",
         "path",
         "personality",
         "pet",
@@ -343,6 +349,8 @@ _RELATION_QUERY_TERMS.update(
         "sunrise",
         "summer",
         "teammate",
+        "trans",
+        "transgender",
         "trait",
         "wife",
         "write",
@@ -1598,6 +1606,8 @@ def _compact_relation_query_role(intent: RetrievalIntent) -> str:
         return "diet_support"
     if "identity_profile" in evidence_needs:
         return "identity_support"
+    if "community_membership" in evidence_needs:
+        return "community_membership_support"
     if "communication" in evidence_needs:
         return "communication_support"
     if "causal_support" in evidence_needs and "reason" in set(intent.relation_terms):

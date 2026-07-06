@@ -50,6 +50,8 @@ def typed_relation_category_support(
         return _has_date_profile_support(memory_terms, memory_text=memory_text)
     if category == "health_profile":
         return _has_health_profile_support(memory_terms, memory_text=memory_text)
+    if category == "community_membership":
+        return _has_community_membership_support(memory_terms, memory_text=memory_text)
     if category == "pet_profile":
         return _has_pet_profile_support(memory_terms, memory_text=memory_text)
     if category == "skill_profile":
@@ -2001,11 +2003,68 @@ def _has_identity_profile_support(memory_terms: set[str]) -> bool:
     )
 
 
+_COMMUNITY_MEMBERSHIP_MARKER_RE = re.compile(
+    r"\b(?:identif(?:y|ies|ied)|member|part\s+of|belong(?:s|ed|ing)?\s+to|"
+    r"came\s+out|is\s+(?:transgender|queer|lgbtq?)|joined)\b"
+    r".{0,120}\b(?:lgbtq?|trans(?:gender)?|queer|pride|support\s+group|community)\b|"
+    r"\b(?:lgbtq?|trans(?:gender)?|queer|pride|support\s+group|community)\b"
+    r".{0,120}\b(?:identif(?:y|ies|ied)|member|part\s+of|belong(?:s|ed|ing)?|"
+    r"came\s+out|joined)\b",
+    re.IGNORECASE | re.DOTALL,
+)
+_COMMUNITY_ALLY_NOISE_RE = re.compile(
+    r"\b(?:ally|allies|supportive|supported|encourag(?:e|ed|es|ing)|"
+    r"advocat(?:e|ed|es|ing))\b.{0,100}\b(?:lgbtq?|trans(?:gender)?|"
+    r"queer|community|rights)\b|"
+    r"\b(?:lgbtq?|trans(?:gender)?|queer|pride|community|rights)\b.{0,100}"
+    r"\b(?:ally|allies|supportive|supported|encourag(?:e|ed|es|ing)|"
+    r"advocat(?:e|ed|es|ing))\b",
+    re.IGNORECASE | re.DOTALL,
+)
+
+
+def _has_community_membership_support(
+    memory_terms: set[str],
+    *,
+    memory_text: str = "",
+) -> bool:
+    community_domain = {
+        "lgbt",
+        "lgbtq",
+        "lgbtq+",
+        "pride",
+        "queer",
+        "trans",
+        "transgender",
+    } & memory_terms
+    membership_surface = {
+        "belong",
+        "belonged",
+        "belonging",
+        "identifies",
+        "identify",
+        "identified",
+        "joined",
+        "member",
+        "membership",
+    } & memory_terms
+    if not community_domain:
+        return False
+    if _COMMUNITY_ALLY_NOISE_RE.search(memory_text):
+        return False
+    return bool(
+        membership_surface
+        or {"part", "community"} <= memory_terms
+        or _COMMUNITY_MEMBERSHIP_MARKER_RE.search(memory_text)
+    )
+
+
 _TYPED_SUPPORT_CHECKS: dict[str, Callable[[set[str]], bool]] = {
     "activity": _has_activity_support,
     "age_profile": _has_age_profile_support,
     "alias_profile": _has_alias_profile_support,
     "commitment_profile": _has_commitment_profile_support,
+    "community_membership": _has_community_membership_support,
     "contact_profile": _has_contact_profile_support,
     "contrast": _has_contrast_support,
     "current_goal": _has_current_goal_support,

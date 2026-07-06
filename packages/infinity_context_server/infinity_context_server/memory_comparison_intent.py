@@ -391,6 +391,11 @@ def infer_relation_intents(
             relation_terms=relation_terms,
         ):
             continue
+        if category == "community_membership" and not _has_community_membership_intent(
+            question=question,
+            relation_terms=relation_terms,
+        ):
+            continue
         if category == "commitment_profile" and not _has_commitment_profile_intent(
             question=question,
             relation_terms=relation_terms,
@@ -591,6 +596,7 @@ def infer_bundle_evidence_roles(
         "employment_profile": "employment_support",
         "health_profile": "health_support",
         "identity_profile": "identity_support",
+        "community_membership": "community_membership_support",
         "pet_profile": "pet_support",
         "skill_profile": "skill_support",
         "status_profile": "status_support",
@@ -674,6 +680,7 @@ def merge_relation_evidence_needs(
         "favorite_preference",
         "inference_support",
         "identity_profile",
+        "community_membership",
         "participation_event",
         "registration_event",
         "support_goal",
@@ -1078,6 +1085,41 @@ def _has_support_goal_intent(
                 r"counsel(?:ing|or)?|pursue)\b",
                 normalized_question,
             )
+        )
+    )
+
+
+def _has_community_membership_intent(
+    *,
+    question: str,
+    relation_terms: tuple[str, ...],
+) -> bool:
+    normalized_question = " ".join(str(question or "").casefold().split())
+    relation_set = set(relation_terms)
+    membership_terms = {
+        "belong",
+        "belongs",
+        "identified",
+        "identifies",
+        "identify",
+        "member",
+        "membership",
+        "part",
+    }
+    community_terms = {
+        "community",
+        "lgbt",
+        "lgbtq",
+        "queer",
+        "trans",
+        "transgender",
+    }
+    return bool(
+        membership_terms & relation_set
+        and community_terms & relation_set
+        and not re.search(
+            r"\b(?:ally|supportive|supporting)\b",
+            normalized_question,
         )
     )
 
@@ -2030,6 +2072,48 @@ _RELATION_FACET_CONFIG: dict[str, dict[str, object]] = {
         ),
         "markers": frozenset(),
         "evidence_need": "identity_profile",
+    },
+    "community_membership": {
+        "terms": frozenset(
+            {
+                "belong",
+                "belongs",
+                "community",
+                "identified",
+                "identifies",
+                "identify",
+                "lgbt",
+                "lgbtq",
+                "member",
+                "membership",
+                "part",
+                "queer",
+                "trans",
+                "transgender",
+            }
+        ),
+        "variants": frozenset(
+            {
+                "belonged",
+                "belonging",
+                "came",
+                "community",
+                "identify",
+                "joined",
+                "lgbt",
+                "lgbtq",
+                "member",
+                "membership",
+                "part",
+                "pride",
+                "queer",
+                "support",
+                "trans",
+                "transgender",
+            }
+        ),
+        "markers": frozenset(),
+        "evidence_need": "community_membership",
     },
     "status_profile": {
         "terms": frozenset(

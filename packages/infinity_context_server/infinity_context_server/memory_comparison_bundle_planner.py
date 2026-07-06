@@ -38,6 +38,7 @@ _TYPED_RELATION_SUPPORT_CATEGORIES = {
     "age_support": frozenset({"age_profile"}),
     "alias_support": frozenset({"alias_profile"}),
     "commitment_support": frozenset({"commitment_profile"}),
+    "community_membership_support": frozenset({"community_membership"}),
     "contact_support": frozenset({"contact_profile"}),
     "current_goal_support": frozenset({"current_goal"}),
     "date_support": frozenset({"date_profile"}),

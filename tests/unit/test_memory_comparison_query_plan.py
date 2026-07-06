@@ -92,6 +92,39 @@ def test_query_planner_dedupes_equivalent_queries() -> None:
     assert plan.to_diagnostics()["duplicate_roles"] == ["duplicate_original"]
 
 
+def test_query_planner_groups_community_membership_as_relation_compact() -> None:
+    plan = QueryPlannerV2(max_queries=3).plan(
+        (
+            _candidate(
+                "original_question",
+                "Is Alex part of the LGBTQ community?",
+                priority=0,
+                query_type="semantic",
+            ),
+            _candidate(
+                "community_membership_support",
+                "alex lgbtq community member joined pride",
+                priority=30,
+                query_type="lexical",
+            ),
+        ),
+        fallback_query="Is Alex part of the LGBTQ community?",
+        recommended_role_families=("base_query", "relation_compact"),
+    )
+
+    diagnostics = plan.to_diagnostics()
+
+    assert diagnostics["selected_roles"] == [
+        "original_question",
+        "community_membership_support",
+    ]
+    assert diagnostics["selected_role_families"] == [
+        "base_query",
+        "relation_compact",
+    ]
+    assert diagnostics["missing_recommended_role_families"] == []
+
+
 def test_query_planner_preserves_query_type_diversity() -> None:
     plan = QueryPlannerV2(max_queries=3, max_queries_per_type=2).plan(
         (
