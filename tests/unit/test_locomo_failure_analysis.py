@@ -155,6 +155,82 @@ def test_locomo_failure_analysis_groups_prefixed_missing_evidence_refs_by_source
     assert summary["top_missing_evidence_sources"] == {"D7": 2, "D8": 1}
 
 
+def test_locomo_failure_analysis_filters_by_root_cause_for_gap_reruns(tmp_path) -> None:
+    report = {
+        "failures": [
+            {
+                "case_id": "window-miss",
+                "capability": "locomo_category_2",
+                "reason": "expected_terms_missing",
+                "diagnostic_reason_codes": ["missing_evidence_refs"],
+                "diagnostics": {
+                    "missing_evidence_source_locality": {
+                        "missing_turn_ref_count": 1,
+                        "same_source_missing_count": 1,
+                        "near_retrieved_window_count": 1,
+                    }
+                },
+            },
+            {
+                "case_id": "answer-context-fallback",
+                "capability": "locomo_category_2",
+                "reason": "expected_terms_missing",
+                "diagnostic_reason_codes": ["answer_context_fallback"],
+            },
+            {
+                "case_id": "plain-missing-ref",
+                "capability": "locomo_category_2",
+                "reason": "expected_terms_missing",
+                "diagnostic_reason_codes": ["missing_evidence_refs"],
+            },
+        ]
+    }
+    path = tmp_path / "report.json"
+    path.write_text(json.dumps(report), encoding="utf-8")
+    case_ids = tmp_path / "source-window-miss-case-ids.txt"
+    benchmark_args = tmp_path / "source-window-miss.args"
+
+    assert (
+        main(
+            (
+                str(path),
+                "--root-cause",
+                "source-window-miss",
+                "--case-id-out",
+                str(case_ids),
+                "--benchmark-args-out",
+                str(benchmark_args),
+            )
+        )
+        == 0
+    )
+
+    assert case_ids.read_text(encoding="utf-8").splitlines() == ["window-miss"]
+    assert benchmark_args.read_text(encoding="utf-8") == "--case-id window-miss\n"
+
+
+def test_filter_failures_matches_full_root_cause_tag() -> None:
+    failures = (
+        {
+            "case_id": "fallback",
+            "diagnostic_reason_codes": ["answer_context_fallback"],
+        },
+        {
+            "case_id": "missing-ref",
+            "diagnostic_reason_codes": ["missing_evidence_refs"],
+        },
+    )
+
+    filtered = _filter_failures(
+        failures,
+        capabilities=(),
+        reasons=(),
+        root_causes=("answer_context:fallback",),
+    )
+
+    assert [item["case_id"] for item in filtered] == ["fallback"]
+
+
 def test_locomo_failure_analysis_uses_question_preview_for_shapes_and_patterns() -> None:
     report = {
         "failures": [

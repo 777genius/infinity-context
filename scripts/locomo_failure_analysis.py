@@ -75,6 +75,15 @@ def main(argv: Sequence[str] | None = None) -> int:
         default=None,
         help="Include only matching failure reasons. Can be repeated or comma-separated.",
     )
+    parser.add_argument(
+        "--root-cause",
+        action="append",
+        default=None,
+        help=(
+            "Include only failures with matching root-cause tags. Can be repeated "
+            "or comma-separated; tag suffixes such as source_window_miss are accepted."
+        ),
+    )
     parser.add_argument("--top", type=int, default=20)
     parser.add_argument(
         "--limit",
@@ -89,6 +98,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         _failures(report),
         capabilities=_normalize_filters(args.capability),
         reasons=_normalize_filters(args.reason),
+        root_causes=_normalize_root_cause_filters(args.root_cause),
     )
     if args.limit is not None:
         failures = failures[: max(0, args.limit)]
@@ -751,16 +761,22 @@ def _filter_failures(
     *,
     capabilities: Sequence[str],
     reasons: Sequence[str],
+    root_causes: Sequence[str] = (),
 ) -> tuple[Mapping[str, object], ...]:
-    if not capabilities and not reasons:
+    if not capabilities and not reasons and not root_causes:
         return tuple(failures)
     capability_set = frozenset(capabilities)
     reason_set = frozenset(reasons)
+    root_cause_set = frozenset(root_causes)
     return tuple(
         failure
         for failure in failures
         if (not capability_set or _capability_key(failure) in capability_set)
         and (not reason_set or _reason_key(failure) in reason_set)
+        and (
+            not root_cause_set
+            or _root_cause_filter_matches(_root_cause_tags(failure), root_cause_set)
+        )
     )
 
 
@@ -782,6 +798,41 @@ def _normalize_filters(values: Sequence[str] | None) -> tuple[str, ...]:
                 selected.append(normalized)
                 seen.add(normalized)
     return tuple(selected)
+
+
+def _normalize_root_cause_filters(values: Sequence[str] | None) -> tuple[str, ...]:
+    selected: list[str] = []
+    seen: set[str] = set()
+    if not values:
+        return ()
+    for raw_value in values:
+        for item in str(raw_value).split(","):
+            normalized = _normalize_root_cause_filter_value(item)
+            if normalized and normalized not in seen:
+                selected.append(normalized)
+                seen.add(normalized)
+    return tuple(selected)
+
+
+def _normalize_root_cause_filter_value(value: object) -> str:
+    normalized = str(value or "").strip().lower()
+    normalized = normalized.replace("-", "_").replace(" ", "_")
+    normalized = re.sub(r"_+", "_", normalized)
+    return normalized.strip("_:")
+
+
+def _root_cause_filter_matches(
+    root_tags: Sequence[str],
+    root_cause_set: frozenset[str],
+) -> bool:
+    for tag in root_tags:
+        normalized_tag = _normalize_root_cause_filter_value(tag)
+        if normalized_tag in root_cause_set:
+            return True
+        tag_suffix = normalized_tag.rsplit(":", maxsplit=1)[-1]
+        if tag_suffix in root_cause_set:
+            return True
+    return False
 
 
 def _capability_key(failure: Mapping[str, object]) -> str:
