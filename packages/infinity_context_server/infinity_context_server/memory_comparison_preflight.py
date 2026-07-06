@@ -380,7 +380,11 @@ def _locomo_fast_dataset_checks(
 
     try:
         payload = _read_dataset_payload(config.dataset_path)
-        official_case_count, selected_by_group = _locomo_fast_dataset_case_counts(
+        (
+            official_case_count,
+            selected_by_group,
+            selected_with_turn_evidence_by_group,
+        ) = _locomo_fast_dataset_case_counts(
             payload,
             groups=groups,
         )
@@ -403,22 +407,36 @@ def _locomo_fast_dataset_checks(
         for group, count in selected_by_group.items()
         if count < _FAST_CASES_PER_GROUP
     ]
+    missing_turn_evidence_groups = [
+        group
+        for group, count in selected_with_turn_evidence_by_group.items()
+        if count < _FAST_CASES_PER_GROUP
+    ]
     return (
         _fast_check(
             "locomo_fast_dataset_case_coverage",
-            passed=not missing_groups,
+            passed=not missing_groups and not missing_turn_evidence_groups,
             reason=(
                 "dataset must provide at least 10 scored official-turn LoCoMo "
-                "cases for each requested fast group"
+                "cases for each requested fast group, with evidence refs backed "
+                "by conversation turns"
             ),
-            reason_code="locomo_fast_dataset_insufficient_cases",
+            reason_code=(
+                "locomo_fast_dataset_insufficient_cases"
+                if missing_groups
+                else "locomo_fast_dataset_unbacked_evidence_refs"
+            ),
             details={
                 "dataset_path_label": config.dataset_path.name,
                 "official_turn_case_count": official_case_count,
                 "requested_groups": list(groups),
                 "requested_per_group": _FAST_CASES_PER_GROUP,
                 "selected_by_group": selected_by_group,
+                "selected_with_turn_evidence_by_group": (
+                    selected_with_turn_evidence_by_group
+                ),
                 "missing_groups": missing_groups,
+                "missing_turn_evidence_groups": missing_turn_evidence_groups,
             },
         ),
     )
@@ -653,12 +671,14 @@ def _locomo_fast_dataset_case_counts(
     payload: object,
     *,
     groups: Sequence[str],
-) -> tuple[int, dict[str, int]]:
+) -> tuple[int, dict[str, int], dict[str, int]]:
     selected_by_group = dict.fromkeys(groups, 0)
+    selected_with_turn_evidence_by_group = dict.fromkeys(groups, 0)
     official_case_count = 0
     for sample in _official_locomo_samples(payload):
         if not _official_locomo_sample_has_turns(sample):
             continue
+        turn_evidence_ids = _official_locomo_sample_turn_evidence_ids(sample)
         qas = sample.get("qa")
         if not isinstance(qas, Sequence) or isinstance(qas, str | bytes):
             continue
@@ -675,7 +695,9 @@ def _locomo_fast_dataset_case_counts(
             official_case_count += 1
             if group in selected_by_group:
                 selected_by_group[group] += 1
-    return official_case_count, selected_by_group
+                if _qa_has_backed_turn_evidence(qa, turn_evidence_ids):
+                    selected_with_turn_evidence_by_group[group] += 1
+    return official_case_count, selected_by_group, selected_with_turn_evidence_by_group
 
 
 def _official_locomo_samples(payload: object) -> tuple[Mapping[str, object], ...]:
@@ -731,6 +753,85 @@ def _official_locomo_sample_has_turns(sample: Mapping[str, object]) -> bool:
         ):
             return True
     return False
+
+
+def _official_locomo_sample_turn_evidence_ids(
+    sample: Mapping[str, object],
+) -> frozenset[str]:
+    conversation = sample.get("conversation")
+    if not isinstance(conversation, Mapping):
+        return frozenset()
+    evidence_ids: set[str] = set()
+    for key, value in conversation.items():
+        if not str(key).startswith("session_"):
+            continue
+        if str(key).endswith("_date_time"):
+            continue
+        if not isinstance(value, Sequence) or isinstance(value, str | bytes):
+            continue
+        for index, turn in enumerate(value):
+            if not isinstance(turn, Mapping):
+                continue
+            if not _text_field(
+                turn,
+                "text",
+                "content",
+                "utterance",
+                "caption",
+                "blip_caption",
+                "query",
+                "image_query",
+                "visual_query",
+            ):
+                continue
+            evidence_id = _text_field(turn, "dia_id", "id")
+            if evidence_id:
+                evidence_ids.add(evidence_id)
+            else:
+                evidence_ids.add(f"{key}:{index + 1}")
+    return frozenset(evidence_ids)
+
+
+def _qa_has_backed_turn_evidence(
+    qa: Mapping[str, object],
+    turn_evidence_ids: frozenset[str],
+) -> bool:
+    return any(
+        evidence_id in turn_evidence_ids
+        for evidence_id in _locomo_qa_evidence_ids(qa.get("evidence"))
+    )
+
+
+def _locomo_qa_evidence_ids(value: object) -> tuple[str, ...]:
+    evidence_ids: list[str] = []
+    for item in _locomo_qa_evidence_values(value):
+        evidence_id = str(item).strip()
+        if evidence_id:
+            evidence_ids.append(evidence_id)
+    return tuple(dict.fromkeys(evidence_ids))
+
+
+def _locomo_qa_evidence_values(value: object) -> tuple[object, ...]:
+    if isinstance(value, Mapping):
+        values: list[object] = []
+        for key in (
+            "dia_id",
+            "evidence",
+            "evidence_id",
+            "evidence_ids",
+            "id",
+            "turn_id",
+            "turn_ids",
+        ):
+            if key in value:
+                values.extend(_locomo_qa_evidence_values(value.get(key)))
+        return tuple(values)
+    if isinstance(value, Sequence) and not isinstance(value, str | bytes):
+        values = []
+        for item in value:
+            values.extend(_locomo_qa_evidence_values(item))
+        return tuple(values)
+    return (value,) if value is not None else ()
 
 
 def _official_locomo_qa_group(qa: Mapping[str, object]) -> str | None:

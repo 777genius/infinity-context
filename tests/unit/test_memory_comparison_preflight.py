@@ -94,6 +94,12 @@ def test_memory_comparison_preflight_accepts_wrapped_locomo_fast_dataset(
         "open-domain": 10,
         "single-hop": 10,
     }
+    assert check["details"]["selected_with_turn_evidence_by_group"] == {
+        "multi-hop": 10,
+        "temporal": 10,
+        "open-domain": 10,
+        "single-hop": 10,
+    }
 
 
 @pytest.mark.parametrize(
@@ -159,6 +165,52 @@ def test_memory_comparison_preflight_blocks_underfilled_locomo_fast_dataset(
     assert check["details"]["requested_per_group"] == 10
     assert check["details"]["selected_by_group"] == {"temporal": 2}
     assert check["details"]["missing_groups"] == ["temporal"]
+
+
+def test_memory_comparison_preflight_blocks_unbacked_locomo_evidence_refs(
+    tmp_path: Path,
+) -> None:
+    dataset = tmp_path / "locomo-unbacked-evidence.json"
+    payload = _official_locomo_fast_dataset_payload()
+    for sample in payload:
+        for qa in sample["qa"]:
+            assert isinstance(qa, dict)
+            qa["evidence"] = ["D9:99"]
+    dataset.write_text(json.dumps(payload), encoding="utf-8")
+
+    result = run_memory_comparison_preflight(
+        _config(
+            dataset_path=dataset,
+            env={"MEM0_API_KEY": "secret-mem0"},
+        )
+    )
+
+    assert result["ok"] is True
+    assert result["ready_for_locomo_fast"] is False
+    assert result["fast_readiness_blockers"] == [
+        "locomo_fast_dataset_case_coverage"
+    ]
+    check = _check(result, "locomo_fast_dataset_case_coverage")
+    assert check["reason_code"] == "locomo_fast_dataset_unbacked_evidence_refs"
+    assert check["details"]["selected_by_group"] == {
+        "multi-hop": 10,
+        "temporal": 10,
+        "open-domain": 10,
+        "single-hop": 10,
+    }
+    assert check["details"]["selected_with_turn_evidence_by_group"] == {
+        "multi-hop": 0,
+        "temporal": 0,
+        "open-domain": 0,
+        "single-hop": 0,
+    }
+    assert check["details"]["missing_groups"] == []
+    assert check["details"]["missing_turn_evidence_groups"] == [
+        "multi-hop",
+        "temporal",
+        "open-domain",
+        "single-hop",
+    ]
 
 
 def test_memory_comparison_preflight_blocks_any_underfilled_requested_group(
@@ -668,6 +720,7 @@ def _official_locomo_fast_dataset_payload(
                         f"What answer is needed for category {category} case {index}?"
                     ),
                     "answer": f"answer-{category}-{index}",
+                    "evidence": ["D1:1"],
                     "category": category,
                 }
             )
