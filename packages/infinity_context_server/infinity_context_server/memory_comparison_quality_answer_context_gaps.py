@@ -45,14 +45,36 @@ def answer_context_support_gap_summary(
 ) -> dict[str, object]:
     context_count = 0
     support_gap_context_count = 0
+    missing_answer_context_count = 0
+    unsupported_answer_context_count = 0
     reason_counts: Counter[str] = Counter()
     source_counts: Counter[str] = Counter()
     missing_required_role_counts: Counter[str] = Counter()
     risk_reason_counts: Counter[str] = Counter()
     samples: list[dict[str, object]] = []
+    availability_gap_samples: list[dict[str, object]] = []
 
     for item in items:
-        for cutoff, context in _answer_contexts(item):
+        for cutoff, raw_payload in _cutoff_payloads(item):
+            availability_gap_reason = _answer_context_availability_gap_reason(
+                raw_payload
+            )
+            if availability_gap_reason:
+                if availability_gap_reason == "missing_answer_context":
+                    missing_answer_context_count += 1
+                else:
+                    unsupported_answer_context_count += 1
+                if len(availability_gap_samples) < 10:
+                    availability_gap_samples.append(
+                        _availability_gap_sample(
+                            item,
+                            cutoff=cutoff,
+                            gap_reason=availability_gap_reason,
+                        )
+                    )
+                continue
+
+            context = _mapping(_mapping(raw_payload).get("answer_context"))
             context_count += 1
             gap_reasons = _support_gap_reasons(context)
             if not gap_reasons:
@@ -82,34 +104,54 @@ def answer_context_support_gap_summary(
 
     return {
         "schema_version": "answer_context_support_gaps.v1",
+        "expected_context_count": (
+            context_count
+            + missing_answer_context_count
+            + unsupported_answer_context_count
+        ),
         "context_count": context_count,
         "support_gap_context_count": support_gap_context_count,
         "support_gap_context_rate": _ratio(support_gap_context_count, context_count),
+        "answer_context_availability_gap_count": (
+            missing_answer_context_count + unsupported_answer_context_count
+        ),
+        "missing_answer_context_count": missing_answer_context_count,
+        "unsupported_answer_context_count": unsupported_answer_context_count,
         "gap_reason_counts": _top_counts(reason_counts),
         "source_counts": _top_counts(source_counts),
         "missing_required_role_counts": _top_counts(missing_required_role_counts),
         "risk_reason_counts": _top_counts(risk_reason_counts),
         "samples": samples,
+        "availability_gap_samples": availability_gap_samples,
     }
 
 
-def _answer_contexts(
-    item: Mapping[str, object],
-) -> tuple[tuple[str, Mapping[str, object]], ...]:
-    contexts: list[tuple[str, Mapping[str, object]]] = []
+def _cutoff_payloads(item: Mapping[str, object]) -> tuple[tuple[str, object], ...]:
+    payloads: list[tuple[str, object]] = []
     for cutoff, payload in _mapping(item.get("cutoff_results")).items():
-        context = _mapping(_mapping(payload).get("answer_context"))
-        if context:
-            contexts.append((str(cutoff), context))
+        payloads.append((str(cutoff), payload))
     return tuple(
         sorted(
-            contexts,
+            payloads,
             key=lambda pair: (
                 _positive_int(pair[0]) or 999999,
                 pair[0],
             ),
         )
     )
+
+
+def _answer_context_availability_gap_reason(raw_payload: object) -> str:
+    if not isinstance(raw_payload, Mapping):
+        return "unsupported_answer_context"
+    if "answer_context" not in raw_payload:
+        return "missing_answer_context"
+    raw_context = raw_payload.get("answer_context")
+    if not isinstance(raw_context, Mapping):
+        return "unsupported_answer_context"
+    if not raw_context:
+        return "missing_answer_context"
+    return ""
 
 
 def _support_gap_reasons(context: Mapping[str, object]) -> tuple[str, ...]:
@@ -256,6 +298,22 @@ def _support_gap_sample(
     if risk_reasons:
         sample["risk_reason_codes"] = list(risk_reasons)
     return sample
+
+
+def _availability_gap_sample(
+    item: Mapping[str, object],
+    *,
+    cutoff: str,
+    gap_reason: str,
+) -> dict[str, object]:
+    source = "missing" if gap_reason == "missing_answer_context" else "unsupported"
+    return {
+        "case_id": str(item.get("case_id") or ""),
+        "group": str(item.get("group") or ""),
+        "cutoff": cutoff,
+        "source": source,
+        "gap_reasons": [gap_reason],
+    }
 
 
 def _answer_context_sample_identity(context: Mapping[str, object]) -> dict[str, object]:

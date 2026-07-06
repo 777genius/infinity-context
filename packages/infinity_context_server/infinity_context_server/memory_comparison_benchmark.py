@@ -2495,10 +2495,26 @@ def _compact_fast_gate_summary(
             ),
         },
         "answer_context_support_gap_counts": {
+            "expected_context_count": _positive_int(
+                answer_context_gaps.get("expected_context_count")
+            )
+            or 0,
             "context_count": _positive_int(answer_context_gaps.get("context_count"))
             or 0,
             "support_gap_context_count": _positive_int(
                 answer_context_gaps.get("support_gap_context_count")
+            )
+            or 0,
+            "answer_context_availability_gap_count": _positive_int(
+                answer_context_gaps.get("answer_context_availability_gap_count")
+            )
+            or 0,
+            "missing_answer_context_count": _positive_int(
+                answer_context_gaps.get("missing_answer_context_count")
+            )
+            or 0,
+            "unsupported_answer_context_count": _positive_int(
+                answer_context_gaps.get("unsupported_answer_context_count")
             )
             or 0,
             "gap_reason_counts": _compact_count_mapping(
@@ -2514,6 +2530,11 @@ def _compact_fast_gate_summary(
         "answer_context_support_gap_samples": (
             _compact_answer_context_support_gap_samples(
                 answer_context_gaps.get("samples")
+            )
+        ),
+        "answer_context_availability_gap_samples": (
+            _compact_answer_context_support_gap_samples(
+                answer_context_gaps.get("availability_gap_samples")
             )
         ),
         "temporal_grounding_counts": {

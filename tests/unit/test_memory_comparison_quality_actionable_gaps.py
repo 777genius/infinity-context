@@ -653,6 +653,72 @@ def test_actionable_summary_reports_answer_context_risk_reason_gaps() -> None:
     assert "raw_provider_payload" not in json.dumps(answerability_gap, sort_keys=True)
 
 
+def test_actionable_summary_reports_answer_context_availability_gaps() -> None:
+    summary = actionable_gap_summary(
+        evaluation_count=2,
+        expected_case_count=2,
+        failed_gates=(),
+        query_overlap_count=0,
+        profile_overlap_count=0,
+        intent_overlap_count=0,
+        answer_context_support_gap_summary={
+            "expected_context_count": 2,
+            "context_count": 0,
+            "missing_answer_context_count": 1,
+            "unsupported_answer_context_count": 1,
+            "availability_gap_samples": [
+                {
+                    "case_id": "missing-context",
+                    "cutoff": "3",
+                    "source": "missing",
+                    "gap_reasons": ["missing_answer_context"],
+                },
+                {
+                    "case_id": "unsupported-context",
+                    "cutoff": "5",
+                    "source": "unsupported",
+                    "gap_reasons": ["unsupported_answer_context"],
+                },
+            ],
+        },
+    )
+
+    missing_gap = next(
+        gap
+        for gap in summary["ranked_gaps"]
+        if gap["category"] == "answer_context_availability"
+        and gap["gap"] == "missing_answer_context"
+    )
+    unsupported_gap = next(
+        gap
+        for gap in summary["ranked_gaps"]
+        if gap["category"] == "answer_context_availability"
+        and gap["gap"] == "unsupported_answer_context"
+    )
+
+    assert missing_gap["source_metric"] == (
+        "answer_context_support_gap_summary.missing_answer_context_count"
+    )
+    assert missing_gap["sample_case_ids"] == ["missing-context"]
+    assert missing_gap["samples"] == [
+        {
+            "case_id": "missing-context",
+            "cutoff": "3",
+            "source": "missing",
+            "gap_reasons": ["missing_answer_context"],
+        }
+    ]
+    assert unsupported_gap["sample_case_ids"] == ["unsupported-context"]
+    assert unsupported_gap["samples"] == [
+        {
+            "case_id": "unsupported-context",
+            "cutoff": "5",
+            "source": "unsupported",
+            "gap_reasons": ["unsupported_answer_context"],
+        }
+    ]
+
+
 def test_actionable_summary_bounds_answer_context_provenance_samples() -> None:
     long_value = "x" * 200
     summary = actionable_gap_summary(

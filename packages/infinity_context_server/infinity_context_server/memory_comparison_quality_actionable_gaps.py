@@ -847,6 +847,36 @@ def _append_answer_context_support_gaps(
         ),
         "source_counts": _count_mapping(summary.get("source_counts")),
     }
+    availability_samples = _sequence(summary.get("availability_gap_samples"))
+    availability_counts = {
+        "missing_answer_context": (
+            _positive_int(summary.get("missing_answer_context_count")) or 0
+        ),
+        "unsupported_answer_context": (
+            _positive_int(summary.get("unsupported_answer_context_count")) or 0
+        ),
+    }
+    for reason, count in sorted(availability_counts.items()):
+        matched_samples = _samples_for_gap(availability_samples, reason)
+        compact_samples = _compact_answer_context_actionable_samples(matched_samples)
+        _append_actionable_gap(
+            gaps,
+            evaluation_count=evaluation_count,
+            category="answer_context_availability",
+            gap=reason,
+            impact_count=count,
+            source_metric=f"answer_context_support_gap_summary.{reason}_count",
+            action=_answer_context_support_action(reason),
+            evidence={
+                "expected_context_count": (
+                    _positive_int(summary.get("expected_context_count")) or 0
+                ),
+                "context_count": _positive_int(summary.get("context_count")) or 0,
+            },
+            samples=matched_samples,
+            sample_payloads=compact_samples,
+        )
+
     for reason, count in sorted(_count_mapping(summary.get("gap_reason_counts")).items()):
         matched_samples = _samples_for_gap(samples, str(reason))
         compact_samples = _compact_answer_context_actionable_samples(matched_samples)
@@ -1055,6 +1085,16 @@ def _action_for_gap(category: str, gap: str, *, default: str) -> str:
 
 
 def _answer_context_support_action(reason: str) -> str:
+    if reason == "missing_answer_context":
+        return (
+            "Render answer_context diagnostics for every cutoff result in "
+            "compact reports."
+        )
+    if reason == "unsupported_answer_context":
+        return (
+            "Emit answer_context diagnostics as a structured mapping for every "
+            "cutoff result."
+        )
     if reason in {"missing_context_source_refs", "partial_context_source_refs"}:
         return "Preserve source refs when selected evidence is rendered into answer context."
     if reason == "missing_required_roles":

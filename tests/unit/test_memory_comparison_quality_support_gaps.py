@@ -138,7 +138,51 @@ def test_answer_context_support_gap_sample_metrics_are_json_safe() -> None:
     json.dumps(sample, allow_nan=False)
 
 
-def test_answer_context_support_gaps_derive_low_confidence_for_preserved_contexts() -> None:
+def test_answer_context_support_gaps_report_missing_and_unsupported_contexts() -> None:
+    summary = answer_context_support_gap_summary(
+        (
+            {
+                "case_id": "missing-answer-context",
+                "group": "single-hop",
+                "cutoff_results": {
+                    "3": {},
+                    "5": {"answer_context": []},
+                    "10": {
+                        "answer_context": {
+                            "source": "evidence_bundle",
+                            "memory_count": 1,
+                            "source_ref_item_count": 1,
+                        }
+                    },
+                },
+            },
+        )
+    )
+
+    assert summary["expected_context_count"] == 3
+    assert summary["context_count"] == 1
+    assert summary["answer_context_availability_gap_count"] == 2
+    assert summary["missing_answer_context_count"] == 1
+    assert summary["unsupported_answer_context_count"] == 1
+    assert summary["availability_gap_samples"] == [
+        {
+            "case_id": "missing-answer-context",
+            "group": "single-hop",
+            "cutoff": "3",
+            "source": "missing",
+            "gap_reasons": ["missing_answer_context"],
+        },
+        {
+            "case_id": "missing-answer-context",
+            "group": "single-hop",
+            "cutoff": "5",
+            "source": "unsupported",
+            "gap_reasons": ["unsupported_answer_context"],
+        },
+    ]
+
+
+def test_answer_context_support_gaps_derive_low_confidence_context() -> None:
     items = (
         _item(
             case_id="preserved-low-confidence-context",
