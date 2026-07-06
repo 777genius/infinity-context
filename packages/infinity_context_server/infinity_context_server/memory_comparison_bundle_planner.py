@@ -1848,17 +1848,16 @@ def _candidate_has_obsolete_primary_surface(
 
 def _retrieval_source_keys(candidate: EvidenceBundleCandidate) -> tuple[str, ...]:
     if candidate.retrieval_sources:
-        return tuple(
-            dict.fromkeys(
-                source
-                for source in candidate.retrieval_sources
-                if str(source).strip()
-            )
-        )
+        sources = _safe_source_labels_for_output(candidate.retrieval_sources)
+        if sources:
+            return sources
     source_types = _source_type_keys(candidate)
     if source_types:
         return tuple(f"source_type:{source_type}" for source_type in source_types)
-    return (f"source_type:{candidate.source_type}",)
+    source_type = _safe_source_label_for_output(candidate.source_type)
+    if source_type and source_type != "unknown":
+        return (f"source_type:{source_type}",)
+    return ()
 
 
 def _safe_source_labels_for_output(values: Sequence[object]) -> tuple[str, ...]:
@@ -1883,12 +1882,8 @@ def _safe_source_label_counts(values: Mapping[str, int]) -> dict[str, int]:
 
 def _source_type_keys(candidate: EvidenceBundleCandidate) -> tuple[str, ...]:
     values = candidate.source_types or (candidate.source_type,)
-    return tuple(
-        dict.fromkeys(
-            value
-            for value in values
-            if str(value).strip() and str(value).strip() != "unknown"
-        )
+    return _safe_source_labels_for_output(
+        tuple(value for value in values if str(value).strip() != "unknown")
     )
 
 

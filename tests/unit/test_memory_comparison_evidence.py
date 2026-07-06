@@ -241,6 +241,11 @@ def test_evidence_bundle_filters_private_provider_source_labels() -> None:
     assert bundle["bundle_planner"]["retrieval_source_counts"] == {
         "semantic_chunks": 1
     }
+    bundle_quality = bundle["bundle_planner"]["bundle_quality"]
+    assert bundle_quality["source_type_diversity"] == 1
+    assert bundle_quality["retrieval_source_diversity"] == 1
+    assert bundle_quality["source_type_support_diversity"] == 1
+    assert bundle_quality["retrieval_source_support_diversity"] == 1
     serialized = json.dumps(bundle, sort_keys=True)
     for label in private_labels:
         assert label not in serialized
