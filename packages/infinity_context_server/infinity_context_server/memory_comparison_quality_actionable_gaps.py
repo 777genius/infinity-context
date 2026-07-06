@@ -841,6 +841,12 @@ def _append_answer_context_support_gaps(
     summary: Mapping[str, object],
 ) -> None:
     samples = _sequence(summary.get("samples"))
+    support_gap_evidence = {
+        "support_gap_context_count": (
+            _positive_int(summary.get("support_gap_context_count")) or 0
+        ),
+        "source_counts": _count_mapping(summary.get("source_counts")),
+    }
     for reason, count in sorted(_count_mapping(summary.get("gap_reason_counts")).items()):
         matched_samples = _samples_for_gap(samples, str(reason))
         compact_samples = _compact_answer_context_actionable_samples(matched_samples)
@@ -852,12 +858,25 @@ def _append_answer_context_support_gaps(
             impact_count=count,
             source_metric="answer_context_support_gap_summary.gap_reason_counts",
             action=_answer_context_support_action(str(reason)),
-            evidence={
-                "support_gap_context_count": (
-                    _positive_int(summary.get("support_gap_context_count")) or 0
-                ),
-                "source_counts": _count_mapping(summary.get("source_counts")),
-            },
+            evidence=support_gap_evidence,
+            samples=matched_samples,
+            sample_payloads=compact_samples,
+        )
+
+    for reason, count in sorted(
+        _count_mapping(summary.get("risk_reason_counts")).items()
+    ):
+        matched_samples = _samples_for_gap(samples, str(reason))
+        compact_samples = _compact_answer_context_actionable_samples(matched_samples)
+        _append_actionable_gap(
+            gaps,
+            evaluation_count=evaluation_count,
+            category="answer_context_risk",
+            gap=str(reason),
+            impact_count=count,
+            source_metric="answer_context_support_gap_summary.risk_reason_counts",
+            action=_answer_context_risk_action(str(reason)),
+            evidence=support_gap_evidence,
             samples=matched_samples,
             sample_payloads=compact_samples,
         )
@@ -988,6 +1007,7 @@ def _samples_for_gap(
             or gap in _str_tuple(sample.get("reason_codes"))
             or gap in _str_tuple(sample.get("gap_reasons"))
             or gap in _str_tuple(sample.get("issue_reasons"))
+            or gap in _str_tuple(sample.get("risk_reason_codes"))
         )
     ]
     if matched:
@@ -1056,6 +1076,32 @@ def _answer_context_support_action(reason: str) -> str:
     if reason.startswith("skipped_"):
         return "Inspect skipped answer-context backfills and add grounded bundle coverage."
     return f"Resolve answer-context support gap '{reason}'."
+
+
+def _answer_context_risk_action(reason: str) -> str:
+    return {
+        "risk:retrieval_backfill": (
+            "Replace answer-context retrieval backfill with selected bundle evidence."
+        ),
+        "risk:backfilled_broad_summary": (
+            "Prefer localized source turns over broad summaries when backfilling "
+            "answer context."
+        ),
+        "risk:backfilled_conflict_or_stale": (
+            "Avoid stale or conflicting memories in answer-context backfill."
+        ),
+        "risk:backfilled_low_answerability": (
+            "Backfill answer context with evidence that has stronger measured "
+            "answerability."
+        ),
+        "risk:backfilled_weak_source_locality": (
+            "Backfill answer context with source-local evidence."
+        ),
+        "risk:skipped_target_limit_backfill": (
+            "Increase grounded bundle coverage before answer-context target "
+            "limits suppress backfill."
+        ),
+    }.get(reason, f"Reduce answer-context risk reason '{reason}'.")
 
 
 def _query_plan_samples(

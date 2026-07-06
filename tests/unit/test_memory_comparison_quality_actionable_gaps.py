@@ -556,6 +556,103 @@ def test_actionable_summary_reports_answer_context_support_gaps() -> None:
     assert "raw_provider_payload" not in json.dumps(role_gap, sort_keys=True)
 
 
+def test_actionable_summary_reports_answer_context_risk_reason_gaps() -> None:
+    summary = actionable_gap_summary(
+        evaluation_count=3,
+        expected_case_count=3,
+        failed_gates=(),
+        query_overlap_count=0,
+        profile_overlap_count=0,
+        intent_overlap_count=0,
+        answer_context_support_gap_summary={
+            "support_gap_context_count": 3,
+            "gap_reason_counts": {"low_answerability_backfill": 1},
+            "risk_reason_counts": {
+                "risk:backfilled_low_answerability": 1,
+                "risk:skipped_target_limit_backfill": 1,
+            },
+            "source_counts": {"retrieval_backfill": 2},
+            "samples": [
+                {
+                    "case_id": "low-answerability-risk",
+                    "cutoff": "5",
+                    "source": "retrieval_backfill",
+                    "gap_reasons": ["low_answerability_backfill"],
+                    "risk_reason_codes": ["risk:backfilled_low_answerability"],
+                    "avg_measured_answerability_score": 0.4,
+                    "raw_provider_payload": "excluded",
+                },
+                {
+                    "case_id": "target-limit-risk",
+                    "cutoff": "5",
+                    "source": "retrieval_backfill",
+                    "risk_reason_codes": ["risk:skipped_target_limit_backfill"],
+                    "source_identity_refs": [
+                        "source_session_turn_refs:session_1:D1:2",
+                    ],
+                },
+                {
+                    "case_id": "unrelated-context-gap",
+                    "cutoff": "5",
+                    "source": "evidence_bundle",
+                    "gap_reasons": ["missing_context_source_refs"],
+                },
+            ],
+        },
+    )
+
+    answerability_gap = next(
+        gap
+        for gap in summary["ranked_gaps"]
+        if gap["category"] == "answer_context_risk"
+        and gap["gap"] == "risk:backfilled_low_answerability"
+    )
+    target_limit_gap = next(
+        gap
+        for gap in summary["ranked_gaps"]
+        if gap["category"] == "answer_context_risk"
+        and gap["gap"] == "risk:skipped_target_limit_backfill"
+    )
+
+    assert answerability_gap["source_metric"] == (
+        "answer_context_support_gap_summary.risk_reason_counts"
+    )
+    assert answerability_gap["action"] == (
+        "Backfill answer context with evidence that has stronger measured "
+        "answerability."
+    )
+    assert answerability_gap["sample_case_ids"] == ["low-answerability-risk"]
+    assert answerability_gap["evidence"] == {
+        "support_gap_context_count": 3,
+        "source_counts": {"retrieval_backfill": 2},
+    }
+    assert answerability_gap["samples"] == [
+        {
+            "case_id": "low-answerability-risk",
+            "cutoff": "5",
+            "source": "retrieval_backfill",
+            "gap_reasons": ["low_answerability_backfill"],
+            "risk_reason_codes": ["risk:backfilled_low_answerability"],
+            "avg_measured_answerability_score": 0.4,
+        }
+    ]
+    assert target_limit_gap["sample_case_ids"] == ["target-limit-risk"]
+    assert target_limit_gap["samples"] == [
+        {
+            "case_id": "target-limit-risk",
+            "cutoff": "5",
+            "source": "retrieval_backfill",
+            "risk_reason_codes": ["risk:skipped_target_limit_backfill"],
+            "source_identity_refs": ["source_session_turn_refs:session_1:D1:2"],
+        }
+    ]
+    assert "unrelated-context-gap" not in json.dumps(
+        (answerability_gap, target_limit_gap),
+        sort_keys=True,
+    )
+    assert "raw_provider_payload" not in json.dumps(answerability_gap, sort_keys=True)
+
+
 def test_actionable_summary_bounds_answer_context_provenance_samples() -> None:
     long_value = "x" * 200
     summary = actionable_gap_summary(
