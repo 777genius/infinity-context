@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import re
+from collections.abc import Mapping
 
 from infinity_context_core.application.context_diagnostics import safe_diagnostic_mapping
 from infinity_context_core.application.dto import ContextItem
@@ -137,13 +138,25 @@ def temporal_session_orders_from_query(query: str) -> tuple[int, ...]:
 def _session_order_source_values(item: ContextItem) -> tuple[str, ...]:
     diagnostics = safe_diagnostic_mapping(item.diagnostics)
     provenance = safe_diagnostic_mapping(diagnostics.get("provenance"))
+    metadata = safe_diagnostic_mapping(diagnostics.get("metadata"))
     values = [
         item.item_id,
         item.text,
         str(diagnostics.get("source_id") or ""),
         str(provenance.get("source_id") or ""),
     ]
-    values.extend(str(ref.source_id or "") for ref in item.source_refs)
+    for mapping in (diagnostics, provenance, metadata):
+        values.extend(_string_values(mapping))
+    for ref in item.source_refs:
+        values.extend(
+            str(value)
+            for value in (
+                ref.source_id,
+                ref.chunk_id,
+                ref.quote_preview,
+            )
+            if value
+        )
     return tuple(value for value in values if value)
 
 
@@ -198,6 +211,76 @@ def _session_orders_from_metadata_value(value: object) -> tuple[int, ...]:
     if re.fullmatch(r"\d{1,4}", text):
         return (int(text),)
     return _session_orders_from_values((text,))
+
+
+def _string_values(mapping: Mapping[str, object]) -> tuple[str, ...]:
+    values: list[str] = []
+    if structured_label := _structured_source_turn_label(mapping):
+        values.append(structured_label)
+    for value in mapping.values():
+        values.extend(_strings_from_diagnostic_value(value))
+    return tuple(values)
+
+
+def _strings_from_diagnostic_value(value: object) -> tuple[str, ...]:
+    if isinstance(value, str):
+        return (value,)
+    if isinstance(value, Mapping):
+        structured_label = _structured_source_turn_label(value)
+        nested_values = tuple(
+            string_value
+            for nested_value in value.values()
+            for string_value in _strings_from_diagnostic_value(nested_value)
+        )
+        if structured_label:
+            return (structured_label, *nested_values)
+        return nested_values
+    if isinstance(value, (list, tuple)):
+        return tuple(
+            string_value
+            for nested_value in value
+            for string_value in _strings_from_diagnostic_value(nested_value)
+        )
+    return ()
+
+
+def _structured_source_turn_label(value: Mapping[str, object]) -> str:
+    dialogue = _positive_int_value(
+        value.get("dialogue")
+        or value.get("dialogue_id")
+        or value.get("dialogue_index")
+        or value.get("source_dialogue")
+        or value.get("source_dialogue_id")
+        or value.get("source_dialogue_index")
+        or value.get("session")
+        or value.get("session_id")
+        or value.get("session_index")
+        or value.get("session_order")
+    )
+    turn = _positive_int_value(
+        value.get("turn")
+        or value.get("turn_id")
+        or value.get("turn_index")
+        or value.get("source_turn")
+        or value.get("source_turn_id")
+        or value.get("source_turn_index")
+    )
+    if not dialogue or not turn:
+        return ""
+    return f"D{dialogue}:{turn}"
+
+
+def _positive_int_value(value: object) -> int:
+    if isinstance(value, bool) or value is None:
+        return 0
+    if isinstance(value, int):
+        return value if value > 0 else 0
+    if isinstance(value, float):
+        return int(value) if value.is_integer() and value > 0 else 0
+    text = str(value).strip()
+    if re.fullmatch(r"\d{1,4}", text):
+        return int(text)
+    return 0
 
 
 def _word_number_value(raw: str) -> int:

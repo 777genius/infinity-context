@@ -525,10 +525,26 @@ class TemporalQueryIntent:
             reasons.append("after_date")
         if self.before_date:
             reasons.append("before_date")
+        if (
+            self.source_turn_sequence.after_turns
+            and self.source_turn_sequence.before_turns
+        ):
+            reasons.append("source_turn_window")
         if self.source_turn_sequence.after_turns:
             reasons.append("after_source_turn")
+        if self.source_turn_sequence.after_turn_radius:
+            reasons.append("after_source_turn_radius")
         if self.source_turn_sequence.before_turns:
             reasons.append("before_source_turn")
+        if self.source_turn_sequence.before_turn_radius:
+            reasons.append("before_source_turn_radius")
+        if self.source_turn_sequence.near_turns:
+            reasons.append("near_source_turn")
+        if (
+            self.source_turn_sequence.near_turns
+            and self.source_turn_sequence.near_turn_radius > 1
+        ):
+            reasons.append("near_source_turn_radius")
         return {
             "temporal_query_intent_status": "empty" if self.empty else "available",
             "temporal_query_prefers_current": self.prefers_current,
@@ -554,6 +570,18 @@ class TemporalQueryIntent:
             "temporal_query_before_source_turns": [
                 turn.label() for turn in self.source_turn_sequence.before_turns
             ],
+            "temporal_query_after_source_turn_radius": (
+                self.source_turn_sequence.after_turn_radius
+            ),
+            "temporal_query_before_source_turn_radius": (
+                self.source_turn_sequence.before_turn_radius
+            ),
+            "temporal_query_near_source_turns": [
+                turn.label() for turn in self.source_turn_sequence.near_turns
+            ],
+            "temporal_query_near_source_turn_radius": (
+                self.source_turn_sequence.near_turn_radius
+            ),
             "temporal_query_intent_reasons": reasons,
         }
 
