@@ -57,6 +57,7 @@ def test_locomo_failure_analysis_summarizes_failure_patterns(tmp_path) -> None:
     }
     assert summary["answer_shape_count"] == {"list": 1, "why": 1}
     assert summary["top_missing_terms"]["Spain"] == 2
+    assert summary["top_missing_evidence_sources"] == {"D1": 2, "D4": 1}
     assert summary["top_missing_evidence_ref_previews"] == {
         "D1:2: Maria visited Spain.": 1
     }
@@ -130,6 +131,28 @@ def test_filter_failures_matches_reason_and_capability() -> None:
     )
 
     assert [item["case_id"] for item in filtered] == ["a"]
+
+
+def test_locomo_failure_analysis_groups_prefixed_missing_evidence_refs_by_source() -> None:
+    report = {
+        "failures": [
+            {
+                "case_id": "prefixed",
+                "diagnostics": {
+                    "missing_evidence_terms": [
+                        "source_turn_refs:D7:2",
+                        "source_session_turn_refs:session_1:D7:3",
+                        "locomo:private-conv:session_1:D8:4:raw-turn-id",
+                        "unparseable-ref-without-turn",
+                    ],
+                },
+            }
+        ]
+    }
+
+    summary = _summary(_failures(report), top=5)
+
+    assert summary["top_missing_evidence_sources"] == {"D7": 2, "D8": 1}
 
 
 def test_locomo_failure_analysis_uses_question_preview_for_shapes_and_patterns() -> None:
@@ -239,6 +262,7 @@ def test_locomo_failure_analysis_groups_root_cause_tags_from_diagnostics() -> No
     assert summary["root_cause_tag_count"]["bundle:missing_role:bridge"] == 1
     assert summary["root_cause_tag_count"]["bundle:risk:low_answerability"] == 1
     assert summary["top_missing_evidence_refs"] == {"D1:2": 1, "D1:3": 1, "D4:5": 1}
+    assert summary["top_missing_evidence_sources"] == {"D1": 2, "D4": 1}
     assert summary["root_cause_examples"]["retrieval:partial_expected_term_support"] == [
         {
             "case_id": "locomo:conv-1:qa:1",
@@ -395,6 +419,13 @@ def test_locomo_failure_analysis_tags_answer_context_gaps() -> None:
     )
     assert summary["root_cause_tag_count"]["answer_context:backfilled_retrieval"] == 1
     assert summary["root_cause_tag_count"]["answer_context:risk_reasons"] == 1
+    assert (
+        summary["root_cause_tag_count"]["answer_context:risk:retrieval_backfill"]
+        == 1
+    )
+    assert summary["answer_context_risk_reason_count"] == {
+        "risk:retrieval_backfill": 1
+    }
     assert summary["root_cause_examples"]["answer_context:fallback"] == [
         {
             "case_id": "answer-context-gap",
@@ -406,6 +437,7 @@ def test_locomo_failure_analysis_tags_answer_context_gaps() -> None:
                 "answer_context:missing_required_roles",
                 "answer_context:backfilled_retrieval",
                 "answer_context:risk_reasons",
+                "answer_context:risk:retrieval_backfill",
             ],
             "diagnostic_reason_codes": [
                 "answer_context_fallback",
@@ -479,10 +511,17 @@ def test_locomo_failure_analysis_counts_answer_context_identity_provenance() -> 
         "source_refless_items_present": 1,
         "source_identity_refs_present": 1,
         "source_identity_items_present": 1,
+        "identity_only_provenance_present": 1,
         "fallback_present": 1,
         "backfilled_retrieval_present": 1,
         "source_refs_present": 1,
     }
+    assert (
+        summary["root_cause_tag_count"][
+            "answer_context:identity_only_provenance"
+        ]
+        == 1
+    )
     assert summary["root_cause_examples"]["answer_context:fallback"][0][
         "answer_context"
     ] == {
