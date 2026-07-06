@@ -2322,8 +2322,12 @@ def test_compact_fast_gate_summary_surfaces_computed_gap_diagnostics() -> None:
     ]
     assert "text" not in weakness_samples["samples"][0]
     assert summary["answer_context_support_gap_counts"] == {
+        "expected_context_count": 1,
         "context_count": 1,
         "support_gap_context_count": 1,
+        "answer_context_availability_gap_count": 0,
+        "missing_answer_context_count": 0,
+        "unsupported_answer_context_count": 0,
         "gap_reason_counts": {
             "low_answerability_backfill": 1,
             "low_bundle_confidence": 1,
@@ -6438,9 +6442,7 @@ def test_query_decomposition_expands_temporal_action_queries() -> None:
         destress_case
     )
 
-    assert support_group_queries[1] == (
-        "caroline support group go went lgbtq inclusive"
-    )
+    assert support_group_queries[1] == "caroline lgbtq support group go went inclusive"
     assert "go" in support_group_metadata["query_profile"]["relation_terms"]
     assert "went" in support_group_metadata["query_profile"]["relation_variant_terms"]
     assert generic_support_group_queries[1] == (
@@ -6485,7 +6487,7 @@ def test_query_decomposition_expands_temporal_action_queries() -> None:
     assert "paint" in sunrise_metadata["query_profile"]["relation_terms"]
     assert "sunrise" in sunrise_metadata["query_profile"]["relation_terms"]
     assert conference_queries[1] == (
-        "caroline conference transgender going month event attend"
+        "caroline transgender conference going month event attend"
     )
     assert "conference" in conference_metadata["query_profile"]["relation_terms"]
     assert "transgender" in conference_metadata["query_profile"]["lexical_terms"]
@@ -6680,7 +6682,7 @@ def test_query_decomposition_expands_location_profile_queries() -> None:
     assert living_queries[1] == "alex live liv bas home city place"
     assert living_metadata["query_profile"]["relation_terms"] == ("live",)
     assert living_metadata["query_profile"]["evidence_need"] == ("location_support",)
-    assert current_city_queries[2] == "alex current live known year been exist ongo liv bas"
+    assert current_city_queries[1] == "alex current live known year been exist ongo liv bas"
     assert current_city_metadata["query_profile"]["relation_terms"] == (
         "current",
         "live",

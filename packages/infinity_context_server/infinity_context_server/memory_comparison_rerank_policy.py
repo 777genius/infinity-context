@@ -505,6 +505,16 @@ def _provenance_safety_cap(
     )
     for reason, cap in missing_evidence_caps.items():
         if reason in answerability_reasons:
+            if (
+                reason == "missing_relative_temporal_evidence"
+                and "current_goal" in features.relation_category_hits
+                and _float_signal(
+                    score_signals,
+                    "benchmark_current_goal_context_boost",
+                )
+                > 0
+            ):
+                continue
             if count_list_answer_grounding and reason in {
                 "missing_activity_evidence",
                 "missing_participation_event_evidence",
