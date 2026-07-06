@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from collections import Counter, defaultdict
 from collections.abc import Mapping, Sequence
 from math import isfinite
@@ -263,7 +264,10 @@ def _selected_evidence_weakness_sample(
     source_refs = _source_refs_from_bundle_item(bundle_item)
     source_ref_count = len(_compact_sample_values(source_refs))
     compact_query_roles = _compact_sample_values(query_roles)
-    compact_source_refs = _safe_selected_source_refs(source_refs)
+    compact_source_refs = _safe_selected_source_refs(
+        source_refs,
+        raw_values=_str_tuple(bundle_item.get("source_refs")),
+    )
     sample: dict[str, object] = {
         "case_id": _compact_sample_text(case_id),
         "group": _compact_sample_text(group),
@@ -420,13 +424,67 @@ def _compact_sample_values(values: Sequence[str]) -> tuple[str, ...]:
     )
 
 
-def _safe_selected_source_refs(values: Sequence[str]) -> tuple[str, ...]:
+def _safe_selected_source_refs(
+    values: Sequence[str],
+    *,
+    raw_values: Sequence[str] = (),
+) -> tuple[str, ...]:
     refs: list[str] = []
+    has_explicit_identity_input = False
+    explicit_turn_refs: set[str] = set()
+    for raw_ref in raw_values or values:
+        raw_text = str(raw_ref or "").strip()
+        raw_lower = raw_text.lower()
+        if raw_lower.startswith(("source_session_turn_refs:", "source_turn_refs:")):
+            has_explicit_identity_input = True
+        if raw_lower.startswith("source_turn_refs:"):
+            explicit_turn_refs.update(
+                ref.removeprefix("source_turn_refs:")
+                for ref in _safe_source_refs_for_output((raw_text,))
+                if ref.startswith("source_turn_refs:")
+            )
     for raw_ref in values:
         for ref in _safe_selected_source_refs_for_value(raw_ref):
             if ref and ref not in refs:
                 refs.append(ref)
+    if has_explicit_identity_input:
+        refs = _drop_derived_turn_refs_covered_by_session_refs(
+            refs,
+            explicit_turn_refs=explicit_turn_refs,
+        )
     return tuple(refs)
+
+
+def _drop_derived_turn_refs_covered_by_session_refs(
+    refs: Sequence[str],
+    *,
+    explicit_turn_refs: set[str],
+) -> list[str]:
+    session_turn_refs = {
+        session_ref.split(":", 1)[1]
+        for ref in refs
+        if ref.startswith("source_session_turn_refs:")
+        for session_ref in (ref.removeprefix("source_session_turn_refs:"),)
+        if ":" in session_ref
+    }
+    if not session_turn_refs:
+        return list(refs)
+    return [
+        ref
+        for ref in refs
+        if not (
+            (turn_ref := _selected_turn_ref_identity(ref)) in session_turn_refs
+            and turn_ref not in explicit_turn_refs
+        )
+    ]
+
+
+def _selected_turn_ref_identity(value: str) -> str:
+    if value.startswith("source_turn_refs:"):
+        return value.removeprefix("source_turn_refs:")
+    if re.fullmatch(r"D\d+[:-]\d+", value, re.IGNORECASE):
+        return value
+    return ""
 
 
 def _safe_selected_source_refs_for_value(value: object) -> tuple[str, ...]:

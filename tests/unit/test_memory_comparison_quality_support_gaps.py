@@ -3241,6 +3241,52 @@ def test_fast_gate_metrics_caps_selected_low_answerability_samples() -> None:
     assert samples[0]["planner_reason_count"] == 8
 
 
+def test_fast_gate_metrics_dedupes_derived_selected_source_turn_refs() -> None:
+    gate = fast_gate_metrics(
+        (
+            _item(
+                case_id="selected-source-ref-dedupe",
+                evidence_bundle={
+                    "bundle_complete": True,
+                    "items": [
+                        {
+                            "id": "derived-turn-ref",
+                            "role": "primary",
+                            "answerability_score": 0.2,
+                            "source_locality_score": 0.2,
+                            "source_refs": [
+                                "source_session_turn_refs:session_4:D4:5",
+                                "D4:5",
+                            ],
+                        },
+                        {
+                            "id": "explicit-turn-ref",
+                            "role": "supporting",
+                            "answerability_score": 0.2,
+                            "source_locality_score": 0.2,
+                            "source_refs": [
+                                "source_session_turn_refs:session_4:D4:6",
+                                "source_turn_refs:D4:6",
+                            ],
+                        },
+                    ],
+                },
+            ),
+        ),
+        expected_case_count=1,
+    )
+
+    samples = gate["selected_evidence_weakness"]["low_answerability_samples"]
+
+    assert samples[0]["source_refs"] == [
+        "source_session_turn_refs:session_4:D4:5",
+    ]
+    assert samples[1]["source_refs"] == [
+        "source_session_turn_refs:session_4:D4:6",
+        "source_turn_refs:D4:6",
+    ]
+
+
 def test_fast_gate_metrics_caps_selected_evidence_weakness_sample_values() -> None:
     long_value = "diagnostic-value-" + ("x" * 200)
     gate = fast_gate_metrics(
