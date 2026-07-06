@@ -262,11 +262,12 @@ def _selected_evidence_weakness_sample(
     source_locality_score: float,
 ) -> dict[str, object]:
     source_refs = _source_refs_from_bundle_item(bundle_item)
-    source_ref_count = len(_compact_sample_values(source_refs))
+    explicit_source_refs = _explicit_selected_source_ref_values(bundle_item)
+    source_ref_count = len(_compact_sample_values(explicit_source_refs or source_refs))
     compact_query_roles = _compact_sample_values(query_roles)
     compact_source_refs = _safe_selected_source_refs(
         source_refs,
-        raw_values=_str_tuple(bundle_item.get("source_refs")),
+        explicit_values=explicit_source_refs,
     )
     sample: dict[str, object] = {
         "case_id": _compact_sample_text(case_id),
@@ -424,15 +425,38 @@ def _compact_sample_values(values: Sequence[str]) -> tuple[str, ...]:
     )
 
 
+def _explicit_selected_source_ref_values(
+    bundle_item: Mapping[str, object],
+) -> tuple[str, ...]:
+    refs: list[str] = list(_str_tuple(bundle_item.get("source_refs")))
+    refs.extend(_str_tuple(bundle_item.get("source_identity_refs")))
+    source_identity_ref = str(bundle_item.get("source_identity_ref") or "").strip()
+    if source_identity_ref:
+        refs.append(source_identity_ref)
+    for key in ("source_ref_dedupe_key", "dedupe_key"):
+        value = str(bundle_item.get(key) or "").strip()
+        if value.lower().startswith(
+            (
+                "source_identity:",
+                "source_refs:",
+                "source_session_turn_refs:",
+                "source_turn_refs:",
+            )
+        ):
+            refs.append(value)
+    return tuple(refs)
+
+
 def _safe_selected_source_refs(
     values: Sequence[str],
     *,
-    raw_values: Sequence[str] = (),
+    explicit_values: Sequence[str] | None = None,
 ) -> tuple[str, ...]:
     refs: list[str] = []
+    explicit_source_values = values if explicit_values is None else explicit_values
     has_explicit_identity_input = False
     explicit_turn_refs: set[str] = set()
-    for raw_ref in raw_values or values:
+    for raw_ref in explicit_source_values:
         raw_text = str(raw_ref or "").strip()
         raw_lower = raw_text.lower()
         if raw_lower.startswith(("source_session_turn_refs:", "source_turn_refs:")):
