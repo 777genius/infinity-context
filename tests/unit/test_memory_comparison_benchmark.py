@@ -2326,6 +2326,7 @@ def test_compact_fast_gate_summary_surfaces_computed_gap_diagnostics() -> None:
         "support_gap_context_count": 1,
         "gap_reason_counts": {
             "low_answerability_backfill": 1,
+            "low_bundle_confidence": 1,
             "low_context_answerability": 1,
             "missing_context_source_refs": 1,
             "missing_required_roles": 1,
@@ -2355,6 +2356,7 @@ def test_compact_fast_gate_summary_surfaces_computed_gap_diagnostics() -> None:
             "gap_reasons": [
                 "missing_context_source_refs",
                 "missing_required_roles",
+                "low_bundle_confidence",
                 "weak_bundle_source_support",
                 "low_answerability_backfill",
                 "low_context_answerability",
@@ -2434,6 +2436,29 @@ def test_compact_fast_gate_summary_surfaces_computed_gap_diagnostics() -> None:
         }
     ]
     assert summary["top_gap"] is not None
+    top_actionable_gaps = summary["top_actionable_gaps"]
+    assert top_actionable_gaps[0] == summary["top_gap"]
+    assert isinstance(top_actionable_gaps[0].get("action"), str)
+    assert len(top_actionable_gaps[0]["action"]) <= 180
+    assert any(
+        gap.get("category") == "selected_evidence_weakness"
+        and gap.get("gap") == "selected_low_answerability"
+        and gap.get("source_metric") == "selected_evidence_weakness.reason_counts"
+        and gap.get("action")
+        and gap.get("sample_case_ids") == ["compact-fastgate-gap"]
+        for gap in top_actionable_gaps
+    )
+    assert any(
+        gap.get("category") == "query_plan"
+        and gap.get("gap") == "emotion_response_support"
+        and gap.get("failed_gate") == "query_plan_evidence_roles_clear"
+        and gap.get("source_metric")
+        == "query_plan_gap_breakdown.missing_evidence_role_query_family_counts"
+        and gap.get("action")
+        and gap.get("sample_case_ids") == ["compact-fastgate-gap"]
+        for gap in top_actionable_gaps
+    )
+    assert all("samples" not in gap for gap in summary["top_actionable_gaps"])
 
 
 def test_compact_fast_gate_summary_surfaces_lifted_answerability_gaps() -> None:
