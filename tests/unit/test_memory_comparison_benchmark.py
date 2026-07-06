@@ -3268,6 +3268,57 @@ def test_memory_comparison_official_locomo_turn_mode_uses_mem0_style_chunks(
     assert case.metadata["evidence_terms"] == ("D1:1",)
 
 
+def test_memory_comparison_official_locomo_turn_mode_normalizes_speaker_identity(
+    tmp_path: Path,
+) -> None:
+    dataset = tmp_path / "locomo10-speakers.json"
+    dataset.write_text(
+        json.dumps(
+            [
+                {
+                    "sample_id": "conv-speaker-identity",
+                    "conversation": {
+                        "speaker_a": "Caroline Lee",
+                        "speaker_b": "Melanie",
+                        "session_1": [
+                            {
+                                "speaker": " caroline  lee ",
+                                "dia_id": "D1:1",
+                                "text": "I put the checklist in the blue notebook.",
+                            },
+                            {
+                                "speaker": "Melanie",
+                                "dia_id": "D1:2",
+                                "text": "I saw it on the studio desk.",
+                            },
+                        ],
+                    },
+                    "qa": [
+                        {
+                            "question": "Where is the checklist?",
+                            "answer": "blue notebook",
+                            "evidence": ["D1:1"],
+                            "category": 4,
+                        }
+                    ],
+                }
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    cases = _load_memory_comparison_cases(
+        dataset,
+        locomo_ingest_mode=LOCOMO_INGEST_OFFICIAL_TURNS,
+    )
+
+    assert len(cases) == 1
+    assert [memory.metadata["role"] for memory in cases[0].memories] == [
+        "user",
+        "assistant",
+    ]
+
+
 def test_infinity_context_http_ingest_uses_isolated_state_and_redacts_errors() -> None:
     raw_secret = "sk-proj-" + "secretvalue1234567890"
     seen_payloads: list[dict[str, object]] = []
