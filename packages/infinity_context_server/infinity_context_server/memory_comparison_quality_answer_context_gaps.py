@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from collections import Counter
 from collections.abc import Mapping, Sequence
+from math import isfinite
 
 from infinity_context_server.memory_comparison_answer_context_risks import (
     is_measured_low_answerability as _is_measured_low_answerability,
@@ -296,6 +297,7 @@ def _metric_scalar(value: object) -> float:
     if isinstance(value, bool):
         return 0.0
     try:
-        return float(value)  # type: ignore[arg-type]
+        parsed = float(value)  # type: ignore[arg-type]
     except (TypeError, ValueError):
         return 0.0
+    return parsed if isfinite(parsed) else 0.0

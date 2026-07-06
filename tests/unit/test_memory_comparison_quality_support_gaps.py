@@ -111,6 +111,33 @@ def test_answer_context_support_gap_samples_include_safe_context_identity() -> N
     assert "raw payload source identity must not appear" not in serialized
 
 
+def test_answer_context_support_gap_sample_metrics_are_json_safe() -> None:
+    summary = answer_context_support_gap_summary(
+        (
+            {
+                "case_id": "non-finite-answer-context-metrics",
+                "cutoff_results": {
+                    "3": {
+                        "answer_context": {
+                            "source": "evidence_bundle",
+                            "memory_count": 1,
+                            "source_ref_item_count": 0,
+                            "avg_measured_answerability_score": "nan",
+                            "avg_measured_source_locality_score": "inf",
+                        }
+                    }
+                },
+            },
+        )
+    )
+
+    sample = summary["samples"][0]
+
+    assert sample["avg_measured_answerability_score"] == 0.0
+    assert sample["avg_measured_source_locality_score"] == 0.0
+    json.dumps(sample, allow_nan=False)
+
+
 def test_fast_gate_metrics_rejects_contrast_role_label_without_surface() -> None:
     gate = fast_gate_metrics(
         (
