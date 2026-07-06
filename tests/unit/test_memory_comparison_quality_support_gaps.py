@@ -2662,6 +2662,117 @@ def test_fast_gate_metrics_does_not_require_unpromoted_typed_relation_category()
     assert "missing_support_goal_support" not in breakdown["reason_counts"]
 
 
+def test_fast_gate_metrics_reports_missing_community_membership_support_gap() -> None:
+    gate = fast_gate_metrics(
+        (
+            _item(
+                case_id="missing-community-membership-support",
+                group="single-hop",
+                retrieval=_retrieval_payload(
+                    evidence_need=("community_membership",),
+                    bundle_evidence_roles=(
+                        "primary",
+                        "community_membership_support",
+                    ),
+                    relation_categories=("community_membership",),
+                    entities=("alex",),
+                    policy_score=0.0,
+                ),
+                evidence_bundle={
+                    "bundle_complete": False,
+                    "item_count": 1,
+                    "primary_evidence_count": 1,
+                    "supporting_evidence_count": 0,
+                    "query_support_term_recall": 0.5,
+                    "covered_evidence_terms": [],
+                    "missing_required_roles": ["community_membership_support"],
+                    "items": [
+                        {
+                            "role": "primary",
+                            "retrieval_order": 1,
+                            "focused_evidence_score": 1.0,
+                            "entity_hits": ["alex"],
+                        }
+                    ],
+                },
+            ),
+        ),
+        expected_case_count=1,
+    )
+
+    breakdown = gate["bundle_gap_breakdown"]
+
+    assert breakdown["reason_counts"]["missing_typed_relation_support"] == 1
+    assert breakdown["reason_counts"]["missing_community_membership_support"] == 1
+    assert (
+        breakdown["reason_counts"][
+            "missing_required_community_membership_support"
+        ]
+        == 1
+    )
+    assert "missing_community_membership_support" in breakdown["samples"][0]["reasons"]
+
+
+def test_fast_gate_metrics_accepts_grounded_community_membership_support() -> None:
+    gate = fast_gate_metrics(
+        (
+            _item(
+                case_id="has-community-membership-support",
+                group="single-hop",
+                retrieval=_retrieval_payload(
+                    evidence_need=("community_membership",),
+                    bundle_evidence_roles=(
+                        "primary",
+                        "community_membership_support",
+                    ),
+                    relation_categories=("community_membership",),
+                    entities=("alex",),
+                    policy_score=0.0,
+                ),
+                evidence_bundle={
+                    "bundle_complete": False,
+                    "item_count": 2,
+                    "primary_evidence_count": 1,
+                    "supporting_evidence_count": 1,
+                    "query_support_term_recall": 0.5,
+                    "covered_evidence_terms": [],
+                    "items": [
+                        {
+                            "role": "primary",
+                            "retrieval_order": 1,
+                            "focused_evidence_score": 1.0,
+                            "entity_hits": ["alex"],
+                        },
+                        {
+                            "role": "community_membership_support",
+                            "retrieval_order": 2,
+                            "focused_evidence_score": 1.0,
+                            "relation_category_hits": ["community_membership"],
+                            "entity_hits": ["alex"],
+                            "answerability_score": 0.74,
+                            "source_locality_score": 0.9,
+                            "planner_reason_codes": [
+                                "community_membership_support",
+                                "typed_relation_category_hits",
+                            ],
+                        },
+                    ],
+                },
+            ),
+        ),
+        expected_case_count=1,
+    )
+
+    breakdown = gate["bundle_gap_breakdown"]
+
+    assert "missing_typed_relation_support" not in breakdown["reason_counts"]
+    assert "missing_community_membership_support" not in breakdown["reason_counts"]
+    assert (
+        "missing_required_community_membership_support"
+        not in breakdown["reason_counts"]
+    )
+
+
 def test_fast_gate_metrics_surfaces_selected_evidence_weakness() -> None:
     gate = fast_gate_metrics(
         (

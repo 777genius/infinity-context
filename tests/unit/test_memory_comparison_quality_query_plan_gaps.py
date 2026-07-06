@@ -75,6 +75,10 @@ def test_evidence_role_query_families_covers_aliases_and_profile_roles() -> None
         "relation_compact",
         "expanded_focus",
     )
+    assert evidence_role_query_families("community_membership_support") == (
+        "relation_compact",
+        "expanded_focus",
+    )
     assert evidence_role_query_families("unmapped_support") == ()
 
 
