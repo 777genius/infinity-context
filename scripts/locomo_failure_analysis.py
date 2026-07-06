@@ -600,11 +600,31 @@ def _answer_context_summary(failure: Mapping[str, object]) -> dict[str, object] 
     )
     if source_identity_ref_count:
         summary["source_identity_ref_count"] = source_identity_ref_count
+    source_identity_ref_omitted_count = (
+        _positive_int(context.get("source_identity_ref_omitted_count")) or 0
+    )
+    if source_identity_ref_omitted_count:
+        summary["source_identity_ref_omitted_count"] = (
+            source_identity_ref_omitted_count
+        )
+        summary["source_identity_ref_sample_limit"] = (
+            _positive_int(context.get("source_identity_ref_sample_limit")) or 0
+        )
     source_identity_item_count = (
         _positive_int(context.get("source_identity_item_count")) or 0
     )
     if source_identity_item_count:
         summary["source_identity_item_count"] = source_identity_item_count
+    source_identity_item_omitted_count = (
+        _positive_int(context.get("source_identity_item_omitted_count")) or 0
+    )
+    if source_identity_item_omitted_count:
+        summary["source_identity_item_omitted_count"] = (
+            source_identity_item_omitted_count
+        )
+        summary["source_identity_item_sample_limit"] = (
+            _positive_int(context.get("source_identity_item_sample_limit")) or 0
+        )
     fallback_reason = str(context.get("fallback_reason") or "")
     if fallback_reason:
         summary["fallback_reason"] = _compact_summary_text(fallback_reason)
@@ -648,6 +668,10 @@ def _answer_context_provenance_counts(failure: Mapping[str, object]) -> Counter[
         counts["source_identity_items_present"] += 1
     if source_ref_count <= 0 and source_ref_item_count <= 0 and source_identity_ref_count > 0:
         counts["identity_only_provenance_present"] += 1
+    if (_positive_int(context.get("source_identity_ref_omitted_count")) or 0) > 0:
+        counts["source_identity_ref_samples_omitted"] += 1
+    if (_positive_int(context.get("source_identity_item_omitted_count")) or 0) > 0:
+        counts["source_identity_item_samples_omitted"] += 1
     if str(context.get("fallback_reason") or ""):
         counts["fallback_present"] += 1
     if backfilled_count > 0:

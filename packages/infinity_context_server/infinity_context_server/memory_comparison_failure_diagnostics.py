@@ -334,6 +334,37 @@ def _answer_context_failure_summary(
     source_identity_items = _safe_source_identity_items(
         context.get("source_identity_items")
     )
+    source_identity_ref_count = (
+        _positive_int(context.get("source_identity_ref_count"))
+        or len(source_identity_refs)
+    )
+    source_identity_item_count = (
+        _positive_int(context.get("source_identity_item_count"))
+        or len(source_identity_items)
+    )
+    source_identity_sample_summary: dict[str, object] = {}
+    if source_identity_ref_count or source_identity_item_count:
+        source_identity_sample_summary = {
+            "source_identity_ref_sample_limit": (
+                _MAX_ANSWER_CONTEXT_SOURCE_IDENTITY_REFS
+            ),
+            "source_identity_ref_sample_count": len(source_identity_refs),
+            "source_identity_ref_omitted_count": max(
+                0,
+                source_identity_ref_count - len(source_identity_refs),
+            ),
+            "source_identity_item_sample_limit": (
+                _MAX_ANSWER_CONTEXT_SOURCE_IDENTITY_ITEMS
+            ),
+            "source_identity_item_sample_count": len(source_identity_items),
+            "source_identity_item_omitted_count": max(
+                0,
+                source_identity_item_count - len(source_identity_items),
+            ),
+            "source_identity_refs_per_item_limit": (
+                _MAX_ANSWER_CONTEXT_SOURCE_IDENTITY_REFS_PER_ITEM
+            ),
+        }
     return {
         "present": True,
         "cutoff": cutoff,
@@ -345,16 +376,11 @@ def _answer_context_failure_summary(
         "source_refless_item_count": (
             _positive_int(context.get("source_refless_item_count")) or 0
         ),
-        "source_identity_ref_count": (
-            _positive_int(context.get("source_identity_ref_count"))
-            or len(source_identity_refs)
-        ),
-        "source_identity_item_count": (
-            _positive_int(context.get("source_identity_item_count"))
-            or len(source_identity_items)
-        ),
+        "source_identity_ref_count": source_identity_ref_count,
+        "source_identity_item_count": source_identity_item_count,
         "source_identity_refs": source_identity_refs,
         "source_identity_items": source_identity_items,
+        **source_identity_sample_summary,
         "source_ref_coverage_rate": _metric_value(context, "source_ref_coverage_rate"),
         "selected_bundle_item_count": (
             _positive_int(context.get("selected_bundle_item_count")) or 0

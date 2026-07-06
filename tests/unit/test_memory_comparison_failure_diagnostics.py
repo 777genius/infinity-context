@@ -854,6 +854,13 @@ def test_failure_diagnostics_report_primary_answer_context_support_gaps() -> Non
             "source_turn_refs:D1:2",
             "source_session_turn_refs:session_1:D1:3",
         ),
+        "source_identity_ref_sample_limit": 8,
+        "source_identity_ref_sample_count": 2,
+        "source_identity_ref_omitted_count": 1,
+        "source_identity_item_sample_limit": 8,
+        "source_identity_item_sample_count": 2,
+        "source_identity_item_omitted_count": 0,
+        "source_identity_refs_per_item_limit": 4,
         "source_identity_items": (
             {
                 "source_identity_refs": ("source_turn_refs:D1:2",),
@@ -891,3 +898,59 @@ def test_failure_diagnostics_report_primary_answer_context_support_gaps() -> Non
     )
     assert "raw memory text should not pass through" not in rendered_source_identity
     assert "provider payload should not pass through" not in rendered_source_identity
+
+
+def test_failure_diagnostics_reports_answer_context_identity_sample_bounds() -> None:
+    source_identity_refs = [f"source_turn_refs:D{index}:2" for index in range(1, 11)]
+    source_identity_items = [
+        {
+            "item_id": f"fallback-{index}",
+            "retrieval_order": index,
+            "source_identity_refs": [
+                f"source_turn_refs:D{index}:{turn}" for turn in range(1, 6)
+            ],
+        }
+        for index in range(1, 11)
+    ]
+    evaluation = {
+        "retrieval": {"total_results": 10, "results": []},
+        "retrieval_quality": {
+            "expected_term_recall": 0.5,
+            "evidence_term_recall": 0.0,
+        },
+        "evidence_bundle": {"bundle_complete": False, "items": []},
+        "generation": {},
+        "judgment": {},
+        "answer_context": {
+            "source": "retrieval_slice",
+            "memory_count": 10,
+            "source_ref_count": 0,
+            "source_ref_item_count": 0,
+            "source_refless_item_count": 10,
+            "source_identity_ref_count": 10,
+            "source_identity_item_count": 10,
+            "source_identity_refs": source_identity_refs,
+            "source_identity_items": source_identity_items,
+        },
+    }
+
+    diagnostics = failure_diagnostics(evaluation)
+
+    context = diagnostics["answer_context"]
+    assert context["source_identity_ref_count"] == 10
+    assert context["source_identity_ref_sample_limit"] == 8
+    assert context["source_identity_ref_sample_count"] == 8
+    assert context["source_identity_ref_omitted_count"] == 2
+    assert context["source_identity_refs"] == tuple(source_identity_refs[:8])
+    assert context["source_identity_item_count"] == 10
+    assert context["source_identity_item_sample_limit"] == 8
+    assert context["source_identity_item_sample_count"] == 8
+    assert context["source_identity_item_omitted_count"] == 2
+    assert context["source_identity_refs_per_item_limit"] == 4
+    assert len(context["source_identity_items"]) == 8
+    assert context["source_identity_items"][0]["source_identity_refs"] == (
+        "source_turn_refs:D1:1",
+        "source_turn_refs:D1:2",
+        "source_turn_refs:D1:3",
+        "source_turn_refs:D1:4",
+    )
