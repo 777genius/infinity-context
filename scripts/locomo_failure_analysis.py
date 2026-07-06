@@ -136,6 +136,9 @@ def _failures(report: Mapping[str, object]) -> tuple[Mapping[str, object], ...]:
     failures = report.get("failures")
     if isinstance(failures, list):
         return tuple(item for item in failures if isinstance(item, Mapping))
+    failure_analysis = report.get("failure_analysis")
+    if isinstance(failure_analysis, list):
+        return tuple(item for item in failure_analysis if isinstance(item, Mapping))
     cases = report.get("cases")
     if isinstance(cases, list):
         return tuple(
@@ -344,6 +347,9 @@ def _missing_evidence_refs(failure: Mapping[str, object]) -> tuple[str, ...]:
     direct = _strings(failure.get("missing_evidence_refs"))
     if direct:
         return direct
+    direct_terms = _strings(failure.get("missing_evidence_terms"))
+    if direct_terms:
+        return direct_terms
     diagnostics = _mapping(failure.get("diagnostics"))
     return _strings(diagnostics.get("missing_evidence_terms"))
 

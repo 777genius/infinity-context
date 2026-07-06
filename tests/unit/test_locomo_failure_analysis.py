@@ -64,6 +64,29 @@ def test_locomo_failure_analysis_summarizes_failure_patterns(tmp_path) -> None:
     assert json.loads(summary_out.read_text(encoding="utf-8"))["failure_count"] == 2
 
 
+def test_locomo_failure_analysis_reads_failure_analysis_entries() -> None:
+    report = {
+        "failure_analysis": [
+            {
+                "case_id": "locomo:conv-1:qa:1",
+                "capability": "locomo_category_2",
+                "reason": "retrieval_or_judgment_failed",
+                "missing_evidence_terms": ["D2:4", "source_session_turn_refs:D2:5"],
+            }
+        ]
+    }
+
+    summary = _summary(_failures(report), top=5)
+
+    assert summary["failure_count"] == 1
+    assert summary["case_ids"] == ["locomo:conv-1:qa:1"]
+    assert summary["top_missing_evidence_refs"] == {
+        "D2:4": 1,
+        "source_session_turn_refs:D2:5": 1,
+    }
+    assert summary["top_missing_evidence_sources"] == {"D2": 2}
+
+
 def test_locomo_failure_analysis_filters_and_writes_benchmark_args(tmp_path) -> None:
     report = {
         "failures": [
