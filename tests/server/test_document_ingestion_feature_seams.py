@@ -240,7 +240,7 @@ def test_document_ingestion_mapper_builds_legacy_documents_command() -> None:
         "space_id": "space_1",
         "memory_scope_id": "scope_1",
         "thread_id": "thread_1",
-        "title": "Architecture Notes",
+        "title": "  Architecture Notes  ",
         "text": "Postgres owns canonical document lifecycle.",
         "source_type": "markdown",
         "source_external_id": "notes/architecture.md",

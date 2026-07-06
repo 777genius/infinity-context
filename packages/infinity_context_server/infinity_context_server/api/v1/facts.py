@@ -232,7 +232,6 @@ async def update_fact(
     container: Annotated[Container, Depends(get_container)],
 ) -> dict[str, Any]:
     ensure_server_writes_enabled(container)
-    await container.get_fact.execute(GetFactQuery(fact_id=fact_id))
     command = memory_facts_feature.update_fact_command_from_v1_request(
         fact_id=fact_id,
         request=request,
@@ -247,7 +246,6 @@ async def forget_fact(
     container: Annotated[Container, Depends(get_container)],
 ) -> dict[str, Any]:
     ensure_server_writes_enabled(container)
-    await container.get_fact.execute(GetFactQuery(fact_id=fact_id))
     command = memory_facts_feature.forget_fact_command_from_v1_path(fact_id)
     result = await container.forget_fact.execute(command)
     return {"data": fact_to_response(result.fact, result.indexing_status)}

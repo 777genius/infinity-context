@@ -141,11 +141,8 @@ def memory_scope_to_response(memory_scope: object) -> dict[str, Any]:
     return {
         "id": str(_required_value(memory_scope, "id")),
         "space_id": str(_required_value(memory_scope, "space_id")),
-        "external_ref": _required_text(
-            _value(memory_scope, "external_ref", None),
-            "external_ref",
-        ),
-        "name": _required_text(_value(memory_scope, "name", None), "name"),
+        "external_ref": _value(memory_scope, "external_ref", None),
+        "name": _value(memory_scope, "name", None),
         "status": _enum_or_text(_value(memory_scope, "status", "active")),
         "created_at": _datetime_to_string(_required_value(memory_scope, "created_at")),
         "updated_at": _datetime_to_string(_required_value(memory_scope, "updated_at")),
@@ -193,14 +190,14 @@ def _value(source: object, name: str, default: object) -> Any:
 
 
 def _required_text(value: object, field_name: str) -> str:
-    text = str(value).strip() if value is not None else ""
+    text = str(value) if value is not None else ""
     if not text:
         raise ValueError(f"{field_name} is required")
     return text
 
 
 def _optional_text(value: object) -> str | None:
-    text = str(value).strip() if value is not None else ""
+    text = str(value) if value is not None else ""
     return text or None
 
 

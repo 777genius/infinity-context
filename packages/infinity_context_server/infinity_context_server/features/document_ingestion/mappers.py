@@ -293,7 +293,7 @@ def _required_document_text(value: str | None, field_name: str) -> str:
 def _optional_text(value: str | None) -> str | None:
     if value is None:
         return None
-    text = str(value).strip()
+    text = str(value)
     return text or None
 
 
