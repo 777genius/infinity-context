@@ -7,6 +7,7 @@ import infinity_context_core.features.memory_scopes.public as memory_scopes
 from infinity_context_server.features.memory_scopes.compatibility import (
     CreateMemoryScopeCompatibilityCommand,
     CreateMemoryScopeRequest,
+    CreateSpaceRequest,
     DeleteMemoryScopeCompatibilityCommand,
     UpdateMemoryScopeCompatibilityCommand,
     UpdateMemoryScopeRequest,
@@ -16,6 +17,7 @@ from infinity_context_server.features.memory_scopes.compatibility import (
     memory_scope_collection_compatibility_response,
     memory_scope_compatibility_response,
     memory_scope_to_response,
+    space_to_response,
     thread_to_response,
     update_memory_scope_compatibility_command_from_request,
 )
@@ -70,6 +72,7 @@ __all__ = (
     "CreateMemoryScopeCompatibilityCommand",
     "CreateMemoryScopeHttpRequest",
     "CreateMemoryScopeRequest",
+    "CreateSpaceRequest",
     "DeleteMemoryScopeCompatibilityCommand",
     "ImportMemoryScopeSnapshotRequest",
     "MemoryScopeActorHttpRequest",
@@ -104,6 +107,7 @@ __all__ = (
     "memory_scope_to_response",
     "restore_memory_scope_command_from_http",
     "restore_memory_scope_result_to_response",
+    "space_to_response",
     "thread_to_response",
     "transfer_memory_scope_ownership_command_from_http",
     "transfer_memory_scope_ownership_result_to_response",

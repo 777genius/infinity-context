@@ -23,6 +23,15 @@ class CreateMemoryScopeRequest(BaseModel):
     name: str = Field(min_length=1, max_length=240)
 
 
+class CreateSpaceRequest(BaseModel):
+    """Legacy-compatible request body for creating a memory space."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    slug: str = Field(min_length=1, max_length=160)
+    name: str = Field(min_length=1, max_length=240)
+
+
 class UpdateMemoryScopeRequest(BaseModel):
     """Legacy-compatible request body for updating a memory scope."""
 
@@ -143,6 +152,19 @@ def memory_scope_to_response(memory_scope: object) -> dict[str, Any]:
     }
 
 
+def space_to_response(space: object) -> dict[str, Any]:
+    """Map a memory space entity-like object to the legacy response body."""
+
+    return {
+        "id": str(_required_value(space, "id")),
+        "slug": str(_required_value(space, "slug")),
+        "name": str(_required_value(space, "name")),
+        "status": _enum_or_text(_value(space, "status", "active")),
+        "created_at": _datetime_to_string(_required_value(space, "created_at")),
+        "updated_at": _datetime_to_string(_required_value(space, "updated_at")),
+    }
+
+
 def thread_to_response(thread: object) -> dict[str, Any]:
     """Map a memory thread entity-like object to the legacy browser response body."""
 
@@ -196,6 +218,7 @@ def _enum_or_text(value: object) -> str:
 __all__ = (
     "CreateMemoryScopeCompatibilityCommand",
     "CreateMemoryScopeRequest",
+    "CreateSpaceRequest",
     "DeleteMemoryScopeCompatibilityCommand",
     "UpdateMemoryScopeCompatibilityCommand",
     "UpdateMemoryScopeRequest",
@@ -205,6 +228,7 @@ __all__ = (
     "memory_scope_collection_compatibility_response",
     "memory_scope_compatibility_response",
     "memory_scope_to_response",
+    "space_to_response",
     "thread_to_response",
     "update_memory_scope_compatibility_command_from_request",
 )

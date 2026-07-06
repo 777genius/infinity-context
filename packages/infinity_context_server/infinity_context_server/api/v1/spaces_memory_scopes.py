@@ -11,9 +11,8 @@ from infinity_context_core.application import (
     DeleteMemoryScopeCommand,
     UpdateMemoryScopeCommand,
 )
-from infinity_context_core.domain.entities import MemoryScopeId, MemorySpace, SpaceId
+from infinity_context_core.domain.entities import MemoryScopeId, SpaceId
 from infinity_context_core.domain.errors import MemoryValidationError
-from pydantic import BaseModel, ConfigDict, Field
 
 from infinity_context_server.api.auth import require_service_token
 from infinity_context_server.api.dependencies import get_container
@@ -24,30 +23,9 @@ from infinity_context_server.features.memory_scopes import public as memory_scop
 router = APIRouter(tags=["spaces-memory-scopes"], dependencies=[Depends(require_service_token)])
 
 
-class CreateSpaceRequest(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
-    slug: str = Field(min_length=1, max_length=160)
-    name: str = Field(min_length=1, max_length=240)
-
-
+CreateSpaceRequest = memory_scopes_feature.CreateSpaceRequest
 CreateMemoryScopeRequest = memory_scopes_feature.CreateMemoryScopeRequest
 UpdateMemoryScopeRequest = memory_scopes_feature.UpdateMemoryScopeRequest
-
-
-def space_to_response(space: MemorySpace) -> dict[str, Any]:
-    return {
-        "id": str(space.id),
-        "slug": space.slug,
-        "name": space.name,
-        "status": space.status.value,
-        "created_at": space.created_at.isoformat(),
-        "updated_at": space.updated_at.isoformat(),
-    }
-
-
-def memory_scope_to_response(memory_scope: object) -> dict[str, Any]:
-    return memory_scopes_feature.memory_scope_to_response(memory_scope)
 
 
 @router.post("/spaces", status_code=status.HTTP_201_CREATED)
@@ -62,7 +40,7 @@ async def create_space(
     )
     if not result.created:
         response.status_code = status.HTTP_200_OK
-    return {"data": space_to_response(result.space)}
+    return {"data": memory_scopes_feature.space_to_response(result.space)}
 
 
 @router.get("/spaces")
@@ -71,7 +49,12 @@ async def list_spaces(
     limit: Annotated[int, Query(ge=1, le=500)] = 100,
 ) -> dict[str, Any]:
     spaces = await container.list_spaces.execute(limit=limit)
-    return {"data": [space_to_response(space) for space in spaces]}
+    return {
+        "data": [
+            memory_scopes_feature.space_to_response(space)
+            for space in spaces
+        ]
+    }
 
 
 @router.post("/memory-scopes", status_code=status.HTTP_201_CREATED)

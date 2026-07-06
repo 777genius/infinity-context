@@ -146,6 +146,7 @@ def test_memory_scopes_server_feature_public_surface_composes_router() -> None:
         "CreateMemoryScopeCompatibilityCommand",
         "CreateMemoryScopeHttpRequest",
         "CreateMemoryScopeRequest",
+        "CreateSpaceRequest",
         "DeleteMemoryScopeCompatibilityCommand",
         "ImportMemoryScopeSnapshotRequest",
         "MemoryScopeActorHttpRequest",
@@ -180,6 +181,7 @@ def test_memory_scopes_server_feature_public_surface_composes_router() -> None:
         "memory_scope_to_response",
         "restore_memory_scope_command_from_http",
         "restore_memory_scope_result_to_response",
+        "space_to_response",
         "thread_to_response",
         "transfer_memory_scope_ownership_command_from_http",
         "transfer_memory_scope_ownership_result_to_response",
@@ -324,7 +326,7 @@ def test_memory_scopes_mapper_requires_resolved_scope_ids() -> None:
         server_public.create_memory_scope_command_from_contract(request, owner=owner)
 
 
-def test_memory_scopes_feature_owns_legacy_v1_memory_scope_api_mapping() -> None:
+def test_memory_scopes_feature_owns_legacy_v1_spaces_memory_scope_api_mapping() -> None:
     api_path = (
         REPO_ROOT
         / "packages"
@@ -334,13 +336,30 @@ def test_memory_scopes_feature_owns_legacy_v1_memory_scope_api_mapping() -> None
         / "v1"
         / "spaces_memory_scopes.py"
     )
-    api_tree = ast.parse(api_path.read_text(encoding="utf-8"), filename=str(api_path))
+    api_source = api_path.read_text(encoding="utf-8")
+    api_tree = ast.parse(api_source, filename=str(api_path))
     api_class_names = {
         node.name for node in ast.walk(api_tree) if isinstance(node, ast.ClassDef)
     }
+    api_function_names = {
+        node.name
+        for node in ast.walk(api_tree)
+        if isinstance(node, ast.FunctionDef | ast.AsyncFunctionDef)
+    }
 
+    assert "CreateSpaceRequest" not in api_class_names
     assert "CreateMemoryScopeRequest" not in api_class_names
     assert "UpdateMemoryScopeRequest" not in api_class_names
+    assert "space_to_response" not in api_function_names
+    assert "memory_scopes_feature.space_to_response" in api_source
+
+    create_space_request = server_public.CreateSpaceRequest(
+        slug="client-app",
+        name="Client App",
+    )
+
+    assert create_space_request.slug == "client-app"
+    assert create_space_request.name == "Client App"
 
     create_request = server_public.CreateMemoryScopeRequest(
         space_id="space_1",
@@ -793,6 +812,14 @@ def test_import_route_delegates_snapshot_validation_and_envelope_to_memory_scope
 def test_memory_scopes_feature_owns_legacy_v1_memory_scope_api_responses() -> None:
     created_at = datetime(2026, 1, 2, 3, 4, 5, tzinfo=UTC)
     updated_at = datetime(2026, 1, 3, 4, 5, 6, tzinfo=UTC)
+    space = SimpleNamespace(
+        id="space_1",
+        slug="client-app",
+        name="Client App",
+        status="active",
+        created_at=created_at,
+        updated_at=updated_at,
+    )
     scope = SimpleNamespace(
         id="scope_1",
         space_id="space_1",
@@ -812,6 +839,14 @@ def test_memory_scopes_feature_owns_legacy_v1_memory_scope_api_responses() -> No
         "updated_at": updated_at.isoformat(),
     }
 
+    assert server_public.space_to_response(space) == {
+        "id": "space_1",
+        "slug": "client-app",
+        "name": "Client App",
+        "status": "active",
+        "created_at": created_at.isoformat(),
+        "updated_at": updated_at.isoformat(),
+    }
     assert server_public.memory_scope_to_response(scope) == expected_scope
     assert server_public.memory_scope_compatibility_response(scope) == {
         "data": expected_scope,
