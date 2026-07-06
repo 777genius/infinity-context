@@ -9,6 +9,9 @@ from infinity_context_server.memory_comparison_candidate_risks import (
 )
 from infinity_context_server.memory_comparison_models import RetrievedMemory
 from infinity_context_server.memory_comparison_source_identity import (
+    safe_source_label_for_output as _safe_source_label_for_output,
+)
+from infinity_context_server.memory_comparison_source_identity import (
     safe_source_refs_for_output as _safe_source_refs_for_output,
 )
 from infinity_context_server.memory_comparison_source_identity import (
@@ -72,6 +75,11 @@ def _add_candidate_feature_metadata(
     for source_key, target_key in (
         ("source_types", "answer_context_source_types"),
         ("retrieval_sources", "answer_context_retrieval_sources"),
+    ):
+        values = _safe_source_label_tuple(features.get(source_key))
+        if values:
+            metadata[target_key] = values
+    for source_key, target_key in (
         ("query_roles", "answer_context_query_roles"),
         ("relation_category_hits", "answer_context_relation_category_hits"),
         ("entity_hits", "answer_context_entity_hits"),
@@ -80,7 +88,7 @@ def _add_candidate_feature_metadata(
         values = _string_tuple(features.get(source_key))
         if values:
             metadata[target_key] = values
-    source_type = str(features.get("source_type") or "").strip()
+    source_type = _safe_source_label_for_output(features.get("source_type"))
     if source_type:
         metadata["answer_context_source_type"] = source_type
     for source_key, target_key in (
@@ -142,6 +150,22 @@ def _sequence(value: object) -> tuple[object, ...]:
 
 def _string_tuple(value: object) -> tuple[str, ...]:
     return tuple(str(item).strip() for item in _sequence(value) if str(item).strip())
+
+
+def _safe_source_label_tuple(value: object) -> tuple[str, ...]:
+    values = (
+        (value.strip(),)
+        if isinstance(value, str) and value.strip()
+        else _sequence(value)
+    )
+    return tuple(
+        dict.fromkeys(
+            label
+            for item in values
+            for label in (_safe_source_label_for_output(item),)
+            if label
+        )
+    )
 
 
 def _metric_value(item: Mapping[str, object], key: str) -> float:
