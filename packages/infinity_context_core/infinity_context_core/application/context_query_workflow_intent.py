@@ -7,6 +7,12 @@ import re
 _WORKFLOW_COMMITMENT_QUERY_RE = re.compile(
     r"\b(?:what|which|who|when)\b(?=.{0,120}\b(?:needs?\s+to|has\s+to|"
     r"have\s+to|must|supposed\s+to|expected\s+to)\b)|"
+    r"\b(?:what|which)\b(?=.{0,120}\b(?:is|are|'s)?\s*"
+    r"(?:left|remaining|open|outstanding|pending|unfinished)\b)"
+    r"(?=.{0,120}\b(?:do|task|tasks|todo|to-do|work|item|items|follow\s*-?\s*up|"
+    r"next\s+steps?|action\s+items?)\b)|"
+    r"\b(?:what|which)\b(?=.{0,120}\b(?:work|tasks?|todos?|to-dos?|items?)\b)"
+    r"(?=.{0,120}\b(?:left|remaining|open|outstanding|pending|unfinished)\b)|"
     r"\b(?:needs?\s+to|has\s+to|have\s+to|supposed\s+to|expected\s+to)\s+"
     r"(?:do|send|finish|review|prepare|share|follow|complete|deliver|fix|pay|"
     r"submit|schedule|call|write|update|approve)\b|"
@@ -23,7 +29,8 @@ _WORKFLOW_COMMITMENT_QUERY_RE = re.compile(
 _GOTCHA_FAILURE_QUERY_RE = re.compile(
     r"\b(?:gotchas?|pitfalls?|caveats?|known\s+issues?|known\s+problems?|"
     r"failure\s+mode|failure\s+modes|workaround|workarounds|root\s+cause|"
-    r"watch\s+out(?:\s+for)?|look\s+out(?:\s+for)?|went\s+wrong|goes\s+wrong|"
+    r"blockers?|blocked\s+on|watch\s+out(?:\s+for)?|look\s+out(?:\s+for)?|"
+    r"went\s+wrong|goes\s+wrong|"
     r"what\s+(?:failed|broke|blocked)|why\s+(?:failed|broke|blocked)|"
     r"why\s+did\s+.{0,80}\s+(?:fail|break|get\s+blocked)|"
     r"(?:avoid|avoid\s+next\s+time|not\s+repeat|do\s+not\s+repeat))\b|"
