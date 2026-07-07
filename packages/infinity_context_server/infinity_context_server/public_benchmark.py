@@ -20,7 +20,6 @@ from dataclasses import dataclass
 from functools import lru_cache
 from pathlib import Path
 
-import httpx
 from infinity_context_core.application.context_lexical import text_variant_profile
 from infinity_context_core.application.context_relevance import (
     QueryRelevance,
@@ -240,6 +239,16 @@ from infinity_context_server.public_benchmark_unsupported import (
 from infinity_context_server.public_benchmark_unsupported import (
     unsupported_case_reports_for_selection as _unsupported_case_reports_for_selection,
 )
+
+
+class _LazyHttpxModule:
+    def __getattr__(self, name: str) -> object:
+        import httpx as httpx_module
+
+        return getattr(httpx_module, name)
+
+
+httpx = _LazyHttpxModule()
 
 __all__ = (
     "BenchmarkDocumentInput",

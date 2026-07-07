@@ -517,6 +517,26 @@ def test_source_identity_refs_qualify_reversed_punctuated_session_text() -> None
     ) == ("source_text_session_turn_mismatch",)
 
 
+def test_source_identity_refs_qualify_session_parenthetical_turn_text() -> None:
+    refs = source_identity_refs_from_text(
+        "Session 2 (D2:8): Priya confirmed the plan.",
+        source_refs=("conversation-summary",),
+    )
+
+    assert refs == (
+        "source_session_turn_refs:session_2:D2:8",
+        "source_turn_refs:D2:8",
+    )
+    assert source_identity_refs_from_source_refs(("session 2 (D2:8)",)) == (
+        "source_session_turn_refs:session_2:D2:8",
+        "source_turn_refs:D2:8",
+    )
+    assert safe_source_refs_for_output(("session 2 (D2:8)",)) == (
+        "source_session_turn_refs:session_2:D2:8",
+        "source_turn_refs:D2:8",
+    )
+
+
 def test_source_identity_refs_accept_dialogue_as_session_surface() -> None:
     assert source_identity_refs_from_text(
         "Dialogue 3 turn D3:6 Alex confirmed the planning date.",

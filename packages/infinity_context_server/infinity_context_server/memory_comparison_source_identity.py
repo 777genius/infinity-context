@@ -35,6 +35,11 @@ _TEXT_SESSION_DATE_TURN_RE = re.compile(
     r"(?P<turn_ref>D\d+[:-]\d+)\b",
     re.IGNORECASE,
 )
+_TEXT_SESSION_PAREN_TURN_RE = re.compile(
+    r"\b(?:session|dialogue|dialog)(?:[-_]\s*|\s+#?\s*)(?P<session>\d+)"
+    r"\s*\(\s*(?:turn\s*[:#-]?\s*)?(?P<turn_ref>D\d+[:-]\d+)\s*\)",
+    re.IGNORECASE,
+)
 _TEXT_TURN_SESSION_RE = re.compile(
     r"\b(?:turn\s*[:#-]?\s+)?(?P<turn_ref>D\d+[:-]\d+)\b"
     r"\s*(?:[,;:-]?\s+|\s+)"
@@ -739,6 +744,8 @@ def _structured_session_ref_from_mapping(value: Mapping[object, object]) -> str:
         "locomo_session_ids",
         "locomo_session_key",
         "locomo_session_keys",
+        "locomo_session",
+        "locomo_sessions",
         "locomo_session_number",
         "locomo_session_numbers",
         "source_session_id",
@@ -747,8 +754,12 @@ def _structured_session_ref_from_mapping(value: Mapping[object, object]) -> str:
         "source_session_indexes",
         "source_session_key",
         "source_session_keys",
+        "source_session",
+        "source_sessions",
         "source_session_number",
         "source_session_numbers",
+        "session",
+        "sessions",
         "session_id",
         "session_ids",
         "session_index",
@@ -780,12 +791,16 @@ def _dialogue_number_from_mapping(value: Mapping[object, object]) -> str:
         "source_dialogues",
         "source_dialogue_index",
         "source_dialogue_indexes",
+        "source_dialog",
+        "source_dialogs",
         "dialogue_id",
         "dialogue_ids",
         "dialogue",
         "dialogues",
         "dialogue_index",
         "dialogue_indexes",
+        "dialog",
+        "dialogs",
         "dia_id",
         "dia_ids",
         "source_dia_id",
@@ -795,8 +810,12 @@ def _dialogue_number_from_mapping(value: Mapping[object, object]) -> str:
         "locomo_session_ids",
         "locomo_session_key",
         "locomo_session_keys",
+        "locomo_session",
+        "locomo_sessions",
         "locomo_session_number",
         "locomo_session_numbers",
+        "session",
+        "sessions",
         "session_key",
         "session_keys",
         "session_id",
@@ -813,6 +832,8 @@ def _dialogue_number_from_mapping(value: Mapping[object, object]) -> str:
         "source_session_indexes",
         "source_session_key",
         "source_session_keys",
+        "source_session",
+        "source_sessions",
         "source_session_number",
         "source_session_numbers",
     ):
@@ -888,6 +909,12 @@ def _safe_output_ref_is_covered_by_identity(
     if not source_identity_refs:
         return False
     identity_ref_set = set(source_identity_refs)
+    text_session_refs = _session_turn_refs_from_text(ref)
+    if text_session_refs and all(
+        f"source_session_turn_refs:{session_ref}" in identity_ref_set
+        for session_ref in text_session_refs
+    ):
+        return True
     if ref in identity_ref_set:
         return True
     turn_ref = safe_turn_ref(ref)
@@ -937,6 +964,7 @@ def _source_ref_value_should_seed_output_identity(value: object) -> bool:
             or _looks_like_raw_ref(text)
             or _source_session_refs(text)
             or _SOURCE_SESSION_TURN_RE.search(text)
+            or _session_turn_refs_from_text(text)
         )
     )
 
@@ -1209,6 +1237,7 @@ def _session_turn_refs_from_text(
             for pattern in (
                 _TEXT_SESSION_TURN_RE,
                 _TEXT_SESSION_DATE_TURN_RE,
+                _TEXT_SESSION_PAREN_TURN_RE,
                 _TEXT_TURN_SESSION_RE,
                 _TEXT_TURN_PUNCT_SESSION_RE,
                 _TEXT_TURN_PAREN_SESSION_RE,

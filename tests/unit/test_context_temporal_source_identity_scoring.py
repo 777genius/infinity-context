@@ -4,6 +4,7 @@ from infinity_context_core.application.context_temporal_query import (
     build_temporal_query_intent,
 )
 from infinity_context_core.application.context_temporal_source_identity import (
+    source_identity_matches,
     source_scope_identity_from_mapping,
 )
 from infinity_context_core.application.dto import ContextItem
@@ -91,6 +92,86 @@ def test_source_scope_identity_mapping_normalizes_explicit_numeric_session_alias
             {"source_identity_ref": "locomo:conv-1:session_12"}
         )
         == "locomo:conv-1:session_12"
+    )
+
+
+@pytest.mark.parametrize(
+    ("mapping", "expected"),
+    (
+        (
+            {"conversation_id": "locomo:conv-1", "session_id": "session_12"},
+            "locomo:conv-1:session_12",
+        ),
+        (
+            {"conversation_key": "conv-1", "source_session_number": "12"},
+            "conv-1:session_12",
+        ),
+        ({"conversation_id": 1, "source_session_index": 12}, "conv_1:session_12"),
+        (
+            {"conversation_key": "conversation_1", "session_number": "12"},
+            "conv_1:session_12",
+        ),
+        ({"conversation_id": 1, "source_dialogue_id": "D12"}, "conv_1:session_12"),
+        (
+            {"conversation_id": 1, "dialogue_id": "dialogue_12"},
+            "conv_1:session_12",
+        ),
+        (
+            {
+                "conversation_id": 1,
+                "source_turn": {"dialogue_id": 12, "turn_id": 6},
+            },
+            "conv_1:session_12",
+        ),
+        (
+            {"conversation_id": 1, "source_turn_refs": ["D12:6"]},
+            "conv_1:session_12",
+        ),
+        (
+            {
+                "source_id": "conversation-summary",
+                "conversation_id": 1,
+                "session_index": 12,
+            },
+            "conv_1:session_12",
+        ),
+        (
+            {
+                "source_id": "locomo:conv-9:session_99",
+                "conversation_id": 1,
+                "session_index": 12,
+            },
+            "locomo:conv-9:session_99",
+        ),
+        (
+            {"conversation_id": "private-run-abc", "session_id": "session_12"},
+            "session_12",
+        ),
+        (
+            {"conversation_id": "conversation-private", "session_id": "session_12"},
+            "session_12",
+        ),
+    ),
+)
+def test_source_scope_identity_mapping_combines_conversation_and_session_aliases(
+    mapping: dict[str, object],
+    expected: str,
+) -> None:
+    assert source_scope_identity_from_mapping(mapping) == expected
+
+
+def test_source_identity_matches_conversation_separator_variants() -> None:
+    assert source_identity_matches(
+        "conv_1:session_12",
+        "locomo:conv-1:session_12:d*:t*:turn",
+    )
+    assert source_identity_matches(
+        "conversation_1:session_12:d*:t*:turn",
+        "conv-1-session_12-d*:t*:turn",
+    )
+    assert not source_identity_matches(
+        "conversation_2:session_12:d*:t*:turn",
+        "locomo:conv-1:session_12:d*:t*:turn",
     )
 
 
@@ -595,6 +676,121 @@ def test_source_scoped_turn_query_combines_source_identity_with_numeric_turn_id(
     ] == "query asks for after source turn and item source turn follows boundary"
     assert by_id["metadata_source_identity_turn_id_different_source"].score == 0.694
     assert by_id["metadata_source_identity_turn_id_different_source"].diagnostics[
+        "temporal_query_intent_reason"
+    ] == "query asks for source turn and item source identity differs"
+
+
+CONVERSATION_SOURCE_IDENTITY_CASES = (
+    (
+        "conversation_session_turn_id",
+        "What did Riley mention after source ref locomo:conv-1:session_12:D12:4:turn?",
+        {"conversation_id": "conv-1", "session_id": "session_12", "turn_id": 6},
+        {"conversation_id": "conv-2", "session_id": "session_12", "turn_id": 6},
+        (),
+    ),
+    (
+        "numeric_conversation_session_turn_id",
+        "What did Riley mention after source ref locomo:conv-1:session_12:D12:4:turn?",
+        {"conversation_id": 1, "session_index": 12, "turn_id": 6},
+        {"conversation_id": 2, "session_index": 12, "turn_id": 6},
+        (),
+    ),
+    (
+        "conversation_label_source_ref",
+        "What did Riley mention after source ref conversation_1:session_12:D12:4:turn?",
+        {"conversation_id": 1, "session_index": 12, "turn_id": 6},
+        {"conversation_id": 2, "session_index": 12, "turn_id": 6},
+        (),
+    ),
+    (
+        "direct_conversation_label_scope",
+        "What did Riley mention after D12:4 in conversation_1:session_12?",
+        {"conversation_id": 1, "session_index": 12, "turn_id": 6},
+        {"conversation_id": 2, "session_index": 12, "turn_id": 6},
+        ("conv_1:session_12",),
+    ),
+    (
+        "conversation_dialogue_turn_id",
+        "What did Riley mention after source ref conversation_1:session_12:D12:4:turn?",
+        {"conversation_id": 1, "source_dialogue_id": "D12", "turn_id": 6},
+        {"conversation_id": 2, "source_dialogue_id": "D12", "turn_id": 6},
+        (),
+    ),
+    (
+        "conversation_nested_source_turn",
+        "What did Riley mention after source ref conversation_1:session_12:D12:4:turn?",
+        {"conversation_id": 1, "source_turn": {"dialogue_id": 12, "turn_id": 6}},
+        {"conversation_id": 2, "source_turn": {"dialogue_id": 12, "turn_id": 6}},
+        (),
+    ),
+    (
+        "conversation_source_turn_refs",
+        "What did Riley mention after source ref conversation_1:session_12:D12:4:turn?",
+        {"conversation_id": 1, "source_turn_refs": ["D12:6"]},
+        {"conversation_id": 2, "source_turn_refs": ["D12:6"]},
+        (),
+    ),
+    (
+        "generic_source_id_with_conversation_metadata",
+        "What did Riley mention after source ref conversation_1:session_12:D12:4:turn?",
+        {
+            "source_id": "conversation-summary",
+            "conversation_id": 1,
+            "session_index": 12,
+            "turn_id": 6,
+        },
+        {
+            "source_id": "conversation-summary",
+            "conversation_id": 2,
+            "session_index": 12,
+            "turn_id": 6,
+        },
+        (),
+    ),
+)
+
+
+@pytest.mark.parametrize(
+    (
+        "case_id",
+        "query",
+        "same_metadata",
+        "different_metadata",
+        "expected_query_identities",
+    ),
+    CONVERSATION_SOURCE_IDENTITY_CASES,
+)
+def test_source_scoped_turn_query_combines_conversation_source_identity_shapes(
+    case_id: str,
+    query: str,
+    same_metadata: dict[str, object],
+    different_metadata: dict[str, object],
+    expected_query_identities: tuple[str, ...],
+) -> None:
+    intent = build_temporal_query_intent(query)
+    same_source = _metadata_item(f"{case_id}_same_source", metadata=same_metadata)
+    different_source = _metadata_item(
+        f"{case_id}_different_source",
+        text="Riley discussed a different conversation.",
+        metadata=different_metadata,
+    )
+
+    boosted = apply_temporal_query_intent_boosts(
+        (different_source, same_source),
+        intent=intent,
+    )
+    by_id = {item.item_id: item for item in boosted}
+
+    if expected_query_identities:
+        assert intent.diagnostics()["temporal_query_source_turn_identities"] == list(
+            expected_query_identities
+        )
+    assert by_id[f"{case_id}_same_source"].score == 0.76
+    assert by_id[f"{case_id}_same_source"].diagnostics[
+        "temporal_query_intent_reason"
+    ] == "query asks for after source turn and item source turn follows boundary"
+    assert by_id[f"{case_id}_different_source"].score == 0.694
+    assert by_id[f"{case_id}_different_source"].diagnostics[
         "temporal_query_intent_reason"
     ] == "query asks for source turn and item source identity differs"
 

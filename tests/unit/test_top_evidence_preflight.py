@@ -96,6 +96,23 @@ def test_top_evidence_preflight_accepts_clean_publishable_config(tmp_path: Path)
     assert str(tmp_path) not in json.dumps(payload)
 
 
+def test_top_evidence_preflight_lightweight_profile_counts_cases(tmp_path: Path) -> None:
+    dataset = tmp_path / "locomo.json"
+    dataset.write_text(json.dumps(_benchmark_cases("locomo", count=3)), encoding="utf-8")
+
+    profile = top_evidence_preflight._lightweight_dataset_profile(
+        dataset,
+        benchmark="locomo",
+    )
+
+    assert profile is not None
+    assert profile["case_count"] == 3
+    assert profile["unique_case_id_count"] == 3
+    assert profile["duplicate_case_id_count"] == 0
+    assert profile["dataset_path_label"] == "locomo.json"
+    assert len(str(profile["dataset_hash"])) == 64
+
+
 def test_top_evidence_preflight_accepts_openai_key_file_without_leak(
     tmp_path: Path,
 ) -> None:

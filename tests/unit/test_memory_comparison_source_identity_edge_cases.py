@@ -967,6 +967,27 @@ def test_source_identity_refs_from_structured_session_label_variants() -> None:
         )
 
 
+def test_source_identity_refs_from_plain_session_metadata_aliases() -> None:
+    assert source_identity_refs_from_source_refs(
+        {
+            "session": "session 12",
+            "turn": "turn #6",
+        }
+    ) == (
+        "source_session_turn_refs:session_12:D12:6",
+        "source_turn_refs:D12:6",
+    )
+    assert safe_source_refs_for_output(
+        {
+            "source_session": "dialog 12",
+            "turn_ids": ("utt_7",),
+        }
+    ) == (
+        "source_session_turn_refs:session_12:D12:7",
+        "source_turn_refs:D12:7",
+    )
+
+
 def test_source_identity_refs_from_single_plural_session_metadata_aliases() -> None:
     for session_key in (
         "locomo_session_ids",
