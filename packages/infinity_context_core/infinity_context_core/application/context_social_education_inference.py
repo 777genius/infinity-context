@@ -170,7 +170,6 @@ def social_education_inference_signal(*, query: str, text: str) -> AnswerEvidenc
 
 
 def _friend_team_inference_signal(*, query: str, text: str) -> AnswerEvidenceSignal:
-    query_tokens = _term_set(query)
     text_tokens = _term_set(text)
     friend_hits = text_tokens & _FRIEND_TEAM_TEXT_TERMS
     activity_hits = text_tokens & _FRIEND_TEAM_ACTIVITY_TERMS

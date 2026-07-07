@@ -379,7 +379,10 @@ EXPANSION_RULES_PART_5: tuple[tuple[frozenset[str], str, str], ...] = (
         ),
     (
             frozenset({"obsolete"}),
-            "stale obsolete deprecated outdated old superseded replaced previous not current review",
+            (
+                "stale obsolete deprecated outdated old superseded replaced previous "
+                "not current review"
+            ),
             "stale_state_temporal_bridge",
         ),
     (
@@ -389,7 +392,10 @@ EXPANSION_RULES_PART_5: tuple[tuple[frozenset[str], str, str], ...] = (
         ),
     (
             frozenset({"expired"}),
-            "expired stale outdated superseded replaced previous no longer valid not current review",
+            (
+                "expired stale outdated superseded replaced previous no longer valid "
+                "not current review"
+            ),
             "stale_state_temporal_bridge",
         ),
     (

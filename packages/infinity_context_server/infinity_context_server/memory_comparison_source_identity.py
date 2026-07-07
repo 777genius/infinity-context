@@ -929,8 +929,8 @@ def _safe_output_ref_is_covered_by_identity(
         return True
     session_ref = _normalized_session_ref(ref)
     if session_ref and any(
-            identity_ref.startswith(f"source_session_turn_refs:{session_ref}:")
-            for identity_ref in source_identity_refs
+        identity_ref.startswith(f"source_session_turn_refs:{session_ref}:")
+        for identity_ref in source_identity_refs
     ):
         return True
     dialogue_ref = _safe_dialogue_ref(ref)
