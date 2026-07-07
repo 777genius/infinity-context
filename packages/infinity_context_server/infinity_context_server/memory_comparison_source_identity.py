@@ -500,6 +500,8 @@ def source_identity_audit_gap_codes(
         gap_codes.append("broad_source_turn_identity")
     elif not source_turn_refs and len(text_turn_refs) > 3:
         gap_codes.append("broad_text_turn_identity")
+    if _source_session_turn_mismatch(refs):
+        gap_codes.append("source_session_turn_mismatch")
     if (
         source_session_turn_refs
         and text_session_turn_refs
@@ -1218,6 +1220,41 @@ def _session_turn_refs_from_split_refs(
         f"session_{session_number}:{turn_ref}"
         for turn_ref in safe_turn_refs
         if _turn_ref_dialogue_number(turn_ref) == session_number
+    )
+
+
+def _source_session_turn_mismatch(source_refs: Sequence[str]) -> bool:
+    session_numbers = _source_ref_session_numbers(source_refs)
+    if len(session_numbers) != 1:
+        return False
+    safe_turn_refs = _safe_turn_refs(
+        _source_turn_refs(source_refs, include_exact_turn_refs=True)
+    )
+    if not 0 < len(safe_turn_refs) <= 3:
+        return False
+    session_number = session_numbers[0]
+    return any(
+        (dialogue_number := _turn_ref_dialogue_number(turn_ref))
+        and dialogue_number != session_number
+        for turn_ref in safe_turn_refs
+    )
+
+
+def _source_ref_session_numbers(source_refs: Sequence[str]) -> tuple[str, ...]:
+    return tuple(
+        dict.fromkeys(
+            match.group("session")
+            for source_ref in source_refs
+            for session_ref in _source_session_refs(source_ref)
+            for match in (
+                re.fullmatch(
+                    r"session[-_](?P<session>\d+)",
+                    session_ref,
+                    re.IGNORECASE,
+                ),
+            )
+            if match is not None
+        )
     )
 
 

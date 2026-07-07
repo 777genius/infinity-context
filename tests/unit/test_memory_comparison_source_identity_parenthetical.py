@@ -33,3 +33,10 @@ def test_source_identity_refs_do_not_qualify_mismatched_parenthetical_session() 
         source_refs=("locomo:conversation:session_2", "D2:8"),
         text="D2:8 (session 3) Priya confirmed the plan.",
     ) == ("source_text_session_turn_mismatch",)
+
+
+def test_source_identity_audit_flags_split_session_turn_source_mismatch() -> None:
+    assert source_identity_audit_gap_codes(
+        source_refs=("locomo:conversation:session_2", "D3:8"),
+        text="D3:8 Priya confirmed the plan.",
+    ) == ("source_session_turn_mismatch",)

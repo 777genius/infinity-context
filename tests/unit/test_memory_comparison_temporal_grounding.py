@@ -864,6 +864,55 @@ def test_temporal_grounding_reports_source_identity_mismatch() -> None:
     ]
 
 
+def test_temporal_grounding_reports_split_session_turn_source_mismatch() -> None:
+    diagnostics = quality_diagnostics(
+        (
+            _item(
+                case_id="temporal-split-source-mismatch",
+                group="temporal",
+                retrieval=_retrieval_payload(
+                    evidence_need=("temporal_support",),
+                    bundle_evidence_roles=("primary", "temporal_sequence_support"),
+                    relation_categories=("temporal",),
+                    policy_score=0.0,
+                    candidate_features={
+                        "query_roles": ["temporal_sequence_support"],
+                        "time_intent_kind": "temporal_sequence",
+                    },
+                ),
+                evidence_bundle={
+                    "items": [
+                        {
+                            "id": "split-mismatched-turn",
+                            "role": "temporal_sequence_support",
+                            "query_roles": ["temporal_sequence_support"],
+                            "source_refs": [
+                                "locomo:conversation:session_2",
+                                "D3:8",
+                            ],
+                            "text": (
+                                "session_2 date: 9 October, 2022 "
+                                "D3:8 Riley said the workshop happened later."
+                            ),
+                        }
+                    ]
+                },
+            ),
+        )
+    )
+
+    table = diagnostics["temporal_grounding_table"]
+
+    assert table["selected_strong_temporal_grounding_item_count"] == 0
+    assert table["selected_temporal_grounding_issue_item_count"] == 1
+    assert table["selected_temporal_grounding_issue_reason_counts"] == {
+        "source_identity_mismatch": 1
+    }
+    assert table["selected_temporal_grounding_issue_samples"][0][
+        "source_identity_gap_codes"
+    ] == ["source_session_turn_mismatch"]
+
+
 def test_compact_fast_gate_reports_temporal_source_identity_mismatch_safely() -> None:
     raw_private_ref = "locomo:conv-private:session_4:D4:3:turn-secret"
     item = _item(
