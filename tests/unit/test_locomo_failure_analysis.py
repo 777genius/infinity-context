@@ -875,6 +875,61 @@ def test_locomo_failure_analysis_counts_answer_context_identity_provenance() -> 
     }
 
 
+def test_locomo_failure_analysis_counts_bundle_identity_support_as_provenance() -> None:
+    report = {
+        "failures": [
+            {
+                "case_id": "bundle-identity-only",
+                "capability": "locomo_category_2",
+                "reason": "expected_terms_missing",
+                "diagnostic_reason_codes": ["answer_context_source_refless"],
+                "diagnostics": {
+                    "answer_context": {
+                        "present": True,
+                        "source": "evidence_bundle",
+                        "memory_count": 1,
+                        "source_ref_count": 0,
+                        "source_ref_item_count": 0,
+                        "source_refless_item_count": 1,
+                        "source_identity_ref_count": 0,
+                        "source_identity_item_count": 0,
+                        "bundle_source_ref_support_item_count": 0,
+                        "bundle_source_ref_support_ref_count": 0,
+                        "bundle_source_identity_support_item_count": 1,
+                        "bundle_source_identity_support_ref_count": 2,
+                    },
+                },
+            }
+        ]
+    }
+
+    summary = _summary(_failures(report), top=10)
+
+    assert summary["answer_context_provenance_count"] == {
+        "present": 1,
+        "source_refless_items_present": 1,
+        "bundle_source_identity_support_present": 1,
+        "identity_only_provenance_present": 1,
+    }
+    assert (
+        summary["root_cause_tag_count"][
+            "answer_context:identity_only_provenance"
+        ]
+        == 1
+    )
+    assert summary["root_cause_examples"]["answer_context:source_refless"][0][
+        "answer_context"
+    ] == {
+        "source": "evidence_bundle",
+        "memory_count": 1,
+        "source_ref_item_count": 0,
+        "source_refless_item_count": 1,
+        "backfilled_retrieval_item_count": 0,
+        "bundle_source_identity_support_item_count": 1,
+        "bundle_source_identity_support_ref_count": 2,
+    }
+
+
 def test_locomo_failure_analysis_tags_selected_evidence_weakness() -> None:
     report = {
         "failures": [

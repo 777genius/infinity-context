@@ -563,11 +563,29 @@ def _root_cause_tags(failure: Mapping[str, object]) -> tuple[str, ...]:
     if "answer_context_source_refless" in reason_codes:
         tags.append("answer_context:source_refless")
         answer_context = _mapping(diagnostics.get("answer_context"))
+        source_identity_provenance_count = sum(
+            _positive_int(answer_context.get(key)) or 0
+            for key in (
+                "source_identity_ref_count",
+                "source_identity_item_count",
+                "bundle_source_identity_support_ref_count",
+                "bundle_source_identity_support_item_count",
+            )
+        )
         if (
             (_positive_int(answer_context.get("source_ref_count")) or 0) == 0
             and (_positive_int(answer_context.get("source_ref_item_count")) or 0) == 0
-            and (_positive_int(answer_context.get("source_identity_ref_count")) or 0)
-            > 0
+            and (
+                _positive_int(answer_context.get("bundle_source_ref_support_ref_count"))
+                or 0
+            )
+            == 0
+            and (
+                _positive_int(answer_context.get("bundle_source_ref_support_item_count"))
+                or 0
+            )
+            == 0
+            and source_identity_provenance_count > 0
         ):
             tags.append("answer_context:identity_only_provenance")
     if "answer_context_missing_required_roles" in reason_codes:
@@ -806,6 +824,15 @@ def _answer_context_summary(failure: Mapping[str, object]) -> dict[str, object] 
         summary["source_identity_item_sample_limit"] = (
             _positive_int(context.get("source_identity_item_sample_limit")) or 0
         )
+    for key in (
+        "bundle_source_ref_support_item_count",
+        "bundle_source_ref_support_ref_count",
+        "bundle_source_identity_support_item_count",
+        "bundle_source_identity_support_ref_count",
+    ):
+        count = _positive_int(context.get(key)) or 0
+        if count:
+            summary[key] = count
     fallback_reason = str(context.get("fallback_reason") or "")
     if fallback_reason:
         summary["fallback_reason"] = _compact_summary_text(fallback_reason)
@@ -835,6 +862,20 @@ def _answer_context_provenance_counts(failure: Mapping[str, object]) -> Counter[
     source_identity_item_count = (
         _positive_int(context.get("source_identity_item_count")) or 0
     )
+    bundle_source_ref_support_count = sum(
+        _positive_int(context.get(key)) or 0
+        for key in (
+            "bundle_source_ref_support_item_count",
+            "bundle_source_ref_support_ref_count",
+        )
+    )
+    bundle_source_identity_support_count = sum(
+        _positive_int(context.get(key)) or 0
+        for key in (
+            "bundle_source_identity_support_item_count",
+            "bundle_source_identity_support_ref_count",
+        )
+    )
     backfilled_count = (
         _positive_int(context.get("backfilled_retrieval_item_count")) or 0
     )
@@ -847,7 +888,20 @@ def _answer_context_provenance_counts(failure: Mapping[str, object]) -> Counter[
         counts["source_identity_refs_present"] += 1
     if source_identity_item_count > 0:
         counts["source_identity_items_present"] += 1
-    if source_ref_count <= 0 and source_ref_item_count <= 0 and source_identity_ref_count > 0:
+    if bundle_source_ref_support_count > 0:
+        counts["bundle_source_ref_support_present"] += 1
+    if bundle_source_identity_support_count > 0:
+        counts["bundle_source_identity_support_present"] += 1
+    if (
+        source_ref_count <= 0
+        and source_ref_item_count <= 0
+        and bundle_source_ref_support_count <= 0
+        and (
+            source_identity_ref_count > 0
+            or source_identity_item_count > 0
+            or bundle_source_identity_support_count > 0
+        )
+    ):
         counts["identity_only_provenance_present"] += 1
     if (_positive_int(context.get("source_identity_ref_omitted_count")) or 0) > 0:
         counts["source_identity_ref_samples_omitted"] += 1
