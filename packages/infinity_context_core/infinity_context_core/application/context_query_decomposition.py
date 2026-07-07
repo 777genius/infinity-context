@@ -2504,6 +2504,7 @@ def _requests_knowledge_update_current(
     return bool(
         variants.intersection(_KNOWLEDGE_UPDATE_PROMPT_TERMS)
         and variants.intersection(_KNOWLEDGE_UPDATE_PROMPT_ACTION_TERMS)
+        and variants.intersection({"use", "использовать"})
         and variants.intersection(_KNOWLEDGE_UPDATE_STRONG_DECISION_TERMS)
     )
 
