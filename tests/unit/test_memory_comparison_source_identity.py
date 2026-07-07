@@ -421,6 +421,37 @@ def test_source_identity_refs_qualify_numeric_turn_id_with_session_key() -> None
     )
 
 
+def test_source_identity_refs_read_idx_style_structured_fields() -> None:
+    refs = source_identity_refs_from_source_refs(
+        (
+            {
+                "source_external_id": "locomo:conv-private:turn-secret",
+                "session_idx": 8,
+                "turn_idx": 5,
+            },
+        )
+    )
+
+    assert refs == (
+        "source_session_turn_refs:session_8:D8:5",
+        "source_turn_refs:D8:5",
+    )
+
+
+def test_source_identity_refs_read_source_dialogue_and_utterance_idx_fields() -> None:
+    refs = source_identity_refs_from_source_refs(
+        (
+            {
+                "source_external_id": "locomo:conv-private:turn-secret",
+                "source_dialogue_idx": "D9",
+                "source_utterance_idx": "7",
+            },
+        )
+    )
+
+    assert refs == ("source_turn_refs:D9:7",)
+
+
 def test_source_identity_refs_build_turn_ref_from_dialogue_and_turn_fields() -> None:
     refs = source_identity_refs_from_source_refs(
         (
