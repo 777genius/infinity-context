@@ -9,11 +9,17 @@ from infinity_context_core.application.context_diagnostics import safe_diagnosti
 from infinity_context_core.application.context_temporal_source_identity import (
     conversation_source_scope_identity_from_label,
     direct_source_scope_identity_from_label,
+    explicit_ordinal_session_scope_identity_from_value,
     explicit_session_scope_identity_from_value,
     source_identity_from_label,
     source_identity_matches,
     source_scope_identity_from_label,
     source_scope_identity_from_mapping,
+)
+from infinity_context_core.application.context_temporal_source_turn_labels import (
+    SOURCE_TURN_LABEL_NUMBER_PATTERN,
+    canonicalize_natural_source_turn_labels,
+    source_turn_label_number_value,
 )
 from infinity_context_core.application.context_temporal_source_turn_patterns import (
     _AFTER_SCOPED_SOURCE_TURN_RE,
@@ -22,6 +28,8 @@ from infinity_context_core.application.context_temporal_source_turn_patterns imp
     _BEFORE_SOURCE_TURN_RE,
     _BETWEEN_SCOPED_SOURCE_TURN_RE,
     _BETWEEN_SOURCE_TURN_RE,
+    _COMPACT_RANGE_SOURCE_TURN_RE,
+    _IMPLICIT_RANGE_SOURCE_TURN_RE,
     _NEAR_SCOPED_SOURCE_TURN_RE,
     _NEAR_SOURCE_TURN_RE,
     _NEXT_AFTER_SCOPED_SOURCE_TURN_RE,
@@ -34,6 +42,7 @@ from infinity_context_core.application.context_temporal_source_turn_patterns imp
     _PREVIOUS_ONE_BEFORE_SOURCE_TURN_RE,
     _QUERY_DIRECT_SOURCE_SCOPE_RE,
     _QUERY_SOURCE_SCOPE_RE,
+    _SAME_DIALOGUE_RANGE_SOURCE_TURN_RE,
     _SOURCE_TURN_RE,
     _WITHIN_AFTER_SCOPED_SOURCE_TURN_RE,
     _WITHIN_AFTER_SOURCE_TURN_RE,
@@ -49,14 +58,52 @@ from infinity_context_core.application.context_temporal_source_turn_types import
 )
 from infinity_context_core.application.dto import ContextItem
 
+_OPTIONAL_NUMBER_LABEL_PATTERN = r"(?:(?:number|no\.?)[_:\-\s#]+)?"
+_QUERY_NATURAL_DIALOGUE_SCOPE_RE = re.compile(
+    r"\b(?:in|from|for|within)\s+(?:the\s+)?"
+    r"(?:(?:source\s+)?(?:ref|reference)|source|conversation|conv)?\s*"
+    r"(?:locomo\s+)?(?:session|conversation|conv|dialogue|dialog|dia)\s+"
+    rf"#?\s*(?P<scope>{SOURCE_TURN_LABEL_NUMBER_PATTERN})\b",
+    re.IGNORECASE,
+)
+_QUERY_EXPLICIT_NATURAL_DIALOGUE_SCOPE_RE = re.compile(
+    r"\b(?:in|from|for|within)\s+(?:the\s+)?"
+    r"(?:(?:source\s+)?(?:ref|reference)|source)\s+"
+    r"(?:locomo\s+)?(?:session|conversation|conv|dialogue|dialog|dia)\s+"
+    rf"#?\s*(?P<scope>{SOURCE_TURN_LABEL_NUMBER_PATTERN})\b",
+    re.IGNORECASE,
+)
+_QUERY_BARE_EXPLICIT_NATURAL_DIALOGUE_SCOPE_RE = re.compile(
+    r"\b(?:(?:source\s+)?(?:ref|reference)|source)\s+"
+    r"(?:locomo\s+)?(?:session|conversation|conv|dialogue|dialog|dia)\s+"
+    rf"#?\s*(?P<scope>{SOURCE_TURN_LABEL_NUMBER_PATTERN})\b",
+    re.IGNORECASE,
+)
+
 
 def source_turn_sequence_request(query: str) -> SourceTurnSequenceRequest:
     """Return explicit before/after source-turn boundaries from a query."""
 
-    query_scope_identity = _query_source_scope_identity(query)
+    query_scope_identity = _query_explicit_natural_source_scope_identity(query)
+    query = canonicalize_natural_source_turn_labels(query)
+    query_scope_identity = query_scope_identity or _query_source_scope_identity(query)
     between_after, between_before = _source_turn_pairs_for_regex(
         _BETWEEN_SOURCE_TURN_RE,
         query,
+    )
+    implicit_range_after, implicit_range_before = _source_turn_pairs_for_regex(
+        _IMPLICIT_RANGE_SOURCE_TURN_RE,
+        query,
+    )
+    compact_range_after, compact_range_before = _source_turn_pairs_for_regex(
+        _COMPACT_RANGE_SOURCE_TURN_RE,
+        query,
+    )
+    same_dialogue_range_after, same_dialogue_range_before = (
+        _same_dialogue_source_turn_pairs_for_regex(
+            _SAME_DIALOGUE_RANGE_SOURCE_TURN_RE,
+            query,
+        )
     )
     scoped_between_after, scoped_between_before = _source_turn_pairs_with_scope_for_regex(
         _BETWEEN_SCOPED_SOURCE_TURN_RE,
@@ -162,6 +209,9 @@ def source_turn_sequence_request(query: str) -> SourceTurnSequenceRequest:
         query_scope_identity,
         (
             *between_after,
+            *implicit_range_after,
+            *compact_range_after,
+            *same_dialogue_range_after,
             *scoped_between_after,
             *within_after_turns,
             *scoped_within_after_turns,
@@ -172,6 +222,9 @@ def source_turn_sequence_request(query: str) -> SourceTurnSequenceRequest:
             *scoped_after_turns,
             *_source_turns_for_regex(_AFTER_SOURCE_TURN_RE, query),
             *between_before,
+            *implicit_range_before,
+            *compact_range_before,
+            *same_dialogue_range_before,
             *scoped_between_before,
             *within_before_turns,
             *scoped_within_before_turns,
@@ -192,6 +245,9 @@ def source_turn_sequence_request(query: str) -> SourceTurnSequenceRequest:
             _source_turns_with_query_scope(
                 (
                     *between_after,
+                    *implicit_range_after,
+                    *compact_range_after,
+                    *same_dialogue_range_after,
                     *scoped_between_after,
                     *within_after_turns,
                     *scoped_within_after_turns,
@@ -209,6 +265,9 @@ def source_turn_sequence_request(query: str) -> SourceTurnSequenceRequest:
             _source_turns_with_query_scope(
                 (
                     *between_before,
+                    *implicit_range_before,
+                    *compact_range_before,
+                    *same_dialogue_range_before,
                     *scoped_between_before,
                     *within_before_turns,
                     *scoped_within_before_turns,
@@ -273,6 +332,11 @@ def _shared_source_identity(
 
 def _query_source_scope_identity(query: str) -> str:
     scope_identities: dict[str, None] = {}
+    for match in _QUERY_NATURAL_DIALOGUE_SCOPE_RE.finditer(query):
+        if scope_identity := source_scope_identity_from_label(
+            _dialogue_scope_label(match.group("scope"))
+        ):
+            scope_identities.setdefault(scope_identity, None)
     for match in _QUERY_SOURCE_SCOPE_RE.finditer(query):
         if scope_identity := source_scope_identity_from_label(match.group("scope")):
             scope_identities.setdefault(scope_identity, None)
@@ -284,6 +348,31 @@ def _query_source_scope_identity(query: str) -> str:
     if len(scope_identities) != 1:
         return ""
     return next(iter(scope_identities))
+
+
+def _query_explicit_natural_source_scope_identity(query: str) -> str:
+    scope_identities: dict[str, None] = {}
+    for regex in (
+        _QUERY_EXPLICIT_NATURAL_DIALOGUE_SCOPE_RE,
+        _QUERY_BARE_EXPLICIT_NATURAL_DIALOGUE_SCOPE_RE,
+    ):
+        for match in regex.finditer(query):
+            if scope_identity := source_scope_identity_from_label(
+                _dialogue_scope_label(match.group("scope"))
+            ):
+                scope_identities.setdefault(scope_identity, None)
+    if len(scope_identities) != 1:
+        return ""
+    return next(iter(scope_identities))
+
+
+def _dialogue_scope_label(value: str) -> str:
+    text = value.strip()
+    if re.fullmatch(r"D\d{1,4}", text, re.IGNORECASE):
+        return text
+    if number := source_turn_label_number_value(text):
+        return f"D{number}"
+    return text
 
 
 def _source_turns_with_query_scope(
@@ -700,6 +789,23 @@ def _source_turn_pairs_for_regex(
     return _dedupe_source_turns(after_turns), _dedupe_source_turns(before_turns)
 
 
+def _same_dialogue_source_turn_pairs_for_regex(
+    regex: re.Pattern[str],
+    text: str,
+) -> tuple[tuple[SourceTurnRef, ...], tuple[SourceTurnRef, ...]]:
+    after_turns: list[SourceTurnRef] = []
+    before_turns: list[SourceTurnRef] = []
+    for match in regex.finditer(text):
+        dialogue = int(match.group("dialogue"))
+        after_turns.append(
+            SourceTurnRef(dialogue=dialogue, turn=int(match.group("after_turn")))
+        )
+        before_turns.append(
+            SourceTurnRef(dialogue=dialogue, turn=int(match.group("before_turn")))
+        )
+    return _dedupe_source_turns(after_turns), _dedupe_source_turns(before_turns)
+
+
 def _source_turn_pairs_with_scope_for_regex(
     regex: re.Pattern[str],
     text: str,
@@ -850,7 +956,8 @@ def _source_turns_from_value(
 ) -> tuple[SourceTurnRef, ...]:
     turns: list[SourceTurnRef] = []
     value_identity = source_identity_from_label(value)
-    for match in _SOURCE_TURN_RE.finditer(value):
+    canonical_value = canonicalize_natural_source_turn_labels(value)
+    for match in _SOURCE_TURN_RE.finditer(canonical_value):
         turns.append(
             SourceTurnRef(
                 dialogue=int(match.group("dialogue")),
@@ -887,9 +994,23 @@ def _source_scope_identities_from_mapping(mapping: Mapping[str, object]) -> tupl
     if primary_identity and _source_identity_has_session_scope(primary_identity):
         return tuple(identities)
     for key in (
+        "conversation_id",
+        "conversation_index",
+        "conversation_number",
+        "conversation_order",
+        "conv_id",
+        "conv_index",
+        "conv_number",
+        "conv_order",
         "locomo_session_index",
         "locomo_session_key",
         "locomo_session_number",
+        "source_conversation_id",
+        "source_conversation_index",
+        "source_conversation_number",
+        "source_conv_id",
+        "source_conv_index",
+        "source_conv_number",
         "source_session_id",
         "source_session_index",
         "source_session_key",
@@ -900,7 +1021,9 @@ def _source_scope_identities_from_mapping(mapping: Mapping[str, object]) -> tupl
         "session_order",
     ):
         value = mapping.get(key)
-        session_identity = explicit_session_scope_identity_from_value(value)
+        session_identity = explicit_ordinal_session_scope_identity_from_value(
+            value
+        ) or explicit_session_scope_identity_from_value(value)
         if session_identity and not any(
             source_identity_matches(session_identity, existing) for existing in identities
         ):
@@ -912,7 +1035,31 @@ def _source_scope_identities_from_mapping(mapping: Mapping[str, object]) -> tupl
             source_identity_matches(session_identity, existing) for existing in identities
         ):
             identities.append(session_identity)
+    if _has_opaque_session_id(mapping):
+        return tuple(identities)
+    for key in (
+        "dia_id",
+        "dialogue_id",
+        "dialogue_index",
+        "source_dia_id",
+        "source_dialogue_id",
+        "source_dialogue_index",
+    ):
+        value = mapping.get(key)
+        session_identity = explicit_ordinal_session_scope_identity_from_value(value)
+        if session_identity and not any(
+            source_identity_matches(session_identity, existing) for existing in identities
+        ):
+            identities.append(session_identity)
     return tuple(identities)
+
+
+def _has_opaque_session_id(mapping: Mapping[str, object]) -> bool:
+    value = mapping.get("session_id")
+    return isinstance(value, str) and bool(value.strip()) and not (
+        conversation_source_scope_identity_from_label(value)
+        or explicit_ordinal_session_scope_identity_from_value(value)
+    )
 
 
 def _source_identity_has_session_scope(value: str) -> bool:
@@ -1042,6 +1189,18 @@ def _structured_source_turn_label(value: Mapping[str, object]) -> str:
         value.get("session_order"),
         dia_id,
         source_scope,
+        value.get("conversation"),
+        value.get("conversation_id"),
+        value.get("conversation_index"),
+        value.get("conv"),
+        value.get("conv_id"),
+        value.get("conv_index"),
+        value.get("source_conversation"),
+        value.get("source_conversation_id"),
+        value.get("source_conversation_index"),
+        value.get("source_conv"),
+        value.get("source_conv_id"),
+        value.get("source_conv_index"),
     )
     turn = _first_turn_int_value(
         value.get("turn"),
@@ -1076,12 +1235,22 @@ def _dialogue_int_value(value: object) -> int:
     if direct_value := _positive_int_value(value):
         return direct_value
     text = str(value or "").strip()
-    match = re.search(
-        r"\b(?:d|dia|dialogue|session)[_:\-\s#]*(?P<value>\d{1,4})\b",
+    session_match = re.search(
+        rf"\bsession[_:\-\s#]*{_OPTIONAL_NUMBER_LABEL_PATTERN}"
+        rf"(?P<value>{SOURCE_TURN_LABEL_NUMBER_PATTERN})\b",
         text,
         re.IGNORECASE,
     )
-    return int(match.group("value")) if match else 0
+    if session_match is not None:
+        return source_turn_label_number_value(session_match.group("value"))
+    match = re.search(
+        r"\b(?:d|dia|dialog|dialogue|conv|conversation|session)"
+        rf"[_:\-\s#]*{_OPTIONAL_NUMBER_LABEL_PATTERN}"
+        rf"(?P<value>{SOURCE_TURN_LABEL_NUMBER_PATTERN})\b",
+        text,
+        re.IGNORECASE,
+    )
+    return source_turn_label_number_value(match.group("value")) if match else 0
 
 
 def _turn_int_value(value: object) -> int:
@@ -1089,14 +1258,15 @@ def _turn_int_value(value: object) -> int:
         return direct_value
     text = str(value or "").strip()
     match = re.search(
-        r"\b(?:turn|t)[_:\-\s#]*(?P<value>\d{1,4})\b|"
+        rf"\b(?:turn|t)[_:\-\s#]*{_OPTIONAL_NUMBER_LABEL_PATTERN}"
+        rf"(?P<value>{SOURCE_TURN_LABEL_NUMBER_PATTERN})\b|"
         r"\bD\d{1,4}[:\-](?P<dia_turn>\d{1,4})\b",
         text,
         re.IGNORECASE,
     )
     if match is None:
         return 0
-    return int(match.group("value") or match.group("dia_turn"))
+    return source_turn_label_number_value(match.group("value") or match.group("dia_turn"))
 
 
 def _positive_int_value(value: object) -> int:
@@ -1108,13 +1278,13 @@ def _positive_int_value(value: object) -> int:
         return int(value) if value.is_integer() and value > 0 else 0
     text = str(value).strip()
     if match := re.fullmatch(
-        r"(?:session|dialogue)[-_](?P<number>\d{1,4})",
+        rf"(?:session|conversation|conv|dialogue|dialog|dia)[-_ ]"
+        rf"{_OPTIONAL_NUMBER_LABEL_PATTERN}"
+        rf"(?P<number>{SOURCE_TURN_LABEL_NUMBER_PATTERN})",
         text,
         re.IGNORECASE,
     ):
-        return int(match.group("number"))
+        return source_turn_label_number_value(match.group("number"))
     if match := re.fullmatch(r"D(?P<number>\d{1,4})", text, re.IGNORECASE):
         return int(match.group("number"))
-    if re.fullmatch(r"\d{1,4}", text):
-        return int(text)
-    return 0
+    return source_turn_label_number_value(text)

@@ -4,7 +4,9 @@ from infinity_context_core.application.context_temporal_query import (
     build_temporal_query_intent,
 )
 from infinity_context_core.application.context_temporal_source_identity import (
+    source_identity_from_label,
     source_identity_matches,
+    source_scope_identity_from_label,
     source_scope_identity_from_mapping,
 )
 from infinity_context_core.application.dto import ContextItem
@@ -52,6 +54,259 @@ def test_separate_source_scope_diagnostics_keep_source_identity() -> None:
     ]
 
 
+def test_ordinal_source_scope_diagnostics_canonicalize_conversation_alias() -> None:
+    intent = build_temporal_query_intent(
+        "What did Riley mention after D12:4 in source conversation_12?"
+    )
+    natural_conversation_intent = build_temporal_query_intent(
+        "What did Riley mention after D12:4 in source conversation twelve?"
+    )
+    locomo_conversation_intent = build_temporal_query_intent(
+        "What did Riley mention after D12:4 in source locomo conversation twelve?"
+    )
+    numbered_dialogue_intent = build_temporal_query_intent(
+        "What did Riley mention after D12:4 in source dialogue no. twelve?"
+    )
+    natural_turn_dialogue_intent = build_temporal_query_intent(
+        "What did Riley mention after source turn five in source dialogue twelve?"
+    )
+    natural_turn_hashed_dialogue_intent = build_temporal_query_intent(
+        "What did Riley mention after source turn #5 in source dialogue #12?"
+    )
+    natural_between_dialogue_intent = build_temporal_query_intent(
+        "What did Riley mention between source turn three and source turn five "
+        "in source dialogue twelve?"
+    )
+    natural_plural_between_dialogue_intent = build_temporal_query_intent(
+        "What did Riley mention between source turns three and five "
+        "in source dialogue twelve?"
+    )
+    compact_between_dialogue_intent = build_temporal_query_intent(
+        "What did Riley mention between source turns 3-5 in source dialogue 12?"
+    )
+    dialogue_first_range_intent = build_temporal_query_intent(
+        "What did Riley mention from source dialogue 12 turns #3-#5?"
+    )
+    implicit_dialogue_first_range_intent = build_temporal_query_intent(
+        "What did Riley mention in source dialogue 12 turns #3-#5?"
+    )
+    compact_ref_range_intent = build_temporal_query_intent(
+        "What did Riley mention during source ref D12:3-D12:5?"
+    )
+    spaced_compact_ref_range_intent = build_temporal_query_intent(
+        "What did Riley mention during source ref D12:3 - D12:5?"
+    )
+    same_dialogue_compact_range_intent = build_temporal_query_intent(
+        "What did Riley mention during source ref D12:3-5?"
+    )
+    same_dialogue_spelled_range_intent = build_temporal_query_intent(
+        "What did Riley mention from D12:3 to 5?"
+    )
+    natural_near_dialogue_intent = build_temporal_query_intent(
+        "What did Riley mention around source dialogue 12 turn 5?"
+    )
+    hashed_dialogue_intent = build_temporal_query_intent(
+        "What did Riley mention after D12:4 in source dialogue #12?"
+    )
+    hashed_session_intent = build_temporal_query_intent(
+        "What did Riley mention after D12:4 in source session #12?"
+    )
+    hashed_locomo_conversation_intent = build_temporal_query_intent(
+        "What did Riley mention after D12:4 in source locomo conversation #12?"
+    )
+    direct_natural_conversation_intent = build_temporal_query_intent(
+        "What did Riley mention after D12:4 in conversation twelve?"
+    )
+    natural_conv_intent = build_temporal_query_intent(
+        "What did Riley mention after D12:4 in source conv twelve?"
+    )
+    dialogue_intent = build_temporal_query_intent(
+        "What did Riley mention after D12:4 in source D12?"
+    )
+    underscored_dialogue_intent = build_temporal_query_intent(
+        "What did Riley mention after D12:4 in source d_12?"
+    )
+    hyphenated_dialogue_intent = build_temporal_query_intent(
+        "What did Riley mention after D12:4 in source d-12?"
+    )
+    natural_dialogue_intent = build_temporal_query_intent(
+        "What did Riley mention after D12:4 in source dialogue 12?"
+    )
+    ordinal_dialogue_intent = build_temporal_query_intent(
+        "What did Riley mention after D12:4 in source dialogue 12th?"
+    )
+    written_dialogue_intent = build_temporal_query_intent(
+        "What did Riley mention after D12:4 in source dialogue twelve?"
+    )
+
+    assert intent.diagnostics()["temporal_query_source_turn_identities"] == [
+        "session_12"
+    ]
+    assert natural_conversation_intent.diagnostics()[
+        "temporal_query_source_turn_identities"
+    ] == ["session_12"]
+    assert locomo_conversation_intent.diagnostics()[
+        "temporal_query_source_turn_identities"
+    ] == ["session_12"]
+    assert numbered_dialogue_intent.diagnostics()[
+        "temporal_query_source_turn_identities"
+    ] == ["session_12"]
+    assert natural_turn_dialogue_intent.diagnostics()[
+        "temporal_query_after_source_turns"
+    ] == ["D12:5"]
+    assert natural_turn_dialogue_intent.diagnostics()[
+        "temporal_query_source_turn_identities"
+    ] == ["session_12"]
+    assert natural_turn_hashed_dialogue_intent.diagnostics()[
+        "temporal_query_after_source_turns"
+    ] == ["D12:5"]
+    assert natural_turn_hashed_dialogue_intent.diagnostics()[
+        "temporal_query_source_turn_identities"
+    ] == ["session_12"]
+    assert natural_between_dialogue_intent.diagnostics()[
+        "temporal_query_after_source_turns"
+    ] == ["D12:3"]
+    assert natural_between_dialogue_intent.diagnostics()[
+        "temporal_query_before_source_turns"
+    ] == ["D12:5"]
+    assert natural_between_dialogue_intent.diagnostics()[
+        "temporal_query_source_turn_identities"
+    ] == ["session_12"]
+    assert natural_plural_between_dialogue_intent.diagnostics()[
+        "temporal_query_after_source_turns"
+    ] == ["D12:3"]
+    assert natural_plural_between_dialogue_intent.diagnostics()[
+        "temporal_query_before_source_turns"
+    ] == ["D12:5"]
+    assert natural_plural_between_dialogue_intent.diagnostics()[
+        "temporal_query_source_turn_identities"
+    ] == ["session_12"]
+    assert compact_between_dialogue_intent.diagnostics()[
+        "temporal_query_after_source_turns"
+    ] == ["D12:3"]
+    assert compact_between_dialogue_intent.diagnostics()[
+        "temporal_query_before_source_turns"
+    ] == ["D12:5"]
+    assert compact_between_dialogue_intent.diagnostics()[
+        "temporal_query_source_turn_identities"
+    ] == ["session_12"]
+    assert dialogue_first_range_intent.diagnostics()[
+        "temporal_query_after_source_turns"
+    ] == ["D12:3"]
+    assert dialogue_first_range_intent.diagnostics()[
+        "temporal_query_before_source_turns"
+    ] == ["D12:5"]
+    assert dialogue_first_range_intent.diagnostics()[
+        "temporal_query_source_turn_identities"
+    ] == ["session_12"]
+    assert implicit_dialogue_first_range_intent.diagnostics()[
+        "temporal_query_after_source_turns"
+    ] == ["D12:3"]
+    assert implicit_dialogue_first_range_intent.diagnostics()[
+        "temporal_query_before_source_turns"
+    ] == ["D12:5"]
+    assert implicit_dialogue_first_range_intent.diagnostics()[
+        "temporal_query_source_turn_identities"
+    ] == ["session_12"]
+    assert compact_ref_range_intent.diagnostics()[
+        "temporal_query_after_source_turns"
+    ] == ["D12:3"]
+    assert compact_ref_range_intent.diagnostics()[
+        "temporal_query_before_source_turns"
+    ] == ["D12:5"]
+    assert compact_ref_range_intent.diagnostics()[
+        "temporal_query_source_turn_identities"
+    ] == []
+    assert spaced_compact_ref_range_intent.diagnostics()[
+        "temporal_query_after_source_turns"
+    ] == ["D12:3"]
+    assert spaced_compact_ref_range_intent.diagnostics()[
+        "temporal_query_before_source_turns"
+    ] == ["D12:5"]
+    assert spaced_compact_ref_range_intent.diagnostics()[
+        "temporal_query_source_turn_identities"
+    ] == []
+    assert same_dialogue_compact_range_intent.diagnostics()[
+        "temporal_query_after_source_turns"
+    ] == ["D12:3"]
+    assert same_dialogue_compact_range_intent.diagnostics()[
+        "temporal_query_before_source_turns"
+    ] == ["D12:5"]
+    assert same_dialogue_compact_range_intent.diagnostics()[
+        "temporal_query_source_turn_identities"
+    ] == []
+    assert same_dialogue_spelled_range_intent.diagnostics()[
+        "temporal_query_after_source_turns"
+    ] == ["D12:3"]
+    assert same_dialogue_spelled_range_intent.diagnostics()[
+        "temporal_query_before_source_turns"
+    ] == ["D12:5"]
+    assert natural_near_dialogue_intent.diagnostics()[
+        "temporal_query_near_source_turns"
+    ] == ["D12:5"]
+    assert natural_near_dialogue_intent.diagnostics()[
+        "temporal_query_source_turn_identities"
+    ] == ["session_12"]
+    assert hashed_dialogue_intent.diagnostics()[
+        "temporal_query_source_turn_identities"
+    ] == ["session_12"]
+    assert hashed_session_intent.diagnostics()[
+        "temporal_query_source_turn_identities"
+    ] == ["session_12"]
+    assert hashed_locomo_conversation_intent.diagnostics()[
+        "temporal_query_source_turn_identities"
+    ] == ["session_12"]
+    assert direct_natural_conversation_intent.diagnostics()[
+        "temporal_query_source_turn_identities"
+    ] == ["session_12"]
+    assert natural_conv_intent.diagnostics()[
+        "temporal_query_source_turn_identities"
+    ] == ["session_12"]
+    assert dialogue_intent.diagnostics()["temporal_query_source_turn_identities"] == [
+        "session_12"
+    ]
+    assert underscored_dialogue_intent.diagnostics()[
+        "temporal_query_source_turn_identities"
+    ] == ["session_12"]
+    assert hyphenated_dialogue_intent.diagnostics()[
+        "temporal_query_source_turn_identities"
+    ] == ["session_12"]
+    assert natural_dialogue_intent.diagnostics()[
+        "temporal_query_source_turn_identities"
+    ] == ["session_12"]
+    assert ordinal_dialogue_intent.diagnostics()[
+        "temporal_query_source_turn_identities"
+    ] == ["session_12"]
+    assert written_dialogue_intent.diagnostics()[
+        "temporal_query_source_turn_identities"
+    ] == ["session_12"]
+
+
+def test_short_conv_source_scope_stays_source_identity() -> None:
+    intent = build_temporal_query_intent(
+        "What did Riley mention after D12:4 in source conv-1?"
+    )
+
+    assert source_scope_identity_from_label("conversation_12") == "session_12"
+    assert source_scope_identity_from_label("conversation twelve") == "session_12"
+    assert source_scope_identity_from_label("locomo conversation twelve") == "session_12"
+    assert source_scope_identity_from_label("dialogue no. twelve") == "session_12"
+    assert source_scope_identity_from_label("session number twelve") == "session_12"
+    assert source_scope_identity_from_label("dialogue #12") == "session_12"
+    assert source_scope_identity_from_label("locomo conversation #12") == "session_12"
+    assert source_scope_identity_from_label("conv_12") == "session_12"
+    assert source_scope_identity_from_label("conv twelve") == "session_12"
+    assert source_scope_identity_from_label("dialogue twelve") == "session_12"
+    assert source_scope_identity_from_label("D12") == "session_12"
+    assert source_scope_identity_from_label("D12:3-D12:5") == ""
+    assert source_scope_identity_from_label("twelve") == ""
+    assert source_scope_identity_from_label("locomo") == ""
+    assert source_scope_identity_from_label("d_12") == "session_12"
+    assert source_scope_identity_from_label("d-12") == "session_12"
+    assert source_scope_identity_from_label("conv-1") == "conv-1"
+    assert intent.diagnostics()["temporal_query_source_turn_identities"] == ["conv-1"]
+
+
 def test_prefix_source_scope_diagnostics_keep_source_identity() -> None:
     intent = build_temporal_query_intent(
         "What did Riley mention in source locomo:conv-1:session_12 "
@@ -73,6 +328,47 @@ def test_direct_locomo_scope_diagnostics_keep_source_identity() -> None:
     ]
 
 
+def test_natural_source_turn_scope_diagnostics_keep_source_identity() -> None:
+    intent = build_temporal_query_intent(
+        "What did Riley mention after turn four in session twelve "
+        "from conversation locomo:conv-1?"
+    )
+
+    assert intent.diagnostics()["temporal_query_after_source_turns"] == ["D12:4"]
+    assert intent.diagnostics()["temporal_query_source_turn_identities"] == [
+        "locomo:conv-1"
+    ]
+
+
+def test_compact_source_turn_identity_normalizes_to_canonical_turn_scope() -> None:
+    assert (
+        source_identity_from_label("locomo:conv-1:session_12:D12T5:turn")
+        == "locomo:conv-1:session_12:d*:t*:turn"
+    )
+
+
+def test_compact_source_turn_refs_keep_exact_source_identity_match() -> None:
+    intent = build_temporal_query_intent(
+        "What did Riley mention after source ref "
+        "locomo:conv-1:session_12:D12T4:turn?"
+    )
+    matching = _item(
+        "matching",
+        text="Riley said Morgan confirmed the studio visit.",
+        source_id="locomo:conv-1:session_12:D12T5:turn",
+    )
+
+    boosted = apply_temporal_query_intent_boosts((matching,), intent=intent)
+
+    assert intent.source_turn_sequence.after_turns[0].label() == "D12:4"
+    assert intent.diagnostics()["temporal_query_source_turn_identities"] == [
+        "locomo:conv-1:session_12:d*:t*:turn"
+    ]
+    assert boosted[0].diagnostics["temporal_query_intent_reason"] == (
+        "query asks for after source turn and item source turn follows boundary"
+    )
+
+
 def test_direct_session_name_does_not_become_source_identity() -> None:
     intent = build_temporal_query_intent(
         "What did Riley mention in session_12 after D12:4?"
@@ -85,6 +381,27 @@ def test_source_scope_identity_mapping_normalizes_explicit_numeric_session_alias
     assert source_scope_identity_from_mapping({"locomo_session_index": 12}) == "session_12"
     assert source_scope_identity_from_mapping({"source_session_index": 12}) == "session_12"
     assert source_scope_identity_from_mapping({"source_session_number": "12"}) == "session_12"
+    assert source_scope_identity_from_mapping({"conversation_id": "conv_12"}) == "session_12"
+    assert (
+        source_scope_identity_from_mapping({"conversation_id": "conv twelve"})
+        == "session_12"
+    )
+    assert (
+        source_scope_identity_from_mapping({"conversation_id": "conv no. twelve"})
+        == "session_12"
+    )
+    assert (
+        source_scope_identity_from_mapping({"conversation_id": "conversation #12"})
+        == "session_12"
+    )
+    assert (
+        source_scope_identity_from_mapping({"conversation_number": "twelfth"})
+        == "session_12"
+    )
+    assert (
+        source_scope_identity_from_mapping({"source_conversation_number": 12})
+        == "session_12"
+    )
     assert source_scope_identity_from_mapping({"session_index": "12"}) == "session_12"
     assert source_scope_identity_from_mapping({"session_id": 12}) == ""
     assert (
@@ -628,6 +945,188 @@ def test_source_scoped_turn_query_combines_source_scope_with_numeric_turn_id() -
     assert by_id["metadata_scope_turn_id_different_source"].diagnostics[
         "temporal_query_intent_reason"
     ] == "query asks for source turn and item source identity differs"
+
+
+def test_source_scoped_turn_query_combines_conversation_scope_with_numeric_turn_id() -> None:
+    intent = build_temporal_query_intent(
+        "What did Riley mention after D12:4 in source session_12?"
+    )
+    same_session = ContextItem(
+        item_id="metadata_conversation_scope_turn_id_same_source",
+        item_type="fact",
+        text="Riley said Morgan confirmed the studio visit.",
+        score=0.72,
+        source_refs=(SourceRef(source_type="document", source_id="conversation-summary"),),
+        diagnostics={
+            "retrieval_source": "keyword_chunks",
+            "metadata": {
+                "source_external_id": "locomo:conv-private:turn-secret",
+                "conversation_id": "conv_12",
+                "turn_id": 6,
+            },
+        },
+    )
+    different_session = ContextItem(
+        item_id="metadata_conversation_scope_turn_id_different_source",
+        item_type="fact",
+        text="Riley discussed a different session.",
+        score=0.72,
+        source_refs=(SourceRef(source_type="document", source_id="conversation-summary"),),
+        diagnostics={
+            "retrieval_source": "keyword_chunks",
+            "metadata": {
+                "source_external_id": "locomo:conv-private:turn-secret",
+                "conversation_id": "conv_13",
+                "turn_id": 6,
+            },
+        },
+    )
+
+    boosted = apply_temporal_query_intent_boosts(
+        (different_session, same_session),
+        intent=intent,
+    )
+    by_id = {item.item_id: item for item in boosted}
+
+    assert by_id["metadata_conversation_scope_turn_id_same_source"].score == 0.76
+    assert by_id["metadata_conversation_scope_turn_id_same_source"].diagnostics[
+        "temporal_query_intent_reason"
+    ] == "query asks for after source turn and item source turn follows boundary"
+    assert by_id["metadata_conversation_scope_turn_id_different_source"].score == 0.702
+    assert by_id["metadata_conversation_scope_turn_id_different_source"].diagnostics[
+        "temporal_query_intent_reason"
+    ] == "query asks for an explicit session and item has a different session"
+
+
+def test_source_scoped_turn_query_uses_conversation_alias_source_scope() -> None:
+    intent = build_temporal_query_intent(
+        "What did Riley mention after D12:4 in source conversation_12?"
+    )
+    same_session = _metadata_item(
+        "metadata_conversation_alias_source_scope_same_source",
+        metadata={"conversation_id": "conv_12", "turn_id": 6},
+    )
+    different_session = _metadata_item(
+        "metadata_conversation_alias_source_scope_different_source",
+        text="Riley discussed a different session.",
+        metadata={"conversation_id": "conv_13", "turn_id": 6},
+    )
+
+    boosted = apply_temporal_query_intent_boosts(
+        (different_session, same_session),
+        intent=intent,
+    )
+    by_id = {item.item_id: item for item in boosted}
+
+    assert by_id["metadata_conversation_alias_source_scope_same_source"].score == 0.76
+    assert by_id["metadata_conversation_alias_source_scope_same_source"].diagnostics[
+        "temporal_query_intent_reason"
+    ] == "query asks for after source turn and item source turn follows boundary"
+    assert by_id["metadata_conversation_alias_source_scope_different_source"].score == (
+        0.702
+    )
+    assert by_id["metadata_conversation_alias_source_scope_different_source"].diagnostics[
+        "temporal_query_intent_reason"
+    ] == "query asks for an explicit session and item has a different session"
+
+
+def test_source_scoped_turn_query_uses_dialogue_label_source_scope() -> None:
+    intent = build_temporal_query_intent(
+        "What did Riley mention after D12:4 in source D12?"
+    )
+    same_session = _metadata_item(
+        "metadata_dialogue_label_source_scope_same_source",
+        metadata={"conversation_id": "conv_12", "turn_id": 6},
+    )
+    different_session = _metadata_item(
+        "metadata_dialogue_label_source_scope_different_source",
+        text="Riley discussed a different session.",
+        metadata={"conversation_id": "conv_13", "turn_id": 6},
+    )
+
+    boosted = apply_temporal_query_intent_boosts(
+        (different_session, same_session),
+        intent=intent,
+    )
+    by_id = {item.item_id: item for item in boosted}
+
+    assert by_id["metadata_dialogue_label_source_scope_same_source"].score == 0.76
+    assert by_id["metadata_dialogue_label_source_scope_same_source"].diagnostics[
+        "temporal_query_intent_reason"
+    ] == "query asks for after source turn and item source turn follows boundary"
+    assert by_id["metadata_dialogue_label_source_scope_different_source"].score == (
+        0.702
+    )
+    assert by_id["metadata_dialogue_label_source_scope_different_source"].diagnostics[
+        "temporal_query_intent_reason"
+    ] == "query asks for an explicit session and item has a different session"
+
+
+def test_source_scoped_turn_query_uses_dialogue_metadata_source_scope() -> None:
+    intent = build_temporal_query_intent(
+        "What did Riley mention after D12:4 in source D12?"
+    )
+    natural_scope_intent = build_temporal_query_intent(
+        "What did Riley mention after D12:4 in source dialogue 12?"
+    )
+    written_scope_intent = build_temporal_query_intent(
+        "What did Riley mention after D12:4 in source dialogue twelve?"
+    )
+    same_session = _metadata_item(
+        "metadata_dialogue_scope_same_source",
+        metadata={"dialogue_id": 12, "turn_id": 6},
+    )
+    same_session_source_dia = _metadata_item(
+        "metadata_source_dia_scope_same_source",
+        metadata={"source_dia_id": "D12:6", "turn_id": 6},
+    )
+    same_session_written_dia = _metadata_item(
+        "metadata_written_dia_scope_same_source",
+        metadata={"dialogue_id": "dialogue twelve", "turn_id": 6},
+    )
+    same_session_hashed_dia = _metadata_item(
+        "metadata_hashed_dia_scope_same_source",
+        metadata={"dialogue_id": "#12", "turn_id": 6},
+    )
+    different_session = _metadata_item(
+        "metadata_dialogue_scope_different_source",
+        text="Riley discussed a different session.",
+        metadata={"dialogue_id": 13, "turn_id": 6},
+    )
+
+    boosted = apply_temporal_query_intent_boosts(
+        (
+            different_session,
+            same_session_hashed_dia,
+            same_session_written_dia,
+            same_session_source_dia,
+            same_session,
+        ),
+        intent=intent,
+    )
+    natural_scope_boosted = apply_temporal_query_intent_boosts(
+        (same_session,),
+        intent=natural_scope_intent,
+    )
+    written_scope_boosted = apply_temporal_query_intent_boosts(
+        (same_session,),
+        intent=written_scope_intent,
+    )
+    by_id = {item.item_id: item for item in boosted}
+
+    assert by_id["metadata_dialogue_scope_same_source"].score == 0.76
+    assert natural_scope_boosted[0].score == 0.76
+    assert written_scope_boosted[0].score == 0.76
+    assert by_id["metadata_source_dia_scope_same_source"].score == 0.76
+    assert by_id["metadata_written_dia_scope_same_source"].score == 0.76
+    assert by_id["metadata_hashed_dia_scope_same_source"].score == 0.76
+    assert by_id["metadata_dialogue_scope_same_source"].diagnostics[
+        "temporal_query_intent_reason"
+    ] == "query asks for after source turn and item source turn follows boundary"
+    assert by_id["metadata_dialogue_scope_different_source"].score == 0.702
+    assert by_id["metadata_dialogue_scope_different_source"].diagnostics[
+        "temporal_query_intent_reason"
+    ] == "query asks for an explicit session and item has a different session"
 
 
 def test_source_scoped_turn_query_combines_source_identity_with_numeric_turn_id() -> None:

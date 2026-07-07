@@ -5,14 +5,23 @@ from __future__ import annotations
 import re
 from collections.abc import Mapping
 
+from infinity_context_core.application.context_temporal_source_turn_labels import (
+    SOURCE_TURN_LABEL_NUMBER_PATTERN,
+    canonicalize_natural_source_turn_labels,
+    source_turn_label_number_value,
+)
 from infinity_context_core.application.context_temporal_source_turn_patterns import (
     _SOURCE_TURN_IDENTITY_RE,
     _SOURCE_TURN_RE,
 )
 
+_OPTIONAL_NUMBER_LABEL_PATTERN = r"(?:(?:number|no\.?)[-_: ]+)?#?"
+
 
 def source_identity_from_label(value: str) -> str:
-    text = value.strip().strip(".,!?;()[]{}<>\"'")
+    text = canonicalize_natural_source_turn_labels(
+        value.strip().strip(".,!?;()[]{}<>\"'")
+    )
     if not text or re.search(r"\s", text):
         return ""
     if _SOURCE_TURN_RE.fullmatch(text):
@@ -23,7 +32,30 @@ def source_identity_from_label(value: str) -> str:
 
 def source_scope_identity_from_label(value: str) -> str:
     text = value.strip().strip(".,!?;()[]{}<>\"'")
-    if not text or re.search(r"\s", text):
+    if not text:
+        return ""
+    if scope_identity := _source_label_ordinal_session_scope_identity(text):
+        return scope_identity
+    if re.search(r"\s", text):
+        return ""
+    if text.casefold() in {
+        "conversation",
+        "conv",
+        "session",
+        "dialogue",
+        "dialog",
+        "dia",
+        "d",
+        "locomo",
+    }:
+        return ""
+    if source_turn_label_number_value(text):
+        return ""
+    if re.fullmatch(
+        r"D\d{1,4}[:-]\d{1,4}\s*-\s*D\d{1,4}[:-]\d{1,4}",
+        text,
+        re.IGNORECASE,
+    ):
         return ""
     if identity := source_identity_from_label(text):
         return identity
@@ -84,9 +116,23 @@ def source_scope_identity_from_mapping(mapping: Mapping[str, object]) -> str:
     if combined_identity:
         return combined_identity
     for key in (
+        "conversation_id",
+        "conversation_index",
+        "conversation_number",
+        "conversation_order",
+        "conv_id",
+        "conv_index",
+        "conv_number",
+        "conv_order",
         "locomo_session_index",
         "locomo_session_key",
         "locomo_session_number",
+        "source_conversation_id",
+        "source_conversation_index",
+        "source_conversation_number",
+        "source_conv_id",
+        "source_conv_index",
+        "source_conv_number",
         "source_session_id",
         "source_session_index",
         "source_session_key",
@@ -97,13 +143,66 @@ def source_scope_identity_from_mapping(mapping: Mapping[str, object]) -> str:
         "session_key",
     ):
         value = mapping.get(key)
-        if scope_identity := explicit_session_scope_identity_from_value(value):
+        scope_identity = explicit_ordinal_session_scope_identity_from_value(
+            value
+        ) or explicit_session_scope_identity_from_value(value)
+        if scope_identity:
             return scope_identity
     value = mapping.get("session_id")
     if isinstance(value, str) and (
         scope_identity := conversation_source_scope_identity_from_label(value)
     ):
         return scope_identity
+    return ""
+
+
+def explicit_ordinal_session_scope_identity_from_value(value: object) -> str:
+    if isinstance(value, bool) or value is None:
+        return ""
+    if isinstance(value, int):
+        number = value
+    elif isinstance(value, float) and value.is_integer():
+        number = int(value)
+    else:
+        text = str(value).strip()
+        if match := re.fullmatch(
+            rf"(?:locomo\s+)?(?:session|conversation|conv|dialogue|dialog|dia)"
+            rf"[-_: #]*{_OPTIONAL_NUMBER_LABEL_PATTERN}"
+            rf"(?P<number>{SOURCE_TURN_LABEL_NUMBER_PATTERN})",
+            text,
+            re.IGNORECASE,
+        ):
+            number = source_turn_label_number_value(match.group("number"))
+        elif match := re.fullmatch(
+            r"D(?P<number>\d{1,4})(?:[:-]\d{1,4})?",
+            text,
+            re.IGNORECASE,
+        ):
+            number = int(match.group("number"))
+        else:
+            number = source_turn_label_number_value(text)
+    return f"session_{number}" if number > 0 else ""
+
+
+def _source_label_ordinal_session_scope_identity(value: str) -> str:
+    text = value.strip()
+    if match := re.fullmatch(
+        rf"(?:locomo\s+)?(?:session|conversation|dialogue|dialog|dia)"
+        rf"[-_: #]*{_OPTIONAL_NUMBER_LABEL_PATTERN}"
+        rf"(?P<number>{SOURCE_TURN_LABEL_NUMBER_PATTERN})|"
+        rf"(?:locomo\s+)?conv[_: ]+{_OPTIONAL_NUMBER_LABEL_PATTERN}"
+        rf"(?P<conv_number>{SOURCE_TURN_LABEL_NUMBER_PATTERN})|"
+        rf"d[-_: ]*(?P<dialogue_number>{SOURCE_TURN_LABEL_NUMBER_PATTERN})",
+        text,
+        re.IGNORECASE,
+    ):
+        raw_number = (
+            match.group("number")
+            or match.group("conv_number")
+            or match.group("dialogue_number")
+        )
+        number = source_turn_label_number_value(raw_number)
+        return f"session_{number}" if number > 0 else ""
     return ""
 
 

@@ -204,6 +204,40 @@ def test_temporal_query_boosts_within_two_source_turn_radius() -> None:
     )
 
 
+def test_temporal_query_boosts_natural_source_turn_radius() -> None:
+    intent = build_temporal_query_intent(
+        "What did Riley mention within two turns of the fifth turn in the twelfth session?"
+    )
+    within_radius = _item(
+        "natural_turn_within_radius",
+        score=0.7,
+        retrieval_source="keyword_chunks",
+        fact_status="active",
+        text="Session twelve turn seven: Riley said the studio visit was confirmed.",
+    )
+    outside_radius = _item(
+        "natural_turn_outside_radius",
+        score=0.72,
+        retrieval_source="keyword_chunks",
+        fact_status="active",
+        text="Session twelve turn nine: Riley changed the topic to dinner plans.",
+    )
+
+    boosted = apply_temporal_query_intent_boosts(
+        (outside_radius, within_radius),
+        intent=intent,
+    )
+    by_id = {item.item_id: item for item in boosted}
+
+    assert intent.source_turn_sequence.near_turns[0].label() == "D12:5"
+    assert intent.source_turn_sequence.near_turn_radius == 2
+    assert by_id["natural_turn_within_radius"].score == 0.722
+    assert by_id["natural_turn_outside_radius"].score == 0.706
+    assert by_id["natural_turn_within_radius"].diagnostics[
+        "temporal_query_intent_reason"
+    ] == "query asks around source turn and item source turn is within radius"
+
+
 def test_temporal_query_treats_couple_as_two_source_turn_radius() -> None:
     intent = build_temporal_query_intent(
         "What did Riley mention within a couple turns of D12:4?"

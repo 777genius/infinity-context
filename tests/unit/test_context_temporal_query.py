@@ -1464,6 +1464,133 @@ def test_source_turn_sequence_accepts_hyphenated_locomo_refs() -> None:
     )
 
 
+def test_source_turn_sequence_accepts_natural_session_turn_references() -> None:
+    intent = build_temporal_query_intent(
+        "What did Riley mention after turn four in session twelve?"
+    )
+    underscored_intent = build_temporal_query_intent(
+        "What did Riley mention after turn_4 in session_12?"
+    )
+    numbered_intent = build_temporal_query_intent(
+        "What did Riley mention after turn no. four in session no. twelve?"
+    )
+    before = _item(
+        "before",
+        score=0.71,
+        retrieval_source="keyword_chunks",
+        fact_status="active",
+        text="Session twelve turn three: Riley was still waiting on Morgan.",
+        source_id="locomo:conv-1:session_12",
+    )
+    after = _item(
+        "after",
+        score=0.7,
+        retrieval_source="keyword_chunks",
+        fact_status="active",
+        text="Session twelve turn five: Riley said the studio visit was confirmed.",
+        source_id="locomo:conv-1:session_12",
+    )
+
+    boosted = apply_temporal_query_intent_boosts((before, after), intent=intent)
+    by_id = {item.item_id: item for item in boosted}
+
+    assert intent.source_turn_sequence.after_turns[0].label() == "D12:4"
+    assert underscored_intent.source_turn_sequence.after_turns[0].label() == "D12:4"
+    assert numbered_intent.source_turn_sequence.after_turns[0].label() == "D12:4"
+    assert by_id["after"].score > by_id["before"].score
+    assert by_id["after"].diagnostics["temporal_query_intent_reason"] == (
+        "query asks for after source turn and item source turn follows boundary"
+    )
+    assert by_id["before"].diagnostics["temporal_query_intent_reason"] == (
+        "query asks for after source turn and item source turn precedes boundary"
+    )
+
+
+def test_source_turn_sequence_uses_natural_turn_refs_from_quote_preview() -> None:
+    intent = build_temporal_query_intent(
+        "What did Riley mention before source turn 4 from dialogue 12?"
+    )
+    before = ContextItem(
+        item_id="before",
+        item_type="fact",
+        text="Riley was still waiting on Morgan.",
+        score=0.7,
+        source_refs=(
+            SourceRef(
+                source_type="document",
+                source_id="conversation-summary",
+                quote_preview="Dialogue 12 turn 3: Riley was still waiting on Morgan.",
+            ),
+        ),
+        diagnostics={"retrieval_source": "canonical_anchors"},
+    )
+    after = ContextItem(
+        item_id="after",
+        item_type="fact",
+        text="Riley said the studio visit was confirmed.",
+        score=0.72,
+        source_refs=(
+            SourceRef(
+                source_type="document",
+                source_id="conversation-summary",
+                quote_preview="Dialogue 12 turn 5: Riley confirmed the visit.",
+            ),
+        ),
+        diagnostics={"retrieval_source": "canonical_anchors"},
+    )
+
+    boosted = apply_temporal_query_intent_boosts((before, after), intent=intent)
+    by_id = {item.item_id: item for item in boosted}
+
+    assert intent.source_turn_sequence.before_turns[0].label() == "D12:4"
+    assert by_id["before"].score > by_id["after"].score
+    assert by_id["before"].diagnostics["temporal_query_intent_reason"] == (
+        "query asks for before source turn and item source turn precedes boundary"
+    )
+    assert by_id["after"].diagnostics["temporal_query_intent_reason"] == (
+        "query asks for before source turn and item source turn follows boundary"
+    )
+
+
+def test_source_turn_sequence_keeps_natural_turn_scope_identity() -> None:
+    intent = build_temporal_query_intent(
+        "What did Riley mention after turn four in session twelve "
+        "from conversation locomo:conv-1?"
+    )
+    matching_source = _item(
+        "matching_source",
+        score=0.7,
+        retrieval_source="keyword_chunks",
+        fact_status="active",
+        text="Session twelve turn five: Riley said the studio visit was confirmed.",
+        source_id="locomo:conv-1:session_12",
+    )
+    different_source = _item(
+        "different_source",
+        score=0.72,
+        retrieval_source="keyword_chunks",
+        fact_status="active",
+        text="Session twelve turn five: Riley mentioned a different visit.",
+        source_id="locomo:conv-2:session_12",
+    )
+
+    boosted = apply_temporal_query_intent_boosts(
+        (matching_source, different_source),
+        intent=intent,
+    )
+    by_id = {item.item_id: item for item in boosted}
+
+    assert intent.source_turn_sequence.after_turns[0].label() == "D12:4"
+    assert intent.source_turn_sequence.has_source_identity is True
+    assert by_id["matching_source"].score > by_id["different_source"].score
+    assert by_id["matching_source"].diagnostics["temporal_query_intent_reason"] == (
+        "query asks for after source turn and item source turn follows boundary"
+    )
+    assert by_id["different_source"].diagnostics["temporal_query_intent_reason"] == (
+        "query asks for source turn and item source identity differs"
+    )
+
+
 def _item(
     item_id: str,
     *,
