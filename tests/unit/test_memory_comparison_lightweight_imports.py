@@ -57,6 +57,7 @@ def test_top_evidence_preflight_imports_without_http_client_dependencies() -> No
         env={**os.environ, "PYTHONPATH": pythonpath},
     )
 
+
 def test_top_evidence_preflight_import_does_not_require_httpx() -> None:
     repo_root = Path(__file__).resolve().parents[2]
     pythonpath = os.pathsep.join(
@@ -92,6 +93,7 @@ assert module.TOP_EVIDENCE_PREFLIGHT_SCHEMA_VERSION == "top-evidence-preflight.v
         env={**os.environ, "PYTHONPATH": pythonpath},
     )
 
+
 def test_public_benchmark_models_imports_without_httpx_dependency() -> None:
     repo_root = Path(__file__).resolve().parents[2]
     pythonpath = os.pathsep.join(
@@ -115,4 +117,3 @@ def test_public_benchmark_models_imports_without_httpx_dependency() -> None:
         check=True,
         env={**os.environ, "PYTHONPATH": pythonpath},
     )
-
