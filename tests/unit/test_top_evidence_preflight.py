@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import builtins
 import json
 from pathlib import Path
 
@@ -242,6 +243,31 @@ def test_top_evidence_preflight_rejects_partial_agent_scenario_set(
     assert result.checks["agent_bench_scenario_set_all"] is False
     assert result.sanitized_config["agent_bench_scenario_set"] == "realistic"
     assert any("SCENARIO_SET=all" in failure for failure in result.failures)
+
+
+def test_top_evidence_preflight_without_dataset_does_not_import_benchmark_runner(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    real_import = builtins.__import__
+
+    def guarded_import(name: str, *args: object, **kwargs: object) -> object:
+        if name == "infinity_context_server.public_benchmark":
+            raise AssertionError("public benchmark runner should be imported lazily")
+        return real_import(name, *args, **kwargs)
+
+    monkeypatch.setattr(builtins, "__import__", guarded_import)
+
+    result = run_top_evidence_preflight(
+        env={},
+        cwd=tmp_path,
+        docker_path="/usr/bin/docker",
+        git={"commit": "abc123", "dirty": False},
+    )
+
+    assert result.ok is False
+    assert result.checks["locomo_dataset_file"] is False
+    assert result.checks["longmemeval_dataset_file"] is False
 
 
 def test_top_evidence_preflight_requires_multimodal_invalid_key_probe(
