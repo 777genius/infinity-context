@@ -139,6 +139,105 @@ def test_top_evidence_preflight_lightweight_profile_accepts_samples_wrapper(
     assert profile["duplicate_case_id_count"] == 0
 
 
+def test_top_evidence_preflight_lightweight_profile_requires_answer_signal(
+    tmp_path: Path,
+) -> None:
+    dataset = tmp_path / "partial-locomo.json"
+    dataset.write_text(
+        json.dumps(
+            [
+                {
+                    "benchmark": "locomo",
+                    "case_id": "locomo-valid",
+                    "question": "Where is the checklist?",
+                    "answer": "blue notebook",
+                    "memories": ["The checklist is in the blue notebook."],
+                },
+                {
+                    "benchmark": "locomo",
+                    "case_id": "locomo-missing-answer",
+                    "question": "Where is the badge?",
+                    "memories": ["The badge was mentioned."],
+                },
+                {
+                    "benchmark": "locomo",
+                    "case_id": "locomo-evidence-only-normalized",
+                    "question": "Where is the pass?",
+                    "evidence": ["D1:1"],
+                    "memories": ["The pass was mentioned."],
+                },
+                {
+                    "benchmark": "locomo",
+                    "case_id": "locomo-blank-expected",
+                    "question": "Where is the key?",
+                    "expected_terms": [" "],
+                    "memories": ["The key was mentioned."],
+                },
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    profile = top_evidence_preflight._lightweight_dataset_profile(
+        dataset,
+        benchmark="locomo",
+    )
+
+    assert profile is not None
+    assert profile["case_count"] == 1
+    assert profile["unique_case_id_count"] == 1
+    assert profile["duplicate_case_id_count"] == 0
+
+
+def test_top_evidence_preflight_lightweight_profile_counts_runnable_official_locomo_qas(
+    tmp_path: Path,
+) -> None:
+    dataset = tmp_path / "official-locomo.json"
+    dataset.write_text(
+        json.dumps(
+            [
+                {
+                    "sample_id": "conv-lite",
+                    "conversation": {
+                        "speaker_a": "Caroline",
+                        "session_1": [
+                            {
+                                "speaker": "Caroline",
+                                "dia_id": "D1:1",
+                                "text": "I put the checklist in the blue notebook.",
+                            }
+                        ],
+                    },
+                    "qa": [
+                        {
+                            "question": "Where is the checklist?",
+                            "answer": "blue notebook",
+                        },
+                        {
+                            "question": "Which turn mentions the checklist?",
+                            "evidence": ["D1:1"],
+                        },
+                        {
+                            "question": "Where is the badge?",
+                        },
+                    ],
+                }
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    profile = top_evidence_preflight._lightweight_dataset_profile(
+        dataset,
+        benchmark="locomo",
+    )
+
+    assert profile is not None
+    assert profile["case_count"] == 2
+    assert profile["unique_case_id_count"] == 2
+    assert profile["duplicate_case_id_count"] == 0
+
+
 def test_top_evidence_preflight_accepts_openai_key_file_without_leak(
     tmp_path: Path,
 ) -> None:

@@ -662,7 +662,11 @@ def _official_locomo_case_keys(
         return ()
     keys: list[str] = []
     for index, qa in enumerate(qas):
-        if isinstance(qa, Mapping) and _first_str(qa, "question", "query"):
+        if (
+            isinstance(qa, Mapping)
+            and _first_str(qa, "question", "query")
+            and _has_benchmark_expected_signal(qa, allow_evidence=True)
+        ):
             keys.append(f"{LOCOMO_BENCHMARK_SUITE}:{sample_id}:qa:{index + 1}")
     return tuple(keys)
 
@@ -679,9 +683,83 @@ def _normalized_public_case_key(
         return ()
     case_id = _first_str(raw, "case_id", "id", "question_id") or str(index)
     question = _first_str(raw, "question", "query")
-    if not question:
+    if not question or not _has_benchmark_expected_signal(raw):
         return ()
     return (f"{case_benchmark}:{case_id}",)
+
+
+def _has_benchmark_expected_signal(
+    raw: Mapping[str, object],
+    *,
+    allow_evidence: bool = False,
+) -> bool:
+    expected_keys = (
+        "expected_terms",
+        "expected",
+        "answer_terms",
+        "answer",
+        "expected_answer",
+        "ground_truth",
+        "gold_answer",
+        "answers",
+    )
+    if _has_non_empty_value(
+        raw,
+        *expected_keys,
+    ):
+        return True
+    if allow_evidence and _has_non_empty_value(
+        raw,
+        "evidence",
+        allow_mapping=True,
+    ):
+        return True
+    return _requests_benchmark_abstention(raw) and _has_non_empty_value(
+        raw,
+        "forbidden_terms",
+        "forbidden",
+        "must_not_retrieve",
+    )
+
+
+def _has_non_empty_value(
+    raw: Mapping[str, object],
+    *keys: str,
+    allow_mapping: bool = False,
+) -> bool:
+    for key in keys:
+        if _value_has_non_empty_signal(raw.get(key), allow_mapping=allow_mapping):
+            return True
+    return False
+
+
+def _value_has_non_empty_signal(
+    value: object,
+    *,
+    allow_mapping: bool = False,
+) -> bool:
+    if isinstance(value, str):
+        return bool(value.strip())
+    if isinstance(value, int | float | bool):
+        return True
+    if allow_mapping and isinstance(value, Mapping) and value:
+        return True
+    if isinstance(value, Sequence) and not isinstance(value, str | bytes):
+        return any(
+            _value_has_non_empty_signal(item, allow_mapping=allow_mapping)
+            for item in value
+        )
+    return False
+
+
+def _requests_benchmark_abstention(raw: Mapping[str, object]) -> bool:
+    for key in ("answerable", "is_answerable", "has_answer"):
+        if raw.get(key) is False:
+            return True
+    for key in ("abstention", "no_answer", "unanswerable", "hard_negative"):
+        if raw.get(key) is True:
+            return True
+    return False
 
 
 def _normalize_public_benchmark_name(value: str) -> str:
