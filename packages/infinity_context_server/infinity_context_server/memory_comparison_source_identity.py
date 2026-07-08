@@ -44,6 +44,12 @@ _TEXT_SESSION_PAREN_TURN_RE = re.compile(
     r"\s*\(\s*(?:turn\s*[:#-]?\s*)?(?P<turn_ref>D\d+[:-]\d+)\s*\)",
     re.IGNORECASE,
 )
+_TEXT_SESSION_BRACKET_TURN_RE = re.compile(
+    r"\b(?:session|conversation|conv|dialogue|dialog)"
+    r"(?:[-_]\s*|\s+#?\s*)(?P<session>\d+)"
+    r"\s*\[\s*(?:turn\s*[:#-]?\s*)?(?P<turn_ref>D\d+[:-]\d+)\s*\]",
+    re.IGNORECASE,
+)
 _TEXT_TURN_SESSION_RE = re.compile(
     r"\b(?:turn\s*[:#-]?\s+)?(?P<turn_ref>D\d+[:-]\d+)\b"
     r"\s*(?:[,;:-]?\s+|\s+)"
@@ -64,6 +70,13 @@ _TEXT_TURN_PAREN_SESSION_RE = re.compile(
     r"\s*\(\s*(?:the\s+)?"
     r"(?:session|conversation|conv|dialogue|dialog)"
     r"(?:[-_]\s*|\s+#?\s*)(?P<session>\d+)\s*\)",
+    re.IGNORECASE,
+)
+_TEXT_TURN_BRACKET_SESSION_RE = re.compile(
+    r"\b(?:turn\s*[:#-]?\s+)?(?P<turn_ref>D\d+[:-]\d+)\b"
+    r"\s*\[\s*(?:the\s+)?"
+    r"(?:session|conversation|conv|dialogue|dialog)"
+    r"(?:[-_]\s*|\s+#?\s*)(?P<session>\d+)\s*\]",
     re.IGNORECASE,
 )
 _SAFE_SOURCE_IDENTITY_REF_RE = re.compile(
@@ -1309,9 +1322,11 @@ def _session_turn_refs_from_text(
                 _TEXT_SESSION_TURN_RE,
                 _TEXT_SESSION_DATE_TURN_RE,
                 _TEXT_SESSION_PAREN_TURN_RE,
+                _TEXT_SESSION_BRACKET_TURN_RE,
                 _TEXT_TURN_SESSION_RE,
                 _TEXT_TURN_PUNCT_SESSION_RE,
                 _TEXT_TURN_PAREN_SESSION_RE,
+                _TEXT_TURN_BRACKET_SESSION_RE,
             )
             for match in pattern.finditer(text or "")
             for turn_ref in (safe_turn_ref(match.group("turn_ref")),)
