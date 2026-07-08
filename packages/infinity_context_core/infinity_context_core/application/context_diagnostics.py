@@ -558,6 +558,7 @@ def context_rank_key(
 ) -> tuple[float | int | str, ...]:
     return (
         -round(item.score, 8),
+        -_score_signal_float(item, "same_script_query_boost"),
         -_score_signal_float(item, "deterministic_rerank_net_adjustment"),
         -_score_signal_float(item, "deterministic_rerank_requirement_coverage"),
         -_score_signal_float(item, "deterministic_rerank_boost"),
@@ -647,6 +648,8 @@ def normalize_context_diagnostics(diagnostics: object) -> dict[str, object]:
     normalized["ranking_reason"] = ranking_reason or ranking_reason_for(retrieval_sources)
     normalized["score_signals"] = safe_score_signals(raw.get("score_signals"))
     provenance = safe_diagnostic_mapping(raw.get("provenance"))
+    provenance.update(_safe_context_link_diagnostics(_as_dict(raw.get("provenance"))))
+    provenance.update(_safe_context_link_diagnostics(raw))
     provenance.update(_safe_context_requirement_provenance(raw.get("provenance")))
     provenance.update(_safe_deterministic_rerank_provenance(raw.get("provenance")))
     provenance.update(_safe_source_sibling_provenance(raw.get("provenance")))
@@ -913,6 +916,13 @@ def safe_score_signals(value: object) -> dict[str, object]:
     signals.update(_safe_context_requirement_score_signals(value))
     signals.update(_safe_deterministic_rerank_score_signals(value))
     signals.update(_safe_source_sibling_score_signals(value))
+    raw = _as_dict(value)
+    raw_same_script_boost = raw.get("same_script_query_boost")
+    if isinstance(raw_same_script_boost, int | float) and not isinstance(
+        raw_same_script_boost,
+        bool,
+    ):
+        signals["same_script_query_boost"] = round(max(0.0, raw_same_script_boost), 4)
     return signals
 
 

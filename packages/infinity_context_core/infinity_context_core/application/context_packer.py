@@ -2409,7 +2409,16 @@ def _source_diversity_priority(item: ContextItem) -> int:
         and _precise_turn_answer_support_rank(item, query_reason=query_reason) == 0
     ):
         return 0
+    if item.item_type == "chunk" and _direct_lexical_query_hits(item) >= 2:
+        return 0
     return 1
+
+
+def _direct_lexical_query_hits(item: ContextItem) -> int:
+    value = _diagnostic_score_signals(item).get("unique_term_hits")
+    if isinstance(value, int) and not isinstance(value, bool):
+        return max(0, value)
+    return 0
 
 
 def _source_diversity_reordered_chunk_count(

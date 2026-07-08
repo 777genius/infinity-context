@@ -1847,10 +1847,12 @@ class BuildContextUseCase:
                     conflict_fact_id = suggestion_conflict_fact_id(suggestion)
                     if conflict_fact_id not in visible_fact_id_set:
                         continue
+                    target_fact = await uow.facts.get_by_id(conflict_fact_id)
                     items.append(
                         pending_review_suggestion_item(
                             suggestion=suggestion,
                             target_fact_id=conflict_fact_id,
+                            target_fact_text=target_fact.text if target_fact else None,
                         )
                     )
                     if len(items) >= max_items:
@@ -1870,6 +1872,12 @@ def _fact_context_item(
         now=now,
         relevance=relevance,
     )
+    if _has_cyrillic(query_text) and _has_cyrillic(fact.text):
+        fact_score = min(0.995, round(fact_score + 0.012, 4))
+        fact_signals = {
+            **fact_signals,
+            "same_script_query_boost": 0.012,
+        }
     snippet = query_focused_snippet(query=query_text, text=fact.text)
     source_refs = source_refs_with_query_snippet(fact.source_refs, snippet)
     return enrich_context_item_with_media_time(
@@ -1950,9 +1958,12 @@ def _temporal_replacement_item(
         "valid_from": relation.valid_from.isoformat() if relation.valid_from else None,
         "valid_to": relation.valid_to.isoformat() if relation.valid_to else None,
     }
+    replacement_score = min(0.99, round(item.score + 0.04, 4))
+    if _is_weak_non_temporal_replacement(query_text, diagnostics):
+        replacement_score = min(replacement_score, 0.92)
     return replace(
         item,
-        score=min(0.99, round(item.score + 0.04, 4)),
+        score=replacement_score,
         diagnostics=diagnostics,
     )
 
@@ -2735,7 +2746,7 @@ def _selected_keyword_prompt_items(
     )
     selected: list[ContextItem] = []
     selected_keys: set[tuple[str, str]] = set()
-    for scored_item in ordered[:limit]:
+    for scored_item in _source_diverse_keyword_prompt_items(ordered, limit=limit):
         item = scored_item[7]
         selected.append(item)
         selected_keys.add((item.item_type, item.item_id))
@@ -2782,6 +2793,43 @@ def _selected_keyword_prompt_items(
         if extra_count >= extra_limit:
             break
     return tuple(selected)
+
+
+def _source_diverse_keyword_prompt_items(
+    ordered: tuple[_ScoredKeywordPromptItem, ...],
+    *,
+    limit: int,
+) -> tuple[_ScoredKeywordPromptItem, ...]:
+    selected: list[_ScoredKeywordPromptItem] = []
+    used_sources: set[str] = set()
+    for scored_item in ordered:
+        source_key = _keyword_prompt_item_source_key(scored_item[7])
+        if source_key in used_sources:
+            continue
+        selected.append(scored_item)
+        used_sources.add(source_key)
+        if len(selected) >= limit:
+            return tuple(selected)
+    if len(selected) >= limit:
+        return tuple(selected)
+    selected_keys = {(item[7].item_type, item[7].item_id) for item in selected}
+    for scored_item in ordered:
+        item = scored_item[7]
+        key = (item.item_type, item.item_id)
+        if key in selected_keys:
+            continue
+        selected.append(scored_item)
+        selected_keys.add(key)
+        if len(selected) >= limit:
+            break
+    return tuple(selected)
+
+
+def _keyword_prompt_item_source_key(item: ContextItem) -> str:
+    if item.source_refs:
+        ref = item.source_refs[0]
+        return f"{ref.source_type}:{ref.source_id}"
+    return f"{item.item_type}:{item.item_id}"
 
 
 
@@ -3020,6 +3068,34 @@ def _aggregation_source_kind_rank(chunk: MemoryChunk) -> int:
 def _score_signals(diagnostics: dict[str, object]) -> dict[str, object]:
     value = diagnostics.get("score_signals")
     return dict(value) if isinstance(value, dict) else {}
+
+
+def _is_weak_non_temporal_replacement(query_text: str, diagnostics: dict[str, object]) -> bool:
+    if _query_requests_temporal_replacement(query_text):
+        return False
+    score_signals = _score_signals(diagnostics)
+    unique_hits = score_signals.get("unique_term_hits")
+    phrase_hits = score_signals.get("phrase_bigram_hits")
+    return (
+        isinstance(unique_hits, int)
+        and unique_hits < 3
+        and (not isinstance(phrase_hits, int) or phrase_hits <= 0)
+    )
+
+
+def _query_requests_temporal_replacement(query_text: str) -> bool:
+    return bool(
+        re.search(
+            r"\b(?:current|currently|latest|recent|now|previous|prior|last|changed|superseded)\b|"
+            r"\b(?:сейчас|текущ|последн|недел|час|изменил|замен)\b",
+            query_text,
+            re.IGNORECASE,
+        )
+    )
+
+
+def _has_cyrillic(text: str) -> bool:
+    return bool(re.search(r"[А-Яа-яЁё]", text))
 
 
 def _provenance(diagnostics: dict[str, object]) -> dict[str, object]:

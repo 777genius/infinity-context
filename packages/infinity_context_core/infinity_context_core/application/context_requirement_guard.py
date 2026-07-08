@@ -147,7 +147,11 @@ def _apply_explicit_requirement_guard(
         "requirement_guard_relation_mismatch_drop_count": 0,
         "requirement_guard_count_answer_shape_missing_drop_count": 0,
     }
-    if "project" in requested_anchor_kinds and "project" in missing_anchor_kinds:
+    if (
+        "project" in requested_anchor_kinds
+        and "project" in missing_anchor_kinds
+        and _requires_explicit_project_anchor(query_anchor_intent)
+    ):
         diagnostics.update(
             {
                 "requirement_guard_status": "dropped_missing_project_anchor",
@@ -224,6 +228,13 @@ def _apply_explicit_requirement_guard(
             return (), diagnostics
     diagnostics["requirement_guard_status"] = "satisfied"
     return items, diagnostics
+
+
+def _requires_explicit_project_anchor(query_anchor_intent: QueryAnchorIntent) -> bool:
+    return any(
+        hint.kind.value == "project" and hint.reason != "known project/tool reference"
+        for hint in query_anchor_intent.hints
+    )
 
 
 def _has_object_kind_mismatch(item: ContextItem) -> bool:

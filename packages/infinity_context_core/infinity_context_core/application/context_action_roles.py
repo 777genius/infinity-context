@@ -1535,7 +1535,7 @@ def _has_actor_action_to_any_recipient(text: str, *, actor: str, verb_key: str) 
             ):
                 return True
     passive_pattern = re.compile(
-        rf"(?P<recipient>{_LABEL_RE})\b.{{0,100}}\b(?:was|were)\s+"
+        rf"(?P<recipient>{_LABEL_RE})\s+(?:was|were)\s+"
         rf"(?:{_verb_forms(verb_key)})\b.{{0,140}}\bby\s+{_label_pattern(actor)}",
         re.IGNORECASE | re.DOTALL,
     )
@@ -1578,6 +1578,19 @@ def _has_actor_action_to_any_recipient_with_context(
         body = local_action_segment(match.group("body"))
         if not _body_has_recipient_for_verb(body, verb_key=verb_key):
             continue
+        if _context_terms_match(body, context_terms):
+            return True
+    passive_pattern = re.compile(
+        rf"(?P<recipient>{_LABEL_RE})\s+(?:was|were)\s+"
+        rf"(?:{_verb_forms(verb_key)})\b(?P<body>.{{0,180}})"
+        rf"\bby\s+{_label_pattern(actor)}",
+        re.IGNORECASE | re.DOTALL,
+    )
+    for match in passive_pattern.finditer(text):
+        recipient = _clean_label(match.group("recipient"))
+        if not recipient or not _looks_like_text_recipient(recipient):
+            continue
+        body = local_action_segment(match.group("body"))
         if _context_terms_match(body, context_terms):
             return True
     return False

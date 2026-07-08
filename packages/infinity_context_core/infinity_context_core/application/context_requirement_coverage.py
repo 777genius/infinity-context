@@ -1246,6 +1246,7 @@ def _covered_evidence_features(items: tuple[ContextItem, ...]) -> tuple[str, ...
 
 def _requested_answer_shapes(query: str) -> tuple[str, ...]:
     shapes: list[str] = []
+    has_social_inference = bool(_SOCIAL_INFERENCE_ANSWER_QUERY_RE.search(query))
     if _COUNT_ANSWER_QUERY_RE.search(query):
         shapes.append("count")
     if _LIST_ANSWER_QUERY_RE.search(query):
@@ -1256,9 +1257,7 @@ def _requested_answer_shapes(query: str) -> tuple[str, ...]:
         shapes.append("temporal")
     if _CAUSAL_ANSWER_QUERY_RE.search(query):
         shapes.append("causal")
-    if _INFERENCE_ANSWER_QUERY_RE.search(query) or _SOCIAL_INFERENCE_ANSWER_QUERY_RE.search(
-        query
-    ) or _STATE_RESIDENCE_INFERENCE_ANSWER_QUERY_RE.search(
+    if _INFERENCE_ANSWER_QUERY_RE.search(query) or has_social_inference or _STATE_RESIDENCE_INFERENCE_ANSWER_QUERY_RE.search(
         query
     ) or _POLITICAL_INFERENCE_ANSWER_QUERY_RE.search(
         query
@@ -1296,8 +1295,9 @@ def _requested_answer_shapes(query: str) -> tuple[str, ...]:
         shapes.append("commitment")
     if _GOTCHA_ANSWER_QUERY_RE.search(query) or gotcha_failure_query_variants(query):
         shapes.append("gotcha")
-    if _EXISTENCE_ANSWER_QUERY_RE.search(query) or _YES_NO_EXISTENCE_QUERY_RE.search(
-        query
+    if not has_social_inference and (
+        _EXISTENCE_ANSWER_QUERY_RE.search(query)
+        or _YES_NO_EXISTENCE_QUERY_RE.search(query)
     ):
         shapes.append("existence")
     if (
