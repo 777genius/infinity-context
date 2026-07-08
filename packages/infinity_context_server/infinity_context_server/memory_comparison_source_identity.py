@@ -165,6 +165,8 @@ _NUMERIC_EVIDENCE_LIST_KEYS = frozenset(
 _NESTED_EVIDENCE_CONTEXT_KEYS = frozenset(
     {
         "evidence",
+        "source_turn",
+        "source_turns",
         "supporting_evidence",
         "supporting_facts",
     }
@@ -597,6 +599,8 @@ def _source_ref_values_from_mapping(value: Mapping[object, object]) -> tuple[obj
         "source_identity_refs",
         "source_identity_items",
         "source_ref_payloads",
+        "source_turn",
+        "source_turns",
         "evidence",
         "evidence_refs",
         "evidence_ids",

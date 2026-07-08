@@ -1177,6 +1177,34 @@ def test_source_identity_refs_from_locomo_turn_metadata_aliases() -> None:
         )
 
 
+def test_source_identity_refs_from_nested_source_turn_mapping() -> None:
+    assert source_identity_refs_from_source_refs(
+        {
+            "source_turn": {
+                "dialogue_id": 12,
+                "turn_id": 6,
+            }
+        }
+    ) == ("source_turn_refs:D12:6",)
+
+
+def test_source_identity_refs_from_nested_source_turns_inherit_session_scope() -> None:
+    assert source_identity_refs_from_source_refs(
+        {
+            "session_key": "session_12",
+            "source_turns": (
+                {"turn_id": "utt_6"},
+                {"turn_id": "turn-7"},
+            ),
+        }
+    ) == (
+        "source_session_turn_refs:session_12:D12:6",
+        "source_session_turn_refs:session_12:D12:7",
+        "source_turn_refs:D12:6",
+        "source_turn_refs:D12:7",
+    )
+
+
 def test_source_identity_refs_from_plural_dialogue_turn_metadata_aliases() -> None:
     for turn_key in (
         "dialogue_turn_ids",
