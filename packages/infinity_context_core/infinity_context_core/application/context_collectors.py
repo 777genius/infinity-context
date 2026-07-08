@@ -1193,8 +1193,12 @@ def _retrieval_query_selection_priority(
         return 1
     if query.reason in _HIGH_SIGNAL_DECOMPOSITION_REASONS:
         return 1
+    if query.reason == "decomposition_inference_support":
+        return 3
     if query.reason in _BROAD_AGGREGATION_EXPANSION_REASONS:
         return 1
+    if query.reason == "health_lifestyle_bridge":
+        return 4
     if query.reason in {
         "activity_aggregation_bridge",
         "family_motivation_context_bridge",

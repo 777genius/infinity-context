@@ -1844,11 +1844,15 @@ def _with_deterministic_rerank_adjustment(
 
 def _strong_artifact_evidence_score_floor(diagnostics: dict[str, object]) -> float:
     score_signals = safe_score_signals(diagnostics.get("score_signals"))
+    evidence_confidence = _non_negative_float_signal(score_signals.get("evidence_confidence"))
+    coordinate_boost = _non_negative_float_signal(score_signals.get("coordinate_boost"))
     if (
         diagnostics.get("retrieval_source") == "artifact_evidence"
         and diagnostics.get("evidence_kind") in {"ocr_region", "transcript_segment"}
-        and _non_negative_float_signal(score_signals.get("evidence_confidence")) >= 0.9
-        and _non_negative_float_signal(score_signals.get("coordinate_boost")) > 0
+        and evidence_confidence is not None
+        and evidence_confidence >= 0.9
+        and coordinate_boost is not None
+        and coordinate_boost > 0
         and (
             _coverage_int(score_signals.get("unique_term_hits")) >= 3
             or _coverage_int(score_signals.get("phrase_bigram_hits")) >= 1
