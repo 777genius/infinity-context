@@ -1257,16 +1257,14 @@ def _requested_answer_shapes(query: str) -> tuple[str, ...]:
         shapes.append("temporal")
     if _CAUSAL_ANSWER_QUERY_RE.search(query):
         shapes.append("causal")
-    if _INFERENCE_ANSWER_QUERY_RE.search(query) or has_social_inference or _STATE_RESIDENCE_INFERENCE_ANSWER_QUERY_RE.search(
-        query
-    ) or _POLITICAL_INFERENCE_ANSWER_QUERY_RE.search(
-        query
-    ) or _DEGREE_FIELD_INFERENCE_ANSWER_QUERY_RE.search(
-        query
-    ) or _COMMUNITY_MEMBERSHIP_INFERENCE_ANSWER_QUERY_RE.search(
-        query
-    ) or _ALLERGY_CONDITION_INFERENCE_ANSWER_QUERY_RE.search(
-        query
+    if (
+        _INFERENCE_ANSWER_QUERY_RE.search(query)
+        or has_social_inference
+        or _STATE_RESIDENCE_INFERENCE_ANSWER_QUERY_RE.search(query)
+        or _POLITICAL_INFERENCE_ANSWER_QUERY_RE.search(query)
+        or _DEGREE_FIELD_INFERENCE_ANSWER_QUERY_RE.search(query)
+        or _COMMUNITY_MEMBERSHIP_INFERENCE_ANSWER_QUERY_RE.search(query)
+        or _ALLERGY_CONDITION_INFERENCE_ANSWER_QUERY_RE.search(query)
     ):
         shapes.append("inference")
     if _CHOICE_ANSWER_QUERY_RE.search(query):
