@@ -56,6 +56,25 @@ _TEXT_SESSION_NUMERIC_TURN_RE = re.compile(
     r"\s*[,;:-]?\s+(?:turn|utt|utterance)\s*[:#-]?\s*(?P<turn>\d+)\b",
     re.IGNORECASE,
 )
+_TEXT_KEY_VALUE_SESSION_RE = re.compile(
+    r"\b(?:source_)?(?:session|conversation|conv|dialogue|dialog)"
+    r"(?:_id|_ids|_idx|_idxs|_index|_indexes|_key|_keys|_number|_numbers)?"
+    r"\s*[=:]\s*"
+    r"(?:session|conversation|conv|dialogue|dialog|D)?[-_\s#]*(?P<session>\d+)\b",
+    re.IGNORECASE,
+)
+_TEXT_KEY_VALUE_TURN_REF_RE = re.compile(
+    r"\b(?:source_)?(?:turn|utt|utterance|evidence)"
+    r"(?:_id|_ids|_idx|_idxs|_index|_indexes|_ref|_refs|_number|_numbers)?"
+    r"\s*[=:]\s*(?P<turn_ref>D\d+[:-]\d+)\b",
+    re.IGNORECASE,
+)
+_TEXT_KEY_VALUE_TURN_NUMBER_RE = re.compile(
+    r"\b(?:source_)?(?:turn|utt|utterance)"
+    r"(?:_id|_ids|_idx|_idxs|_index|_indexes|_number|_numbers)?"
+    r"\s*[=:]\s*(?P<turn>(?:turn|utt|utterance|t)?[-_:\s#]*\d+)\b",
+    re.IGNORECASE,
+)
 _TEXT_TURN_SESSION_RE = re.compile(
     r"\b(?:turn\s*[:#-]?\s+)?(?P<turn_ref>D\d+[:-]\d+)\b"
     r"\s*(?:[,;:-]?\s+|\s+)"
@@ -1418,6 +1437,43 @@ def _session_turn_refs_from_text(
     refs.extend(
         f"session_{match.group('session')}:D{match.group('session')}:{turn}"
         for match in _TEXT_SESSION_NUMERIC_TURN_RE.finditer(text or "")
+        for turn in (_positive_int_string(match.group("turn")),)
+        if turn
+    )
+    refs.extend(
+        _session_turn_refs_from_key_value_text(
+            text or "",
+            require_dialogue_match=require_dialogue_match,
+        )
+    )
+    return tuple(dict.fromkeys(refs))
+
+
+def _session_turn_refs_from_key_value_text(
+    text: str,
+    *,
+    require_dialogue_match: bool,
+) -> tuple[str, ...]:
+    sessions = tuple(
+        dict.fromkeys(
+            match.group("session")
+            for match in _TEXT_KEY_VALUE_SESSION_RE.finditer(text)
+        )
+    )
+    if len(sessions) != 1:
+        return ()
+    session = sessions[0]
+    refs: list[str] = []
+    for match in _TEXT_KEY_VALUE_TURN_REF_RE.finditer(text):
+        turn_ref = safe_turn_ref(match.group("turn_ref"))
+        if turn_ref and (
+            not require_dialogue_match
+            or _turn_ref_dialogue_number(turn_ref) == session
+        ):
+            refs.append(f"session_{session}:{turn_ref}")
+    refs.extend(
+        f"session_{session}:D{session}:{turn}"
+        for match in _TEXT_KEY_VALUE_TURN_NUMBER_RE.finditer(text)
         for turn in (_positive_int_string(match.group("turn")),)
         if turn
     )
