@@ -1687,6 +1687,52 @@ def test_distant_source_sibling_rank_accepts_generic_list_slot_evidence() -> Non
     assert rank.turn_distance == 5
 
 
+def test_distant_source_sibling_rank_accepts_direct_opinion_reaction_evidence() -> None:
+    seed = _chunk(
+        chunk_id="seed",
+        source_external_id="locomo:conv-fixture:session_2:D2:9:turn",
+        sequence=9,
+        text="D2:9 Caroline: I found an adoption agency that can help.",
+    )
+    distant_evidence = _chunk(
+        chunk_id="evidence",
+        source_external_id="locomo:conv-fixture:session_2:D2:15:turn",
+        sequence=15,
+        text=(
+            "D2:15 Melanie: Creating a family for those kids is lovely. "
+            "You'll be an awesome mom."
+        ),
+    )
+    distractor = _chunk(
+        chunk_id="distractor",
+        source_external_id="locomo:conv-fixture:session_2:D2:16:turn",
+        sequence=16,
+        text="D2:16 Melanie: The concert was awesome last night.",
+    )
+    source_groups = source_group_seed_turns((seed,))
+    query = "What does Melanie think about Caroline's decision to adopt?"
+
+    rank = source_sibling_distant_answer_evidence_rank(
+        distant_evidence,
+        source_groups=source_groups,
+        expansion_query=query,
+        expansion_reason="opinion_reaction_bridge",
+        text=distant_evidence.text,
+    )
+    rejected_rank = source_sibling_distant_answer_evidence_rank(
+        distractor,
+        source_groups=source_groups,
+        expansion_query=query,
+        expansion_reason="opinion_reaction_bridge",
+        text=distractor.text,
+    )
+
+    assert rank is not None
+    assert rank.turn_delta == 6
+    assert rank.turn_distance == 5
+    assert rejected_rank is None
+
+
 def test_distant_source_sibling_rank_accepts_dessert_recipe_slot() -> None:
     seed = _chunk(
         chunk_id="seed",

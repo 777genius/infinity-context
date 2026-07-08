@@ -2575,6 +2575,12 @@ def _distant_source_sibling_answer_slot_count(
         text=text,
     ):
         return max(slot_count, 2)
+    if _is_direct_source_sibling_answer_evidence(
+        expansion_query=expansion_query,
+        expansion_reason=expansion_reason,
+        text=text,
+    ):
+        return max(slot_count, 2)
     return slot_count
 
 
