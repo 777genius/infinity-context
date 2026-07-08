@@ -452,6 +452,23 @@ def test_source_identity_refs_read_source_dialogue_and_utterance_idx_fields() ->
     assert refs == ("source_turn_refs:D9:7",)
 
 
+def test_source_identity_refs_read_locomo_conversation_turn_aliases() -> None:
+    payload = {
+        "source_external_id": "locomo:conv-private:turn-secret",
+        "locomo_conversation_id": "conversation_3",
+        "locomo_turn_id": "8",
+    }
+
+    assert source_identity_refs_from_source_refs((payload,)) == (
+        "source_session_turn_refs:session_3:D3:8",
+        "source_turn_refs:D3:8",
+    )
+    assert safe_source_refs_for_output((payload,)) == (
+        "source_session_turn_refs:session_3:D3:8",
+        "source_turn_refs:D3:8",
+    )
+
+
 def test_source_identity_refs_build_turn_ref_from_dialogue_and_turn_fields() -> None:
     refs = source_identity_refs_from_source_refs(
         (
