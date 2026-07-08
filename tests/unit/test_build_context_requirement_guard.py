@@ -2177,6 +2177,54 @@ def test_restore_exact_source_sibling_answer_evidence_filters_children_preferenc
     assert diagnostics["exact_source_sibling_answer_evidence_repair_added"] == 2
 
 
+def test_restore_exact_source_sibling_answer_evidence_derives_children_list_refs_from_groups(
+) -> None:
+    preference_window = _item(
+        "session_children_preference_observations",
+        (
+            "D4:7 Avery: We packed snacks for the drive.\n"
+            "D4:8 Avery: The younger kids love nature, campfires, and "
+            "hiking outdoors.\n"
+            "D6:6 Avery: They were stoked for the dinosaur exhibit. "
+            "They love learning about animals and the bones were cool.\n"
+            "D6:7 Avery: I need to update the family calendar."
+        ),
+        deterministic_reasons=(),
+        source_refs=(
+            SourceRef(
+                source_type="locomo_observation",
+                source_id="locomo:conv-fixture:session_4:observation",
+            ),
+            SourceRef(
+                source_type="locomo_observation",
+                source_id="locomo:conv-fixture:session_6:observation",
+            ),
+        ),
+        diagnostics={
+            "retrieval_source": "keyword_source_sibling_chunks",
+            "retrieval_sources": ["keyword_source_sibling_chunks"],
+            "score_signals": {
+                "source_sibling_answer_evidence": 1,
+                "query_expansion_reason": "children_preference_bridge",
+            },
+        },
+    )
+
+    restored, diagnostics = _restore_exact_source_sibling_answer_evidence_items(
+        candidates=(),
+        source_items=(preference_window,),
+    )
+
+    restored_source_ids = {
+        ref.source_id for item in restored for ref in item.source_refs
+    }
+    assert "locomo:conv-fixture:session_4:D4:8:turn" in restored_source_ids
+    assert "locomo:conv-fixture:session_6:D6:6:turn" in restored_source_ids
+    assert "locomo:conv-fixture:session_4:D4:7:turn" not in restored_source_ids
+    assert "locomo:conv-fixture:session_6:D6:7:turn" not in restored_source_ids
+    assert diagnostics["exact_source_sibling_answer_evidence_repair_added"] == 2
+
+
 def test_restore_exact_source_sibling_answer_evidence_filters_activity_repairs() -> None:
     activity_window = _item(
         "session_activity_window",
@@ -2205,6 +2253,58 @@ def test_restore_exact_source_sibling_answer_evidence_filters_activity_repairs()
             SourceRef(
                 source_type="locomo_turn",
                 source_id="locomo:conv-fixture:session_1:D1:18:turn",
+            ),
+        ),
+        diagnostics={
+            "retrieval_source": "keyword_source_sibling_chunks",
+            "retrieval_sources": ["keyword_source_sibling_chunks"],
+            "score_signals": {
+                "source_sibling_answer_evidence": 1,
+                "query_expansion_reason": "decomposition_activity_participation",
+            },
+        },
+    )
+
+    restored, diagnostics = _restore_exact_source_sibling_answer_evidence_items(
+        candidates=(),
+        source_items=(activity_window,),
+    )
+
+    restored_source_ids = {
+        ref.source_id for item in restored for ref in item.source_refs
+    }
+    assert "locomo:conv-fixture:session_5:D5:4:turn" in restored_source_ids
+    assert "locomo:conv-fixture:session_9:D9:1:turn" in restored_source_ids
+    assert "locomo:conv-fixture:session_1:D1:18:turn" in restored_source_ids
+    assert "locomo:conv-fixture:session_5:D5:6:turn" not in restored_source_ids
+    assert diagnostics["exact_source_sibling_answer_evidence_repair_added"] == 3
+
+
+def test_restore_exact_source_sibling_answer_evidence_derives_activity_list_refs_from_groups(
+) -> None:
+    activity_window = _item(
+        "session_activity_observations",
+        (
+            "D5:4 Avery: I just signed up for a pottery class yesterday. "
+            "It lets me express myself and get creative.\n"
+            "D5:6 Avery: I'm a big fan of pottery; the creativity is awesome.\n"
+            "D9:1 Avery: I went camping with my family and enjoyed unplugging "
+            "with the kids.\n"
+            "D1:18 Avery: I'm off to go swimming with the kids."
+        ),
+        deterministic_reasons=(),
+        source_refs=(
+            SourceRef(
+                source_type="locomo_observation",
+                source_id="locomo:conv-fixture:session_5:observation",
+            ),
+            SourceRef(
+                source_type="locomo_observation",
+                source_id="locomo:conv-fixture:session_9:observation",
+            ),
+            SourceRef(
+                source_type="locomo_observation",
+                source_id="locomo:conv-fixture:session_1:observation",
             ),
         ),
         diagnostics={
