@@ -970,6 +970,15 @@ def _recipient_action_signal(
             penalty=_ACTION_ROLE_RECIPIENT_MISMATCH_PENALTY,
             reason="action_role_recipient_mismatch",
         )
+    if object_label and _has_action_to_recipient(
+        text,
+        recipient=recipient,
+        verb_key=verb_key,
+    ):
+        return ActionRoleRerankSignal(
+            penalty=_ACTION_ROLE_REQUESTED_RECIPIENT_MISSING_PENALTY,
+            reason="action_role_requested_context_mismatch",
+        )
     if _has_action_to_recipient(text, recipient=recipient, verb_key=verb_key):
         return ActionRoleRerankSignal(
             boost=_ACTION_ROLE_RECIPIENT_MATCH_BOOST,

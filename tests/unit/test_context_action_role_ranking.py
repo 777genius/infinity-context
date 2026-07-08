@@ -323,6 +323,44 @@ def test_deterministic_rerank_does_not_treat_action_object_as_recipient() -> Non
         )
 
 
+def test_deterministic_rerank_keeps_introduction_object_grounded() -> None:
+    query = "Who introduced Alex to Maria?"
+    plan = build_query_expansion_plan(query)
+    intent = build_query_anchor_intent(query)
+    correct = _item(
+        "dana_introduced_alex",
+        score=0.7,
+        text="Dana introduced Alex to Maria during the Atlas kickoff.",
+    )
+    wrong_object = _item(
+        "alex_introduced_dana",
+        score=0.72,
+        text="Alex introduced Dana to Maria during the Atlas kickoff.",
+    )
+
+    reranked = apply_deterministic_rerank_adjustments(
+        (wrong_object, correct),
+        query=query,
+        plan=plan,
+        query_anchor_intent=intent,
+    )
+    by_id = {item.item_id: item for item in reranked}
+
+    assert by_id["dana_introduced_alex"].score > by_id["alex_introduced_dana"].score
+    assert (
+        "action_role_recipient_match"
+        in by_id["dana_introduced_alex"].diagnostics["provenance"][
+            "deterministic_rerank_reasons"
+        ]
+    )
+    assert (
+        "action_role_requested_context_mismatch"
+        in by_id["alex_introduced_dana"].diagnostics["provenance"][
+            "deterministic_rerank_reasons"
+        ]
+    )
+
+
 def test_deterministic_rerank_uses_russian_whose_advice_recipient() -> None:
     query = "По чьему совету Мелани прочитала Becoming Nicole?"
     plan = build_query_expansion_plan(query)

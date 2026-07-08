@@ -60,13 +60,14 @@ _SOURCE_SESSION_RE = re.compile(
     r"(?=$|[:_\-\s](?!(?:D\d+[:-]\d+)\b))",
     re.IGNORECASE,
 )
+_SESSION_SURFACE_PATTERN = r"(?:session|conversation|conv|dialogue|dialog)"
 _TEXT_SESSION_TURN_RE = re.compile(
-    r"\bsession(?:[-_]\s*|\s+#?\s*)(?P<session>\d+)"
+    rf"\b{_SESSION_SURFACE_PATTERN}(?:[-_]\s*|\s+#?\s*)(?P<session>\d+)"
     r"\s*[,;:-]?\s+(?:turn\s*[:#-]?\s+)?(?P<turn_ref>D\d+[:-]\d+)\b",
     re.IGNORECASE,
 )
 _TEXT_SESSION_DATE_TURN_RE = re.compile(
-    r"\bsession(?:[-_]\s*|\s+#?\s*)(?P<session>\d+)"
+    rf"\b{_SESSION_SURFACE_PATTERN}(?:[-_]\s*|\s+#?\s*)(?P<session>\d+)"
     r"\s*[,;:-]?\s+date:\s*[^.\n]{0,80}?\s"
     r"(?P<turn_ref>D\d+[:-]\d+)\b",
     re.IGNORECASE,
@@ -75,7 +76,7 @@ _TEXT_TURN_SESSION_RE = re.compile(
     r"\b(?:turn\s*[:#-]?\s+)?(?P<turn_ref>D\d+[:-]\d+)\b"
     r"\s*(?:[,;:-]?\s+|\s+)"
     r"(?:in|from|for|within|during|of)\s+(?:the\s+)?"
-    r"session(?:[-_]\s*|\s+#?\s*)(?P<session>\d+)\b",
+    rf"{_SESSION_SURFACE_PATTERN}(?:[-_]\s*|\s+#?\s*)(?P<session>\d+)\b",
     re.IGNORECASE,
 )
 _DIRECT_SPEAKER_LABEL_PATTERN = (
@@ -83,12 +84,12 @@ _DIRECT_SPEAKER_LABEL_PATTERN = (
     r"(?:\s+[A-Z][a-zA-Z0-9_-]{1,40}){0,2}"
 )
 _DIRECT_TURN_SESSION_PREFIX_PATTERN = (
-    r"(?:(?:session(?:[-_]\s*|\s+#?\s*)\d+)"
+    rf"(?:(?:{_SESSION_SURFACE_PATTERN}(?:[-_]\s*|\s+#?\s*)\d+)"
     r"\s*[,;:-]?\s+(?:turn\s*[:#-]?\s+)?)?"
 )
 _DIRECT_TURN_SESSION_SCOPE_PATTERN = (
     r"(?:\s+(?:in|from|for|within|during|of)\s+(?:the\s+)?"
-    r"session(?:[-_]\s*|\s+#?\s*)\d+)?"
+    rf"{_SESSION_SURFACE_PATTERN}(?:[-_]\s*|\s+#?\s*)\d+)?"
 )
 _DIRECT_TURN_SPEAKER_RE = re.compile(
     rf"\b{_DIRECT_TURN_SESSION_PREFIX_PATTERN}"
@@ -1741,9 +1742,18 @@ def _candidate_source_refs(memory: RetrievedMemory) -> tuple[str, ...]:
         for raw_ref in direct_values
         for safe_ref in _safe_source_refs_for_output((raw_ref,))
     )
+    direct_session_refs = tuple(
+        session_ref
+        for raw_ref in direct_values
+        for session_ref in _source_session_refs(raw_ref)
+    )
     direct_refs = tuple(
         dict.fromkeys(
-            (*ordered_direct_refs, *_safe_source_refs_for_output(direct_values))
+            (
+                *ordered_direct_refs,
+                *_safe_source_refs_for_output(direct_values),
+                *direct_session_refs,
+            )
         )
     )
     metadata_refs = _safe_source_refs_for_output(memory.metadata)
