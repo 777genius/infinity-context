@@ -2030,6 +2030,57 @@ def test_restore_exact_source_sibling_answer_evidence_filters_preference_repairs
     assert diagnostics["exact_source_sibling_answer_evidence_repair_added"] == 1
 
 
+def test_restore_exact_source_sibling_answer_evidence_filters_opinion_reaction_repairs() -> None:
+    reaction_window = _item(
+        "session_2_adoption_reaction_window",
+        (
+            "D2:14 Caroline: I finally decided to keep going with the adoption process.\n"
+            "D2:15 Melanie: Creating a family for those kids is lovely. "
+            "You'll be an awesome mom.\n"
+            "D2:16 Melanie: The concert was awesome last night."
+        ),
+        deterministic_reasons=(),
+        source_refs=(
+            SourceRef(
+                source_type="locomo_turn",
+                source_id="locomo:conv-fixture:session_2:D2:14:turn",
+            ),
+            SourceRef(
+                source_type="locomo_turn",
+                source_id="locomo:conv-fixture:session_2:D2:15:turn",
+            ),
+            SourceRef(
+                source_type="locomo_turn",
+                source_id="locomo:conv-fixture:session_2:D2:16:turn",
+            ),
+        ),
+        diagnostics={
+            "retrieval_source": "keyword_source_sibling_chunks",
+            "retrieval_sources": ["keyword_source_sibling_chunks"],
+            "score_signals": {
+                "source_sibling_answer_evidence": 1,
+                "query_expansion_reason": "opinion_reaction_bridge",
+                "source_sibling_answer_evidence_query": (
+                    "What does Melanie think about Caroline's decision to adopt?"
+                ),
+            },
+        },
+    )
+
+    restored, diagnostics = _restore_exact_source_sibling_answer_evidence_items(
+        candidates=(),
+        source_items=(reaction_window,),
+    )
+
+    restored_source_ids = {
+        ref.source_id for item in restored for ref in item.source_refs
+    }
+    assert "locomo:conv-fixture:session_2:D2:15:turn" in restored_source_ids
+    assert "locomo:conv-fixture:session_2:D2:14:turn" not in restored_source_ids
+    assert "locomo:conv-fixture:session_2:D2:16:turn" not in restored_source_ids
+    assert diagnostics["exact_source_sibling_answer_evidence_repair_added"] == 1
+
+
 def test_restore_exact_source_sibling_answer_evidence_filters_reminder_repairs() -> None:
     reminder_window = _item(
         "session_4_reminder_window",

@@ -983,6 +983,24 @@ def test_source_sibling_answer_evidence_accepts_family_support_appreciation() ->
     )
 
 
+def test_source_sibling_answer_evidence_accepts_direct_opinion_reaction_turn() -> None:
+    query = "What does Melanie think about Caroline's decision to adopt?"
+
+    assert source_sibling_answer_evidence(
+        expansion_query=query,
+        expansion_reason="opinion_reaction_bridge",
+        text=(
+            "D2:15 Melanie: Creating a family for those kids is lovely. "
+            "You'll be an awesome mom."
+        ),
+    )
+    assert not source_sibling_answer_evidence(
+        expansion_query=query,
+        expansion_reason="opinion_reaction_bridge",
+        text="D2:16 Melanie: The concert was awesome last night.",
+    )
+
+
 def test_source_sibling_answer_evidence_accepts_direct_cause_inventory() -> None:
     assert source_sibling_answer_evidence(
         expansion_query="What causes does John feel passionate about supporting?",

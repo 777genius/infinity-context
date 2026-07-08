@@ -179,6 +179,10 @@ _PRECISE_TURN_RETRIEVAL_TEXT_RE = re.compile(
     r"\bsession_\d+\s+turn\s+D\d+:\d+\b",
     re.IGNORECASE,
 )
+_DIALOGUE_TURN_SPEAKER_RE = re.compile(
+    r"\bD\d+:\d+\s+[A-ZА-ЯЁ][A-Za-zА-Яа-яЁё0-9._-]{1,40}"
+    r"(?:\s+[A-ZА-ЯЁ][A-Za-zА-Яа-яЁё0-9._-]{1,40}){0,2}\s*:"
+)
 _VISUAL_REFERENT_SIBLING_RE = re.compile(
     r"\b("
     r"look at this|take a look|here'?s|here is|photo|picture|pic|image|"
@@ -564,6 +568,27 @@ _POST_EVENT_SUPPORT_APPRECIATION_SOURCE_SIBLING_RE = re.compile(
     r"appreciat(?:e|ed|es|ing)\s+(?:them|family|support)|"
     r"appreciate\s+them\s+a\s+lot|thankful\s+(?:for|to)|grateful\s+(?:for|to)|"
     r"mean\s+the\s+world)\b",
+    re.IGNORECASE,
+)
+_OPINION_REACTION_SOURCE_SIBLING_QUERY_RE = re.compile(
+    r"\b(?:think|thought|opinion|reaction|response|feel|felt|decision|plan|choice)\b",
+    re.IGNORECASE,
+)
+_OPINION_REACTION_SOURCE_SIBLING_RE = re.compile(
+    r"\b(?:supportive|proud|excited|happy|agree|approve|approved|concerned|"
+    r"disagree|encourag(?:e|ed|es|ing)|lovely|amazing|awesome|wonderful|"
+    r"great\s+idea|good\s+idea|glad|thrilled)\b|"
+    r"\b(?:you|they|he|she)(?:'ll| will)\s+be\s+(?:an?\s+)?"
+    r"(?:awesome|great|amazing|wonderful|good)\b",
+    re.IGNORECASE | re.DOTALL,
+)
+_OPINION_REACTION_ADOPTION_QUERY_RE = re.compile(
+    r"\b(?:adopt|adopted|adopting|adoption|children|child|kids?|family|parent)\b",
+    re.IGNORECASE,
+)
+_OPINION_REACTION_ADOPTION_TEXT_RE = re.compile(
+    r"\b(?:adopt|adopted|adopting|adoption|children|child|kids?|family|"
+    r"mom|mother|dad|father|parent)\b",
     re.IGNORECASE,
 )
 _CAUSE_DIRECT_SOURCE_SIBLING_RE = re.compile(
@@ -2772,6 +2797,12 @@ def _is_direct_source_sibling_answer_evidence(
         return _PET_ADJUSTMENT_DIRECT_SOURCE_SIBLING_RE.search(text) is not None
     if normalized_reason == "post-event-emotion-bridge":
         return _POST_EVENT_SUPPORT_APPRECIATION_SOURCE_SIBLING_RE.search(text) is not None
+    if _is_opinion_reaction_source_sibling_answer_evidence(
+        expansion_query=expansion_query,
+        expansion_reason=expansion_reason,
+        text=text,
+    ):
+        return True
     if normalized_reason == "destress-activity-bridge":
         return _DESTRESS_ACTIVITY_DIRECT_SOURCE_SIBLING_RE.search(text) is not None
     if normalized_reason in {
@@ -2867,6 +2898,30 @@ def _is_direct_source_sibling_answer_evidence(
     if normalized_reason == "trip-destination-bridge":
         return _TRIP_DESTINATION_DIRECT_SOURCE_SIBLING_RE.search(text) is not None
     return False
+
+
+def _is_opinion_reaction_source_sibling_answer_evidence(
+    *,
+    expansion_query: str,
+    expansion_reason: str,
+    text: str,
+) -> bool:
+    if (
+        expansion_reason.replace("_", "-") != "opinion-reaction-bridge"
+        and _OPINION_REACTION_SOURCE_SIBLING_QUERY_RE.search(expansion_query) is None
+    ):
+        return False
+    if (
+        not _is_precise_turn_retrieval_text(text)
+        and _DIALOGUE_TURN_SPEAKER_RE.search(text) is None
+    ):
+        return False
+    if _OPINION_REACTION_SOURCE_SIBLING_RE.search(text) is None:
+        return False
+    return not (
+        _OPINION_REACTION_ADOPTION_QUERY_RE.search(expansion_query) is not None
+        and _OPINION_REACTION_ADOPTION_TEXT_RE.search(text) is None
+    )
 
 
 def _is_creative_work_count_source_sibling_answer_evidence(

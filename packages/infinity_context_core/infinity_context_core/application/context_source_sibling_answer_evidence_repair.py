@@ -408,6 +408,23 @@ _EXACT_REPAIR_SUPPORT_CAREER_MOTIVATION_RE = re.compile(
     r"safe,\s*inviting\s+place)\b",
     re.IGNORECASE | re.DOTALL,
 )
+_EXACT_REPAIR_OPINION_REACTION_RE = re.compile(
+    r"\b(?:supportive|proud|excited|happy|agree|approve|approved|concerned|"
+    r"disagree|encourag(?:e|ed|es|ing)|lovely|amazing|awesome|wonderful|"
+    r"great\s+idea|good\s+idea|glad|thrilled)\b|"
+    r"\b(?:you|they|he|she)(?:'ll| will)\s+be\s+(?:an?\s+)?"
+    r"(?:awesome|great|amazing|wonderful|good)\b",
+    re.IGNORECASE | re.DOTALL,
+)
+_EXACT_REPAIR_OPINION_REACTION_ADOPTION_QUERY_RE = re.compile(
+    r"\b(?:adopt|adopted|adopting|adoption|children|child|kids?|family|parent)\b",
+    re.IGNORECASE,
+)
+_EXACT_REPAIR_OPINION_REACTION_ADOPTION_TEXT_RE = re.compile(
+    r"\b(?:adopt|adopted|adopting|adoption|children|child|kids?|family|"
+    r"mom|mother|dad|father|parent)\b",
+    re.IGNORECASE,
+)
 _EXACT_REPAIR_CHARITY_BRAND_SPONSORSHIP_RE = re.compile(
     r"\b(?:signed(?:\s+up)?|secure(?:d|s)?|landed|in\s+talks?\s+with|"
     r"sponsor(?:ship|ed|s)?|endorse(?:ment|d|s)?|partner(?:ship|ed|s)?)\b"
@@ -893,6 +910,7 @@ def _filtered_exact_source_sibling_answer_evidence_repair_refs(
         "outdoor-activity-inventory-bridge",
         "outdoor-nature-memory-bridge",
         "outdoor-preference-bridge",
+        "opinion-reaction-bridge",
         "pet-adjustment-bridge",
         "planning-tool-use-bridge",
         "public-office-service-bridge",
@@ -1204,6 +1222,19 @@ def _country_destination_exact_repair_rank(*, text: str, query: str) -> int:
     )
 
 
+def _is_opinion_reaction_exact_repair_text_supported(
+    *,
+    text: str,
+    query: str,
+) -> bool:
+    if _EXACT_REPAIR_OPINION_REACTION_RE.search(text) is None:
+        return False
+    return not (
+        _EXACT_REPAIR_OPINION_REACTION_ADOPTION_QUERY_RE.search(query) is not None
+        and _EXACT_REPAIR_OPINION_REACTION_ADOPTION_TEXT_RE.search(text) is None
+    )
+
+
 def _exact_source_repair_focused_text_supported(
     *,
     reason: str,
@@ -1236,6 +1267,11 @@ def _exact_source_repair_focused_text_supported(
         return _EXACT_REPAIR_SUPPORT_CAREER_MOTIVATION_RE.search(text) is not None
     if reason == "charity-brand-sponsorship-bridge":
         return _EXACT_REPAIR_CHARITY_BRAND_SPONSORSHIP_RE.search(text) is not None
+    if reason == "opinion-reaction-bridge":
+        return _is_opinion_reaction_exact_repair_text_supported(
+            text=text,
+            query=query,
+        )
     if reason == "classical-music-preference-bridge":
         return _EXACT_REPAIR_CLASSICAL_MUSIC_PREFERENCE_RE.search(text) is not None
     if reason == "sentimental-reminder-bridge":
