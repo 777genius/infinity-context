@@ -350,9 +350,14 @@ def _session_scope_identity_from_mapping(mapping: Mapping[str, object]) -> str:
     for key in (
         "source_dialogue_id",
         "source_dialogue_index",
+        "source_dialogue_number",
+        "source_dialogue_order",
         "dialogue_id",
         "dialogue_index",
+        "dialogue_number",
+        "dialogue_order",
         "dia_id",
+        "dia_number",
     ):
         if scope_identity := _dialogue_session_scope_identity_from_value(
             mapping.get(key)

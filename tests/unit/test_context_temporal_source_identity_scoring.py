@@ -434,9 +434,24 @@ def test_source_scope_identity_mapping_normalizes_explicit_numeric_session_alias
             "conv_1:session_12",
         ),
         (
+            {"conversation_id": 1, "source_dialogue_number": "12"},
+            "conv_1:session_12",
+        ),
+        (
+            {"conversation_id": 1, "dialogue_order": 12},
+            "conv_1:session_12",
+        ),
+        (
             {
                 "conversation_id": 1,
                 "source_turn": {"dialogue_id": 12, "turn_id": 6},
+            },
+            "conv_1:session_12",
+        ),
+        (
+            {
+                "conversation_id": 1,
+                "source_turn": {"dialogue_number": "D12", "turn_id": 6},
             },
             "conv_1:session_12",
         ),
