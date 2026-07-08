@@ -7,6 +7,20 @@ import re
 _DIALOGUE_NOUN_PATTERN = (
     r"(?:locomo\s+)?(?:session|conversation|conv|dialogue|dialog|dia|d)"
 )
+_COMPOUND_NUMBER_SUFFIX_PATTERN = (
+    r"one|two|three|four|five|six|seven|eight|nine|first|second|third|"
+    r"fourth|fifth|sixth|seventh|eighth|ninth"
+)
+_TENS_NUMBER_PATTERN = (
+    rf"twenty(?:[\s-]+(?:{_COMPOUND_NUMBER_SUFFIX_PATTERN}))?|"
+    rf"thirty(?:[\s-]+(?:{_COMPOUND_NUMBER_SUFFIX_PATTERN}))?|"
+    rf"forty(?:[\s-]+(?:{_COMPOUND_NUMBER_SUFFIX_PATTERN}))?|"
+    rf"fifty(?:[\s-]+(?:{_COMPOUND_NUMBER_SUFFIX_PATTERN}))?|"
+    rf"sixty(?:[\s-]+(?:{_COMPOUND_NUMBER_SUFFIX_PATTERN}))?|"
+    rf"seventy(?:[\s-]+(?:{_COMPOUND_NUMBER_SUFFIX_PATTERN}))?|"
+    rf"eighty(?:[\s-]+(?:{_COMPOUND_NUMBER_SUFFIX_PATTERN}))?|"
+    rf"ninety(?:[\s-]+(?:{_COMPOUND_NUMBER_SUFFIX_PATTERN}))?"
+)
 _NUMBER_PATTERN = (
     r"D\d{1,4}|#?\d{1,4}(?:st|nd|rd|th)?|one|two|three|four|five|six|seven|"
     r"eight|nine|ten|"
@@ -14,12 +28,8 @@ _NUMBER_PATTERN = (
     r"thirteen|fourteen|fifteen|sixteen|seventeen|eighteen|nineteen|"
     r"first|second|third|fourth|fifth|sixth|seventh|eighth|ninth|tenth|"
     r"eleventh|twelfth|thirteenth|fourteenth|fifteenth|sixteenth|seventeenth|"
-    r"eighteenth|nineteenth|twentieth|thirtieth|fortieth|"
-    r"twenty(?:[\s-]+(?:one|two|three|four|five|six|seven|eight|nine|first|"
-    r"second|third|fourth|fifth|sixth|seventh|eighth|ninth))?|"
-    r"thirty(?:[\s-]+(?:one|two|three|four|five|six|seven|eight|nine|first|"
-    r"second|third|fourth|fifth|sixth|seventh|eighth|ninth))?|"
-    r"forty"
+    r"eighteenth|nineteenth|twentieth|thirtieth|fortieth|fiftieth|"
+    rf"sixtieth|seventieth|eightieth|ninetieth|{_TENS_NUMBER_PATTERN}"
 )
 SOURCE_TURN_LABEL_NUMBER_PATTERN = _NUMBER_PATTERN
 _NATURAL_SOURCE_TURN_RE = re.compile(
@@ -155,7 +165,20 @@ _WORD_VALUES = {
     "thirtieth": 30,
     "forty": 40,
     "fortieth": 40,
+    "fifty": 50,
+    "fiftieth": 50,
+    "sixty": 60,
+    "sixtieth": 60,
+    "seventy": 70,
+    "seventieth": 70,
+    "eighty": 80,
+    "eightieth": 80,
+    "ninety": 90,
+    "ninetieth": 90,
 }
+_COMPOUND_TENS = frozenset(
+    {"twenty", "thirty", "forty", "fifty", "sixty", "seventy", "eighty", "ninety"}
+)
 
 
 def canonicalize_natural_source_turn_labels(value: str) -> str:
@@ -238,5 +261,5 @@ def _number_value(value: str) -> int:
         return 0
     tens, unit = parts
     return _WORD_VALUES.get(tens, 0) + (
-        _WORD_VALUES.get(unit, 0) if tens in {"twenty", "thirty"} else 0
+        _WORD_VALUES.get(unit, 0) if tens in _COMPOUND_TENS else 0
     )

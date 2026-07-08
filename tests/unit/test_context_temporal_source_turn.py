@@ -175,6 +175,30 @@ def test_source_turn_sequence_request_accepts_compact_dialogue_turn_refs() -> No
     assert request.before_turns == ()
 
 
+def test_source_turn_sequence_request_normalizes_high_spoken_turn_numbers() -> None:
+    assert (
+        canonicalize_natural_source_turn_labels("session twelve turn forty one")
+        == "D12:41"
+    )
+    assert (
+        canonicalize_natural_source_turn_labels(
+            "turn forty first in session twelve"
+        )
+        == "D12:41"
+    )
+    assert (
+        canonicalize_natural_source_turn_labels("session seventy two turn five")
+        == "D72:5"
+    )
+
+    request = source_turn_sequence_request(
+        "What did Sam say after turn ninety ninth in session twelve?"
+    )
+
+    assert [turn.label() for turn in request.after_turns] == ["D12:99"]
+    assert request.before_turns == ()
+
+
 def test_source_turn_sequence_boost_accepts_hyphenated_item_turn_refs() -> None:
     request = source_turn_sequence_request("What did Sam say after D4-3?")
     before = _item(
