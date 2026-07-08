@@ -28,13 +28,14 @@ _SOURCE_SESSION_RE = re.compile(
 _TEXT_SESSION_TURN_RE = re.compile(
     r"\b(?:session|conversation|conv|dialogue|dialog)"
     r"(?:[-_]\s*|\s+#?\s*)(?P<session>\d+)"
-    r"\s*[,;:-]?\s+(?:turn\s*[:#-]?\s+)?(?P<turn_ref>D\d+[:-]\d+)\b",
+    r"(?:\s*[,;:/\-]\s*|\s+)"
+    r"(?:turn\s*[:#-]?\s+)?(?P<turn_ref>D\d+[:-]\d+)\b",
     re.IGNORECASE,
 )
 _TEXT_SESSION_DATE_TURN_RE = re.compile(
     r"\b(?:session|conversation|conv|dialogue|dialog)"
     r"(?:[-_]\s*|\s+#?\s*)(?P<session>\d+)"
-    r"\s*[,;:-]?\s+date:\s*[^.\n]{0,80}?\s"
+    r"(?:\s*[,;:/\-]\s*|\s+)date:\s*[^.\n]{0,80}?\s"
     r"(?P<turn_ref>D\d+[:-]\d+)\b",
     re.IGNORECASE,
 )
@@ -53,7 +54,8 @@ _TEXT_SESSION_BRACKET_TURN_RE = re.compile(
 _TEXT_SESSION_NUMERIC_TURN_RE = re.compile(
     r"\b(?:session|conversation|conv|dialogue|dialog)"
     r"(?:[-_]\s*|\s+#?\s*)(?P<session>\d+)"
-    r"\s*[,;:-]?\s+(?:turn|utt|utterance)\s*[:#-]?\s*(?P<turn>\d+)\b",
+    r"(?:\s*[,;:/\-]\s*|\s+)"
+    r"(?:turn|utt|utterance)\s*[:#-]?\s*(?P<turn>\d+)\b",
     re.IGNORECASE,
 )
 _TEXT_KEY_VALUE_SESSION_RE = re.compile(
@@ -85,7 +87,7 @@ _TEXT_TURN_SESSION_RE = re.compile(
 )
 _TEXT_TURN_PUNCT_SESSION_RE = re.compile(
     r"\b(?:turn\s*[:#-]?\s+)?(?P<turn_ref>D\d+[:-]\d+)\b"
-    r"\s*[,;:-]\s*(?:the\s+)?"
+    r"\s*[,;:/\-]\s*(?:the\s+)?"
     r"(?:session|conversation|conv|dialogue|dialog)"
     r"(?:[-_]\s*|\s+#?\s*)(?P<session>\d+)\b",
     re.IGNORECASE,

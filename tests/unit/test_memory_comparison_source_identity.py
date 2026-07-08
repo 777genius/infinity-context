@@ -626,6 +626,31 @@ def test_source_identity_refs_qualify_session_numeric_turn_text() -> None:
     )
 
 
+def test_source_identity_refs_qualify_slash_separated_session_turn_text() -> None:
+    assert source_identity_refs_from_text(
+        "Session 2 / D2:8: Priya confirmed the plan.",
+        source_refs=("conversation-summary",),
+    ) == (
+        "source_session_turn_refs:session_2:D2:8",
+        "source_turn_refs:D2:8",
+    )
+    assert source_identity_refs_from_text(
+        "D2:8/session 2 / Priya confirmed the plan.",
+        source_refs=("conversation-summary",),
+    ) == (
+        "source_session_turn_refs:session_2:D2:8",
+        "source_turn_refs:D2:8",
+    )
+    assert source_identity_refs_from_source_refs(("dialogue 4/utterance #6",)) == (
+        "source_session_turn_refs:session_4:D4:6",
+        "source_turn_refs:D4:6",
+    )
+    assert safe_source_refs_for_output(("session 2/D2:8",)) == (
+        "source_session_turn_refs:session_2:D2:8",
+        "source_turn_refs:D2:8",
+    )
+
+
 def test_source_identity_refs_accept_dialogue_as_session_surface() -> None:
     assert source_identity_refs_from_text(
         "Dialogue 3 turn D3:6 Alex confirmed the planning date.",

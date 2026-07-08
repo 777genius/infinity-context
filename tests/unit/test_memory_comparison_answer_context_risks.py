@@ -13,6 +13,7 @@ def test_context_risk_reason_codes_dedupes_in_contract_order() -> None:
         bundle_risk_reason_codes=(
             "risk:retrieval_backfill",
             "risk:bundle_specific",
+            "raw bundle note must stay out",
         ),
         skipped_duplicate_source_bundle_item_count=1,
         skipped_noisy_overlap_bundle_item_count=1,
@@ -31,9 +32,11 @@ def test_context_risk_reason_codes_dedupes_in_contract_order() -> None:
                 "answer_context_risk_reason_codes": (
                     "risk:bundle_specific",
                     "risk:memory_specific",
+                    "raw memory note must stay out",
                 )
             },
             {"answer_context_risk_reason_codes": "risk:memory_string"},
+            {"answer_context_risk_reason_codes": "raw memory string must stay out"},
         ),
     )
 
@@ -54,12 +57,26 @@ def test_context_risk_reason_codes_dedupes_in_contract_order() -> None:
     )
 
 
+def test_answer_context_risk_codes_ignore_non_risk_metadata() -> None:
+    metadata: dict[str, object] = {}
+
+    add_answer_context_risk_codes(
+        metadata,
+        ("not_a_risk", " raw provider payload ", "risk:kept"),
+    )
+
+    assert metadata == {
+        "answer_context_risk_reason_codes": ("risk:kept",),
+    }
+
+
 def test_add_answer_context_risk_codes_merges_existing_metadata_in_order() -> None:
     metadata: dict[str, object] = {
         "kept": True,
         "answer_context_risk_reason_codes": (
             "risk:existing",
             "risk:duplicate",
+            "unsafe existing note",
         ),
     }
 
@@ -111,6 +128,11 @@ def test_backfill_risk_reason_codes_propagate_candidate_risks() -> None:
             "conflict_or_stale": True,
             "answerability_score": 0.54,
             "source_locality_score": 0.44,
+            "identity_confusion_reason_codes": (
+                "source_identity:cross_session_source_identity",
+                "person_identity:target_mismatch:status_profile",
+                "speaker_identity:first_person_profile_relation:alias_profile",
+            ),
             "risk_reason_codes": ("risk:candidate_specific", "not_a_risk"),
         },
     )
@@ -121,5 +143,25 @@ def test_backfill_risk_reason_codes_propagate_candidate_risks() -> None:
         "risk:backfilled_conflict_or_stale",
         "risk:backfilled_low_answerability",
         "risk:backfilled_weak_source_locality",
+        "risk:backfilled_identity_confusion",
+        "risk:backfilled_source_identity_confusion",
+        "risk:backfilled_person_identity_confusion",
+        "risk:backfilled_speaker_identity_confusion",
         "risk:candidate_specific",
     )
+
+
+def test_backfill_risk_reason_codes_ignore_non_identity_confusion_values() -> None:
+    memory = RetrievedMemory(text="D1:1 Alex: I moved last year.", rank=1)
+
+    codes = backfill_risk_reason_codes(
+        memory,
+        {
+            "identity_confusion_reason_codes": (
+                "",
+                "source_identity_gap_without_confusion",
+            ),
+        },
+    )
+
+    assert codes == ("risk:retrieval_backfill",)
