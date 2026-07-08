@@ -1198,6 +1198,81 @@ def test_fast_gate_actionable_summary_reports_rerank_selection_conflicts() -> No
     assert len(samples[0]["positive_unselected_candidate_ids"][0]) <= 128
 
 
+def test_actionable_rerank_signal_samples_sanitize_item_ids() -> None:
+    raw_ref = "locomo:conv-private:session_2:D2:8:turn-secret"
+    summary = actionable_gap_summary(
+        evaluation_count=1,
+        expected_case_count=1,
+        failed_gates=(),
+        query_overlap_count=0,
+        profile_overlap_count=0,
+        intent_overlap_count=0,
+        rerank_signal_gap_breakdown={
+            "selection_conflict_case_count": 1,
+            "selection_conflict_pair_count": 1,
+            "selection_conflict_positive_signal_counts": {
+                "benchmark_answerability_boost": 1,
+            },
+            "selected_without_positive_reason_counts": {
+                "no_positive_rerank_signal": 1,
+            },
+            "selection_conflict_samples": [
+                {
+                    "case_id": "raw-rerank-sample",
+                    "group": "multi-hop",
+                    "positive_unselected_candidate_count": 2,
+                    "selected_without_positive_rerank_count": 1,
+                    "positive_unselected_candidates": [
+                        {"item_id": raw_ref},
+                        {"item_id": "safe-unselected-id"},
+                    ],
+                    "selected_without_positive_items": [
+                        {
+                            "item_id": "provider:private-token:item",
+                            "reason": "no_positive_rerank_signal",
+                            "role": "supporting",
+                            "matched_retrieval_candidate": True,
+                        },
+                        {
+                            "item_id": "safe-selected-id",
+                            "reason": "no_positive_rerank_signal",
+                        },
+                    ],
+                }
+            ],
+        },
+    )
+
+    gap = summary["top_gap"]
+
+    assert isinstance(gap, dict)
+    assert gap["category"] == "rerank_signal_selection"
+    assert gap["samples"] == [
+        {
+            "case_id": "raw-rerank-sample",
+            "group": "multi-hop",
+            "positive_unselected_candidate_count": 2,
+            "selected_without_positive_rerank_count": 1,
+            "positive_unselected_candidate_ids": ["safe-unselected-id"],
+            "selected_without_positive_items": [
+                {
+                    "reason": "no_positive_rerank_signal",
+                    "role": "supporting",
+                    "matched_retrieval_candidate": True,
+                },
+                {
+                    "item_id": "safe-selected-id",
+                    "reason": "no_positive_rerank_signal",
+                },
+            ],
+        }
+    ]
+    serialized = json.dumps(summary)
+    assert "locomo:conv-private" not in serialized
+    assert "turn-secret" not in serialized
+    assert "provider:private-token:item" not in serialized
+
+
 def test_actionable_gap_summary_uses_stable_tie_breaks_and_gap_schema() -> None:
     summary = actionable_gap_summary(
         evaluation_count=4,

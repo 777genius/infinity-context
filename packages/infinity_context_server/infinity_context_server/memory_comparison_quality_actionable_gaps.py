@@ -1863,7 +1863,9 @@ def _compact_rerank_signal_item_ids(
         sample = _mapping(raw_sample)
         if not sample:
             continue
-        item_id = _compact_query_plan_sample_text(sample.get("item_id"))
+        item_id = _safe_item_id_for_output(sample.get("item_id"))
+        if item_id:
+            item_id = _compact_query_plan_sample_text(item_id)
         if item_id:
             item_ids.append(item_id)
         if len(item_ids) >= _MAX_RERANK_SIGNAL_ACTIONABLE_SAMPLE_VALUES:
@@ -1880,7 +1882,10 @@ def _compact_rerank_signal_selected_samples(
         if not sample:
             continue
         compact: dict[str, object] = {}
-        for key in ("item_id", "reason", "role"):
+        item_id = _safe_item_id_for_output(sample.get("item_id"))
+        if item_id:
+            compact["item_id"] = _compact_query_plan_sample_text(item_id)
+        for key in ("reason", "role"):
             value = _compact_query_plan_sample_text(sample.get(key))
             if value:
                 compact[key] = value
