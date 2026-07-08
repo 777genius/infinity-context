@@ -138,6 +138,27 @@ def test_source_identity_refs_read_locomo_evidence_ref_alias() -> None:
     )
 
 
+def test_source_identity_refs_use_exact_evidence_ref_when_dia_id_is_dialogue_only() -> None:
+    refs = source_identity_refs_from_source_refs(
+        (
+            {
+                "dia_id": "D12",
+                "locomo_evidence_ref": "D12:6",
+            },
+        )
+    )
+
+    assert refs == ("source_turn_refs:D12:6",)
+    assert safe_source_refs_for_output(
+        (
+            {
+                "dia_id": "D12",
+                "locomo_evidence_ref": "D12:6",
+            },
+        )
+    ) == ("source_turn_refs:D12:6",)
+
+
 def test_source_identity_refs_qualify_numeric_evidence_aliases_with_session() -> None:
     for evidence_key in (
         "evidence_ref",

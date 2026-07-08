@@ -685,23 +685,26 @@ def _source_ref_values_from_nested_value(
 def _structured_turn_refs_from_mapping(
     value: Mapping[object, object],
 ) -> tuple[str, ...]:
-    turn_ref = _safe_turn_ref_from_mapping_value(
-        value.get("dia_id")
-        or value.get("locomo_evidence_ref")
-        or value.get("dialogue_turn_id")
-        or value.get("locomo_dialogue_turn_id")
-        or value.get("source_dia_id")
-        or value.get("source_dialogue_turn_id")
-        or value.get("evidence_id")
-        or value.get("evidence_ref")
-        or value.get("source_evidence_ref")
-        or value.get("source_turn_ref")
-        or value.get("turn_ref")
-        or value.get("source_turn_id")
-        or value.get("turn_id")
+    turn_ref = _first_safe_turn_ref_from_mapping_values(
+        value,
+        (
+            "dia_id",
+            "locomo_evidence_ref",
+            "dialogue_turn_id",
+            "locomo_dialogue_turn_id",
+            "source_dia_id",
+            "source_dialogue_turn_id",
+            "evidence_id",
+            "evidence_ref",
+            "source_evidence_ref",
+            "source_turn_ref",
+            "turn_ref",
+            "source_turn_id",
+            "turn_id",
+        ),
     )
     if turn_ref:
-        return (turn_ref,)
+        return (f"source_turn_refs:{turn_ref}",)
     dialogue = _dialogue_number_from_mapping(value)
     turns = _structured_turn_values_from_mapping(value)
     if not dialogue or not 0 < len(turns) <= 3:
@@ -888,9 +891,13 @@ def _structured_session_ref_from_mapping(value: Mapping[object, object]) -> str:
     return ""
 
 
-def _safe_turn_ref_from_mapping_value(value: object) -> str:
-    if turn_ref := safe_turn_ref(value):
-        return turn_ref
+def _first_safe_turn_ref_from_mapping_values(
+    value: Mapping[object, object],
+    keys: Sequence[str],
+) -> str:
+    for key in keys:
+        if turn_ref := safe_turn_ref(value.get(key)):
+            return turn_ref
     return ""
 
 
