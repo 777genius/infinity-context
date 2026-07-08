@@ -63,6 +63,7 @@ _SOURCE_IDENTITY_MISMATCH_GAP_CODES = frozenset(
     {
         "cross_session_source_identity",
         "cross_session_text_identity",
+        "source_session_turn_mismatch",
         "source_text_session_turn_mismatch",
         "source_text_turn_mismatch",
     }

@@ -1291,6 +1291,39 @@ def test_age_birthday_signal_prefers_birth_evidence_over_old_word_noise() -> Non
     assert weak_signal.reason == "age_birthday_weak_evidence"
 
 
+def test_age_birthday_signal_prefers_relative_duration_evidence() -> None:
+    duration = _item(
+        "birthday_duration",
+        text=(
+            "D4:5 Caroline: A friend made a bowl for my 18th birthday ten "
+            "years ago."
+        ),
+        query_expansion_reason="age_birthday_bridge",
+    )
+    generic = _item(
+        "generic_birthday",
+        text="D2:3 Caroline was born in 1995 and her birthday is in May.",
+        query_expansion_reason="age_birthday_bridge",
+    )
+
+    duration_signal = age_birthday_rerank_signal(
+        query="How long ago was Caroline's 18th birthday?",
+        query_reason="age_birthday_bridge",
+        item=duration,
+        relevance=_relevance(distinctive_term_hits=5, unique_term_hits=5),
+    )
+    generic_signal = age_birthday_rerank_signal(
+        query="How long ago was Caroline's 18th birthday?",
+        query_reason="age_birthday_bridge",
+        item=generic,
+        relevance=_relevance(distinctive_term_hits=5, unique_term_hits=5),
+    )
+
+    assert duration_signal.boost > generic_signal.boost
+    assert duration_signal.reason == "age_birthday_relative_duration_evidence"
+    assert generic_signal.reason == "age_birthday_exact_evidence"
+
+
 def test_age_birthday_signal_penalizes_birthdate_for_birthplace_query() -> None:
     birthdate = _item(
         "birth_year",

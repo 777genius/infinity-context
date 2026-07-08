@@ -575,6 +575,8 @@ def _extract_observed_anchors_uncached(text: str) -> tuple[ObservedAnchor, ...]:
             score_boost=17,
         )
     for raw in event_labels(text):
+        if _is_weak_event_label(raw):
+            continue
         _append_anchor(
             anchors,
             seen,
@@ -1063,11 +1065,17 @@ def _is_probable_event_project_label(label: str) -> bool:
         return False
     if first in _PROJECT_LABEL_STOP_WORDS:
         return False
-    return _looks_like_project_label_continuation(label.split()[0]) or (
-        len(normalized.split()) == 1
-        and len(normalized) <= 40
-        and any(char.isalnum() for char in normalized)
-    )
+    return _looks_like_project_label_continuation(label.split()[0])
+
+
+def _is_weak_event_label(label: str) -> bool:
+    metadata = structured_event_metadata(label, canonical_key=canonical_anchor_key(label))
+    if metadata.get("event_has_project") or metadata.get("event_has_participant"):
+        return False
+    if metadata.get("event_temporal_phrase"):
+        return False
+    normalized = normalize_anchor_key(label)
+    return normalized in {"deadline", "due", "milestone", "reminder", "task", "todo"}
 
 
 def _clean_organization_label(label: str) -> str:

@@ -4,9 +4,10 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 from dataclasses import dataclass, field
-from typing import Any, Protocol
+from typing import TYPE_CHECKING, Any, Protocol
 
-import httpx
+if TYPE_CHECKING:
+    import httpx
 
 
 class BenchmarkValidationError(ValueError):

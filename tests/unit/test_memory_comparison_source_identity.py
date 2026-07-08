@@ -138,6 +138,27 @@ def test_source_identity_refs_read_locomo_evidence_ref_alias() -> None:
     )
 
 
+def test_source_identity_refs_use_exact_evidence_ref_when_dia_id_is_dialogue_only() -> None:
+    refs = source_identity_refs_from_source_refs(
+        (
+            {
+                "dia_id": "D12",
+                "locomo_evidence_ref": "D12:6",
+            },
+        )
+    )
+
+    assert refs == ("source_turn_refs:D12:6",)
+    assert safe_source_refs_for_output(
+        (
+            {
+                "dia_id": "D12",
+                "locomo_evidence_ref": "D12:6",
+            },
+        )
+    ) == ("source_turn_refs:D12:6",)
+
+
 def test_source_identity_refs_qualify_numeric_evidence_aliases_with_session() -> None:
     for evidence_key in (
         "evidence_ref",
@@ -421,6 +442,54 @@ def test_source_identity_refs_qualify_numeric_turn_id_with_session_key() -> None
     )
 
 
+def test_source_identity_refs_read_idx_style_structured_fields() -> None:
+    refs = source_identity_refs_from_source_refs(
+        (
+            {
+                "source_external_id": "locomo:conv-private:turn-secret",
+                "session_idx": 8,
+                "turn_idx": 5,
+            },
+        )
+    )
+
+    assert refs == (
+        "source_session_turn_refs:session_8:D8:5",
+        "source_turn_refs:D8:5",
+    )
+
+
+def test_source_identity_refs_read_source_dialogue_and_utterance_idx_fields() -> None:
+    refs = source_identity_refs_from_source_refs(
+        (
+            {
+                "source_external_id": "locomo:conv-private:turn-secret",
+                "source_dialogue_idx": "D9",
+                "source_utterance_idx": "7",
+            },
+        )
+    )
+
+    assert refs == ("source_turn_refs:D9:7",)
+
+
+def test_source_identity_refs_read_locomo_conversation_turn_aliases() -> None:
+    payload = {
+        "source_external_id": "locomo:conv-private:turn-secret",
+        "locomo_conversation_id": "conversation_3",
+        "locomo_turn_id": "8",
+    }
+
+    assert source_identity_refs_from_source_refs((payload,)) == (
+        "source_session_turn_refs:session_3:D3:8",
+        "source_turn_refs:D3:8",
+    )
+    assert safe_source_refs_for_output((payload,)) == (
+        "source_session_turn_refs:session_3:D3:8",
+        "source_turn_refs:D3:8",
+    )
+
+
 def test_source_identity_refs_build_turn_ref_from_dialogue_and_turn_fields() -> None:
     refs = source_identity_refs_from_source_refs(
         (
@@ -515,6 +584,71 @@ def test_source_identity_refs_qualify_reversed_punctuated_session_text() -> None
         source_refs=("locomo:conversation:session_2", "D2:8"),
         text="D2:8, session 3, Priya confirmed the plan.",
     ) == ("source_text_session_turn_mismatch",)
+
+
+def test_source_identity_refs_qualify_session_parenthetical_turn_text() -> None:
+    refs = source_identity_refs_from_text(
+        "Session 2 (D2:8): Priya confirmed the plan.",
+        source_refs=("conversation-summary",),
+    )
+
+    assert refs == (
+        "source_session_turn_refs:session_2:D2:8",
+        "source_turn_refs:D2:8",
+    )
+    assert source_identity_refs_from_source_refs(("session 2 (D2:8)",)) == (
+        "source_session_turn_refs:session_2:D2:8",
+        "source_turn_refs:D2:8",
+    )
+    assert safe_source_refs_for_output(("session 2 (D2:8)",)) == (
+        "source_session_turn_refs:session_2:D2:8",
+        "source_turn_refs:D2:8",
+    )
+
+
+def test_source_identity_refs_qualify_session_numeric_turn_text() -> None:
+    refs = source_identity_refs_from_text(
+        "Session 2 turn 8: Priya confirmed the plan.",
+        source_refs=("conversation-summary",),
+    )
+
+    assert refs == (
+        "source_session_turn_refs:session_2:D2:8",
+        "source_turn_refs:D2:8",
+    )
+    assert source_identity_refs_from_source_refs(("dialogue 4 utterance #6",)) == (
+        "source_session_turn_refs:session_4:D4:6",
+        "source_turn_refs:D4:6",
+    )
+    assert safe_source_refs_for_output(("session 2 turn 8",)) == (
+        "source_session_turn_refs:session_2:D2:8",
+        "source_turn_refs:D2:8",
+    )
+
+
+def test_source_identity_refs_qualify_slash_separated_session_turn_text() -> None:
+    assert source_identity_refs_from_text(
+        "Session 2 / D2:8: Priya confirmed the plan.",
+        source_refs=("conversation-summary",),
+    ) == (
+        "source_session_turn_refs:session_2:D2:8",
+        "source_turn_refs:D2:8",
+    )
+    assert source_identity_refs_from_text(
+        "D2:8/session 2 / Priya confirmed the plan.",
+        source_refs=("conversation-summary",),
+    ) == (
+        "source_session_turn_refs:session_2:D2:8",
+        "source_turn_refs:D2:8",
+    )
+    assert source_identity_refs_from_source_refs(("dialogue 4/utterance #6",)) == (
+        "source_session_turn_refs:session_4:D4:6",
+        "source_turn_refs:D4:6",
+    )
+    assert safe_source_refs_for_output(("session 2/D2:8",)) == (
+        "source_session_turn_refs:session_2:D2:8",
+        "source_turn_refs:D2:8",
+    )
 
 
 def test_source_identity_refs_accept_dialogue_as_session_surface() -> None:

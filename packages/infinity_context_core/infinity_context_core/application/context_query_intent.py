@@ -216,10 +216,13 @@ _PERSON_HINT_STOP_WORDS = frozenset(
         "after",
         "before",
         "following",
+        "graphiti",
         "kiev",
         "kyiv",
         "later",
+        "postgres",
         "posle",
+        "qdrant",
         "since",
         "them",
         "then",
@@ -1134,6 +1137,7 @@ def _observed_anchor_conflicts_intent(
     *,
     text: str,
 ) -> bool:
+    tool_project_query = _has_only_tool_project_hints(intent)
     for kind in (
         MemoryAnchorKind.PERSON,
         MemoryAnchorKind.PROJECT,
@@ -1141,6 +1145,8 @@ def _observed_anchor_conflicts_intent(
     ):
         query_keys = intent.keys_for_kind(kind)
         if not query_keys:
+            continue
+        if kind == MemoryAnchorKind.PROJECT and tool_project_query:
             continue
         observed_keys: set[str] = set()
         for anchor in anchors:
@@ -1173,6 +1179,15 @@ def _observed_anchor_conflicts_intent(
         ):
             return True
     return False
+
+
+def _has_only_tool_project_hints(intent: QueryAnchorIntent) -> bool:
+    project_hints = tuple(
+        hint for hint in intent.hints if hint.kind == MemoryAnchorKind.PROJECT
+    )
+    return bool(project_hints) and all(
+        hint.reason == "known project/tool reference" for hint in project_hints
+    )
 
 
 def _is_relocation_origin_evidence_text(intent: QueryAnchorIntent, text: str) -> bool:

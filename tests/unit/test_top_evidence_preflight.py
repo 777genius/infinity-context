@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import builtins
 import json
 from pathlib import Path
 
@@ -94,6 +95,147 @@ def test_top_evidence_preflight_accepts_clean_publishable_config(tmp_path: Path)
     assert payload["sanitized_config"]["public_benchmark_min_accuracy"] == 0.947
     assert "sk-test-secret-value" not in json.dumps(payload)
     assert str(tmp_path) not in json.dumps(payload)
+
+
+def test_top_evidence_preflight_lightweight_profile_counts_cases(tmp_path: Path) -> None:
+    dataset = tmp_path / "locomo.json"
+    dataset.write_text(json.dumps(_benchmark_cases("locomo", count=3)), encoding="utf-8")
+
+    profile = top_evidence_preflight._lightweight_dataset_profile(
+        dataset,
+        benchmark="locomo",
+    )
+
+    assert profile is not None
+    assert profile["case_count"] == 3
+    assert profile["unique_case_id_count"] == 3
+    assert profile["duplicate_case_id_count"] == 0
+    assert profile["dataset_path_label"] == "locomo.json"
+    assert len(str(profile["dataset_hash"])) == 64
+
+
+def test_top_evidence_preflight_lightweight_profile_accepts_samples_wrapper(
+    tmp_path: Path,
+) -> None:
+    dataset = tmp_path / "wrapped-locomo.json"
+    dataset.write_text(
+        json.dumps(
+            {
+                "samples": _benchmark_cases("locomo", count=3),
+                "metadata": {"source": "locomo-public-fixture"},
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    profile = top_evidence_preflight._lightweight_dataset_profile(
+        dataset,
+        benchmark="locomo",
+    )
+
+    assert profile is not None
+    assert profile["case_count"] == 3
+    assert profile["unique_case_id_count"] == 3
+    assert profile["duplicate_case_id_count"] == 0
+
+
+def test_top_evidence_preflight_lightweight_profile_requires_answer_signal(
+    tmp_path: Path,
+) -> None:
+    dataset = tmp_path / "partial-locomo.json"
+    dataset.write_text(
+        json.dumps(
+            [
+                {
+                    "benchmark": "locomo",
+                    "case_id": "locomo-valid",
+                    "question": "Where is the checklist?",
+                    "answer": "blue notebook",
+                    "memories": ["The checklist is in the blue notebook."],
+                },
+                {
+                    "benchmark": "locomo",
+                    "case_id": "locomo-missing-answer",
+                    "question": "Where is the badge?",
+                    "memories": ["The badge was mentioned."],
+                },
+                {
+                    "benchmark": "locomo",
+                    "case_id": "locomo-evidence-only-normalized",
+                    "question": "Where is the pass?",
+                    "evidence": ["D1:1"],
+                    "memories": ["The pass was mentioned."],
+                },
+                {
+                    "benchmark": "locomo",
+                    "case_id": "locomo-blank-expected",
+                    "question": "Where is the key?",
+                    "expected_terms": [" "],
+                    "memories": ["The key was mentioned."],
+                },
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    profile = top_evidence_preflight._lightweight_dataset_profile(
+        dataset,
+        benchmark="locomo",
+    )
+
+    assert profile is not None
+    assert profile["case_count"] == 1
+    assert profile["unique_case_id_count"] == 1
+    assert profile["duplicate_case_id_count"] == 0
+
+
+def test_top_evidence_preflight_lightweight_profile_counts_runnable_official_locomo_qas(
+    tmp_path: Path,
+) -> None:
+    dataset = tmp_path / "official-locomo.json"
+    dataset.write_text(
+        json.dumps(
+            [
+                {
+                    "sample_id": "conv-lite",
+                    "conversation": {
+                        "speaker_a": "Caroline",
+                        "session_1": [
+                            {
+                                "speaker": "Caroline",
+                                "dia_id": "D1:1",
+                                "text": "I put the checklist in the blue notebook.",
+                            }
+                        ],
+                    },
+                    "qa": [
+                        {
+                            "question": "Where is the checklist?",
+                            "answer": "blue notebook",
+                        },
+                        {
+                            "question": "Which turn mentions the checklist?",
+                            "evidence": ["D1:1"],
+                        },
+                        {
+                            "question": "Where is the badge?",
+                        },
+                    ],
+                }
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    profile = top_evidence_preflight._lightweight_dataset_profile(
+        dataset,
+        benchmark="locomo",
+    )
+
+    assert profile is not None
+    assert profile["case_count"] == 2
+    assert profile["unique_case_id_count"] == 2
+    assert profile["duplicate_case_id_count"] == 0
 
 
 def test_top_evidence_preflight_accepts_openai_key_file_without_leak(
@@ -225,6 +367,31 @@ def test_top_evidence_preflight_rejects_partial_agent_scenario_set(
     assert result.checks["agent_bench_scenario_set_all"] is False
     assert result.sanitized_config["agent_bench_scenario_set"] == "realistic"
     assert any("SCENARIO_SET=all" in failure for failure in result.failures)
+
+
+def test_top_evidence_preflight_without_dataset_does_not_import_benchmark_runner(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    real_import = builtins.__import__
+
+    def guarded_import(name: str, *args: object, **kwargs: object) -> object:
+        if name == "infinity_context_server.public_benchmark":
+            raise AssertionError("public benchmark runner should be imported lazily")
+        return real_import(name, *args, **kwargs)
+
+    monkeypatch.setattr(builtins, "__import__", guarded_import)
+
+    result = run_top_evidence_preflight(
+        env={},
+        cwd=tmp_path,
+        docker_path="/usr/bin/docker",
+        git={"commit": "abc123", "dirty": False},
+    )
+
+    assert result.ok is False
+    assert result.checks["locomo_dataset_file"] is False
+    assert result.checks["longmemeval_dataset_file"] is False
 
 
 def test_top_evidence_preflight_requires_multimodal_invalid_key_probe(

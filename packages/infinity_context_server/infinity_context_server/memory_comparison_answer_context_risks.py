@@ -39,6 +39,11 @@ def backfill_risk_reason_codes(
         codes.append("risk:backfilled_low_answerability")
     if is_measured_weak_source_locality(features.get("source_locality_score")):
         codes.append("risk:backfilled_weak_source_locality")
+    codes.extend(
+        _identity_confusion_risk_codes(
+            features.get("identity_confusion_reason_codes")
+        )
+    )
     codes.extend(_risk_reason_codes(features.get("risk_reason_codes")))
     return merge_risk_reason_codes(codes)
 
@@ -140,6 +145,7 @@ def merge_risk_reason_codes(*sources: Sequence[str]) -> tuple[str, ...]:
             code
             for source in sources
             for code in _string_tuple(source)
+            if code.startswith("risk:")
         )
     )
 
@@ -192,3 +198,26 @@ def _risk_reason_codes(value: object) -> tuple[str, ...]:
         for code in _string_tuple(value)
         if code.startswith("risk:")
     )
+
+
+def _identity_confusion_risk_codes(value: object) -> tuple[str, ...]:
+    reason_codes = _string_tuple(value)
+    has_source_identity = any(
+        code.startswith("source_identity:") for code in reason_codes
+    )
+    has_person_identity = any(
+        code.startswith("person_identity:") for code in reason_codes
+    )
+    has_speaker_identity = any(
+        code.startswith("speaker_identity:") for code in reason_codes
+    )
+    if not (has_source_identity or has_person_identity or has_speaker_identity):
+        return ()
+    risk_codes = ["risk:backfilled_identity_confusion"]
+    if has_source_identity:
+        risk_codes.append("risk:backfilled_source_identity_confusion")
+    if has_person_identity:
+        risk_codes.append("risk:backfilled_person_identity_confusion")
+    if has_speaker_identity:
+        risk_codes.append("risk:backfilled_speaker_identity_confusion")
+    return tuple(risk_codes)

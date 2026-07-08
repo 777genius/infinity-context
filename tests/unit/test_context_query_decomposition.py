@@ -1128,6 +1128,14 @@ def test_query_decomposition_does_not_make_historical_decision_current() -> None
     }
 
 
+def test_query_decomposition_does_not_make_general_choice_answer_current() -> None:
+    plan = build_query_decomposition_plan("What did Morgan choose for the garden project?")
+
+    assert "decomposition_knowledge_update_current" not in {
+        item.reason for item in plan.decompositions
+    }
+
+
 def test_query_decomposition_keeps_existing_activity_bridge_unshadowed() -> None:
     plan = build_query_decomposition_plan("What activities does Melanie partake in?")
 

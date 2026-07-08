@@ -120,6 +120,14 @@ def test_candidate_features_capture_focused_direct_turn_and_provenance() -> None
             "session 2 - turn # D2-14 Caroline: Family will be a challenge "
             "as a parent after the breakup, but my friends support me."
         ),
+        (
+            "dialogue 2 turn D2:14 Caroline: Family will be a challenge "
+            "as a parent after the breakup, but my friends support me."
+        ),
+        (
+            "D2:14 in conversation 2 Caroline: Family will be a challenge "
+            "as a parent after the breakup, but my friends support me."
+        ),
     ),
 )
 def test_candidate_features_capture_turn_prefixed_direct_session_turn(

@@ -108,7 +108,9 @@ def _evidence_context_heading(
 
 
 def _render_memory_evidence_line(memory: RetrievedMemory, *, index: int) -> str:
-    source_refs = _safe_source_refs_for_output(memory.source_refs)
+    source_refs = _safe_source_refs_for_output(
+        (memory.source_refs, memory.metadata)
+    )
     refs = f" refs={','.join(source_refs)}" if source_refs else ""
     text = _render_prompt_evidence_text(memory.text)
     metadata = memory.metadata

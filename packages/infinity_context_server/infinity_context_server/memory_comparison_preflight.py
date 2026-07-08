@@ -45,7 +45,10 @@ _SAFE_REPORTING_CONTRACTS = (
     ("answer_context_support_gaps", "answer_context_support_gaps.v1"),
     ("temporal_grounding_table", "temporal_grounding.v1"),
 )
-_LOCOMO_DIA_ID_RE = re.compile(r"\bD\d+:\d+\b", re.IGNORECASE)
+_LOCOMO_DIA_ID_RE = re.compile(
+    r"\bD(?P<dialogue>\d+)[:\-](?P<turn>\d+)\b",
+    re.IGNORECASE,
+)
 _LOCOMO_DIALOGUE_ID_RE = re.compile(r"^D(?P<dialogue>\d+)$", re.IGNORECASE)
 
 
@@ -707,7 +710,12 @@ def _official_locomo_samples(payload: object) -> tuple[Mapping[str, object], ...
     if isinstance(payload, Mapping):
         if _is_official_locomo_sample(payload):
             return (payload,)
-        raw_samples = payload.get("data") or payload.get("cases") or payload.get("items")
+        raw_samples = (
+            payload.get("data")
+            or payload.get("cases")
+            or payload.get("samples")
+            or payload.get("items")
+        )
         if raw_samples is not None:
             return _official_locomo_samples(raw_samples)
     if isinstance(payload, Sequence) and not isinstance(payload, str | bytes):
@@ -790,11 +798,33 @@ def _official_locomo_sample_turn_evidence_ids(
             turn_evidence_ids = _locomo_evidence_ids_from_mapping(turn)
             if turn_evidence_ids:
                 evidence_ids.update(turn_evidence_ids)
-            else:
-                evidence_ids.add(f"{key}:{index + 1}")
-                if dialogue_ref := _locomo_dialogue_ref_from_session_key(key):
-                    evidence_ids.add(f"{dialogue_ref}:{index + 1}")
+            evidence_ids.update(
+                _locomo_synthesized_turn_evidence_ids(
+                    turn,
+                    session_key=key,
+                    turn_index=index,
+                )
+            )
     return frozenset(evidence_ids)
+
+
+def _locomo_synthesized_turn_evidence_ids(
+    turn: Mapping[str, object],
+    *,
+    session_key: object,
+    turn_index: int,
+) -> tuple[str, ...]:
+    session_key_text = str(session_key)
+    fallback_id = f"{session_key_text}:{turn_index + 1}"
+    dialogue_ref = _locomo_dialogue_ref_from_session_key(session_key_text)
+    if not dialogue_ref:
+        return (fallback_id,)
+    raw_id = _text_field(turn, "dia_id", "id")
+    if raw_id and _locomo_dia_ids_from_text(raw_id):
+        return (*_locomo_dia_ids_from_text(raw_id), fallback_id)
+    if raw_id and raw_id.isdigit() and int(raw_id) > 0:
+        return (f"{dialogue_ref}:{int(raw_id)}", fallback_id)
+    return (f"{dialogue_ref}:{turn_index + 1}", fallback_id)
 
 
 def _qa_has_backed_turn_evidence(
@@ -803,7 +833,7 @@ def _qa_has_backed_turn_evidence(
 ) -> bool:
     return any(
         evidence_id in turn_evidence_ids
-        for evidence_id in _locomo_qa_evidence_ids(qa.get("evidence"))
+        for evidence_id in _locomo_qa_evidence_ids(qa)
     )
 
 
@@ -849,12 +879,16 @@ def _locomo_qa_evidence_values(value: object) -> tuple[object, ...]:
             "source_turn",
             "source_turn_id",
             "source_turn_index",
+            "source_turn_ref",
+            "source_turn_refs",
             "supporting_evidence",
             "supporting_facts",
             "turn",
             "turn_id",
             "turn_index",
             "turn_ids",
+            "turn_ref",
+            "turn_refs",
         ):
             if key in value:
                 values.extend(_locomo_qa_evidence_values(value.get(key)))
@@ -884,7 +918,9 @@ def _locomo_evidence_ids_from_mapping(value: Mapping[str, object]) -> tuple[str,
         "source_dia_id",
         "source_evidence_ref",
         "source_ref",
+        "source_turn_ref",
         "turn_id",
+        "turn_ref",
     ):
         text = _text_field(value, key)
         if not text:
@@ -899,8 +935,10 @@ def _locomo_evidence_ids_from_mapping(value: Mapping[str, object]) -> tuple[str,
         "source_identity_items",
         "source_evidence_refs",
         "source_refs",
+        "source_turn_refs",
         "supporting_evidence",
         "supporting_facts",
+        "turn_refs",
     ):
         for raw_value in _locomo_qa_evidence_values(value.get(key)):
             text = str(raw_value or "").strip()
@@ -925,9 +963,36 @@ def _locomo_dialogue_number_from_mapping(value: Mapping[str, object]) -> int | N
         "source_dialogue_id",
         "source_dialogue_index",
         "source_dia_id",
+        "source_conversation",
+        "source_conversation_id",
+        "source_conversation_index",
+        "locomo_session",
+        "locomo_session_id",
+        "locomo_session_index",
+        "locomo_session_number",
+        "locomo_conversation",
+        "locomo_conversation_id",
+        "locomo_conversation_index",
+        "locomo_conversation_number",
+        "locomo_dialogue",
+        "locomo_dialogue_id",
+        "locomo_dialogue_index",
+        "locomo_dialogue_number",
+        "conversation",
+        "conversation_id",
+        "conversation_index",
+        "conversation_number",
+        "conv",
+        "conv_id",
+        "conv_index",
+        "conv_number",
         "dialogue_id",
         "dialogue_index",
         "dia_id",
+        "session",
+        "session_id",
+        "session_index",
+        "session_number",
     ):
         parsed = _locomo_positive_int(value.get(key), allow_dialogue_prefix=True)
         if parsed is not None:
@@ -939,10 +1004,32 @@ def _locomo_turn_number_from_mapping(value: Mapping[str, object]) -> int | None:
     for key in (
         "source_turn",
         "source_turn_id",
+        "source_turn_idx",
         "source_turn_index",
+        "source_turn_number",
+        "source_utterance",
+        "source_utterance_id",
+        "source_utterance_idx",
+        "source_utterance_index",
+        "source_utterance_number",
+        "locomo_turn",
+        "locomo_turn_id",
+        "locomo_turn_idx",
+        "locomo_turn_index",
+        "locomo_turn_number",
         "turn",
         "turn_id",
+        "turn_idx",
         "turn_index",
+        "turn_number",
+        "utt",
+        "utt_id",
+        "utt_idx",
+        "utt_index",
+        "utt_number",
+        "utterance_id",
+        "utterance_index",
+        "utterance_number",
     ):
         parsed = _locomo_positive_int(value.get(key), allow_dialogue_prefix=False)
         if parsed is not None:
@@ -969,7 +1056,7 @@ def _locomo_positive_int(
         if match is not None:
             return int(match.group("dialogue"))
         match = re.fullmatch(
-            r"(?:session|dialogue)[-_](?P<dialogue>\d+)",
+            r"(?:session|conversation|conv|dialogue|dialog)[-_](?P<dialogue>\d+)",
             stripped,
             re.IGNORECASE,
         )
@@ -993,7 +1080,8 @@ def _locomo_positive_int(
 def _locomo_dia_ids_from_text(value: str) -> tuple[str, ...]:
     return tuple(
         dict.fromkeys(
-            match.group(0).upper() for match in _LOCOMO_DIA_ID_RE.finditer(value)
+            f"D{match.group('dialogue')}:{match.group('turn')}"
+            for match in _LOCOMO_DIA_ID_RE.finditer(value)
         )
     )
 
@@ -1028,7 +1116,22 @@ def _official_locomo_qa_group(qa: Mapping[str, object]) -> str | None:
 
 
 def _has_locomo_answer_or_evidence(qa: Mapping[str, object]) -> bool:
-    for key in ("answer", "expected_answer", "answers", "evidence"):
+    for key in (
+        "answer",
+        "expected_answer",
+        "answers",
+        "evidence",
+        "evidence_ref",
+        "evidence_refs",
+        "locomo_evidence_ref",
+        "locomo_evidence_refs",
+        "source_evidence_ref",
+        "source_evidence_refs",
+        "source_ref",
+        "source_refs",
+        "source_turn_ref",
+        "source_turn_refs",
+    ):
         if _has_text_value(qa.get(key)):
             return True
     return False

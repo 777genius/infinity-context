@@ -2221,6 +2221,7 @@ def test_query_expansion_covers_generic_multimodal_evidence_bridges() -> None:
     due = build_query_expansion_plan("When is Atlas due?")
     overdue = build_query_expansion_plan("Which Atlas tasks are overdue?")
     next_step = build_query_expansion_plan("What is the next step for Atlas?")
+    remaining_work = build_query_expansion_plan("What is left to do for Atlas?")
     assigned = build_query_expansion_plan("Who is assigned to Atlas?")
     promise = build_query_expansion_plan("What did Alex promise after Atlas?")
     agreed = build_query_expansion_plan("What did Alex agree to after Atlas?")
@@ -2285,6 +2286,10 @@ def test_query_expansion_covers_generic_multimodal_evidence_bridges() -> None:
         next_step,
         "followup_task_bridge",
     )
+    assert "left remaining open outstanding pending unfinished" in _expansion_query(
+        remaining_work,
+        "followup_task_bridge",
+    )
     assert "deadline due date target date" in _expansion_query(
         deadline,
         "deadline_commitment_bridge",
@@ -2323,6 +2328,7 @@ def test_query_expansion_covers_gotcha_failure_bridge() -> None:
     watch_out = build_query_expansion_plan("What should I watch out for in Atlas deployment?")
     went_wrong = build_query_expansion_plan("What went wrong with Atlas Docker?")
     known_issue = build_query_expansion_plan("What known issues does Atlas have?")
+    blocker = build_query_expansion_plan("What blockers are open for Atlas?")
     russian = build_query_expansion_plan("Какие подводные камни у Атласа?")
     issue_number = build_query_expansion_plan("Which issue number did Alex mention?")
 
@@ -2336,6 +2342,10 @@ def test_query_expansion_covers_gotcha_failure_bridge() -> None:
     )
     assert "known problem failure failed" in _expansion_query(
         known_issue,
+        "gotcha_failure_bridge",
+    )
+    assert "blocked blocker blockers blocked on" in _expansion_query(
+        blocker,
         "gotcha_failure_bridge",
     )
     assert "подводные камни известная проблема" in _expansion_query(
@@ -4567,6 +4577,11 @@ def test_query_expansion_bridges_health_lifestyle_queries() -> None:
     incident = build_query_expansion_plan(
         "When did Evan have his sudden heart palpitation incident?"
     )
+    doctor = build_query_expansion_plan("Who is Alex's doctor?")
+    medication = build_query_expansion_plan("What medication does Alex take?")
+    condition = build_query_expansion_plan("What condition does Alex have?")
+    blood_type = build_query_expansion_plan("What is Alex's blood type?")
+    dentist = build_query_expansion_plan("When is Alex's dentist appointment?")
     snacks = build_query_expansion_plan("What kind of unhealthy snacks does Sam enjoy eating?")
     grocery = build_query_expansion_plan(
         "What frustrating issue did Sam face at the supermarket?"
@@ -4582,6 +4597,26 @@ def test_query_expansion_bridges_health_lifestyle_queries() -> None:
     )
     assert "heart palpitation palpitations shocked" in _expansion_query(
         incident,
+        "health_lifestyle_bridge",
+    )
+    assert "health profile doctor physician primary care" in _expansion_query(
+        doctor,
+        "health_lifestyle_bridge",
+    )
+    assert "therapist medication medicine prescription" in _expansion_query(
+        medication,
+        "health_lifestyle_bridge",
+    )
+    assert "allergy condition diagnosis diagnosed" in _expansion_query(
+        condition,
+        "health_lifestyle_bridge",
+    )
+    assert "blood type dentist appointment" in _expansion_query(
+        blood_type,
+        "health_lifestyle_bridge",
+    )
+    assert "blood type dentist appointment" in _expansion_query(
+        dentist,
         "health_lifestyle_bridge",
     )
     assert "healthy meals snacks unhealthy snacks" in _expansion_query(

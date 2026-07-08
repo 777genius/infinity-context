@@ -1813,6 +1813,15 @@ def build_query_decomposition_plan(
             ),
             reason="decomposition_relationship_status",
         )
+        if raw_tokens.intersection({"friend", "friends", "друг", "друзья", "дружба"}):
+            _append_candidate(
+                candidates,
+                query=_compose_query(
+                    (*identities, *salient_terms),
+                    "relationship status friends friendship dating partner family",
+                ),
+                reason="decomposition_clause",
+            )
     if variants.intersection(_ACTION_ROLE_TERMS):
         _append_candidate(
             candidates,
@@ -2504,6 +2513,7 @@ def _requests_knowledge_update_current(
     return bool(
         variants.intersection(_KNOWLEDGE_UPDATE_PROMPT_TERMS)
         and variants.intersection(_KNOWLEDGE_UPDATE_PROMPT_ACTION_TERMS)
+        and variants.intersection({"use", "использовать"})
         and variants.intersection(_KNOWLEDGE_UPDATE_STRONG_DECISION_TERMS)
     )
 

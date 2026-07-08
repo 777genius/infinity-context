@@ -22,6 +22,9 @@ from infinity_context_core.application.context_item_purchase_evidence import (
     has_item_purchase_temporal_or_media_marker,
     has_item_purchase_verb_marker,
 )
+from infinity_context_core.application.context_relative_duration_evidence import (
+    has_relative_duration_event_evidence,
+)
 from infinity_context_core.application.context_relevance import QueryRelevance
 from infinity_context_core.application.context_travel_place_evidence import (
     has_travel_place_inventory_evidence,
@@ -1687,6 +1690,15 @@ def age_birthday_rerank_signal(
         return DomainRerankSignal(
             penalty=0.052,
             reason="age_birthday_birthplace_query_noise",
+        )
+    if has_relative_duration_event_evidence(
+        query=query,
+        query_reason=query_reason,
+        text=item.text,
+    ):
+        return DomainRerankSignal(
+            boost=0.034,
+            reason="age_birthday_relative_duration_evidence",
         )
     if _AGE_BIRTHDAY_EXACT_RE.search(item.text) is not None:
         return DomainRerankSignal(boost=0.026, reason="age_birthday_exact_evidence")

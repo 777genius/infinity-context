@@ -1833,11 +1833,29 @@ def _with_deterministic_rerank_adjustment(
         "deterministic_rerank_reasons": list(signals.reasons[:8]),
         "deterministic_rerank_anchor_conflict": signals.anchor_conflict,
     }
+    reranked_score = min(0.99, max(0.0, round(normalized_item.score + signals.net_adjustment, 4)))
+    reranked_score = max(reranked_score, _strong_artifact_evidence_score_floor(diagnostics))
     return replace(
         normalized_item,
-        score=min(0.99, max(0.0, round(normalized_item.score + signals.net_adjustment, 4))),
+        score=reranked_score,
         diagnostics=normalize_context_diagnostics(diagnostics),
     )
+
+
+def _strong_artifact_evidence_score_floor(diagnostics: dict[str, object]) -> float:
+    score_signals = safe_score_signals(diagnostics.get("score_signals"))
+    if (
+        diagnostics.get("retrieval_source") == "artifact_evidence"
+        and diagnostics.get("evidence_kind") in {"ocr_region", "transcript_segment"}
+        and _non_negative_float_signal(score_signals.get("evidence_confidence")) >= 0.9
+        and _non_negative_float_signal(score_signals.get("coordinate_boost")) > 0
+        and (
+            _coverage_int(score_signals.get("unique_term_hits")) >= 3
+            or _coverage_int(score_signals.get("phrase_bigram_hits")) >= 1
+        )
+    ):
+        return 0.9
+    return 0.0
 
 
 def _deterministic_rerank_signals(

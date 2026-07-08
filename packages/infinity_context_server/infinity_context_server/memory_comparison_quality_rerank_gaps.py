@@ -351,13 +351,56 @@ def _selected_without_positive_rerank_sample(
     cap_signals = _visible_signal_values(score_signals, "cap")
     if cap_signals:
         sample["cap_signals"] = cap_signals
-    source_identity_refs = _safe_source_refs_for_output(
-        _source_refs_from_bundle_item(selected_item)
-        or (_source_refs_from_memory(matched_memory) if matched_memory else ())
-    )
+    selected_source_refs = _str_tuple(selected_item.get("source_refs"))
+    source_identity_refs = _safe_selected_source_refs_for_output(
+        selected_source_refs
+    ) or _safe_source_refs_for_output(_source_refs_from_bundle_item(selected_item))
+    if not source_identity_refs and matched_memory:
+        source_identity_refs = _safe_source_refs_for_output(
+            _source_refs_from_memory(matched_memory)
+        )
     if source_identity_refs:
         sample["source_identity_refs"] = source_identity_refs
     return sample
+
+
+def _safe_selected_source_refs_for_output(source_refs: Sequence[str]) -> tuple[str, ...]:
+    refs = _safe_source_refs_for_output(source_refs)
+    if not refs:
+        return ()
+    explicit_turn_refs: set[str] = set()
+    has_explicit_identity_input = False
+    for raw_ref in source_refs:
+        raw_text = str(raw_ref or "").strip()
+        raw_lower = raw_text.lower()
+        if raw_lower.startswith(("source_session_turn_refs:", "source_turn_refs:")):
+            has_explicit_identity_input = True
+        if raw_lower.startswith("source_turn_refs:"):
+            explicit_turn_refs.update(
+                ref.removeprefix("source_turn_refs:")
+                for ref in _safe_source_refs_for_output((raw_text,))
+                if ref.startswith("source_turn_refs:")
+            )
+    if not has_explicit_identity_input:
+        return refs
+    session_turn_refs = {
+        session_ref.split(":", 1)[1]
+        for ref in refs
+        if ref.startswith("source_session_turn_refs:")
+        for session_ref in (ref.removeprefix("source_session_turn_refs:"),)
+        if ":" in session_ref
+    }
+    if not session_turn_refs:
+        return refs
+    return tuple(
+        ref
+        for ref in refs
+        if not (
+            ref.startswith("source_turn_refs:")
+            and ref.removeprefix("source_turn_refs:") in session_turn_refs
+            and ref.removeprefix("source_turn_refs:") not in explicit_turn_refs
+        )
+    )
 
 
 def _rerank_gap_candidate_sample(

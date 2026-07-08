@@ -24,7 +24,8 @@ _SPECIES_PATTERNS: tuple[tuple[str, re.Pattern[str]], ...] = (
     (
         "dog",
         re.compile(
-            r"\bdogs?\b|\bpupp(?:y|ies)\b|\bpups?\b|\bсобак\w*|\bп[её]с\w*\b", re.IGNORECASE
+            r"\bdogs?\b|\bpupp(?:y|ies)\b|\bpups?\b|\bсобак\w*|\bп[её]с\w*\b",
+            re.IGNORECASE,
         ),
     ),
     ("turtle", re.compile(r"\bturtles?\b|\bчерепах\w*\b", re.IGNORECASE)),

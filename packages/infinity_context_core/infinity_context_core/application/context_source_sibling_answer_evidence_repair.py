@@ -408,6 +408,23 @@ _EXACT_REPAIR_SUPPORT_CAREER_MOTIVATION_RE = re.compile(
     r"safe,\s*inviting\s+place)\b",
     re.IGNORECASE | re.DOTALL,
 )
+_EXACT_REPAIR_OPINION_REACTION_RE = re.compile(
+    r"\b(?:supportive|proud|excited|happy|agree|approve|approved|concerned|"
+    r"disagree|encourag(?:e|ed|es|ing)|lovely|amazing|awesome|wonderful|"
+    r"great\s+idea|good\s+idea|glad|thrilled)\b|"
+    r"\b(?:you|they|he|she)(?:'ll| will)\s+be\s+(?:an?\s+)?"
+    r"(?:awesome|great|amazing|wonderful|good)\b",
+    re.IGNORECASE | re.DOTALL,
+)
+_EXACT_REPAIR_OPINION_REACTION_ADOPTION_QUERY_RE = re.compile(
+    r"\b(?:adopt|adopted|adopting|adoption|children|child|kids?|family|parent)\b",
+    re.IGNORECASE,
+)
+_EXACT_REPAIR_OPINION_REACTION_ADOPTION_TEXT_RE = re.compile(
+    r"\b(?:adopt|adopted|adopting|adoption|children|child|kids?|family|"
+    r"mom|mother|dad|father|parent)\b",
+    re.IGNORECASE,
+)
 _EXACT_REPAIR_CHARITY_BRAND_SPONSORSHIP_RE = re.compile(
     r"\b(?:signed(?:\s+up)?|secure(?:d|s)?|landed|in\s+talks?\s+with|"
     r"sponsor(?:ship|ed|s)?|endorse(?:ment|d|s)?|partner(?:ship|ed|s)?)\b"
@@ -540,7 +557,21 @@ _EXACT_REPAIR_ACTIVITY_PARTICIPATION_REASONS = frozenset(
         "activity-visual-selfcare-bridge",
         "decomposition-activity-participation",
         "destress-activity-bridge",
+        "family-activity-bridge",
+        "family-hike-activity-bridge",
+        "family-hike-detail-bridge",
+        "family-museum-activity-bridge",
+        "family-painting-activity-bridge",
+        "family-swimming-activity-bridge",
     }
+)
+_EXACT_REPAIR_LIST_MARKER_DERIVATION_REASONS = (
+    _EXACT_REPAIR_ACTIVITY_PARTICIPATION_REASONS
+    | frozenset(
+        {
+            "children-preference-bridge",
+        }
+    )
 )
 _EXACT_REPAIR_RECOMMENDATION_REASONS = frozenset(
     {
@@ -575,7 +606,7 @@ _EXACT_REPAIR_TEXT_MARKER_DERIVATION_REASONS = frozenset(
         "decomposition-country-destination",
         "decomposition-activity-duration",
     }
-)
+) | _EXACT_REPAIR_LIST_MARKER_DERIVATION_REASONS
 _EXACT_REPAIR_EXERCISE_COMPANION_RE = re.compile(
     r"(?=.*\b(?:yoga|class(?:es)?|lesson|practice|workout|exercise|fitness|"
     r"training|kickboxing|taekwondo|boxing|running|hiking|camping)\b)"
@@ -826,10 +857,16 @@ def _filtered_exact_source_sibling_answer_evidence_repair_refs(
 ) -> tuple[SourceRef, ...]:
     reason = _exact_source_repair_query_reason(item)
     query = _exact_source_repair_query_text(item)
+    candidate_refs = _exact_source_sibling_answer_evidence_candidate_refs(
+        item,
+        refs=refs,
+        reason=reason,
+        query=query,
+    )
     if english_lifestyle_query_kind(query):
         lifestyle_refs = tuple(
             ref
-            for ref in refs
+            for ref in candidate_refs
             if str(ref.source_id).casefold().endswith(":turn")
             and _english_lifestyle_exact_ref_repair_rank(
                 item_text=item.text,
@@ -839,8 +876,12 @@ def _filtered_exact_source_sibling_answer_evidence_repair_refs(
             < 5
         )
         return lifestyle_refs
-    if len(refs) <= 1 and reason not in _EXACT_REPAIR_TEXT_MARKER_DERIVATION_REASONS:
-        return tuple(refs)
+    if (
+        len(candidate_refs) <= 1
+        and len(refs) <= 1
+        and reason not in _EXACT_REPAIR_TEXT_MARKER_DERIVATION_REASONS
+    ):
+        return tuple(candidate_refs)
     if reason not in {
         "animal-activity-inventory-bridge",
         "animal-affinity-pet-store-bridge",
@@ -869,6 +910,7 @@ def _filtered_exact_source_sibling_answer_evidence_repair_refs(
         "outdoor-activity-inventory-bridge",
         "outdoor-nature-memory-bridge",
         "outdoor-preference-bridge",
+        "opinion-reaction-bridge",
         "pet-adjustment-bridge",
         "planning-tool-use-bridge",
         "public-office-service-bridge",
@@ -883,10 +925,10 @@ def _filtered_exact_source_sibling_answer_evidence_repair_refs(
         "travel-country-inventory-bridge",
         "volunteering-people-inventory-bridge",
     }:
-        return tuple(refs)
+        return tuple(candidate_refs)
     selected: list[SourceRef] = []
     selected_source_ids: set[str] = set()
-    for ref in refs:
+    for ref in candidate_refs:
         source_id = str(ref.source_id)
         if not source_id.casefold().endswith(":turn"):
             continue
@@ -902,7 +944,7 @@ def _filtered_exact_source_sibling_answer_evidence_repair_refs(
         selected.extend(
             _derived_supported_exact_source_repair_refs(
                 item,
-                refs=refs,
+                refs=list(candidate_refs),
                 reason=reason,
                 existing_source_ids=selected_source_ids,
             )
@@ -910,7 +952,7 @@ def _filtered_exact_source_sibling_answer_evidence_repair_refs(
     selected.extend(
         _related_turn_exact_source_repair_refs(
             item,
-            refs=refs,
+            refs=list(candidate_refs),
             reason=reason,
             existing_source_ids={
                 *(str(ref.source_id) for ref in selected),
@@ -919,6 +961,83 @@ def _filtered_exact_source_sibling_answer_evidence_repair_refs(
         )
     )
     return tuple(selected)
+
+
+def _exact_source_sibling_answer_evidence_candidate_refs(
+    item: ContextItem,
+    *,
+    refs: list[SourceRef],
+    reason: str,
+    query: str,
+) -> tuple[SourceRef, ...]:
+    candidates: list[SourceRef] = []
+    seen_source_ids: set[str] = set()
+    for ref in refs:
+        source_id = str(ref.source_id or "")
+        if source_id.casefold().endswith(":turn") and source_id not in seen_source_ids:
+            seen_source_ids.add(source_id)
+            candidates.append(ref)
+    if reason in _EXACT_REPAIR_TEXT_MARKER_DERIVATION_REASONS:
+        for ref in _source_group_exact_source_repair_refs(
+            item,
+            refs=refs,
+            reason=reason,
+            query=query,
+            existing_source_ids=seen_source_ids,
+        ):
+            source_id = str(ref.source_id or "")
+            if source_id in seen_source_ids:
+                continue
+            seen_source_ids.add(source_id)
+            candidates.append(ref)
+    return tuple(candidates)
+
+
+def _source_group_exact_source_repair_refs(
+    item: ContextItem,
+    *,
+    refs: list[SourceRef],
+    reason: str,
+    query: str,
+    existing_source_ids: set[str],
+) -> tuple[SourceRef, ...]:
+    derived: list[SourceRef] = []
+    seen_source_ids = set(existing_source_ids)
+    for ref in refs:
+        source_group = _dialogue_source_group_from_source_id(str(ref.source_id or ""))
+        if not source_group:
+            continue
+        for marker in dict.fromkeys(_DIALOGUE_MARKER_RE.findall(item.text)):
+            if not _source_group_matches_dialogue_marker(source_group, marker=marker):
+                continue
+            source_id = f"{source_group}:{marker}:turn"
+            if source_id in seen_source_ids:
+                continue
+            focused_text = _focused_exact_source_repair_text(
+                text=item.text,
+                source_id=source_id,
+            )
+            if not _exact_source_repair_focused_text_supported(
+                reason=reason,
+                text=focused_text,
+                query=query,
+            ):
+                continue
+            seen_source_ids.add(source_id)
+            derived.append(
+                replace(
+                    ref,
+                    source_type=_derived_exact_source_type(ref, source_id=source_id),
+                    source_id=source_id,
+                )
+            )
+    return tuple(derived)
+
+
+def _derived_exact_source_type(ref: SourceRef, *, source_id: str) -> str:
+    if source_id.startswith("locomo:"):
+        return "locomo_turn"
+    return ref.source_type
 
 
 def _derived_supported_exact_source_repair_refs(
@@ -1103,6 +1222,19 @@ def _country_destination_exact_repair_rank(*, text: str, query: str) -> int:
     )
 
 
+def _is_opinion_reaction_exact_repair_text_supported(
+    *,
+    text: str,
+    query: str,
+) -> bool:
+    if _EXACT_REPAIR_OPINION_REACTION_RE.search(text) is None:
+        return False
+    return not (
+        _EXACT_REPAIR_OPINION_REACTION_ADOPTION_QUERY_RE.search(query) is not None
+        and _EXACT_REPAIR_OPINION_REACTION_ADOPTION_TEXT_RE.search(text) is None
+    )
+
+
 def _exact_source_repair_focused_text_supported(
     *,
     reason: str,
@@ -1135,6 +1267,11 @@ def _exact_source_repair_focused_text_supported(
         return _EXACT_REPAIR_SUPPORT_CAREER_MOTIVATION_RE.search(text) is not None
     if reason == "charity-brand-sponsorship-bridge":
         return _EXACT_REPAIR_CHARITY_BRAND_SPONSORSHIP_RE.search(text) is not None
+    if reason == "opinion-reaction-bridge":
+        return _is_opinion_reaction_exact_repair_text_supported(
+            text=text,
+            query=query,
+        )
     if reason == "classical-music-preference-bridge":
         return _EXACT_REPAIR_CLASSICAL_MUSIC_PREFERENCE_RE.search(text) is not None
     if reason == "sentimental-reminder-bridge":
@@ -1443,7 +1580,20 @@ def _is_exact_source_sibling_answer_evidence_item(item: ContextItem) -> bool:
     turn_refs = tuple(
         ref for ref in item.source_refs if str(ref.source_id).casefold().endswith(":turn")
     )
-    return bool(turn_refs)
+    if turn_refs:
+        return True
+    reason = _exact_source_repair_query_reason(item)
+    if reason not in _EXACT_REPAIR_TEXT_MARKER_DERIVATION_REASONS:
+        return False
+    return bool(
+        _source_group_exact_source_repair_refs(
+            item,
+            refs=list(item.source_refs),
+            reason=reason,
+            query=_exact_source_repair_query_text(item),
+            existing_source_ids=set(),
+        )
+    )
 
 
 def _source_sibling_answer_continuation_hydration_requests(

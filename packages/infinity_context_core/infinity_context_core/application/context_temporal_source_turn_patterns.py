@@ -51,6 +51,27 @@ _BETWEEN_SOURCE_TURN_PATTERN = (
     r"(?:(?:source\s+)?(?:ref|reference)\s+)?(?:source\s+)?(?:turn\s+)?"
     rf"(?P<before_ref>{_SOURCE_TURN_REF_TOKEN})"
 )
+_IMPLICIT_RANGE_SOURCE_TURN_PATTERN = (
+    r"\b(?:in|during|within)\s+(?:the\s+)?"
+    r"(?:(?:source\s+)?(?:ref|reference)s?\s+)?(?:source\s+)?(?:turns?\s+)?"
+    rf"(?P<after_ref>{_SOURCE_TURN_REF_TOKEN})"
+    r"\s+(?:and|to|through|until)\s+(?:the\s+)?"
+    r"(?:(?:source\s+)?(?:ref|reference)\s+)?(?:source\s+)?(?:turns?\s+)?"
+    rf"(?P<before_ref>{_SOURCE_TURN_REF_TOKEN})"
+)
+_COMPACT_RANGE_SOURCE_TURN_PATTERN = (
+    r"\b(?:between|from|in|during|within)\s+(?:the\s+)?"
+    r"(?:(?:source\s+)?(?:ref|reference)s?\s+)?(?:source\s+)?(?:turns?\s+)?"
+    rf"(?P<after_ref>{_SOURCE_TURN_LABEL_PATTERN})"
+    r"\s*-\s*"
+    rf"(?P<before_ref>{_SOURCE_TURN_LABEL_PATTERN})"
+)
+_SAME_DIALOGUE_RANGE_SOURCE_TURN_PATTERN = (
+    r"\b(?:between|from|in|during|within)\s+(?:the\s+)?"
+    r"(?:(?:source\s+)?(?:ref|reference)s?\s+)?(?:source\s+)?(?:turns?\s+)?"
+    r"D(?P<dialogue>\d{1,4})[:-](?P<after_turn>\d{1,4})"
+    r"\s*(?:-|to|through|until)\s*#?(?P<before_turn>\d{1,4})\b"
+)
 _NEAR_SOURCE_TURN_PATTERN = (
     r"\b(?:around|near|nearby|close\s+to|adjacent\s+to|same\s+turn\s+as)"
     r"\s+(?:the\s+)?(?:(?:source\s+)?(?:ref|reference)\s+)?"
@@ -121,6 +142,11 @@ _BEFORE_SCOPED_SOURCE_TURN_RE = _source_turn_regex(
 _BETWEEN_SOURCE_TURN_RE = _source_turn_regex(_BETWEEN_SOURCE_TURN_PATTERN)
 _BETWEEN_SCOPED_SOURCE_TURN_RE = _source_turn_regex(
     _BETWEEN_SOURCE_TURN_PATTERN + _SOURCE_SCOPE_PATTERN
+)
+_IMPLICIT_RANGE_SOURCE_TURN_RE = _source_turn_regex(_IMPLICIT_RANGE_SOURCE_TURN_PATTERN)
+_COMPACT_RANGE_SOURCE_TURN_RE = _source_turn_regex(_COMPACT_RANGE_SOURCE_TURN_PATTERN)
+_SAME_DIALOGUE_RANGE_SOURCE_TURN_RE = _source_turn_regex(
+    _SAME_DIALOGUE_RANGE_SOURCE_TURN_PATTERN
 )
 _NEAR_SOURCE_TURN_RE = _source_turn_regex(_NEAR_SOURCE_TURN_PATTERN)
 _NEAR_SCOPED_SOURCE_TURN_RE = _source_turn_regex(

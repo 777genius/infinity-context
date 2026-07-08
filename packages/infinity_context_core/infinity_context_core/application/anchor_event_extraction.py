@@ -1523,11 +1523,7 @@ def _is_probable_event_project_label(label: str) -> bool:
         return False
     if first in _PROJECT_LABEL_STOP_WORDS:
         return False
-    return _looks_like_project_label_continuation(label.split()[0]) or (
-        len(normalized.split()) == 1
-        and len(normalized) <= 40
-        and any(char.isalnum() for char in normalized)
-    )
+    return _looks_like_project_label_continuation(label.split()[0])
 
 
 def _clean_project_label(label: str) -> str:

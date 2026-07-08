@@ -121,9 +121,35 @@ def _context_is_degraded(diagnostics: dict[str, object]) -> bool:
     if diagnostics.get("retrieval_disabled") is True:
         return True
     return any(
-        diagnostics.get(key) == "degraded"
-        for key in ("vector_status", "graph_status", "rag_status")
+        _component_is_degraded(
+            diagnostics,
+            status_key=status_key,
+            reason_key=reason_key,
+        )
+        for status_key, reason_key in (
+            ("vector_status", "vector_degraded_reason"),
+            ("graph_status", "graph_degraded_reason"),
+            ("rag_status", "rag_degraded_reason"),
+        )
     )
+
+
+def _component_is_degraded(
+    diagnostics: dict[str, object],
+    *,
+    status_key: str,
+    reason_key: str,
+) -> bool:
+    if diagnostics.get(status_key) != "degraded":
+        return False
+    return not _is_disabled_reason(diagnostics.get(reason_key))
+
+
+def _is_disabled_reason(value: object) -> bool:
+    if not isinstance(value, str):
+        return False
+    reason = value.strip().casefold()
+    return reason == "disabled" or reason.endswith(".disabled")
 
 
 def _int_diagnostic(diagnostics: dict[str, object], key: str) -> int:

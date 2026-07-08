@@ -19,6 +19,7 @@ from infinity_context_core.application.context_media_time import (
     media_time_windows_from_query,
 )
 from infinity_context_core.application.context_query_expansion import QueryExpansionPlan
+from infinity_context_core.application.context_ranking import query_expansion_reason_priority
 from infinity_context_core.application.context_relevance import (
     QueryRelevance,
     is_query_relevance_sufficient,
@@ -438,6 +439,16 @@ def _context_items_from_manifest(
                 4,
             ),
         )
+        score = max(
+            score,
+            _strong_evidence_score_floor(
+                confidence=confidence,
+                coordinate_boost=coordinate_boost,
+                kind=kind,
+                modality=modality,
+                relevance=relevance,
+            ),
+        )
         items.append(
             ContextItem(
                 item_id=f"{artifact.id}:{evidence_id}",
@@ -543,14 +554,26 @@ def _best_evidence_relevance(
     return max(
         ranked,
         key=lambda item: (
+            _artifact_evidence_reason_intent_priority(query.query, item[1]),
             item[2].phrase_bigram_hits,
             item[2].unique_term_hits,
+            query_expansion_reason_priority(item[1]),
             item[2].hit_ratio,
             item[2].score_boost,
             item[2].capped_frequency_hits,
             1 if item[1] == "original_query" else 0,
         ),
     )
+
+
+def _artifact_evidence_reason_intent_priority(query: str, reason: str) -> int:
+    query_key = query.casefold()
+    if (
+        reason == "outdoor_preference_bridge"
+        and re.search(r"\b(?:prefer|preferred|preference|rather)\b", query_key)
+    ):
+        return 2
+    return 0
 
 
 def _safe_evidence_id(
@@ -775,6 +798,26 @@ def _artifact_evidence_rank_key(item: ContextItem) -> tuple[float, float, str, s
         str(item.source_refs[0].chunk_id if item.source_refs else ""),
         item.item_id,
     )
+
+
+def _strong_evidence_score_floor(
+    *,
+    confidence: float | None,
+    coordinate_boost: float,
+    kind: str,
+    modality: str,
+    relevance: QueryRelevance,
+) -> float:
+    if (
+        confidence is not None
+        and confidence >= 0.9
+        and coordinate_boost > 0
+        and (relevance.unique_term_hits >= 3 or relevance.phrase_bigram_hits >= 1)
+        and kind.casefold().strip() in {"ocr_region", "transcript_segment"}
+        and modality.casefold().strip() in {"image", "audio", "video", "document"}
+    ):
+        return 0.9
+    return 0.0
 
 
 def _looks_like_prompt_injection(text: str) -> bool:

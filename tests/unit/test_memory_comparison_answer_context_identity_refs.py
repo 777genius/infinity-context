@@ -34,6 +34,23 @@ def test_compact_answer_context_support_gap_samples_keeps_identity_refs() -> Non
                     "source_turn_refs:D1:1",
                     "source_session_turn_refs:session_1:D1:2",
                 ],
+                "source_identity_items": [
+                    {
+                        "source_identity_refs": [
+                            "source_session_turn_refs:session_1:D1:2",
+                            "provider:private-token",
+                        ],
+                        "item_id": "weak-selected",
+                        "retrieval_order": "1",
+                        "raw_payload": "must stay out",
+                    },
+                    {
+                        "source_identity_refs": [
+                            "locomo:conv-private:session_2:D2:5:turn-secret",
+                        ],
+                        "item_id": "locomo:conv-private:session_2:D2:5:turn-secret",
+                    },
+                ],
                 "retrieval_orders": [1, "3", "bad"],
                 "raw_payload": "must stay out",
             }
@@ -63,10 +80,28 @@ def test_compact_answer_context_support_gap_samples_keeps_identity_refs() -> Non
                 "source_turn_refs:D1:1",
                 "source_session_turn_refs:session_1:D1:2",
             ],
+            "source_identity_items": [
+                {
+                    "source_identity_refs": [
+                        "source_session_turn_refs:session_1:D1:2",
+                    ],
+                    "item_id": "weak-selected",
+                    "retrieval_order": 1,
+                },
+                {
+                    "source_identity_refs": [
+                        "source_session_turn_refs:session_2:D2:5",
+                        "source_turn_refs:D2:5",
+                    ],
+                },
+            ],
             "retrieval_orders": [1, 3],
         }
     ]
     assert "raw_payload" not in samples[0]
+    serialized = json.dumps(samples)
+    assert "locomo:conv-private" not in serialized
+    assert "provider:private-token" not in serialized
 
 
 def test_compact_answer_context_support_gap_samples_filters_unsafe_identity_refs() -> None:
@@ -873,6 +908,105 @@ def test_answer_context_qualifies_dialogue_prefixed_metadata_payload_refs() -> N
     serialized = json.dumps((context.memories[0].source_refs, diagnostics))
     assert "locomo:conv-private" not in serialized
     assert "turn-secret" not in serialized
+
+
+def test_answer_context_qualifies_source_conversation_metadata_payload_refs() -> None:
+    context = answer_context_from_evidence_bundle(
+        (
+            RetrievedMemory(
+                text="D12:6 Riley confirmed the studio visit.",
+                rank=1,
+                item_id="source-conversation-turn-metadata",
+                metadata={
+                    "source_ref_payloads": [
+                        {
+                            "source_external_id": "locomo:conv-private:turn-secret",
+                            "source_conversation_id": "conversation_12",
+                            "source_turn_index": "6",
+                        }
+                    ]
+                },
+            ),
+        ),
+        {},
+        cutoff=1,
+    )
+
+    diagnostics = context.to_diagnostics()
+
+    assert context.memories[0].source_refs == (
+        "source_session_turn_refs:session_12:D12:6",
+        "source_turn_refs:D12:6",
+    )
+    assert diagnostics["source_identity_refs"] == [
+        "source_session_turn_refs:session_12:D12:6",
+        "source_turn_refs:D12:6",
+    ]
+    serialized = json.dumps((context.memories[0].source_refs, diagnostics))
+    assert "locomo:conv-private" not in serialized
+    assert "turn-secret" not in serialized
+
+
+def test_answer_context_qualifies_key_value_source_identity_text_refs() -> None:
+    context = answer_context_from_evidence_bundle(
+        (
+            RetrievedMemory(
+                text="D12:6 Riley confirmed the studio visit.",
+                rank=1,
+                item_id="key-value-source-identity-text",
+                source_refs=(
+                    "locomo:conv-private auth_payload=secret "
+                    "session_id=session_12 source_turn_ref=D12:6",
+                ),
+            ),
+        ),
+        {},
+        cutoff=1,
+    )
+
+    diagnostics = context.to_diagnostics()
+
+    assert context.memories[0].source_refs == (
+        "source_session_turn_refs:session_12:D12:6",
+        "source_turn_refs:D12:6",
+    )
+    assert diagnostics["source_identity_refs"] == [
+        "source_session_turn_refs:session_12:D12:6",
+        "source_turn_refs:D12:6",
+    ]
+    serialized = json.dumps((context.memories[0].source_refs, diagnostics))
+    assert "locomo:conv-private" not in serialized
+    assert "auth_payload" not in serialized
+
+
+def test_answer_context_qualifies_numeric_key_value_source_identity_text_refs() -> None:
+    context = answer_context_from_evidence_bundle(
+        (
+            RetrievedMemory(
+                text="D12:6 Riley confirmed the studio visit.",
+                rank=1,
+                item_id="numeric-key-value-source-identity-text",
+                source_refs=(
+                    "provider-private session_id=12 source_turn_id=turn_6",
+                ),
+            ),
+        ),
+        {},
+        cutoff=1,
+    )
+
+    diagnostics = context.to_diagnostics()
+
+    assert context.memories[0].source_refs == (
+        "source_session_turn_refs:session_12:D12:6",
+        "source_turn_refs:D12:6",
+    )
+    assert diagnostics["source_identity_refs"] == [
+        "source_session_turn_refs:session_12:D12:6",
+        "source_turn_refs:D12:6",
+    ]
+    serialized = json.dumps((context.memories[0].source_refs, diagnostics))
+    assert "provider-private" not in serialized
 
 
 def test_answer_context_reads_structured_source_identity_metadata_refs() -> None:

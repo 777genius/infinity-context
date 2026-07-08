@@ -1521,6 +1521,11 @@ def _compact_answer_context_actionable_samples(
         )
         if source_identity_refs:
             compact["source_identity_refs"] = list(source_identity_refs)
+        source_identity_items = _compact_answer_context_source_identity_items(
+            sample.get("source_identity_items")
+        )
+        if source_identity_items:
+            compact["source_identity_items"] = list(source_identity_items)
         retrieval_orders = tuple(
             order
             for raw_order in _sequence(sample.get("retrieval_orders"))
@@ -1573,6 +1578,33 @@ def _compact_answer_context_source_identity_refs(value: object) -> tuple[str, ..
         )
     )
     return refs[:_MAX_ANSWER_CONTEXT_ACTIONABLE_SAMPLE_VALUES]
+
+
+def _compact_answer_context_source_identity_items(
+    value: object,
+) -> tuple[dict[str, object], ...]:
+    compact_items: list[dict[str, object]] = []
+    for raw_item in _sequence(value):
+        item = _mapping(raw_item)
+        if not item:
+            continue
+        compact: dict[str, object] = {}
+        item_id = _safe_item_id_for_output(item.get("item_id"))
+        if item_id:
+            compact["item_id"] = item_id
+        retrieval_order = _positive_int(item.get("retrieval_order"))
+        if retrieval_order is not None:
+            compact["retrieval_order"] = retrieval_order
+        source_identity_refs = _compact_answer_context_source_identity_refs(
+            item.get("source_identity_refs")
+        )
+        if source_identity_refs:
+            compact["source_identity_refs"] = list(source_identity_refs)
+        if compact:
+            compact_items.append(compact)
+        if len(compact_items) >= _MAX_ANSWER_CONTEXT_ACTIONABLE_SAMPLE_VALUES:
+            break
+    return tuple(compact_items)
 
 
 def _safe_answer_context_source_identity_ref(value: object) -> str | None:
@@ -1831,7 +1863,9 @@ def _compact_rerank_signal_item_ids(
         sample = _mapping(raw_sample)
         if not sample:
             continue
-        item_id = _compact_query_plan_sample_text(sample.get("item_id"))
+        item_id = _safe_item_id_for_output(sample.get("item_id"))
+        if item_id:
+            item_id = _compact_query_plan_sample_text(item_id)
         if item_id:
             item_ids.append(item_id)
         if len(item_ids) >= _MAX_RERANK_SIGNAL_ACTIONABLE_SAMPLE_VALUES:
@@ -1848,7 +1882,10 @@ def _compact_rerank_signal_selected_samples(
         if not sample:
             continue
         compact: dict[str, object] = {}
-        for key in ("item_id", "reason", "role"):
+        item_id = _safe_item_id_for_output(sample.get("item_id"))
+        if item_id:
+            compact["item_id"] = _compact_query_plan_sample_text(item_id)
+        for key in ("reason", "role"):
             value = _compact_query_plan_sample_text(sample.get(key))
             if value:
                 compact[key] = value

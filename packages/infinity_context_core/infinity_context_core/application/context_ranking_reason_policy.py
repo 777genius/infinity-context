@@ -632,7 +632,7 @@ QUERY_REASON_PRIORITY = {
     "negative_experience_support_bridge": 4,
     "nickname_bridge": 5,
     "outdoor_nature_memory_bridge": 3,
-    "outdoor_preference_bridge": 3,
+    "outdoor_preference_bridge": 4,
     "ordinal_answer_bridge": 3,
     "organization_summary_bridge": 4,
     "opinion_reaction_bridge": 4,

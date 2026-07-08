@@ -170,6 +170,7 @@ def object_attribute_rerank_signal(
     if object_hits and _has_local_attribute_evidence(
         attribute_kinds=intent.attribute_kinds,
         object_terms=object_hits,
+        person_terms=intent.person_terms,
         text=text,
     ):
         return DomainRerankSignal(
@@ -293,6 +294,7 @@ def _has_local_attribute_evidence(
     *,
     attribute_kinds: tuple[str, ...],
     object_terms: tuple[str, ...],
+    person_terms: tuple[str, ...],
     text: str,
 ) -> bool:
     for term in object_terms:
@@ -304,6 +306,13 @@ def _has_local_attribute_evidence(
                 start:end
             ]
             if _has_attribute_evidence(attribute_kinds, window):
+                return True
+            if _has_named_brand_model_value_near_object(
+                attribute_kinds=attribute_kinds,
+                object_term=term,
+                person_terms=person_terms,
+                text=window,
+            ):
                 return True
     return False
 
@@ -342,6 +351,44 @@ def _has_attribute_kind_evidence(kind: str, text: str) -> bool:
     if kind in {"brand", "model"}:
         return _BRAND_MODEL_VALUE_RE.search(text) is not None
     return False
+
+
+def _has_named_brand_model_value_near_object(
+    *,
+    attribute_kinds: tuple[str, ...],
+    object_term: str,
+    person_terms: tuple[str, ...],
+    text: str,
+) -> bool:
+    if not any(kind in {"brand", "model"} for kind in attribute_kinds):
+        return False
+    object_pattern = rf"{re.escape(object_term)}(?:s|es)?"
+    named_value = (
+        r"(?P<value>[A-Z][A-Za-z0-9'_-]{1,40}"
+        r"(?:\s+[A-Z0-9][A-Za-z0-9'_-]{1,40}){0,2})"
+    )
+    before_object = re.compile(
+        rf"\b(?i:(?:a|an|the|my|his|her|their|our|your))\s+{named_value}\s+"
+        rf"(?i:{object_pattern})\b",
+    )
+    after_object = re.compile(
+        rf"(?i:\b{object_pattern}\b\s+"
+        rf"(?:is|was|called|named|as|model|brand)\s+"
+        rf"(?:a|an|the)?\s*){named_value}\b",
+    )
+    banned_values = {term.casefold() for term in person_terms}
+    return any(
+        _named_value_is_attribute(match.group("value"), banned_values)
+        for pattern in (before_object, after_object)
+        for match in pattern.finditer(text)
+    )
+
+
+def _named_value_is_attribute(value: str, banned_values: set[str]) -> bool:
+    tokens = tuple(token.casefold() for token in _TOKEN_RE.findall(value))
+    if not tokens:
+        return False
+    return not any(token in banned_values for token in tokens)
 
 
 def _is_person_attribute_noise(person_terms: tuple[str, ...], text: str) -> bool:

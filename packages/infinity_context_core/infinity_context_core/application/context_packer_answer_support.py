@@ -1701,6 +1701,9 @@ def _answer_support_diversity_family(item: ContextItem) -> str:
     if matched_modalities:
         return _typed_diversity_family("requirement_modality", matched_modalities[0])
 
+    if _is_weak_vector_requirement_candidate(item):
+        return ""
+
     matched_features = _diagnostic_list(item, "context_requirement_matched_evidence_features")
     if matched_features:
         return _typed_diversity_family("requirement_feature", matched_features[0])
@@ -1716,6 +1719,18 @@ def _inventory_slot_precedes_marker_coverage(slot: str) -> bool:
         "skill_game_coaching",
         "skill_recipe_teaching",
     }
+
+
+def _is_weak_vector_requirement_candidate(item: ContextItem) -> bool:
+    retrieval_sources = set(diagnostic_retrieval_sources(item.diagnostics))
+    if retrieval_sources != {"vector_chunks"}:
+        return False
+    signals = _diagnostic_score_signals(item)
+    return (
+        _numeric_signal(signals.get("unique_term_hits")) <= 0
+        and _numeric_signal(signals.get("distinctive_term_hits")) <= 0
+        and _numeric_signal(signals.get("phrase_bigram_hits")) <= 0
+    )
 
 
 def _first_dialogue_marker(text: str) -> str:

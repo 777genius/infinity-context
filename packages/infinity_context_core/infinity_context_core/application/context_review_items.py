@@ -33,6 +33,7 @@ def pending_review_suggestion_item(
     *,
     suggestion,
     target_fact_id: str,
+    target_fact_text: str | None = None,
 ) -> ContextItem:
     review_kind = _suggestion_review_kind(suggestion)
     retrieval_source = _pending_suggestion_retrieval_source(review_kind)
@@ -47,6 +48,7 @@ def pending_review_suggestion_item(
             operation=suggestion.operation.value,
             review_kind=review_kind,
             target_fact_id=target_fact_id,
+            target_fact_text=target_fact_text,
         ),
         score=score,
         source_refs=suggestion.source_refs,
@@ -151,10 +153,12 @@ def _conflict_suggestion_text(
     candidate_text: str,
     operation: str,
     conflict_fact_id: str,
+    target_fact_text: str | None = None,
 ) -> str:
+    target_text = f" current active fact: {target_fact_text}" if target_fact_text else ""
     return (
         f"Pending review {operation} suggestion for active fact {conflict_fact_id}: "
-        f"{candidate_text}"
+        f"{candidate_text}{target_text}"
     )
 
 
@@ -319,6 +323,7 @@ def _pending_suggestion_text(
     operation: str,
     review_kind: str,
     target_fact_id: str,
+    target_fact_text: str | None = None,
 ) -> str:
     if review_kind == "duplicate_fact_merge":
         return (
@@ -329,4 +334,5 @@ def _pending_suggestion_text(
         candidate_text=candidate_text,
         operation=operation,
         conflict_fact_id=target_fact_id,
+        target_fact_text=target_fact_text,
     )

@@ -69,6 +69,45 @@ def test_llm_memory_line_quotes_text_and_collapses_prompt_injection_lines() -> N
     assert "refs=D4:2" in line
 
 
+def test_llm_memory_line_renders_metadata_source_identity_refs() -> None:
+    line = _render_memory_evidence_line(
+        RetrievedMemory(
+            text="Caroline found the support group helpful.",
+            rank=2,
+            metadata={
+                "source_identity_refs": (
+                    "source_session_turn_refs:session-4:D4-2",
+                ),
+            },
+        ),
+        index=1,
+    )
+
+    assert (
+        "refs=source_session_turn_refs:session_4:D4:2,source_turn_refs:D4:2"
+        in line
+    )
+
+
+def test_llm_memory_line_filters_raw_metadata_source_refs() -> None:
+    line = _render_memory_evidence_line(
+        RetrievedMemory(
+            text="Caroline found the support group helpful.",
+            rank=2,
+            metadata={
+                "source_refs": (
+                    "provider:private-token-abc123",
+                    "source_identity:source_turn_refs:D4:2",
+                ),
+            },
+        ),
+        index=1,
+    )
+
+    assert "refs=source_turn_refs:D4:2" in line
+    assert "provider:private-token" not in line
+
+
 def test_llm_memory_line_suppresses_raw_source_diversity_when_support_is_zero() -> None:
     line = _render_memory_evidence_line(
         RetrievedMemory(

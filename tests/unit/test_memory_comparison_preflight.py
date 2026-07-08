@@ -102,6 +102,35 @@ def test_memory_comparison_preflight_accepts_wrapped_locomo_fast_dataset(
     }
 
 
+def test_memory_comparison_preflight_accepts_samples_wrapped_locomo_fast_dataset(
+    tmp_path: Path,
+) -> None:
+    dataset = tmp_path / "locomo-samples-wrapped.json"
+    wrapped = {
+        "samples": _official_locomo_fast_dataset_payload(),
+        "metadata": {"source": "locomo"},
+    }
+    dataset.write_text(json.dumps(wrapped), encoding="utf-8")
+
+    result = run_memory_comparison_preflight(
+        _config(
+            dataset_path=dataset,
+            env={"MEM0_API_KEY": "secret-mem0"},
+        )
+    )
+
+    assert result["ready_for_locomo_fast"] is True
+    check = _check(result, "locomo_fast_dataset_case_coverage")
+    assert check["passed"] is True
+    assert check["details"]["official_turn_case_count"] == 40
+    assert check["details"]["selected_by_group"] == {
+        "multi-hop": 10,
+        "temporal": 10,
+        "open-domain": 10,
+        "single-hop": 10,
+    }
+
+
 def test_memory_comparison_preflight_accepts_textual_locomo_category_labels(
     tmp_path: Path,
 ) -> None:
@@ -314,6 +343,79 @@ def test_memory_comparison_preflight_backs_dia_refs_from_session_turn_position(
     }
 
 
+def test_memory_comparison_preflight_backs_dia_refs_from_numeric_turn_id(
+    tmp_path: Path,
+) -> None:
+    dataset = tmp_path / "locomo-numeric-turn-id-evidence.json"
+    payload = _official_locomo_fast_dataset_payload()
+    conversation = payload[0]["conversation"]
+    assert isinstance(conversation, dict)
+    session = conversation["session_1"]
+    assert isinstance(session, list)
+    turn = session[0]
+    assert isinstance(turn, dict)
+    del turn["dia_id"]
+    turn["id"] = "7"
+    for sample in payload:
+        for qa in sample["qa"]:
+            assert isinstance(qa, dict)
+            qa["evidence"] = ["D1:7"]
+    dataset.write_text(json.dumps(payload), encoding="utf-8")
+
+    result = run_memory_comparison_preflight(
+        _config(
+            dataset_path=dataset,
+            env={"MEM0_API_KEY": "secret-mem0"},
+        )
+    )
+
+    assert result["ready_for_locomo_fast"] is True
+    check = _check(result, "locomo_fast_dataset_case_coverage")
+    assert check["passed"] is True
+    assert check["details"]["selected_with_turn_evidence_by_group"] == {
+        "multi-hop": 10,
+        "temporal": 10,
+        "open-domain": 10,
+        "single-hop": 10,
+    }
+
+
+def test_memory_comparison_preflight_normalizes_hyphenated_dia_refs(
+    tmp_path: Path,
+) -> None:
+    dataset = tmp_path / "locomo-hyphenated-dia-id-evidence.json"
+    payload = _official_locomo_fast_dataset_payload()
+    conversation = payload[0]["conversation"]
+    assert isinstance(conversation, dict)
+    session = conversation["session_1"]
+    assert isinstance(session, list)
+    turn = session[0]
+    assert isinstance(turn, dict)
+    turn["dia_id"] = "D1-7"
+    for sample in payload:
+        for qa in sample["qa"]:
+            assert isinstance(qa, dict)
+            qa["evidence"] = ["D1:7"]
+    dataset.write_text(json.dumps(payload), encoding="utf-8")
+
+    result = run_memory_comparison_preflight(
+        _config(
+            dataset_path=dataset,
+            env={"MEM0_API_KEY": "secret-mem0"},
+        )
+    )
+
+    assert result["ready_for_locomo_fast"] is True
+    check = _check(result, "locomo_fast_dataset_case_coverage")
+    assert check["passed"] is True
+    assert check["details"]["selected_with_turn_evidence_by_group"] == {
+        "multi-hop": 10,
+        "temporal": 10,
+        "open-domain": 10,
+        "single-hop": 10,
+    }
+
+
 def test_memory_comparison_preflight_accepts_locomo_evidence_ref_alias(
     tmp_path: Path,
 ) -> None:
@@ -380,6 +482,80 @@ def test_memory_comparison_preflight_accepts_source_evidence_refs_on_turns(
     }
 
 
+def test_memory_comparison_preflight_accepts_top_level_qa_source_refs(
+    tmp_path: Path,
+) -> None:
+    dataset = tmp_path / "locomo-qa-top-level-source-refs.json"
+    payload = _official_locomo_fast_dataset_payload()
+    for sample in payload:
+        for qa in sample["qa"]:
+            assert isinstance(qa, dict)
+            del qa["answer"]
+            del qa["evidence"]
+            qa["source_refs"] = ["D1:1"]
+    dataset.write_text(json.dumps(payload), encoding="utf-8")
+
+    result = run_memory_comparison_preflight(
+        _config(
+            dataset_path=dataset,
+            env={"MEM0_API_KEY": "secret-mem0"},
+        )
+    )
+
+    assert result["ready_for_locomo_fast"] is True
+    check = _check(result, "locomo_fast_dataset_case_coverage")
+    assert check["passed"] is True
+    assert check["details"]["selected_by_group"] == {
+        "multi-hop": 10,
+        "temporal": 10,
+        "open-domain": 10,
+        "single-hop": 10,
+    }
+    assert check["details"]["selected_with_turn_evidence_by_group"] == {
+        "multi-hop": 10,
+        "temporal": 10,
+        "open-domain": 10,
+        "single-hop": 10,
+    }
+
+
+def test_memory_comparison_preflight_accepts_source_turn_ref_aliases(
+    tmp_path: Path,
+) -> None:
+    dataset = tmp_path / "locomo-source-turn-ref-aliases.json"
+    payload = _official_locomo_fast_dataset_payload()
+    conversation = payload[0]["conversation"]
+    assert isinstance(conversation, dict)
+    session = conversation["session_1"]
+    assert isinstance(session, list)
+    turn = session[0]
+    assert isinstance(turn, dict)
+    del turn["dia_id"]
+    turn["source_turn_ref"] = "source_turn_refs:D1:1"
+    for sample in payload:
+        for qa in sample["qa"]:
+            assert isinstance(qa, dict)
+            qa["evidence"] = [{"source_turn_refs": ["source_turn_refs:D1:1"]}]
+    dataset.write_text(json.dumps(payload), encoding="utf-8")
+
+    result = run_memory_comparison_preflight(
+        _config(
+            dataset_path=dataset,
+            env={"MEM0_API_KEY": "secret-mem0"},
+        )
+    )
+
+    assert result["ready_for_locomo_fast"] is True
+    check = _check(result, "locomo_fast_dataset_case_coverage")
+    assert check["passed"] is True
+    assert check["details"]["selected_with_turn_evidence_by_group"] == {
+        "multi-hop": 10,
+        "temporal": 10,
+        "open-domain": 10,
+        "single-hop": 10,
+    }
+
+
 def test_memory_comparison_preflight_accepts_source_identity_refs_on_turns(
     tmp_path: Path,
 ) -> None:
@@ -405,6 +581,101 @@ def test_memory_comparison_preflight_accepts_source_identity_refs_on_turns(
                             "source_identity_refs": [
                                 "source_session_turn_refs:session_1:D1:1"
                             ]
+                        }
+                    ]
+                }
+            ]
+    dataset.write_text(json.dumps(payload), encoding="utf-8")
+
+    result = run_memory_comparison_preflight(
+        _config(
+            dataset_path=dataset,
+            env={"MEM0_API_KEY": "secret-mem0"},
+        )
+    )
+
+    assert result["ready_for_locomo_fast"] is True
+    check = _check(result, "locomo_fast_dataset_case_coverage")
+    assert check["passed"] is True
+    assert check["details"]["selected_with_turn_evidence_by_group"] == {
+        "multi-hop": 10,
+        "temporal": 10,
+        "open-domain": 10,
+        "single-hop": 10,
+    }
+
+
+def test_memory_comparison_preflight_accepts_locomo_source_identity_aliases(
+    tmp_path: Path,
+) -> None:
+    dataset = tmp_path / "locomo-source-identity-aliases.json"
+    payload = _official_locomo_fast_dataset_payload()
+    conversation = payload[0]["conversation"]
+    assert isinstance(conversation, dict)
+    session = conversation["session_1"]
+    assert isinstance(session, list)
+    turn = session[0]
+    assert isinstance(turn, dict)
+    del turn["dia_id"]
+    turn["source_identity_items"] = [
+        {"locomo_session_number": "session_1", "locomo_turn_index": "utt_1"}
+    ]
+    for sample in payload:
+        for qa in sample["qa"]:
+            assert isinstance(qa, dict)
+            qa["evidence"] = [
+                {
+                    "source_identity_items": [
+                        {
+                            "locomo_session_number": "session_1",
+                            "locomo_turn_index": "utt_1",
+                        }
+                    ]
+                }
+            ]
+    dataset.write_text(json.dumps(payload), encoding="utf-8")
+
+    result = run_memory_comparison_preflight(
+        _config(
+            dataset_path=dataset,
+            env={"MEM0_API_KEY": "secret-mem0"},
+        )
+    )
+
+    assert result["ready_for_locomo_fast"] is True
+    check = _check(result, "locomo_fast_dataset_case_coverage")
+    assert check["passed"] is True
+    assert check["details"]["selected_with_turn_evidence_by_group"] == {
+        "multi-hop": 10,
+        "temporal": 10,
+        "open-domain": 10,
+        "single-hop": 10,
+    }
+
+
+def test_memory_comparison_preflight_accepts_conversation_utterance_aliases(
+    tmp_path: Path,
+) -> None:
+    dataset = tmp_path / "locomo-conversation-utterance-aliases.json"
+    payload = _official_locomo_fast_dataset_payload()
+    conversation = payload[0]["conversation"]
+    assert isinstance(conversation, dict)
+    session = conversation["session_1"]
+    assert isinstance(session, list)
+    turn = session[0]
+    assert isinstance(turn, dict)
+    del turn["dia_id"]
+    turn["source_conversation_id"] = "conversation_1"
+    turn["source_utterance_idx"] = "utt_1"
+    for sample in payload:
+        for qa in sample["qa"]:
+            assert isinstance(qa, dict)
+            qa["evidence"] = [
+                {
+                    "source_identity_items": [
+                        {
+                            "conv_id": "conv_1",
+                            "source_utterance_id": "1",
                         }
                     ]
                 }
