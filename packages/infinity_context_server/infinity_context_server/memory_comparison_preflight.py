@@ -710,7 +710,12 @@ def _official_locomo_samples(payload: object) -> tuple[Mapping[str, object], ...
     if isinstance(payload, Mapping):
         if _is_official_locomo_sample(payload):
             return (payload,)
-        raw_samples = payload.get("data") or payload.get("cases") or payload.get("items")
+        raw_samples = (
+            payload.get("data")
+            or payload.get("cases")
+            or payload.get("samples")
+            or payload.get("items")
+        )
         if raw_samples is not None:
             return _official_locomo_samples(raw_samples)
     if isinstance(payload, Sequence) and not isinstance(payload, str | bytes):
