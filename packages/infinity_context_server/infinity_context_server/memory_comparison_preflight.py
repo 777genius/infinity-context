@@ -849,12 +849,16 @@ def _locomo_qa_evidence_values(value: object) -> tuple[object, ...]:
             "source_turn",
             "source_turn_id",
             "source_turn_index",
+            "source_turn_ref",
+            "source_turn_refs",
             "supporting_evidence",
             "supporting_facts",
             "turn",
             "turn_id",
             "turn_index",
             "turn_ids",
+            "turn_ref",
+            "turn_refs",
         ):
             if key in value:
                 values.extend(_locomo_qa_evidence_values(value.get(key)))
@@ -884,7 +888,9 @@ def _locomo_evidence_ids_from_mapping(value: Mapping[str, object]) -> tuple[str,
         "source_dia_id",
         "source_evidence_ref",
         "source_ref",
+        "source_turn_ref",
         "turn_id",
+        "turn_ref",
     ):
         text = _text_field(value, key)
         if not text:
@@ -899,8 +905,10 @@ def _locomo_evidence_ids_from_mapping(value: Mapping[str, object]) -> tuple[str,
         "source_identity_items",
         "source_evidence_refs",
         "source_refs",
+        "source_turn_refs",
         "supporting_evidence",
         "supporting_facts",
+        "turn_refs",
     ):
         for raw_value in _locomo_qa_evidence_values(value.get(key)):
             text = str(raw_value or "").strip()
