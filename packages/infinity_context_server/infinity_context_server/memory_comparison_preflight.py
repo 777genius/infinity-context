@@ -45,7 +45,10 @@ _SAFE_REPORTING_CONTRACTS = (
     ("answer_context_support_gaps", "answer_context_support_gaps.v1"),
     ("temporal_grounding_table", "temporal_grounding.v1"),
 )
-_LOCOMO_DIA_ID_RE = re.compile(r"\bD\d+:\d+\b", re.IGNORECASE)
+_LOCOMO_DIA_ID_RE = re.compile(
+    r"\bD(?P<dialogue>\d+)[:\-](?P<turn>\d+)\b",
+    re.IGNORECASE,
+)
 _LOCOMO_DIALOGUE_ID_RE = re.compile(r"^D(?P<dialogue>\d+)$", re.IGNORECASE)
 
 
@@ -1072,7 +1075,8 @@ def _locomo_positive_int(
 def _locomo_dia_ids_from_text(value: str) -> tuple[str, ...]:
     return tuple(
         dict.fromkeys(
-            match.group(0).upper() for match in _LOCOMO_DIA_ID_RE.finditer(value)
+            f"D{match.group('dialogue')}:{match.group('turn')}"
+            for match in _LOCOMO_DIA_ID_RE.finditer(value)
         )
     )
 
