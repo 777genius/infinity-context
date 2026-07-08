@@ -19,24 +19,28 @@ _SOURCE_SESSION_TURN_RE = re.compile(
     re.IGNORECASE,
 )
 _SOURCE_SESSION_RE = re.compile(
-    r"(?:^|[:_\-\s])(?:session|dialogue|dialog)(?:[-_]\s*|\s+#?\s*)"
+    r"(?:^|[:_\-\s])(?:session|conversation|conv|dialogue|dialog)"
+    r"(?:[-_]\s*|\s+#?\s*)"
     r"(?P<session>\d+)"
     r"(?=$|[:_-](?!(?:D\d+[:-]\d+)\b))",
     re.IGNORECASE,
 )
 _TEXT_SESSION_TURN_RE = re.compile(
-    r"\b(?:session|dialogue|dialog)(?:[-_]\s*|\s+#?\s*)(?P<session>\d+)"
+    r"\b(?:session|conversation|conv|dialogue|dialog)"
+    r"(?:[-_]\s*|\s+#?\s*)(?P<session>\d+)"
     r"\s*[,;:-]?\s+(?:turn\s*[:#-]?\s+)?(?P<turn_ref>D\d+[:-]\d+)\b",
     re.IGNORECASE,
 )
 _TEXT_SESSION_DATE_TURN_RE = re.compile(
-    r"\b(?:session|dialogue|dialog)(?:[-_]\s*|\s+#?\s*)(?P<session>\d+)"
+    r"\b(?:session|conversation|conv|dialogue|dialog)"
+    r"(?:[-_]\s*|\s+#?\s*)(?P<session>\d+)"
     r"\s*[,;:-]?\s+date:\s*[^.\n]{0,80}?\s"
     r"(?P<turn_ref>D\d+[:-]\d+)\b",
     re.IGNORECASE,
 )
 _TEXT_SESSION_PAREN_TURN_RE = re.compile(
-    r"\b(?:session|dialogue|dialog)(?:[-_]\s*|\s+#?\s*)(?P<session>\d+)"
+    r"\b(?:session|conversation|conv|dialogue|dialog)"
+    r"(?:[-_]\s*|\s+#?\s*)(?P<session>\d+)"
     r"\s*\(\s*(?:turn\s*[:#-]?\s*)?(?P<turn_ref>D\d+[:-]\d+)\s*\)",
     re.IGNORECASE,
 )
@@ -44,19 +48,22 @@ _TEXT_TURN_SESSION_RE = re.compile(
     r"\b(?:turn\s*[:#-]?\s+)?(?P<turn_ref>D\d+[:-]\d+)\b"
     r"\s*(?:[,;:-]?\s+|\s+)"
     r"(?:in|from|for|within|during|of)\s+(?:the\s+)?"
-    r"(?:session|dialogue|dialog)(?:[-_]\s*|\s+#?\s*)(?P<session>\d+)\b",
+    r"(?:session|conversation|conv|dialogue|dialog)"
+    r"(?:[-_]\s*|\s+#?\s*)(?P<session>\d+)\b",
     re.IGNORECASE,
 )
 _TEXT_TURN_PUNCT_SESSION_RE = re.compile(
     r"\b(?:turn\s*[:#-]?\s+)?(?P<turn_ref>D\d+[:-]\d+)\b"
     r"\s*[,;:-]\s*(?:the\s+)?"
-    r"(?:session|dialogue|dialog)(?:[-_]\s*|\s+#?\s*)(?P<session>\d+)\b",
+    r"(?:session|conversation|conv|dialogue|dialog)"
+    r"(?:[-_]\s*|\s+#?\s*)(?P<session>\d+)\b",
     re.IGNORECASE,
 )
 _TEXT_TURN_PAREN_SESSION_RE = re.compile(
     r"\b(?:turn\s*[:#-]?\s+)?(?P<turn_ref>D\d+[:-]\d+)\b"
     r"\s*\(\s*(?:the\s+)?"
-    r"(?:session|dialogue|dialog)(?:[-_]\s*|\s+#?\s*)(?P<session>\d+)\s*\)",
+    r"(?:session|conversation|conv|dialogue|dialog)"
+    r"(?:[-_]\s*|\s+#?\s*)(?P<session>\d+)\s*\)",
     re.IGNORECASE,
 )
 _SAFE_SOURCE_IDENTITY_REF_RE = re.compile(
@@ -892,7 +899,8 @@ def _dialogue_number_from_value(value: object) -> str:
     if not text:
         return ""
     if match := re.fullmatch(
-        r"(?:(?:session|dialogue|dialog)[-_\s#]*|D)?(?P<number>\d+)",
+        r"(?:(?:session|conversation|conv|dialogue|dialog)[-_\s#]*|D)?"
+        r"(?P<number>\d+)",
         text,
         re.IGNORECASE,
     ):
@@ -1364,7 +1372,8 @@ def _session_count(session_turn_refs: Sequence[str]) -> int:
 def _normalized_session_ref(value: object) -> str:
     text = str(value or "").strip()
     match = re.fullmatch(
-        r"(?:session|dialogue|dialog)(?:[-_]\s*|\s+#?\s*)(?P<session>\d+)",
+        r"(?:session|conversation|conv|dialogue|dialog)"
+        r"(?:[-_]\s*|\s+#?\s*)(?P<session>\d+)",
         text,
         re.IGNORECASE,
     )

@@ -113,6 +113,20 @@ def test_source_identity_refs_normalize_spaced_session_text_variants() -> None:
         "source_turn_refs:D12:4",
     )
     assert source_identity_refs_from_text(
+        "Conversation 12 date: March 7, 2024 D12:5 Melanie discussed camping.",
+        source_refs=("conversation-summary",),
+    ) == (
+        "source_session_turn_refs:session_12:D12:5",
+        "source_turn_refs:D12:5",
+    )
+    assert source_identity_refs_from_text(
+        "Conv 3 turn D3:6 Alex confirmed the planning date.",
+        source_refs=("profile:alex-summary",),
+    ) == (
+        "source_session_turn_refs:session_3:D3:6",
+        "source_turn_refs:D3:6",
+    )
+    assert source_identity_refs_from_text(
         "Session 3 turn D3:6 Alex confirmed the planning date.",
         source_refs=("profile:alex-summary",),
     ) == (
@@ -156,6 +170,10 @@ def test_source_identity_refs_normalize_spaced_session_text_variants() -> None:
         source_refs=("conversation-summary",),
         text="Session 12 date: March 7, 2024 D12:4 Melanie discussed camping.",
     ) == ("generic_source_refs_with_text_turn_identity",)
+    assert source_identity_audit_gap_codes(
+        source_refs=("locomo:conversation:session_12", "D12:5"),
+        text="Conversation 12 date: March 7, 2024 D12:5 Melanie discussed camping.",
+    ) == ()
 
 
 def test_source_identity_refs_normalize_punctuated_session_text_variants() -> None:
@@ -200,6 +218,13 @@ def test_source_identity_refs_normalize_reversed_session_text_variants() -> None
     ) == (
         "source_session_turn_refs:session_2:D2:6",
         "source_turn_refs:D2:6",
+    )
+    assert source_identity_refs_from_text(
+        "D2:12 from conversation 2 Priya chose Osaka for the conference.",
+        source_refs=("conversation-summary",),
+    ) == (
+        "source_session_turn_refs:session_2:D2:12",
+        "source_turn_refs:D2:12",
     )
     assert source_identity_refs_from_text(
         "D2-7 from session_2 Priya changed the itinerary.",
@@ -327,6 +352,12 @@ def test_source_identity_refs_qualify_split_session_and_turn_refs() -> None:
     ) == (
         "source_session_turn_refs:session_4:D4:8",
         "source_turn_refs:D4:8",
+    )
+    assert source_identity_refs_from_source_refs(
+        ("conversation #4", "D4:9")
+    ) == (
+        "source_session_turn_refs:session_4:D4:9",
+        "source_turn_refs:D4:9",
     )
     assert source_identity_refs_from_source_refs(
         ("locomo:conversation:session_9", "D7:2")
