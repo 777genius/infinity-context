@@ -34,6 +34,23 @@ def test_compact_answer_context_support_gap_samples_keeps_identity_refs() -> Non
                     "source_turn_refs:D1:1",
                     "source_session_turn_refs:session_1:D1:2",
                 ],
+                "source_identity_items": [
+                    {
+                        "source_identity_refs": [
+                            "source_session_turn_refs:session_1:D1:2",
+                            "provider:private-token",
+                        ],
+                        "item_id": "weak-selected",
+                        "retrieval_order": "1",
+                        "raw_payload": "must stay out",
+                    },
+                    {
+                        "source_identity_refs": [
+                            "locomo:conv-private:session_2:D2:5:turn-secret",
+                        ],
+                        "item_id": "locomo:conv-private:session_2:D2:5:turn-secret",
+                    },
+                ],
                 "retrieval_orders": [1, "3", "bad"],
                 "raw_payload": "must stay out",
             }
@@ -63,10 +80,28 @@ def test_compact_answer_context_support_gap_samples_keeps_identity_refs() -> Non
                 "source_turn_refs:D1:1",
                 "source_session_turn_refs:session_1:D1:2",
             ],
+            "source_identity_items": [
+                {
+                    "source_identity_refs": [
+                        "source_session_turn_refs:session_1:D1:2",
+                    ],
+                    "item_id": "weak-selected",
+                    "retrieval_order": 1,
+                },
+                {
+                    "source_identity_refs": [
+                        "source_session_turn_refs:session_2:D2:5",
+                        "source_turn_refs:D2:5",
+                    ],
+                },
+            ],
             "retrieval_orders": [1, 3],
         }
     ]
     assert "raw_payload" not in samples[0]
+    serialized = json.dumps(samples)
+    assert "locomo:conv-private" not in serialized
+    assert "provider:private-token" not in serialized
 
 
 def test_compact_answer_context_support_gap_samples_filters_unsafe_identity_refs() -> None:

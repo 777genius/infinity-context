@@ -38,6 +38,7 @@ from infinity_context_server.memory_comparison_source_identity import (
 )
 
 _MAX_SAMPLE_SOURCE_IDENTITY_REFS = 8
+_MAX_SAMPLE_SOURCE_IDENTITY_ITEMS = 5
 
 
 def answer_context_support_gap_summary(
@@ -390,7 +391,37 @@ def _answer_context_sample_identity(context: Mapping[str, object]) -> dict[str, 
         identity["source_identity_item_count"] = source_identity_item_count
     if source_identity_refs:
         identity["source_identity_refs"] = list(source_identity_refs)
+    source_identity_items = _safe_source_identity_items(
+        context.get("source_identity_items")
+    )
+    if source_identity_items:
+        identity["source_identity_items"] = list(source_identity_items)
     return identity
+
+
+def _safe_source_identity_items(value: object) -> tuple[dict[str, object], ...]:
+    items: list[dict[str, object]] = []
+    for raw_item in _sequence(value):
+        item = _mapping(raw_item)
+        if not item:
+            continue
+        compact: dict[str, object] = {}
+        source_identity_refs = _safe_source_identity_refs(
+            item.get("source_identity_refs")
+        )
+        if source_identity_refs:
+            compact["source_identity_refs"] = list(source_identity_refs)
+        item_id = _safe_item_id_for_output(item.get("item_id"))
+        if item_id:
+            compact["item_id"] = item_id
+        retrieval_order = _positive_int(item.get("retrieval_order"))
+        if retrieval_order is not None:
+            compact["retrieval_order"] = retrieval_order
+        if compact:
+            items.append(compact)
+        if len(items) >= _MAX_SAMPLE_SOURCE_IDENTITY_ITEMS:
+            break
+    return tuple(items)
 
 
 def _safe_source_identity_refs(value: object) -> tuple[str, ...]:

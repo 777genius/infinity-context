@@ -81,6 +81,30 @@ def test_answer_context_support_gap_samples_include_safe_context_identity() -> N
                                 "locomo:conv-private:session_1:D1:4:turn-secret",
                                 "raw payload source identity must not appear",
                             ],
+                            "source_identity_items": [
+                                {
+                                    "source_identity_refs": [
+                                        "source_session_turn_refs:session_1:D1:3",
+                                        "provider:private-token",
+                                    ],
+                                    "item_id": "selected",
+                                    "retrieval_order": "1",
+                                    "raw_payload": "must not appear",
+                                },
+                                {
+                                    "source_identity_refs": [
+                                        (
+                                            "locomo:conv-private:session_1:"
+                                            "D1:4:turn-secret"
+                                        ),
+                                    ],
+                                    "item_id": (
+                                        "locomo:conv-private:session_1:"
+                                        "D1:4:turn-secret"
+                                    ),
+                                    "retrieval_order": "not-an-order",
+                                },
+                            ],
                             "item_ids": ["selected", "backfilled"],
                             "retrieval_orders": [1, "3", "not-an-order"],
                             "text": "raw payload text must not appear",
@@ -105,11 +129,22 @@ def test_answer_context_support_gap_samples_include_safe_context_identity() -> N
         "source_session_turn_refs:session_1:D1:3",
         "source_session_turn_refs:session_2:D2:5",
     ]
+    assert sample["source_identity_items"] == [
+        {
+            "source_identity_refs": [
+                "source_session_turn_refs:session_1:D1:3",
+            ],
+            "item_id": "selected",
+            "retrieval_order": 1,
+        }
+    ]
     assert sample["risk_reason_codes"] == ["risk:missing_required_role"]
     assert "text" not in sample
     serialized = json.dumps(summary)
     assert "locomo:conv-private" not in serialized
     assert "raw payload source identity must not appear" not in serialized
+    assert "provider:private-token" not in serialized
+    assert "raw_payload" not in serialized
 
 
 def test_answer_context_support_gaps_accept_source_identity_grounding() -> None:

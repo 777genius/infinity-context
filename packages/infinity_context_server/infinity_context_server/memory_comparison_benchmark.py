@@ -2976,12 +2976,49 @@ def _compact_answer_context_support_gap_samples(
         )
         if source_identity_refs:
             compact["source_identity_refs"] = list(source_identity_refs)
+        source_identity_items = _compact_answer_context_source_identity_items(
+            sample.get("source_identity_items")
+        )
+        if source_identity_items:
+            compact["source_identity_items"] = list(source_identity_items)
         retrieval_orders = _positive_ints(sample.get("retrieval_orders"))[:8]
         if retrieval_orders:
             compact["retrieval_orders"] = list(retrieval_orders)
         if compact:
             samples.append(compact)
     return samples
+
+
+def _compact_answer_context_source_identity_items(
+    value: object,
+    *,
+    limit: int = 5,
+) -> tuple[dict[str, object], ...]:
+    if not isinstance(value, Sequence) or isinstance(value, str | bytes):
+        return ()
+    compact_items: list[dict[str, object]] = []
+    for raw_item in value:
+        item = _mapping(raw_item)
+        if not item:
+            continue
+        compact: dict[str, object] = {}
+        source_identity_refs = _compact_source_identity_refs(
+            item.get("source_identity_refs"),
+            limit=5,
+        )
+        if source_identity_refs:
+            compact["source_identity_refs"] = list(source_identity_refs)
+        item_id = _compact_item_id(item.get("item_id"))
+        if item_id:
+            compact["item_id"] = item_id
+        retrieval_order = _positive_int(item.get("retrieval_order"))
+        if retrieval_order is not None:
+            compact["retrieval_order"] = retrieval_order
+        if compact:
+            compact_items.append(compact)
+        if len(compact_items) >= limit:
+            break
+    return tuple(compact_items)
 
 
 def _compact_source_identity_refs(value: object, *, limit: int = 8) -> tuple[str, ...]:
