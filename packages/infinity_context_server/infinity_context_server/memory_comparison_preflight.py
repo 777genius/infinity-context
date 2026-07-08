@@ -833,7 +833,7 @@ def _qa_has_backed_turn_evidence(
 ) -> bool:
     return any(
         evidence_id in turn_evidence_ids
-        for evidence_id in _locomo_qa_evidence_ids(qa.get("evidence"))
+        for evidence_id in _locomo_qa_evidence_ids(qa)
     )
 
 
@@ -1116,7 +1116,22 @@ def _official_locomo_qa_group(qa: Mapping[str, object]) -> str | None:
 
 
 def _has_locomo_answer_or_evidence(qa: Mapping[str, object]) -> bool:
-    for key in ("answer", "expected_answer", "answers", "evidence"):
+    for key in (
+        "answer",
+        "expected_answer",
+        "answers",
+        "evidence",
+        "evidence_ref",
+        "evidence_refs",
+        "locomo_evidence_ref",
+        "locomo_evidence_refs",
+        "source_evidence_ref",
+        "source_evidence_refs",
+        "source_ref",
+        "source_refs",
+        "source_turn_ref",
+        "source_turn_refs",
+    ):
         if _has_text_value(qa.get(key)):
             return True
     return False
