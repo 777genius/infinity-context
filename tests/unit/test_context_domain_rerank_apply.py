@@ -661,6 +661,54 @@ def test_apply_domain_rerank_signals_boosts_local_brand_model_evidence() -> None
     assert dict(adjustment.rank_signals)["object_attribute_local_evidence"] == 3.0
 
 
+def test_apply_domain_rerank_signals_boosts_named_brand_before_object() -> None:
+    local_attribute = ContextItem(
+        item_id="priya_backpack_brand",
+        item_type="chunk",
+        text=(
+            "D3:9 Priya: I packed my Osprey backpack for the weekend trail "
+            "cleanup."
+        ),
+        score=0.72,
+        source_refs=(SourceRef(source_type="locomo_turn", source_id="conv-3:D3:9"),),
+        diagnostics={"retrieval_sources": ["keyword_chunks"]},
+    )
+
+    adjustment = apply_domain_rerank_signals(
+        query="What brand is Priya's backpack?",
+        query_reason="original_query",
+        item=local_attribute,
+        relevance=_relevance(distinctive_term_hits=4),
+    )
+
+    assert "object_attribute_local_evidence" in adjustment.reasons
+    assert dict(adjustment.rank_signals)["object_attribute_local_evidence"] == 3.0
+
+
+def test_apply_domain_rerank_signals_does_not_treat_person_as_brand() -> None:
+    person_object_owner = ContextItem(
+        item_id="priya_maya_backpack",
+        item_type="chunk",
+        text=(
+            "D3:10 Priya: I borrowed Maya's backpack for the weekend trail "
+            "cleanup."
+        ),
+        score=0.87,
+        source_refs=(SourceRef(source_type="locomo_turn", source_id="conv-3:D3:10"),),
+        diagnostics={"retrieval_sources": ["keyword_chunks"]},
+    )
+
+    adjustment = apply_domain_rerank_signals(
+        query="What brand is Priya's backpack?",
+        query_reason="original_query",
+        item=person_object_owner,
+        relevance=_relevance(distinctive_term_hits=4),
+    )
+
+    assert "object_attribute_local_evidence" not in adjustment.reasons
+    assert not adjustment.rank_signals
+
+
 def _relevance(*, distinctive_term_hits: int) -> QueryRelevance:
     return QueryRelevance(
         score_boost=0.0,
