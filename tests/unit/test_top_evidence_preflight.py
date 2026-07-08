@@ -114,6 +114,31 @@ def test_top_evidence_preflight_lightweight_profile_counts_cases(tmp_path: Path)
     assert len(str(profile["dataset_hash"])) == 64
 
 
+def test_top_evidence_preflight_lightweight_profile_accepts_samples_wrapper(
+    tmp_path: Path,
+) -> None:
+    dataset = tmp_path / "wrapped-locomo.json"
+    dataset.write_text(
+        json.dumps(
+            {
+                "samples": _benchmark_cases("locomo", count=3),
+                "metadata": {"source": "locomo-public-fixture"},
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    profile = top_evidence_preflight._lightweight_dataset_profile(
+        dataset,
+        benchmark="locomo",
+    )
+
+    assert profile is not None
+    assert profile["case_count"] == 3
+    assert profile["unique_case_id_count"] == 3
+    assert profile["duplicate_case_id_count"] == 0
+
+
 def test_top_evidence_preflight_accepts_openai_key_file_without_leak(
     tmp_path: Path,
 ) -> None:

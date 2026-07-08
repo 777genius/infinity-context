@@ -617,7 +617,12 @@ def _public_benchmark_case_keys(payload: object, *, benchmark: str) -> tuple[str
     if isinstance(payload, Mapping):
         if _is_official_locomo_sample(payload):
             return _official_locomo_case_keys(payload, benchmark=benchmark)
-        raw_cases = payload.get("cases") or payload.get("data") or payload.get("items")
+        raw_cases = (
+            payload.get("cases")
+            or payload.get("data")
+            or payload.get("samples")
+            or payload.get("items")
+        )
         if raw_cases is not None:
             return _public_benchmark_case_keys(raw_cases, benchmark=benchmark)
         return _normalized_public_case_key(payload, index=0, benchmark=benchmark)
