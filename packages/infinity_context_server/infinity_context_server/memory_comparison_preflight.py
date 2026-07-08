@@ -790,11 +790,33 @@ def _official_locomo_sample_turn_evidence_ids(
             turn_evidence_ids = _locomo_evidence_ids_from_mapping(turn)
             if turn_evidence_ids:
                 evidence_ids.update(turn_evidence_ids)
-            else:
-                evidence_ids.add(f"{key}:{index + 1}")
-                if dialogue_ref := _locomo_dialogue_ref_from_session_key(key):
-                    evidence_ids.add(f"{dialogue_ref}:{index + 1}")
+            evidence_ids.update(
+                _locomo_synthesized_turn_evidence_ids(
+                    turn,
+                    session_key=key,
+                    turn_index=index,
+                )
+            )
     return frozenset(evidence_ids)
+
+
+def _locomo_synthesized_turn_evidence_ids(
+    turn: Mapping[str, object],
+    *,
+    session_key: object,
+    turn_index: int,
+) -> tuple[str, ...]:
+    session_key_text = str(session_key)
+    fallback_id = f"{session_key_text}:{turn_index + 1}"
+    dialogue_ref = _locomo_dialogue_ref_from_session_key(session_key_text)
+    if not dialogue_ref:
+        return (fallback_id,)
+    raw_id = _text_field(turn, "dia_id", "id")
+    if raw_id and _locomo_dia_ids_from_text(raw_id):
+        return (*_locomo_dia_ids_from_text(raw_id), fallback_id)
+    if raw_id and raw_id.isdigit() and int(raw_id) > 0:
+        return (f"{dialogue_ref}:{int(raw_id)}", fallback_id)
+    return (f"{dialogue_ref}:{turn_index + 1}", fallback_id)
 
 
 def _qa_has_backed_turn_evidence(
