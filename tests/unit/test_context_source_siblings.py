@@ -910,6 +910,31 @@ def test_source_sibling_relevance_accepts_activity_duration_age_and_ownership() 
     )
 
 
+def test_source_sibling_answer_evidence_accepts_relative_birthday_duration() -> None:
+    assert source_sibling_answer_evidence(
+        expansion_query=(
+            "Caroline 18th birthday birthday anniversary years ago "
+            "how long ago duration"
+        ),
+        expansion_reason="age_birthday_bridge",
+        text=(
+            "D4:5 Caroline: A friend made a bowl for my 18th birthday ten "
+            "years ago."
+        ),
+    )
+
+
+def test_source_sibling_answer_evidence_rejects_birthday_without_duration() -> None:
+    assert not source_sibling_answer_evidence(
+        expansion_query=(
+            "Caroline 18th birthday birthday anniversary years ago "
+            "how long ago duration"
+        ),
+        expansion_reason="age_birthday_bridge",
+        text="D2:3 Caroline was born in 1995 and her birthday is in May.",
+    )
+
+
 def test_source_sibling_answer_evidence_accepts_direct_item_purchases() -> None:
     assert source_sibling_answer_evidence(
         expansion_query="What items has Melanie bought?",

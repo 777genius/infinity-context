@@ -42,6 +42,9 @@ from infinity_context_core.application.context_relationship_status_evidence impo
     is_relationship_status_answer_evidence,
     relationship_status_answer_rank,
 )
+from infinity_context_core.application.context_relative_duration_evidence import (
+    has_relative_duration_event_evidence,
+)
 from infinity_context_core.application.context_relevance import (
     QueryRelevance,
     is_chunk_candidate_relevance_sufficient,
@@ -1524,6 +1527,12 @@ def source_sibling_answer_evidence(
         return True
     if not _query_person_matches_text(expansion_query=expansion_query, text=text):
         return False
+    if has_relative_duration_event_evidence(
+        query=expansion_query,
+        query_reason=expansion_reason,
+        text=text,
+    ):
+        return True
     return _is_book_reading_inventory_source_sibling_strong(
         expansion_reason=expansion_reason,
         text=text,
@@ -2680,6 +2689,12 @@ def _is_direct_source_sibling_answer_evidence(
         return True
     if not _query_person_matches_text(expansion_query=expansion_query, text=text):
         return False
+    if has_relative_duration_event_evidence(
+        query=expansion_query,
+        query_reason=expansion_reason,
+        text=text,
+    ):
+        return True
     if is_relationship_status_answer_evidence(
         expansion_reason=expansion_reason,
         text=text,
