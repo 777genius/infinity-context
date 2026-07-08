@@ -596,6 +596,7 @@ _PREFIX_PROJECT_LEADING_STOP_WORDS = {
     "чья",
 }
 _PROJECT_HINTS = {
+    "atlas",
     "backend",
     "docling",
     "frontend",
@@ -603,6 +604,7 @@ _PROJECT_HINTS = {
     "infinity context",
     "memo",
     "qdrant",
+    "атлас",
 }
 
 
@@ -1518,6 +1520,8 @@ def _is_probable_event_project_label(label: str) -> bool:
         return False
     first = normalized.split()[0]
     if normalized in _PROJECT_HINTS or first in _PROJECT_HINTS:
+        return True
+    if _canonical_project_key(label) in _PROJECT_HINTS:
         return True
     if normalized in _EVENT_PERSON_STOP_WORDS:
         return False

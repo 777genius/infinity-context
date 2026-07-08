@@ -449,13 +449,13 @@ _PROJECT_LABEL_STOP_WORDS = {
     "с",
 }
 _PROJECT_HINTS = {
-    "qdrant",
-    "graphiti",
-    "docling",
-    "memo",
-    "infinity context",
-    "frontend",
     "backend",
+    "docling",
+    "frontend",
+    "graphiti",
+    "infinity context",
+    "memo",
+    "qdrant",
 }
 _ORGANIZATION_HINTS = {
     "openai": "OpenAI",
@@ -1060,6 +1060,8 @@ def _is_probable_event_project_label(label: str) -> bool:
         return False
     first = normalized.split()[0]
     if normalized in _PROJECT_HINTS or first in _PROJECT_HINTS:
+        return True
+    if _canonical_project_key(label) in _PROJECT_HINTS:
         return True
     if normalized in _PERSON_STOP_WORDS:
         return False

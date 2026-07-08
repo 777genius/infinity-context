@@ -36,6 +36,8 @@ _SAFE_CONTEXT_LINK_DIAGNOSTIC_KEYS = (
     "context_link_id",
     "context_link_relation_type",
     "context_link_confidence",
+    "temporal_relation_id",
+    "temporal_replacement_for_fact_id",
 )
 _SAFE_REVIEW_TEXT_DIAGNOSTIC_KEYS = (
     "review_recommended_action",
