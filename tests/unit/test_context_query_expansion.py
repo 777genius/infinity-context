@@ -4577,6 +4577,11 @@ def test_query_expansion_bridges_health_lifestyle_queries() -> None:
     incident = build_query_expansion_plan(
         "When did Evan have his sudden heart palpitation incident?"
     )
+    doctor = build_query_expansion_plan("Who is Alex's doctor?")
+    medication = build_query_expansion_plan("What medication does Alex take?")
+    condition = build_query_expansion_plan("What condition does Alex have?")
+    blood_type = build_query_expansion_plan("What is Alex's blood type?")
+    dentist = build_query_expansion_plan("When is Alex's dentist appointment?")
     snacks = build_query_expansion_plan("What kind of unhealthy snacks does Sam enjoy eating?")
     grocery = build_query_expansion_plan(
         "What frustrating issue did Sam face at the supermarket?"
@@ -4592,6 +4597,26 @@ def test_query_expansion_bridges_health_lifestyle_queries() -> None:
     )
     assert "heart palpitation palpitations shocked" in _expansion_query(
         incident,
+        "health_lifestyle_bridge",
+    )
+    assert "health profile doctor physician primary care" in _expansion_query(
+        doctor,
+        "health_lifestyle_bridge",
+    )
+    assert "therapist medication medicine prescription" in _expansion_query(
+        medication,
+        "health_lifestyle_bridge",
+    )
+    assert "allergy condition diagnosis diagnosed" in _expansion_query(
+        condition,
+        "health_lifestyle_bridge",
+    )
+    assert "blood type dentist appointment" in _expansion_query(
+        blood_type,
+        "health_lifestyle_bridge",
+    )
+    assert "blood type dentist appointment" in _expansion_query(
+        dentist,
         "health_lifestyle_bridge",
     )
     assert "healthy meals snacks unhealthy snacks" in _expansion_query(

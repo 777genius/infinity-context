@@ -18,7 +18,53 @@ _FITNESS_ACTIVITY_EXPANSION = (
     "strength flexibility energy health family active training"
 )
 
+_HEALTH_PROFILE_EXPANSION = (
+    "health profile doctor physician primary care therapist medication medicine "
+    "prescription allergy condition diagnosis diagnosed blood type dentist appointment "
+    "checkup checkups"
+)
+
 HEALTH_LIFESTYLE_EXPANSION_RULES: tuple[tuple[frozenset[str], str, str], ...] = (
+    (
+        frozenset({"doctor"}),
+        _HEALTH_PROFILE_EXPANSION,
+        "health_lifestyle_bridge",
+    ),
+    (
+        frozenset({"physician"}),
+        _HEALTH_PROFILE_EXPANSION,
+        "health_lifestyle_bridge",
+    ),
+    (
+        frozenset({"medication"}),
+        _HEALTH_PROFILE_EXPANSION,
+        "health_lifestyle_bridge",
+    ),
+    (
+        frozenset({"medicine"}),
+        _HEALTH_PROFILE_EXPANSION,
+        "health_lifestyle_bridge",
+    ),
+    (
+        frozenset({"condition", "have"}),
+        _HEALTH_PROFILE_EXPANSION,
+        "health_lifestyle_bridge",
+    ),
+    (
+        frozenset({"condition", "diagnosed"}),
+        _HEALTH_PROFILE_EXPANSION,
+        "health_lifestyle_bridge",
+    ),
+    (
+        frozenset({"blood", "type"}),
+        _HEALTH_PROFILE_EXPANSION,
+        "health_lifestyle_bridge",
+    ),
+    (
+        frozenset({"dentist", "appointment"}),
+        _HEALTH_PROFILE_EXPANSION,
+        "health_lifestyle_bridge",
+    ),
     (
         frozenset({"health", "issue"}),
         _HEALTH_LIFESTYLE_EXPANSION,
