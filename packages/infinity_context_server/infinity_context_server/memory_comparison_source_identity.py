@@ -50,6 +50,12 @@ _TEXT_SESSION_BRACKET_TURN_RE = re.compile(
     r"\s*\[\s*(?:turn\s*[:#-]?\s*)?(?P<turn_ref>D\d+[:-]\d+)\s*\]",
     re.IGNORECASE,
 )
+_TEXT_SESSION_NUMERIC_TURN_RE = re.compile(
+    r"\b(?:session|conversation|conv|dialogue|dialog)"
+    r"(?:[-_]\s*|\s+#?\s*)(?P<session>\d+)"
+    r"\s*[,;:-]?\s+(?:turn|utt|utterance)\s*[:#-]?\s*(?P<turn>\d+)\b",
+    re.IGNORECASE,
+)
 _TEXT_TURN_SESSION_RE = re.compile(
     r"\b(?:turn\s*[:#-]?\s+)?(?P<turn_ref>D\d+[:-]\d+)\b"
     r"\s*(?:[,;:-]?\s+|\s+)"
@@ -1315,28 +1321,31 @@ def _session_turn_refs_from_text(
     *,
     require_dialogue_match: bool = True,
 ) -> tuple[str, ...]:
-    return tuple(
-        dict.fromkeys(
-            f"session_{match.group('session')}:{turn_ref}"
-            for pattern in (
-                _TEXT_SESSION_TURN_RE,
-                _TEXT_SESSION_DATE_TURN_RE,
-                _TEXT_SESSION_PAREN_TURN_RE,
-                _TEXT_SESSION_BRACKET_TURN_RE,
-                _TEXT_TURN_SESSION_RE,
-                _TEXT_TURN_PUNCT_SESSION_RE,
-                _TEXT_TURN_PAREN_SESSION_RE,
-                _TEXT_TURN_BRACKET_SESSION_RE,
-            )
-            for match in pattern.finditer(text or "")
-            for turn_ref in (safe_turn_ref(match.group("turn_ref")),)
-            if turn_ref
-            and (
+    refs: list[str] = []
+    for pattern in (
+        _TEXT_SESSION_TURN_RE,
+        _TEXT_SESSION_DATE_TURN_RE,
+        _TEXT_SESSION_PAREN_TURN_RE,
+        _TEXT_SESSION_BRACKET_TURN_RE,
+        _TEXT_TURN_SESSION_RE,
+        _TEXT_TURN_PUNCT_SESSION_RE,
+        _TEXT_TURN_PAREN_SESSION_RE,
+        _TEXT_TURN_BRACKET_SESSION_RE,
+    ):
+        for match in pattern.finditer(text or ""):
+            turn_ref = safe_turn_ref(match.group("turn_ref"))
+            if turn_ref and (
                 not require_dialogue_match
                 or _turn_ref_dialogue_number(turn_ref) == match.group("session")
-            )
-        )
+            ):
+                refs.append(f"session_{match.group('session')}:{turn_ref}")
+    refs.extend(
+        f"session_{match.group('session')}:D{match.group('session')}:{turn}"
+        for match in _TEXT_SESSION_NUMERIC_TURN_RE.finditer(text or "")
+        for turn in (_positive_int_string(match.group("turn")),)
+        if turn
     )
+    return tuple(dict.fromkeys(refs))
 
 
 def _session_identity_refs(session_turn_refs: Sequence[str]) -> tuple[str, ...]:
