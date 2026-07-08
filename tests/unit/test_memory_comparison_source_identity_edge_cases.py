@@ -406,6 +406,51 @@ def test_source_identity_refs_qualify_structured_session_id_and_turn_id() -> Non
     )
 
 
+def test_source_identity_refs_qualify_structured_conversation_alias_and_turn_id() -> None:
+    source_ref = {
+        "conversation_id": "conversation_4",
+        "turn_id": "5",
+    }
+
+    assert source_identity_refs_from_source_refs((source_ref,)) == (
+        "source_session_turn_refs:session_4:D4:5",
+        "source_turn_refs:D4:5",
+    )
+    assert safe_source_refs_for_output((source_ref,)) == (
+        "source_session_turn_refs:session_4:D4:5",
+        "source_turn_refs:D4:5",
+    )
+
+
+def test_source_identity_refs_prefer_explicit_session_over_conversation_alias() -> None:
+    refs = safe_source_refs_for_output(
+        (
+            {
+                "session_key": "session_12",
+                "conversation_id": "conversation_4",
+                "turn_id": "5",
+            },
+        )
+    )
+
+    assert refs == (
+        "source_session_turn_refs:session_12:D12:5",
+        "source_turn_refs:D12:5",
+    )
+
+
+def test_source_identity_refs_qualify_structured_conv_alias_and_evidence_id() -> None:
+    source_ref = {
+        "conv_id": "conv_4",
+        "evidence_id": "5",
+    }
+
+    assert safe_source_refs_for_output((source_ref,)) == (
+        "source_session_turn_refs:session_4:D4:5",
+        "source_turn_refs:D4:5",
+    )
+
+
 def test_source_identity_refs_qualify_numeric_evidence_aliases_with_session() -> None:
     for evidence_key in (
         "evidence_ref",
