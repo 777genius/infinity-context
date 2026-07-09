@@ -542,7 +542,7 @@ QUERY_REASON_PRIORITY = {
     "decomposition_absence_contrast": 3,
     "decomposition_activity_participation": 4,
     "decomposition_ally_support_evidence": 4,
-    "decomposition_artifact_evidence": 5,
+    "decomposition_artifact_evidence": 6,
     "decomposition_commonality": 3,
     "decomposition_community_membership_evidence": 3,
     "decomposition_conversation_counterparty": 4,
