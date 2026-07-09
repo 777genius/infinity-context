@@ -536,6 +536,7 @@ def test_vector_retrieval_uses_decomposed_queries(tmp_path: Path) -> None:
     assert len(embedder.texts) > 1
     assert any("artifact file screenshot" in query for query in embedder.texts)
     assert len(vector_adapter.search_calls) == len(embedder.texts)
+    assert [call["query_text"] for call in vector_adapter.search_calls] == list(embedder.texts)
     assert context.diagnostics["vector_query_count"] == len(embedder.texts)
     assert context.diagnostics["vector_search_count"] == len(embedder.texts)
     assert context.diagnostics["vector_candidate_count"] == len(embedder.texts)

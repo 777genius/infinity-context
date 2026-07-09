@@ -162,6 +162,7 @@ class VectorMemoryPort(MemoryAdapterPort, Protocol):
         memory_scope_ids: tuple[str, ...],
         thread_id: str | None = None,
         query_vector: tuple[float, ...],
+        query_text: str | None = None,
         limit: int,
     ) -> VectorSearchResult:
         """Search derived vector candidates."""

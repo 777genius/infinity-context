@@ -727,6 +727,10 @@ def _build_vector_adapter(settings: Settings) -> MemoryAdapterPort:
         api_key=settings.qdrant_api_key,
         collection_name=settings.qdrant_collection,
         vector_size=settings.embeddings_dimensions,
+        hybrid_sparse_enabled=settings.qdrant_hybrid_sparse_enabled,
+        sparse_model=settings.qdrant_sparse_model,
+        dense_vector_name=settings.qdrant_dense_vector_name,
+        sparse_vector_name=settings.qdrant_sparse_vector_name,
     )
 
 
