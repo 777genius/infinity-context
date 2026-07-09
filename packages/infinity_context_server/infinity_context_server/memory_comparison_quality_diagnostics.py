@@ -1,0 +1,2798 @@
+"""Aggregate quality diagnostics for memory-comparison benchmark reports."""
+
+from __future__ import annotations
+
+import re
+from collections import Counter, defaultdict
+from collections.abc import Mapping, Sequence
+
+from infinity_context_server.memory_comparison_answer_context_risks import (
+    context_risk_reason_codes as _context_risk_reason_codes,
+)
+from infinity_context_server.memory_comparison_answer_context_risks import (
+    is_measured_low_answerability as _is_measured_low_answerability,
+)
+from infinity_context_server.memory_comparison_answer_context_risks import (
+    merge_risk_reason_codes as _merge_risk_reason_codes,
+)
+from infinity_context_server.memory_comparison_candidate_risks import (
+    payload_has_broad_summary,
+    payload_has_conflict_or_stale,
+)
+from infinity_context_server.memory_comparison_quality_accessors import (
+    active_policy_reasons as _active_policy_reasons,
+)
+from infinity_context_server.memory_comparison_quality_accessors import avg as _avg
+from infinity_context_server.memory_comparison_quality_accessors import (
+    bundle_complete as _bundle_complete,
+)
+from infinity_context_server.memory_comparison_quality_accessors import (
+    bundle_items as _bundle_items,
+)
+from infinity_context_server.memory_comparison_quality_accessors import (
+    candidate_features as _candidate_features,
+)
+from infinity_context_server.memory_comparison_quality_accessors import (
+    count_mapping as _count_mapping,
+)
+from infinity_context_server.memory_comparison_quality_accessors import (
+    direct_source_refs_from_memory as _direct_source_refs_from_memory,
+)
+from infinity_context_server.memory_comparison_quality_accessors import (
+    evidence_recall as _evidence_recall,
+)
+from infinity_context_server.memory_comparison_quality_accessors import (
+    expected_recall as _expected_recall,
+)
+from infinity_context_server.memory_comparison_quality_accessors import (
+    fusion_source_refs as _fusion_source_refs,
+)
+from infinity_context_server.memory_comparison_quality_accessors import (
+    has_evidence_recall as _has_evidence_recall,
+)
+from infinity_context_server.memory_comparison_quality_accessors import (
+    judgment_score as _judgment_score,
+)
+from infinity_context_server.memory_comparison_quality_accessors import (
+    mapping as _mapping,
+)
+from infinity_context_server.memory_comparison_quality_accessors import (
+    memory_diagnostics as _memory_diagnostics,
+)
+from infinity_context_server.memory_comparison_quality_accessors import (
+    memory_id as _memory_id,
+)
+from infinity_context_server.memory_comparison_quality_accessors import (
+    metric_value as _metric_value,
+)
+from infinity_context_server.memory_comparison_quality_accessors import (
+    only_broad_bundle_evidence as _only_broad_bundle_evidence,
+)
+from infinity_context_server.memory_comparison_quality_accessors import (
+    positive_int as _positive_int,
+)
+from infinity_context_server.memory_comparison_quality_accessors import (
+    positive_policy_score as _positive_policy_score,
+)
+from infinity_context_server.memory_comparison_quality_accessors import (
+    positive_signal_names as _positive_signal_names,
+)
+from infinity_context_server.memory_comparison_quality_accessors import (
+    query_integrity as _query_integrity,
+)
+from infinity_context_server.memory_comparison_quality_accessors import (
+    query_overlap_count as _query_overlap_count,
+)
+from infinity_context_server.memory_comparison_quality_accessors import (
+    query_plan as _query_plan,
+)
+from infinity_context_server.memory_comparison_quality_accessors import (
+    ratio as _ratio,
+)
+from infinity_context_server.memory_comparison_quality_accessors import (
+    retrieval_metadata as _retrieval_metadata,
+)
+from infinity_context_server.memory_comparison_quality_accessors import (
+    retrieval_results as _retrieval_results,
+)
+from infinity_context_server.memory_comparison_quality_accessors import (
+    sequence as _sequence,
+)
+from infinity_context_server.memory_comparison_quality_accessors import (
+    source_refs_from_bundle_item as _source_refs_from_bundle_item,
+)
+from infinity_context_server.memory_comparison_quality_accessors import (
+    source_refs_from_memory as _source_refs_from_memory,
+)
+from infinity_context_server.memory_comparison_quality_accessors import (
+    str_tuple as _str_tuple,
+)
+from infinity_context_server.memory_comparison_quality_accessors import (
+    top_counts as _top_counts,
+)
+from infinity_context_server.memory_comparison_quality_accessors import (
+    top_signal_values as _top_signal_values,
+)
+from infinity_context_server.memory_comparison_quality_actionable_gaps import (
+    actionable_gap_summary as _actionable_gap_summary,
+)
+from infinity_context_server.memory_comparison_quality_answer_context_gaps import (
+    answer_context_support_gap_summary as _answer_context_support_gap_summary,
+)
+from infinity_context_server.memory_comparison_quality_answer_context_risks import (
+    answer_context_risk_sample as _answer_context_risk_sample,
+)
+from infinity_context_server.memory_comparison_quality_answer_context_risks import (
+    ranked_answer_context_risk_samples as _ranked_answer_context_risk_samples,
+)
+from infinity_context_server.memory_comparison_quality_bundle_gaps import (
+    bundle_gap_breakdown as _bundle_gap_breakdown,
+)
+from infinity_context_server.memory_comparison_quality_bundle_gaps import (
+    bundle_incomplete_diagnostics as _bundle_incomplete_diagnostics,
+)
+from infinity_context_server.memory_comparison_quality_bundle_gaps import (
+    evidence_bundle_gap_report as _evidence_bundle_gap_report,
+)
+from infinity_context_server.memory_comparison_quality_bundle_table import (
+    bundle_quality_failure_breakdown as _bundle_quality_failure_breakdown,
+)
+from infinity_context_server.memory_comparison_quality_bundle_table import (
+    bundle_quality_table as _bundle_quality_table,
+)
+from infinity_context_server.memory_comparison_quality_bundle_table import (
+    bundle_support_bundle_counts as _bundle_support_bundle_counts,
+)
+from infinity_context_server.memory_comparison_quality_bundle_table import (
+    bundle_support_counts as _bundle_support_counts,
+)
+from infinity_context_server.memory_comparison_quality_fusion import (
+    bundle_source_identity_summary as _bundle_source_identity_summary,
+)
+from infinity_context_server.memory_comparison_quality_fusion import (
+    bundle_source_proximity_summary as _bundle_source_proximity_summary,
+)
+from infinity_context_server.memory_comparison_quality_fusion import (
+    candidate_fusion_table as _candidate_fusion_table,
+)
+from infinity_context_server.memory_comparison_quality_query_plan_gaps import (
+    evidence_role_query_families as _evidence_role_query_families,
+)
+from infinity_context_server.memory_comparison_quality_query_plan_gaps import (
+    query_plan_gap_breakdown as _query_plan_gap_breakdown,
+)
+from infinity_context_server.memory_comparison_quality_query_role_gaps import (
+    query_role_gap_breakdown as _query_role_gap_breakdown,
+)
+from infinity_context_server.memory_comparison_quality_query_roles import (
+    query_role_effectiveness_table as _query_role_effectiveness_table,
+)
+from infinity_context_server.memory_comparison_quality_rerank_gaps import (
+    rerank_signal_gap_breakdown as _rerank_signal_gap_breakdown,
+)
+from infinity_context_server.memory_comparison_quality_selected_weakness import (
+    selected_evidence_weakness_breakdown as _selected_evidence_weakness_breakdown,
+)
+from infinity_context_server.memory_comparison_source_identity import (
+    looks_like_raw_source_ref as _looks_like_raw_source_ref,
+)
+from infinity_context_server.memory_comparison_source_identity import (
+    safe_item_id_for_output as _safe_item_id_for_output,
+)
+from infinity_context_server.memory_comparison_source_identity import (
+    safe_source_refs_for_output as _safe_source_refs_for_output,
+)
+from infinity_context_server.memory_comparison_source_identity import (
+    source_identity_refs_from_source_refs as _source_identity_refs_from_source_refs,
+)
+from infinity_context_server.memory_comparison_temporal_grounding import (
+    temporal_grounding_table as _temporal_grounding_table,
+)
+
+_ANSWERABILITY_GAP_REASON_LIMIT = 6
+_ANSWERABILITY_GAP_TEXT_VALUE_LIMIT = 120
+_EVIDENCE_RECALL_GAP_SAMPLE_LIMIT = 10
+_EVIDENCE_RECALL_MISSING_TERM_SAMPLE_LIMIT = 8
+_ANSWER_CONTEXT_SAMPLE_IDENTITY_LIMIT = 8
+_ANSWER_CONTEXT_SAMPLE_SOURCE_IDENTITY_ITEM_LIMIT = 3
+_LOCOMO_TURN_REF_RE = re.compile(r"\bD\d+:\d+\b")
+_LOCOMO_SESSION_TURN_IDENTITY_RE = re.compile(
+    r"^source_session_turn_refs:session_\d+:D\d+:\d+$",
+    re.IGNORECASE,
+)
+_LOCOMO_TURN_IDENTITY_RE = re.compile(
+    r"^source_turn_refs:D\d+:\d+$",
+    re.IGNORECASE,
+)
+
+
+def evidence_ref_rank_gate_metrics(
+    items: Sequence[Mapping[str, object]],
+) -> dict[str, object]:
+    cutoffs = (1, 2, 3, 5)
+    cutoff_counts = {cutoff: 0 for cutoff in cutoffs}
+    focused_top5_count = 0
+    complete_count = 0
+    samples: list[dict[str, object]] = []
+    evidence_items = [
+        item
+        for item in items
+        if item.get("scored") is True
+        and _positive_int(_mapping(item.get("evidence_bundle")).get("evidence_term_count"))
+    ]
+    for item in evidence_items:
+        bundle = _mapping(item.get("evidence_bundle"))
+        required_refs = _required_evidence_refs(item)
+        ref_positions, focused_ref_positions = _bundle_evidence_ref_positions(bundle)
+        complete = bool(required_refs) and all(ref in ref_positions for ref in required_refs)
+        if complete:
+            complete_count += 1
+        for cutoff in cutoffs:
+            if required_refs and all(
+                ref_positions.get(ref, 9999) <= cutoff for ref in required_refs
+            ):
+                cutoff_counts[cutoff] += 1
+        if required_refs and all(
+            focused_ref_positions.get(ref, 9999) <= 5 for ref in required_refs
+        ):
+            focused_top5_count += 1
+        if len(samples) < 10 and (
+            not complete or any(ref_positions.get(ref, 9999) > 5 for ref in required_refs)
+        ):
+            samples.append(_evidence_ref_failure_sample(item, required_refs, ref_positions))
+    total = len(evidence_items)
+    return {
+        "evaluation_count": total,
+        "bundle_complete_count": complete_count,
+        "all_refs_top1_count": cutoff_counts[1],
+        "all_refs_top2_count": cutoff_counts[2],
+        "all_refs_top3_count": cutoff_counts[3],
+        "all_refs_top5_count": cutoff_counts[5],
+        "focused_refs_top5_count": focused_top5_count,
+        "all_refs_top1_rate": _ratio(cutoff_counts[1], total),
+        "all_refs_top2_rate": _ratio(cutoff_counts[2], total),
+        "all_refs_top3_rate": _ratio(cutoff_counts[3], total),
+        "all_refs_top5_rate": _ratio(cutoff_counts[5], total),
+        "focused_refs_top5_rate": _ratio(focused_top5_count, total),
+        "all_refs_top5_ok": bool(total) and cutoff_counts[5] == total,
+        "focused_refs_top5_ok": bool(total) and focused_top5_count == total,
+        "samples": samples,
+    }
+
+
+def quality_diagnostics(items: Sequence[Mapping[str, object]]) -> dict[str, object]:
+    bundle_incomplete = _bundle_incomplete_diagnostics(items)
+    bundle_gap_breakdown = _bundle_gap_breakdown(bundle_incomplete)
+    source_ref_provenance = _source_ref_provenance_table(items)
+    answer_context_provenance = _answer_context_provenance_table(items)
+    return {
+        "schema_version": "quality_diagnostics.v2",
+        "evaluation_count": len(items),
+        "per_intent": _per_intent_metrics(items),
+        "bundle_incomplete": bundle_incomplete,
+        "evidence_bundle_gap_report": _evidence_bundle_gap_report(
+            evaluation_count=sum(1 for item in items if item.get("scored") is True),
+            bundle_gap_breakdown=bundle_gap_breakdown,
+            source_ref_provenance=source_ref_provenance,
+            answer_context_provenance=answer_context_provenance,
+        ),
+        "bundle_quality_table": _bundle_quality_table(items),
+        "evidence_recall_gap_summary": _evidence_recall_gap_summary(items),
+        "policy_contribution_table": _policy_contribution_table(items),
+        "evidence_feature_table": _evidence_feature_table(items),
+        "source_ref_provenance_table": source_ref_provenance,
+        "answer_context_provenance_table": answer_context_provenance,
+        "answer_context_support_gap_summary": _answer_context_support_gap_summary(
+            items
+        ),
+        "temporal_grounding_table": _temporal_grounding_table(items),
+        "query_role_effectiveness_table": _query_role_effectiveness_table(items),
+        "query_plan_integrity_table": _query_plan_integrity_table(items),
+        "risk_flag_table": _risk_flag_table(items),
+        "rerank_lift_table": _rerank_lift_table(items),
+        "rerank_signal_gap_breakdown": _rerank_signal_gap_breakdown(items),
+        "false_positive_categories": _false_positive_categories(items),
+        "query_leakage_report": _query_leakage_report(items),
+    }
+
+
+def fast_gate_metrics(
+    items: Sequence[Mapping[str, object]],
+    *,
+    expected_case_count: int = 40,
+) -> dict[str, object]:
+    expected_case_count = max(1, expected_case_count)
+    scored_count = sum(1 for item in items if item.get("scored") is True)
+    bundle_complete_count = sum(
+        1 for item in items if item.get("scored") is True and _bundle_complete(item)
+    )
+    ref_gate = evidence_ref_rank_gate_metrics(items)
+    query_overlap_count, profile_overlap_count, intent_overlap_count = (
+        _leakage_counts(items)
+    )
+    bundle_quality = _bundle_quality_table(items)
+    bundle_incomplete = _bundle_incomplete_diagnostics(items)
+    query_role_effectiveness = _query_role_effectiveness_table(items)
+    query_plan_integrity = _query_plan_integrity_table(items)
+    risk_flag_table = _risk_flag_table(items)
+    evidence_recall_gap_summary = _evidence_recall_gap_summary(items)
+    source_ref_provenance = _source_ref_provenance_table(items)
+    answer_context_provenance = _answer_context_provenance_table(items)
+    answer_context_support_gaps = _answer_context_support_gap_summary(items)
+    answerability_gap_breakdown = _answerability_gap_breakdown(items)
+    selected_evidence_weakness = _selected_evidence_weakness_breakdown(items)
+    temporal_grounding = _temporal_grounding_table(items)
+    candidate_fusion = _candidate_fusion_table(items)
+    rerank_signal_gaps = _rerank_signal_gap_breakdown(items)
+    query_role_gap_breakdown = _query_role_gap_breakdown(
+        query_role_effectiveness,
+        candidate_fusion_summary=candidate_fusion,
+        items=items,
+    )
+    query_plan_gap_breakdown = _query_plan_gap_breakdown(query_plan_integrity)
+    bundle_gap_breakdown = _bundle_gap_breakdown(bundle_incomplete)
+    bundle_quality_failure_breakdown = _bundle_quality_failure_breakdown(
+        bundle_quality,
+        expected_case_count=expected_case_count,
+    )
+    bundle_quality_count = _positive_int(bundle_quality.get("bundle_count")) or 0
+    medium_or_high_bundle_count = (
+        _positive_int(bundle_quality.get("medium_or_high_bundle_count")) or 0
+    )
+    gates = {
+        "case_count": _min_gate(scored_count, expected_case_count),
+        "query_profile_leakage_zero": _zero_gate(
+            query_overlap_count + profile_overlap_count + intent_overlap_count
+        ),
+        "all_refs_top5": _min_gate(
+            _positive_int(ref_gate.get("all_refs_top5_count")) or 0,
+            expected_case_count,
+        ),
+        "focused_refs_top5": _min_gate(
+            _positive_int(ref_gate.get("focused_refs_top5_count")) or 0,
+            expected_case_count,
+        ),
+        "all_refs_top3": _min_gate(
+            _positive_int(ref_gate.get("all_refs_top3_count")) or 0,
+            max(0, expected_case_count - 1),
+        ),
+        "all_refs_top2": _min_gate(
+            _positive_int(ref_gate.get("all_refs_top2_count")) or 0,
+            max(0, expected_case_count - 4),
+        ),
+        "all_refs_top1": _min_gate(
+            _positive_int(ref_gate.get("all_refs_top1_count")) or 0,
+            max(0, expected_case_count - 10),
+        ),
+        "evidence_bundle_complete": _min_gate(
+            bundle_complete_count,
+            expected_case_count,
+        ),
+        "lifted_answerability_gaps_clear": _zero_gate(
+            _positive_int(
+                answerability_gap_breakdown.get("lifted_gap_candidate_count")
+            )
+            or 0
+        ),
+        "query_plan_evidence_roles_clear": _zero_gate(
+            _positive_int(
+                query_plan_gap_breakdown.get(
+                    "missing_evidence_role_query_family_total"
+                )
+            )
+            or 0
+        ),
+        "selected_low_answerability_clear": _zero_gate(
+            _positive_int(
+                selected_evidence_weakness.get("low_answerability_item_count")
+            )
+            or 0
+        ),
+        "selected_weak_source_locality_clear": _zero_gate(
+            _positive_int(
+                selected_evidence_weakness.get("weak_source_locality_item_count")
+            )
+            or 0
+        ),
+        "selected_broad_summary_clear": _zero_gate(
+            _positive_int(
+                selected_evidence_weakness.get("broad_summary_item_count")
+            )
+            or 0
+        ),
+        "selected_conflict_or_stale_clear": _zero_gate(
+            _positive_int(
+                selected_evidence_weakness.get("conflict_or_stale_item_count")
+            )
+            or 0
+        ),
+    }
+    if bundle_quality_count:
+        gates["bundle_quality_present"] = _min_gate(
+            bundle_quality_count,
+            expected_case_count,
+        )
+        gates["bundle_quality_medium_or_high"] = _min_gate(
+            medium_or_high_bundle_count,
+            expected_case_count,
+        )
+    failed_gates = tuple(name for name, gate in gates.items() if not gate["passed"])
+    return {
+        "schema_version": "fast_gate.v1",
+        "expected_case_count": expected_case_count,
+        "evaluation_count": scored_count,
+        "evidence_ref_evaluation_count": ref_gate["evaluation_count"],
+        "passed": not failed_gates,
+        "ready_for_full_locomo": not failed_gates,
+        "failed_gates": list(failed_gates),
+        "query_overlap_count": query_overlap_count,
+        "profile_overlap_count": profile_overlap_count,
+        "bundle_quality_gate_applied": bool(bundle_quality_count),
+        "bundle_quality_count": bundle_quality_count,
+        "weak_bundle_count": _positive_int(bundle_quality.get("weak_bundle_count")) or 0,
+        "bundle_quality_failure_breakdown": bundle_quality_failure_breakdown,
+        "bundle_support_counts": _bundle_support_counts(bundle_quality),
+        "bundle_support_bundle_counts": _bundle_support_bundle_counts(bundle_quality),
+        "bundle_source_identity": _bundle_source_identity_summary(bundle_quality),
+        "bundle_source_proximity": _bundle_source_proximity_summary(bundle_quality),
+        "bundle_gap_breakdown": bundle_gap_breakdown,
+        "evidence_recall_gap_summary": evidence_recall_gap_summary,
+        "evidence_bundle_gap_report": _evidence_bundle_gap_report(
+            evaluation_count=scored_count,
+            bundle_gap_breakdown=bundle_gap_breakdown,
+            source_ref_provenance=source_ref_provenance,
+            answer_context_provenance=answer_context_provenance,
+        ),
+        "answerability_gap_breakdown": answerability_gap_breakdown,
+        "selected_evidence_weakness": selected_evidence_weakness,
+        "query_role_gap_breakdown": query_role_gap_breakdown,
+        "query_plan_gap_breakdown": query_plan_gap_breakdown,
+        "source_ref_provenance": source_ref_provenance,
+        "answer_context_provenance": answer_context_provenance,
+        "answer_context_support_gap_summary": answer_context_support_gaps,
+        "temporal_grounding_table": temporal_grounding,
+        "candidate_fusion": candidate_fusion,
+        "rerank_signal_gap_breakdown": rerank_signal_gaps,
+        "risk_flag_table": risk_flag_table,
+        "actionable_gap_summary": _actionable_gap_summary(
+            evaluation_count=scored_count,
+            expected_case_count=expected_case_count,
+            failed_gates=failed_gates,
+            query_overlap_count=query_overlap_count,
+            profile_overlap_count=profile_overlap_count,
+            intent_overlap_count=intent_overlap_count,
+            ref_gate=ref_gate,
+            bundle_quality_failure_breakdown=bundle_quality_failure_breakdown,
+            bundle_gap_breakdown=bundle_gap_breakdown,
+            answerability_gap_breakdown=answerability_gap_breakdown,
+            selected_evidence_weakness=selected_evidence_weakness,
+            evidence_recall_gap_summary=evidence_recall_gap_summary,
+            query_role_gap_breakdown=query_role_gap_breakdown,
+            query_plan_gap_breakdown=query_plan_gap_breakdown,
+            rerank_signal_gap_breakdown=rerank_signal_gaps,
+            temporal_grounding=temporal_grounding,
+            source_ref_provenance=source_ref_provenance,
+            answer_context_provenance=answer_context_provenance,
+            answer_context_support_gap_summary=answer_context_support_gaps,
+        ),
+        "gates": gates,
+    }
+
+
+def _per_intent_metrics(
+    items: Sequence[Mapping[str, object]],
+) -> dict[str, dict[str, object]]:
+    groups: dict[str, list[Mapping[str, object]]] = defaultdict(list)
+    for item in items:
+        for key in _intent_keys(item):
+            groups[key].append(item)
+    return {
+        key: _intent_metric_payload(group_items)
+        for key, group_items in sorted(groups.items())
+    }
+
+
+def _intent_keys(item: Mapping[str, object]) -> tuple[str, ...]:
+    metadata = _retrieval_metadata(item)
+    payloads = _diagnostic_query_payloads(metadata)
+    evidence_need = _merged_payload_intent_values(payloads, "evidence_need")
+    bundle_evidence_roles = _merged_payload_intent_values(
+        payloads,
+        "bundle_evidence_roles",
+    )
+    relation_categories = tuple(
+        dict.fromkeys(
+            category
+            for payload in payloads
+            for category in (
+                _str_tuple(
+                    _mapping(payload.get("query_profile")).get(
+                        "relation_categories"
+                    )
+                )
+                + _relation_categories(_mapping(payload.get("retrieval_intent")))
+            )
+        )
+    )
+    time_kinds = tuple(
+        dict.fromkeys(
+            kind
+            for payload in payloads
+            for kind in (
+                str(
+                    _mapping(
+                        _mapping(payload.get("retrieval_intent")).get("time_intent")
+                    ).get("kind")
+                    or ""
+                ).strip(),
+            )
+            if kind and kind != "none"
+        )
+    )
+    keys = [f"need:{need}" for need in evidence_need]
+    keys.extend(f"role:{role}" for role in bundle_evidence_roles)
+    keys.extend(f"relation:{category}" for category in relation_categories)
+    keys.extend(f"time:{time_kind}" for time_kind in time_kinds)
+    if not keys:
+        keys.append("need:unknown")
+    return tuple(dict.fromkeys(keys))
+
+
+def _relation_categories(intent: Mapping[str, object]) -> tuple[str, ...]:
+    relations = _mapping(intent.get("relations"))
+    categories: list[str] = []
+    for relation_intent in _sequence(relations.get("intents")):
+        payload = _mapping(relation_intent)
+        category = str(payload.get("category") or "").strip()
+        if category:
+            categories.append(category)
+    return tuple(dict.fromkeys(categories))
+
+
+def _merged_payload_intent_values(
+    payloads: Sequence[Mapping[str, object]],
+    key: str,
+) -> tuple[str, ...]:
+    return tuple(
+        dict.fromkeys(
+            value
+            for payload in payloads
+            for value in (
+                _str_tuple(_mapping(payload.get("query_profile")).get(key))
+                + _str_tuple(_mapping(payload.get("retrieval_intent")).get(key))
+            )
+        )
+    )
+
+
+def _intent_metric_payload(items: Sequence[Mapping[str, object]]) -> dict[str, object]:
+    scored = [item for item in items if item.get("scored") is True]
+    passed = sum(1 for item in scored if _judgment_score(item) >= 1.0)
+    return {
+        "total": len(items),
+        "scored": len(scored),
+        "passed": passed,
+        "accuracy": _ratio(passed, len(scored)),
+        "avg_expected_term_recall": _avg(_expected_recall(item) for item in scored),
+        "avg_evidence_term_recall": _avg(
+            _evidence_recall(item)
+            for item in scored
+            if "evidence_term_recall" in _mapping(item.get("retrieval_quality"))
+        ),
+        "bundle_complete_rate": _ratio(
+            sum(1 for item in scored if _bundle_complete(item)),
+            len(scored),
+        ),
+    }
+
+
+def _evidence_recall_gap_summary(
+    items: Sequence[Mapping[str, object]],
+) -> dict[str, object]:
+    scored = [item for item in items if item.get("scored") is True]
+    measured = [item for item in scored if _has_evidence_recall(item)]
+    missing_ref_items = [
+        item
+        for item in scored
+        if _str_tuple(
+            _mapping(item.get("retrieval_quality")).get("missing_evidence_terms")
+        )
+    ]
+    weak_recall_items = [item for item in measured if _evidence_recall(item) < 1.0]
+    gap_items = _dedupe_items((*missing_ref_items, *weak_recall_items))
+    missing_term_counts: Counter[str] = Counter()
+    for item in missing_ref_items:
+        missing_term_counts.update(
+            _safe_evidence_ref_terms(
+                _mapping(item.get("retrieval_quality")).get(
+                    "missing_evidence_terms"
+                )
+            )
+        )
+    return {
+        "schema_version": "evidence_recall_gap_summary.v1",
+        "evaluation_count": len(scored),
+        "measured_evidence_recall_count": len(measured),
+        "missing_evidence_ref_case_count": len(missing_ref_items),
+        "weak_evidence_recall_case_count": len(weak_recall_items),
+        "zero_evidence_recall_case_count": sum(
+            1 for item in measured if _evidence_recall(item) <= 0
+        ),
+        "avg_expected_term_recall": _avg(_expected_recall(item) for item in scored),
+        "avg_evidence_term_recall": _avg(_evidence_recall(item) for item in measured),
+        "top_missing_evidence_terms": _top_counts(missing_term_counts, limit=10),
+        "samples": _evidence_recall_gap_samples(gap_items),
+    }
+
+
+def _dedupe_items(
+    items: Sequence[Mapping[str, object]],
+) -> tuple[Mapping[str, object], ...]:
+    deduped: list[Mapping[str, object]] = []
+    seen: set[int] = set()
+    for item in items:
+        key = id(item)
+        if key in seen:
+            continue
+        seen.add(key)
+        deduped.append(item)
+    return tuple(deduped)
+
+
+def _evidence_recall_gap_samples(
+    items: Sequence[Mapping[str, object]],
+) -> list[dict[str, object]]:
+    samples: list[dict[str, object]] = []
+    for item in sorted(
+        items,
+        key=lambda item: (
+            0
+            if _str_tuple(
+                _mapping(item.get("retrieval_quality")).get(
+                    "missing_evidence_terms"
+                )
+            )
+            else 1,
+            _evidence_recall(item) if _has_evidence_recall(item) else 1.0,
+            -len(
+                _str_tuple(
+                    _mapping(item.get("retrieval_quality")).get(
+                        "missing_evidence_terms"
+                    )
+                )
+            ),
+            str(item.get("case_id") or ""),
+        ),
+    )[:_EVIDENCE_RECALL_GAP_SAMPLE_LIMIT]:
+        quality = _mapping(item.get("retrieval_quality"))
+        measured = _has_evidence_recall(item)
+        missing_terms = _str_tuple(quality.get("missing_evidence_terms"))
+        sample_missing_terms = _safe_evidence_ref_terms(
+            missing_terms[:_EVIDENCE_RECALL_MISSING_TERM_SAMPLE_LIMIT]
+        )
+        sample: dict[str, object] = {
+            "case_id": str(item.get("case_id") or ""),
+            "group": str(item.get("group") or ""),
+            "expected_term_recall": round(_expected_recall(item), 6),
+            "evidence_term_recall_measured": measured,
+            "missing_evidence_term_count": len(missing_terms),
+            "missing_evidence_terms": list(sample_missing_terms),
+            "bundle_complete": _bundle_complete(item),
+        }
+        if measured:
+            sample["evidence_term_recall"] = round(_evidence_recall(item), 6)
+        samples.append(sample)
+    return samples
+
+
+def _safe_evidence_ref_terms(value: object) -> tuple[str, ...]:
+    terms: list[str] = []
+    for term in _str_tuple(value):
+        if not _looks_like_raw_source_ref(term):
+            terms.append(term)
+            continue
+        terms.extend(_safe_source_refs_for_output((term,)))
+    return tuple(dict.fromkeys(terms))
+
+
+def _risk_flag_table(items: Sequence[Mapping[str, object]]) -> dict[str, object]:
+    groups: dict[str, list[Mapping[str, object]]] = defaultdict(list)
+    no_risk_count = 0
+    for item in items:
+        flags = _intent_risk_flags(item)
+        if not flags:
+            no_risk_count += 1
+            continue
+        for flag in flags:
+            groups[flag].append(item)
+    return {
+        "schema_version": "retrieval_intent_risk_flags.v1",
+        "evaluation_count": len(items),
+        "risk_flag_case_count": sum(
+            1 for item in items if _intent_risk_flags(item)
+        ),
+        "no_risk_flag_case_count": no_risk_count,
+        "flag_counts": {
+            flag: len(flag_items) for flag, flag_items in sorted(groups.items())
+        },
+        "flag_stats": {
+            flag: _risk_flag_stats(flag_items)
+            for flag, flag_items in sorted(groups.items())
+        },
+    }
+
+
+def _risk_flag_stats(items: Sequence[Mapping[str, object]]) -> dict[str, object]:
+    scored = [item for item in items if item.get("scored") is True]
+    passed = sum(1 for item in scored if _judgment_score(item) >= 1.0)
+    query_overlap_count = 0
+    profile_overlap_count = 0
+    intent_overlap_count = 0
+    for item in items:
+        integrity = _query_integrity(item)
+        query_overlap_count += (
+            _positive_int(integrity.get("expected_answer_query_overlap_count")) or 0
+        )
+        profile_overlap_count += (
+            _positive_int(
+                integrity.get("expected_answer_query_profile_overlap_count")
+            )
+            or 0
+        )
+        intent_overlap_count += (
+            _positive_int(
+                integrity.get("expected_answer_retrieval_intent_overlap_count")
+            )
+            or 0
+        )
+    query_leakage_count = (
+        query_overlap_count + profile_overlap_count + intent_overlap_count
+    )
+    return {
+        "case_count": len(items),
+        "scored": len(scored),
+        "passed": passed,
+        "accuracy": _ratio(passed, len(scored)),
+        "bundle_complete_count": sum(1 for item in scored if _bundle_complete(item)),
+        "bundle_complete_rate": _ratio(
+            sum(1 for item in scored if _bundle_complete(item)),
+            len(scored),
+        ),
+        "query_overlap_count": query_overlap_count,
+        "profile_overlap_count": profile_overlap_count,
+        "retrieval_intent_overlap_count": intent_overlap_count,
+        "query_leakage_count": query_leakage_count,
+        "avg_expected_term_recall": _avg(_expected_recall(item) for item in scored),
+        "avg_evidence_term_recall": _avg(
+            _evidence_recall(item)
+            for item in scored
+            if "evidence_term_recall" in _mapping(item.get("retrieval_quality"))
+        ),
+        "samples": [
+            {
+                "case_id": str(item.get("case_id") or ""),
+                "group": str(item.get("group") or ""),
+                "score": _judgment_score(item),
+                "bundle_complete": _bundle_complete(item),
+                "query_overlap_count": _query_overlap_count(item),
+            }
+            for item in items[:10]
+        ],
+    }
+
+
+def _intent_risk_flags(item: Mapping[str, object]) -> tuple[str, ...]:
+    metadata = _retrieval_metadata(item)
+    query_decomposition = _mapping(metadata.get("query_decomposition"))
+    rerank = _mapping(metadata.get("benchmark_rerank"))
+    query_profile = _mapping(
+        query_decomposition.get("query_profile") or rerank.get("query_profile")
+    )
+    query_intent = _mapping(query_decomposition.get("retrieval_intent"))
+    rerank_intent = _mapping(rerank.get("retrieval_intent"))
+    integrity = _query_integrity(item)
+    return tuple(
+        dict.fromkeys(
+            (
+                *_str_tuple(query_profile.get("risk_flags")),
+                *_str_tuple(query_intent.get("risk_flags")),
+                *_str_tuple(rerank_intent.get("risk_flags")),
+                *_str_tuple(integrity.get("retrieval_intent_risk_flags")),
+            )
+        )
+    )
+
+
+def _answerability_gap_breakdown(
+    items: Sequence[Mapping[str, object]],
+) -> dict[str, object]:
+    reason_counts: Counter[str] = Counter()
+    lifted_reason_counts: Counter[str] = Counter()
+    category_counts: Counter[str] = Counter()
+    lifted_category_counts: Counter[str] = Counter()
+    case_ids: set[str] = set()
+    lifted_case_ids: set[str] = set()
+    low_answerability_case_ids: set[str] = set()
+    lifted_low_answerability_case_ids: set[str] = set()
+    candidate_count = 0
+    lifted_candidate_count = 0
+    low_answerability_candidate_count = 0
+    lifted_low_answerability_candidate_count = 0
+    samples: list[dict[str, object]] = []
+    low_answerability_samples: list[dict[str, object]] = []
+    for item in items:
+        case_id = str(item.get("case_id") or "")
+        group = str(item.get("group") or "")
+        retrieval = _mapping(item.get("retrieval"))
+        for memory in _sequence(retrieval.get("results")):
+            if not isinstance(memory, Mapping):
+                continue
+            features = _candidate_features(memory)
+            answerability_reason_codes = _compact_answerability_gap_values(
+                _str_tuple(features.get("answerability_reason_codes"))
+            )
+            reasons = tuple(
+                reason
+                for reason in answerability_reason_codes
+                if reason.startswith("missing_") and reason.endswith("_evidence")
+            )
+            diagnostics = _memory_diagnostics(memory)
+            lifted = _candidate_lifted(diagnostics)
+            answerability_score = _metric_value(features, "answerability_score")
+            low_answerability = _is_measured_low_answerability(answerability_score)
+            if low_answerability:
+                low_answerability_candidate_count += 1
+                if case_id:
+                    low_answerability_case_ids.add(case_id)
+                    if lifted:
+                        lifted_low_answerability_case_ids.add(case_id)
+                if lifted:
+                    lifted_low_answerability_candidate_count += 1
+                if len(low_answerability_samples) < 10:
+                    sample = {
+                        "case_id": case_id,
+                        "group": group,
+                        "memory_id": _safe_item_id_for_output(_memory_id(memory)),
+                        "rank": _positive_int(memory.get("rank")),
+                        "lifted": lifted,
+                        "positive_policy_score": round(
+                            _positive_policy_score(diagnostics),
+                            6,
+                        ),
+                        "answerability_score": round(answerability_score, 6),
+                        "answerability_reason_codes": [
+                            _compact_answerability_gap_text(reason)
+                            for reason in answerability_reason_codes[
+                                :_ANSWERABILITY_GAP_REASON_LIMIT
+                            ]
+                        ],
+                        "answerability_reason_count": len(answerability_reason_codes),
+                        "relation_categories": list(
+                            _str_tuple(features.get("relation_categories"))
+                        ),
+                        "relation_category_hits": list(
+                            _str_tuple(features.get("relation_category_hits"))
+                        ),
+                        "query_roles": list(_str_tuple(features.get("query_roles"))),
+                    }
+                    source_identity_refs = _answerability_sample_source_identity_refs(
+                        memory
+                    )
+                    if source_identity_refs:
+                        sample["source_identity_refs"] = list(source_identity_refs)
+                    low_answerability_samples.append(sample)
+            if not reasons:
+                continue
+            candidate_count += 1
+            if case_id:
+                case_ids.add(case_id)
+                if lifted:
+                    lifted_case_ids.add(case_id)
+            if lifted:
+                lifted_candidate_count += 1
+                lifted_reason_counts.update(reasons)
+            reason_counts.update(reasons)
+            for reason in reasons:
+                category = reason.removeprefix("missing_").removesuffix("_evidence")
+                if category:
+                    category_counts[category] += 1
+                    if lifted:
+                        lifted_category_counts[category] += 1
+            if len(samples) < 10:
+                sample = {
+                    "case_id": case_id,
+                    "group": group,
+                    "memory_id": _safe_item_id_for_output(_memory_id(memory)),
+                    "rank": _positive_int(memory.get("rank")),
+                    "reasons": list(reasons),
+                    "answerability_reason_codes": [
+                        _compact_answerability_gap_text(reason)
+                        for reason in answerability_reason_codes[
+                            :_ANSWERABILITY_GAP_REASON_LIMIT
+                        ]
+                    ],
+                    "answerability_reason_count": len(answerability_reason_codes),
+                    "lifted": lifted,
+                    "positive_policy_score": round(
+                        _positive_policy_score(diagnostics),
+                        6,
+                    ),
+                    "answerability_score": round(
+                        answerability_score,
+                        6,
+                    ),
+                    "source_locality_score": round(
+                        _metric_value(features, "source_locality_score"),
+                        6,
+                    ),
+                    "relation_categories": list(
+                        _str_tuple(features.get("relation_categories"))
+                    ),
+                    "relation_category_hits": list(
+                        _str_tuple(features.get("relation_category_hits"))
+                    ),
+                    "query_roles": list(_str_tuple(features.get("query_roles"))),
+                }
+                source_identity_refs = _answerability_sample_source_identity_refs(memory)
+                if source_identity_refs:
+                    sample["source_identity_refs"] = list(source_identity_refs)
+                samples.append(sample)
+    return {
+        "schema_version": "answerability_gap_breakdown.v1",
+        "gap_candidate_count": candidate_count,
+        "gap_case_count": len(case_ids),
+        "lifted_gap_candidate_count": lifted_candidate_count,
+        "lifted_gap_case_count": len(lifted_case_ids),
+        "low_answerability_candidate_count": low_answerability_candidate_count,
+        "low_answerability_case_count": len(low_answerability_case_ids),
+        "lifted_low_answerability_candidate_count": (
+            lifted_low_answerability_candidate_count
+        ),
+        "lifted_low_answerability_case_count": (
+            len(lifted_low_answerability_case_ids)
+        ),
+        "reason_counts": dict(sorted(reason_counts.items())),
+        "lifted_reason_counts": dict(sorted(lifted_reason_counts.items())),
+        "category_counts": dict(sorted(category_counts.items())),
+        "lifted_category_counts": dict(sorted(lifted_category_counts.items())),
+        "samples": samples,
+        "low_answerability_samples": low_answerability_samples,
+    }
+
+
+def _answerability_sample_source_identity_refs(
+    memory: Mapping[str, object],
+) -> tuple[str, ...]:
+    return _source_identity_refs_from_source_refs(
+        _source_refs_from_memory(memory),
+        include_exact_turn_refs=True,
+    )[:_ANSWER_CONTEXT_SAMPLE_IDENTITY_LIMIT]
+
+
+def _compact_answerability_gap_values(values: Sequence[str]) -> tuple[str, ...]:
+    return tuple(
+        dict.fromkeys(stripped for value in values if (stripped := value.strip()))
+    )
+
+
+def _compact_answerability_gap_text(value: str) -> str:
+    stripped = value.strip()
+    if len(stripped) <= _ANSWERABILITY_GAP_TEXT_VALUE_LIMIT:
+        return stripped
+    return f"{stripped[:_ANSWERABILITY_GAP_TEXT_VALUE_LIMIT - 3]}..."
+
+
+def _policy_contribution_table(
+    items: Sequence[Mapping[str, object]],
+) -> dict[str, dict[str, object]]:
+    totals: dict[str, float] = defaultdict(float)
+    active_counts: Counter[str] = Counter()
+    reason_counts: dict[str, Counter[str]] = defaultdict(Counter)
+    for memory in _retrieval_results(items):
+        policy = _mapping(
+            _mapping(_mapping(memory.get("metadata")).get("diagnostics")).get(
+                "benchmark_rerank_policy"
+            )
+        )
+        for contribution in _sequence(policy.get("contributions")):
+            payload = _mapping(contribution)
+            name = str(payload.get("policy") or "unknown")
+            score = _metric_value(payload, "score")
+            totals[name] += score
+            if score != 0:
+                active_counts[name] += 1
+            reason_counts[name].update(_str_tuple(payload.get("reason_codes")))
+    return {
+        name: {
+            "active_count": active_counts[name],
+            "total_score": round(total, 6),
+            "avg_active_score": round(total / active_counts[name], 6)
+            if active_counts[name]
+            else 0.0,
+            "reason_counts": dict(sorted(reason_counts[name].items())),
+        }
+        for name, total in sorted(totals.items())
+    }
+
+
+def _evidence_feature_table(items: Sequence[Mapping[str, object]]) -> dict[str, object]:
+    surface_counts: Counter[str] = Counter()
+    source_type_counts: Counter[str] = Counter()
+    retrieval_source_counts: Counter[str] = Counter()
+    query_role_counts: Counter[str] = Counter()
+    relation_category_counts: Counter[str] = Counter()
+    relation_category_hit_counts: Counter[str] = Counter()
+    relation_target_specificity_reason_counts: Counter[str] = Counter()
+    answerability_reason_counts: Counter[str] = Counter()
+    source_locality_reason_counts: Counter[str] = Counter()
+    time_intent_kind_counts: Counter[str] = Counter()
+    typed_temporal_surface_counts: Counter[str] = Counter()
+    answerability_scores: list[float] = []
+    source_locality_scores: list[float] = []
+    for memory in _retrieval_results(items):
+        features = _candidate_features(memory)
+        if not features:
+            continue
+        answerability_scores.append(_metric_value(features, "answerability_score"))
+        source_locality_scores.append(_metric_value(features, "source_locality_score"))
+        source_type_counts.update(_feature_source_types(features))
+        retrieval_source_counts.update(_str_tuple(features.get("retrieval_sources")))
+        query_role_counts.update(_str_tuple(features.get("query_roles")))
+        time_intent_kind = str(features.get("time_intent_kind") or "").strip()
+        if time_intent_kind and time_intent_kind != "none":
+            time_intent_kind_counts[time_intent_kind] += 1
+        if features.get("bridge_query_hit") is True:
+            surface_counts["bridge_query_hit"] += 1
+        relation_category_counts.update(_str_tuple(features.get("relation_categories")))
+        relation_category_hit_counts.update(
+            _str_tuple(features.get("relation_category_hits"))
+        )
+        relation_target_specificity_reason_counts.update(
+            _str_tuple(features.get("relation_target_specificity_reason_codes"))
+        )
+        answerability_reason_counts.update(
+            _str_tuple(features.get("answerability_reason_codes"))
+        )
+        source_locality_reason_counts.update(
+            _str_tuple(features.get("source_locality_reason_codes"))
+        )
+        for key in (
+            "direct_speaker_turn",
+            "negation_surface",
+            "currentness_surface",
+            "stale_surface",
+            "contrast_surface",
+        ):
+            if features.get(key) is True:
+                surface_counts[key] += 1
+        if payload_has_broad_summary(memory, features):
+            surface_counts["broad_summary"] += 1
+        if payload_has_conflict_or_stale(memory, features):
+            surface_counts["conflict_or_stale"] += 1
+        for key in (
+            "has_duration_surface",
+            "has_relative_time_surface",
+            "has_explicit_time_surface",
+            "has_explicit_time_content_surface",
+            "has_temporal_sequence_surface",
+        ):
+            if features.get(key) is True:
+                typed_temporal_surface_counts[key] += 1
+    low_answerability_count = sum(
+        1 for score in answerability_scores if _is_measured_low_answerability(score)
+    )
+    measured_answerability_scores = [
+        score for score in answerability_scores if score > 0
+    ]
+    measured_source_locality_scores = [
+        score for score in source_locality_scores if score > 0
+    ]
+    return {
+        "candidate_count": len(answerability_scores),
+        "avg_answerability_score": _avg(answerability_scores),
+        "avg_measured_answerability_score": _avg(measured_answerability_scores),
+        "unmeasured_answerability_count": sum(
+            1 for score in answerability_scores if score <= 0
+        ),
+        "avg_source_locality_score": _avg(source_locality_scores),
+        "avg_measured_source_locality_score": _avg(measured_source_locality_scores),
+        "unmeasured_source_locality_count": sum(
+            1 for score in source_locality_scores if score <= 0
+        ),
+        "low_answerability_count": low_answerability_count,
+        "surface_counts": dict(sorted(surface_counts.items())),
+        "source_type_counts": dict(sorted(source_type_counts.items())),
+        "retrieval_source_counts": dict(sorted(retrieval_source_counts.items())),
+        "query_role_counts": dict(sorted(query_role_counts.items())),
+        "bridge_query_hit_count": surface_counts.get("bridge_query_hit", 0),
+        "time_intent_kind_counts": dict(sorted(time_intent_kind_counts.items())),
+        "typed_temporal_surface_counts": dict(
+            sorted(typed_temporal_surface_counts.items())
+        ),
+        "relation_category_counts": dict(sorted(relation_category_counts.items())),
+        "relation_category_hit_counts": dict(
+            sorted(relation_category_hit_counts.items())
+        ),
+        "relation_target_specificity_reason_counts": dict(
+            sorted(relation_target_specificity_reason_counts.items())
+        ),
+        "answerability_reason_counts": dict(sorted(answerability_reason_counts.items())),
+        "source_locality_reason_counts": dict(
+            sorted(source_locality_reason_counts.items())
+        ),
+    }
+
+
+def _feature_source_types(features: Mapping[str, object]) -> tuple[str, ...]:
+    source_types = _str_tuple(features.get("source_types"))
+    if source_types:
+        return source_types
+    source_type = str(features.get("source_type") or "unknown").strip() or "unknown"
+    return (source_type,)
+
+
+def _source_ref_provenance_table(
+    items: Sequence[Mapping[str, object]],
+) -> dict[str, object]:
+    retrieval_candidate_count = 0
+    retrieval_source_ref_candidate_count = 0
+    retrieval_source_ref_count = 0
+    fused_candidate_count = 0
+    fused_source_ref_candidate_count = 0
+    fused_source_ref_count = 0
+    fused_ref_rescue_candidate_count = 0
+    fused_ref_added_count = 0
+    retrieval_source_ref_shape_counts: Counter[str] = Counter()
+    fused_source_ref_shape_counts: Counter[str] = Counter()
+    selected_bundle_source_ref_shape_counts: Counter[str] = Counter()
+    selected_bundle_item_count = 0
+    selected_bundle_source_ref_item_count = 0
+    selected_bundle_source_ref_count = 0
+    source_refless_selected_samples: list[dict[str, object]] = []
+
+    for item in items:
+        for memory in _sequence(_mapping(item.get("retrieval")).get("results")):
+            if not isinstance(memory, Mapping):
+                continue
+            retrieval_candidate_count += 1
+            direct_memory_refs = _direct_source_refs_from_memory(memory)
+            memory_refs = _source_refs_from_memory(memory)
+            if memory_refs:
+                retrieval_source_ref_candidate_count += 1
+                retrieval_source_ref_count += len(memory_refs)
+                retrieval_source_ref_shape_counts.update(
+                    _source_ref_shape(ref) for ref in memory_refs
+                )
+
+            fusion_refs = _fusion_source_refs(memory)
+            if fusion_refs:
+                fused_candidate_count += 1
+                fused_source_ref_candidate_count += 1
+                fused_source_ref_count += len(fusion_refs)
+                fused_source_ref_shape_counts.update(
+                    _source_ref_shape(ref) for ref in fusion_refs
+                )
+                added_refs = tuple(
+                    ref for ref in fusion_refs if ref not in direct_memory_refs
+                )
+                if added_refs:
+                    fused_ref_rescue_candidate_count += 1
+                    fused_ref_added_count += len(added_refs)
+            elif _mapping(_memory_diagnostics(memory).get("benchmark_candidate_fusion")):
+                fused_candidate_count += 1
+
+        for bundle_item in _bundle_items(_mapping(item.get("evidence_bundle"))):
+            selected_bundle_item_count += 1
+            source_refs = _source_refs_from_bundle_item(bundle_item)
+            if source_refs:
+                selected_bundle_source_ref_item_count += 1
+                selected_bundle_source_ref_count += len(source_refs)
+                selected_bundle_source_ref_shape_counts.update(
+                    _source_ref_shape(ref) for ref in source_refs
+                )
+                continue
+            if len(source_refless_selected_samples) < 10:
+                source_refless_selected_samples.append(
+                    {
+                        "case_id": str(item.get("case_id") or ""),
+                        "item_id": _safe_item_id_for_output(
+                            bundle_item.get("id") or bundle_item.get("item_id")
+                        ),
+                        "role": str(bundle_item.get("role") or ""),
+                        "retrieval_order": (
+                            _positive_int(bundle_item.get("retrieval_order"))
+                            or _positive_int(bundle_item.get("rank"))
+                            or 0
+                        ),
+                    }
+                )
+
+    return {
+        "schema_version": "source_ref_provenance.v1",
+        "retrieval_candidate_count": retrieval_candidate_count,
+        "retrieval_source_ref_candidate_count": retrieval_source_ref_candidate_count,
+        "retrieval_source_ref_count": retrieval_source_ref_count,
+        "retrieval_source_ref_shape_counts": dict(
+            sorted(retrieval_source_ref_shape_counts.items())
+        ),
+        "retrieval_source_refless_candidate_count": (
+            retrieval_candidate_count - retrieval_source_ref_candidate_count
+        ),
+        "retrieval_source_ref_coverage_rate": _ratio(
+            retrieval_source_ref_candidate_count,
+            retrieval_candidate_count,
+        ),
+        "fused_candidate_count": fused_candidate_count,
+        "fused_source_ref_candidate_count": fused_source_ref_candidate_count,
+        "fused_source_ref_count": fused_source_ref_count,
+        "fused_source_ref_shape_counts": dict(
+            sorted(fused_source_ref_shape_counts.items())
+        ),
+        "fused_ref_rescue_candidate_count": fused_ref_rescue_candidate_count,
+        "fused_ref_added_count": fused_ref_added_count,
+        "selected_bundle_item_count": selected_bundle_item_count,
+        "selected_bundle_source_ref_item_count": selected_bundle_source_ref_item_count,
+        "selected_bundle_source_ref_count": selected_bundle_source_ref_count,
+        "selected_bundle_source_ref_shape_counts": dict(
+            sorted(selected_bundle_source_ref_shape_counts.items())
+        ),
+        "selected_bundle_source_refless_item_count": (
+            selected_bundle_item_count - selected_bundle_source_ref_item_count
+        ),
+        "selected_bundle_source_ref_coverage_rate": _ratio(
+            selected_bundle_source_ref_item_count,
+            selected_bundle_item_count,
+        ),
+        "source_refless_selected_samples": source_refless_selected_samples,
+    }
+
+
+def _source_ref_shape(source_ref: str) -> str:
+    value = str(source_ref or "").strip()
+    if not value:
+        return "empty_source_ref"
+    if _LOCOMO_SESSION_TURN_IDENTITY_RE.fullmatch(value):
+        return "locomo_session_turn_identity"
+    if _LOCOMO_TURN_IDENTITY_RE.fullmatch(value):
+        return "locomo_turn_identity"
+    if _LOCOMO_TURN_REF_RE.fullmatch(value):
+        return "locomo_turn_ref"
+    if _LOCOMO_TURN_REF_RE.search(value):
+        return "locomo_embedded_turn_ref"
+    return "opaque_source_ref"
+
+
+def _answer_context_provenance_table(
+    items: Sequence[Mapping[str, object]],
+) -> dict[str, object]:
+    context_count = 0
+    evidence_bundle_context_count = 0
+    source_ref_context_count = 0
+    source_refless_context_count = 0
+    mixed_source_context_count = 0
+    memory_count = 0
+    source_ref_count = 0
+    source_ref_item_count = 0
+    source_refless_item_count = 0
+    backfilled_context_count = 0
+    duplicate_source_bundle_skip_context_count = 0
+    noisy_overlap_bundle_skip_context_count = 0
+    backfill_skip_context_count = 0
+    backfilled_retrieval_item_count = 0
+    skipped_duplicate_source_bundle_item_count = 0
+    skipped_noisy_overlap_bundle_item_count = 0
+    skipped_redundant_risky_backfill_count = 0
+    skipped_redundant_source_backfill_count = 0
+    skipped_redundant_role_backfill_count = 0
+    backfilled_broad_summary_count = 0
+    backfilled_conflict_or_stale_count = 0
+    backfilled_precise_source_overlap_count = 0
+    backfilled_low_answerability_count = 0
+    backfilled_weak_source_locality_count = 0
+    backfilled_low_answerability_role_counts: Counter[str] = Counter()
+    backfilled_weak_source_locality_role_counts: Counter[str] = Counter()
+    backfilled_source_proximity_support_count = 0
+    backfilled_chained_source_proximity_support_count = 0
+    backfilled_source_proximity_closest_distances: list[int] = []
+    fallback_context_count = 0
+    source_type_diversities: list[int] = []
+    retrieval_source_diversities: list[int] = []
+    source_type_support_diversities: list[int] = []
+    retrieval_source_support_diversities: list[int] = []
+    answerability_scores: list[float] = []
+    measured_answerability_scores: list[float] = []
+    unmeasured_answerability_count = 0
+    source_locality_scores: list[float] = []
+    measured_source_locality_scores: list[float] = []
+    unmeasured_source_locality_count = 0
+    source_counts: Counter[str] = Counter()
+    fallback_reason_counts: Counter[str] = Counter()
+    missing_required_role_counts: Counter[str] = Counter()
+    backfilled_missing_required_role_counts: Counter[str] = Counter()
+    risk_reason_counts: Counter[str] = Counter()
+    risk_reason_source_counts: defaultdict[str, Counter[str]] = defaultdict(Counter)
+    risk_reason_context_count = 0
+    fallback_risk_context_count = 0
+    missing_required_role_context_count = 0
+    source_refless_context_samples: list[dict[str, object]] = []
+    backfilled_context_samples: list[dict[str, object]] = []
+    duplicate_source_bundle_skip_context_samples: list[dict[str, object]] = []
+    noisy_overlap_bundle_skip_context_samples: list[dict[str, object]] = []
+    backfill_skip_context_samples: list[dict[str, object]] = []
+    mixed_source_context_samples: list[dict[str, object]] = []
+    risk_reason_context_samples: list[dict[str, object]] = []
+
+    for item in items:
+        for cutoff, context in _answer_contexts(item):
+            context_count += 1
+            source = str(context.get("source") or "unknown").strip() or "unknown"
+            source_counts[source] += 1
+            if source == "evidence_bundle":
+                evidence_bundle_context_count += 1
+            else:
+                fallback_context_count += 1
+            fallback_reason = str(context.get("fallback_reason") or "").strip()
+            if fallback_reason:
+                fallback_reason_counts[fallback_reason] += 1
+
+            context_memory_count = _positive_int(context.get("memory_count")) or 0
+            context_source_ref_count = (
+                _positive_int(context.get("source_ref_count")) or 0
+            )
+            context_source_ref_item_count = (
+                _positive_int(context.get("source_ref_item_count")) or 0
+            )
+            context_source_refless_item_count = (
+                _positive_int(context.get("source_refless_item_count")) or 0
+            )
+            context_backfilled_count = (
+                _positive_int(context.get("backfilled_retrieval_item_count")) or 0
+            )
+            context_skipped_duplicate_source_bundle_item_count = (
+                _positive_int(
+                    context.get("skipped_duplicate_source_bundle_item_count")
+                )
+                or 0
+            )
+            context_skipped_noisy_overlap_bundle_item_count = (
+                _positive_int(
+                    context.get("skipped_noisy_overlap_bundle_item_count")
+                )
+                or 0
+            )
+            context_skipped_redundant_risky_backfill_count = (
+                _positive_int(
+                    context.get("skipped_redundant_risky_backfill_count")
+                )
+                or 0
+            )
+            context_skipped_redundant_source_backfill_count = (
+                _positive_int(
+                    context.get("skipped_redundant_source_backfill_count")
+                )
+                or 0
+            )
+            context_skipped_redundant_role_backfill_count = (
+                _positive_int(
+                    context.get("skipped_redundant_role_backfill_count")
+                )
+                or 0
+            )
+            context_backfilled_broad_summary_count = (
+                _positive_int(context.get("backfilled_broad_summary_count")) or 0
+            )
+            context_backfilled_conflict_or_stale_count = (
+                _positive_int(context.get("backfilled_conflict_or_stale_count")) or 0
+            )
+            context_backfilled_precise_source_overlap_count = (
+                _positive_int(
+                    context.get("backfilled_precise_source_overlap_count")
+                )
+                or 0
+            )
+            context_backfilled_low_answerability_count = (
+                _positive_int(context.get("backfilled_low_answerability_count")) or 0
+            )
+            context_backfilled_weak_source_locality_count = (
+                _positive_int(context.get("backfilled_weak_source_locality_count"))
+                or 0
+            )
+            context_backfilled_low_answerability_role_counts = _count_mapping(
+                context.get("backfilled_low_answerability_role_counts")
+            )
+            context_backfilled_weak_source_locality_role_counts = _count_mapping(
+                context.get("backfilled_weak_source_locality_role_counts")
+            )
+            context_backfilled_source_proximity_support_count = (
+                _positive_int(
+                    context.get("backfilled_source_proximity_support_count")
+                )
+                or 0
+            )
+            context_backfilled_chained_source_proximity_support_count = (
+                _positive_int(
+                    context.get(
+                        "backfilled_chained_source_proximity_support_count"
+                    )
+                )
+                or 0
+            )
+            context_backfilled_source_proximity_closest_distance = _positive_int(
+                context.get("backfilled_source_proximity_closest_distance")
+            )
+            if context_backfilled_source_proximity_closest_distance is not None:
+                backfilled_source_proximity_closest_distances.append(
+                    context_backfilled_source_proximity_closest_distance
+                )
+            source_type_diversities.append(
+                _positive_int(context.get("bundle_source_type_diversity")) or 0
+            )
+            retrieval_source_diversities.append(
+                _positive_int(context.get("bundle_retrieval_source_diversity")) or 0
+            )
+            source_type_support_diversities.append(
+                _positive_int(context.get("bundle_source_type_support_diversity"))
+                or 0
+            )
+            retrieval_source_support_diversities.append(
+                _positive_int(
+                    context.get("bundle_retrieval_source_support_diversity")
+                )
+                or 0
+            )
+            answerability_score = _metric_value(context, "avg_answerability_score")
+            answerability_scores.append(answerability_score)
+            measured_answerability_score = _metric_value(
+                context,
+                "avg_measured_answerability_score",
+            )
+            if measured_answerability_score > 0:
+                measured_answerability_scores.append(measured_answerability_score)
+            unmeasured_answerability_count += (
+                _positive_int(context.get("unmeasured_answerability_count")) or 0
+            )
+            source_locality_score = _metric_value(
+                context,
+                "avg_source_locality_score",
+            )
+            source_locality_scores.append(source_locality_score)
+            measured_source_locality_score = _metric_value(
+                context,
+                "avg_measured_source_locality_score",
+            )
+            if measured_source_locality_score > 0:
+                measured_source_locality_scores.append(measured_source_locality_score)
+            unmeasured_source_locality_count += (
+                _positive_int(context.get("unmeasured_source_locality_count")) or 0
+            )
+            missing_required_roles = _str_tuple(context.get("missing_required_roles"))
+            if missing_required_roles:
+                missing_required_role_context_count += 1
+                missing_required_role_counts.update(missing_required_roles)
+                if context_backfilled_count > 0:
+                    backfilled_missing_required_role_counts.update(
+                        missing_required_roles
+                    )
+            risk_reasons = _answer_context_risk_reasons(
+                context,
+                skipped_duplicate_source_bundle_item_count=(
+                    context_skipped_duplicate_source_bundle_item_count
+                ),
+                skipped_noisy_overlap_bundle_item_count=(
+                    context_skipped_noisy_overlap_bundle_item_count
+                ),
+                backfilled_retrieval_item_count=context_backfilled_count,
+                skipped_redundant_risky_backfill_count=(
+                    context_skipped_redundant_risky_backfill_count
+                ),
+                skipped_redundant_source_backfill_count=(
+                    context_skipped_redundant_source_backfill_count
+                ),
+                skipped_redundant_role_backfill_count=(
+                    context_skipped_redundant_role_backfill_count
+                ),
+                backfill_risk_stats={
+                    "backfilled_broad_summary_count": (
+                        context_backfilled_broad_summary_count
+                    ),
+                    "backfilled_conflict_or_stale_count": (
+                        context_backfilled_conflict_or_stale_count
+                    ),
+                    "backfilled_low_answerability_count": (
+                        context_backfilled_low_answerability_count
+                    ),
+                    "backfilled_weak_source_locality_count": (
+                        context_backfilled_weak_source_locality_count
+                    ),
+                },
+            )
+            risk_reason_counts.update(risk_reasons)
+            for reason in risk_reasons:
+                risk_reason_source_counts[reason][source] += 1
+            if risk_reasons:
+                risk_reason_context_count += 1
+                if fallback_reason:
+                    fallback_risk_context_count += 1
+                risk_reason_context_samples.append(
+                    _answer_context_risk_sample(
+                        item=item,
+                        cutoff=cutoff,
+                        source=source,
+                        context=context,
+                        risk_reasons=risk_reasons,
+                        missing_required_roles=missing_required_roles,
+                    )
+                )
+            memory_count += context_memory_count
+            source_ref_count += context_source_ref_count
+            source_ref_item_count += context_source_ref_item_count
+            source_refless_item_count += context_source_refless_item_count
+            backfilled_retrieval_item_count += context_backfilled_count
+            skipped_duplicate_source_bundle_item_count += (
+                context_skipped_duplicate_source_bundle_item_count
+            )
+            skipped_noisy_overlap_bundle_item_count += (
+                context_skipped_noisy_overlap_bundle_item_count
+            )
+            skipped_redundant_risky_backfill_count += (
+                context_skipped_redundant_risky_backfill_count
+            )
+            skipped_redundant_source_backfill_count += (
+                context_skipped_redundant_source_backfill_count
+            )
+            skipped_redundant_role_backfill_count += (
+                context_skipped_redundant_role_backfill_count
+            )
+            backfilled_broad_summary_count += context_backfilled_broad_summary_count
+            backfilled_conflict_or_stale_count += (
+                context_backfilled_conflict_or_stale_count
+            )
+            backfilled_precise_source_overlap_count += (
+                context_backfilled_precise_source_overlap_count
+            )
+            backfilled_low_answerability_count += (
+                context_backfilled_low_answerability_count
+            )
+            backfilled_weak_source_locality_count += (
+                context_backfilled_weak_source_locality_count
+            )
+            backfilled_low_answerability_role_counts.update(
+                context_backfilled_low_answerability_role_counts
+            )
+            backfilled_weak_source_locality_role_counts.update(
+                context_backfilled_weak_source_locality_role_counts
+            )
+            backfilled_source_proximity_support_count += (
+                context_backfilled_source_proximity_support_count
+            )
+            backfilled_chained_source_proximity_support_count += (
+                context_backfilled_chained_source_proximity_support_count
+            )
+            if context_backfilled_count > 0:
+                backfilled_context_count += 1
+            if context_skipped_duplicate_source_bundle_item_count > 0:
+                duplicate_source_bundle_skip_context_count += 1
+            if context_skipped_noisy_overlap_bundle_item_count > 0:
+                noisy_overlap_bundle_skip_context_count += 1
+            context_backfill_skip_count = (
+                context_skipped_redundant_risky_backfill_count
+                + context_skipped_redundant_source_backfill_count
+                + context_skipped_redundant_role_backfill_count
+            )
+            if context_backfill_skip_count > 0:
+                backfill_skip_context_count += 1
+            if context_source_ref_count > 0 or context_source_ref_item_count > 0:
+                source_ref_context_count += 1
+            if context_source_refless_item_count > 0:
+                source_refless_context_count += 1
+            if (
+                (context_source_ref_count > 0 or context_source_ref_item_count > 0)
+                and context_source_refless_item_count > 0
+            ):
+                mixed_source_context_count += 1
+            if (
+                context_skipped_duplicate_source_bundle_item_count > 0
+                and len(duplicate_source_bundle_skip_context_samples) < 10
+            ):
+                duplicate_source_bundle_skip_context_samples.append(
+                    {
+                        "case_id": str(item.get("case_id") or ""),
+                        "cutoff": cutoff,
+                        "source": source,
+                        "memory_count": context_memory_count,
+                        "skipped_duplicate_source_bundle_item_count": (
+                            context_skipped_duplicate_source_bundle_item_count
+                        ),
+                        "source_ref_count": context_source_ref_count,
+                        "source_ref_item_count": context_source_ref_item_count,
+                        **(
+                            {"risk_reason_codes": list(risk_reasons)}
+                            if risk_reasons
+                            else {}
+                        ),
+                    }
+                )
+            if (
+                context_skipped_noisy_overlap_bundle_item_count > 0
+                and len(noisy_overlap_bundle_skip_context_samples) < 10
+            ):
+                noisy_overlap_bundle_skip_context_samples.append(
+                    {
+                        "case_id": str(item.get("case_id") or ""),
+                        "cutoff": cutoff,
+                        "source": source,
+                        "memory_count": context_memory_count,
+                        "skipped_noisy_overlap_bundle_item_count": (
+                            context_skipped_noisy_overlap_bundle_item_count
+                        ),
+                        "source_ref_count": context_source_ref_count,
+                        "source_ref_item_count": context_source_ref_item_count,
+                        **(
+                            {"risk_reason_codes": list(risk_reasons)}
+                            if risk_reasons
+                            else {}
+                        ),
+                    }
+                )
+            if (
+                context_backfill_skip_count > 0
+                and len(backfill_skip_context_samples) < 10
+            ):
+                backfill_skip_context_samples.append(
+                    {
+                        "case_id": str(item.get("case_id") or ""),
+                        "cutoff": cutoff,
+                        "source": source,
+                        "memory_count": context_memory_count,
+                        "backfilled_retrieval_item_count": (
+                            context_backfilled_count
+                        ),
+                        "skipped_redundant_risky_backfill_count": (
+                            context_skipped_redundant_risky_backfill_count
+                        ),
+                        "skipped_redundant_source_backfill_count": (
+                            context_skipped_redundant_source_backfill_count
+                        ),
+                        "skipped_redundant_role_backfill_count": (
+                            context_skipped_redundant_role_backfill_count
+                        ),
+                        "missing_required_roles": list(missing_required_roles),
+                        **(
+                            {"risk_reason_codes": list(risk_reasons)}
+                            if risk_reasons
+                            else {}
+                        ),
+                    }
+                )
+            if context_backfilled_count > 0 and len(backfilled_context_samples) < 10:
+                backfilled_context_samples.append(
+                    {
+                        "case_id": str(item.get("case_id") or ""),
+                        "cutoff": cutoff,
+                        "source": source,
+                        "memory_count": context_memory_count,
+                        "backfilled_retrieval_item_count": (
+                            context_backfilled_count
+                        ),
+                        "skipped_duplicate_source_bundle_item_count": (
+                            context_skipped_duplicate_source_bundle_item_count
+                        ),
+                        "skipped_noisy_overlap_bundle_item_count": (
+                            context_skipped_noisy_overlap_bundle_item_count
+                        ),
+                        "skipped_redundant_risky_backfill_count": (
+                            context_skipped_redundant_risky_backfill_count
+                        ),
+                        "skipped_redundant_source_backfill_count": (
+                            context_skipped_redundant_source_backfill_count
+                        ),
+                        "skipped_redundant_role_backfill_count": (
+                            context_skipped_redundant_role_backfill_count
+                        ),
+                        "backfilled_broad_summary_count": (
+                            context_backfilled_broad_summary_count
+                        ),
+                        "backfilled_conflict_or_stale_count": (
+                            context_backfilled_conflict_or_stale_count
+                        ),
+                        "backfilled_precise_source_overlap_count": (
+                            context_backfilled_precise_source_overlap_count
+                        ),
+                        "backfilled_low_answerability_count": (
+                            context_backfilled_low_answerability_count
+                        ),
+                        "backfilled_weak_source_locality_count": (
+                            context_backfilled_weak_source_locality_count
+                        ),
+                        **(
+                            {
+                                "backfilled_low_answerability_role_counts": dict(
+                                    sorted(
+                                        context_backfilled_low_answerability_role_counts.items()
+                                    )
+                                )
+                            }
+                            if context_backfilled_low_answerability_role_counts
+                            else {}
+                        ),
+                        **(
+                            {
+                                "backfilled_weak_source_locality_role_counts": dict(
+                                    sorted(
+                                        context_backfilled_weak_source_locality_role_counts.items()
+                                    )
+                                )
+                            }
+                            if context_backfilled_weak_source_locality_role_counts
+                            else {}
+                        ),
+                        "backfilled_source_proximity_support_count": (
+                            context_backfilled_source_proximity_support_count
+                        ),
+                        "backfilled_chained_source_proximity_support_count": (
+                            context_backfilled_chained_source_proximity_support_count
+                        ),
+                        "backfilled_source_proximity_closest_distance": (
+                            context_backfilled_source_proximity_closest_distance
+                        ),
+                        "missing_required_roles": list(missing_required_roles),
+                        **_answer_context_sample_identity(context),
+                        **(
+                            {"risk_reason_codes": list(risk_reasons)}
+                            if risk_reasons
+                            else {}
+                        ),
+                    }
+                )
+            if context_source_refless_item_count > 0 and len(
+                source_refless_context_samples
+            ) < 10:
+                source_refless_context_samples.append(
+                    {
+                        "case_id": str(item.get("case_id") or ""),
+                        "cutoff": cutoff,
+                        "source": source,
+                        "memory_count": context_memory_count,
+                        "source_refless_item_count": (
+                            context_source_refless_item_count
+                        ),
+                        "fallback_reason": fallback_reason,
+                        **(
+                            {"source_ref_count": context_source_ref_count}
+                            if context_source_ref_count
+                            else {}
+                        ),
+                        **(
+                            {"source_ref_item_count": context_source_ref_item_count}
+                            if context_source_ref_item_count
+                            else {}
+                        ),
+                        **_answer_context_sample_identity(context),
+                        **(
+                            {"missing_required_roles": list(missing_required_roles)}
+                            if missing_required_roles
+                            else {}
+                        ),
+                        **(
+                            {"risk_reason_codes": list(risk_reasons)}
+                            if risk_reasons
+                            else {}
+                        ),
+                    }
+                )
+            if (
+                (context_source_ref_count > 0 or context_source_ref_item_count > 0)
+                and context_source_refless_item_count > 0
+                and len(mixed_source_context_samples) < 10
+            ):
+                mixed_source_context_samples.append(
+                    {
+                        "case_id": str(item.get("case_id") or ""),
+                        "cutoff": cutoff,
+                        "source": source,
+                        "memory_count": context_memory_count,
+                        "source_ref_count": context_source_ref_count,
+                        "source_ref_item_count": context_source_ref_item_count,
+                        "source_refless_item_count": (
+                            context_source_refless_item_count
+                        ),
+                        "fallback_reason": fallback_reason,
+                        **_answer_context_sample_identity(context),
+                        **(
+                            {"missing_required_roles": list(missing_required_roles)}
+                            if missing_required_roles
+                            else {}
+                        ),
+                        **(
+                            {"risk_reason_codes": list(risk_reasons)}
+                            if risk_reasons
+                            else {}
+                        ),
+                    }
+                )
+
+    return {
+        "schema_version": "answer_context_provenance.v1",
+        "context_count": context_count,
+        "evidence_bundle_context_count": evidence_bundle_context_count,
+        "fallback_context_count": fallback_context_count,
+        "source_ref_context_count": source_ref_context_count,
+        "source_refless_context_count": source_refless_context_count,
+        "mixed_source_context_count": mixed_source_context_count,
+        "memory_count": memory_count,
+        "source_ref_count": source_ref_count,
+        "source_ref_item_count": source_ref_item_count,
+        "source_refless_item_count": source_refless_item_count,
+        "backfilled_context_count": backfilled_context_count,
+        "duplicate_source_bundle_skip_context_count": (
+            duplicate_source_bundle_skip_context_count
+        ),
+        "noisy_overlap_bundle_skip_context_count": (
+            noisy_overlap_bundle_skip_context_count
+        ),
+        "backfill_skip_context_count": backfill_skip_context_count,
+        "backfilled_retrieval_item_count": backfilled_retrieval_item_count,
+        "skipped_duplicate_source_bundle_item_count": (
+            skipped_duplicate_source_bundle_item_count
+        ),
+        "avg_skipped_duplicate_source_bundle_item_count": _ratio(
+            skipped_duplicate_source_bundle_item_count,
+            context_count,
+        ),
+        "skipped_noisy_overlap_bundle_item_count": (
+            skipped_noisy_overlap_bundle_item_count
+        ),
+        "avg_skipped_noisy_overlap_bundle_item_count": _ratio(
+            skipped_noisy_overlap_bundle_item_count,
+            context_count,
+        ),
+        "skipped_redundant_risky_backfill_count": (
+            skipped_redundant_risky_backfill_count
+        ),
+        "avg_skipped_redundant_risky_backfill_count": _ratio(
+            skipped_redundant_risky_backfill_count,
+            context_count,
+        ),
+        "skipped_redundant_source_backfill_count": (
+            skipped_redundant_source_backfill_count
+        ),
+        "avg_skipped_redundant_source_backfill_count": _ratio(
+            skipped_redundant_source_backfill_count,
+            context_count,
+        ),
+        "skipped_redundant_role_backfill_count": (
+            skipped_redundant_role_backfill_count
+        ),
+        "avg_skipped_redundant_role_backfill_count": _ratio(
+            skipped_redundant_role_backfill_count,
+            context_count,
+        ),
+        "backfilled_broad_summary_count": backfilled_broad_summary_count,
+        "backfilled_conflict_or_stale_count": backfilled_conflict_or_stale_count,
+        "backfilled_precise_source_overlap_count": (
+            backfilled_precise_source_overlap_count
+        ),
+        "avg_backfilled_precise_source_overlap_count": _ratio(
+            backfilled_precise_source_overlap_count,
+            context_count,
+        ),
+        "backfilled_low_answerability_count": backfilled_low_answerability_count,
+        "avg_backfilled_low_answerability_count": _ratio(
+            backfilled_low_answerability_count,
+            context_count,
+        ),
+        "backfilled_weak_source_locality_count": (
+            backfilled_weak_source_locality_count
+        ),
+        "avg_backfilled_weak_source_locality_count": _ratio(
+            backfilled_weak_source_locality_count,
+            context_count,
+        ),
+        "backfilled_low_answerability_role_counts": dict(
+            sorted(backfilled_low_answerability_role_counts.items())
+        ),
+        "backfilled_weak_source_locality_role_counts": dict(
+            sorted(backfilled_weak_source_locality_role_counts.items())
+        ),
+        "backfilled_source_proximity_support_count": (
+            backfilled_source_proximity_support_count
+        ),
+        "avg_backfilled_source_proximity_support_count": _ratio(
+            backfilled_source_proximity_support_count,
+            context_count,
+        ),
+        "backfilled_chained_source_proximity_support_count": (
+            backfilled_chained_source_proximity_support_count
+        ),
+        "avg_backfilled_chained_source_proximity_support_count": _ratio(
+            backfilled_chained_source_proximity_support_count,
+            context_count,
+        ),
+        "avg_backfilled_source_proximity_closest_distance": _avg(
+            backfilled_source_proximity_closest_distances
+        ),
+        "min_backfilled_source_proximity_closest_distance": (
+            min(backfilled_source_proximity_closest_distances)
+            if backfilled_source_proximity_closest_distances
+            else None
+        ),
+        "avg_backfilled_retrieval_item_count": _ratio(
+            backfilled_retrieval_item_count,
+            context_count,
+        ),
+        "source_ref_context_rate": _ratio(source_ref_context_count, context_count),
+        "source_ref_item_coverage_rate": _ratio(
+            source_ref_item_count,
+            memory_count,
+        ),
+        "avg_context_answerability_score": _avg(answerability_scores),
+        "avg_measured_context_answerability_score": _avg(
+            measured_answerability_scores
+        ),
+        "total_unmeasured_context_answerability_count": (
+            unmeasured_answerability_count
+        ),
+        "avg_context_source_locality_score": _avg(source_locality_scores),
+        "avg_measured_context_source_locality_score": _avg(
+            measured_source_locality_scores
+        ),
+        "total_unmeasured_context_source_locality_count": (
+            unmeasured_source_locality_count
+        ),
+        "avg_bundle_source_type_diversity": _avg(source_type_diversities),
+        "max_bundle_source_type_diversity": (
+            max(source_type_diversities) if source_type_diversities else 0
+        ),
+        "avg_bundle_retrieval_source_diversity": _avg(
+            retrieval_source_diversities
+        ),
+        "max_bundle_retrieval_source_diversity": (
+            max(retrieval_source_diversities)
+            if retrieval_source_diversities
+            else 0
+        ),
+        "avg_bundle_source_type_support_diversity": _avg(
+            source_type_support_diversities
+        ),
+        "max_bundle_source_type_support_diversity": (
+            max(source_type_support_diversities)
+            if source_type_support_diversities
+            else 0
+        ),
+        "avg_bundle_retrieval_source_support_diversity": _avg(
+            retrieval_source_support_diversities
+        ),
+        "max_bundle_retrieval_source_support_diversity": (
+            max(retrieval_source_support_diversities)
+            if retrieval_source_support_diversities
+            else 0
+        ),
+        "source_counts": dict(sorted(source_counts.items())),
+        "fallback_reason_counts": dict(sorted(fallback_reason_counts.items())),
+        "missing_required_role_context_count": missing_required_role_context_count,
+        "missing_required_role_total": sum(missing_required_role_counts.values()),
+        "missing_required_role_counts": _top_counts(missing_required_role_counts),
+        "backfilled_missing_required_role_counts": _top_counts(
+            backfilled_missing_required_role_counts
+        ),
+        "risk_reason_context_count": risk_reason_context_count,
+        "fallback_risk_context_count": fallback_risk_context_count,
+        "risk_reason_counts": _top_counts(risk_reason_counts),
+        "risk_reason_source_counts": {
+            reason: dict(sorted(source_counts.items()))
+            for reason, source_counts in sorted(risk_reason_source_counts.items())
+        },
+        "risk_reason_context_samples": _ranked_answer_context_risk_samples(
+            risk_reason_context_samples
+        ),
+        "backfilled_context_samples": backfilled_context_samples,
+        "backfill_skip_context_samples": backfill_skip_context_samples,
+        "duplicate_source_bundle_skip_context_samples": (
+            duplicate_source_bundle_skip_context_samples
+        ),
+        "noisy_overlap_bundle_skip_context_samples": (
+            noisy_overlap_bundle_skip_context_samples
+        ),
+        "source_refless_context_samples": source_refless_context_samples,
+        "mixed_source_context_samples": mixed_source_context_samples,
+    }
+
+
+def _answer_context_risk_reasons(
+    context: Mapping[str, object],
+    *,
+    skipped_duplicate_source_bundle_item_count: int,
+    skipped_noisy_overlap_bundle_item_count: int,
+    backfilled_retrieval_item_count: int,
+    skipped_redundant_risky_backfill_count: int,
+    skipped_redundant_source_backfill_count: int,
+    skipped_redundant_role_backfill_count: int,
+    backfill_risk_stats: Mapping[str, object],
+) -> tuple[str, ...]:
+    explicit = _str_tuple(context.get("risk_reason_codes"))
+    derived = _context_risk_reason_codes(
+        bundle_risk_reason_codes=_str_tuple(context.get("bundle_risk_reason_codes")),
+        skipped_duplicate_source_bundle_item_count=(
+            skipped_duplicate_source_bundle_item_count
+        ),
+        skipped_noisy_overlap_bundle_item_count=(
+            skipped_noisy_overlap_bundle_item_count
+        ),
+        backfilled_retrieval_item_count=backfilled_retrieval_item_count,
+        skipped_redundant_risky_backfill_count=(
+            skipped_redundant_risky_backfill_count
+        ),
+        skipped_redundant_source_backfill_count=(
+            skipped_redundant_source_backfill_count
+        ),
+        skipped_redundant_role_backfill_count=(
+            skipped_redundant_role_backfill_count
+        ),
+        backfill_risk_stats=backfill_risk_stats,
+        memory_metadata=(),
+    )
+    return _merge_risk_reason_codes(explicit, derived)
+
+
+def _answer_contexts(
+    item: Mapping[str, object],
+) -> tuple[tuple[str, Mapping[str, object]], ...]:
+    contexts: list[tuple[str, Mapping[str, object]]] = []
+    for cutoff, payload in _mapping(item.get("cutoff_results")).items():
+        context = _mapping(_mapping(payload).get("answer_context"))
+        if not context:
+            continue
+        contexts.append((str(cutoff), context))
+    return tuple(
+        sorted(
+            contexts,
+            key=lambda pair: (
+                _positive_int(pair[0]) or 999999,
+                pair[0],
+            ),
+        )
+    )
+
+
+def _answer_context_sample_identity(context: Mapping[str, object]) -> dict[str, object]:
+    item_ids = tuple(
+        item_id
+        for raw_item_id in _str_tuple(context.get("item_ids"))
+        for item_id in (_safe_item_id_for_output(raw_item_id),)
+        if item_id
+    )[:_ANSWER_CONTEXT_SAMPLE_IDENTITY_LIMIT]
+    retrieval_orders = tuple(
+        order
+        for raw_order in _sequence(context.get("retrieval_orders"))
+        for order in (_positive_int(raw_order),)
+        if order is not None
+    )[:_ANSWER_CONTEXT_SAMPLE_IDENTITY_LIMIT]
+    identity: dict[str, object] = {}
+    if item_ids:
+        identity["item_ids"] = list(item_ids)
+    if retrieval_orders:
+        identity["retrieval_orders"] = list(retrieval_orders)
+    source_identity_refs = _safe_answer_context_source_identity_refs(
+        context.get("source_identity_refs")
+    )
+    source_identity_ref_count = _positive_int(context.get("source_identity_ref_count"))
+    if source_identity_ref_count is not None or source_identity_refs:
+        identity["source_identity_ref_count"] = (
+            source_identity_ref_count or len(source_identity_refs)
+        )
+    source_identity_item_count = _positive_int(
+        context.get("source_identity_item_count")
+    )
+    if source_identity_item_count is not None:
+        identity["source_identity_item_count"] = source_identity_item_count
+    if source_identity_refs:
+        identity["source_identity_refs"] = list(source_identity_refs)
+    source_identity_items = _safe_answer_context_source_identity_items(
+        context.get("source_identity_items")
+    )
+    if source_identity_items:
+        identity["source_identity_items"] = list(source_identity_items)
+    return identity
+
+
+def _safe_answer_context_source_identity_refs(value: object) -> tuple[str, ...]:
+    refs = tuple(
+        dict.fromkeys(
+            ref
+            for raw_ref in _sequence(value)
+            for ref in (_safe_answer_context_source_identity_ref(raw_ref),)
+            if ref
+        )
+    )
+    return refs[:_ANSWER_CONTEXT_SAMPLE_IDENTITY_LIMIT]
+
+
+def _safe_answer_context_source_identity_items(
+    value: object,
+) -> tuple[dict[str, object], ...]:
+    items: list[dict[str, object]] = []
+    for raw_item in _sequence(value):
+        item = _mapping(raw_item)
+        refs = _safe_answer_context_source_identity_refs(
+            item.get("source_identity_refs")
+        )
+        if not refs:
+            continue
+        compact: dict[str, object] = {"source_identity_refs": list(refs[:4])}
+        item_id = _safe_item_id_for_output(item.get("item_id"))
+        if item_id:
+            compact["item_id"] = item_id
+        retrieval_order = _positive_int(item.get("retrieval_order"))
+        if retrieval_order is not None:
+            compact["retrieval_order"] = retrieval_order
+        items.append(compact)
+        if len(items) >= _ANSWER_CONTEXT_SAMPLE_SOURCE_IDENTITY_ITEM_LIMIT:
+            break
+    return tuple(items)
+
+
+def _safe_answer_context_source_identity_ref(value: object) -> str | None:
+    ref = str(value or "").strip()
+    if not ref or len(ref) > 80:
+        return None
+    session_match = _LOCOMO_SESSION_TURN_IDENTITY_RE.fullmatch(ref)
+    if session_match:
+        prefix, session, day, turn = ref.split(":")
+        return f"{prefix.lower()}:{session.lower()}:{day.upper()}:{turn}"
+    turn_match = _LOCOMO_TURN_IDENTITY_RE.fullmatch(ref)
+    if turn_match:
+        prefix, day, turn = ref.split(":")
+        return f"{prefix.lower()}:{day.upper()}:{turn}"
+    return None
+
+
+def _query_plan_integrity_table(
+    items: Sequence[Mapping[str, object]],
+) -> dict[str, object]:
+    plan_count = 0
+    plan_gap_case_count = 0
+    selected_query_counts: list[int] = []
+    dropped_query_count = 0
+    fanout_limit_hit_count = 0
+    type_limit_hit_count = 0
+    empty_query_candidate_count = 0
+    max_selected_query_token_count = 0
+    missing_recommended_counts: Counter[str] = Counter()
+    recommended_counts: Counter[str] = Counter()
+    selected_family_counts: Counter[str] = Counter()
+    dropped_family_counts: Counter[str] = Counter()
+    role_family_counts: Counter[str] = Counter()
+    selected_type_counts: Counter[str] = Counter()
+    candidate_type_counts: Counter[str] = Counter()
+    dropped_type_limit_role_counts: Counter[str] = Counter()
+    replaced_type_limit_role_counts: Counter[str] = Counter()
+    type_limit_replacement_role_counts: Counter[str] = Counter()
+    required_evidence_role_counts: Counter[str] = Counter()
+    missing_evidence_role_query_family_counts: Counter[str] = Counter()
+    query_profile_flag_counts: Counter[str] = Counter()
+    gap_reason_counts: Counter[str] = Counter()
+    samples: list[dict[str, object]] = []
+
+    for item in items:
+        query_plan = _query_plan(item)
+        if not query_plan:
+            continue
+        plan_count += 1
+        query_profile_flag_counts.update(_query_profile_flags(item))
+        selected_query_counts.append(
+            _positive_int(query_plan.get("selected_query_count")) or 0
+        )
+        dropped_count = _positive_int(query_plan.get("dropped_query_count")) or 0
+        dropped_query_count += dropped_count
+
+        recommended_counts.update(
+            _str_tuple(query_plan.get("recommended_role_families"))
+        )
+        required_evidence_roles = _required_evidence_roles(item)
+        required_evidence_role_counts.update(required_evidence_roles)
+        missing_recommended = _str_tuple(
+            query_plan.get("missing_recommended_role_families")
+        )
+        missing_recommended_counts.update(missing_recommended)
+        role_family_counts.update(
+            _count_mapping_or_values(
+                query_plan.get("role_family_counts"),
+                query_plan.get("role_families"),
+            )
+        )
+        selected_family_counts.update(
+            _count_mapping_or_values(
+                query_plan.get("selected_role_family_counts"),
+                query_plan.get("selected_role_families"),
+            )
+        )
+        dropped_family_counts.update(
+            _count_mapping_or_values(
+                query_plan.get("dropped_role_family_counts"),
+                query_plan.get("dropped_role_families"),
+            )
+        )
+        selected_type_counts.update(
+            _count_mapping(query_plan.get("selected_type_counts"))
+        )
+        candidate_type_counts.update(
+            _count_mapping(query_plan.get("candidate_type_counts"))
+        )
+        dropped_type_limit_role_counts.update(
+            _str_tuple(query_plan.get("dropped_type_limit_roles"))
+        )
+        replaced_type_limit_roles = _str_tuple(
+            query_plan.get("replaced_type_limit_roles")
+        )
+        replaced_type_limit_role_counts.update(replaced_type_limit_roles)
+        type_limit_replacement_role_counts.update(
+            _str_tuple(query_plan.get("type_limit_replacement_roles"))
+        )
+        selected_role_families = _str_tuple(query_plan.get("selected_role_families"))
+        missing_evidence_role_query_families = (
+            _missing_evidence_role_query_families(
+                required_evidence_roles,
+                selected_role_families=selected_role_families,
+            )
+        )
+        missing_evidence_role_query_family_counts.update(
+            missing_evidence_role_query_families
+        )
+
+        fanout = _mapping(query_plan.get("fanout_integrity"))
+        empty_count = (
+            _positive_int(fanout.get("empty_query_candidate_count"))
+            or _positive_int(query_plan.get("empty_query_candidate_count"))
+            or 0
+        )
+        empty_query_candidate_count += empty_count
+        token_count = _positive_int(fanout.get("max_selected_query_token_count")) or 0
+        max_selected_query_token_count = max(max_selected_query_token_count, token_count)
+
+        gap_reasons: list[str] = []
+        if missing_recommended:
+            gap_reasons.append("missing_recommended_role_family")
+        if missing_evidence_role_query_families:
+            gap_reasons.append("missing_evidence_role_query_family")
+        if dropped_count:
+            gap_reasons.append("dropped_queries")
+        if fanout.get("fanout_limit_hit") is True:
+            fanout_limit_hit_count += 1
+            gap_reasons.append("fanout_limit_hit")
+        if fanout.get("type_limit_hit") is True:
+            type_limit_hit_count += 1
+            gap_reasons.append("type_limit_hit")
+        if replaced_type_limit_roles:
+            gap_reasons.append("type_limit_replacement")
+        if empty_count:
+            gap_reasons.append("empty_query_candidate")
+        gap_reason_counts.update(gap_reasons)
+        if gap_reasons:
+            plan_gap_case_count += 1
+            if len(samples) < 10:
+                samples.append(
+                    _query_plan_gap_sample(
+                        item,
+                        query_plan,
+                        missing_recommended=missing_recommended,
+                        required_evidence_roles=required_evidence_roles,
+                        missing_evidence_role_query_families=(
+                            missing_evidence_role_query_families
+                        ),
+                        gap_reasons=tuple(gap_reasons),
+                        fanout=fanout,
+                    )
+                )
+
+    return {
+        "schema_version": "query_plan_integrity.v1",
+        "plan_count": plan_count,
+        "plan_gap_case_count": plan_gap_case_count,
+        "avg_selected_query_count": _avg(selected_query_counts),
+        "dropped_query_count": dropped_query_count,
+        "fanout_limit_hit_count": fanout_limit_hit_count,
+        "type_limit_hit_count": type_limit_hit_count,
+        "empty_query_candidate_count": empty_query_candidate_count,
+        "max_selected_query_token_count": max_selected_query_token_count,
+        "missing_recommended_role_family_total": sum(
+            missing_recommended_counts.values()
+        ),
+        "recommended_role_family_counts": _top_counts(recommended_counts),
+        "missing_recommended_role_family_counts": _top_counts(
+            missing_recommended_counts
+        ),
+        "required_evidence_role_counts": _top_counts(required_evidence_role_counts),
+        "missing_evidence_role_query_family_total": sum(
+            missing_evidence_role_query_family_counts.values()
+        ),
+        "missing_evidence_role_query_family_counts": _top_counts(
+            missing_evidence_role_query_family_counts
+        ),
+        "query_profile_flag_counts": _top_counts(query_profile_flag_counts),
+        "role_family_counts": _top_counts(role_family_counts),
+        "selected_role_family_counts": _top_counts(selected_family_counts),
+        "dropped_role_family_counts": _top_counts(dropped_family_counts),
+        "selected_type_counts": _top_counts(selected_type_counts),
+        "candidate_type_counts": _top_counts(candidate_type_counts),
+        "dropped_type_limit_role_counts": _top_counts(
+            dropped_type_limit_role_counts
+        ),
+        "replaced_type_limit_role_counts": _top_counts(
+            replaced_type_limit_role_counts
+        ),
+        "type_limit_replacement_role_counts": _top_counts(
+            type_limit_replacement_role_counts
+        ),
+        "gap_reason_counts": _top_counts(gap_reason_counts),
+        "samples": samples,
+    }
+
+
+def _query_profile_flags(item: Mapping[str, object]) -> tuple[str, ...]:
+    metadata = _retrieval_metadata(item)
+    flags: list[str] = []
+    for payload in _diagnostic_query_payloads(metadata):
+        query_profile = _mapping(payload.get("query_profile"))
+        if query_profile.get("comparative_option_preference_query") is True:
+            flags.append("comparative_option_preference_query")
+    return tuple(dict.fromkeys(flags))
+
+
+def _query_plan_gap_sample(
+    item: Mapping[str, object],
+    query_plan: Mapping[str, object],
+    *,
+    missing_recommended: Sequence[str],
+    required_evidence_roles: Sequence[str],
+    missing_evidence_role_query_families: Sequence[str],
+    gap_reasons: Sequence[str],
+    fanout: Mapping[str, object],
+) -> dict[str, object]:
+    return {
+        "case_id": str(item.get("case_id") or ""),
+        "group": str(item.get("group") or ""),
+        "gap_reasons": list(gap_reasons),
+        "selected_query_count": _positive_int(
+            query_plan.get("selected_query_count")
+        )
+        or 0,
+        "dropped_query_count": _positive_int(query_plan.get("dropped_query_count"))
+        or 0,
+        "selected_roles": _str_tuple(query_plan.get("selected_roles")),
+        "dropped_roles": _str_tuple(query_plan.get("dropped_roles")),
+        "dropped_type_limit_roles": _str_tuple(
+            query_plan.get("dropped_type_limit_roles")
+        ),
+        "replaced_type_limit_roles": _str_tuple(
+            query_plan.get("replaced_type_limit_roles")
+        ),
+        "type_limit_replacement_roles": _str_tuple(
+            query_plan.get("type_limit_replacement_roles")
+        ),
+        "recommended_role_families": _str_tuple(
+            query_plan.get("recommended_role_families")
+        ),
+        "selected_role_families": _str_tuple(
+            query_plan.get("selected_role_families")
+        ),
+        "missing_recommended_role_families": tuple(missing_recommended),
+        "required_evidence_roles": tuple(required_evidence_roles),
+        "missing_evidence_role_query_families": tuple(
+            missing_evidence_role_query_families
+        ),
+        "selected_type_counts": _count_mapping(query_plan.get("selected_type_counts")),
+        "candidate_type_counts": _count_mapping(
+            query_plan.get("candidate_type_counts")
+        ),
+        "fanout_limit_hit": fanout.get("fanout_limit_hit") is True,
+        "type_limit_hit": fanout.get("type_limit_hit") is True,
+        "empty_query_candidate_count": (
+            _positive_int(fanout.get("empty_query_candidate_count")) or 0
+        ),
+        "max_selected_query_token_count": (
+            _positive_int(fanout.get("max_selected_query_token_count")) or 0
+        ),
+    }
+
+
+def _required_evidence_roles(item: Mapping[str, object]) -> tuple[str, ...]:
+    bundle = _mapping(item.get("evidence_bundle"))
+    roles = _str_tuple(bundle.get("required_roles"))
+    if roles:
+        return roles
+    metadata = _retrieval_metadata(item)
+    payloads = _diagnostic_query_payloads(metadata)
+    return tuple(
+        dict.fromkeys(
+            role
+            for payload in payloads
+            for role in (
+                _str_tuple(
+                    _mapping(payload.get("query_profile")).get(
+                        "bundle_evidence_roles"
+                    )
+                )
+                + _str_tuple(
+                    _mapping(payload.get("retrieval_intent")).get(
+                        "bundle_evidence_roles"
+                    )
+                )
+            )
+        )
+    )
+
+
+def _count_mapping_or_values(
+    count_value: object,
+    sequence_value: object,
+) -> Mapping[str, int]:
+    counts = _count_mapping(count_value)
+    if counts:
+        return counts
+    return Counter(_str_tuple(sequence_value))
+
+
+def _diagnostic_query_payloads(
+    metadata: Mapping[str, object],
+) -> tuple[Mapping[str, object], ...]:
+    return (
+        _mapping(metadata.get("query_decomposition")),
+        _mapping(metadata.get("query_expansion")),
+        _mapping(metadata.get("benchmark_rerank")),
+    )
+
+
+def _missing_evidence_role_query_families(
+    required_evidence_roles: Sequence[str],
+    *,
+    selected_role_families: Sequence[str],
+) -> tuple[str, ...]:
+    selected = set(selected_role_families)
+    missing: list[str] = []
+    for role in required_evidence_roles:
+        role_key = str(role).strip()
+        if not role_key:
+            continue
+        acceptable_families = _evidence_role_query_families(role_key)
+        if acceptable_families and selected.intersection(acceptable_families):
+            continue
+        if not acceptable_families and selected:
+            continue
+        missing.append(role_key)
+    return tuple(dict.fromkeys(missing))
+
+
+def _rerank_lift_table(items: Sequence[Mapping[str, object]]) -> dict[str, object]:
+    boosted_count = 0
+    positive_policy_scores: list[float] = []
+    signal_counts: Counter[str] = Counter()
+    policy_counts: Counter[str] = Counter()
+    reason_counts: Counter[str] = Counter()
+    safety_reason_counts: Counter[str] = Counter()
+    relation_category_hit_counts: Counter[str] = Counter()
+    low_answerability_lift_count = 0
+    broad_summary_lift_count = 0
+    conflict_or_stale_lift_count = 0
+    direct_speaker_lift_count = 0
+    provenance_safety_cap_count = 0
+    samples: list[dict[str, object]] = []
+
+    for item in items:
+        for memory in _sequence(_mapping(item.get("retrieval")).get("results")):
+            if not isinstance(memory, Mapping):
+                continue
+            diagnostics = _memory_diagnostics(memory)
+            features = _candidate_features(memory)
+            score_signals = _mapping(diagnostics.get("score_signals"))
+            positive_policy_score = _positive_policy_score(diagnostics)
+            signal_names = _positive_signal_names(score_signals)
+            lifted = _candidate_lifted(diagnostics)
+            if not lifted:
+                continue
+
+            boosted_count += 1
+            positive_policy_scores.append(positive_policy_score)
+            signal_counts.update(signal_names)
+            relation_category_hit_counts.update(
+                _str_tuple(features.get("relation_category_hits"))
+            )
+
+            policy_reasons = _active_policy_reasons(diagnostics)
+            policy_counts.update(policy_reasons.keys())
+            for reasons in policy_reasons.values():
+                reason_counts.update(reasons)
+
+            answerability_score = _metric_value(features, "answerability_score")
+            if _is_measured_low_answerability(answerability_score):
+                low_answerability_lift_count += 1
+            if payload_has_broad_summary(memory, features):
+                broad_summary_lift_count += 1
+            if payload_has_conflict_or_stale(memory, features):
+                conflict_or_stale_lift_count += 1
+            if features.get("direct_speaker_turn") is True:
+                direct_speaker_lift_count += 1
+            safety_reason_codes = _str_tuple(
+                score_signals.get("benchmark_provenance_safety_reason_codes")
+            )
+            if score_signals.get("benchmark_provenance_safety_cap_applied") is True:
+                provenance_safety_cap_count += 1
+                safety_reason_counts.update(safety_reason_codes)
+
+            if len(samples) < 10:
+                samples.append(
+                    _rerank_lift_sample(
+                        item,
+                        memory,
+                        features=features,
+                        score_signals=score_signals,
+                        positive_policy_score=positive_policy_score,
+                        policy_reasons=policy_reasons,
+                    )
+                )
+
+    return {
+        "boosted_candidate_count": boosted_count,
+        "avg_positive_policy_score": _avg(positive_policy_scores),
+        "top_signal_counts": _top_counts(signal_counts),
+        "top_policy_counts": _top_counts(policy_counts),
+        "top_policy_reason_counts": _top_counts(reason_counts),
+        "relation_category_hit_counts": _top_counts(relation_category_hit_counts),
+        "low_answerability_lift_count": low_answerability_lift_count,
+        "broad_summary_lift_count": broad_summary_lift_count,
+        "conflict_or_stale_lift_count": conflict_or_stale_lift_count,
+        "direct_speaker_lift_count": direct_speaker_lift_count,
+        "provenance_safety_cap_count": provenance_safety_cap_count,
+        "provenance_safety_reason_counts": _top_counts(safety_reason_counts),
+        "samples": samples,
+    }
+
+
+def _rerank_lift_sample(
+    item: Mapping[str, object],
+    memory: Mapping[str, object],
+    *,
+    features: Mapping[str, object],
+    score_signals: Mapping[str, object],
+    positive_policy_score: float,
+    policy_reasons: Mapping[str, tuple[str, ...]],
+) -> dict[str, object]:
+    sample: dict[str, object] = {
+        "case_id": str(item.get("case_id") or ""),
+        "group": str(item.get("group") or ""),
+        "item_id": _safe_item_id_for_output(_memory_id(memory)),
+        "rank": _positive_int(memory.get("rank")) or 0,
+        "score": round(_metric_value(memory, "score"), 6),
+        "positive_policy_score": round(positive_policy_score, 6),
+        "policy_reasons": {
+            policy: list(reasons) for policy, reasons in sorted(policy_reasons.items())
+        },
+        "top_signals": _top_signal_values(score_signals),
+        "relation_category_hits": _str_tuple(features.get("relation_category_hits")),
+        "answerability_score": round(
+            _metric_value(features, "answerability_score"),
+            6,
+        ),
+        "source_type": str(features.get("source_type") or "unknown"),
+        "direct_speaker_turn": features.get("direct_speaker_turn") is True,
+        "broad_summary": payload_has_broad_summary(memory, features),
+        "conflict_or_stale": payload_has_conflict_or_stale(memory, features),
+    }
+    safety_reason_codes = _str_tuple(
+        score_signals.get("benchmark_provenance_safety_reason_codes")
+    )
+    if score_signals.get("benchmark_provenance_safety_cap_applied") is True:
+        sample["provenance_safety_cap_applied"] = True
+        sample["provenance_safety_reason_codes"] = safety_reason_codes
+        sample["effective_boost_cap"] = round(
+            _metric_value(score_signals, "benchmark_effective_boost_cap"),
+            6,
+        )
+        sample["uncapped_boost_cap"] = round(
+            _metric_value(score_signals, "benchmark_uncapped_boost_cap"),
+            6,
+        )
+    query_roles = _str_tuple(features.get("query_roles"))
+    if query_roles:
+        sample["query_roles"] = query_roles
+    if features.get("bridge_query_hit") is True:
+        sample["bridge_query_hit"] = True
+    return sample
+
+
+def _candidate_lifted(diagnostics: Mapping[str, object]) -> bool:
+    score_signals = _mapping(diagnostics.get("score_signals"))
+    return (
+        diagnostics.get("benchmark_rerank_boosted") is True
+        or _positive_policy_score(diagnostics) > 0
+        or bool(_positive_signal_names(score_signals))
+    )
+
+
+def _false_positive_categories(
+    items: Sequence[Mapping[str, object]],
+) -> dict[str, int]:
+    counts: Counter[str] = Counter()
+    for item in items:
+        if item.get("scored") is not True:
+            continue
+        if _judgment_score(item) >= 1.0 and _expected_recall(item) >= 1.0:
+            continue
+        counts.update(_failure_categories(item))
+    return dict(sorted(counts.items()))
+
+
+def _failure_categories(item: Mapping[str, object]) -> tuple[str, ...]:
+    categories: list[str] = []
+    if _expected_recall(item) < 1.0:
+        categories.append("expected_terms_missing")
+    if _evidence_recall(item) < 1.0 and _has_evidence_recall(item):
+        categories.append("evidence_refs_missing")
+    if not _bundle_complete(item):
+        categories.append("bundle_incomplete")
+    if _query_overlap_count(item) > 0:
+        categories.append("query_leakage_risk")
+    if _only_broad_bundle_evidence(item):
+        categories.append("only_broad_bundle_evidence")
+    if not _policy_contribution_table((item,)):
+        categories.append("no_policy_diagnostics")
+    return tuple(dict.fromkeys(categories or ("judge_failed_despite_retrieval",)))
+
+
+def _query_leakage_report(
+    items: Sequence[Mapping[str, object]],
+) -> dict[str, object]:
+    query_overlap = []
+    profile_overlap = []
+    intent_overlap = []
+    for item in items:
+        integrity = _query_integrity(item)
+        query_count = _positive_int(
+            integrity.get("expected_answer_query_overlap_count")
+        ) or 0
+        profile_count = _positive_int(
+            integrity.get("expected_answer_query_profile_overlap_count")
+        ) or 0
+        intent_count = _positive_int(
+            integrity.get("expected_answer_retrieval_intent_overlap_count")
+        ) or 0
+        if query_count:
+            query_overlap.append((item, query_count))
+        if profile_count:
+            profile_overlap.append((item, profile_count))
+        if intent_count:
+            intent_overlap.append((item, intent_count))
+    return {
+        "query_overlap_case_count": len(query_overlap),
+        "profile_overlap_case_count": len(profile_overlap),
+        "retrieval_intent_overlap_case_count": len(intent_overlap),
+        "clean": not query_overlap and not profile_overlap and not intent_overlap,
+        "query_overlap_samples": _overlap_samples(query_overlap),
+        "profile_overlap_samples": _overlap_samples(profile_overlap),
+        "retrieval_intent_overlap_samples": _overlap_samples(intent_overlap),
+    }
+
+
+def _leakage_counts(items: Sequence[Mapping[str, object]]) -> tuple[int, int, int]:
+    query_overlap_count = 0
+    profile_overlap_count = 0
+    intent_overlap_count = 0
+    for item in items:
+        integrity = _query_integrity(item)
+        query_overlap_count += (
+            _positive_int(integrity.get("expected_answer_query_overlap_count")) or 0
+        )
+        profile_overlap_count += (
+            _positive_int(
+                integrity.get("expected_answer_query_profile_overlap_count")
+            )
+            or 0
+        )
+        intent_overlap_count += (
+            _positive_int(
+                integrity.get("expected_answer_retrieval_intent_overlap_count")
+            )
+            or 0
+        )
+    return query_overlap_count, profile_overlap_count, intent_overlap_count
+
+
+def _min_gate(actual: int, target: int) -> dict[str, object]:
+    return {
+        "passed": actual >= target,
+        "actual": actual,
+        "target": target,
+        "mode": "min",
+    }
+
+
+def _zero_gate(actual: int) -> dict[str, object]:
+    return {
+        "passed": actual == 0,
+        "actual": actual,
+        "target": 0,
+        "mode": "zero",
+    }
+
+
+def _overlap_samples(
+    ranked: Sequence[tuple[Mapping[str, object], int]],
+) -> list[dict[str, object]]:
+    samples: list[dict[str, object]] = []
+    for item, count in sorted(ranked, key=lambda pair: pair[1], reverse=True)[:10]:
+        integrity = _query_integrity(item)
+        samples.append(
+            {
+                "case_id": str(item.get("case_id") or ""),
+                "overlap_count": count,
+                "query_terms": _str_tuple(
+                    integrity.get("expected_answer_query_overlap_terms")
+                ),
+                "profile_terms": _str_tuple(
+                    integrity.get("expected_answer_query_profile_overlap_terms")
+                ),
+            }
+        )
+    return samples
+
+
+def _evidence_ref_failure_sample(
+    item: Mapping[str, object],
+    required_refs: Sequence[str],
+    ref_positions: Mapping[str, int],
+) -> dict[str, object]:
+    missing_refs = [ref for ref in required_refs if ref not in ref_positions]
+    return {
+        "case_id": str(item.get("case_id") or ""),
+        "required_refs": list(_safe_evidence_ref_terms(required_refs)),
+        "found_refs": sorted(_safe_evidence_ref_terms(tuple(ref_positions))),
+        "missing_refs": list(_safe_evidence_ref_terms(missing_refs)),
+        "ref_positions": _safe_ref_positions_for_output(ref_positions),
+    }
+
+
+def _safe_ref_positions_for_output(
+    ref_positions: Mapping[str, int],
+) -> dict[str, int]:
+    safe_positions: dict[str, int] = {}
+    for ref, position in ref_positions.items():
+        for safe_ref in _safe_evidence_ref_terms((ref,)):
+            safe_positions[safe_ref] = min(
+                safe_positions.get(safe_ref, position),
+                position,
+            )
+    return dict(sorted(safe_positions.items()))
+
+
+def _required_evidence_refs(item: Mapping[str, object]) -> tuple[str, ...]:
+    bundle = _mapping(item.get("evidence_bundle"))
+    quality = _mapping(item.get("retrieval_quality"))
+    return tuple(
+        dict.fromkeys(
+            (
+                *_str_tuple(bundle.get("covered_evidence_terms")),
+                *_str_tuple(quality.get("missing_evidence_terms")),
+            )
+        )
+    )
+
+
+def _bundle_evidence_ref_positions(
+    bundle: Mapping[str, object],
+) -> tuple[dict[str, int], dict[str, int]]:
+    positions: dict[str, int] = {}
+    focused_positions: dict[str, int] = {}
+    for item in _bundle_items(bundle):
+        retrieval_order = (
+            _positive_int(item.get("retrieval_order"))
+            or _positive_int(item.get("rank"))
+            or 9999
+        )
+        focused = _metric_value(item, "focused_evidence_score") > 0
+        for ref in _str_tuple(item.get("covered_evidence_terms")):
+            positions[ref] = min(positions.get(ref, retrieval_order), retrieval_order)
+            if focused:
+                focused_positions[ref] = min(
+                    focused_positions.get(ref, retrieval_order),
+                    retrieval_order,
+                )
+    return positions, focused_positions

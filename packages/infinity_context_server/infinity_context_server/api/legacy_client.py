@@ -20,10 +20,8 @@ from infinity_context_core.application import (
     ScopeResult,
 )
 from infinity_context_core.domain.entities import (
-    MemoryChunkKind,
     MemoryScopeId,
     SpaceId,
-    SpeakerRole,
     ThreadId,
 )
 from pydantic import BaseModel, Field
@@ -33,6 +31,12 @@ from infinity_context_server.api.dependencies import get_container
 from infinity_context_server.api.policy import should_ingest_legacy_transcript, should_retrieve
 from infinity_context_server.auth_scope import resolve_existing_external_scope
 from infinity_context_server.composition import Container
+from infinity_context_server.features.memory_facts.public import (
+    legacy_interview_kind,
+    legacy_interview_source,
+    legacy_interview_speaker,
+    legacy_interview_trust,
+)
 
 router = APIRouter(
     prefix="/api/v1/interview-memory",
@@ -102,15 +106,15 @@ async def legacy_ingest(
             space_id=scope.space_id,
             memory_scope_id=scope.memory_scope_id,
             thread_id=_required_thread(scope.thread_id),
-            source_type=_legacy_source(request.source),
+            source_type=legacy_interview_source(request.source),
             source_external_id=(
                 request.event_id or request.metadata.source_event_id or request.session_id
             ),
             text=request.text,
             occurred_at=request.occurred_at,
-            speaker=_legacy_speaker(request.speaker, request.source),
-            trust_level=_legacy_trust(request.source),
-            kind_hint=_legacy_kind(request.kind_hint),
+            speaker=legacy_interview_speaker(request.speaker, request.source),
+            trust_level=legacy_interview_trust(request.source),
+            kind_hint=legacy_interview_kind(request.kind_hint),
             language=request.language,
             metadata=request.metadata.model_dump(),
             idempotency_key=request.event_id or request.metadata.source_event_id,
@@ -291,46 +295,6 @@ def _required_thread(thread_id: ThreadId | None) -> ThreadId:
         msg = "Legacy client request requires thread scope"
         raise RuntimeError(msg)
     return thread_id
-
-
-def _legacy_source(value: str) -> str:
-    return value.strip() or "unknown"
-
-
-def _legacy_kind(value: str | None) -> MemoryChunkKind | None:
-    if not value:
-        return None
-    try:
-        return MemoryChunkKind(value)
-    except ValueError:
-        return MemoryChunkKind.RAW_TRANSCRIPT_CHUNK
-
-
-def _legacy_speaker(speaker: str | None, source: str) -> SpeakerRole:
-    if speaker:
-        try:
-            return SpeakerRole(speaker)
-        except ValueError:
-            pass
-    if source == "ai_response":
-        return SpeakerRole.ASSISTANT
-    if source in {"system_audio", "signal"}:
-        return SpeakerRole.INTERVIEWER
-    if source in {"microphone", "manual_prompt"}:
-        return SpeakerRole.USER
-    return SpeakerRole.UNKNOWN
-
-
-def _legacy_trust(source: str):
-    from infinity_context_core.domain.entities import TrustLevel
-
-    if source == "ai_response":
-        return TrustLevel.LOW
-    if source in {"focus_copy", "manual_prompt"}:
-        return TrustLevel.HIGH
-    if source in {"browser_selection", "microphone", "signal", "system_audio"}:
-        return TrustLevel.MEDIUM
-    return TrustLevel.LOW
 
 
 def _query_text(request: LegacyContextRequest) -> str:

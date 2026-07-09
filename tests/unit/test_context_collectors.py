@@ -74,6 +74,29 @@ def test_keyword_query_search_limit_bounds_large_requests_per_variant() -> None:
     assert _keyword_query_search_limit(total_limit=500, candidate_limit=360) == 180
 
 
+def test_fused_ranked_keys_keeps_default_rank_window_for_ordinary_queries() -> None:
+    ordinary_ranking = {
+        "0:original_query": tuple(f"ordinary_{index}" for index in range(1, 52)),
+    }
+
+    fused = _fused_ranked_keys(ordinary_ranking, limit=80)
+
+    assert "ordinary_50" in fused
+    assert "ordinary_51" not in fused
+
+
+def test_fused_ranked_keys_uses_deeper_window_for_relationship_status() -> None:
+    relationship_ranking = {
+        "1:decomposition_relationship_status": tuple(
+            f"relationship_{index}" for index in range(1, 89)
+        ),
+    }
+
+    fused = _fused_ranked_keys(relationship_ranking, limit=120)
+
+    assert "relationship_88" in fused
+
+
 def test_high_confidence_policy_bridges_have_retrieval_head_protection() -> None:
     deliberately_unprotected = {
         "identity_bridge",
@@ -137,6 +160,22 @@ def test_protected_query_head_keys_keep_inventory_and_friend_place_heads() -> No
     )
 
 
+def test_protected_query_head_keys_keep_multiple_volunteering_people_heads() -> None:
+    rankings = {
+        "0:original_query": ("generic_shelter",),
+        "1:volunteering_people_inventory_bridge": (
+            "resident_letter",
+            "charity_event_person",
+            "generic_shelter",
+        ),
+    }
+
+    assert _protected_query_head_keys(rankings) == (
+        "resident_letter",
+        "charity_event_person",
+    )
+
+
 def test_protected_query_head_keys_keep_multiple_item_purchase_heads() -> None:
     rankings = {
         "0:original_query": ("generic_a",),
@@ -146,6 +185,22 @@ def test_protected_query_head_keys_keep_multiple_item_purchase_heads() -> None:
     assert _protected_query_head_keys(rankings) == (
         "figurines_purchase",
         "shoes_purchase",
+    )
+
+
+def test_protected_query_head_keys_keep_creative_writing_and_nickname_heads() -> None:
+    rankings = {
+        "0:original_query": ("generic_a",),
+        "1:creative_writing_career_bridge": (
+            "exact_screenplay",
+            "generic_writing_context",
+        ),
+        "2:nickname_bridge": ("nickname_origin", "generic_identity_context"),
+    }
+
+    assert _protected_query_head_keys(rankings) == (
+        "exact_screenplay",
+        "nickname_origin",
     )
 
 

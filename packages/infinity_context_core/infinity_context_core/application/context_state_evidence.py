@@ -25,7 +25,7 @@ _LIFECYCLE_STATUSES = frozenset((*_ACTIVE_STATUSES, *_STALE_STATUSES, "disputed"
 _STATE_NOUN = (
     r"provider|tool|model|option|engine|database|service|plan|policy|"
     r"decision|choice|source|endpoint|token|rule|setting|config|"
-    r"requirement|scope|memory|note|fact"
+    r"requirement|scope|memory|note|fact|meeting|call|demo|event|date|time"
 )
 _RU_STATE_NOUN = (
     r"провайдер\w*|инструмент\w*|модел\w*|вариант\w*|движок\w*|"
@@ -65,10 +65,17 @@ _STALE_STATE_TEXT_RE = re.compile(
 )
 _TRANSITION_STATE_TEXT_RE = re.compile(
     r"\bchanged?\b(?=.{0,80}\bfrom\b)(?=.{0,120}\bto\b)|"
+    r"\b(?:provider|tool|model|plan|policy|decision|source|option|choice|"
+    r"date|time|meeting|call|demo|event)\b(?=.{0,160}\bnot\b.{0,80}\bbut\b)|"
+    r"\bnot\b(?=.{0,80}\bbut\b)(?=.{0,160}\b(?:provider|tool|model|plan|"
+    r"policy|decision|source|option|choice|date|time|meeting|call|demo|event)\b)|"
     r"\b(?:switch(?:ed|ing)?|migrat(?:e|ed|ing)|transition(?:ed|ing)?)\b"
     r"(?=.{0,100}\b(?:from|to)\b)|"
     r"\breplac(?:e|ed|ing)\b(?=.{0,100}\b(?:by|with|from|to|instead\s+of)\b)|"
     r"\bsuperseded\b(?=.{0,100}\bby\b)|"
+    r"\b(?:cancell?ed|rescheduled|postponed|moved|delayed)\b"
+    r"(?=.{0,140}\b(?:to|for|until|from|after|instead|new|now|current|"
+    r"latest|date|time|day|week|month|meeting|call|demo|event|plan)\b)|"
     r"\b(?:изменил\w*|изменилось|обновил\w*|заменил\w*|поменял\w*|"
     r"сменил\w*|переключил\w*|переш[её]л\w*|мигрировал\w*)\b"
     r"(?=.{0,100}\b(?:с|со|на|вместо)\b)",

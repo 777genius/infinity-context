@@ -57,13 +57,17 @@ _CURRENT_DECISION_EXPANSION = (
 )
 _RECOMMENDATION_SOURCE_EXPANSION = (
     "recommendation suggestion advice recommended suggested advised follow followed "
-    "because of based on after from source actor recipient to for read watched tried "
-    "used visited listened started played made bought"
+    "recommend it definitely would because of based on after from source actor "
+    "recipient to for should get should start for one also another pointers tips "
+    "ideas how about make sure invest in look for great one good one read watched "
+    "tried used visited listened started played made bought try buy visit play make"
 )
 _BOOK_SUGGESTION_EXPANSION = (
     "book suggestion recommended becoming nicole amy ellis nutt true story trans girl "
     "family hope connection self acceptance reading that book a while ago tough "
-    "doing ok painting keep busy"
+    "doing ok painting keep busy recommend reccomend recommended reccomended "
+    "suggestion suggested must-see must see great one great read fantasy series "
+    "story finished think watched movie title"
 )
 _STATE_TRANSITION_EXPANSION = (
     "state transition changed switched switch replaced replacement migrated "
@@ -73,7 +77,16 @@ _STATE_TRANSITION_EXPANSION = (
 _COMMONALITY_INTEREST_EXPANSION = (
     "common shared both mutual same similar overlap interests hobbies activities "
     "enjoy like love prefer painting camping hiking music books games food art "
-    "watching movies desserts recipes baking evidence"
+    "watching movies desserts recipes baking cakes icecream coconut milk dairy-free "
+    "sweet treats revised old recipes made enjoy desserts bake baked animals pets "
+    "turtles reptiles animal affinity companion calming joy peace strength "
+    "perseverance inspire inspiring motivate motivation evidence"
+)
+_COMMONALITY_ANIMAL_AFFINITY_EXPANSION = (
+    "common shared both mutual same similar animal animals pets turtles reptiles "
+    "animal affinity drawn to like love enjoy prefer chose choose as pets unique "
+    "slow pace low-maintenance calming calm companion joy peace resilience "
+    "strength perseverance inspire inspiring motivates motivate motivation"
 )
 _NEGATIVE_PREFERENCE_EXPANSION = (
     "does not like doesn't like dislike dislikes disliked hate hates hated "
@@ -94,11 +107,26 @@ _FRIEND_PLACE_GYM_INVENTORY_EXPANSION = (
     "atmosphere positive environment awesome people gym friend"
 )
 _FRIEND_PLACE_CHURCH_INVENTORY_EXPANSION = (
-    "joined nearby church community faith closer local church"
+    "friends made friends joined nearby church community faith closer local "
+    "church feel closer to a community and faith"
+)
+_CHURCH_FRIEND_ACTIVITY_INVENTORY_EXPANSION = (
+    "church friends activities activity went with church friends visited visit hike "
+    "hiking picnic park group outing trip camping local church together "
+    "friends from church community work community service volunteer work volunteering "
+    "chilled trees played games charades scavenger hunt food refreshed"
 )
 _TRAVEL_COUNTRY_INVENTORY_EXPANSION = (
-    "England Spain Rome Paris London abroad solo trip travel visited went been to "
-    "short trip city place destination European countries country"
+    "abroad overseas solo trip travel traveled travelled visited went been to "
+    "visit visits visiting "
+    "short trip city cities capital capitals place places destination destinations "
+    "country countries European Europe landmark landmarks itinerary tour photo photos "
+    "picture pictures pic image caption visual query"
+)
+_ITEM_COLLECTION_INVENTORY_EXPANSION = (
+    "items objects possessions collection collect collects collecting keeps owns "
+    "sneakers shoes jerseys movies movie dvds dvd media memorabilia figurines "
+    "visual query image caption photo"
 )
 _CAUSE_EDUCATION_INFRASTRUCTURE_EXPANSION = (
     "improving education infrastructure particularly interesting interested community "
@@ -109,9 +137,29 @@ _CAUSE_VETERANS_EXPANSION = (
 )
 _TRIP_DESTINATION_EXPANSION = (
     "trip travel traveled travelled visit visited vacation destination place city "
-    "country mountains beach park went journey route stayed location to in near "
+    "country mountains beach park went journey route stayed location locations "
+    "geographical been to in near tour met meet chat chatted was were spent "
+    "photo picture image caption visual query "
     "поездка отпуск путешествие ездил ездила ездили поехал поехала посетил "
     "посетила куда место город страна горы пляж парк"
+)
+_TRAVEL_HOBBY_WRITING_EXPANSION = (
+    "travel traveling travelling trip trips journey destination destinations places "
+    "visit visited dream dreams hobby pastime creative writing write wrote written "
+    "articles article stories story blog blogging posts online magazine reading "
+    "sharing experiences landmarks cities countries photos"
+)
+_THEMED_LOCATION_DESTINATION_EXPANSION = (
+    "related locations places would enjoy visit recommendation destination trip "
+    "travel traveled travelled stay stayed staying study abroad semester accepted "
+    "applied off to going to headed to country city place location favorite "
+    "favourite movie film book series fantasy fiction world universe fan tour "
+    "explore real places"
+)
+_THEMED_LOCATION_DESTINATION_ANCHOR_EXPANSION = (
+    "visit destination trip travel traveled travelled stay stayed staying abroad "
+    "study abroad semester accepted applied program off to going to headed to "
+    "country city place location live living"
 )
 _NATIONAL_PARK_INFERENCE_EXPANSION = (
     "national park road trip travel destination hiking hike trails trail map route "
@@ -120,6 +168,7 @@ _NATIONAL_PARK_INFERENCE_EXPANSION = (
 )
 _DESTRESS_ACTIVITY_EXPANSION = (
     "running pottery class therapeutic therapy calm relax clear mind headspace unwind "
+    "dance dancing dance studio stress relief stress fix passion escape go-to "
     "расслабиться расслабляется расслаблялась отдохнуть отдыхает снять стресс "
     "успокоиться спокойствие терапевтичный прояснить голову"
 )
@@ -176,6 +225,10 @@ _ANIMAL_AFFINITY_PET_STORE_EXPANSION = (
     "animal affinity turtles pets pet store joy peace companion companions tank "
     "third turtle enjoys loves animal lover reptiles zookeeper keeper"
 )
+_ANIMAL_ACTIVITY_INVENTORY_EXPANSION = (
+    "animal pet turtle activities activity feeding feed eat eating fruit snacks "
+    "strawberries holding hold bath bathe walking walk play care favorite snacks"
+)
 
 __all__ = (
     "MAX_QUERY_EXPANSIONS",
@@ -193,11 +246,13 @@ __all__ = (
     "_BOOK_SUGGESTION_EXPANSION",
     "_STATE_TRANSITION_EXPANSION",
     "_COMMONALITY_INTEREST_EXPANSION",
+    "_COMMONALITY_ANIMAL_AFFINITY_EXPANSION",
     "_FRIEND_PLACE_INVENTORY_EXPANSION",
     "_FRIEND_PLACE_SHELTER_INVENTORY_EXPANSION",
     "_FRIEND_PLACE_GYM_INVENTORY_EXPANSION",
     "_FRIEND_PLACE_CHURCH_INVENTORY_EXPANSION",
     "_TRAVEL_COUNTRY_INVENTORY_EXPANSION",
+    "_ITEM_COLLECTION_INVENTORY_EXPANSION",
     "_CAUSE_EDUCATION_INFRASTRUCTURE_EXPANSION",
     "_CAUSE_VETERANS_EXPANSION",
     "_TRIP_DESTINATION_EXPANSION",
@@ -210,4 +265,5 @@ __all__ = (
     "_ANIMAL_DIET_EVIDENCE_EXPANSION",
     "_ANIMAL_HABITAT_SETUP_EXPANSION",
     "_ANIMAL_AFFINITY_PET_STORE_EXPANSION",
+    "_ANIMAL_ACTIVITY_INVENTORY_EXPANSION",
 )

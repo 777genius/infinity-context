@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import os
 import shutil
@@ -17,10 +18,6 @@ from infinity_context_server.eval_constants import (
     LOCOMO_BENCHMARK_SUITE,
     LONGMEMEVAL_BENCHMARK_SUITE,
 )
-from infinity_context_server.public_benchmark import (
-    BenchmarkValidationError,
-    load_public_benchmark_dataset_profile,
-)
 
 DEFAULT_MIN_PUBLIC_CASES = max(
     int(floor["min_case_count"])
@@ -31,12 +28,18 @@ DEFAULT_MIN_PUBLIC_ACCURACY = max(
     for floor in _PUBLIC_MEMORY_BENCHMARK_COMPETITIVE_FLOORS.values()
 )
 DEFAULT_MULTIMODAL_PROVIDER_TIMEOUT_SECONDS = 60.0
+TOP_EVIDENCE_PREFLIGHT_SCHEMA_VERSION = "top-evidence-preflight.v1"
 MAX_MULTIMODAL_PROVIDER_TIMEOUT_SECONDS = 120.0
 MIN_MULTIMODAL_PROVIDER_TIMEOUT_SECONDS = 5.0
 REQUIRED_MULTIMODAL_AUDIO_TYPES = frozenset({".mp3", ".wav"})
 REQUIRED_AGENT_SCENARIO_SET = "all"
 TRUE_VALUES = frozenset({"1", "true", "yes", "on"})
 SAFE_VISION_DETAILS = frozenset({"auto", "high", "low"})
+TOP_EVIDENCE_EXECUTABLE_FALLBACK_DIRS = (
+    Path("/usr/bin"),
+    Path("/bin"),
+    Path("/usr/local/bin"),
+)
 
 
 @dataclass(frozen=True)
@@ -44,6 +47,7 @@ class TopEvidencePreflightResult:
     ok: bool
     checks: dict[str, bool]
     failures: tuple[str, ...]
+    failure_codes: tuple[str, ...]
     expected_git_commit: str | None
     allow_dirty_top_evidence: bool
     sanitized_config: dict[str, object]
@@ -53,10 +57,12 @@ class TopEvidencePreflightResult:
             "ok": self.ok,
             "checks": self.checks,
             "failures": list(self.failures),
+            "failure_codes": list(self.failure_codes),
             "expected_git_commit": self.expected_git_commit,
             "allow_dirty_top_evidence": self.allow_dirty_top_evidence,
             "sanitized_config": self.sanitized_config,
             "suite": "infinity-context-top-evidence-preflight",
+            "schema_version": TOP_EVIDENCE_PREFLIGHT_SCHEMA_VERSION,
         }
 
 
@@ -69,7 +75,9 @@ def run_top_evidence_preflight(
 ) -> TopEvidencePreflightResult:
     env = os.environ if env is None else env
     cwd = cwd or _repository_root()
-    docker_path = docker_path if docker_path is not None else shutil.which("docker")
+    docker_path = (
+        docker_path if docker_path is not None else _find_executable("docker", env=env)
+    )
     git = git if git is not None else git_metadata(cwd=cwd)
     allow_dirty = _bool_env(env, "MEMORY_QUALITY_EVIDENCE_ALLOW_DIRTY_TOP")
     requested_public_case_floor = _positive_int_env(
@@ -450,6 +458,7 @@ def run_top_evidence_preflight(
         ok=all(checks.values()),
         checks=checks,
         failures=tuple(failures),
+        failure_codes=tuple(name for name, passed in checks.items() if not passed),
         expected_git_commit=commit if isinstance(commit, str) and commit else None,
         allow_dirty_top_evidence=allow_dirty,
         sanitized_config={
@@ -543,16 +552,239 @@ def _api_key_file_present(env: Mapping[str, str]) -> bool:
         return False
 
 
+def _find_executable(name: str, *, env: Mapping[str, str]) -> str | None:
+    resolved = shutil.which(name, path=env.get("PATH"))
+    if resolved:
+        return resolved
+    for directory in TOP_EVIDENCE_EXECUTABLE_FALLBACK_DIRS:
+        candidate = directory / name
+        if candidate.is_file() and os.access(candidate, os.X_OK):
+            return str(candidate)
+    return None
+
+
 def _dataset_profile(path: Path | None, *, benchmark: str) -> dict[str, object] | None:
     if path is None:
         return None
     try:
+        from infinity_context_server.public_benchmark import (
+            load_public_benchmark_dataset_profile,
+        )
+
         return load_public_benchmark_dataset_profile(
             dataset_path=path,
             benchmark=benchmark,
         )
-    except (BenchmarkValidationError, json.JSONDecodeError, OSError, UnicodeDecodeError):
+    except ImportError:
+        return _lightweight_dataset_profile(path, benchmark=benchmark)
+    except (ValueError, OSError, UnicodeDecodeError):
         return None
+
+
+def _lightweight_dataset_profile(path: Path, *, benchmark: str) -> dict[str, object] | None:
+    try:
+        payload = _load_public_benchmark_payload(path)
+    except (json.JSONDecodeError, OSError, UnicodeDecodeError):
+        return None
+    case_keys = tuple(_public_benchmark_case_keys(payload, benchmark=benchmark))
+    if not case_keys:
+        return None
+    unique_case_keys = set(case_keys)
+    return {
+        "case_count": len(case_keys),
+        "unique_case_id_count": len(unique_case_keys),
+        "duplicate_case_id_count": len(case_keys) - len(unique_case_keys),
+        "dataset_hash": _sha256_file(path),
+        "dataset_path_label": path.name,
+    }
+
+
+def _load_public_benchmark_payload(path: Path) -> object:
+    text = path.read_text(encoding="utf-8")
+    stripped = text.strip()
+    if not stripped:
+        return ()
+    if stripped.startswith("[") or stripped.startswith("{"):
+        try:
+            return json.loads(stripped)
+        except json.JSONDecodeError:
+            if stripped.startswith("["):
+                raise
+    return [json.loads(line) for line in stripped.splitlines() if line.strip()]
+
+
+def _public_benchmark_case_keys(payload: object, *, benchmark: str) -> tuple[str, ...]:
+    if isinstance(payload, Mapping):
+        if _is_official_locomo_sample(payload):
+            return _official_locomo_case_keys(payload, benchmark=benchmark)
+        raw_cases = (
+            payload.get("cases")
+            or payload.get("data")
+            or payload.get("samples")
+            or payload.get("items")
+        )
+        if raw_cases is not None:
+            return _public_benchmark_case_keys(raw_cases, benchmark=benchmark)
+        return _normalized_public_case_key(payload, index=0, benchmark=benchmark)
+    if not isinstance(payload, Sequence) or isinstance(payload, str | bytes):
+        return ()
+    keys: list[str] = []
+    for index, item in enumerate(payload):
+        if not isinstance(item, Mapping):
+            continue
+        if _is_official_locomo_sample(item):
+            keys.extend(_official_locomo_case_keys(item, benchmark=benchmark))
+        else:
+            keys.extend(
+                _normalized_public_case_key(
+                    item,
+                    index=index,
+                    benchmark=benchmark,
+                )
+            )
+    return tuple(keys)
+
+
+def _is_official_locomo_sample(raw: Mapping[str, object]) -> bool:
+    return isinstance(raw.get("conversation"), Mapping) and isinstance(raw.get("qa"), list)
+
+
+def _official_locomo_case_keys(
+    raw: Mapping[str, object],
+    *,
+    benchmark: str,
+) -> tuple[str, ...]:
+    if _normalize_public_benchmark_name(benchmark) != LOCOMO_BENCHMARK_SUITE:
+        return ()
+    sample_id = _first_str(raw, "sample_id", "id") or "sample"
+    qas = raw.get("qa")
+    if not isinstance(qas, Sequence) or isinstance(qas, str | bytes):
+        return ()
+    keys: list[str] = []
+    for index, qa in enumerate(qas):
+        if (
+            isinstance(qa, Mapping)
+            and _first_str(qa, "question", "query")
+            and _has_benchmark_expected_signal(qa, allow_evidence=True)
+        ):
+            keys.append(f"{LOCOMO_BENCHMARK_SUITE}:{sample_id}:qa:{index + 1}")
+    return tuple(keys)
+
+
+def _normalized_public_case_key(
+    raw: Mapping[str, object],
+    *,
+    index: int,
+    benchmark: str,
+) -> tuple[str, ...]:
+    raw_benchmark = _first_str(raw, "benchmark", "suite") or benchmark
+    case_benchmark = _normalize_public_benchmark_name(raw_benchmark)
+    if case_benchmark != _normalize_public_benchmark_name(benchmark):
+        return ()
+    case_id = _first_str(raw, "case_id", "id", "question_id") or str(index)
+    question = _first_str(raw, "question", "query")
+    if not question or not _has_benchmark_expected_signal(raw):
+        return ()
+    return (f"{case_benchmark}:{case_id}",)
+
+
+def _has_benchmark_expected_signal(
+    raw: Mapping[str, object],
+    *,
+    allow_evidence: bool = False,
+) -> bool:
+    expected_keys = (
+        "expected_terms",
+        "expected",
+        "answer_terms",
+        "answer",
+        "expected_answer",
+        "ground_truth",
+        "gold_answer",
+        "answers",
+    )
+    if _has_non_empty_value(
+        raw,
+        *expected_keys,
+    ):
+        return True
+    if allow_evidence and _has_non_empty_value(
+        raw,
+        "evidence",
+        allow_mapping=True,
+    ):
+        return True
+    return _requests_benchmark_abstention(raw) and _has_non_empty_value(
+        raw,
+        "forbidden_terms",
+        "forbidden",
+        "must_not_retrieve",
+    )
+
+
+def _has_non_empty_value(
+    raw: Mapping[str, object],
+    *keys: str,
+    allow_mapping: bool = False,
+) -> bool:
+    for key in keys:
+        if _value_has_non_empty_signal(raw.get(key), allow_mapping=allow_mapping):
+            return True
+    return False
+
+
+def _value_has_non_empty_signal(
+    value: object,
+    *,
+    allow_mapping: bool = False,
+) -> bool:
+    if isinstance(value, str):
+        return bool(value.strip())
+    if isinstance(value, int | float | bool):
+        return True
+    if allow_mapping and isinstance(value, Mapping) and value:
+        return True
+    if isinstance(value, Sequence) and not isinstance(value, str | bytes):
+        return any(
+            _value_has_non_empty_signal(item, allow_mapping=allow_mapping)
+            for item in value
+        )
+    return False
+
+
+def _requests_benchmark_abstention(raw: Mapping[str, object]) -> bool:
+    for key in ("answerable", "is_answerable", "has_answer"):
+        if raw.get(key) is False:
+            return True
+    for key in ("abstention", "no_answer", "unanswerable", "hard_negative"):
+        if raw.get(key) is True:
+            return True
+    return False
+
+
+def _normalize_public_benchmark_name(value: str) -> str:
+    normalized = value.strip().lower().replace("_", "").replace("-", "")
+    if normalized in {"locomo", "locomo10", "longcontextmemory"}:
+        return LOCOMO_BENCHMARK_SUITE
+    if normalized in {"longmemeval", "longmemevals", "lme"}:
+        return LONGMEMEVAL_BENCHMARK_SUITE
+    return value.strip().lower()
+
+
+def _first_str(raw: Mapping[str, object], *keys: str) -> str | None:
+    for key in keys:
+        value = raw.get(key)
+        if isinstance(value, str) and value.strip():
+            return value.strip()
+    return None
+
+
+def _sha256_file(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as handle:
+        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
 
 
 def _profile_int(profile: Mapping[str, object] | None, key: str) -> int | None:

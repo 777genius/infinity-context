@@ -1,0 +1,777 @@
+from infinity_context_core.application.context_person_relation_inventory import (
+    person_relation_inventory_signal,
+)
+from infinity_context_core.application.context_query_expansion import (
+    build_query_expansion_plan,
+)
+from infinity_context_core.application.context_query_intent import build_query_anchor_intent
+from infinity_context_core.application.context_ranking import (
+    apply_deterministic_rerank_adjustments,
+)
+from infinity_context_core.application.dto import ContextItem
+from infinity_context_core.domain.entities import SourceRef
+
+
+def test_person_relation_inventory_signal_matches_work_relation_evidence() -> None:
+    signal = person_relation_inventory_signal(
+        query="Who works with Alice?",
+        text="D4:8 Alice: Ben is my colleague on the mobile team.",
+    )
+
+    assert signal.boost > 0
+    assert signal.reason == "person_relation_inventory_match"
+
+
+def test_person_relation_inventory_signal_penalizes_anchor_only_decoy() -> None:
+    signal = person_relation_inventory_signal(
+        query="Who are Alice's friends?",
+        text="D4:8 Alice discussed weekend plans and the weather.",
+    )
+
+    assert signal.penalty > 0
+    assert signal.reason == "person_relation_inventory_anchor_only"
+
+
+def test_person_relation_inventory_signal_matches_full_name_anchor_alias() -> None:
+    signal = person_relation_inventory_signal(
+        query="Who works with Alice Chen?",
+        text="D4:8 Alice: Ben is my colleague on the mobile team.",
+    )
+
+    assert signal.boost > 0
+    assert signal.reason == "person_relation_inventory_match"
+
+
+def test_person_relation_inventory_signal_ignores_different_full_name_anchor() -> None:
+    signal = person_relation_inventory_signal(
+        query="Who is Alice Chen's boss?",
+        text="D4:8 Alice Smith: Maria is my boss at the clinic.",
+    )
+
+    assert signal == (0.0, 0.0, "")
+
+
+def test_person_relation_inventory_signal_matches_named_person_boss() -> None:
+    signal = person_relation_inventory_signal(
+        query="Who is Alice Chen's boss?",
+        text="D4:8 Alice: Maria is my boss at the clinic.",
+    )
+
+    assert signal.boost > 0
+    assert signal.reason == "person_relation_inventory_match"
+
+
+def test_person_relation_inventory_signal_matches_named_person_supervisor() -> None:
+    signal = person_relation_inventory_signal(
+        query="Who is the supervisor of Alice?",
+        text="D4:8 Alice: Maria is my supervisor at the clinic.",
+    )
+
+    assert signal.boost > 0
+    assert signal.reason == "person_relation_inventory_match"
+
+
+def test_person_relation_inventory_signal_matches_named_person_roommate() -> None:
+    signal = person_relation_inventory_signal(
+        query="Who is Alice Chen's roommate?",
+        text="D4:8 Alice: Maria is my roommate in Portland.",
+    )
+
+    assert signal.boost > 0
+    assert signal.reason == "person_relation_inventory_match"
+
+
+def test_person_relation_inventory_signal_matches_named_person_spouse_role_alias() -> None:
+    signal = person_relation_inventory_signal(
+        query="Who is Alice Chen's wife?",
+        text="D4:8 Alice: Maria is my spouse and partner.",
+    )
+
+    assert signal.boost > 0
+    assert signal.reason == "person_relation_inventory_match"
+
+
+def test_person_relation_inventory_signal_matches_extended_family_roles() -> None:
+    cousin = person_relation_inventory_signal(
+        query="Who is Dana's cousin?",
+        text="D2:3 Dana: Riley is my cousin.",
+    )
+    aunt = person_relation_inventory_signal(
+        query="Who is the aunt of Dana?",
+        text="D4:5 Dana told me that Maria is her aunt.",
+    )
+    grandparent = person_relation_inventory_signal(
+        query="Who is Dana's grandfather?",
+        text="D6:8 Dana: Luis is my grandpa.",
+    )
+
+    assert cousin.boost > 0
+    assert cousin.reason == "person_relation_inventory_match"
+    assert aunt.boost > 0
+    assert aunt.reason == "person_relation_inventory_match"
+    assert grandparent.boost > 0
+    assert grandparent.reason == "person_relation_inventory_match"
+
+
+def test_person_relation_inventory_signal_matches_named_person_neighbor() -> None:
+    signal = person_relation_inventory_signal(
+        query="Who is the neighbor of Alice?",
+        text="D4:8 Alice: Maria is my neighbor across the hall.",
+    )
+
+    assert signal.boost > 0
+    assert signal.reason == "person_relation_inventory_match"
+
+
+def test_person_relation_inventory_signal_matches_named_person_coach() -> None:
+    signal = person_relation_inventory_signal(
+        query="Who is Alice Chen's coach?",
+        text="D4:8 Alice: Maria is my coach for marathon training.",
+    )
+
+    assert signal.boost > 0
+    assert signal.reason == "person_relation_inventory_match"
+
+
+def test_person_relation_inventory_signal_matches_named_person_trainer() -> None:
+    signal = person_relation_inventory_signal(
+        query="Who is the trainer of Alice?",
+        text="D4:8 Alice: Maria is my trainer at the gym.",
+    )
+
+    assert signal.boost > 0
+    assert signal.reason == "person_relation_inventory_match"
+
+
+def test_person_relation_inventory_signal_matches_named_person_teacher() -> None:
+    signal = person_relation_inventory_signal(
+        query="Who is Alice Chen's teacher?",
+        text="D4:8 Alice: Maria is my teacher for calculus.",
+    )
+
+    assert signal.boost > 0
+    assert signal.reason == "person_relation_inventory_match"
+
+
+def test_person_relation_inventory_signal_matches_named_person_tutor() -> None:
+    signal = person_relation_inventory_signal(
+        query="Who is the tutor of Alice?",
+        text="D4:8 Alice: Maria is my tutor after school.",
+    )
+
+    assert signal.boost > 0
+    assert signal.reason == "person_relation_inventory_match"
+
+
+def test_person_relation_inventory_signal_matches_named_person_doctor() -> None:
+    signal = person_relation_inventory_signal(
+        query="Who is Alice Chen's doctor?",
+        text="D4:8 Alice: Dr. Maria Lee is my doctor at the clinic.",
+    )
+
+    assert signal.boost > 0
+    assert signal.reason == "person_relation_inventory_match"
+
+
+def test_person_relation_inventory_signal_matches_named_person_therapist() -> None:
+    signal = person_relation_inventory_signal(
+        query="Who is the therapist of Alice?",
+        text="D4:8 Alice: Maria is my therapist for anxiety.",
+    )
+
+    assert signal.boost > 0
+    assert signal.reason == "person_relation_inventory_match"
+
+
+def test_person_relation_inventory_signal_matches_named_person_classmate() -> None:
+    signal = person_relation_inventory_signal(
+        query="Who is Alice Chen's classmate?",
+        text="D4:8 Alice: Maria is my classmate in biology.",
+    )
+
+    assert signal.boost > 0
+    assert signal.reason == "person_relation_inventory_match"
+
+
+def test_person_relation_inventory_signal_keeps_peer_relation_symmetric() -> None:
+    signal = person_relation_inventory_signal(
+        query="Who is Alice Chen's classmate?",
+        text="D4:8 Maria: Alice is my classmate in biology.",
+    )
+
+    assert signal.boost > 0
+    assert signal.reason == "person_relation_inventory_match"
+
+
+def test_person_relation_inventory_signal_requires_specific_relation_target() -> None:
+    exact = person_relation_inventory_signal(
+        query="Is Maria Alice's boss?",
+        text="D4:8 Alice: Maria is my boss at the clinic.",
+    )
+    wrong_target = person_relation_inventory_signal(
+        query="Is Maria Alice's boss?",
+        text="D4:8 Alice: Ben is my boss at the clinic.",
+    )
+
+    assert exact.boost > 0
+    assert exact.reason == "person_relation_inventory_match"
+    assert wrong_target.penalty > 0
+    assert wrong_target.reason == "person_relation_inventory_target_mismatch"
+
+
+def test_person_relation_inventory_signal_penalizes_same_target_wrong_role() -> None:
+    signal = person_relation_inventory_signal(
+        query="Is Maria Alice's boss?",
+        text="D4:8 Alice: Maria is my friend from the clinic.",
+    )
+
+    assert signal.penalty > 0
+    assert signal.reason == "person_relation_inventory_role_mismatch"
+
+
+def test_person_relation_inventory_signal_penalizes_same_anchor_wrong_role() -> None:
+    signal = person_relation_inventory_signal(
+        query="Who is Alice's boss?",
+        text="D4:8 Alice: Maria is my colleague on the mobile team.",
+    )
+
+    assert signal.penalty > 0
+    assert signal.reason == "person_relation_inventory_role_mismatch"
+
+
+def test_person_relation_inventory_signal_does_not_boost_reversed_boss_direction() -> None:
+    signal = person_relation_inventory_signal(
+        query="Who is Alice's boss?",
+        text="D4:8 Maria: Alice is my boss at the clinic.",
+    )
+
+    assert signal.boost == 0
+
+
+def test_person_relation_inventory_signal_does_not_boost_reversed_target_boss() -> None:
+    signal = person_relation_inventory_signal(
+        query="Is Maria Alice's boss?",
+        text="D4:8 Maria: Alice is my boss at the clinic.",
+    )
+
+    assert signal.boost == 0
+
+
+def test_person_relation_inventory_signal_penalizes_stale_current_relation() -> None:
+    signal = person_relation_inventory_signal(
+        query="Who is Alice's coworker?",
+        text="D4:8 Alice: Ben used to be my coworker on the mobile team.",
+    )
+
+    assert signal.boost == 0
+    assert signal.penalty > 0
+    assert signal.reason == "person_relation_inventory_stale_relation"
+
+
+def test_person_relation_inventory_signal_accepts_stale_relation_for_past_query() -> None:
+    signal = person_relation_inventory_signal(
+        query="Who was Alice's coworker?",
+        text="D4:8 Alice: Ben used to be my coworker on the mobile team.",
+    )
+
+    assert signal.boost > 0
+    assert signal.penalty == 0
+    assert signal.reason == "person_relation_inventory_match"
+
+
+def test_person_relation_inventory_signal_matches_specific_target_alias() -> None:
+    signal = person_relation_inventory_signal(
+        query="Is Maria Lee Alice's doctor?",
+        text="D4:8 Alice: Maria is my doctor at the clinic.",
+    )
+
+    assert signal.boost > 0
+    assert signal.reason == "person_relation_inventory_match"
+
+
+def test_person_relation_inventory_signal_matches_specific_work_target() -> None:
+    signal = person_relation_inventory_signal(
+        query="Does Alice work with Maria?",
+        text="D4:8 Alice: I collaborate with Maria on the mobile team.",
+    )
+
+    assert signal.boost > 0
+    assert signal.reason == "person_relation_inventory_match"
+
+
+def test_query_expansion_covers_specific_relation_target_questions() -> None:
+    plan = build_query_expansion_plan("Is Maria Alice's boss?")
+
+    expansion = next(
+        item
+        for item in plan.expansions
+        if item.reason == "person_relation_inventory_bridge"
+    )
+    assert "Alice" in expansion.query
+    assert "Maria" in expansion.query
+    assert "boss supervisor" in expansion.query
+
+
+def test_deterministic_rerank_prefers_person_relation_evidence() -> None:
+    query = "Who works with Alice?"
+    plan = build_query_expansion_plan(query)
+    intent = build_query_anchor_intent(query)
+    colleague = _item(
+        "colleague",
+        score=0.7,
+        text="D4:8 Alice: Ben is my colleague on the mobile team.",
+    )
+    anchor_only = _item(
+        "anchor_only",
+        score=0.72,
+        text="D4:9 Alice reviewed the release notes after lunch.",
+    )
+
+    reranked = apply_deterministic_rerank_adjustments(
+        (colleague, anchor_only),
+        query=query,
+        plan=plan,
+        query_anchor_intent=intent,
+    )
+
+    assert reranked[0].score > reranked[1].score
+    assert (
+        "person_relation_inventory_match"
+        in reranked[0].diagnostics["provenance"]["deterministic_rerank_reasons"]
+    )
+    assert (
+        "person_relation_inventory_anchor_only"
+        in reranked[1].diagnostics["provenance"]["deterministic_rerank_reasons"]
+    )
+
+
+def test_deterministic_rerank_prefers_current_relation_over_stale_status() -> None:
+    query = "Who is Alice's coworker?"
+    plan = build_query_expansion_plan(query)
+    intent = build_query_anchor_intent(query)
+    current_relation = _item(
+        "current_relation",
+        score=0.7,
+        text="D4:8 Alice: Ben is my coworker on the mobile team.",
+    )
+    stale_relation = _item(
+        "stale_relation",
+        score=0.72,
+        text="D4:9 Alice: Chris used to be my coworker on the mobile team.",
+    )
+
+    reranked = apply_deterministic_rerank_adjustments(
+        (current_relation, stale_relation),
+        query=query,
+        plan=plan,
+        query_anchor_intent=intent,
+    )
+
+    assert reranked[0].item_id == "current_relation"
+    assert (
+        "person_relation_inventory_match"
+        in reranked[0].diagnostics["provenance"]["deterministic_rerank_reasons"]
+    )
+    assert (
+        "person_relation_inventory_stale_relation"
+        in reranked[1].diagnostics["provenance"]["deterministic_rerank_reasons"]
+    )
+
+
+def test_deterministic_rerank_prefers_specific_relation_target_evidence() -> None:
+    query = "Is Maria Alice's boss?"
+    plan = build_query_expansion_plan(query)
+    intent = build_query_anchor_intent(query)
+    exact_target = _item(
+        "exact_target",
+        score=0.7,
+        text="D4:8 Alice: Maria is my boss at the clinic.",
+    )
+    wrong_target = _item(
+        "wrong_target",
+        score=0.72,
+        text="D4:9 Alice: Ben is my boss at the clinic.",
+    )
+
+    reranked = apply_deterministic_rerank_adjustments(
+        (wrong_target, exact_target),
+        query=query,
+        plan=plan,
+        query_anchor_intent=intent,
+    )
+    by_id = {item.item_id: item for item in reranked}
+
+    assert by_id["exact_target"].score > by_id["wrong_target"].score
+    assert (
+        "person_relation_inventory_match"
+        in by_id["exact_target"]
+        .diagnostics["provenance"]["deterministic_rerank_reasons"]
+    )
+    assert (
+        "person_relation_inventory_target_mismatch"
+        in by_id["wrong_target"]
+        .diagnostics["provenance"]["deterministic_rerank_reasons"]
+    )
+
+
+def test_deterministic_rerank_prefers_specific_role_over_same_entity_decoy() -> None:
+    query = "Is Maria Alice's boss?"
+    plan = build_query_expansion_plan(query)
+    intent = build_query_anchor_intent(query)
+    exact_role = _item(
+        "exact_role",
+        score=0.7,
+        text="D4:8 Alice: Maria is my boss at the clinic.",
+    )
+    wrong_role = _item(
+        "wrong_role",
+        score=0.74,
+        text="D4:9 Alice: Maria is my friend from the clinic.",
+    )
+
+    reranked = apply_deterministic_rerank_adjustments(
+        (wrong_role, exact_role),
+        query=query,
+        plan=plan,
+        query_anchor_intent=intent,
+    )
+    by_id = {item.item_id: item for item in reranked}
+
+    assert by_id["exact_role"].score > by_id["wrong_role"].score
+    assert (
+        "person_relation_inventory_match"
+        in by_id["exact_role"]
+        .diagnostics["provenance"]["deterministic_rerank_reasons"]
+    )
+    assert (
+        "person_relation_inventory_role_mismatch"
+        in by_id["wrong_role"]
+        .diagnostics["provenance"]["deterministic_rerank_reasons"]
+    )
+
+
+def test_deterministic_rerank_prefers_requested_role_over_same_anchor_decoy() -> None:
+    query = "Who is Alice's boss?"
+    plan = build_query_expansion_plan(query)
+    intent = build_query_anchor_intent(query)
+    exact_role = _item(
+        "exact_role",
+        score=0.7,
+        text="D4:8 Alice: Maria is my boss at the clinic.",
+    )
+    wrong_role = _item(
+        "wrong_role",
+        score=0.74,
+        text="D4:9 Alice: Maria is my colleague on the mobile team.",
+    )
+
+    reranked = apply_deterministic_rerank_adjustments(
+        (wrong_role, exact_role),
+        query=query,
+        plan=plan,
+        query_anchor_intent=intent,
+    )
+    by_id = {item.item_id: item for item in reranked}
+
+    assert by_id["exact_role"].score > by_id["wrong_role"].score
+    assert (
+        "person_relation_inventory_role_mismatch"
+        in by_id["wrong_role"]
+        .diagnostics["provenance"]["deterministic_rerank_reasons"]
+    )
+
+
+def test_deterministic_rerank_does_not_lift_reversed_boss_relation() -> None:
+    query = "Who is Alice's boss?"
+    plan = build_query_expansion_plan(query)
+    intent = build_query_anchor_intent(query)
+    correct_direction = _item(
+        "correct_direction",
+        score=0.7,
+        text="D4:8 Alice: Maria is my boss at the clinic.",
+    )
+    reversed_direction = _item(
+        "reversed_direction",
+        score=0.7,
+        text="D4:9 Maria: Alice is my boss at the clinic.",
+    )
+
+    reranked = apply_deterministic_rerank_adjustments(
+        (reversed_direction, correct_direction),
+        query=query,
+        plan=plan,
+        query_anchor_intent=intent,
+    )
+    by_id = {item.item_id: item for item in reranked}
+
+    assert (
+        "person_relation_inventory_match"
+        in by_id["correct_direction"]
+        .diagnostics["provenance"]["deterministic_rerank_reasons"]
+    )
+    assert (
+        "person_relation_inventory_match"
+        not in by_id["reversed_direction"]
+        .diagnostics["provenance"]["deterministic_rerank_reasons"]
+    )
+
+
+def test_deterministic_rerank_prefers_named_person_boss_evidence() -> None:
+    query = "Who is Alice Chen's boss?"
+    plan = build_query_expansion_plan(query)
+    intent = build_query_anchor_intent(query)
+    boss = _item(
+        "boss",
+        score=0.7,
+        text="D4:8 Alice: Maria is my boss at the clinic.",
+    )
+    anchor_only = _item(
+        "anchor_only",
+        score=0.72,
+        text="D4:9 Alice reviewed the release notes after lunch.",
+    )
+
+    reranked = apply_deterministic_rerank_adjustments(
+        (boss, anchor_only),
+        query=query,
+        plan=plan,
+        query_anchor_intent=intent,
+    )
+
+    assert reranked[0].score > reranked[1].score
+    assert (
+        "person_relation_inventory_match"
+        in reranked[0].diagnostics["provenance"]["deterministic_rerank_reasons"]
+    )
+    assert (
+        "person_relation_inventory_anchor_only"
+        in reranked[1].diagnostics["provenance"]["deterministic_rerank_reasons"]
+    )
+
+
+def test_deterministic_rerank_prefers_named_person_roommate_evidence() -> None:
+    query = "Who is Alice Chen's roommate?"
+    plan = build_query_expansion_plan(query)
+    intent = build_query_anchor_intent(query)
+    roommate = _item(
+        "roommate",
+        score=0.7,
+        text="D4:8 Alice: Maria is my roommate in Portland.",
+    )
+    anchor_only = _item(
+        "anchor_only",
+        score=0.72,
+        text="D4:9 Alice reviewed the release notes after lunch.",
+    )
+
+    reranked = apply_deterministic_rerank_adjustments(
+        (roommate, anchor_only),
+        query=query,
+        plan=plan,
+        query_anchor_intent=intent,
+    )
+
+    assert reranked[0].score > reranked[1].score
+    assert (
+        "person_relation_inventory_match"
+        in reranked[0].diagnostics["provenance"]["deterministic_rerank_reasons"]
+    )
+    assert (
+        "person_relation_inventory_anchor_only"
+        in reranked[1].diagnostics["provenance"]["deterministic_rerank_reasons"]
+    )
+
+
+def test_query_expansion_adds_spouse_role_bridge_for_wife_question() -> None:
+    plan = build_query_expansion_plan("Who is Alice Chen's wife?")
+
+    expansion = next(
+        item
+        for item in plan.expansions
+        if item.reason == "relationship_status_bridge"
+    )
+    assert "Alice" in expansion.query
+    assert "Chen" in expansion.query
+    assert "spouse" in expansion.query
+    assert "partner" in expansion.query
+
+
+def test_deterministic_rerank_prefers_named_person_spouse_role_alias_evidence() -> None:
+    query = "Who is Alice Chen's wife?"
+    plan = build_query_expansion_plan(query)
+    intent = build_query_anchor_intent(query)
+    spouse = _item(
+        "spouse",
+        score=0.7,
+        text="D4:8 Alice: Maria is my spouse and partner.",
+    )
+    anchor_only = _item(
+        "anchor_only",
+        score=0.72,
+        text="D4:9 Alice reviewed the release notes after lunch.",
+    )
+
+    reranked = apply_deterministic_rerank_adjustments(
+        (spouse, anchor_only),
+        query=query,
+        plan=plan,
+        query_anchor_intent=intent,
+    )
+
+    assert reranked[0].score > reranked[1].score
+    assert (
+        "person_relation_inventory_match"
+        in reranked[0].diagnostics["provenance"]["deterministic_rerank_reasons"]
+    )
+    assert (
+        "person_relation_inventory_anchor_only"
+        in reranked[1].diagnostics["provenance"]["deterministic_rerank_reasons"]
+    )
+
+
+def test_deterministic_rerank_prefers_named_person_coach_evidence() -> None:
+    query = "Who is Alice Chen's coach?"
+    plan = build_query_expansion_plan(query)
+    intent = build_query_anchor_intent(query)
+    coach = _item(
+        "coach",
+        score=0.7,
+        text="D4:8 Alice: Maria is my coach for marathon training.",
+    )
+    anchor_only = _item(
+        "anchor_only",
+        score=0.72,
+        text="D4:9 Alice reviewed the release notes after lunch.",
+    )
+
+    reranked = apply_deterministic_rerank_adjustments(
+        (coach, anchor_only),
+        query=query,
+        plan=plan,
+        query_anchor_intent=intent,
+    )
+
+    assert reranked[0].score > reranked[1].score
+    assert (
+        "person_relation_inventory_match"
+        in reranked[0].diagnostics["provenance"]["deterministic_rerank_reasons"]
+    )
+    assert (
+        "person_relation_inventory_anchor_only"
+        in reranked[1].diagnostics["provenance"]["deterministic_rerank_reasons"]
+    )
+
+
+def test_deterministic_rerank_prefers_named_person_teacher_evidence() -> None:
+    query = "Who is Alice Chen's teacher?"
+    plan = build_query_expansion_plan(query)
+    intent = build_query_anchor_intent(query)
+    teacher = _item(
+        "teacher",
+        score=0.7,
+        text="D4:8 Alice: Maria is my teacher for calculus.",
+    )
+    anchor_only = _item(
+        "anchor_only",
+        score=0.72,
+        text="D4:9 Alice reviewed the release notes after lunch.",
+    )
+
+    reranked = apply_deterministic_rerank_adjustments(
+        (teacher, anchor_only),
+        query=query,
+        plan=plan,
+        query_anchor_intent=intent,
+    )
+
+    assert reranked[0].score > reranked[1].score
+    assert (
+        "person_relation_inventory_match"
+        in reranked[0].diagnostics["provenance"]["deterministic_rerank_reasons"]
+    )
+    assert (
+        "person_relation_inventory_anchor_only"
+        in reranked[1].diagnostics["provenance"]["deterministic_rerank_reasons"]
+    )
+
+
+def test_deterministic_rerank_prefers_named_person_doctor_evidence() -> None:
+    query = "Who is Alice Chen's doctor?"
+    plan = build_query_expansion_plan(query)
+    intent = build_query_anchor_intent(query)
+    doctor = _item(
+        "doctor",
+        score=0.7,
+        text="D4:8 Alice: Dr. Maria Lee is my doctor at the clinic.",
+    )
+    anchor_only = _item(
+        "anchor_only",
+        score=0.72,
+        text="D4:9 Alice reviewed the release notes after lunch.",
+    )
+
+    reranked = apply_deterministic_rerank_adjustments(
+        (doctor, anchor_only),
+        query=query,
+        plan=plan,
+        query_anchor_intent=intent,
+    )
+
+    assert reranked[0].score > reranked[1].score
+    assert (
+        "person_relation_inventory_match"
+        in reranked[0].diagnostics["provenance"]["deterministic_rerank_reasons"]
+    )
+    assert (
+        "person_relation_inventory_anchor_only"
+        in reranked[1].diagnostics["provenance"]["deterministic_rerank_reasons"]
+    )
+
+
+def test_deterministic_rerank_prefers_named_person_classmate_evidence() -> None:
+    query = "Who is Alice Chen's classmate?"
+    plan = build_query_expansion_plan(query)
+    intent = build_query_anchor_intent(query)
+    classmate = _item(
+        "classmate",
+        score=0.7,
+        text="D4:8 Alice: Maria is my classmate in biology.",
+    )
+    anchor_only = _item(
+        "anchor_only",
+        score=0.72,
+        text="D4:9 Alice reviewed the release notes after lunch.",
+    )
+
+    reranked = apply_deterministic_rerank_adjustments(
+        (classmate, anchor_only),
+        query=query,
+        plan=plan,
+        query_anchor_intent=intent,
+    )
+
+    assert reranked[0].score > reranked[1].score
+    assert (
+        "person_relation_inventory_match"
+        in reranked[0].diagnostics["provenance"]["deterministic_rerank_reasons"]
+    )
+    assert (
+        "person_relation_inventory_anchor_only"
+        in reranked[1].diagnostics["provenance"]["deterministic_rerank_reasons"]
+    )
+
+
+def _item(item_id: str, *, score: float, text: str) -> ContextItem:
+    return ContextItem(
+        item_id=item_id,
+        item_type="chunk",
+        text=text,
+        score=score,
+        source_refs=(SourceRef(source_type="document", source_id="doc"),),
+        diagnostics={
+            "retrieval_source": "keyword_chunks",
+            "retrieval_sources": ["keyword_chunks"],
+            "score_signals": {"base_score": score},
+            "provenance": {"retrieval_sources": ["keyword_chunks"]},
+        },
+    )

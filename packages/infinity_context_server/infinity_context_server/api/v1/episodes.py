@@ -7,7 +7,12 @@ from typing import Annotated, Any
 
 from fastapi import APIRouter, Depends
 from infinity_context_core.application import IngestEpisodeCommand
-from infinity_context_core.domain.entities import MemoryChunkKind, MemoryEpisode, SpeakerRole, TrustLevel
+from infinity_context_core.domain.entities import (
+    MemoryChunkKind,
+    MemoryEpisode,
+    SpeakerRole,
+    TrustLevel,
+)
 from infinity_context_core.domain.errors import MemoryValidationError
 from pydantic import BaseModel, ConfigDict, Field
 

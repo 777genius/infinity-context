@@ -24,14 +24,22 @@ _QUERY_RE = re.compile(
 _FUTURE_PLAN_ACTION_RE = re.compile(
     r"\b(?:plan|plans|planned|planning|intend|intends|intended|"
     r"thinking\s+about|consider(?:ing)?|going\s+to|scheduled|booked|"
+    r"hop(?:e|es|ed|ing)\s+to|want(?:s|ed)?\s+to|will|"
     r"look(?:ing)?\s+forward)\b",
     re.IGNORECASE,
 )
 _FUTURE_TIME_RE = re.compile(
     r"\b(?:next\s+(?:day|week|month|year|summer|fall|winter|spring)|"
-    r"upcoming|future|soon|later\s+this\s+(?:week|month|year)|"
+    r"next\s+(?:monday|tuesday|wednesday|thursday|friday|saturday|sunday|weekend)|"
+    r"tomorrow|tonight|upcoming|future|soon|later\s+(?:today|this\s+(?:week|month|year))|"
     r"this\s+(?:summer|fall|winter|spring|weekend)|summer\s+break|"
-    r"in\s+(?:a|one|two|three|\d+)\s+(?:days?|weeks?|months?|years?))\b",
+    r"in\s+(?:a|one|two|three|\d+)\s+(?:days?|weeks?|months?|years?)|"
+    r"(?:on|by|for)\s+"
+    r"(?:monday|tuesday|wednesday|thursday|friday|saturday|sunday)|"
+    r"(?:in|on|by|for)\s+"
+    r"(?:jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|jun(?:e)?|"
+    r"jul(?:y)?|aug(?:ust)?|sep(?:t(?:ember)?)?|oct(?:ober)?|"
+    r"nov(?:ember)?|dec(?:ember)?)(?:\s+\d{1,2})?)\b",
     re.IGNORECASE,
 )
 _PAST_ONLY_TIME_RE = re.compile(

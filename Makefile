@@ -5,7 +5,7 @@ COMPOSE_PROJECT_NAME ?= infinity_context
 export COMPOSE_PROJECT_NAME
 SELFHOST_ENV ?= .env.selfhost
 SELFHOST_COMPOSE ?= $(COMPOSE) --env-file $(SELFHOST_ENV) -f docker-compose.selfhost.yml
-INFINITY_CONTEXT_PYTHONPATH ?= packages/infinity_context_core:packages/infinity_context_server:packages/infinity_context_adapters:packages/infinity_context_sdk:packages/infinity_context_obsidian:packages/infinity_context_mcp:packages/infinity_context_cli
+INFINITY_CONTEXT_PYTHONPATH ?= packages/infinity_context_core:packages/infinity_context_server:packages/infinity_context_adapters:packages/infinity_context_contracts:packages/infinity_context_sdk:packages/infinity_context_obsidian:packages/infinity_context_mcp:packages/infinity_context_cli
 export PYTHONPATH := $(INFINITY_CONTEXT_PYTHONPATH)$(if $(PYTHONPATH),:$(PYTHONPATH))
 FRONTEND_DIR ?= frontend
 FLUTTER ?= $(shell command -v flutter 2>/dev/null || if [ -x "$$HOME/dev/flutter/bin/flutter" ]; then echo "$$HOME/dev/flutter/bin/flutter"; elif [ -x "$$HOME/dev/projects/flutter/bin/flutter" ]; then echo "$$HOME/dev/projects/flutter/bin/flutter"; else echo flutter; fi)
@@ -289,6 +289,36 @@ infinity-context-official-public-benchmark-canary:
 
 .PHONY: infinity-context-test-quality
 infinity-context-test-quality: infinity-context-lint infinity-context-test-all infinity-context-eval
+	$(MAKE) infinity-context-secret-scan
+
+.PHONY: memory-test-quality
+memory-test-quality:
+	$(RUFF) check \
+		packages/infinity_context_core/infinity_context_core/application/anchor_event_extraction.py \
+		packages/infinity_context_core/infinity_context_core/application/anchor_extraction.py \
+		packages/infinity_context_core/infinity_context_core/application/context_artifact_evidence.py \
+		packages/infinity_context_core/infinity_context_core/application/context_collectors.py \
+		packages/infinity_context_core/infinity_context_core/application/context_diagnostics.py \
+		packages/infinity_context_core/infinity_context_core/application/context_ranking.py \
+		packages/infinity_context_core/infinity_context_core/application/context_ranking_reason_policy.py
+	$(PYTHON) -m pytest -q \
+		tests/unit/test_anchor_extraction.py::test_anchor_extraction_handles_lowercase_direct_event_participant_and_project \
+		tests/unit/test_anchor_extraction.py::test_anchor_extraction_handles_lowercase_actor_before_message_event \
+		tests/unit/test_context_collectors.py::test_bounded_retrieval_queries_prioritize_high_signal_inference_bridges \
+		tests/unit/test_context_provider_consistency.py::test_context_retrieves_cross_language_multimodal_manifest_evidence \
+		tests/unit/test_context_provider_consistency.py::test_context_anchor_lookup_recovers_target_outside_recent_anchor_window \
+		tests/unit/test_context_provider_consistency.py::test_context_replaces_superseded_fact_with_active_temporal_relation \
+		tests/unit/test_context_provider_consistency.py::test_context_replaces_linked_superseded_fact_after_approved_link_expansion \
+		tests/unit/test_context_query_expansion.py::test_best_query_relevance_uses_specific_outdoor_nature_memory_bridge \
+		tests/unit/test_context_query_intent.py::test_query_anchor_intent_extracts_lowercase_ru_event_hints \
+		tests/unit/test_context_query_intent.py::test_query_anchor_intent_matches_lowercase_direct_event_actor \
+		tests/unit/test_context_query_intent.py::test_query_anchor_intent_matches_lowercase_actor_before_message_event \
+		tests/unit/test_context_ranking.py::test_keyword_chunk_score_boosts_promise_commitment_bridge \
+		tests/unit/test_context_ranking.py::test_deterministic_rerank_prefers_multisignal_artifact_evidence \
+		tests/unit/test_context_ranking.py::test_deterministic_rerank_prefers_first_party_artifact_inventory_evidence \
+		tests/unit/test_context_ranking.py::test_deterministic_rerank_prefers_localized_transcript_evidence \
+		tests/unit/test_context_ranking.py::test_deterministic_rerank_does_not_localize_plain_source_ref
+	$(MAKE) infinity-context-eval
 	$(MAKE) infinity-context-secret-scan
 
 .PHONY: infinity-context-secret-scan

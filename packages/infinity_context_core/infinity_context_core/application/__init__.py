@@ -1,5 +1,9 @@
 """Application layer public exports."""
 
+import infinity_context_core.features.context_building.public as context_building_public
+import infinity_context_core.features.document_ingestion.public as document_ingestion_public
+import infinity_context_core.features.memory_facts.public as memory_facts_public
+import infinity_context_core.features.memory_scopes.public as memory_scopes_public
 from infinity_context_core.application.context_collectors import ContextRetrievalDeadlines
 from infinity_context_core.application.dto import (
     AnchorBackfillSourceSummary,
@@ -277,6 +281,11 @@ from infinity_context_core.application.use_cases.users import (
     ListUsersUseCase,
 )
 
+ContextBuildingUseCases = context_building_public.ContextBuildingUseCases
+DocumentIngestionUseCases = document_ingestion_public.DocumentIngestionUseCases
+MemoryFactLifecycleUseCases = memory_facts_public.MemoryFactLifecycleUseCases
+MemoryScopeUseCases = memory_scopes_public.MemoryScopeUseCases
+
 __all__ = [
     "ApproveSuggestionCommand",
     "ApproveSuggestionUseCase",
@@ -315,6 +324,7 @@ __all__ = [
     "CheckSpaceAccessUseCase",
     "ConsistencyMode",
     "ContextBundle",
+    "ContextBuildingUseCases",
     "ContextItem",
     "ContextLinkCandidate",
     "ContextLinkResult",
@@ -359,6 +369,7 @@ __all__ = [
     "DeleteThreadMemoryResult",
     "DeleteThreadMemoryUseCase",
     "DocumentChunksQueryResult",
+    "DocumentIngestionUseCases",
     "DocumentQueryResult",
     "EnsureScopeCommand",
     "EnsureScopeUseCase",
@@ -441,12 +452,14 @@ __all__ = [
     "MemoryBrowserResult",
     "MemoryInsightActionItem",
     "MemoryInsightsResult",
+    "MemoryFactLifecycleUseCases",
     "MemoryOperationsConsoleQuery",
     "MemoryOperationsConsoleResult",
     "ProcessDocumentCommand",
     "ProcessDocumentResult",
     "ProcessDocumentUseCase",
     "MemoryScopeResult",
+    "MemoryScopeUseCases",
     "MergeAnchorsCommand",
     "MergeAnchorsUseCase",
     "PurgeCaptureCommand",
@@ -514,4 +527,8 @@ __all__ = [
     "UsageSummaryResult",
     "UserResult",
     "UsersResult",
+    "context_building_public",
+    "document_ingestion_public",
+    "memory_facts_public",
+    "memory_scopes_public",
 ]

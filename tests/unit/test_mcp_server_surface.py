@@ -3,8 +3,6 @@ import json
 from pathlib import Path
 from typing import Any
 
-from mcp.server.fastmcp.exceptions import ToolError
-from mcp_adapter_fakes import RecordingGateway
 from infinity_context_mcp import bench as memory_mcp_bench
 from infinity_context_mcp.application.service import MEMORY_USAGE_GUIDE, MemoryToolService
 from infinity_context_mcp.config import MemoryMcpSettings
@@ -15,6 +13,8 @@ from infinity_context_mcp.domain.models import (
     public_error_code,
 )
 from infinity_context_mcp.server import create_mcp_server
+from mcp.server.fastmcp.exceptions import ToolError
+from mcp_adapter_fakes import RecordingGateway
 
 
 def test_mcp_fact_resource_bounds_large_payload_text() -> None:
@@ -482,8 +482,14 @@ def test_mcp_public_error_taxonomy_is_stable_and_documented() -> None:
         status = 500 if raw_code == "raw.sql" else 0
         assert public_error_code(raw_code, status_code=status) == expected
     assert public_error_code("auth", status_code=401) == "infinity_context_mcp.gateway.auth_failed"
-    assert public_error_code("bad", status_code=422) == "infinity_context_mcp.validation.backend_rejected"
-    assert public_error_code("too_many", status_code=429) == "infinity_context_mcp.degraded.backpressure"
+    assert (
+        public_error_code("bad", status_code=422)
+        == "infinity_context_mcp.validation.backend_rejected"
+    )
+    assert (
+        public_error_code("too_many", status_code=429)
+        == "infinity_context_mcp.degraded.backpressure"
+    )
 
     for code in expected_codes:
         assert code in documented
@@ -506,7 +512,10 @@ def test_mcp_whole_call_failures_are_tool_errors_with_structured_envelope() -> N
 
         assert result.isError is True
         assert result.structuredContent["ok"] is False
-        assert result.structuredContent["error"]["code"] == "infinity_context_mcp.policy.secret_detected"
+        assert (
+            result.structuredContent["error"]["code"]
+            == "infinity_context_mcp.policy.secret_detected"
+        )
         assert "sk-test" not in result.content[0].text
 
     asyncio.run(run())

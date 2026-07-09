@@ -11,7 +11,10 @@ from infinity_context_server.memory_scope_transfer_records import (
     source_ref_from_json,
     source_ref_to_json,
 )
-from infinity_context_server.memory_scope_transfer_relations import relation_from_json, relation_to_json
+from infinity_context_server.memory_scope_transfer_relations import (
+    relation_from_json,
+    relation_to_json,
+)
 
 
 def test_legacy_snapshot_anchor_defaults_new_lifecycle_fields() -> None:

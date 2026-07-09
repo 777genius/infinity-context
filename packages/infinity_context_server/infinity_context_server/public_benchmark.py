@@ -17,12 +17,13 @@ from collections import defaultdict
 from collections.abc import Iterable, Mapping, Sequence
 from contextlib import nullcontext
 from dataclasses import dataclass
+from functools import lru_cache
 from pathlib import Path
 
-import httpx
+from infinity_context_core.application.context_lexical import text_variant_profile
 from infinity_context_core.application.context_relevance import (
     QueryRelevance,
-    score_query_relevance,
+    score_query_relevance_against_profile,
 )
 from infinity_context_core.reporting import with_report_provenance
 
@@ -191,6 +192,21 @@ from infinity_context_server.public_benchmark_results import (
 from infinity_context_server.public_benchmark_results import (
     write_report as _write_report,
 )
+from infinity_context_server.public_benchmark_run_diagnostics import (
+    bounded_case_id_details as _bounded_case_id_details,
+)
+from infinity_context_server.public_benchmark_run_diagnostics import (
+    bounded_checkpoint_failure_case_id_details as _bounded_checkpoint_failure_case_id_details,
+)
+from infinity_context_server.public_benchmark_run_diagnostics import (
+    emit_case_progress_snapshot as _emit_case_progress_snapshot,
+)
+from infinity_context_server.public_benchmark_run_diagnostics import (
+    public_artifact_reports as _public_artifact_reports,
+)
+from infinity_context_server.public_benchmark_run_diagnostics import (
+    public_request_artifact_fields as _public_request_artifact_fields,
+)
 from infinity_context_server.public_benchmark_selection import (
     CASE_SELECTION_FIRST,
     CASE_SELECTION_STRATIFIED,
@@ -224,6 +240,16 @@ from infinity_context_server.public_benchmark_unsupported import (
     unsupported_case_reports_for_selection as _unsupported_case_reports_for_selection,
 )
 
+
+class _LazyHttpxModule:
+    def __getattr__(self, name: str) -> object:
+        import httpx as httpx_module
+
+        return getattr(httpx_module, name)
+
+
+httpx = _LazyHttpxModule()
+
 __all__ = (
     "BenchmarkDocumentInput",
     "BenchmarkHttpClientPort",
@@ -251,7 +277,6 @@ _PUBLIC_BENCHMARK_CONTEXT_TOKEN_BUDGET = 4000
 _PUBLIC_BENCHMARK_MAX_FACTS = 20
 _PUBLIC_BENCHMARK_MAX_CHUNKS = 50
 _PUBLIC_BENCHMARK_MAX_REUSE_DETAIL_EVENTS_PER_CASE = 3
-_MAX_RESUME_CASE_ID_DETAILS = 20
 _MAX_LOCOMO_OBSERVATION_EVIDENCE_IDS = 8
 _RESUME_REUSE_POLICY = "successful_cases_only"
 
@@ -333,6 +358,11 @@ def run_public_memory_benchmark(
         first_str=_first_str,
         case_hash=_case_hash,
     )
+    request_artifact_fields = _public_request_artifact_fields(
+        case_selection=case_selection,
+        requested_case_ids=requested_case_ids,
+        requested_capabilities=requested_capabilities,
+    )
 
     duplicate_case_keys = _duplicate_case_keys(cases)
     if duplicate_case_keys:
@@ -342,9 +372,8 @@ def run_public_memory_benchmark(
             duplicate_case_keys=duplicate_case_keys,
         )
         result = _with_public_benchmark_provenance(result, dataset_path=dataset_path)
-        result["case_selection"] = case_selection
-        result["requested_case_ids"] = list(requested_case_ids)
-        result["requested_capabilities"] = list(requested_capabilities)
+        result.update(request_artifact_fields)
+        result["failures"] = _public_artifact_reports(result.get("failures"))
         _write_report(result, report_out)
         return result
 
@@ -374,8 +403,7 @@ def run_public_memory_benchmark(
             "benchmark_scope": "normalized_public_memory_retrieval",
             "evaluation_mode": "retrieved_expected_terms",
             "dataset_path_label": dataset_path.name,
-            "requested_case_ids": list(requested_case_ids),
-            "requested_capabilities": list(requested_capabilities),
+            **request_artifact_fields,
             "checks": {
                 "dataset_loaded": False,
                 "case_count": False,
@@ -393,9 +421,8 @@ def run_public_memory_benchmark(
             },
             "benchmarks": [],
             "cases": [],
-            "failures": failures,
-            "unsupported_cases": unsupported_cases,
-            "case_selection": case_selection,
+            "failures": _public_artifact_reports(failures),
+            "unsupported_cases": _public_artifact_reports(unsupported_cases),
         }
         result = _with_public_benchmark_provenance(result, dataset_path=dataset_path)
         _write_report(result, report_out)
@@ -409,9 +436,8 @@ def run_public_memory_benchmark(
             case_count=len(cases),
         )
         result = _with_public_benchmark_provenance(result, dataset_path=dataset_path)
-        result["case_selection"] = case_selection
-        result["requested_case_ids"] = list(requested_case_ids)
-        result["requested_capabilities"] = list(requested_capabilities)
+        result.update(request_artifact_fields)
+        result["failures"] = _public_artifact_reports(result.get("failures"))
         _write_report(result, report_out)
         return result
 
@@ -460,9 +486,8 @@ def run_public_memory_benchmark(
                 case_count=len(cases),
             )
             result = _with_public_benchmark_provenance(result, dataset_path=dataset_path)
-            result["case_selection"] = case_selection
-            result["requested_case_ids"] = list(requested_case_ids)
-            result["requested_capabilities"] = list(requested_capabilities)
+            result.update(request_artifact_fields)
+            result["failures"] = _public_artifact_reports(result.get("failures"))
             _write_report(result, report_out)
             return result
         from fastapi.testclient import TestClient
@@ -1061,6 +1086,11 @@ def _execute_cases(
         and not capability_selection_failures
     )
     case_keys = tuple(f"{case.benchmark}:{case.case_id}" for case in cases)
+    request_artifact_fields = _public_request_artifact_fields(
+        case_selection=case_selection,
+        requested_case_ids=requested_case_ids,
+        requested_capabilities=requested_capabilities,
+    )
     result: dict[str, object] = {
         "suite": PUBLIC_MEMORY_BENCHMARK_SUITE,
         "status": "ok" if ok else "failed",
@@ -1069,9 +1099,7 @@ def _execute_cases(
         "evaluation_mode": "retrieved_expected_terms",
         "dataset_path_label": dataset_path.name,
         "dataset_hash": dataset_hash,
-        "requested_case_ids": list(requested_case_ids),
-        "requested_capabilities": list(requested_capabilities),
-        "case_selection": dict(case_selection or {}),
+        **request_artifact_fields,
         "dataset_sources": {
             summary["name"]: _dataset_source_metadata(
                 dataset_path=dataset_path,
@@ -1126,13 +1154,13 @@ def _execute_cases(
         "execution_manifest": execution_manifest,
         "benchmarks": benchmarks,
         "cases": [_case_payload(item) for item in run_results],
-        "failures": (
+        "failures": _public_artifact_reports(
             failures
             + case_selection_failures
             + capability_selection_failures
             + _case_failures(run_results)
         ),
-        "unsupported_cases": unsupported_cases,
+        "unsupported_cases": _public_artifact_reports(unsupported_cases),
         "elapsed_ms": round((time.perf_counter() - started) * 1000, 2),
     }
     for summary in benchmarks:
@@ -1142,65 +1170,6 @@ def _execute_cases(
             result["metrics"][f"{name}_accuracy"] = metrics.get("accuracy")
             result["metrics"][f"{name}_case_count"] = metrics.get("case_count")
     return result
-
-
-def _emit_case_progress_snapshot(
-    *,
-    progress: _BenchmarkProgress,
-    run_results: Sequence[CaseRunResult],
-    failures: Sequence[Mapping[str, object]],
-    seeded_source_count: int,
-    seed_stats: _BenchmarkSeedStats,
-    effective_parallelism: int,
-) -> None:
-    processed_case_count = len(run_results)
-    progress.event(
-        "case_progress",
-        processed_case_count=processed_case_count,
-        total_case_count=progress.total_case_count,
-        processed_case_ratio=_ratio(processed_case_count, progress.total_case_count),
-        **_progress_timing_fields(
-            processed_case_count=processed_case_count,
-            total_case_count=progress.total_case_count,
-            started=progress.started,
-        ),
-        accuracy_so_far=_accuracy(run_results),
-        capability_accuracy_so_far=_flat_capability_accuracy(run_results),
-        capability_case_count_so_far=_flat_capability_case_count(run_results),
-        capability_failure_count_so_far=_flat_capability_failure_count(run_results),
-        **_progress_case_outcome_fields(
-            processed_case_count=processed_case_count,
-            run_results=run_results,
-            failures=failures,
-            total_case_count=progress.total_case_count,
-        ),
-        seeded_source_count=seeded_source_count,
-        seed_source_attempt_count=seed_stats.source_attempt_count,
-        seed_cache_hit_count=seed_stats.seed_cache_hit_count,
-        effective_parallelism=effective_parallelism,
-    )
-
-
-def _bounded_case_id_details(cases: Iterable[PublicBenchmarkCase]) -> tuple[list[str], int]:
-    case_ids = [f"{case.benchmark}:{case.case_id}"[:160] for case in cases]
-    return (
-        case_ids[:_MAX_RESUME_CASE_ID_DETAILS],
-        max(0, len(case_ids) - _MAX_RESUME_CASE_ID_DETAILS),
-    )
-
-
-def _bounded_checkpoint_failure_case_id_details(
-    failures: Sequence[Mapping[str, object]],
-) -> tuple[list[str], int]:
-    case_ids = [
-        str(item.get("case_id"))[:160]
-        for item in failures
-        if str(item.get("case_id") or "").strip()
-    ]
-    return (
-        case_ids[:_MAX_RESUME_CASE_ID_DETAILS],
-        max(0, len(case_ids) - _MAX_RESUME_CASE_ID_DETAILS),
-    )
 
 
 def _normalize_request_timeout_seconds(value: float) -> float:
@@ -1522,7 +1491,7 @@ def _run_case(
         leaked_terms=leaked,
         item_ids=item_ids,
         latency_ms=latency_ms,
-        question_preview=case.question[:240],
+        question_preview=_preview_value(case.question),
         answer_preview=_case_answer_preview(case),
         expected_terms_preview=_case_expected_terms_preview(case),
         evidence_refs=evidence_refs,
@@ -1720,10 +1689,8 @@ def _official_locomo_evidence_terms(
     qa: Mapping[str, object],
     evidence_lookup: Mapping[str, str],
 ) -> tuple[str, ...]:
-    evidence = qa.get("evidence")
     terms: list[str] = []
-    for item in _flatten_benchmark_scalar_values(evidence):
-        evidence_id = str(item).strip()
+    for evidence_id in _official_locomo_qa_evidence_ids(qa.get("evidence")):
         if evidence_id and evidence_id in evidence_lookup:
             terms.append(evidence_id)
     return tuple(_unique(terms))
@@ -1735,12 +1702,43 @@ def _official_locomo_evidence_previews(
     evidence_lookup: Mapping[str, str],
 ) -> dict[str, str]:
     previews: dict[str, str] = {}
-    for item in _flatten_benchmark_scalar_values(qa.get("evidence")):
-        evidence_id = str(item).strip()
+    for evidence_id in _official_locomo_qa_evidence_ids(qa.get("evidence")):
         evidence_text = evidence_lookup.get(evidence_id)
         if evidence_id and evidence_text:
             previews[evidence_id] = _preview_value(evidence_text, max_chars=240)
     return previews
+
+
+def _official_locomo_qa_evidence_ids(evidence: object) -> tuple[str, ...]:
+    values: list[str] = []
+    for item in _official_locomo_qa_evidence_values(evidence):
+        evidence_id = str(item).strip()
+        if evidence_id:
+            values.append(evidence_id)
+    return tuple(_unique(values))
+
+
+def _official_locomo_qa_evidence_values(evidence: object) -> tuple[object, ...]:
+    if isinstance(evidence, Mapping):
+        values: list[object] = []
+        for key in (
+            "dia_id",
+            "evidence",
+            "evidence_id",
+            "evidence_ids",
+            "id",
+            "turn_id",
+            "turn_ids",
+        ):
+            if key in evidence:
+                values.extend(_official_locomo_qa_evidence_values(evidence.get(key)))
+        return tuple(values)
+    if isinstance(evidence, Sequence) and not isinstance(evidence, str | bytes):
+        flattened: list[object] = []
+        for item in evidence:
+            flattened.extend(_official_locomo_qa_evidence_values(item))
+        return tuple(flattened)
+    return (evidence,) if evidence is not None else ()
 
 
 def _official_locomo_supported_answer_terms(
@@ -1904,7 +1902,7 @@ def _official_locomo_related_observation_evidence_ids(
             continue
         if actor_key and turn.speaker.casefold().strip() != actor_key:
             continue
-        relevance = score_query_relevance(query=text, text=turn.text)
+        relevance = _score_official_locomo_turn_relevance(query=text, turn_text=turn.text)
         if not _is_related_locomo_observation_turn(relevance):
             continue
         distance = (
@@ -2105,7 +2103,7 @@ def _official_locomo_related_event_summary_evidence_ids(
     for turn in session_turns:
         if actor_key and turn.speaker.casefold().strip() != actor_key:
             continue
-        relevance = score_query_relevance(query=text, text=turn.text)
+        relevance = _score_official_locomo_turn_relevance(query=text, turn_text=turn.text)
         if not _is_related_locomo_observation_turn(relevance):
             continue
         ranked.append(
@@ -2127,6 +2125,26 @@ def _official_locomo_related_event_summary_evidence_ids(
             key=lambda item: session_order.get(item, 10_000),
         )
     )
+
+
+def _score_official_locomo_turn_relevance(
+    *,
+    query: str,
+    turn_text: str,
+) -> QueryRelevance:
+    text_counts, text_variants = _official_locomo_turn_text_variant_profile(turn_text)
+    return score_query_relevance_against_profile(
+        query=query,
+        text_counts=text_counts,
+        text_variants=text_variants,
+    )
+
+
+@lru_cache(maxsize=8192)
+def _official_locomo_turn_text_variant_profile(
+    turn_text: str,
+) -> tuple[Mapping[str, int], tuple[tuple[str, ...], ...]]:
+    return text_variant_profile(turn_text)
 
 
 def _official_locomo_event_summary_text(item: object) -> str:

@@ -41,6 +41,19 @@ _PREFERENCE_QUERY_TERMS = frozenset(
         "prefers",
     }
 )
+_NEGATIVE_PREFERENCE_QUERY_TERMS = frozenset(
+    {
+        "avoid",
+        "avoided",
+        "avoids",
+        "dislike",
+        "disliked",
+        "dislikes",
+        "hate",
+        "hated",
+        "hates",
+    }
+)
 _POSITIVE_PREFERENCE_TERMS = frozenset(
     {
         "enjoy",
@@ -79,8 +92,13 @@ _STRONG_NEGATIVE_PREFERENCE_TERMS = _NEGATIVE_PREFERENCE_TERMS - frozenset({"ins
 _NEGATIVE_PREFERENCE_FIT_RE = re.compile(
     r"\b(?:doesn'?t|does\s+not|didn'?t|did\s+not|wouldn'?t|would\s+not|not)\s+"
     r"(?:like|enjoy|prefer|want|care\s+for)\b|"
-    r"\b(?:no\s+interest\s+in|not\s+a\s+fan\s+of)\b",
+    r"\b(?:no\s+interest\s+in|not\s+interested\s+in|not\s+a\s+fan\s+of)\b",
     re.IGNORECASE,
+)
+_POSITIVE_GROUNDED_PREFERENCE_QUERY_RE = re.compile(
+    r"\b(?:what|which|why|reason)\b(?=[^?.!]{0,140}\b(?:likes?|loves?|"
+    r"enjoys?|prefers?|favorite|favourite|interested)\b)",
+    re.IGNORECASE | re.DOTALL,
 )
 _MUSIC_QUERY_TERMS = frozenset(
     {
@@ -109,23 +127,55 @@ _CLASSICAL_MUSIC_TEXT_TERMS = frozenset(
 def preference_inference_signal(*, query: str, text: str) -> AnswerEvidenceSignal:
     """Return preference answer-evidence signal, if the query asks for it."""
 
-    query_tokens = _term_set(query)
-    if not query_tokens & _PREFERENCE_QUERY_TERMS:
+    raw_query_tokens = _raw_token_set(query)
+    if not raw_query_tokens & (
+        _PREFERENCE_QUERY_TERMS | _NEGATIVE_PREFERENCE_QUERY_TERMS
+    ):
         return AnswerEvidenceSignal()
+    query_tokens = _term_set(query)
     text_tokens = _term_set(text)
+    wants_negative = _requests_negative_preference(query=query, query_tokens=query_tokens)
     if query_tokens & _MUSIC_QUERY_TERMS:
-        return _classical_music_preference_signal(text=text, text_tokens=text_tokens)
+        return _classical_music_preference_signal(
+            query=query,
+            wants_negative=wants_negative,
+            text=text,
+            text_tokens=text_tokens,
+        )
     positive_hits = text_tokens & _POSITIVE_PREFERENCE_TERMS
     negative_hits = text_tokens & _NEGATIVE_PREFERENCE_TERMS
-    if positive_hits and _has_preference_domain_overlap(query_tokens, text_tokens):
+    has_domain_overlap = _has_preference_domain_overlap(query_tokens, text_tokens)
+    has_negative_evidence = _has_negative_preference_evidence(
+        text=text,
+        text_tokens=text_tokens,
+    )
+    if wants_negative and positive_hits and not has_negative_evidence and has_domain_overlap:
+        return AnswerEvidenceSignal(
+            penalty=0.038,
+            reason="inference_positive_preference_conflict",
+        )
+    if (
+        _requests_grounded_positive_preference(query)
+        and has_negative_evidence
+        and has_domain_overlap
+    ):
+        return AnswerEvidenceSignal(
+            penalty=0.038,
+            reason="inference_negative_preference_conflict",
+        )
+    if (
+        positive_hits
+        and not has_negative_evidence
+        and has_domain_overlap
+    ):
         return AnswerEvidenceSignal(
             boost=0.028,
             reason="inference_preference_fit_evidence",
         )
     if (
-        negative_hits
-        and _has_negative_preference_evidence(text=text, text_tokens=text_tokens)
-        and _has_preference_domain_overlap(query_tokens, text_tokens)
+        (negative_hits or has_negative_evidence)
+        and has_negative_evidence
+        and has_domain_overlap
     ):
         return AnswerEvidenceSignal(
             boost=0.026,
@@ -139,24 +189,74 @@ def preference_inference_signal(*, query: str, text: str) -> AnswerEvidenceSigna
     return AnswerEvidenceSignal()
 
 
+def preference_polarity_conflict_signal(*, query: str, text: str) -> AnswerEvidenceSignal:
+    """Return a conflict when causal snippets ground the opposite preference polarity."""
+
+    raw_query_tokens = _raw_token_set(query)
+    if not raw_query_tokens & (
+        _PREFERENCE_QUERY_TERMS | _NEGATIVE_PREFERENCE_QUERY_TERMS
+    ):
+        return AnswerEvidenceSignal()
+    query_tokens = _term_set(query)
+    text_tokens = _term_set(text)
+    if not _has_preference_domain_overlap(query_tokens, text_tokens):
+        return AnswerEvidenceSignal()
+    wants_negative = _requests_negative_preference(query=query, query_tokens=query_tokens)
+    has_negative_evidence = _has_negative_preference_evidence(
+        text=text,
+        text_tokens=text_tokens,
+    )
+    positive_hits = text_tokens & _POSITIVE_PREFERENCE_TERMS
+    if wants_negative and positive_hits and not has_negative_evidence:
+        return AnswerEvidenceSignal(
+            penalty=0.038,
+            reason="inference_positive_preference_conflict",
+        )
+    if _requests_grounded_positive_preference(query) and has_negative_evidence:
+        return AnswerEvidenceSignal(
+            penalty=0.038,
+            reason="inference_negative_preference_conflict",
+        )
+    return AnswerEvidenceSignal()
+
+
 def _classical_music_preference_signal(
     *,
+    query: str,
+    wants_negative: bool,
     text: str,
     text_tokens: frozenset[str],
 ) -> AnswerEvidenceSignal:
     positive_hits = text_tokens & _POSITIVE_PREFERENCE_TERMS
     negative_hits = text_tokens & _NEGATIVE_PREFERENCE_TERMS
     classical_hits = text_tokens & _CLASSICAL_MUSIC_TEXT_TERMS
-    if positive_hits and classical_hits:
+    has_negative_evidence = _has_negative_preference_evidence(
+        text=text,
+        text_tokens=text_tokens,
+    )
+    if wants_negative and positive_hits and not has_negative_evidence and classical_hits:
+        return AnswerEvidenceSignal(
+            penalty=0.038,
+            reason="inference_positive_preference_conflict",
+        )
+    if (
+        _requests_grounded_positive_preference(query)
+        and has_negative_evidence
+        and classical_hits
+    ):
+        return AnswerEvidenceSignal(
+            penalty=0.038,
+            reason="inference_negative_preference_conflict",
+        )
+    if positive_hits and not has_negative_evidence and classical_hits:
         return AnswerEvidenceSignal(
             boost=0.028,
             reason="inference_preference_fit_evidence",
         )
     if (
-        negative_hits
+        (negative_hits or has_negative_evidence)
         and classical_hits
-        and not positive_hits
-        and _has_negative_preference_evidence(text=text, text_tokens=text_tokens)
+        and has_negative_evidence
     ):
         return AnswerEvidenceSignal(
             boost=0.026,
@@ -179,7 +279,30 @@ def _has_preference_domain_overlap(
     query_tokens: frozenset[str],
     text_tokens: frozenset[str],
 ) -> bool:
-    return bool((query_tokens - _INFERENCE_QUERY_TERMS - _PREFERENCE_QUERY_TERMS) & text_tokens)
+    return bool(
+        (
+            query_tokens
+            - _INFERENCE_QUERY_TERMS
+            - _PREFERENCE_QUERY_TERMS
+            - _NEGATIVE_PREFERENCE_QUERY_TERMS
+        )
+        & text_tokens
+    )
+
+
+def _requests_negative_preference(
+    *,
+    query: str,
+    query_tokens: frozenset[str],
+) -> bool:
+    return bool(
+        query_tokens & _NEGATIVE_PREFERENCE_QUERY_TERMS
+        or _NEGATIVE_PREFERENCE_FIT_RE.search(query)
+    )
+
+
+def _requests_grounded_positive_preference(query: str) -> bool:
+    return _POSITIVE_GROUNDED_PREFERENCE_QUERY_RE.search(query) is not None
 
 
 def _has_negative_preference_evidence(
@@ -202,3 +325,11 @@ def _term_set(text: str) -> frozenset[str]:
         if len(token) >= 2:
             terms.add(token)
     return frozenset(terms)
+
+
+def _raw_token_set(text: str) -> frozenset[str]:
+    return frozenset(
+        token
+        for match in _TOKEN_RE.finditer(text)
+        if len(token := match.group(0).casefold().strip("_")) >= 2
+    )

@@ -85,6 +85,34 @@ def test_action_role_matches_named_owner_responsibility() -> None:
     assert mismatch.reason == "action_role_owner_mismatch"
 
 
+def test_action_role_owner_uses_embedded_subject_not_dialogue_speaker() -> None:
+    matched = action_role_rerank_signal(
+        query="Is Alex responsible for the Atlas invoice?",
+        text="D3:4 Maria: Alex is responsible for the Atlas invoice follow-up.",
+    )
+    reported = action_role_rerank_signal(
+        query="Is Alex responsible for the Atlas invoice?",
+        text="D3:4 Maria said Alex is responsible for the Atlas invoice follow-up.",
+    )
+    mismatch = action_role_rerank_signal(
+        query="Is Alex responsible for the Atlas invoice?",
+        text="D3:4 Maria is responsible for the Atlas invoice follow-up.",
+    )
+    direct_owner_title = action_role_rerank_signal(
+        query="Is Alex responsible for the Atlas invoice?",
+        text="Project Atlas invoice owner Alex approved the renewal follow-up.",
+    )
+
+    assert matched.boost > 0
+    assert matched.reason == "action_role_owner_match"
+    assert reported.boost > 0
+    assert reported.reason == "action_role_owner_match"
+    assert direct_owner_title.boost > 0
+    assert direct_owner_title.reason == "action_role_owner_match"
+    assert mismatch.penalty > 0
+    assert mismatch.reason == "action_role_owner_mismatch"
+
+
 def test_action_role_extracts_recommender_from_suggestion_source_query() -> None:
     matched = action_role_rerank_signal(
         query="What book did Melanie read from Caroline's suggestion?",
@@ -776,6 +804,167 @@ def test_action_role_extracts_support_recipient_role() -> None:
     assert matched.reason == "action_role_recipient_match"
     assert reversed_roles.penalty > 0
     assert reversed_roles.reason == "action_role_recipient_mismatch"
+
+
+def test_action_role_extracts_joined_participant_role() -> None:
+    matched = action_role_rerank_signal(
+        query="Who joined Maria at the fundraiser?",
+        text="Alex joined Maria at the fundraiser after the volunteer shift.",
+    )
+    reversed_roles = action_role_rerank_signal(
+        query="Who joined Maria at the fundraiser?",
+        text="Maria joined Alex at the fundraiser after the volunteer shift.",
+    )
+
+    assert matched.boost > 0
+    assert matched.reason == "action_role_recipient_match"
+    assert reversed_roles.penalty > 0
+    assert reversed_roles.reason == "action_role_recipient_mismatch"
+
+
+def test_action_role_extracts_actor_from_event_attendance_question() -> None:
+    matched = action_role_rerank_signal(
+        query="Who attended the Atlas kickoff?",
+        text="D4:8 Maria attended the Atlas kickoff with Dana.",
+    )
+    direct_speaker = action_role_rerank_signal(
+        query="Who attended the Atlas kickoff?",
+        text="D4:8 Maria: I attended the Atlas kickoff with Dana.",
+    )
+    related_mention = action_role_rerank_signal(
+        query="Who attended the Atlas kickoff?",
+        text="D4:8 Alex asked Maria about the Atlas kickoff.",
+    )
+
+    assert matched.boost > 0
+    assert matched.reason == "action_role_actor_evidence"
+    assert direct_speaker.boost > 0
+    assert direct_speaker.reason == "action_role_actor_evidence"
+    assert related_mention.boost == 0.0
+    assert related_mention.penalty == 0.0
+
+
+def test_action_role_extracts_actor_from_decision_question() -> None:
+    matched = action_role_rerank_signal(
+        query="Who decided to use the Atlas fallback?",
+        text="D4:8 Caroline decided to use the Atlas fallback during the event.",
+    )
+    direct_speaker = action_role_rerank_signal(
+        query="Who decided to use the Atlas fallback?",
+        text="D4:8 Caroline: I decided to use the Atlas fallback during the event.",
+    )
+    related_mention = action_role_rerank_signal(
+        query="Who decided to use the Atlas fallback?",
+        text="D4:8 Maria asked Caroline about the Atlas fallback during the event.",
+    )
+
+    assert matched.boost > 0
+    assert matched.reason == "action_role_actor_evidence"
+    assert direct_speaker.boost > 0
+    assert direct_speaker.reason == "action_role_actor_evidence"
+    assert related_mention.boost == 0.0
+    assert related_mention.penalty == 0.0
+
+
+def test_action_role_extracts_actor_from_promise_to_do_task_question() -> None:
+    matched = action_role_rerank_signal(
+        query="Who promised to send the Atlas invoice?",
+        text="D3:4 Alex promised to send the Atlas invoice after the call.",
+    )
+    related_request = action_role_rerank_signal(
+        query="Who promised to send the Atlas invoice?",
+        text="D3:4 Maria asked Alex to send the Atlas invoice after the call.",
+    )
+
+    assert matched.boost > 0
+    assert matched.reason == "action_role_actor_evidence"
+    assert related_request.boost == 0.0
+    assert related_request.penalty == 0.0
+
+
+def test_action_role_treats_met_as_reciprocal_participant_evidence() -> None:
+    direct = action_role_rerank_signal(
+        query="Who met Maria at the shelter?",
+        text="Alex met Maria at the shelter orientation.",
+    )
+    reciprocal = action_role_rerank_signal(
+        query="Who met Maria at the shelter?",
+        text="Maria met Alex at the shelter orientation.",
+    )
+    actor_question = action_role_rerank_signal(
+        query="Who did Maria meet at the shelter?",
+        text="Alex met Maria at the shelter orientation.",
+    )
+
+    assert direct.boost > 0
+    assert direct.reason == "action_role_recipient_match"
+    assert reciprocal.boost > 0
+    assert reciprocal.reason == "action_role_recipient_match"
+    assert actor_question.boost > 0
+    assert actor_question.reason == "action_role_actor_to_recipient_evidence"
+
+
+def test_action_role_extracts_activity_companion_participant() -> None:
+    matched = action_role_rerank_signal(
+        query="Who visited Spain with Maria?",
+        text="Alex visited Spain with Maria after the conference.",
+    )
+    missing_companion = action_role_rerank_signal(
+        query="Who visited Spain with Maria?",
+        text="Maria visited Spain after the conference.",
+    )
+    mentioned_person = action_role_rerank_signal(
+        query="Who visited Spain with Maria?",
+        text="Alex visited Spain alone after Maria mentioned the conference.",
+    )
+
+    assert matched.boost > 0
+    assert matched.reason == "action_role_companion_match"
+    assert missing_companion.penalty > 0
+    assert missing_companion.reason == "action_role_companion_missing"
+    assert mentioned_person.boost == 0.0
+    assert mentioned_person.penalty == 0.0
+
+
+def test_action_role_requires_activity_companion_in_same_local_segment() -> None:
+    matched = action_role_rerank_signal(
+        query="Who attended yoga class with Maria?",
+        text="Alex attended yoga class with Maria after work.",
+    )
+    split_segment = action_role_rerank_signal(
+        query="Who attended yoga class with Maria?",
+        text=(
+            "Alex attended yoga class after work. "
+            "Maria mentioned the class in the next session."
+        ),
+    )
+    generic_activity = action_role_rerank_signal(
+        query="Who attended yoga class with Maria?",
+        text="Maria enjoys yoga class because it helps her relax.",
+    )
+
+    assert matched.boost > 0
+    assert matched.reason == "action_role_companion_match"
+    assert split_segment.boost == 0.0
+    assert split_segment.penalty == 0.0
+    assert generic_activity.penalty > 0
+    assert generic_activity.reason == "action_role_participant_role_missing"
+
+
+def test_action_role_penalizes_generic_activity_without_participant_role() -> None:
+    generic_activity = action_role_rerank_signal(
+        query="Who participated in the pottery workshop?",
+        text="D2:4 Caroline: I love the pottery workshop and talk about it often.",
+    )
+    topical_event = action_role_rerank_signal(
+        query="Who participated in the pottery workshop?",
+        text="D2:5 Alex asked Caroline about the pottery workshop.",
+    )
+
+    assert generic_activity.penalty > 0
+    assert generic_activity.reason == "action_role_participant_role_missing"
+    assert topical_event.boost == 0.0
+    assert topical_event.penalty == 0.0
 
 
 def test_action_role_extracts_support_requested_recipient() -> None:

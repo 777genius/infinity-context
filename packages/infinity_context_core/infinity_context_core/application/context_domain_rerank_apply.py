@@ -30,6 +30,7 @@ from infinity_context_core.application.context_domain_rerank_signals import (
     current_state_rerank_signal,
     event_sequence_rerank_signal,
     family_hike_detail_rerank_signal,
+    identity_rerank_signal,
     inventory_list_rerank_signal,
     item_purchase_rerank_signal,
     lifestyle_recommendation_rerank_signal,
@@ -55,6 +56,9 @@ from infinity_context_core.application.context_future_plan_timing_rerank import 
 )
 from infinity_context_core.application.context_national_park_inference import (
     national_park_inference_rerank_signal,
+)
+from infinity_context_core.application.context_object_attribute_rerank import (
+    object_attribute_rerank_signal,
 )
 from infinity_context_core.application.context_relevance import QueryRelevance
 from infinity_context_core.application.dto import ContextItem
@@ -139,6 +143,7 @@ def _domain_rerank_signals(
             relevance=relevance,
         ),
         frequency_recurrence_rerank_signal(
+            query=query,
             query_reason=query_reason,
             item=item,
             relevance=relevance,
@@ -150,6 +155,7 @@ def _domain_rerank_signals(
             relevance=relevance,
         ),
         activity_duration_rerank_signal(
+            query=query,
             query_reason=query_reason,
             item=item,
             relevance=relevance,
@@ -208,7 +214,14 @@ def _domain_rerank_signals(
             item=item,
             relevance=relevance,
         ),
+        identity_rerank_signal(
+            query=query,
+            query_reason=query_reason,
+            item=item,
+            relevance=relevance,
+        ),
         relationship_status_rerank_signal(
+            query=query,
             query_reason=query_reason,
             item=item,
             relevance=relevance,
@@ -238,6 +251,12 @@ def _domain_rerank_signals(
             relevance=relevance,
         ),
         current_state_rerank_signal(
+            query=query,
+            query_reason=query_reason,
+            item=item,
+            relevance=relevance,
+        ),
+        object_attribute_rerank_signal(
             query=query,
             query_reason=query_reason,
             item=item,

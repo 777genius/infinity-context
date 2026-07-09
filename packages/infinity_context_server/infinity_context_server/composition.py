@@ -5,7 +5,7 @@ from __future__ import annotations
 import inspect
 from dataclasses import dataclass
 
-from infinity_context_adapters.extraction import SimpleFileTypeDetector, build_standard_extractor
+from infinity_context_adapters.features import document_ingestion as document_ingestion_adapters
 from infinity_context_adapters.local_blob import LocalBlobStorage
 from infinity_context_adapters.noop import (
     NoopEmbeddingAdapter,
@@ -446,11 +446,8 @@ def build_container(settings: Settings | None = None) -> Container:
         uow_factory=uow_factory,
         clock=clock,
     )
-    run_asset_extraction = RunAssetExtractionUseCase(
-        uow_factory=uow_factory,
-        blob_storage=blob_storage,
-        detector=SimpleFileTypeDetector(),
-        extractor=build_standard_extractor(
+    extraction_components = (
+        document_ingestion_adapters.create_document_ingestion_extraction_components(
             openai_api_key=resolved_settings.openai_api_key,
             vision_model=resolved_settings.extraction_vision_model,
             vision_detail=resolved_settings.extraction_vision_detail,
@@ -463,7 +460,13 @@ def build_container(settings: Settings | None = None) -> Container:
             asr_model=resolved_settings.extraction_asr_model,
             asr_device=resolved_settings.extraction_asr_device,
             asr_compute_type=resolved_settings.extraction_asr_compute_type,
-        ),
+        )
+    )
+    run_asset_extraction = RunAssetExtractionUseCase(
+        uow_factory=uow_factory,
+        blob_storage=blob_storage,
+        detector=extraction_components.detector,
+        extractor=extraction_components.extractor,
         ingest_document=ingest_document,
         clock=clock,
         ids=ids,

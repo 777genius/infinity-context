@@ -6,23 +6,23 @@ from typing import Annotated, Any
 
 from fastapi import APIRouter, Depends, Query
 from infinity_context_core.application import MemoryBrowserQuery
-from infinity_context_core.domain.entities import MemoryThread
 
 from infinity_context_server.api.auth import require_service_token
 from infinity_context_server.api.dependencies import get_container
 from infinity_context_server.api.v1.anchors import anchor_to_response
-from infinity_context_server.api.v1.assets import asset_extraction_to_response, asset_to_response
 from infinity_context_server.api.v1.captures import capture_to_response
 from infinity_context_server.api.v1.context_links import (
     context_link_suggestion_to_response,
     context_link_to_response,
 )
-from infinity_context_server.api.v1.documents import chunk_to_response, document_to_response
 from infinity_context_server.api.v1.episodes import episode_to_response
-from infinity_context_server.api.v1.facts import fact_to_response
 from infinity_context_server.api.v1.scope_resolution import resolve_existing_single_scope
-from infinity_context_server.api.v1.spaces_memory_scopes import memory_scope_to_response
 from infinity_context_server.composition import Container
+from infinity_context_server.features.document_ingestion import (
+    public as document_ingestion_feature,
+)
+from infinity_context_server.features.memory_facts import public as memory_facts_feature
+from infinity_context_server.features.memory_scopes import public as memory_scopes_feature
 
 router = APIRouter(
     tags=["memory-browser"],
@@ -83,17 +83,33 @@ async def get_memory_browser(
     return {
         "data": {
             "generated_at": result.generated_at.isoformat(),
-            "memory_scope": memory_scope_to_response(result.memory_scope),
-            "facts": [fact_to_response(fact) for fact in result.facts],
-            "episodes": [episode_to_response(episode) for episode in result.episodes],
-            "documents": [document_to_response(document) for document in result.documents],
-            "chunks": [chunk_to_response(chunk) for chunk in result.chunks],
-            "extraction_jobs": [
-                asset_extraction_to_response(job) for job in result.extraction_jobs
+            "memory_scope": memory_scopes_feature.memory_scope_to_response(
+                result.memory_scope,
+            ),
+            "facts": [
+                memory_facts_feature.fact_to_response(fact) for fact in result.facts
             ],
-            "threads": [thread_to_response(thread) for thread in result.threads],
+            "episodes": [episode_to_response(episode) for episode in result.episodes],
+            "documents": [
+                document_ingestion_feature.document_to_response(document)
+                for document in result.documents
+            ],
+            "chunks": [
+                document_ingestion_feature.chunk_to_response(chunk)
+                for chunk in result.chunks
+            ],
+            "extraction_jobs": [
+                document_ingestion_feature.asset_extraction_to_response(job)
+                for job in result.extraction_jobs
+            ],
+            "threads": [
+                memory_scopes_feature.thread_to_response(thread) for thread in result.threads
+            ],
             "captures": [capture_to_response(capture) for capture in result.captures],
-            "assets": [asset_to_response(asset) for asset in result.assets],
+            "assets": [
+                document_ingestion_feature.asset_to_response(asset)
+                for asset in result.assets
+            ],
             "anchors": [anchor_to_response(anchor) for anchor in result.anchors],
             "context_links": [context_link_to_response(link) for link in result.context_links],
             "context_link_suggestions": [
@@ -105,18 +121,6 @@ async def get_memory_browser(
             "quick_actions": list(result.quick_actions),
             "diagnostics": result.diagnostics,
         }
-    }
-
-
-def thread_to_response(thread: MemoryThread) -> dict[str, Any]:
-    return {
-        "id": str(thread.id),
-        "space_id": str(thread.space_id),
-        "memory_scope_id": str(thread.memory_scope_id),
-        "external_ref": thread.external_ref,
-        "status": thread.status.value,
-        "created_at": thread.created_at.isoformat(),
-        "updated_at": thread.updated_at.isoformat(),
     }
 
 

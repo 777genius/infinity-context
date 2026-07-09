@@ -5,7 +5,8 @@ from __future__ import annotations
 _FOLLOWUP_TASK_EXPANSION = (
     "action item task todo follow up next step reminder assigned owner "
     "responsible assignee commitment promised agreed need needs must supposed "
-    "expected due date deadline meeting call decision status"
+    "expected left remaining open outstanding pending unfinished due date "
+    "deadline meeting call decision status"
 )
 _RU_FOLLOWUP_TASK_EXPANSION = (
     "задача задачи поручение поручения назначено напоминание напомни "
@@ -29,8 +30,8 @@ _RU_DEADLINE_COMMITMENT_EXPANSION = (
 )
 _GOTCHA_FAILURE_EXPANSION = (
     "gotcha pitfall caveat known issue known problem failure failed error broke "
-    "blocked blocker risk warning workaround root cause troubleshooting avoid "
-    "do not repeat next time prerequisite limitation trap"
+    "blocked blocker blockers blocked on risk warning workaround root cause "
+    "troubleshooting avoid do not repeat next time prerequisite limitation trap"
 )
 _RU_GOTCHA_FAILURE_EXPANSION = (
     "подводные камни известная проблема ошибка сбой сломалось упало заблокировано "

@@ -68,6 +68,12 @@ _ACTIVITY_STATE_TERMS = frozenset(
         "practiced",
         "run",
         "running",
+        "study",
+        "studied",
+        "studying",
+        "take",
+        "takes",
+        "taking",
         "train",
         "trained",
         "use",
@@ -134,6 +140,11 @@ def requests_activity_duration_context(
         or "duration" in tokens
         or ("since" in tokens and bool(tokens & _ACTIVITY_STATE_TERMS))
         or (
+            {"how", "many"}.issubset(tokens)
+            and bool(tokens & _DURATION_UNIT_TERMS)
+            and bool(tokens & _ACTIVITY_STATE_TERMS)
+        )
+        or (
             "сколько" in tokens
             and bool(tokens & _DURATION_UNIT_TERMS)
             and bool(tokens & _ACTIVITY_STATE_TERMS)
@@ -145,7 +156,7 @@ def requests_activity_duration_context(
 
 
 def activity_duration_tail(variants: frozenset[str]) -> str:
-    activity_terms = " ".join(sorted((variants & _ACTIVITY_STATE_TERMS)))[:120]
+    activity_terms = " ".join(sorted(variants & _ACTIVITY_STATE_TERMS))[:120]
     return " ".join(
         part
         for part in (
@@ -153,7 +164,7 @@ def activity_duration_tail(variants: frozenset[str]) -> str:
             (
                 "duration since for years months weeks days started began "
                 "started in began in from already still ongoing continuous "
-                "long time how long"
+                "long time how long age since I was had have owned"
             ),
         )
         if part

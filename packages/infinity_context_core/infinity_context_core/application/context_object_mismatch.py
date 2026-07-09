@@ -23,7 +23,10 @@ _SPECIES_PATTERNS: tuple[tuple[str, re.Pattern[str]], ...] = (
     ("cat", re.compile(r"\bcats?\b|\bkittens?\b|\bкошк\w*|\bкот\w*\b", re.IGNORECASE)),
     (
         "dog",
-        re.compile(r"\bdogs?\b|\bpupp(?:y|ies)\b|\bpups?\b|\bсобак\w*|\bп[её]с\w*\b", re.IGNORECASE),
+        re.compile(
+            r"\bdogs?\b|\bpupp(?:y|ies)\b|\bpups?\b|\bсобак\w*|\bп[её]с\w*\b",
+            re.IGNORECASE,
+        ),
     ),
     ("turtle", re.compile(r"\bturtles?\b|\bчерепах\w*\b", re.IGNORECASE)),
     ("rabbit", re.compile(r"\brabbits?\b|\bbunn(?:y|ies)\b|\bкролик\w*\b", re.IGNORECASE)),

@@ -13,6 +13,7 @@ from infinity_context_core.application.context_domain_rerank_signals import (
     current_state_rerank_signal,
     event_sequence_rerank_signal,
     family_hike_detail_rerank_signal,
+    identity_rerank_signal,
     inventory_list_rerank_signal,
     item_purchase_rerank_signal,
     lifestyle_recommendation_rerank_signal,
@@ -20,6 +21,7 @@ from infinity_context_core.application.context_domain_rerank_signals import (
     post_event_emotion_rerank_signal,
     recommendation_followup_rerank_signal,
     relationship_duration_rerank_signal,
+    relationship_origin_rerank_signal,
     relationship_status_rerank_signal,
     state_transition_rerank_signal,
     support_network_rerank_signal,
@@ -704,6 +706,28 @@ def test_choice_reason_signal_prefers_because_evidence_over_topic_only() -> None
     assert topic_signal.reason == "choice_reason_weak_evidence"
 
 
+def test_choice_reason_signal_accepts_adoption_reason_without_repeated_choice_verb() -> None:
+    item = _item(
+        "adoption_reason",
+        text=(
+            "D2:12 Caroline: Their support for LGBTQ+ parents and inclusive "
+            "adoption services spoke to me because they help families like mine."
+        ),
+        query_expansion_reason="choice_reason_bridge",
+    )
+
+    signal = choice_reason_rerank_signal(
+        query="Why did Caroline choose the adoption agency?",
+        query_reason="choice_reason_bridge",
+        item=item,
+        relevance=_relevance(distinctive_term_hits=5, unique_term_hits=5),
+    )
+
+    assert signal.boost > 0
+    assert signal.reason == "choice_reason_exact_evidence"
+    assert signal.rank_signal_key == "choice_reason_answer_evidence"
+
+
 def test_commonality_signal_boosts_who_else_single_anchor_answer() -> None:
     also_person = _item(
         "maria_also_camping",
@@ -772,6 +796,22 @@ def test_aggregation_signal_prefers_multi_evidence_count_context() -> None:
     assert weak_signal.reason == "aggregation_single_evidence_noise"
 
 
+def test_aggregation_signal_penalizes_count_for_different_subject() -> None:
+    wrong_subject = _item(
+        "children_count",
+        text="D6:1 Melanie said she has three children.",
+        query_expansion_reason="beach_count_activity_bridge",
+    )
+
+    signal = aggregation_evidence_rerank_signal(
+        query="How many times has Melanie gone to the beach in 2023?",
+        item=wrong_subject,
+    )
+
+    assert signal.penalty > 0
+    assert signal.reason == "aggregation_subject_mismatch"
+
+
 def test_aggregation_signal_prefers_multi_evidence_list_context() -> None:
     aggregation = _item(
         "shelter_aggregation",
@@ -809,6 +849,28 @@ def test_aggregation_signal_prefers_multi_evidence_list_context() -> None:
     assert incomplete_signal.penalty > 0
     assert incomplete_signal.reason == "aggregation_list_single_evidence_incomplete"
     assert unopposed_signal == type(unopposed_signal)()
+
+
+def test_aggregation_signal_penalizes_list_for_different_named_subject() -> None:
+    wrong_person = _item(
+        "caroline_shelters",
+        text=(
+            "D2:1 Caroline volunteers at the homeless shelter. "
+            "D11:10 Caroline also started volunteering at the dog shelter."
+        ),
+        query_expansion_reason="decomposition_inventory_list",
+        retrieval_source="keyword_aggregation_chunks",
+        source_ref_count=2,
+    )
+
+    signal = aggregation_evidence_rerank_signal(
+        query="List all shelters where Maria volunteers.",
+        item=wrong_person,
+        has_multi_evidence_competitor=True,
+    )
+
+    assert signal.penalty > 0
+    assert signal.reason == "aggregation_subject_mismatch"
 
 
 def test_aggregation_signal_keeps_single_multi_value_list_evidence() -> None:
@@ -856,6 +918,40 @@ def test_aggregation_signal_keeps_food_recipe_inventory_evidence() -> None:
     single_signal = aggregation_evidence_rerank_signal(
         query="What kind of foods or recipes has Sam recommended to Evan?",
         item=single_recipe,
+        has_multi_evidence_competitor=True,
+    )
+
+    assert exact_signal.boost > 0
+    assert exact_signal.reason == "aggregation_list_slot_diverse_evidence"
+    assert single_signal.penalty > 0
+    assert single_signal.reason == "aggregation_list_single_evidence_incomplete"
+
+
+def test_aggregation_signal_keeps_who_people_list_evidence() -> None:
+    aggregation = _item(
+        "maria_people_met",
+        text=(
+            "D2:1 Maria met Alex at the shelter. "
+            "D11:10 Maria helped Priya with the food drive."
+        ),
+        query_expansion_reason="decomposition_inventory_list",
+        retrieval_source="keyword_aggregation_chunks",
+        source_ref_count=2,
+    )
+    single_person = _item(
+        "maria_single_person",
+        text="D2:1 Maria met Alex at the shelter.",
+        query_expansion_reason="decomposition_inventory_list",
+    )
+
+    exact_signal = aggregation_evidence_rerank_signal(
+        query="Who has Maria met and helped while volunteering?",
+        item=aggregation,
+        has_multi_evidence_competitor=True,
+    )
+    single_signal = aggregation_evidence_rerank_signal(
+        query="Who has Maria met and helped while volunteering?",
+        item=single_person,
         has_multi_evidence_competitor=True,
     )
 
@@ -921,6 +1017,37 @@ def test_relationship_status_signal_prefers_status_over_social_decoy() -> None:
     assert work_signal.reason == "relationship_status_weak_evidence"
 
 
+def test_identity_signal_prefers_self_identification_over_topic_context() -> None:
+    exact = _item(
+        "identity",
+        text="Caroline is a transgender woman embracing her true self and gender identity.",
+        query_expansion_reason="identity_bridge",
+    )
+    topic = _item(
+        "support_group",
+        text="Caroline went to an LGBTQ support group and felt accepted.",
+        query_expansion_reason="identity_bridge",
+    )
+
+    exact_signal = identity_rerank_signal(
+        query="What is Caroline's identity?",
+        query_reason="identity_bridge",
+        item=exact,
+        relevance=_relevance(distinctive_term_hits=6, unique_term_hits=6),
+    )
+    topic_signal = identity_rerank_signal(
+        query="What is Caroline's identity?",
+        query_reason="identity_bridge",
+        item=topic,
+        relevance=_relevance(distinctive_term_hits=6, unique_term_hits=6),
+    )
+
+    assert exact_signal.boost > 0
+    assert exact_signal.reason == "identity_exact_evidence"
+    assert topic_signal.penalty > 0
+    assert topic_signal.reason == "identity_topic_only_evidence"
+
+
 def test_relationship_status_signal_penalizes_non_romantic_partner_contexts() -> None:
     cases = (
         "Alex is Caroline's accountability partner for marathon training.",
@@ -941,6 +1068,22 @@ def test_relationship_status_signal_penalizes_non_romantic_partner_contexts() ->
 
         assert signal.penalty > 0
         assert signal.reason == "relationship_status_weak_evidence"
+
+
+def test_relationship_status_signal_uses_query_when_reason_is_original() -> None:
+    signal = relationship_status_rerank_signal(
+        query="What is Caroline's relationship status?",
+        query_reason="original_query",
+        item=_item(
+            "old_friend",
+            text="Caroline's old friend from school is Maria.",
+            query_expansion_reason="original_query",
+        ),
+        relevance=_relevance(distinctive_term_hits=5, unique_term_hits=5),
+    )
+
+    assert signal.penalty > 0
+    assert signal.reason == "relationship_status_weak_evidence"
 
 
 def test_relationship_duration_signal_prefers_duration_over_generic_relation() -> None:
@@ -970,6 +1113,47 @@ def test_relationship_duration_signal_prefers_duration_over_generic_relation() -
     assert exact_signal.reason == "relationship_duration_exact_evidence"
     assert generic_signal.penalty > 0
     assert generic_signal.reason == "relationship_duration_weak_evidence"
+
+
+def test_relationship_origin_signal_covers_formation_phrasing() -> None:
+    exact_cases = (
+        "Alex met Maria at college during orientation.",
+        "Alex and Maria met while volunteering at the shelter.",
+        "Riley met this amazing woman, Harper, while volunteering.",
+        "Caroline introduced Maria to Alex at the Atlas meetup.",
+        "Alex and Maria got to know each other through the college film club.",
+        "Alex got to know Maria during the college film club.",
+        "Alex and Maria became friends after a neighborhood fundraiser.",
+        "Alex and Maria's first encounter was at the Atlas meetup.",
+    )
+    for text in exact_cases:
+        signal = relationship_origin_rerank_signal(
+            query_reason="relationship_origin_bridge",
+            item=_item(
+                "origin",
+                text=text,
+                query_expansion_reason="relationship_origin_bridge",
+            ),
+            relevance=_relevance(distinctive_term_hits=5, unique_term_hits=5),
+        )
+
+        assert signal.boost > 0
+        assert signal.reason == "relationship_origin_exact_evidence"
+
+
+def test_relationship_origin_signal_does_not_treat_goal_completion_as_origin() -> None:
+    signal = relationship_origin_rerank_signal(
+        query_reason="relationship_origin_bridge",
+        item=_item(
+            "goal_completion",
+            text="Alex met the deadline at work and thanked Maria for reviewing it.",
+            query_expansion_reason="relationship_origin_bridge",
+        ),
+        relevance=_relevance(distinctive_term_hits=5, unique_term_hits=5),
+    )
+
+    assert signal.boost == 0
+    assert signal.reason != "relationship_origin_exact_evidence"
 
 
 def test_state_transition_signal_prefers_explicit_transition_pair_over_topic_note() -> None:
@@ -1105,6 +1289,39 @@ def test_age_birthday_signal_prefers_birth_evidence_over_old_word_noise() -> Non
     assert exact_signal.reason == "age_birthday_exact_evidence"
     assert weak_signal.penalty > 0
     assert weak_signal.reason == "age_birthday_weak_evidence"
+
+
+def test_age_birthday_signal_prefers_relative_duration_evidence() -> None:
+    duration = _item(
+        "birthday_duration",
+        text=(
+            "D4:5 Caroline: A friend made a bowl for my 18th birthday ten "
+            "years ago."
+        ),
+        query_expansion_reason="age_birthday_bridge",
+    )
+    generic = _item(
+        "generic_birthday",
+        text="D2:3 Caroline was born in 1995 and her birthday is in May.",
+        query_expansion_reason="age_birthday_bridge",
+    )
+
+    duration_signal = age_birthday_rerank_signal(
+        query="How long ago was Caroline's 18th birthday?",
+        query_reason="age_birthday_bridge",
+        item=duration,
+        relevance=_relevance(distinctive_term_hits=5, unique_term_hits=5),
+    )
+    generic_signal = age_birthday_rerank_signal(
+        query="How long ago was Caroline's 18th birthday?",
+        query_reason="age_birthday_bridge",
+        item=generic,
+        relevance=_relevance(distinctive_term_hits=5, unique_term_hits=5),
+    )
+
+    assert duration_signal.boost > generic_signal.boost
+    assert duration_signal.reason == "age_birthday_relative_duration_evidence"
+    assert generic_signal.reason == "age_birthday_exact_evidence"
 
 
 def test_age_birthday_signal_penalizes_birthdate_for_birthplace_query() -> None:

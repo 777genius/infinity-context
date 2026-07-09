@@ -225,6 +225,142 @@ def test_deterministic_rerank_prefers_passive_requested_recipient_evidence() -> 
     )
 
 
+def test_deterministic_rerank_uses_passive_requested_recipient_context() -> None:
+    query = "Who was sent the Atlas invoice by Alex?"
+    plan = build_query_expansion_plan(query)
+    intent = build_query_anchor_intent(query)
+    correct = _item(
+        "alex_sent_invoice_to_maria",
+        score=0.7,
+        text="Alex sent the Atlas invoice to Maria after the finance review.",
+    )
+    wrong_object = _item(
+        "alex_sent_notes_to_dana",
+        score=0.73,
+        text="Alex sent the budget notes to Dana after the finance review.",
+    )
+    actor_only = _item(
+        "alex_sent_invoice",
+        score=0.72,
+        text="Alex sent the Atlas invoice after the finance review.",
+    )
+
+    reranked = apply_deterministic_rerank_adjustments(
+        (actor_only, wrong_object, correct),
+        query=query,
+        plan=plan,
+        query_anchor_intent=intent,
+    )
+    by_id = {item.item_id: item for item in reranked}
+
+    assert by_id["alex_sent_invoice_to_maria"].score > by_id["alex_sent_invoice"].score
+    assert by_id["alex_sent_invoice_to_maria"].score > by_id["alex_sent_notes_to_dana"].score
+    assert (
+        "action_role_actor_to_recipient_evidence"
+        in by_id["alex_sent_invoice_to_maria"].diagnostics["provenance"][
+            "deterministic_rerank_reasons"
+        ]
+    )
+    assert (
+        "action_role_requested_recipient_missing"
+        in by_id["alex_sent_invoice"].diagnostics["provenance"][
+            "deterministic_rerank_reasons"
+        ]
+    )
+    assert (
+        "action_role_requested_context_mismatch"
+        in by_id["alex_sent_notes_to_dana"].diagnostics["provenance"][
+            "deterministic_rerank_reasons"
+        ]
+    )
+
+
+def test_deterministic_rerank_does_not_treat_action_object_as_recipient() -> None:
+    cases = (
+        (
+            "Who asked Maria to send the Atlas invoice?",
+            "Alex asked Maria to send the Atlas invoice after the call.",
+            "Maria asked Alex to send the Atlas invoice after the call.",
+        ),
+        (
+            "Who told Maria to send the Atlas invoice?",
+            "Alex told Maria to send the Atlas invoice after the call.",
+            "Maria told Alex to send the Atlas invoice after the call.",
+        ),
+        (
+            "Who asked Maria for help with the Atlas invoice?",
+            "Alex asked Maria for help with the Atlas invoice after the call.",
+            "Maria asked Alex for help with the Atlas invoice after the call.",
+        ),
+    )
+
+    for index, (query, correct_text, reversed_text) in enumerate(cases):
+        plan = build_query_expansion_plan(query)
+        intent = build_query_anchor_intent(query)
+        correct = _item(f"correct_{index}", score=0.7, text=correct_text)
+        reversed_roles = _item(f"reversed_{index}", score=0.72, text=reversed_text)
+
+        reranked = apply_deterministic_rerank_adjustments(
+            (reversed_roles, correct),
+            query=query,
+            plan=plan,
+            query_anchor_intent=intent,
+        )
+        by_id = {item.item_id: item for item in reranked}
+
+        assert by_id[f"correct_{index}"].score > by_id[f"reversed_{index}"].score
+        assert (
+            "action_role_recipient_match"
+            in by_id[f"correct_{index}"].diagnostics["provenance"][
+                "deterministic_rerank_reasons"
+            ]
+        )
+        assert (
+            "action_role_recipient_mismatch"
+            in by_id[f"reversed_{index}"].diagnostics["provenance"][
+                "deterministic_rerank_reasons"
+            ]
+        )
+
+
+def test_deterministic_rerank_keeps_introduction_object_grounded() -> None:
+    query = "Who introduced Alex to Maria?"
+    plan = build_query_expansion_plan(query)
+    intent = build_query_anchor_intent(query)
+    correct = _item(
+        "dana_introduced_alex",
+        score=0.7,
+        text="Dana introduced Alex to Maria during the Atlas kickoff.",
+    )
+    wrong_object = _item(
+        "alex_introduced_dana",
+        score=0.72,
+        text="Alex introduced Dana to Maria during the Atlas kickoff.",
+    )
+
+    reranked = apply_deterministic_rerank_adjustments(
+        (wrong_object, correct),
+        query=query,
+        plan=plan,
+        query_anchor_intent=intent,
+    )
+    by_id = {item.item_id: item for item in reranked}
+
+    assert by_id["dana_introduced_alex"].score > by_id["alex_introduced_dana"].score
+    assert (
+        "action_role_recipient_match"
+        in by_id["dana_introduced_alex"].diagnostics["provenance"][
+            "deterministic_rerank_reasons"
+        ]
+    )
+    assert (
+        "action_role_requested_context_mismatch"
+        in by_id["alex_introduced_dana"].diagnostics["provenance"][
+            "deterministic_rerank_reasons"
+        ]
+    )
+
+
 def test_deterministic_rerank_uses_russian_whose_advice_recipient() -> None:
     query = "По чьему совету Мелани прочитала Becoming Nicole?"
     plan = build_query_expansion_plan(query)
@@ -258,6 +394,129 @@ def test_deterministic_rerank_uses_russian_whose_advice_recipient() -> None:
     assert (
         "action_role_recipient_mismatch"
         in by_id["melanie_to_caroline"].diagnostics["provenance"][
+            "deterministic_rerank_reasons"
+        ]
+    )
+
+
+def test_deterministic_rerank_prefers_exact_event_attendance_actor_evidence() -> None:
+    query = "Who attended the Atlas kickoff?"
+    plan = build_query_expansion_plan(query)
+    intent = build_query_anchor_intent(query)
+    correct = _item(
+        "maria_attended",
+        score=0.7,
+        text="D4:8 Maria: I attended the Atlas kickoff with Dana.",
+    )
+    related_mention = _item(
+        "alex_asked",
+        score=0.72,
+        text="D4:9 Alex asked Maria about the Atlas kickoff.",
+    )
+
+    reranked = apply_deterministic_rerank_adjustments(
+        (related_mention, correct),
+        query=query,
+        plan=plan,
+        query_anchor_intent=intent,
+    )
+    by_id = {item.item_id: item for item in reranked}
+
+    assert by_id["maria_attended"].score > by_id["alex_asked"].score
+    assert (
+        "action_role_actor_evidence"
+        in by_id["maria_attended"].diagnostics["provenance"][
+            "deterministic_rerank_reasons"
+        ]
+    )
+    assert (
+        "action_role_actor_evidence"
+        not in by_id["alex_asked"].diagnostics["provenance"][
+            "deterministic_rerank_reasons"
+        ]
+    )
+
+
+def test_deterministic_rerank_prefers_actual_companion_over_mentioned_person() -> None:
+    query = "Who visited Spain with Maria?"
+    plan = build_query_expansion_plan(query)
+    intent = build_query_anchor_intent(query)
+    correct = _item(
+        "alex_with_maria",
+        score=0.7,
+        text="Alex visited Spain with Maria after the conference.",
+    )
+    mentioned_person = _item(
+        "alex_alone_maria_mentioned",
+        score=0.72,
+        text="Alex visited Spain alone after Maria mentioned the conference.",
+    )
+    participant_without_companion = _item(
+        "maria_without_companion",
+        score=0.71,
+        text="Maria visited Spain after the conference.",
+    )
+
+    reranked = apply_deterministic_rerank_adjustments(
+        (mentioned_person, participant_without_companion, correct),
+        query=query,
+        plan=plan,
+        query_anchor_intent=intent,
+    )
+    by_id = {item.item_id: item for item in reranked}
+
+    assert by_id["alex_with_maria"].score > by_id["alex_alone_maria_mentioned"].score
+    assert by_id["alex_with_maria"].score > by_id["maria_without_companion"].score
+    assert (
+        "action_role_companion_match"
+        in by_id["alex_with_maria"].diagnostics["provenance"][
+            "deterministic_rerank_reasons"
+        ]
+    )
+    assert (
+        "action_role_companion_missing"
+        in by_id["maria_without_companion"].diagnostics["provenance"][
+            "deterministic_rerank_reasons"
+        ]
+    )
+
+
+def test_deterministic_rerank_penalizes_generic_activity_without_participant_role() -> None:
+    query = "Who attended yoga class with Maria?"
+    plan = build_query_expansion_plan(query)
+    intent = build_query_anchor_intent(query)
+    correct = _item(
+        "alex_with_maria",
+        score=0.7,
+        text="Alex attended yoga class with Maria after work.",
+    )
+    generic_activity = _item(
+        "maria_likes_yoga",
+        score=0.72,
+        text="Maria enjoys yoga class because it helps her relax.",
+    )
+    split_segment = _item(
+        "alex_split_segment",
+        score=0.71,
+        text=(
+            "Alex attended yoga class after work. "
+            "Maria mentioned the class in the next session."
+        ),
+    )
+
+    reranked = apply_deterministic_rerank_adjustments(
+        (generic_activity, split_segment, correct),
+        query=query,
+        plan=plan,
+        query_anchor_intent=intent,
+    )
+    by_id = {item.item_id: item for item in reranked}
+
+    assert by_id["alex_with_maria"].score > by_id["maria_likes_yoga"].score
+    assert by_id["alex_with_maria"].score > by_id["alex_split_segment"].score
+    assert (
+        "action_role_participant_role_missing"
+        in by_id["maria_likes_yoga"].diagnostics["provenance"][
             "deterministic_rerank_reasons"
         ]
     )

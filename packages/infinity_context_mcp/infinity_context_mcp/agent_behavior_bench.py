@@ -20,9 +20,9 @@ from pathlib import Path
 from typing import Any
 
 import httpx
+from infinity_context_core.reporting import with_report_provenance
 from mcp import ClientSession, StdioServerParameters
 from mcp.client.stdio import stdio_client
-from infinity_context_core.reporting import with_report_provenance
 
 from infinity_context_mcp.agent_behavior_bench_metrics import (
     _attempted_tool_names,
@@ -692,7 +692,9 @@ def _missing_tool_repair_prompt(
     called_names: Sequence[str],
 ) -> str:
     missing = (
-        ", ".join(missing_expected) if missing_expected else "the relevant Infinity Context MCP tool"
+        ", ".join(missing_expected)
+        if missing_expected
+        else "the relevant Infinity Context MCP tool"
     )
     already_called = ", ".join(called_names) if called_names else "none"
     return (

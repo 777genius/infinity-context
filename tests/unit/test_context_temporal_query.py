@@ -41,7 +41,14 @@ def test_temporal_query_intent_detects_current_and_stale_exclusion() -> None:
 
 def test_temporal_query_intent_detects_latest_event_queries() -> None:
     english_latest = build_temporal_query_intent("What was the latest conversation with Alex?")
+    english_first = build_temporal_query_intent("What was the first conversation with Alex?")
     english_recent = build_temporal_query_intent("What happened in the recent sync?")
+    english_last_call = build_temporal_query_intent("What happened in the last call?")
+    english_previous_session = build_temporal_query_intent(
+        "What did Alex say in the previous session?"
+    )
+    english_next_meeting = build_temporal_query_intent("When is the next meeting?")
+    russian_next_meeting = build_temporal_query_intent("Когда следующая встреча с Алексом?")
     russian_last_call = build_temporal_query_intent("Что было на последнем созвоне с Алексом?")
     russian_recent_meeting = build_temporal_query_intent(
         "Что обсуждали на недавней встрече с Алексом?"
@@ -49,7 +56,16 @@ def test_temporal_query_intent_detects_latest_event_queries() -> None:
     russian_fresh_chat = build_temporal_query_intent("Что было в свежем чате по Атласу?")
 
     assert english_latest.prefers_current is True
+    assert english_first.requests_earliest_event is True
+    assert english_first.prefers_current is False
+    assert english_first.requests_recent_event is False
     assert english_recent.prefers_current is True
+    assert english_last_call.prefers_current is True
+    assert english_previous_session.prefers_current is True
+    assert english_next_meeting.prefers_current is False
+    assert english_next_meeting.requests_upcoming is True
+    assert russian_next_meeting.requests_upcoming is True
+    assert english_previous_session.requests_previous is False
     assert russian_last_call.prefers_current is True
     assert russian_recent_meeting.prefers_current is True
     assert russian_fresh_chat.prefers_current is True
@@ -166,7 +182,18 @@ def test_temporal_query_intent_detects_change_and_previous_state() -> None:
 
 def test_temporal_query_intent_detects_since_and_until_event_sequences() -> None:
     since_call = build_temporal_query_intent("What changed since the Atlas call?")
+    since_last_week = build_temporal_query_intent("What changed since last week?")
     until_review = build_temporal_query_intent("What did Alex decide until the review?")
+    until_last_week = build_temporal_query_intent("What did Alex decide until last week?")
+    during_review = build_temporal_query_intent(
+        "What did we decide during the Atlas review?"
+    )
+    russian_during_call = build_temporal_query_intent(
+        "Что Алекс решил во время созвона по Атласу?"
+    )
+    russian_during_meeting = build_temporal_query_intent(
+        "Что Алекс решил в ходе встречи по Атласу?"
+    )
     after_roadtrip = build_temporal_query_intent("What happened after the roadtrip?")
     after_work = build_temporal_query_intent("How does Melanie unwind after work?")
     after_gaming = build_temporal_query_intent(
@@ -188,16 +215,40 @@ def test_temporal_query_intent_detects_since_and_until_event_sequences() -> None
     russian_after_talk = build_temporal_query_intent(
         "Что Алекс решил после разговора с Сергеем по Атласу?"
     )
+    after_source_turn = build_temporal_query_intent("What did Riley mention after D12:4?")
+    before_source_turn = build_temporal_query_intent(
+        "What did Riley mention before source turn D12:4?"
+    )
+    after_source_ref = build_temporal_query_intent(
+        "What did Riley mention after source ref locomo:conv-1:session_12:D12:4:turn?"
+    )
+    after_hyphenated_source_ref = build_temporal_query_intent(
+        "What did Riley mention after source_turn_refs:D12-4?"
+    )
+    before_source_reference = build_temporal_query_intent(
+        "What did Riley mention before source reference "
+        "locomo:conv-1:session_12:D12:4:turn?"
+    )
 
     assert since_call.after_event is True
     assert since_call.requests_change is True
+    assert since_last_week.after_event is True
+    assert since_last_week.relative_time_hints == ("last_week",)
     assert after_roadtrip.after_event is True
     assert after_work.after_event is False
     assert after_gaming.after_event is False
     assert russian_since.after_event is True
     assert russian_since.requests_change is True
     assert until_review.before_event is True
+    assert during_review.during_event is True
+    assert during_review.event_sequence_terms == ("atlas",)
+    assert russian_during_call.during_event is True
+    assert russian_during_call.event_sequence_terms == ("атласу",)
+    assert russian_during_meeting.during_event is True
+    assert russian_during_meeting.event_sequence_terms == ("атласу",)
     assert russian_until.before_event is True
+    assert until_last_week.before_event is True
+    assert until_last_week.relative_time_hints == ("last_week",)
     assert russian_after_work.after_event is False
     assert causal_since.after_event is False
     assert causal_since.before_event is False
@@ -209,6 +260,16 @@ def test_temporal_query_intent_detects_since_and_until_event_sequences() -> None
     assert after_messaging.event_sequence_terms == ("sam", "atlas")
     assert russian_after_talk.after_event is True
     assert russian_after_talk.event_sequence_terms == ("сергеем", "атласу")
+    assert after_source_turn.after_event is True
+    assert after_source_turn.source_turn_sequence.after_turns[0].label() == "D12:4"
+    assert before_source_turn.before_event is True
+    assert before_source_turn.source_turn_sequence.before_turns[0].label() == "D12:4"
+    assert after_source_ref.after_event is True
+    assert after_source_ref.source_turn_sequence.after_turns[0].label() == "D12:4"
+    assert after_hyphenated_source_ref.after_event is True
+    assert after_hyphenated_source_ref.source_turn_sequence.after_turns[0].label() == "D12:4"
+    assert before_source_reference.before_event is True
+    assert before_source_reference.source_turn_sequence.before_turns[0].label() == "D12:4"
 
 
 def test_temporal_query_intent_detects_relative_time_hints() -> None:
@@ -295,6 +356,22 @@ def test_temporal_query_intent_detects_relative_time_hints() -> None:
     assert russian_this_year.relative_time_hints == ("this_year",)
     assert "relative_time_hint" in last_week.diagnostics()["temporal_query_intent_reasons"]
     assert last_week.diagnostics()["temporal_query_relative_time_hints"] == ["last_week"]
+
+
+def test_temporal_query_intent_detects_broad_range_hints_and_date_boundaries() -> None:
+    june = build_temporal_query_intent("What happened in June 2023?")
+    summer = build_temporal_query_intent("Where was Jolene during summer 2022?")
+    weekend = build_temporal_query_intent("What did Audrey do over the weekend?")
+    before_date = build_temporal_query_intent("What did Audrey do before 4th October, 2023?")
+    after_date = build_temporal_query_intent("What changed after 2023-10-04?")
+
+    assert june.temporal_range_hints == ("month_2023_06", "month_06")
+    assert summer.temporal_range_hints == ("season_2022_summer",)
+    assert weekend.temporal_range_hints == ("weekend",)
+    assert before_date.before_date == "2023-10-04"
+    assert after_date.after_date == "2023-10-04"
+    assert "temporal_range_hint" in june.diagnostics()["temporal_query_intent_reasons"]
+    assert "before_date" in before_date.diagnostics()["temporal_query_intent_reasons"]
 
 
 def test_temporal_query_boosts_active_replacement_for_change_query() -> None:
@@ -441,6 +518,45 @@ def test_temporal_query_does_not_demote_exact_date_for_relative_future_query() -
 
     assert boosted[0].score == 0.72
     assert "temporal_query_intent_reason" not in boosted[0].diagnostics
+
+
+def test_temporal_query_boosts_upcoming_event_hints_without_date_terms() -> None:
+    intent = build_temporal_query_intent("When is the next meeting with Alex?")
+    upcoming = _item(
+        "upcoming",
+        score=0.7,
+        retrieval_source="keyword_chunks",
+        fact_status="active",
+        event_temporal_hint_code="next_week",
+    )
+    previous = _item(
+        "previous",
+        score=0.71,
+        retrieval_source="keyword_chunks",
+        fact_status="active",
+        event_temporal_hint_code="last_week",
+    )
+    undated = _item(
+        "undated",
+        score=0.72,
+        retrieval_source="keyword_chunks",
+        fact_status="active",
+    )
+
+    boosted = apply_temporal_query_intent_boosts(
+        (undated, previous, upcoming),
+        intent=intent,
+    )
+    by_id = {item.item_id: item for item in boosted}
+
+    assert by_id["upcoming"].score > by_id["undated"].score
+    assert by_id["previous"].score < by_id["upcoming"].score
+    assert by_id["upcoming"].diagnostics["temporal_query_intent_reason"] == (
+        "query asks for upcoming event and item has future event window"
+    )
+    assert by_id["previous"].diagnostics["temporal_query_intent_reason"] == (
+        "query asks for upcoming event and item has past event window"
+    )
 
 
 def test_temporal_query_boosts_matching_exact_date_event_temporal_hint() -> None:
@@ -678,6 +794,88 @@ def test_temporal_query_demotes_conflicting_event_temporal_hint() -> None:
     assert "temporal_query_intent_reason" not in boosted[2].diagnostics
 
 
+def test_temporal_query_range_evidence_beats_generic_temporal_mentions() -> None:
+    intent = build_temporal_query_intent("What happened in June 2023?")
+    specific = _item(
+        "specific",
+        score=0.7,
+        retrieval_source="canonical_anchors",
+        fact_status="active",
+        text="D4:2 In June 2023, Alex moved the Atlas launch review to Friday.",
+    )
+    generic = _item(
+        "generic",
+        score=0.72,
+        retrieval_source="canonical_anchors",
+        fact_status="active",
+        text="D5:2 Alex mentioned summer plans and a launch review.",
+    )
+
+    boosted = apply_temporal_query_intent_boosts((generic, specific), intent=intent)
+    by_id = {item.item_id: item for item in boosted}
+
+    assert by_id["specific"].score > by_id["generic"].score
+    assert by_id["specific"].diagnostics["temporal_query_intent_reason"] == (
+        "query temporal range matches item text"
+    )
+    assert "temporal_query_intent_reason" not in by_id["generic"].diagnostics
+
+
+def test_temporal_query_uses_metadata_date_for_season_range() -> None:
+    intent = build_temporal_query_intent("Where was Jolene during summer 2022?")
+    specific = _item(
+        "specific",
+        score=0.7,
+        retrieval_source="canonical_anchors",
+        fact_status="active",
+        event_valid_from="2022-07-15",
+        text="Jolene was in Portugal for the internship.",
+    )
+    generic = _item(
+        "generic",
+        score=0.72,
+        retrieval_source="canonical_anchors",
+        fact_status="active",
+        text="Jolene talked about summer travel in general.",
+    )
+
+    boosted = apply_temporal_query_intent_boosts((generic, specific), intent=intent)
+    by_id = {item.item_id: item for item in boosted}
+
+    assert by_id["specific"].score > by_id["generic"].score
+    assert by_id["specific"].diagnostics["temporal_query_intent_reason"] == (
+        "query temporal range contains item metadata date"
+    )
+
+
+def test_temporal_query_uses_before_date_boundary_evidence() -> None:
+    intent = build_temporal_query_intent(
+        "What did Audrey do over the weekend before 4th October, 2023?"
+    )
+    specific = _item(
+        "specific",
+        score=0.7,
+        retrieval_source="canonical_anchors",
+        fact_status="active",
+        text="Over the weekend before 4th October, 2023, Audrey visited the gallery.",
+    )
+    generic = _item(
+        "generic",
+        score=0.72,
+        retrieval_source="canonical_anchors",
+        fact_status="active",
+        text="Audrey talked about weekend plans near the gallery.",
+    )
+
+    boosted = apply_temporal_query_intent_boosts((generic, specific), intent=intent)
+    by_id = {item.item_id: item for item in boosted}
+
+    assert by_id["specific"].score > by_id["generic"].score
+    assert by_id["specific"].diagnostics["temporal_query_intent_reason"] == (
+        "query asks before date and item text matches boundary"
+    )
+
+
 def test_temporal_query_boosts_matching_after_event_direction() -> None:
     intent = build_temporal_query_intent("What did Alex decide after the Atlas call?")
     after_item = _item(
@@ -703,6 +901,77 @@ def test_temporal_query_boosts_matching_after_event_direction() -> None:
     )
     assert boosted[1].diagnostics["temporal_query_intent_reason"] == (
         "query asks for after-event sequence and item conflicts with direction"
+    )
+
+
+def test_temporal_query_prefers_ordered_afterward_evidence_over_unordered_mentions() -> None:
+    intent = build_temporal_query_intent(
+        "What did Jordan realize after the neighborhood event?"
+    )
+    ordered = _item(
+        "ordered",
+        score=0.7,
+        retrieval_source="canonical_anchors",
+        fact_status="active",
+        text=(
+            "Jordan finished the neighborhood event. Afterward, he realized he "
+            "missed training with the team."
+        ),
+    )
+    unordered = _item(
+        "unordered",
+        score=0.72,
+        retrieval_source="canonical_anchors",
+        fact_status="active",
+        text=(
+            "Jordan mentioned the neighborhood event and also realized he missed "
+            "training with the team."
+        ),
+    )
+
+    boosted = apply_temporal_query_intent_boosts((unordered, ordered), intent=intent)
+    by_id = {item.item_id: item for item in boosted}
+
+    assert intent.after_event is True
+    assert intent.event_sequence_terms == ("neighborhood",)
+    assert by_id["ordered"].score > by_id["unordered"].score
+    assert by_id["ordered"].diagnostics["temporal_query_intent_reason"] == (
+        "query asks for after-event sequence and item matches direction"
+    )
+    assert by_id["unordered"].diagnostics["temporal_query_intent_reason"] == (
+        "query asks for after-event sequence and item only matches the event boundary"
+    )
+
+
+def test_temporal_query_does_not_stitch_unrelated_after_marker_to_event_mentions() -> None:
+    intent = build_temporal_query_intent("What did Alex decide after the Atlas call?")
+    ordered = _item(
+        "ordered",
+        score=0.7,
+        retrieval_source="canonical_anchors",
+        fact_status="active",
+        text="After the Atlas call, Alex decided to wait for invoice approval.",
+    )
+    unrelated_after = _item(
+        "unrelated_after",
+        score=0.72,
+        retrieval_source="canonical_anchors",
+        fact_status="active",
+        text=(
+            "After dinner, Alex discussed the Atlas call and decided to wait "
+            "for invoice approval."
+        ),
+    )
+
+    boosted = apply_temporal_query_intent_boosts((unrelated_after, ordered), intent=intent)
+    by_id = {item.item_id: item for item in boosted}
+
+    assert by_id["ordered"].score > by_id["unrelated_after"].score
+    assert by_id["ordered"].diagnostics["temporal_query_intent_reason"] == (
+        "query asks for after-event sequence and item matches direction"
+    )
+    assert by_id["unrelated_after"].diagnostics["temporal_query_intent_reason"] == (
+        "query asks for after-event sequence and item only matches the event boundary"
     )
 
 
@@ -732,6 +1001,64 @@ def test_temporal_query_requires_same_event_identity_for_direction_boost() -> No
     assert "temporal_query_intent_reason" not in boosted[1].diagnostics
     assert boosted[0].score == 0.726
     assert boosted[1].score == 0.72
+
+
+def test_temporal_query_boosts_matching_during_event_context() -> None:
+    intent = build_temporal_query_intent("What did Alex decide during the Atlas call?")
+    matched = _item(
+        "matched",
+        score=0.7,
+        retrieval_source="canonical_anchors",
+        fact_status="active",
+        text="During the Atlas call, Alex decided to wait for invoice approval.",
+    )
+    distractor = _item(
+        "distractor",
+        score=0.72,
+        retrieval_source="canonical_anchors",
+        fact_status="active",
+        text="During the Stripe call, Alex changed billing retries.",
+    )
+
+    boosted = apply_temporal_query_intent_boosts((matched, distractor), intent=intent)
+
+    assert intent.during_event is True
+    assert intent.event_sequence_terms == ("atlas",)
+    assert boosted[0].score == 0.724
+    assert boosted[0].diagnostics["temporal_query_intent_reason"] == (
+        "query asks for during-event context and item matches event"
+    )
+    assert boosted[1].score == 0.72
+    assert "temporal_query_intent_reason" not in boosted[1].diagnostics
+
+
+def test_temporal_query_boosts_matching_russian_during_event_context() -> None:
+    intent = build_temporal_query_intent("Что Алекс решил во время созвона по Атласу?")
+    matched = _item(
+        "matched",
+        score=0.7,
+        retrieval_source="canonical_anchors",
+        fact_status="active",
+        text="Во время созвона по Атласу Алекс выбрал план запуска.",
+    )
+    distractor = _item(
+        "distractor",
+        score=0.72,
+        retrieval_source="canonical_anchors",
+        fact_status="active",
+        text="После созвона по Атласу Алекс написал заметку.",
+    )
+
+    boosted = apply_temporal_query_intent_boosts((matched, distractor), intent=intent)
+
+    assert intent.during_event is True
+    assert intent.event_sequence_terms == ("атласу",)
+    assert boosted[0].score == 0.724
+    assert boosted[0].diagnostics["temporal_query_intent_reason"] == (
+        "query asks for during-event context and item matches event"
+    )
+    assert boosted[1].score == 0.72
+    assert "temporal_query_intent_reason" not in boosted[1].diagnostics
 
 
 def test_temporal_query_only_conflicts_same_event_identity() -> None:
@@ -783,6 +1110,39 @@ def test_temporal_query_boosts_matching_since_event_direction() -> None:
     assert boosted[0].score > after_item.score
     assert boosted[0].diagnostics["temporal_query_intent_reason"] == (
         "query asks for after-event sequence and item matches direction"
+    )
+
+
+def test_temporal_query_prefers_since_evidence_over_boundary_window() -> None:
+    intent = build_temporal_query_intent("What changed since last week?")
+    since_item = _item(
+        "since",
+        score=0.7,
+        retrieval_source="canonical_anchors",
+        fact_status="active",
+        text="Since last week, Atlas uses OpenAI for extraction.",
+    )
+    boundary_stale = _item(
+        "boundary_stale",
+        score=0.72,
+        retrieval_source="superseded_review",
+        fact_status="superseded",
+        event_temporal_hint_code="last_week",
+        text="Last week, Atlas still used LocalAI for extraction.",
+    )
+
+    boosted = apply_temporal_query_intent_boosts(
+        (boundary_stale, since_item),
+        intent=intent,
+    )
+    by_id = {item.item_id: item for item in boosted}
+
+    assert by_id["since"].score > by_id["boundary_stale"].score
+    assert by_id["since"].diagnostics["temporal_query_intent_reason"] == (
+        "query asks for after-event sequence and item matches direction"
+    )
+    assert by_id["boundary_stale"].diagnostics["temporal_query_intent_reason"] == (
+        "query asks for after-event sequence and item only matches the boundary window"
     )
 
 
@@ -875,6 +1235,231 @@ def test_temporal_query_boosts_matching_russian_before_event_direction() -> None
     assert boosted[1].diagnostics["temporal_query_intent_reason"] == (
         "query asks for before-event sequence and item conflicts with direction"
     )
+
+
+def test_temporal_query_boosts_source_turn_after_boundary_order() -> None:
+    intent = build_temporal_query_intent("What did Riley mention after D12:4?")
+    after_item = _item(
+        "after",
+        score=0.7,
+        retrieval_source="canonical_anchors",
+        fact_status="active",
+        text="D12:5 Riley said the studio visit was confirmed.",
+    )
+    before_item = _item(
+        "before",
+        score=0.72,
+        retrieval_source="canonical_anchors",
+        fact_status="active",
+        text="D12:3 Riley was still waiting on Morgan.",
+    )
+
+    boosted = apply_temporal_query_intent_boosts((after_item, before_item), intent=intent)
+
+    assert boosted[0].score == 0.74
+    assert boosted[0].diagnostics["temporal_query_intent_reason"] == (
+        "query asks for after source turn and item source turn follows boundary"
+    )
+    assert boosted[1].score == 0.694
+    assert boosted[1].diagnostics["temporal_query_intent_reason"] == (
+        "query asks for after source turn and item source turn precedes boundary"
+    )
+
+
+def test_temporal_query_uses_source_refs_for_source_turn_before_boundary_order() -> None:
+    intent = build_temporal_query_intent("What did Riley mention before D12:4?")
+    before_item = ContextItem(
+        item_id="before",
+        item_type="fact",
+        text="Riley was still waiting on Morgan.",
+        score=0.7,
+        source_refs=(
+            SourceRef(
+                source_type="document",
+                source_id="locomo:conv-1:session_12:D12:3:turn",
+            ),
+        ),
+        diagnostics={"retrieval_source": "canonical_anchors"},
+    )
+    after_item = ContextItem(
+        item_id="after",
+        item_type="fact",
+        text="Riley said the studio visit was confirmed.",
+        score=0.72,
+        source_refs=(
+            SourceRef(
+                source_type="document",
+                source_id="locomo:conv-1:session_12:D12:5:turn",
+            ),
+        ),
+        diagnostics={"retrieval_source": "canonical_anchors"},
+    )
+
+    boosted = apply_temporal_query_intent_boosts((before_item, after_item), intent=intent)
+
+    assert boosted[0].score == 0.74
+    assert boosted[0].diagnostics["temporal_query_intent_reason"] == (
+        "query asks for before source turn and item source turn precedes boundary"
+    )
+    assert boosted[1].score == 0.694
+    assert boosted[1].diagnostics["temporal_query_intent_reason"] == (
+        "query asks for before source turn and item source turn follows boundary"
+    )
+
+
+def test_temporal_query_boosts_full_source_ref_boundary_order() -> None:
+    intent = build_temporal_query_intent(
+        "What did Riley mention after source ref locomo:conv-1:session_12:D12:4:turn?"
+    )
+    after_item = ContextItem(
+        item_id="after",
+        item_type="fact",
+        text="Riley said the studio visit was confirmed.",
+        score=0.7,
+        source_refs=(
+            SourceRef(
+                source_type="document",
+                source_id="locomo:conv-1:session_12:D12:5:turn",
+            ),
+        ),
+        diagnostics={"retrieval_source": "canonical_anchors"},
+    )
+    before_item = ContextItem(
+        item_id="before",
+        item_type="fact",
+        text="Riley was still waiting on Morgan.",
+        score=0.72,
+        source_refs=(
+            SourceRef(
+                source_type="document",
+                source_id="locomo:conv-1:session_12:D12:3:turn",
+            ),
+        ),
+        diagnostics={"retrieval_source": "canonical_anchors"},
+    )
+
+    boosted = apply_temporal_query_intent_boosts((after_item, before_item), intent=intent)
+
+    assert boosted[0].score == 0.74
+    assert boosted[0].diagnostics["temporal_query_intent_reason"] == (
+        "query asks for after source turn and item source turn follows boundary"
+    )
+    assert boosted[1].score == 0.694
+    assert boosted[1].diagnostics["temporal_query_intent_reason"] == (
+        "query asks for after source turn and item source turn precedes boundary"
+    )
+
+
+def test_temporal_query_boosts_explicit_session_bridge_match() -> None:
+    intent = build_temporal_query_intent("What did Alex decide in session 4?")
+    matched = _item(
+        "locomo:conv-1:session_4:D4:7:turn",
+        score=0.7,
+        retrieval_source="keyword_chunks",
+        fact_status="active",
+        text="session_4 turn D4:7 Alex decided to wait for invoice approval.",
+    )
+    different_session = _item(
+        "locomo:conv-1:session_3:D3:7:turn",
+        score=0.72,
+        retrieval_source="keyword_chunks",
+        fact_status="active",
+        text="session_3 turn D3:7 Alex was still evaluating invoice options.",
+    )
+
+    boosted = apply_temporal_query_intent_boosts(
+        (different_session, matched),
+        intent=intent,
+    )
+    by_id = {item.item_id: item for item in boosted}
+
+    assert intent.session_ordinals == (4,)
+    assert by_id["locomo:conv-1:session_4:D4:7:turn"].score == 0.734
+    assert by_id["locomo:conv-1:session_3:D3:7:turn"].score == 0.702
+    assert by_id["locomo:conv-1:session_4:D4:7:turn"].score > by_id[
+        "locomo:conv-1:session_3:D3:7:turn"
+    ].score
+    assert by_id["locomo:conv-1:session_4:D4:7:turn"].diagnostics[
+        "temporal_query_intent_reason"
+    ] == "query asks for an explicit session and item matches it"
+    assert by_id["locomo:conv-1:session_3:D3:7:turn"].diagnostics[
+        "temporal_query_intent_reason"
+    ] == "query asks for an explicit session and item has a different session"
+
+
+def test_temporal_query_extracts_dialogue_turn_session_hint() -> None:
+    intent = build_temporal_query_intent("What did Riley mention around D12:4?")
+    matched = _item(
+        "turn_match",
+        score=0.7,
+        retrieval_source="keyword_chunks",
+        fact_status="active",
+        text="D12:4 Riley mentioned the studio visit with Morgan.",
+    )
+    different_session = _item(
+        "turn_decoy",
+        score=0.71,
+        retrieval_source="keyword_chunks",
+        fact_status="active",
+        text="D11:4 Riley mentioned the volunteer shift.",
+    )
+
+    boosted = apply_temporal_query_intent_boosts(
+        (different_session, matched),
+        intent=intent,
+    )
+    by_id = {item.item_id: item for item in boosted}
+
+    assert intent.session_ordinals == (12,)
+    assert by_id["turn_match"].score > by_id["turn_decoy"].score
+    assert by_id["turn_match"].diagnostics["score_signals"][
+        "temporal_query_intent_boost"
+    ] == 0.04
+
+
+def test_temporal_query_boosts_written_ordinal_session_match() -> None:
+    intent = build_temporal_query_intent("What did Alex decide in the fourth session?")
+    matched = _item(
+        "locomo:conv-1:session_4:D4:7:turn",
+        score=0.7,
+        retrieval_source="keyword_chunks",
+        fact_status="active",
+        text="session_4 turn D4:7 Alex decided to wait for invoice approval.",
+    )
+    different_session = _item(
+        "locomo:conv-1:session_3:D3:7:turn",
+        score=0.72,
+        retrieval_source="keyword_chunks",
+        fact_status="active",
+        text="session_3 turn D3:7 Alex was still evaluating invoice options.",
+    )
+
+    boosted = apply_temporal_query_intent_boosts(
+        (different_session, matched),
+        intent=intent,
+    )
+    by_id = {item.item_id: item for item in boosted}
+
+    assert intent.session_ordinals == (4,)
+    assert by_id["locomo:conv-1:session_4:D4:7:turn"].score > by_id[
+        "locomo:conv-1:session_3:D3:7:turn"
+    ].score
+    assert by_id["locomo:conv-1:session_4:D4:7:turn"].diagnostics[
+        "temporal_query_intent_reason"
+    ] == "query asks for an explicit session and item matches it"
+
+
+def test_temporal_query_extracts_cardinal_word_after_session() -> None:
+    intent = build_temporal_query_intent("What did Riley mention in session twelve?")
+
+    assert intent.session_ordinals == (12,)
+
+
+def test_temporal_query_does_not_treat_event_ordinals_as_session_ordinals() -> None:
+    intent = build_temporal_query_intent("What was the first conversation with Sam?")
+
+    assert intent.requests_earliest_event is True
+    assert intent.session_ordinals == ()
 
 
 def test_temporal_query_demotes_stale_when_query_excludes_stale() -> None:
@@ -1002,6 +1587,165 @@ def test_temporal_query_prefers_active_for_current_decision_query() -> None:
     )
 
 
+def test_source_turn_sequence_accepts_hyphenated_locomo_refs() -> None:
+    intent = build_temporal_query_intent("What changed after source ref D12-4?")
+    before = _item(
+        "before",
+        score=0.71,
+        retrieval_source="keyword_chunks",
+        fact_status="active",
+        text="Riley had not picked the venue yet.",
+        source_id="source_turn_refs:D12-3",
+    )
+    after = _item(
+        "after",
+        score=0.7,
+        retrieval_source="keyword_chunks",
+        fact_status="active",
+        text="Riley picked the venue after the planning note.",
+        source_id="source_turn_refs:D12-5",
+    )
+
+    boosted = apply_temporal_query_intent_boosts((before, after), intent=intent)
+    by_id = {item.item_id: item for item in boosted}
+
+    assert intent.source_turn_sequence.after_turns[0].label() == "D12:4"
+    assert by_id["after"].score > by_id["before"].score
+    assert by_id["after"].diagnostics["temporal_query_intent_reason"] == (
+        "query asks for after source turn and item source turn follows boundary"
+    )
+    assert by_id["before"].diagnostics["temporal_query_intent_reason"] == (
+        "query asks for after source turn and item source turn precedes boundary"
+    )
+
+
+def test_source_turn_sequence_accepts_natural_session_turn_references() -> None:
+    intent = build_temporal_query_intent(
+        "What did Riley mention after turn four in session twelve?"
+    )
+    underscored_intent = build_temporal_query_intent(
+        "What did Riley mention after turn_4 in session_12?"
+    )
+    numbered_intent = build_temporal_query_intent(
+        "What did Riley mention after turn no. four in session no. twelve?"
+    )
+    before = _item(
+        "before",
+        score=0.71,
+        retrieval_source="keyword_chunks",
+        fact_status="active",
+        text="Session twelve turn three: Riley was still waiting on Morgan.",
+        source_id="locomo:conv-1:session_12",
+    )
+    after = _item(
+        "after",
+        score=0.7,
+        retrieval_source="keyword_chunks",
+        fact_status="active",
+        text="Session twelve turn five: Riley said the studio visit was confirmed.",
+        source_id="locomo:conv-1:session_12",
+    )
+
+    boosted = apply_temporal_query_intent_boosts((before, after), intent=intent)
+    by_id = {item.item_id: item for item in boosted}
+
+    assert intent.source_turn_sequence.after_turns[0].label() == "D12:4"
+    assert underscored_intent.source_turn_sequence.after_turns[0].label() == "D12:4"
+    assert numbered_intent.source_turn_sequence.after_turns[0].label() == "D12:4"
+    assert by_id["after"].score > by_id["before"].score
+    assert by_id["after"].diagnostics["temporal_query_intent_reason"] == (
+        "query asks for after source turn and item source turn follows boundary"
+    )
+    assert by_id["before"].diagnostics["temporal_query_intent_reason"] == (
+        "query asks for after source turn and item source turn precedes boundary"
+    )
+
+
+def test_source_turn_sequence_uses_natural_turn_refs_from_quote_preview() -> None:
+    intent = build_temporal_query_intent(
+        "What did Riley mention before source turn 4 from dialogue 12?"
+    )
+    before = ContextItem(
+        item_id="before",
+        item_type="fact",
+        text="Riley was still waiting on Morgan.",
+        score=0.7,
+        source_refs=(
+            SourceRef(
+                source_type="document",
+                source_id="conversation-summary",
+                quote_preview="Dialogue 12 turn 3: Riley was still waiting on Morgan.",
+            ),
+        ),
+        diagnostics={"retrieval_source": "canonical_anchors"},
+    )
+    after = ContextItem(
+        item_id="after",
+        item_type="fact",
+        text="Riley said the studio visit was confirmed.",
+        score=0.72,
+        source_refs=(
+            SourceRef(
+                source_type="document",
+                source_id="conversation-summary",
+                quote_preview="Dialogue 12 turn 5: Riley confirmed the visit.",
+            ),
+        ),
+        diagnostics={"retrieval_source": "canonical_anchors"},
+    )
+
+    boosted = apply_temporal_query_intent_boosts((before, after), intent=intent)
+    by_id = {item.item_id: item for item in boosted}
+
+    assert intent.source_turn_sequence.before_turns[0].label() == "D12:4"
+    assert by_id["before"].score > by_id["after"].score
+    assert by_id["before"].diagnostics["temporal_query_intent_reason"] == (
+        "query asks for before source turn and item source turn precedes boundary"
+    )
+    assert by_id["after"].diagnostics["temporal_query_intent_reason"] == (
+        "query asks for before source turn and item source turn follows boundary"
+    )
+
+
+def test_source_turn_sequence_keeps_natural_turn_scope_identity() -> None:
+    intent = build_temporal_query_intent(
+        "What did Riley mention after turn four in session twelve "
+        "from conversation locomo:conv-1?"
+    )
+    matching_source = _item(
+        "matching_source",
+        score=0.7,
+        retrieval_source="keyword_chunks",
+        fact_status="active",
+        text="Session twelve turn five: Riley said the studio visit was confirmed.",
+        source_id="locomo:conv-1:session_12",
+    )
+    different_source = _item(
+        "different_source",
+        score=0.72,
+        retrieval_source="keyword_chunks",
+        fact_status="active",
+        text="Session twelve turn five: Riley mentioned a different visit.",
+        source_id="locomo:conv-2:session_12",
+    )
+
+    boosted = apply_temporal_query_intent_boosts(
+        (matching_source, different_source),
+        intent=intent,
+    )
+    by_id = {item.item_id: item for item in boosted}
+
+    assert intent.source_turn_sequence.after_turns[0].label() == "D12:4"
+    assert intent.source_turn_sequence.has_source_identity is True
+    assert by_id["matching_source"].score > by_id["different_source"].score
+    assert by_id["matching_source"].diagnostics["temporal_query_intent_reason"] == (
+        "query asks for after source turn and item source turn follows boundary"
+    )
+    assert by_id["different_source"].diagnostics["temporal_query_intent_reason"] == (
+        "query asks for source turn and item source identity differs"
+    )
+
+
 def _item(
     item_id: str,
     *,
@@ -1011,19 +1755,23 @@ def _item(
     review_only: bool = False,
     event_temporal_hint_code: str | None = None,
     temporal_hint_code: str | None = None,
+    event_valid_from: str | None = None,
     text: str | None = None,
+    source_id: str | None = None,
 ) -> ContextItem:
     provenance = {"fact_status": fact_status}
     if event_temporal_hint_code:
         provenance["event_temporal_hint_code"] = event_temporal_hint_code
     if temporal_hint_code:
         provenance["temporal_hint_code"] = temporal_hint_code
+    if event_valid_from:
+        provenance["event_valid_from"] = event_valid_from
     return ContextItem(
         item_id=item_id,
         item_type="fact",
         text=text or item_id,
         score=score,
-        source_refs=(SourceRef(source_type="fact", source_id=item_id),),
+        source_refs=(SourceRef(source_type="fact", source_id=source_id or item_id),),
         diagnostics={
             "retrieval_source": retrieval_source,
             "retrieval_sources": [retrieval_source],

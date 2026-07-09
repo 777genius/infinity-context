@@ -2,11 +2,15 @@
 
 from __future__ import annotations
 
+import os
 import platform
+import shutil
 import subprocess
 import sys
 from pathlib import Path
 from typing import Any
+
+_COMMON_GIT_EXECUTABLES = ("/usr/bin/git", "/bin/git", "/usr/local/bin/git")
 
 
 def build_report_provenance(
@@ -73,9 +77,12 @@ def git_dirty(*, cwd: Path | None = None) -> bool | None:
 
 
 def _git_output(*args: str, cwd: Path | None = None) -> str | None:
+    git = _git_executable()
+    if git is None:
+        return None
     try:
         completed = subprocess.run(
-            ["git", *args],
+            [git, *args],
             cwd=cwd,
             check=True,
             stdout=subprocess.PIPE,
@@ -85,3 +92,14 @@ def _git_output(*args: str, cwd: Path | None = None) -> str | None:
     except (OSError, subprocess.CalledProcessError):
         return None
     return completed.stdout.strip()
+
+
+def _git_executable() -> str | None:
+    git = shutil.which("git")
+    if git:
+        return git
+    for candidate in _COMMON_GIT_EXECUTABLES:
+        path = Path(candidate)
+        if path.is_file() and os.access(path, os.X_OK):
+            return str(path)
+    return None

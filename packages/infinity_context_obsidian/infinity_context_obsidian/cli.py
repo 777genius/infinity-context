@@ -399,7 +399,9 @@ def _context(args: argparse.Namespace) -> dict[str, object]:
         root_folder=args.root_folder,
         version=args.layout_version,
     )
-    state_path = args.state or args.vault.expanduser() / ".infinity-context" / "obsidian-sync.sqlite3"
+    state_path = (
+        args.state or args.vault.expanduser() / ".infinity-context" / "obsidian-sync.sqlite3"
+    )
     state = SqliteSyncStateStore(state_path)
     gateway = SdkMemoryGateway(
         InfinityContextClient(base_url=args.api_url, token=args.token or None)

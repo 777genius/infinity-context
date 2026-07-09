@@ -7,6 +7,8 @@ import json
 from collections.abc import Mapping, Sequence
 from pathlib import Path
 
+from infinity_context_server.public_benchmark_case_diagnostics import artifact_text_value
+
 _MAX_LIST_ITEMS = 20
 _MAX_STRING_CHARS = 240
 
@@ -99,26 +101,26 @@ def _fingerprint(payload: Mapping[str, object]) -> str:
 
 
 def _bounded_str(value: object) -> str:
-    return str(value or "")[:_MAX_STRING_CHARS]
+    return artifact_text_value(value, max_chars=_MAX_STRING_CHARS)
 
 
 def _bounded_list(values: Sequence[str]) -> list[str]:
-    return [str(value)[:_MAX_STRING_CHARS] for value in values[:_MAX_LIST_ITEMS]]
+    return [_bounded_str(value) for value in values[:_MAX_LIST_ITEMS]]
 
 
 def _bounded_mapping(values: Mapping[str, object]) -> dict[str, object]:
     bounded: dict[str, object] = {}
     for raw_key, raw_value in list(values.items())[:_MAX_LIST_ITEMS]:
-        key = str(raw_key)[:80]
+        key = _bounded_str(raw_key)[:80]
         if raw_value is None:
             continue
         if isinstance(raw_value, str):
-            bounded[key] = raw_value[:_MAX_STRING_CHARS]
+            bounded[key] = _bounded_str(raw_value)
         elif isinstance(raw_value, bool | int | float):
             bounded[key] = raw_value
         elif isinstance(raw_value, Sequence) and not isinstance(raw_value, str | bytes):
             bounded[key] = [
-                str(item)[:120]
+                _bounded_str(item)[:120]
                 for item in raw_value[:_MAX_LIST_ITEMS]
                 if isinstance(item, str | bool | int | float)
             ]

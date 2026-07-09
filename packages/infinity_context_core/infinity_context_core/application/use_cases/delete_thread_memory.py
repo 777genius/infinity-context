@@ -1,6 +1,9 @@
 """Thread/session memory deletion use case."""
 
-from infinity_context_core.application.dto import DeleteThreadMemoryCommand, DeleteThreadMemoryResult
+from infinity_context_core.application.dto import (
+    DeleteThreadMemoryCommand,
+    DeleteThreadMemoryResult,
+)
 from infinity_context_core.domain.events import OutboxEvent
 from infinity_context_core.ports.unit_of_work import UnitOfWorkFactoryPort
 

@@ -5,6 +5,12 @@ from infinity_context_core.application import BuildContextQuery
 from infinity_context_core.application.context_aggregation_answer_slots import (
     aggregation_answer_slots,
 )
+from infinity_context_core.application.context_lexical import (
+    query_term_frequency,
+    query_terms,
+    text_variant_counts,
+)
+from infinity_context_core.application.context_packer import ContextPacker
 from infinity_context_core.application.context_query_expansion import build_query_expansion_plan
 from infinity_context_core.application.context_relevance import score_query_relevance
 from infinity_context_core.application.dto import ContextItem
@@ -18,9 +24,11 @@ from infinity_context_core.application.use_cases.build_context import (
     _keyword_aggregation_chunk_items,
     _keyword_aggregation_query_kind,
     _prioritized_chunks_for_source_groups,
+    _prioritized_source_sibling_seed_groups,
     _ranked_keyword_chunk_scores,
     _selected_keyword_prompt_items,
     _source_group_seed_turns,
+    _source_sibling_answer_evidence,
     _source_sibling_candidate_rank_key,
     _source_sibling_companion_extra_slot,
     _source_sibling_distant_answer_evidence_rank,
@@ -109,6 +117,23 @@ def test_keyword_aggregation_chunks_collect_list_queries() -> None:
     assert "new shoes" in items[0].text
 
 
+def test_aggregation_answer_slots_detect_common_interest_movie_evidence() -> None:
+    slots = aggregation_answer_slots(
+        query="What kind of interests do Joanna and Nate share?",
+        text=(
+            "D1:10 Joanna: Besides writing, I also enjoy reading, "
+            "watching movies, and exploring nature."
+        ),
+    )
+    generic_slots = aggregation_answer_slots(
+        query="What kind of interests do Joanna and Nate share?",
+        text="D23:4 Joanna: It is fun to meet people who share your interests.",
+    )
+
+    assert "interest_movies" in slots
+    assert "interest_movies" not in generic_slots
+
+
 def test_keyword_aggregation_query_kind_handles_band_list_queries() -> None:
     assert _keyword_aggregation_query_kind("What bands has Melanie seen?") == "list"
     assert (
@@ -122,14 +147,14 @@ def test_keyword_aggregation_query_kind_handles_type_list_queries() -> None:
     assert _keyword_aggregation_query_kind("Which kinds of documents did Alex save?") == "list"
 
 
-def test_lgbtq_event_answer_slots_require_nearby_lgbtq_context() -> None:
-    query = "What LGBTQ+ events has Caroline participated in?"
+def test_lgbtq_community_answer_slots_require_nearby_lgbtq_context() -> None:
+    query = "In what ways is Riley participating in the LGBTQ community?"
 
     assert aggregation_answer_slots(
         query=query,
         text=(
-            "Caroline mentored LGBTQ youth, joined a new LGBTQ activist group, "
-            "and organized an LGBTQ art show."
+            "Riley joined an LGBTQ mentorship program, started a new LGBTQ "
+            "activist group, and organized an LGBTQ art show."
         ),
     ) == frozenset(
         {
@@ -140,8 +165,57 @@ def test_lgbtq_event_answer_slots_require_nearby_lgbtq_context() -> None:
     )
     assert aggregation_answer_slots(
         query=query,
-        text="Caroline attended a general art show and later mentored students.",
+        text="Riley attended a general art show and later mentored students.",
     ) == frozenset()
+
+
+def test_source_sibling_marks_pet_acquisition_turn_as_answer_evidence() -> None:
+    assert _source_sibling_answer_evidence(
+        expansion_query=(
+            "Sam Rex when date adopted got get new addition family pet dog puppy pup "
+            "image caption visual query cute dog"
+        ),
+        expansion_reason="pet_acquisition_date_bridge",
+        text=(
+            "D3:2 Sam: Way to go! I just got a new addition to the family, "
+            "this is Rex!\nimage caption: a photo of a dog laying on a couch"
+        ),
+    )
+    assert _source_sibling_answer_evidence(
+        expansion_query=(
+            "Sam Pippa Dana when date adopted got get new addition family pet dog "
+            "puppy pup new pup for you image caption visual query"
+        ),
+        expansion_reason="pet_acquisition_date_bridge",
+        text=(
+            "D4:5 Sam: Yep, Dana. It's great! Looky here, I got this new pup "
+            "for you!\nimage caption: a photo of a stuffed animal laying on a bed"
+        ),
+    )
+    assert _source_sibling_answer_evidence(
+        expansion_query=(
+            "Sam Pippa Dana when date adopted got get new addition family pet dog "
+            "puppy pup new pup for you gift from named stuffed animal"
+        ),
+        expansion_reason="pet_acquisition_date_bridge",
+        text=(
+            "D9:2 Dana: Dana has been revising and perfecting a recipe for "
+            "her family. Related turns: D9:4.\nD9:4 Dana: Dana has a "
+            "stuffed animal dog named Pippa that was a gift from Sam."
+        ),
+    )
+    assert _source_sibling_answer_evidence(
+        expansion_query=(
+            "Sam Pippa Dana when date adopted got get new addition family pet dog "
+            "puppy pup new pup for you gift from named stuffed animal"
+        ),
+        expansion_reason="pet_acquisition_date_bridge",
+        text=(
+            "session_9 turn D9:2\nsession_9 date: 2:01 pm on 21 October, 2022\n"
+            "D9:2 Dana: Hey Sam! I have been revising and perfecting the recipe "
+            "I made for my family and it turned out really tasty."
+        ),
+    )
 
 
 def test_inventory_answer_slots_cover_real_locomo_places_and_causes() -> None:
@@ -179,6 +253,59 @@ def test_inventory_answer_slots_cover_real_locomo_places_and_causes() -> None:
     ) == frozenset({"cause_education", "cause_infrastructure", "cause_veterans"})
 
 
+def test_inventory_answer_slots_cover_list_event_place_activity_domains() -> None:
+    assert aggregation_answer_slots(
+        query="What events for veterans has John participated in?",
+        text=(
+            "D15:1 John started a petition for veterans. "
+            "D21:22 John joined a marching event for veterans' rights. "
+            "D24:1 John visited a veteran's hospital. "
+            "D29:4 John set up a 5K charity run for veterans and their families."
+        ),
+    ) == frozenset(
+        {
+            "veterans_charity_run",
+            "veterans_hospital",
+            "veterans_march",
+            "veterans_petition",
+        }
+    )
+    assert aggregation_answer_slots(
+        query="What music events has John attended?",
+        text="D20:4 John attended a live music event. D8:12 John found a violin concert.",
+    ) == frozenset({"music_live_event", "music_violin_concert", "music_concert"})
+    assert aggregation_answer_slots(
+        query="What states has Maria vacationed at?",
+        text="D18:3 Maria went on a road trip to Oregon. D19:23 Maria vacationed in Florida.",
+    ) == frozenset({"place_florida", "place_oregon"})
+    assert aggregation_answer_slots(
+        query="What outdoor activities has John done with his colleagues?",
+        text="D18:2 John went mountaineering with workmates. D24:6 John had a picnic.",
+    ) == frozenset({"outdoor_mountaineering", "outdoor_picnic"})
+
+
+def test_inventory_answer_slots_cover_dessert_recipe_domains() -> None:
+    assert aggregation_answer_slots(
+        query="What desserts or recipes has Joanna made?",
+        text=(
+            "D3:4 Nate made coconut milk icecream. "
+            "D10:9 Joanna tested dairy-free dessert recipes. "
+            "D20:2 Joanna revised an old recipe and made a strawberry cake."
+        ),
+    ) == frozenset(
+        {
+            "dessert_cake",
+            "dessert_dairy_free",
+            "dessert_ice_cream",
+            "dessert_recipe",
+        }
+    )
+    assert aggregation_answer_slots(
+        query="What projects has Joanna worked on?",
+        text="D10:9 Joanna tested dairy-free dessert recipes.",
+    ) == frozenset()
+
+
 def test_keyword_aggregation_query_kind_handles_inventory_list_queries() -> None:
     cases = [
         "What European countries has Maria been to?",
@@ -186,13 +313,51 @@ def test_keyword_aggregation_query_kind_handles_inventory_list_queries() -> None
         "What shelters does Maria volunteer at?",
         "What causes does John feel passionate about supporting?",
         "What people has Maria met and helped while volunteering?",
+        "Who has Maria met and helped while volunteering?",
         "What martial arts has John done?",
         "Where has Maria made friends?",
+        "List all shelters where Maria volunteers.",
+        "Name both people Maria worked with at the shelter.",
     ]
 
     for query in cases:
         assert _keyword_aggregation_query_kind(query) == "list"
-    assert _keyword_aggregation_query_kind("Where did Caroline move from 4 years ago?") != "list"
+    assert (
+        _keyword_aggregation_query_kind("Where did Caroline move from 4 years ago?")
+        != "list"
+    )
+    assert _keyword_aggregation_query_kind("Who supports Caroline?") != "list"
+    assert (
+        _keyword_aggregation_query_kind("Who did Caroline recommend Becoming Nicole to?")
+        != "list"
+    )
+
+
+def test_inventory_answer_slots_detect_who_people_list_names() -> None:
+    slots = aggregation_answer_slots(
+        query="Who has Maria met and helped while volunteering?",
+        text=(
+            "D2:1 Maria met Alex at the shelter. "
+            "D11:10 Maria helped Priya with the food drive."
+        ),
+    )
+    support_slots = aggregation_answer_slots(
+        query="Who supports Caroline?",
+        text="D2:1 Caroline said Alex and Priya support her.",
+    )
+    pronoun_slots = aggregation_answer_slots(
+        query="Who has Maria met and helped while volunteering?",
+        text="D2:1 She met Alex at the shelter.",
+    )
+    list_slots = aggregation_answer_slots(
+        query="Name both people Maria worked with at the shelter.",
+        text="D2:1 Maria worked with Alex. D11:10 Maria worked with Priya.",
+    )
+
+    assert slots == frozenset({"person:alex", "person:priya"})
+    assert support_slots == frozenset()
+    assert pronoun_slots == frozenset({"person:alex"})
+    assert list_slots == frozenset({"person:alex", "person:priya"})
 
 
 def test_keyword_aggregation_source_kind_prefers_observation_over_raw_session() -> None:
@@ -427,6 +592,21 @@ def test_selected_keyword_prompt_items_keep_high_signal_inventory_tail() -> None
         score=0.78,
         source_refs=(SourceRef(source_type="chunk", source_id="weak"),),
     )
+    resident_letter = ContextItem(
+        item_id="resident_letter",
+        item_type="chunk",
+        text=(
+            "D31:8 Maria: One of the residents at the shelter wrote a heartfelt "
+            "expression of gratitude about the support they receive."
+        ),
+        score=0.84,
+        source_refs=(
+            SourceRef(
+                source_type="locomo_turn",
+                source_id="locomo:conv-41:session_31:D31:8:turn",
+            ),
+        ),
+    )
     scored_items = [
         (8 - index, 2, 2, 0.4, 0.8, index, "original_query", item)
         for index, item in enumerate(generic_items)
@@ -435,6 +615,16 @@ def test_selected_keyword_prompt_items_keep_high_signal_inventory_tail() -> None
         [
             (0, 7, 7, 0.875, 0.95, 8, "friend_place_church_inventory_bridge", church),
             (0, 3, 3, 0.3, 0.85, 9, "friend_place_church_inventory_bridge", weak_inventory),
+            (
+                0,
+                9,
+                9,
+                0.6,
+                0.92,
+                10,
+                "volunteering_people_inventory_bridge",
+                resident_letter,
+            ),
         ]
     )
 
@@ -444,6 +634,7 @@ def test_selected_keyword_prompt_items_keep_high_signal_inventory_tail() -> None
         item.item_id for item in generic_items
     ]
     assert "d14_church" in {item.item_id for item in selected}
+    assert "resident_letter" in {item.item_id for item in selected}
     assert "weak_inventory" not in {item.item_id for item in selected}
 
 
@@ -548,6 +739,101 @@ def test_keyword_aggregation_chunks_collect_modified_list_queries() -> None:
     assert "D5:1 Caroline" in items[0].text
 
 
+def test_lexical_variants_match_common_locomo_typos_without_case_specific_rules() -> None:
+    counts = text_variant_counts(
+        "Maria performed at the community event and pursued a new career path."
+    )
+    frequencies = {
+        term.raw: query_term_frequency(term, counts)
+        for term in query_terms("What did Maria preform and persue?")
+    }
+
+    assert frequencies["preform"] == 1
+    assert frequencies["persue"] == 1
+
+
+def test_lexical_variants_match_general_reminder_and_motivation_language() -> None:
+    counts = text_variant_counts(
+        "The pattern has sentimental value and reminds me of self-expression. "
+        "Counseling support groups improved my life and inspired me to help people."
+    )
+    frequencies = {
+        term.raw: query_term_frequency(term, counts)
+        for term in query_terms(
+            "What is the bowl a reminder of and what motivated counseling?"
+        )
+    }
+
+    assert frequencies["reminder"] >= 1
+    assert frequencies["motivated"] >= 1
+    assert frequencies["counseling"] >= 1
+
+
+def test_query_expansion_adds_general_locomo_failure_pattern_bridges() -> None:
+    reminder_plan = build_query_expansion_plan("What is Maria's bowl a reminder of?")
+    motivation_plan = build_query_expansion_plan(
+        "What motivated Maria to pursue counseling?"
+    )
+    list_plan = build_query_expansion_plan("What books has Maria read?")
+
+    assert "sentimental_reminder_bridge" in reminder_plan.diagnostics()[
+        "query_expansion_reasons"
+    ]
+    assert "motivation_reason_bridge" in motivation_plan.diagnostics()[
+        "query_expansion_reasons"
+    ]
+    assert "book_reading_list_bridge" in list_plan.diagnostics()[
+        "query_expansion_reasons"
+    ]
+
+
+def test_query_expansion_adds_general_inventory_failure_pattern_bridges() -> None:
+    volunteering_plan = build_query_expansion_plan(
+        "What type of volunteering have John and Maria both done?"
+    )
+    veterans_plan = build_query_expansion_plan(
+        "What events for veterans has John participated in?"
+    )
+    outdoor_plan = build_query_expansion_plan(
+        "What outdoor activities has John done with his colleagues?"
+    )
+    place_plan = build_query_expansion_plan(
+        "What areas of the U.S. has John been to or is planning to go to?"
+    )
+
+    assert "volunteering_inventory_bridge" in volunteering_plan.diagnostics()[
+        "query_expansion_reasons"
+    ]
+    assert "veterans_event_inventory_bridge" in veterans_plan.diagnostics()[
+        "query_expansion_reasons"
+    ]
+    assert "outdoor_activity_inventory_bridge" in outdoor_plan.diagnostics()[
+        "query_expansion_reasons"
+    ]
+    assert "place_area_inventory_bridge" in place_plan.diagnostics()[
+        "query_expansion_reasons"
+    ]
+
+
+def test_lexical_variants_match_general_inventory_language() -> None:
+    counts = text_variant_counts(
+        "We volunteered at a homeless shelter, organized a charity run for veterans, "
+        "and vacationed in Florida after hiking with colleagues."
+    )
+    frequencies = {
+        term.raw: query_term_frequency(term, counts)
+        for term in query_terms(
+            "What volunteering, veterans events, areas, and outdoor activities happened?"
+        )
+    }
+
+    assert frequencies["volunteering"] >= 1
+    assert frequencies["veterans"] >= 1
+    assert frequencies["areas"] >= 1
+    assert frequencies["outdoor"] >= 1
+    assert frequencies["activities"] >= 1
+
+
 def test_keyword_aggregation_chunks_skip_non_aggregation_queries() -> None:
     items, diagnostics = _keyword_aggregation_chunk_items(
         query=_build_query("Where does Alex live now?"),
@@ -628,6 +914,28 @@ def test_source_sibling_score_promotes_query_relevant_adjacent_turn() -> None:
     assert score > 0.97
 
 
+def test_source_sibling_marks_direct_temporal_event_turn_as_answer_evidence() -> None:
+    query = (
+        "when date decide decided collaborate collaboration create dance content "
+        "agreed choreographed community showcase rehearsal performance"
+    )
+    text = (
+        "D18:18 Avery: We decided to collaborate and create choreographed dance "
+        "content for a community showcase performance."
+    )
+
+    assert _source_sibling_answer_evidence(
+        expansion_query=query,
+        expansion_reason="temporal_event_detail_bridge",
+        text=text,
+    )
+    assert not _source_sibling_answer_evidence(
+        expansion_query=query,
+        expansion_reason="business_start_reason_bridge",
+        text=text,
+    )
+
+
 def test_source_sibling_allows_distant_birdwatching_schedule_evidence_turn() -> None:
     seed = _chunk(
         "d20_1",
@@ -654,6 +962,7 @@ def test_source_sibling_allows_distant_birdwatching_schedule_evidence_turn() -> 
     rank = _source_sibling_distant_answer_evidence_rank(
         candidate,
         source_groups=source_groups,
+        expansion_query=query,
         expansion_reason=reason,
         text=candidate.text,
     )
@@ -1201,6 +1510,88 @@ def test_source_sibling_filters_animal_care_instruction_noise() -> None:
     )
 
 
+def test_source_sibling_filters_animal_diet_evidence_noise() -> None:
+    weak_text = (
+        "D12:4 Nate: I grabbed food before the match and talked about gaming "
+        "with friends."
+    )
+    strong_text = (
+        "D25:19 Nate: They eat a combination of vegetables, fruits, and insects. "
+        "They have a varied diet."
+    )
+    query = (
+        "Nate animal diet evidence turtles reptiles eat food vegetables fruits "
+        "insects varied diet keeper zoo career"
+    )
+    rank = _SourceSiblingRank(
+        score=0.968,
+        group_priority=1,
+        turn_distance=0,
+        turn_delta=0,
+        group_level_seed=True,
+    )
+    weak_relevance = score_query_relevance(query=query, text=weak_text)
+    strong_relevance = score_query_relevance(query=query, text=strong_text)
+
+    assert not _source_sibling_relevance_allowed(
+        rank=rank,
+        relevance=weak_relevance,
+        expansion_query=query,
+        expansion_reason="animal_diet_evidence_bridge",
+        text=weak_text,
+    )
+    assert _source_sibling_relevance_allowed(
+        rank=rank,
+        relevance=strong_relevance,
+        expansion_query=query,
+        expansion_reason="animal_diet_evidence_bridge",
+        text=strong_text,
+    )
+    assert _source_sibling_score_cap(
+        expansion_reason="animal_diet_evidence_bridge",
+        relevance=weak_relevance,
+        text=weak_text,
+    ) is not None
+    assert _source_sibling_score_cap(
+        expansion_reason="animal_diet_evidence_bridge",
+        relevance=strong_relevance,
+        text=strong_text,
+    ) is None
+
+
+def test_source_sibling_group_limit_prioritizes_answer_evidence_groups() -> None:
+    plan = build_query_expansion_plan("What alternative career might Nate consider after gaming?")
+    seed_chunks = tuple(
+        _chunk(
+            chunk_id=f"generic_{index}",
+            source_external_id=f"locomo:conv-42:session_{index}:D{index}:1:turn",
+            text=f"D{index}:1 Nate: Generic turtle update about the tank.",
+        )
+        for index in range(1, 5)
+    ) + (
+        _chunk(
+            chunk_id="diet",
+            source_external_id="locomo:conv-42:session_25:D25:19:turn",
+            text=(
+                "D25:19 Nate: They eat a combination of vegetables, fruits, "
+                "and insects. They have a varied diet."
+            ),
+        ),
+    )
+    source_groups = _source_group_seed_turns(seed_chunks)
+
+    selected = _prioritized_source_sibling_seed_groups(
+        source_groups=source_groups,
+        seed_chunks=seed_chunks,
+        query_plan=plan,
+        query_relevance_cache={},
+        limit=3,
+    )
+
+    assert "locomo:conv-42:session_25" in selected
+    assert len(selected) == 3
+
+
 def test_source_sibling_promotes_pottery_observation_companion() -> None:
     chunk = SimpleNamespace(
         source_external_id="locomo:conv-26:session_12:observation",
@@ -1429,6 +1820,39 @@ def test_source_sibling_caps_generic_volunteer_career_noise() -> None:
 
     assert weak_score <= 0.976
     assert strong_score > weak_score
+
+
+def test_source_sibling_allows_career_path_adjacent_evidence() -> None:
+    rank = _SourceSiblingRank(
+        score=0.955,
+        group_priority=1,
+        turn_distance=1,
+        turn_delta=-1,
+    )
+    query = (
+        "career path decided pursue persue education options counseling "
+        "mental health jobs work looking considering goal"
+    )
+    evidence_text = (
+        "D4:13 Caroline: I'm thinking of working with trans people, "
+        "helping them accept themselves and supporting their mental health."
+    )
+    noise_text = "D4:13 Caroline wrote a story about career uncertainty."
+
+    assert _source_sibling_relevance_allowed(
+        rank=rank,
+        relevance=score_query_relevance(query=query, text=evidence_text),
+        expansion_query=query,
+        expansion_reason="career_path_bridge",
+        text=evidence_text,
+    )
+    assert not _source_sibling_relevance_allowed(
+        rank=rank,
+        relevance=score_query_relevance(query=query, text=noise_text),
+        expansion_query=query,
+        expansion_reason="career_path_bridge",
+        text=noise_text,
+    )
 
 
 def test_source_sibling_allows_degree_policy_inference_turn() -> None:
@@ -1762,6 +2186,19 @@ def test_source_sibling_rank_keeps_primary_seed_turn_available_for_hybrid_boost(
     assert rank.score > 0.96
 
 
+def test_source_sibling_rank_accepts_hyphenated_turn_source_ids() -> None:
+    seed = SimpleNamespace(source_external_id="locomo:conv-26:session_7:D7-4:turn")
+    candidate = SimpleNamespace(source_external_id="locomo:conv-26:session_7:D7-6:turn")
+    source_groups = _source_group_seed_turns((seed,))
+
+    rank = _source_sibling_rank(candidate, source_groups=source_groups)
+
+    assert tuple(source_groups) == ("locomo:conv-26:session_7",)
+    assert rank is not None
+    assert rank.turn_distance == 2
+    assert rank.turn_delta == 2
+
+
 def test_source_sibling_rank_uses_session_events_as_group_level_seed() -> None:
     seed = SimpleNamespace(source_external_id="locomo:conv-41:session_24:events")
     candidate = SimpleNamespace(source_external_id="locomo:conv-41:session_24:D24:3:turn")
@@ -1823,6 +2260,58 @@ def test_source_sibling_allows_generic_behavior_inference_turn() -> None:
         )
         >= 0.974
     )
+
+
+def test_context_packer_keeps_same_answer_family_when_source_ref_is_new() -> None:
+    packer = ContextPacker()
+    diagnostics = {
+        "score_signals": {
+            "query_expansion_reason": "activity_aggregation_bridge",
+        }
+    }
+    items = (
+        ContextItem(
+            item_id="church-hike",
+            item_type="chunk",
+            text="D25:2 Maria hiked with church friends.",
+            score=0.99,
+            source_refs=(
+                SourceRef(
+                    source_type="locomo_turn",
+                    source_id="locomo:conv-41:session_25:D25:2:turn",
+                    chunk_id="chunk-d25-2",
+                ),
+            ),
+            diagnostics=diagnostics,
+        ),
+        ContextItem(
+            item_id="church-picnic",
+            item_type="chunk",
+            text="D24:6 Maria had a picnic with friends from church.",
+            score=0.98,
+            source_refs=(
+                SourceRef(
+                    source_type="locomo_turn",
+                    source_id="locomo:conv-41:session_24:D24:6:turn",
+                    chunk_id="chunk-d24-6",
+                ),
+            ),
+            diagnostics=diagnostics,
+        ),
+    )
+
+    result = packer.pack(
+        bundle_id="ctx-test",
+        items=items,
+        token_budget=300,
+        max_rendered_chars=2000,
+    )
+
+    assert {item.item_id for item in result.bundle.items} == {
+        "church-hike",
+        "church-picnic",
+    }
+    assert result.bundle.diagnostics["dropped_by_answer_support_family_duplicate"] == 0
 
 
 def test_source_sibling_rejects_generic_behavior_topic_only_turn() -> None:

@@ -5,22 +5,25 @@ from __future__ import annotations
 import re
 
 _ITEM_PURCHASE_OBJECT_RE = re.compile(
-    r"\b(?:figurines?|wooden\s+dolls?|shoes?|sneakers?|items?|belongings?|"
-    r"objects?|possessions?)\b",
+    r"\b(?:figurines?|wooden\s+dolls?|shoes?|sneakers?|jerseys?|"
+    r"movies?|films?|dvds?|items?|belongings?|objects?|possessions?)\b",
     re.IGNORECASE,
 )
 _ITEM_PURCHASE_VERB_RE = re.compile(
-    r"\b(?:buy|bought|purchase(?:d|s|ing)?|got|picked\s+up|ordered|acquired)\b",
+    r"\b(?:buy|bought|purchase(?:d|s|ing)?|got|picked\s+up|ordered|"
+    r"acquired|collect(?:ed|s|ing)?|collection|own(?:ed|s|ing)?)\b",
     re.IGNORECASE,
 )
 _ITEM_PURCHASE_OBJECT_EVIDENCE_RE = re.compile(
-    r"\b(?:buy|bought|purchase(?:d|s|ing)?|got|picked\s+up|ordered|acquired)\b"
-    r"(?=.{0,140}\b(?:figurines?|wooden\s+dolls?|shoes?|sneakers?|items?|"
-    r"belongings?|objects?|possessions?)\b)|"
-    r"\b(?:figurines?|wooden\s+dolls?|shoes?|sneakers?|items?|belongings?|"
-    r"objects?|possessions?)\b"
+    r"\b(?:buy|bought|purchase(?:d|s|ing)?|got|picked\s+up|ordered|"
+    r"acquired|collect(?:ed|s|ing)?|collection|own(?:ed|s|ing)?)\b"
+    r"(?=.{0,140}\b(?:figurines?|wooden\s+dolls?|shoes?|sneakers?|"
+    r"jerseys?|movies?|films?|dvds?|items?|belongings?|objects?|"
+    r"possessions?)\b)|"
+    r"\b(?:figurines?|wooden\s+dolls?|shoes?|sneakers?|jerseys?|"
+    r"movies?|films?|dvds?|items?|belongings?|objects?|possessions?)\b"
     r"(?=.{0,140}\b(?:buy|bought|purchase(?:d|s|ing)?|got|picked\s+up|"
-    r"ordered|acquired)\b)",
+    r"ordered|acquired|collect(?:ed|s|ing)?|collection|own(?:ed|s|ing)?)\b)",
     re.IGNORECASE | re.DOTALL,
 )
 _ITEM_PURCHASE_TEMPORAL_OR_MEDIA_RE = re.compile(

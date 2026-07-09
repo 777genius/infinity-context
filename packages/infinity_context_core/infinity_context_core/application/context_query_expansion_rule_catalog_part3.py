@@ -114,7 +114,18 @@ EXPANSION_RULES_PART_3: tuple[tuple[frozenset[str], str, str], ...] = (
         ),
     (
             frozenset({"camped"}),
-            "camping camped family mountains beach forest outdoors trip",
+            (
+                "camping camped campsite campground family mountains beach forest "
+                "lake park trail outdoors trip location place"
+            ),
+            "camping_location_bridge",
+        ),
+    (
+            frozenset({"where", "camping"}),
+            (
+                "camping camped campsite campground family mountains beach forest "
+                "lake park trail outdoors trip location place"
+            ),
             "camping_location_bridge",
         ),
     (
@@ -157,6 +168,24 @@ EXPANSION_RULES_PART_3: tuple[tuple[frozenset[str], str, str], ...] = (
                 "campfire marshmallows hiking beach stories trip spending time pottery "
                 "workshop clay pots swimming fam unplug hang creativity imagination "
                 "excited motivated motivate love latest work quiet weekend"
+            ),
+            "family_activity_bridge",
+        ),
+    (
+            frozenset({"activity", "dad"}),
+            (
+                "activity dad father parent childhood child kid younger used to go "
+                "used to do used to play used to ride with my dad with my father "
+                "family memory childhood memory"
+            ),
+            "family_activity_bridge",
+        ),
+    (
+            frozenset({"activity", "father"}),
+            (
+                "activity dad father parent childhood child kid younger used to go "
+                "used to do used to play used to ride with my dad with my father "
+                "family memory childhood memory"
             ),
             "family_activity_bridge",
         ),
@@ -213,10 +242,26 @@ EXPANSION_RULES_PART_3: tuple[tuple[frozenset[str], str, str], ...] = (
             "activity_aggregation_bridge",
         ),
     (
+            frozenset({"research"}),
+            (
+                "researched researching research looked into read about studied "
+                "explored investigated topic information resources options"
+            ),
+            "research_topic_bridge",
+        ),
+    (
             frozenset({"partake"}),
             (
                 "sunrise sunset lake take look swimming kids taking care ourselves "
                 "vital self care relax long day"
+            ),
+            "activity_visual_selfcare_bridge",
+        ),
+    (
+            frozenset({"self", "care"}),
+            (
+                "sunrise sunset lake take look swimming kids taking care ourselves "
+                "vital self care relax long day prioritize unwind recharge activity"
             ),
             "activity_visual_selfcare_bridge",
         ),
@@ -246,12 +291,56 @@ EXPANSION_RULES_PART_3: tuple[tuple[frozenset[str], str, str], ...] = (
             "painting_inventory_bridge",
         ),
     (
+            frozenset({"painting"}),
+            (
+                "painted painting artwork picture photo image caption visual query "
+                "horse sunset sunrise lake palm tree flowers sunflower landscape "
+                "nature latest work canvas"
+            ),
+            "painting_inventory_bridge",
+        ),
+    (
+            frozenset({"when", "paint", "sunrise"}),
+            (
+                "when date painted painting sunrise artwork picture photo image "
+                "caption visual query lake sunset relative date day weekday yesterday"
+            ),
+            "temporal_event_detail_bridge",
+        ),
+    (
             frozenset({"event", "attend"}),
             (
                 "events participated attended joined went lgbtq community advocacy "
                 "activism campaign mentorship mentoring program youth equality awareness"
             ),
             "event_participation_bridge",
+        ),
+    (
+            frozenset({"competition", "attend"}),
+            (
+                "competition contest compete competed competing comp tournament trophy "
+                "trophies first place won winner stage performance team crew regional "
+                "regionals visual query image caption participated"
+            ),
+            "activity_competition_evidence_bridge",
+        ),
+    (
+            frozenset({"dancers", "photo"}),
+            (
+                "dancers dance festival photo picture image caption visual query "
+                "performing stage practicing hard grace skill graceful impress "
+                "looks great awesome part of it"
+            ),
+            "activity_competition_evidence_bridge",
+        ),
+    (
+            frozenset({"dance", "festival"}),
+            (
+                "dance festival dancers performing performance stage practicing hard "
+                "grace skill graceful impress participate participating part of it "
+                "glad awesome excited memories grand opening"
+            ),
+            "activity_competition_evidence_bridge",
         ),
     (
             frozenset({"awareness"}),
@@ -263,6 +352,32 @@ EXPANSION_RULES_PART_3: tuple[tuple[frozenset[str], str, str], ...] = (
                 "make a difference start conversations"
             ),
             "cause_awareness_event_bridge",
+        ),
+    (
+            frozenset({"realize", "after"}),
+            (
+                "realize realized learned understood after event race run charity "
+                "self care self-care taking care important vital mental health "
+                "emotion reaction inspired proud motivation"
+            ),
+            "post_event_emotion_bridge",
+        ),
+    (
+            frozenset({"think"}),
+            (
+                "think thought opinion reaction response decision plan choice "
+                "supportive proud excited happy agree approve concerned disagree "
+                "good idea great idea encouragement"
+            ),
+            "opinion_reaction_bridge",
+        ),
+    (
+            frozenset({"when", "charity", "race"}),
+            (
+                "when date charity race run ran fundraiser event participated "
+                "signed up raised awareness relative date day weekday last saturday"
+            ),
+            "temporal_event_detail_bridge",
         ),
     (
             frozenset({"lgbtq", "event", "attend"}),
@@ -281,12 +396,36 @@ EXPANSION_RULES_PART_3: tuple[tuple[frozenset[str], str, str], ...] = (
             "lgbtq_support_group_event_bridge",
         ),
     (
+            frozenset({"lgbtq", "support", "group"}),
+            (
+                "lgbtq support group transgender stories powerful inspiring accepted "
+                "courage embrace community attended went joined"
+            ),
+            "lgbtq_support_group_event_bridge",
+        ),
+    (
             frozenset({"lgbtq", "event", "attend"}),
             (
                 "school event speech talk transgender journey students involved "
                 "community reactions awareness allies inclusion gender identity"
             ),
             "lgbtq_school_event_bridge",
+        ),
+    (
+            frozenset({"when", "school", "speech"}),
+            (
+                "when date school speech talk gave spoke students audience event "
+                "journey support community relative date day weekday last week"
+            ),
+            "temporal_event_detail_bridge",
+        ),
+    (
+            frozenset({"when", "meet", "friends"}),
+            (
+                "when date meet met meetup meeting friends family mentors support "
+                "network gathering together relative date day weekday week"
+            ),
+            "temporal_event_detail_bridge",
         ),
     (
             frozenset({"event", "attend", "help"}),
@@ -313,6 +452,57 @@ EXPANSION_RULES_PART_3: tuple[tuple[frozenset[str], str, str], ...] = (
                 "safe space professionals support acceptance enlightening"
             ),
             "counseling_workshop_bridge",
+        ),
+    (
+            frozenset({"counseling", "services"}),
+            (
+                "counseling mental health services therapy therapeutic support "
+                "counselor help people similar issues lgbtq trans community safe "
+                "supportive space interested pursuing career"
+            ),
+            "counseling_services_interest_bridge",
+        ),
+    (
+            frozenset({"mental", "health", "services"}),
+            (
+                "counseling mental health services therapy therapeutic support "
+                "counselor help people similar issues lgbtq trans community safe "
+                "supportive space interested pursuing career"
+            ),
+            "counseling_services_interest_bridge",
+        ),
+    (
+            frozenset({"create", "place", "people"}),
+            (
+                "create creating place space people safe inviting supportive "
+                "welcoming accepted acceptance grow heal community counseling "
+                "mental health support belong"
+            ),
+            "safe_supportive_place_goal_bridge",
+        ),
+    (
+            frozenset({"when", "transgender", "conference"}),
+            (
+                "when date transgender conference going attending upcoming this "
+                "month advocacy professionals community support relative date day"
+            ),
+            "temporal_event_detail_bridge",
+        ),
+    (
+            frozenset({"when", "pottery", "class"}),
+            (
+                "when date sign signed up pottery class workshop clay creative "
+                "therapeutic activity relative date day weekday"
+            ),
+            "temporal_event_detail_bridge",
+        ),
+    (
+            frozenset({"when", "pottery", "workshop"}),
+            (
+                "when date pottery workshop class clay creative made make plate "
+                "bowl cups kids children therapeutic activity relative date day weekday"
+            ),
+            "temporal_event_detail_bridge",
         ),
     (
             frozenset({"degree"}),
@@ -382,17 +572,159 @@ EXPANSION_RULES_PART_3: tuple[tuple[frozenset[str], str, str], ...] = (
             frozenset({"medium", "game"}),
             (
                 "medium mediums games play gaming GameCube Gamecube PC Playstation "
-                "console equipment upgraded setup competition controller keyboard"
+                "console equipment upgraded setup competition tournament trophy "
+                "cash prize controller keyboard headset headphones"
             ),
             "gaming_medium_bridge",
         ),
     (
+            frozenset({"board", "games"}),
+            (
+                "board game board games tabletop strategy game card game gaming party "
+                "game convention played plays playing named called"
+            ),
+            "board_game_inventory_bridge",
+        ),
+    (
+            frozenset({"board", "game"}),
+            (
+                "board game board games tabletop strategy game card game gaming party "
+                "game convention played plays playing named called"
+            ),
+            "board_game_inventory_bridge",
+        ),
+    (
+            frozenset({"video", "games"}),
+            (
+                "video game video games videogame gaming esports tournament tournaments "
+                "championship final champion won winning winner victory feelings emotions "
+                "play plays played playing currently nonstop called named title console pc "
+                "switch rpg role playing fighting game shooter"
+            ),
+            "board_game_inventory_bridge",
+        ),
+    (
+            frozenset({"video", "game"}),
+            (
+                "video game video games videogame gaming esports tournament tournaments "
+                "championship final champion won winning winner victory feelings emotions "
+                "play plays played playing currently nonstop called named title console pc "
+                "switch rpg role playing fighting game shooter"
+            ),
+            "board_game_inventory_bridge",
+        ),
+    (
+            frozenset({"clipboard"}),
+            (
+                "clipboard notepad notebook calendar planner using use stay organized "
+                "motivated sets goals tracks achievements areas improve improvement "
+                "goal setting progress system attached"
+            ),
+            "planning_tool_use_bridge",
+        ),
+    (
+            frozenset({"notepad"}),
+            (
+                "clipboard notepad notebook calendar planner using use stay organized "
+                "motivated sets goals tracks achievements areas improve improvement "
+                "goal setting progress system attached"
+            ),
+            "planning_tool_use_bridge",
+        ),
+    (
+            frozenset({"customers", "experience"}),
+            (
+                "customers customer special experience creating create feel welcome "
+                "coming back come back key space imagining cozy inviting shopping "
+                "store oasis customer experience"
+            ),
+            "customer_experience_bridge",
+        ),
+    (
+            frozenset({"customer", "experience"}),
+            (
+                "customers customer special experience creating create feel welcome "
+                "coming back come back key space imagining cozy inviting shopping "
+                "store oasis customer experience"
+            ),
+            "customer_experience_bridge",
+        ),
+    (
+            frozenset({"grand", "opening"}),
+            (
+                "grand opening launch dance studio tomorrow right by your side "
+                "live it up great memories so excited support proud can't wait "
+                "earned it opening night"
+            ),
+            "grand_opening_support_bridge",
+        ),
+    (
             frozenset({"pet", "have"}),
             (
-                "pets has have dog Max new addition family turtles critters new friend "
+                "pets has have dog new addition family turtles critters new friend "
                 "puppy pup doggo pet turtle"
             ),
             "pet_inventory_bridge",
+        ),
+    (
+            frozenset({"pets", "names"}),
+            (
+                "pets pet names named called dog dogs cat cats puppy pup turtle "
+                "turtles new addition family companion belongs to has have"
+            ),
+            "pet_inventory_bridge",
+        ),
+    (
+            frozenset({"dogs", "names"}),
+            (
+                "dogs dog names named called puppy pup pets pet new addition family "
+                "companion belongs to has have"
+            ),
+            "pet_inventory_bridge",
+        ),
+    (
+            frozenset({"is", "pet"}),
+            (
+                "is pet belongs to has have dog cat puppy pup turtle named called "
+                "new addition family companion owner"
+            ),
+            "pet_inventory_bridge",
+        ),
+    (
+            frozenset({"puppy", "adjusting"}),
+            (
+                "puppy pup dog pet little one new home adjusting adjusted doing "
+                "great learning commands house training trained adopted shelter "
+                "brings joy give home"
+            ),
+            "pet_adjustment_bridge",
+        ),
+    (
+            frozenset({"puppy", "home"}),
+            (
+                "puppy pup dog pet little one new home adjusting adjusted doing "
+                "great learning commands house training trained adopted shelter "
+                "brings joy give home"
+            ),
+            "pet_adjustment_bridge",
+        ),
+    (
+            frozenset({"when", "adopt"}),
+            (
+                "when date adopted got get new addition family pet dog puppy pup "
+                "new pup for you gift from named stuffed animal image caption "
+                "visual query cute dog couch blanket toy"
+            ),
+            "pet_acquisition_date_bridge",
+        ),
+    (
+            frozenset({"when", "get"}),
+            (
+                "when date adopted got get new addition family pet dog puppy pup "
+                "new pup for you gift from named stuffed animal image caption "
+                "visual query cute dog couch blanket toy"
+            ),
+            "pet_acquisition_date_bridge",
         ),
     (
             frozenset({"beach", "mountains"}),
@@ -412,6 +744,26 @@ EXPANSION_RULES_PART_3: tuple[tuple[frozenset[str], str, str], ...] = (
                 "family streets reached out needed volunteers"
             ),
             "volunteer_career_inference_bridge",
+        ),
+    (
+            frozenset({"career", "month"}),
+            (
+                "career work job professional month good bad positive negative "
+                "setback setbacks letdown failure failed loss lost work lost progress "
+                "crashed crash major blow frustrating did not do well didn't do well "
+                "not great competition tournament performance"
+            ),
+            "negative_experience_support_bridge",
+        ),
+    (
+            frozenset({"career", "wise"}),
+            (
+                "career work job professional month good bad positive negative "
+                "setback setbacks letdown failure failed loss lost work lost progress "
+                "crashed crash major blow frustrating did not do well didn't do well "
+                "not great competition tournament performance"
+            ),
+            "negative_experience_support_bridge",
         ),
     (
             frozenset({"alternative", "career"}),
@@ -442,6 +794,21 @@ EXPANSION_RULES_PART_3: tuple[tuple[frozenset[str], str, str], ...] = (
             frozenset({"alternative", "career"}),
             _terms._ANIMAL_AFFINITY_PET_STORE_EXPANSION,
             "animal_affinity_pet_store_bridge",
+        ),
+    (
+            frozenset({"activities", "turtles"}),
+            _terms._ANIMAL_ACTIVITY_INVENTORY_EXPANSION,
+            "animal_activity_inventory_bridge",
+        ),
+    (
+            frozenset({"activity", "turtles"}),
+            _terms._ANIMAL_ACTIVITY_INVENTORY_EXPANSION,
+            "animal_activity_inventory_bridge",
+        ),
+    (
+            frozenset({"activities", "pets"}),
+            _terms._ANIMAL_ACTIVITY_INVENTORY_EXPANSION,
+            "animal_activity_inventory_bridge",
         ),
     (
             frozenset({"career", "gaming"}),
@@ -561,8 +928,38 @@ EXPANSION_RULES_PART_3: tuple[tuple[frozenset[str], str, str], ...] = (
             (
                 "symbols important rainbow flag mural eagle freedom pride courage "
                 "strength trans community resilience stained glass acceptance pendant "
-                "necklace transgender symbol cross heart symbolizes represents meaning "
-                "means stands for love faith roots gift grandma reminder"
+                "necklace transgender symbol cross heart tattoo drawing flowers sunflower "
+                "symbolizes represents meaning means stands for love faith roots gift "
+                "grandma reminder resilience growth hope"
+            ),
+            "symbol_importance_bridge",
+        ),
+    (
+            frozenset({"represent"}),
+            (
+                "symbols important rainbow flag mural eagle freedom pride courage "
+                "strength trans community resilience stained glass acceptance pendant "
+                "necklace tattoo drawing flowers sunflower transgender symbol cross heart "
+                "symbolizes represents meaning means stands for love faith roots gift "
+                "grandma reminder resilience growth hope"
+            ),
+            "symbol_importance_bridge",
+        ),
+    (
+            frozenset({"tattoo", "symbol"}),
+            (
+                "symbols important tattoo tattoos ink design flower sunflowers "
+                "symbolizes represents meaning means stands for resilience growth "
+                "strength reminder memory courage"
+            ),
+            "symbol_importance_bridge",
+        ),
+    (
+            frozenset({"flower", "important"}),
+            (
+                "symbols important flowers sunflower sunflowers nature represent "
+                "symbolizes represents meaning means stands for resilience growth "
+                "hope strength reminder memory"
             ),
             "symbol_importance_bridge",
         ),

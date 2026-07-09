@@ -7,7 +7,24 @@ from collections import defaultdict
 from collections.abc import Mapping, Sequence
 from pathlib import Path
 
+from infinity_context_server.memory_comparison_source_identity import (
+    safe_item_id_for_output as _safe_item_id_for_output,
+)
+from infinity_context_server.memory_comparison_source_identity import (
+    safe_source_refs_for_output as _safe_source_refs_for_output,
+)
+from infinity_context_server.public_benchmark_case_diagnostics import (
+    artifact_text_value as _artifact_text_value,
+)
+from infinity_context_server.public_benchmark_case_diagnostics import (
+    preview_value as _preview_value,
+)
 from infinity_context_server.public_benchmark_checkpoint import CaseRunResult
+
+_PREVIEW_CHARS = 240
+_TERM_CHARS = 120
+_EVIDENCE_PREVIEW_CHARS = 360
+_MAX_TERM_VALUES = 20
 
 
 def run_metric_summary(run_results: Sequence[CaseRunResult]) -> dict[str, object]:
@@ -67,43 +84,47 @@ def benchmark_summaries(
 
 def case_payload(item: CaseRunResult) -> dict[str, object]:
     payload: dict[str, object] = {
-        "benchmark": item.benchmark,
-        "case_id": item.case_id,
-        "capability": item.capability,
+        "benchmark": _safe_scalar_text(item.benchmark, max_chars=_TERM_CHARS),
+        "case_id": _safe_scalar_text(item.case_id, max_chars=_TERM_CHARS),
+        "capability": _safe_scalar_text(item.capability, max_chars=_TERM_CHARS),
         "status": "ok" if item.ok else "failed",
         "expected_ok": item.expected_ok,
         "forbidden_ok": item.forbidden_ok,
-        "missing_terms": list(item.missing_terms),
-        "leaked_terms": list(item.leaked_terms),
-        "item_ids": list(item.item_ids),
+        "missing_terms": _safe_preview_list(item.missing_terms),
+        "leaked_terms": _safe_preview_list(item.leaked_terms),
+        "item_ids": _safe_item_id_list(item.item_ids),
         "latency_ms": item.latency_ms,
         "coverage": _case_coverage_payload(item),
-        "covered_terms": [value[:120] for value in item.covered_terms[:20]],
-        "covered_evidence_refs": [
-            value[:120] for value in item.covered_evidence_refs[:20]
-        ],
-        "missing_evidence_refs": [
-            value[:120] for value in item.missing_evidence_refs[:20]
-        ],
+        "covered_terms": _safe_preview_list(item.covered_terms),
+        "covered_evidence_refs": _safe_source_ref_list(item.covered_evidence_refs),
+        "missing_evidence_refs": _safe_source_ref_list(item.missing_evidence_refs),
     }
     if item.question_preview:
-        payload["question_preview"] = item.question_preview[:240]
+        payload["question_preview"] = _safe_preview_text(
+            item.question_preview,
+            max_chars=_PREVIEW_CHARS,
+        )
     if not item.ok and item.answer_preview:
-        payload["answer_preview"] = item.answer_preview[:240]
+        payload["answer_preview"] = _safe_preview_text(
+            item.answer_preview,
+            max_chars=_PREVIEW_CHARS,
+        )
     if not item.ok and item.expected_terms_preview:
-        payload["expected_terms_preview"] = [
-            value[:120] for value in item.expected_terms_preview[:20]
-        ]
+        payload["expected_terms_preview"] = _safe_preview_list(
+            item.expected_terms_preview
+        )
     if not item.ok and item.evidence_refs:
-        payload["evidence_refs"] = [value[:120] for value in item.evidence_refs[:20]]
+        payload["evidence_refs"] = _safe_source_ref_list(item.evidence_refs)
     if not item.ok and item.evidence_ref_previews:
-        payload["evidence_ref_previews"] = [
-            value[:360] for value in item.evidence_ref_previews[:20]
-        ]
+        payload["evidence_ref_previews"] = _safe_preview_list(
+            item.evidence_ref_previews,
+            max_chars=_EVIDENCE_PREVIEW_CHARS,
+        )
     if not item.ok and item.missing_evidence_ref_previews:
-        payload["missing_evidence_ref_previews"] = [
-            value[:360] for value in item.missing_evidence_ref_previews[:20]
-        ]
+        payload["missing_evidence_ref_previews"] = _safe_preview_list(
+            item.missing_evidence_ref_previews,
+            max_chars=_EVIDENCE_PREVIEW_CHARS,
+        )
     return payload
 
 
@@ -113,41 +134,49 @@ def case_failures(run_results: Sequence[CaseRunResult]) -> list[dict[str, object
 
 def _case_failure_payload(item: CaseRunResult) -> dict[str, object]:
     payload: dict[str, object] = {
-        "case_id": item.case_id,
-        "category": item.benchmark,
-        "capability": item.capability,
+        "case_id": _safe_scalar_text(item.case_id, max_chars=_TERM_CHARS),
+        "category": _safe_scalar_text(item.benchmark, max_chars=_TERM_CHARS),
+        "capability": _safe_scalar_text(item.capability, max_chars=_TERM_CHARS),
         "reason": "missing_expected_terms" if item.missing_terms else "forbidden_terms_leaked",
-        "missing_terms": list(item.missing_terms),
-        "leaked_terms": list(item.leaked_terms),
+        "missing_terms": _safe_preview_list(item.missing_terms),
+        "leaked_terms": _safe_preview_list(item.leaked_terms),
     }
     if item.question_preview:
-        payload["question_preview"] = item.question_preview[:240]
+        payload["question_preview"] = _safe_preview_text(
+            item.question_preview,
+            max_chars=_PREVIEW_CHARS,
+        )
     if item.answer_preview:
-        payload["answer_preview"] = item.answer_preview[:240]
+        payload["answer_preview"] = _safe_preview_text(
+            item.answer_preview,
+            max_chars=_PREVIEW_CHARS,
+        )
     if item.expected_terms_preview:
-        payload["expected_terms_preview"] = [
-            value[:120] for value in item.expected_terms_preview[:20]
-        ]
+        payload["expected_terms_preview"] = _safe_preview_list(
+            item.expected_terms_preview
+        )
     if item.evidence_refs:
-        payload["evidence_refs"] = [value[:120] for value in item.evidence_refs[:20]]
+        payload["evidence_refs"] = _safe_source_ref_list(item.evidence_refs)
     if item.evidence_ref_previews:
-        payload["evidence_ref_previews"] = [
-            value[:360] for value in item.evidence_ref_previews[:20]
-        ]
+        payload["evidence_ref_previews"] = _safe_preview_list(
+            item.evidence_ref_previews,
+            max_chars=_EVIDENCE_PREVIEW_CHARS,
+        )
     if item.covered_terms:
-        payload["covered_terms"] = [value[:120] for value in item.covered_terms[:20]]
+        payload["covered_terms"] = _safe_preview_list(item.covered_terms)
     if item.covered_evidence_refs:
-        payload["covered_evidence_refs"] = [
-            value[:120] for value in item.covered_evidence_refs[:20]
-        ]
+        payload["covered_evidence_refs"] = _safe_source_ref_list(
+            item.covered_evidence_refs
+        )
     if item.missing_evidence_refs:
-        payload["missing_evidence_refs"] = [
-            value[:120] for value in item.missing_evidence_refs[:20]
-        ]
+        payload["missing_evidence_refs"] = _safe_source_ref_list(
+            item.missing_evidence_refs
+        )
     if item.missing_evidence_ref_previews:
-        payload["missing_evidence_ref_previews"] = [
-            value[:360] for value in item.missing_evidence_ref_previews[:20]
-        ]
+        payload["missing_evidence_ref_previews"] = _safe_preview_list(
+            item.missing_evidence_ref_previews,
+            max_chars=_EVIDENCE_PREVIEW_CHARS,
+        )
     return payload
 
 
@@ -165,26 +194,29 @@ def _case_coverage_payload(item: CaseRunResult) -> dict[str, object]:
 
 
 def bounded_progress_fields(fields: Mapping[str, object]) -> dict[str, object]:
+    return bounded_public_artifact_fields(fields)
+
+
+def bounded_public_artifact_fields(fields: Mapping[str, object]) -> dict[str, object]:
     bounded: dict[str, object] = {}
-    for key, value in fields.items():
+    for raw_key, value in fields.items():
         if value is None:
             continue
+        key = _safe_field_key(raw_key)
+        if not key:
+            continue
         if isinstance(value, str):
-            bounded[key] = value[:240]
+            safe_value = _safe_artifact_text(key, value, max_chars=240)
+            if safe_value:
+                bounded[key] = safe_value
         elif isinstance(value, bool | int | float):
             bounded[key] = value
         elif isinstance(value, Sequence) and not isinstance(value, str | bytes):
-            bounded[key] = [
-                item[:120] if isinstance(item, str) else item
-                for item in value[:20]
-                if isinstance(item, str | bool | int | float)
-            ]
+            bounded[key] = _safe_artifact_sequence(key, value, max_chars=120)
         elif isinstance(value, Mapping):
-            bounded[key] = {
-                str(map_key)[:80]: map_value[:120] if isinstance(map_value, str) else map_value
-                for map_key, map_value in list(value.items())[:20]
-                if isinstance(map_value, str | bool | int | float)
-            }
+            nested = _safe_artifact_mapping(key, value)
+            if nested:
+                bounded[key] = nested
     return bounded
 
 
@@ -239,22 +271,25 @@ def progress_case_outcome_fields(
         "failure_report_count": len(failures),
         "failure_case_ratio": _ratio(failed_case_count, bounded_processed_case_count),
         "recent_failed_case_ids": [
-            item.case_id for item in run_results if not item.ok
+            _safe_progress_identifier(item.case_id) for item in run_results if not item.ok
         ][-10:],
     }
     if run_results:
         last = run_results[-1]
         result.update(
             {
-                "last_case_benchmark": last.benchmark,
-                "last_case_id": last.case_id,
+                "last_case_benchmark": _safe_progress_identifier(last.benchmark),
+                "last_case_id": _safe_progress_identifier(last.case_id),
                 "last_case_status": "ok" if last.ok else "failed",
-                "last_case_capability": last.capability,
+                "last_case_capability": _safe_progress_identifier(last.capability),
                 "last_case_latency_ms": round(last.latency_ms, 2),
             }
         )
         if last.question_preview:
-            result["last_question_preview"] = last.question_preview[:240]
+            result["last_question_preview"] = _safe_preview_text(
+                last.question_preview,
+                max_chars=_PREVIEW_CHARS,
+            )
     return result
 
 
@@ -406,6 +441,173 @@ def _ratio(numerator: int, denominator: int) -> float:
     if denominator <= 0:
         return 0.0
     return round(numerator / denominator, 4)
+
+
+def _safe_preview_text(value: object, *, max_chars: int) -> str:
+    return _preview_value(value, max_chars=max_chars)
+
+
+def _safe_progress_identifier(value: object) -> str:
+    return _safe_preview_text(value, max_chars=_PREVIEW_CHARS)
+
+
+def _safe_preview_list(
+    values: Sequence[str],
+    *,
+    max_chars: int = _TERM_CHARS,
+    limit: int = _MAX_TERM_VALUES,
+) -> list[str]:
+    previews: list[str] = []
+    for value in values[:limit]:
+        preview = _safe_preview_text(value, max_chars=max_chars)
+        if preview:
+            previews.append(preview)
+    return previews
+
+
+def _safe_item_id_list(values: Sequence[str], *, limit: int = _MAX_TERM_VALUES) -> list[str]:
+    item_ids: list[str] = []
+    for value in values[:limit]:
+        item_id = _safe_item_id_for_output(value)
+        if not item_id:
+            refs = _safe_source_refs_for_output((value,))
+            item_id = refs[0] if refs else ""
+        if item_id and item_id not in item_ids:
+            item_ids.append(item_id)
+    return item_ids
+
+
+def _safe_source_ref_list(
+    values: Sequence[str],
+    *,
+    limit: int = _MAX_TERM_VALUES,
+) -> list[str]:
+    refs: list[str] = []
+    for value in values[:limit]:
+        for ref in _safe_source_refs_for_output((value,)):
+            if ref and ref not in refs:
+                refs.append(ref[:_TERM_CHARS])
+    return refs
+
+
+def _safe_field_key(value: object) -> str:
+    return _artifact_text_value(value, max_chars=80)
+
+
+def _safe_artifact_mapping(
+    parent_key: str,
+    values: Mapping[object, object],
+) -> dict[str, object]:
+    bounded: dict[str, object] = {}
+    for raw_key, raw_value in list(values.items())[:20]:
+        if raw_value is None:
+            continue
+        key = _safe_field_key(raw_key)
+        if not key:
+            continue
+        field_key = f"{parent_key}.{key}"
+        if isinstance(raw_value, str):
+            safe_value = _safe_artifact_text(field_key, raw_value, max_chars=120)
+            if safe_value:
+                bounded[key] = safe_value
+        elif isinstance(raw_value, bool | int | float):
+            bounded[key] = raw_value
+        elif isinstance(raw_value, Sequence) and not isinstance(raw_value, str | bytes):
+            bounded[key] = _safe_artifact_sequence(
+                field_key,
+                raw_value,
+                max_chars=120,
+            )
+        elif isinstance(raw_value, Mapping):
+            nested = _safe_artifact_mapping(field_key, raw_value)
+            if nested:
+                bounded[key] = nested
+    return bounded
+
+
+def _safe_artifact_sequence(
+    key: str,
+    values: Sequence[object],
+    *,
+    max_chars: int,
+) -> list[object]:
+    if _is_preview_field(key):
+        return [
+            preview
+            for item in values[:20]
+            if (preview := _safe_preview_text(item, max_chars=max_chars))
+        ]
+    if _is_source_ref_field(key):
+        refs: list[str] = []
+        for item in values[:20]:
+            if not isinstance(item, str | bool | int | float):
+                continue
+            for ref in _safe_source_refs_for_output((item,)):
+                safe_ref = ref[:max_chars]
+                if safe_ref and safe_ref not in refs:
+                    refs.append(safe_ref)
+                if len(refs) >= 20:
+                    return refs
+        return refs
+    if _is_item_id_field(key):
+        item_ids: list[str] = []
+        for item in values[:20]:
+            if not isinstance(item, str | bool | int | float):
+                continue
+            item_id = _safe_item_id_for_output(item)
+            if not item_id:
+                refs = _safe_source_refs_for_output((item,))
+                item_id = refs[0] if refs else ""
+            item_id = item_id[:max_chars]
+            if item_id and item_id not in item_ids:
+                item_ids.append(item_id)
+        return item_ids
+    result: list[object] = []
+    for item in values[:20]:
+        if isinstance(item, str):
+            text = _safe_scalar_text(item, max_chars=max_chars)
+            if text:
+                result.append(text)
+        elif isinstance(item, bool | int | float):
+            result.append(item)
+        elif isinstance(item, Mapping):
+            nested = _safe_artifact_mapping(key, item)
+            if nested:
+                result.append(nested)
+    return result
+
+
+def _safe_artifact_text(key: str, value: object, *, max_chars: int) -> str:
+    if _is_preview_field(key):
+        return _safe_preview_text(value, max_chars=max_chars)
+    if _is_source_ref_field(key):
+        refs = _safe_source_refs_for_output((value,))
+        return refs[0][:max_chars] if refs else ""
+    if _is_item_id_field(key):
+        item_id = _safe_item_id_for_output(value)
+        if not item_id:
+            refs = _safe_source_refs_for_output((value,))
+            item_id = refs[0] if refs else ""
+        return item_id[:max_chars]
+    return _safe_scalar_text(value, max_chars=max_chars)
+
+
+def _safe_scalar_text(value: object, *, max_chars: int) -> str:
+    return _artifact_text_value(value, max_chars=max_chars)
+
+
+def _is_preview_field(key: str) -> bool:
+    return "preview" in key.casefold()
+
+
+def _is_source_ref_field(key: str) -> bool:
+    normalized = key.casefold()
+    return "evidence_ref" in normalized or "source_ref" in normalized
+
+
+def _is_item_id_field(key: str) -> bool:
+    normalized = key.casefold()
+    return normalized.endswith("item_id") or normalized.endswith("item_ids")
 
 
 def _metric_key_part(value: object) -> str:

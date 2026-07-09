@@ -28,6 +28,11 @@ _PERSON_PATTERN = re.compile(r"\b([A-Z][a-z][A-Za-z]{1,40})(?:\s+([A-Z][a-z][A-Z
 _CYRILLIC_PERSON_PATTERN = re.compile(r"\b([А-ЯЁ][а-яё]{2,40})(?:\s+([А-ЯЁ][а-яё]{2,40}))?\b")
 _PERSON_INITIAL_PATTERN = re.compile(r"\b([A-Z][a-z][A-Za-z]{1,40})\s+([A-Z])\.(?![A-Za-z])")
 _CYRILLIC_PERSON_INITIAL_PATTERN = re.compile(r"\b([А-ЯЁ][а-яё]{2,40})\s+([А-ЯЁ])\.(?![А-Яа-яЁё])")
+_QUESTION_SUBJECT_PERSON_PATTERN = re.compile(
+    r"\b(?i:would|should|could|can|did|does|is|was|were|will|might|may)\s+"
+    r"(?P<label>[A-Z][a-z][A-Za-z]{1,40}"
+    r"(?:\s+[A-Z][a-z][A-Za-z]{1,40}){0,2})\b",
+)
 _HANDLE_PERSON_TOKEN = r"@[A-Za-z][A-Za-z0-9._-]{2,39}"
 _HANDLE_PATTERN = re.compile(rf"(?<![\w.])(?P<label>{_HANDLE_PERSON_TOKEN})\b")
 _EMAIL_PATTERN = re.compile(
@@ -444,13 +449,13 @@ _PROJECT_LABEL_STOP_WORDS = {
     "с",
 }
 _PROJECT_HINTS = {
-    "qdrant",
-    "graphiti",
-    "docling",
-    "memo",
-    "infinity context",
-    "frontend",
     "backend",
+    "docling",
+    "frontend",
+    "graphiti",
+    "infinity context",
+    "memo",
+    "qdrant",
 }
 _ORGANIZATION_HINTS = {
     "openai": "OpenAI",
@@ -532,6 +537,16 @@ def _extract_observed_anchors_uncached(text: str) -> tuple[ObservedAnchor, ...]:
             reason="known project/tool reference",
             score_boost=18,
         )
+    for raw, _, _ in _question_subject_person_labels(text):
+        _append_anchor(
+            anchors,
+            seen,
+            kind=MemoryAnchorKind.PERSON,
+            label=raw,
+            reason="question subject person",
+            score_boost=22,
+        )
+        _mark_person_label_token_keys_seen(seen, raw)
     for raw in event_participant_labels(text):
         _append_anchor(
             anchors,
@@ -560,6 +575,8 @@ def _extract_observed_anchors_uncached(text: str) -> tuple[ObservedAnchor, ...]:
             score_boost=17,
         )
     for raw in event_labels(text):
+        if _is_weak_event_label(raw):
+            continue
         _append_anchor(
             anchors,
             seen,
@@ -702,6 +719,15 @@ def _mark_alias_keys_seen(
         normalized_key = _normalized_anchor_key_for_kind(kind, alias)
         if normalized_key:
             seen.add((kind.value, normalized_key))
+
+
+def _mark_person_label_token_keys_seen(seen: set[tuple[str, str]], label: str) -> None:
+    normalized_key = _normalized_anchor_key_for_kind(MemoryAnchorKind.PERSON, label)
+    parts = normalized_key.split()
+    if len(parts) <= 1:
+        return
+    for part in parts:
+        seen.add((MemoryAnchorKind.PERSON.value, part))
 
 
 def _safe_aliases(label: str, aliases: tuple[str, ...]) -> tuple[str, ...]:
@@ -854,8 +880,14 @@ def _implicit_project_context_labels(text: str) -> tuple[str, ...]:
 def _person_labels(text: str) -> tuple[str, ...]:
     labels: list[str] = []
     labels.extend(_person_handle_labels(text))
+    question_subject_spans: list[tuple[int, int]] = []
+    for raw, start, end in _question_subject_person_labels(text):
+        labels.append(raw)
+        question_subject_spans.append((start, end))
     for pattern in (_PERSON_INITIAL_PATTERN, _CYRILLIC_PERSON_INITIAL_PATTERN):
         for match in pattern.finditer(text):
+            if _overlaps_any_span(match.start(), match.end(), question_subject_spans):
+                continue
             parts = tuple(part for part in match.groups() if part)
             normalized_parts = tuple(normalize_anchor_key(part) for part in parts)
             if normalized_parts and _is_project_qualifier(normalized_parts[0]):
@@ -875,6 +907,8 @@ def _person_labels(text: str) -> tuple[str, ...]:
                 labels.append(label)
     for pattern in (_PERSON_PATTERN, _CYRILLIC_PERSON_PATTERN):
         for match in pattern.finditer(text):
+            if _overlaps_any_span(match.start(), match.end(), question_subject_spans):
+                continue
             parts = tuple(part for part in match.groups() if part)
             normalized_parts = tuple(normalize_anchor_key(part) for part in parts)
             if normalized_parts and _is_project_qualifier(normalized_parts[0]):
@@ -907,6 +941,20 @@ def _person_labels(text: str) -> tuple[str, ...]:
             if _is_probable_person_label(label):
                 labels.append(label)
     return tuple(labels)
+
+
+def _question_subject_person_labels(text: str) -> tuple[tuple[str, int, int], ...]:
+    labels: list[tuple[str, int, int]] = []
+    for match in _QUESTION_SUBJECT_PERSON_PATTERN.finditer(text):
+        label = match.group("label").strip()
+        if len(label.split()) <= 1 or not _is_probable_person_label(label):
+            continue
+        labels.append((label, match.start("label"), match.end("label")))
+    return tuple(labels)
+
+
+def _overlaps_any_span(start: int, end: int, spans: list[tuple[int, int]]) -> bool:
+    return any(start < span_end and end > span_start for span_start, span_end in spans)
 
 
 def _person_handle_labels(text: str) -> tuple[str, ...]:
@@ -1013,15 +1061,23 @@ def _is_probable_event_project_label(label: str) -> bool:
     first = normalized.split()[0]
     if normalized in _PROJECT_HINTS or first in _PROJECT_HINTS:
         return True
+    if _canonical_project_key(label) in _PROJECT_HINTS:
+        return True
     if normalized in _PERSON_STOP_WORDS:
         return False
     if first in _PROJECT_LABEL_STOP_WORDS:
         return False
-    return _looks_like_project_label_continuation(label.split()[0]) or (
-        len(normalized.split()) == 1
-        and len(normalized) <= 40
-        and any(char.isalnum() for char in normalized)
-    )
+    return _looks_like_project_label_continuation(label.split()[0])
+
+
+def _is_weak_event_label(label: str) -> bool:
+    metadata = structured_event_metadata(label, canonical_key=canonical_anchor_key(label))
+    if metadata.get("event_has_project") or metadata.get("event_has_participant"):
+        return False
+    if metadata.get("event_temporal_phrase"):
+        return False
+    normalized = normalize_anchor_key(label)
+    return normalized in {"deadline", "due", "milestone", "reminder", "task", "todo"}
 
 
 def _clean_organization_label(label: str) -> str:

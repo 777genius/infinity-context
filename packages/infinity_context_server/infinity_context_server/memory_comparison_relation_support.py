@@ -1,0 +1,2100 @@
+"""Typed relation-category support predicates for benchmark evidence."""
+
+from __future__ import annotations
+
+import re
+from collections.abc import Callable
+
+
+def typed_relation_category_support(
+    category: str,
+    memory_terms: set[str],
+    *,
+    memory_text: str = "",
+) -> bool | None:
+    """Return typed support status for known categories, or None if generic."""
+
+    if category == "action_event":
+        return _has_action_event_support(memory_terms, memory_text=memory_text)
+    if category == "location_transition":
+        return _has_location_transition_support(memory_terms, memory_text=memory_text)
+    if category == "activity_profile":
+        return _has_activity_profile_support(memory_terms, memory_text=memory_text)
+    if category == "communication":
+        return _has_communication_support(memory_terms, memory_text=memory_text)
+    if category == "commitment_profile":
+        return _has_commitment_profile_support(memory_terms, memory_text=memory_text)
+    if category == "contact_profile":
+        return _has_contact_profile_support(memory_terms, memory_text=memory_text)
+    if category == "diet_profile":
+        return _has_diet_profile_support(memory_terms, memory_text=memory_text)
+    if category == "participation_event":
+        return _has_participation_event_support(memory_terms, memory_text=memory_text)
+    if category == "education_profile":
+        return _has_education_profile_support(
+            memory_terms,
+            memory_text=memory_text,
+        )
+    if category == "employment_profile":
+        return _has_employment_profile_support(
+            memory_terms,
+            memory_text=memory_text,
+        )
+    if category == "emotion_response":
+        return _has_emotion_response_support(memory_terms, memory_text=memory_text)
+    if category == "age_profile":
+        return _has_age_profile_support(memory_terms, memory_text=memory_text)
+    if category == "alias_profile":
+        return _has_alias_profile_support(memory_terms, memory_text=memory_text)
+    if category == "date_profile":
+        return _has_date_profile_support(memory_terms, memory_text=memory_text)
+    if category == "health_profile":
+        return _has_health_profile_support(memory_terms, memory_text=memory_text)
+    if category == "community_membership":
+        return _has_community_membership_support(memory_terms, memory_text=memory_text)
+    if category == "pet_profile":
+        return _has_pet_profile_support(memory_terms, memory_text=memory_text)
+    if category == "skill_profile":
+        return _has_skill_profile_support(memory_terms, memory_text=memory_text)
+    if category == "status_profile":
+        return _has_status_profile_support(memory_terms, memory_text=memory_text)
+    if category == "vehicle_profile":
+        return _has_vehicle_profile_support(
+            memory_terms,
+            memory_text=memory_text,
+        )
+    if category == "exchange":
+        return _has_exchange_support(memory_terms, memory_text=memory_text)
+    if category == "favorite_preference":
+        return _has_favorite_preference_support(
+            memory_terms,
+            memory_text=memory_text,
+        )
+    if category == "causal":
+        return _has_causal_support(memory_terms, memory_text=memory_text)
+    check = _TYPED_SUPPORT_CHECKS.get(category)
+    if check is None:
+        return None
+    return check(memory_terms)
+
+
+def _has_registration_event_support(memory_terms: set[str]) -> bool:
+    registration_action = {
+        "enroll",
+        "enrolled",
+        "register",
+        "registered",
+        "registration",
+        "sign",
+        "signed",
+        "signup",
+    } & memory_terms
+    event_context = {"class", "course", "lesson", "workshop", "event"} & memory_terms
+    return bool(registration_action and event_context)
+
+
+def _has_symbolic_meaning_support(memory_terms: set[str]) -> bool:
+    symbolic_surface = {
+        "mean",
+        "meaning",
+        "meant",
+        "message",
+        "reminder",
+        "represent",
+        "symbol",
+        "symbolize",
+        "value",
+    } & memory_terms
+    object_context = {
+        "family",
+        "gift",
+        "necklace",
+        "special",
+        "support",
+    } & memory_terms
+    return bool(symbolic_surface and object_context)
+
+
+_ACTION_EVENT_SURFACE_RE = re.compile(
+    r"\b(?:brought|took|sent|shared|painted|drew|made|booked|scheduled|"
+    r"prepared|completed|fixed|repaired|created)\b"
+    r"(?:\s+(?:a|an|the|their|his|her|my|our))?\s+"
+    r"[a-zA-Z][a-zA-Z0-9_-]+",
+    re.IGNORECASE,
+)
+
+
+def _has_action_event_support(
+    memory_terms: set[str],
+    *,
+    memory_text: str = "",
+) -> bool:
+    action_surface = {
+        "booked",
+        "brought",
+        "completed",
+        "created",
+        "drew",
+        "fixed",
+        "made",
+        "painted",
+        "prepared",
+        "repaired",
+        "scheduled",
+        "sent",
+        "shared",
+        "took",
+    } & memory_terms
+    return bool(action_surface and _ACTION_EVENT_SURFACE_RE.search(memory_text))
+
+
+_PARTICIPATION_DESTINATION_SURFACE_RE = re.compile(
+    r"\b(?:visit|visited|travel|traveled|travelled|go|went)\s+"
+    r"(?:to\s+)?(?:[A-Z][a-zA-Z0-9_-]+|"
+    r"(?:the\s+)?(?:beach|city|conference|country|gallery|museum|park|studio))\b"
+    r"|\b(?:meet|met)\s+(?:up\s+)?(?:with\s+)?"
+    r"(?:[A-Z][a-zA-Z0-9_-]+|"
+    r"(?:friends?|family|mentors?|colleagues?|coworkers?|team|group))\b"
+    r"|\bmeeting\s+with\s+"
+    r"(?:[A-Z][a-zA-Z0-9_-]+|"
+    r"(?:friends?|family|mentors?|colleagues?|coworkers?|team|group))\b"
+    r"|\b(?:trip|vacation)\s+(?:to|in)\s+"
+    r"(?:[A-Z][a-zA-Z0-9_-]+|"
+    r"(?:the\s+)?(?:beach|city|country|mountains|park))\b",
+)
+
+
+def _has_participation_event_support(
+    memory_terms: set[str],
+    *,
+    memory_text: str = "",
+) -> bool:
+    participation_action = {
+        "attend",
+        "attended",
+        "join",
+        "joined",
+        "meet",
+        "meeting",
+        "met",
+        "participate",
+        "participated",
+        "travel",
+        "traveled",
+        "travelled",
+        "visit",
+        "visited",
+        "went",
+    } & memory_terms
+    event_context = {
+        "class",
+        "club",
+        "conference",
+        "event",
+        "group",
+        "meeting",
+        "place",
+        "studio",
+        "trip",
+        "workshop",
+    } & memory_terms
+    return bool(
+        (participation_action and event_context)
+        or _PARTICIPATION_DESTINATION_SURFACE_RE.search(memory_text)
+    )
+
+
+_EDUCATION_PROFILE_SURFACE_RE = re.compile(
+    r"\b(?:go|goes|went)\s+to\s+"
+    r"(?:[A-Z][a-zA-Z0-9_-]+(?:\s+[A-Z][a-zA-Z0-9_-]+){0,3}|"
+    r"(?:college|university|school))\b"
+    r"|\b(?:attend|attends|attended|study|studies|studying)\s+"
+    r"(?:at\s+)?(?:[A-Z][a-zA-Z0-9_-]+(?:\s+[A-Z][a-zA-Z0-9_-]+){0,3}|"
+    r"(?:college|university|school))\b"
+    r"|\b(?:my|his|her|their|our)\s+(?:major|degree)\s+(?:is|was|:)\s+"
+    r"(?:[A-Z][a-zA-Z0-9_-]+|[a-zA-Z][a-zA-Z0-9_-]+)"
+    r"|\b(?:my|his|her|their|our)\s+(?:major|degree)\s+(?:is|was)\s+in\s+"
+    r"(?:[A-Z][a-zA-Z0-9_-]+|[a-zA-Z][a-zA-Z0-9_-]+)"
+    r"|\b(?:major|degree)\s+(?:is|was|:)\s+"
+    r"(?:[A-Z][a-zA-Z0-9_-]+|[a-zA-Z][a-zA-Z0-9_-]+)"
+    r"|\b(?:major|degree)\s+(?:is|was)\s+in\s+"
+    r"(?:[A-Z][a-zA-Z0-9_-]+|[a-zA-Z][a-zA-Z0-9_-]+)"
+    r"|\b(?:major|majors|majored|majoring)\s+in\s+"
+    r"(?:[A-Z][a-zA-Z0-9_-]+|[a-zA-Z][a-zA-Z0-9_-]+)"
+    r"|\b(?:have|has|had|earn|earned|got|receive|received)\s+"
+    r"(?:a\s+|an\s+|the\s+)?(?:[a-zA-Z][a-zA-Z0-9_-]+\s+){0,3}"
+    r"degree\s+in\s+"
+    r"(?:[A-Z][a-zA-Z0-9_-]+|[a-zA-Z][a-zA-Z0-9_-]+)"
+    r"|\bgraduat(?:e|ed|ing)\s+(?:from|at)\s+"
+    r"(?:[A-Z][a-zA-Z0-9_-]+(?:\s+[A-Z][a-zA-Z0-9_-]+){0,3}|"
+    r"(?:college|university|school))\b"
+    r"|\bgraduation\s+(?:from|at)\s+"
+    r"(?:[A-Z][a-zA-Z0-9_-]+(?:\s+[A-Z][a-zA-Z0-9_-]+){0,3}|"
+    r"(?:college|university|school))\b",
+    re.IGNORECASE,
+)
+
+
+def _has_education_profile_support(
+    memory_terms: set[str],
+    *,
+    memory_text: str = "",
+) -> bool:
+    education_surface = {
+        "campus",
+        "class",
+        "college",
+        "course",
+        "education",
+        "school",
+        "studies",
+        "study",
+        "studying",
+        "university",
+    } & memory_terms
+    education_action = {
+        "attend",
+        "attended",
+        "go",
+        "goes",
+        "study",
+        "studies",
+        "studying",
+        "take",
+        "taking",
+    } & memory_terms
+    education_context = {
+        "campus",
+        "class",
+        "college",
+        "course",
+        "education",
+        "school",
+        "university",
+    } & memory_terms
+    return bool(
+        education_surface
+        or (education_action and education_context)
+        or _EDUCATION_PROFILE_SURFACE_RE.search(memory_text)
+    )
+
+
+_OCCUPATION_TITLE_RE = (
+    r"(?:accountant|artist|attorney|chef|counselor|designer|developer|doctor|"
+    r"engineer|lawyer|manager|nurse|photographer|professor|researcher|"
+    r"scientist|teacher|therapist|writer|software\s+engineer|social\s+worker)"
+)
+_EMPLOYMENT_OCCUPATION_SURFACE_RE = re.compile(
+    rf"\b(?:i\s+am|i'm|he\s+is|he's|she\s+is|she's|they\s+are|"
+    rf"they're)\s+(?:a\s+|an\s+)?{_OCCUPATION_TITLE_RE}\b",
+    re.IGNORECASE,
+)
+_EMPLOYMENT_PROFILE_SURFACE_RE = re.compile(
+    r"\b(?:work|works|worked|working)\s+(?:at|for|in|as)\s+"
+    r"(?:[A-Z][a-zA-Z0-9_-]+|the\s+[a-zA-Z][a-zA-Z0-9_-]+|"
+    r"a\s+[a-zA-Z][a-zA-Z0-9_-]+)"
+    r"|\b(?:salary|wage|pay\s+rate|hourly\s+rate)\s+(?:is|was|:)\s+"
+    r"(?:\$?\d[\d,]*(?:\.\d+)?|[a-zA-Z][a-zA-Z0-9_-]+)"
+    r"|\b(?:earn|earns|earned|make|makes|made)\s+"
+    r"(?:\$?\d[\d,]*(?:\.\d+)?|[a-zA-Z][a-zA-Z0-9_-]+)"
+    r"\s+(?:per\s+(?:hour|year)|annually|a\s+year|an\s+hour)\b"
+    r"|\b(?:job|occupation|profession|role)\s+(?:is|was|as)\s+"
+    r"(?:[A-Z][a-zA-Z0-9_-]+|a\s+[a-zA-Z][a-zA-Z0-9_-]+|"
+    r"the\s+[a-zA-Z][a-zA-Z0-9_-]+)"
+    rf"|{_EMPLOYMENT_OCCUPATION_SURFACE_RE.pattern}",
+    re.IGNORECASE,
+)
+
+
+def has_employment_occupation_surface(memory_text: str) -> bool:
+    return bool(_EMPLOYMENT_OCCUPATION_SURFACE_RE.search(memory_text))
+
+
+def _has_employment_profile_support(
+    memory_terms: set[str],
+    *,
+    memory_text: str = "",
+) -> bool:
+    employment_context = {
+        "career",
+        "company",
+        "employer",
+        "job",
+        "occupation",
+        "office",
+        "profession",
+        "role",
+        "workplace",
+    } & memory_terms
+    work_action = {"work", "worked", "working", "works"} & memory_terms
+    return bool(
+        employment_context
+        or (work_action and employment_context)
+        or _EMPLOYMENT_PROFILE_SURFACE_RE.search(memory_text)
+    )
+
+
+_HEALTH_PROFILE_SURFACE_RE = re.compile(
+    r"\b(?:doctor|dentist|dental|therapist|clinic|prescription|medication|"
+    r"medicine|allergy|allergic|condition)\b"
+    r"|\bblood\s+type\s+(?:is|was)\s+"
+    r"(?:a|b|ab|o)\s*(?:positive|negative|\+|-)?\b"
+    r"|\b(?:my|his|her|their|our)\s+blood\s+type\s+"
+    r"(?:is|was)\s+(?:a|b|ab|o)\s*(?:positive|negative|\+|-)?\b"
+    r"|\bprimary\s+care\s+(?:doctor|physician|provider)\b"
+    r"|\b(?:medical|doctor(?:'s)?|dentist(?:'s)?|therapy|clinic)\s+"
+    r"appointment\b"
+    r"|\bappointment\s+with\s+(?:the\s+)?"
+    r"(?:doctor|physician|dentist|therapist|clinic|dr\.?\s+[A-Z][a-zA-Z0-9_-]*)\b"
+    r"|\b(?:take|takes|taking)\s+"
+    r"(?:[A-Z][a-zA-Z0-9_-]+|"
+    r"(?:a\s+|an\s+|the\s+)?(?:pill|medication|medicine|prescription))\b"
+    r"|\b(?:have|has|had)\s+(?:asthma|diabetes|migraine|allergies|allergy)\b",
+    re.IGNORECASE,
+)
+
+
+_AGE_PROFILE_SURFACE_RE = re.compile(
+    r"\b(?:i\s+am|i'm|he\s+is|he's|she\s+is|she's|they\s+are|they're)\s+"
+    r"(?:\d{1,3}|[a-z]+)\s+years?\s+old\b"
+    r"|\b(?:age\s+(?:is|was)|turned|turns)\s+(?:\d{1,3}|[a-z]+)\b"
+    r"(?!\s+(?:page|pages)\b)"
+    r"|\b(?:i\s+am|i'm|he\s+is|he's|she\s+is|she's|they\s+are|they're"
+    r"|[a-z][a-zA-Z0-9_-]+\s+is)\s+turning\s+(?:\d{1,3}|[a-z]+)\b"
+    r"(?!\s+(?:page|pages)\b)",
+    re.IGNORECASE,
+)
+
+
+def _has_age_profile_support(
+    memory_terms: set[str],
+    *,
+    memory_text: str = "",
+) -> bool:
+    age_surface = {"age", "old"} & memory_terms
+    year_surface = {"year", "years"} & memory_terms
+    return bool(
+        (age_surface and year_surface)
+        or _AGE_PROFILE_SURFACE_RE.search(memory_text)
+    )
+
+
+_ALIAS_VALUE_PATTERN = r"(?:[A-Z][a-zA-Z0-9_-]+|[\"'][^\"']+[\"'])"
+_ALIAS_GO_BY_SURFACE_PATTERN = rf"\b(?:go|goes|went)\s+by\s+{_ALIAS_VALUE_PATTERN}\b"
+_ALIAS_GO_BY_SURFACE_RE = re.compile(_ALIAS_GO_BY_SURFACE_PATTERN)
+
+_ALIAS_PROFILE_SURFACE_RE = re.compile(
+    r"\b(?:nickname|alias)\s+(?:is|was|for)\s+"
+    rf"{_ALIAS_VALUE_PATTERN}\b"
+    r"|\b(?:middle|legal|full)\s+name\s+(?:is|was|:)\s+"
+    rf"{_ALIAS_VALUE_PATTERN}\b"
+    r"|\b(?:my|his|her|their|our)\s+(?:middle|legal|full)\s+name\s+"
+    rf"(?:is|was|:)\s+{_ALIAS_VALUE_PATTERN}\b"
+    r"|\b(?:I|i|he|she|they|we|[A-Z][a-zA-Z0-9_-]+"
+    r"(?:\s+[A-Z][a-zA-Z0-9_-]+){0,2})\s+"
+    r"(?:am|is|are|was|were)\s+"
+    rf"(?:called|known\s+as|referred\s+to\s+as|nicknamed)\s+{_ALIAS_VALUE_PATTERN}\b"
+    r"|\b(?:refer|refers|referred)\s+to\s+"
+    r"(?:me|him|her|them|us|you|[A-Z][a-zA-Z0-9_-]+"
+    r"(?:\s+[A-Z][a-zA-Z0-9_-]+){0,2})\s+"
+    rf"as\s+{_ALIAS_VALUE_PATTERN}\b"
+    r"|\b(?:call|calls|called)\s+"
+    r"(?:me|him|her|them|us|you|[A-Z][a-zA-Z0-9_-]+)\s+"
+    rf"{_ALIAS_VALUE_PATTERN}\b"
+    rf"|{_ALIAS_GO_BY_SURFACE_PATTERN}",
+)
+
+
+def has_alias_go_by_surface(memory_text: str) -> bool:
+    return bool(_ALIAS_GO_BY_SURFACE_RE.search(memory_text))
+
+
+def has_alias_profile_surface(memory_text: str) -> bool:
+    return bool(_ALIAS_PROFILE_SURFACE_RE.search(memory_text))
+
+
+def _has_alias_profile_support(
+    memory_terms: set[str],
+    *,
+    memory_text: str = "",
+) -> bool:
+    alias_surface = {"alias", "nickname"} & memory_terms
+    naming_surface = {"call", "called", "calls", "name", "named"} & memory_terms
+    return bool(
+        alias_surface
+        or (naming_surface and has_alias_profile_surface(memory_text))
+        or has_alias_profile_surface(memory_text)
+    )
+
+
+_DATE_PROFILE_SURFACE_RE = re.compile(
+    r"\b(?:anniversary|birthday)\s+(?:is|was|falls|fell)\s+"
+    r"(?:on\s+|in\s+)?(?:\d{1,2}(?:st|nd|rd|th)?|"
+    r"january|february|march|april|may|june|july|august|"
+    r"september|october|november|december)\b"
+    r"|\b(?:got\s+married|were\s+married|was\s+married|married)\s+"
+    r"(?:on|in)\s+(?:\d{1,2}(?:st|nd|rd|th)?|"
+    r"january|february|march|april|may|june|july|august|"
+    r"september|october|november|december)\b"
+    r"|\bwedding\s+(?:date\s+)?(?:is|was)\s+"
+    r"(?:on\s+|in\s+)?(?:\d{1,2}(?:st|nd|rd|th)?|"
+    r"january|february|march|april|may|june|july|august|"
+    r"september|october|november|december)\b"
+    r"|\bborn\s+(?:(?:on|in)\s+)?"
+    r"(?:\d{1,2}(?:st|nd|rd|th)?|"
+    r"january|february|march|april|may|june|july|august|"
+    r"september|october|november|december)\b"
+    r"|\bdate\s+of\s+birth\s+(?:is|was)\s+"
+    r"(?:\d{1,2}(?:st|nd|rd|th)?|"
+    r"january|february|march|april|may|june|july|august|"
+    r"september|october|november|december)\b"
+    r"|\bbirth\s*date\s+(?:is|was)\s+"
+    r"(?:\d{1,2}(?:st|nd|rd|th)?|"
+    r"january|february|march|april|may|june|july|august|"
+    r"september|october|november|december)\b"
+    r"|\bdob\s+(?:is|was)\s+"
+    r"(?:\d{1,2}(?:st|nd|rd|th)?|"
+    r"january|february|march|april|may|june|july|august|"
+    r"september|october|november|december)\b",
+    re.IGNORECASE,
+)
+
+
+def has_date_profile_surface(memory_text: str) -> bool:
+    return bool(_DATE_PROFILE_SURFACE_RE.search(memory_text))
+
+
+def _has_date_profile_support(
+    memory_terms: set[str],
+    *,
+    memory_text: str = "",
+) -> bool:
+    date_subject = {"anniversary", "birthday"} & memory_terms
+    date_surface = {
+        "april",
+        "august",
+        "december",
+        "february",
+        "january",
+        "july",
+        "june",
+        "march",
+        "may",
+        "month",
+        "november",
+        "october",
+        "september",
+    } & memory_terms
+    return bool(
+        (date_subject and date_surface)
+        or has_date_profile_surface(memory_text)
+    )
+
+
+_ACTIVITY_PROFILE_SURFACE_RE = re.compile(
+    r"\b(?:hobby|pastime)\s+(?:is|was|became)\b"
+    r"|\b(?:for\s+fun|in\s+(?:my|his|her|their|our)\s+free\s+time)\b"
+    r"|\b(?:enjoy|enjoys|like|likes|love|loves)\s+"
+    r"(?:to\s+)?(?:hike|hiking|paint|painting|read|reading|run|running|"
+    r"cook|cooking|dance|dancing|swim|swimming|yoga|tennis|gardening)\b"
+    r"|\b(?:do|does|did|started|took\s+up|takes\s+up)\s+"
+    r"(?:yoga|tennis|gardening|painting|running|hiking|cooking|dancing)\b"
+    r"|\b(?:go|goes|went)\s+"
+    r"(?:hiking|running|swimming|camping)\b",
+    re.IGNORECASE,
+)
+
+
+def _has_activity_profile_support(
+    memory_terms: set[str],
+    *,
+    memory_text: str = "",
+) -> bool:
+    activity_context = {
+        "activity",
+        "camping",
+        "cooking",
+        "dancing",
+        "exercise",
+        "fun",
+        "gardening",
+        "hiking",
+        "hobbies",
+        "hobby",
+        "leisure",
+        "paint",
+        "painting",
+        "pastime",
+        "run",
+        "running",
+        "sport",
+        "tennis",
+        "yoga",
+    } & memory_terms
+    activity_action = {
+        "do",
+        "does",
+        "enjoy",
+        "enjoys",
+        "go",
+        "goes",
+        "like",
+        "likes",
+        "love",
+        "loves",
+        "play",
+        "plays",
+        "run",
+        "runs",
+        "started",
+    } & memory_terms
+    return bool(
+        (activity_context and activity_action)
+        or _ACTIVITY_PROFILE_SURFACE_RE.search(memory_text)
+    )
+
+
+def _has_health_profile_support(
+    memory_terms: set[str],
+    *,
+    memory_text: str = "",
+) -> bool:
+    health_surface = {
+        "allergic",
+        "allergy",
+        "clinic",
+        "condition",
+        "dental",
+        "dentist",
+        "doctor",
+        "health",
+        "medication",
+        "medicine",
+        "prescription",
+        "therapist",
+    } & memory_terms
+    medical_appointment = "appointment" in memory_terms and bool(
+        {
+            "clinic",
+            "dental",
+            "dentist",
+            "doctor",
+            "medical",
+            "physician",
+            "therapy",
+            "therapist",
+        }
+        & memory_terms
+    )
+    medication_action = {"take", "takes", "taking"} & memory_terms
+    medication_context = {
+        "dose",
+        "medication",
+        "medicine",
+        "pill",
+        "prescription",
+    } & memory_terms
+    return bool(
+        health_surface
+        or medical_appointment
+        or (medication_action and medication_context)
+        or _HEALTH_PROFILE_SURFACE_RE.search(memory_text)
+    )
+
+
+_CONTACT_PROFILE_SURFACE_RE = re.compile(
+    r"\b[\w.+-]+@[\w.-]+\.[a-zA-Z]{2,}\b"
+    r"|\b(?:email|e-mail)(?:\s+address)?\s+(?:is|was)\s+\S+"
+    r"|\b(?:phone|telephone|cell|mobile)(?:\s+number)?\s+"
+    r"(?:is|was)\s+(?:\+?\d[\d()\-\s.]{5,}\d)\b"
+    r"|\b(?:(?:my|his|her|their|our|your)\s+)?(?:phone\s+)?number\s+"
+    r"(?:is|was)\s+(?:\+?\d[\d()\-\s.]{5,}\d)\b"
+    r"|\b(?:reach|contact)\s+"
+    r"(?:me|him|her|them|us|you|[A-Z][a-zA-Z0-9_-]+)\s+"
+    r"(?:at|on)\s+"
+    r"(?:[\w.+-]+@[\w.-]+\.[a-zA-Z]{2,}|\+?\d[\d()\-\s.]{5,}\d|"
+    r"(?:instagram|signal|slack|telegram|whatsapp)\s+(?:at\s+)?@?[\w.-]+)\b"
+    r"|\b(?:instagram|signal|slack|telegram|whatsapp)\s+"
+    r"(?:handle|username|number)\s+(?:is|was)\s+@?[\w.+()-][\w.+()\-\s]{1,}"
+    r"|\b(?:handle|username)\s+(?:is|was)\s+@[\w.-]+\b"
+    r"|\bemergency\s+contact\s+(?:is|was)\s+"
+    r"(?:[A-Z][a-zA-Z0-9_-]+(?:\s+[A-Z][a-zA-Z0-9_-]+){0,2}|"
+    r"my|him|her|them)\b"
+    r"|\b(?:contact\s+(?:info|information|details)|"
+    r"(?:mailing\s+)?address)\s+(?:is|was)\s+"
+    r"(?:\d{1,6}\s+)?[A-Za-z0-9][A-Za-z0-9 .'-]{2,}",
+    re.IGNORECASE,
+)
+
+
+def _has_contact_profile_support(
+    memory_terms: set[str],
+    *,
+    memory_text: str = "",
+) -> bool:
+    phone_surface = {"cell", "mobile", "phone", "telephone"} & memory_terms
+    contact_surface = {"contact", "reach"} & memory_terms
+    address_surface = {"address"} & memory_terms
+    number_surface = {"number"} & memory_terms
+    social_platform_surface = {
+        "instagram",
+        "signal",
+        "slack",
+        "telegram",
+        "whatsapp",
+    } & memory_terms
+    return bool(
+        (phone_surface and number_surface)
+        or (contact_surface and {"detail", "details", "info", "information"} & memory_terms)
+        or (
+            social_platform_surface
+            and {"handle", "number", "username"} & memory_terms
+        )
+        or (
+            address_surface
+            and {"avenue", "home", "mailing", "road", "street"} & memory_terms
+            and not {"concern", "issue", "problem", "topic"} & memory_terms
+        )
+        or _CONTACT_PROFILE_SURFACE_RE.search(memory_text)
+    )
+
+
+_COMMITMENT_PROFILE_SURFACE_RE = re.compile(
+    r"\b(?:deadline|due\s+date)\s+(?:is|was)\s+"
+    r"(?:\d{1,2}(?::\d{2})?|"
+    r"monday|tuesday|wednesday|thursday|friday|saturday|sunday|"
+    r"today|tomorrow|next\s+week)\b"
+    r"|\b(?:due|finish|complete)\s+(?:by|before)\s+"
+    r"(?:\d{1,2}(?::\d{2})?|"
+    r"monday|tuesday|wednesday|thursday|friday|saturday|sunday|"
+    r"today|tomorrow|next\s+week)\b"
+    r"|\b(?:need|needs|needed)\s+to\s+remember\s+to\b"
+    r"|\b(?:need|needs|needed)\s+to\s+remember\s+"
+    r"(?:my|our|his|her|their|the|a|an)?\s*"
+    r"[a-zA-Z][a-zA-Z0-9_-]+\b"
+    r"|\bremember\s+to\s+(?:bring|send|call|finish|complete|take)\b"
+    r"|\b(?:promise|promised)\s+to\s+"
+    r"(?:bring|send|call|finish|complete|take|help)\b"
+    r"|\b(?:task|todo|to-do|plan|promise|deadline)\b.{0,80}\b"
+    r"(?:cancel(?:ed|led)?|reschedul(?:e|ed|ing)?|postponed|delayed)\b"
+    r"|\b(?:cancel(?:ed|led)?|reschedul(?:e|ed|ing)?|postponed|delayed)\b"
+    r".{0,80}\b(?:task|todo|to-do|plan|promise|deadline)\b",
+    re.IGNORECASE,
+)
+
+
+def _has_commitment_profile_support(
+    memory_terms: set[str],
+    *,
+    memory_text: str = "",
+) -> bool:
+    deadline_surface = {"due"} & memory_terms or (
+        "deadline" in memory_terms
+        and {
+            "friday",
+            "monday",
+            "saturday",
+            "sunday",
+            "thursday",
+            "today",
+            "tomorrow",
+            "tuesday",
+            "wednesday",
+        }
+        & memory_terms
+    )
+    task_action = {"complete", "finish", "send", "bring", "call", "take"} & memory_terms
+    task_surface = {"task", "todo", "to-do"} & memory_terms
+    promise_surface = {"promise", "promised"} & memory_terms
+    reminder_surface = {"remember", "reminder"} & memory_terms
+    status_transition_surface = {
+        "cancel",
+        "canceled",
+        "cancelled",
+        "cancell",
+        "delay",
+        "delayed",
+        "postpon",
+        "postpone",
+        "postponed",
+        "reschedul",
+        "reschedule",
+        "rescheduled",
+    } & memory_terms
+    commitment_object_surface = {
+        "deadline",
+        "plan",
+        "promise",
+        "promised",
+        "task",
+        "to-do",
+        "todo",
+    } & memory_terms
+    return bool(
+        deadline_surface
+        or (task_surface and task_action)
+        or (promise_surface and task_action)
+        or (reminder_surface and task_action)
+        or (status_transition_surface and commitment_object_surface)
+        or _COMMITMENT_PROFILE_SURFACE_RE.search(memory_text)
+    )
+
+
+_DIET_PROFILE_SURFACE_RE = re.compile(
+    r"\b(?:i\s+am|i'm|he\s+is|he's|she\s+is|she's|they\s+are|they're)\s+"
+    r"(?:a\s+)?(?:vegetarian|vegan)\b"
+    r"|\b(?:vegetarian|vegan)\s+(?:diet|now|since|because)\b"
+    r"|\b(?:gluten|dairy)[-\s]?free\b"
+    r"|\b(?:avoid|avoids|avoided)\s+(?:eating\s+)?"
+    r"(?:gluten|dairy|meat|pork|seafood|shellfish|eggs?|soy|lactose|"
+    r"peanuts?|tree\s+nuts?)\b"
+    r"|\b(?:can't|cannot|can\s+not|doesn't|don't|do\s+not|does\s+not)\s+eat\s+"
+    r"(?:gluten|dairy|meat|pork|seafood|shellfish|eggs?|soy|lactose|"
+    r"peanuts?|tree\s+nuts?)\b"
+    r"|\b(?:dietary\s+)?restriction\s+(?:is|was)\s+"
+    r"(?:vegetarian|vegan|gluten|dairy|pork|shellfish|peanuts?)\b",
+    re.IGNORECASE,
+)
+
+
+def _has_diet_profile_support(
+    memory_terms: set[str],
+    *,
+    memory_text: str = "",
+) -> bool:
+    diet_identity = {"vegetarian", "vegan"} & memory_terms
+    restriction_context = {
+        "dairy",
+        "egg",
+        "eggs",
+        "gluten",
+        "lactose",
+        "meat",
+        "peanut",
+        "peanuts",
+        "pork",
+        "seafood",
+        "shellfish",
+        "soy",
+    } & memory_terms
+    restriction_action = {
+        "avoid",
+        "avoids",
+        "eat",
+        "restriction",
+    } & memory_terms
+    return bool(
+        (diet_identity and {"am", "diet", "is"} & memory_terms)
+        or (restriction_context and restriction_action)
+        or _DIET_PROFILE_SURFACE_RE.search(memory_text)
+    )
+
+
+_PET_PROFILE_SURFACE_RE = re.compile(
+    r"\b(?:my|our|his|her|their)\s+(?:pet|dog|cat|puppy|kitten)\b"
+    r"|\b(?:my|our|his|her|their)\s+"
+    r"(?:golden\s+retriever|labrador|poodle|beagle|bulldog|terrier|"
+    r"siamese|tabby|persian)\b"
+    r"|\b(?:pet|dog|cat|puppy|kitten)\s+(?:is|was|named|called)\b"
+    r"|\b(?:golden\s+retriever|labrador|poodle|beagle|bulldog|terrier|"
+    r"siamese|tabby|persian)\s+(?:is|was|named|called)\b"
+    r"|\b(?:my|our|his|her|their)\s+(?:pet|dog|cat|puppy|kitten)\b"
+    r".{0,60}\bmicrochip(?:\s+number)?\s+(?:is|was)\s+[A-Z0-9-]{3,}\b"
+    r"|\b(?:pet|dog|cat|puppy|kitten)\b.{0,60}"
+    r"\bmicrochip(?:\s+number)?\s+(?:is|was)\s+[A-Z0-9-]{3,}\b"
+    r"|\b(?:have|has|had)\s+(?:a\s+|an\s+|the\s+)?"
+    r"(?:pet|dog|cat|puppy|kitten|golden\s+retriever|labrador|poodle|"
+    r"beagle|bulldog|terrier|siamese|tabby|persian)\b",
+    re.IGNORECASE,
+)
+
+
+def _has_pet_profile_support(
+    memory_terms: set[str],
+    *,
+    memory_text: str = "",
+) -> bool:
+    pet_surface = {
+        "beagle",
+        "bulldog",
+        "cat",
+        "dog",
+        "kitten",
+        "labrador",
+        "persian",
+        "pet",
+        "poodle",
+        "puppy",
+        "retriever",
+        "siamese",
+        "tabby",
+        "terrier",
+    } & memory_terms
+    name_surface = {"call", "called", "name", "named"} & memory_terms
+    ownership_surface = {"have", "has", "had", "my", "our"} & memory_terms
+    return bool(
+        (pet_surface and (name_surface or ownership_surface))
+        or _PET_PROFILE_SURFACE_RE.search(memory_text)
+    )
+
+
+_SKILL_PROFILE_SURFACE_RE = re.compile(
+    r"\b(?:certification|credential)\s+(?:is|was)\s+"
+    r"[A-Z][a-zA-Z0-9_+-]+(?:\s+[A-Z][a-zA-Z0-9_+-]+){0,3}\b"
+    r"|\b(?:certified|credentialed)\s+in\s+"
+    r"[A-Z][a-zA-Z0-9_+-]+(?:\s+[A-Z][a-zA-Z0-9_+-]+){0,3}\b"
+    r"|\b(?:have|has|had|earned|got)\s+(?:a\s+|an\s+|the\s+)?"
+    r"[A-Z][a-zA-Z0-9_+-]+(?:\s+[A-Z][a-zA-Z0-9_+-]+){0,3}\s+"
+    r"(?:certification|credential)\b"
+    r"|"
+    r"\b(?:speak|speaks|speaking|spoken)\s+"
+    r"(?:[A-Z][a-zA-Z0-9_-]+|"
+    r"(?:english|spanish|french|german|mandarin|japanese|arabic|hindi))\b"
+    r"|\b(?:know|knows|knew|known)\s+"
+    r"(?:[A-Z][a-zA-Z0-9_-]+|"
+    r"(?:english|spanish|french|german|mandarin|japanese|arabic|hindi))\b"
+    r"|\bfluent\s+(?:in\s+)?"
+    r"(?:[A-Z][a-zA-Z0-9_-]+|"
+    r"(?:english|spanish|french|german|mandarin|japanese|arabic|hindi))\b"
+    r"|\bbilingual\s+(?:in\s+)?"
+    r"(?:[A-Z][a-zA-Z0-9_-]+|"
+    r"(?:english|spanish|french|german|mandarin|japanese|arabic|hindi))\b"
+    r"|\b(?:play|plays|playing)\s+"
+    r"(?:guitar|piano|violin|drums?|cello|flute|saxophone)\b",
+)
+
+
+def _has_skill_profile_support(
+    memory_terms: set[str],
+    *,
+    memory_text: str = "",
+) -> bool:
+    language_action = {"speak", "speaks", "spoken", "speaking"} & memory_terms
+    certification_surface = {
+        "certification",
+        "certified",
+        "credential",
+        "credentialed",
+    } & memory_terms
+    language_ability = {"bilingual", "fluent", "know", "known"} & memory_terms
+    language_context = {
+        "arabic",
+        "english",
+        "french",
+        "german",
+        "hindi",
+        "japanese",
+        "language",
+        "mandarin",
+        "spanish",
+    } & memory_terms
+    play_action = {"play", "plays", "playing"} & memory_terms
+    instrument_context = {
+        "drums",
+        "guitar",
+        "instrument",
+        "piano",
+        "violin",
+    } & memory_terms
+    return bool(
+        certification_surface
+        or
+        (language_action and language_context)
+        or (language_ability and language_context)
+        or (play_action and instrument_context)
+        or _SKILL_PROFILE_SURFACE_RE.search(memory_text)
+    )
+
+
+_VEHICLE_MODEL_NAME_PATTERN = (
+    r"(?:accord|audi|bmw|camry|civic|corolla|ford|honda|jeep|mazda|"
+    r"nissan|prius|rav4|subaru|tesla|toyota|volvo)"
+)
+_VEHICLE_MODEL_OWNER_PATTERN = (
+    r"(?:(?i:my|our|his|her|their)|[A-Z][a-zA-Z0-9_-]{1,40}'s)"
+)
+_VEHICLE_MODEL_SURFACE_RE = re.compile(
+    rf"\b{_VEHICLE_MODEL_OWNER_PATTERN}\s+"
+    rf"(?i:{_VEHICLE_MODEL_NAME_PATTERN})\b",
+)
+_VEHICLE_PROFILE_SURFACE_RE = re.compile(
+    r"\b(?:my|our|his|her|their)\s+(?:car|vehicle|truck|suv|sedan|van)\b"
+    rf"|\b{_VEHICLE_MODEL_OWNER_PATTERN}\s+"
+    rf"(?i:{_VEHICLE_MODEL_NAME_PATTERN})\b"
+    r"|\b(?:my|our|his|her|their)\s+(?:license|licence)\s+plate\s+"
+    r"(?:is|was)\s+[A-Z0-9][A-Z0-9 -]{1,10}\b"
+    r"|\b(?:license|licence)\s+plate\s+(?:is|was)\s+"
+    r"[A-Z0-9][A-Z0-9 -]{1,10}\b"
+    r"|\b(?:drive|drives|driving)\s+"
+    r"(?:a|an|the|my|his|her|their)\s+"
+    r"(?:(?:black|blue|green|red|silver|white)\s+)?"
+    r"(?:car|vehicle|truck|suv|sedan|van|[A-Z][a-zA-Z0-9_-]+)\b"
+    r"|\b(?:own|owns|owned|have|has|had)\s+"
+    r"(?:a|an|the|my|his|her|their)\s+"
+    r"(?:(?:black|blue|green|red|silver|white)\s+)?"
+    r"(?:car|vehicle|truck|suv|sedan|van|[A-Z][a-zA-Z0-9_-]+)\b"
+    r"|\b(?:car|vehicle|truck|suv|sedan|van)\s+(?:is|was)\s+"
+    r"(?:black|blue|green|red|silver|white|[A-Z][a-zA-Z0-9_-]+)\b",
+)
+
+
+def has_vehicle_model_surface(memory_text: str) -> bool:
+    return bool(_VEHICLE_MODEL_SURFACE_RE.search(memory_text))
+
+
+def _has_vehicle_profile_support(
+    memory_terms: set[str],
+    *,
+    memory_text: str = "",
+) -> bool:
+    vehicle_surface = {"car", "sedan", "suv", "truck", "van", "vehicle"} & memory_terms
+    ownership_surface = {
+        "drive",
+        "drives",
+        "driving",
+        "had",
+        "has",
+        "have",
+        "my",
+        "our",
+        "own",
+        "owned",
+        "owns",
+    } & memory_terms
+    color_surface = {
+        "black",
+        "blue",
+        "color",
+        "green",
+        "red",
+        "silver",
+        "white",
+    } & memory_terms
+    return bool(
+        (vehicle_surface and ownership_surface)
+        or (vehicle_surface and color_surface)
+        or _VEHICLE_PROFILE_SURFACE_RE.search(memory_text)
+    )
+
+
+_EMOTION_RESPONSE_SURFACE_RE = re.compile(
+    r"\b(?:feel|feels|feeling|felt)\s+"
+    r"(?:anxious|concerned|excited|happy|hopeful|nervous|overwhelmed|"
+    r"proud|relieved|sad|thrilled|upset|worried)\b"
+    r"|\b(?:reaction|response)\s+(?:to|about)\s+[^.?!]{0,80}\b"
+    r"(?:was|is|felt)\s+"
+    r"(?:anxious|concerned|excited|happy|hopeful|nervous|overwhelmed|"
+    r"proud|relieved|sad|thrilled|upset|worried)\b"
+    r"|\b(?:i|he|she|they|we)\s+(?:am|are|was|were)\s+"
+    r"(?:anxious|concerned|excited|happy|hopeful|nervous|overwhelmed|"
+    r"proud|relieved|sad|thrilled|upset|worried)\b",
+    re.IGNORECASE,
+)
+
+
+def _has_emotion_response_support(
+    memory_terms: set[str],
+    *,
+    memory_text: str = "",
+) -> bool:
+    emotion_surface = {
+        "anxious",
+        "concern",
+        "excite",
+        "excited",
+        "feel",
+        "felt",
+        "happy",
+        "nervous",
+        "overwhelm",
+        "overwhelmed",
+        "proud",
+        "relieved",
+        "reliev",
+        "thrill",
+        "thrilled",
+        "upset",
+        "worried",
+        "worri",
+    } & memory_terms
+    response_context = {
+        "about",
+        "because",
+        "news",
+        "family",
+        "kid",
+        "kids",
+        "make",
+        "process",
+        "reaction",
+        "response",
+        "said",
+        "thought",
+        "think",
+        "when",
+    } & memory_terms
+    return bool(
+        (emotion_surface and response_context)
+        or _EMOTION_RESPONSE_SURFACE_RE.search(memory_text)
+    )
+
+
+_COMMUNICATION_RECIPIENT_RE = (
+    r"(?:[A-Z][a-zA-Z0-9_-]+|"
+    r"(?:my|his|her|their|our)\s+"
+    r"(?:brother|child|client|daughter|doctor|father|friend|manager|mother|"
+    r"parent|partner|sibling|sister|son|spouse|teacher|team|wife|husband)|"
+    r"the\s+(?:client|doctor|group|manager|teacher|team)|"
+    r"(?:her|him|me|them|us|you)"
+    r"(?=\s+(?:about|after|before|during|later|that|then|today|tomorrow|"
+    r"yesterday)|[.?!,;:]|$))"
+)
+_DIRECTED_COMMUNICATION_SURFACE_RE = re.compile(
+    rf"\b(?:advised|asked|invited|recommended|reminded|requested|suggested|"
+    rf"told|warned)\s+"
+    rf"(?:that\s+)?{_COMMUNICATION_RECIPIENT_RE}",
+)
+_CONVERSATION_COMMUNICATION_SURFACE_RE = re.compile(
+    rf"\b(?:chat(?:ted)?|discuss(?:ed)?|talk(?:ed)?)\b"
+    rf".{{0,80}}\b(?:about|to|with)\s+"
+    rf"(?:{_COMMUNICATION_RECIPIENT_RE}|[A-Z][a-zA-Z0-9_-]+|"
+    rf"[a-zA-Z][a-zA-Z0-9_-]+)",
+)
+_CHANNEL_COMMUNICATION_SURFACE_RE = re.compile(
+    rf"\b(?:called|messaged|texted)\s+{_COMMUNICATION_RECIPIENT_RE}"
+    rf"|\bsent\s+(?:{_COMMUNICATION_RECIPIENT_RE}\s+)?"
+    rf"(?:a\s+|an\s+|the\s+)?message\b"
+    rf"|\bsent\s+(?:a\s+|an\s+|the\s+)?message\s+to\s+"
+    rf"{_COMMUNICATION_RECIPIENT_RE}",
+)
+_INDIRECT_COMMUNICATION_RECIPIENT_RE = re.compile(
+    rf"\b(?:advised|mentioned|recommended|said|suggested)\b"
+    rf".{{0,80}}\b(?:to|with)\s+{_COMMUNICATION_RECIPIENT_RE}",
+)
+
+
+def _has_communication_support(
+    memory_terms: set[str],
+    *,
+    memory_text: str = "",
+) -> bool:
+    communication_action = {
+        "advis",
+        "advise",
+        "advised",
+        "ask",
+        "asked",
+        "call",
+        "called",
+        "chat",
+        "chatt",
+        "chatted",
+        "conversation",
+        "discus",
+        "discuss",
+        "discussed",
+        "discussion",
+        "message",
+        "messag",
+        "messaged",
+        "mention",
+        "mentioned",
+        "recommend",
+        "recommended",
+        "remind",
+        "reminded",
+        "request",
+        "requested",
+        "say",
+        "said",
+        "send",
+        "sent",
+        "suggest",
+        "suggested",
+        "talk",
+        "talked",
+        "tell",
+        "text",
+        "texted",
+        "told",
+        "warn",
+        "warned",
+    } & memory_terms
+    communication_context = {
+        "about",
+        "advice",
+        "book",
+        "call",
+        "conversation",
+        "delay",
+        "invoice",
+        "message",
+        "project",
+        "read",
+        "request",
+        "requested",
+        "recommendation",
+        "response",
+    } & memory_terms
+    return bool(
+        (communication_action and communication_context)
+        or (
+            communication_action
+            and (
+                _DIRECTED_COMMUNICATION_SURFACE_RE.search(memory_text)
+                or _CHANNEL_COMMUNICATION_SURFACE_RE.search(memory_text)
+                or _CONVERSATION_COMMUNICATION_SURFACE_RE.search(memory_text)
+                or _INDIRECT_COMMUNICATION_RECIPIENT_RE.search(memory_text)
+            )
+        )
+    )
+
+
+_EXCHANGE_RECIPIENT_RE = (
+    r"(?:[A-Z][a-zA-Z0-9_-]+|her|him|me|them|us|you|"
+    r"(?:my|his|her|their|our)\s+"
+    r"(?:brother|child|client|daughter|father|friend|manager|mother|parent|"
+    r"partner|sibling|sister|son|spouse|team|wife|husband)|"
+    r"the\s+(?:client|group|team))"
+)
+_EXCHANGE_OBJECT_RE = (
+    r"(?!(?:advice|help|message|news|request|response|support)\b)"
+    r"[a-zA-Z][a-zA-Z0-9_-]+"
+)
+_DIRECT_EXCHANGE_SURFACE_RE = re.compile(
+    rf"\b(?:bought|get|got|purchased|received)\s+"
+    rf"(?:a|an|the|my|his|her|their|our|some)?\s*{_EXCHANGE_OBJECT_RE}"
+    rf"(?:\s+from\s+{_EXCHANGE_RECIPIENT_RE})?"
+    rf"|\b(?:bring|brought|gave|give|offered|offer)\s+"
+    rf"{_EXCHANGE_RECIPIENT_RE}\s+"
+    rf"(?:a|an|the|my|his|her|their|our|some)?\s*{_EXCHANGE_OBJECT_RE}",
+)
+
+
+def _has_exchange_support(
+    memory_terms: set[str],
+    *,
+    memory_text: str = "",
+) -> bool:
+    exchange_actions = {
+        "bought",
+        "bring",
+        "brought",
+        "buy",
+        "gave",
+        "get",
+        "give",
+        "gift",
+        "got",
+        "offer",
+        "offered",
+        "purchas",
+        "purchase",
+        "purchased",
+        "receiv",
+        "receive",
+        "received",
+    } & memory_terms
+    object_context = {
+        "book",
+        "card",
+        "gift",
+        "item",
+        "items",
+        "necklace",
+        "object",
+        "photo",
+        "picture",
+        "ticket",
+        "tickets",
+    } & memory_terms
+    exchange_action_family_count = len(
+        {
+            _exchange_action_family(action)
+            for action in exchange_actions
+            if _exchange_action_family(action)
+        }
+    )
+    return bool(
+        exchange_action_family_count >= 2
+        or (exchange_actions and object_context)
+        or (exchange_actions and _DIRECT_EXCHANGE_SURFACE_RE.search(memory_text))
+    )
+
+
+def _exchange_action_family(action: str) -> str:
+    if action in {"bought", "buy", "get", "got", "purchas", "purchase", "purchased"}:
+        return "acquire"
+    if action in {"bring", "brought"}:
+        return "bring"
+    if action in {"gave", "gift", "give"}:
+        return "give"
+    if action in {"offer", "offered"}:
+        return "offer"
+    if action in {"receiv", "receive", "received"}:
+        return "receive"
+    return ""
+
+
+_CAUSAL_EXPLANATION_SURFACE_RE = re.compile(
+    r"\b(?:due\s+to|thanks\s+to|as\s+a\s+result\s+of|because\s+of)\b|"
+    r"\b(?:made|make|makes)\s+"
+    r"(?:me|him|her|them|us|you)\s+"
+    r"(?:care|caring|decide|feel|realize|start|think|want)\b|"
+    r"\bled\s+(?:me|him|her|them|us|you)\s+to\b|"
+    r"\bso\s+(?:i|he|she|they|we|it|[A-Z][a-zA-Z0-9_-]{1,40})\s+"
+    r"(?:began|became|care|cared|chose|could|decided|felt|joined|"
+    r"left|looked|moved|started|wanted)\b",
+    re.IGNORECASE,
+)
+_CAUSAL_PURPOSE_SURFACE_RE = re.compile(
+    r"\b(?:began|changed|created|joined|launched|opened|ran|started|"
+    r"volunteered)\b"
+    r"(?=.{0,120}\b(?:in\s+order\s+to|so\s+(?:i|he|she|they|we)\s+could|to)\b)"
+    r"(?=.{0,180}\b(?:blend\s+dance\s+and\s+fashion|clear\s+"
+    r"(?:my|her|his|their|our)?\s*head|feel\s+safe|give\s+back|"
+    r"help\s+(?:kids|others|people)|improve\s+"
+    r"(?:my|her|his|their|our)?\s*health|make\s+a\s+difference|"
+    r"pursue\s+(?:my|her|his|their|our)?\s*passion|relax|"
+    r"stress\s+relief)\b)",
+    re.IGNORECASE | re.DOTALL,
+)
+
+
+def _has_causal_support(
+    memory_terms: set[str],
+    *,
+    memory_text: str = "",
+) -> bool:
+    direct_cause = {
+        "because",
+        "caus",
+        "cause",
+        "caused",
+    } & memory_terms
+    decision_surface = {"choose", "chose", "decide", "decision"} & memory_terms
+    reason_surface = {"reason", "fit", "value"} & memory_terms
+    contextual_cause_surface = {
+        "inspir",
+        "motivat",
+        "motivate",
+        "motivation",
+        "prompt",
+        "prompted",
+    } & memory_terms
+    realization_surface = {"realize", "realized", "understood"} & memory_terms
+    help_surface = {"help", "helped", "helps"} & memory_terms
+    response_surface = {
+        "amaz",
+        "amazing",
+        "awesome",
+        "angry",
+        "feel",
+        "felt",
+        "frustrat",
+        "frustration",
+        "happy",
+        "lovely",
+        "nervous",
+        "proud",
+        "reaction",
+        "relieved",
+        "response",
+        "sad",
+        "think",
+        "thought",
+        "upset",
+        "worried",
+    } & memory_terms
+    causal_context = {
+        "accept",
+        "adopt",
+        "adoption",
+        "agency",
+        "auto",
+        "balance",
+        "because",
+        "book",
+        "break",
+        "broke",
+        "broken",
+        "car",
+        "cook",
+        "cooking",
+        "create",
+        "creating",
+        "design",
+        "designed",
+        "easy",
+        "engine",
+        "engineer",
+        "engineering",
+        "engines",
+        "family",
+        "fit",
+        "gam",
+        "game",
+        "gaming",
+        "group",
+        "health",
+        "help",
+        "important",
+        "inclusivity",
+        "issue",
+        "join",
+        "kid",
+        "kids",
+        "leav",
+        "leave",
+        "lifestyle",
+        "lgbtq",
+        "march",
+        "military",
+        "music",
+        "mom",
+        "move",
+        "movie",
+        "paint",
+        "painting",
+        "passion",
+        "present",
+        "progres",
+        "progress",
+        "priu",
+        "prius",
+        "pursue",
+        "refresh",
+        "refreshes",
+        "reflect",
+        "run",
+        "running",
+        "routine",
+        "screenplay",
+        "script",
+        "sculpt",
+        "sculpting",
+        "song",
+        "space",
+        "start",
+        "stolen",
+        "support",
+        "vehicle",
+        "veteran",
+        "veterans",
+        "volunteer",
+        "volunteering",
+        "video",
+        "watch",
+        "writer",
+    } & memory_terms
+    return bool(
+        direct_cause
+        or _CAUSAL_EXPLANATION_SURFACE_RE.search(memory_text)
+        or _CAUSAL_PURPOSE_SURFACE_RE.search(memory_text)
+        or (decision_surface and causal_context)
+        or (reason_surface and causal_context)
+        or (contextual_cause_surface and causal_context)
+        or (realization_surface and causal_context)
+        or (help_surface and causal_context)
+        or (response_surface and causal_context)
+    )
+
+
+_STATUS_PROFILE_RELATION_RE = re.compile(
+    r"\b(?:my|his|her|their|our|your)\s+"
+    r"(?:boyfriend|boss|brother|child|children|colleague|cousin|coworker|daughter|"
+    r"father|fiancee?|friend|girlfriend|grandfather|grandmother|husband|kid|kids|manager|mentor|"
+    r"mother|neighbor|parent|parents|partner|roommate|sibling|sister|son|spouse|"
+    r"team\s+member|teammate|wife)\b"
+    r"|\b[A-Z][a-zA-Z0-9_-]+\s+(?:is|was|are|were)\s+"
+    r"[A-Z][a-zA-Z0-9_-]+(?:'s|’s)\s+"
+    r"(?:boyfriend|boss|brother|child|children|colleague|cousin|coworker|daughter|"
+    r"father|fiancee?|friend|girlfriend|grandfather|grandmother|husband|kid|kids|manager|mentor|"
+    r"mother|neighbor|parent|parents|partner|roommate|sibling|sister|son|spouse|"
+    r"team\s+member|teammate|wife)\b"
+    r"|\b[A-Z][a-zA-Z0-9_-]+(?:'s|’s)\s+"
+    r"(?:boyfriend|boss|brother|child|children|colleague|cousin|coworker|daughter|"
+    r"father|fiancee?|friend|girlfriend|grandfather|grandmother|husband|kid|kids|manager|mentor|"
+    r"mother|neighbor|parent|parents|partner|roommate|sibling|sister|son|spouse|"
+    r"team\s+member|teammate|wife)\s+(?:is|was|are|were)\s+"
+    r"[A-Z][a-zA-Z0-9_-]+\b"
+    r"|\b[A-Z][a-zA-Z0-9_-]+(?:'s|’s)\s+"
+    r"(?:boyfriend|boss|brother|child|children|colleague|cousin|coworker|daughter|"
+    r"father|fiancee?|friend|girlfriend|grandfather|grandmother|husband|kid|kids|manager|mentor|"
+    r"mother|neighbor|parent|parents|partner|roommate|sibling|sister|son|spouse|"
+    r"team\s+member|teammate|wife)[,;:]\s+[A-Z][a-zA-Z0-9_-]+\b"
+    r"|\b(?:is|was|are|were)\s+"
+    r"(?:my|his|her|their|our|your)\s+"
+    r"(?:boyfriend|boss|brother|child|colleague|cousin|coworker|daughter|father|"
+    r"fiancee?|friend|girlfriend|grandfather|grandmother|husband|manager|mentor|mother|neighbor|"
+    r"parent|parents|partner|roommate|sibling|sister|son|spouse|"
+    r"team\s+member|teammate|wife)\b"
+    r"|\b[A-Z][a-zA-Z0-9_-]+\s+(?:is|was|are|were)\s+on\s+"
+    r"[A-Z][a-zA-Z0-9_-]+(?:'s|’s)\s+team\b"
+    r"|\b[A-Z][a-zA-Z0-9_-]+\s+(?:and|&)\s+"
+    r"[A-Z][a-zA-Z0-9_-]+\s+(?:are|were)\s+on\s+the\s+same\s+team\b"
+    r"|\b(?:have|has|had)\s+"
+    r"(?:(?:one|two|three|four|five|six|seven|eight|nine|ten|\d+|a|an|no)\s+)?"
+    r"(?:child|children|kids?|son|daughter)\b"
+    r"|\b(?:dating|engaged\s+to|married\s+to)\s+"
+    r"(?:[A-Z][a-zA-Z0-9_-]+|my|his|her|their|our|your)\b"
+    r"|\b(?:relationship\s+status|status)\s+(?:is|was)\s+"
+    r"(?:single|dating|engaged|married|divorced)\b",
+    re.IGNORECASE,
+)
+
+
+def _has_status_profile_support(
+    memory_terms: set[str],
+    *,
+    memory_text: str = "",
+) -> bool:
+    explicit_status = {
+        "breakup",
+        "dating",
+        "divorce",
+        "divorced",
+        "engag",
+        "engaged",
+        "engagement",
+        "marriage",
+        "married",
+        "single",
+    } & memory_terms
+    direct_relation = {
+        "boyfriend",
+        "boss",
+        "brother",
+        "child",
+        "children",
+        "colleague",
+        "cousin",
+        "coworker",
+        "daughter",
+        "father",
+        "fiance",
+        "fiancee",
+        "friend",
+        "friends",
+        "girlfriend",
+        "grandfather",
+        "grandmother",
+        "husband",
+        "kid",
+        "kids",
+        "manager",
+        "mentor",
+        "member",
+        "mother",
+        "neighbor",
+        "parent",
+        "parents",
+        "partner",
+        "roommate",
+        "sibling",
+        "sister",
+        "son",
+        "spouse",
+        "team",
+        "teammate",
+        "teammates",
+        "wife",
+    } & memory_terms
+    return bool(
+        explicit_status
+        or (direct_relation and _STATUS_PROFILE_RELATION_RE.search(memory_text))
+    )
+
+
+_LOCATION_TRANSITION_SURFACE_RE = re.compile(
+    r"\b(?:move|moved|moving|relocate|relocated|relocating)\s+"
+    r"(?:back\s+)?(?:from|to|into|out\s+of)\s+"
+    r"(?:[A-Z][a-zA-Z0-9_-]+|the\s+[a-zA-Z][a-zA-Z0-9_-]+)",
+)
+_LOCATION_PROFILE_SURFACE_RE = re.compile(
+    r"\b(?:live|lived|living|stay|stayed|staying|based)\s+"
+    r"(?:in|at|near|around)\s+"
+    r"(?:[A-Z][a-zA-Z0-9_-]+|the\s+[a-zA-Z][a-zA-Z0-9_-]+)"
+    r"|\b(?:from|born\s+in|grew\s+up\s+in)\s+"
+    r"(?:[A-Z][a-zA-Z0-9_-]+|the\s+[a-zA-Z][a-zA-Z0-9_-]+)"
+    r"|\braised\s+(?:in|near|around)\s+"
+    r"(?:[A-Z][a-zA-Z0-9_-]+|the\s+[a-zA-Z][a-zA-Z0-9_-]+)"
+    r"|\bhometown\s+(?:is|was|in)\s+"
+    r"(?:[A-Z][a-zA-Z0-9_-]+|the\s+[a-zA-Z][a-zA-Z0-9_-]+)"
+    r"|\b(?:(?:my|his|her|their|our|your)\s+)?(?:current\s+)?"
+    r"(?:city|home|location)\s+(?:is|was)\s+"
+    r"(?:[A-Z][a-zA-Z0-9_-]+|the\s+[a-zA-Z][a-zA-Z0-9_-]+)",
+)
+_CAMPING_LOCATION_SURFACE_RE = re.compile(
+    r"\b(?:camped|camping|went\s+camping)\s+"
+    r"(?:in|at|near|around)\s+"
+    r"(?:a\s+|an\s+|the\s+|[A-Z][a-zA-Z0-9_-]+\s+)?"
+    r"(?:campground|campsite|site|park|lake|trail|coast|coastline)\b",
+    re.IGNORECASE,
+)
+_WORKPLACE_LOCATION_SURFACE_RE = re.compile(
+    r"\b(?:work|worked|working|works)\s+(?:in|near|around)\s+"
+    r"(?:a\s+|an\s+|the\s+)?(?:[A-Z][a-zA-Z0-9_-]+|"
+    r"downtown|midtown|uptown)"
+    r"|\b(?:work|worked|working|works)\s+at\s+"
+    r"(?:a\s+|an\s+|the\s+)?(?:[a-zA-Z][a-zA-Z0-9_-]+\s+){0,4}"
+    r"(?:in|near|around)\s+(?:a\s+|an\s+|the\s+)?"
+    r"(?:[A-Z][a-zA-Z0-9_-]+|downtown|midtown|uptown)"
+    r"|\b(?:office|workplace)\s+(?:is|was|in|at|near|around)\s+"
+    r"(?:a\s+|an\s+|the\s+)?(?:[A-Z][a-zA-Z0-9_-]+|"
+    r"downtown|midtown|uptown)",
+)
+_EVENT_VENUE_LOCATION_SURFACE_RE = re.compile(
+    r"(?i:\b(?:attend|attended|attending|book|booked|choose|chose|chosen|"
+    r"event|concert|conference|meet|met|meeting|show|visit|visited|"
+    r"wedding|ceremony|reception|workshop)\b)"
+    r"[^.?!\n]{0,100}(?i:\b(?:at|in|near|around)\s+)"
+    r"(?i:(?:a\s+|an\s+|the\s+)?)"
+    r"(?:[A-Z][a-zA-Z0-9_-]+(?:\s+[A-Z][a-zA-Z0-9_-]+){0,3}|"
+    r"(?i:auditorium|barn|cafe|center|centre|chapel|church|gallery|garden|"
+    r"hall|library|museum|park|restaurant|school|studio|theater|theatre|venue))\b",
+)
+_WEDDING_VENUE_LOCATION_SURFACE_RE = re.compile(
+    r"(?i:\b(?:book|booked|choose|chose|chosen|pick|picked|select|selected)\b)"
+    r"[^.?!\n]{0,100}"
+    r"(?i:\b(?:auditorium|barn|chapel|church|gallery|garden|hall|hotel|"
+    r"museum|park|restaurant|theater|theatre|venue)\b)"
+    r"[^.?!\n]{0,100}(?i:\b(?:wedding|ceremony|reception)\b)"
+    r"|(?i:\b(?:wedding|ceremony|reception)\b)"
+    r"[^.?!\n]{0,100}"
+    r"(?i:\b(?:auditorium|barn|chapel|church|gallery|garden|hall|hotel|"
+    r"museum|park|restaurant|theater|theatre|venue)\b)",
+)
+
+
+def _has_location_transition_support(
+    memory_terms: set[str],
+    *,
+    memory_text: str = "",
+) -> bool:
+    movement_action = {
+        "move",
+        "moved",
+        "moving",
+        "relocate",
+        "relocated",
+        "relocat",
+    } & memory_terms
+    origin_context = {
+        "city",
+        "country",
+        "from",
+        "gallery",
+        "home",
+        "origin",
+        "place",
+        "museum",
+        "theater",
+        "theatre",
+        "venue",
+    } & memory_terms
+    location_profile_action = {
+        "live",
+        "lived",
+        "living",
+        "based",
+        "bas",
+        "stay",
+        "stayed",
+        "staying",
+    } & memory_terms
+    location_profile_context = {
+        "city",
+        "conference",
+        "country",
+        "home",
+        "hotel",
+        "place",
+    } & memory_terms
+    origin_profile_surface = {
+        "born",
+        "childhood",
+        "from",
+        "grew",
+        "hometown",
+        "origin",
+        "originally",
+        "rais",
+        "raise",
+    } & memory_terms
+    travel_surface = {
+        "camp",
+        "camped",
+        "camping",
+        "drive",
+        "roadtrip",
+        "travel",
+        "trip",
+    } & memory_terms
+    travel_context = {
+        "campground",
+        "campsite",
+        "city",
+        "country",
+        "from",
+        "home",
+        "lake",
+        "location",
+        "origin",
+        "park",
+        "place",
+        "road",
+        "site",
+    } & memory_terms
+    return bool(
+        (movement_action and origin_context)
+        or (movement_action and _LOCATION_TRANSITION_SURFACE_RE.search(memory_text))
+        or (location_profile_action and location_profile_context)
+        or (origin_profile_surface and origin_context)
+        or _LOCATION_PROFILE_SURFACE_RE.search(memory_text)
+        or _CAMPING_LOCATION_SURFACE_RE.search(memory_text)
+        or _WORKPLACE_LOCATION_SURFACE_RE.search(memory_text)
+        or _EVENT_VENUE_LOCATION_SURFACE_RE.search(memory_text)
+        or _WEDDING_VENUE_LOCATION_SURFACE_RE.search(memory_text)
+        or (travel_surface and travel_context)
+    )
+
+
+def _has_preference_support(memory_terms: set[str]) -> bool:
+    preference_action = {
+        "avoid",
+        "avoided",
+        "avoids",
+        "dislik",
+        "dislike",
+        "disliked",
+        "enjoy",
+        "enjoyed",
+        "fan",
+        "favorite",
+        "favourite",
+        "hat",
+        "hate",
+        "hated",
+        "hates",
+        "interest",
+        "interested",
+        "like",
+        "liked",
+        "love",
+        "loved",
+        "prefer",
+        "preferred",
+    } & memory_terms
+    preference_context = {
+        "activity",
+        "activities",
+        "animal",
+        "animals",
+        "bach",
+        "book",
+        "books",
+        "camp",
+        "campfire",
+        "camping",
+        "classic",
+        "company",
+        "color",
+        "coffee",
+        "exhibit",
+        "family",
+        "food",
+        "hike",
+        "hobby",
+        "hobbies",
+        "kid",
+        "kids",
+        "marshmallow",
+        "meteor",
+        "mozart",
+        "movie",
+        "movies",
+        "music",
+        "novel",
+        "novels",
+        "outdoor",
+        "outdoors",
+        "park",
+        "read",
+        "reading",
+        "restaurant",
+        "run",
+        "running",
+        "song",
+        "songs",
+        "sport",
+        "sports",
+        "story",
+        "summer",
+        "tea",
+        "writer",
+        "writers",
+    } & memory_terms
+    author_context = {"author", "authors"} & memory_terms and (
+        {"book", "books", "novel", "novels", "read", "reading", "writer", "writers"}
+        & memory_terms
+    )
+    outdoor_context = {"camp", "camping", "outdoor", "outdoors", "park"} & memory_terms
+    self_care_surface = {"self-care", "relax", "refresh", "refreshes", "routine"} & memory_terms
+    self_care_context = {"balance", "family", "present", "wellness"} & memory_terms
+    durable_outdoor_context = {
+        "campfire",
+        "marshmallow",
+        "meteor",
+        "story",
+        "summer",
+    } & memory_terms
+    return bool(
+        (preference_action and preference_context)
+        or (preference_action and author_context)
+        or (outdoor_context and durable_outdoor_context)
+        or (self_care_surface and self_care_context)
+    )
+
+
+_FAVORITE_PREFERENCE_SURFACE_RE = re.compile(
+    r"\b(?:my|his|her|their|our|your)\s+go-to\s+"
+    r"(?:book|choice|color|food|movie|music|place|restaurant|song|spot)\s+"
+    r"(?:is|was)\b"
+    r"|\bgo-to\s+(?:book|choice|color|food|movie|music|place|restaurant|song|spot)\b",
+    re.IGNORECASE,
+)
+_FAVORITE_NEGATED_OR_STALE_SURFACE_RE = re.compile(
+    r"\b(?:not(?!\s+just\b)|never|no\s+longer|isn't|wasn't|"
+    r"is\s+not|was\s+not)\s+"
+    r"(?:(?:my|his|her|their|our|your)\s+)?(?:favorite|favourite)\b"
+    r"|\b(?:my|his|her|their|our|your)\s+"
+    r"(?:favorite|favourite)\s+"
+    r"(?:book|choice|color|food|movie|music|place|restaurant|song|spot)\s+"
+    r"(?:is|was)\s+not\b"
+    r"|\bused\s+to\s+(?:be\s+)?"
+    r"(?:(?:my|his|her|their|our|your)\s+)?(?:favorite|favourite)\b"
+    r"|\b(?:my|his|her|their|our|your)\s+"
+    r"(?:favorite|favourite)\s+"
+    r"(?:book|choice|color|food|movie|music|place|restaurant|song|spot)\s+"
+    r"used\s+to\s+be\b",
+    re.IGNORECASE,
+)
+_FAVORITE_CURRENT_SURFACE_RE = re.compile(
+    r"\b(?:now|currently|current|these\s+days|today)\b.{0,80}"
+    r"\b(?:favorite|favourite)\b"
+    r"|\bcurrent\s+(?:favorite|favourite)\b",
+    re.IGNORECASE | re.DOTALL,
+)
+
+
+def _has_favorite_preference_support(
+    memory_terms: set[str],
+    *,
+    memory_text: str = "",
+) -> bool:
+    if _FAVORITE_NEGATED_OR_STALE_SURFACE_RE.search(
+        memory_text,
+    ) and not _FAVORITE_CURRENT_SURFACE_RE.search(memory_text):
+        return False
+    favorite_surface = {"favorite", "favourite"} & memory_terms
+    favorite_context = {
+        "book",
+        "choice",
+        "color",
+        "food",
+        "movie",
+        "movies",
+        "music",
+        "restaurant",
+        "song",
+    } & memory_terms
+    return bool(
+        (favorite_surface and favorite_context)
+        or _FAVORITE_PREFERENCE_SURFACE_RE.search(memory_text)
+    )
+
+
+def _has_contrast_support(memory_terms: set[str]) -> bool:
+    current_surface = {
+        "current",
+        "currently",
+        "now",
+        "ongoing",
+        "present",
+        "still",
+        "today",
+    } & memory_terms
+    stale_surface = {
+        "before",
+        "changed",
+        "earlier",
+        "former",
+        "formerly",
+        "past",
+        "previous",
+        "previously",
+        "used",
+    } & memory_terms
+    contrast_surface = {
+        "alternative",
+        "but",
+        "compare",
+        "different",
+        "difference",
+        "however",
+        "instead",
+        "rather",
+        "whereas",
+    } & memory_terms
+    return bool(
+        (current_surface and stale_surface)
+        or (contrast_surface and current_surface and stale_surface)
+        or (contrast_surface and {"before", "earlier", "previous", "used"} & memory_terms)
+    )
+
+
+def _has_activity_support(memory_terms: set[str]) -> bool:
+    concrete_activity = {
+        "camp",
+        "camping",
+        "music",
+        "paint",
+        "painting",
+        "pottery",
+        "read",
+        "reading",
+        "run",
+        "running",
+        "song",
+        "songs",
+        "swim",
+        "swimming",
+        "violin",
+    } & memory_terms
+    creative_context = {"creative", "express", "fun", "hobby"} & memory_terms
+    hike_surface = {"hik", "hike", "hiking"} & memory_terms
+    hike_occurrence_context = {
+        "photo",
+        "pic",
+        "spot",
+        "summer",
+        "water",
+        "waterfall",
+        "weekend",
+        "went",
+    } & memory_terms
+    roadtrip_surface = {"roadtrip", "trip"} & memory_terms
+    roadtrip_occurrence_context = {
+        "accident",
+        "bad",
+        "forest",
+        "road",
+        "scared",
+        "start",
+    } & memory_terms
+    book_surface = {"book", "books", "bookshelf"} & memory_terms
+    book_context = {"classic", "culture", "educational", "kid", "kids", "story"} & memory_terms
+    return bool(
+        concrete_activity
+        or ({"class"} & memory_terms and creative_context)
+        or (hike_surface and hike_occurrence_context)
+        or (roadtrip_surface and roadtrip_occurrence_context)
+        or (book_surface and book_context)
+    )
+
+
+def _has_current_goal_support(memory_terms: set[str]) -> bool:
+    if {"goal", "future"} <= memory_terms:
+        return True
+    if "goal" in memory_terms and {"next", "plan", "soon"} & memory_terms:
+        return True
+    if {"hope", "plan"} <= memory_terms:
+        return True
+    if {"planned", "soon"} <= memory_terms:
+        return True
+    if "want" in memory_terms and {"goal", "future", "plan", "soon"} & memory_terms:
+        return True
+    return bool("plan" in memory_terms and {"future", "next", "soon"} & memory_terms)
+
+
+def _has_support_goal_support(memory_terms: set[str]) -> bool:
+    support_action = {
+        "got",
+        "help",
+        "helped",
+        "receive",
+        "received",
+        "support",
+    } & memory_terms
+    development_context = {
+        "difference",
+        "grow",
+        "growing",
+        "huge",
+        "improv",
+        "improved",
+        "journey",
+        "life",
+    } & memory_terms
+    counseling_context = {
+        "counsel",
+        "counseling",
+        "group",
+        "health",
+        "mental",
+    } & memory_terms
+    book_self_discovery = {"book"} & memory_terms and {
+        "discover",
+        "guide",
+        "help",
+        "motivate",
+    } & memory_terms
+    counseling_career = counseling_context and {"job", "jobs"} & memory_terms and {
+        "important",
+        "people",
+        "talk",
+    } & memory_terms
+    adoption_context = {"adopt", "adoption", "agencies", "agency"} & memory_terms
+    inclusive_context = {
+        "inclusive",
+        "inclusivity",
+        "kids",
+        "lgbtq",
+        "support",
+    } & memory_terms
+    adoption_outcome = {"family", "kid"} & memory_terms and {
+        "amaz",
+        "amazing",
+        "awesome",
+        "creat",
+        "lovely",
+        "mom",
+    } & memory_terms
+    return bool(
+        (support_action and development_context and counseling_context)
+        or book_self_discovery
+        or counseling_career
+        or (adoption_context and (support_action or inclusive_context))
+        or adoption_outcome
+    )
+
+
+def _has_identity_profile_support(memory_terms: set[str]) -> bool:
+    visual_identity = {"transgender", "pride", "flag", "mural"} <= memory_terms and {
+        "inspir",
+        "story",
+        "support",
+    } & memory_terms
+    political_context = (
+        {"conservative", "hike", "upset"} <= memory_terms
+        and {"lgbtq", "right", "work"} <= memory_terms
+        and {"accept", "support"} <= memory_terms
+    )
+    religious_context = {"church", "conservative", "journey"} <= memory_terms and {
+        "acceptance",
+        "chang",
+        "faith",
+        "think",
+    } & memory_terms
+    community_support = (
+        {"lgbtq", "right", "support"} <= memory_terms
+        or {"lgbtq+", "adoption", "inclusivity", "support"} <= memory_terms
+        or {"community", "ally", "support"} <= memory_terms
+    )
+    personality_context = (
+        {"care", "real", "help"} <= memory_terms
+        or {"concern", "thoughtful"} <= memory_terms
+        or {"care", "real", "concern"} <= memory_terms
+    )
+    return bool(
+        visual_identity
+        or political_context
+        or religious_context
+        or community_support
+        or personality_context
+    )
+
+
+_COMMUNITY_MEMBERSHIP_MARKER_RE = re.compile(
+    r"\b(?:identif(?:y|ies|ied)|member|part\s+of|belong(?:s|ed|ing)?\s+to|"
+    r"came\s+out|is\s+(?:transgender|queer|lgbtq?)|joined)\b"
+    r".{0,120}\b(?:lgbtq?|trans(?:gender)?|queer|pride|support\s+group|community)\b|"
+    r"\b(?:lgbtq?|trans(?:gender)?|queer|pride|support\s+group|community)\b"
+    r".{0,120}\b(?:identif(?:y|ies|ied)|member|part\s+of|belong(?:s|ed|ing)?|"
+    r"came\s+out|joined)\b",
+    re.IGNORECASE | re.DOTALL,
+)
+_COMMUNITY_ALLY_NOISE_RE = re.compile(
+    r"\b(?:ally|allies|supportive|supported|encourag(?:e|ed|es|ing)|"
+    r"advocat(?:e|ed|es|ing))\b.{0,100}\b(?:lgbtq?|trans(?:gender)?|"
+    r"queer|community|rights)\b|"
+    r"\b(?:lgbtq?|trans(?:gender)?|queer|pride|community|rights)\b.{0,100}"
+    r"\b(?:ally|allies|supportive|supported|encourag(?:e|ed|es|ing)|"
+    r"advocat(?:e|ed|es|ing))\b",
+    re.IGNORECASE | re.DOTALL,
+)
+
+
+def _has_community_membership_support(
+    memory_terms: set[str],
+    *,
+    memory_text: str = "",
+) -> bool:
+    community_domain = {
+        "lgbt",
+        "lgbtq",
+        "lgbtq+",
+        "pride",
+        "queer",
+        "trans",
+        "transgender",
+    } & memory_terms
+    membership_surface = {
+        "belong",
+        "belonged",
+        "belonging",
+        "identifies",
+        "identify",
+        "identified",
+        "joined",
+        "member",
+        "membership",
+    } & memory_terms
+    if not community_domain:
+        return False
+    if _COMMUNITY_ALLY_NOISE_RE.search(memory_text):
+        return False
+    return bool(
+        membership_surface
+        or {"part", "community"} <= memory_terms
+        or _COMMUNITY_MEMBERSHIP_MARKER_RE.search(memory_text)
+    )
+
+
+_TYPED_SUPPORT_CHECKS: dict[str, Callable[[set[str]], bool]] = {
+    "activity": _has_activity_support,
+    "age_profile": _has_age_profile_support,
+    "alias_profile": _has_alias_profile_support,
+    "commitment_profile": _has_commitment_profile_support,
+    "community_membership": _has_community_membership_support,
+    "contact_profile": _has_contact_profile_support,
+    "contrast": _has_contrast_support,
+    "current_goal": _has_current_goal_support,
+    "date_profile": _has_date_profile_support,
+    "diet_profile": _has_diet_profile_support,
+    "education_profile": _has_education_profile_support,
+    "employment_profile": _has_employment_profile_support,
+    "emotion_response": _has_emotion_response_support,
+    "exchange": _has_exchange_support,
+    "health_profile": _has_health_profile_support,
+    "identity_profile": _has_identity_profile_support,
+    "pet_profile": _has_pet_profile_support,
+    "participation_event": _has_participation_event_support,
+    "preference": _has_preference_support,
+    "registration_event": _has_registration_event_support,
+    "skill_profile": _has_skill_profile_support,
+    "support_goal": _has_support_goal_support,
+    "symbolic_meaning": _has_symbolic_meaning_support,
+    "vehicle_profile": _has_vehicle_profile_support,
+}

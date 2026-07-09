@@ -35,12 +35,9 @@ from infinity_context_core.ports.extraction import (
     ExtractionResult,
 )
 from infinity_context_server.admin import token_create
-from infinity_context_server.api.v1.assets import (
-    _read_limited_request_body,
-    asset_extraction_to_response,
-)
 from infinity_context_server.config import CaptureMode, DeployProfile, Settings
 from infinity_context_server.db import upgrade
+from infinity_context_server.features.document_ingestion import public as document_ingestion_server
 from infinity_context_server.main import create_app
 from infinity_context_server.worker import OutboxWorker
 from sqlalchemy import select
@@ -86,6 +83,19 @@ class StreamingRequestStub:
             yield chunk
 
 
+async def _read_limited_asset_upload_body(
+    request: StreamingRequestStub,
+    *,
+    max_bytes: int,
+) -> bytes:
+    return await document_ingestion_server.read_limited_asset_upload_body(
+        request,
+        max_bytes=max_bytes,
+        ingress_limit_error=MemoryIngressLimitError,
+        validation_error=MemoryValidationError,
+    )
+
+
 def test_asset_upload_body_reader_rejects_large_content_length_without_streaming() -> None:
     request = StreamingRequestStub(
         [b"body-should-not-be-read"],
@@ -93,7 +103,7 @@ def test_asset_upload_body_reader_rejects_large_content_length_without_streaming
     )
 
     with pytest.raises(MemoryIngressLimitError, match="upload limit"):
-        asyncio.run(_read_limited_request_body(request, max_bytes=4))
+        asyncio.run(_read_limited_asset_upload_body(request, max_bytes=4))
 
     assert request.chunks_read == 0
 
@@ -102,7 +112,7 @@ def test_asset_upload_body_reader_rejects_invalid_content_length() -> None:
     request = StreamingRequestStub([b"hello"], headers={"content-length": "invalid"})
 
     with pytest.raises(MemoryValidationError, match="Invalid Content-Length"):
-        asyncio.run(_read_limited_request_body(request, max_bytes=10))
+        asyncio.run(_read_limited_asset_upload_body(request, max_bytes=10))
 
     assert request.chunks_read == 0
 
@@ -111,7 +121,7 @@ def test_asset_upload_body_reader_rejects_chunked_overflow_while_streaming() -> 
     request = StreamingRequestStub([b"12", b"345", b"should-not-be-read"])
 
     with pytest.raises(MemoryIngressLimitError, match="upload limit"):
-        asyncio.run(_read_limited_request_body(request, max_bytes=4))
+        asyncio.run(_read_limited_asset_upload_body(request, max_bytes=4))
 
     assert request.chunks_read == 2
 
@@ -401,7 +411,7 @@ def test_asset_extraction_response_redacts_sensitive_diagnostic_strings() -> Non
         )
     )
 
-    response = asset_extraction_to_response(job)
+    response = document_ingestion_server.asset_extraction_to_response(job)
     rendered = json.dumps(response, sort_keys=True)
 
     assert raw_secret not in rendered

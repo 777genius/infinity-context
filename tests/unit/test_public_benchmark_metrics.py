@@ -11,9 +11,11 @@ from infinity_context_server.public_benchmark_checkpoint import (
 )
 from infinity_context_server.public_benchmark_metrics import (
     benchmark_summaries,
+    bounded_progress_fields,
     case_failures,
     case_payload,
     coverage_summary,
+    progress_case_outcome_fields,
     progress_timing_fields,
     run_metric_summary,
 )
@@ -84,6 +86,108 @@ def test_public_benchmark_case_failures_include_answer_and_evidence_diagnostics(
     assert payload["missing_evidence_ref_previews"] == [
         "D3:11: Caroline is supported by mentors.",
     ]
+
+
+def test_public_benchmark_payloads_sanitize_auth_previews_refs_and_item_ids() -> None:
+    bearer_payload = "Bearer " + ("a" * 16)
+    key_payload = "MEMORY_TOKEN=" + ("b" * 16)
+    raw_ref = "locomo:conv-private:session_3:D3:11:turn-secret"
+    private_auth_path = "/home/alice/.config/openai/auth.json"
+
+    result = _case_result(
+        case_id=f"case-one {bearer_payload}",
+        ok=False,
+        missing_terms=(key_payload,),
+        item_ids=(bearer_payload, raw_ref, private_auth_path, "safe-chunk"),
+        question_preview=f"Who supports Caroline? {bearer_payload}",
+        answer_preview=f"Her mentors. {key_payload}",
+        expected_terms_preview=(key_payload,),
+        evidence_refs=(
+            raw_ref,
+            private_auth_path,
+            f"authorization {bearer_payload} D4:5",
+        ),
+        evidence_ref_previews=(
+            f"{raw_ref}: private text {bearer_payload}",
+            f"{private_auth_path}: private auth index",
+        ),
+        covered_terms=(key_payload,),
+        covered_evidence_refs=(raw_ref,),
+        missing_evidence_refs=(
+            private_auth_path,
+            f"authorization {bearer_payload} D4:5",
+        ),
+        missing_evidence_ref_previews=(f"D4:5 private text {key_payload}",),
+    )
+
+    rendered = json.dumps(
+        {"payload": case_payload(result), "failures": case_failures((result,))},
+        sort_keys=True,
+    )
+
+    assert "Bearer" not in rendered
+    assert "MEMORY_TOKEN" not in rendered
+    assert "conv-private" not in rendered
+    assert "turn-secret" not in rendered
+    assert "/home/alice" not in rendered
+    assert "auth.json" not in rendered
+    assert "\"case_id\": \"case-one [redacted]\"" in rendered
+    assert "safe-chunk" in rendered
+    assert "source_session_turn_refs:session_3:D3:11" in rendered
+    assert "source_turn_refs:D4:5" in rendered
+    assert '"capability": "locomo:temporal_reasoning"' in rendered
+    assert "[redacted]" in rendered
+
+
+def test_public_benchmark_progress_outcome_fields_sanitize_case_ids() -> None:
+    bearer_payload = "Bearer " + ("a" * 16)
+    result = _case_result(
+        case_id=f"case-failed {bearer_payload}",
+        ok=False,
+        missing_terms=("answer",),
+    )
+
+    fields = progress_case_outcome_fields(
+        processed_case_count=1,
+        run_results=(result,),
+        failures=case_failures((result,)),
+        total_case_count=1,
+    )
+    rendered = json.dumps(fields, sort_keys=True)
+
+    assert "Bearer" not in rendered
+    assert fields["last_case_id"] == "case-failed [redacted]"
+    assert fields["recent_failed_case_ids"] == ["case-failed [redacted]"]
+
+
+def test_public_benchmark_progress_fields_sanitize_refs_previews_and_item_ids() -> None:
+    bearer_payload = "Bearer " + ("a" * 16)
+    key_payload = "MEMORY_TOKEN=" + ("b" * 16)
+    raw_ref = "locomo:conv-private:session_3:D3:11:turn-secret"
+
+    fields = bounded_progress_fields(
+        {
+            "case_id": f"locomo:conv-26:qa:70 {bearer_payload}",
+            "question_preview": f"Who supports Caroline? {bearer_payload}",
+            "item_ids": [bearer_payload, raw_ref, "safe-chunk"],
+            "evidence_refs": [raw_ref, f"authorization {bearer_payload} D4:5"],
+            "diagnostics": {
+                "answer_preview": f"Her mentors. {key_payload}",
+                "missing_evidence_refs": [raw_ref],
+            },
+        }
+    )
+    rendered = json.dumps(fields, sort_keys=True)
+
+    assert "Bearer" not in rendered
+    assert "MEMORY_TOKEN" not in rendered
+    assert "conv-private" not in rendered
+    assert "turn-secret" not in rendered
+    assert fields["case_id"] == "locomo:conv-26:qa:70 [redacted]"
+    assert "safe-chunk" in rendered
+    assert "source_session_turn_refs:session_3:D3:11" in rendered
+    assert "source_turn_refs:D4:5" in rendered
+    assert "[redacted]" in rendered
 
 
 def test_public_benchmark_case_payload_includes_bounded_coverage() -> None:
@@ -321,6 +425,95 @@ def test_public_benchmark_resume_preserves_checkpoint_failure_diagnostics(
     )
 
 
+def test_public_benchmark_resume_sanitizes_checkpoint_failure_diagnostics(
+    tmp_path: Path,
+) -> None:
+    bearer_payload = "Bearer " + ("a" * 16)
+    key_payload = "MEMORY_TOKEN=" + ("b" * 16)
+    raw_ref = "locomo:conv-private:session_3:D3:11:turn-secret"
+    unsafe_case_id = f"case-failed {bearer_payload}"
+    checkpoint = tmp_path / "checkpoint.json"
+    checkpoint.write_text(
+        json.dumps(
+            {
+                "schema_version": "public-benchmark-checkpoint-v1",
+                "dataset_hash": "dataset-hash",
+                "case_selection": {},
+                "cases": [
+                    {
+                        "benchmark": "locomo",
+                        "case_id": "case-ok",
+                        "capability": "locomo:temporal_reasoning",
+                        "status": "ok",
+                        "expected_ok": True,
+                        "forbidden_ok": True,
+                        "missing_terms": [],
+                        "leaked_terms": [],
+                        "item_ids": ["chunk-one"],
+                        "latency_ms": 12.5,
+                    },
+                    {
+                        "benchmark": "locomo",
+                        "case_id": unsafe_case_id,
+                        "capability": "locomo:temporal_reasoning",
+                        "status": "failed",
+                        "expected_ok": False,
+                        "forbidden_ok": True,
+                        "missing_terms": [key_payload],
+                        "leaked_terms": [bearer_payload],
+                        "item_ids": [bearer_payload, raw_ref],
+                        "latency_ms": 15.0,
+                        "question_preview": f"Who supports Caroline? {bearer_payload}",
+                        "answer_preview": f"Her mentors. {key_payload}",
+                        "expected_terms_preview": [key_payload],
+                        "evidence_refs": [raw_ref, f"authorization {bearer_payload} D4:5"],
+                        "evidence_ref_previews": [
+                            f"{raw_ref}: private text {bearer_payload}",
+                        ],
+                        "covered_terms": [key_payload],
+                        "covered_evidence_refs": [raw_ref],
+                        "missing_evidence_refs": [
+                            f"authorization {bearer_payload} D4:5",
+                        ],
+                        "missing_evidence_ref_previews": [
+                            f"D4:5 private text {key_payload}",
+                        ],
+                    },
+                ],
+                "failures": [
+                    {
+                        "case_id": unsafe_case_id,
+                        "category": "locomo",
+                        "reason": key_payload,
+                        "question_preview": f"fallback {bearer_payload}",
+                    }
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    loaded = load_checkpoint_resume_state_with_diagnostics(
+        checkpoint_out=checkpoint,
+        dataset_hash="dataset-hash",
+        case_selection=None,
+        cases=(_Case("locomo", "case-ok"), _Case("locomo", unsafe_case_id)),
+    )
+
+    rendered = json.dumps(loaded.checkpoint_failures, sort_keys=True)
+
+    assert loaded.status == "loaded"
+    assert "Bearer" not in rendered
+    assert "MEMORY_TOKEN" not in rendered
+    assert unsafe_case_id not in rendered
+    assert "conv-private" not in rendered
+    assert "turn-secret" not in rendered
+    assert '"case_id": "case-failed [redacted]"' in rendered
+    assert "source_session_turn_refs:session_3:D3:11" in rendered
+    assert "source_turn_refs:D4:5" in rendered
+    assert "[redacted]" in rendered
+
+
 @dataclass(frozen=True)
 class _Case:
     benchmark: str
@@ -336,6 +529,7 @@ def _case_result(
     case_id: str = "case-one",
     ok: bool = True,
     missing_terms: tuple[str, ...] = (),
+    item_ids: tuple[str, ...] = ("chunk-one",),
     question_preview: str = "",
     answer_preview: str = "",
     expected_terms_preview: tuple[str, ...] = (),
@@ -355,7 +549,7 @@ def _case_result(
         forbidden_ok=True,
         missing_terms=missing_terms,
         leaked_terms=(),
-        item_ids=("chunk-one",),
+        item_ids=item_ids,
         latency_ms=12.5,
         question_preview=question_preview,
         answer_preview=answer_preview,

@@ -1,4 +1,5 @@
 import asyncio
+import importlib.util
 import json
 from types import SimpleNamespace
 
@@ -744,9 +745,10 @@ def test_configured_graphiti_without_client_degrades_instead_of_disabling(monkey
             raise RuntimeError("neo4j unavailable")
 
     async def run() -> None:
-        import graphiti_core
+        if importlib.util.find_spec("graphiti_core") is not None:
+            import graphiti_core
 
-        monkeypatch.setattr(graphiti_core, "Graphiti", BrokenGraphiti)
+            monkeypatch.setattr(graphiti_core, "Graphiti", BrokenGraphiti)
         adapter = GraphitiGraphMemoryAdapter(
             neo4j_uri="bolt://graphiti.test:7687",
             neo4j_user="neo4j",

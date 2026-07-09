@@ -1709,6 +1709,7 @@ def test_load_parallel_context_reads_during_mutation_storm_e2e(tmp_path: Path) -
 
         stop_readers = threading.Event()
         reader_results: list[tuple[int, str]] = []
+        reader_errors: list[str] = []
         reader_lock = threading.Lock()
 
         def read_context(worker_index: int) -> None:
@@ -1718,20 +1719,29 @@ def test_load_parallel_context_reads_during_mutation_storm_e2e(tmp_path: Path) -
                 timeout=10,
             ) as reader:
                 while not stop_readers.is_set():
-                    response = reader.post(
-                        "/v1/context",
-                        json={
-                            "space_slug": space_slug,
-                            "memory_scope_external_ref": memory_scope_ref,
-                            "query": (
-                                f"{marker} MUTATION_TARGET DELETE_TARGET "
-                                f"background worker {worker_index}"
-                            ),
-                            "token_budget": 1200,
-                            "max_facts": 12,
-                            "max_chunks": 0,
-                        },
-                    )
+                    try:
+                        response = reader.post(
+                            "/v1/context",
+                            json={
+                                "space_slug": space_slug,
+                                "memory_scope_external_ref": memory_scope_ref,
+                                "query": (
+                                    f"{marker} MUTATION_TARGET DELETE_TARGET "
+                                    f"background worker {worker_index}"
+                                ),
+                                "token_budget": 1200,
+                                "max_facts": 12,
+                                "max_chunks": 0,
+                            },
+                        )
+                    except httpx.TimeoutException as exc:
+                        with reader_lock:
+                            reader_errors.append(f"timeout:{type(exc).__name__}")
+                        continue
+                    except httpx.HTTPError as exc:
+                        with reader_lock:
+                            reader_errors.append(f"http:{type(exc).__name__}")
+                        continue
                     with reader_lock:
                         reader_results.append((response.status_code, response.text[:500]))
                     time.sleep(0.01)
@@ -1788,9 +1798,18 @@ def test_load_parallel_context_reads_during_mutation_storm_e2e(tmp_path: Path) -
         final_dump = _dump(final_context)
         server_errors = [item for item in reader_results if item[0] >= 500]
         unexpected_statuses = [item for item in reader_results if item[0] != 200]
+        timeout_errors = [item for item in reader_errors if item.startswith("timeout:")]
+        non_timeout_errors = [
+            item for item in reader_errors if not item.startswith("timeout:")
+        ]
         probe.check("mutation_storm_parallel_readers_ran", len(reader_results) >= 10)
         probe.check("mutation_storm_parallel_readers_no_5xx", not server_errors)
         probe.check("mutation_storm_parallel_readers_all_200", not unexpected_statuses)
+        probe.check("mutation_storm_parallel_readers_no_http_errors", not non_timeout_errors)
+        probe.check(
+            "mutation_storm_parallel_reader_timeout_budget",
+            len(timeout_errors) <= max(2, len(reader_results) // 2),
+        )
         probe.check("mutation_storm_final_fact_visible", final_text in final_dump)
         probe.check("mutation_storm_initial_fact_hidden", update_text not in final_dump)
         probe.check("mutation_storm_deleted_fact_hidden", delete_text not in final_dump)

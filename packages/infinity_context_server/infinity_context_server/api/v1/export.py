@@ -8,20 +8,15 @@ from fastapi import APIRouter, Depends, Query
 from infinity_context_core.application import (
     EnsureScopeCommand,
     ExportGraphQuery,
-    GraphExportResult,
 )
 from infinity_context_core.domain.errors import MemoryValidationError
-from infinity_context_core.memory_scope_snapshots import (
-    build_snapshot_manifest,
-    verify_snapshot_manifest_payload,
-)
-from pydantic import BaseModel, ConfigDict, Field
 
 from infinity_context_server.api.auth import require_service_token
 from infinity_context_server.api.dependencies import get_container
 from infinity_context_server.api.policy import ensure_server_writes_enabled
 from infinity_context_server.api.v1.scope_resolution import resolve_existing_single_scope
 from infinity_context_server.composition import Container
+from infinity_context_server.features.memory_scopes import public as memory_scopes_feature
 from infinity_context_server.memory_scope_transfer import (
     SUPPORTED_MERGE_STRATEGIES,
     export_memory_scope_payload,
@@ -33,29 +28,6 @@ router = APIRouter(
     tags=["export"],
     dependencies=[Depends(require_service_token)],
 )
-
-
-class ImportMemoryScopeSnapshotRequest(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
-    space_slug: str = Field(min_length=1, max_length=160)
-    memory_scope_external_ref: str = Field(min_length=1, max_length=200)
-    snapshot: dict[str, Any]
-    manifest: dict[str, Any] | None = None
-    dry_run: bool = True
-    merge_strategy: str = Field(default="fail_on_conflict", max_length=80)
-    confirmed: bool = False
-    source_name: str = Field(default="api-memory_scope-snapshot", max_length=160)
-
-
-class PreviewMemoryScopeSnapshotRequest(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
-    space_slug: str = Field(min_length=1, max_length=160)
-    memory_scope_external_ref: str = Field(min_length=1, max_length=200)
-    snapshot: dict[str, Any]
-    manifest: dict[str, Any] | None = None
-    merge_strategy: str = Field(default="fail_on_conflict", max_length=80)
 
 
 @router.get("/graph.json")
@@ -86,27 +58,7 @@ async def export_graph_json(
         thread_required=False,
     )
     if scope is None:
-        return {
-            "data": {
-                "schema_version": "infinity_context.graph_export.v1",
-                "scope": {"scope_not_found": True},
-                "nodes": [],
-                "edges": [],
-                "counts": {
-                    "facts": 0,
-                    "documents": 0,
-                    "episodes": 0,
-                    "chunks": 0,
-                    "anchors": 0,
-                    "nodes": 0,
-                    "edges": 0,
-                    "relations": 0,
-                    "anchor_relations": 0,
-                },
-                "truncated": False,
-                "warnings": ["scope_not_found"],
-            }
-        }
+        return {"data": memory_scopes_feature.graph_export_scope_not_found_response()}
     graph = await container.export_graph.execute(
         ExportGraphQuery(
             space_id=scope.space_id,
@@ -121,7 +73,7 @@ async def export_graph_json(
             max_anchors=max_anchors,
         )
     )
-    return {"data": graph_export_to_response(graph)}
+    return {"data": memory_scopes_feature.graph_export_to_response(graph)}
 
 
 @router.get("/memory_scope-snapshot")
@@ -138,34 +90,25 @@ async def export_memory_scope_snapshot(
         redacted=redacted,
         blob_storage=container.blob_storage,
     )
-    if result["status"] != "ok":
-        return {"data": None, "status": result["status"]}
-    snapshot = result["snapshot"]
-    redacted = bool(result["redacted"])
-    return {
-        "data": snapshot,
-        "status": "ok",
-        "counts": result["counts"],
-        "redacted": redacted,
-        "manifest": build_snapshot_manifest(
-            snapshot=snapshot,
-            space_slug=space_slug,
-            memory_scope_external_ref=memory_scope_external_ref,
-            redacted=redacted,
-        ),
-    }
+    return memory_scopes_feature.memory_scope_snapshot_export_response(
+        result=result,
+        space_slug=space_slug,
+        memory_scope_external_ref=memory_scope_external_ref,
+    )
 
 
 @router.post("/memory_scope-snapshot/import")
 async def import_memory_scope_snapshot(
-    request: ImportMemoryScopeSnapshotRequest,
+    request: memory_scopes_feature.ImportMemoryScopeSnapshotRequest,
     container: Annotated[Container, Depends(get_container)],
 ) -> dict[str, Any]:
-    if request.merge_strategy not in SUPPORTED_MERGE_STRATEGIES:
-        raise MemoryValidationError("Unsupported memory_scope snapshot merge strategy")
-    if not request.dry_run and not request.confirmed:
-        raise MemoryValidationError("MemoryScope snapshot import requires confirmed=true")
-    _verify_memory_scope_snapshot_manifest(request.snapshot, request.manifest)
+    try:
+        memory_scopes_feature.validate_memory_scope_snapshot_import_request(
+            request,
+            supported_merge_strategies=SUPPORTED_MERGE_STRATEGIES,
+        )
+    except memory_scopes_feature.MemoryScopeSnapshotCompatibilityError as exc:
+        raise MemoryValidationError(str(exc)) from exc
 
     if request.dry_run:
         scope = await resolve_existing_single_scope(
@@ -202,17 +145,21 @@ async def import_memory_scope_snapshot(
         source_name=request.source_name,
         blob_storage=container.blob_storage,
     )
-    return {"data": result}
+    return memory_scopes_feature.memory_scope_snapshot_transfer_response(result)
 
 
 @router.post("/memory_scope-snapshot/preview")
 async def preview_memory_scope_snapshot_import(
-    request: PreviewMemoryScopeSnapshotRequest,
+    request: memory_scopes_feature.PreviewMemoryScopeSnapshotRequest,
     container: Annotated[Container, Depends(get_container)],
 ) -> dict[str, Any]:
-    if request.merge_strategy not in SUPPORTED_MERGE_STRATEGIES:
-        raise MemoryValidationError("Unsupported memory_scope snapshot merge strategy")
-    _verify_memory_scope_snapshot_manifest(request.snapshot, request.manifest)
+    try:
+        memory_scopes_feature.validate_memory_scope_snapshot_preview_request(
+            request,
+            supported_merge_strategies=SUPPORTED_MERGE_STRATEGIES,
+        )
+    except memory_scopes_feature.MemoryScopeSnapshotCompatibilityError as exc:
+        raise MemoryValidationError(str(exc)) from exc
     scope = await resolve_existing_single_scope(
         container,
         space_id=None,
@@ -234,50 +181,4 @@ async def preview_memory_scope_snapshot_import(
         source_name="api-memory_scope-snapshot-preview",
         blob_storage=container.blob_storage,
     )
-    return {"data": result}
-
-
-def _verify_memory_scope_snapshot_manifest(
-    snapshot: dict[str, Any],
-    manifest: dict[str, Any] | None,
-) -> None:
-    if manifest is None:
-        return
-    verification = verify_snapshot_manifest_payload(
-        snapshot=snapshot,
-        manifest=manifest,
-        expected_snapshot_file=None,
-    )
-    if not verification["ok"]:
-        errors = ", ".join(verification["errors"])
-        raise MemoryValidationError(f"MemoryScope snapshot manifest verification failed: {errors}")
-
-
-def graph_export_to_response(graph: GraphExportResult) -> dict[str, Any]:
-    return {
-        "schema_version": graph.schema_version,
-        "scope": graph.scope,
-        "nodes": [
-            {
-                "id": node.id,
-                "type": node.type,
-                "label": node.label,
-                "data": node.data,
-            }
-            for node in graph.nodes
-        ],
-        "edges": [
-            {
-                "id": edge.id,
-                "type": edge.type,
-                "source": edge.source,
-                "target": edge.target,
-                "label": edge.label,
-                "data": edge.data,
-            }
-            for edge in graph.edges
-        ],
-        "counts": graph.counts,
-        "truncated": graph.truncated,
-        "warnings": list(graph.warnings),
-    }
+    return memory_scopes_feature.memory_scope_snapshot_transfer_response(result)

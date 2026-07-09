@@ -171,6 +171,35 @@ def test_apply_domain_rerank_signals_includes_future_plan_timing_evidence() -> N
     assert ("future_plan_timing_answer_evidence", 3.0) in adjustment.rank_signals
 
 
+def test_apply_domain_rerank_signals_accepts_near_future_time_expressions() -> None:
+    item = ContextItem(
+        item_id="museum_tomorrow",
+        item_type="chunk",
+        text=(
+            "D9:4 Melanie: I'm hoping to visit the science museum tomorrow "
+            "with the kids."
+        ),
+        score=0.7,
+        source_refs=(SourceRef(source_type="locomo_turn", source_id="conv-26:D9:4"),),
+        diagnostics={
+            "retrieval_source": "keyword_chunks",
+            "retrieval_sources": ["keyword_chunks"],
+            "score_signals": {"query_expansion_reason": "future_plan_timing_bridge"},
+        },
+    )
+
+    adjustment = apply_domain_rerank_signals(
+        query="When is Melanie planning to visit the science museum?",
+        query_reason="future_plan_timing_bridge",
+        item=item,
+        relevance=_relevance(distinctive_term_hits=7),
+    )
+
+    assert adjustment.boost > 0
+    assert "future_plan_timing_exact_evidence" in adjustment.reasons
+    assert ("future_plan_timing_answer_evidence", 3.0) in adjustment.rank_signals
+
+
 def test_apply_domain_rerank_signals_includes_lifestyle_food_evidence() -> None:
     item = ContextItem(
         item_id="sam_roasted_veg_recipe",
@@ -416,6 +445,64 @@ def test_apply_domain_rerank_signals_boosts_slot_diverse_pottery_aggregation() -
     assert "aggregation_list_multi_evidence" not in adjustment.reasons
 
 
+def test_apply_domain_rerank_signals_reports_distinct_person_list_slots() -> None:
+    duplicate_person = ContextItem(
+        item_id="duplicate_person_aggregation",
+        item_type="chunk",
+        text=(
+            "D2:1 Maria met Alex at the shelter. "
+            "D8:3 Maria helped Alex with the food drive."
+        ),
+        score=0.8,
+        source_refs=(SourceRef(source_type="document", source_id="doc"),),
+        diagnostics={
+            "retrieval_source": "keyword_aggregation_chunks",
+            "retrieval_sources": ["keyword_aggregation_chunks"],
+            "score_signals": {"query_expansion_reason": "decomposition_inventory_list"},
+        },
+    )
+    distinct_people = ContextItem(
+        item_id="distinct_people_aggregation",
+        item_type="chunk",
+        text=(
+            "D2:1 Maria met Alex at the shelter. "
+            "D11:10 Maria helped Priya with the food drive."
+        ),
+        score=0.78,
+        source_refs=(SourceRef(source_type="document", source_id="doc"),),
+        diagnostics={
+            "retrieval_source": "keyword_aggregation_chunks",
+            "retrieval_sources": ["keyword_aggregation_chunks"],
+            "score_signals": {"query_expansion_reason": "decomposition_inventory_list"},
+        },
+    )
+
+    duplicate_adjustment = apply_domain_rerank_signals(
+        query="Who has Maria met and helped while volunteering?",
+        query_reason="decomposition_inventory_list",
+        item=duplicate_person,
+        relevance=_relevance(distinctive_term_hits=7),
+    )
+    distinct_adjustment = apply_domain_rerank_signals(
+        query="Who has Maria met and helped while volunteering?",
+        query_reason="decomposition_inventory_list",
+        item=distinct_people,
+        relevance=_relevance(distinctive_term_hits=7),
+    )
+
+    assert "aggregation_list_duplicate_answer_slot_evidence" in (
+        duplicate_adjustment.reasons
+    )
+    assert dict(duplicate_adjustment.rank_signals)[
+        "aggregation_list_distinct_answer_slot_count"
+    ] == 1.0
+    assert "aggregation_list_slot_diverse_evidence" in distinct_adjustment.reasons
+    assert dict(distinct_adjustment.rank_signals)[
+        "aggregation_list_distinct_answer_slot_count"
+    ] == 2.0
+    assert distinct_adjustment.boost > duplicate_adjustment.boost
+
+
 def test_apply_domain_rerank_signals_boosts_slot_diverse_vector_event_evidence() -> None:
     item = ContextItem(
         item_id="lgbtq_events_vector",
@@ -498,6 +585,128 @@ def test_apply_domain_rerank_signals_penalizes_single_slot_list_evidence() -> No
 
     assert adjustment.penalty >= 0.04
     assert "aggregation_list_single_evidence_incomplete" in adjustment.reasons
+
+
+def test_apply_domain_rerank_signals_boosts_local_object_attribute_evidence() -> None:
+    local_attribute = ContextItem(
+        item_id="maya_backpack_color",
+        item_type="chunk",
+        text=(
+            "D4:6 Maya: I finally bought the red hiking backpack for the "
+            "summer field trip."
+        ),
+        score=0.68,
+        source_refs=(SourceRef(source_type="locomo_turn", source_id="conv-1:D4:6"),),
+        diagnostics={"retrieval_sources": ["keyword_chunks"]},
+    )
+
+    adjustment = apply_domain_rerank_signals(
+        query="What color is Maya's backpack?",
+        query_reason="original_query",
+        item=local_attribute,
+        relevance=_relevance(distinctive_term_hits=3),
+    )
+
+    assert "object_attribute_local_evidence" in adjustment.reasons
+    assert adjustment.boost >= 0.06
+    assert dict(adjustment.rank_signals)["object_attribute_local_evidence"] == 3.0
+
+
+def test_apply_domain_rerank_signals_penalizes_person_attribute_without_object() -> None:
+    person_attribute_noise = ContextItem(
+        item_id="maya_unrelated_colour",
+        item_type="chunk",
+        text=(
+            "D4:7 Maya: I picked a red dress for the reunion and packed my "
+            "tickets in the side pocket."
+        ),
+        score=0.91,
+        source_refs=(SourceRef(source_type="locomo_turn", source_id="conv-1:D4:7"),),
+        diagnostics={"retrieval_sources": ["keyword_chunks"]},
+    )
+
+    adjustment = apply_domain_rerank_signals(
+        query="What color is Maya's backpack?",
+        query_reason="original_query",
+        item=person_attribute_noise,
+        relevance=_relevance(distinctive_term_hits=2),
+    )
+
+    assert "object_attribute_person_attribute_noise" in adjustment.reasons
+    assert adjustment.penalty >= 0.13
+    assert not adjustment.rank_signals
+
+
+def test_apply_domain_rerank_signals_boosts_local_brand_model_evidence() -> None:
+    local_attribute = ContextItem(
+        item_id="jordan_car_model",
+        item_type="chunk",
+        text=(
+            "D8:2 Jordan: My project car is a Subaru Forester, and I'm "
+            "restoring the engine this month."
+        ),
+        score=0.72,
+        source_refs=(SourceRef(source_type="locomo_turn", source_id="conv-2:D8:2"),),
+        diagnostics={"retrieval_sources": ["keyword_chunks"]},
+    )
+
+    adjustment = apply_domain_rerank_signals(
+        query="What model is Jordan's car?",
+        query_reason="vehicle_interest_bridge",
+        item=local_attribute,
+        relevance=_relevance(distinctive_term_hits=4),
+    )
+
+    assert "object_attribute_local_evidence" in adjustment.reasons
+    assert dict(adjustment.rank_signals)["object_attribute_local_evidence"] == 3.0
+
+
+def test_apply_domain_rerank_signals_boosts_named_brand_before_object() -> None:
+    local_attribute = ContextItem(
+        item_id="priya_backpack_brand",
+        item_type="chunk",
+        text=(
+            "D3:9 Priya: I packed my Osprey backpack for the weekend trail "
+            "cleanup."
+        ),
+        score=0.72,
+        source_refs=(SourceRef(source_type="locomo_turn", source_id="conv-3:D3:9"),),
+        diagnostics={"retrieval_sources": ["keyword_chunks"]},
+    )
+
+    adjustment = apply_domain_rerank_signals(
+        query="What brand is Priya's backpack?",
+        query_reason="original_query",
+        item=local_attribute,
+        relevance=_relevance(distinctive_term_hits=4),
+    )
+
+    assert "object_attribute_local_evidence" in adjustment.reasons
+    assert dict(adjustment.rank_signals)["object_attribute_local_evidence"] == 3.0
+
+
+def test_apply_domain_rerank_signals_does_not_treat_person_as_brand() -> None:
+    person_object_owner = ContextItem(
+        item_id="priya_maya_backpack",
+        item_type="chunk",
+        text=(
+            "D3:10 Priya: I borrowed Maya's backpack for the weekend trail "
+            "cleanup."
+        ),
+        score=0.87,
+        source_refs=(SourceRef(source_type="locomo_turn", source_id="conv-3:D3:10"),),
+        diagnostics={"retrieval_sources": ["keyword_chunks"]},
+    )
+
+    adjustment = apply_domain_rerank_signals(
+        query="What brand is Priya's backpack?",
+        query_reason="original_query",
+        item=person_object_owner,
+        relevance=_relevance(distinctive_term_hits=4),
+    )
+
+    assert "object_attribute_local_evidence" not in adjustment.reasons
+    assert not adjustment.rank_signals
 
 
 def _relevance(*, distinctive_term_hits: int) -> QueryRelevance:

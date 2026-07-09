@@ -10,12 +10,23 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+from infinity_context_core.application.sensitive_text import contains_sensitive_text
+
+from infinity_context_server.memory_comparison_source_identity import (
+    safe_source_refs_for_output as _safe_source_refs_for_output,
+)
+from infinity_context_server.public_benchmark_case_diagnostics import (
+    preview_value as _preview_value,
+)
+
 _MAX_CHECKPOINT_BYTES = 64 * 1024 * 1024
 _MAX_CHECKPOINT_CASES = 50_000
 _MAX_CHECKPOINT_FAILURE_DIAGNOSTICS = 200
 _MAX_FAILURE_TERMS = 20
 _MAX_FAILURE_TEXT_CHARS = 240
 _MAX_FAILURE_REASON_CHARS = 80
+_MAX_FAILURE_REF_CHARS = 120
+_MAX_FAILURE_EVIDENCE_PREVIEW_CHARS = 360
 
 
 @dataclass(frozen=True)
@@ -141,7 +152,18 @@ def load_checkpoint_resume_state_with_diagnostics(
             "dataset_hash_mismatch",
             selected_case_count=selected_case_count,
         )
-    if dict(_as_mapping(payload.get("case_selection"))) != dict(case_selection or {}):
+    checkpoint_case_selection_fingerprint = _non_empty_str(
+        payload.get("case_selection_fingerprint")
+    )
+    if checkpoint_case_selection_fingerprint is not None:
+        case_selection_matches = checkpoint_case_selection_fingerprint == (
+            case_selection_fingerprint(case_selection)
+        )
+    else:
+        case_selection_matches = dict(_as_mapping(payload.get("case_selection"))) == dict(
+            case_selection or {}
+        )
+    if not case_selection_matches:
         return _resume_load_skipped(
             "case_selection_mismatch",
             selected_case_count=selected_case_count,
@@ -335,6 +357,16 @@ def selected_case_fingerprint(cases: Sequence[Any]) -> str:
     return hashlib.sha256(encoded.encode("utf-8")).hexdigest()
 
 
+def case_selection_fingerprint(case_selection: Mapping[str, object] | None) -> str:
+    encoded = json.dumps(
+        case_selection or {},
+        ensure_ascii=False,
+        separators=(",", ":"),
+        sort_keys=True,
+    )
+    return hashlib.sha256(encoded.encode("utf-8")).hexdigest()
+
+
 def seed_corpus_identity(
     case: Any,
     *,
@@ -488,10 +520,13 @@ def _checkpoint_failure_diagnostic(
     raw_reason = _non_empty_str(report.get("reason")) if report is not None else None
     reason = raw_reason or _failure_reason_from_result(result)
     payload: dict[str, object] = {
-        "case_id": result.case_id,
-        "category": result.benchmark,
-        "capability": result.capability,
-        "reason": reason[:_MAX_FAILURE_REASON_CHARS],
+        "case_id": _safe_preview(result.case_id, max_chars=_MAX_FAILURE_REF_CHARS),
+        "category": _safe_preview(result.benchmark, max_chars=_MAX_FAILURE_REASON_CHARS),
+        "capability": _safe_capability_preview(
+            result.capability,
+            max_chars=_MAX_FAILURE_REF_CHARS,
+        ),
+        "reason": _safe_preview(reason, max_chars=_MAX_FAILURE_REASON_CHARS),
         "missing_terms": _bounded_str_list(result.missing_terms),
         "leaked_terms": _bounded_str_list(result.leaked_terms),
         "checkpoint_status": "failed",
@@ -502,12 +537,12 @@ def _checkpoint_failure_diagnostic(
         _non_empty_str(report.get("question_preview")) if report is not None else None
     )
     if question_preview:
-        payload["question_preview"] = question_preview[:_MAX_FAILURE_TEXT_CHARS]
+        payload["question_preview"] = _safe_preview(question_preview)
     answer_preview = result.answer_preview or (
         _non_empty_str(report.get("answer_preview")) if report is not None else None
     )
     if answer_preview:
-        payload["answer_preview"] = answer_preview[:_MAX_FAILURE_TEXT_CHARS]
+        payload["answer_preview"] = _safe_preview(answer_preview)
     expected_terms_preview = result.expected_terms_preview or (
         _str_tuple(report.get("expected_terms_preview")) if report is not None else ()
     )
@@ -517,7 +552,7 @@ def _checkpoint_failure_diagnostic(
         _str_tuple(report.get("evidence_refs")) if report is not None else ()
     )
     if evidence_refs:
-        payload["evidence_refs"] = _bounded_str_list(evidence_refs)
+        payload["evidence_refs"] = _bounded_source_ref_list(evidence_refs)
     evidence_ref_previews = result.evidence_ref_previews or (
         _str_tuple(report.get("evidence_ref_previews")) if report is not None else ()
     )
@@ -535,12 +570,14 @@ def _checkpoint_failure_diagnostic(
         _str_tuple(report.get("covered_evidence_refs")) if report is not None else ()
     )
     if covered_evidence_refs:
-        payload["covered_evidence_refs"] = _bounded_str_list(covered_evidence_refs)
+        payload["covered_evidence_refs"] = _bounded_source_ref_list(covered_evidence_refs)
     missing_evidence_refs = result.missing_evidence_refs or (
         _str_tuple(report.get("missing_evidence_refs")) if report is not None else ()
     )
     if missing_evidence_refs:
-        payload["missing_evidence_refs"] = _bounded_str_list(missing_evidence_refs)
+        payload["missing_evidence_refs"] = _bounded_source_ref_list(
+            missing_evidence_refs
+        )
     missing_evidence_ref_previews = result.missing_evidence_ref_previews or (
         _str_tuple(report.get("missing_evidence_ref_previews")) if report is not None else ()
     )
@@ -565,11 +602,69 @@ def _failure_reason_from_result(result: CaseRunResult) -> str:
 
 
 def _bounded_str_list(values: Sequence[str], *, max_chars: int = 120) -> list[str]:
-    return [
-        str(item)[:max_chars]
-        for item in values[:_MAX_FAILURE_TERMS]
-        if item is not None
-    ]
+    result: list[str] = []
+    for item in values[:_MAX_FAILURE_TERMS]:
+        if item is None:
+            continue
+        text = _safe_preview(item, max_chars=max_chars)
+        if text:
+            result.append(text)
+    return result
+
+
+def _bounded_source_ref_list(values: Sequence[str]) -> list[str]:
+    refs: list[str] = []
+    for item in values[:_MAX_FAILURE_TERMS]:
+        for ref in _safe_source_refs_for_output((item,)):
+            if ref and ref not in refs:
+                refs.append(ref[:_MAX_FAILURE_REF_CHARS])
+    return refs
+
+
+def _safe_preview(
+    value: object,
+    *,
+    max_chars: int = _MAX_FAILURE_TEXT_CHARS,
+) -> str:
+    return _preview_value(value, max_chars=max_chars)
+
+
+def _safe_capability_preview(value: object, *, max_chars: int) -> str:
+    text = str(value or "").strip()
+    if _looks_like_public_capability_label(text):
+        return text[:max_chars]
+    return _safe_preview(text, max_chars=max_chars)
+
+
+def _looks_like_public_capability_label(value: str) -> bool:
+    if not value or contains_sensitive_text(value):
+        return False
+    text = value.casefold()
+    if text.startswith(
+        (
+            "backend:",
+            "graphiti:",
+            "mem0:",
+            "memory://",
+            "openai:",
+            "provider:",
+            "qdrant:",
+        )
+    ):
+        return False
+    if any(
+        marker in text
+        for marker in (
+            "conv-private",
+            "private-token",
+            "provider",
+            "session_",
+            "session-",
+            "turn-secret",
+        )
+    ):
+        return False
+    return all(char.isalnum() or char in {"_", "-", ".", ":", "/"} for char in value)
 
 
 def _as_sequence(value: object) -> Sequence[object]:

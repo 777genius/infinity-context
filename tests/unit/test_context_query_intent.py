@@ -292,6 +292,22 @@ def test_query_anchor_intent_does_not_promote_to_as_project() -> None:
     assert match_query_anchor_intent_to_text(intent, text) is not None
 
 
+def test_query_anchor_intent_ignores_auxiliary_and_determiner_anchor_noise() -> None:
+    intent = build_query_anchor_intent(
+        "What was discussed in the community counseling workshop?"
+    )
+    text = (
+        "D4:7 Jordan: I went to a community counseling workshop recently. "
+        "It was enlightening. They talked about different therapeutic methods "
+        "and how to support people."
+    )
+
+    assert intent.keys_for_kind(MemoryAnchorKind.PERSON) == frozenset()
+    assert intent.keys_for_kind(MemoryAnchorKind.PROJECT) == frozenset()
+    assert query_anchor_intent_text_conflicts(intent, text) is False
+    assert match_query_anchor_intent_to_text(intent, text) is not None
+
+
 def test_query_anchor_intent_groups_plural_activity_questions() -> None:
     intent = build_query_anchor_intent("How many hikes has Joanna been on?")
     match = match_query_anchor_intent_to_text(

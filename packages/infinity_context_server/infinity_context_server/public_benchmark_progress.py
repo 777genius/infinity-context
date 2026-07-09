@@ -15,8 +15,14 @@ from infinity_context_server.public_benchmark_checkpoint import (
     BenchmarkSeedStats,
     CaseRunResult,
 )
+from infinity_context_server.public_benchmark_checkpoint import (
+    case_selection_fingerprint as _case_selection_fingerprint,
+)
 from infinity_context_server.public_benchmark_metrics import (
     bounded_progress_fields as _bounded_progress_fields,
+)
+from infinity_context_server.public_benchmark_metrics import (
+    bounded_public_artifact_fields as _bounded_public_artifact_fields,
 )
 from infinity_context_server.public_benchmark_metrics import (
     case_payload as _case_payload,
@@ -131,7 +137,10 @@ class _BenchmarkProgress:
             "status": ("completed" if processed_case_count >= self.total_case_count else "running"),
             "dataset_path_label": self.dataset_path.name,
             "dataset_hash": self.dataset_hash,
-            "case_selection": dict(self.case_selection or {}),
+            "case_selection": _bounded_public_artifact_fields(self.case_selection or {}),
+            "case_selection_fingerprint": _case_selection_fingerprint(
+                self.case_selection
+            ),
             "selected_case_count": self.total_case_count,
             "checkpoint_policy": {
                 "checkpoint_every_cases": interval,
@@ -172,9 +181,11 @@ class _BenchmarkProgress:
             },
             "metrics_so_far": _run_metric_summary(run_results),
             "cases": [_case_payload(item) for item in run_results],
-            "failures": list(failures),
+            "failures": [_bounded_public_artifact_fields(item) for item in failures],
             "recent_cases": [_case_payload(item) for item in run_results[-20:]],
-            "recent_failures": list(failures[-20:]),
+            "recent_failures": [
+                _bounded_public_artifact_fields(item) for item in failures[-20:]
+            ],
         }
         if self.selected_case_fingerprint:
             payload["selected_case_fingerprint"] = self.selected_case_fingerprint

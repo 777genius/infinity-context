@@ -41,11 +41,35 @@ EXPANSION_RULES_PART_1: tuple[tuple[frozenset[str], str, str], ...] = (
             frozenset({"relationship", "status"}),
             (
                 "relationship status single parent breakup partner married husband wife "
-                "spouse friends family mentors rocks support system known friends home "
-                "country tough breakup relationship love kids children challenge make "
-                "family thrilled"
+                "spouse dating not dating single divorced separated romantic partner "
+                "life partner girlfriend boyfriend fiance fiancee after breakup tough "
+                "breakup relationship"
             ),
             "relationship_status_bridge",
+        ),
+    (
+            frozenset({"husband"}),
+            (
+                "relationship status married husband wife spouse partner wedding "
+                "romantic partner family together"
+            ),
+            "relationship_status_bridge",
+        ),
+    (
+            frozenset({"wife"}),
+            (
+                "relationship status married husband wife spouse partner wedding "
+                "romantic partner family together"
+            ),
+            "relationship_status_bridge",
+        ),
+    (
+            frozenset({"nickname"}),
+            (
+                "nickname nick name called call address addressed greeting hey hi "
+                "shortened name pet name"
+            ),
+            "nickname_bridge",
         ),
     (
             frozenset({"друзья"}),
@@ -112,6 +136,46 @@ EXPANSION_RULES_PART_1: tuple[tuple[frozenset[str], str, str], ...] = (
             "relationship_origin_bridge",
         ),
     (
+            frozenset({"know", "each", "other"}),
+            (
+                "relationship origin first met meet meeting introduced got to know "
+                "known each other since where when how through school college work event friend"
+            ),
+            "relationship_origin_bridge",
+        ),
+    (
+            frozenset({"get", "know"}),
+            (
+                "relationship origin first met meet meeting introduced got to know "
+                "known each other since where when how through school college work event friend"
+            ),
+            "relationship_origin_bridge",
+        ),
+    (
+            frozenset({"become", "friends"}),
+            (
+                "relationship origin became friends first met meet meeting introduced "
+                "known since where when how through school college work event"
+            ),
+            "relationship_origin_bridge",
+        ),
+    (
+            frozenset({"where", "introduced"}),
+            (
+                "relationship origin first introduced met meet meeting known since "
+                "where when how at in during through school college work event place"
+            ),
+            "relationship_origin_bridge",
+        ),
+    (
+            frozenset({"first", "encounter"}),
+            (
+                "relationship origin first encounter first met meet meeting introduced "
+                "known since where when how at in during through school college work event"
+            ),
+            "relationship_origin_bridge",
+        ),
+    (
             frozenset({"где", "познакомились"}),
             (
                 "где когда как впервые познакомились встретились знакомы с школа "
@@ -167,6 +231,33 @@ EXPANSION_RULES_PART_1: tuple[tuple[frozenset[str], str, str], ...] = (
                 "help decided chose want wants passionate"
             ),
             "motivation_reason_bridge",
+        ),
+    (
+            frozenset({"office", "again"}),
+            (
+                "running office again run for office campaign public office politics "
+                "after last run impact community make difference positive changes "
+                "better future rewarding enthusiasm excited zeal"
+            ),
+            "public_office_service_bridge",
+        ),
+    (
+            frozenset({"recognition"}),
+            (
+                "recognition award medal certificate honor honour honored honoured "
+                "received receive got given gave earned won trophy prize appreciation "
+                "volunteer shelter homeless helped help humbling glad could help"
+            ),
+            "recognition_award_bridge",
+        ),
+    (
+            frozenset({"certificate"}),
+            (
+                "recognition award medal certificate honor honour honored honoured "
+                "received receive got given gave earned won trophy prize appreciation "
+                "completion completed diploma degree volunteer shelter homeless helped help"
+            ),
+            "recognition_award_bridge",
         ),
     (
             frozenset({"почему"}),
@@ -254,21 +345,25 @@ EXPANSION_RULES_PART_1: tuple[tuple[frozenset[str], str, str], ...] = (
             ),
             "shelter_comfort_reason_bridge",
         ),
-    (
+        (
             frozenset({"charity", "organization"}),
             (
-                "charity organization sponsorship brand Nike Gatorade Under Armour "
-                "basketball shoe gear deal work with prominent make difference away "
-                "from court give back inspire people youth sports disadvantaged kids"
+                "charity organization sponsorship brand endorsement athletic partner "
+                "company basketball shoe gear equipment deal work with prominent make "
+                "difference away from court give back inspire people always liked "
+                "working with them cool dream brand youth sports disadvantaged "
+                "underserved kids"
             ),
             "charity_brand_sponsorship_bridge",
         ),
-    (
+        (
             frozenset({"charity", "why"}),
             (
-                "charity organization sponsorship brand Nike Gatorade Under Armour "
-                "basketball shoe gear deal work with prominent make difference away "
-                "from court give back inspire people youth sports disadvantaged kids"
+                "charity organization sponsorship brand endorsement athletic partner "
+                "company basketball shoe gear equipment deal work with prominent make "
+                "difference away from court give back inspire people always liked "
+                "working with them cool dream brand youth sports disadvantaged "
+                "underserved kids"
             ),
             "charity_brand_sponsorship_bridge",
         ),
@@ -312,6 +407,109 @@ EXPANSION_RULES_PART_1: tuple[tuple[frozenset[str], str, str], ...] = (
             frozenset({"career", "option"}),
             _terms._CAREER_INTENT_EXPANSION,
             "career_intent_bridge",
+        ),
+    (
+            frozenset({"writing", "career"}),
+            (
+                "creative writing author books reading literature stories novels "
+                "guide motivate discover journey passion career option interest"
+            ),
+            "creative_writing_career_bridge",
+        ),
+    (
+            frozenset({"write", "career"}),
+            (
+                "creative writing author books reading literature stories novels "
+                "guide motivate discover journey passion career option interest"
+            ),
+            "creative_writing_career_bridge",
+        ),
+    (
+            frozenset({"submitted", "work"}),
+            (
+                "submit submitted submitting submission work project screenplay script "
+                "film festivals film festival contest competition producers directors "
+                "check out places destinations"
+            ),
+            "creative_work_submission_bridge",
+        ),
+    (
+            frozenset({"submit", "work"}),
+            (
+                "submit submitted submitting submission work project screenplay script "
+                "film festivals film festival contest competition producers directors "
+                "check out places destinations"
+            ),
+            "creative_work_submission_bridge",
+        ),
+    (
+            frozenset({"submit", "project"}),
+            (
+                "submit submitted submitting submission work project screenplay script "
+                "film festivals film festival contest competition producers directors "
+                "check out places destinations"
+            ),
+            "creative_work_submission_bridge",
+        ),
+    (
+            frozenset({"submit", "screenplay"}),
+            (
+                "submit submitted submitting submission work project screenplay script "
+                "film festivals film festival contest competition producers directors "
+                "check out places destinations"
+            ),
+            "creative_work_submission_bridge",
+        ),
+    (
+            frozenset({"kind", "writing"}),
+            (
+                "writing writings screenplay screenplays script scripts book books "
+                "journal online blog post story stories projects wrote started "
+                "finished full screenplay work working made"
+            ),
+            "creative_writing_inventory_bridge",
+        ),
+    (
+            frozenset({"kind", "writings"}),
+            (
+                "writing writings screenplay screenplays script scripts book books "
+                "journal online blog post story stories projects wrote started "
+                "finished full screenplay work working made"
+            ),
+            "creative_writing_inventory_bridge",
+        ),
+    (
+            frozenset({"type", "writing"}),
+            (
+                "writing writings screenplay screenplays script scripts book books "
+                "journal online blog post story stories projects wrote started "
+                "finished full screenplay work working made"
+            ),
+            "creative_writing_inventory_bridge",
+        ),
+    (
+            frozenset({"types", "writing"}),
+            (
+                "writing writings screenplay screenplays script scripts book books "
+                "journal online blog post story stories projects wrote started "
+                "finished full screenplay work working made"
+            ),
+            "creative_writing_inventory_bridge",
+        ),
+    (
+            frozenset({"hobby", "travel"}),
+            _terms._TRAVEL_HOBBY_WRITING_EXPANSION,
+            "travel_hobby_writing_bridge",
+        ),
+    (
+            frozenset({"hobby", "dream"}),
+            _terms._TRAVEL_HOBBY_WRITING_EXPANSION,
+            "travel_hobby_writing_bridge",
+        ),
+    (
+            frozenset({"hobbies", "travel"}),
+            _terms._TRAVEL_HOBBY_WRITING_EXPANSION,
+            "travel_hobby_writing_bridge",
         ),
     (
             frozenset({"career", "want"}),
@@ -434,6 +632,24 @@ EXPANSION_RULES_PART_1: tuple[tuple[frozenset[str], str, str], ...] = (
                 "from by source owner recipient grandma grandmother grandpa grandfather "
                 "mother father mom dad family relative necklace pendant ring book camera "
                 "photo picture"
+            ),
+            "possession_gift_object_bridge",
+        ),
+    (
+            frozenset({"gave", "joy"}),
+            (
+                "gift present keepsake object item possession received gave gifted "
+                "from by source owner recipient named stuffed animal toy dog brings joy "
+                "happiness happy comfort focus cherish reminder good vibes"
+            ),
+            "possession_gift_object_bridge",
+        ),
+    (
+            frozenset({"give", "joy"}),
+            (
+                "gift present keepsake object item possession received gave gifted "
+                "from by source owner recipient named stuffed animal toy dog brings joy "
+                "happiness happy comfort focus cherish reminder good vibes"
             ),
             "possession_gift_object_bridge",
         ),
@@ -567,8 +783,9 @@ EXPANSION_RULES_PART_1: tuple[tuple[frozenset[str], str, str], ...] = (
     (
             frozenset({"how", "long", "married"}),
             (
-                "married husband wife spouse wedding anniversary years already time flies "
-                "dress put this dress on"
+                "married husband wife spouse wedding anniversary years already time "
+                "flies been married for have been married we've been married my "
+                "husband and I together duration dress put this dress on"
             ),
             "relationship_duration_bridge",
         ),
@@ -581,11 +798,37 @@ EXPANSION_RULES_PART_1: tuple[tuple[frozenset[str], str, str], ...] = (
             "relationship_duration_bridge",
         ),
     (
+            frozenset({"since", "when", "known"}),
+            (
+                "known each other friends relationship since years months duration met "
+                "school college together anniversary time flies started began"
+            ),
+            "relationship_duration_bridge",
+        ),
+    (
+            frozenset({"since", "when", "married"}),
+            (
+                "married husband wife spouse wedding anniversary years already time "
+                "flies been married for have been married we've been married my "
+                "husband and I together duration since started began"
+            ),
+            "relationship_duration_bridge",
+        ),
+    (
             frozenset({"how", "long", "friends"}),
             (
                 "known these friends known friends group of friends current friends "
                 "friendship relationship since for years months duration moved from "
                 "home country support love help"
+            ),
+            "relationship_duration_bridge",
+        ),
+    (
+            frozenset({"since", "when", "friends"}),
+            (
+                "known these friends known friends group of friends current friends "
+                "friendship relationship since for years months duration moved from "
+                "home country support love help started began"
             ),
             "relationship_duration_bridge",
         ),
@@ -610,24 +853,148 @@ EXPANSION_RULES_PART_1: tuple[tuple[frozenset[str], str, str], ...] = (
     (
             frozenset({"when", "adoption", "meeting"}),
             (
-                "last Friday council meeting for adoption inspiring emotional loving "
-                "homes children need determined adopt"
+                "when date adoption council meeting inspiring emotional loving homes "
+                "children need determined adopt relative date weekday recent meeting"
+            ),
+            "temporal_event_detail_bridge",
+        ),
+    (
+            frozenset({"when", "apply", "adoption", "agency"}),
+            (
+                "when date applied to adoption agencies application first step "
+                "becoming a parent ready family children kids loving home decision"
+            ),
+            "temporal_event_detail_bridge",
+        ),
+    (
+            frozenset({"when", "applied", "adoption", "agency"}),
+            (
+                "when date applied to adoption agencies application first step "
+                "becoming a parent ready family children kids loving home decision"
+            ),
+            "temporal_event_detail_bridge",
+        ),
+    (
+            frozenset({"when", "application", "adoption", "agency"}),
+            (
+                "when date submitted adoption application agencies first step "
+                "becoming a parent ready family children kids loving home decision"
+            ),
+            "temporal_event_detail_bridge",
+        ),
+    (
+            frozenset({"when", "adoption", "interview"}),
+            (
+                "when date passed adoption interview agency application process "
+                "becoming a parent ready family children kids loving home milestone"
+            ),
+            "temporal_event_detail_bridge",
+        ),
+    (
+            frozenset({"when", "birthday"}),
+            (
+                "birthday date daughter's birthday son's birthday child birthday "
+                "celebrated birthday celebration party kids children daughter son "
+                "relative date day weekday special family moments"
+            ),
+            "age_birthday_bridge",
+        ),
+    (
+            frozenset({"when", "lgbtq", "conference"}),
+            (
+                "when date LGBTQ conference went attended attend connected people "
+                "similar journeys relative date recently days ago special"
+            ),
+            "temporal_event_detail_bridge",
+        ),
+    (
+            frozenset({"when", "collaborate", "dance"}),
+            (
+                "when date decide decided collaborate collaboration create dance content "
+                "creative plan agreed together schedule project performance video "
+                "dance routine moves"
+            ),
+            "temporal_event_detail_bridge",
+        ),
+    (
+            frozenset({"when", "collaboration", "dance"}),
+            (
+                "when date decide decided collaborate collaboration create dance content "
+                "creative plan agreed together schedule project performance video "
+                "dance routine moves"
+            ),
+            "temporal_event_detail_bridge",
+        ),
+    (
+            frozenset({"when", "park"}),
+            (
+                "when date park visit went took trip outing exploring playing "
+                "outdoors playground relative date day weekday"
+            ),
+            "temporal_event_detail_bridge",
+        ),
+    (
+            frozenset({"when", "museum"}),
+            (
+                "when date museum exhibit dinosaur dinosaurs bones animals learning "
+                "went visit visited took kids children family relative date day weekday"
+            ),
+            "temporal_event_detail_bridge",
+        ),
+    (
+            frozenset({"when", "picnic"}),
+            (
+                "when date picnic park hiking hike friends family outdoors outing "
+                "went had relative date day weekday"
+            ),
+            "temporal_event_detail_bridge",
+        ),
+    (
+            frozenset({"when", "store", "open"}),
+            (
+                "when date online clothing store open opened is open clothes store "
+                "dreaming can't wait website computer screen"
+            ),
+            "temporal_event_detail_bridge",
+        ),
+    (
+            frozenset({"when", "store", "opened"}),
+            (
+                "when date online clothing store open opened is open clothes store "
+                "dreaming can't wait website computer screen"
+            ),
+            "temporal_event_detail_bridge",
+        ),
+    (
+            frozenset({"when", "support", "group"}),
+            (
+                "when date lgbtq support group went attended joined meeting event "
+                "transgender stories powerful accepted online service focused "
+                "relative date day weekday"
             ),
             "temporal_event_detail_bridge",
         ),
     (
             frozenset({"when", "pride", "parade"}),
             (
-                "last week LGBTQ pride parade happy belonged community grown summer "
-                "went attended"
+                "when date relative day week weekday LGBTQ pride parade happy "
+                "belonged community grown summer went attended attend"
             ),
             "temporal_event_detail_bridge",
         ),
     (
             frozenset({"when", "pride", "festival"}),
             (
-                "last year Pride fest festival blast supportive friends together "
-                "worth it went attended"
+                "when date relative year Pride fest festival supportive friends "
+                "together went attended"
+            ),
+            "temporal_event_detail_bridge",
+        ),
+    (
+            frozenset({"when", "pride", "fesetival"}),
+            (
+                "when date relative year Pride fest festival supportive friends "
+                "together went attended"
             ),
             "temporal_event_detail_bridge",
         ),
@@ -648,10 +1015,50 @@ EXPANSION_RULES_PART_1: tuple[tuple[frozenset[str], str, str], ...] = (
             "temporal_event_detail_bridge",
         ),
     (
+            frozenset({"when", "mentorship", "program"}),
+            (
+                "when date joined mentorship mentoring mentor program youth community "
+                "support guidance students relative date day weekday"
+            ),
+            "temporal_event_detail_bridge",
+        ),
+    (
+            frozenset({"when", "self", "portrait"}),
+            (
+                "when date drew draw painted self portrait identity art drawing "
+                "sketch showed shared relative date day weekday"
+            ),
+            "temporal_event_detail_bridge",
+        ),
+    (
+            frozenset({"when", "biking"}),
+            (
+                "when date biking bike ride cycling friends group outdoors trail "
+                "went relative date day weekday"
+            ),
+            "temporal_event_detail_bridge",
+        ),
+    (
             frozenset({"when", "volunteering", "shelter"}),
             (
                 "started volunteering shelter about a year ago homeless family "
                 "struggling streets reached out volunteers fulfilling"
+            ),
+            "temporal_event_detail_bridge",
+        ),
+    (
+            frozenset({"when", "friend", "adopt"}),
+            (
+                "when date friend adopted child adoption family kids parent parenthood "
+                "relative date day weekday"
+            ),
+            "temporal_event_detail_bridge",
+        ),
+    (
+            frozenset({"when", "hurt"}),
+            (
+                "when date hurt injured injury accident fell pain recovery family "
+                "relative date day weekday"
             ),
             "temporal_event_detail_bridge",
         ),
@@ -723,7 +1130,8 @@ EXPANSION_RULES_PART_1: tuple[tuple[frozenset[str], str, str], ...] = (
             frozenset({"hobby"}),
             (
                 "hobbies interests writing reading watching movies exploring nature "
-                "hanging friends video games desserts recipes baking"
+                "hanging with friends hanging friends express myself stories good "
+                "time people video games desserts recipes baking"
             ),
             "hobby_interest_bridge",
         ),
@@ -749,9 +1157,26 @@ EXPANSION_RULES_PART_1: tuple[tuple[frozenset[str], str, str], ...] = (
             frozenset({"interest", "share"}),
             (
                 "hobbies interests writing reading watching movies exploring nature "
-                "hanging friends video games desserts recipes baking shared both similar"
+                "hanging friends video games desserts recipes baking cakes icecream "
+                "coconut milk dairy-free sweet treats revised old recipes made "
+                "enjoy desserts bake baked shared both similar"
             ),
             "hobby_interest_bridge",
+        ),
+    (
+            frozenset({"animal", "both", "like"}),
+            _terms._COMMONALITY_ANIMAL_AFFINITY_EXPANSION,
+            "commonality_interest_bridge",
+        ),
+    (
+            frozenset({"animal", "both", "love"}),
+            _terms._COMMONALITY_ANIMAL_AFFINITY_EXPANSION,
+            "commonality_interest_bridge",
+        ),
+    (
+            frozenset({"animal", "both", "enjoy"}),
+            _terms._COMMONALITY_ANIMAL_AFFINITY_EXPANSION,
+            "commonality_interest_bridge",
         ),
     (
             frozenset({"common", "hobby"}),
@@ -764,6 +1189,36 @@ EXPANSION_RULES_PART_1: tuple[tuple[frozenset[str], str, str], ...] = (
             "commonality_interest_bridge",
         ),
     (
+            frozenset({"common", "have"}),
+            _terms._COMMONALITY_INTEREST_EXPANSION,
+            "commonality_interest_bridge",
+        ),
+    (
+            frozenset({"similar", "interests"}),
+            _terms._COMMONALITY_INTEREST_EXPANSION,
+            "commonality_interest_bridge",
+        ),
+    (
+            frozenset({"mutual", "interests"}),
+            _terms._COMMONALITY_INTEREST_EXPANSION,
+            "commonality_interest_bridge",
+        ),
+    (
+            frozenset({"mutual", "hobbies"}),
+            _terms._COMMONALITY_INTEREST_EXPANSION,
+            "commonality_interest_bridge",
+        ),
+    (
+            frozenset({"shared", "activities"}),
+            _terms._COMMONALITY_INTEREST_EXPANSION,
+            "commonality_interest_bridge",
+        ),
+    (
+            frozenset({"share", "activities"}),
+            _terms._COMMONALITY_INTEREST_EXPANSION,
+            "commonality_interest_bridge",
+        ),
+    (
             frozenset({"both", "enjoy"}),
             _terms._COMMONALITY_INTEREST_EXPANSION,
             "commonality_interest_bridge",
@@ -771,6 +1226,29 @@ EXPANSION_RULES_PART_1: tuple[tuple[frozenset[str], str, str], ...] = (
     (
             frozenset({"both", "like"}),
             _terms._COMMONALITY_INTEREST_EXPANSION,
+            "commonality_interest_bridge",
+        ),
+    (
+            frozenset({"both", "interest"}),
+            _terms._COMMONALITY_INTEREST_EXPANSION,
+            "commonality_interest_bridge",
+        ),
+    (
+            frozenset({"movie", "seen"}),
+            (
+                _terms._COMMONALITY_INTEREST_EXPANSION
+                + " watched saw seen recently recommendation recommended movie film "
+                "trilogy dvd acting story captivating favorite good enjoyed"
+            ),
+            "commonality_interest_bridge",
+        ),
+    (
+            frozenset({"movies", "seen"}),
+            (
+                _terms._COMMONALITY_INTEREST_EXPANSION
+                + " watched saw seen recently recommendation recommended movie film "
+                "trilogy dvd acting story captivating favorite good enjoyed"
+            ),
             "commonality_interest_bridge",
         ),
     (

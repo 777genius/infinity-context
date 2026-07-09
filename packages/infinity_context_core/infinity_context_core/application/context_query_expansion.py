@@ -66,6 +66,9 @@ from infinity_context_core.application.context_query_workflow_intent import (
 from infinity_context_core.application.context_ranking_reason_policy import (
     QUERY_REASON_PRIORITY as _QUERY_REASON_PRIORITY,
 )
+from infinity_context_core.application.context_source_sibling_place_evidence import (
+    query_destination_places as _query_destination_places,
+)
 
 
 @dataclass(frozen=True)
@@ -181,6 +184,14 @@ def _expansion_candidate_selection_key(
 
 
 def _expansion_text_for_query(*, reason: str, expansion: str, query: str) -> str:
+    if reason in {
+        "themed_location_destination_anchor_bridge",
+        "themed_location_destination_bridge",
+    }:
+        destination_places = _query_destination_places(query)
+        if destination_places:
+            return f"{expansion} {' '.join(destination_places)}"
+        return expansion
     if reason != "state_residence_inference_bridge":
         return expansion
     suffix = state_residence_expansion_suffix(query)

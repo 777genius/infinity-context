@@ -1,8 +1,10 @@
 from __future__ import annotations
 
+import builtins
 import json
 from pathlib import Path
 
+from infinity_context_server import top_evidence_preflight
 from infinity_context_server.top_evidence_preflight import run_top_evidence_preflight
 
 
@@ -62,6 +64,8 @@ def test_top_evidence_preflight_accepts_clean_publishable_config(tmp_path: Path)
     assert result.expected_git_commit == "abc123"
     assert result.allow_dirty_top_evidence is False
     assert result.failures == ()
+    assert payload["schema_version"] == "top-evidence-preflight.v1"
+    assert payload["failure_codes"] == []
     assert payload["checks"]["public_benchmark_case_count_representative"] is True
     assert payload["checks"]["agent_bench_scenario_set_all"] is True
     assert payload["checks"]["multimodal_live_invalid_key_probe_enabled"] is True
@@ -93,6 +97,147 @@ def test_top_evidence_preflight_accepts_clean_publishable_config(tmp_path: Path)
     assert str(tmp_path) not in json.dumps(payload)
 
 
+def test_top_evidence_preflight_lightweight_profile_counts_cases(tmp_path: Path) -> None:
+    dataset = tmp_path / "locomo.json"
+    dataset.write_text(json.dumps(_benchmark_cases("locomo", count=3)), encoding="utf-8")
+
+    profile = top_evidence_preflight._lightweight_dataset_profile(
+        dataset,
+        benchmark="locomo",
+    )
+
+    assert profile is not None
+    assert profile["case_count"] == 3
+    assert profile["unique_case_id_count"] == 3
+    assert profile["duplicate_case_id_count"] == 0
+    assert profile["dataset_path_label"] == "locomo.json"
+    assert len(str(profile["dataset_hash"])) == 64
+
+
+def test_top_evidence_preflight_lightweight_profile_accepts_samples_wrapper(
+    tmp_path: Path,
+) -> None:
+    dataset = tmp_path / "wrapped-locomo.json"
+    dataset.write_text(
+        json.dumps(
+            {
+                "samples": _benchmark_cases("locomo", count=3),
+                "metadata": {"source": "locomo-public-fixture"},
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    profile = top_evidence_preflight._lightweight_dataset_profile(
+        dataset,
+        benchmark="locomo",
+    )
+
+    assert profile is not None
+    assert profile["case_count"] == 3
+    assert profile["unique_case_id_count"] == 3
+    assert profile["duplicate_case_id_count"] == 0
+
+
+def test_top_evidence_preflight_lightweight_profile_requires_answer_signal(
+    tmp_path: Path,
+) -> None:
+    dataset = tmp_path / "partial-locomo.json"
+    dataset.write_text(
+        json.dumps(
+            [
+                {
+                    "benchmark": "locomo",
+                    "case_id": "locomo-valid",
+                    "question": "Where is the checklist?",
+                    "answer": "blue notebook",
+                    "memories": ["The checklist is in the blue notebook."],
+                },
+                {
+                    "benchmark": "locomo",
+                    "case_id": "locomo-missing-answer",
+                    "question": "Where is the badge?",
+                    "memories": ["The badge was mentioned."],
+                },
+                {
+                    "benchmark": "locomo",
+                    "case_id": "locomo-evidence-only-normalized",
+                    "question": "Where is the pass?",
+                    "evidence": ["D1:1"],
+                    "memories": ["The pass was mentioned."],
+                },
+                {
+                    "benchmark": "locomo",
+                    "case_id": "locomo-blank-expected",
+                    "question": "Where is the key?",
+                    "expected_terms": [" "],
+                    "memories": ["The key was mentioned."],
+                },
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    profile = top_evidence_preflight._lightweight_dataset_profile(
+        dataset,
+        benchmark="locomo",
+    )
+
+    assert profile is not None
+    assert profile["case_count"] == 1
+    assert profile["unique_case_id_count"] == 1
+    assert profile["duplicate_case_id_count"] == 0
+
+
+def test_top_evidence_preflight_lightweight_profile_counts_runnable_official_locomo_qas(
+    tmp_path: Path,
+) -> None:
+    dataset = tmp_path / "official-locomo.json"
+    dataset.write_text(
+        json.dumps(
+            [
+                {
+                    "sample_id": "conv-lite",
+                    "conversation": {
+                        "speaker_a": "Caroline",
+                        "session_1": [
+                            {
+                                "speaker": "Caroline",
+                                "dia_id": "D1:1",
+                                "text": "I put the checklist in the blue notebook.",
+                            }
+                        ],
+                    },
+                    "qa": [
+                        {
+                            "question": "Where is the checklist?",
+                            "answer": "blue notebook",
+                        },
+                        {
+                            "question": "Which turn mentions the checklist?",
+                            "evidence": ["D1:1"],
+                        },
+                        {
+                            "question": "Where is the badge?",
+                        },
+                    ],
+                }
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    profile = top_evidence_preflight._lightweight_dataset_profile(
+        dataset,
+        benchmark="locomo",
+    )
+
+    assert profile is not None
+    assert profile["case_count"] == 2
+    assert profile["unique_case_id_count"] == 2
+    assert profile["duplicate_case_id_count"] == 0
+
+
 def test_top_evidence_preflight_accepts_openai_key_file_without_leak(
     tmp_path: Path,
 ) -> None:
@@ -122,6 +267,32 @@ def test_top_evidence_preflight_accepts_openai_key_file_without_leak(
     assert str(tmp_path) not in rendered
 
 
+def test_top_evidence_preflight_falls_back_to_standard_docker_path_when_path_is_restricted(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    bin_dir = tmp_path / "bin"
+    bin_dir.mkdir()
+    docker = bin_dir / "docker"
+    docker.write_text("#!/bin/sh\n", encoding="utf-8")
+    docker.chmod(0o755)
+    monkeypatch.setattr(
+        top_evidence_preflight,
+        "TOP_EVIDENCE_EXECUTABLE_FALLBACK_DIRS",
+        (bin_dir,),
+    )
+
+    result = run_top_evidence_preflight(
+        env=_top_evidence_env(tmp_path, PATH=""),
+        cwd=tmp_path,
+        git={"commit": "abc123", "dirty": False},
+    )
+
+    assert result.ok is True
+    assert result.checks["docker_available"] is True
+    assert result.sanitized_config["docker_available"] is True
+
+
 def test_top_evidence_preflight_rejects_dirty_worktree_without_override(
     tmp_path: Path,
 ) -> None:
@@ -134,6 +305,7 @@ def test_top_evidence_preflight_rejects_dirty_worktree_without_override(
 
     assert result.ok is False
     assert result.checks["git_clean_or_dirty_allowed"] is False
+    assert result.failure_codes == ("git_clean_or_dirty_allowed",)
     assert any("Working tree must be clean" in failure for failure in result.failures)
 
 
@@ -195,6 +367,31 @@ def test_top_evidence_preflight_rejects_partial_agent_scenario_set(
     assert result.checks["agent_bench_scenario_set_all"] is False
     assert result.sanitized_config["agent_bench_scenario_set"] == "realistic"
     assert any("SCENARIO_SET=all" in failure for failure in result.failures)
+
+
+def test_top_evidence_preflight_without_dataset_does_not_import_benchmark_runner(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    real_import = builtins.__import__
+
+    def guarded_import(name: str, *args: object, **kwargs: object) -> object:
+        if name == "infinity_context_server.public_benchmark":
+            raise AssertionError("public benchmark runner should be imported lazily")
+        return real_import(name, *args, **kwargs)
+
+    monkeypatch.setattr(builtins, "__import__", guarded_import)
+
+    result = run_top_evidence_preflight(
+        env={},
+        cwd=tmp_path,
+        docker_path="/usr/bin/docker",
+        git={"commit": "abc123", "dirty": False},
+    )
+
+    assert result.ok is False
+    assert result.checks["locomo_dataset_file"] is False
+    assert result.checks["longmemeval_dataset_file"] is False
 
 
 def test_top_evidence_preflight_requires_multimodal_invalid_key_probe(

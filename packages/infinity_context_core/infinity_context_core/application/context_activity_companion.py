@@ -22,15 +22,22 @@ _ACTIVITY_COMPANION_QUERY_RE = re.compile(
     re.IGNORECASE | re.DOTALL,
 )
 _ACTIVITY_COMPANION_TEXT_RE = re.compile(
-    r"\b(?:went|go|attended|joined|camp(?:ed|ing)?|hik(?:ed|ing)?|"
-    r"travel(?:ed|led)?|visited|trip|conference|parade|event)\b",
+    r"\b(?:went|go|attended|joined|started|starting|tried|trying|invited|"
+    r"camp(?:ed|ing)?|hik(?:ed|ing)?|travel(?:ed|led)?|visited|trip|"
+    r"conference|parade|event|class(?:es)?|lesson|practice|yoga|workout|"
+    r"exercise)\b",
     re.IGNORECASE,
 )
 _COMPANION_WITH_TEXT_RE = re.compile(
     r"\b(?:with|alongside|together\s+with|joined\s+by|accompanied\s+by)\b"
-    r".{0,90}\b(?:my|his|her|their|our)?\s*"
+    r".{0,90}\b(?:(?:my|his|her|their|our|a|an|the)\s+)?"
     r"(?:family|kids?|children|friends?|parents?|partner|spouse|team|group|"
+    r"colleagues?|co-?workers?|workmates?|classmates?|teammates?|neighbou?rs?|"
     r"[A-ZА-ЯЁ][A-Za-zА-Яа-яЁё._-]{1,39})\b|"
+    r"\b(?:(?:my|his|her|their|our)\s+)?"
+    r"(?:colleagues?|co-?workers?|workmates?|friends?|classmates?|teammates?|"
+    r"neighbou?rs?)\b(?:\s+[A-ZА-ЯЁ][A-Za-zА-Яа-яЁё._-]{1,39})?"
+    r".{0,90}\binvited\b.{0,120}\b(?:me|him|her|them|us)?\s*(?:to|for)\b|"
     r"\b(?:family|kids?|children|friends?|parents?|partner|team|group)\b"
     r".{0,90}\b(?:came|joined|went|attended|camp(?:ed|ing)?|hik(?:ed|ing)?)\b|"
     r"\b(?:с|вместе\s+с|рядом\s+с)\b.{0,90}\b"

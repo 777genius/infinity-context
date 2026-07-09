@@ -16,6 +16,16 @@ EXPANSION_RULES_PART_2: tuple[tuple[frozenset[str], str, str], ...] = (
             "friend_place_church_inventory_bridge",
         ),
     (
+            frozenset({"activities", "church", "friends"}),
+            _terms._CHURCH_FRIEND_ACTIVITY_INVENTORY_EXPANSION,
+            "church_friend_activity_inventory_bridge",
+        ),
+    (
+            frozenset({"activity", "church", "friends"}),
+            _terms._CHURCH_FRIEND_ACTIVITY_INVENTORY_EXPANSION,
+            "church_friend_activity_inventory_bridge",
+        ),
+    (
             frozenset({"where", "friend"}),
             _terms._FRIEND_PLACE_INVENTORY_EXPANSION,
             "friend_place_inventory_bridge",
@@ -69,6 +79,57 @@ EXPANSION_RULES_PART_2: tuple[tuple[frozenset[str], str, str], ...] = (
             frozenset({"both", "visited"}),
             _terms._TRAVEL_COUNTRY_INVENTORY_EXPANSION,
             "travel_country_inventory_bridge",
+        ),
+    (
+            frozenset({"items", "collect"}),
+            _terms._ITEM_COLLECTION_INVENTORY_EXPANSION,
+            "item_purchase_bridge",
+        ),
+    (
+            frozenset({"item", "collect"}),
+            _terms._ITEM_COLLECTION_INVENTORY_EXPANSION,
+            "item_purchase_bridge",
+        ),
+    (
+            frozenset({"collection"}),
+            _terms._ITEM_COLLECTION_INVENTORY_EXPANSION,
+            "item_purchase_bridge",
+        ),
+    (
+            frozenset({"causes", "events"}),
+            (
+                "causes events cause charity run fundraiser food drive community food "
+                "drive toy drive kids in need homeless shelter food supplies veterans "
+                "families domestic abuse victims awareness funds unemployment neighbors "
+                "help out made difference organized worked local organization"
+            ),
+            "cause_event_inventory_bridge",
+        ),
+    (
+            frozenset({"cause", "event"}),
+            (
+                "causes events cause charity run fundraiser food drive community food "
+                "drive toy drive kids in need homeless shelter food supplies veterans "
+                "families domestic abuse victims awareness funds unemployment neighbors "
+                "help out made difference organized worked local organization"
+            ),
+            "cause_event_inventory_bridge",
+        ),
+    (
+            frozenset({"count", "events"}),
+            (
+                "events event participated attended joined went organized hosted planned "
+                "fundraiser charity community support group meeting program count total"
+            ),
+            "event_participation_bridge",
+        ),
+    (
+            frozenset({"number", "events"}),
+            (
+                "events event participated attended joined went organized hosted planned "
+                "fundraiser charity community support group meeting program count total"
+            ),
+            "event_participation_bridge",
         ),
     (
             frozenset({"causes"}),
@@ -132,7 +193,10 @@ EXPANSION_RULES_PART_2: tuple[tuple[frozenset[str], str, str], ...] = (
         ),
     (
             frozenset({"national", "park"}),
-            "camping trip campfire meteor shower nature outdoors",
+            (
+                "family camping trip campfire marshmallows stories highlight summer "
+                "nature outdoors"
+            ),
             "outdoor_preference_bridge",
         ),
     (
@@ -153,6 +217,14 @@ EXPANSION_RULES_PART_2: tuple[tuple[frozenset[str], str, str], ...] = (
         ),
     (
             frozenset({"when", "plan"}),
+            (
+                "planning plans planned thinking about considering going to scheduled "
+                "upcoming future next month next week summer break date month"
+            ),
+            "future_plan_timing_bridge",
+        ),
+    (
+            frozenset({"plan", "summer"}),
             (
                 "planning plans planned thinking about considering going to scheduled "
                 "upcoming future next month next week summer break date month"
@@ -195,12 +267,52 @@ EXPANSION_RULES_PART_2: tuple[tuple[frozenset[str], str, str], ...] = (
             "trip_destination_bridge",
         ),
     (
+            frozenset({"locations", "been"}),
+            _terms._TRIP_DESTINATION_EXPANSION,
+            "trip_destination_bridge",
+        ),
+    (
+            frozenset({"location", "been"}),
+            _terms._TRIP_DESTINATION_EXPANSION,
+            "trip_destination_bridge",
+        ),
+    (
+            frozenset({"geographical", "locations"}),
+            _terms._TRIP_DESTINATION_EXPANSION,
+            "trip_destination_bridge",
+        ),
+    (
+            frozenset({"geographical", "location"}),
+            _terms._TRIP_DESTINATION_EXPANSION,
+            "trip_destination_bridge",
+        ),
+    (
+            frozenset({"places", "been"}),
+            _terms._TRIP_DESTINATION_EXPANSION,
+            "trip_destination_bridge",
+        ),
+    (
+            frozenset({"place", "been"}),
+            _terms._TRIP_DESTINATION_EXPANSION,
+            "trip_destination_bridge",
+        ),
+    (
             frozenset({"place", "visit"}),
             _terms._TRIP_DESTINATION_EXPANSION,
             "trip_destination_bridge",
         ),
     (
             frozenset({"city", "visit"}),
+            _terms._TRIP_DESTINATION_EXPANSION,
+            "trip_destination_bridge",
+        ),
+    (
+            frozenset({"city", "been"}),
+            _terms._TRIP_DESTINATION_EXPANSION,
+            "trip_destination_bridge",
+        ),
+    (
+            frozenset({"cities", "been"}),
             _terms._TRIP_DESTINATION_EXPANSION,
             "trip_destination_bridge",
         ),
@@ -363,6 +475,35 @@ EXPANSION_RULES_PART_2: tuple[tuple[frozenset[str], str, str], ...] = (
             "quantity_enumeration_bridge",
         ),
     (
+            frozenset({"number"}),
+            (
+                "count total number quantity listed list includes including consists "
+                "of first second third fourth another one two three four five collected "
+                "earned received got completed items events people places attempts pets "
+                "books certificates awards"
+            ),
+            "quantity_enumeration_bridge",
+        ),
+    (
+            frozenset({"count"}),
+            (
+                "count total number quantity listed list includes including consists "
+                "of first second third fourth another one two three four five collected "
+                "earned received got completed items events people places attempts pets "
+                "books certificates awards"
+            ),
+            "quantity_enumeration_bridge",
+        ),
+    (
+            frozenset({"many", "games"}),
+            (
+                "games game won winning wins victory count total number mentioned "
+                "team basketball match scored points shot basket tight score "
+                "pulled off tough win career favorite atmosphere"
+            ),
+            "game_win_count_bridge",
+        ),
+    (
             frozenset({"сколько"}),
             (
                 "count total number quantity listed list includes including consists "
@@ -382,6 +523,24 @@ EXPANSION_RULES_PART_2: tuple[tuple[frozenset[str], str, str], ...] = (
         ),
     (
             frozenset({"many", "tournaments"}),
+            (
+                "tournament tournaments won winning first second fourth regional "
+                "international big video game Valorant champion victory final money "
+                "organized held tourney raised charity children hospital good cause"
+            ),
+            "tournament_count_bridge",
+        ),
+    (
+            frozenset({"number", "tournaments"}),
+            (
+                "tournament tournaments won winning first second fourth regional "
+                "international big video game Valorant champion victory final money "
+                "organized held tourney raised charity children hospital good cause"
+            ),
+            "tournament_count_bridge",
+        ),
+    (
+            frozenset({"count", "tournaments"}),
             (
                 "tournament tournaments won winning first second fourth regional "
                 "international big video game Valorant champion victory final money "
@@ -417,6 +576,32 @@ EXPANSION_RULES_PART_2: tuple[tuple[frozenset[str], str, str], ...] = (
             "screenplay_count_bridge",
         ),
     (
+            frozenset({"many", "writing", "screen"}),
+            (
+                "screenplay screenplays script scripts movie film writing wrote "
+                "contributed bits words appeared shown made big screen came alive "
+                "finished first time count"
+            ),
+            "screenplay_count_bridge",
+        ),
+    (
+            frozenset({"writing", "big", "screen"}),
+            (
+                "screenplay screenplays script scripts movie film writing wrote "
+                "contributed bits words appeared shown made big screen came alive "
+                "finished first time count"
+            ),
+            "screenplay_count_bridge",
+        ),
+    (
+            frozenset({"many", "scripts"}),
+            (
+                "rejection rejected rejection letter major company production company "
+                "another rejection bit setback recently count"
+            ),
+            "screenplay_count_bridge",
+        ),
+    (
             frozenset({"many", "letter"}),
             (
                 "letter letters received recieved got rejection letter wrote me letter "
@@ -429,6 +614,54 @@ EXPANSION_RULES_PART_2: tuple[tuple[frozenset[str], str, str], ...] = (
             (
                 "pets pet puppy pup dog doggo adopted another dog adopted another pup "
                 "shelter Toby Buddy Coco Shadow turtle turtles new friend critters count"
+            ),
+            "pet_count_bridge",
+        ),
+    (
+            frozenset({"number", "pet"}),
+            (
+                "pets pet puppy pup dog doggo adopted another dog adopted another pup "
+                "shelter Toby Buddy Coco Shadow turtle turtles new friend critters count"
+            ),
+            "pet_count_bridge",
+        ),
+    (
+            frozenset({"count", "pet"}),
+            (
+                "pets pet puppy pup dog doggo adopted another dog adopted another pup "
+                "shelter Toby Buddy Coco Shadow turtle turtles new friend critters count"
+            ),
+            "pet_count_bridge",
+        ),
+    (
+            frozenset({"many", "dogs"}),
+            (
+                "pets pet puppy pup dog dogs doggo adopted another dog adopted another "
+                "pup shelter animal shelter dog shelter named new friend count"
+            ),
+            "pet_count_bridge",
+        ),
+    (
+            frozenset({"number", "dogs"}),
+            (
+                "pets pet puppy pup dog dogs doggo adopted another dog adopted another "
+                "pup shelter animal shelter dog shelter named new friend count"
+            ),
+            "pet_count_bridge",
+        ),
+    (
+            frozenset({"count", "dog"}),
+            (
+                "pets pet puppy pup dog dogs doggo adopted another dog adopted another "
+                "pup shelter animal shelter dog shelter named new friend count"
+            ),
+            "pet_count_bridge",
+        ),
+    (
+            frozenset({"many", "dog"}),
+            (
+                "pets pet puppy pup dog dogs doggo adopted another dog adopted another "
+                "pup shelter animal shelter dog shelter named new friend count"
             ),
             "pet_count_bridge",
         ),
@@ -458,7 +691,10 @@ EXPANSION_RULES_PART_2: tuple[tuple[frozenset[str], str, str], ...] = (
         ),
     (
             frozenset({"theme", "park"}),
-            "camping trip campfire meteor shower nature outdoors",
+            (
+                "family camping trip campfire marshmallows stories highlight summer "
+                "nature outdoors"
+            ),
             "outdoor_preference_bridge",
         ),
     (
@@ -475,6 +711,15 @@ EXPANSION_RULES_PART_2: tuple[tuple[frozenset[str], str, str], ...] = (
             frozenset({"decision", "adopt"}),
             "adoption family kids children mom support good luck",
             "adoption_support_bridge",
+        ),
+    (
+            frozenset({"individual", "support"}),
+            (
+                "support serves helps accepts individuals people families children "
+                "youth parents single parents lgbtq transgender queer community "
+                "underserved vulnerable adoption agency inclusive services"
+            ),
+            "support_population_bridge",
         ),
     (
             frozenset({"why", "choose"}),
@@ -509,8 +754,17 @@ EXPANSION_RULES_PART_2: tuple[tuple[frozenset[str], str, str], ...] = (
             "adoption_current_goal_bridge",
         ),
     (
+            frozenset({"adoption", "excited"}),
+            (
+                "adoption agency interviews build own family roof kids children "
+                "giving back goal family committed current future plan excited "
+                "process milestone"
+            ),
+            "adoption_current_goal_bridge",
+        ),
+    (
             frozenset({"move", "home", "country", "soon"}),
-            "passed adoption agency interviews last Friday goal having family",
+            "passed adoption agency interviews recent milestone goal having family",
             "adoption_current_milestone_bridge",
         ),
 )

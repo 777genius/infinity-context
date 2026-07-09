@@ -15,9 +15,9 @@ import tempfile
 from pathlib import Path
 from typing import Any
 
+from infinity_context_core.reporting import with_report_provenance
 from mcp import ClientSession, StdioServerParameters
 from mcp.client.stdio import stdio_client
-from infinity_context_core.reporting import with_report_provenance
 
 MEMORA_UVX_ARGS = (
     "--from",

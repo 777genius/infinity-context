@@ -1923,6 +1923,29 @@ def test_context_requirement_coverage_tracks_followup_commitment_shape() -> None
     assert coverage["missing_answer_shapes"] == []
 
 
+def test_context_requirement_coverage_tracks_remaining_work_commitment_shape() -> None:
+    query = "What is left to do for Atlas?"
+    intent = build_query_anchor_intent(query)
+    item = ContextItem(
+        item_id="atlas_remaining_work",
+        item_type="chunk",
+        text="Alex noted the remaining Atlas follow up task is to update the SDK docs.",
+        score=0.9,
+        source_refs=(SourceRef(source_type="meeting_notes", source_id="D14:3"),),
+        diagnostics={"memory_scope_id": "scope"},
+    )
+
+    coverage = context_requirement_coverage(
+        query=query,
+        query_anchor_intent=intent,
+        items=(item,),
+    )
+
+    assert coverage["requested_answer_shapes"] == ["commitment"]
+    assert "commitment" in coverage["covered_answer_shapes"]
+    assert coverage["missing_answer_shapes"] == []
+
+
 def test_context_requirement_coverage_tracks_need_to_commitment_shape() -> None:
     query = "What does Alex need to do after Atlas?"
     intent = build_query_anchor_intent(query)
@@ -2039,6 +2062,29 @@ def test_context_requirement_coverage_tracks_gotcha_shape() -> None:
     assert coverage["requested_answer_shapes"] == ["gotcha"]
     assert "gotcha" in coverage["covered_answer_shapes"]
     assert coverage["missing_answer_shapes"] == []
+
+
+def test_context_requirement_coverage_tracks_blocker_gotcha_shape() -> None:
+    query = "What blockers are open for Atlas?"
+    intent = build_query_anchor_intent(query)
+    item = ContextItem(
+        item_id="atlas_open_blocker",
+        item_type="chunk",
+        text="Atlas blocker: Docker is blocked on the Qdrant health check.",
+        score=0.9,
+        source_refs=(SourceRef(source_type="runbook", source_id="atlas_blocker"),),
+        diagnostics={"memory_scope_id": "scope"},
+    )
+
+    coverage = context_requirement_coverage(
+        query=query,
+        query_anchor_intent=intent,
+        items=(item,),
+    )
+
+    assert "gotcha" in coverage["requested_answer_shapes"]
+    assert "gotcha" in coverage["covered_answer_shapes"]
+    assert "gotcha" not in coverage["missing_answer_shapes"]
 
 
 def test_context_requirement_coverage_tracks_missing_gotcha_shape() -> None:

@@ -14,7 +14,11 @@ from infinity_context_obsidian.domain import (
     SyncStateRecord,
     content_hash,
 )
-from infinity_context_obsidian.frontmatter import FrontmatterError, dump_frontmatter, split_frontmatter
+from infinity_context_obsidian.frontmatter import (
+    FrontmatterError,
+    dump_frontmatter,
+    split_frontmatter,
+)
 from infinity_context_obsidian.layout import DEFAULT_ROOT_FOLDER, ObsidianVaultLayout, safe_filename
 
 FACTS_DIR = PurePosixPath(f"{DEFAULT_ROOT_FOLDER}/generated/facts")

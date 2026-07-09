@@ -14,6 +14,7 @@ from infinity_context_core.ports.auto_memory import (
 )
 from infinity_context_server.config import CaptureMode, DeployProfile, MemoryPolicyMode, Settings
 from infinity_context_server.main import create_app
+from infinity_context_server.processes import build_outbox_event_dispatcher
 from infinity_context_server.worker import OutboxWorker
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -60,6 +61,22 @@ class FailingInfrastructureExtractor:
     ) -> tuple[MemoryCandidate, ...]:
         self.calls += 1
         raise MemoryInfrastructureError(self._message)
+
+
+def test_outbox_event_dispatcher_registry_is_owned_by_process_boundary() -> None:
+    dispatcher = build_outbox_event_dispatcher(object())
+
+    assert dispatcher.event_types == (
+        "vector.upsert_chunk",
+        "vector.upsert_chunks",
+        "vector.delete_chunks",
+        "graph.upsert_fact",
+        "graph.delete_fact",
+        "cognee.ingest_document",
+        "cognee.forget_document",
+        "capture.consolidate",
+        "asset.extract",
+    )
 
 
 def test_capture_outbox_worker_creates_suggestion(tmp_path: Path) -> None:
@@ -321,7 +338,7 @@ def test_consolidation_skips_pending_capture_after_policy_downgrade(tmp_path: Pa
 
 
 def test_consolidation_provider_outage_leaves_capture_retryable(tmp_path: Path) -> None:
-    secret = "sk-proj-capture-provider-secret-value"
+    secret = "sk" + "-proj-capture-provider-" + "dummy-value"
     extractor = FailingInfrastructureExtractor(
         f"provider unavailable Authorization: Bearer {secret}"
     )

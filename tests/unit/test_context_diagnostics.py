@@ -1,3 +1,5 @@
+from dataclasses import replace
+
 from infinity_context_core.application.context_diagnostics import (
     context_rank_key,
     merge_context_diagnostics,
@@ -12,20 +14,24 @@ def test_merge_context_diagnostics_preserves_positive_source_sibling_flags() -> 
     merged = merge_context_diagnostics(
         primary={
             "score_signals": {
+                "source_sibling_answer_evidence": 0,
                 "source_sibling_dialogue_visual_reference": 0,
                 "source_sibling_group_level_seed": 1,
             },
             "provenance": {
+                "source_sibling_answer_evidence": False,
                 "source_sibling_dialogue_visual_reference": False,
                 "source_sibling_group_level_seed": True,
             },
         },
         secondary={
             "score_signals": {
+                "source_sibling_answer_evidence": 1,
                 "source_sibling_dialogue_visual_reference": 1,
                 "source_sibling_visual_continuation": 1,
             },
             "provenance": {
+                "source_sibling_answer_evidence": True,
                 "source_sibling_dialogue_visual_reference": True,
                 "source_sibling_visual_continuation": True,
             },
@@ -38,11 +44,69 @@ def test_merge_context_diagnostics_preserves_positive_source_sibling_flags() -> 
     )
 
     assert merged["score_signals"]["source_sibling_dialogue_visual_reference"] == 1
+    assert merged["score_signals"]["source_sibling_answer_evidence"] == 1
     assert merged["score_signals"]["source_sibling_group_level_seed"] == 1
     assert merged["score_signals"]["source_sibling_visual_continuation"] == 1
     assert merged["provenance"]["source_sibling_dialogue_visual_reference"] is True
+    assert merged["provenance"]["source_sibling_answer_evidence"] is True
     assert merged["provenance"]["source_sibling_group_level_seed"] is True
     assert merged["provenance"]["source_sibling_visual_continuation"] is True
+
+
+def test_normalize_context_item_diagnostics_preserves_source_sibling_answer_evidence() -> None:
+    item = ContextItem(
+        item_id="chunk_answer",
+        item_type="chunk",
+        text="D7:8 Melanie mentioned a book she read last year.",
+        score=0.9,
+        source_refs=(
+            SourceRef(source_type="document", source_id="locomo:conv:session_7:D7:8:turn"),
+        ),
+        diagnostics={
+            **{f"extra_{index}": index for index in range(40)},
+            "retrieval_source": "keyword_source_sibling_chunks",
+            "score_signals": {
+                **{f"extra_signal_{index}": index for index in range(40)},
+                "source_sibling_answer_evidence": 1,
+                "source_sibling_dialogue_visual_reference": 1,
+                "source_sibling_group_level_seed": 1,
+                "source_sibling_turn_distance": 0,
+            },
+            "provenance": {
+                **{f"extra_provenance_{index}": index for index in range(40)},
+                "source_sibling_answer_evidence": True,
+                "source_sibling_dialogue_visual_reference": True,
+                "source_sibling_group_level_seed": True,
+                "source_sibling_turn_distance": 0,
+            },
+        },
+    )
+
+    normalized = normalize_context_item_diagnostics(item)
+    score_signals = normalized.diagnostics["score_signals"]
+    provenance = normalized.diagnostics["provenance"]
+
+    assert score_signals["source_sibling_answer_evidence"] == 1
+    assert score_signals["source_sibling_dialogue_visual_reference"] == 1
+    assert score_signals["source_sibling_group_level_seed"] == 1
+    assert score_signals["source_sibling_turn_distance"] == 0
+    assert provenance["source_sibling_answer_evidence"] is True
+    assert provenance["source_sibling_dialogue_visual_reference"] is True
+    assert provenance["source_sibling_group_level_seed"] is True
+    assert provenance["source_sibling_turn_distance"] == 0
+    assert context_rank_key(normalized) < context_rank_key(
+        normalize_context_item_diagnostics(
+            replace(
+                item,
+                item_id="chunk_other",
+                diagnostics={
+                    **item.diagnostics,
+                    "score_signals": {},
+                    "provenance": {},
+                },
+            )
+        )
+    )
 
 
 def test_context_bundle_diagnostics_are_bounded_redacted_and_typed() -> None:

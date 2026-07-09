@@ -67,6 +67,7 @@ _SENSITIVE_VALUE_MARKERS = (
 _MAX_DERIVED_RETRIEVAL_QUERIES = 8
 _FUSION_RANK_CONSTANT = 60.0
 _FUSION_MAX_RANK_PER_QUERY = 50
+_FUSION_MULTI_EVIDENCE_MAX_RANK_PER_QUERY = 120
 _HIGH_SIGNAL_DECOMPOSITION_REASONS = frozenset(
     {
         "decomposition_activity_duration",
@@ -96,6 +97,7 @@ _HIGH_SIGNAL_DECOMPOSITION_REASONS = frozenset(
 _HIGH_SIGNAL_EXPANSION_REASONS = frozenset(
     {
         "activity_aggregation_bridge",
+        "activity_competition_evidence_bridge",
         "activity_visual_selfcare_bridge",
         "adoption_current_goal_bridge",
         "allergy_condition_inference_bridge",
@@ -121,6 +123,7 @@ _HIGH_SIGNAL_EXPANSION_REASONS = frozenset(
         "business_start_reason_bridge",
         "store_promotion_inventory_bridge",
         "camping_detail_bridge",
+        "camping_location_bridge",
         "cause_education_infrastructure_inventory_bridge",
         "cause_veterans_inventory_bridge",
         "charity_brand_sponsorship_bridge",
@@ -130,6 +133,7 @@ _HIGH_SIGNAL_EXPANSION_REASONS = frozenset(
         "community_membership_support_bridge",
         "commonality_interest_bridge",
         "conversation_transcript_evidence_bridge",
+        "counseling_services_interest_bridge",
         "counseling_workshop_bridge",
         "current_state_temporal_bridge",
         "degree_policy_inference_bridge",
@@ -139,6 +143,7 @@ _HIGH_SIGNAL_EXPANSION_REASONS = frozenset(
         "event_participation_help_bridge",
         "exercise_activity_inventory_bridge",
         "family_activity_bridge",
+        "food_recipe_detail_bridge",
         "food_recipe_recommendation_bridge",
         "family_hike_detail_bridge",
         "family_hike_activity_bridge",
@@ -147,6 +152,7 @@ _HIGH_SIGNAL_EXPANSION_REASONS = frozenset(
         "family_painting_activity_bridge",
         "family_swimming_activity_bridge",
         "food_preference_bridge",
+        "fitness_activity_bridge",
         "friend_place_inventory_bridge",
         "friend_place_shelter_inventory_bridge",
         "friend_place_gym_inventory_bridge",
@@ -154,6 +160,9 @@ _HIGH_SIGNAL_EXPANSION_REASONS = frozenset(
         "friends_team_inference_bridge",
         "generic_behavior_inference_bridge",
         "gaming_medium_bridge",
+        "game_win_count_bridge",
+        "general_temporal_event_bridge",
+        "health_lifestyle_bridge",
         "hiking_trail_count_bridge",
         "hobby_interest_bridge",
         "instrument_play_bridge",
@@ -173,22 +182,28 @@ _HIGH_SIGNAL_EXPANSION_REASONS = frozenset(
         "pottery_type_bridge",
         "post_athletic_career_bridge",
         "public_office_service_bridge",
+        "opinion_reaction_bridge",
+        "research_topic_bridge",
         "relocation_willingness_inference_bridge",
         "relationship_duration_bridge",
         "relationship_origin_bridge",
         "relationship_status_bridge",
         "religious_inference_bridge",
         "screenplay_count_bridge",
+        "safe_supportive_place_goal_bridge",
         "shelter_comfort_reason_bridge",
+        "skill_teaching_inventory_bridge",
         "source_evidence_bridge",
         "speaker_turn_bridge",
         "state_residence_inference_bridge",
         "state_transition_bridge",
         "stale_state_temporal_bridge",
+        "sports_activity_bridge",
         "support_career_motivation_bridge",
         "support_counterfactual_bridge",
         "support_network_bridge",
         "support_origin_bridge",
+        "support_population_bridge",
         "support_role_fit_bridge",
         "symbol_importance_bridge",
         "temporal_event_detail_bridge",
@@ -200,6 +215,8 @@ _HIGH_SIGNAL_EXPANSION_REASONS = frozenset(
         "video_transcript_evidence_bridge",
         "visual_text_evidence_bridge",
         "volunteer_career_inference_bridge",
+        "volunteering_people_inventory_bridge",
+        "volunteering_inventory_bridge",
         "yoga_delay_gaming_bridge",
     }
 )
@@ -214,17 +231,33 @@ _MULTI_EVIDENCE_PROTECTED_HEAD_REASONS = frozenset(
         "animal_care_instruction_bridge",
         "animal_diet_evidence_bridge",
         "animal_habitat_setup_bridge",
+        "board_game_inventory_bridge",
         "birdwatching_city_schedule_bridge",
         "business_networking_event_bridge",
         "business_opening_timeline_bridge",
         "business_promotion_event_bridge",
         "business_store_promotion_event_bridge",
+        "customer_experience_bridge",
+        "destress_activity_bridge",
         "family_activity_bridge",
+        "grand_opening_support_bridge",
+        "game_detail_bridge",
+        "game_win_count_bridge",
+        "inspiration_source_bridge",
         "item_purchase_bridge",
+        "pet_adjustment_bridge",
+        "planning_tool_use_bridge",
         "post_athletic_career_bridge",
+        "recognition_award_bridge",
+        "skill_teaching_inventory_bridge",
         "store_promotion_inventory_bridge",
         "symbol_importance_bridge",
+        "themed_location_destination_anchor_bridge",
+        "themed_location_destination_bridge",
         "food_recipe_recommendation_bridge",
+        "fundraiser_event_inventory_bridge",
+        "volunteering_people_inventory_bridge",
+        "volunteering_inventory_bridge",
         "wellness_activity_effect_bridge",
     }
 )
@@ -241,27 +274,45 @@ _PROTECTED_EXPANSION_HEAD_REASONS = frozenset(
         "birthplace_origin_bridge",
         "book_suggestion_bridge",
         "career_intent_bridge",
+        "cause_awareness_event_bridge",
+        "cause_event_inventory_bridge",
+        "childhood_possession_inventory_bridge",
         "children_books_inference_bridge",
         "children_count_event_bridge",
+        "children_name_inventory_bridge",
+        "choice_reason_bridge",
+        "church_friend_activity_inventory_bridge",
         "classical_music_preference_bridge",
+        "creative_work_submission_bridge",
+        "creative_writing_inventory_bridge",
+        "creative_writing_career_bridge",
+        "travel_hobby_writing_bridge",
         "current_occupation_bridge",
         "current_recommendation_bridge",
         "current_residence_bridge",
         "deadline_commitment_bridge",
+        "dog_activity_care_bridge",
         "entity_relation_inventory_bridge",
+        "family_hardship_support_bridge",
         "family_origin_bridge",
+        "favorite_preference_bridge",
         "followup_task_bridge",
+        "future_plan_timing_bridge",
         "gotcha_failure_bridge",
         "hike_count_activity_bridge",
         "music_artist_answer_bridge",
         "music_artist_band_bridge",
         "negative_experience_support_bridge",
         "negative_preference_bridge",
+        "preference_reason_bridge",
+        "nickname_bridge",
         "organization_summary_bridge",
         "painting_inventory_bridge",
         "person_summary_bridge",
         "event_summary_bridge",
+        "pet_acquisition_date_bridge",
         "personality_authenticity_bridge",
+        "pet_memory_bridge",
         "personality_drive_bridge",
         "personality_thoughtfulness_bridge",
         "personality_trait_bridge",
@@ -271,11 +322,15 @@ _PROTECTED_EXPANSION_HEAD_REASONS = frozenset(
         "recommendation_source_bridge",
         "relocation_destination_bridge",
         "relocation_origin_bridge",
+        "repeated_test_attempt_bridge",
         "running_reason_bridge",
         "running_reason_question_bridge",
         "shared_painted_subject_bridge",
         "shoe_usage_bridge",
+        "study_time_management_bridge",
         "trip_destination_bridge",
+        "vehicle_interest_bridge",
+        "vehicle_issue_bridge",
     }
 )
 _T = TypeVar("_T")
@@ -1066,9 +1121,18 @@ def _bounded_derived_retrieval_queries(
         else (QueryExpansion(query=fallback, reason="original_query"),)
     )
     raw_queries = _drop_ally_support_identity_noise(raw_queries)
+    family_activity_mode = any(
+        query.reason == "family_activity_bridge" for query in raw_queries
+    )
     ranked_queries = sorted(
         enumerate(raw_queries),
-        key=lambda item: (_retrieval_query_selection_priority(item[1]), item[0]),
+        key=lambda item: (
+            _retrieval_query_selection_priority(
+                item[1],
+                family_activity_mode=family_activity_mode,
+            ),
+            item[0],
+        ),
     )
     raw_queries = tuple(query for _, query in ranked_queries)
     selected: list[QueryExpansion] = []
@@ -1100,9 +1164,24 @@ def _drop_ally_support_identity_noise(
     return tuple(query for query in queries if query.reason != "identity_bridge")
 
 
-def _retrieval_query_selection_priority(query: QueryExpansion) -> int:
+def _retrieval_query_selection_priority(
+    query: QueryExpansion,
+    *,
+    family_activity_mode: bool = False,
+) -> int:
     if query.reason == "original_query":
         return 0
+    if family_activity_mode:
+        if query.reason in {
+            "activity_visual_selfcare_bridge",
+            "family_activity_bridge",
+            "family_museum_activity_bridge",
+            "family_painting_activity_bridge",
+            "family_swimming_activity_bridge",
+        }:
+            return 1
+        if query.reason in _HIGH_SIGNAL_DECOMPOSITION_REASONS:
+            return 2
     if query.reason in {
         "activity_visual_selfcare_bridge",
         "family_activity_bridge",
@@ -1115,8 +1194,14 @@ def _retrieval_query_selection_priority(query: QueryExpansion) -> int:
         return 1
     if query.reason in _HIGH_SIGNAL_DECOMPOSITION_REASONS:
         return 1
+    if query.reason == "decomposition_inference_support":
+        return 4
     if query.reason in _BROAD_AGGREGATION_EXPANSION_REASONS:
         return 1
+    if query.reason == "health_lifestyle_bridge":
+        return 4
+    if query.reason == "decomposition_ally_support_evidence":
+        return 3
     if query.reason in {
         "activity_aggregation_bridge",
         "family_motivation_context_bridge",
@@ -1226,9 +1311,10 @@ def _fused_ranked_keys(
     sequence = 0
     for ranking_key, ranked_keys in rankings.items():
         query_weight = _retrieval_query_fusion_weight(ranking_key)
+        max_rank = _fusion_max_rank_for_query(ranking_key)
         seen_in_ranking: set[str] = set()
         for rank, raw_key in enumerate(ranked_keys, start=1):
-            if rank > _FUSION_MAX_RANK_PER_QUERY:
+            if rank > max_rank:
                 break
             key = raw_key.strip()
             if not key or key in seen_in_ranking:
@@ -1247,6 +1333,16 @@ def _fused_ranked_keys(
             key=lambda item: (-item[1], first_seen[item[0]], item[0]),
         )[:limit]
     )
+
+
+def _fusion_max_rank_for_query(ranking_key: str) -> int:
+    _, _, reason = ranking_key.partition(":")
+    if (
+        reason in _MULTI_EVIDENCE_PROTECTED_HEAD_REASONS
+        or reason == "decomposition_relationship_status"
+    ):
+        return _FUSION_MULTI_EVIDENCE_MAX_RANK_PER_QUERY
+    return _FUSION_MAX_RANK_PER_QUERY
 
 
 def _retrieval_query_fusion_weight(ranking_key: str) -> float:

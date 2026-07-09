@@ -1,0 +1,1962 @@
+import json
+
+from infinity_context_server.memory_comparison_candidate_fusion import fuse_query_results
+from infinity_context_server.memory_comparison_evidence import (
+    evidence_bundle,
+    retrieval_quality,
+)
+from infinity_context_server.memory_comparison_models import RetrievedMemory
+from infinity_context_server.public_benchmark_models import PublicBenchmarkCase
+
+
+def test_retrieval_quality_uses_metadata_evidence_refs_alias() -> None:
+    case = PublicBenchmarkCase(
+        benchmark="locomo",
+        case_id="conv-1:qa:evidence-alias",
+        question="Which note connects Morgan's checklist and the studio desk?",
+        expected_terms=("blue notebook",),
+        memory_scope_external_ref="locomo-conv-1",
+        thread_external_ref="locomo-conv-1",
+        metadata={"category": 4, "evidence": ["D1:1", ["D2:3"]]},
+    )
+
+    quality = retrieval_quality(
+        case,
+        (
+            RetrievedMemory(
+                text="Morgan put the checklist in the blue notebook.",
+                rank=1,
+                item_id="memory-d1",
+                source_refs=("locomo-conv-1:D1:1",),
+            ),
+        ),
+    )
+
+    assert quality["evidence_term_count"] == 2
+    assert quality["covered_evidence_terms"] == ["D1:1"]
+    assert quality["missing_evidence_terms"] == ["D2:3"]
+    assert quality["evidence_term_recall"] == 0.5
+
+
+def test_evidence_bundle_uses_metadata_evidence_refs_alias_for_coverage() -> None:
+    case = PublicBenchmarkCase(
+        benchmark="locomo",
+        case_id="conv-1:qa:evidence-bundle-alias",
+        question="Which note connects Morgan's checklist and the studio desk?",
+        expected_terms=("blue notebook",),
+        memory_scope_external_ref="locomo-conv-1",
+        thread_external_ref="locomo-conv-1",
+        metadata={"category": 4, "evidence": ["D1:1", ["D2:3"]]},
+    )
+
+    bundle = evidence_bundle(
+        case,
+        (
+            RetrievedMemory(
+                text=(
+                    "Morgan put the checklist in the blue notebook, and the "
+                    "studio desk had the same notebook."
+                ),
+                rank=1,
+                item_id="memory-with-evidence-refs",
+                source_refs=("locomo-conv-1:D1:1", "locomo-conv-1:D2:3"),
+                metadata={
+                    "diagnostics": {
+                        "benchmark_candidate_features": {
+                            "answerability_score": 0.9,
+                            "source_locality_score": 1.0,
+                            "direct_speaker_turn": True,
+                            "entity_hits": ["morgan"],
+                            "relation_hits": ["checklist", "studio desk"],
+                            "source_type": "raw_turn",
+                        }
+                    }
+                },
+            ),
+        ),
+    )
+
+    assert bundle["evidence_term_count"] == 2
+    assert bundle["required_evidence_terms_for_bundle"] == 2
+    assert bundle["covered_evidence_terms"] == ["D1:1", "D2:3"]
+    assert bundle["evidence_term_recall"] == 1.0
+    assert bundle["bundle_complete"] is True
+    assert bundle["items"][0]["covered_evidence_terms"] == ["D1:1", "D2:3"]
+
+
+def test_retrieval_quality_does_not_count_safe_turn_like_label_as_evidence_ref() -> None:
+    case = PublicBenchmarkCase(
+        benchmark="locomo",
+        case_id="conv-1:qa:safe-label-not-evidence",
+        question="What did Alex confirm?",
+        expected_terms=("workshop date",),
+        memory_scope_external_ref="locomo-conv-1",
+        thread_external_ref="locomo-conv-1",
+        metadata={"category": 4, "evidence_terms": ("D2:6",)},
+    )
+
+    quality = retrieval_quality(
+        case,
+        (
+            RetrievedMemory(
+                text="Alex confirmed the workshop date.",
+                rank=1,
+                item_id="safe-label-memory",
+                source_refs=("chunk-D2-6",),
+            ),
+        ),
+    )
+
+    assert quality["covered_expected_term_count"] == 1
+    assert quality["covered_evidence_terms"] == []
+    assert quality["missing_evidence_terms"] == ["D2:6"]
+    assert quality["evidence_term_recall"] == 0.0
+
+
+def test_evidence_diagnostics_use_safe_refs_for_raw_locomo_and_provider_terms() -> None:
+    raw_locomo_ref = "locomo:conv-private:session_1:D1:2:turn-secret"
+    raw_provider_ref = "provider-auth-private-marker"
+    case = PublicBenchmarkCase(
+        benchmark="locomo",
+        case_id="conv-1:qa:private-source-ref",
+        question="Where did Alex move after the planning call?",
+        expected_terms=("Denver",),
+        memory_scope_external_ref="locomo-conv-1",
+        thread_external_ref="locomo-conv-1",
+        metadata={
+            "category": 4,
+            "evidence_terms": (raw_locomo_ref, raw_provider_ref),
+        },
+    )
+    memories = (
+        RetrievedMemory(
+            text="D1:2 Alex moved to Denver after the planning call.",
+            rank=1,
+            item_id=raw_locomo_ref,
+            source_refs=(raw_locomo_ref, raw_provider_ref),
+            metadata={
+                "diagnostics": {
+                    "benchmark_candidate_features": {
+                        "answerability_score": 0.9,
+                        "source_locality_score": 1.0,
+                        "direct_speaker_turn": True,
+                        "entity_hits": ["alex"],
+                        "relation_hits": ["moved"],
+                        "source_ref_dedupe_key": (
+                            f"source_refs:{raw_locomo_ref}|{raw_provider_ref}"
+                        ),
+                    }
+                }
+            },
+        ),
+    )
+
+    quality = retrieval_quality(case, memories)
+    bundle = evidence_bundle(case, memories)
+
+    assert quality["evidence_term_count"] == 2
+    assert quality["evidence_term_recall"] == 0.5
+    assert quality["covered_evidence_terms"] == ["session_1:D1:2"]
+    assert quality["unsupported_evidence_term_count"] == 1
+    assert bundle["covered_evidence_terms"] == ["session_1:D1:2"]
+    assert bundle["evidence_term_count"] == 2
+    assert bundle["evidence_term_recall"] == 0.5
+    assert bundle["required_evidence_terms_for_bundle"] == 2
+    assert bundle["unsupported_evidence_term_count"] == 1
+    assert bundle["items"][0]["id"] == "source_session_turn_refs:session_1:D1:2"
+    assert bundle["items"][0]["source_refs"] == [
+        "source_session_turn_refs:session_1:D1:2",
+        "source_turn_refs:D1:2",
+    ]
+    assert bundle["bundle_planner"]["selected_dedupe_keys"] == [
+        "source_identity:"
+        "source_session_turn_refs:session_1:D1:2|source_turn_refs:D1:2"
+    ]
+    serialized = json.dumps((quality, bundle)).lower()
+    assert "locomo:conv-private" not in serialized
+    assert "turn-secret" not in serialized
+    assert raw_provider_ref not in serialized
+
+
+def test_evidence_bundle_uses_locomo_evidence_ref_metadata_for_coverage() -> None:
+    case = PublicBenchmarkCase(
+        benchmark="locomo",
+        case_id="conv-1:qa:metadata-source-ref",
+        question="What did Alex confirm?",
+        expected_terms=("workshop date",),
+        memory_scope_external_ref="locomo-conv-1",
+        thread_external_ref="locomo-conv-1",
+        metadata={"category": 4, "evidence_terms": ("D4:5",)},
+    )
+    memory = RetrievedMemory(
+        text="Alex confirmed the workshop date.",
+        rank=1,
+        item_id="metadata-source-ref",
+        metadata={
+            "source_ref_payloads": [
+                {
+                    "source_external_id": "locomo:conv-private:turn-secret",
+                    "session_key": "session_4",
+                    "locomo_evidence_ref": "D4:5",
+                }
+            ],
+            "diagnostics": {
+                "benchmark_candidate_features": {
+                    "answerability_score": 0.9,
+                    "source_locality_score": 1.0,
+                    "direct_speaker_turn": True,
+                    "entity_hits": ["alex"],
+                    "relation_hits": ["workshop date"],
+                    "source_type": "raw_turn",
+                }
+            },
+        },
+    )
+
+    quality = retrieval_quality(case, (memory,))
+    bundle = evidence_bundle(case, (memory,))
+
+    assert quality["covered_evidence_terms"] == ["D4:5"]
+    assert quality["evidence_term_recall"] == 1.0
+    assert bundle["covered_evidence_terms"] == ["D4:5"]
+    assert bundle["items"][0]["covered_evidence_terms"] == ["D4:5"]
+    assert bundle["items"][0]["source_refs"] == [
+        "source_session_turn_refs:session_4:D4:5",
+        "source_turn_refs:D4:5",
+    ]
+    serialized = json.dumps((quality, bundle))
+    assert "locomo:conv-private" not in serialized
+    assert "turn-secret" not in serialized
+
+
+def test_evidence_bundle_uses_source_evidence_refs_metadata_for_coverage() -> None:
+    case = PublicBenchmarkCase(
+        benchmark="locomo",
+        case_id="conv-1:qa:metadata-source-evidence-refs",
+        question="What did Alex confirm?",
+        expected_terms=("workshop date",),
+        memory_scope_external_ref="locomo-conv-1",
+        thread_external_ref="locomo-conv-1",
+        metadata={"category": 4, "evidence_terms": ("D4:5",)},
+    )
+    memory = RetrievedMemory(
+        text="Alex confirmed the workshop date.",
+        rank=1,
+        item_id="metadata-source-evidence-refs",
+        metadata={
+            "source_ref_payloads": [
+                {
+                    "source_external_id": "locomo:conv-private:turn-secret",
+                    "session_key": "session_4",
+                    "source_evidence_refs": ("locomo:conv-private:D4:5",),
+                }
+            ],
+            "diagnostics": {
+                "benchmark_candidate_features": {
+                    "answerability_score": 0.9,
+                    "source_locality_score": 1.0,
+                    "direct_speaker_turn": True,
+                    "entity_hits": ["alex"],
+                    "relation_hits": ["workshop date"],
+                    "source_type": "raw_turn",
+                }
+            },
+        },
+    )
+
+    quality = retrieval_quality(case, (memory,))
+    bundle = evidence_bundle(case, (memory,))
+
+    assert quality["covered_evidence_terms"] == ["D4:5"]
+    assert quality["evidence_term_recall"] == 1.0
+    assert bundle["covered_evidence_terms"] == ["D4:5"]
+    assert bundle["items"][0]["covered_evidence_terms"] == ["D4:5"]
+    assert bundle["items"][0]["source_refs"] == [
+        "source_session_turn_refs:session_4:D4:5",
+        "source_turn_refs:D4:5",
+    ]
+    serialized = json.dumps((quality, bundle))
+    assert "locomo:conv-private" not in serialized
+    assert "turn-secret" not in serialized
+
+
+def test_evidence_bundle_uses_supporting_evidence_metadata_for_coverage() -> None:
+    case = PublicBenchmarkCase(
+        benchmark="locomo",
+        case_id="conv-1:qa:metadata-supporting-evidence",
+        question="What did Alex confirm?",
+        expected_terms=("workshop date",),
+        memory_scope_external_ref="locomo-conv-1",
+        thread_external_ref="locomo-conv-1",
+        metadata={"category": 4, "evidence_terms": ("D4:5",)},
+    )
+    memory = RetrievedMemory(
+        text="Alex confirmed the workshop date.",
+        rank=1,
+        item_id="metadata-supporting-evidence",
+        metadata={
+            "source_ref_payloads": [
+                {
+                    "source_external_id": "locomo:conv-private:turn-secret",
+                    "session_key": "session_4",
+                    "supporting_evidence": [
+                        {"source_evidence_ref": "locomo:conv-private:D4:5"}
+                    ],
+                }
+            ],
+            "diagnostics": {
+                "benchmark_candidate_features": {
+                    "answerability_score": 0.9,
+                    "source_locality_score": 1.0,
+                    "direct_speaker_turn": True,
+                    "entity_hits": ["alex"],
+                    "relation_hits": ["workshop date"],
+                    "source_type": "raw_turn",
+                }
+            },
+        },
+    )
+
+    quality = retrieval_quality(case, (memory,))
+    bundle = evidence_bundle(case, (memory,))
+
+    assert quality["covered_evidence_terms"] == ["D4:5"]
+    assert quality["evidence_term_recall"] == 1.0
+    assert bundle["covered_evidence_terms"] == ["D4:5"]
+    assert bundle["items"][0]["covered_evidence_terms"] == ["D4:5"]
+    assert bundle["items"][0]["source_refs"] == [
+        "source_session_turn_refs:session_4:D4:5",
+        "source_turn_refs:D4:5",
+    ]
+    serialized = json.dumps((quality, bundle))
+    assert "locomo:conv-private" not in serialized
+    assert "turn-secret" not in serialized
+
+
+def test_evidence_bundle_uses_nested_evidence_metadata_for_coverage() -> None:
+    case = PublicBenchmarkCase(
+        benchmark="locomo",
+        case_id="conv-1:qa:metadata-nested-evidence",
+        question="What did Alex confirm?",
+        expected_terms=("workshop date",),
+        memory_scope_external_ref="locomo-conv-1",
+        thread_external_ref="locomo-conv-1",
+        metadata={"category": 4, "evidence_terms": ("D4:5",)},
+    )
+    memory = RetrievedMemory(
+        text="Alex confirmed the workshop date.",
+        rank=1,
+        item_id="metadata-nested-evidence",
+        metadata={
+            "source_ref_payloads": [
+                {
+                    "source_external_id": "locomo:conv-private:turn-secret",
+                    "session_key": "session_4",
+                    "evidence": [
+                        {"source_evidence_ref": "locomo:conv-private:D4:5"}
+                    ],
+                }
+            ],
+            "diagnostics": {
+                "benchmark_candidate_features": {
+                    "answerability_score": 0.9,
+                    "source_locality_score": 1.0,
+                    "direct_speaker_turn": True,
+                    "entity_hits": ["alex"],
+                    "relation_hits": ["workshop date"],
+                    "source_type": "raw_turn",
+                }
+            },
+        },
+    )
+
+    quality = retrieval_quality(case, (memory,))
+    bundle = evidence_bundle(case, (memory,))
+
+    assert quality["covered_evidence_terms"] == ["D4:5"]
+    assert quality["evidence_term_recall"] == 1.0
+    assert bundle["covered_evidence_terms"] == ["D4:5"]
+    assert bundle["items"][0]["covered_evidence_terms"] == ["D4:5"]
+    assert bundle["items"][0]["source_refs"] == [
+        "source_session_turn_refs:session_4:D4:5",
+        "source_turn_refs:D4:5",
+    ]
+    serialized = json.dumps((quality, bundle))
+    assert "locomo:conv-private" not in serialized
+    assert "turn-secret" not in serialized
+
+
+def test_evidence_bundle_filters_hyphenated_raw_provider_source_refs() -> None:
+    raw_provider_refs = ("provider-private-payload", "raw-provider-ref")
+    case = PublicBenchmarkCase(
+        benchmark="locomo",
+        case_id="conv-1:qa:hyphen-provider-source-ref",
+        question="Where did Priya choose to go?",
+        expected_terms=("Osaka",),
+        memory_scope_external_ref="locomo-conv-1",
+        thread_external_ref="locomo-conv-1",
+        metadata={"category": 4, "evidence_terms": ("D2:6",)},
+    )
+
+    bundle = evidence_bundle(
+        case,
+        (
+            RetrievedMemory(
+                text="D2:6 Priya chose Osaka for the conference.",
+                rank=1,
+                item_id="safe-memory-id",
+                source_refs=(*raw_provider_refs, "D2:6"),
+                metadata={
+                    "diagnostics": {
+                        "benchmark_candidate_features": {
+                            "answerability_score": 0.9,
+                            "source_locality_score": 1.0,
+                            "direct_speaker_turn": True,
+                            "entity_hits": ["priya"],
+                            "relation_hits": ["chose"],
+                            "source_type": "raw_turn",
+                        }
+                    }
+                },
+            ),
+        ),
+    )
+
+    assert bundle["items"][0]["source_refs"] == ["D2:6"]
+    serialized = json.dumps(bundle, sort_keys=True)
+    for raw_ref in raw_provider_refs:
+        assert raw_ref not in serialized
+
+
+def test_evidence_bundle_filters_private_provider_source_labels() -> None:
+    private_labels = ("openai", "qdrant", "provider-auth-private-marker")
+    case = PublicBenchmarkCase(
+        benchmark="locomo",
+        case_id="conv-1:qa:private-source-labels",
+        question="Where did Priya choose to go?",
+        expected_terms=("Osaka",),
+        memory_scope_external_ref="locomo-conv-1",
+        thread_external_ref="locomo-conv-1",
+        metadata={"category": 4, "evidence_terms": ("D2:6",)},
+    )
+
+    bundle = evidence_bundle(
+        case,
+        (
+            RetrievedMemory(
+                text="D2:6 Priya chose Osaka for the conference.",
+                rank=1,
+                item_id="safe-memory-id",
+                source_refs=("D2:6",),
+                metadata={
+                    "diagnostics": {
+                        "benchmark_candidate_features": {
+                            "answerability_score": 0.9,
+                            "source_locality_score": 1.0,
+                            "direct_speaker_turn": True,
+                            "entity_hits": ["priya"],
+                            "relation_hits": ["chose"],
+                            "source_type": "openai",
+                            "source_types": ["openai", "raw_turn"],
+                            "retrieval_sources": [
+                                "qdrant",
+                                "semantic_chunks",
+                                "provider-auth-private-marker",
+                            ],
+                        }
+                    }
+                },
+            ),
+        ),
+    )
+
+    item = bundle["items"][0]
+    assert "source_type" not in item
+    assert item["source_types"] == ["raw_turn"]
+    assert item["retrieval_sources"] == ["semantic_chunks"]
+    assert bundle["bundle_planner"]["source_type_counts"] == {"raw_turn": 1}
+    assert bundle["bundle_planner"]["retrieval_source_counts"] == {
+        "semantic_chunks": 1
+    }
+    bundle_quality = bundle["bundle_planner"]["bundle_quality"]
+    assert bundle_quality["source_type_diversity"] == 1
+    assert bundle_quality["retrieval_source_diversity"] == 1
+    assert bundle_quality["source_type_support_diversity"] == 1
+    assert bundle_quality["retrieval_source_support_diversity"] == 1
+    serialized = json.dumps(bundle, sort_keys=True)
+    for label in private_labels:
+        assert label not in serialized
+
+
+def test_evidence_bundle_preserves_source_identity_wrapped_source_refs() -> None:
+    source_identity_ref = (
+        "source_identity:"
+        "source_session_turn_refs:session-2:D2-6|"
+        "source_turn_refs:D2-6"
+    )
+    case = PublicBenchmarkCase(
+        benchmark="locomo",
+        case_id="conv-1:qa:source-identity-source-ref",
+        question="Where did Priya choose to go?",
+        expected_terms=("Osaka",),
+        memory_scope_external_ref="locomo-conv-1",
+        thread_external_ref="locomo-conv-1",
+        metadata={"category": 4, "evidence_terms": ("D2:6",)},
+    )
+
+    bundle = evidence_bundle(
+        case,
+        (
+            RetrievedMemory(
+                text="D2:6 Priya chose Osaka for the conference.",
+                rank=1,
+                item_id="safe-memory-id",
+                source_refs=(source_identity_ref,),
+                metadata={
+                    "diagnostics": {
+                        "benchmark_candidate_features": {
+                            "answerability_score": 0.9,
+                            "source_locality_score": 1.0,
+                            "direct_speaker_turn": True,
+                            "entity_hits": ["priya"],
+                            "relation_hits": ["chose"],
+                            "source_type": "raw_turn",
+                        }
+                    }
+                },
+            ),
+        ),
+    )
+
+    assert bundle["items"][0]["source_refs"] == [
+        "source_session_turn_refs:session_2:D2:6",
+        "source_turn_refs:D2:6",
+    ]
+    assert source_identity_ref not in json.dumps(bundle, sort_keys=True)
+
+
+def test_evidence_bundle_includes_feature_backed_entity_disambiguation() -> None:
+    case = PublicBenchmarkCase(
+        benchmark="locomo",
+        case_id="conv-1:qa:1",
+        question="Which note connects Morgan's checklist and the studio desk?",
+        expected_terms=("blue notebook",),
+        memory_scope_external_ref="locomo-conv-1",
+        thread_external_ref="locomo-conv-1",
+        metadata={
+            "category": 1,
+            "answer_preview": "blue notebook",
+            "evidence_terms": ("D1:1",),
+        },
+    )
+    bundle = evidence_bundle(
+        case,
+        (
+            RetrievedMemory(
+                text="D1:1 Morgan put the checklist in the blue notebook.",
+                rank=1,
+                item_id="primary",
+            ),
+            RetrievedMemory(
+                text="D1:2 Morgan: I moved it after talking to Eli.",
+                rank=2,
+                item_id="entity-context",
+                metadata={
+                    "diagnostics": {
+                        "benchmark_candidate_features": {
+                            "answerability_score": 0.66,
+                            "source_locality_score": 1.0,
+                            "direct_speaker_turn": True,
+                            "entity_hits": ["morgan"],
+                            "speaker_hits": ["morgan"],
+                            "source_type": "raw_turn",
+                        }
+                    }
+                },
+            ),
+        ),
+    )
+
+    roles_by_id = {item["id"]: item["role"] for item in bundle["items"]}
+    entity_context = next(
+        item for item in bundle["items"] if item["id"] == "entity-context"
+    )
+
+    assert roles_by_id["primary"] == "primary"
+    assert roles_by_id["entity-context"] == "entity_disambiguation"
+    assert entity_context["eligibility_reason_codes"] == [
+        "feature_backed",
+        "answerability_feature",
+        "source_locality_feature",
+        "direct_speaker_grounding",
+    ]
+    assert bundle["bundle_planner"]["role_counts"]["entity_disambiguation"] == 1
+
+
+def test_evidence_bundle_allows_unmeasured_feature_backed_static_evidence() -> None:
+    case = PublicBenchmarkCase(
+        benchmark="locomo",
+        case_id="conv-1:qa:static-relation",
+        question="What helped the plan?",
+        expected_terms=("blue envelope",),
+        memory_scope_external_ref="locomo-conv-1",
+        thread_external_ref="locomo-conv-1",
+        metadata={
+            "category": 1,
+            "evidence_terms": ("D3:9",),
+        },
+    )
+    bundle = evidence_bundle(
+        case,
+        (
+            RetrievedMemory(
+                text="D3:9 The blue envelope connected Morgan's plan to the studio.",
+                rank=1,
+                item_id="static-relation",
+                source_refs=("D3:9",),
+                metadata={
+                    "diagnostics": {
+                        "benchmark_candidate_features": {
+                            "answerability_score": 0.0,
+                            "source_locality_score": 0.0,
+                            "entity_hits": ["morgan"],
+                            "relation_hits": ["plan", "studio"],
+                            "source_type": "chunk",
+                        }
+                    }
+                },
+            ),
+        ),
+    )
+
+    item = bundle["items"][0]
+    assert item["id"] == "static-relation"
+    assert item["role"] == "primary"
+    assert item["eligibility_reason_codes"] == [
+        "feature_backed",
+        "answerability_unmeasured",
+        "source_locality_unmeasured",
+        "entity_relation_grounding",
+    ]
+    assert bundle["satisfied_required_roles"] == ["primary"]
+    assert bundle["covered_evidence_terms"] == ["D3:9"]
+
+
+def test_evidence_bundle_rejects_measured_weak_static_primary_signal() -> None:
+    case = PublicBenchmarkCase(
+        benchmark="locomo",
+        case_id="conv-1:qa:weak-static-relation",
+        question="What helped the plan?",
+        expected_terms=("blue envelope",),
+        memory_scope_external_ref="locomo-conv-1",
+        thread_external_ref="locomo-conv-1",
+        metadata={
+            "category": 1,
+            "evidence_terms": ("D3:9",),
+        },
+    )
+    bundle = evidence_bundle(
+        case,
+        (
+            RetrievedMemory(
+                text="D3:9 The blue envelope connected Morgan's plan to the studio.",
+                rank=1,
+                item_id="weak-static-relation",
+                source_refs=("D3:9",),
+                metadata={
+                    "diagnostics": {
+                        "benchmark_candidate_features": {
+                            "answerability_score": 0.42,
+                            "source_locality_score": 0.9,
+                            "entity_hits": ["morgan"],
+                            "relation_hits": ["plan", "studio"],
+                            "source_type": "chunk",
+                        }
+                    }
+                },
+            ),
+        ),
+    )
+
+    assert bundle["items"] == []
+    assert bundle["satisfied_required_roles"] == []
+
+
+def test_evidence_bundle_does_not_promote_low_answerability_lexical_hits_to_primary() -> None:
+    case = PublicBenchmarkCase(
+        benchmark="locomo",
+        case_id="conv-1:qa:lexical-low-answerability",
+        question="What did Morgan choose for the garden project?",
+        expected_terms=("blue tiles",),
+        memory_scope_external_ref="locomo-conv-1",
+        thread_external_ref="locomo-conv-1",
+        metadata={
+            "category": 4,
+            "answer_preview": "blue tiles",
+            "evidence_terms": ("D5:1",),
+        },
+    )
+    bundle = evidence_bundle(
+        case,
+        (
+            RetrievedMemory(
+                text=(
+                    "D5:1 Morgan talked about the garden project and needed "
+                    "to choose materials."
+                ),
+                rank=1,
+                item_id="lexical-low-answerability",
+                source_refs=("D5:1",),
+                metadata={
+                    "diagnostics": {
+                        "benchmark_candidate_features": {
+                            "answerability_score": 0.31,
+                            "source_locality_score": 1.0,
+                            "direct_speaker_turn": True,
+                            "entity_hits": ["morgan"],
+                            "speaker_hits": ["morgan"],
+                            "relation_hits": ["garden", "project", "choose"],
+                            "source_type": "raw_turn",
+                        }
+                    }
+                },
+            ),
+        ),
+    )
+
+    assert bundle["candidate_item_count"] == 1
+    assert bundle["primary_evidence_count"] == 0
+    assert bundle["bundle_complete"] is False
+    assert bundle["satisfied_required_roles"] == []
+    assert bundle["missing_required_roles"] == ["primary"]
+    assert bundle["items"][0]["role"] == "supporting"
+
+
+def test_evidence_bundle_requires_location_support_for_location_queries() -> None:
+    case = PublicBenchmarkCase(
+        benchmark="locomo",
+        case_id="conv-location:qa:1",
+        question="Where did Caroline move from?",
+        expected_terms=("Canada",),
+        memory_scope_external_ref="locomo-conv-location",
+        thread_external_ref="locomo-conv-location",
+        metadata={"category": 4},
+    )
+
+    bundle = evidence_bundle(
+        case,
+        (
+            RetrievedMemory(
+                text="D1:4 Caroline: I moved from my home country, Canada.",
+                rank=1,
+                item_id="origin",
+                source_refs=("D1:4",),
+                metadata={
+                    "diagnostics": {
+                        "benchmark_candidate_features": {
+                            "answerability_score": 0.94,
+                            "source_locality_score": 1.0,
+                            "direct_speaker_turn": True,
+                            "relation_categories": ["location_transition"],
+                            "relation_category_hits": ["location_transition"],
+                            "relation_hits": ["move", "home", "country"],
+                            "entity_hits": ["caroline"],
+                            "speaker_hits": ["caroline"],
+                            "source_type": "raw_turn",
+                        }
+                    }
+                },
+            ),
+            RetrievedMemory(
+                text="D1:3 Caroline: I moved the meeting after work.",
+                rank=2,
+                item_id="move-distractor",
+                source_refs=("D1:3",),
+                metadata={
+                    "diagnostics": {
+                        "benchmark_candidate_features": {
+                            "answerability_score": 0.62,
+                            "source_locality_score": 1.0,
+                            "direct_speaker_turn": True,
+                            "relation_categories": ["location_transition"],
+                            "relation_hits": ["move"],
+                            "entity_hits": ["caroline"],
+                            "speaker_hits": ["caroline"],
+                            "source_type": "raw_turn",
+                        }
+                    }
+                },
+            ),
+        ),
+    )
+
+    planner = bundle["bundle_planner"]
+    roles_by_id = {item["id"]: item["role"] for item in bundle["items"]}
+
+    assert bundle["required_roles"] == ["primary", "location_support"]
+    assert bundle["satisfied_required_roles"] == ["primary", "location_support"]
+    assert bundle["role_requirement_complete"] is True
+    assert roles_by_id["origin"] == "primary"
+    assert planner["bundle_quality"]["location_relation_category_hit_count"] == 1
+    assert "has_location_relation_category_evidence" in planner["bundle_quality"][
+        "reason_codes"
+    ]
+    origin_item = next(item for item in bundle["items"] if item["id"] == "origin")
+    assert origin_item["relation_category_hits"] == ["location_transition"]
+
+
+def test_evidence_bundle_requires_preference_support_for_preference_queries() -> None:
+    case = PublicBenchmarkCase(
+        benchmark="locomo",
+        case_id="conv-preference:qa:1",
+        question="What does Melanie like?",
+        expected_terms=("animals",),
+        memory_scope_external_ref="locomo-conv-preference",
+        thread_external_ref="locomo-conv-preference",
+        metadata={"category": 4},
+    )
+
+    bundle = evidence_bundle(
+        case,
+        (
+            RetrievedMemory(
+                text="D1:1 Melanie mentioned animals.",
+                rank=1,
+                item_id="primary",
+                source_refs=("D1:1",),
+                metadata={
+                    "diagnostics": {
+                        "benchmark_candidate_features": {
+                            "answerability_score": 0.95,
+                            "source_locality_score": 1.0,
+                            "direct_speaker_turn": True,
+                            "relation_hits": ["animal"],
+                            "speaker_hits": ["melanie"],
+                            "source_type": "raw_turn",
+                        }
+                    }
+                },
+            ),
+            RetrievedMemory(
+                text="D2:3 Melanie: The kids love learning about animals.",
+                rank=2,
+                item_id="preference-support",
+                source_refs=("D2:3",),
+                metadata={
+                    "diagnostics": {
+                        "benchmark_candidate_features": {
+                            "answerability_score": 0.74,
+                            "source_locality_score": 1.0,
+                            "direct_speaker_turn": True,
+                            "has_preference_evidence": True,
+                            "relation_categories": ["preference"],
+                            "relation_category_hits": ["preference"],
+                            "relation_hits": ["like", "love", "animal"],
+                            "speaker_hits": ["melanie"],
+                            "source_type": "raw_turn",
+                        }
+                    }
+                },
+            ),
+        ),
+    )
+
+    roles_by_id = {item["id"]: item["role"] for item in bundle["items"]}
+    support_item = next(
+        item for item in bundle["items"] if item["id"] == "preference-support"
+    )
+
+    assert bundle["required_roles"] == ["primary", "preference_support"]
+    assert bundle["satisfied_required_roles"] == ["primary", "preference_support"]
+    assert bundle["role_requirement_complete"] is True
+    assert roles_by_id["primary"] == "primary"
+    assert roles_by_id["preference-support"] == "preference_support"
+    assert support_item["has_preference_evidence"] is True
+    assert bundle["bundle_planner"]["bundle_quality"]["preference_support_count"] == 1
+    assert "preference_support" in support_item["planner_reason_codes"]
+
+
+def test_evidence_bundle_rejects_like_only_preference_support() -> None:
+    case = PublicBenchmarkCase(
+        benchmark="locomo",
+        case_id="conv-preference:qa:like-only",
+        question="What do Melanie's kids like?",
+        expected_terms=("animals",),
+        memory_scope_external_ref="locomo-conv-preference",
+        thread_external_ref="locomo-conv-preference",
+        metadata={"category": 4},
+    )
+
+    bundle = evidence_bundle(
+        case,
+        (
+            RetrievedMemory(
+                text="D1:1 Melanie mentioned animals.",
+                rank=1,
+                item_id="primary",
+                source_refs=("D1:1",),
+                metadata={
+                    "diagnostics": {
+                        "benchmark_candidate_features": {
+                            "answerability_score": 0.95,
+                            "source_locality_score": 1.0,
+                            "direct_speaker_turn": True,
+                            "relation_hits": ["animal"],
+                            "speaker_hits": ["melanie"],
+                            "source_type": "raw_turn",
+                        }
+                    }
+                },
+            ),
+            RetrievedMemory(
+                text="D2:3 Melanie: Glad you like it. I love to help.",
+                rank=2,
+                item_id="generic-like",
+                source_refs=("D2:3",),
+                metadata={
+                    "diagnostics": {
+                        "benchmark_candidate_features": {
+                            "answerability_score": 0.74,
+                            "source_locality_score": 1.0,
+                            "direct_speaker_turn": True,
+                            "has_preference_evidence": True,
+                            "relation_categories": ["preference"],
+                            "relation_hits": ["like"],
+                            "speaker_hits": ["melanie"],
+                            "source_type": "raw_turn",
+                        }
+                    }
+                },
+            ),
+        ),
+    )
+
+    roles_by_id = {item["id"]: item["role"] for item in bundle["items"]}
+
+    assert bundle["required_roles"] == ["primary", "preference_support"]
+    assert bundle["satisfied_required_roles"] == ["primary"]
+    assert bundle["missing_required_roles"] == ["preference_support"]
+    assert roles_by_id["primary"] == "primary"
+    assert roles_by_id["generic-like"] != "preference_support"
+    assert bundle["bundle_planner"]["bundle_quality"]["preference_support_count"] == 0
+
+
+def test_evidence_bundle_completes_typed_profile_support_role() -> None:
+    case = PublicBenchmarkCase(
+        benchmark="locomo",
+        case_id="conv-health:qa:1",
+        question="What medicine does Alex take?",
+        expected_terms=("Zyrtec",),
+        memory_scope_external_ref="locomo-conv-health",
+        thread_external_ref="locomo-conv-health",
+        metadata={"category": 4},
+    )
+
+    bundle = evidence_bundle(
+        case,
+        (
+            RetrievedMemory(
+                text="D1:1 Alex keeps Zyrtec in the kitchen drawer.",
+                rank=1,
+                item_id="primary",
+                source_refs=("D1:1",),
+                metadata={
+                    "diagnostics": {
+                        "benchmark_candidate_features": {
+                            "answerability_score": 0.92,
+                            "source_locality_score": 1.0,
+                            "direct_speaker_turn": True,
+                            "speaker_hits": ["alex"],
+                            "source_type": "raw_turn",
+                        }
+                    }
+                },
+            ),
+            RetrievedMemory(
+                text="D2:3 Alex: I take allergy medicine every morning.",
+                rank=2,
+                item_id="health-support",
+                source_refs=("D2:3",),
+                metadata={
+                    "diagnostics": {
+                        "benchmark_candidate_features": {
+                            "answerability_score": 0.78,
+                            "source_locality_score": 1.0,
+                            "direct_speaker_turn": True,
+                            "relation_category_hits": ["health_profile"],
+                            "speaker_hits": ["alex"],
+                            "source_type": "raw_turn",
+                        }
+                    }
+                },
+            ),
+        ),
+    )
+
+    support_item = next(
+        item for item in bundle["items"] if item["id"] == "health-support"
+    )
+
+    assert bundle["required_roles"] == ["primary", "health_support"]
+    assert bundle["satisfied_required_roles"] == ["primary", "health_support"]
+    assert bundle["role_requirement_complete"] is True
+    assert support_item["role"] == "health_support"
+    assert support_item["relation_category_hits"] == ["health_profile"]
+    assert "health_support" in support_item["planner_reason_codes"]
+    quality = bundle["bundle_planner"]["bundle_quality"]
+    assert quality["typed_relation_support_count"] == 1
+    assert quality["typed_relation_support_counts"] == {"health_support": 1}
+
+
+def test_evidence_bundle_requires_visual_support_for_visual_queries() -> None:
+    case = PublicBenchmarkCase(
+        benchmark="locomo",
+        case_id="conv-visual:qa:1",
+        question="What painting did Melanie show?",
+        expected_terms=("lake sunrise",),
+        memory_scope_external_ref="locomo-conv-visual",
+        thread_external_ref="locomo-conv-visual",
+        metadata={"category": 4},
+    )
+
+    bundle = evidence_bundle(
+        case,
+        (
+            RetrievedMemory(
+                text="D1:1 Melanie mentioned the lake sunrise.",
+                rank=1,
+                item_id="primary",
+                source_refs=("D1:1",),
+                metadata={
+                    "diagnostics": {
+                        "benchmark_candidate_features": {
+                            "answerability_score": 0.95,
+                            "source_locality_score": 1.0,
+                            "direct_speaker_turn": True,
+                            "relation_hits": ["paint"],
+                            "speaker_hits": ["melanie"],
+                            "source_type": "raw_turn",
+                        }
+                    }
+                },
+            ),
+            RetrievedMemory(
+                text=(
+                    "D2:3 Melanie: Look at my painting. "
+                    "The image shows a watercolor lake sunrise."
+                ),
+                rank=2,
+                item_id="visual-support",
+                source_refs=("D2:3",),
+                metadata={
+                    "diagnostics": {
+                        "benchmark_candidate_features": {
+                            "answerability_score": 0.74,
+                            "source_locality_score": 1.0,
+                            "direct_speaker_turn": True,
+                            "has_visual_evidence": True,
+                            "relation_categories": ["visual"],
+                            "relation_category_hits": ["visual"],
+                            "relation_hits": ["paint", "image"],
+                            "speaker_hits": ["melanie"],
+                            "source_type": "raw_turn",
+                        }
+                    }
+                },
+            ),
+        ),
+    )
+
+    roles_by_id = {item["id"]: item["role"] for item in bundle["items"]}
+    support_item = next(item for item in bundle["items"] if item["id"] == "visual-support")
+
+    assert bundle["required_roles"] == ["primary", "visual_support"]
+    assert bundle["satisfied_required_roles"] == ["primary", "visual_support"]
+    assert bundle["role_requirement_complete"] is True
+    assert roles_by_id["primary"] == "primary"
+    assert roles_by_id["visual-support"] == "visual_support"
+    assert support_item["has_visual_evidence"] is True
+    assert bundle["bundle_planner"]["bundle_quality"]["visual_support_count"] == 1
+    assert "visual_support" in support_item["planner_reason_codes"]
+
+
+def test_evidence_bundle_preserves_typed_temporal_feature_provenance() -> None:
+    case = PublicBenchmarkCase(
+        benchmark="locomo",
+        case_id="conv-1:qa:duration",
+        question="How long has Caroline known her current friends?",
+        expected_terms=("four years",),
+        memory_scope_external_ref="locomo-conv-1",
+        thread_external_ref="locomo-conv-1",
+        metadata={"category": 2},
+    )
+    bundle = evidence_bundle(
+        case,
+        (
+            RetrievedMemory(
+                text="D2:4 Caroline: I have known those friends for 4 years.",
+                rank=1,
+                item_id="duration-evidence",
+                metadata={
+                    "diagnostics": {
+                        "benchmark_candidate_features": {
+                            "answerability_score": 0.88,
+                            "answerability_reason_codes": [
+                                "duration_temporal_evidence",
+                                "high_answerability",
+                            ],
+                            "source_locality_score": 1.0,
+                            "direct_speaker_turn": True,
+                            "entity_hits": ["caroline"],
+                            "speaker_hits": ["caroline"],
+                            "relation_hits": ["known", "friend"],
+                            "time_intent_kind": "duration",
+                            "has_duration_surface": True,
+                            "source_type": "raw_turn",
+                        }
+                    }
+                },
+            ),
+        ),
+    )
+
+    item = bundle["items"][0]
+    assert item["id"] == "duration-evidence"
+    assert item["time_intent_kind"] == "duration"
+    assert item["has_duration_surface"] is True
+    assert "duration_temporal_evidence" in item["answerability_reason_codes"]
+    assert "temporal_grounding" in item["eligibility_reason_codes"]
+    assert bundle["required_roles"] == [
+        "primary",
+        "temporal_support",
+    ]
+    assert bundle["satisfied_required_roles"] == [
+        "primary",
+        "temporal_support",
+    ]
+    assert bundle["missing_required_roles"] == []
+    assert bundle["role_requirement_complete"] is True
+
+
+def test_evidence_bundle_preserves_qualitative_duration_feature_provenance() -> None:
+    case = PublicBenchmarkCase(
+        benchmark="locomo",
+        case_id="conv-1:qa:qualitative-duration",
+        question="How many months has Lina been taking pottery classes?",
+        expected_terms=("a few months",),
+        memory_scope_external_ref="locomo-conv-1",
+        thread_external_ref="locomo-conv-1",
+        metadata={"category": 2},
+    )
+    bundle = evidence_bundle(
+        case,
+        (
+            RetrievedMemory(
+                text="D2:4 Lina: I have been taking pottery classes for a few months.",
+                rank=1,
+                item_id="qualitative-duration-evidence",
+                metadata={
+                    "diagnostics": {
+                        "benchmark_candidate_features": {
+                            "answerability_score": 0.88,
+                            "answerability_reason_codes": [
+                                "duration_temporal_evidence",
+                                "high_answerability",
+                            ],
+                            "source_locality_score": 1.0,
+                            "direct_speaker_turn": True,
+                            "entity_hits": ["lina"],
+                            "speaker_hits": ["lina"],
+                            "relation_hits": ["taking", "pottery", "class"],
+                            "time_intent_kind": "duration",
+                            "has_duration_surface": True,
+                            "source_type": "raw_turn",
+                        }
+                    }
+                },
+            ),
+        ),
+    )
+
+    item = bundle["items"][0]
+    assert item["id"] == "qualitative-duration-evidence"
+    assert item["has_duration_surface"] is True
+    assert "duration_temporal_evidence" in item["answerability_reason_codes"]
+    assert "temporal_support" not in bundle["missing_required_roles"]
+
+
+def test_evidence_bundle_detects_daypart_relative_temporal_text_fallback() -> None:
+    case = PublicBenchmarkCase(
+        benchmark="locomo",
+        case_id="conv-1:qa:this-afternoon",
+        question="What did Morgan review this afternoon?",
+        expected_terms=("studio plan",),
+        memory_scope_external_ref="locomo-conv-1",
+        thread_external_ref="locomo-conv-1",
+        metadata={"category": 2},
+    )
+    bundle = evidence_bundle(
+        case,
+        (
+            RetrievedMemory(
+                text="D2:4 Morgan: This afternoon I reviewed the studio plan.",
+                rank=1,
+                item_id="daypart-evidence",
+                metadata={
+                    "diagnostics": {
+                        "benchmark_candidate_features": {
+                            "answerability_score": 0.88,
+                            "source_locality_score": 1.0,
+                            "direct_speaker_turn": True,
+                            "entity_hits": ["morgan"],
+                            "speaker_hits": ["morgan"],
+                            "relation_hits": ["review", "studio", "plan"],
+                            "time_intent_kind": "relative_time",
+                            "source_type": "raw_turn",
+                        }
+                    }
+                },
+            ),
+        ),
+    )
+
+    item = bundle["items"][0]
+    assert item["id"] == "daypart-evidence"
+    assert item["has_relative_time_surface"] is True
+    assert "temporal_surface" in item["planner_reason_codes"]
+    assert "relative_time_surface" in item["planner_reason_codes"]
+    assert bundle["satisfied_required_roles"] == ["primary", "temporal_support"]
+    assert bundle["missing_required_roles"] == []
+
+
+def test_evidence_bundle_uses_source_refs_preserved_by_candidate_fusion() -> None:
+    case = PublicBenchmarkCase(
+        benchmark="locomo",
+        case_id="conv-1:qa:fused-ref",
+        question="What did Caroline research?",
+        expected_terms=("adoption agencies",),
+        memory_scope_external_ref="locomo-conv-1",
+        thread_external_ref="locomo-conv-1",
+        metadata={
+            "category": 4,
+            "answer_preview": "adoption agencies",
+            "evidence_terms": ("D2:8",),
+        },
+    )
+    fused, _diagnostics = fuse_query_results(
+        (
+            (
+                "semantic",
+                (
+                    RetrievedMemory(
+                        item_id="adoption-support",
+                        rank=1,
+                        score=0.91,
+                        text="Caroline looked into adoption agencies for summer.",
+                        source_refs=("chunk-ref",),
+                    ),
+                ),
+            ),
+            (
+                "raw-turn",
+                (
+                    RetrievedMemory(
+                        item_id="adoption-support",
+                        rank=2,
+                        score=0.82,
+                        text="Caroline discussed the same research plan.",
+                        source_refs=("D2:8",),
+                    ),
+                ),
+            ),
+        )
+    )
+
+    bundle = evidence_bundle(case, fused)
+
+    assert fused[0].source_refs == ("chunk-ref", "D2:8")
+    assert bundle["covered_evidence_terms"] == ["D2:8"]
+    assert bundle["items"][0]["source_refs"] == ["chunk-ref", "D2:8"]
+
+
+def test_evidence_bundle_uses_text_turn_refs_for_source_proximity() -> None:
+    case = PublicBenchmarkCase(
+        benchmark="locomo",
+        case_id="conv-1:qa:text-turn-proximity",
+        question="What did Morgan move after talking to Eli?",
+        expected_terms=("blue notebook",),
+        memory_scope_external_ref="locomo-conv-1",
+        thread_external_ref="locomo-conv-1",
+        metadata={"category": 4},
+    )
+
+    bundle = evidence_bundle(
+        case,
+        (
+            RetrievedMemory(
+                text="D2:3 Morgan: I moved the blue notebook after the call.",
+                rank=1,
+                item_id="primary-text-turn",
+            ),
+            RetrievedMemory(
+                text="D2:5 Morgan: I talked to Eli about the notebook.",
+                rank=2,
+                item_id="support-text-turn",
+            ),
+        ),
+    )
+
+    quality = bundle["bundle_planner"]["bundle_quality"]
+
+    assert [item["id"] for item in bundle["items"]] == [
+        "primary-text-turn",
+        "support-text-turn",
+    ]
+    assert quality["source_ref_item_count"] == 0
+    assert quality["source_identity_item_count"] == 2
+    assert quality["source_identity_ref_count"] == 2
+    assert quality["component_scores"]["source_refs"] == 0.16
+    assert "has_source_identity" in quality["reason_codes"]
+    assert quality["source_proximity_support_count"] == 1
+    assert quality["source_proximity_closest_distance"] == 2
+    assert quality["source_proximity_distance_counts"] == {"2": 1}
+
+
+def test_evidence_bundle_dedupes_mirrored_source_refs_regardless_of_order() -> None:
+    case = PublicBenchmarkCase(
+        benchmark="locomo",
+        case_id="conv-1:qa:mirror-ref-order",
+        question="What did Caroline say about the support group?",
+        expected_terms=("support group",),
+        memory_scope_external_ref="locomo-conv-1",
+        thread_external_ref="locomo-conv-1",
+        metadata={
+            "category": 4,
+            "answer_preview": "support group",
+            "evidence_terms": ("D4:2",),
+        },
+    )
+
+    bundle = evidence_bundle(
+        case,
+        (
+            RetrievedMemory(
+                text="D4:2 Caroline found the LGBTQ support group helpful.",
+                rank=1,
+                item_id="source-order-a",
+                source_refs=("D4:2", "document:profile-note"),
+                metadata={
+                    "diagnostics": {
+                        "benchmark_candidate_features": {
+                            "answerability_score": 0.91,
+                            "source_locality_score": 1.0,
+                            "direct_speaker_turn": True,
+                            "entity_hits": ["caroline"],
+                            "relation_hits": ["support", "group"],
+                            "source_type": "raw_turn",
+                        }
+                    }
+                },
+            ),
+            RetrievedMemory(
+                text="D4:2 Caroline found the LGBTQ support group helpful.",
+                rank=2,
+                item_id="source-order-b",
+                source_refs=("document:profile-note", "D4:2"),
+                metadata={
+                    "diagnostics": {
+                        "benchmark_candidate_features": {
+                            "answerability_score": 0.88,
+                            "source_locality_score": 1.0,
+                            "direct_speaker_turn": True,
+                            "entity_hits": ["caroline"],
+                            "relation_hits": ["support", "group"],
+                            "source_type": "raw_turn",
+                        }
+                    }
+                },
+            ),
+        ),
+    )
+
+    assert bundle["candidate_item_count"] == 2
+    assert bundle["item_count"] == 1
+    assert bundle["deduplicated_item_count"] == 1
+    assert bundle["bundle_planner"]["selected_dedupe_keys"] == [
+        "refs:D4:2|document:profile-note"
+    ]
+
+
+def test_evidence_bundle_dedupes_mirrored_items_by_canonical_source_ref() -> None:
+    case = PublicBenchmarkCase(
+        benchmark="locomo",
+        case_id="conv-1:qa:mirror",
+        question="What did Caroline say about the support group?",
+        expected_terms=("support group",),
+        memory_scope_external_ref="locomo-conv-1",
+        thread_external_ref="locomo-conv-1",
+        metadata={
+            "category": 4,
+            "answer_preview": "support group",
+            "evidence_terms": ("D4:2",),
+        },
+    )
+    bundle = evidence_bundle(
+        case,
+        (
+            RetrievedMemory(
+                text="Caroline mentioned the LGBTQ support group.",
+                rank=1,
+                item_id="mirrored-fact",
+                source_refs=("D4:2", "conv-1"),
+                metadata={
+                    "diagnostics": {
+                        "benchmark_candidate_features": {
+                            "answerability_score": 0.76,
+                            "source_locality_score": 0.65,
+                            "entity_hits": ["caroline"],
+                            "relation_hits": ["support", "group"],
+                            "source_type": "fact",
+                            "source_ref_dedupe_key": "source_turn_refs:D4:2",
+                        }
+                    }
+                },
+            ),
+            RetrievedMemory(
+                text="D4:2 Caroline: I found the LGBTQ support group helpful.",
+                rank=2,
+                item_id="raw-turn",
+                source_refs=("D4:2",),
+                metadata={
+                    "diagnostics": {
+                        "benchmark_candidate_features": {
+                            "answerability_score": 0.93,
+                            "source_locality_score": 1.0,
+                            "direct_speaker_turn": True,
+                            "entity_hits": ["caroline"],
+                            "speaker_hits": ["caroline"],
+                            "relation_hits": ["support", "group"],
+                            "source_type": "raw_turn",
+                            "source_ref_dedupe_key": "source_turn_refs:D4:2",
+                        }
+                    }
+                },
+            ),
+        ),
+    )
+
+    assert bundle["candidate_item_count"] == 2
+    assert bundle["item_count"] == 1
+    assert bundle["deduplicated_item_count"] == 1
+    assert bundle["items"][0]["id"] == "raw-turn"
+    assert bundle["bundle_planner"]["dropped_duplicate_keys"] == [
+        "source_turn_refs:D4:2"
+    ]
+    assert bundle["bundle_planner"]["selected_dedupe_keys"] == [
+        "source_turn_refs:D4:2"
+    ]
+
+
+def test_evidence_bundle_does_not_use_expected_or_evidence_labels_for_selection() -> None:
+    case = PublicBenchmarkCase(
+        benchmark="locomo",
+        case_id="conv-1:qa:label-only",
+        question="Which note did Morgan move?",
+        expected_terms=("blue notebook",),
+        memory_scope_external_ref="locomo-conv-1",
+        thread_external_ref="locomo-conv-1",
+        metadata={
+            "category": 1,
+            "answer_preview": "blue notebook",
+            "evidence_terms": ("D1:1",),
+        },
+    )
+    bundle = evidence_bundle(
+        case,
+        (
+            RetrievedMemory(
+                text="D1:1 blue notebook",
+                rank=1,
+                item_id="label-only",
+            ),
+        ),
+    )
+
+    assert bundle["item_count"] == 0
+    assert bundle["candidate_item_count"] == 0
+    assert bundle["covered_expected_terms"] == []
+    assert bundle["covered_evidence_terms"] == []
+
+
+def test_evidence_bundle_keeps_eval_coverage_for_question_selected_items() -> None:
+    case = PublicBenchmarkCase(
+        benchmark="locomo",
+        case_id="conv-1:qa:safe-selected",
+        question="Which note did Morgan move?",
+        expected_terms=("blue notebook",),
+        memory_scope_external_ref="locomo-conv-1",
+        thread_external_ref="locomo-conv-1",
+        metadata={
+            "category": 1,
+            "answer_preview": "blue notebook",
+            "evidence_terms": ("D1:1",),
+        },
+    )
+    bundle = evidence_bundle(
+        case,
+        (
+            RetrievedMemory(
+                text="D1:1 Morgan move note blue notebook",
+                rank=1,
+                item_id="question-selected",
+            ),
+        ),
+    )
+
+    assert bundle["item_count"] == 1
+    assert bundle["covered_expected_terms"] == ["blue notebook"]
+    assert bundle["covered_evidence_terms"] == ["D1:1"]
+    assert bundle["items"][0]["eligibility_reason_codes"] == [
+        "query_support_terms"
+    ]
+
+
+def test_evidence_bundle_reports_missing_required_bridge_role() -> None:
+    case = PublicBenchmarkCase(
+        benchmark="locomo",
+        case_id="conv-1:qa:missing-bridge",
+        question="Why did Morgan move the note after talking to Eli?",
+        expected_terms=("because Eli asked",),
+        memory_scope_external_ref="locomo-conv-1",
+        thread_external_ref="locomo-conv-1",
+        metadata={"category": 1},
+    )
+    bundle = evidence_bundle(
+        case,
+        (
+            RetrievedMemory(
+                text="D1:1 Morgan: I moved the note because Eli asked.",
+                rank=1,
+                item_id="primary-only",
+                source_refs=("D1:1",),
+                metadata={
+                    "diagnostics": {
+                        "benchmark_candidate_features": {
+                            "answerability_score": 0.91,
+                            "source_locality_score": 1.0,
+                            "direct_speaker_turn": True,
+                            "entity_hits": ["morgan"],
+                            "speaker_hits": ["morgan"],
+                            "relation_hits": ["move", "note"],
+                            "source_type": "raw_turn",
+                        }
+                    }
+                },
+            ),
+        ),
+    )
+
+    assert bundle["required_roles"] == [
+        "primary",
+        "bridge",
+        "temporal_support",
+        "causal_support",
+    ]
+    assert bundle["satisfied_required_roles"] == ["primary"]
+    assert bundle["missing_required_roles"] == [
+        "bridge",
+        "temporal_support",
+        "causal_support",
+    ]
+    assert bundle["role_requirement_complete"] is False
+    assert bundle["bundle_complete"] is False
+    assert bundle["bundle_planner"]["missing_required_roles"] == [
+        "bridge",
+        "temporal_support",
+        "causal_support",
+    ]
+
+
+def test_evidence_bundle_required_roles_respect_metadata_evidence_need() -> None:
+    case = PublicBenchmarkCase(
+        benchmark="custom",
+        case_id="custom:contrast",
+        question="What status did Morgan mention?",
+        expected_terms=("current status",),
+        metadata={"evidence_need": ("contrast", "temporal_support")},
+    )
+    bundle = evidence_bundle(
+        case,
+        (
+            RetrievedMemory(
+                text="D1:1 Morgan mentioned the current status.",
+                rank=1,
+                item_id="status-primary",
+                source_refs=("D1:1",),
+                metadata={
+                    "diagnostics": {
+                        "benchmark_candidate_features": {
+                            "answerability_score": 0.88,
+                            "source_locality_score": 1.0,
+                            "direct_speaker_turn": True,
+                            "entity_hits": ["morgan"],
+                            "speaker_hits": ["morgan"],
+                            "relation_hits": ["status", "current"],
+                            "currentness_surface": True,
+                            "source_type": "raw_turn",
+                        }
+                    }
+                },
+            ),
+        ),
+    )
+
+    assert bundle["required_roles"] == ["primary", "temporal_support", "contrast"]
+    assert bundle["satisfied_required_roles"] == ["primary", "temporal_support"]
+    assert bundle["missing_required_roles"] == ["contrast"]
+    assert bundle["bundle_complete"] is False
+
+
+def test_evidence_bundle_flags_summary_and_stale_risks_without_feature_flags() -> None:
+    case = PublicBenchmarkCase(
+        benchmark="locomo",
+        case_id="conv-1:qa:summary-risk",
+        question="What notebook did Morgan change to?",
+        expected_terms=("green notebook",),
+        memory_scope_external_ref="locomo-conv-1",
+        thread_external_ref="locomo-conv-1",
+        metadata={"category": 4},
+    )
+    bundle = evidence_bundle(
+        case,
+        (
+            RetrievedMemory(
+                text="D1:5 Morgan: I changed to the green notebook.",
+                rank=1,
+                item_id="direct-current",
+                source_refs=("D1:5",),
+                metadata={
+                    "diagnostics": {
+                        "benchmark_candidate_features": {
+                            "answerability_score": 0.95,
+                            "source_locality_score": 1.0,
+                            "direct_speaker_turn": True,
+                            "entity_hits": ["morgan"],
+                            "speaker_hits": ["morgan"],
+                            "relation_hits": ["change", "notebook"],
+                            "source_type": "raw_turn",
+                        }
+                    }
+                },
+            ),
+            RetrievedMemory(
+                text=(
+                    "Conversation summary: D1:1 Morgan used the blue notebook. "
+                    "D1:5 Morgan changed to the green notebook."
+                ),
+                rank=2,
+                item_id="generated-summary",
+                source_refs=("D1:1", "D1:5"),
+                metadata={
+                    "diagnostics": {
+                        "stale_reason": "older_preference_summary",
+                        "benchmark_candidate_features": {
+                            "answerability_score": 0.93,
+                            "source_locality_score": 0.9,
+                            "entity_hits": ["morgan"],
+                            "speaker_hits": ["morgan"],
+                            "relation_hits": ["change", "notebook"],
+                            "relation_category_hits": ["contrast"],
+                            "contrast_surface": True,
+                            "source_type": "generated_summary",
+                        },
+                    }
+                },
+            ),
+        ),
+    )
+
+    quality = bundle["bundle_planner"]["bundle_quality"]
+    summary_item = next(
+        item for item in bundle["items"] if item["id"] == "generated-summary"
+    )
+
+    assert {item["id"]: item["role"] for item in bundle["items"]}[
+        "direct-current"
+    ] == "primary"
+    assert summary_item["role"] == "contrast"
+    assert "broad_summary" in summary_item["planner_reason_codes"]
+    assert "conflict_or_stale" in summary_item["planner_reason_codes"]
+    assert quality["broad_summary_count"] == 1
+    assert quality["conflict_or_stale_count"] == 1
+    assert "risk:broad_summary" in quality["reason_codes"]
+    assert "risk:conflict_or_stale" in quality["reason_codes"]
+
+
+def test_evidence_bundle_keeps_duration_temporal_role_missing_without_duration_evidence() -> None:
+    case = PublicBenchmarkCase(
+        benchmark="locomo",
+        case_id="conv-1:qa:duration-missing",
+        question="How long has Caroline had her current group of friends for?",
+        expected_terms=("4 years",),
+        memory_scope_external_ref="locomo-conv-1",
+        thread_external_ref="locomo-conv-1",
+        metadata={"category": 2},
+    )
+    bundle = evidence_bundle(
+        case,
+        (
+            RetrievedMemory(
+                text="D1:1 Caroline mentioned her current group of friends.",
+                rank=1,
+                item_id="current-only",
+                source_refs=("D1:1",),
+                metadata={
+                    "diagnostics": {
+                        "benchmark_candidate_features": {
+                            "answerability_score": 0.74,
+                            "source_locality_score": 0.9,
+                            "direct_speaker_turn": True,
+                            "entity_hits": ["caroline"],
+                            "speaker_hits": ["caroline"],
+                            "relation_hits": ["friend"],
+                            "currentness_surface": True,
+                            "time_intent_kind": "duration",
+                            "source_type": "raw_turn",
+                        }
+                    }
+                },
+            ),
+        ),
+    )
+
+    assert bundle["required_roles"] == [
+        "primary",
+        "temporal_support",
+    ]
+    assert bundle["satisfied_required_roles"] == ["primary"]
+    assert bundle["missing_required_roles"] == ["temporal_support"]
+    assert bundle["role_requirement_complete"] is False
+    assert bundle["bundle_complete"] is False
+    assert bundle["bundle_planner"]["bundle_quality"]["missing_required_roles"] == [
+        "temporal_support"
+    ]
+
+
+def test_evidence_bundle_keeps_duration_temporal_role_missing_for_broad_summary() -> None:
+    case = PublicBenchmarkCase(
+        benchmark="locomo",
+        case_id="conv-1:qa:duration-broad-summary",
+        question="How long has Caroline had her current group of friends for?",
+        expected_terms=("4 years",),
+        memory_scope_external_ref="locomo-conv-1",
+        thread_external_ref="locomo-conv-1",
+        metadata={"category": 2},
+    )
+    bundle = evidence_bundle(
+        case,
+        (
+            RetrievedMemory(
+                text=(
+                    "Conversation summary: D1:1 D1:2 D1:3 Caroline has had "
+                    "her current group of friends for 4 years."
+                ),
+                rank=1,
+                item_id="broad-duration-summary",
+                source_refs=("D1:1", "D1:2", "D1:3"),
+                metadata={
+                    "diagnostics": {
+                        "benchmark_candidate_features": {
+                            "answerability_score": 0.9,
+                            "source_locality_score": 0.9,
+                            "entity_hits": ["caroline"],
+                            "speaker_hits": ["caroline"],
+                            "relation_hits": ["current", "friend"],
+                            "has_duration_surface": True,
+                            "time_intent_kind": "duration",
+                            "source_type": "generated_summary",
+                        }
+                    }
+                },
+            ),
+        ),
+    )
+
+    assert bundle["satisfied_required_roles"] == ["primary"]
+    assert bundle["missing_required_roles"] == [
+        "temporal_support",
+    ]
+    assert bundle["role_requirement_complete"] is False
+    assert bundle["bundle_complete"] is False
+    quality = bundle["bundle_planner"]["bundle_quality"]
+    assert quality["broad_summary_count"] == 1
+    assert "risk:broad_summary" in quality["reason_codes"]
+
+
+def test_evidence_bundle_requires_content_time_for_explicit_temporal_support() -> None:
+    case = PublicBenchmarkCase(
+        benchmark="locomo",
+        case_id="conv-1:qa:explicit-time-metadata-only",
+        question="When did Alex mention the checklist?",
+        expected_terms=("Friday",),
+        memory_scope_external_ref="locomo-conv-1",
+        thread_external_ref="locomo-conv-1",
+        metadata={"category": 2},
+    )
+    bundle = evidence_bundle(
+        case,
+        (
+            RetrievedMemory(
+                text=(
+                    "session_1 turn D1:1 date: 10:00 am "
+                    "D1:1 Alex mentioned the checklist."
+                ),
+                rank=1,
+                item_id="metadata-only",
+                source_refs=("D1:1",),
+                metadata={
+                    "diagnostics": {
+                        "benchmark_candidate_features": {
+                            "answerability_score": 0.76,
+                            "source_locality_score": 0.9,
+                            "entity_hits": ["alex"],
+                            "speaker_hits": ["alex"],
+                            "relation_hits": ["mention", "checklist"],
+                            "has_explicit_time_surface": True,
+                            "has_explicit_time_content_surface": False,
+                            "time_intent_kind": "explicit_time",
+                            "source_type": "raw_turn",
+                        }
+                    }
+                },
+            ),
+        ),
+    )
+
+    assert bundle["required_roles"] == ["primary", "temporal_support"]
+    assert bundle["satisfied_required_roles"] == ["primary"]
+    assert bundle["missing_required_roles"] == ["temporal_support"]
+    assert bundle["items"][0]["has_explicit_time_surface"] is True
+    assert bundle["items"][0]["has_explicit_time_content_surface"] is False
+
+
+def test_evidence_bundle_rejects_ungrounded_query_role_candidate() -> None:
+    case = PublicBenchmarkCase(
+        benchmark="locomo",
+        case_id="conv-1:qa:2",
+        question="When did Morgan sign up for pottery?",
+        expected_terms=("Monday",),
+        memory_scope_external_ref="locomo-conv-1",
+        thread_external_ref="locomo-conv-1",
+        metadata={
+            "category": 2,
+            "answer_preview": "Monday",
+            "evidence_terms": ("D2:4",),
+        },
+    )
+    bundle = evidence_bundle(
+        case,
+        (
+            RetrievedMemory(
+                text="D9:9 Clear weather near the park.",
+                rank=1,
+                item_id="ungrounded-temporal-role",
+                metadata={
+                    "diagnostics": {
+                        "benchmark_candidate_features": {
+                            "answerability_score": 0.9,
+                            "source_locality_score": 1.0,
+                            "query_roles": ["temporal_support"],
+                            "has_temporal_surface": True,
+                            "source_type": "raw_turn",
+                        }
+                    }
+                },
+            ),
+        ),
+    )
+
+    assert bundle["item_count"] == 0
+    assert bundle["candidate_item_count"] == 0
+
+
+def test_evidence_bundle_includes_feature_backed_contrast_support() -> None:
+    case = PublicBenchmarkCase(
+        benchmark="locomo",
+        case_id="conv-26:qa:contrast",
+        question="How is Caroline's current career path different from before?",
+        expected_terms=("writing",),
+        memory_scope_external_ref="locomo-conv-26",
+        thread_external_ref="locomo-conv-26",
+        metadata={
+            "category": 4,
+            "answer_preview": "writing",
+            "evidence_terms": ("D8:4",),
+        },
+    )
+    bundle = evidence_bundle(
+        case,
+        (
+            RetrievedMemory(
+                text="D8:3 Caroline discussed her current career path.",
+                rank=1,
+                item_id="career-primary",
+                source_refs=("D8:3",),
+                metadata={
+                    "diagnostics": {
+                        "benchmark_candidate_features": {
+                            "answerability_score": 0.91,
+                            "source_locality_score": 1.0,
+                            "direct_speaker_turn": True,
+                            "entity_hits": ["caroline"],
+                            "speaker_hits": ["caroline"],
+                            "relation_hits": ["current", "career", "path"],
+                            "source_type": "raw_turn",
+                        }
+                    }
+                },
+            ),
+            RetrievedMemory(
+                text=(
+                    "D8:4 Caroline: It changed, but now the current path "
+                    "feels different from before."
+                ),
+                rank=2,
+                item_id="career-contrast",
+                source_refs=("D8:4",),
+                metadata={
+                    "diagnostics": {
+                        "benchmark_candidate_features": {
+                            "answerability_score": 0.72,
+                            "source_locality_score": 1.0,
+                            "direct_speaker_turn": True,
+                            "entity_hits": ["caroline"],
+                            "speaker_hits": ["caroline"],
+                            "relation_hits": ["current", "path", "different"],
+                            "contrast_surface": True,
+                            "currentness_surface": True,
+                            "stale_surface": True,
+                            "query_roles": ["contrast_support"],
+                            "source_type": "raw_turn",
+                        }
+                    }
+                },
+            ),
+        ),
+    )
+
+    assert bundle["item_count"] == 2
+    item = next(item for item in bundle["items"] if item["id"] == "career-contrast")
+    assert item["role"] == "contrast"
+    assert item["query_roles"] == ["contrast_support"]
+    assert item["contrast_surface"] is True
+    assert "feature_backed" in item["eligibility_reason_codes"]
+    assert "contrast_grounding" in item["eligibility_reason_codes"]
+    assert bundle["bundle_planner"]["role_counts"] == {"contrast": 1, "primary": 1}
+    assert bundle["required_roles"] == ["primary", "temporal_support", "contrast"]
+    assert bundle["satisfied_required_roles"] == [
+        "primary",
+        "temporal_support",
+        "contrast",
+    ]
+    assert bundle["missing_required_roles"] == []

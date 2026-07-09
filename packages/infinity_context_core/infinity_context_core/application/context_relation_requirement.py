@@ -326,7 +326,10 @@ def _text_mentions_subject_relation_without_object(
             continue
         if not requirement.group.text_re.search(sentence):
             continue
-        if all(_has_token_variants(sentence, token.variants) for token in requirement.object_tokens):
+        if all(
+            _has_token_variants(sentence, token.variants)
+            for token in requirement.object_tokens
+        ):
             continue
         return True
     return False

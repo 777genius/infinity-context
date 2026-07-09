@@ -2,54 +2,27 @@
 
 from __future__ import annotations
 
-from datetime import datetime
 from typing import Annotated, Any
 
 from fastapi import APIRouter, Depends, Query, status
 from infinity_context_core.application import (
     ApproveSuggestionCommand,
-    CreateSuggestionCommand,
-    CreateSuggestionsBatchCommand,
     ExpireSuggestionCommand,
     ListSuggestionsQuery,
     RejectSuggestionCommand,
     ResolveDuplicateMergeCommand,
     ResolveSuggestionConflictCommand,
-    ReviewSuggestionBatchItemCommand,
-    ReviewSuggestionsBatchCommand,
 )
-from infinity_context_core.application.review_payloads import review_payload_with_default_contract
-from infinity_context_core.domain.entities import (
-    Confidence,
-    MemorySuggestion,
-    SuggestionStatus,
-    TrustLevel,
-)
-from infinity_context_core.domain.errors import MemoryValidationError
-from pydantic import BaseModel, ConfigDict, Field
 
 from infinity_context_server.api.auth import require_service_token
 from infinity_context_server.api.dependencies import get_container
 from infinity_context_server.api.policy import ensure_server_writes_enabled
-from infinity_context_server.api.public_payload import (
-    safe_public_metadata,
-    safe_public_reason,
-    safe_public_text,
-)
-from infinity_context_server.api.v1.facts import (
-    fact_to_response,
-    map_memory_kind,
-)
 from infinity_context_server.api.v1.scope_resolution import (
     resolve_existing_single_scope,
     resolve_single_scope,
 )
-from infinity_context_server.api.v1.source_refs import (
-    SourceRefRequest,
-    map_source_ref,
-    source_ref_to_response,
-)
 from infinity_context_server.composition import Container
+from infinity_context_server.features.memory_facts import public as memory_facts_feature
 
 router = APIRouter(
     prefix="/suggestions",
@@ -57,248 +30,20 @@ router = APIRouter(
     dependencies=[Depends(require_service_token)],
 )
 
-_MAX_PUBLIC_SUGGESTION_REVIEW_AUDIT_EVENTS = 10
-_PUBLIC_SUGGESTION_REVIEW_AUDIT_FIELDS = {
-    "event_type": 120,
-    "suggestion_id": 160,
-    "space_id": 80,
-    "memory_scope_id": 80,
-    "operation": 40,
-    "action": 16,
-    "previous_status": 40,
-    "new_status": 40,
-    "reviewed_at": 80,
-    "target_fact_id": 160,
-    "target_fact_version": 40,
-    "created_from_capture_id": 160,
-    "reason": 320,
-}
-
-
-class CreateSuggestionRequest(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
-    space_id: str | None = Field(default=None, min_length=1, max_length=80)
-    memory_scope_id: str | None = Field(default=None, min_length=1, max_length=80)
-    space_slug: str | None = Field(default=None, min_length=1, max_length=160)
-    memory_scope_external_ref: str | None = Field(default=None, min_length=1, max_length=200)
-    candidate_text: str = Field(min_length=1, max_length=4000)
-    kind: str = "note"
-    source_refs: list[SourceRefRequest] = Field(default_factory=list)
-    confidence: str = "medium"
-    trust_level: str = "medium"
-    safe_reason: str = Field(min_length=1, max_length=320)
-    target_fact_id: str | None = Field(default=None, max_length=80)
-    target_fact_version: int | None = Field(default=None, ge=1)
-    operation: str = Field(default="add", max_length=40)
-    category: str | None = Field(default=None, max_length=80)
-    tags: list[str] = Field(default_factory=list, max_length=10)
-    ttl_policy: str | None = Field(default=None, max_length=80)
-    expires_at: datetime | None = None
-    expiry_reason: str | None = Field(default=None, max_length=160)
-    created_from_capture_id: str | None = Field(default=None, max_length=80)
-    candidate_fingerprint: str | None = Field(default=None, max_length=80)
-    review_payload: dict[str, Any] | None = None
-    auto_approve: bool = False
-
-
-class CreateSuggestionBatchItemRequest(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
-    candidate_text: str = Field(min_length=1, max_length=4000)
-    kind: str = "note"
-    source_refs: list[SourceRefRequest] = Field(default_factory=list)
-    confidence: str = "medium"
-    trust_level: str = "medium"
-    safe_reason: str = Field(min_length=1, max_length=320)
-    target_fact_id: str | None = Field(default=None, max_length=80)
-    target_fact_version: int | None = Field(default=None, ge=1)
-    operation: str = Field(default="add", max_length=40)
-    category: str | None = Field(default=None, max_length=80)
-    tags: list[str] = Field(default_factory=list, max_length=10)
-    ttl_policy: str | None = Field(default=None, max_length=80)
-    expires_at: datetime | None = None
-    expiry_reason: str | None = Field(default=None, max_length=160)
-    created_from_capture_id: str | None = Field(default=None, max_length=80)
-    candidate_fingerprint: str | None = Field(default=None, max_length=80)
-    review_payload: dict[str, Any] | None = None
-    auto_approve: bool = False
-
-
-class CreateSuggestionsBatchRequest(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
-    space_id: str | None = Field(default=None, min_length=1, max_length=80)
-    memory_scope_id: str | None = Field(default=None, min_length=1, max_length=80)
-    space_slug: str | None = Field(default=None, min_length=1, max_length=160)
-    memory_scope_external_ref: str | None = Field(default=None, min_length=1, max_length=200)
-    items: list[CreateSuggestionBatchItemRequest] = Field(min_length=1, max_length=50)
-    continue_on_error: bool = False
-
-
-class ReviewSuggestionRequest(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
-    reason: str | None = Field(default=None, max_length=320)
-    force: bool = False
-
-
-class ResolveSuggestionConflictRequest(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
-    action: str = Field(min_length=1, max_length=40)
-    reason: str | None = Field(default=None, max_length=320)
-    force: bool = False
-
-
-class ResolveDuplicateMergeRequest(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
-    action: str = Field(min_length=1, max_length=40)
-    reason: str | None = Field(default=None, max_length=320)
-    force: bool = False
-
-
-class ReviewSuggestionBatchItemRequest(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
-    suggestion_id: str = Field(min_length=1, max_length=160)
-    action: str = Field(max_length=16)
-    reason: str | None = Field(default=None, max_length=320)
-    force: bool = False
-
-
-class ReviewSuggestionsBatchRequest(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
-    items: list[ReviewSuggestionBatchItemRequest] = Field(min_length=1, max_length=50)
-    continue_on_error: bool = False
-
-
-def suggestion_to_response(suggestion: MemorySuggestion) -> dict[str, Any]:
-    review_actionable = suggestion.status == SuggestionStatus.PENDING
-    review_payload = safe_public_metadata(
-        review_payload_with_default_contract(suggestion.review_payload or {}),
-        max_items=40,
-    )
-    review_kind = _suggestion_review_kind(review_payload)
-    return {
-        "id": str(suggestion.id),
-        "space_id": str(suggestion.space_id),
-        "memory_scope_id": str(suggestion.memory_scope_id),
-        "candidate_text": suggestion.candidate_text,
-        "kind": suggestion.kind.value,
-        "operation": suggestion.operation.value,
-        "status": suggestion.status.value,
-        "source_refs": [source_ref_to_response(ref) for ref in suggestion.source_refs],
-        "confidence": suggestion.confidence.value,
-        "trust_level": suggestion.trust_level.value,
-        "safe_reason": safe_public_reason(suggestion.safe_reason, limit=320),
-        "target_fact_id": str(suggestion.target_fact_id) if suggestion.target_fact_id else None,
-        "target_fact_version": suggestion.target_fact_version,
-        "category": suggestion.category,
-        "tags": list(suggestion.tags),
-        "ttl_policy": suggestion.ttl_policy,
-        "expires_at": suggestion.expires_at.isoformat() if suggestion.expires_at else None,
-        "expiry_reason": suggestion.expiry_reason,
-        "created_from_capture_id": suggestion.created_from_capture_id,
-        "candidate_fingerprint": suggestion.candidate_fingerprint,
-        "review_payload": review_payload,
-        "review_kind": review_kind,
-        "review_actionable": review_actionable,
-        "available_review_actions": _available_review_actions(
-            review_actionable,
-            review_kind=review_kind,
-        ),
-        "review_state_reason": _suggestion_review_state_reason(suggestion),
-        "review_resolution_options": _suggestion_review_resolution_options(review_payload),
-        "review_reason": _safe_optional_reason(suggestion.review_reason, limit=320),
-        "review_audit": _suggestion_review_audit_to_response(suggestion),
-        "created_at": suggestion.created_at.isoformat(),
-        "updated_at": suggestion.updated_at.isoformat(),
-        "reviewed_at": suggestion.reviewed_at.isoformat() if suggestion.reviewed_at else None,
-    }
-
-
-def _suggestion_review_kind(review_payload: dict[str, Any]) -> str:
-    value = review_payload.get("review_kind")
-    return str(value).strip() if value else "candidate_review"
-
-
-def _available_review_actions(review_actionable: bool, *, review_kind: str) -> list[str]:
-    if not review_actionable:
-        return []
-    actions = ["approve", "reject", "expire"]
-    if review_kind == "conflict_review":
-        actions.append("resolve_conflict")
-    if review_kind == "duplicate_fact_merge":
-        actions.append("resolve_duplicate")
-    return actions
-
-
-def _suggestion_review_state_reason(suggestion: MemorySuggestion) -> str:
-    if suggestion.status == SuggestionStatus.PENDING:
-        return "pending_review"
-    return f"{suggestion.status.value}_review"
-
-
-def _suggestion_review_resolution_options(review_payload: dict[str, Any]) -> list[dict[str, Any]]:
-    options = review_payload.get("resolution_options")
-    if not isinstance(options, list):
-        return []
-    safe_options: list[dict[str, Any]] = []
-    for option in options[:10]:
-        if isinstance(option, dict):
-            safe_option = safe_public_metadata(option, max_items=20)
-            if safe_option:
-                safe_options.append(safe_option)
-    return safe_options
-
-
-def _suggestion_review_audit_to_response(suggestion: MemorySuggestion) -> dict[str, Any]:
-    raw_events = (suggestion.review_payload or {}).get("review_events")
-    events = (
-        [item for item in raw_events if isinstance(item, dict)]
-        if isinstance(raw_events, list)
-        else []
-    )
-    public_events = [
-        _suggestion_review_audit_event_to_response(item)
-        for item in events[-_MAX_PUBLIC_SUGGESTION_REVIEW_AUDIT_EVENTS:]
-    ]
-    return {
-        "events": public_events,
-        "event_count": len(events),
-        "truncated": len(events) > len(public_events),
-    }
-
-
-def _suggestion_review_audit_event_to_response(event: dict[str, Any]) -> dict[str, Any]:
-    public: dict[str, Any] = {}
-    for key, limit in _PUBLIC_SUGGESTION_REVIEW_AUDIT_FIELDS.items():
-        value = event.get(key)
-        if value is None:
-            continue
-        if isinstance(value, (str, int, float, bool)):
-            sanitizer = safe_public_reason if key == "reason" else safe_public_text
-            public[key] = sanitizer(str(value), limit=limit)
-    return public
-
-
-def _safe_optional_reason(value: str | None, *, limit: int) -> str | None:
-    if value is None:
-        return None
-    return safe_public_reason(value, limit=limit)
+suggestion_to_response = memory_facts_feature.suggestion_to_response
 
 
 @router.post("", status_code=status.HTTP_201_CREATED)
 async def create_suggestion(
-    request: CreateSuggestionRequest,
+    request: memory_facts_feature.CreateSuggestionRequest,
     container: Annotated[Container, Depends(get_container)],
 ) -> dict[str, Any]:
     ensure_server_writes_enabled(container)
-    _validate_confidence_and_trust(request.confidence, request.trust_level)
-    _validate_operation(request.operation)
+    memory_facts_feature.validate_suggestion_confidence_and_trust(
+        request.confidence,
+        request.trust_level,
+    )
+    memory_facts_feature.validate_suggestion_operation(request.operation)
     scope = await resolve_single_scope(
         container,
         space_id=request.space_id,
@@ -310,9 +55,13 @@ async def create_suggestion(
         thread_required=False,
     )
     result = await container.create_suggestion.execute(
-        _create_suggestion_command(request, scope.space_id, scope.memory_scope_id)
+        memory_facts_feature.create_suggestion_command_from_v1_request(
+            request,
+            space_id=scope.space_id,
+            memory_scope_id=scope.memory_scope_id,
+        )
     )
-    return {"data": suggestion_to_response(result.suggestion)}
+    return {"data": memory_facts_feature.suggestion_to_response(result.suggestion)}
 
 
 @router.get("")
@@ -328,10 +77,10 @@ async def list_suggestions(
     tag: Annotated[str | None, Query(max_length=48)] = None,
     limit: Annotated[int, Query(ge=1, le=500)] = 100,
 ) -> dict[str, Any]:
-    _validate_suggestion_status(status_filter)
+    memory_facts_feature.validate_suggestion_status_filter(status_filter)
     if operation is not None:
-        _validate_operation(operation)
-    normalized_tag = _normalize_single_tag(tag)
+        memory_facts_feature.validate_suggestion_operation(operation)
+    normalized_tag = memory_facts_feature.normalize_suggestion_tag_filter(tag)
     scope = await resolve_existing_single_scope(
         container,
         space_id=space_id,
@@ -355,18 +104,26 @@ async def list_suggestions(
             limit=limit,
         )
     )
-    return {"data": [suggestion_to_response(suggestion) for suggestion in suggestions]}
+    return {
+        "data": [
+            memory_facts_feature.suggestion_to_response(suggestion)
+            for suggestion in suggestions
+        ]
+    }
 
 
 @router.post("/batch", status_code=status.HTTP_201_CREATED)
 async def create_suggestions_batch(
-    request: CreateSuggestionsBatchRequest,
+    request: memory_facts_feature.CreateSuggestionsBatchRequest,
     container: Annotated[Container, Depends(get_container)],
 ) -> dict[str, Any]:
     ensure_server_writes_enabled(container)
     for item in request.items:
-        _validate_confidence_and_trust(item.confidence, item.trust_level)
-        _validate_operation(item.operation)
+        memory_facts_feature.validate_suggestion_confidence_and_trust(
+            item.confidence,
+            item.trust_level,
+        )
+        memory_facts_feature.validate_suggestion_operation(item.operation)
     scope = await resolve_single_scope(
         container,
         space_id=request.space_id,
@@ -378,46 +135,33 @@ async def create_suggestions_batch(
         thread_required=False,
     )
     result = await container.create_suggestions_batch.execute(
-        CreateSuggestionsBatchCommand(
-            items=tuple(
-                _create_suggestion_command(item, scope.space_id, scope.memory_scope_id)
-                for item in request.items
-            ),
-            continue_on_error=request.continue_on_error,
+        memory_facts_feature.create_suggestions_batch_command_from_v1_request(
+            request,
+            space_id=scope.space_id,
+            memory_scope_id=scope.memory_scope_id,
         )
     )
-    return {"data": _create_batch_to_response(result)}
+    return {"data": memory_facts_feature.create_suggestions_batch_to_response(result)}
 
 
 @router.post("/review-batch")
 async def review_suggestions_batch(
-    request: ReviewSuggestionsBatchRequest,
+    request: memory_facts_feature.ReviewSuggestionsBatchRequest,
     container: Annotated[Container, Depends(get_container)],
 ) -> dict[str, Any]:
     ensure_server_writes_enabled(container)
-    for item in request.items:
-        _validate_review_action(item.action)
     result = await container.review_suggestions_batch.execute(
-        ReviewSuggestionsBatchCommand(
-            items=tuple(
-                ReviewSuggestionBatchItemCommand(
-                    suggestion_id=item.suggestion_id,
-                    action=item.action,
-                    reason=item.reason,
-                    force=item.force,
-                )
-                for item in request.items
-            ),
-            continue_on_error=request.continue_on_error,
+        memory_facts_feature.review_suggestions_batch_command_from_v1_request(
+            request,
         )
     )
-    return {"data": _review_batch_to_response(result)}
+    return {"data": memory_facts_feature.review_suggestions_batch_to_response(result)}
 
 
 @router.post("/{suggestion_id}/resolve-conflict")
 async def resolve_suggestion_conflict(
     suggestion_id: str,
-    request: ResolveSuggestionConflictRequest,
+    request: memory_facts_feature.ResolveSuggestionConflictRequest,
     container: Annotated[Container, Depends(get_container)],
 ) -> dict[str, Any]:
     ensure_server_writes_enabled(container)
@@ -429,16 +173,13 @@ async def resolve_suggestion_conflict(
             force=request.force,
         )
     )
-    body = {"suggestion": suggestion_to_response(result.suggestion)}
-    if result.fact:
-        body["fact"] = fact_to_response(result.fact, result.indexing_status)
-    return {"data": body}
+    return {"data": memory_facts_feature.suggestion_result_to_response(result)}
 
 
 @router.post("/{suggestion_id}/resolve-duplicate")
 async def resolve_duplicate_merge(
     suggestion_id: str,
-    request: ResolveDuplicateMergeRequest,
+    request: memory_facts_feature.ResolveDuplicateMergeRequest,
     container: Annotated[Container, Depends(get_container)],
 ) -> dict[str, Any]:
     ensure_server_writes_enabled(container)
@@ -450,16 +191,13 @@ async def resolve_duplicate_merge(
             force=request.force,
         )
     )
-    body = {"suggestion": suggestion_to_response(result.suggestion)}
-    if result.fact:
-        body["fact"] = fact_to_response(result.fact, result.indexing_status)
-    return {"data": body}
+    return {"data": memory_facts_feature.suggestion_result_to_response(result)}
 
 
 @router.post("/{suggestion_id}/approve")
 async def approve_suggestion(
     suggestion_id: str,
-    request: ReviewSuggestionRequest,
+    request: memory_facts_feature.ReviewSuggestionRequest,
     container: Annotated[Container, Depends(get_container)],
 ) -> dict[str, Any]:
     ensure_server_writes_enabled(container)
@@ -470,166 +208,30 @@ async def approve_suggestion(
             force=request.force,
         )
     )
-    body = {"suggestion": suggestion_to_response(result.suggestion)}
-    if result.fact:
-        body["fact"] = fact_to_response(result.fact, result.indexing_status)
-    return {"data": body}
+    return {"data": memory_facts_feature.suggestion_result_to_response(result)}
 
 
 @router.post("/{suggestion_id}/reject")
 async def reject_suggestion(
     suggestion_id: str,
-    request: ReviewSuggestionRequest,
+    request: memory_facts_feature.ReviewSuggestionRequest,
     container: Annotated[Container, Depends(get_container)],
 ) -> dict[str, Any]:
     ensure_server_writes_enabled(container)
     result = await container.reject_suggestion.execute(
         RejectSuggestionCommand(suggestion_id=suggestion_id, reason=request.reason)
     )
-    return {"data": suggestion_to_response(result.suggestion)}
+    return {"data": memory_facts_feature.suggestion_to_response(result.suggestion)}
 
 
 @router.post("/{suggestion_id}/expire")
 async def expire_suggestion(
     suggestion_id: str,
-    request: ReviewSuggestionRequest,
+    request: memory_facts_feature.ReviewSuggestionRequest,
     container: Annotated[Container, Depends(get_container)],
 ) -> dict[str, Any]:
     ensure_server_writes_enabled(container)
     result = await container.expire_suggestion.execute(
         ExpireSuggestionCommand(suggestion_id=suggestion_id, reason=request.reason)
     )
-    return {"data": suggestion_to_response(result.suggestion)}
-
-
-def _validate_confidence_and_trust(confidence: str, trust_level: str) -> None:
-    try:
-        Confidence(confidence)
-        TrustLevel(trust_level)
-    except ValueError as exc:
-        raise MemoryValidationError("Unknown confidence or trust level") from exc
-
-
-def _validate_suggestion_status(status_filter: str | None) -> None:
-    if status_filter is None:
-        return
-    try:
-        SuggestionStatus(status_filter)
-    except ValueError as exc:
-        raise MemoryValidationError("Unknown suggestion status") from exc
-
-
-def _validate_operation(value: str) -> None:
-    if value not in {"add", "update", "delete", "review"}:
-        raise MemoryValidationError("Unknown suggestion operation")
-
-
-def _validate_review_action(value: str) -> None:
-    if value not in {"approve", "reject", "expire"}:
-        raise MemoryValidationError("Unknown suggestion review action")
-
-
-def _review_batch_to_response(result: Any) -> dict[str, Any]:
-    return {
-        "applied": result.applied,
-        "failed": result.failed,
-        "stopped": result.stopped,
-        "results": [
-            {
-                "suggestion_id": item.suggestion_id,
-                "action": item.action,
-                "status": item.status,
-                **_review_batch_item_payload(item),
-            }
-            for item in result.results
-        ],
-    }
-
-
-def _review_batch_item_payload(item: Any) -> dict[str, Any]:
-    if item.result is None:
-        return {
-            "error_code": item.error_code,
-            "error_message": item.error_message,
-        }
-    payload: dict[str, Any] = {"suggestion": suggestion_to_response(item.result.suggestion)}
-    if item.result.fact is not None:
-        payload["fact"] = fact_to_response(item.result.fact, item.result.indexing_status)
-    return payload
-
-
-def _create_batch_to_response(result: Any) -> dict[str, Any]:
-    return {
-        "created": result.created,
-        "existing": result.existing,
-        "failed": result.failed,
-        "stopped": result.stopped,
-        "results": [
-            {
-                "index": item.index,
-                "status": item.status,
-                **_create_batch_item_payload(item),
-            }
-            for item in result.results
-        ],
-    }
-
-
-def _create_batch_item_payload(item: Any) -> dict[str, Any]:
-    if item.result is None:
-        return {
-            "error_code": item.error_code,
-            "error_message": item.error_message,
-        }
-    return {"suggestion": suggestion_to_response(item.result.suggestion)}
-
-
-def _create_suggestion_command(
-    request: CreateSuggestionRequest | CreateSuggestionBatchItemRequest,
-    space_id: Any,
-    memory_scope_id: Any,
-) -> CreateSuggestionCommand:
-    return CreateSuggestionCommand(
-        space_id=space_id,
-        memory_scope_id=memory_scope_id,
-        candidate_text=request.candidate_text,
-        kind=map_memory_kind(request.kind),
-        source_refs=tuple(map_source_ref(ref) for ref in request.source_refs),
-        confidence=request.confidence,
-        trust_level=request.trust_level,
-        safe_reason=request.safe_reason,
-        target_fact_id=request.target_fact_id,
-        target_fact_version=request.target_fact_version,
-        operation=request.operation,
-        category=request.category,
-        tags=tuple(_normalize_tags(request.tags)),
-        ttl_policy=request.ttl_policy,
-        expires_at=request.expires_at,
-        expiry_reason=request.expiry_reason,
-        created_from_capture_id=request.created_from_capture_id,
-        candidate_fingerprint=request.candidate_fingerprint,
-        review_payload=request.review_payload,
-        auto_approve=request.auto_approve,
-    )
-
-
-def _normalize_tags(tags: list[str]) -> list[str]:
-    normalized: list[str] = []
-    for tag in tags:
-        stripped = _normalize_single_tag(tag)
-        if not stripped:
-            continue
-        if stripped not in normalized:
-            normalized.append(stripped)
-    return normalized
-
-
-def _normalize_single_tag(tag: str | None) -> str | None:
-    if tag is None:
-        return None
-    stripped = tag.strip().lower()
-    if not stripped:
-        return None
-    if len(stripped) > 48:
-        raise MemoryValidationError("Suggestion tag is too long")
-    return stripped
+    return {"data": memory_facts_feature.suggestion_to_response(result.suggestion)}

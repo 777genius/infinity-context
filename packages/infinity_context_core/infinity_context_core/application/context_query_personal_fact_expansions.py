@@ -12,6 +12,10 @@ _AGE_BIRTHDAY_EXPANSION = "age years old born birthday date of birth birth year 
 _BORN_BIRTHDAY_EXPANSION = "born birthday date of birth birth year age years old dob"
 _BIRTH_DATE_EXPANSION = "birth date of birth born birthday birth year age years old dob"
 _BIRTHDAY_EXPANSION = "birthday born date of birth birth year age years old dob"
+_BIRTHDAY_DURATION_EXPANSION = (
+    "birthday anniversary years ago how long ago duration since turned age "
+    "celebrated 18th eighteenth birthday"
+)
 _BIRTHPLACE_EXPANSION = (
     "birthplace born in from origin hometown home country city country native roots grew up"
 )
@@ -58,6 +62,13 @@ _RU_RELOCATION_DESTINATION_EXPANSION = (
 )
 
 _AGE_QUERY_RE = re.compile(r"\bhow\s+old\b", re.IGNORECASE)
+_BIRTHDAY_DURATION_QUERY_RE = re.compile(
+    r"\b(?:how\s+long\s+ago|how\s+many\s+years\s+ago|years?\s+ago)\b"
+    r"(?=.{0,120}\bbirthday\b)|"
+    r"\bbirthday\b(?=.{0,120}\b(?:how\s+long\s+ago|"
+    r"how\s+many\s+years\s+ago|years?\s+ago)\b)",
+    re.IGNORECASE | re.DOTALL,
+)
 _RU_AGE_QUERY_RE = re.compile(r"\bсколько\s+лет\b", re.IGNORECASE)
 _CURRENT_OCCUPATION_QUERY_RE = re.compile(
     r"\b(?:what\s+(?:does|do)\s+.+?\s+do\s+for\s+work|"
@@ -253,6 +264,11 @@ PERSONAL_FACT_EXPANSION_RULES: tuple[tuple[frozenset[str], str, str], ...] = (
         "age_birthday_bridge",
     ),
     (
+        frozenset({"birthday_duration_query"}),
+        _BIRTHDAY_DURATION_EXPANSION,
+        "age_birthday_bridge",
+    ),
+    (
         frozenset({"birthday"}),
         _BIRTHDAY_EXPANSION,
         "age_birthday_bridge",
@@ -279,6 +295,8 @@ def personal_fact_query_variants(query: str) -> frozenset[str]:
     variants: set[str] = set()
     if _AGE_QUERY_RE.search(query):
         variants.add("age_query")
+    if _BIRTHDAY_DURATION_QUERY_RE.search(query):
+        variants.add("birthday_duration_query")
     if _RU_AGE_QUERY_RE.search(query):
         variants.add("ru_age_query")
     if _CURRENT_OCCUPATION_QUERY_RE.search(query):

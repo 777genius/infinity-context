@@ -5,7 +5,11 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Any
 
-from infinity_context_adapters.postgres.models import MemoryScopeRow, MemorySpaceRow, MemoryThreadRow
+from infinity_context_adapters.postgres.models import (
+    MemoryScopeRow,
+    MemorySpaceRow,
+    MemoryThreadRow,
+)
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 

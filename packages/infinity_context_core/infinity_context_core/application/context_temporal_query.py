@@ -20,6 +20,23 @@ from infinity_context_core.application.context_temporal_hints import temporal_hi
 from infinity_context_core.application.context_temporal_metadata import (
     temporal_hint_code_from_metadata,
 )
+from infinity_context_core.application.context_temporal_ranges import (
+    temporal_boundary_dates,
+    temporal_range_boost_signal,
+    temporal_range_codes,
+)
+from infinity_context_core.application.context_temporal_session_order import (
+    temporal_session_earliest_boost,
+    temporal_session_orders,
+    temporal_session_orders_from_query,
+    temporal_session_recency_boost,
+)
+from infinity_context_core.application.context_temporal_source_turn import (
+    SourceTurnSequenceRequest,
+    source_turn_refs_from_item,
+    source_turn_sequence_boost_signal,
+    source_turn_sequence_request,
+)
 from infinity_context_core.application.dto import ContextItem
 
 _TOKEN_RE = re.compile(r"\w+", re.UNICODE)
@@ -48,18 +65,46 @@ _PREVIOUS_RELATIVE_TIME_RE = re.compile(
     r"monday|tuesday|wednesday|thursday|friday|saturday|sunday)\b",
     re.IGNORECASE,
 )
+_ORDERED_EVENT_REQUEST_RE = re.compile(
+    r"\b(?:last|previous|prior|next|upcoming)\s+"
+    r"(?:conversation|call|meeting|chat|dm|message|discussion|sync|review|demo|"
+    r"interview|workshop|session)\b|"
+    r"\b(?:последн\w*|предыдущ\w*|следующ\w*)\s+"
+    r"(?:разговор\w*|созвон\w*|встреч\w*|переписк\w*|чат\w*|"
+    r"обсуждени\w*|ревью)\b",
+    re.IGNORECASE,
+)
+_UPCOMING_EVENT_REQUEST_RE = re.compile(
+    r"\b(?:next|upcoming)\s+"
+    r"(?:conversation|call|meeting|chat|dm|message|discussion|sync|review|demo|"
+    r"interview|workshop|session)\b|"
+    r"\b(?:следующ\w*|предстоящ\w*)\s+"
+    r"(?:разговор\w*|созвон\w*|встреч\w*|переписк\w*|чат\w*|"
+    r"обсуждени\w*|ревью)\b",
+    re.IGNORECASE,
+)
 _CURRENT_PHRASE_RE = re.compile(
     r"\b(?:right\s+now|as\s+of\s+now|at\s+the\s+moment|for\s+now)\b|"
     r"\b(?:прямо\s+сейчас|на\s+данный\s+момент|в\s+данный\s+момент)\b",
     re.IGNORECASE,
 )
 _RECENT_EVENT_REQUEST_RE = re.compile(
-    r"\b(?:latest|newest|recent|most\s+recent)\s+"
-    r"(?:conversation|call|meeting|chat|dm|message|discussion|sync)\b|"
+    r"\b(?:latest|newest|recent|most\s+recent|last|previous|prior)\s+"
+    r"(?:conversation|call|meeting|chat|dm|message|discussion|sync|review|demo|"
+    r"interview|workshop|session)\b|"
     r"\b(?:последн\w*|недавн\w*|свеж\w*)\s+"
     r"(?:разговор\w*|созвон\w*|встреч\w*|переписк\w*|чат\w*|"
     r"обсуждени\w*)\b",
     re.IGNORECASE,
+)
+_EARLIEST_EVENT_REQUEST_RE = re.compile(
+    r"\b(?:first|earliest|oldest|initial)\s+"
+    r"(?:conversation|call|meeting|chat|dm|message|discussion|sync|review|demo|"
+    r"interview|workshop|session)\b|"
+    r"\b(?:conversation|call|meeting|chat|dm|message|discussion|sync|review|demo|"
+    r"interview|workshop|session)\b"
+    r"(?=.{0,60}\b(?:first|earliest|oldest|initial)\b)",
+    re.IGNORECASE | re.DOTALL,
 )
 _CURRENT_RECOMMENDATION_RE = re.compile(
     r"\bshould\s+(?:(?:i|we)\s+)?(?:use|choose|pick)\b|"
@@ -181,8 +226,21 @@ _CHANGE_TERMS = frozenset(
         "поменялось",
     }
 )
-_AFTER_TERMS = frozenset({"after", "following", "later", "после", "позже", "затем"})
+_AFTER_TERMS = frozenset(
+    {
+        "after",
+        "afterward",
+        "afterwards",
+        "following",
+        "later",
+        "subsequently",
+        "после",
+        "позже",
+        "затем",
+    }
+)
 _BEFORE_TERMS = frozenset({"before", "earlier", "prior", "до", "перед", "раньше"})
+_DURING_TERMS = frozenset({"during", "while"})
 _EVENT_SEQUENCE_CONTEXT_TERMS = frozenset(
     {
         "call",
@@ -197,6 +255,8 @@ _EVENT_SEQUENCE_CONTEXT_TERMS = frozenset(
         "messaged",
         "messaging",
         "meetup",
+        "event",
+        "events",
         "review",
         "roadtrip",
         "speak",
@@ -233,6 +293,7 @@ _EVENT_SEQUENCE_ANCHOR_STOP_VARIANTS = frozenset(
         *_BEFORE_TERMS,
         *_CHANGE_TERMS,
         *_CURRENT_TERMS,
+        *_DURING_TERMS,
         *_EVENT_SEQUENCE_CONTEXT_TERMS,
         *_PREVIOUS_TERMS,
         "about",
@@ -280,17 +341,38 @@ _SINCE_EVENT_RE = re.compile(
     r"\b(?:с\s+момента|сразу\s+после|прямо\s+после)\b",
     re.IGNORECASE,
 )
+_AFTER_EVENT_RE = re.compile(
+    r"\b(?:since|right\s+after|immediately\s+after|shortly\s+after|after|following)\b|"
+    r"\b(?:с\s+момента|сразу\s+после|прямо\s+после|после)\b",
+    re.IGNORECASE,
+)
+_POST_EVENT_RE = re.compile(
+    r"\b(?:afterward|afterwards|later|subsequently)\b|"
+    r"\b(?:затем|позже)\b",
+    re.IGNORECASE,
+)
 _UNTIL_EVENT_RE = re.compile(
     r"\b(?:until|up\s+to|right\s+before|immediately\s+before|shortly\s+before)\b|"
     r"\b(?:вплоть\s+до|сразу\s+до|прямо\s+перед)\b",
     re.IGNORECASE,
 )
+_BEFORE_EVENT_RE = re.compile(
+    r"\b(?:until|up\s+to|right\s+before|immediately\s+before|shortly\s+before|"
+    r"before|prior\s+to)\b|"
+    r"\b(?:вплоть\s+до|сразу\s+до|прямо\s+перед|перед|раньше|до)\b",
+    re.IGNORECASE,
+)
+_DURING_EVENT_RE = re.compile(
+    r"\b(?:during|while)\b|"
+    r"\b(?:во\s+время|в\s+ходе)\b",
+    re.IGNORECASE,
+)
 _EVENT_SEQUENCE_ANCHOR_RE = re.compile(
     r"\b(?:right\s+after|immediately\s+after|shortly\s+after|after|following|since|"
     r"right\s+before|immediately\s+before|shortly\s+before|before|prior\s+to|until|"
-    r"up\s+to)\b\s+(?P<tail>[^?.!,;:\n]{0,96})|"
+    r"up\s+to|during|while)\b\s+(?P<tail>[^?.!,;:\n]{0,96})|"
     r"\b(?:с\s+момента|сразу\s+после|прямо\s+после|после|позже|затем|"
-    r"вплоть\s+до|сразу\s+до|прямо\s+перед|перед|раньше|до)\b"
+    r"вплоть\s+до|сразу\s+до|прямо\s+перед|перед|раньше|до|во\s+время|в\s+ходе)\b"
     r"\s+(?P<ru_tail>[^?.!,;:\n]{0,96})",
     re.IGNORECASE,
 )
@@ -371,9 +453,18 @@ class TemporalQueryIntent:
     requests_change: bool
     after_event: bool
     before_event: bool
+    during_event: bool
+    requests_upcoming: bool
+    requests_recent_event: bool
+    requests_earliest_event: bool
     excludes_stale: bool
+    session_ordinals: tuple[int, ...] = ()
     relative_time_hints: tuple[str, ...] = ()
+    temporal_range_hints: tuple[str, ...] = ()
+    after_date: str = ""
+    before_date: str = ""
     event_sequence_terms: tuple[str, ...] = ()
+    source_turn_sequence: SourceTurnSequenceRequest = SourceTurnSequenceRequest()
 
     @property
     def include_superseded_review(self) -> bool:
@@ -388,14 +479,24 @@ class TemporalQueryIntent:
                 self.requests_change,
                 self.after_event,
                 self.before_event,
+                self.during_event,
+                self.requests_upcoming,
+                self.requests_recent_event,
+                self.requests_earliest_event,
                 self.excludes_stale,
+                self.session_ordinals,
                 self.relative_time_hints,
+                self.temporal_range_hints,
+                self.after_date,
+                self.before_date,
                 self.event_sequence_terms,
+                not self.source_turn_sequence.empty,
             )
         )
 
     def diagnostics(self) -> dict[str, object]:
         reasons: list[str] = []
+        source_turn_identities = _source_turn_identities(self.source_turn_sequence)
         if self.prefers_current:
             reasons.append("prefers_current")
         if self.requests_previous:
@@ -406,10 +507,46 @@ class TemporalQueryIntent:
             reasons.append("after_event")
         if self.before_event:
             reasons.append("before_event")
+        if self.during_event:
+            reasons.append("during_event")
+        if self.requests_upcoming:
+            reasons.append("requests_upcoming")
+        if self.requests_recent_event:
+            reasons.append("requests_recent_event")
+        if self.requests_earliest_event:
+            reasons.append("requests_earliest_event")
         if self.excludes_stale:
             reasons.append("excludes_stale")
+        if self.session_ordinals:
+            reasons.append("session_order_hint")
         if self.relative_time_hints:
             reasons.append("relative_time_hint")
+        if self.temporal_range_hints:
+            reasons.append("temporal_range_hint")
+        if self.after_date:
+            reasons.append("after_date")
+        if self.before_date:
+            reasons.append("before_date")
+        if (
+            self.source_turn_sequence.after_turns
+            and self.source_turn_sequence.before_turns
+        ):
+            reasons.append("source_turn_window")
+        if self.source_turn_sequence.after_turns:
+            reasons.append("after_source_turn")
+        if self.source_turn_sequence.after_turn_radius:
+            reasons.append("after_source_turn_radius")
+        if self.source_turn_sequence.before_turns:
+            reasons.append("before_source_turn")
+        if self.source_turn_sequence.before_turn_radius:
+            reasons.append("before_source_turn_radius")
+        if self.source_turn_sequence.near_turns:
+            reasons.append("near_source_turn")
+        if (
+            self.source_turn_sequence.near_turns
+            and self.source_turn_sequence.near_turn_radius > 1
+        ):
+            reasons.append("near_source_turn_radius")
         return {
             "temporal_query_intent_status": "empty" if self.empty else "available",
             "temporal_query_prefers_current": self.prefers_current,
@@ -417,12 +554,53 @@ class TemporalQueryIntent:
             "temporal_query_requests_change": self.requests_change,
             "temporal_query_after_event": self.after_event,
             "temporal_query_before_event": self.before_event,
+            "temporal_query_during_event": self.during_event,
+            "temporal_query_requests_upcoming": self.requests_upcoming,
+            "temporal_query_requests_recent_event": self.requests_recent_event,
+            "temporal_query_requests_earliest_event": self.requests_earliest_event,
             "temporal_query_excludes_stale": self.excludes_stale,
             "temporal_query_include_superseded_review": (self.include_superseded_review),
+            "temporal_query_session_ordinals": list(self.session_ordinals),
             "temporal_query_relative_time_hints": list(self.relative_time_hints),
+            "temporal_query_range_hints": list(self.temporal_range_hints),
+            "temporal_query_after_date": self.after_date,
+            "temporal_query_before_date": self.before_date,
             "temporal_query_event_sequence_terms": list(self.event_sequence_terms),
+            "temporal_query_source_turn_identities": list(source_turn_identities),
+            "temporal_query_after_source_turns": [
+                turn.label() for turn in self.source_turn_sequence.after_turns
+            ],
+            "temporal_query_before_source_turns": [
+                turn.label() for turn in self.source_turn_sequence.before_turns
+            ],
+            "temporal_query_after_source_turn_radius": (
+                self.source_turn_sequence.after_turn_radius
+            ),
+            "temporal_query_before_source_turn_radius": (
+                self.source_turn_sequence.before_turn_radius
+            ),
+            "temporal_query_near_source_turns": [
+                turn.label() for turn in self.source_turn_sequence.near_turns
+            ],
+            "temporal_query_near_source_turn_radius": (
+                self.source_turn_sequence.near_turn_radius
+            ),
             "temporal_query_intent_reasons": reasons,
         }
+
+
+def _source_turn_identities(
+    source_turn_sequence: SourceTurnSequenceRequest,
+) -> tuple[str, ...]:
+    identities: dict[str, None] = {}
+    for source_turn in (
+        *source_turn_sequence.after_turns,
+        *source_turn_sequence.before_turns,
+        *source_turn_sequence.near_turns,
+    ):
+        if source_turn.source_identity:
+            identities.setdefault(source_turn.source_identity, None)
+    return tuple(identities)
 
 
 @dataclass(frozen=True)
@@ -439,7 +617,11 @@ class TemporalQueryBoostSignal:
 def build_temporal_query_intent(query: str) -> TemporalQueryIntent:
     variants = _query_variant_set(query)
     variants = frozenset((*variants, *state_transition_query_variants(query)))
+    session_ordinals = temporal_session_orders_from_query(query)
     relative_time_hints = _query_temporal_hint_codes(query)
+    temporal_range_hints = temporal_range_codes(query)
+    after_date, before_date = temporal_boundary_dates(query)
+    source_turn_sequence = source_turn_sequence_request(query)
     excludes_stale = bool(_EXCLUDE_STALE_RE.search(query))
     still_current_state = bool(_STILL_CURRENT_STATE_RE.search(query))
     no_longer_current_state = bool(_NO_LONGER_CURRENT_STATE_RE.search(query))
@@ -449,39 +631,57 @@ def build_temporal_query_intent(query: str) -> TemporalQueryIntent:
     previous_terms = variants.intersection(_PREVIOUS_TERMS)
     if _PREVIOUS_RELATIVE_TIME_RE.search(query):
         previous_terms = previous_terms.difference({"previous", "prior"})
+    if _ORDERED_EVENT_REQUEST_RE.search(query):
+        previous_terms = previous_terms.difference({"previous", "prior"})
     if (
         _AGE_QUERY_RE.search(query)
         or _OLD_SOCIAL_RELATION_RE.search(query)
         or not _OLD_PREVIOUS_STATE_QUERY_RE.search(query)
     ):
         previous_terms = previous_terms.difference({"old"})
+    requests_upcoming = bool(_UPCOMING_EVENT_REQUEST_RE.search(query))
+    requests_earliest_event = bool(_EARLIEST_EVENT_REQUEST_RE.search(query))
+    requests_recent_event = (
+        bool(_RECENT_EVENT_REQUEST_RE.search(query)) and not requests_upcoming
+    )
     requests_previous = (bool(previous_terms) or no_longer_current_state) and not excludes_stale
     prefers_current = (
         excludes_stale
         or still_current_state
         or bool(variants.intersection(_CURRENT_TERMS))
         or bool(_CURRENT_PHRASE_RE.search(query))
-        or bool(_RECENT_EVENT_REQUEST_RE.search(query))
+        or (requests_recent_event and not requests_earliest_event)
         or bool(_CURRENT_RECOMMENDATION_RE.search(query))
         or (requests_change and not requests_previous)
     ) and not no_longer_current_state
     after_event = _has_after_event_context(
         query,
         variants,
+    ) or _has_since_relative_time_context(query, relative_time_hints) or bool(
+        source_turn_sequence.after_turns
     )
     before_event = _has_before_event_context(
         query,
         variants,
+    ) or _has_until_relative_time_context(query, relative_time_hints) or bool(
+        source_turn_sequence.before_turns
     )
-    event_sequence_terms = _event_sequence_anchor_terms(query) if after_event or before_event else ()
+    during_event = _has_during_event_context(query, variants)
+    event_sequence_terms = (
+        _event_sequence_anchor_terms(query)
+        if after_event or before_event or during_event
+        else ()
+    )
     current_decision = (
         bool(_CURRENT_DECISION_RE.search(query))
         or bool(_CURRENT_DECISION_PROMPT_RE.search(query))
     ) and not (
         after_event
         or before_event
+        or during_event
         or bool(relative_time_hints)
         or requests_previous
+        or requests_earliest_event
     )
     prefers_current = prefers_current or current_decision
     return TemporalQueryIntent(
@@ -490,9 +690,18 @@ def build_temporal_query_intent(query: str) -> TemporalQueryIntent:
         requests_change=requests_change,
         after_event=after_event,
         before_event=before_event,
+        during_event=during_event,
+        requests_upcoming=requests_upcoming,
+        requests_recent_event=requests_recent_event,
+        requests_earliest_event=requests_earliest_event,
         excludes_stale=excludes_stale,
+        session_ordinals=session_ordinals,
         relative_time_hints=relative_time_hints,
+        temporal_range_hints=temporal_range_hints,
+        after_date=after_date,
+        before_date=before_date,
         event_sequence_terms=event_sequence_terms,
+        source_turn_sequence=source_turn_sequence,
     )
 
 
@@ -542,6 +751,63 @@ def temporal_query_boost_signal(
             reason="query excludes stale memory",
             code="excludes_stale",
         )
+    source_turn_signal = source_turn_sequence_boost_signal(
+        item,
+        request=intent.source_turn_sequence,
+    )
+    if not source_turn_signal.empty:
+        return TemporalQueryBoostSignal(
+            boost=source_turn_signal.boost,
+            reason=source_turn_signal.reason,
+            code=source_turn_signal.code,
+        )
+    if intent.session_ordinals:
+        item_session_orders = set(temporal_session_orders(item))
+        query_session_orders = set(intent.session_ordinals)
+        has_source_scoped_turn_query = intent.source_turn_sequence.has_source_identity
+        if (
+            not has_source_scoped_turn_query
+            and item_session_orders.intersection(query_session_orders)
+        ):
+            return TemporalQueryBoostSignal(
+                boost=0.034,
+                reason="query asks for an explicit session and item matches it",
+                code="exact_session_order_match",
+            )
+        if item_session_orders and (
+            not has_source_scoped_turn_query or _item_has_source_turn_identity(item)
+        ):
+            return TemporalQueryBoostSignal(
+                boost=-0.018,
+                reason="query asks for an explicit session and item has a different session",
+                code="exact_session_order_conflict",
+            )
+    if direction_boost := _event_sequence_direction_boost(
+        intent=intent,
+        text=item.text,
+    ):
+        return TemporalQueryBoostSignal(
+            boost=direction_boost,
+            reason=_event_sequence_direction_reason(intent=intent, boost=direction_boost),
+            code=_event_sequence_direction_code(intent=intent, boost=direction_boost),
+        )
+    if boundary_conflict := _relative_time_boundary_conflict_signal(
+        intent=intent,
+        temporal_hint_code=temporal_hint_code,
+    ):
+        return boundary_conflict
+    range_signal = temporal_range_boost_signal(
+        item,
+        range_codes=intent.temporal_range_hints,
+        after_date=intent.after_date,
+        before_date=intent.before_date,
+    )
+    if not range_signal.empty:
+        return TemporalQueryBoostSignal(
+            boost=range_signal.boost,
+            reason=range_signal.reason,
+            code=range_signal.code,
+        )
     if _temporal_hint_matches(intent=intent, temporal_hint_code=temporal_hint_code):
         return TemporalQueryBoostSignal(
             boost=0.032,
@@ -562,6 +828,44 @@ def temporal_query_boost_signal(
             boost=-0.026,
             reason="query relative time conflicts with item event window",
             code="relative_time_conflict",
+        )
+    if intent.requests_upcoming and _is_future_temporal_hint(temporal_hint_code):
+        return TemporalQueryBoostSignal(
+            boost=0.03,
+            reason="query asks for upcoming event and item has future event window",
+            code="upcoming_event_future_temporal_hint",
+        )
+    if intent.requests_upcoming and _is_past_temporal_hint(temporal_hint_code):
+        return TemporalQueryBoostSignal(
+            boost=-0.022,
+            reason="query asks for upcoming event and item has past event window",
+            code="upcoming_event_past_temporal_hint_conflict",
+        )
+    if (
+        intent.requests_recent_event
+        and not _is_future_temporal_hint(temporal_hint_code)
+        and not is_review_only
+        and not is_superseded
+        and not state_markers.stale_only
+        and (session_recency_boost := temporal_session_recency_boost(item))
+    ):
+        return TemporalQueryBoostSignal(
+            boost=session_recency_boost,
+            reason="query asks for recent event and item has session-order evidence",
+            code="recent_event_session_order",
+        )
+    if (
+        intent.requests_earliest_event
+        and not _is_future_temporal_hint(temporal_hint_code)
+        and not is_review_only
+        and not is_superseded
+        and not state_markers.stale_only
+        and (session_earliest_boost := temporal_session_earliest_boost(item))
+    ):
+        return TemporalQueryBoostSignal(
+            boost=session_earliest_boost,
+            reason="query asks for earliest event and item has session-order evidence",
+            code="earliest_event_session_order",
         )
     if intent.requests_change and retrieval_source == "temporal_supersedes_relation":
         return TemporalQueryBoostSignal(
@@ -587,14 +891,11 @@ def temporal_query_boost_signal(
             reason="query asks what changed and item is previous state evidence",
             code="change_previous_state",
         )
-    if direction_boost := _event_sequence_direction_boost(
-        intent=intent,
-        text=item.text,
-    ):
+    if during_boost := _event_sequence_during_boost(intent=intent, text=item.text):
         return TemporalQueryBoostSignal(
-            boost=direction_boost,
-            reason=_event_sequence_direction_reason(intent=intent, boost=direction_boost),
-            code=_event_sequence_direction_code(intent=intent, boost=direction_boost),
+            boost=during_boost,
+            reason="query asks for during-event context and item matches event",
+            code="during_event_sequence_match",
         )
     if intent.requests_previous and is_superseded:
         return TemporalQueryBoostSignal(
@@ -620,13 +921,22 @@ def temporal_query_boost_signal(
             reason="query prefers current active memory and item has stale state markers",
             code="current_stale_text_conflict",
         )
-    if intent.prefers_current and not is_review_only and not is_superseded:
+    if (
+        intent.prefers_current
+        and not is_review_only
+        and not is_superseded
+        and state_markers.has_active_state
+    ):
         return TemporalQueryBoostSignal(
             boost=0.018,
             reason="query prefers current active memory",
             code="current_active_match",
         )
     return TemporalQueryBoostSignal()
+
+
+def _item_has_source_turn_identity(item: ContextItem) -> bool:
+    return any(source_turn.source_identity for source_turn in source_turn_refs_from_item(item))
 
 
 def _apply_temporal_query_intent(
@@ -677,35 +987,99 @@ def _event_sequence_direction_boost(*, intent: TemporalQueryIntent, text: str) -
     has_after = bool(variants.intersection(_AFTER_TERMS)) or _has_since_event_context(
         text,
         variants,
+    ) or _has_matching_since_relative_time_context(
+        text,
+        intent,
     )
     has_before = bool(variants.intersection(_BEFORE_TERMS)) or _has_until_event_context(
         text,
         variants,
+    ) or _has_matching_until_relative_time_context(
+        text,
+        intent,
     )
     has_same_event = _event_sequence_terms_match(text, intent.event_sequence_terms)
+    has_after_ordered_event = _event_sequence_direction_matches_event(
+        text,
+        event_terms=intent.event_sequence_terms,
+        direction="after",
+        fallback=has_after and has_same_event,
+    )
+    has_before_ordered_event = _event_sequence_direction_matches_event(
+        text,
+        event_terms=intent.event_sequence_terms,
+        direction="before",
+        fallback=has_before and has_same_event,
+    )
     if intent.after_event:
-        if has_after and has_same_event:
+        if has_after_ordered_event:
             return 0.026
-        if has_before and has_same_event and not intent.requests_change:
+        if has_before_ordered_event and not intent.requests_change:
             return -0.024
     if intent.before_event:
-        if has_before and has_same_event:
+        if has_before_ordered_event:
             return 0.026
-        if has_after and has_same_event and not intent.requests_change:
+        if has_after_ordered_event and not intent.requests_change:
             return -0.024
+    if (
+        has_same_event
+        and intent.event_sequence_terms
+        and _has_event_sequence_boundary_surface(text)
+    ):
+        return -0.012
     return 0.0
+
+
+def _relative_time_boundary_conflict_signal(
+    *,
+    intent: TemporalQueryIntent,
+    temporal_hint_code: str,
+) -> TemporalQueryBoostSignal | None:
+    if intent.after_event == intent.before_event:
+        return None
+    if not temporal_hint_code or not intent.relative_time_hints:
+        return None
+    if not _temporal_hint_overlaps(intent=intent, temporal_hint_code=temporal_hint_code):
+        return None
+    direction = "after" if intent.after_event else "before"
+    return TemporalQueryBoostSignal(
+        boost=-0.014,
+        reason=(
+            f"query asks for {direction}-event sequence and item only matches "
+            "the boundary window"
+        ),
+        code=f"{direction}_event_boundary_window_conflict",
+    )
+
+
+def _event_sequence_during_boost(*, intent: TemporalQueryIntent, text: str) -> float:
+    if not intent.during_event:
+        return 0.0
+    variants = _query_variant_set(text)
+    has_during = bool(_DURING_EVENT_RE.search(text)) or bool(
+        variants.intersection(_DURING_TERMS)
+    )
+    has_same_event = _event_sequence_terms_match(text, intent.event_sequence_terms)
+    return 0.024 if has_during and has_same_event else 0.0
 
 
 def _event_sequence_direction_reason(*, intent: TemporalQueryIntent, boost: float) -> str:
     direction = "after" if intent.after_event else "before"
     if boost > 0:
         return f"query asks for {direction}-event sequence and item matches direction"
+    if boost == -0.012:
+        return (
+            f"query asks for {direction}-event sequence and item only matches "
+            "the event boundary"
+        )
     return f"query asks for {direction}-event sequence and item conflicts with direction"
 
 
 def _event_sequence_direction_code(*, intent: TemporalQueryIntent, boost: float) -> str:
     direction = "after" if intent.after_event else "before"
     suffix = "match" if boost > 0 else "conflict"
+    if boost == -0.012:
+        suffix = "unordered_boundary"
     return f"{direction}_event_sequence_{suffix}"
 
 
@@ -747,6 +1121,62 @@ def _event_sequence_terms_match(text: str, event_terms: tuple[str, ...]) -> bool
     return True
 
 
+def _event_sequence_direction_matches_event(
+    text: str,
+    *,
+    event_terms: tuple[str, ...],
+    direction: str,
+    fallback: bool,
+) -> bool:
+    if not fallback:
+        return False
+    if not event_terms:
+        return True
+    if direction == "after":
+        return _event_terms_follow_marker(text, event_terms, _AFTER_EVENT_RE) or (
+            _event_terms_precede_marker(text, event_terms, _POST_EVENT_RE)
+        )
+    return _event_terms_follow_marker(text, event_terms, _BEFORE_EVENT_RE)
+
+
+def _has_event_sequence_boundary_surface(text: str) -> bool:
+    variants = _query_variant_set(text)
+    return bool(variants.intersection(_EVENT_SEQUENCE_CONTEXT_TERMS))
+
+
+def _event_terms_follow_marker(
+    text: str,
+    event_terms: tuple[str, ...],
+    marker_re: re.Pattern[str],
+) -> bool:
+    for match in marker_re.finditer(text):
+        span = _marker_clause_span(text, match=match, max_chars=140)
+        if _event_sequence_terms_match(span, event_terms):
+            return True
+    return False
+
+
+def _event_terms_precede_marker(
+    text: str,
+    event_terms: tuple[str, ...],
+    marker_re: re.Pattern[str],
+) -> bool:
+    for match in marker_re.finditer(text):
+        span = text[max(0, match.start() - 140) : match.end()]
+        if _event_sequence_terms_match(span, event_terms):
+            return True
+    return False
+
+
+def _marker_clause_span(text: str, *, match: re.Match[str], max_chars: int) -> str:
+    span_end = min(len(text), match.end() + max_chars)
+    marker_tail = text[match.end() : span_end]
+    delimiter_match = re.search(r"[,.;:!?\n]", marker_tail)
+    if delimiter_match is not None:
+        span_end = match.end() + delimiter_match.start() + 1
+    return text[match.start() : span_end]
+
+
 def _has_after_event_context(text: str, variants: frozenset[str]) -> bool:
     if _has_since_event_context(text, variants):
         return True
@@ -763,6 +1193,16 @@ def _has_before_event_context(text: str, variants: frozenset[str]) -> bool:
     )
 
 
+def _has_during_event_context(text: str, variants: frozenset[str]) -> bool:
+    if bool(_DURING_EVENT_RE.search(text)) and bool(
+        variants.intersection(_EVENT_SEQUENCE_CONTEXT_TERMS)
+    ):
+        return True
+    return bool(variants.intersection(_DURING_TERMS)) and bool(
+        variants.intersection(_EVENT_SEQUENCE_CONTEXT_TERMS)
+    )
+
+
 def _has_since_event_context(text: str, variants: frozenset[str]) -> bool:
     return bool(_SINCE_EVENT_RE.search(text)) and bool(
         variants.intersection(_EVENT_SEQUENCE_CONTEXT_TERMS)
@@ -772,6 +1212,49 @@ def _has_since_event_context(text: str, variants: frozenset[str]) -> bool:
 def _has_until_event_context(text: str, variants: frozenset[str]) -> bool:
     return bool(_UNTIL_EVENT_RE.search(text)) and bool(
         variants.intersection(_EVENT_SEQUENCE_CONTEXT_TERMS)
+    )
+
+
+def _has_since_relative_time_context(
+    text: str,
+    relative_time_hints: tuple[str, ...],
+) -> bool:
+    return bool(relative_time_hints) and bool(_SINCE_EVENT_RE.search(text))
+
+
+def _has_until_relative_time_context(
+    text: str,
+    relative_time_hints: tuple[str, ...],
+) -> bool:
+    return bool(relative_time_hints) and bool(_UNTIL_EVENT_RE.search(text))
+
+
+def _has_matching_since_relative_time_context(
+    text: str,
+    intent: TemporalQueryIntent,
+) -> bool:
+    return (
+        bool(_SINCE_EVENT_RE.search(text))
+        and bool(intent.relative_time_hints)
+        and _text_has_overlapping_relative_hint(text, intent)
+    )
+
+
+def _has_matching_until_relative_time_context(
+    text: str,
+    intent: TemporalQueryIntent,
+) -> bool:
+    return (
+        bool(_UNTIL_EVENT_RE.search(text))
+        and bool(intent.relative_time_hints)
+        and _text_has_overlapping_relative_hint(text, intent)
+    )
+
+
+def _text_has_overlapping_relative_hint(text: str, intent: TemporalQueryIntent) -> bool:
+    return any(
+        _temporal_hint_overlaps(intent=intent, temporal_hint_code=hint)
+        for hint in _query_temporal_hint_codes(text)
     )
 
 
@@ -836,6 +1319,31 @@ def _temporal_hint_overlaps(
 
 def _is_exact_date_temporal_hint(code: str) -> bool:
     return code.startswith("date_")
+
+
+def _is_future_temporal_hint(code: str) -> bool:
+    return code in {
+        "next_month",
+        "next_quarter",
+        "next_week",
+        "next_year",
+        "this_weekend",
+        "tomorrow",
+    }
+
+
+def _is_past_temporal_hint(code: str) -> bool:
+    return bool(
+        code == "yesterday"
+        or code.startswith("last_")
+        or code.endswith("_ago")
+        or code in {
+            "earlier_today",
+            "last_night",
+            "today_morning",
+            "weekends_ago",
+        }
+    )
 
 
 def _temporal_hint_code(

@@ -41,6 +41,29 @@ def test_query_decomposition_keeps_compound_person_clauses_separate() -> None:
     assert not any(query.startswith("alex and what did maria") for query in clause_queries)
 
 
+def test_query_decomposition_does_not_split_compound_person_or_role_subjects() -> None:
+    person_pair = build_query_decomposition_plan("What did Alex and Maria talk about?")
+    role_pair = build_query_decomposition_plan(
+        "How long have Mel and her husband been married?"
+    )
+
+    person_clauses = [
+        item.query.casefold()
+        for item in person_pair.decompositions
+        if item.reason == "decomposition_clause"
+    ]
+    role_clauses = [
+        item.query.casefold()
+        for item in role_pair.decompositions
+        if item.reason == "decomposition_clause"
+    ]
+
+    assert not any(query == "what did alex" for query in person_clauses)
+    assert not any(query == "maria talk about" for query in person_clauses)
+    assert "how long have mel" not in role_clauses
+    assert "mel her husband been married" not in role_clauses
+
+
 def test_query_decomposition_handles_russian_event_artifact_query() -> None:
     plan = build_query_decomposition_plan(
         "Что изменилось после созвона с алексом по Атласу и что было на скриншоте?"
@@ -58,6 +81,65 @@ def test_query_decomposition_treats_attachments_as_artifacts() -> None:
 
     assert "decomposition_artifact_evidence" in {item.reason for item in english.decompositions}
     assert "decomposition_artifact_evidence" in {item.reason for item in russian.decompositions}
+
+
+def test_query_decomposition_adds_food_recipe_inventory_context() -> None:
+    recipe_plan = build_query_decomposition_plan("What recipes has Riley made?")
+    favorite_plan = build_query_decomposition_plan("What are Riley's favorite desserts?")
+
+    recipe_inventory = next(
+        item
+        for item in recipe_plan.decompositions
+        if item.reason == "decomposition_inventory_list"
+    )
+    favorite_inventory = next(
+        item
+        for item in favorite_plan.decompositions
+        if item.reason == "decomposition_inventory_list"
+    )
+
+    assert "recipes recipe homemade made baked" in recipe_inventory.query
+    assert "coconut milk dairy-free ice cream" in recipe_inventory.query
+    assert "favorite desserts" in favorite_inventory.query
+    assert "icecream" in favorite_inventory.query
+
+
+def test_query_decomposition_adds_sport_activity_inventory_context() -> None:
+    plan = build_query_decomposition_plan("What sports does John like besides basketball?")
+
+    reasons = {item.reason for item in plan.decompositions}
+    participation = next(
+        item
+        for item in plan.decompositions
+        if item.reason == "decomposition_activity_participation"
+    )
+    inventory = next(
+        item
+        for item in plan.decompositions
+        if item.reason == "decomposition_inventory_list"
+    )
+
+    assert "decomposition_activity_participation" in reasons
+    assert "decomposition_inventory_list" in reasons
+    assert "sports sport game team court scored surfing surfboard waves" in participation.query
+    assert "position jersey jerseys season opener" in participation.query
+    assert "basketball" in inventory.query
+
+
+def test_query_decomposition_adds_collectible_object_context() -> None:
+    plan = build_query_decomposition_plan(
+        "What similar sports collectible do Tim and John own?"
+    )
+
+    collectible = next(
+        item
+        for item in plan.decompositions
+        if item.reason == "decomposition_collectible_object"
+    )
+
+    assert "collectible memorabilia keepsake" in collectible.query
+    assert "signed autographed autograph" in collectible.query
+    assert "reminder bond friendship appreciation" in collectible.query
 
 
 def test_query_decomposition_expands_relative_time_queries() -> None:
@@ -361,6 +443,39 @@ def test_query_decomposition_routes_travel_country_lists_as_inventory_not_reloca
     assert "country countries europe european england spain" in russian_inventory.query
 
 
+def test_query_decomposition_adds_country_destination_context_for_meeting_questions() -> None:
+    plan = build_query_decomposition_plan(
+        "Which country do Calvin and Dave want to meet in?"
+    )
+    destination = next(
+        item
+        for item in plan.decompositions
+        if item.reason == "decomposition_country_destination"
+    )
+
+    assert "calvin" in destination.query
+    assert "dave" in destination.query
+    assert "country city destination place trip travel visit meet meeting" in (
+        destination.query
+    )
+    assert "show around town flight upcoming plan" in destination.query
+
+
+def test_query_decomposition_preserves_country_destination_month_year_anchor() -> None:
+    plan = build_query_decomposition_plan(
+        "Which country was Avery visiting in May 2023?"
+    )
+    destination = next(
+        item
+        for item in plan.decompositions
+        if item.reason == "decomposition_country_destination"
+    )
+
+    assert "avery" in destination.query
+    assert "may 2023" in destination.query
+    assert "country city destination place trip travel visit" in destination.query
+
+
 def test_query_decomposition_adds_inventory_list_for_broad_list_slots() -> None:
     cases = [
         (
@@ -489,6 +604,8 @@ def test_query_decomposition_adds_recommendation_source_query() -> None:
     assert "melanie" in source.query.casefold()
     assert "caroline" in source.query.casefold()
     assert "source actor recipient to from because of" in source.query
+    assert "recommend it definitely would" in source.query
+    assert "should get should start" in source.query
     assert "caroline" in recipient.query.casefold()
     assert "becoming" in recipient.query.casefold()
     assert "nicole" in recipient.query.casefold()
@@ -630,6 +747,31 @@ def test_query_expansion_plan_uses_relative_time_decomposition() -> None:
     assert "decomposition_relative_time" in retrieval_reasons
 
 
+def test_query_decomposition_treats_quote_and_provenance_as_source_evidence() -> None:
+    quote_plan = build_query_decomposition_plan(
+        "Show the quote supporting Project Atlas being blocked."
+    )
+    provenance_plan = build_query_decomposition_plan(
+        "What provenance supports the Project Atlas blocker?"
+    )
+
+    quote_source = next(
+        item
+        for item in quote_plan.decompositions
+        if item.reason == "decomposition_source_evidence"
+    )
+    provenance_source = next(
+        item
+        for item in provenance_plan.decompositions
+        if item.reason == "decomposition_source_evidence"
+    )
+
+    assert "project" in quote_source.query.casefold()
+    assert "atlas" in quote_source.query.casefold()
+    assert "source citation evidence quote excerpt" in quote_source.query
+    assert "reference provenance" in provenance_source.query
+
+
 def test_best_query_relevance_uses_decomposed_artifact_query() -> None:
     plan = build_query_expansion_plan(
         "What changed after the call with Alex about Atlas and what was written in the screenshot?"
@@ -656,6 +798,21 @@ def test_best_query_relevance_uses_event_sequence_decomposition() -> None:
     )
 
     assert reason == "decomposition_event_sequence"
+    assert relevance.distinctive_term_hits >= 5
+
+
+def test_best_query_relevance_uses_quote_source_evidence_decomposition() -> None:
+    plan = build_query_expansion_plan("Show the quote for Project Atlas source.")
+
+    _, reason, relevance = best_query_relevance(
+        plan,
+        text=(
+            "Project Atlas source quote citation evidence excerpt reference "
+            "provenance: Alex selected the provider."
+        ),
+    )
+
+    assert reason == "decomposition_source_evidence"
     assert relevance.distinctive_term_hits >= 5
 
 
@@ -971,6 +1128,14 @@ def test_query_decomposition_does_not_make_historical_decision_current() -> None
     }
 
 
+def test_query_decomposition_does_not_make_general_choice_answer_current() -> None:
+    plan = build_query_decomposition_plan("What did Morgan choose for the garden project?")
+
+    assert "decomposition_knowledge_update_current" not in {
+        item.reason for item in plan.decompositions
+    }
+
+
 def test_query_decomposition_keeps_existing_activity_bridge_unshadowed() -> None:
     plan = build_query_decomposition_plan("What activities does Melanie partake in?")
 
@@ -1124,7 +1289,9 @@ def test_query_decomposition_adds_relationship_status_query() -> None:
 
     assert relationship.query.casefold().startswith("caroline ")
     assert "relationship status single parent" in relationship.query
-    assert "dating breakup friends family mentors" in relationship.query
+    assert "partner spouse husband wife married dating" in relationship.query
+    assert "not dating breakup divorced separated" in relationship.query
+    assert "friends family kids children" not in relationship.query
     assert russian_relationship.query.casefold().startswith("алекс мария ")
     assert "отношения статус друзья дружба" in russian_relationship.query
     assert connected_relationship.query.casefold().startswith("алекс марией ")
@@ -1457,6 +1624,22 @@ def test_best_query_relevance_uses_recommendation_source_decomposition() -> None
     assert relevance.distinctive_term_hits >= 5
 
 
+def test_best_query_relevance_uses_recommendation_advice_list_shapes() -> None:
+    plan = build_query_expansion_plan("What recommendations has Joanna given to Nate?")
+
+    _, reason, relevance = best_query_relevance(
+        plan,
+        text=(
+            "D23:26 Joanna: Sure! For one, you should get a couch that can "
+            "sit multiple people. Also invest in a weighted blanket and "
+            "some dimmable lights."
+        ),
+    )
+
+    assert reason == "decomposition_recommendation_source"
+    assert relevance.distinctive_term_hits >= 3
+
+
 def test_best_query_relevance_uses_conversation_counterparty_decomposition() -> None:
     plan = build_query_expansion_plan("Who did Alex talk to about Project Atlas?")
 
@@ -1644,3 +1827,225 @@ def test_best_query_relevance_uses_emotion_cause_decomposition_for_paraphrases()
 
         assert reason == "decomposition_emotion_cause"
         assert relevance.distinctive_term_hits >= 3
+
+
+def test_query_decomposition_adds_kind_type_descriptor_query() -> None:
+    plan = build_query_decomposition_plan(
+        "What type of venue did John and his girlfriend choose for their wedding ceremony?"
+    )
+
+    descriptor = next(
+        item
+        for item in plan.decompositions
+        if item.reason == "decomposition_kind_type_descriptor"
+    )
+
+    assert descriptor.query.casefold().startswith("john ")
+    assert "venue girlfriend choose wedding ceremony" in descriptor.query
+    assert "kind type category genre style form format" in descriptor.query
+
+
+def test_query_decomposition_does_not_treat_professional_acceptance_as_emotion() -> None:
+    plan = build_query_decomposition_plan(
+        "What kind of professional experience did Gina get accepted for on May 23, 2023?"
+    )
+
+    reasons = {item.reason for item in plan.decompositions}
+
+    assert "decomposition_kind_type_descriptor" in reasons
+    assert "decomposition_emotion_cause" not in reasons
+
+
+def test_best_query_relevance_uses_kind_type_descriptor_decomposition() -> None:
+    cases = (
+        (
+            "What type of training was the workshop Audrey signed up for in May 2023?",
+            "Audrey signed up for obedience training at the workshop in May 2023.",
+        ),
+        (
+            "What kind of flooring is Jon looking for in his dance studio?",
+            "Jon is looking for sprung wood flooring in his dance studio.",
+        ),
+        (
+            "What kind of online group did John join?",
+            "John joined a service-focused online support group last week.",
+        ),
+    )
+
+    for query, text in cases:
+        plan = build_query_expansion_plan(query)
+
+        _, reason, relevance = best_query_relevance(plan, text=text)
+
+        assert reason == "decomposition_kind_type_descriptor"
+        assert relevance.distinctive_term_hits >= 4
+
+
+def test_query_decomposition_adds_food_inventory_for_kind_type_food_questions() -> None:
+    cases = (
+        "What kind of food did Maria have on her dinner spread iwth her mother?",
+        "What kind of meal did John and his family make together in the photo shared by John?",
+        "What kind of frosting did Joanna use on the cake she made recently in May 2022?",
+    )
+
+    for query in cases:
+        plan = build_query_decomposition_plan(query)
+        inventory = next(
+            item
+            for item in plan.decompositions
+            if item.reason == "decomposition_inventory_list"
+        )
+
+        assert "dinner spread plate meal food dish ingredients" in inventory.query
+        assert "filling frosting cooked prepared" in inventory.query
+
+
+def test_best_query_relevance_uses_food_inventory_for_food_descriptor_evidence() -> None:
+    cases = (
+        (
+            "What kind of food did Maria have on her dinner spread iwth her mother?",
+            "Maria had pasta, salad, and roasted vegetables on her dinner spread with her mother.",
+        ),
+        (
+            "What kind of meal did John and his family make together in the photo shared by John?",
+            "John and his family made homemade pizza together in the photo he shared.",
+        ),
+        (
+            "What kind of frosting did Joanna use on the cake she made recently in May 2022?",
+            "Joanna used cream cheese frosting on the cake she made in May 2022.",
+        ),
+    )
+
+    for query, text in cases:
+        plan = build_query_expansion_plan(query)
+
+        _, reason, relevance = best_query_relevance(plan, text=text)
+
+        assert reason == "decomposition_inventory_list"
+        assert relevance.distinctive_term_hits >= 4
+
+
+def test_query_decomposition_adds_impact_and_content_topic_queries() -> None:
+    impact = build_query_decomposition_plan(
+        "What kind of impact does Joanna hope to have with her writing?"
+    )
+    content = build_query_decomposition_plan(
+        "What kind of content did Joanna share that someone wrote her a letter about?"
+    )
+
+    impact_query = next(
+        item for item in impact.decompositions if item.reason == "decomposition_impact_effect"
+    )
+    content_query = next(
+        item
+        for item in content.decompositions
+        if item.reason == "decomposition_content_topic"
+    )
+
+    assert "impact effect affected influenced inspired" in impact_query.query
+    assert "positive impact made a difference" in impact_query.query
+    assert "content topic focus blog post article writing" in content_query.query
+    assert "readers letter response inspired" in content_query.query
+
+
+def test_best_query_relevance_uses_impact_and_content_topic_decompositions() -> None:
+    cases = (
+        (
+            "What kind of impact does Joanna hope to have with her writing?",
+            (
+                "Joanna hopes her writing will inspire readers and have a "
+                "positive impact on people."
+            ),
+            "decomposition_impact_effect",
+        ),
+        (
+            "What kind of impact does Dave's blog on car mods have on people?",
+            "Dave's car mods blog inspired people to start their own DIY projects.",
+            "decomposition_impact_effect",
+        ),
+        (
+            "What kind of content did Joanna share that someone wrote her a letter about?",
+            (
+                "Joanna shared a blog post about her screenplay writing, and "
+                "someone wrote her a letter."
+            ),
+            "decomposition_content_topic",
+        ),
+    )
+
+    for query, text, expected_reason in cases:
+        plan = build_query_expansion_plan(query)
+
+        _, reason, relevance = best_query_relevance(plan, text=text)
+
+        assert reason == expected_reason
+        assert relevance.distinctive_term_hits >= 4
+
+
+def test_query_decomposition_adds_sport_team_attribute_query() -> None:
+    cases = (
+        "Which team did John sign with on 21 May, 2023?",
+        "What position does John play on his basketball team?",
+        (
+            "What schools did John play basketball in and how many years was he "
+            "with his team during high school?"
+        ),
+    )
+
+    for query in cases:
+        plan = build_query_decomposition_plan(query)
+        sport_team = next(
+            item
+            for item in plan.decompositions
+            if item.reason == "decomposition_sport_team_attribute"
+        )
+
+        assert "sports team basketball position jersey school high school" in sport_team.query
+        assert "signed sign contract roster" in sport_team.query
+
+
+def test_query_decomposition_avoids_broad_sport_team_attribute_query() -> None:
+    cases = (
+        "What happened to Melanie's son on their road trip?",
+        "When did Gina team up with a local artist for some cool designs?",
+        "What board games has Nate played?",
+        "What instruments does Melanie play?",
+    )
+
+    for query in cases:
+        plan = build_query_decomposition_plan(query)
+
+        assert "decomposition_sport_team_attribute" not in {
+            item.reason for item in plan.decompositions
+        }
+
+
+def test_best_query_relevance_uses_sport_team_attribute_decomposition() -> None:
+    cases = (
+        (
+            "Which team did John sign with on 21 May, 2023?",
+            "John signed with the Chicago Bulls basketball team on 21 May, 2023.",
+        ),
+        (
+            "What position does John play on his basketball team?",
+            "John plays point guard on his basketball team.",
+        ),
+        (
+            (
+                "What schools did John play basketball in and how many years was he "
+                "with his team during high school?"
+            ),
+            (
+                "John played basketball at Lincoln High and Central High for "
+                "four years with his team."
+            ),
+        ),
+    )
+
+    for query, text in cases:
+        plan = build_query_expansion_plan(query)
+
+        _, reason, relevance = best_query_relevance(plan, text=text)
+
+        assert reason == "decomposition_sport_team_attribute"
+        assert relevance.distinctive_term_hits >= 5

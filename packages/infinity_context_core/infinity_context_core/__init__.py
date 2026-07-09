@@ -1,5 +1,9 @@
 """Infinity Context Core public package."""
 
+import infinity_context_core.features.context_building.public as context_building_public
+import infinity_context_core.features.document_ingestion.public as document_ingestion_public
+import infinity_context_core.features.memory_facts.public as memory_facts_public
+import infinity_context_core.features.memory_scopes.public as memory_scopes_public
 from infinity_context_core.application.dto import (
     FactResult,
     ForgetFactCommand,
@@ -32,14 +36,22 @@ from infinity_context_core.domain.errors import (
     MemoryValidationError,
 )
 
+ContextBuildingUseCases = context_building_public.ContextBuildingUseCases
+DocumentIngestionUseCases = document_ingestion_public.DocumentIngestionUseCases
+MemoryFactLifecycleUseCases = memory_facts_public.MemoryFactLifecycleUseCases
+MemoryScopeUseCases = memory_scopes_public.MemoryScopeUseCases
+
 __all__ = [
     "CapabilitiesResult",
     "Confidence",
+    "ContextBuildingUseCases",
+    "DocumentIngestionUseCases",
     "FactResult",
     "FactStatus",
     "ForgetFactCommand",
     "ForgetFactUseCase",
     "GetCapabilitiesUseCase",
+    "MemoryFactLifecycleUseCases",
     "MemoryConflictError",
     "MemoryError",
     "MemoryFact",
@@ -48,6 +60,7 @@ __all__ = [
     "MemoryInvariantError",
     "MemoryKind",
     "MemoryNotFoundError",
+    "MemoryScopeUseCases",
     "MemoryUnauthorizedError",
     "MemoryValidationError",
     "RememberFactCommand",
@@ -56,4 +69,8 @@ __all__ = [
     "TrustLevel",
     "UpdateFactCommand",
     "UpdateFactUseCase",
+    "context_building_public",
+    "document_ingestion_public",
+    "memory_facts_public",
+    "memory_scopes_public",
 ]

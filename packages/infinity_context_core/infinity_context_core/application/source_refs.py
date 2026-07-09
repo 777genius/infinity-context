@@ -10,7 +10,7 @@ from infinity_context_core.application.safe_payload import safe_metadata_text
 from infinity_context_core.domain.entities import MAX_SOURCE_REFS_PER_ITEM, MemoryChunk, SourceRef
 from infinity_context_core.domain.errors import MemoryValidationError
 
-_DIALOGUE_MARKER_RE = re.compile(r"\bD(?P<dialogue>\d+):(?P<turn>\d+)\b")
+_DIALOGUE_MARKER_RE = re.compile(r"\bD(?P<dialogue>\d+)[:-](?P<turn>\d+)\b")
 _SESSION_ID_RE = re.compile(r"(?:^|:)session_(?P<session>\d+)(?::|$)", re.IGNORECASE)
 _SOURCE_GROUP_SUFFIXES = frozenset({"events", "observation", "summary"})
 

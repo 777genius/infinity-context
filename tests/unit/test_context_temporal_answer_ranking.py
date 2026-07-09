@@ -50,6 +50,159 @@ def test_deterministic_rerank_prefers_temporal_answer_evidence() -> None:
     )
 
 
+def test_deterministic_rerank_does_not_boost_unrelated_nearby_dates() -> None:
+    query = "When did Caroline go to the LGBTQ support group?"
+    plan = build_query_expansion_plan(query)
+    intent = build_query_anchor_intent(query)
+    grounded_date = _item(
+        "grounded_date",
+        score=0.69,
+        text=(
+            "D1:1 Caroline: Yesterday I went to the LGBTQ support group and "
+            "met the organizers."
+        ),
+    )
+    unrelated_nearby_date = _item(
+        "unrelated_nearby_date",
+        score=0.71,
+        text=(
+            "D1:1 Morgan: Yesterday I watched a documentary.\n"
+            "D1:2 Caroline: I went to the LGBTQ support group and met the organizers."
+        ),
+    )
+
+    reranked = apply_deterministic_rerank_adjustments(
+        (unrelated_nearby_date, grounded_date),
+        query=query,
+        plan=plan,
+        query_anchor_intent=intent,
+    )
+    by_id = {item.item_id: item for item in reranked}
+
+    assert by_id["grounded_date"].score > by_id["unrelated_nearby_date"].score
+    assert (
+        "temporal_answer_evidence"
+        in by_id["grounded_date"].diagnostics["provenance"][
+            "deterministic_rerank_reasons"
+        ]
+    )
+    assert (
+        "temporal_answer_ungrounded_evidence"
+        in by_id["unrelated_nearby_date"].diagnostics["provenance"][
+            "deterministic_rerank_reasons"
+        ]
+    )
+
+
+def test_deterministic_rerank_treats_exact_time_query_as_temporal_intent() -> None:
+    query = "What exact time did Alex call about Atlas?"
+    plan = build_query_expansion_plan(query)
+    intent = build_query_anchor_intent(query)
+    with_time = _item(
+        "with_time",
+        score=0.7,
+        text="D3:2 Alex called about Atlas at 9:30 am to confirm the launch plan.",
+    )
+    without_time = _item(
+        "without_time",
+        score=0.72,
+        text="D3:2 Alex called about Atlas to confirm the launch plan.",
+    )
+
+    reranked = apply_deterministic_rerank_adjustments(
+        (without_time, with_time),
+        query=query,
+        plan=plan,
+        query_anchor_intent=intent,
+    )
+    by_id = {item.item_id: item for item in reranked}
+
+    assert by_id["with_time"].score > by_id["without_time"].score
+    assert (
+        "temporal_answer_evidence"
+        in by_id["with_time"].diagnostics["provenance"][
+            "deterministic_rerank_reasons"
+        ]
+    )
+
+
+def test_deterministic_rerank_treats_hour_meridiem_as_exact_time_evidence() -> None:
+    query = "What exact time did Alex call about Atlas?"
+    plan = build_query_expansion_plan(query)
+    intent = build_query_anchor_intent(query)
+    with_time = _item(
+        "with_time",
+        score=0.7,
+        text="D3:2 Alex called about Atlas at 9 am to confirm the launch plan.",
+    )
+    without_time = _item(
+        "without_time",
+        score=0.72,
+        text="D3:2 Alex called about Atlas to confirm the launch plan.",
+    )
+
+    reranked = apply_deterministic_rerank_adjustments(
+        (without_time, with_time),
+        query=query,
+        plan=plan,
+        query_anchor_intent=intent,
+    )
+    by_id = {item.item_id: item for item in reranked}
+
+    assert by_id["with_time"].score > by_id["without_time"].score
+    assert (
+        "temporal_answer_evidence"
+        in by_id["with_time"].diagnostics["provenance"][
+            "deterministic_rerank_reasons"
+        ]
+    )
+
+
+def test_deterministic_rerank_does_not_stitch_unrelated_source_ref_date() -> None:
+    query = "When did Caroline go to the LGBTQ support group?"
+    plan = build_query_expansion_plan(query)
+    intent = build_query_anchor_intent(query)
+    grounded_date = _item(
+        "grounded_date",
+        score=0.69,
+        text="D1:2 Caroline went to the LGBTQ support group on May 7.",
+    )
+    unrelated_ref_date = _item(
+        "unrelated_ref_date",
+        score=0.71,
+        text="D1:2 Caroline went to the LGBTQ support group and met the organizers.",
+        source_refs=(
+            SourceRef(
+                source_type="document",
+                source_id="doc",
+                quote_preview="D1:1 Morgan said the fundraiser was on May 7.",
+            ),
+        ),
+    )
+
+    reranked = apply_deterministic_rerank_adjustments(
+        (unrelated_ref_date, grounded_date),
+        query=query,
+        plan=plan,
+        query_anchor_intent=intent,
+    )
+    by_id = {item.item_id: item for item in reranked}
+
+    assert by_id["grounded_date"].score > by_id["unrelated_ref_date"].score
+    assert (
+        "temporal_answer_evidence"
+        in by_id["grounded_date"].diagnostics["provenance"][
+            "deterministic_rerank_reasons"
+        ]
+    )
+    assert (
+        "temporal_answer_ungrounded_evidence"
+        in by_id["unrelated_ref_date"].diagnostics["provenance"][
+            "deterministic_rerank_reasons"
+        ]
+    )
+
+
 def test_deterministic_rerank_uses_media_time_range_as_temporal_answer_evidence() -> None:
     query = "Когда был созвон с Алексом по Atlas?"
     plan = build_query_expansion_plan(query)

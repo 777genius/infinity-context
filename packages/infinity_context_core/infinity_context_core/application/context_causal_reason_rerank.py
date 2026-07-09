@@ -56,6 +56,34 @@ _CAUSAL_REASON_WEAK_TOPIC_RE = re.compile(
     r"\b(?:обсуждал\w*|упомянул\w*|заметк\w*|контекст)\b",
     re.IGNORECASE,
 )
+_YOGA_DELAY_GAMING_PLANNED_PLAY_RE = re.compile(
+    r"\b(?:plan(?:ned|ning)?|arrang(?:ed|ing)?|going|intend(?:ed|ing)?|wanted)\s+"
+    r"(?:to\s+)?(?:play|try)\b"
+    r"(?=.{0,140}\b(?:console|video\s*games?|videogames?|xbox|"
+    r"playstation|nintendo|switch|games?)\b)|"
+    r"\b(?:plan(?:ned|ning)?|arrang(?:ed|ing)?|going)\s+to\s+play\s+"
+    r"\"[^\"\n]{1,80}\""
+    r"(?=.{0,120}\b(?:next|later|tomorrow|weekend|saturday|sunday|"
+    r"monday|tuesday|wednesday|thursday|friday)\b)|"
+    r"\b(?:play|playing)\b"
+    r"(?=.{0,90}\b(?:console|video\s*games?|videogames?|games?)\b)"
+    r"(?=.{0,150}\b(?:partner|next|planned|planning|instead)\b)",
+    re.IGNORECASE | re.DOTALL,
+)
+_YOGA_DELAY_GAMING_ACTIVE_PLAY_RE = re.compile(
+    r"\b(?:gaming|played|playing)\b"
+    r"(?=.{0,120}\b(?:console|video\s*games?|videogames?|games?|xbox|"
+    r"playstation|nintendo|switch)\b)|"
+    r"\b(?:console|video\s*games?|videogames?|games?|xbox|playstation|"
+    r"nintendo|switch)\b"
+    r"(?=.{0,120}\b(?:gaming|played|playing)\b)",
+    re.IGNORECASE | re.DOTALL,
+)
+_YOGA_DELAY_GAMING_BACKGROUND_RE = re.compile(
+    r"\b(?:partner'?s\s+video\s+games|video\s*games?|videogames?|"
+    r"game\s+console|new\s+game\s+console)\b",
+    re.IGNORECASE,
+)
 
 
 def causal_reason_rerank_signal(
@@ -98,9 +126,21 @@ def _causal_reason_exact_evidence(text: str) -> bool:
     return (
         _CAUSAL_REASON_MARKER_RE.search(text) is not None
         or _CAUSAL_REASON_DOMAIN_EVIDENCE_RE.search(text) is not None
+        or yoga_delay_gaming_answer_rank(text) <= 1
     )
 
 
 def _score_signal_reason(item: ContextItem) -> str:
     signals = safe_score_signals(item.diagnostics)
     return str(signals.get("query_expansion_reason") or "")
+
+
+def yoga_delay_gaming_answer_rank(text: str) -> int:
+    """Rank English evidence for yoga being displaced by planned gaming."""
+    if _YOGA_DELAY_GAMING_PLANNED_PLAY_RE.search(text) is not None:
+        return 0
+    if _YOGA_DELAY_GAMING_ACTIVE_PLAY_RE.search(text) is not None:
+        return 1
+    if _YOGA_DELAY_GAMING_BACKGROUND_RE.search(text) is not None:
+        return 2
+    return 5

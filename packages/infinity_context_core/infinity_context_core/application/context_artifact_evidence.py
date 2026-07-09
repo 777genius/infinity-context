@@ -19,6 +19,7 @@ from infinity_context_core.application.context_media_time import (
     media_time_windows_from_query,
 )
 from infinity_context_core.application.context_query_expansion import QueryExpansionPlan
+from infinity_context_core.application.context_ranking import query_expansion_reason_priority
 from infinity_context_core.application.context_relevance import (
     QueryRelevance,
     is_query_relevance_sufficient,
@@ -438,6 +439,16 @@ def _context_items_from_manifest(
                 4,
             ),
         )
+        score = max(
+            score,
+            _strong_evidence_score_floor(
+                confidence=confidence,
+                coordinate_boost=coordinate_boost,
+                kind=kind,
+                modality=modality,
+                relevance=relevance,
+            ),
+        )
         items.append(
             ContextItem(
                 item_id=f"{artifact.id}:{evidence_id}",
@@ -543,14 +554,26 @@ def _best_evidence_relevance(
     return max(
         ranked,
         key=lambda item: (
+            _artifact_evidence_reason_intent_priority(query.query, item[1]),
             item[2].phrase_bigram_hits,
             item[2].unique_term_hits,
+            query_expansion_reason_priority(item[1]),
             item[2].hit_ratio,
             item[2].score_boost,
             item[2].capped_frequency_hits,
             1 if item[1] == "original_query" else 0,
         ),
     )
+
+
+def _artifact_evidence_reason_intent_priority(query: str, reason: str) -> int:
+    query_key = query.casefold()
+    if (
+        reason == "outdoor_preference_bridge"
+        and re.search(r"\b(?:prefer|preferred|preference|rather)\b", query_key)
+    ):
+        return 2
+    return 0
 
 
 def _safe_evidence_id(
@@ -760,21 +783,66 @@ def _evidence_modality_boost(modality: str) -> float:
     return _EVIDENCE_MODALITY_BOOSTS.get(modality.casefold().strip(), 0.0)
 
 
-def _artifact_evidence_rank_key(item: ContextItem) -> tuple[float, float, str, str, str]:
+def _artifact_evidence_rank_key(
+    item: ContextItem,
+) -> tuple[float, int, int, float, float, float, str, str, str]:
     diagnostics = item.diagnostics if isinstance(item.diagnostics, dict) else {}
     score_signals = diagnostics.get("score_signals")
     confidence = 0.0
+    phrase_bigram_hits = 0
+    unique_term_hits = 0
+    hit_ratio = 0.0
+    query_relevance_boost = 0.0
     if isinstance(score_signals, dict):
         raw_confidence = score_signals.get("evidence_confidence")
         if isinstance(raw_confidence, (int, float)) and not isinstance(raw_confidence, bool):
             confidence = float(raw_confidence)
+        raw_phrase_bigram_hits = score_signals.get("phrase_bigram_hits")
+        if isinstance(raw_phrase_bigram_hits, int) and not isinstance(raw_phrase_bigram_hits, bool):
+            phrase_bigram_hits = raw_phrase_bigram_hits
+        raw_unique_term_hits = score_signals.get("unique_term_hits")
+        if isinstance(raw_unique_term_hits, int) and not isinstance(raw_unique_term_hits, bool):
+            unique_term_hits = raw_unique_term_hits
+        raw_hit_ratio = score_signals.get("hit_ratio")
+        if isinstance(raw_hit_ratio, (int, float)) and not isinstance(raw_hit_ratio, bool):
+            hit_ratio = float(raw_hit_ratio)
+        raw_query_relevance_boost = score_signals.get("query_relevance_boost")
+        if isinstance(raw_query_relevance_boost, (int, float)) and not isinstance(
+            raw_query_relevance_boost,
+            bool,
+        ):
+            query_relevance_boost = float(raw_query_relevance_boost)
     return (
         -round(item.score, 8),
+        -phrase_bigram_hits,
+        -unique_term_hits,
+        -round(hit_ratio, 8),
+        -round(query_relevance_boost, 8),
         -round(confidence, 8),
         str(diagnostics.get("asset_id") or ""),
         str(item.source_refs[0].chunk_id if item.source_refs else ""),
         item.item_id,
     )
+
+
+def _strong_evidence_score_floor(
+    *,
+    confidence: float | None,
+    coordinate_boost: float,
+    kind: str,
+    modality: str,
+    relevance: QueryRelevance,
+) -> float:
+    if (
+        confidence is not None
+        and confidence >= 0.9
+        and coordinate_boost > 0
+        and (relevance.unique_term_hits >= 3 or relevance.phrase_bigram_hits >= 1)
+        and kind.casefold().strip() in {"ocr_region", "transcript_segment"}
+        and modality.casefold().strip() in {"image", "audio", "video", "document"}
+    ):
+        return 0.9
+    return 0.0
 
 
 def _looks_like_prompt_injection(text: str) -> bool:

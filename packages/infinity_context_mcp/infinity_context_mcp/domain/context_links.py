@@ -6,7 +6,12 @@ from typing import Literal
 
 from pydantic import Field
 
-from infinity_context_mcp.domain.models import JsonScalar, McpDataModel, McpPublicModel, McpToolResponse
+from infinity_context_mcp.domain.models import (
+    JsonScalar,
+    McpDataModel,
+    McpPublicModel,
+    McpToolResponse,
+)
 
 ContextLinkMetadataValue = JsonScalar | list[JsonScalar] | dict[str, JsonScalar]
 
