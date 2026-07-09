@@ -5,6 +5,7 @@ from types import SimpleNamespace
 from infinity_context_adapters.cognee import CogneeMemoryAdapter
 from infinity_context_adapters.embeddings import OpenAIEmbeddingAdapter
 from infinity_context_adapters.extraction import OpenAIJsonMemoryExtractor
+from infinity_context_adapters.extraction.openai_json import _prompt_text
 from infinity_context_adapters.graphiti import GraphitiGraphMemoryAdapter
 from infinity_context_adapters.noop import (
     NoopEmbeddingAdapter,
@@ -1100,6 +1101,17 @@ def test_qdrant_server_unavailable_reports_configured_adapter_degraded() -> None
         assert capabilities.degraded_reason == "qdrant_unavailable"
 
     asyncio.run(run())
+
+
+def test_openai_json_memory_extractor_prompt_requires_rich_durable_evidence() -> None:
+    prompt = _prompt_text()
+
+    assert "durable incidental facts" in prompt
+    assert "Assistant text can still be extracted" in prompt
+    assert "concrete decision, recommendation, implementation result, or plan" in prompt
+    assert "Split unrelated durable facts into separate candidates" in prompt
+    assert "Do not convert relative dates by guessing" in prompt
+    assert "Each candidate must include an exact evidence_quote substring" in prompt
 
 
 def test_openai_json_memory_extractor_maps_structured_response() -> None:
