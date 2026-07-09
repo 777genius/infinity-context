@@ -21,9 +21,9 @@ from infinity_context_adapters.postgres.models import (
 from infinity_context_core.application import BuildContextQuery
 from infinity_context_core.application.context_collectors import (
     _bounded_derived_retrieval_queries,
-    _keyword_search_chunks,
     _keyword_candidate_pool_limit,
     _keyword_query_search_limit,
+    _keyword_search_chunks,
 )
 from infinity_context_core.application.context_query_expansion import (
     build_query_expansion_plan,

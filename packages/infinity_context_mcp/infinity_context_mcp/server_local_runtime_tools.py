@@ -23,8 +23,9 @@ def register_local_runtime_tools(
         name="memory_local_runtime_status",
         title="Local Infinity Context Runtime Status",
         description=(
-            "Check local Infinity Context runtime configuration and API reachability without writing "
-            "files, starting Docker, or launching Obsidian. If disabled, reports the required "
+            "Check local Infinity Context runtime configuration and API reachability without "
+            "writing files, starting Docker, or launching Obsidian. If disabled, reports the "
+            "required "
             "env gate instead of touching the filesystem."
         ),
         annotations=ToolAnnotations(
@@ -50,8 +51,9 @@ def register_local_runtime_tools(
         name="memory_local_runtime_init",
         title="Initialize Local Infinity Context Runtime",
         description=(
-            "Plan or apply local Infinity Context config initialization. Dry-run by default and never "
-            "starts services. Requires MEMORY_MCP_LOCAL_RUNTIME_ENABLED=true before it can write "
+            "Plan or apply local Infinity Context config initialization. Dry-run by default and "
+            "never starts services. Requires MEMORY_MCP_LOCAL_RUNTIME_ENABLED=true before it can "
+            "write "
             "the local config or env file. The service token is never returned."
         ),
         annotations=ToolAnnotations(
@@ -99,7 +101,8 @@ def register_local_runtime_tools(
         name="memory_local_runtime_doctor",
         title="Diagnose Local Infinity Context Runtime",
         description=(
-            "Run local Infinity Context diagnostics without writing files or starting services. Checks "
+            "Run local Infinity Context diagnostics without writing files or starting services. "
+            "Checks "
             "repo root, Docker availability, service token configuration, and API endpoints."
         ),
         annotations=ToolAnnotations(

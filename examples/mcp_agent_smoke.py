@@ -32,7 +32,9 @@ async def run_smoke() -> dict[str, Any]:
     env.setdefault("MEMORY_MCP_AGENT_NAME", "mcp-live-smoke-agent")
     env.setdefault("MEMORY_MCP_TRANSPORT", "stdio")
 
-    params = StdioServerParameters(command=sys.executable, args=["-m", "infinity_context_mcp"], env=env)
+    params = StdioServerParameters(
+        command=sys.executable, args=["-m", "infinity_context_mcp"], env=env
+    )
     async with stdio_client(params) as (read, write), ClientSession(read, write) as session:
         await session.initialize()
         tools = await session.list_tools()

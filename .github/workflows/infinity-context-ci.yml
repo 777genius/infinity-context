@@ -27,14 +27,12 @@ jobs:
       - name: Set up Python
         uses: actions/setup-python@v6
         with:
-          python-version: "3.13"
-          cache: pip
-          cache-dependency-path: pyproject.toml
+          python-version: "3.13.5"
 
       - name: Install dependencies
         run: |
-          python -m pip install --upgrade pip
-          python -m pip install -e ".[dev,qdrant,openai,graphiti,mcp]"
+          python -m pip install --upgrade pip uv
+          uv sync --all-extras --frozen
 
       - name: Run memory quality gate
-        run: make PYTHON=python RUFF=ruff memory-test-quality
+        run: make infinity-context-test-quality

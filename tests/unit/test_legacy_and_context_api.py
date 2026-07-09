@@ -24,8 +24,8 @@ from infinity_context_core.application.context_collectors import (
     CanonicalContextCollector,
 )
 from infinity_context_core.domain.entities import MemoryScopeId, SpaceId, TrustLevel
-from infinity_context_server.api.legacy_client import _legacy_trust
 from infinity_context_server.config import DeployProfile, MemoryPolicyMode, Settings
+from infinity_context_server.features.memory_facts.public import legacy_interview_trust
 from infinity_context_server.main import create_app
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -89,7 +89,7 @@ def legacy_event(session_id: str, event_id: str, text: str) -> dict[str, Any]:
 
 
 def test_legacy_unknown_source_maps_to_low_trust() -> None:
-    assert _legacy_trust("unknown_screen_scraper") == TrustLevel.LOW
+    assert legacy_interview_trust("unknown_screen_scraper") == TrustLevel.LOW
 
 
 def test_future_occurred_at_is_clamped_to_ingest_time(tmp_path: Path) -> None:

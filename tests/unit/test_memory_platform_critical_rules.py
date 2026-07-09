@@ -3,7 +3,9 @@ from pathlib import Path
 from infinity_context_core.application import context_diagnostics, context_link_policy
 from infinity_context_core.application.use_cases import context_link_reviews
 from infinity_context_core.domain import assets
-from infinity_context_server.api.v1 import context as context_api
+from infinity_context_server.features.context_building import (
+    legacy_api_responses as context_api_responses,
+)
 
 ROOT = Path(__file__).resolve().parents[2]
 
@@ -13,7 +15,7 @@ def test_memory_platform_rules_lock_bounded_payload_budgets() -> None:
 
     assert "## Bounded payload budgets" in rules
     assert f"max {context_diagnostics._MAX_RETRIEVAL_SOURCES}" in rules
-    assert f"max {context_api._MAX_PUBLIC_CONTEXT_SOURCE_REFS}" in rules
+    assert f"max {context_api_responses._MAX_PUBLIC_CONTEXT_SOURCE_REFS}" in rules
     assert f"max {context_diagnostics._MAX_DIAGNOSTIC_MAPPING_ITEMS}" in rules
     assert f"max {context_diagnostics._MAX_DIAGNOSTIC_LIST_ITEMS}" in rules
     assert f"max {context_diagnostics._MAX_DIAGNOSTIC_KEY_CHARS} chars" in rules

@@ -167,7 +167,8 @@ def _inbox_readme() -> str:
         [
             "# Infinity Context Inbox",
             "",
-            "Write free-form notes here when you want Infinity Context to create pending suggestions.",
+            "Write free-form notes here when you want Infinity Context to create pending"
+            " suggestions.",
             "",
             "These notes do not directly update canonical facts.",
             "",

@@ -17,7 +17,9 @@ from infinity_context_adapters.extraction.openai_vision import (
     OpenAIVisionImageExtractionEngine,
 )
 from infinity_context_adapters.extraction.transcription import OpenAISpeechTranscriptionAdapter
-from infinity_context_adapters.extraction.transcription_engine import SpeechTranscriptionExtractionEngine
+from infinity_context_adapters.extraction.transcription_engine import (
+    SpeechTranscriptionExtractionEngine,
+)
 from infinity_context_adapters.extraction.whisper_engine import FasterWhisperTranscriptionEngine
 
 __all__ = [

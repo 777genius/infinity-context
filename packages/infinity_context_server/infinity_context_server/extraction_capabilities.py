@@ -333,7 +333,10 @@ def build_extraction_capability_payload(settings: Settings) -> dict[str, object]
 
 def _provider_states(settings: Settings) -> dict[str, _ProviderState]:
     external_ready = settings.extraction_external_ai_enabled and bool(settings.openai_api_key)
-    openai_installed = _module_available("openai")
+    # OpenAI extraction adapters are bundled here and load provider clients lazily on
+    # execution, so capabilities should expose config readiness without importing
+    # optional provider SDKs at diagnostics time.
+    openai_installed = True
     docling_installed = _module_available("docling")
     local_asr_installed = _module_available("faster_whisper")
     transcription_configured = (

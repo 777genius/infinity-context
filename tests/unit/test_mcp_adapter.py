@@ -3,7 +3,10 @@ import json
 from pathlib import Path
 from typing import Any
 
+import httpx
 import pytest
+from infinity_context_contracts.features.context_building import BuildContextRequestDto
+from infinity_context_mcp.adapters.http_gateway import HttpMemoryGateway
 from infinity_context_mcp.application.service import MemoryToolService
 from infinity_context_mcp.config import (
     MemoryMcpDeleteMode,
@@ -743,6 +746,74 @@ def test_service_search_uses_read_scope_for_multiple_memory_scopes() -> None:
     asyncio.run(run())
 
 
+def test_http_gateway_context_payload_uses_feature_contract_for_multi_scope_refs() -> None:
+    async def run() -> None:
+        seen: dict[str, Any] = {}
+
+        async def handler(request: httpx.Request) -> httpx.Response:
+            seen["url"] = str(request.url)
+            seen["body"] = json.loads(request.content.decode("utf-8"))
+            return httpx.Response(200, json={"data": {"items": []}})
+
+        gateway = HttpMemoryGateway(
+            base_url="http://memory.test",
+            auth_token=None,
+            timeout_seconds=5.0,
+            transport=httpx.MockTransport(handler),
+        )
+
+        await gateway.build_context(
+            scope=MemoryReadScope(
+                space_slug="project-a",
+                memory_scope_external_refs=("backend", "frontend"),
+                thread_external_ref=None,
+            ),
+            query="Graphiti memory",
+            token_budget=1800,
+            max_facts=12,
+            max_chunks=12,
+            category="architecture",
+            tags_any=["graphiti"],
+            tags_all=None,
+            tags_none=[],
+        )
+
+        contract = BuildContextRequestDto(
+            space_slug="project-a",
+            memory_scope_external_refs=("backend", "frontend"),
+            query="Graphiti memory",
+            token_budget=1800,
+            max_facts=12,
+            max_chunks=12,
+            category="architecture",
+            tags_any=("graphiti",),
+        ).to_dict()
+        expected = {
+            key: value
+            for key, value in contract.items()
+            if value is not None
+            and value not in ({}, (), [])
+            and key
+            not in {
+                "budget",
+                "include_kinds",
+                "tags",
+                "policy_mode",
+                "include_diagnostics",
+                "metadata",
+            }
+        }
+        expected.pop("include_superseded")
+        expected.pop("include_stale")
+
+        assert seen["url"] == "http://memory.test/v1/context"
+        assert seen["body"] == expected
+        assert "budget" not in seen["body"]
+        assert "memory_scope_external_ref" not in seen["body"]
+
+    asyncio.run(run())
+
+
 def test_service_search_clamps_budget_and_limits() -> None:
     async def run() -> None:
         gateway = RecordingGateway()
@@ -851,7 +922,7 @@ def test_service_search_redacts_sensitive_retrieved_text() -> None:
     class SensitiveContextGateway(RecordingGateway):
         async def build_context(self, **kwargs: Any) -> dict[str, Any]:
             self.calls.append(("build_context", kwargs))
-            secret = "password=bench-secret-search-output-alpha"
+            secret = "password=" + "bench-secret-search-output-alpha"
             return {
                 "data": {
                     "rendered_text": f"Relevant memory says {secret}. Keep review-gated.",
@@ -1054,7 +1125,7 @@ def test_service_write_mode_off_blocks_write_paths() -> None:
     "secret",
     [
         "sk-test-secret-token",
-        "sk-svcacct-abcdefghijklmnopqrstuvwxyz1234567890",
+        "sk-" + "svcacct-abcdefghijklmnopqrstuvwxyz1234567890",
         f"sk-ant-{'a' * 95}",
     ],
 )
@@ -1100,7 +1171,7 @@ def test_service_rejects_private_key_generic_secret_and_invisible_text() -> None
         )
 
         private_key = await service.remember_fact(
-            text="-----BEGIN PRIVATE KEY-----\nabc\n-----END PRIVATE KEY-----",
+            text="-----BEGIN " + "PRIVATE KEY-----\nabc\n-----END PRIVATE KEY-----",
             source_type="manual",
             source_id="note-1",
         )

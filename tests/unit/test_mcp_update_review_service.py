@@ -1,10 +1,10 @@
 import asyncio
 from typing import Any
 
-from mcp_adapter_fakes import RecordingGateway
 from infinity_context_mcp.application.service import MemoryToolService
 from infinity_context_mcp.config import MemoryMcpSettings, MemoryMcpWriteMode
 from infinity_context_mcp.domain.models import MemoryGatewayError, MemoryScope
+from mcp_adapter_fakes import RecordingGateway
 
 
 def test_service_suggest_fact_creates_pending_review_candidate() -> None:
@@ -392,7 +392,10 @@ def test_service_propose_updates_dry_run_has_no_side_effects() -> None:
             dry_run=True,
         )
 
-        assert result["data"]["needs_review"][0]["decision_code"] == "infinity_context_mcp.policy.dry_run"
+        assert (
+            result["data"]["needs_review"][0]["decision_code"]
+            == "infinity_context_mcp.policy.dry_run"
+        )
         assert result["diagnostics"]["side_effects"] == []
         assert gateway.calls == []
 

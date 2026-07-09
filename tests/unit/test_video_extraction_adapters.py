@@ -48,6 +48,22 @@ def test_speech_transcription_engine_binds_video_keyframe_timeline(
         "analyze_video_keyframes",
         _fake_video_frame_evidence,
     )
+    monkeypatch.setattr(
+        transcription_engine_module,
+        "probe_media_with_ffprobe",
+        lambda request: MediaProbeResult(
+            status="succeeded",
+            duration_seconds=8.0,
+            stream_summaries=("video/h264 640x360", "audio/aac 48000Hz 2ch"),
+            metadata={
+                "probe_status": "succeeded",
+                "video_width": 640,
+                "video_height": 360,
+                "audio_sample_rate": "48000",
+                "audio_channels": 2,
+            },
+        ),
+    )
     engine = SpeechTranscriptionExtractionEngine(
         transcription=OpenAISpeechTranscriptionAdapter(
             api_key=None,

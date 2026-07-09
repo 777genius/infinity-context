@@ -16,8 +16,30 @@ class GraphExportGateway:
             "data": {
                 "schema_version": "infinity_context.graph_export.v1",
                 "scope": {"space_id": "space_1", "memory_scope_id": "memory_scope_1"},
-                "nodes": [{"id": "fact:fact_1", "type": "fact", "label": "Fact", "data": {}}],
-                "edges": [],
+                "nodes": [
+                    {
+                        "id": "anchor:anchor_1",
+                        "type": "anchor",
+                        "label": "Atlas",
+                        "data": {
+                            "aliases": ["Project Atlas", "Atlas"],
+                            "metadata": {
+                                "labels": ["canonical", "project"],
+                                "confidence": 0.93,
+                            },
+                        },
+                    }
+                ],
+                "edges": [
+                    {
+                        "id": "anchor:anchor_1->fact:fact_1",
+                        "type": "supports",
+                        "source": "anchor:anchor_1",
+                        "target": "fact:fact_1",
+                        "label": "supports",
+                        "data": {"bbox": [1.0, 2.0, 30.0, 40.0]},
+                    }
+                ],
                 "counts": {
                     "facts": 1,
                     "documents": 0,
@@ -49,6 +71,12 @@ def test_memory_export_graph_uses_default_scope_and_preserves_payload() -> None:
     assert parsed.data is not None
     assert parsed.data.schema_version == "infinity_context.graph_export.v1"
     assert parsed.data.counts["facts"] == 1
+    assert parsed.data.nodes[0].data["aliases"] == ["Project Atlas", "Atlas"]
+    assert parsed.data.nodes[0].data["metadata"] == {
+        "labels": ["canonical", "project"],
+        "confidence": 0.93,
+    }
+    assert parsed.data.edges[0].data["bbox"] == [1.0, 2.0, 30.0, 40.0]
     assert gateway.calls[0]["scope"].space_slug == "client-app"
     assert gateway.calls[0]["scope"].memory_scope_external_ref == "default"
     assert gateway.calls[0]["include_deleted"] is False

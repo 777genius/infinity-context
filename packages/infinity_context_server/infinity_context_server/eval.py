@@ -2993,6 +2993,12 @@ def main(argv: Sequence[str] | None = None) -> None:
         raise SystemExit(int(result["diagnostics"]["cli_readiness"]["exit_code"]))
     if not result["ok"]:
         raise SystemExit(1)
+    if (
+        args.command == "memory-comparison-benchmark"
+        and args.preflight_only
+        and result.get("ready_for_locomo_fast") is False
+    ):
+        raise SystemExit(2)
 
 
 def _memory_comparison_preflight_config_from_args(

@@ -210,6 +210,39 @@ def test_export_graph_excludes_restricted_memory_by_default(tmp_path: Path) -> N
     assert unrestricted_graph.json()["data"]["counts"]["facts"] == 1
 
 
+def test_export_graph_returns_empty_payload_when_scope_is_not_found(tmp_path: Path) -> None:
+    with make_client(tmp_path) as client:
+        graph = client.get(
+            "/v1/export/graph.json",
+            params={
+                "space_slug": "missing-graph-export",
+                "memory_scope_external_ref": "missing",
+            },
+            headers=auth_headers(),
+        )
+
+    assert graph.status_code == 200
+    assert graph.json()["data"] == {
+        "schema_version": "infinity_context.graph_export.v1",
+        "scope": {"scope_not_found": True},
+        "nodes": [],
+        "edges": [],
+        "counts": {
+            "facts": 0,
+            "documents": 0,
+            "episodes": 0,
+            "chunks": 0,
+            "anchors": 0,
+            "nodes": 0,
+            "edges": 0,
+            "relations": 0,
+            "anchor_relations": 0,
+        },
+        "truncated": False,
+        "warnings": ["scope_not_found"],
+    }
+
+
 def test_export_graph_includes_anchor_relation_projection(tmp_path: Path) -> None:
     with make_client(tmp_path) as client:
         person = client.post(

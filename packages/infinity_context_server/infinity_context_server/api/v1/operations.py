@@ -9,10 +9,10 @@ from infinity_context_core.application import MemoryOperationsConsoleQuery
 
 from infinity_context_server.api.auth import require_service_token
 from infinity_context_server.api.dependencies import get_container
-from infinity_context_server.api.v1.assets import asset_extraction_to_response
 from infinity_context_server.api.v1.context_links import context_link_suggestion_to_response
 from infinity_context_server.api.v1.scope_resolution import resolve_existing_single_scope
 from infinity_context_server.composition import Container
+from infinity_context_server.features.document_ingestion import public as document_ingestion_server
 
 router = APIRouter(
     tags=["operations"],
@@ -69,7 +69,8 @@ async def get_operations_console(
             "extraction_status_counts": result.extraction_status_counts,
             "link_suggestion_status_counts": result.link_suggestion_status_counts,
             "extraction_jobs": [
-                asset_extraction_to_response(job) for job in result.extraction_jobs
+                document_ingestion_server.asset_extraction_to_response(job)
+                for job in result.extraction_jobs
             ],
             "context_link_suggestions": [
                 context_link_suggestion_to_response(item)

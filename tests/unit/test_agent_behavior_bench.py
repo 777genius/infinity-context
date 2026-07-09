@@ -2,7 +2,6 @@ import asyncio
 import json
 from typing import Any
 
-from mcp.types import Tool
 from infinity_context_core.agent_behavior_contract import (
     AGENT_BEHAVIOR_TOP_EVIDENCE_SCENARIO_IDS,
 )
@@ -36,6 +35,7 @@ from infinity_context_mcp.agent_behavior_bench import (
     run_tool_loop,
     scenarios_for_set,
 )
+from mcp.types import Tool
 
 
 class FakeLlmClient:

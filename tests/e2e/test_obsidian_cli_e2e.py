@@ -83,7 +83,8 @@ def test_obsidian_cli_syncs_real_backend_without_opening_obsidian(tmp_path: Path
         assert "infinity_context_version: 2" in fact_path.read_text(encoding="utf-8")
 
         inbox_path = (
-            vault_path / "Infinity Context/spaces/obsidian-cli-e2e/memory_scopes/default/inbox/idea.md"
+            vault_path
+            / "Infinity Context/spaces/obsidian-cli-e2e/memory_scopes/default/inbox/idea.md"
         )
         inbox_path.parent.mkdir(parents=True, exist_ok=True)
         inbox_path.write_text(inbox_text, encoding="utf-8")

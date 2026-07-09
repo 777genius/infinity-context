@@ -17,10 +17,10 @@ from typing import Any
 
 import httpx
 import uvicorn
-from mcp import ClientSession, StdioServerParameters
-from mcp.client.stdio import stdio_client
 from infinity_context_server.config import DeployProfile, Settings
 from infinity_context_server.main import create_app
+from mcp import ClientSession, StdioServerParameters
+from mcp.client.stdio import stdio_client
 
 TOKEN = "obsidian-mcp-e2e-token"
 LIVE_SPACE = "mcp-live"
@@ -289,7 +289,9 @@ async def _run(temp_dir: Path) -> dict[str, Any]:
             {"apply": False, "install_plugin": True, "enable_plugin": True},
         ),
     )
-    expected_facts = vault / "Infinity Context/spaces/mcp-smoke/memory_scopes/default/generated/facts"
+    expected_facts = (
+        vault / "Infinity Context/spaces/mcp-smoke/memory_scopes/default/generated/facts"
+    )
     _assert(dry_run["ok"] is True, "dry-run setup should succeed")
     _assert(dry_run["data"]["dry_run"] is True, "dry-run setup should remain dry")
     _assert(dry_run["data"]["would_install_plugin"] is True, "dry-run should plan plugin install")
@@ -763,7 +765,10 @@ def _replace_managed_text(path: Path, text: str) -> None:
 
 
 def _write_inbox_note(vault: Path, text: str) -> None:
-    path = vault / f"Infinity Context/spaces/{LIVE_SPACE}/memory_scopes/{PROFILE}/inbox/mcp-live-inbox.md"
+    path = (
+        vault
+        / f"Infinity Context/spaces/{LIVE_SPACE}/memory_scopes/{PROFILE}/inbox/mcp-live-inbox.md"
+    )
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(text, encoding="utf-8")
 

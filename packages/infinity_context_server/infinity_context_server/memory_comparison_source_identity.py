@@ -549,14 +549,16 @@ def source_identity_audit_gap_codes(
         gap_codes.append("broad_source_turn_identity")
     elif not source_turn_refs and len(text_turn_refs) > 3:
         gap_codes.append("broad_text_turn_identity")
-    if _source_session_turn_mismatch(refs):
-        gap_codes.append("source_session_turn_mismatch")
-    if (
+    source_session_turn_mismatch = _source_session_turn_mismatch(refs)
+    source_text_session_turn_mismatch = (
         source_session_turn_refs
         and text_session_turn_refs
         and not set(text_session_turn_refs).issubset(set(source_session_turn_refs))
-    ):
+    )
+    if source_text_session_turn_mismatch:
         gap_codes.append("source_text_session_turn_mismatch")
+    elif source_session_turn_mismatch:
+        gap_codes.append("source_session_turn_mismatch")
     elif (
         source_turn_refs
         and text_turn_refs
@@ -1452,6 +1454,22 @@ def _source_session_turn_mismatch(source_refs: Sequence[str]) -> bool:
 
 
 def _source_ref_session_numbers(source_refs: Sequence[str]) -> tuple[str, ...]:
+    session_turn_refs = _source_session_turn_refs(source_refs)
+    if session_turn_refs:
+        return tuple(
+            dict.fromkeys(
+                match.group("session")
+                for source_ref in session_turn_refs
+                for match in (
+                    re.fullmatch(
+                        r"session[-_](?P<session>\d+):D\d+:\d+",
+                        source_ref,
+                        re.IGNORECASE,
+                    ),
+                )
+                if match is not None
+            )
+        )
     return tuple(
         dict.fromkeys(
             match.group("session")

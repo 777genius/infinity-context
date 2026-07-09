@@ -1,6 +1,8 @@
 from __future__ import annotations
 
-from infinity_context_core.memory_scope_snapshot_preview import build_memory_scope_snapshot_import_preview
+from infinity_context_core.memory_scope_snapshot_preview import (
+    build_memory_scope_snapshot_import_preview,
+)
 
 
 def test_memory_scope_snapshot_import_preview_reports_skip_and_supersede() -> None:

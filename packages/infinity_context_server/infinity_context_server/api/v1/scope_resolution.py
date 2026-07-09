@@ -9,7 +9,10 @@ from infinity_context_core.domain.entities import MemoryScopeId, SpaceId, Thread
 from infinity_context_core.domain.errors import MemoryValidationError
 from infinity_context_core.ports.auth import MemoryWriteScope, ReadScope
 
-from infinity_context_server.auth_scope import canonical_scope_matches, resolve_existing_external_scope
+from infinity_context_server.auth_scope import (
+    canonical_scope_matches,
+    resolve_existing_external_scope,
+)
 from infinity_context_server.composition import Container
 
 
