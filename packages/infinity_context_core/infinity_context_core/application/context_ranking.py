@@ -7,6 +7,7 @@ from collections.abc import Mapping
 from dataclasses import dataclass, replace
 from functools import lru_cache
 
+import infinity_context_core.application.context_anchor_intent_ranking as _anchor_intent_ranking
 import infinity_context_core.application.context_bm25_ranking as _bm25_ranking
 import infinity_context_core.application.context_requirement_ranking as _requirement_ranking
 from infinity_context_core.application.context_action_roles import action_role_rerank_signal
@@ -135,7 +136,7 @@ from infinity_context_core.domain.entities import (
 )
 
 _QueryExpansionTerms = tuple[tuple[str, str, tuple[LexicalQueryTerm, ...]], ...]
-_QUERY_ANCHOR_INTENT_MAX_BOOST = 0.035
+_QUERY_ANCHOR_INTENT_MAX_BOOST = _anchor_intent_ranking.QUERY_ANCHOR_INTENT_MAX_BOOST
 _CONTEXT_REQUIREMENT_MAX_BOOST = _requirement_ranking.CONTEXT_REQUIREMENT_MAX_BOOST
 _GENERIC_BOOSTABLE_ANSWER_SHAPES = _requirement_ranking.GENERIC_BOOSTABLE_ANSWER_SHAPES
 _DETERMINISTIC_RERANK_MAX_BOOST = 0.055
@@ -405,15 +406,10 @@ def apply_query_anchor_intent_boosts(
     intent: QueryAnchorIntent,
     max_boost: float = _QUERY_ANCHOR_INTENT_MAX_BOOST,
 ) -> tuple[ContextItem, ...]:
-    if not items or intent.empty or max_boost <= 0:
-        return items
-    return tuple(
-        _with_query_anchor_intent_boost(
-            item,
-            match=match_query_anchor_intent_to_text(intent, item.text),
-            max_boost=max_boost,
-        )
-        for item in items
+    return _anchor_intent_ranking.apply_query_anchor_intent_boosts(
+        items,
+        intent=intent,
+        max_boost=max_boost,
     )
 
 
@@ -790,48 +786,6 @@ class _RequirementCoverageSignals:
         if not self.requested_answer_shapes:
             return 0.0
         return len(self.covered_answer_shapes) / len(self.requested_answer_shapes)
-
-
-def _with_query_anchor_intent_boost(
-    item: ContextItem,
-    *,
-    match: object,
-    max_boost: float,
-) -> ContextItem:
-    if match is None or _query_anchor_intent_already_applied(item):
-        return item
-    try:
-        raw_boost = float(getattr(match, "score_boost", 0.0))
-    except (TypeError, ValueError):
-        return item
-    boost = min(max_boost, max(0.0, round(raw_boost, 4)))
-    if boost <= 0:
-        return item
-    diagnostics = normalize_context_diagnostics(item.diagnostics)
-    reasons = tuple(getattr(match, "reasons", ()) or ())
-    matched_keys = tuple(getattr(match, "matched_keys", ()) or ())
-    diagnostics["query_anchor_intent_reason"] = "query anchor identity matched context item text"
-    diagnostics["score_signals"] = {
-        **safe_score_signals(diagnostics.get("score_signals")),
-        "query_anchor_intent_boost": boost,
-        "query_anchor_intent_reason_count": len(reasons),
-        "query_anchor_intent_matched_key_count": len(matched_keys),
-    }
-    diagnostics["provenance"] = {
-        **safe_diagnostic_mapping(diagnostics.get("provenance")),
-        "query_anchor_intent_applied": True,
-        "query_anchor_intent_reasons": list(reasons[:8]),
-        "query_anchor_intent_matched_keys": list(matched_keys[:8]),
-    }
-    return replace(
-        item,
-        score=min(0.99, round(item.score + boost, 4)),
-        diagnostics=normalize_context_diagnostics(diagnostics),
-    )
-
-
-def _query_anchor_intent_already_applied(item: ContextItem) -> bool:
-    return _provenance_flag_is_true(item.diagnostics, "query_anchor_intent_applied")
 
 
 def _with_deterministic_rerank_adjustment(
