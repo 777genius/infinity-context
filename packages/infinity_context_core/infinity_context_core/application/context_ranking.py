@@ -10,6 +10,7 @@ from functools import lru_cache
 import infinity_context_core.application.context_anchor_intent_ranking as _anchor_intent_ranking
 import infinity_context_core.application.context_bm25_ranking as _bm25_ranking
 import infinity_context_core.application.context_keyword_ranking as _keyword_ranking
+import infinity_context_core.application.context_query_relevance_ranking as _query_relevance_ranking
 import infinity_context_core.application.context_rank_dedupe as _rank_dedupe
 import infinity_context_core.application.context_requirement_ranking as _requirement_ranking
 import infinity_context_core.application.context_requirement_signals as _requirement_signals
@@ -83,12 +84,6 @@ from infinity_context_core.application.context_ranking_reason_policy import (
 from infinity_context_core.application.context_ranking_reason_policy import (
     ACTIVITY_OWNER_REASONS as _ACTIVITY_OWNER_REASONS,
 )
-from infinity_context_core.application.context_ranking_reason_policy import (
-    QUERY_REASON_PRIORITY as _QUERY_REASON_PRIORITY,
-)
-from infinity_context_core.application.context_ranking_reason_policy import (
-    QUERY_REASON_PRIORITY_MIN_DISTINCTIVE_HITS as _QUERY_REASON_PRIORITY_MIN_DISTINCTIVE_HITS,
-)
 from infinity_context_core.application.context_relation_requirement import (
     relation_requirement_signal,
 )
@@ -96,7 +91,6 @@ from infinity_context_core.application.context_relevance import (
     QueryRelevance,
     has_project_identity_mismatch,
     is_query_relevance_sufficient,
-    score_query_terms_relevance_against_profile,
 )
 from infinity_context_core.application.context_requirement_coverage import (
     context_requirement_coverage,
@@ -363,44 +357,26 @@ def best_query_relevance(
     *,
     text: str,
 ) -> tuple[str, str, QueryRelevance]:
-    text_counts, text_variants = text_variant_profile(text)
-    scored = tuple(
-        (
-            query,
-            reason,
-            score_query_terms_relevance_against_profile(
-                terms=terms,
-                text_counts=text_counts,
-                text_variants=text_variants,
-            ),
-        )
-        for query, reason, terms in _query_expansion_terms(plan)
+    return _query_relevance_ranking.best_query_relevance(
+        plan,
+        text=text,
+        query_expansion_terms_fn=_query_expansion_terms,
+        query_relevance_rank_key_fn=query_relevance_rank_key,
+        text_variant_profile_fn=text_variant_profile,
     )
-    return max(scored, key=query_relevance_rank_key)
 
 
 def query_relevance_rank_key(
     item: tuple[str, str, QueryRelevance],
 ) -> tuple[bool, int, int, int, float, bool]:
-    _, reason, relevance = item
-    return (
-        is_query_relevance_sufficient(relevance),
-        _query_reason_priority_for_relevance(reason, relevance),
-        relevance.distinctive_term_hits,
-        relevance.unique_term_hits,
-        relevance.score_boost,
-        reason == "original_query",
-    )
+    return _query_relevance_ranking.query_relevance_rank_key(item)
 
 
 def _query_reason_priority_for_relevance(
     reason: str,
     relevance: QueryRelevance,
 ) -> int:
-    min_hits = _QUERY_REASON_PRIORITY_MIN_DISTINCTIVE_HITS.get(reason, 0)
-    if relevance.distinctive_term_hits < min_hits:
-        return 0
-    return _QUERY_REASON_PRIORITY.get(reason, 0)
+    return _query_relevance_ranking.query_reason_priority_for_relevance(reason, relevance)
 
 
 def keyword_chunk_score(
