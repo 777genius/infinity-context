@@ -1,9 +1,12 @@
 from __future__ import annotations
 
+import json
+import os
 import stat
+import tomllib
 from pathlib import Path
 
-from infinity_context_cli.config import init_local_config, load_config
+from infinity_context_cli.config import _config_text, init_local_config, load_config
 from infinity_context_cli.mcp_config import render_mcp_config, write_mcp_config
 
 
@@ -22,6 +25,20 @@ def test_cli_init_config_is_idempotent_and_keeps_token(tmp_path: Path, monkeypat
     assert second.config_path.exists()
     assert second.env_path.exists()
     assert "MEMORY_SERVICE_TOKEN=" in second.env_path.read_text(encoding="utf-8")
+
+
+def test_cli_config_text_escapes_windows_paths() -> None:
+    text = _config_text(
+        home=Path("C:\\Users\\agent\\AppData\\Local\\Infinity Context"),
+        repo_dir=Path("C:\\Users\\agent\\Projects\\infinity-context"),
+        api_url="http://127.0.0.1:7788/",
+    )
+
+    data = tomllib.loads(text)
+
+    assert data["local"]["home"] == "C:\\Users\\agent\\AppData\\Local\\Infinity Context"
+    assert data["local"]["repo_dir"] == "C:\\Users\\agent\\Projects\\infinity-context"
+    assert data["local"]["api_url"] == "http://127.0.0.1:7788"
 
 
 def test_cli_load_config_supports_env_overrides(tmp_path: Path, monkeypatch) -> None:
@@ -53,11 +70,12 @@ def test_mcp_config_redacts_token_by_default(tmp_path: Path) -> None:
 
     rendered = render_mcp_config(agent="codex", config=config)
     written = write_mcp_config(agent="codex", config=config)
+    rendered_env = json.loads(rendered)["infinity-context"]["env"]
 
     assert config.service_token not in rendered
     assert "${MEMORY_MCP_AUTH_TOKEN}" not in rendered
     assert "MEMORY_MCP_AUTH_TOKEN_FILE" in rendered
-    assert str(config.env_path) in rendered
+    assert rendered_env["MEMORY_MCP_AUTH_TOKEN_FILE"] == str(config.env_path)
     assert written.read_text(encoding="utf-8") == rendered + "\n"
 
 
@@ -94,4 +112,5 @@ def test_mcp_config_with_token_is_private(tmp_path: Path) -> None:
     written = write_mcp_config(agent="codex", config=config, include_token=True)
 
     assert config.service_token in written.read_text(encoding="utf-8")
-    assert stat.S_IMODE(written.stat().st_mode) == 0o600
+    if os.name != "nt":
+        assert stat.S_IMODE(written.stat().st_mode) == 0o600
