@@ -7,6 +7,7 @@ from dataclasses import dataclass
 
 import infinity_context_core.application.context_packer_answer_slots as _answer_slots
 import infinity_context_core.application.context_packer_diagnostics as _diagnostics
+import infinity_context_core.application.context_packer_identity_policy as _identity
 import infinity_context_core.application.context_packer_rendering as _rendering
 import infinity_context_core.application.context_packer_source_policy as _source_policy
 from infinity_context_core.application.context_diagnostics import (
@@ -122,12 +123,10 @@ _DIVERSITY_FAMILY_PRIORITY = (
 )
 _DIALOGUE_MARKER_RE = re.compile(r"\bD\d+:\d+\b")
 
-
 @dataclass(frozen=True)
 class PackResult:
     bundle: ContextBundle
     dropped_count: int
-
 
 @dataclass
 class _SelectionState:
@@ -138,7 +137,6 @@ class _SelectionState:
     selected_source_capped_items_by_source: dict[str, int]
     selected_art_style_items_by_source_group: dict[str, int]
     used_tokens: int = 0
-
 
 class ContextPacker:
     """Renders memory as evidence, never as instructions."""
@@ -293,7 +291,7 @@ class ContextPacker:
                         }
                     ),
                     "answer_support_items_used": answer_support_items_used,
-                    "item_type_counts": _item_type_counts(selected),
+                    "item_type_counts": _identity.item_type_counts(selected),
                     "chunk_sources_considered": len(
                         _source_policy.chunk_source_counts(selectable_items)
                     ),
@@ -350,7 +348,6 @@ class ContextPacker:
             dropped_count=dropped_count,
         )
 
-
 def _try_select_item(
     state: _SelectionState,
     *,
@@ -391,7 +388,6 @@ def _try_select_item(
     )
     return True
 
-
 def _select_item(
     state: _SelectionState,
     *,
@@ -421,10 +417,8 @@ def _select_item(
             )
     state.used_tokens += item_tokens
 
-
 def _selection_key(item: ContextItem) -> tuple[str, str]:
     return (item.item_type, item.item_id)
-
 
 def _diversity_candidates(items: list[ContextItem]) -> dict[str, ContextItem]:
     candidates: dict[str, ContextItem] = {}
@@ -437,43 +431,40 @@ def _diversity_candidates(items: list[ContextItem]) -> dict[str, ContextItem]:
             candidates[family] = item
     return candidates
 
-
 def _ordered_diversity_families(candidates: dict[str, ContextItem]) -> tuple[str, ...]:
     priority = {family: index for index, family in enumerate(_DIVERSITY_FAMILY_PRIORITY)}
     return tuple(
         sorted(
             candidates,
             key=lambda family: (
-                priority.get(_diversity_family_base(family), len(priority)),
+                priority.get(_identity.diversity_family_base(family), len(priority)),
                 context_rank_key(candidates[family]),
                 family,
             ),
         )
     )
 
-
 def _diversity_family(item: ContextItem) -> str:
     if item.item_type == "anchor":
-        return _typed_diversity_family(
+        return _identity.typed_diversity_family(
             "anchor",
             _diagnostics.diagnostic_text(item, "anchor_kind"),
         )
     if item.item_type == "extraction_artifact":
-        return _typed_diversity_family(
+        return _identity.typed_diversity_family(
             "extraction_artifact",
-            _artifact_diversity_hint(item),
+            _identity.artifact_diversity_hint(item),
         )
     if item.item_type in _DIVERSITY_FAMILY_PRIORITY:
         return item.item_type
     return item.item_type or "unknown"
 
-
 def _diversity_candidate_item_key(item: ContextItem) -> tuple[object, ...]:
-    query_reason = _answer_support_query_reason(item)
+    query_reason = _identity.answer_support_query_reason(item)
     broad_window_rank = 1
     if (
         query_reason in _DIVERSITY_PRECISE_TURN_REASONS
-        and _has_primary_exact_turn_source_ref(item)
+        and _identity.has_primary_exact_turn_source_ref(item)
     ) or (
         query_reason in _BROAD_EVIDENCE_ANSWER_SUPPORT_REASONS
         and len(item.source_refs) > 1
@@ -483,7 +474,6 @@ def _diversity_candidate_item_key(item: ContextItem) -> tuple[object, ...]:
         broad_window_rank,
         context_rank_key(item),
     )
-
 
 def _answer_support_diversity_candidates(items: list[ContextItem]) -> dict[str, ContextItem]:
     candidates: dict[str, ContextItem] = {}
@@ -497,7 +487,6 @@ def _answer_support_diversity_candidates(items: list[ContextItem]) -> dict[str, 
         ):
             candidates[family] = item
     return candidates
-
 
 def _ordered_answer_support_families(candidates: dict[str, ContextItem]) -> tuple[str, ...]:
     marker_source_group_counts = _marker_coverage_source_group_counts(candidates)
@@ -518,7 +507,6 @@ def _ordered_answer_support_families(candidates: dict[str, ContextItem]) -> tupl
         )
     )
     return _round_robin_inventory_slot_families(ordered)
-
 
 def _round_robin_inventory_slot_families(families: tuple[str, ...]) -> tuple[str, ...]:
     inventory_positions = tuple(
@@ -546,15 +534,13 @@ def _round_robin_inventory_slot_families(families: tuple[str, ...]) -> tuple[str
         for index, family in enumerate(families)
     )
 
-
 def _answer_support_inventory_family_slot(family: str) -> str:
-    if _diversity_family_base(family) not in {
+    if _identity.diversity_family_base(family) not in {
         "query_reason_inventory_slot",
         "query_reason_inventory_slot_source_group",
     }:
         return ""
     return _answer_slots.inventory_answer_slot_from_family(family)
-
 
 def _answer_support_family_priority(
     family: str,
@@ -563,12 +549,12 @@ def _answer_support_family_priority(
     marker_source_group_counts: dict[str, int],
     broad_turn_source_group_counts: dict[str, int],
 ) -> int:
-    base = _diversity_family_base(family)
+    base = _identity.diversity_family_base(family)
     if base == "query_reason_count_coverage_source_group":
         return 0
     if (
         base == "query_reason_broad_turn_source_group"
-        and _numeric_signal(
+        and _identity.numeric_signal(
             _diagnostics.diagnostic_score_signals(item).get("book_author_preference_world_evidence")
         )
         >= 3
@@ -580,7 +566,7 @@ def _answer_support_family_priority(
         "query_reason_activity_slot_source_group",
     }:
         return 0
-    query_reason = _answer_support_query_reason(item)
+    query_reason = _identity.answer_support_query_reason(item)
     if (
         base == "query_reason_broad_turn_source_group"
         and query_reason == "birdwatching_city_schedule_bridge"
@@ -619,28 +605,25 @@ def _answer_support_family_priority(
         return min(answer_object_rank + 2, 5)
     return 2
 
-
 def _marker_coverage_source_group_counts(candidates: dict[str, ContextItem]) -> dict[str, int]:
     counts: dict[str, int] = {}
     for family in candidates:
-        if _diversity_family_base(family) != "query_reason_marker_coverage_source_group":
+        if _identity.diversity_family_base(family) != "query_reason_marker_coverage_source_group":
             continue
         source_group = _marker_coverage_family_source_group(family)
         if source_group:
             counts[source_group] = counts.get(source_group, 0) + 1
     return counts
 
-
 def _broad_turn_source_group_counts(candidates: dict[str, ContextItem]) -> dict[str, int]:
     counts: dict[str, int] = {}
     for family in candidates:
-        if _diversity_family_base(family) != "query_reason_broad_turn_source_group":
+        if _identity.diversity_family_base(family) != "query_reason_broad_turn_source_group":
             continue
         source_group = _broad_turn_family_source_group(family)
         if source_group:
             counts[source_group] = counts.get(source_group, 0) + 1
     return counts
-
 
 def _broad_turn_family_source_group(family: str) -> str:
     parts = family.split(":")
@@ -648,13 +631,11 @@ def _broad_turn_family_source_group(family: str) -> str:
         return parts[-1]
     return ""
 
-
 def _marker_coverage_family_source_group(family: str) -> str:
     parts = family.split(":")
     if len(parts) >= 4:
         return parts[-1]
     return ""
-
 
 def _answer_support_source_group_reason_key(family: str) -> str:
     parts = family.split(":")
@@ -677,7 +658,6 @@ def _answer_support_source_group_reason_key(family: str) -> str:
         return f"{parts[1]}:{parts[2]}"
     return parts[1]
 
-
 def _answer_support_source_group_limit(
     reason: str,
     *,
@@ -686,7 +666,7 @@ def _answer_support_source_group_limit(
 ) -> int:
     if _is_count_aggregation_reason(reason):
         return _MAX_ANSWER_SUPPORT_DIVERSITY_ITEMS
-    family_base = _diversity_family_base(family)
+    family_base = _identity.diversity_family_base(family)
     aggregation_family_bases = {
         "query_reason_activity_slot_source_group",
         "query_reason_broad_turn_source_group",
@@ -712,34 +692,32 @@ def _answer_support_source_group_limit(
         return _MAX_ANSWER_SUPPORT_EVENT_SLOT_SOURCE_GROUP_DIVERSITY_ITEMS_PER_REASON
     return _MAX_ANSWER_SUPPORT_SOURCE_GROUP_DIVERSITY_ITEMS_PER_REASON
 
-
 def _is_count_aggregation_reason(reason: str) -> bool:
     normalized_reason = reason.replace("-", "_")
     return reason in _COUNT_AGGREGATION_COVERAGE_REASONS or (
         normalized_reason in _COUNT_AGGREGATION_COVERAGE_REASONS
     )
 
-
 def _answer_support_diversity_family(item: ContextItem) -> str:
-    query_reason = _answer_support_query_reason(item)
+    query_reason = _identity.answer_support_query_reason(item)
     if query_reason and query_reason != "original_query":
         if query_reason in _ANSWER_SUPPORT_EXCLUDED_QUERY_REASONS:
             return ""
-        source_group = _answer_support_source_group(item)
+        source_group = _identity.answer_support_source_group(item)
         career_slot = _answer_slots.career_answer_slot(item, query_reason=query_reason)
         activity_slot = _answer_slots.activity_answer_slot(item, query_reason=query_reason)
         inference_slot = _answer_slots.inference_answer_slot(item, query_reason=query_reason)
         inventory_slot = _answer_slots.inventory_answer_slot(item, query_reason=query_reason)
         if source_group:
             if broad_turn_slot := _broad_evidence_turn_slot(item, query_reason=query_reason):
-                return _compound_diversity_family(
+                return _identity.compound_diversity_family(
                     "query_reason_broad_turn_source_group",
                     query_reason,
                     broad_turn_slot,
                     source_group,
                 )
             if _is_count_aggregation_coverage_item(item, query_reason=query_reason):
-                return _compound_diversity_family(
+                return _identity.compound_diversity_family(
                     "query_reason_count_coverage_source_group",
                     query_reason,
                     source_group,
@@ -748,35 +726,35 @@ def _answer_support_diversity_family(item: ContextItem) -> str:
                 item,
                 query_reason=query_reason,
             ):
-                return _compound_diversity_family(
+                return _identity.compound_diversity_family(
                     "query_reason_marker_coverage_source_group",
                     query_reason,
                     marker_slot,
                     source_group,
                 )
             if inventory_slot:
-                return _compound_diversity_family(
+                return _identity.compound_diversity_family(
                     "query_reason_inventory_slot_source_group",
                     query_reason,
                     inventory_slot,
                     source_group,
                 )
             if activity_slot:
-                return _compound_diversity_family(
+                return _identity.compound_diversity_family(
                     "query_reason_activity_slot_source_group",
                     query_reason,
                     activity_slot,
                     source_group,
                 )
             if career_slot:
-                return _compound_diversity_family(
+                return _identity.compound_diversity_family(
                     "query_reason_career_slot_source_group",
                     query_reason,
                     career_slot,
                     source_group,
                 )
             if inference_slot:
-                return _compound_diversity_family(
+                return _identity.compound_diversity_family(
                     "query_reason_inference_slot_source_group",
                     query_reason,
                     inference_slot,
@@ -786,133 +764,80 @@ def _answer_support_diversity_family(item: ContextItem) -> str:
                 item,
                 "source_sibling_dialogue_visual_reference",
             ):
-                return _compound_diversity_family(
+                return _identity.compound_diversity_family(
                     "query_reason_source_group_visual_reference",
                     query_reason,
                     source_group,
                 )
-            return _compound_diversity_family(
+            return _identity.compound_diversity_family(
                 "query_reason_source_group",
                 query_reason,
                 source_group,
             )
         if activity_slot:
-            return _compound_diversity_family(
+            return _identity.compound_diversity_family(
                 "query_reason_activity_slot",
                 query_reason,
                 activity_slot,
             )
         if inventory_slot:
-            return _compound_diversity_family(
+            return _identity.compound_diversity_family(
                 "query_reason_inventory_slot",
                 query_reason,
                 inventory_slot,
             )
         if career_slot:
-            return _compound_diversity_family(
+            return _identity.compound_diversity_family(
                 "query_reason_career_slot",
                 query_reason,
                 career_slot,
             )
         if inference_slot:
-            return _compound_diversity_family(
+            return _identity.compound_diversity_family(
                 "query_reason_inference_slot",
                 query_reason,
                 inference_slot,
             )
-        return _typed_diversity_family("query_reason", query_reason)
+        return _identity.typed_diversity_family("query_reason", query_reason)
 
     matched_anchor_kinds = _diagnostics.diagnostic_list(
         item,
         "context_requirement_matched_anchor_kinds",
     )
     if matched_anchor_kinds:
-        return _typed_diversity_family("requirement_anchor", matched_anchor_kinds[0])
+        return _identity.typed_diversity_family("requirement_anchor", matched_anchor_kinds[0])
 
     matched_modalities = _diagnostics.diagnostic_list(
         item,
         "context_requirement_matched_modalities",
     )
     if matched_modalities:
-        return _typed_diversity_family("requirement_modality", matched_modalities[0])
+        return _identity.typed_diversity_family("requirement_modality", matched_modalities[0])
 
     matched_features = _diagnostics.diagnostic_list(
         item,
         "context_requirement_matched_evidence_features",
     )
     if matched_features:
-        return _typed_diversity_family("requirement_feature", matched_features[0])
+        return _identity.typed_diversity_family("requirement_feature", matched_features[0])
 
     return ""
-
-
-def _answer_support_query_reason(item: ContextItem) -> str:
-    query_reason = _diagnostics.diagnostic_signal_text(item, "query_expansion_reason")
-    deterministic_reason = _diagnostics.diagnostic_signal_text(
-        item,
-        "deterministic_rerank_query_reason",
-    )
-    if (
-        deterministic_reason
-        and deterministic_reason != "original_query"
-        and query_reason
-        in {
-            "decomposition_evidence_reason",
-            "decomposition_inference_support",
-        }
-    ):
-        return deterministic_reason
-    return (
-        query_reason
-        or _diagnostics.diagnostic_signal_text(item, "bm25_lexical_query_reason")
-        or deterministic_reason
-    )
-
-
-def _answer_support_source_group(item: ContextItem) -> str:
-    aggregation_source_group = _diagnostics.diagnostic_text(
-        item,
-        "keyword_aggregation_source_group",
-    )
-    if aggregation_source_group:
-        return aggregation_source_group
-    if set(diagnostic_retrieval_sources(item.diagnostics)).intersection(
-        {
-            "keyword_aggregation_chunks",
-            "keyword_source_sibling_chunks",
-        }
-    ):
-        return _rendering.source_group_key(item)
-    if _has_derived_source_group_ref(item):
-        return _rendering.source_group_key(item)
-    return ""
-
-
-def _has_derived_source_group_ref(item: ContextItem) -> bool:
-    if not item.source_refs:
-        return False
-    source_group_key = _rendering.source_group_key(item)
-    return source_group_key != _rendering.source_key(item)
-
-
 
 def _is_count_aggregation_coverage_item(item: ContextItem, *, query_reason: str) -> bool:
     if query_reason not in _COUNT_AGGREGATION_COVERAGE_REASONS:
         return False
-    if _has_primary_exact_turn_source_ref(item):
+    if _identity.has_primary_exact_turn_source_ref(item):
         return False
     if "keyword_aggregation_chunks" not in diagnostic_retrieval_sources(item.diagnostics):
         return False
     return len(item.source_refs) > 1
-
 
 def _broad_evidence_turn_slot(item: ContextItem, *, query_reason: str) -> str:
     if query_reason not in _BROAD_EVIDENCE_TURN_SLOT_REASONS:
         return ""
     if len(item.source_refs) != 1:
         return ""
-    return _primary_exact_turn_source_id(item)
-
+    return _identity.primary_exact_turn_source_id(item)
 
 def _aggregation_marker_coverage_slot(item: ContextItem, *, query_reason: str) -> str:
     normalized_reason = query_reason.replace("_", "-")
@@ -941,34 +866,32 @@ def _aggregation_marker_coverage_slot(item: ContextItem, *, query_reason: str) -
         return ""
     return f"{markers[0]}-{markers[-1]}"
 
-
-
 def _answer_support_family_item_key(item: ContextItem) -> tuple[float | int | str, ...]:
     signals = _diagnostics.diagnostic_score_signals(item)
-    query_reason = _answer_support_query_reason(item)
+    query_reason = _identity.answer_support_query_reason(item)
     if _is_count_aggregation_coverage_item(item, query_reason=query_reason):
         signal_rank = (
-            -_numeric_signal(signals.get("item_purchase_object_evidence")),
-            -_numeric_signal(signals.get("symbol_importance_visual_evidence")),
-            -_numeric_signal(signals.get("friend_place_shelter_anchor_evidence")),
-            -_numeric_signal(signals.get("cause_awareness_answer_evidence")),
-            -_numeric_signal(signals.get("choice_reason_answer_evidence")),
-            -_numeric_signal(signals.get("future_plan_timing_answer_evidence")),
-            -_numeric_signal(signals.get("birdwatching_city_schedule_answer_evidence")),
-            -_numeric_signal(signals.get("distinctive_term_hits")),
-            -_numeric_signal(signals.get("phrase_bigram_hits")),
+            -_identity.numeric_signal(signals.get("item_purchase_object_evidence")),
+            -_identity.numeric_signal(signals.get("symbol_importance_visual_evidence")),
+            -_identity.numeric_signal(signals.get("friend_place_shelter_anchor_evidence")),
+            -_identity.numeric_signal(signals.get("cause_awareness_answer_evidence")),
+            -_identity.numeric_signal(signals.get("choice_reason_answer_evidence")),
+            -_identity.numeric_signal(signals.get("future_plan_timing_answer_evidence")),
+            -_identity.numeric_signal(signals.get("birdwatching_city_schedule_answer_evidence")),
+            -_identity.numeric_signal(signals.get("distinctive_term_hits")),
+            -_identity.numeric_signal(signals.get("phrase_bigram_hits")),
         )
     else:
         signal_rank = (
-            -_numeric_signal(signals.get("item_purchase_object_evidence")),
-            -_numeric_signal(signals.get("symbol_importance_visual_evidence")),
-            -_numeric_signal(signals.get("friend_place_shelter_anchor_evidence")),
-            -_numeric_signal(signals.get("cause_awareness_answer_evidence")),
-            -_numeric_signal(signals.get("choice_reason_answer_evidence")),
-            -_numeric_signal(signals.get("future_plan_timing_answer_evidence")),
-            -_numeric_signal(signals.get("birdwatching_city_schedule_answer_evidence")),
-            -_numeric_signal(signals.get("phrase_bigram_hits")),
-            -_numeric_signal(signals.get("distinctive_term_hits")),
+            -_identity.numeric_signal(signals.get("item_purchase_object_evidence")),
+            -_identity.numeric_signal(signals.get("symbol_importance_visual_evidence")),
+            -_identity.numeric_signal(signals.get("friend_place_shelter_anchor_evidence")),
+            -_identity.numeric_signal(signals.get("cause_awareness_answer_evidence")),
+            -_identity.numeric_signal(signals.get("choice_reason_answer_evidence")),
+            -_identity.numeric_signal(signals.get("future_plan_timing_answer_evidence")),
+            -_identity.numeric_signal(signals.get("birdwatching_city_schedule_answer_evidence")),
+            -_identity.numeric_signal(signals.get("phrase_bigram_hits")),
+            -_identity.numeric_signal(signals.get("distinctive_term_hits")),
         )
     return (
         _precise_turn_answer_support_rank(item, query_reason=query_reason),
@@ -982,15 +905,12 @@ def _answer_support_family_item_key(item: ContextItem) -> tuple[float | int | st
         context_rank_key(item),
     )
 
-
 def _birdwatching_city_schedule_exact_turn_rank(item: ContextItem, *, query_reason: str) -> int:
     if query_reason != "birdwatching_city_schedule_bridge":
         return 0
-    if _has_any_exact_turn_source_ref(item) and len(item.source_refs) == 1:
+    if _identity.has_any_exact_turn_source_ref(item) and len(item.source_refs) == 1:
         return 0
     return 1
-
-
 
 def _marker_coverage_answer_support_rank(item: ContextItem, *, query_reason: str) -> int:
     if not _aggregation_marker_coverage_slot(item, query_reason=query_reason):
@@ -1000,145 +920,43 @@ def _marker_coverage_answer_support_rank(item: ContextItem, *, query_reason: str
     )
     return -len(markers)
 
-
-
 def _precise_turn_answer_support_rank(item: ContextItem, *, query_reason: str) -> int:
     if _is_count_aggregation_coverage_item(item, query_reason=query_reason):
         return 0
     if (
         _answer_slots.is_family_activity_reason(query_reason)
         and _answer_slots.answer_object_rank(item, query_reason=query_reason) == 0
-        and _has_any_exact_turn_source_ref(item)
+        and _identity.has_any_exact_turn_source_ref(item)
     ):
         return 0
     if (
         query_reason == "birdwatching_city_schedule_bridge"
-        and _numeric_signal(
+        and _identity.numeric_signal(
             _diagnostics.diagnostic_score_signals(item).get("birdwatching_city_schedule_answer_evidence")
         )
         >= 2
-        and _has_any_exact_turn_source_ref(item)
+        and _identity.has_any_exact_turn_source_ref(item)
     ):
         return 0
     if (
         query_reason == "birdwatching_city_schedule_bridge"
         and _answer_slots.birdwatching_city_schedule_answer_content_rank(item.text) <= 1
-        and _has_any_exact_turn_source_ref(item)
+        and _identity.has_any_exact_turn_source_ref(item)
     ):
         return 0
     if query_reason in _BROAD_EVIDENCE_ANSWER_SUPPORT_REASONS:
         return 2
     if (
         query_reason in _COUNT_AGGREGATION_COVERAGE_REASONS
-        and _has_primary_exact_turn_source_ref(item)
+        and _identity.has_primary_exact_turn_source_ref(item)
     ):
         return 1
     if query_reason not in _PRECISE_TURN_ANSWER_SUPPORT_REASONS:
         return 2
-    return 0 if _has_primary_exact_turn_source_ref(item) else 1
-
-
-
-def _has_primary_exact_turn_source_ref(item: ContextItem) -> bool:
-    if not item.source_refs:
-        return False
-    return _is_exact_turn_source_id(item.source_refs[0].source_id)
-
-
-def _has_any_exact_turn_source_ref(item: ContextItem) -> bool:
-    return bool(_primary_exact_turn_source_id(item))
-
-
-def _primary_exact_turn_source_id(item: ContextItem) -> str:
-    for ref in item.source_refs:
-        source_id = ref.source_id or ""
-        if _is_exact_turn_source_id(source_id):
-            return source_id
-    return ""
-
-
-def _is_exact_turn_source_id(source_id: str | None) -> bool:
-    parts = (source_id or "").split(":")
-    return len(parts) >= 6 and parts[-1] == "turn" and parts[-3].startswith("D")
-
-
-def _diversity_family_base(family: str) -> str:
-    return family.split(":", 1)[0]
-
-
-def _typed_diversity_family(base: str, suffix: str) -> str:
-    safe_suffix = _safe_diversity_suffix(suffix)
-    return f"{base}:{safe_suffix}" if safe_suffix else base
-
-
-def _compound_diversity_family(base: str, *suffixes: str) -> str:
-    safe_suffixes = tuple(
-        safe_suffix
-        for suffix in suffixes
-        if (safe_suffix := _safe_diversity_suffix(suffix))
-    )
-    return ":".join((base, *safe_suffixes)) if safe_suffixes else base
-
-
-def _numeric_signal(value: object) -> float:
-    if isinstance(value, bool) or value is None:
-        return 0.0
-    try:
-        return max(0.0, float(value))
-    except (TypeError, ValueError):
-        return 0.0
-
-
-def _safe_diversity_suffix(value: str) -> str:
-    text = value.strip().casefold()
-    if not text or "redacted" in text:
-        return ""
-    chars: list[str] = []
-    previous_dash = False
-    for char in text[:160]:
-        if char.isalnum():
-            chars.append(char)
-            previous_dash = False
-        elif not previous_dash:
-            chars.append("-")
-            previous_dash = True
-    token = "".join(chars).strip("-")
-    if len(token) <= 64:
-        return token
-    return f"{token[:24]}-{token[-39:]}".strip("-")[:64]
-
-
-def _source_ref_modality_hint(item: ContextItem) -> str:
-    refs = item.source_refs
-    if any(ref.time_start_ms is not None or ref.time_end_ms is not None for ref in refs):
-        return "time_range"
-    if any(ref.bbox is not None for ref in refs):
-        return "image"
-    if any(ref.page_number is not None for ref in refs):
-        return "document"
-    return ""
-
-
-def _artifact_diversity_hint(item: ContextItem) -> str:
-    modality = _diagnostics.diagnostic_text(
-        item,
-        "evidence_modality",
-    ) or _source_ref_modality_hint(item)
-    kind = _diagnostics.diagnostic_text(item, "evidence_kind")
-    if modality and kind:
-        return f"{modality}-{kind}"
-    return modality or kind
-
-
-def _item_type_counts(items: tuple[ContextItem, ...]) -> dict[str, int]:
-    counts: dict[str, int] = {}
-    for item in items:
-        counts[item.item_type] = counts.get(item.item_type, 0) + 1
-    return counts
-
+    return 0 if _identity.has_primary_exact_turn_source_ref(item) else 1
 
 def _context_render_rank_key(item: ContextItem) -> tuple[object, ...]:
-    query_reason = _answer_support_query_reason(item)
+    query_reason = _identity.answer_support_query_reason(item)
     if (
         query_reason in _PRECISE_TURN_ANSWER_SUPPORT_REASONS
         and _precise_turn_answer_support_rank(item, query_reason=query_reason) == 0
@@ -1151,7 +969,6 @@ def _context_render_rank_key(item: ContextItem) -> tuple[object, ...]:
             context_rank_key(item),
         )
     return (1, context_rank_key(item))
-
 
 def _rendered_char_count(items: tuple[ContextItem, ...]) -> int:
     return _rendering.rendered_context_char_count(items, rank_key=_context_render_rank_key)
