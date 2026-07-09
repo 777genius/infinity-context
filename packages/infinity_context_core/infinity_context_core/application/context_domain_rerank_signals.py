@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import re
-from dataclasses import dataclass
 
 from infinity_context_core.application.context_aggregation_answer_slots import (
     aggregation_answer_slot_count,
@@ -12,6 +11,7 @@ from infinity_context_core.application.context_diagnostics import (
     safe_diagnostic_mapping,
     safe_score_signals,
 )
+from infinity_context_core.application.context_domain_rerank_types import DomainRerankSignal
 from infinity_context_core.application.context_item_purchase_evidence import (
     has_item_purchase_object_evidence,
     has_item_purchase_object_marker,
@@ -814,15 +814,6 @@ _POST_EVENT_EMOTION_EVENT_ONLY_RE = re.compile(
     r"\b(?:accident|roadtrip|trip|event|happened|mentioned|talked|family)\b",
     re.IGNORECASE,
 )
-
-
-@dataclass(frozen=True)
-class DomainRerankSignal:
-    boost: float = 0.0
-    penalty: float = 0.0
-    reason: str = ""
-    rank_signal_key: str = ""
-    rank_signal: float = 0.0
 
 
 def support_network_rerank_signal(
