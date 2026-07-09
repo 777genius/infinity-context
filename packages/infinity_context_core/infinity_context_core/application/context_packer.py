@@ -7,6 +7,7 @@ from dataclasses import dataclass
 
 import infinity_context_core.application.context_packer_diagnostics as _diagnostics
 import infinity_context_core.application.context_packer_rendering as _rendering
+import infinity_context_core.application.context_packer_source_policy as _source_policy
 from infinity_context_core.application.context_diagnostics import (
     context_rank_key,
     diagnostic_retrieval_sources,
@@ -18,9 +19,6 @@ from infinity_context_core.application.context_ranking_reason_policy import (
 from infinity_context_core.application.dto import ContextBundle, ContextItem
 from infinity_context_core.application.normalize import estimate_tokens
 
-_MAX_ITEMS_PER_SOURCE = 4
-_MAX_ART_STYLE_ITEMS_PER_SOURCE_GROUP = 4
-_SOURCE_CAPPED_ITEM_TYPES = frozenset({"chunk", "extraction_artifact"})
 _DEFAULT_MAX_RENDERED_CHARS = 18000
 _MAX_ANSWER_SUPPORT_DIVERSITY_ITEMS = 8
 _MAX_ANSWER_SUPPORT_SOURCE_GROUP_DIVERSITY_ITEMS_PER_REASON = 1
@@ -385,8 +383,8 @@ class ContextPacker:
                         answer_support_source_group_items_by_reason.get(source_group_reason, 0) + 1
                     )
 
-        selection_items = _source_diversified_order(selectable_items)
-        source_diversity_chunks_reordered = _source_diversity_reordered_chunk_count(
+        selection_items = _source_policy.source_diversified_order(selectable_items)
+        source_diversity_chunks_reordered = _source_policy.source_diversity_reordered_chunk_count(
             selectable_items,
             selection_items,
         )
@@ -402,13 +400,13 @@ class ContextPacker:
             ):
                 dropped_by_answer_support_family_duplicate += 1
                 continue
-            if _source_cap_applies(item):
+            if _source_policy.source_cap_applies(item):
                 source_key = _rendering.source_key(item)
                 source_count = state.selected_source_capped_items_by_source.get(source_key, 0)
-                if source_count >= _MAX_ITEMS_PER_SOURCE:
+                if source_count >= _source_policy.MAX_ITEMS_PER_SOURCE:
                     dropped_by_source_cap += 1
                     continue
-                source_group_cap = _source_group_cap(item)
+                source_group_cap = _source_policy.source_group_cap(item)
                 if source_group_cap is not None:
                     source_group_key = _rendering.source_group_key(item)
                     source_group_count = state.selected_art_style_items_by_source_group.get(
@@ -454,18 +452,22 @@ class ContextPacker:
                     ),
                     "answer_support_items_used": answer_support_items_used,
                     "item_type_counts": _item_type_counts(selected),
-                    "chunk_sources_considered": len(_chunk_source_counts(selectable_items)),
-                    "chunk_sources_used": len(_chunk_source_counts(selected)),
+                    "chunk_sources_considered": len(
+                        _source_policy.chunk_source_counts(selectable_items)
+                    ),
+                    "chunk_sources_used": len(_source_policy.chunk_source_counts(selected)),
                     "max_chunks_used_per_source": max(
-                        _chunk_source_counts(selected).values(),
+                        _source_policy.chunk_source_counts(selected).values(),
                         default=0,
                     ),
                     "source_capped_sources_considered": len(
-                        _source_capped_source_counts(selectable_items)
+                        _source_policy.source_capped_source_counts(selectable_items)
                     ),
-                    "source_capped_sources_used": len(_source_capped_source_counts(selected)),
+                    "source_capped_sources_used": len(
+                        _source_policy.source_capped_source_counts(selected)
+                    ),
                     "max_source_capped_items_used_per_source": max(
-                        _source_capped_source_counts(selected).values(),
+                        _source_policy.source_capped_source_counts(selected).values(),
                         default=0,
                     ),
                     "source_diversity_chunks_reordered": source_diversity_chunks_reordered,
@@ -520,13 +522,13 @@ def _try_select_item(
     answer_support_family = _answer_support_diversity_family(item)
     if answer_support_family and answer_support_family in state.selected_answer_support_families:
         return False
-    if _source_cap_applies(item):
+    if _source_policy.source_cap_applies(item):
         source_key = _rendering.source_key(item)
         if state.selected_source_capped_items_by_source.get(source_key, 0) >= (
-            _MAX_ITEMS_PER_SOURCE
+            _source_policy.MAX_ITEMS_PER_SOURCE
         ):
             return False
-        source_group_cap = _source_group_cap(item)
+        source_group_cap = _source_policy.source_group_cap(item)
         if source_group_cap is not None:
             source_group_key = _rendering.source_group_key(item)
             if (
@@ -565,12 +567,12 @@ def _select_item(
         state.selected_chunks_by_source[source_key] = (
             state.selected_chunks_by_source.get(source_key, 0) + 1
         )
-    if _source_cap_applies(item):
+    if _source_policy.source_cap_applies(item):
         source_key = _rendering.source_key(item)
         state.selected_source_capped_items_by_source[source_key] = (
             state.selected_source_capped_items_by_source.get(source_key, 0) + 1
         )
-        if _source_group_cap(item) is not None:
+        if _source_policy.source_group_cap(item) is not None:
             source_group_key = _rendering.source_group_key(item)
             state.selected_art_style_items_by_source_group[source_group_key] = (
                 state.selected_art_style_items_by_source_group.get(source_group_key, 0) + 1
@@ -1852,62 +1854,6 @@ def _item_type_counts(items: tuple[ContextItem, ...]) -> dict[str, int]:
     return counts
 
 
-def _chunk_source_counts(items: tuple[ContextItem, ...] | list[ContextItem]) -> dict[str, int]:
-    counts: dict[str, int] = {}
-    for item in items:
-        if item.item_type != "chunk":
-            continue
-        source_key = _rendering.source_key(item)
-        counts[source_key] = counts.get(source_key, 0) + 1
-    return counts
-
-
-def _source_capped_source_counts(
-    items: tuple[ContextItem, ...] | list[ContextItem],
-) -> dict[str, int]:
-    counts: dict[str, int] = {}
-    for item in items:
-        if not _source_cap_applies(item):
-            continue
-        source_key = _rendering.source_key(item)
-        counts[source_key] = counts.get(source_key, 0) + 1
-    return counts
-
-
-def _source_cap_applies(item: ContextItem) -> bool:
-    return item.item_type in _SOURCE_CAPPED_ITEM_TYPES
-
-
-def _source_diversified_order(items: list[ContextItem]) -> tuple[ContextItem, ...]:
-    source_positions: dict[str, int] = {}
-    indexed: list[tuple[int, int, ContextItem]] = []
-    for index, item in enumerate(items):
-        if item.item_type != "chunk":
-            indexed.append((0, index, item))
-            continue
-        source_key = _source_diversity_key(item)
-        source_position = source_positions.get(source_key, 0)
-        source_positions[source_key] = source_position + 1
-        indexed.append((source_position, index, item))
-    return tuple(item for _, _, item in sorted(indexed, key=lambda value: (value[0], value[1])))
-
-
-def _source_diversity_reordered_chunk_count(
-    original_items: list[ContextItem],
-    ordered_items: tuple[ContextItem, ...],
-) -> int:
-    original_chunk_positions = {
-        _selection_key(item): index
-        for index, item in enumerate(original_items)
-        if item.item_type == "chunk"
-    }
-    return sum(
-        1
-        for index, item in enumerate(ordered_items)
-        if item.item_type == "chunk" and original_chunk_positions.get(_selection_key(item)) != index
-    )
-
-
 def _context_render_rank_key(item: ContextItem) -> tuple[object, ...]:
     query_reason = _answer_support_query_reason(item)
     if (
@@ -1926,21 +1872,3 @@ def _context_render_rank_key(item: ContextItem) -> tuple[object, ...]:
 
 def _rendered_char_count(items: tuple[ContextItem, ...]) -> int:
     return _rendering.rendered_context_char_count(items, rank_key=_context_render_rank_key)
-
-
-def _source_group_cap(item: ContextItem) -> int | None:
-    if not _source_cap_applies(item):
-        return None
-    if _diagnostics.diagnostic_text(item, "query_expansion_reason") == "art_style_bridge":
-        return _MAX_ART_STYLE_ITEMS_PER_SOURCE_GROUP
-    return None
-
-
-def _source_diversity_key(item: ContextItem) -> str:
-    source_key = _rendering.source_key(item)
-    if not _source_cap_applies(item):
-        return source_key
-    source_group_key = _rendering.source_group_key(item)
-    if source_group_key != source_key:
-        return source_group_key
-    return source_key
