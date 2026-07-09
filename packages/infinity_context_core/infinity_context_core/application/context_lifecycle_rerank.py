@@ -471,6 +471,14 @@ def _is_stale_state_candidate(*, query: str, query_reason: str, item: ContextIte
         return True
     return _score_signal_reason(item) in _STALE_STATE_RERANK_REASONS
 
+
+def has_current_state_correction_evidence(text: str) -> bool:
+    has_current_state = _CURRENT_STATE_EXACT_RE.search(text) is not None
+    has_stale_context = _STALE_STATE_EXACT_RE.search(text) is not None
+    has_transition = _STATE_TRANSITION_PAIR_RE.search(text) is not None
+    return has_current_state and (has_stale_context or has_transition)
+
+
 def _event_sequence_anchor_terms(query: str) -> tuple[str, ...]:
     terms = []
     seen = set()

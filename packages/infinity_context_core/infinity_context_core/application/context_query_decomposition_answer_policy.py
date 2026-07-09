@@ -40,12 +40,22 @@ _SOURCE_TERMS = frozenset(
         "evidence",
         "file",
         "proof",
+        "provenance",
+        "quote",
+        "quoted",
+        "quotes",
+        "reference",
+        "references",
         "source",
         "sources",
         "доказательство",
         "источник",
         "источники",
+        "ссылка",
+        "ссылки",
         "файл",
+        "цитата",
+        "цитаты",
     }
 )
 
@@ -95,6 +105,19 @@ _EMOTION_CAUSE_STATE_TERMS = frozenset(
         "рядом",
         "своей",
         "свой",
+    }
+)
+
+_NON_EMOTIONAL_ACCEPTANCE_CONTEXT_TERMS = frozenset(
+    {
+        "experience",
+        "internship",
+        "job",
+        "position",
+        "professional",
+        "program",
+        "role",
+        "workshop",
     }
 )
 
@@ -218,6 +241,10 @@ _KNOWLEDGE_UPDATE_DECISION_TERMS = frozenset(
         "рекомендовал",
         "рекомендовала",
     }
+)
+
+_KNOWLEDGE_UPDATE_STRONG_DECISION_TERMS = (
+    _KNOWLEDGE_UPDATE_DECISION_TERMS - frozenset({"use", "использовать"})
 )
 
 _KNOWLEDGE_UPDATE_CURRENT_STATE_TERMS = frozenset(
@@ -538,6 +565,12 @@ def _requests_emotion_cause(
 ) -> bool:
     if not raw_tokens.intersection(_EMOTION_CAUSE_STATE_TERMS):
         return False
+    if (
+        raw_tokens.intersection({"accept", "accepted"})
+        and "for" in raw_tokens
+        and raw_tokens.intersection(_NON_EMOTIONAL_ACCEPTANCE_CONTEXT_TERMS)
+    ):
+        return False
     if raw_tokens.intersection(_EMOTION_CAUSE_PROMPT_TERMS):
         return True
     return bool(
@@ -611,6 +644,8 @@ def _requests_knowledge_update_current(
     return bool(
         variants.intersection(_KNOWLEDGE_UPDATE_PROMPT_TERMS)
         and variants.intersection(_KNOWLEDGE_UPDATE_PROMPT_ACTION_TERMS)
+        and variants.intersection({"use", "использовать"})
+        and variants.intersection(_KNOWLEDGE_UPDATE_STRONG_DECISION_TERMS)
     )
 
 def _requests_knowledge_update_previous(

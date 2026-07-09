@@ -22,6 +22,7 @@ from infinity_context_core.application.context_diagnostics_primitives import (
 from infinity_context_core.application.context_diagnostics_signals import (
     _safe_context_requirement_provenance,
     _safe_deterministic_rerank_provenance,
+    _safe_source_sibling_provenance,
     safe_score_signals,
 )
 from infinity_context_core.application.context_diagnostics_sources import (
@@ -45,6 +46,8 @@ _SAFE_CONTEXT_LINK_DIAGNOSTIC_KEYS = (
     "context_link_id",
     "context_link_relation_type",
     "context_link_confidence",
+    "temporal_relation_id",
+    "temporal_replacement_for_fact_id",
 )
 _SAFE_REVIEW_TEXT_DIAGNOSTIC_KEYS = (
     "review_recommended_action",
@@ -134,6 +137,7 @@ def normalize_context_diagnostics(diagnostics: object) -> dict[str, object]:
     provenance = safe_diagnostic_mapping(raw.get("provenance"))
     provenance.update(_safe_context_requirement_provenance(raw.get("provenance")))
     provenance.update(_safe_deterministic_rerank_provenance(raw.get("provenance")))
+    provenance.update(_safe_source_sibling_provenance(raw.get("provenance")))
     if retrieval_sources:
         provenance["retrieval_sources"] = list(retrieval_sources)
     normalized["provenance"] = provenance
@@ -182,6 +186,7 @@ def merge_context_diagnostics(
         secondary_score_signals,
         keys=(
             "source_sibling_dialogue_visual_reference",
+            "source_sibling_answer_evidence",
             "source_sibling_group_level_seed",
             "source_sibling_visual_continuation",
         ),
@@ -208,6 +213,7 @@ def merge_context_diagnostics(
         secondary_provenance,
         keys=(
             "source_sibling_dialogue_visual_reference",
+            "source_sibling_answer_evidence",
             "source_sibling_group_level_seed",
             "source_sibling_visual_continuation",
         ),

@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 from infinity_context_core.application.context_query_decomposition_event_policy import (
+    _RECOMMENDATION_SOURCE_TERMS,
     _RELOCATION_ACTION_TERMS,
+    _requests_recommendation_source_context,
 )
 from infinity_context_core.application.context_query_decomposition_shared import _normalize_query
 
@@ -37,15 +39,30 @@ _INVENTORY_LIST_SLOT_TERMS = frozenset(
         "cities",
         "countries",
         "country",
+        "cake",
+        "cakes",
         "hobbies",
+        "dessert",
+        "desserts",
+        "dish",
+        "dishes",
+        "food",
+        "foods",
+        "frosting",
         "instruments",
         "items",
         "kinds",
+        "meal",
+        "meals",
         "people",
         "places",
         "projects",
+        "recipe",
+        "recipes",
         "shelter",
         "shelters",
+        "sport",
+        "sports",
         "states",
         "tasks",
         "things",
@@ -70,11 +87,28 @@ _INVENTORY_LIST_ACTION_TERMS = frozenset(
         "buy",
         "done",
         "feel",
+        "favorite",
+        "favorites",
+        "favourite",
+        "favourites",
         "go",
         "gone",
+        "had",
+        "has",
+        "have",
         "helped",
         "having",
+        "enjoy",
+        "enjoyed",
+        "enjoys",
         "joined",
+        "like",
+        "liked",
+        "likes",
+        "love",
+        "loved",
+        "loves",
+        "make",
         "made",
         "mention",
         "mentioned",
@@ -87,6 +121,8 @@ _INVENTORY_LIST_ACTION_TERMS = frozenset(
         "support",
         "supporting",
         "taken",
+        "use",
+        "used",
         "visited",
         "volunteer",
         "volunteered",
@@ -103,6 +139,107 @@ _INVENTORY_LIST_ACTION_TERMS = frozenset(
         "сделал",
         "сделала",
         "сделали",
+    }
+)
+
+_COUNTRY_DESTINATION_ACTION_TERMS = frozenset(
+    {
+        "go",
+        "going",
+        "meet",
+        "meeting",
+        "met",
+        "see",
+        "show",
+        "stay",
+        "staying",
+        "tour",
+        "travel",
+        "traveled",
+        "travelled",
+        "traveling",
+        "travelling",
+        "trip",
+        "visit",
+        "visited",
+        "visiting",
+    }
+)
+
+_KIND_TYPE_DESCRIPTOR_TERMS = frozenset({"kind", "kinds", "sort", "type", "types"})
+
+_IMPACT_EFFECT_TERMS = frozenset(
+    {
+        "affect",
+        "affected",
+        "effect",
+        "impact",
+        "impacted",
+        "influence",
+        "influenced",
+        "inspire",
+        "inspired",
+        "motivate",
+        "motivated",
+    }
+)
+
+_CONTENT_TOPIC_TERMS = frozenset(
+    {
+        "article",
+        "articles",
+        "blog",
+        "blogging",
+        "content",
+        "focus",
+        "post",
+        "posts",
+        "research",
+        "share",
+        "shared",
+        "topic",
+        "writing",
+    }
+)
+
+_SPORT_TEAM_ATTRIBUTE_TERMS = frozenset(
+    {
+        "basketball",
+        "coach",
+        "contract",
+        "franchise",
+        "jersey",
+        "jerseys",
+        "player",
+        "position",
+        "roster",
+        "school",
+        "schools",
+        "sport",
+        "sports",
+        "team",
+        "teammates",
+    }
+)
+
+_COLLECTIBLE_OBJECT_TERMS = frozenset(
+    {
+        "collectible",
+        "collectibles",
+        "collection",
+        "memorabilia",
+        "keepsake",
+        "keepsakes",
+        "memento",
+        "mementos",
+        "souvenir",
+        "souvenirs",
+        "possession",
+        "possessions",
+        "object",
+        "objects",
+        "item",
+        "items",
     }
 )
 
@@ -284,6 +421,8 @@ _ACTIVITY_PARTICIPATION_TERMS = frozenset(
         "participate",
         "participates",
         "participated",
+        "sport",
+        "sports",
     }
 )
 
@@ -319,12 +458,7 @@ def _attribute_aggregation_tail(variants: frozenset[str]) -> str:
 
 def _inventory_list_tail(variants: frozenset[str]) -> str:
     tails: list[str] = []
-    if variants.intersection({"countries", "country", "страна", "страны"}):
-        tails.append(
-            "country countries europe european england spain france italy germany "
-            "portugal ireland sweden abroad solo trip travel visited went"
-        )
-    elif variants.intersection({"where", "где"}) and variants.intersection(
+    if variants.intersection({"where", "где"}) and variants.intersection(
         _PLACE_INVENTORY_ACTION_TERMS
     ):
         tails.append(
@@ -345,6 +479,11 @@ def _inventory_list_tail(variants: frozenset[str]) -> str:
             "place area country state city coast destination visited went travel "
             "trip vacation planning go abroad"
         )
+    elif variants.intersection({"countries", "country", "страна", "страны"}):
+        tails.append(
+            "country countries europe european england spain france italy germany "
+            "portugal ireland sweden abroad solo trip travel visited went"
+        )
     if variants.intersection({"shelter", "shelters", "volunteering", "volunteer"}):
         tails.append(
             "volunteer volunteered volunteering shelter homeless dog church gym helped "
@@ -360,6 +499,31 @@ def _inventory_list_tail(variants: frozenset[str]) -> str:
         tails.append(
             "event events attended participated joined went planning fundraiser tournament "
             "fair networking conference parade speech support group"
+        )
+    if variants.intersection({"dessert", "desserts", "recipe", "recipes"}):
+        tails.append(
+            "dessert desserts recipes recipe homemade made baked coconut milk "
+            "dairy-free ice cream icecream sweet treat treats pudding parfait "
+            "visual query image caption cobbler sundae cake tart pie cookies "
+            "brownies pastry chocolate raspberry strawberry blueberry gluten-free"
+        )
+    if variants.intersection(
+        {
+            "cake",
+            "cakes",
+            "dish",
+            "dishes",
+            "food",
+            "foods",
+            "frosting",
+            "meal",
+            "meals",
+        }
+    ):
+        tails.append(
+            "dinner spread plate meal food dish ingredients homemade made cooked "
+            "prepared cake filling frosting cooked prepared cream cheese pizza pasta salad roasted "
+            "vegetables family photo shared"
         )
     if variants.intersection({"types", "kinds", "projects", "виды", "типы"}):
         tails.append(
@@ -383,15 +547,97 @@ def _requests_activity_participation(
     raw_tokens: frozenset[str],
     variants: frozenset[str],
 ) -> bool:
-    if not variants.intersection({"activity", "hobby"}):
+    if not variants.intersection({"activity", "hobby", "sport", "sports"}):
         return False
     return bool(raw_tokens.intersection(_ACTIVITY_PARTICIPATION_TERMS))
+
+def _requests_country_destination_context(
+    *,
+    raw_tokens: frozenset[str],
+    variants: frozenset[str],
+) -> bool:
+    return bool(
+        variants.intersection({"country", "страна"})
+        and (
+            raw_tokens.intersection(_INVENTORY_LIST_PROMPT_TERMS)
+            or variants.intersection(_INVENTORY_LIST_PROMPT_TERMS)
+        )
+        and (
+            raw_tokens.intersection(_COUNTRY_DESTINATION_ACTION_TERMS)
+            or variants.intersection(_COUNTRY_DESTINATION_ACTION_TERMS)
+        )
+    )
+
+def _requests_sport_team_attribute(
+    *,
+    raw_tokens: frozenset[str],
+    variants: frozenset[str],
+) -> bool:
+    if variants.intersection({"collectible", "collectibles"}):
+        return False
+    if not variants.intersection(_SPORT_TEAM_ATTRIBUTE_TERMS):
+        return False
+    direct_sport_terms = variants.intersection(
+        {
+            "basketball",
+            "coach",
+            "contract",
+            "franchise",
+            "jersey",
+            "jerseys",
+            "player",
+            "roster",
+            "sport",
+            "sports",
+            "teammates",
+        }
+    )
+    team_signing_terms = (
+        "team" in raw_tokens
+        and bool(raw_tokens.intersection({"sign", "signed"}))
+        and "up" not in raw_tokens
+    )
+    team_trip_terms = "team" in raw_tokens and bool(
+        raw_tokens.intersection({"travel", "traveling", "trip"})
+    )
+    team_position_terms = "position" in raw_tokens and "team" in variants
+    school_sport_terms = bool(raw_tokens.intersection({"school", "schools"})) and (
+        "basketball" in variants or bool(raw_tokens.intersection({"play", "played"}))
+    )
+    if not (
+        direct_sport_terms
+        or team_signing_terms
+        or team_trip_terms
+        or team_position_terms
+        or school_sport_terms
+    ):
+        return False
+    return bool(
+        raw_tokens.intersection(
+            {
+                "how",
+                "position",
+                "school",
+                "schools",
+                "sign",
+                "signed",
+                "team",
+                "which",
+                "what",
+                "when",
+            }
+        )
+    )
 
 def _requests_inventory_list_context(
     *,
     raw_tokens: frozenset[str],
     variants: frozenset[str],
 ) -> bool:
+    if _is_book_recommendation_object_query(raw_tokens=raw_tokens):
+        return False
+    if _requests_recommendation_source_context(raw_tokens=raw_tokens, variants=variants):
+        return False
     if _requests_place_inventory_context(raw_tokens=raw_tokens, variants=variants):
         return True
     if _requests_people_inventory_context(raw_tokens=raw_tokens, variants=variants):
@@ -470,3 +716,52 @@ def _requests_commonality_context(
     variants: frozenset[str],
 ) -> bool:
     return len(identities) >= 2 and bool(variants.intersection(_COMMONALITY_TERMS))
+
+def _requests_kind_type_descriptor_context(
+    *,
+    raw_tokens: frozenset[str],
+    variants: frozenset[str],
+) -> bool:
+    if not variants.intersection(_KIND_TYPE_DESCRIPTOR_TERMS):
+        return False
+    return bool(raw_tokens.intersection({"what", "which", "какой", "какая", "какие"}))
+
+def _requests_impact_effect_context(
+    *,
+    raw_tokens: frozenset[str],
+    variants: frozenset[str],
+) -> bool:
+    if not variants.intersection(_IMPACT_EFFECT_TERMS):
+        return False
+    return bool(raw_tokens.intersection({"how", "what", "which"}))
+
+def _requests_content_topic_context(
+    *,
+    raw_tokens: frozenset[str],
+    variants: frozenset[str],
+) -> bool:
+    if not variants.intersection(_CONTENT_TOPIC_TERMS):
+        return False
+    return bool(raw_tokens.intersection({"what", "which", "how"}))
+
+def _requests_collectible_object_context(
+    *,
+    raw_tokens: frozenset[str],
+    variants: frozenset[str],
+) -> bool:
+    if variants.intersection({"collectible", "collectibles", "memorabilia"}):
+        return True
+    if not variants.intersection(_COLLECTIBLE_OBJECT_TERMS):
+        return False
+    return bool(
+        raw_tokens.intersection({"own", "owns", "owned", "have", "has", "similar", "same"})
+        or variants.intersection({"own", "owns", "owned", "similar", "same", "shared"})
+    )
+
+def _is_book_recommendation_object_query(*, raw_tokens: frozenset[str]) -> bool:
+    return (
+        bool(raw_tokens.intersection({"book", "books"}))
+        and bool(raw_tokens.intersection({"what"}))
+        and bool(raw_tokens.intersection(_RECOMMENDATION_SOURCE_TERMS))
+        and not raw_tokens.intersection({"who", "whose", "whom", "source"})
+    )

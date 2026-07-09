@@ -31,6 +31,24 @@ _DETERMINISTIC_RERANK_SCORE_SIGNAL_KEYS = (
     "deterministic_rerank_strong_source_count",
     "deterministic_rerank_requirement_coverage",
     "deterministic_rerank_query_reason",
+    "source_quote_answer_support",
+    "source_quote_answer_boost",
+    "source_quote_answer_relevance",
+    "source_quote_answer_distinctive_hits",
+)
+_SOURCE_SIBLING_SCORE_SIGNAL_KEYS = (
+    "exact_source_repair",
+    "exact_source_repair_date_anchor",
+    "source_sibling_answer_evidence",
+    "source_sibling_dialogue_visual_reference",
+    "source_sibling_group_level_seed",
+    "source_sibling_visual_continuation",
+    "source_sibling_score_cap_applied",
+    "source_sibling_group_boost",
+    "source_sibling_after_seed",
+    "source_sibling_closeness",
+    "source_sibling_turn_distance",
+    "source_sibling_group_priority",
 )
 _CONTEXT_REQUIREMENT_PROVENANCE_LIST_KEYS = (
     "context_requirement_matched_anchor_kinds",
@@ -39,6 +57,18 @@ _CONTEXT_REQUIREMENT_PROVENANCE_LIST_KEYS = (
 )
 _DETERMINISTIC_RERANK_PROVENANCE_LIST_KEYS = (
     "deterministic_rerank_reasons",
+)
+_SOURCE_SIBLING_PROVENANCE_BOOL_KEYS = (
+    "source_sibling_answer_evidence",
+    "source_sibling_dialogue_visual_reference",
+    "source_sibling_group_level_seed",
+    "source_sibling_visual_continuation",
+    "source_sibling_score_cap_applied",
+)
+_SOURCE_SIBLING_PROVENANCE_NUMBER_KEYS = (
+    "source_sibling_turn_delta",
+    "source_sibling_turn_distance",
+    "source_sibling_group_priority",
 )
 
 def safe_score_signals(value: object) -> dict[str, object]:
@@ -50,6 +80,14 @@ def safe_score_signals(value: object) -> dict[str, object]:
     }
     signals.update(_safe_context_requirement_score_signals(value))
     signals.update(_safe_deterministic_rerank_score_signals(value))
+    signals.update(_safe_source_sibling_score_signals(value))
+    raw = _as_dict(value)
+    raw_same_script_boost = raw.get("same_script_query_boost")
+    if isinstance(raw_same_script_boost, int | float) and not isinstance(
+        raw_same_script_boost,
+        bool,
+    ):
+        signals["same_script_query_boost"] = round(max(0.0, raw_same_script_boost), 4)
     return signals
 
 def _safe_context_requirement_score_signals(value: object) -> dict[str, object]:
@@ -94,6 +132,20 @@ def _safe_deterministic_rerank_score_signals(value: object) -> dict[str, object]
     return signals
 
 
+def _safe_source_sibling_score_signals(value: object) -> dict[str, object]:
+    raw = _as_dict(value)
+    signals: dict[str, object] = {}
+    for key in _SOURCE_SIBLING_SCORE_SIGNAL_KEYS:
+        raw_value = raw.get(key)
+        if isinstance(raw_value, bool):
+            continue
+        if isinstance(raw_value, int):
+            signals[key] = max(0, raw_value)
+        elif isinstance(raw_value, float):
+            signals[key] = round(max(0.0, raw_value), 4)
+    return signals
+
+
 def _safe_context_requirement_provenance(value: object) -> dict[str, object]:
     raw = _as_dict(value)
     provenance: dict[str, object] = {}
@@ -125,6 +177,23 @@ def _safe_deterministic_rerank_provenance(value: object) -> dict[str, object]:
         ]
         if safe_values or key in raw:
             provenance[key] = safe_values[:_MAX_DIAGNOSTIC_LIST_ITEMS]
+    return provenance
+
+
+def _safe_source_sibling_provenance(value: object) -> dict[str, object]:
+    raw = _as_dict(value)
+    provenance: dict[str, object] = {}
+    for key in _SOURCE_SIBLING_PROVENANCE_BOOL_KEYS:
+        if raw.get(key) is True:
+            provenance[key] = True
+    for key in _SOURCE_SIBLING_PROVENANCE_NUMBER_KEYS:
+        raw_value = raw.get(key)
+        if isinstance(raw_value, bool):
+            continue
+        if isinstance(raw_value, int):
+            provenance[key] = raw_value
+        elif isinstance(raw_value, float):
+            provenance[key] = round(raw_value, 4)
     return provenance
 
 
