@@ -10,6 +10,7 @@ CODE_GLOBS = ("*.py", "*.js", "*.ts", "*.tsx", "*.rs")
 CODE_ROOTS = ("packages", "scripts", "tests")
 IGNORED_PATH_PARTS = {
     "__pycache__",
+    "dist",
     "node_modules",
 }
 
@@ -26,7 +27,6 @@ LEGACY_OVER_MAX_ALLOWLIST = {
     "packages/infinity_context_server/infinity_context_server/eval.py",
     "packages/infinity_context_server/infinity_context_server/eval_scorecard.py",
     "packages/infinity_context_server/infinity_context_server/memory_comparison_answer_context.py",
-    "packages/infinity_context_server/infinity_context_server/memory_comparison_benchmark.py",
     "packages/infinity_context_server/infinity_context_server/memory_comparison_bundle_planner.py",
     "packages/infinity_context_server/infinity_context_server/memory_comparison_intent.py",
     "packages/infinity_context_server/infinity_context_server/memory_comparison_quality_diagnostics.py",
