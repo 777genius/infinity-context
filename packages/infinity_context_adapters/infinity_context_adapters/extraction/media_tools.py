@@ -494,10 +494,7 @@ def _add_bounded_subprocess_output(
 ) -> None:
     if data is None:
         return
-    if isinstance(data, bytes):
-        text = data.decode("utf-8", errors="replace")
-    else:
-        text = data
+    text = data.decode("utf-8", errors="replace") if isinstance(data, bytes) else data
     text = safe_metadata_text(text.strip(), limit=_MEDIA_SUBPROCESS_OUTPUT_LIMIT)
     metadata[f"probe_{prefix}_chars"] = len(text)
     if text:
