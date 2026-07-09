@@ -1782,6 +1782,12 @@ def test_load_parallel_context_reads_during_mutation_storm_e2e(tmp_path: Path) -
                 f"/v1/facts/{delete_fact['id']}",
                 expected_status=200,
             )
+            read_completion_deadline = time.perf_counter() + 6.0
+            while time.perf_counter() < read_completion_deadline:
+                with reader_lock:
+                    if len(reader_results) >= 10:
+                        break
+                time.sleep(0.01)
             stop_readers.set()
             for reader in readers:
                 reader.result()
