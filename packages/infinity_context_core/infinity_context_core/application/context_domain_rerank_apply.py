@@ -30,7 +30,6 @@ from infinity_context_core.application.context_domain_rerank_signals import (
     current_state_rerank_signal,
     event_sequence_rerank_signal,
     family_hike_detail_rerank_signal,
-    identity_rerank_signal,
     inventory_list_rerank_signal,
     item_purchase_rerank_signal,
     lifestyle_recommendation_rerank_signal,
@@ -53,6 +52,9 @@ from infinity_context_core.application.context_frequency_rerank import (
 )
 from infinity_context_core.application.context_future_plan_timing_rerank import (
     future_plan_timing_rerank_signal,
+)
+from infinity_context_core.application.context_identity_rerank import (
+    identity_rerank_signal,
 )
 from infinity_context_core.application.context_national_park_inference import (
     national_park_inference_rerank_signal,

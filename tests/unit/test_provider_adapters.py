@@ -6,6 +6,7 @@ from types import SimpleNamespace
 from infinity_context_adapters.cognee import CogneeMemoryAdapter
 from infinity_context_adapters.embeddings import OpenAIEmbeddingAdapter
 from infinity_context_adapters.extraction import OpenAIJsonMemoryExtractor
+from infinity_context_adapters.extraction.openai_json import _prompt_text
 from infinity_context_adapters.graphiti import GraphitiGraphMemoryAdapter
 from infinity_context_adapters.noop import (
     NoopEmbeddingAdapter,
@@ -790,7 +791,18 @@ class FakeQdrantModels:
     class Distance:
         COSINE = "Cosine"
 
+    class Modifier:
+        IDF = "idf"
+
     class VectorParams:
+        def __init__(self, **kwargs: object) -> None:
+            self.kwargs = kwargs
+
+    class SparseVectorParams:
+        def __init__(self, **kwargs: object) -> None:
+            self.kwargs = kwargs
+
+    class SparseVector:
         def __init__(self, **kwargs: object) -> None:
             self.kwargs = kwargs
 
@@ -839,13 +851,19 @@ class FakeQdrantClient:
     def __init__(self) -> None:
         self.collections: set[str] = set()
         self.upserts = 0
+        self.create_collection_calls: list[dict[str, object]] = []
+        self.upsert_points: list[list[object]] = []
         self.query_calls: list[dict[str, object]] = []
+        self.query_points_by_using: dict[object, list[object]] = {}
 
     async def collection_exists(self, collection_name: str) -> bool:
         return collection_name in self.collections
 
-    async def create_collection(self, *, collection_name: str, vectors_config: object) -> None:
+    async def create_collection(self, **kwargs: object) -> None:
+        collection_name = str(kwargs["collection_name"])
+        vectors_config = kwargs["vectors_config"]
         self.collections.add(collection_name)
+        self.create_collection_calls.append(kwargs)
         assert vectors_config is not None
 
     async def upsert(self, *, collection_name: str, points: list[object], wait: bool) -> None:
@@ -853,6 +871,7 @@ class FakeQdrantClient:
         assert points
         assert wait is True
         self.upserts += 1
+        self.upsert_points.append(points)
 
     async def delete(self, **_kwargs: object) -> None:
         assert _kwargs["wait"] is True
@@ -860,19 +879,54 @@ class FakeQdrantClient:
 
     async def query_points(self, **_kwargs: object) -> object:
         self.query_calls.append(_kwargs)
-        return SimpleNamespace(
-            points=[
-                SimpleNamespace(
-                    payload={
-                        "chunk_id": "chunk_1",
-                        "space_id": "space_client_app",
-                        "memory_scope_id": "memory_scope_default",
-                        "projection_version": "v1",
-                    },
+        points = self.query_points_by_using.get(_kwargs.get("using"))
+        if points is None:
+            points = [
+                _fake_qdrant_point(
+                    chunk_id="chunk_1",
                     score=0.9,
                 )
             ]
-        )
+        return SimpleNamespace(points=points)
+
+
+def _fake_qdrant_point(
+    *,
+    chunk_id: str,
+    score: float,
+    space_id: str = "space_client_app",
+    memory_scope_id: str = "memory_scope_default",
+    projection_version: str = "v1",
+) -> object:
+    return SimpleNamespace(
+        payload={
+            "chunk_id": chunk_id,
+            "space_id": space_id,
+            "memory_scope_id": memory_scope_id,
+            "projection_version": projection_version,
+        },
+        score=score,
+    )
+
+
+class FakeSparseEmbedding:
+    def __init__(self, *, indices: tuple[int, ...], values: tuple[float, ...]) -> None:
+        self.indices = indices
+        self.values = values
+
+
+class FakeSparseEncoder:
+    def __init__(self) -> None:
+        self.documents: list[str] = []
+        self.queries: list[str] = []
+
+    def embed(self, *, documents: list[str]) -> list[FakeSparseEmbedding]:
+        self.documents.extend(documents)
+        return [FakeSparseEmbedding(indices=(7, 11), values=(1.0, 0.5))]
+
+    def query_embed(self, *, query: list[str]) -> list[FakeSparseEmbedding]:
+        self.queries.extend(query)
+        return [FakeSparseEmbedding(indices=(11, 19), values=(1.5, 0.75))]
 
 
 class FakeQdrantWrongSizeClient(FakeQdrantClient):
@@ -996,6 +1050,91 @@ def test_qdrant_adapter_search_contract_filters_current_thread_or_memory_scope_w
     asyncio.run(run())
 
 
+def test_qdrant_hybrid_sparse_mode_creates_named_vectors_and_indexes_bm25() -> None:
+    async def run() -> None:
+        fake = FakeQdrantClient()
+        sparse_encoder = FakeSparseEncoder()
+        adapter = QdrantVectorMemoryAdapter(
+            url="http://qdrant.test",
+            collection_name="infinity_context_chunks_v1",
+            vector_size=3,
+            hybrid_sparse_enabled=True,
+            sparse_encoder_factory=lambda: sparse_encoder,
+        )
+        adapter._client = lambda: _fake_qdrant_client(fake)  # type: ignore[method-assign]
+
+        upsert = await adapter.upsert_chunks(
+            (
+                VectorUpsertItem(
+                    chunk_id="chunk_hybrid",
+                    space_id="space_client_app",
+                    memory_scope_id="memory_scope_default",
+                    thread_id=None,
+                    text="Project Atlas uses BM25 sparse retrieval for exact markers.",
+                    vector=(0.1, 0.2, 0.3),
+                    projection_version="v1",
+                ),
+            )
+        )
+
+        assert upsert.status == PortStatus.OK
+        create_call = fake.create_collection_calls[0]
+        assert set(create_call["vectors_config"]) == {"dense"}
+        assert set(create_call["sparse_vectors_config"]) == {"bm25"}
+        dense_config = create_call["vectors_config"]["dense"]
+        sparse_config = create_call["sparse_vectors_config"]["bm25"]
+        assert dense_config.kwargs == {"size": 3, "distance": "Cosine"}
+        assert sparse_config.kwargs == {"modifier": "idf"}
+        point_vector = fake.upsert_points[0][0].kwargs["vector"]
+        assert point_vector["dense"] == [0.1, 0.2, 0.3]
+        assert point_vector["bm25"].kwargs == {"indices": [7, 11], "values": [1.0, 0.5]}
+        assert sparse_encoder.documents == [
+            "Project Atlas uses BM25 sparse retrieval for exact markers."
+        ]
+
+    asyncio.run(run())
+
+
+def test_qdrant_hybrid_sparse_search_returns_sparse_only_candidates() -> None:
+    async def run() -> None:
+        fake = FakeQdrantClient()
+        sparse_encoder = FakeSparseEncoder()
+        adapter = QdrantVectorMemoryAdapter(
+            url="http://qdrant.test",
+            collection_name="infinity_context_chunks_v1",
+            vector_size=3,
+            hybrid_sparse_enabled=True,
+            sparse_encoder_factory=lambda: sparse_encoder,
+        )
+        adapter._client = lambda: _fake_qdrant_client(fake)  # type: ignore[method-assign]
+        fake.query_points_by_using = {
+            "dense": [_fake_qdrant_point(chunk_id="dense_hit", score=0.9)],
+            "bm25": [_fake_qdrant_point(chunk_id="sparse_only", score=0.7)],
+        }
+
+        search = await adapter.search_chunks(
+            space_id="space_client_app",
+            memory_scope_ids=("memory_scope_default",),
+            query_vector=(0.1, 0.2, 0.3),
+            query_text="exact BM25 marker",
+            limit=3,
+        )
+
+        assert search.status == PortStatus.OK
+        assert {candidate.chunk_id for candidate in search.items} == {
+            "dense_hit",
+            "sparse_only",
+        }
+        assert [call["using"] for call in fake.query_calls] == ["dense", "bm25"]
+        assert fake.query_calls[1]["query"].kwargs == {
+            "indices": [11, 19],
+            "values": [1.5, 0.75],
+        }
+        assert sparse_encoder.queries == ["exact BM25 marker"]
+
+    asyncio.run(run())
+
+
 def test_qdrant_zero_limit_search_is_noop() -> None:
     async def run() -> None:
         fake = FakeQdrantClient()
@@ -1102,6 +1241,17 @@ def test_qdrant_server_unavailable_reports_configured_adapter_degraded() -> None
         assert capabilities.degraded_reason == "qdrant_unavailable"
 
     asyncio.run(run())
+
+
+def test_openai_json_memory_extractor_prompt_requires_rich_durable_evidence() -> None:
+    prompt = _prompt_text()
+
+    assert "durable incidental facts" in prompt
+    assert "Assistant text can still be extracted" in prompt
+    assert "concrete decision, recommendation, implementation result, or plan" in prompt
+    assert "Split unrelated durable facts into separate candidates" in prompt
+    assert "Do not convert relative dates by guessing" in prompt
+    assert "Each candidate must include an exact evidence_quote substring" in prompt
 
 
 def test_openai_json_memory_extractor_maps_structured_response() -> None:
@@ -1584,6 +1734,36 @@ def test_graphiti_enabled_requires_neo4j_password() -> None:
         assert "MEMORY_GRAPHITI_NEO4J_PASSWORD" in str(exc)
     else:
         raise AssertionError("Expected Graphiti config validation to fail")
+
+
+def test_qdrant_hybrid_sparse_requires_qdrant_enabled() -> None:
+    settings = Settings(qdrant_hybrid_sparse_enabled=True)
+
+    try:
+        settings.validate_for_startup()
+    except RuntimeError as exc:
+        assert "MEMORY_QDRANT_HYBRID_SPARSE_ENABLED" in str(exc)
+    else:
+        raise AssertionError("Expected Qdrant hybrid config validation to fail")
+
+
+def test_qdrant_hybrid_sparse_vector_names_must_differ() -> None:
+    settings = Settings(
+        qdrant_enabled=True,
+        qdrant_hybrid_sparse_enabled=True,
+        qdrant_dense_vector_name="bm25",
+        qdrant_sparse_vector_name="bm25",
+        embeddings_enabled=True,
+        embeddings_provider="openai",
+        openai_api_key="test-key",
+    )
+
+    try:
+        settings.validate_for_startup()
+    except RuntimeError as exc:
+        assert "MEMORY_QDRANT_DENSE_VECTOR_NAME" in str(exc)
+    else:
+        raise AssertionError("Expected Qdrant vector name validation to fail")
 
 
 def test_cognee_config_is_disabled_by_default() -> None:

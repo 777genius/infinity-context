@@ -45,6 +45,7 @@ class EvalHybridVectorAdapter:
         memory_scope_ids: tuple[str, ...],
         thread_id: str | None = None,
         query_vector: tuple[float, ...],
+        query_text: str | None = None,
         limit: int,
     ) -> VectorSearchResult:
         if not memory_scope_ids or not query_vector or limit <= 0:

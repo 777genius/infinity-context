@@ -667,6 +667,7 @@ class VectorContextCollector:
                         memory_scope_ids=memory_scope_ids,
                         thread_id=str(query.thread_id) if query.thread_id else None,
                         query_vector=vector,
+                        query_text=retrieval_query.query,
                         limit=int(diagnostics["vector_query_limit"]),
                     ),
                     timeout_seconds=self._deadlines.vector_search_seconds,

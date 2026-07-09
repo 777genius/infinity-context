@@ -177,6 +177,7 @@ class CircuitBreakingVectorMemoryAdapter:
         memory_scope_ids: tuple[str, ...],
         thread_id: str | None = None,
         query_vector: tuple[float, ...],
+        query_text: str | None = None,
         limit: int,
     ) -> VectorSearchResult:
         if not self._circuit.allow_request():
@@ -187,6 +188,7 @@ class CircuitBreakingVectorMemoryAdapter:
                 memory_scope_ids=memory_scope_ids,
                 thread_id=thread_id,
                 query_vector=query_vector,
+                query_text=query_text,
                 limit=limit,
             )
         except Exception:

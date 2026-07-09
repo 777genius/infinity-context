@@ -41,9 +41,8 @@ Do not let `infinity_context_core` import FastAPI, SQLAlchemy, Qdrant, Graphiti,
 
 Keep files small enough to review and maintain:
 
-- target size: up to 1000 lines per source file;
-- hard cap: 2500 lines per source file;
-- when a file approaches the target size, split by domain policy, application use case,
+- strict hard cap: no more than 1000 lines per file;
+- when a file approaches the cap, split by domain policy, application use case,
   DTO/contract, adapter, test fixture or orchestration responsibility instead of adding
   unrelated behavior to the same module.
 

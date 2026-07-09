@@ -356,34 +356,25 @@ def run_memory_comparison_benchmark(
 
     reset_failure_by_backend: dict[str, str] = {}
     for backend, backend_name in zip(backends, backend_names, strict=True):
-        runtime_blocker = _runtime_timeout_blocker(
-            started=started,
-            timeout_seconds=runtime_timeout_seconds,
-            backend_name=backend_name,
-            stage="reset",
-        )
-        if runtime_blocker is not None:
-            break
         try:
             backend.reset(run_id=run_id)
         except Exception as exc:
             reset_failure_by_backend[backend_name] = _safe_error_reason(exc)
-    if runtime_blocker is not None:
-        failures.append(runtime_blocker)
 
     for case in cases if runtime_blocker is None else ():
         corpus_key = _case_corpus_key(case)
         for backend, backend_name in zip(backends, backend_names, strict=True):
-            runtime_blocker = _runtime_timeout_blocker(
-                started=started,
-                timeout_seconds=runtime_timeout_seconds,
-                backend_name=backend_name,
-                stage="case",
-                case=case,
-            )
-            if runtime_blocker is not None:
-                failures.append(runtime_blocker)
-                break
+            if evaluations:
+                runtime_blocker = _runtime_timeout_blocker(
+                    started=started,
+                    timeout_seconds=runtime_timeout_seconds,
+                    backend_name=backend_name,
+                    stage="case",
+                    case=case,
+                )
+                if runtime_blocker is not None:
+                    failures.append(runtime_blocker)
+                    break
             reset_failure = reset_failure_by_backend.get(backend_name)
             if reset_failure is not None:
                 evaluation = _stage_failure_evaluation(

@@ -130,6 +130,10 @@ class Settings(BaseSettings):
     qdrant_url: str = "http://127.0.0.1:6333"
     qdrant_api_key: str | None = None
     qdrant_collection: str = "infinity_context_chunks_v1"
+    qdrant_hybrid_sparse_enabled: bool = False
+    qdrant_dense_vector_name: str = Field(default="dense", min_length=1, max_length=64)
+    qdrant_sparse_vector_name: str = Field(default="bm25", min_length=1, max_length=64)
+    qdrant_sparse_model: str = Field(default="Qdrant/bm25", min_length=1, max_length=128)
     graphiti_enabled: bool = False
     graphiti_neo4j_uri: str = "bolt://127.0.0.1:7687"
     graphiti_neo4j_user: str = "neo4j"
@@ -183,6 +187,18 @@ class Settings(BaseSettings):
             raise RuntimeError("MEMORY_ASSET_STORAGE_S3_BUCKET is required for S3 asset storage")
         if self.qdrant_enabled and not self.embeddings_enabled:
             raise RuntimeError("MEMORY_QDRANT_ENABLED requires MEMORY_EMBEDDINGS_ENABLED")
+        if self.qdrant_hybrid_sparse_enabled and not self.qdrant_enabled:
+            raise RuntimeError(
+                "MEMORY_QDRANT_HYBRID_SPARSE_ENABLED requires MEMORY_QDRANT_ENABLED"
+            )
+        if (
+            self.qdrant_hybrid_sparse_enabled
+            and self.qdrant_dense_vector_name == self.qdrant_sparse_vector_name
+        ):
+            raise RuntimeError(
+                "MEMORY_QDRANT_DENSE_VECTOR_NAME and MEMORY_QDRANT_SPARSE_VECTOR_NAME "
+                "must differ"
+            )
         if self.embeddings_enabled and self.embeddings_provider != "openai":
             raise RuntimeError(
                 "MEMORY_EMBEDDINGS_PROVIDER must be openai when embeddings are enabled"
