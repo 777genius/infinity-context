@@ -188,7 +188,14 @@ def merge_context_diagnostics(
     )
     primary_provenance = safe_diagnostic_mapping(primary_raw.get("provenance"))
     secondary_provenance = safe_diagnostic_mapping(secondary_raw.get("provenance"))
+    context_link_provenance = {
+        **_safe_context_link_diagnostics(secondary_provenance),
+        **_safe_context_link_diagnostics(primary_provenance),
+        **_safe_context_link_diagnostics(secondary_raw),
+        **_safe_context_link_diagnostics(primary_raw),
+    }
     merged["provenance"] = {
+        **context_link_provenance,
         **secondary_provenance,
         **primary_provenance,
         "retrieval_sources": list(prioritized_sources),
