@@ -466,6 +466,11 @@ def test_service_token_permissions_are_enforced(
             params={"space_id": space["id"], "memory_scope_id": memory_scope["id"]},
             headers=diagnostics_headers,
         )
+        snapshot_params = {
+            "space_slug": "perm-space",
+            "memory_scope_external_ref": "default",
+            "redacted": False,
+        }
         admin_can_read = client.get(
             "/v1/facts",
             params={"space_id": space["id"], "memory_scope_id": memory_scope["id"]},
@@ -483,6 +488,54 @@ def test_service_token_permissions_are_enforced(
             headers=admin_headers,
         )
         admin_can_diagnose = client.get("/v1/diagnostics/outbox", headers=admin_headers)
+        admin_can_export_snapshot = client.get(
+            "/v1/export/memory_scope-snapshot",
+            params=snapshot_params,
+            headers=admin_headers,
+        )
+        snapshot_body = {
+            "space_slug": "perm-space",
+            "memory_scope_external_ref": "admin-restore",
+            "snapshot": admin_can_export_snapshot.json()["data"],
+            "manifest": admin_can_export_snapshot.json()["manifest"],
+            "dry_run": False,
+            "merge_strategy": "create_new_memory_scope",
+            "confirmed": True,
+            "source_name": "permission-matrix",
+        }
+        read_cannot_export_graph = client.get(
+            "/v1/export/graph.json",
+            params={
+                "space_slug": "perm-space",
+                "memory_scope_external_ref": "default",
+            },
+            headers=read_headers,
+        )
+        read_cannot_export_snapshot = client.get(
+            "/v1/export/memory_scope-snapshot",
+            params=snapshot_params,
+            headers=read_headers,
+        )
+        read_cannot_preview_snapshot = client.post(
+            "/v1/export/memory_scope-snapshot/preview",
+            json={
+                "space_slug": "perm-space",
+                "memory_scope_external_ref": "read-preview",
+                "snapshot": snapshot_body["snapshot"],
+                "manifest": snapshot_body["manifest"],
+            },
+            headers=read_headers,
+        )
+        read_cannot_import_snapshot = client.post(
+            "/v1/export/memory_scope-snapshot/import",
+            json={**snapshot_body, "memory_scope_external_ref": "read-restore"},
+            headers=read_headers,
+        )
+        admin_can_import_snapshot = client.post(
+            "/v1/export/memory_scope-snapshot/import",
+            json=snapshot_body,
+            headers=admin_headers,
+        )
 
     assert read_allowed.status_code == 200
     assert read_can_get_capabilities.status_code == 200
@@ -506,7 +559,15 @@ def test_service_token_permissions_are_enforced(
     assert admin_can_read.status_code == 200
     assert admin_can_write.status_code == 201
     assert admin_can_diagnose.status_code == 200
+    assert admin_can_export_snapshot.status_code == 200
+    assert admin_can_import_snapshot.status_code == 200
+    assert admin_can_import_snapshot.json()["data"]["status"] == "ok"
+    assert read_cannot_export_graph.status_code == 403
+    assert read_cannot_export_snapshot.status_code == 403
+    assert read_cannot_preview_snapshot.status_code == 403
+    assert read_cannot_import_snapshot.status_code == 403
     assert read_cannot_write.json()["error"]["code"] == "memory.forbidden"
+    assert read_cannot_import_snapshot.json()["error"]["code"] == "memory.forbidden"
 
 
 def test_memory_scope_scoped_service_token_cannot_cross_memory_scope_in_same_space(
