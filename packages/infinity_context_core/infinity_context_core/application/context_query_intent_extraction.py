@@ -203,6 +203,7 @@ _PERSON_HINT_STOP_WORDS = frozenset(
         "kyiv",
         "later",
         "posle",
+        "postgres",
         "since",
         "them",
         "then",
@@ -247,6 +248,7 @@ _PERSON_HINT_STOP_WORDS = frozenset(
         "раньше",
         "что",
         "затем",
+        "was",
     }
 ).union(_RELATIVE_TIME_HINT_STOP_WORDS)
 
@@ -258,6 +260,7 @@ _PROJECT_HINT_STOP_WORDS = frozenset(
         "message",
         "review",
         "sync",
+        "the",
         "to",
         "звонок",
         "созвон",

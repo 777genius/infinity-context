@@ -16,6 +16,7 @@ def context_rank_key(
 ) -> tuple[float | int | str, ...]:
     return (
         -round(item.score, 8),
+        -_score_signal_float(item, "same_script_query_boost"),
         -_score_signal_float(item, "deterministic_rerank_net_adjustment"),
         -_score_signal_float(item, "deterministic_rerank_requirement_coverage"),
         -_score_signal_float(item, "deterministic_rerank_boost"),

@@ -167,12 +167,12 @@ _EXPLICIT_TIME_RANGE_QUERY_RE = re.compile(
 )
 
 _COUNT_ANSWER_QUERY_RE = re.compile(
-    r"\b(how\s+many|number\s+of|count|сколько)\b",
+    r"\b(how\s+many|number\s+of|count|total|сколько)\b",
     re.IGNORECASE,
 )
 
 _LIST_ANSWER_QUERY_RE = re.compile(
-    r"\b(what|which|какие|какой|что)\b"
+    r"\b(what|which|who|какие|какой|что)\b"
     r"(?=.{0,96}\b("
     r"books?|items?|instruments?|pets?|mediums?|hobbies|activities|events?|"
     r"artists?|bands?|types?|kinds?|interests?|musicians?|songs?|fields?|"
@@ -219,8 +219,10 @@ _SOCIAL_INFERENCE_ANSWER_QUERY_RE = re.compile(
 )
 
 _STATE_RESIDENCE_INFERENCE_ANSWER_QUERY_RE = re.compile(
-    r"\bstate\b(?=.{0,120}\b(?:live|lives|living|reside|residence)\b)|"
-    r"\b(?:live|lives|living|reside|residence)\b(?=.{0,120}\bstate\b)",
+    r"\b(?:state|connecticut|stamford)\b"
+    r"(?=.{0,120}\b(?:live|lives|living|reside|residence)\b)|"
+    r"\b(?:live|lives|living|reside|residence)\b"
+    r"(?=.{0,120}\b(?:state|connecticut|stamford)\b)",
     re.IGNORECASE | re.DOTALL,
 )
 
@@ -491,6 +493,7 @@ _GOTCHA_ANSWER_QUERY_RE = re.compile(
 _EXISTENCE_ANSWER_QUERY_RE = re.compile(
     r"\b(?:do\s+we\s+know|is\s+there\s+any|are\s+there\s+any|"
     r"any\s+(?:evidence|proof|source|record|mention)|"
+    r"^(?:do|does|did|has|have|is|are)\s+[^?.!]{1,120}(?=\?)|"
     r"(?:did|does|has|have)\s+.{0,80}\bever\b|"
     r"ever\s+(?:mention|mentioned|say|said|write|wrote|have|had)|"
     r"mentioned?\s+any|has\s+any|have\s+any|"
@@ -541,7 +544,7 @@ _SUMMARY_ANSWER_QUERY_RE = re.compile(
 _COUNT_ANSWER_TEXT_RE = re.compile(
     r"\b("
     r"first|second|third|fourth|fifth|sixth|seventh|eighth|ninth|tenth|"
-    r"once|twice|one|two|three|four|five|six|seven|eight|nine|ten|"
+    r"once|twice|several|multiple|numerous|many|one|two|three|four|five|six|seven|eight|nine|ten|"
     r"один|одна|одно|одного|одной|два|две|двух|три|трех|трёх|"
     r"четыре|четырех|четырёх|пять|пяти|шесть|шести|семь|семи|"
     r"восемь|восьми|девять|девяти|десять|десяти|"
@@ -632,7 +635,11 @@ _STATE_RESIDENCE_INFERENCE_ANSWER_TEXT_RE = re.compile(
     r"\b(?:map|photo|image|caption)\b(?=.{0,120}\b(?:trail|trails|hiking|park|forest|"
     r"lake|route|state|county|city|minnesota|voyageurs)\b)|"
     r"\b(?:trail|trails|hiking|park|forest|lake|route|state|county|city|"
-    r"minnesota|voyageurs)\b(?=.{0,120}\b(?:map|photo|image|caption)\b)",
+    r"minnesota|voyageurs)\b(?=.{0,120}\b(?:map|photo|image|caption)\b)|"
+    r"\b(?:stamford|connecticut)\b(?=.{0,120}\b(?:adopt|adopted|shelter|home|"
+    r"lives?|residence)\b)|"
+    r"\b(?:adopt|adopted|shelter|home|lives?|residence)\b"
+    r"(?=.{0,120}\b(?:stamford|connecticut)\b)",
     re.IGNORECASE | re.DOTALL,
 )
 
