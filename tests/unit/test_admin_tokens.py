@@ -651,8 +651,17 @@ def test_memory_scope_scoped_service_token_cannot_cross_memory_scope_in_same_spa
             permissions=("memory:diagnostics",),
         )
     )
+    scoped_admin = asyncio.run(
+        token_create(
+            space_id=space["id"],
+            memory_scope_ids=(memory_scope_a["id"],),
+            description="alpha admin",
+            permissions=("memory:admin",),
+        )
+    )
     scoped_headers = {"Authorization": f"Bearer {scoped['token']}"}
     diagnostics_headers = {"Authorization": f"Bearer {diagnostics_scoped['token']}"}
+    scoped_admin_headers = {"Authorization": f"Bearer {scoped_admin['token']}"}
 
     with TestClient(app) as client:
         same_memory_scope = client.get(
@@ -711,6 +720,38 @@ def test_memory_scope_scoped_service_token_cannot_cross_memory_scope_in_same_spa
             headers=scoped_headers,
         )
         memory_scope_capabilities = client.get("/v1/capabilities", headers=scoped_headers)
+        scoped_admin_export = client.get(
+            "/v1/export/memory_scope-snapshot",
+            params={
+                "space_slug": "memory_scope-scope",
+                "memory_scope_external_ref": "alpha",
+                "redacted": False,
+            },
+            headers=scoped_admin_headers,
+        )
+        snapshot_payload = scoped_admin_export.json()
+        scoped_admin_preview = client.post(
+            "/v1/export/memory_scope-snapshot/preview",
+            json={
+                "space_slug": "memory_scope-scope",
+                "memory_scope_external_ref": "alpha",
+                "snapshot": snapshot_payload.get("data", {}),
+                "manifest": snapshot_payload.get("manifest"),
+            },
+            headers=scoped_admin_headers,
+        )
+        scoped_admin_import_dry_run = client.post(
+            "/v1/export/memory_scope-snapshot/import",
+            json={
+                "space_slug": "memory_scope-scope",
+                "memory_scope_external_ref": "alpha",
+                "snapshot": snapshot_payload.get("data", {}),
+                "manifest": snapshot_payload.get("manifest"),
+                "dry_run": True,
+                "source_name": "scoped-admin-dry-run",
+            },
+            headers=scoped_admin_headers,
+        )
 
     assert scoped["memory_scope_ids"] == [memory_scope_a["id"]]
     assert same_memory_scope.status_code == 200
@@ -724,6 +765,9 @@ def test_memory_scope_scoped_service_token_cannot_cross_memory_scope_in_same_spa
     assert cross_memory_scope_diagnostics.status_code == 403
     assert multi_memory_scope_context.status_code == 403
     assert memory_scope_capabilities.status_code == 200
+    assert scoped_admin_export.status_code == 200
+    assert scoped_admin_preview.status_code == 200
+    assert scoped_admin_import_dry_run.status_code == 200
     assert "MEMORY_SCOPE_LEAK_MARKER" not in cross_memory_scope_by_id.text
     assert "MEMORY_SCOPE_SUGGESTION_LEAK" not in cross_memory_scope_suggestions.text
 

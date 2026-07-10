@@ -265,6 +265,7 @@ async def _requested_space_refs(container: Container, request: Request) -> set[s
                 or request.url.path == "/v1/link-suggestions"
                 or request.url.path.startswith("/v1/suggestions")
                 or request.url.path.startswith("/v1/thread-memory")
+                or request.url.path.startswith("/v1/export")
             )
             else None
         ),
@@ -341,6 +342,7 @@ async def _requested_memory_scope_refs(container: Container, request: Request) -
                 or request.url.path == "/v1/link-suggestions"
                 or request.url.path.startswith("/v1/suggestions")
                 or request.url.path.startswith("/v1/thread-memory")
+                or request.url.path.startswith("/v1/export")
             )
             and isinstance(body_memory_scope_external_ref, str)
             and body_memory_scope_external_ref
