@@ -174,6 +174,24 @@ def test_prompt_section_planner_groups_evidence_without_instruction_semantics() 
     assert plan.total_estimated_tokens == 14
 
 
+def test_prompt_section_planner_keeps_low_trust_items_out_of_critical_evidence() -> None:
+    domain = importlib.import_module(DOMAIN_MODULE)
+
+    low_trust_current = _item(
+        domain,
+        item_id="assistant-summary",
+        kind="derived_summary",
+        tags=("current", "low_trust"),
+    )
+
+    plan = domain.PromptSectionPlanner().plan((low_trust_current,))
+
+    assert tuple(section.section_id for section in plan.sections) == (
+        domain.LOW_TRUST_SECTION_ID,
+    )
+    assert plan.items == (low_trust_current,)
+
+
 def test_context_domain_shapes_are_frozen_slot_dataclasses() -> None:
     domain = importlib.import_module(DOMAIN_MODULE)
     scope = domain.ContextScope(space_id="space-1", memory_scope_id="scope-1")

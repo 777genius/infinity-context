@@ -113,16 +113,16 @@ class PromptSectionPlanner:
         kind = item.kind.casefold()
         tags = {tag.casefold() for tag in item.tags}
 
-        if role in self.policy.critical_roles or tags.intersection(
-            self.policy.critical_tags
-        ):
-            return CRITICAL_SECTION_ID
         if role in self.policy.low_trust_roles:
             return LOW_TRUST_SECTION_ID
         if kind in self.policy.low_trust_kinds or tags.intersection(
             self.policy.low_trust_tags
         ):
             return LOW_TRUST_SECTION_ID
+        if role in self.policy.critical_roles or tags.intersection(
+            self.policy.critical_tags
+        ):
+            return CRITICAL_SECTION_ID
         if role in self.policy.primary_roles:
             return PRIMARY_SECTION_ID
         if item.priority >= self.policy.primary_priority_threshold:
