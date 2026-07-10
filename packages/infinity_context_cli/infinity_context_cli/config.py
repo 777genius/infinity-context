@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import os
 import secrets
 import tomllib
@@ -159,9 +160,9 @@ def _config_text(*, home: Path, repo_dir: Path, api_url: str) -> str:
     return "\n".join(
         [
             "[local]",
-            f'home = "{home}"',
-            f'repo_dir = "{repo_dir}"',
-            f'api_url = "{api_url.rstrip("/")}"',
+            f"home = {_toml_string(home)}",
+            f"repo_dir = {_toml_string(repo_dir)}",
+            f"api_url = {_toml_string(api_url.rstrip('/'))}",
             'default_space_slug = "default"',
             'default_memory_scope_external_ref = "default"',
             "",
@@ -177,3 +178,7 @@ def _config_text(*, home: Path, repo_dir: Path, api_url: str) -> str:
             "",
         ]
     )
+
+
+def _toml_string(value: object) -> str:
+    return json.dumps(str(value))

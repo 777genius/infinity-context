@@ -79,10 +79,12 @@ def test_cli_quickstart_initializes_and_writes_redacted_mcp_config(
     assert payload["mcp_configs"][0]["token_included"] is False
     assert config.service_token not in captured.out
     mcp_text = mcp_path.read_text(encoding="utf-8")
+    mcp_payload = json.loads(mcp_text)
+    mcp_env = mcp_payload["infinity-context"]["env"]
     assert config.service_token not in mcp_text
     assert "${MEMORY_MCP_AUTH_TOKEN}" not in mcp_text
     assert "MEMORY_MCP_AUTH_TOKEN_FILE" in mcp_text
-    assert str(home / ".env") in mcp_text
+    assert mcp_env["MEMORY_MCP_AUTH_TOKEN_FILE"] == str(home / ".env")
     assert str(home / ".env") in "\n".join(payload["next_steps"])
     assert "Add the generated MCP config path to your agent." in "\n".join(
         payload["next_steps"]

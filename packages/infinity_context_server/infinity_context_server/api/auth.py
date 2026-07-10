@@ -65,6 +65,9 @@ def _required_permission(request: Request) -> str | None:
     if path.startswith("/v1/diagnostics"):
         return MEMORY_PERMISSION_DIAGNOSTICS
 
+    if path.startswith("/v1/export"):
+        return MEMORY_PERMISSION_ADMIN
+
     if path in {"/v1/context", "/v1/search"}:
         return MEMORY_PERMISSION_READ
 
