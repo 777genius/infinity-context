@@ -62,10 +62,12 @@ _ACTIVITY_COMPANION_QUERY_RE = re.compile(
     r"visit(?:ed|ing)?|yoga|workout|exercise)\b)",
     re.IGNORECASE | re.DOTALL,
 )
-_ACTIVITY_COMPANION_SUPPORT_RE = re.compile(
-    r"(?=.*\b(?:yoga|class(?:es)?|lesson|practice|workout|exercise|fitness|"
-    r"training|kickboxing|taekwondo|boxing|running|hiking|camping|trip)\b)"
-    r"(?=.*(?:"
+_ACTIVITY_COMPANION_ACTIVITY_RE = re.compile(
+    r"\b(?:yoga|class(?:es)?|lesson|practice|workout|exercise|fitness|"
+    r"training|kickboxing|taekwondo|boxing|running|hiking|camping|trip)\b",
+    re.IGNORECASE,
+)
+_ACTIVITY_COMPANION_WITH_RE = re.compile(
     r"\b(?:with|alongside|together\s+with|joined\s+by|accompanied\s+by)\b"
     r".{0,90}\b(?:(?:my|his|her|their|our|a|an|the)\s+|"
     r"one\s+of\s+(?:my|his|her|their|our)\s+)?"
@@ -78,8 +80,7 @@ _ACTIVITY_COMPANION_SUPPORT_RE = re.compile(
     r"\binvited\b.{0,120}\b(?:to|for)\b.{0,160}\bby\s+"
     r"(?:(?:my|his|her|their|our)\s+)?"
     r"(?:colleagues?|co-?workers?|workmates?|friends?|classmates?|teammates?|"
-    r"neighbou?rs?)\b"
-    r"))",
+    r"neighbou?rs?)\b",
     re.IGNORECASE | re.DOTALL,
 )
 _CONTENT_TOKEN_RE = re.compile(r"[^\W_]{3,}", re.UNICODE)
@@ -436,7 +437,8 @@ def _is_precise_activity_companion_source_sibling_answer_support(
         return False
     return (
         _score_signal_truthy(item, "source_sibling_answer_evidence")
-        and _ACTIVITY_COMPANION_SUPPORT_RE.search(item.text) is not None
+        and _ACTIVITY_COMPANION_ACTIVITY_RE.search(item.text) is not None
+        and _ACTIVITY_COMPANION_WITH_RE.search(item.text) is not None
     )
 
 
