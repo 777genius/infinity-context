@@ -1437,6 +1437,10 @@ def _session_turn_refs_from_split_refs(
 
 
 def _source_session_turn_mismatch(source_refs: Sequence[str]) -> bool:
+    session_turn_refs = _source_session_turn_refs(source_refs)
+    if session_turn_refs:
+        return any(_session_turn_ref_mismatch(ref) for ref in session_turn_refs)
+
     session_numbers = _source_ref_session_numbers(source_refs)
     if len(session_numbers) != 1:
         return False
@@ -1451,6 +1455,18 @@ def _source_session_turn_mismatch(source_refs: Sequence[str]) -> bool:
         and dialogue_number != session_number
         for turn_ref in safe_turn_refs
     )
+
+
+def _session_turn_ref_mismatch(session_turn_ref: str) -> bool:
+    match = re.fullmatch(
+        r"session[-_](?P<session>\d+):(?P<turn_ref>D\d+[:-]\d+)",
+        session_turn_ref,
+        re.IGNORECASE,
+    )
+    if match is None:
+        return False
+    dialogue_number = _turn_ref_dialogue_number(match.group("turn_ref"))
+    return bool(dialogue_number and dialogue_number != match.group("session"))
 
 
 def _source_ref_session_numbers(source_refs: Sequence[str]) -> tuple[str, ...]:

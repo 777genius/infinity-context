@@ -141,10 +141,24 @@ def _official_locomo_turn_memories(
     for session_key in sorted(conversation, key=_session_sort_key):
         if not _is_session_key(session_key):
             continue
-        turns = conversation.get(session_key)
-        if not isinstance(turns, Sequence) or isinstance(turns, str | bytes):
+        session_value = conversation.get(session_key)
+        turns = _official_locomo_session_turns(session_value)
+        if not turns:
             continue
         date_value = _first_str(conversation, f"{session_key}_date_time") or ""
+        if not date_value and isinstance(session_value, Mapping):
+            date_value = (
+                _first_str(
+                    session_value,
+                    "date",
+                    "date_time",
+                    "datetime",
+                    "session_date",
+                    "session_date_time",
+                    "timestamp",
+                )
+                or ""
+            )
         timestamp = _locomo_date_to_epoch(date_value)
         for index, turn in enumerate(turns):
             if not isinstance(turn, Mapping):
@@ -185,6 +199,17 @@ def _official_locomo_turn_memories(
                 )
             )
     return tuple(memories)
+
+
+def _official_locomo_session_turns(value: object) -> tuple[object, ...]:
+    if isinstance(value, Sequence) and not isinstance(value, str | bytes):
+        return tuple(value)
+    if isinstance(value, Mapping):
+        for key in ("dialogue", "turns", "utterances", "messages"):
+            turns = value.get(key)
+            if isinstance(turns, Sequence) and not isinstance(turns, str | bytes):
+                return tuple(turns)
+    return ()
 
 
 def _official_locomo_turn_memory_text(

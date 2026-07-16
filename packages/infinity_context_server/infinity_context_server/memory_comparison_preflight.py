@@ -745,7 +745,8 @@ def _official_locomo_sample_has_turns(sample: Mapping[str, object]) -> bool:
             continue
         if str(key).endswith("_date_time"):
             continue
-        if not isinstance(value, Sequence) or isinstance(value, str | bytes):
+        turns = _official_locomo_session_turns(value)
+        if not turns:
             continue
         if any(
             isinstance(turn, Mapping)
@@ -760,7 +761,7 @@ def _official_locomo_sample_has_turns(sample: Mapping[str, object]) -> bool:
                 "image_query",
                 "visual_query",
             )
-            for turn in value
+            for turn in turns
         ):
             return True
     return False
@@ -778,9 +779,10 @@ def _official_locomo_sample_turn_evidence_ids(
             continue
         if str(key).endswith("_date_time"):
             continue
-        if not isinstance(value, Sequence) or isinstance(value, str | bytes):
+        turns = _official_locomo_session_turns(value)
+        if not turns:
             continue
-        for index, turn in enumerate(value):
+        for index, turn in enumerate(turns):
             if not isinstance(turn, Mapping):
                 continue
             if not _text_field(
@@ -806,6 +808,17 @@ def _official_locomo_sample_turn_evidence_ids(
                 )
             )
     return frozenset(evidence_ids)
+
+
+def _official_locomo_session_turns(value: object) -> tuple[object, ...]:
+    if isinstance(value, Sequence) and not isinstance(value, str | bytes):
+        return tuple(value)
+    if isinstance(value, Mapping):
+        for key in ("dialogue", "turns", "utterances", "messages"):
+            turns = value.get(key)
+            if isinstance(turns, Sequence) and not isinstance(turns, str | bytes):
+                return tuple(turns)
+    return ()
 
 
 def _locomo_synthesized_turn_evidence_ids(

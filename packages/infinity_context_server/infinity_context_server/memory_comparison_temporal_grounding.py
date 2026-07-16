@@ -524,9 +524,7 @@ def _bundle_item_has_broad_summary(item: Mapping[str, object]) -> bool:
 
 
 def _source_identity_gap_codes(item: Mapping[str, object]) -> tuple[str, ...]:
-    source_refs = _str_tuple(item.get("source_refs"))
-    if not source_refs:
-        source_refs = _source_refs_from_bundle_item(item)
+    source_refs = _source_refs_from_bundle_item(item)
     return _source_identity_audit_gap_codes(
         source_refs=source_refs,
         text=_bundle_item_identity_text(item),

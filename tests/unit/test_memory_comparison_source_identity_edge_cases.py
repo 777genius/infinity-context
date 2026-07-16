@@ -388,6 +388,10 @@ def test_source_identity_refs_qualify_split_session_and_turn_refs() -> None:
         text="session_4 date: 9 October, 2022 D4:3 Alex confirmed the date.",
     ) == ()
     assert source_identity_audit_gap_codes(
+        source_refs=("locomo:conv-1:session_4:D4:3:turn",),
+        text="session_4 date: 9 October, 2022 D4:3 Alex confirmed the date.",
+    ) == ()
+    assert source_identity_audit_gap_codes(
         source_refs=("locomo:conversation:session_4", "D4:3"),
         text="session_5 date: 9 October, 2022 D4:3 Alex confirmed the date.",
     ) == ("source_text_session_turn_mismatch",)
