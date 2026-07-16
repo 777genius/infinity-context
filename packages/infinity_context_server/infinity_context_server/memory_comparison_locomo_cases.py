@@ -201,14 +201,14 @@ def _official_locomo_turn_memories(
     return tuple(memories)
 
 
-def _official_locomo_session_turns(value: object) -> tuple[object, ...]:
+def _official_locomo_session_turns(value: object) -> tuple[Mapping[str, object], ...]:
     if isinstance(value, Sequence) and not isinstance(value, str | bytes):
-        return tuple(value)
+        return tuple(turn for turn in value if isinstance(turn, Mapping))
     if isinstance(value, Mapping):
-        for key in ("dialogue", "turns", "utterances", "messages"):
+        for key in ("dialogue", "turns", "utterances", "messages", "items"):
             turns = value.get(key)
             if isinstance(turns, Sequence) and not isinstance(turns, str | bytes):
-                return tuple(turns)
+                return tuple(turn for turn in turns if isinstance(turn, Mapping))
     return ()
 
 

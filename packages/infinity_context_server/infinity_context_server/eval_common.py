@@ -3,10 +3,13 @@
 from __future__ import annotations
 
 import json
+import shutil
 import subprocess
 from pathlib import Path
+from typing import TYPE_CHECKING
 
-from fastapi.testclient import TestClient
+if TYPE_CHECKING:
+    from fastapi.testclient import TestClient
 
 from infinity_context_server.eval_constants import _FORBIDDEN_SNAPSHOT_MARKERS
 
@@ -293,9 +296,10 @@ def _git_report(root: Path | None = None) -> dict[str, object]:
 
 
 def _git_output(root: Path, *args: str) -> str | None:
+    git_bin = shutil.which("git") or "/usr/bin/git"
     try:
         result = subprocess.run(
-            ["git", *args],
+            [git_bin, *args],
             cwd=root,
             check=False,
             stdout=subprocess.PIPE,
