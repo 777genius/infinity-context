@@ -20,6 +20,7 @@ from infinity_context_core.application.context_source_siblings import (
 )
 from infinity_context_core.application.use_cases.build_context import (
     _prioritize_source_sibling_answer_evidence_seed_chunks,
+    _query_plan_requests_list_source_sibling_depth,
     _query_plan_requests_named_preference_source_sibling_diversity,
     _query_plan_requests_place_source_sibling_diversity,
     _query_plan_requests_relationship_status_source_sibling_diversity,
@@ -65,6 +66,35 @@ def test_source_sibling_answer_evidence_accepts_generic_list_slot_match() -> Non
             "D20:4: Maria: Last week, we had a blast at a live music event. "
             "Seeing them enjoy the songs made the night special."
         ),
+    )
+
+
+def test_activity_list_facets_do_not_use_common_interest_scope() -> None:
+    plan = build_query_expansion_plan("What activities does Avery partake in?")
+    activity_expansion = next(
+        expansion
+        for expansion in plan.retrieval_queries
+        if expansion.reason == "decomposition_activity_participation"
+    )
+    text = (
+        "D9:1 Avery: I had a quiet weekend after we went camping with my fam "
+        "two weekends ago. It was great to unplug and hang with the kids."
+    )
+
+    assert source_sibling_answer_evidence(
+        expansion_query=activity_expansion.query,
+        expansion_reason=activity_expansion.reason,
+        text=text,
+    )
+
+
+def test_children_preference_query_requests_list_source_sibling_depth() -> None:
+    query = "What do Avery's kids like?"
+    plan = build_query_expansion_plan(query)
+
+    assert _query_plan_requests_list_source_sibling_depth(
+        query_text=query,
+        query_plan=plan,
     )
 
 

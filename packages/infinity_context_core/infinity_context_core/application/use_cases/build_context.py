@@ -317,6 +317,7 @@ _LIST_SOURCE_SIBLING_DEEP_REASONS = _EXTRA_INVENTORY_PROMPT_REASONS | frozenset(
     {
         "activity_aggregation_bridge",
         "book_reading_list_bridge",
+        "children_preference_bridge",
         "church_friend_activity_inventory_bridge",
         "decomposition_activity_participation",
         "event_participation_bridge",

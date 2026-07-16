@@ -1450,10 +1450,7 @@ def source_sibling_answer_evidence(
             text=text,
         ):
             return True
-        if _is_common_interest_source_sibling_scope(
-            expansion_query=expansion_query,
-            expansion_reason=expansion_reason,
-        ):
+        if expansion_reason in _COMMON_INTEREST_SOURCE_SIBLING_REASONS:
             if (
                 _MOVIE_SEEN_SOURCE_SIBLING_QUERY_RE.search(expansion_query) is not None
                 and _MOVIE_SEEN_QUESTION_ONLY_SOURCE_SIBLING_RE.search(text) is not None
