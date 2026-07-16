@@ -3,7 +3,9 @@ from __future__ import annotations
 import sys
 import types
 
-if "httpx" not in sys.modules:
+try:
+    import httpx  # noqa: F401
+except ModuleNotFoundError:
     httpx_stub = types.ModuleType("httpx")
     httpx_stub.Client = object
     sys.modules["httpx"] = httpx_stub

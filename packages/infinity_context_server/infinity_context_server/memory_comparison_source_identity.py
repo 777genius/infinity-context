@@ -25,6 +25,10 @@ _SOURCE_SESSION_RE = re.compile(
     r"(?=$|[:_-](?!(?:D\d+[:-]\d+)\b))",
     re.IGNORECASE,
 )
+_EXPLICIT_SOURCE_SESSION_RE = re.compile(
+    r"(?:^|[:_\-\s])session[-_]\s*(?P<session>\d+)(?=$|[:_\-\s])",
+    re.IGNORECASE,
+)
 _TEXT_SESSION_TURN_RE = re.compile(
     r"\b(?:session|conversation|conv|dialogue|dialog)"
     r"(?:[-_]\s*|\s+#?\s*)(?P<session>\d+)"
@@ -1438,10 +1442,14 @@ def _session_turn_refs_from_split_refs(
 
 def _source_session_turn_mismatch(source_refs: Sequence[str]) -> bool:
     session_turn_refs = _source_session_turn_refs(source_refs)
-    if session_turn_refs:
-        return any(_session_turn_ref_mismatch(ref) for ref in session_turn_refs)
+    if session_turn_refs and any(
+        _session_turn_ref_mismatch(ref) for ref in session_turn_refs
+    ):
+        return True
 
-    session_numbers = _source_ref_session_numbers(source_refs)
+    session_numbers = _source_session_turn_ref_session_numbers(
+        session_turn_refs
+    ) or _source_ref_session_numbers(source_refs)
     if len(session_numbers) != 1:
         return False
     safe_turn_refs = _safe_turn_refs(
@@ -1469,28 +1477,40 @@ def _session_turn_ref_mismatch(session_turn_ref: str) -> bool:
     return bool(dialogue_number and dialogue_number != match.group("session"))
 
 
-def _source_ref_session_numbers(source_refs: Sequence[str]) -> tuple[str, ...]:
-    session_turn_refs = _source_session_turn_refs(source_refs)
-    if session_turn_refs:
-        return tuple(
-            dict.fromkeys(
-                match.group("session")
-                for source_ref in session_turn_refs
-                for match in (
-                    re.fullmatch(
-                        r"session[-_](?P<session>\d+):D\d+:\d+",
-                        source_ref,
-                        re.IGNORECASE,
-                    ),
-                )
-                if match is not None
-            )
-        )
+def _source_session_turn_ref_session_numbers(
+    source_session_turn_refs: Sequence[str],
+) -> tuple[str, ...]:
     return tuple(
         dict.fromkeys(
             match.group("session")
-            for source_ref in source_refs
-            for session_ref in _source_session_refs(source_ref)
+            for source_session_turn_ref in source_session_turn_refs
+            for match in (
+                re.match(
+                    r"session[-_](?P<session>\d+):D\d+[:-]\d+$",
+                    source_session_turn_ref,
+                    re.IGNORECASE,
+                ),
+            )
+            if match is not None
+        )
+    )
+
+
+def _source_ref_session_numbers(source_refs: Sequence[str]) -> tuple[str, ...]:
+    session_numbers: list[str] = []
+    for source_ref in source_refs:
+        explicit_numbers = tuple(
+            match.group("session")
+            for match in _EXPLICIT_SOURCE_SESSION_RE.finditer(source_ref)
+        )
+        session_refs = (
+            tuple(f"session_{number}" for number in explicit_numbers)
+            if explicit_numbers
+            else _source_session_refs(source_ref)
+        )
+        session_numbers.extend(
+            match.group("session")
+            for session_ref in session_refs
             for match in (
                 re.fullmatch(
                     r"session[-_](?P<session>\d+)",
@@ -1500,7 +1520,7 @@ def _source_ref_session_numbers(source_refs: Sequence[str]) -> tuple[str, ...]:
             )
             if match is not None
         )
-    )
+    return tuple(dict.fromkeys(session_numbers))
 
 
 def _turn_ref_dialogue_number(turn_ref: str) -> str:
