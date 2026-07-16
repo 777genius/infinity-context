@@ -85,31 +85,51 @@ _WORD_NUMBER_PATTERN = (
     r"one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|"
     r"thirteen|fourteen|fifteen|sixteen|seventeen|eighteen|nineteen)"
 )
-_QUERY_SESSION_NUMERIC_ORDINAL_RE = re.compile(
-    rf"\b(?P<before>\d{{1,4}})(?:st|nd|rd|th)\s+(?:locomo\s+)?"
-    rf"{_SESSION_ORDINAL_QUERY_NOUN_PATTERN}\b|"
-    rf"\b{_SESSION_NOUN_PATTERN}\s+{_OPTIONAL_NUMBER_LABEL_PATTERN}"
-    r"(?P<after>\d{1,4})(?:st|nd|rd|th)\b",
-    re.IGNORECASE,
+_QUERY_SESSION_NUMERIC_ORDINAL_RES = (
+    re.compile(
+        rf"\b(?P<order>\d{{1,4}})(?:st|nd|rd|th)\s+(?:locomo\s+)?"
+        rf"{_SESSION_ORDINAL_QUERY_NOUN_PATTERN}\b",
+        re.IGNORECASE,
+    ),
+    re.compile(
+        rf"\b{_SESSION_NOUN_PATTERN}\s+{_OPTIONAL_NUMBER_LABEL_PATTERN}"
+        r"(?P<order>\d{1,4})(?:st|nd|rd|th)\b",
+        re.IGNORECASE,
+    ),
 )
-_QUERY_LOCOMO_CONVERSATION_NUMERIC_ORDINAL_RE = re.compile(
-    r"\b(?P<before>\d{1,4})(?:st|nd|rd|th)\s+locomo\s+(?:conversation|conv)\b|"
-    rf"\blocomo\s+(?:conversation|conv)\s+{_OPTIONAL_NUMBER_LABEL_PATTERN}"
-    r"(?P<after>\d{1,4})(?:st|nd|rd|th)\b",
-    re.IGNORECASE,
+_QUERY_LOCOMO_CONVERSATION_NUMERIC_ORDINAL_RES = (
+    re.compile(
+        r"\b(?P<order>\d{1,4})(?:st|nd|rd|th)\s+locomo\s+(?:conversation|conv)\b",
+        re.IGNORECASE,
+    ),
+    re.compile(
+        rf"\blocomo\s+(?:conversation|conv)\s+{_OPTIONAL_NUMBER_LABEL_PATTERN}"
+        r"(?P<order>\d{1,4})(?:st|nd|rd|th)\b",
+        re.IGNORECASE,
+    ),
 )
-_QUERY_SESSION_WORD_ORDINAL_RE = re.compile(
-    rf"\b(?P<before>{_WORD_NUMBER_PATTERN})\s+(?:locomo\s+)?"
-    rf"{_SESSION_ORDINAL_QUERY_NOUN_PATTERN}\b|"
-    rf"\b{_SESSION_NOUN_PATTERN}\s+{_OPTIONAL_NUMBER_LABEL_PATTERN}"
-    rf"(?P<after>{_WORD_NUMBER_PATTERN})\b",
-    re.IGNORECASE,
+_QUERY_SESSION_WORD_ORDINAL_RES = (
+    re.compile(
+        rf"\b(?P<order>{_WORD_NUMBER_PATTERN})\s+(?:locomo\s+)?"
+        rf"{_SESSION_ORDINAL_QUERY_NOUN_PATTERN}\b",
+        re.IGNORECASE,
+    ),
+    re.compile(
+        rf"\b{_SESSION_NOUN_PATTERN}\s+{_OPTIONAL_NUMBER_LABEL_PATTERN}"
+        rf"(?P<order>{_WORD_NUMBER_PATTERN})\b",
+        re.IGNORECASE,
+    ),
 )
-_QUERY_LOCOMO_CONVERSATION_WORD_ORDINAL_RE = re.compile(
-    rf"\b(?P<before>{_WORD_NUMBER_PATTERN})\s+locomo\s+(?:conversation|conv)\b|"
-    rf"\blocomo\s+(?:conversation|conv)\s+{_OPTIONAL_NUMBER_LABEL_PATTERN}"
-    rf"(?P<after>{_WORD_NUMBER_PATTERN})\b",
-    re.IGNORECASE,
+_QUERY_LOCOMO_CONVERSATION_WORD_ORDINAL_RES = (
+    re.compile(
+        rf"\b(?P<order>{_WORD_NUMBER_PATTERN})\s+locomo\s+(?:conversation|conv)\b",
+        re.IGNORECASE,
+    ),
+    re.compile(
+        rf"\blocomo\s+(?:conversation|conv)\s+{_OPTIONAL_NUMBER_LABEL_PATTERN}"
+        rf"(?P<order>{_WORD_NUMBER_PATTERN})\b",
+        re.IGNORECASE,
+    ),
 )
 _QUERY_DIALOGUE_ID_RE = re.compile(r"\bD(?P<dialogue>\d{1,4})\b", re.IGNORECASE)
 _SESSION_ORDER_METADATA_KEYS = frozenset(
@@ -244,23 +264,36 @@ def _session_orders_from_query_values(values: tuple[str, ...]) -> tuple[int, ...
     for value in values:
         for match in _QUERY_DIALOGUE_ID_RE.finditer(value):
             orders.setdefault(int(match.group("dialogue")), None)
-        for match in _QUERY_SESSION_NUMERIC_ORDINAL_RE.finditer(value):
-            raw = match.group("before") or match.group("after")
+        for match in _query_order_matches(_QUERY_SESSION_NUMERIC_ORDINAL_RES, value):
+            raw = match.group("order")
             if raw:
                 orders.setdefault(int(raw), None)
-        for match in _QUERY_LOCOMO_CONVERSATION_NUMERIC_ORDINAL_RE.finditer(value):
-            raw = match.group("before") or match.group("after")
+        for match in _query_order_matches(
+            _QUERY_LOCOMO_CONVERSATION_NUMERIC_ORDINAL_RES,
+            value,
+        ):
+            raw = match.group("order")
             if raw:
                 orders.setdefault(int(raw), None)
-        for match in _QUERY_SESSION_WORD_ORDINAL_RE.finditer(value):
-            raw = match.group("before") or match.group("after")
+        for match in _query_order_matches(_QUERY_SESSION_WORD_ORDINAL_RES, value):
+            raw = match.group("order")
             if raw and (order := _word_number_value(raw)):
                 orders.setdefault(order, None)
-        for match in _QUERY_LOCOMO_CONVERSATION_WORD_ORDINAL_RE.finditer(value):
-            raw = match.group("before") or match.group("after")
+        for match in _query_order_matches(
+            _QUERY_LOCOMO_CONVERSATION_WORD_ORDINAL_RES,
+            value,
+        ):
+            raw = match.group("order")
             if raw and (order := _word_number_value(raw)):
                 orders.setdefault(order, None)
     return tuple(orders)
+
+
+def _query_order_matches(
+    patterns: tuple[re.Pattern[str], ...],
+    value: str,
+) -> tuple[re.Match[str], ...]:
+    return tuple(match for pattern in patterns for match in pattern.finditer(value))
 
 
 def _session_orders_from_metadata(item: ContextItem) -> tuple[int, ...]:
