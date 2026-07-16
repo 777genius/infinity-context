@@ -814,7 +814,7 @@ def _official_locomo_session_turns(value: object) -> tuple[object, ...]:
     if isinstance(value, Sequence) and not isinstance(value, str | bytes):
         return tuple(value)
     if isinstance(value, Mapping):
-        for key in ("dialogue", "turns", "utterances", "messages"):
+        for key in ("dialogue", "turns", "utterances", "messages", "items"):
             turns = value.get(key)
             if isinstance(turns, Sequence) and not isinstance(turns, str | bytes):
                 return tuple(turns)

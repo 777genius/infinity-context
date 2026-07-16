@@ -156,6 +156,31 @@ def test_memory_comparison_preflight_accepts_dialogue_wrapped_session_turns(
     assert check["details"]["official_turn_case_count"] == 40
 
 
+def test_memory_comparison_preflight_accepts_items_wrapped_session_turns(
+    tmp_path: Path,
+) -> None:
+    dataset = tmp_path / "locomo-items-wrapped-session.json"
+    payload = _official_locomo_fast_dataset_payload()
+    conversation = payload[0]["conversation"]
+    assert isinstance(conversation, dict)
+    turns = conversation.pop("session_1")
+    conversation.pop("session_1_date_time")
+    conversation["session_1"] = {"date": "2023-01-01", "items": turns}
+    dataset.write_text(json.dumps(payload), encoding="utf-8")
+
+    result = run_memory_comparison_preflight(
+        _config(
+            dataset_path=dataset,
+            env={"MEM0_API_KEY": "secret-mem0"},
+        )
+    )
+
+    assert result["ready_for_locomo_fast"] is True
+    check = _check(result, "locomo_fast_dataset_case_coverage")
+    assert check["passed"] is True
+    assert check["details"]["official_turn_case_count"] == 40
+
+
 def test_memory_comparison_preflight_accepts_textual_locomo_category_labels(
     tmp_path: Path,
 ) -> None:
