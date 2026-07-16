@@ -26,7 +26,7 @@ def _top_evidence_env(
         encoding="utf-8",
     )
     env = {
-        "MEMORY_OPENAI_API_KEY": "sk-test-secret-value",
+        "MEMORY_OPENAI_API_KEY": "fake-openai-key-value",
         "MEMORY_AGENT_BENCH_MODEL": "gpt-test",
         "MEMORY_MULTIMODAL_PROVIDER_PROBE_INVALID_KEY": "1",
         "MEMORY_PUBLIC_BENCHMARK_COMPETITIVE_FLOOR": "true",
@@ -93,7 +93,7 @@ def test_top_evidence_preflight_accepts_clean_publishable_config(tmp_path: Path)
     assert payload["sanitized_config"]["longmemeval_duplicate_case_id_count"] == 0
     assert payload["sanitized_config"]["public_benchmark_competitive_floor_mode"] is True
     assert payload["sanitized_config"]["public_benchmark_min_accuracy"] == 0.947
-    assert "sk-test-secret-value" not in json.dumps(payload)
+    assert "fake-openai-key-value" not in json.dumps(payload)
     assert str(tmp_path) not in json.dumps(payload)
 
 
@@ -189,6 +189,88 @@ def test_top_evidence_preflight_lightweight_profile_requires_answer_signal(
     assert profile["duplicate_case_id_count"] == 0
 
 
+def test_top_evidence_preflight_lightweight_profile_requires_corpus_signal(
+    tmp_path: Path,
+) -> None:
+    dataset = tmp_path / "partial-locomo.json"
+    dataset.write_text(
+        json.dumps(
+            [
+                {
+                    "benchmark": "locomo",
+                    "case_id": "locomo-valid",
+                    "question": "Where is the checklist?",
+                    "answer": "blue notebook",
+                    "memories": ["The checklist is in the blue notebook."],
+                },
+                {
+                    "benchmark": "locomo",
+                    "case_id": "locomo-no-corpus",
+                    "question": "Where is the badge?",
+                    "answer": "desk drawer",
+                },
+                {
+                    "benchmark": "locomo",
+                    "case_id": "locomo-blank-corpus",
+                    "question": "Where is the pass?",
+                    "answer": "front desk",
+                    "documents": [{"title": "empty", "text": " "}],
+                },
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    profile = top_evidence_preflight._lightweight_dataset_profile(
+        dataset,
+        benchmark="locomo",
+    )
+
+    assert profile is not None
+    assert profile["case_count"] == 1
+    assert profile["unique_case_id_count"] == 1
+    assert profile["duplicate_case_id_count"] == 0
+
+
+def test_top_evidence_preflight_ignores_incomplete_cases_after_full_loader_rejects(
+    tmp_path: Path,
+) -> None:
+    env = _top_evidence_env(tmp_path)
+    locomo_path = Path(env["MEMORY_PUBLIC_BENCHMARK_LOCOMO_DATASET"])
+    longmemeval_path = Path(env["MEMORY_PUBLIC_BENCHMARK_LONGMEMEVAL_DATASET"])
+    locomo_cases = json.loads(locomo_path.read_text(encoding="utf-8"))
+    longmemeval_cases = json.loads(longmemeval_path.read_text(encoding="utf-8"))
+    locomo_cases.append(
+        {
+            "benchmark": "locomo",
+            "case_id": "locomo-incomplete",
+            "question": "Where is the incomplete marker?",
+            "memories": ["The marker was discussed."],
+        }
+    )
+    longmemeval_cases.append(
+        {
+            "benchmark": "longmemeval",
+            "case_id": "longmemeval-incomplete",
+            "question": "Where is the incomplete marker?",
+            "answer": "not enough corpus",
+        }
+    )
+    locomo_path.write_text(json.dumps(locomo_cases), encoding="utf-8")
+    longmemeval_path.write_text(json.dumps(longmemeval_cases), encoding="utf-8")
+
+    result = run_top_evidence_preflight(
+        env=env,
+        cwd=tmp_path,
+        docker_path="/usr/bin/docker",
+        git={"commit": "abc123", "dirty": False},
+    )
+
+    assert result.ok is True
+    assert result.sanitized_config["locomo_case_count"] == 600
+    assert result.sanitized_config["longmemeval_case_count"] == 500
+
+
 def test_top_evidence_preflight_lightweight_profile_counts_runnable_official_locomo_qas(
     tmp_path: Path,
 ) -> None:
@@ -238,11 +320,62 @@ def test_top_evidence_preflight_lightweight_profile_counts_runnable_official_loc
     assert profile["duplicate_case_id_count"] == 0
 
 
+def test_top_evidence_preflight_lightweight_profile_rejects_unresolved_locomo_evidence(
+    tmp_path: Path,
+) -> None:
+    dataset = tmp_path / "official-locomo.json"
+    dataset.write_text(
+        json.dumps(
+            [
+                {
+                    "sample_id": "conv-lite",
+                    "conversation": {
+                        "speaker_a": "Caroline",
+                        "session_1": [
+                            {
+                                "speaker": "Caroline",
+                                "dia_id": "D1:1",
+                                "text": "I put the checklist in the blue notebook.",
+                            }
+                        ],
+                    },
+                    "qa": [
+                        {
+                            "question": "Which turn mentions the checklist?",
+                            "evidence": ["D9:9"],
+                        },
+                        {
+                            "question": "Where is the checklist?",
+                            "answer": "blue notebook",
+                            "evidence": ["D9:9"],
+                        },
+                        {
+                            "question": "Where is the folder?",
+                            "answer": "red folder",
+                        },
+                    ],
+                }
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    profile = top_evidence_preflight._lightweight_dataset_profile(
+        dataset,
+        benchmark="locomo",
+    )
+
+    assert profile is not None
+    assert profile["case_count"] == 1
+    assert profile["unique_case_id_count"] == 1
+    assert profile["duplicate_case_id_count"] == 0
+
+
 def test_top_evidence_preflight_accepts_openai_key_file_without_leak(
     tmp_path: Path,
 ) -> None:
     key_file = tmp_path / "openai.key"
-    key_file.write_text("sk-test-secret-from-file", encoding="utf-8")
+    key_file.write_text("fake-openai-key-from-file", encoding="utf-8")
     result = run_top_evidence_preflight(
         env=_top_evidence_env(
             tmp_path,
@@ -262,7 +395,7 @@ def test_top_evidence_preflight_accepts_openai_key_file_without_leak(
     assert payload["checks"]["openai_key_present"] is True
     assert payload["sanitized_config"]["openai_key_file_present"] is True
     assert payload["sanitized_config"]["openai_key_present"] is True
-    assert "sk-test-secret-from-file" not in rendered
+    assert "fake-openai-key-from-file" not in rendered
     assert str(key_file) not in rendered
     assert str(tmp_path) not in rendered
 

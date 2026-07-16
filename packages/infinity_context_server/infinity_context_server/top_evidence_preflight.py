@@ -577,7 +577,9 @@ def _dataset_profile(path: Path | None, *, benchmark: str) -> dict[str, object] 
         )
     except ImportError:
         return _lightweight_dataset_profile(path, benchmark=benchmark)
-    except (ValueError, OSError, UnicodeDecodeError):
+    except ValueError:
+        return _lightweight_dataset_profile(path, benchmark=benchmark)
+    except (OSError, UnicodeDecodeError):
         return None
 
 
@@ -660,15 +662,140 @@ def _official_locomo_case_keys(
     qas = raw.get("qa")
     if not isinstance(qas, Sequence) or isinstance(qas, str | bytes):
         return ()
+    evidence_ids = _official_locomo_evidence_id_set(raw)
+    searchable_text = _official_locomo_searchable_text(raw)
     keys: list[str] = []
     for index, qa in enumerate(qas):
         if (
             isinstance(qa, Mapping)
             and _first_str(qa, "question", "query")
-            and _has_benchmark_expected_signal(qa, allow_evidence=True)
+            and _has_official_locomo_expected_signal(
+                qa,
+                evidence_ids=evidence_ids,
+                searchable_text=searchable_text,
+            )
         ):
             keys.append(f"{LOCOMO_BENCHMARK_SUITE}:{sample_id}:qa:{index + 1}")
     return tuple(keys)
+
+
+def _has_official_locomo_expected_signal(
+    qa: Mapping[str, object],
+    *,
+    evidence_ids: frozenset[str],
+    searchable_text: str,
+) -> bool:
+    return any(
+        evidence_id in evidence_ids for evidence_id in _official_locomo_qa_evidence_ids(qa)
+    ) or _has_official_locomo_supported_answer_signal(
+        qa,
+        searchable_text=searchable_text,
+    )
+
+
+def _has_official_locomo_supported_answer_signal(
+    qa: Mapping[str, object],
+    *,
+    searchable_text: str,
+) -> bool:
+    for answer in _benchmark_scalar_strings(
+        qa.get("answer"),
+        qa.get("expected_answer"),
+        qa.get("answers"),
+    ):
+        if _normalize_preflight_text(answer) in searchable_text:
+            return True
+    return False
+
+
+def _official_locomo_searchable_text(raw: Mapping[str, object]) -> str:
+    values: list[str] = []
+    _collect_official_locomo_text(raw.get("conversation"), values)
+    return _normalize_preflight_text(" ".join(values))
+
+
+def _collect_official_locomo_text(value: object, values: list[str]) -> None:
+    if isinstance(value, Mapping):
+        text = _first_str(value, "text", "content", "message", "utterance")
+        if text:
+            values.append(text)
+        for nested in value.values():
+            _collect_official_locomo_text(nested, values)
+    elif isinstance(value, Sequence) and not isinstance(value, str | bytes):
+        for nested in value:
+            _collect_official_locomo_text(nested, values)
+
+
+def _official_locomo_evidence_id_set(raw: Mapping[str, object]) -> frozenset[str]:
+    evidence_ids: set[str] = set()
+    _collect_official_locomo_evidence_ids(raw.get("conversation"), evidence_ids)
+    return frozenset(evidence_ids)
+
+
+def _collect_official_locomo_evidence_ids(value: object, evidence_ids: set[str]) -> None:
+    if isinstance(value, Mapping):
+        dia_id = _first_str(value, "dia_id", "dialogue_id", "turn_id", "id")
+        text = _first_str(value, "text", "content", "message", "utterance")
+        if dia_id and text:
+            evidence_ids.add(dia_id)
+        for nested in value.values():
+            _collect_official_locomo_evidence_ids(nested, evidence_ids)
+    elif isinstance(value, Sequence) and not isinstance(value, str | bytes):
+        for nested in value:
+            _collect_official_locomo_evidence_ids(nested, evidence_ids)
+
+
+def _official_locomo_qa_evidence_ids(qa: Mapping[str, object]) -> tuple[str, ...]:
+    evidence_ids: list[str] = []
+    for value in _official_locomo_qa_evidence_values(qa.get("evidence")):
+        evidence_id = str(value).strip()
+        if evidence_id:
+            evidence_ids.append(evidence_id)
+    return tuple(evidence_ids)
+
+
+def _official_locomo_qa_evidence_values(value: object) -> tuple[object, ...]:
+    if isinstance(value, Mapping):
+        values: list[object] = []
+        for key in (
+            "dia_id",
+            "id",
+            "ids",
+            "ref",
+            "refs",
+            "source_id",
+            "source_ids",
+            "evidence",
+            "evidence_id",
+            "evidence_ids",
+            "turn_id",
+            "turn_ids",
+        ):
+            if key in value:
+                values.extend(_official_locomo_qa_evidence_values(value.get(key)))
+        return tuple(values)
+    if isinstance(value, Sequence) and not isinstance(value, str | bytes):
+        values = []
+        for item in value:
+            values.extend(_official_locomo_qa_evidence_values(item))
+        return tuple(values)
+    return (value,) if value is not None else ()
+
+
+def _benchmark_scalar_strings(*values: object) -> tuple[str, ...]:
+    strings: list[str] = []
+    for value in values:
+        if isinstance(value, str) and value.strip():
+            strings.append(value.strip())
+        elif isinstance(value, int | float | bool):
+            strings.append(str(value))
+        elif isinstance(value, Sequence) and not isinstance(value, str | bytes):
+            strings.extend(_benchmark_scalar_strings(*value))
+    return tuple(strings)
+
+
+def _normalize_preflight_text(value: str) -> str:
+    return " ".join(value.lower().split())
 
 
 def _normalized_public_case_key(
@@ -677,15 +804,35 @@ def _normalized_public_case_key(
     index: int,
     benchmark: str,
 ) -> tuple[str, ...]:
-    raw_benchmark = _first_str(raw, "benchmark", "suite") or benchmark
+    raw_benchmark = (
+        _first_str(raw, "benchmark", "suite", "source_benchmark", "dataset", "source")
+        or benchmark
+    )
     case_benchmark = _normalize_public_benchmark_name(raw_benchmark)
     if case_benchmark != _normalize_public_benchmark_name(benchmark):
         return ()
-    case_id = _first_str(raw, "case_id", "id", "question_id") or str(index)
-    question = _first_str(raw, "question", "query")
-    if not question or not _has_benchmark_expected_signal(raw):
+    case_id = (
+        _first_str(raw, "case_id", "id", "question_id", "qa_id", "uid", "sample_id")
+        or str(index)
+    )
+    question = _benchmark_question(raw)
+    if (
+        not question
+        or not _has_benchmark_expected_signal(raw)
+        or not _has_benchmark_corpus_signal(raw)
+    ):
         return ()
     return (f"{case_benchmark}:{case_id}",)
+
+
+def _benchmark_question(raw: Mapping[str, object]) -> str | None:
+    direct = _first_str(raw, "question", "query", "input")
+    if direct:
+        return direct
+    qa = raw.get("qa")
+    if isinstance(qa, Mapping):
+        return _first_str(qa, "question", "query", "input")
+    return None
 
 
 def _has_benchmark_expected_signal(
@@ -708,6 +855,12 @@ def _has_benchmark_expected_signal(
         *expected_keys,
     ):
         return True
+    qa = raw.get("qa")
+    if isinstance(qa, Mapping) and _has_benchmark_expected_signal(
+        qa,
+        allow_evidence=allow_evidence,
+    ):
+        return True
     if allow_evidence and _has_non_empty_value(
         raw,
         "evidence",
@@ -720,6 +873,34 @@ def _has_benchmark_expected_signal(
         "forbidden",
         "must_not_retrieve",
     )
+
+
+def _has_benchmark_corpus_signal(raw: Mapping[str, object]) -> bool:
+    for key in (
+        "memories",
+        "facts",
+        "conversation",
+        "messages",
+        "history",
+        "documents",
+        "chunks",
+        "passages",
+        "haystack",
+        "context",
+    ):
+        if _value_has_benchmark_corpus_signal(raw.get(key)):
+            return True
+    return False
+
+
+def _value_has_benchmark_corpus_signal(value: object) -> bool:
+    if isinstance(value, str):
+        return bool(value.strip())
+    if isinstance(value, Mapping):
+        return bool(_first_str(value, "text", "content", "message", "utterance", "body", "passage"))
+    if isinstance(value, Sequence) and not isinstance(value, str | bytes):
+        return any(_value_has_benchmark_corpus_signal(item) for item in value)
+    return False
 
 
 def _has_non_empty_value(
