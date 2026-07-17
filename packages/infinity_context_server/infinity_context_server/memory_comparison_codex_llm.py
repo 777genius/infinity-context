@@ -328,4 +328,14 @@ def _looks_like_codex_diagnostic_line(line: str) -> bool:
         or " error " in lower
         or "failed to connect" in lower
         or "operation not permitted" in lower
+        or "401 unauthorized" in lower
+        or "missing bearer" in lower
+        or "missing basic authentication" in lower
+        or "bearer or basic authentication" in lower
+        or "not logged in" in lower
+        or "not authenticated" in lower
+        or "please log in" in lower
+        or "please login" in lower
+        or "login required" in lower
+        or "authentication required" in lower
     )

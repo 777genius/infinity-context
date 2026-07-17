@@ -190,6 +190,62 @@ def test_codex_answerer_canary_reports_sanitized_external_blocker() -> None:
     assert "/private/provider/codex" not in rendered
 
 
+def test_codex_answerer_canary_reports_sanitized_auth_missing_blocker() -> None:
+    def fake_runner(args, prompt, timeout, cwd):
+        raise ValueError(
+            "Codex CLI exited with status 1: websocket transport failed: "
+            "HTTP 401 Unauthorized: Missing bearer or basic authentication, "
+            "url: wss://api.openai.com/v1/responses; https transport failed: "
+            "HTTP 401 Unauthorized for https://api.openai.com/v1/responses; "
+            "request marker unit_request_marker; session state /unit/codex/session-state-file; "
+            "raw provider body marker unit_provider_body"
+        )
+
+    report = run_codex_answerer_canary(
+        model="unit-model",
+        codex_command="/private/provider/codex",
+        command_runner=fake_runner,
+    )
+    rendered = json.dumps(report, sort_keys=True)
+
+    assert report["ok"] is False
+    assert report["failure_code"] == "codex_cli_auth_missing"
+    assert "authentication was missing" in str(report["failure_reason"])
+    assert report["diagnostics"] == {
+        "blocker_scope": "codex_cli_auth",
+        "operator_action": "run_inside_subscription_runtime_or_configure_codex_auth",
+        "auth_error": "missing_bearer_or_basic_authentication",
+        "http_status": 401,
+        "provider_endpoint": "api.openai.com",
+        "provider_transports": ["websocket", "https"],
+    }
+    assert "provider_network_blocked" not in rendered
+    assert "wss://api.openai.com/v1/responses" not in rendered
+    assert "https://api.openai.com/v1/responses" not in rendered
+    assert "unit_request_marker" not in rendered
+    assert "/unit/codex/session-state-file" not in rendered
+    assert "unit_provider_body" not in rendered
+    assert "/private/provider/codex" not in rendered
+
+
+def test_codex_answerer_canary_reports_not_logged_in_auth_blocker() -> None:
+    def fake_runner(args, prompt, timeout, cwd):
+        raise ValueError("Codex CLI is not logged in. Please log in to continue.")
+
+    report = run_codex_answerer_canary(
+        model="unit-model",
+        codex_command="codex",
+        command_runner=fake_runner,
+    )
+
+    assert report["failure_code"] == "codex_cli_auth_missing"
+    assert report["diagnostics"] == {
+        "blocker_scope": "codex_cli_auth",
+        "operator_action": "run_inside_subscription_runtime_or_configure_codex_auth",
+        "auth_error": "codex_cli_not_logged_in",
+    }
+
+
 def test_codex_stderr_preview_filters_prompt_transcript() -> None:
     preview = codex_llm._redacted_preview(
         "\n".join(
@@ -210,6 +266,23 @@ def test_codex_stderr_preview_filters_prompt_transcript() -> None:
     assert 'verdict "error"' not in preview
     assert "Codex could not find bubblewrap" in preview
     assert "Operation not permitted" in preview
+
+
+def test_codex_stderr_preview_keeps_auth_diagnostics() -> None:
+    preview = codex_llm._redacted_preview(
+        "\n".join(
+            (
+                "OpenAI Codex v0.142.5",
+                "user",
+                "Question: where is the private fixture?",
+                "HTTP 401 Unauthorized: Missing bearer or basic authentication",
+            )
+        )
+    )
+
+    assert "private fixture" not in preview
+    assert "401 Unauthorized" in preview
+    assert "Missing bearer or basic authentication" in preview
 
 
 def test_memory_comparison_llm_keeps_codex_lazy_exports() -> None:

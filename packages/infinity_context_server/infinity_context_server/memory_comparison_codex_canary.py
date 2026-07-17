@@ -134,6 +134,8 @@ def _failure_code(exc: Exception) -> str:
         return "codex_command_not_found"
     if "timed out" in text:
         return "codex_cli_timeout"
+    if _is_codex_cli_auth_missing(text):
+        return "codex_cli_auth_missing"
     if "operation not permitted" in text and (
         "api.openai.com" in text or "responses" in text
     ):
@@ -150,6 +152,11 @@ def _failure_reason(failure_code: str) -> str:
         return "Codex CLI was not executable from the configured bridge command."
     if failure_code == "codex_cli_timeout":
         return "Codex CLI did not return before the canary timeout."
+    if failure_code == "codex_cli_auth_missing":
+        return (
+            "Codex CLI reached the provider, but subscription-runtime "
+            "authentication was missing or unavailable."
+        )
     if failure_code == "provider_network_blocked":
         return "Codex CLI reached the provider path, but outbound provider access was blocked."
     if failure_code == "codex_runtime_not_writable":
@@ -161,12 +168,22 @@ def _failure_reason(failure_code: str) -> str:
 
 def _failure_diagnostics(failure_code: str, exc: Exception) -> dict[str, object]:
     text = str(exc).casefold()
+    if failure_code == "codex_cli_auth_missing":
+        diagnostics: dict[str, object] = {
+            "blocker_scope": "codex_cli_auth",
+            "operator_action": "run_inside_subscription_runtime_or_configure_codex_auth",
+            "auth_error": _codex_cli_auth_error_kind(text),
+        }
+        if "401" in text or "unauthorized" in text:
+            diagnostics["http_status"] = 401
+        if "api.openai.com" in text:
+            diagnostics["provider_endpoint"] = "api.openai.com"
+        transports = _provider_transports(text)
+        if transports:
+            diagnostics["provider_transports"] = transports
+        return diagnostics
     if failure_code == "provider_network_blocked":
-        transports: list[str] = []
-        if "websocket" in text or "wss://api.openai.com" in text:
-            transports.append("websocket")
-        if "https transport" in text or "https://api.openai.com" in text:
-            transports.append("https")
+        transports = _provider_transports(text)
         if not transports:
             transports.append("provider")
         return {
@@ -191,6 +208,49 @@ def _failure_diagnostics(failure_code: str, exc: Exception) -> dict[str, object]
     if failure_code == "codex_cli_timeout":
         return {"blocker_scope": "codex_cli_timeout"}
     return {"blocker_scope": "codex_cli"}
+
+
+def _is_codex_cli_auth_missing(text: str) -> bool:
+    return (
+        ("401" in text and "unauthorized" in text)
+        or "missing bearer" in text
+        or "missing basic authentication" in text
+        or "bearer or basic authentication" in text
+        or "not logged in" in text
+        or "not logged-in" in text
+        or "not authenticated" in text
+        or "please log in" in text
+        or "please login" in text
+        or "login required" in text
+        or "authentication required" in text
+    )
+
+
+def _codex_cli_auth_error_kind(text: str) -> str:
+    if (
+        "missing bearer" in text
+        or "missing basic authentication" in text
+        or "bearer or basic authentication" in text
+    ):
+        return "missing_bearer_or_basic_authentication"
+    if (
+        "not logged in" in text
+        or "not logged-in" in text
+        or "please log in" in text
+        or "please login" in text
+        or "login required" in text
+    ):
+        return "codex_cli_not_logged_in"
+    return "provider_authentication_missing"
+
+
+def _provider_transports(text: str) -> list[str]:
+    transports: list[str] = []
+    if "websocket" in text or "wss://api.openai.com" in text:
+        transports.append("websocket")
+    if "https transport" in text or "https://api.openai.com" in text:
+        transports.append("https")
+    return transports
 
 
 def _command_label(command: str) -> str:
