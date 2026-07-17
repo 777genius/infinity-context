@@ -270,13 +270,16 @@ def _codex_subprocess_env(
     runtime_root: Path,
 ) -> dict[str, str]:
     env = dict(base_env)
+    home_dir = runtime_root / "home"
     tmp_dir = runtime_root / "tmp"
     runtime_dir = runtime_root / "runtime"
     cache_dir = runtime_root / "cache"
     state_dir = runtime_root / "state"
     data_dir = runtime_root / "data"
-    for path in (tmp_dir, runtime_dir, cache_dir, state_dir, data_dir):
+    for path in (home_dir, tmp_dir, runtime_dir, cache_dir, state_dir, data_dir):
         path.mkdir(mode=0o700, parents=True, exist_ok=True)
+    if not str(env.get("HOME", "")).strip():
+        env["HOME"] = str(home_dir)
     env.update(
         {
             "TMPDIR": str(tmp_dir),
@@ -293,4 +296,36 @@ def _codex_subprocess_env(
 
 def _redacted_preview(value: str) -> str:
     redacted = redact_sensitive_text(str(value or ""))
-    return " ".join(redacted.split())[:1000]
+    lines = _codex_diagnostic_lines(redacted.splitlines())
+    collapsed = " ".join(" ".join(lines or redacted.split()).split())
+    if len(collapsed) <= 1000:
+        return collapsed
+    return f"{collapsed[:500]} ... {collapsed[-500:]}"
+
+
+def _codex_diagnostic_lines(lines: Sequence[str]) -> list[str]:
+    diagnostics: list[str] = []
+    in_prompt_transcript = False
+    for line in lines:
+        stripped = line.strip()
+        if stripped == "user":
+            in_prompt_transcript = True
+            continue
+        is_diagnostic = _looks_like_codex_diagnostic_line(stripped)
+        if in_prompt_transcript and not is_diagnostic:
+            continue
+        if in_prompt_transcript and is_diagnostic:
+            in_prompt_transcript = False
+        if is_diagnostic:
+            diagnostics.append(stripped)
+    return diagnostics
+
+
+def _looks_like_codex_diagnostic_line(line: str) -> bool:
+    lower = line.casefold()
+    return (
+        lower.startswith(("warning:", "error:", "fatal:"))
+        or " error " in lower
+        or "failed to connect" in lower
+        or "operation not permitted" in lower
+    )
