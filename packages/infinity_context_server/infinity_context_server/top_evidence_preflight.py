@@ -32,6 +32,13 @@ DEFAULT_MIN_PUBLIC_ACCURACY = max(
 )
 DEFAULT_MULTIMODAL_PROVIDER_TIMEOUT_SECONDS = 60.0
 TOP_EVIDENCE_PREFLIGHT_SCHEMA_VERSION = "top-evidence-preflight.v1"
+TOP_EVIDENCE_PREFLIGHT_MODE_ENV = "MEMORY_TOP_EVIDENCE_PREFLIGHT_MODE"
+TOP_EVIDENCE_PREFLIGHT_PUBLISHABLE_MODE = "publishable"
+TOP_EVIDENCE_PREFLIGHT_SMOKE_MODE = "smoke"
+TOP_EVIDENCE_PREFLIGHT_MODES = (
+    TOP_EVIDENCE_PREFLIGHT_PUBLISHABLE_MODE,
+    TOP_EVIDENCE_PREFLIGHT_SMOKE_MODE,
+)
 MAX_MULTIMODAL_PROVIDER_TIMEOUT_SECONDS = 120.0
 MIN_MULTIMODAL_PROVIDER_TIMEOUT_SECONDS = 5.0
 REQUIRED_MULTIMODAL_AUDIO_TYPES = frozenset({".mp3", ".wav"})
@@ -43,6 +50,26 @@ TOP_EVIDENCE_EXECUTABLE_FALLBACK_DIRS = (
     Path("/bin"),
     Path("/usr/local/bin"),
 )
+SMOKE_RELAXED_CHECKS = frozenset(
+    {
+        "agent_bench_model_present",
+        "agent_bench_scenario_set_all",
+        "docker_available",
+        "locomo_dataset_case_count_representative",
+        "locomo_dataset_file",
+        "locomo_dataset_unique_case_ids",
+        "locomo_dataset_valid",
+        "longmemeval_dataset_case_count_representative",
+        "longmemeval_dataset_file",
+        "longmemeval_dataset_unique_case_ids",
+        "longmemeval_dataset_valid",
+        "multimodal_live_invalid_key_probe_enabled",
+        "public_benchmark_accuracy_floor_competitive",
+        "public_benchmark_all",
+        "public_benchmark_case_count_representative",
+        "public_benchmark_competitive_floor_mode",
+    }
+)
 _dataset_profile = _dataset_profiles._dataset_profile
 _lightweight_dataset_profile = _dataset_profiles._lightweight_dataset_profile
 _profile_int = _dataset_profiles._profile_int
@@ -52,6 +79,8 @@ _profile_str = _dataset_profiles._profile_str
 @dataclass(frozen=True)
 class TopEvidencePreflightResult:
     ok: bool
+    mode: str
+    publishable: bool
     checks: dict[str, bool]
     failures: tuple[str, ...]
     failure_codes: tuple[str, ...]
@@ -62,6 +91,8 @@ class TopEvidencePreflightResult:
     def as_dict(self) -> dict[str, object]:
         return {
             "ok": self.ok,
+            "mode": self.mode,
+            "publishable": self.publishable,
             "checks": self.checks,
             "failures": list(self.failures),
             "failure_codes": list(self.failure_codes),
@@ -79,8 +110,11 @@ def run_top_evidence_preflight(
     cwd: Path | None = None,
     docker_path: str | None = None,
     git: Mapping[str, object] | None = None,
+    mode: str | None = None,
 ) -> TopEvidencePreflightResult:
     env = os.environ if env is None else env
+    preflight_mode = _preflight_mode(env, mode)
+    publishable = preflight_mode == TOP_EVIDENCE_PREFLIGHT_PUBLISHABLE_MODE
     cwd = cwd or _repository_root()
     docker_path = (
         docker_path if docker_path is not None else _find_executable("docker", env=env)
@@ -132,7 +166,7 @@ def run_top_evidence_preflight(
         "gpt-4o-mini-transcribe",
     ).strip()
 
-    failures: list[str] = []
+    failures: list[tuple[str, str]] = []
     checks: dict[str, bool] = {}
 
     checks["top_evidence_case_floor_publishable"] = min_public_cases >= (
@@ -456,11 +490,23 @@ def run_top_evidence_preflight(
         ),
     )
 
+    failure_codes = tuple(
+        name
+        for name, passed in checks.items()
+        if not passed and _check_required(preflight_mode, name)
+    )
+
     return TopEvidencePreflightResult(
-        ok=all(checks.values()),
+        ok=not failure_codes,
+        mode=preflight_mode,
+        publishable=publishable,
         checks=checks,
-        failures=tuple(failures),
-        failure_codes=tuple(name for name, passed in checks.items() if not passed),
+        failures=tuple(
+            failure
+            for name, failure in failures
+            if _check_required(preflight_mode, name)
+        ),
+        failure_codes=failure_codes,
         expected_git_commit=commit if isinstance(commit, str) and commit else None,
         allow_dirty_top_evidence=allow_dirty,
         sanitized_config={
@@ -485,8 +531,10 @@ def run_top_evidence_preflight(
             "multimodal_timeout_seconds": multimodal_timeout_seconds,
             "llm_provider": llm_readiness.sanitized_config(),
             "llm_provider_ready": llm_readiness.ready,
+            "mode": preflight_mode,
             "openai_key_file_present": llm_readiness.openai_key_file_present,
             "openai_key_present": llm_readiness.openai_key_present,
+            "publishable": publishable,
             "public_benchmark_competitive_floor_mode": competitive_floor_mode,
             "public_benchmark_competitive_floors": {
                 name: dict(floor)
@@ -507,13 +555,27 @@ def run_top_evidence_preflight(
 def main(argv: Sequence[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--json", action="store_true", help="Print safe JSON diagnostics")
+    parser.add_argument(
+        "--mode",
+        choices=TOP_EVIDENCE_PREFLIGHT_MODES,
+        default=None,
+        help=(
+            "Run strict publishable checks or a non-publishable provider/git smoke "
+            f"check. Defaults to ${TOP_EVIDENCE_PREFLIGHT_MODE_ENV} or publishable."
+        ),
+    )
     args = parser.parse_args(argv)
-    result = run_top_evidence_preflight()
+    result = run_top_evidence_preflight(mode=args.mode)
     payload = result.as_dict()
     if args.json:
         print(json.dumps(payload, ensure_ascii=False, sort_keys=True))
     elif result.ok:
-        print(f"top evidence preflight ok: commit={result.expected_git_commit}")
+        print(
+            "top evidence preflight ok: "
+            f"mode={result.mode} "
+            f"publishable={str(result.publishable).lower()} "
+            f"commit={result.expected_git_commit}"
+        )
     else:
         print(json.dumps(payload, ensure_ascii=False, sort_keys=True))
     return 0 if result.ok else 1
@@ -521,12 +583,24 @@ def main(argv: Sequence[str] | None = None) -> int:
 
 def _append_failure(
     checks: Mapping[str, bool],
-    failures: list[str],
+    failures: list[tuple[str, str]],
     check_name: str,
     message: str,
 ) -> None:
     if not checks[check_name]:
-        failures.append(f"{check_name}: {message}")
+        failures.append((check_name, f"{check_name}: {message}"))
+
+
+def _preflight_mode(env: Mapping[str, str], mode: str | None) -> str:
+    value = mode if mode is not None else env.get(TOP_EVIDENCE_PREFLIGHT_MODE_ENV, "")
+    normalized = value.strip().lower()
+    if normalized == TOP_EVIDENCE_PREFLIGHT_SMOKE_MODE:
+        return TOP_EVIDENCE_PREFLIGHT_SMOKE_MODE
+    return TOP_EVIDENCE_PREFLIGHT_PUBLISHABLE_MODE
+
+
+def _check_required(mode: str, check_name: str) -> bool:
+    return mode != TOP_EVIDENCE_PREFLIGHT_SMOKE_MODE or check_name not in SMOKE_RELAXED_CHECKS
 
 
 def _dataset_file(env: Mapping[str, str], name: str) -> Path | None:
