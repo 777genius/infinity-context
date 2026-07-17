@@ -70,6 +70,7 @@ def test_top_evidence_preflight_accepts_clean_publishable_config(tmp_path: Path)
     assert payload["checks"]["agent_bench_scenario_set_all"] is True
     assert payload["checks"]["multimodal_live_invalid_key_probe_enabled"] is True
     assert payload["checks"]["multimodal_live_audio_format_matrix"] is True
+    assert payload["checks"]["llm_provider_ready"] is True
     assert payload["checks"]["locomo_dataset_valid"] is True
     assert payload["checks"]["longmemeval_dataset_valid"] is True
     assert payload["checks"]["locomo_dataset_unique_case_ids"] is True
@@ -91,6 +92,9 @@ def test_top_evidence_preflight_accepts_clean_publishable_config(tmp_path: Path)
     assert payload["sanitized_config"]["longmemeval_unique_case_id_count"] == 500
     assert payload["sanitized_config"]["locomo_duplicate_case_id_count"] == 0
     assert payload["sanitized_config"]["longmemeval_duplicate_case_id_count"] == 0
+    assert payload["sanitized_config"]["llm_provider_ready"] is True
+    assert payload["sanitized_config"]["llm_provider"]["source"] == "openai_api_key_env"
+    assert payload["sanitized_config"]["llm_provider"]["openai_key_env_present"] is True
     assert payload["sanitized_config"]["public_benchmark_competitive_floor_mode"] is True
     assert payload["sanitized_config"]["public_benchmark_min_accuracy"] == 0.947
     assert "fake-openai-key-value" not in json.dumps(payload)
@@ -392,12 +396,155 @@ def test_top_evidence_preflight_accepts_openai_key_file_without_leak(
     rendered = json.dumps(payload, sort_keys=True)
 
     assert result.ok is True
-    assert payload["checks"]["openai_key_present"] is True
+    assert payload["checks"]["llm_provider_ready"] is True
+    assert payload["sanitized_config"]["llm_provider"]["source"] == "openai_api_key_file"
+    assert payload["sanitized_config"]["llm_provider"]["openai_key_file_present"] is True
     assert payload["sanitized_config"]["openai_key_file_present"] is True
     assert payload["sanitized_config"]["openai_key_present"] is True
     assert "fake-openai-key-from-file" not in rendered
     assert str(key_file) not in rendered
     assert str(tmp_path) not in rendered
+
+
+def test_top_evidence_preflight_accepts_subscription_runtime_bridge(
+    tmp_path: Path,
+) -> None:
+    bridge = tmp_path / "subscription-runtime-codex"
+    bridge.write_text("#!/bin/sh\n", encoding="utf-8")
+    bridge.chmod(0o755)
+
+    result = run_top_evidence_preflight(
+        env=_top_evidence_env(
+            tmp_path,
+            MEMORY_OPENAI_API_KEY="",
+            OPENAI_API_KEY="",
+            MEMORY_OPENAI_API_KEY_FILE="",
+            MEMORY_LLM_PROVIDER="subscription-runtime",
+            MEMORY_LLM_PROVIDER_BRIDGE_COMMAND=str(bridge),
+        ),
+        cwd=tmp_path,
+        docker_path="/usr/bin/docker",
+        git={"commit": "abc123", "dirty": False},
+    )
+
+    payload = result.as_dict()
+    rendered = json.dumps(payload, sort_keys=True)
+
+    assert result.ok is True
+    assert payload["checks"]["llm_provider_ready"] is True
+    assert payload["sanitized_config"]["openai_key_present"] is False
+    assert payload["sanitized_config"]["llm_provider"] == {
+        "failure_code": None,
+        "openai_key_env_present": False,
+        "openai_key_file_present": False,
+        "openai_key_present": False,
+        "provider_kind": "subscription-runtime",
+        "ready": True,
+        "source": "subscription_runtime_bridge",
+        "subscription_runtime_command_available": True,
+        "subscription_runtime_command_configured": True,
+        "subscription_runtime_command_env_var": "MEMORY_LLM_PROVIDER_BRIDGE_COMMAND",
+        "subscription_runtime_configured": True,
+        "subscription_runtime_provider_env_var": "MEMORY_LLM_PROVIDER",
+    }
+    assert str(bridge) not in rendered
+    assert str(tmp_path) not in rendered
+
+
+def test_top_evidence_preflight_missing_llm_provider_is_sanitized_blocker(
+    tmp_path: Path,
+) -> None:
+    result = run_top_evidence_preflight(
+        env=_top_evidence_env(
+            tmp_path,
+            MEMORY_OPENAI_API_KEY="",
+            OPENAI_API_KEY="",
+            MEMORY_OPENAI_API_KEY_FILE="",
+        ),
+        cwd=tmp_path,
+        docker_path="/usr/bin/docker",
+        git={"commit": "abc123", "dirty": False},
+    )
+
+    payload = result.as_dict()
+    rendered = json.dumps(payload, sort_keys=True)
+
+    assert result.ok is False
+    assert result.failure_codes == ("llm_provider_ready",)
+    assert payload["checks"]["llm_provider_ready"] is False
+    assert payload["sanitized_config"]["llm_provider"]["failure_code"] == (
+        "llm_provider_missing"
+    )
+    assert "MEMORY_OPENAI_API_KEY" in result.failures[0]
+    assert "subscription-runtime" in result.failures[0]
+    assert str(tmp_path) not in rendered
+
+
+def test_top_evidence_preflight_runtime_bridge_keeps_invalid_key_probe_strict(
+    tmp_path: Path,
+) -> None:
+    bridge = tmp_path / "subscription-runtime-codex"
+    bridge.write_text("#!/bin/sh\n", encoding="utf-8")
+    bridge.chmod(0o755)
+
+    result = run_top_evidence_preflight(
+        env=_top_evidence_env(
+            tmp_path,
+            MEMORY_OPENAI_API_KEY="",
+            OPENAI_API_KEY="",
+            MEMORY_OPENAI_API_KEY_FILE="",
+            MEMORY_LLM_PROVIDER="subscription-runtime",
+            MEMORY_LLM_PROVIDER_BRIDGE_COMMAND=str(bridge),
+            MEMORY_MULTIMODAL_PROVIDER_PROBE_INVALID_KEY="0",
+        ),
+        cwd=tmp_path,
+        docker_path="/usr/bin/docker",
+        git={"commit": "abc123", "dirty": False},
+    )
+
+    assert result.ok is False
+    assert result.checks["llm_provider_ready"] is True
+    assert result.checks["multimodal_live_invalid_key_probe_enabled"] is False
+    assert result.failure_codes == ("multimodal_live_invalid_key_probe_enabled",)
+
+
+def test_top_evidence_preflight_does_not_render_secret_looking_values(
+    tmp_path: Path,
+) -> None:
+    key_file = tmp_path / "private-sensitive-fixture-file"
+    key_file.write_text("sensitive-file-fixture", encoding="utf-8")
+    bridge = tmp_path / "sensitive-runtime-bridge-fixture"
+    bridge.write_text("#!/bin/sh\n", encoding="utf-8")
+    bridge.chmod(0o755)
+
+    result = run_top_evidence_preflight(
+        env=_top_evidence_env(
+            tmp_path,
+            MEMORY_OPENAI_API_KEY="sensitive-env-fixture",
+            OPENAI_API_KEY="sensitive-fallback-fixture",
+            MEMORY_OPENAI_API_KEY_FILE=str(key_file),
+            MEMORY_LLM_PROVIDER="subscription-runtime",
+            MEMORY_LLM_PROVIDER_BRIDGE_COMMAND=str(bridge),
+        ),
+        cwd=tmp_path,
+        docker_path="/usr/bin/docker",
+        git={"commit": "abc123", "dirty": False},
+    )
+
+    rendered = json.dumps(result.as_dict(), sort_keys=True)
+
+    assert result.ok is True
+    for forbidden in (
+        "sensitive-env-fixture",
+        "sensitive-fallback-fixture",
+        "sensitive-file-fixture",
+        "private-sensitive-fixture-file",
+        "sensitive-runtime-bridge-fixture",
+        str(key_file),
+        str(bridge),
+        str(tmp_path),
+    ):
+        assert forbidden not in rendered
 
 
 def test_top_evidence_preflight_falls_back_to_standard_docker_path_when_path_is_restricted(
