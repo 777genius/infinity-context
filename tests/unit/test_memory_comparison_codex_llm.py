@@ -176,6 +176,16 @@ def test_codex_answerer_canary_reports_sanitized_external_blocker() -> None:
     assert report["ok"] is False
     assert report["failure_code"] == "provider_network_blocked"
     assert "outbound provider access was blocked" in str(report["failure_reason"])
+    assert report["diagnostics"] == {
+        "blocker_scope": "external_provider_egress",
+        "operator_action": "allow_subscription_runtime_provider_egress",
+        "provider_endpoint": "api.openai.com",
+        "provider_transports": ["https"],
+        "os_error": "operation_not_permitted",
+        "repo_invocation_sandbox": "read-only",
+        "repo_invocation_approval_policy": "never",
+    }
+    assert "https://api.openai.com/v1/responses" not in rendered
     assert "/private/provider-auth-file" not in rendered
     assert "/private/provider/codex" not in rendered
 

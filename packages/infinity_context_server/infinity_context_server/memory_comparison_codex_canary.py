@@ -116,6 +116,7 @@ def _blocked_report(
         "ok": False,
         "failure_code": failure_code,
         "failure_reason": _failure_reason(failure_code),
+        "diagnostics": _failure_diagnostics(failure_code, exc),
         "provider": "codex-cli",
         "provider_kind": "subscription-runtime",
         "model": model,
@@ -156,6 +157,40 @@ def _failure_reason(failure_code: str) -> str:
     if failure_code == "codex_cli_empty_output":
         return "Codex CLI completed without a usable answer."
     return "Codex CLI failed before returning a usable answer."
+
+
+def _failure_diagnostics(failure_code: str, exc: Exception) -> dict[str, object]:
+    text = str(exc).casefold()
+    if failure_code == "provider_network_blocked":
+        transports: list[str] = []
+        if "websocket" in text or "wss://api.openai.com" in text:
+            transports.append("websocket")
+        if "https transport" in text or "https://api.openai.com" in text:
+            transports.append("https")
+        if not transports:
+            transports.append("provider")
+        return {
+            "blocker_scope": "external_provider_egress",
+            "operator_action": "allow_subscription_runtime_provider_egress",
+            "provider_endpoint": (
+                "api.openai.com" if "api.openai.com" in text else "provider_endpoint_redacted"
+            ),
+            "provider_transports": transports,
+            "os_error": (
+                "operation_not_permitted"
+                if "operation not permitted" in text
+                else "provider_request_failed"
+            ),
+            "repo_invocation_sandbox": "read-only",
+            "repo_invocation_approval_policy": "never",
+        }
+    if failure_code == "codex_runtime_not_writable":
+        return {"blocker_scope": "local_codex_runtime_filesystem"}
+    if failure_code == "codex_command_not_found":
+        return {"blocker_scope": "local_codex_cli"}
+    if failure_code == "codex_cli_timeout":
+        return {"blocker_scope": "codex_cli_timeout"}
+    return {"blocker_scope": "codex_cli"}
 
 
 def _command_label(command: str) -> str:
