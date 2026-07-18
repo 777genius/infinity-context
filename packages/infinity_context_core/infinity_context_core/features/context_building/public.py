@@ -7,6 +7,9 @@ from infinity_context_core.features.context_building.application import (
     BuildContextQuery,
     BuildContextResult,
     BuildContextUseCase,
+    CandidateQuery,
+    CandidateQueryPolicy,
+    CandidateRanking,
     ContextBuildingUseCases,
     ContextCandidateProviderPipeline,
     LoadContextCandidatesHandler,
@@ -22,6 +25,9 @@ from infinity_context_core.features.context_building.application import (
     PlanContextPipelineResult,
     PlanContextPipelineUseCase,
     create_context_candidate_provider_pipeline,
+    fuse_ranked_candidate_keys,
+    protected_candidate_head_keys,
+    select_candidate_queries,
 )
 from infinity_context_core.features.context_building.domain import (
     CRITICAL_SECTION_ID,
@@ -75,6 +81,9 @@ __all__ = (
     "BuildContextQuery",
     "BuildContextResult",
     "BuildContextUseCase",
+    "CandidateQuery",
+    "CandidateQueryPolicy",
+    "CandidateRanking",
     "ContextCandidateProviderPipeline",
     "ContextBudget",
     "ContextBudgetPolicy",
@@ -120,4 +129,7 @@ __all__ = (
     "PromptSectionPolicy",
     "create_context_candidate_provider_pipeline",
     "estimate_token_count",
+    "fuse_ranked_candidate_keys",
+    "protected_candidate_head_keys",
+    "select_candidate_queries",
 )
