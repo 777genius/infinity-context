@@ -45,6 +45,15 @@ from infinity_context_core.application.context_source_siblings import (
     source_group_seed_turns as _source_group_seed_turns,
 )
 from infinity_context_core.application.context_source_siblings import (
+    source_sibling_answer_evidence as _source_sibling_answer_evidence,
+)
+from infinity_context_core.application.context_source_siblings import (
+    source_sibling_answer_evidence_role_rank as _source_sibling_answer_evidence_role_rank,
+)
+from infinity_context_core.application.context_source_siblings import (
+    source_sibling_candidate_limit as _source_sibling_candidate_limit,
+)
+from infinity_context_core.application.context_source_siblings import (
     source_sibling_candidate_rank_key as _source_sibling_candidate_rank_key,
 )
 from infinity_context_core.application.context_source_siblings import (
@@ -57,13 +66,13 @@ from infinity_context_core.application.context_source_siblings import (
     source_sibling_distant_answer_evidence_rank as _source_sibling_distant_answer_evidence_rank,
 )
 from infinity_context_core.application.context_source_siblings import (
-    source_sibling_group_limit as _source_sibling_group_limit,
-)
-from infinity_context_core.application.context_source_siblings import (
     source_sibling_item_limit as _source_sibling_item_limit,
 )
 from infinity_context_core.application.context_source_siblings import (
     source_sibling_marker_coverage_count as _source_sibling_marker_coverage_count,
+)
+from infinity_context_core.application.context_source_siblings import (
+    source_sibling_max_candidate_limit as _source_sibling_max_candidate_limit,
 )
 from infinity_context_core.application.context_source_siblings import (
     source_sibling_rank as _source_sibling_rank,
@@ -91,12 +100,22 @@ from infinity_context_core.application.use_cases.build_context_item_projection i
 )
 from infinity_context_core.application.use_cases.build_context_keyword_aggregation import (
     _best_query_relevance_cached,
+    _prioritize_source_sibling_answer_evidence_seed_chunks,
+    _prioritized_source_sibling_seed_groups,
+    _query_plan_requests_list_source_sibling_depth,
+    _query_plan_requests_named_preference_source_sibling_diversity,
+    _query_plan_requests_place_source_sibling_diversity,
+    _query_plan_requests_relationship_status_source_sibling_diversity,
+    _source_sibling_answer_evidence_extra_key,
+    _source_sibling_group_backfill_plan,
+    _source_sibling_group_limit_for_request,
 )
 from infinity_context_core.domain.entities import MemoryChunk
 from infinity_context_core.ports.clock import ClockPort
 from infinity_context_core.ports.unit_of_work import UnitOfWorkFactoryPort
 
 _KEYWORD_NEIGHBOR_SEQUENCE_OFFSETS = (1, -1, 2, -2, 3, -3)
+_LIST_SOURCE_SIBLING_ITEM_LIMIT = 48
 
 
 async def _keyword_neighbor_chunk_items(
@@ -172,12 +191,10 @@ async def _keyword_neighbor_chunk_items(
                         text=neighbor.text,
                         metadata=neighbor.metadata,
                     )
-                    expansion_query, expansion_reason, relevance = (
-                        _best_query_relevance_cached(
-                            query_plan,
-                            text=chunk_text,
-                            cache=query_relevance_cache,
-                        )
+                    expansion_query, expansion_reason, relevance = _best_query_relevance_cached(
+                        query_plan,
+                        text=chunk_text,
+                        cache=query_relevance_cache,
                     )
                     if _is_pottery_type_retrieval_scope(
                         expansion_reason=expansion_reason,
@@ -236,6 +253,7 @@ async def _keyword_neighbor_chunk_items(
         "keyword_neighbor_answer_companion_extra_used": answer_companion_extra_used,
     }
 
+
 async def _keyword_source_sibling_chunk_items(
     *,
     uow_factory: UnitOfWorkFactoryPort,
@@ -252,26 +270,83 @@ async def _keyword_source_sibling_chunk_items(
         "keyword_source_sibling_group_count": 0,
         "keyword_source_sibling_candidate_limit": 0,
         "keyword_source_sibling_companion_extra_used": 0,
+        "keyword_source_sibling_named_preference_answer_diversity": False,
+        "keyword_source_sibling_group_backfill_limit": 0,
+        "keyword_source_sibling_group_backfill_chunks_used": 0,
+        "keyword_source_sibling_groups_sample": [],
+        "keyword_source_sibling_selected_sources_sample": [],
     }
     if query.max_chunks <= 0 or not seed_chunks:
         return (), empty_diagnostics
 
+    seed_chunks = _prioritize_source_sibling_answer_evidence_seed_chunks(
+        seed_chunks=seed_chunks,
+        query_plan=query_plan,
+        query_relevance_cache=query_relevance_cache,
+    )
     source_groups = _source_group_seed_turns(seed_chunks)
     if not source_groups:
         return (), empty_diagnostics
-    source_groups = dict(tuple(source_groups.items())[:_source_sibling_group_limit()])
+    seed_groups_sample = list(source_groups.keys())[:40]
+    deep_list_coverage = _query_plan_requests_list_source_sibling_depth(
+        query_text=query.query,
+        query_plan=query_plan,
+    )
+    place_list_answer_diversity = _query_plan_requests_place_source_sibling_diversity(
+        query_text=query.query,
+        query_plan=query_plan,
+    )
+    named_preference_answer_diversity = (
+        _query_plan_requests_named_preference_source_sibling_diversity(
+            query_text=query.query,
+            query_plan=query_plan,
+        )
+    )
+    relationship_status_answer_diversity = (
+        _query_plan_requests_relationship_status_source_sibling_diversity(
+            query_text=query.query,
+            query_plan=query_plan,
+        )
+    )
+    answer_evidence_group_diversity = (
+        place_list_answer_diversity
+        or named_preference_answer_diversity
+        or relationship_status_answer_diversity
+    )
+    source_group_limit = _source_sibling_group_limit_for_request(
+        source_group_count=len(source_groups),
+        deep_list_coverage=deep_list_coverage,
+        answer_evidence_group_diversity=answer_evidence_group_diversity,
+    )
+    source_groups = _prioritized_source_sibling_seed_groups(
+        source_groups=source_groups,
+        seed_chunks=seed_chunks,
+        query_plan=query_plan,
+        query_relevance_cache=query_relevance_cache,
+        limit=source_group_limit,
+    )
+    source_sibling_item_limit = _source_sibling_item_limit()
+    if deep_list_coverage:
+        source_sibling_item_limit = max(
+            source_sibling_item_limit,
+            _LIST_SOURCE_SIBLING_ITEM_LIMIT,
+        )
     max_items = min(
-        _source_sibling_item_limit(),
-        max(8, query.max_chunks * 2),
+        source_sibling_item_limit,
+        max(8, query.max_chunks * (3 if deep_list_coverage else 2)),
     )
-    candidate_limit = min(
-        512,
-        max(max_items * 12, len(source_groups) * 32),
+    candidate_limit = _source_sibling_candidate_limit(
+        max_items=max_items,
+        source_group_count=len(source_groups),
     )
+    if answer_evidence_group_diversity:
+        candidate_limit = max(candidate_limit, _source_sibling_max_candidate_limit())
     items: list[ContextItem] = []
     used_ids: set[str] = set()
     considered = 0
     skipped = 0
+    group_backfill_limit = 0
+    group_backfill_chunks_used = 0
     async with uow_factory() as uow:
         list_source_group_chunks = getattr(
             uow.chunks,
@@ -288,6 +363,31 @@ async def _keyword_source_sibling_chunk_items(
             exclude_chunk_ids=(),
             limit=candidate_limit,
         )
+        backfill_groups, group_backfill_limit = _source_sibling_group_backfill_plan(
+            deep_list_coverage=answer_evidence_group_diversity,
+            source_groups=source_groups,
+        )
+        if backfill_groups and group_backfill_limit > 0:
+            candidate_ids = {str(chunk.id) for chunk in candidates}
+            backfill_chunks: list[MemoryChunk] = []
+            for group in backfill_groups:
+                group_candidates = await list_source_group_chunks(
+                    space_id=str(query.space_id),
+                    memory_scope_ids=memory_scope_ids,
+                    thread_id=str(query.thread_id) if query.thread_id else None,
+                    source_external_id_groups=(group,),
+                    exclude_chunk_ids=(),
+                    limit=group_backfill_limit,
+                )
+                for chunk in group_candidates:
+                    chunk_id = str(chunk.id)
+                    if chunk_id in candidate_ids:
+                        continue
+                    candidate_ids.add(chunk_id)
+                    backfill_chunks.append(chunk)
+            if backfill_chunks:
+                candidates = [*candidates, *backfill_chunks]
+                group_backfill_chunks_used = len(backfill_chunks)
     ranked_candidates: list[
         tuple[
             tuple[float | int | str, ...],
@@ -320,6 +420,7 @@ async def _keyword_source_sibling_chunk_items(
             rank = _source_sibling_distant_answer_evidence_rank(
                 chunk,
                 source_groups=source_groups,
+                expansion_query=expansion_query,
                 expansion_reason=expansion_reason,
                 text=chunk_text,
             )
@@ -373,6 +474,16 @@ async def _keyword_source_sibling_chunk_items(
             expansion_reason=expansion_reason,
             text=chunk_text,
         )
+        answer_evidence = _source_sibling_answer_evidence(
+            expansion_query=expansion_query,
+            expansion_reason=expansion_reason,
+            text=chunk_text,
+        )
+        answer_evidence_role_rank = _source_sibling_answer_evidence_role_rank(
+            query_text=query.query,
+            expansion_reason=expansion_reason,
+            text=chunk_text,
+        )
         ranked_candidates.append(
             (
                 _source_sibling_candidate_rank_key(
@@ -380,6 +491,8 @@ async def _keyword_source_sibling_chunk_items(
                     dialogue_visual_reference=dialogue_visual_reference,
                     visual_continuation=visual_continuation,
                     observation_companion=observation_companion,
+                    answer_evidence=answer_evidence,
+                    answer_evidence_role_rank=answer_evidence_role_rank,
                     marker_coverage=marker_coverage,
                     relevance=relevance,
                     score=score,
@@ -398,11 +511,17 @@ async def _keyword_source_sibling_chunk_items(
                 dialogue_visual_reference,
                 visual_continuation,
                 observation_companion,
+                answer_evidence,
             )
         )
     ranked_candidates.sort(key=lambda item: item[0])
     companion_extra_used = 0
     companion_extra_slots: set[str] = set()
+    answer_evidence_extra_used = 0
+    answer_evidence_extra_counts: dict[str, int] = {}
+    answer_evidence_selected_sources: list[str] = []
+    precise_support_extra_used = 0
+    precise_support_extra_sources: set[str] = set()
     for (
         _,
         chunk_id,
@@ -417,11 +536,42 @@ async def _keyword_source_sibling_chunk_items(
         dialogue_visual_reference,
         visual_continuation,
         observation_companion,
+        answer_evidence,
     ) in ranked_candidates:
         companion_slot = ""
+        answer_evidence_extra_key = _source_sibling_answer_evidence_extra_key(
+            chunk,
+            deep_list_coverage=answer_evidence_group_diversity,
+        )
+        answer_evidence_extra_limit = 24 if answer_evidence_group_diversity else 12
+        answer_evidence_extra_key_limit = 2 if answer_evidence_group_diversity else 1
         use_companion_extra_slot = False
+        use_answer_evidence_extra_slot = False
+        use_precise_support_extra_slot = False
         if len(items) >= max_items:
-            if not observation_companion:
+            source_external_id = str(chunk.source_external_id or "")
+            use_precise_support_extra_slot = (
+                precise_turn
+                and _is_pottery_type_retrieval_scope(
+                    expansion_reason=expansion_reason,
+                    expansion_query=expansion_query,
+                )
+                and source_external_id
+                and source_external_id not in precise_support_extra_sources
+                and precise_support_extra_used < 8
+            )
+            use_answer_evidence_extra_slot = (
+                answer_evidence
+                and answer_evidence_extra_key
+                and answer_evidence_extra_counts.get(answer_evidence_extra_key, 0)
+                < answer_evidence_extra_key_limit
+                and answer_evidence_extra_used < answer_evidence_extra_limit
+            )
+            if (
+                not observation_companion
+                and not use_answer_evidence_extra_slot
+                and not use_precise_support_extra_slot
+            ):
                 continue
             companion_slot = _source_sibling_companion_extra_slot(
                 chunk=chunk,
@@ -432,7 +582,11 @@ async def _keyword_source_sibling_chunk_items(
                 and companion_slot not in companion_extra_slots
                 and companion_extra_used < _source_sibling_companion_extra_item_limit()
             )
-            if not use_companion_extra_slot:
+            if (
+                not use_companion_extra_slot
+                and not use_answer_evidence_extra_slot
+                and not use_precise_support_extra_slot
+            ):
                 continue
         considered += 1
         if chunk_id in used_ids:
@@ -449,6 +603,16 @@ async def _keyword_source_sibling_chunk_items(
         if use_companion_extra_slot:
             companion_extra_slots.add(companion_slot)
             companion_extra_used += 1
+        if use_answer_evidence_extra_slot:
+            answer_evidence_extra_counts[answer_evidence_extra_key] = (
+                answer_evidence_extra_counts.get(answer_evidence_extra_key, 0) + 1
+            )
+            answer_evidence_extra_used += 1
+        if use_precise_support_extra_slot:
+            precise_support_extra_sources.add(str(chunk.source_external_id or ""))
+            precise_support_extra_used += 1
+        if answer_evidence and chunk.source_external_id:
+            answer_evidence_selected_sources.append(str(chunk.source_external_id))
         item = _chunk_context_item(
             chunk=chunk,
             text=chunk_text,
@@ -467,6 +631,8 @@ async def _keyword_source_sibling_chunk_items(
                 score_cap=score_cap,
                 dialogue_visual_reference=dialogue_visual_reference,
                 visual_continuation=visual_continuation,
+                answer_evidence=answer_evidence,
+                answer_evidence_query=expansion_query if answer_evidence else "",
             )
         )
 
@@ -476,8 +642,26 @@ async def _keyword_source_sibling_chunk_items(
         "keyword_source_sibling_chunks_skipped": skipped,
         "keyword_source_sibling_group_count": len(source_groups),
         "keyword_source_sibling_candidate_limit": candidate_limit,
+        "keyword_source_sibling_deep_list_coverage": deep_list_coverage,
+        "keyword_source_sibling_place_list_answer_diversity": place_list_answer_diversity,
+        "keyword_source_sibling_named_preference_answer_diversity": (
+            named_preference_answer_diversity
+        ),
         "keyword_source_sibling_companion_extra_used": companion_extra_used,
+        "keyword_source_sibling_group_backfill_limit": group_backfill_limit,
+        "keyword_source_sibling_group_backfill_chunks_used": group_backfill_chunks_used,
+        "keyword_source_sibling_answer_evidence_extra_used": answer_evidence_extra_used,
+        "keyword_source_sibling_precise_support_extra_used": precise_support_extra_used,
+        "keyword_source_sibling_answer_evidence_selected_sources_sample": (
+            answer_evidence_selected_sources[:40]
+        ),
+        "keyword_source_sibling_seed_groups_sample": seed_groups_sample,
+        "keyword_source_sibling_groups_sample": list(source_groups.keys())[:40],
+        "keyword_source_sibling_selected_sources_sample": [
+            chunk.source_external_id for _, _, _, chunk, *_ in ranked_candidates[:80]
+        ],
     }
+
 
 async def _apply_temporal_relation_signals(
     *,
@@ -570,6 +754,7 @@ async def _apply_temporal_relation_signals(
         "temporal_relations_skipped_by_validity": relations_skipped_by_validity,
     }
 
+
 async def _stale_review_items(
     *,
     uow_factory: UnitOfWorkFactoryPort,
@@ -642,6 +827,7 @@ async def _stale_review_items(
         "superseded_facts_used": superseded_used,
     }
 
+
 async def _pending_conflict_items(
     *,
     uow_factory: UnitOfWorkFactoryPort,
@@ -671,10 +857,12 @@ async def _pending_conflict_items(
                 conflict_fact_id = suggestion_conflict_fact_id(suggestion)
                 if conflict_fact_id not in visible_fact_id_set:
                     continue
+                target_fact = await uow.facts.get_by_id(conflict_fact_id)
                 items.append(
                     pending_review_suggestion_item(
                         suggestion=suggestion,
                         target_fact_id=conflict_fact_id,
+                        target_fact_text=target_fact.text if target_fact else None,
                     )
                 )
                 if len(items) >= max_items:
