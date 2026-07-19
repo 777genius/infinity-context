@@ -1,9 +1,22 @@
-"""Source cap and diversity policy for context packing."""
+"""Source cap and deterministic diversity policy for context packing."""
 
 from __future__ import annotations
 
-import infinity_context_core.application.context_packer_diagnostics as _diagnostics
-import infinity_context_core.application.context_packer_rendering as _rendering
+from infinity_context_core.application.context_packer_answer_support import (
+    _answer_support_query_reason,
+    _diagnostic_score_signals,
+    _has_any_exact_turn_source_ref,
+    _precise_turn_answer_support_rank,
+)
+from infinity_context_core.application.context_packer_answer_support_patterns import (
+    _PRECISE_TURN_ANSWER_SUPPORT_REASONS,
+    _SUPPORT_NETWORK_DIRECT_ANSWER_RE,
+)
+from infinity_context_core.application.context_packer_diagnostics import diagnostic_text
+from infinity_context_core.application.context_packer_rendering import (
+    source_group_key,
+    source_key,
+)
 from infinity_context_core.application.dto import ContextItem
 
 MAX_ITEMS_PER_SOURCE = 4
@@ -18,16 +31,16 @@ def source_cap_applies(item: ContextItem) -> bool:
 def source_group_cap(item: ContextItem) -> int | None:
     if not source_cap_applies(item):
         return None
-    if _diagnostics.diagnostic_text(item, "query_expansion_reason") == "art_style_bridge":
+    if diagnostic_text(item, "query_expansion_reason") == "art_style_bridge":
         return MAX_ART_STYLE_ITEMS_PER_SOURCE_GROUP
     return None
 
 
 def source_diversity_key(item: ContextItem) -> str:
-    item_source_key = _rendering.source_key(item)
+    item_source_key = source_key(item)
     if not source_cap_applies(item):
         return item_source_key
-    item_source_group_key = _rendering.source_group_key(item)
+    item_source_group_key = source_group_key(item)
     if item_source_group_key != item_source_key:
         return item_source_group_key
     return item_source_key
@@ -38,7 +51,7 @@ def chunk_source_counts(items: tuple[ContextItem, ...] | list[ContextItem]) -> d
     for item in items:
         if item.item_type != "chunk":
             continue
-        item_source_key = _rendering.source_key(item)
+        item_source_key = source_key(item)
         counts[item_source_key] = counts.get(item_source_key, 0) + 1
     return counts
 
@@ -50,23 +63,44 @@ def source_capped_source_counts(
     for item in items:
         if not source_cap_applies(item):
             continue
-        item_source_key = _rendering.source_key(item)
+        item_source_key = source_key(item)
         counts[item_source_key] = counts.get(item_source_key, 0) + 1
     return counts
 
 
 def source_diversified_order(items: list[ContextItem]) -> tuple[ContextItem, ...]:
     source_positions: dict[str, int] = {}
-    indexed: list[tuple[int, int, ContextItem]] = []
+    indexed: list[tuple[int, int, int, ContextItem]] = []
     for index, item in enumerate(items):
         if item.item_type != "chunk":
-            indexed.append((0, index, item))
+            indexed.append((0, 0, index, item))
             continue
-        source_position_key = source_diversity_key(item)
-        source_position = source_positions.get(source_position_key, 0)
-        source_positions[source_position_key] = source_position + 1
-        indexed.append((source_position, index, item))
-    return tuple(item for _, _, item in sorted(indexed, key=lambda value: (value[0], value[1])))
+        item_source_key = source_diversity_key(item)
+        source_position = source_positions.get(item_source_key, 0)
+        source_positions[item_source_key] = source_position + 1
+        indexed.append((source_diversity_priority(item), source_position, index, item))
+    return tuple(item for _, _, _, item in sorted(indexed, key=lambda value: value[:3]))
+
+
+def source_diversity_priority(item: ContextItem) -> int:
+    query_reason = _answer_support_query_reason(item)
+    if _SUPPORT_NETWORK_DIRECT_ANSWER_RE.search(item.text) and _has_any_exact_turn_source_ref(item):
+        return 0
+    if (
+        query_reason in _PRECISE_TURN_ANSWER_SUPPORT_REASONS
+        and _precise_turn_answer_support_rank(item, query_reason=query_reason) == 0
+    ):
+        return 0
+    if item.item_type == "chunk" and direct_lexical_query_hits(item) >= 2:
+        return 0
+    return 1
+
+
+def direct_lexical_query_hits(item: ContextItem) -> int:
+    value = _diagnostic_score_signals(item).get("unique_term_hits")
+    if isinstance(value, int) and not isinstance(value, bool):
+        return max(0, value)
+    return 0
 
 
 def source_diversity_reordered_chunk_count(

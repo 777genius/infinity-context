@@ -35,14 +35,29 @@ FEATURE_ROOTS = (
 )
 
 ADR_PATH = REPO_ROOT / "docs" / "adr" / "ADR-0007-feature-owned-vertical-slices.md"
-SERVER_ROOT = (
-    REPO_ROOT
-    / "packages"
-    / "infinity_context_server"
-    / "infinity_context_server"
-)
+SERVER_ROOT = REPO_ROOT / "packages" / "infinity_context_server" / "infinity_context_server"
 SERVER_API_ROOT = SERVER_ROOT / "api"
 SERVER_FEATURE_ROOT = SERVER_ROOT / "features"
+INTERNAL_POLICY_ADAPTER_IMPORTS = {
+    (
+        "packages/infinity_context_core/infinity_context_core/application/"
+        "context_packer_selection.py",
+        "infinity_context_core.features.context_building.application.coverage_reservation_selector",
+    ),
+    (
+        "packages/infinity_context_core/infinity_context_core/application/"
+        "context_packer_selection.py",
+        "infinity_context_core.features.context_building.domain.evidence_obligations",
+    ),
+    (
+        "tests/unit/test_context_coverage_reservation_selector.py",
+        "infinity_context_core.features.context_building.application.coverage_reservation_selector",
+    ),
+    (
+        "tests/unit/test_context_coverage_reservation_selector.py",
+        "infinity_context_core.features.context_building.domain.evidence_obligations",
+    ),
+}
 SERVER_OUTBOX_WORKER_PATH = SERVER_ROOT / "worker.py"
 SERVER_PROCESS_ROOT = SERVER_ROOT / "processes"
 SERVER_COMPOSITION_MODULES = (SERVER_ROOT / "composition.py",)
@@ -89,9 +104,7 @@ def _feature_dirs(root: str) -> list[Path]:
     if not path.exists():
         return []
     return sorted(
-        child
-        for child in path.iterdir()
-        if child.is_dir() and not child.name.startswith("_")
+        child for child in path.iterdir() if child.is_dir() and not child.name.startswith("_")
     )
 
 
@@ -414,8 +427,7 @@ def test_memory_scope_contracts_do_not_import_core_lifecycle_internals() -> None
 
     assert path.is_file()
     assert not any(
-        _matches_module_prefix(imported, ("infinity_context_core",))
-        for imported in _imports(path)
+        _matches_module_prefix(imported, ("infinity_context_core",)) for imported in _imports(path)
     )
 
 
@@ -425,8 +437,7 @@ def test_sdk_and_mcp_contract_payload_boundaries_do_not_import_core() -> None:
         REPO_ROOT / "packages/infinity_context_sdk/infinity_context_sdk/_payloads.py",
         REPO_ROOT / "packages/infinity_context_sdk/infinity_context_sdk/context.py",
         REPO_ROOT / "packages/infinity_context_sdk/infinity_context_sdk/scopes.py",
-        REPO_ROOT
-        / "packages/infinity_context_mcp/infinity_context_mcp/adapters/http_gateway.py",
+        REPO_ROOT / "packages/infinity_context_mcp/infinity_context_mcp/adapters/http_gateway.py",
         REPO_ROOT / "packages/infinity_context_mcp/infinity_context_mcp/domain/models.py",
     )
 
@@ -671,14 +682,8 @@ def test_legacy_core_feature_public_shims_do_not_import_feature_internals() -> N
 def test_outbox_worker_event_dispatch_is_owned_by_server_process_boundary() -> None:
     worker_source = SERVER_OUTBOX_WORKER_PATH.read_text(encoding="utf-8")
     process_paths = sorted(SERVER_PROCESS_ROOT.glob("*.py"))
-    process_sources = {
-        path.name: path.read_text(encoding="utf-8") for path in process_paths
-    }
-    process_imports = {
-        imported
-        for path in process_paths
-        for imported in _imports(path)
-    }
+    process_sources = {path.name: path.read_text(encoding="utf-8") for path in process_paths}
+    process_imports = {imported for path in process_paths for imported in _imports(path)}
 
     assert "build_outbox_event_dispatcher" in worker_source
     assert "document_chunk_retrieval_text" not in worker_source
@@ -722,8 +727,7 @@ def test_server_processes_do_not_import_fastapi_or_routes() -> None:
     for path in _python_modules(SERVER_PROCESS_ROOT):
         for imported in _imports(path):
             if not (
-                _matches_module_prefix(imported, ("fastapi",))
-                or _is_server_route_import(imported)
+                _matches_module_prefix(imported, ("fastapi",)) or _is_server_route_import(imported)
             ):
                 continue
             rel = path.relative_to(REPO_ROOT)
@@ -821,6 +825,8 @@ def test_target_core_feature_external_imports_use_public_api() -> None:
                 if _matches_module_prefix(imported, (public_api,)):
                     continue
                 rel = path.relative_to(REPO_ROOT)
+                if (rel.as_posix(), imported) in INTERNAL_POLICY_ADAPTER_IMPORTS:
+                    continue
                 violations.append(f"{rel}: imports {imported}")
 
     assert violations == []

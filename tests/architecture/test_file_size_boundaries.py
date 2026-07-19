@@ -18,7 +18,6 @@ MAX_LINES = 2500
 IDEAL_LINES = 1000
 
 LEGACY_OVER_MAX_ALLOWLIST = {
-    "packages/infinity_context_core/infinity_context_core/application/context_packer.py",
     "packages/infinity_context_core/infinity_context_core/application/context_packer_answer_support.py",
     "packages/infinity_context_core/infinity_context_core/application/context_query_decomposition.py",
     "packages/infinity_context_core/infinity_context_core/application/context_ranking.py",
