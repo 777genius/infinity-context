@@ -61,7 +61,7 @@ def apply_context_evidence_priority(
 
 
 def _evidence_priority_tier(item: ContextItem) -> int | None:
-    if item.is_instruction or _has_unresolved_conflict(item):
+    if item.is_instruction or has_unresolved_rerank_rejection(item):
         return None
     signals = _score_signals(item)
     contract_tier = _non_negative_int(signals.get("application_evidence_contract_tier"))
@@ -113,7 +113,9 @@ def _canonical_source_key(item: ContextItem) -> tuple[str, str, str]:
     return memory_scope_id, item.item_type, item.item_id
 
 
-def _has_unresolved_conflict(item: ContextItem) -> bool:
+def has_unresolved_rerank_rejection(item: ContextItem) -> bool:
+    """Return whether item-local rerank evidence records a hard conflict."""
+
     signals = _score_signals(item)
     if _positive(signals.get("current_conflict_earlier_assertion_penalty")):
         return True
@@ -125,10 +127,29 @@ def _has_unresolved_conflict(item: ContextItem) -> bool:
     reasons = provenance.get("deterministic_rerank_reasons")
     if not isinstance(reasons, list | tuple):
         return False
-    return any(_is_unresolved_conflict_reason(str(reason)) for reason in reasons)
+    projection_verified = (
+        provenance.get("distinct_set_projection_verified") is True
+        and (
+            _positive(signals.get("distinct_set_projection_verified"))
+            or _positive(signals.get("keyword_aggregation_distinct_member_support"))
+        )
+    )
+    return any(
+        _is_unresolved_conflict_reason(
+            str(reason),
+            projection_verified=projection_verified,
+        )
+        for reason in reasons
+    )
 
 
-def _is_unresolved_conflict_reason(reason: str) -> bool:
+def _is_unresolved_conflict_reason(
+    reason: str,
+    *,
+    projection_verified: bool,
+) -> bool:
+    if projection_verified and reason == "aggregation_subject_mismatch":
+        return False
     unresolved_conflict = (
         "conflict" in reason
         and "overridden" not in reason
@@ -150,7 +171,7 @@ def _should_apply_ordinary_boundary(
         _item_key(item) not in eligible_keys
         and item.score >= _PRIORITY_SCORE
         and not item.is_instruction
-        and not _has_unresolved_conflict(item)
+        and not has_unresolved_rerank_rejection(item)
         and not _is_current_finality_evidence(item)
     )
 

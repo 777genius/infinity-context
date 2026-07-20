@@ -29,6 +29,10 @@ from infinity_context_core.application.context_diagnostics import (
     diagnostic_retrieval_sources,
     normalize_context_bundle_diagnostics,
 )
+from infinity_context_core.application.context_distinct_set_selection import (
+    prepare_distinct_set_evidence_for_rerank,
+    restore_distinct_set_evidence_items,
+)
 from infinity_context_core.application.context_evidence_priority import (
     apply_context_evidence_priority,
 )
@@ -109,7 +113,6 @@ from infinity_context_core.application.use_cases.build_context_item_projection i
     _partition_aggregation_continuity_items,
 )
 from infinity_context_core.application.use_cases.build_context_keyword_aggregation import (
-    _aggregation_admission_seed_chunks,
     _context_item_aggregation_source_groups,
     _dedupe_chunks_by_id,
     _keyword_aggregation_chunk_items,
@@ -120,6 +123,9 @@ from infinity_context_core.application.use_cases.build_context_keyword_aggregati
     _source_sibling_answer_evidence_query_match,
     _strict_query_term_variant_sets,
     _strict_query_variant_hits,
+)
+from infinity_context_core.application.use_cases.build_context_keyword_aggregation_seeds import (
+    aggregation_admission_seed_chunks as _aggregation_admission_seed_chunks,
 )
 from infinity_context_core.application.use_cases.build_context_source_selection import (
     _apply_temporal_relation_signals,
@@ -531,6 +537,10 @@ class BuildContextUseCase:
         diagnostics["keyword_aggregation_continuity_items_suppressed"] = len(
             aggregation_continuity_items
         ) - len(promoted_continuity_items)
+        distinct_set_evidence_items = (
+            *ranked_aggregation_items,
+            *promoted_continuity_items,
+        )
         items.extend(ranked_aggregation_items)
         aggregation_source_groups = _context_item_aggregation_source_groups(
             ranked_aggregation_items
@@ -709,6 +719,15 @@ class BuildContextUseCase:
             *stale_review_items,
             *pending_review_items,
         )
+        final_source_items, pre_rerank_distinct_restoration = (
+            prepare_distinct_set_evidence_for_rerank(
+                final_source_items,
+                evidence_items=distinct_set_evidence_items,
+            )
+        )
+        diagnostics.update(
+            {f"pre_rerank_{key}": value for key, value in pre_rerank_distinct_restoration.items()}
+        )
         diagnostics["final_rank_source_item_count"] = len(final_source_items)
         diagnostics.update(
             _source_sibling_answer_evidence_stage_diagnostics(
@@ -747,6 +766,18 @@ class BuildContextUseCase:
         fused_items = apply_rank_fusion_boosts(lexical_boosted_items)
         _record_stage_timing(diagnostics, "final_rank_fusion", stage_started_at)
         stage_started_at = perf_counter()
+        fused_items, final_rerank_distinct_restoration = (
+            prepare_distinct_set_evidence_for_rerank(
+                fused_items,
+                evidence_items=distinct_set_evidence_items,
+            )
+        )
+        diagnostics.update(
+            {
+                f"final_rerank_{key}": value
+                for key, value in final_rerank_distinct_restoration.items()
+            }
+        )
         reranked_items = apply_deterministic_rerank_adjustments(
             fused_items,
             query=query.query,
@@ -781,6 +812,13 @@ class BuildContextUseCase:
         )
         _record_stage_timing(diagnostics, "final_rank_dedupe", stage_started_at)
         _record_stage_timing(diagnostics, "final_rank", final_rank_started_at)
+        candidate_items, distinct_set_restoration_diagnostics = restore_distinct_set_evidence_items(
+            candidate_items,
+            query=query.query,
+            evidence_items=distinct_set_evidence_items,
+            ranked_items=reranked_items,
+        )
+        diagnostics.update(distinct_set_restoration_diagnostics)
         guarded_items, requirement_guard_diagnostics = _apply_explicit_requirement_guard(
             query=query.query,
             query_anchor_intent=query_anchor_intent,

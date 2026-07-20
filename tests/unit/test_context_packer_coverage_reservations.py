@@ -197,6 +197,46 @@ def test_candidate_already_promoted_by_rerank_is_not_reserved() -> None:
     assert _selected_ids(result)[0] == "ranked"
 
 
+def test_unresolved_rerank_conflict_is_not_eligible_for_coverage_reservation() -> None:
+    conflicted = _item(
+        "conflicted",
+        score=0.99,
+        source_id="source-conflicted",
+        reason="path-a",
+        hits=9,
+        ratio=0.9,
+        text="High lexical overlap with unresolved contradictory evidence.",
+        rerank_reasons=("query_anchor_conflict",),
+    )
+    safe = _item(
+        "safe",
+        score=0.7,
+        source_id="source-safe",
+        reason="path-a",
+        hits=8,
+        ratio=0.8,
+        text="Safe source-backed evidence for the amber release path.",
+    )
+
+    result = ContextPacker().pack(
+        bundle_id="ctx-rerank-conflict",
+        items=(conflicted, safe),
+        token_budget=2000,
+    )
+
+    assert result.bundle.diagnostics["coverage_reservations_selected"] == 1
+    assert result.bundle.diagnostics["coverage_selected_obligation_ids"] == ("o-000",)
+    assert "safe" in _selected_ids(result)
+
+    conflict_only = ContextPacker().pack(
+        bundle_id="ctx-rerank-conflict-only",
+        items=(conflicted,),
+        token_budget=2000,
+    )
+    assert conflict_only.bundle.diagnostics["coverage_obligations_considered"] == 0
+    assert conflict_only.bundle.diagnostics["coverage_reservations_selected"] == 0
+
+
 def _item(
     item_id: str,
     *,
@@ -209,6 +249,7 @@ def _item(
     text: str,
     channel: str = "synthetic-channel",
     net_adjustment: float | None = None,
+    rerank_reasons: tuple[str, ...] = (),
 ) -> ContextItem:
     score_signals: dict[str, object] = {
         "unique_term_hits": hits,
@@ -229,6 +270,11 @@ def _item(
             "retrieval_source": channel,
             "retrieval_sources": [channel],
             "score_signals": score_signals,
+            **(
+                {"provenance": {"deterministic_rerank_reasons": list(rerank_reasons)}}
+                if rerank_reasons
+                else {}
+            ),
         },
     )
 

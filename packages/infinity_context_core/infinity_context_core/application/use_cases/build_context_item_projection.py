@@ -226,6 +226,7 @@ def _with_keyword_aggregation_score_signals(
     relaxed_admission: bool = False,
     numeric_corroboration: bool = False,
     continuity_only: bool = False,
+    distinct_member_support: bool = False,
 ) -> ContextItem:
     diagnostics = dict(item.diagnostics or {})
     diagnostics["score_signals"] = {
@@ -235,6 +236,7 @@ def _with_keyword_aggregation_score_signals(
         "keyword_aggregation_relaxed_admission": int(relaxed_admission),
         "keyword_aggregation_numeric_corroboration": int(numeric_corroboration),
         "keyword_aggregation_continuity_only": int(continuity_only),
+        "keyword_aggregation_distinct_member_support": int(distinct_member_support),
     }
     diagnostics["provenance"] = {
         **_provenance(diagnostics),

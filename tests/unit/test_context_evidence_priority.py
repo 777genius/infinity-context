@@ -1,5 +1,8 @@
+from dataclasses import replace
+
 from infinity_context_core.application.context_evidence_priority import (
     apply_context_evidence_priority,
+    has_unresolved_rerank_rejection,
 )
 from infinity_context_core.application.context_packer import ContextPacker
 from infinity_context_core.application.dto import ContextItem
@@ -74,6 +77,56 @@ def test_duplicate_canonical_sources_cannot_starve_a_distinct_ninth_candidate() 
     assert first_diagnostics["evidence_priority_items_prioritized"] == 2
     assert second_diagnostics == first_diagnostics
     assert next(item for item in first if item.item_id == "distinct-ninth").score == 0.99
+
+
+def test_verified_exact_projection_is_not_vetoed_by_generic_subject_mismatch() -> None:
+    projected = _item(
+        "verified-projection",
+        score=0.8,
+        source_id="source-projection",
+    )
+    diagnostics = dict(projected.diagnostics or {})
+    diagnostics["score_signals"] = {
+        **diagnostics["score_signals"],
+        "distinct_set_projection_verified": 1,
+        "keyword_aggregation_distinct_member_support": 1,
+    }
+    diagnostics["provenance"] = {
+        "distinct_set_projection_verified": True,
+        "deterministic_rerank_applied": True,
+        "deterministic_rerank_reasons": ["aggregation_subject_mismatch"],
+    }
+    projected = replace(projected, diagnostics=diagnostics)
+
+    assert has_unresolved_rerank_rejection(projected) is False
+    prioritized, diagnostics = apply_context_evidence_priority((projected,))
+    assert prioritized[0].score == 0.99
+    assert diagnostics["evidence_priority_items_prioritized"] == 1
+
+
+def test_verified_exact_projection_does_not_override_a_real_anchor_conflict() -> None:
+    projected = _item(
+        "conflicting-projection",
+        score=0.8,
+        source_id="source-conflict",
+    )
+    diagnostics = dict(projected.diagnostics or {})
+    diagnostics["score_signals"] = {
+        **diagnostics["score_signals"],
+        "distinct_set_projection_verified": 1,
+        "keyword_aggregation_distinct_member_support": 1,
+    }
+    diagnostics["provenance"] = {
+        "distinct_set_projection_verified": True,
+        "deterministic_rerank_applied": True,
+        "deterministic_rerank_reasons": ["query_anchor_conflict"],
+    }
+    projected = replace(projected, diagnostics=diagnostics)
+
+    assert has_unresolved_rerank_rejection(projected) is True
+    prioritized, diagnostics = apply_context_evidence_priority((projected,))
+    assert prioritized[0].score == 0.8
+    assert diagnostics["evidence_priority_items_prioritized"] == 0
 
 
 def _item(

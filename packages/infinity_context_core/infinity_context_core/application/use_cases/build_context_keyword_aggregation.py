@@ -14,20 +14,18 @@ from infinity_context_core.application.context_aggregation_evidence_text import 
 )
 from infinity_context_core.application.context_count_cardinality import (
     has_exact_count_cardinality_evidence,
-    keyword_aggregation_query_kind,
     requests_list_aggregation,
 )
 from infinity_context_core.application.context_count_cardinality import (
     keyword_aggregation_intent as _keyword_aggregation_intent,
 )
+from infinity_context_core.application.context_distinct_set_evidence import (
+    project_distinct_set_evidence,
+)
 from infinity_context_core.application.context_lexical import query_terms
 from infinity_context_core.application.context_query_expansion import QueryExpansionPlan
 from infinity_context_core.application.context_query_intent import (
     build_query_anchor_intent,
-    query_anchor_intent_text_conflicts,
-)
-from infinity_context_core.application.context_ranking import (
-    best_query_relevance,
 )
 from infinity_context_core.application.context_ranking_reason_policy import (
     ACTIVITY_OBSERVATION_SOURCE_REASONS as _ACTIVITY_OBSERVATION_SOURCE_REASONS,
@@ -68,9 +66,6 @@ from infinity_context_core.application.context_source_siblings import (
     source_sibling_seed_group_limit as _source_sibling_seed_group_limit,
 )
 from infinity_context_core.application.context_source_siblings import (
-    source_turn_marker as _source_turn_marker,
-)
-from infinity_context_core.application.context_source_siblings import (
     with_source_sibling_obligation_evidence_signal as _with_obligation_evidence_signal,
 )
 from infinity_context_core.application.context_travel_place_evidence import (
@@ -78,22 +73,33 @@ from infinity_context_core.application.context_travel_place_evidence import (
 )
 from infinity_context_core.application.document_text import document_chunk_retrieval_text
 from infinity_context_core.application.dto import BuildContextQuery, ContextItem
+from infinity_context_core.application.use_cases import (
+    build_context_keyword_aggregation_selection as aggregation_selection,
+)
 from infinity_context_core.application.use_cases.build_context_item_projection import (
     _best_query_relevance_cached,
     _chunk_context_item,
     _with_keyword_aggregation_score_signals,
 )
+from infinity_context_core.application.use_cases.build_context_keyword_aggregation_support import (
+    _aggregation_identity_terms,
+    _aggregation_query_relevance,
+    _aggregation_source_group,
+    _aggregation_source_kind_rank,
+    _opaque_document_obligation_evidence_projection,
+    _with_duplicate_member_source_refs,
+)
+from infinity_context_core.application.use_cases.build_context_keyword_aggregation_support import (
+    _keyword_aggregation_query_kind as _keyword_aggregation_query_kind,
+)
 from infinity_context_core.domain.aggregation_admission import (
     AggregationAdmissionCandidate,
-    AggregationAdmissionPolicy,
     AggregationAdmissionSignals,
     AggregationIntent,
 )
 from infinity_context_core.domain.entities import MemoryChunk
-from infinity_context_core.ports.unit_of_work import UnitOfWorkFactoryPort
 
 _MAX_AGGREGATION_KEYWORD_ITEMS = 20
-_MAX_AGGREGATION_ADMISSION_SEARCH_RESULTS = 72
 _AGGREGATION_CONTINUITY_LIMITS = {
     AggregationIntent.COUNT: 16,
     AggregationIntent.LIST: 8,
@@ -149,12 +155,11 @@ _LIST_SOURCE_SIBLING_GROUP_BACKFILL_LIMIT = 96
 _ScoredKeywordPromptItem = tuple[int, int, int, float, float, int, str, ContextItem]
 _StrictQueryTermVariants = tuple[frozenset[str], ...]
 _WeightedAggregationQueryVariants = tuple[tuple[frozenset[str], float], ...]
-_SOURCE_GROUP_SUFFIXES = frozenset({"events", "observation", "summary"})
 
 
 @dataclass(frozen=True)
 class _KeywordAggregationCandidate:
-    rank_key: tuple[int, int, int, int, float, int]
+    rank_key: tuple[int, int, int, int, int, int, float, int]
     group: str
     chunk: MemoryChunk
     chunk_text: str
@@ -165,6 +170,8 @@ class _KeywordAggregationCandidate:
     query_variant_sets: _WeightedAggregationQueryVariants
     admission: AggregationAdmissionCandidate
     numeric_corroboration: bool
+    member_ids: tuple[str, ...]
+    member_evidence_text: str
     obligation_evidence: _ObligationEvidenceProjection
 
 
@@ -486,42 +493,6 @@ def _dedupe_chunks_by_id(chunks: tuple[MemoryChunk, ...]) -> tuple[MemoryChunk, 
     return tuple(selected)
 
 
-async def _aggregation_admission_seed_chunks(
-    *,
-    uow_factory: UnitOfWorkFactoryPort,
-    query: BuildContextQuery,
-    query_plan: QueryExpansionPlan,
-    canonical_chunks: tuple[MemoryChunk, ...],
-) -> tuple[tuple[MemoryChunk, ...], dict[str, object]]:
-    """Recover a bounded tail from the explicit request without replaying its plan."""
-
-    diagnostics = {
-        "keyword_aggregation_admission_queries": 0,
-        "keyword_aggregation_admission_seed_chunks": len(canonical_chunks),
-        "keyword_aggregation_admission_seed_chunks_added": 0,
-    }
-    if (
-        query.max_chunks <= 0
-        or _keyword_aggregation_intent(query.query, query_plan=query_plan) is None
-    ):
-        return canonical_chunks, diagnostics
-    async with uow_factory() as uow:
-        matches = await uow.chunks.keyword_search(
-            space_id=str(query.space_id),
-            memory_scope_ids=tuple(str(value) for value in query.memory_scope_ids),
-            thread_id=str(query.thread_id) if query.thread_id else None,
-            query=query.query,
-            limit=_MAX_AGGREGATION_ADMISSION_SEARCH_RESULTS,
-        )
-    chunks = _dedupe_chunks_by_id((*canonical_chunks, *matches))
-    diagnostics["keyword_aggregation_admission_queries"] = 1
-    diagnostics["keyword_aggregation_admission_seed_chunks"] = len(chunks)
-    diagnostics["keyword_aggregation_admission_seed_chunks_added"] = len(chunks) - len(
-        canonical_chunks
-    )
-    return chunks, diagnostics
-
-
 def _strict_query_term_hits(*, query: str, text: str) -> int:
     return _strict_query_variant_hits(
         query_term_variants=_strict_query_term_variant_sets(query=query),
@@ -684,6 +655,9 @@ def _keyword_aggregation_chunk_items(
         "keyword_aggregation_slot_reservations_used": 0,
         "keyword_aggregation_source_families_used": 0,
         "keyword_aggregation_numeric_corroborations": 0,
+        "keyword_aggregation_distinct_member_candidates": 0,
+        "keyword_aggregation_distinct_member_reservations_used": 0,
+        "keyword_aggregation_distinct_member_slots_used": 0,
         "keyword_aggregation_admission_reasons": {},
         "keyword_aggregation_chunks_deduplicated": 0,
         "keyword_aggregation_admitted_not_selected": 0,
@@ -738,7 +712,15 @@ def _keyword_aggregation_chunk_items(
         strict_hits = int(weighted_hits)
         group = _aggregation_source_group(chunk)
         numeric_corroboration = has_exact_count_cardinality_evidence(chunk_text)
-        anchor_conflict = query_anchor_intent_text_conflicts(anchor_intent, chunk_text)
+        member_evidence = project_distinct_set_evidence(
+            query=query.query,
+            text=chunk_text,
+        )
+        anchor_conflict = aggregation_selection.distinct_set_anchor_conflict(
+            anchor_intent,
+            projection=member_evidence,
+            fallback_text=chunk_text,
+        )
         obligation_evidence = _opaque_document_obligation_evidence_projection(
             query_text=query.query,
             semantic_query_text=aggregation_query,
@@ -758,12 +740,14 @@ def _keyword_aggregation_chunk_items(
                 query_plan_slot=aggregation_reason,
                 source_family=group,
                 anchor_conflict=anchor_conflict,
-                temporal_conflict=False,
+                temporal_conflict=member_evidence.temporal_conflict,
                 numeric_corroboration=numeric_corroboration,
             ),
         )
         rank_key = (
             obligation_evidence.rank,
+            -int(member_evidence.present),
+            -len(member_evidence.member_ids),
             -strict_hits,
             _aggregation_source_kind_rank(chunk),
             -relevance.distinctive_term_hits,
@@ -783,72 +767,44 @@ def _keyword_aggregation_chunk_items(
                 query_variant_sets=weighted_query_terms,
                 admission=admission,
                 numeric_corroboration=numeric_corroboration,
+                member_ids=member_evidence.member_ids,
+                member_evidence_text=member_evidence.rendered_text,
                 obligation_evidence=obligation_evidence,
             )
         )
 
     ordered_candidates = tuple(sorted(candidates, key=lambda item: item.rank_key))
-    policy = AggregationAdmissionPolicy()
-    decisions = tuple(policy.decide(candidate.admission) for candidate in ordered_candidates)
-    decision_by_id = {decision.candidate_id: decision for decision in decisions}
-    ordinary_candidates = tuple(
-        candidate.admission
-        for candidate in ordered_candidates
-        if candidate.admission.candidate_id in ordinary_ids
-        and decision_by_id[candidate.admission.candidate_id].admitted
-    )
-    ordinary_selection = policy.select(
-        ordinary_candidates,
-        limit=max_items,
+    selection = aggregation_selection.select_keyword_aggregation_candidates(
+        ordered_candidates,
+        ordinary_ids=ordinary_ids,
+        ordinary_limit=max_items,
+        continuity_limit=_AGGREGATION_CONTINUITY_LIMITS[intent],
         source_family_cap=3,
     )
-    ordinary_selected_ids = set(ordinary_selection.selected_ids)
-    ordinary_supported_slots = {
-        (candidate.aggregation_reason, candidate.group)
-        for candidate in ordered_candidates
-        if candidate.admission.candidate_id in ordinary_selected_ids
-    }
-    continuity_candidates = tuple(
-        candidate.admission
-        for candidate in ordered_candidates
-        if (candidate.aggregation_reason, candidate.group) not in ordinary_supported_slots
+    diagnostics["keyword_aggregation_admission_reasons"] = selection.reason_counts
+    diagnostics["keyword_aggregation_slot_reservations_used"] = selection.slot_reservation_count
+    diagnostics["keyword_aggregation_distinct_member_candidates"] = (
+        selection.distinct_member_candidate_count
     )
-    continuity_selection = policy.select(
-        continuity_candidates,
-        limit=_AGGREGATION_CONTINUITY_LIMITS[intent],
-        source_family_cap=3,
-        selected_source_families=tuple(
-            candidate.group
-            for candidate in ordered_candidates
-            if candidate.admission.candidate_id in ordinary_selected_ids
-        ),
+    diagnostics["keyword_aggregation_distinct_member_reservations_used"] = (
+        selection.distinct_member_reservation_count
     )
-    continuity_ids = set(continuity_selection.selected_ids)
-    selected_ids = ordinary_selected_ids | continuity_ids
-    reason_counts: dict[str, int] = {}
-    for decision in decisions:
-        reason_counts[decision.reason.value] = reason_counts.get(decision.reason.value, 0) + 1
-        if not decision.admitted:
-            skipped += 1
-    diagnostics["keyword_aggregation_admission_reasons"] = reason_counts
-    diagnostics["keyword_aggregation_slot_reservations_used"] = len(ordinary_supported_slots) + len(
-        continuity_selection.reserved_ids
+    diagnostics["keyword_aggregation_distinct_member_slots_used"] = (
+        selection.distinct_member_slot_count
     )
-    admitted_count = sum(decision.admitted for decision in decisions)
-    admitted_not_selected = admitted_count - len(selected_ids)
-    diagnostics["keyword_aggregation_admitted_not_selected"] = admitted_not_selected
-    skipped += admitted_not_selected
+    diagnostics["keyword_aggregation_admitted_not_selected"] = selection.admitted_not_selected
+    skipped += selection.rejected_count + selection.admitted_not_selected
     items: list[ContextItem] = []
     used_families: set[str] = set()
     continuity_item_count = 0
     for candidate in ordered_candidates:
-        if candidate.admission.candidate_id not in selected_ids:
+        candidate_id = candidate.admission.candidate_id
+        if candidate_id not in selection.selected_ids:
             continue
-        decision = decision_by_id[candidate.admission.candidate_id]
-        continuity_only = candidate.admission.candidate_id in continuity_ids
+        continuity_only = candidate_id in selection.continuity_ids
         if continuity_only:
             continuity_item_count += 1
-        if decision.relaxed:
+        if candidate_id in selection.relaxed_ids:
             diagnostics["keyword_aggregation_relaxed_relevance_used"] = (
                 int(diagnostics["keyword_aggregation_relaxed_relevance_used"]) + 1
             )
@@ -860,13 +816,16 @@ def _keyword_aggregation_chunk_items(
         item = _chunk_context_item(
             chunk=candidate.chunk,
             text=(
-                candidate.obligation_evidence.text
-                if candidate.obligation_evidence.applied
-                else _aggregation_evidence_text(
-                    query=candidate.aggregation_query,
-                    text=candidate.chunk_text,
-                    identity_terms=query_identity_terms,
-                    query_variant_sets=candidate.query_variant_sets,
+                candidate.member_evidence_text
+                or (
+                    candidate.obligation_evidence.text
+                    if candidate.obligation_evidence.applied
+                    else _aggregation_evidence_text(
+                        query=candidate.aggregation_query,
+                        text=candidate.chunk_text,
+                        identity_terms=query_identity_terms,
+                        query_variant_sets=candidate.query_variant_sets,
+                    )
                 )
             ),
             retrieval_source="keyword_aggregation_chunks",
@@ -884,11 +843,19 @@ def _keyword_aggregation_chunk_items(
             strict_hits=candidate.strict_hits,
             source_group=candidate.group,
             query_plan_slot=candidate.aggregation_reason,
-            admission_reason=decision.reason.value,
-            relaxed_admission=decision.relaxed,
+            admission_reason=selection.admission_reason_by_id[candidate_id],
+            relaxed_admission=candidate_id in selection.relaxed_ids,
             numeric_corroboration=candidate.numeric_corroboration,
             continuity_only=continuity_only,
+            distinct_member_support=candidate_id in selection.member_reserved_ids,
         )
+        if candidate_id in selection.member_reserved_ids:
+            item = _with_duplicate_member_source_refs(
+                item,
+                candidate=candidate,
+                candidates=ordered_candidates,
+                provenance_admitted_ids=selection.provenance_admitted_ids,
+            )
         if not continuity_only and candidate.obligation_evidence.rank != 1:
             item = _with_obligation_evidence_signal(
                 item,
@@ -903,94 +870,3 @@ def _keyword_aggregation_chunk_items(
     diagnostics["keyword_aggregation_source_families_used"] = len(used_families)
     diagnostics["keyword_aggregation_continuity_items_used"] = continuity_item_count
     return tuple(items), diagnostics
-
-
-def _opaque_document_obligation_evidence_projection(
-    *,
-    query_text: str,
-    semantic_query_text: str,
-    relevance: QueryRelevance,
-    chunk: MemoryChunk,
-) -> _ObligationEvidenceProjection:
-    if chunk.document_id is None:
-        return _ObligationEvidenceProjection(rank=1, text=chunk.text)
-    source_id = " ".join(str(chunk.source_external_id or "").split())
-    if not source_id or _source_turn_marker(source_id) is not None:
-        return _ObligationEvidenceProjection(rank=1, text=chunk.text)
-    return _project_obligation_evidence(
-        query_text=query_text,
-        semantic_query_text=semantic_query_text,
-        relevance=relevance,
-        text=chunk.text,
-    )
-
-
-def _aggregation_identity_terms(query: str) -> frozenset[str]:
-    intent = build_query_anchor_intent(query)
-    terms: set[str] = set()
-    for hint in intent.hints:
-        if hint.kind.value != "person":
-            continue
-        terms.update(term for term in hint.canonical_key.split() if term)
-    return frozenset(terms)
-
-
-def _keyword_aggregation_query_kind(
-    query: str,
-    *,
-    query_plan: QueryExpansionPlan | None = None,
-) -> str:
-    """Compatibility projection retained for focused aggregation tests."""
-
-    return keyword_aggregation_query_kind(query, query_plan=query_plan)
-
-
-def _aggregation_query_relevance(
-    *,
-    query: str,
-    query_plan: QueryExpansionPlan | None,
-    text: str,
-    query_relevance_cache: dict[str, tuple[str, str, QueryRelevance]] | None = None,
-) -> tuple[str, str, QueryRelevance]:
-    if query_plan is None:
-        return query, "original_query", score_query_relevance(query=query, text=text)
-    if query_relevance_cache is None:
-        return best_query_relevance(query_plan, text=text)
-    return _best_query_relevance_cached(query_plan, text=text, cache=query_relevance_cache)
-
-
-def _is_keyword_aggregation_relevance_acceptable(
-    relevance: QueryRelevance,
-    *,
-    aggregation_kind: str,
-    strict_hits: int,
-) -> bool:
-    if is_query_relevance_sufficient(relevance):
-        return True
-    return (
-        aggregation_kind in {"count", "list", "sequence"}
-        and strict_hits > 0
-        and relevance.unique_term_hits > 0
-    )
-
-
-def _aggregation_source_group(chunk: MemoryChunk) -> str:
-    marker = _source_turn_marker(chunk.source_external_id)
-    if marker is not None:
-        return marker[0]
-    source_id = " ".join(str(chunk.source_external_id).split())
-    parts = source_id.split(":")
-    if len(parts) >= 4 and parts[-1] in _SOURCE_GROUP_SUFFIXES:
-        return ":".join(parts[:-1])
-    return source_id or str(chunk.document_id or chunk.id)
-
-
-def _aggregation_source_kind_rank(chunk: MemoryChunk) -> int:
-    if _source_turn_marker(chunk.source_external_id) is not None:
-        return 1
-    parts = " ".join(str(chunk.source_external_id).split()).split(":")
-    if parts and parts[-1] == "observation":
-        return 0
-    if parts and parts[-1] in {"events", "summary"}:
-        return 3
-    return 2

@@ -15,6 +15,9 @@ from infinity_context_core.application.context_diagnostics import (
     context_rank_key,
     normalize_context_item_diagnostics,
 )
+from infinity_context_core.application.context_distinct_set_selection import (
+    select_distinct_set_member_items,
+)
 from infinity_context_core.application.context_english_activity_displacement_answer_support import (
     english_activity_displacement_turn_candidates,
 )
@@ -207,6 +210,23 @@ class ContextPacker:
             char_budget=char_budget,
         )
         coverage_reserved_keys = frozenset(state.selected_keys)
+        distinct_set_selection = select_distinct_set_member_items(
+            items=selectable_items,
+            query=query,
+            try_select_item=lambda item: _try_select_item(
+                state,
+                item=item,
+                budget=budget,
+                char_budget=char_budget,
+                ignore_source_cap=True,
+            ),
+        )
+        if distinct_set_selection.redundant_item_keys:
+            selectable_items = [
+                item
+                for item in selectable_items
+                if _selection_key(item) not in distinct_set_selection.redundant_item_keys
+            ]
         answer_support_families = _answer_support_diversity_candidates(
             selectable_items, query=query
         )
@@ -679,6 +699,17 @@ class ContextPacker:
                     "coverage_reservations_selected": (coverage_reservation.reservations_selected),
                     "coverage_selected_obligation_ids": (
                         coverage_reservation.selected_obligation_ids
+                    ),
+                    "distinct_set_candidates_considered": (
+                        distinct_set_selection.candidates_considered
+                    ),
+                    "distinct_set_source_candidates": (distinct_set_selection.source_candidates),
+                    "distinct_set_items_selected": distinct_set_selection.items_selected,
+                    "distinct_set_member_slots_selected": (
+                        distinct_set_selection.member_slots_selected
+                    ),
+                    "distinct_set_redundant_items_suppressed": len(
+                        distinct_set_selection.redundant_item_keys
                     ),
                     "diversity_families_considered": len(diversity_families),
                     "diversity_families_used": len({_diversity_family(item) for item in selected}),

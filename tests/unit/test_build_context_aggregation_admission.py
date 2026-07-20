@@ -5,7 +5,19 @@ from datetime import UTC, datetime
 from types import SimpleNamespace
 
 import pytest
+from infinity_context_core.application.context_distinct_set_evidence import (
+    project_distinct_set_evidence,
+)
 from infinity_context_core.application.context_packer import ContextPacker
+from infinity_context_core.application.context_query_expansion import (
+    build_query_expansion_plan,
+)
+from infinity_context_core.application.context_query_intent_extraction import (
+    build_query_anchor_intent,
+)
+from infinity_context_core.application.context_query_intent_matching import (
+    query_anchor_intent_text_conflicts,
+)
 from infinity_context_core.application.dto import BuildContextQuery, ConsistencyMode, ContextItem
 from infinity_context_core.application.use_cases import build_context as build_context_module
 from infinity_context_core.application.use_cases.build_context import BuildContextUseCase
@@ -16,6 +28,9 @@ from infinity_context_core.application.use_cases.build_context_item_projection i
 from infinity_context_core.application.use_cases.build_context_keyword_aggregation import (
     _keyword_aggregation_chunk_items,
     _keyword_aggregation_intent,
+)
+from infinity_context_core.application.use_cases.build_context_keyword_aggregation_seeds import (
+    aggregation_admission_seed_chunks,
 )
 from infinity_context_core.domain.aggregation_admission import AggregationIntent
 from infinity_context_core.domain.entities import (
@@ -86,6 +101,190 @@ def test_count_relaxation_requires_content_support_and_reports_decisions() -> No
         items[0].diagnostics["provenance"]["keyword_aggregation_admission_reason"]
         == "relaxed_distinctive_support"
     )
+
+
+def test_distinct_set_members_are_reserved_as_source_backed_user_assertions() -> None:
+    community = _chunk(
+        "community-tank",
+        "user: I need plants for my community tank.\n"
+        "assistant: You could buy a quarantine tank next.",
+        source_external_id="neutral:tanks:community:turn",
+    )
+    five_gallon = _chunk(
+        "five-gallon-tank",
+        "user: I have a 5-gallon tank with a betta fish.",
+        source_external_id="neutral:tanks:five-gallon:turn",
+    )
+
+    items, diagnostics = _keyword_aggregation_chunk_items(
+        query=_query("How many tanks do I currently have?"),
+        seed_chunks=(community, five_gallon),
+    )
+
+    assert {item.item_id for item in items} == {community.id, five_gallon.id}
+    assert all("user assertion:" in item.text for item in items)
+    assert any("my community tank" in item.text for item in items)
+    assert all("quarantine tank" not in item.text for item in items)
+    assert all(
+        item.diagnostics["score_signals"]["keyword_aggregation_distinct_member_support"] == 1
+        for item in items
+    )
+    assert diagnostics["keyword_aggregation_distinct_member_reservations_used"] == 2
+    assert diagnostics["keyword_aggregation_distinct_member_slots_used"] == 2
+    assert diagnostics["keyword_aggregation_admission_reasons"] == {"distinct_member_support": 2}
+
+
+def test_distinct_set_aggregation_dedupes_member_identity_across_event_context() -> None:
+    lime_daiquiri = _chunk(
+        "lime-daiquiri",
+        "user: I learned a Daiquiri using fresh lime juice.",
+        source_external_id="neutral:recipes:daiquiri:turn",
+    )
+    lime_gimlet = _chunk(
+        "lime-gimlet",
+        "user: I made a Cucumber Gimlet using lime juice.",
+        source_external_id="neutral:recipes:gimlet:turn",
+    )
+    orange_bitters = _chunk(
+        "orange-bitters",
+        "user: I made orange bitters using orange peels.",
+        source_external_id="neutral:recipes:bitters:turn",
+    )
+
+    items, diagnostics = _keyword_aggregation_chunk_items(
+        query=_query("How many different types of citrus fruits have I used in cocktail recipes?"),
+        seed_chunks=(lime_daiquiri, lime_gimlet, orange_bitters),
+    )
+
+    assert {item.item_id for item in items} == {lime_daiquiri.id, orange_bitters.id}
+    selected_lime = next(item for item in items if item.item_id == lime_daiquiri.id)
+    assert {ref.source_id for ref in selected_lime.source_refs} == {
+        "neutral:recipes:daiquiri:turn",
+        "neutral:recipes:gimlet:turn",
+    }
+    assert diagnostics["keyword_aggregation_distinct_member_candidates"] == 3
+    assert diagnostics["keyword_aggregation_distinct_member_reservations_used"] == 2
+    assert diagnostics["keyword_aggregation_distinct_member_slots_used"] == 2
+
+
+def test_distinct_set_provenance_excludes_conflicts_and_has_hard_ref_cap() -> None:
+    safe_duplicates = tuple(
+        _chunk(
+            f"lime-safe-{index}",
+            "user: I used fresh lime juice in a cocktail recipe.",
+            source_external_id=f"neutral:recipes:lime-safe-{index}:turn",
+        )
+        for index in range(10)
+    )
+    stale_duplicate = _chunk(
+        "lime-stale",
+        "user: I used fresh lime juice in a cocktail recipe last year.",
+        source_external_id="neutral:recipes:lime-stale:turn",
+    )
+
+    items, diagnostics = _keyword_aggregation_chunk_items(
+        query=_query(
+            "How many different types of citrus fruits have I used "
+            "in cocktail recipes this year?"
+        ),
+        seed_chunks=(*safe_duplicates, stale_duplicate),
+    )
+
+    assert len(items) == 1
+    assert len(items[0].source_refs) == 8
+    assert all("lime-safe" in ref.source_id for ref in items[0].source_refs)
+    assert all("lime-stale" not in ref.source_id for ref in items[0].source_refs)
+    assert diagnostics["keyword_aggregation_distinct_member_candidates"] == 10
+    assert diagnostics["keyword_aggregation_admission_reasons"]["temporal_conflict"] == 1
+
+
+def test_distinct_set_rejects_last_year_wedding_evidence_for_this_year_query() -> None:
+    last_year = _chunk(
+        "last-year-wedding",
+        "user: I attended Robin's wedding last year.",
+    )
+
+    items, diagnostics = _keyword_aggregation_chunk_items(
+        query=_query("How many weddings have I attended this year?"),
+        seed_chunks=(last_year,),
+    )
+
+    assert items == ()
+    assert diagnostics["keyword_aggregation_distinct_member_candidates"] == 0
+    assert diagnostics["keyword_aggregation_admission_reasons"] == {"temporal_conflict": 1}
+
+
+def test_distinct_set_keeps_only_in_window_member_from_mixed_temporal_clauses() -> None:
+    mixed = _chunk(
+        "mixed-weddings",
+        "user: I attended Robin's wedding last year, "
+        "but I attended a wedding last weekend.",
+    )
+
+    items, diagnostics = _keyword_aggregation_chunk_items(
+        query=_query("How many weddings have I attended this year?"),
+        seed_chunks=(mixed,),
+    )
+
+    assert [item.item_id for item in items] == [mixed.id]
+    assert "Robin" not in items[0].text
+    assert "wedding last weekend" in items[0].text
+    assert diagnostics["keyword_aggregation_admission_reasons"] == {
+        "distinct_member_support": 1
+    }
+
+
+def test_distinct_set_uses_safe_projection_despite_unrelated_chunk_anchor_conflict() -> None:
+    query_text = "How many weddings have I attended this year for Project Atlas?"
+    evidence = _chunk(
+        "atlas-wedding",
+        "user: I attended Rachel's wedding this year.\n"
+        "assistant: Project Beacon planning starts next year.",
+    )
+    projection = project_distinct_set_evidence(query=query_text, text=evidence.text)
+    anchor_intent = build_query_anchor_intent(query_text)
+
+    assert query_anchor_intent_text_conflicts(anchor_intent, evidence.text)
+    assert projection.present
+    assert not query_anchor_intent_text_conflicts(anchor_intent, projection.rendered_text)
+
+    items, diagnostics = _keyword_aggregation_chunk_items(
+        query=_query(query_text),
+        seed_chunks=(evidence,),
+    )
+
+    assert [item.item_id for item in items] == [evidence.id]
+    assert "wedding this year" in items[0].text
+    assert "Project Beacon" not in items[0].text
+    assert diagnostics["keyword_aggregation_distinct_member_reservations_used"] == 1
+
+
+@pytest.mark.parametrize(
+    ("query_text", "evidence_text"),
+    (
+        (
+            "How many museums did I visit in February?",
+            "user: I visited the Natural History Museum on 2/8.",
+        ),
+        (
+            "How many properties did I view before offering on the Brookside townhouse?",
+            "user: I've seen a property in Cedar Creek that did not fit my budget.",
+        ),
+    ),
+)
+def test_distinct_set_projection_does_not_treat_time_or_place_as_named_subject(
+    query_text: str,
+    evidence_text: str,
+) -> None:
+    evidence = _chunk("grounded-member", evidence_text)
+
+    items, diagnostics = _keyword_aggregation_chunk_items(
+        query=_query(query_text),
+        seed_chunks=(evidence,),
+    )
+
+    assert [item.item_id for item in items] == [evidence.id]
+    assert diagnostics["keyword_aggregation_distinct_member_reservations_used"] == 1
 
 
 @pytest.mark.parametrize(
@@ -256,6 +455,121 @@ def test_relaxed_aggregation_evidence_reaches_the_pre_pack_pool(
     assert result.diagnostics["keyword_aggregation_relaxed_relevance_used"] == 1
 
 
+def test_requirement_guard_cannot_be_bypassed_by_distinct_evidence_restoration(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    candidate = _chunk(
+        "guarded-wedding",
+        "user: I attended Robin's wedding this year.",
+    )
+    packer = _RecordingPacker()
+    use_case = BuildContextUseCase(
+        uow_factory=lambda: None,  # type: ignore[arg-type,return-value]
+        ids=_Ids(),  # type: ignore[arg-type]
+        vector_index=object(),  # type: ignore[arg-type]
+        graph_index=object(),  # type: ignore[arg-type]
+        embedder=object(),  # type: ignore[arg-type]
+        packer=packer,
+    )
+    use_case._canonical_collector = _CanonicalCollector(candidate)  # type: ignore[assignment]
+    use_case._hydrator = _Hydrator()  # type: ignore[assignment]
+    use_case._artifact_evidence_collector = _ArtifactCollector()  # type: ignore[assignment]
+    use_case._context_link_expander = _LinkExpander()  # type: ignore[assignment]
+
+    async def empty_selection(**_kwargs: object) -> tuple[tuple[object, ...], dict[str, object]]:
+        return (), {}
+
+    async def temporal_passthrough(
+        *,
+        items: tuple[object, ...],
+        **_kwargs: object,
+    ) -> tuple[tuple[object, ...], dict[str, object]]:
+        return items, {}
+
+    async def empty_items(**_kwargs: object) -> tuple[object, ...]:
+        return ()
+
+    async def canonical_seeds(
+        *, canonical_chunks: tuple[object, ...], **_kwargs: object
+    ) -> tuple[tuple[object, ...], dict[str, object]]:
+        return canonical_chunks, {}
+
+    monkeypatch.setattr(build_context_module, "_aggregation_admission_seed_chunks", canonical_seeds)
+    monkeypatch.setattr(build_context_module, "_keyword_neighbor_chunk_items", empty_selection)
+    monkeypatch.setattr(
+        build_context_module,
+        "_keyword_source_sibling_chunk_items",
+        empty_selection,
+    )
+    monkeypatch.setattr(build_context_module, "_pending_conflict_items", empty_items)
+    monkeypatch.setattr(
+        build_context_module,
+        "_apply_temporal_relation_signals",
+        temporal_passthrough,
+    )
+    real_rerank = build_context_module.apply_deterministic_rerank_adjustments
+    rerank_calls: list[tuple[str, tuple[ContextItem, ...]]] = []
+
+    def recording_rerank(
+        items: tuple[ContextItem, ...],
+        **kwargs: object,
+    ) -> tuple[ContextItem, ...]:
+        rerank_calls.append((str(kwargs["query"]), items))
+        return real_rerank(items, **kwargs)  # type: ignore[arg-type]
+
+    monkeypatch.setattr(
+        build_context_module,
+        "apply_deterministic_rerank_adjustments",
+        recording_rerank,
+    )
+
+    result = asyncio.run(
+        use_case.execute(
+            _query("How many weddings have I attended this year for Project Atlas?")
+        )
+    )
+
+    assert all(item.item_id != candidate.id for item in packer.pre_pack_items)
+    assert len(rerank_calls) == 1
+    assert rerank_calls[0][0] == (
+        "How many weddings have I attended this year for Project Atlas?"
+    )
+    reranked_candidate = next(item for item in rerank_calls[0][1] if item.item_id == candidate.id)
+    assert reranked_candidate.text.startswith("user assertion:")
+    assert "deterministic_rerank_applied" not in reranked_candidate.diagnostics["provenance"]
+    assert result.diagnostics["requirement_guard_status"] == "dropped_missing_project_anchor"
+    assert result.diagnostics["requirement_guard_items_dropped"] > 0
+
+
+def test_aggregation_seed_helper_fans_out_distinct_set_queries_and_dedupes() -> None:
+    canonical = _chunk("canonical-seed", "user: I used orange peels in a recipe.")
+    recovered = _chunk("recovered-seed", "user: I used lime juice in a recipe.")
+    chunks = _RecordingKeywordChunks((canonical, recovered))
+    uow = _KeywordSeedUow(chunks)
+    query = _query(
+        "How many different types of citrus fruits have I used in cocktail recipes?"
+    )
+
+    seeds, diagnostics = asyncio.run(
+        aggregation_admission_seed_chunks(
+            uow_factory=lambda: uow,  # type: ignore[arg-type]
+            query=query,
+            query_plan=build_query_expansion_plan(query.query),
+            canonical_chunks=(canonical,),
+        )
+    )
+
+    assert [chunk.id for chunk in seeds] == [canonical.id, recovered.id]
+    assert chunks.queries[0] == query.query
+    assert "citrus fruit" in chunks.queries
+    assert "use citrus fruit" in chunks.queries
+    assert diagnostics == {
+        "keyword_aggregation_admission_queries": len(chunks.queries),
+        "keyword_aggregation_admission_seed_chunks": 2,
+        "keyword_aggregation_admission_seed_chunks_added": 1,
+    }
+
+
 class _CanonicalCollector:
     def __init__(self, chunk: MemoryChunk) -> None:
         self._chunk = chunk
@@ -290,6 +604,27 @@ class _LinkExpander:
 class _Ids:
     def new_id(self, prefix: str) -> str:
         return f"{prefix}_test"
+
+
+class _RecordingKeywordChunks:
+    def __init__(self, chunks: tuple[MemoryChunk, ...]) -> None:
+        self._chunks = chunks
+        self.queries: list[str] = []
+
+    async def keyword_search(self, **kwargs: object) -> tuple[MemoryChunk, ...]:
+        self.queries.append(str(kwargs["query"]))
+        return self._chunks
+
+
+class _KeywordSeedUow:
+    def __init__(self, chunks: _RecordingKeywordChunks) -> None:
+        self.chunks = chunks
+
+    async def __aenter__(self) -> _KeywordSeedUow:
+        return self
+
+    async def __aexit__(self, *_args: object) -> None:
+        return None
 
 
 class _RecordingPacker(ContextPacker):

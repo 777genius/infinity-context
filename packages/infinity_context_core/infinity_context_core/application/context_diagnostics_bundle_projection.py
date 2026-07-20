@@ -7,6 +7,7 @@ from typing import Any
 from infinity_context_core.application.context_diagnostics_bundle_keys import (
     _BUNDLE_COUNTER_DEFAULTS,
     _BUNDLE_COUNTER_KEYS,
+    _BUNDLE_KEYWORD_AGGREGATION_MAPPING_KEYS,
     _BUNDLE_KEYWORD_AGGREGATION_TEXT_KEYS,
     _BUNDLE_PROVIDER_STATUS_FLOAT_KEYS,
     _BUNDLE_PROVIDER_STATUS_TEXT_KEYS,
@@ -180,6 +181,13 @@ def _safe_bundle_keyword_aggregation_diagnostics(raw: dict[str, Any]) -> dict[st
         value = _safe_optional_text(raw.get(key), limit=_MAX_DIAGNOSTIC_KEY_CHARS)
         if value is not None:
             diagnostics[key] = value
+    for key in _BUNDLE_KEYWORD_AGGREGATION_MAPPING_KEYS:
+        values = _as_dict(raw.get(key))
+        diagnostics[key] = {
+            safe_key: _non_negative_int(raw_value, default=0)
+            for raw_key, raw_value in tuple(values.items())[:_MAX_DIAGNOSTIC_LIST_ITEMS]
+            if (safe_key := _safe_optional_text(raw_key, limit=_MAX_DIAGNOSTIC_KEY_CHARS))
+        }
     return diagnostics
 
 

@@ -5,6 +5,9 @@ from __future__ import annotations
 import re
 
 from infinity_context_core.application.context_diagnostics import diagnostic_retrieval_sources
+from infinity_context_core.application.context_distinct_set_evidence import (
+    project_distinct_set_evidence,
+)
 from infinity_context_core.application.context_food_inventory_exact_turns import (
     food_inventory_answer_support_applies,
     food_inventory_answer_support_rank,
@@ -174,7 +177,7 @@ def _apply_explicit_requirement_guard(
     kept_items = tuple(
         item
         for item in items
-        if not _has_relation_requirement_mismatch(item)
+        if not _has_relation_requirement_mismatch(item, query=query)
         or _is_precise_list_source_sibling_answer_support(
             item,
             requested_answer_shapes=requested_answer_shapes,
@@ -246,12 +249,18 @@ def _has_object_kind_mismatch(item: ContextItem) -> bool:
     )
 
 
-def _has_relation_requirement_mismatch(item: ContextItem) -> bool:
+def _has_relation_requirement_mismatch(item: ContextItem, *, query: str) -> bool:
     reasons = _deterministic_rerank_reasons(item)
+    projection_covers_missing_relation = (
+        "relation_requirement_missing_relation" in reasons
+        and "relation_requirement_object_mismatch" not in reasons
+        and project_distinct_set_evidence(query=query, text=item.text).present
+    )
     return (
         bool(_RELATION_REQUIREMENT_MISMATCH_RERANK_REASONS.intersection(reasons))
         and _RELATION_REQUIREMENT_MATCH_RERANK_REASON not in reasons
         and not _RELATION_REQUIREMENT_SUPPORT_RERANK_REASONS.intersection(reasons)
+        and not projection_covers_missing_relation
     )
 
 

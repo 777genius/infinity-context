@@ -6,6 +6,9 @@ import re
 from dataclasses import dataclass
 
 from infinity_context_core.application.context_diagnostics import context_rank_key
+from infinity_context_core.application.context_evidence_priority import (
+    has_unresolved_rerank_rejection,
+)
 from infinity_context_core.application.context_packer_answer_support import (
     _answer_object_rank,
     _answer_support_diversity_family,
@@ -334,7 +337,11 @@ def _coverage_inputs(
 
 
 def _coverage_candidate_is_eligible(item: ContextItem) -> bool:
-    if item.is_instruction or not item.source_refs:
+    if (
+        item.is_instruction
+        or not item.source_refs
+        or has_unresolved_rerank_rejection(item)
+    ):
         return False
     if diagnostic_value(item, "review_only") is True:
         return False
