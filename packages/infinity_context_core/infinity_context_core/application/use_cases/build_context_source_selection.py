@@ -18,6 +18,7 @@ from infinity_context_core.application.context_review_items import (
     suggestion_conflict_fact_id,
 )
 from infinity_context_core.application.context_source_siblings import (
+    _ObligationEvidenceProjection,
     _SourceSiblingRank,
 )
 from infinity_context_core.application.context_source_siblings import (
@@ -40,6 +41,9 @@ from infinity_context_core.application.context_source_siblings import (
 )
 from infinity_context_core.application.context_source_siblings import (
     is_visual_continuation_source_sibling as _is_visual_continuation_source_sibling,
+)
+from infinity_context_core.application.context_source_siblings import (
+    project_source_sibling_obligation_evidence as _project_obligation_evidence,
 )
 from infinity_context_core.application.context_source_siblings import (
     source_group_seed_turns as _source_group_seed_turns,
@@ -99,6 +103,7 @@ from infinity_context_core.application.use_cases.build_context_item_projection i
     _temporal_replacement_item,
 )
 from infinity_context_core.application.use_cases.build_context_keyword_aggregation import (
+    _aggregation_source_group,
     _best_query_relevance_cached,
     _prioritize_source_sibling_answer_evidence_seed_chunks,
     _prioritized_source_sibling_seed_groups,
@@ -318,13 +323,6 @@ async def _keyword_source_sibling_chunk_items(
         deep_list_coverage=deep_list_coverage,
         answer_evidence_group_diversity=answer_evidence_group_diversity,
     )
-    source_groups = _prioritized_source_sibling_seed_groups(
-        source_groups=source_groups,
-        seed_chunks=seed_chunks,
-        query_plan=query_plan,
-        query_relevance_cache=query_relevance_cache,
-        limit=source_group_limit,
-    )
     source_sibling_item_limit = _source_sibling_item_limit()
     if deep_list_coverage:
         source_sibling_item_limit = max(
@@ -363,6 +361,18 @@ async def _keyword_source_sibling_chunk_items(
             exclude_chunk_ids=(),
             limit=candidate_limit,
         )
+        source_groups = _prioritized_source_sibling_seed_groups(
+            source_groups=source_groups,
+            seed_chunks=seed_chunks,
+            evidence_chunks=tuple(candidates),
+            query_plan=query_plan,
+            query_relevance_cache=query_relevance_cache,
+            limit=source_group_limit,
+        )
+        admitted_groups = set(source_groups)
+        candidates = [
+            chunk for chunk in candidates if _aggregation_source_group(chunk) in admitted_groups
+        ]
         backfill_groups, group_backfill_limit = _source_sibling_group_backfill_plan(
             deep_list_coverage=answer_evidence_group_diversity,
             source_groups=source_groups,
@@ -403,6 +413,8 @@ async def _keyword_source_sibling_chunk_items(
             bool,
             bool,
             bool,
+            bool,
+            _ObligationEvidenceProjection,
         ]
     ] = []
     for chunk in candidates:
@@ -437,6 +449,7 @@ async def _keyword_source_sibling_chunk_items(
             expansion_reason=expansion_reason,
             relevance=relevance,
             text=chunk_text,
+            expansion_query=expansion_query,
         )
         if not _source_sibling_relevance_allowed(
             rank=rank,
@@ -474,10 +487,26 @@ async def _keyword_source_sibling_chunk_items(
             expansion_reason=expansion_reason,
             text=chunk_text,
         )
-        answer_evidence = _source_sibling_answer_evidence(
-            expansion_query=expansion_query,
-            expansion_reason=expansion_reason,
-            text=chunk_text,
+        obligation_evidence = (
+            _project_obligation_evidence(
+                query_text=query.query,
+                semantic_query_text=expansion_query,
+                relevance=relevance,
+                text=chunk.text,
+            )
+            if rank.group_level_seed
+            else _ObligationEvidenceProjection(rank=1, text=chunk_text)
+        )
+        if obligation_evidence.rank == 2:
+            skipped += 1
+            continue
+        answer_evidence = obligation_evidence.rank == 0 or (
+            obligation_evidence.rank == 1
+            and _source_sibling_answer_evidence(
+                expansion_query=expansion_query,
+                expansion_reason=expansion_reason,
+                text=chunk_text,
+            )
         )
         answer_evidence_role_rank = _source_sibling_answer_evidence_role_rank(
             query_text=query.query,
@@ -491,6 +520,7 @@ async def _keyword_source_sibling_chunk_items(
                     dialogue_visual_reference=dialogue_visual_reference,
                     visual_continuation=visual_continuation,
                     observation_companion=observation_companion,
+                    obligation_evidence_rank=obligation_evidence.rank,
                     answer_evidence=answer_evidence,
                     answer_evidence_role_rank=answer_evidence_role_rank,
                     marker_coverage=marker_coverage,
@@ -512,6 +542,7 @@ async def _keyword_source_sibling_chunk_items(
                 visual_continuation,
                 observation_companion,
                 answer_evidence,
+                obligation_evidence,
             )
         )
     ranked_candidates.sort(key=lambda item: item[0])
@@ -537,6 +568,7 @@ async def _keyword_source_sibling_chunk_items(
         visual_continuation,
         observation_companion,
         answer_evidence,
+        obligation_evidence,
     ) in ranked_candidates:
         companion_slot = ""
         answer_evidence_extra_key = _source_sibling_answer_evidence_extra_key(
@@ -615,7 +647,7 @@ async def _keyword_source_sibling_chunk_items(
             answer_evidence_selected_sources.append(str(chunk.source_external_id))
         item = _chunk_context_item(
             chunk=chunk,
-            text=chunk_text,
+            text=obligation_evidence.text if obligation_evidence.applied else chunk_text,
             retrieval_source="keyword_source_sibling_chunks",
             base_score=0.74,
             score=score,
@@ -632,7 +664,16 @@ async def _keyword_source_sibling_chunk_items(
                 dialogue_visual_reference=dialogue_visual_reference,
                 visual_continuation=visual_continuation,
                 answer_evidence=answer_evidence,
-                answer_evidence_query=expansion_query if answer_evidence else "",
+                answer_evidence_query=(
+                    query.query
+                    if obligation_evidence.rank == 0
+                    else expansion_query
+                    if answer_evidence
+                    else ""
+                ),
+                obligation_evidence_rank=obligation_evidence.rank,
+                obligation_projection=obligation_evidence,
+                canonical_text_length=len(chunk.text),
             )
         )
 

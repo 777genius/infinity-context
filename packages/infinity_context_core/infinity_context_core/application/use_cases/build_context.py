@@ -29,6 +29,9 @@ from infinity_context_core.application.context_diagnostics import (
     diagnostic_retrieval_sources,
     normalize_context_bundle_diagnostics,
 )
+from infinity_context_core.application.context_evidence_priority import (
+    apply_context_evidence_priority,
+)
 from infinity_context_core.application.context_hydration import ContextHydrator
 from infinity_context_core.application.context_link_expansion import ApprovedContextLinkExpander
 from infinity_context_core.application.context_packer import ContextPacker
@@ -761,6 +764,10 @@ class BuildContextUseCase:
             )
         )
         diagnostics.update(answer_evidence_repair_diagnostics)
+        candidate_items, evidence_priority_diagnostics = apply_context_evidence_priority(
+            candidate_items
+        )
+        diagnostics.update(evidence_priority_diagnostics)
         candidate_items = _trim_primary_fact_items(
             candidate_items,
             max_facts=query.max_facts,

@@ -41,6 +41,18 @@ from infinity_context_core.application.context_relevance import (
     score_query_relevance,
 )
 from infinity_context_core.application.context_source_siblings import (
+    _ObligationEvidenceProjection,
+)
+from infinity_context_core.application.context_source_siblings import (
+    project_source_sibling_obligation_evidence as _project_obligation_evidence,
+)
+from infinity_context_core.application.context_source_siblings import (
+    select_source_sibling_groups as _select_source_sibling_groups,
+)
+from infinity_context_core.application.context_source_siblings import (
+    source_group_admission_rank as _source_group_admission_rank,
+)
+from infinity_context_core.application.context_source_siblings import (
     source_sibling_answer_evidence as _source_sibling_answer_evidence,
 )
 from infinity_context_core.application.context_source_siblings import (
@@ -50,7 +62,16 @@ from infinity_context_core.application.context_source_siblings import (
     source_sibling_related_turn_anchor_evidence as _related_turn_anchor_evidence,
 )
 from infinity_context_core.application.context_source_siblings import (
+    source_sibling_seed_group as _source_sibling_seed_group,
+)
+from infinity_context_core.application.context_source_siblings import (
+    source_sibling_seed_group_limit as _source_sibling_seed_group_limit,
+)
+from infinity_context_core.application.context_source_siblings import (
     source_turn_marker as _source_turn_marker,
+)
+from infinity_context_core.application.context_source_siblings import (
+    with_source_sibling_obligation_evidence_signal as _with_obligation_evidence_signal,
 )
 from infinity_context_core.application.context_travel_place_evidence import (
     has_travel_place_inventory_evidence,
@@ -133,7 +154,7 @@ _SOURCE_GROUP_SUFFIXES = frozenset({"events", "observation", "summary"})
 
 @dataclass(frozen=True)
 class _KeywordAggregationCandidate:
-    rank_key: tuple[int, int, int, float, int]
+    rank_key: tuple[int, int, int, int, float, int]
     group: str
     chunk: MemoryChunk
     chunk_text: str
@@ -144,6 +165,7 @@ class _KeywordAggregationCandidate:
     query_variant_sets: _WeightedAggregationQueryVariants
     admission: AggregationAdmissionCandidate
     numeric_corroboration: bool
+    obligation_evidence: _ObligationEvidenceProjection
 
 
 def _ranked_keyword_chunk_scores(
@@ -197,16 +219,15 @@ def _prioritized_source_sibling_seed_groups(
     *,
     source_groups: dict[str, object],
     seed_chunks: tuple[MemoryChunk, ...],
+    evidence_chunks: tuple[MemoryChunk, ...] = (),
     query_plan: QueryExpansionPlan,
     query_relevance_cache: dict[str, tuple[str, str, QueryRelevance]],
     limit: int,
 ) -> dict[str, object]:
     if limit <= 0:
         return {}
-    if len(source_groups) <= limit:
-        return dict(source_groups)
-    group_rank: dict[str, tuple[int, int, int, float]] = {}
-    for chunk in seed_chunks:
+    group_rank: dict[str, tuple[int | float | str, ...]] = {}
+    for chunk in _dedupe_chunks_by_id((*seed_chunks, *evidence_chunks)):
         group = _aggregation_source_group(chunk)
         if not group or group not in source_groups:
             continue
@@ -216,27 +237,38 @@ def _prioritized_source_sibling_seed_groups(
             text=chunk_text,
             cache=query_relevance_cache,
         )
-        answer_evidence = _source_sibling_answer_evidence(
-            expansion_query=expansion_query,
-            expansion_reason=expansion_reason,
+        original_relevance = score_query_relevance(
+            query=query_plan.original_query,
             text=chunk_text,
         )
-        related_anchor = _related_turn_anchor_evidence(relevance=relevance, text=chunk_text)
-        if answer_evidence or related_anchor:
-            rank = (
-                int(answer_evidence),
-                relevance.distinctive_term_hits,
-                relevance.unique_term_hits,
-                relevance.hit_ratio,
+        obligation_evidence = _project_obligation_evidence(
+            query_text=query_plan.original_query,
+            semantic_query_text=expansion_query,
+            relevance=relevance,
+            text=chunk.text,
+        )
+        answer_evidence = obligation_evidence.rank == 0 or (
+            obligation_evidence.rank == 1
+            and _source_sibling_answer_evidence(
+                expansion_query=expansion_query,
+                expansion_reason=expansion_reason,
+                text=chunk_text,
             )
-            group_rank[group] = max(rank, group_rank.get(group, (0, 0, 0, 0.0)))
-    ordered_groups = tuple(source_groups.items())
-    prioritized = sorted(
-        (entry for entry in ordered_groups if entry[0] in group_rank),
-        key=lambda entry: tuple(-value for value in group_rank[entry[0]]),
+        )
+        related_anchor = _related_turn_anchor_evidence(relevance=relevance, text=chunk_text)
+        rank = _source_group_admission_rank(
+            group=group,
+            original_relevance=original_relevance,
+            relevance=relevance,
+            answer_evidence=answer_evidence,
+            related_anchor=related_anchor,
+        )
+        group_rank[group] = min(rank, group_rank.get(group, rank))
+    return _select_source_sibling_groups(
+        source_groups=source_groups,
+        rank_by_group=group_rank,
+        limit=limit,
     )
-    prioritized.extend(entry for entry in ordered_groups if entry[0] not in group_rank)
-    return dict(prioritized[:limit])
 
 
 def _prioritize_source_sibling_answer_evidence_seed_chunks(
@@ -245,67 +277,91 @@ def _prioritize_source_sibling_answer_evidence_seed_chunks(
     query_plan: QueryExpansionPlan,
     query_relevance_cache: dict[str, tuple[str, str, QueryRelevance]],
 ) -> tuple[MemoryChunk, ...]:
-    ranked: list[tuple[int, int, int, float, int, str, MemoryChunk]] = []
-    remaining: list[tuple[int, MemoryChunk]] = []
-    for index, chunk in enumerate(seed_chunks):
-        chunk_text = document_chunk_retrieval_text(text=chunk.text, metadata=chunk.metadata)
-        expansion_query, expansion_reason, relevance = _best_query_relevance_cached(
-            query_plan,
-            text=chunk_text,
-            cache=query_relevance_cache,
-        )
-        answer_evidence = _source_sibling_answer_evidence_query_match(
+    limit = _source_sibling_seed_group_limit()
+    if limit <= 0:
+        return ()
+    group_rank: dict[str, tuple[int | float | str, ...]] = {}
+    for chunk in seed_chunks:
+        group = _source_sibling_seed_group(chunk)
+        if not group:
+            continue
+        rank = _source_sibling_seed_chunk_admission_rank(
+            chunk=chunk,
+            group=group,
             query_plan=query_plan,
-            text=chunk_text,
-            preferred_query=expansion_query,
-            preferred_reason=expansion_reason,
+            query_relevance_cache=query_relevance_cache,
         )
-        related_anchor = _related_turn_anchor_evidence(relevance=relevance, text=chunk_text)
-        if answer_evidence or related_anchor:
-            ranked.append(
-                (
-                    int(bool(answer_evidence)),
-                    relevance.distinctive_term_hits,
-                    relevance.unique_term_hits,
-                    relevance.hit_ratio,
-                    index,
-                    _aggregation_source_group(chunk),
-                    chunk,
-                )
-            )
-        else:
-            remaining.append((index, chunk))
-    if not ranked:
+        existing = group_rank.get(group)
+        if existing is not None:
+            group_rank[group] = min(existing, rank)
+            continue
+        if len(group_rank) < limit:
+            group_rank[group] = rank
+            continue
+        worst_group = max(group_rank, key=lambda value: group_rank[value])
+        if rank < group_rank[worst_group]:
+            del group_rank[worst_group]
+            group_rank[group] = rank
+    if not group_rank:
         return seed_chunks
-    answer_chunks = sorted(
-        (entry for entry in ranked if entry[0] > 0),
-        key=lambda entry: (-entry[1], -entry[2], -entry[3], entry[4]),
-    )
-    anchor_chunks = sorted(
-        (entry for entry in ranked if entry[0] <= 0),
-        key=lambda entry: (-entry[1], -entry[2], -entry[3], entry[4]),
-    )
-    prioritized = (
-        *_source_group_diverse_answer_evidence_chunks(answer_chunks),
-        *_source_group_diverse_answer_evidence_chunks(anchor_chunks),
-    )
-    return (
-        *(entry[-1] for entry in prioritized),
-        *(chunk for _, chunk in remaining),
+    return tuple(
+        sorted(
+            (chunk for chunk in seed_chunks if _source_sibling_seed_group(chunk) in group_rank),
+            key=lambda chunk: (
+                group_rank[_source_sibling_seed_group(chunk)],
+                *_source_sibling_seed_chunk_stable_key(chunk),
+            ),
+        )
     )
 
 
-def _source_group_diverse_answer_evidence_chunks(
-    chunks: list[tuple[int, int, int, float, int, str, MemoryChunk]],
-) -> tuple[tuple[int, int, int, float, int, str, MemoryChunk], ...]:
-    primary: list[tuple[int, int, int, float, int, str, MemoryChunk]] = []
-    extra: list[tuple[int, int, int, float, int, str, MemoryChunk]] = []
-    seen_groups: set[str] = set()
-    for chunk in chunks:
-        target = primary if chunk[5] and chunk[5] not in seen_groups else extra
-        target.append(chunk)
-        seen_groups.add(chunk[5])
-    return (*primary, *extra)
+def _source_sibling_seed_chunk_admission_rank(
+    *,
+    chunk: MemoryChunk,
+    group: str,
+    query_plan: QueryExpansionPlan,
+    query_relevance_cache: dict[str, tuple[str, str, QueryRelevance]],
+) -> tuple[int | float | str, ...]:
+    chunk_text = document_chunk_retrieval_text(text=chunk.text, metadata=chunk.metadata)
+    expansion_query, expansion_reason, relevance = _best_query_relevance_cached(
+        query_plan,
+        text=chunk_text,
+        cache=query_relevance_cache,
+    )
+    original_relevance = score_query_relevance(
+        query=query_plan.original_query,
+        text=chunk_text,
+    )
+    obligation_evidence = _project_obligation_evidence(
+        query_text=query_plan.original_query,
+        semantic_query_text=expansion_query,
+        relevance=relevance,
+        text=chunk.text,
+    )
+    answer_evidence = obligation_evidence.rank == 0 or (
+        obligation_evidence.rank == 1
+        and bool(
+            _source_sibling_answer_evidence_query_match(
+                query_plan=query_plan,
+                text=chunk_text,
+                preferred_query=expansion_query,
+                preferred_reason=expansion_reason,
+            )
+        )
+    )
+    return _source_group_admission_rank(
+        group=group,
+        original_relevance=original_relevance,
+        relevance=relevance,
+        answer_evidence=answer_evidence,
+        related_anchor=_related_turn_anchor_evidence(relevance=relevance, text=chunk_text),
+    )
+
+
+def _source_sibling_seed_chunk_stable_key(
+    chunk: MemoryChunk,
+) -> tuple[str, int, str]:
+    return str(chunk.source_external_id or ""), chunk.sequence, str(chunk.id)
 
 
 def _source_sibling_answer_evidence_query_match(
@@ -683,6 +739,15 @@ def _keyword_aggregation_chunk_items(
         group = _aggregation_source_group(chunk)
         numeric_corroboration = has_exact_count_cardinality_evidence(chunk_text)
         anchor_conflict = query_anchor_intent_text_conflicts(anchor_intent, chunk_text)
+        obligation_evidence = _opaque_document_obligation_evidence_projection(
+            query_text=query.query,
+            semantic_query_text=aggregation_query,
+            relevance=relevance,
+            chunk=chunk,
+        )
+        if obligation_evidence.rank == 2:
+            skipped += 1
+            continue
         admission = AggregationAdmissionCandidate(
             candidate_id=str(chunk.id),
             signals=AggregationAdmissionSignals(
@@ -698,6 +763,7 @@ def _keyword_aggregation_chunk_items(
             ),
         )
         rank_key = (
+            obligation_evidence.rank,
             -strict_hits,
             _aggregation_source_kind_rank(chunk),
             -relevance.distinctive_term_hits,
@@ -717,6 +783,7 @@ def _keyword_aggregation_chunk_items(
                 query_variant_sets=weighted_query_terms,
                 admission=admission,
                 numeric_corroboration=numeric_corroboration,
+                obligation_evidence=obligation_evidence,
             )
         )
 
@@ -792,11 +859,15 @@ def _keyword_aggregation_chunk_items(
         used_families.add(candidate.group)
         item = _chunk_context_item(
             chunk=candidate.chunk,
-            text=_aggregation_evidence_text(
-                query=candidate.aggregation_query,
-                text=candidate.chunk_text,
-                identity_terms=query_identity_terms,
-                query_variant_sets=candidate.query_variant_sets,
+            text=(
+                candidate.obligation_evidence.text
+                if candidate.obligation_evidence.applied
+                else _aggregation_evidence_text(
+                    query=candidate.aggregation_query,
+                    text=candidate.chunk_text,
+                    identity_terms=query_identity_terms,
+                    query_variant_sets=candidate.query_variant_sets,
+                )
             ),
             retrieval_source="keyword_aggregation_chunks",
             base_score=0.78,
@@ -808,24 +879,50 @@ def _keyword_aggregation_chunk_items(
             ),
             use_query_snippet=False,
         )
-        items.append(
-            _with_keyword_aggregation_score_signals(
-                item,
-                strict_hits=candidate.strict_hits,
-                source_group=candidate.group,
-                query_plan_slot=candidate.aggregation_reason,
-                admission_reason=decision.reason.value,
-                relaxed_admission=decision.relaxed,
-                numeric_corroboration=candidate.numeric_corroboration,
-                continuity_only=continuity_only,
-            )
+        item = _with_keyword_aggregation_score_signals(
+            item,
+            strict_hits=candidate.strict_hits,
+            source_group=candidate.group,
+            query_plan_slot=candidate.aggregation_reason,
+            admission_reason=decision.reason.value,
+            relaxed_admission=decision.relaxed,
+            numeric_corroboration=candidate.numeric_corroboration,
+            continuity_only=continuity_only,
         )
+        if not continuity_only and candidate.obligation_evidence.rank != 1:
+            item = _with_obligation_evidence_signal(
+                item,
+                rank=candidate.obligation_evidence.rank,
+                projection=candidate.obligation_evidence,
+                canonical_text_length=len(candidate.chunk.text),
+            )
+        items.append(item)
 
     diagnostics["keyword_aggregation_chunks_used"] = len(items)
     diagnostics["keyword_aggregation_chunks_skipped"] = skipped
     diagnostics["keyword_aggregation_source_families_used"] = len(used_families)
     diagnostics["keyword_aggregation_continuity_items_used"] = continuity_item_count
     return tuple(items), diagnostics
+
+
+def _opaque_document_obligation_evidence_projection(
+    *,
+    query_text: str,
+    semantic_query_text: str,
+    relevance: QueryRelevance,
+    chunk: MemoryChunk,
+) -> _ObligationEvidenceProjection:
+    if chunk.document_id is None:
+        return _ObligationEvidenceProjection(rank=1, text=chunk.text)
+    source_id = " ".join(str(chunk.source_external_id or "").split())
+    if not source_id or _source_turn_marker(source_id) is not None:
+        return _ObligationEvidenceProjection(rank=1, text=chunk.text)
+    return _project_obligation_evidence(
+        query_text=query_text,
+        semantic_query_text=semantic_query_text,
+        relevance=relevance,
+        text=chunk.text,
+    )
 
 
 def _aggregation_identity_terms(query: str) -> frozenset[str]:
