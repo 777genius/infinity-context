@@ -6,8 +6,13 @@ from infinity_context_core.application.context_count_cardinality import (
     keyword_aggregation_intent,
 )
 from infinity_context_core.application.context_distinct_set_evidence import (
+    DistinctSetTargetKind,
+    DistinctSetTemporalWindow,
     distinct_set_retrieval_terms,
     extract_distinct_set_request,
+)
+from infinity_context_core.application.context_provider_retrieval_terms import (
+    provider_retrieval_term_policy,
 )
 from infinity_context_core.application.context_query_expansion import QueryExpansionPlan
 from infinity_context_core.application.dto import BuildContextQuery
@@ -53,6 +58,15 @@ async def aggregation_admission_seed_chunks(
                 value.casefold() for value in search_queries
             }:
                 search_queries.append(action_query)
+        if request.target_kind is DistinctSetTargetKind.NAMED_PROVIDER:
+            provider_policy = provider_retrieval_term_policy(
+                target_terms=request.target_terms,
+                action_terms=request.action_terms,
+                current_only=request.current_only,
+                recent=request.temporal_window is DistinctSetTemporalWindow.RECENT,
+            )
+            for term_group in provider_policy.keyword_groups():
+                _append_unique_query(search_queries, " ".join(term_group))
     matches: list[MemoryChunk] = []
     async with uow_factory() as uow:
         for search_query in search_queries:
@@ -72,6 +86,12 @@ async def aggregation_admission_seed_chunks(
         canonical_chunks
     )
     return chunks, diagnostics
+
+
+def _append_unique_query(search_queries: list[str], candidate: str) -> None:
+    value = " ".join(candidate.split())
+    if value and value.casefold() not in {query.casefold() for query in search_queries}:
+        search_queries.append(value)
 
 
 def _dedupe_seed_chunks(chunks: tuple[MemoryChunk, ...]) -> tuple[MemoryChunk, ...]:

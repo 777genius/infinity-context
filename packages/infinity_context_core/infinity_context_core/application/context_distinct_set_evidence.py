@@ -273,7 +273,10 @@ _PROVIDER_TARGET_CUE_RE = re.compile(
     r"provider|platform|app|service|vendor)\b",
     re.IGNORECASE,
 )
-_PROVIDER_NAME_HINT_RE = re.compile(r"(?:dash|deliver|eats?)\b", re.IGNORECASE)
+_IMPLICIT_PROVIDER_RELATION_CUE_RE = re.compile(
+    r"\b(?:all\s+about|relied\s+on|relying\s+on|through|via)\s*$",
+    re.IGNORECASE,
+)
 _PROVIDER_NAME_STOPWORDS = frozenset(
     {
         "after",
@@ -632,7 +635,6 @@ def _provider_member_identities(
             sentence=sentence,
             start=match.start(),
             end=match.end(),
-            normalized_surface=normalized_surface,
         ):
             values.append(normalized_surface)
     return tuple(values)
@@ -644,7 +646,6 @@ def _provider_name_grounded(
     sentence: str,
     start: int,
     end: int,
-    normalized_surface: str,
 ) -> bool:
     relation_start = max(
         sentence.rfind(" and ", 0, start),
@@ -662,8 +663,10 @@ def _provider_name_grounded(
     local_before = sentence[max(relation_start + 1, start - 32) : start]
     has_relation_cue = _PROVIDER_RELATION_CUE_RE.search(local_before) is not None
     has_target_cue = _PROVIDER_TARGET_CUE_RE.search(relation) is not None
-    has_provider_name_hint = _PROVIDER_NAME_HINT_RE.search(normalized_surface) is not None
-    return has_relation_cue and (has_target_cue or has_provider_name_hint) and (
+    has_implicit_provider_relation = (
+        _IMPLICIT_PROVIDER_RELATION_CUE_RE.search(local_before) is not None
+    )
+    return has_relation_cue and (has_target_cue or has_implicit_provider_relation) and (
         _request_action_supported(request, set(_action_terms(relation)))
         or "called" in local_before.casefold()
         or "like" in local_before.casefold()

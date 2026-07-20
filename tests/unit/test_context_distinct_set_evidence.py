@@ -12,6 +12,9 @@ from infinity_context_core.application.context_distinct_set_selection import (
     restore_distinct_set_evidence_items,
 )
 from infinity_context_core.application.context_packer import ContextPacker
+from infinity_context_core.application.context_provider_retrieval_terms import (
+    provider_retrieval_term_policy,
+)
 from infinity_context_core.application.context_query_expansion import (
     build_query_expansion_plan,
 )
@@ -378,24 +381,24 @@ def test_named_provider_identity_is_action_and_target_grounded() -> None:
     projection = project_distinct_set_evidence(
         query="How many food delivery services have I used recently?",
         text=(
-            "user: In March I used DoorDash for food delivery "
-            "while listening to Spotify."
+            "user: In March I used Cedar Cart for food delivery "
+            "while listening to Northwind Radio."
         ),
     )
 
-    assert projection.identities == ("doordash",)
+    assert projection.identities == ("cedar cart",)
     assert "march" not in projection.identities
-    assert "spotify" not in projection.identities
+    assert "northwind radio" not in projection.identities
 
 
 @pytest.mark.parametrize(
     ("text", "identity"),
     (
-        ("user: I had Domino's Pizza after relying on food delivery services.", "domino's pizza"),
-        ("user: My weekends have been all about Uber Eats lately.", "uber eat"),
+        ("user: I had Harbor Spoon after relying on food delivery services.", "harbor spoon"),
+        ("user: My weekends have been all about Cedar Cart lately.", "cedar cart"),
         (
-            "user: I've been relying on food delivery services, like one called Fresh Fusion.",
-            "fresh fusion",
+            "user: I've been relying on food delivery services, like one called Amber Table.",
+            "amber table",
         ),
     ),
 )
@@ -409,6 +412,84 @@ def test_named_provider_projection_keeps_grounded_delivery_provider(
     )
 
     assert projection.identities == (identity,)
+
+
+@pytest.mark.parametrize(
+    "text",
+    (
+        "user: I used Dash as a document heading.",
+        "user: I ordered Eats stickers for a dashboard.",
+        "user: I used the Deliver module during deployment.",
+        "user: I scheduled a delivery and ate lunch after a quick dash home.",
+        "assistant: I recommend Cedar Cart for food delivery.",
+    ),
+)
+def test_named_provider_projection_rejects_unrelated_word_shapes_and_recommendations(
+    text: str,
+) -> None:
+    projection = project_distinct_set_evidence(
+        query="How many food delivery services have I used recently?",
+        text=text,
+    )
+
+    assert not projection.present
+    assert projection.identities == ()
+
+
+def test_provider_terms_keep_retrieval_signal_groups_separate() -> None:
+    policy = provider_retrieval_term_policy(
+        target_terms=("food", "delivery", "service"),
+        action_terms=("use",),
+        current_only=False,
+        recent=True,
+    )
+
+    assert policy.lexical_terms == (
+        "all",
+        "about",
+        "rely",
+        "relying",
+        "relied",
+        "use",
+        "used",
+        "using",
+        "through",
+        "via",
+    )
+    assert policy.entity_terms == ("app", "platform", "provider", "service", "vendor")
+    assert policy.category_terms == ("food", "delivery")
+    assert policy.temporal_terms == ("recent", "recently", "lately")
+    assert policy.keyword_groups() == (
+        policy.lexical_terms,
+        policy.entity_terms,
+        policy.category_terms,
+        policy.temporal_terms,
+    )
+
+
+def test_provider_terms_do_not_derive_names_from_brand_like_word_shapes() -> None:
+    policy = provider_retrieval_term_policy(
+        target_terms=("delivery", "service"),
+        action_terms=("use",),
+        current_only=False,
+        recent=False,
+    )
+
+    flattened = {term for group in policy.keyword_groups() for term in group}
+    assert flattened.isdisjoint({"dash", "eats", "deliver"})
+    assert policy.temporal_terms == ()
+
+
+def test_current_provider_request_uses_current_not_recent_terms() -> None:
+    policy = provider_retrieval_term_policy(
+        target_terms=("hosting", "provider"),
+        action_terms=("use",),
+        current_only=True,
+        recent=True,
+    )
+
+    assert policy.category_terms == ("hosting",)
+    assert policy.temporal_terms == ("current", "currently", "now", "still")
 
 
 def test_domain_policy_dedupes_source_first_and_member_second() -> None:

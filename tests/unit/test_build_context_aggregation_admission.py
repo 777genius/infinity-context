@@ -601,6 +601,70 @@ def test_aggregation_seed_helper_fans_out_distinct_set_queries_and_dedupes() -> 
     }
 
 
+def test_provider_seed_fanout_recovers_implicit_events_without_counting_noise() -> None:
+    canonical = _chunk("canonical-seed", "user: I planned weekday lunches.")
+    implicit = _chunk(
+        "implicit-provider",
+        "user: My evenings have been all about Cedar Cart lately.",
+        source_external_id="neutral:provider:implicit:event",
+    )
+    category = _chunk(
+        "category-provider",
+        "user: I used Harbor Spoon, a meal delivery platform, recently.",
+        source_external_id="neutral:provider:category:event",
+    )
+    noise = _chunk(
+        "dash-noise",
+        "user: I used Dash as a document heading.",
+        source_external_id="neutral:writing:dash:event",
+    )
+    recommendation = _chunk(
+        "assistant-recommendation",
+        "assistant: I recommend Amber Table for food delivery.",
+        source_external_id="neutral:assistant:recommendation:event",
+    )
+    chunks = _ProviderKeywordChunks(
+        implicit=implicit,
+        category=category,
+        noise=noise,
+        recommendation=recommendation,
+    )
+    query = _query(
+        "How many different types of food delivery services have I used recently?"
+    )
+
+    seeds, diagnostics = asyncio.run(
+        aggregation_admission_seed_chunks(
+            uow_factory=lambda: _KeywordSeedUow(chunks),  # type: ignore[arg-type]
+            query=query,
+            query_plan=build_query_expansion_plan(query.query),
+            canonical_chunks=(canonical,),
+        )
+    )
+    items, _ = _keyword_aggregation_chunk_items(
+        query=query,
+        query_plan=build_query_expansion_plan(query.query),
+        seed_chunks=seeds,
+        ordinary_seed_ids=frozenset({str(canonical.id)}),
+    )
+
+    projected_ids = {
+        item.item_id
+        for item in items
+        if item.diagnostics["score_signals"].get(
+            "keyword_aggregation_distinct_member_support"
+        )
+        == 1
+    }
+    assert projected_ids == {str(implicit.id), str(category.id)}
+    assert str(noise.id) not in projected_ids
+    assert str(recommendation.id) not in projected_ids
+    assert any("all about rely relying relied" in value for value in chunks.queries)
+    assert "food delivery" in chunks.queries
+    assert any("recent recently lately" in value for value in chunks.queries)
+    assert diagnostics["keyword_aggregation_admission_seed_chunks_added"] == 4
+
+
 class _CanonicalCollector:
     def __init__(self, chunk: MemoryChunk) -> None:
         self._chunk = chunk
@@ -645,6 +709,31 @@ class _RecordingKeywordChunks:
     async def keyword_search(self, **kwargs: object) -> tuple[MemoryChunk, ...]:
         self.queries.append(str(kwargs["query"]))
         return self._chunks
+
+
+class _ProviderKeywordChunks(_RecordingKeywordChunks):
+    def __init__(
+        self,
+        *,
+        implicit: MemoryChunk,
+        category: MemoryChunk,
+        noise: MemoryChunk,
+        recommendation: MemoryChunk,
+    ) -> None:
+        super().__init__(())
+        self._implicit = implicit
+        self._category = category
+        self._noise = noise
+        self._recommendation = recommendation
+
+    async def keyword_search(self, **kwargs: object) -> tuple[MemoryChunk, ...]:
+        query = str(kwargs["query"])
+        self.queries.append(query)
+        if "recent recently lately" in query:
+            return self._implicit, self._noise, self._recommendation
+        if query == "food delivery":
+            return (self._category,)
+        return ()
 
 
 class _KeywordSeedUow:
