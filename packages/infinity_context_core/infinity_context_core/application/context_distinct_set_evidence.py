@@ -8,6 +8,13 @@ from dataclasses import dataclass
 from enum import StrEnum
 from itertools import islice
 
+from infinity_context_core.application.context_action_subject_policy import (
+    resolve_first_person_referential_action_antecedent,
+)
+from infinity_context_core.application.context_identity_terms import (
+    singularize_identity_term,
+)
+
 _MAX_QUERY_CHARS = 512
 _MAX_EVIDENCE_CHARS = 12_000
 _MAX_USER_SEGMENTS = 24
@@ -679,7 +686,7 @@ def _target_phrase_identities(
     values: list[str] = []
     target_terms = set(request.target_terms)
     for index, match in enumerate(tokens):
-        term = _singular(match.group(0).casefold().strip(".'/-"))
+        term = singularize_identity_term(match.group(0).casefold().strip(".'/-"))
         if term not in target_terms:
             continue
         prefix = [token.group(0) for token in tokens[max(0, index - 5) : index]]
@@ -720,6 +727,19 @@ def _action_object_identities(
         )
         if aliases.intersection(terms) or named_venue:
             values.append(value)
+        elif (
+            request.subject_is_first_person
+            and _request_action_supported(request, set(_action_terms(match.group(0))))
+            and (
+                antecedent := resolve_first_person_referential_action_antecedent(
+                    sentence,
+                    action_start=match.start(),
+                    action_object=value,
+                    aliases=aliases,
+                )
+            )
+        ):
+            values.append(antecedent)
     return tuple(values)
 
 
@@ -882,7 +902,7 @@ def _normalized_terms(text: str, *, excluded: frozenset[str]) -> tuple[str, ...]
     values: list[str] = []
     seen: set[str] = set()
     for match in _TOKEN_RE.finditer(text):
-        value = _singular(match.group(0).casefold().strip(".'/-"))
+        value = singularize_identity_term(match.group(0).casefold().strip(".'/-"))
         if value in excluded or value in seen:
             continue
         seen.add(value)
@@ -894,22 +914,11 @@ def _normalized_terms(text: str, *, excluded: frozenset[str]) -> tuple[str, ...]
 
 def _normalize_identity(value: str) -> str:
     terms = [
-        _singular(match.group(0).casefold().strip(".'/-")) for match in _TOKEN_RE.finditer(value)
+        singularize_identity_term(match.group(0).casefold().strip(".'/-"))
+        for match in _TOKEN_RE.finditer(value)
     ]
     filtered = [term for term in terms if term and term not in _IDENTITY_SCAFFOLD]
     return " ".join(filtered[-5:])
-
-
-def _singular(term: str) -> str:
-    if term.endswith("'s"):
-        return term
-    if term.endswith("ies") and len(term) > 4:
-        return f"{term[:-3]}y"
-    if term.endswith(("sses", "shes", "ches", "xes", "zes")) and len(term) > 4:
-        return term[:-2]
-    if term.endswith("s") and not term.endswith(("is", "ss", "us")) and len(term) > 3:
-        return term[:-1]
-    return term
 
 
 def _opaque_member_id(identity: str) -> str:

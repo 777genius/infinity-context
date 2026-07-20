@@ -285,6 +285,64 @@ def test_recent_furniture_projection_recognizes_an_ordered_mattress() -> None:
     assert "ordered a new mattress" in projection.rendered_text
 
 
+def test_entity_projection_resolves_realized_pronoun_action_to_nearest_member() -> None:
+    projection = project_distinct_set_evidence(
+        query="How many pieces of furniture did I buy recently?",
+        text=(
+            "user: I got a new coffee table for my den. "
+            "I've been meaning to replace my mattress, and last week I finally "
+            "took the plunge and ordered one from a local shop."
+        ),
+    )
+
+    assert projection.identities == ("coffee table den", "mattress")
+
+
+@pytest.mark.parametrize(
+    "text",
+    (
+        (
+            "user: I considered replacing my mattress, but my roommate ordered one "
+            "from a local shop."
+        ),
+        (
+            "user: I told my roommate I should replace my mattress, and my roommate "
+            "ordered one from a local shop."
+        ),
+        (
+            "user: My roommate told me I should replace my mattress, and ordered one "
+            "from a local shop."
+        ),
+        "user: I considered replacing my mattress, but I ordered a lamp instead.",
+        (
+            "user: I considered replacing my mattress, but I ordered one lamp "
+            "for the bedroom."
+        ),
+    ),
+)
+def test_entity_projection_does_not_resolve_wrong_subject_or_object(
+    text: str,
+) -> None:
+    projection = project_distinct_set_evidence(
+        query="How many pieces of furniture did I buy recently?",
+        text=text,
+    )
+
+    assert not projection.present
+
+
+def test_entity_pronoun_resolution_does_not_cross_named_subjects() -> None:
+    projection = project_distinct_set_evidence(
+        query="How many pieces of furniture did Morgan buy recently?",
+        text=(
+            "user: Morgan considered replacing the mattress, but I ordered one "
+            "from a local shop."
+        ),
+    )
+
+    assert not projection.present
+
+
 def test_named_subject_request_rejects_another_speakers_first_person_assertion() -> None:
     query = "How many weddings has Morgan attended this year?"
 

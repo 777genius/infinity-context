@@ -167,6 +167,37 @@ def test_distinct_set_aggregation_dedupes_member_identity_across_event_context()
     assert diagnostics["keyword_aggregation_distinct_member_slots_used"] == 2
 
 
+def test_distinct_set_aggregation_keeps_source_with_novel_referenced_member() -> None:
+    table_only = _chunk(
+        "table-only",
+        "user: I got a new coffee table for my den.",
+        source_external_id="neutral:furniture:table-only:turn",
+    )
+    table_and_mattress = _chunk(
+        "table-and-mattress",
+        (
+            "user: I got a new coffee table for my den. "
+            "I've been meaning to replace my mattress, and last week I finally "
+            "took the plunge and ordered one from a local shop."
+        ),
+        source_external_id="neutral:furniture:table-and-mattress:turn",
+    )
+
+    items, diagnostics = _keyword_aggregation_chunk_items(
+        query=_query("How many pieces of furniture did I buy recently?"),
+        seed_chunks=(table_only, table_and_mattress),
+    )
+
+    assert [item.item_id for item in items] == [table_and_mattress.id]
+    assert {ref.source_id for ref in items[0].source_refs} == {
+        "neutral:furniture:table-only:turn",
+        "neutral:furniture:table-and-mattress:turn",
+    }
+    assert diagnostics["keyword_aggregation_distinct_member_candidates"] == 2
+    assert diagnostics["keyword_aggregation_distinct_member_reservations_used"] == 1
+    assert diagnostics["keyword_aggregation_distinct_member_slots_used"] == 2
+
+
 def test_distinct_set_provenance_excludes_conflicts_and_has_hard_ref_cap() -> None:
     safe_duplicates = tuple(
         _chunk(
