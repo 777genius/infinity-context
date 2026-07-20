@@ -187,6 +187,36 @@ class ContextBundleDiagnostics:
     keyword_aggregation_chunks_considered: int = 0
     keyword_aggregation_chunks_used: int = 0
     keyword_aggregation_chunks_skipped: int = 0
+    keyword_aggregation_relaxed_relevance_used: int = 0
+    keyword_aggregation_slot_reservations_used: int = 0
+    keyword_aggregation_source_families_used: int = 0
+    keyword_aggregation_numeric_corroborations: int = 0
+    keyword_aggregation_distinct_member_candidates: int = 0
+    keyword_aggregation_distinct_member_reservations_used: int = 0
+    keyword_aggregation_distinct_member_slots_used: int = 0
+    keyword_aggregation_chunks_deduplicated: int = 0
+    keyword_aggregation_admitted_not_selected: int = 0
+    keyword_aggregation_continuity_items_used: int = 0
+    keyword_aggregation_continuity_limit: int = 0
+    keyword_aggregation_continuity_items_promoted: int = 0
+    keyword_aggregation_continuity_items_suppressed: int = 0
+    keyword_aggregation_admission_queries: int = 0
+    keyword_aggregation_admission_seed_chunks: int = 0
+    keyword_aggregation_admission_seed_chunks_added: int = 0
+    pre_rerank_distinct_set_evidence_items_considered: int = 0
+    pre_rerank_distinct_set_evidence_bodies_restored: int = 0
+    pre_rerank_distinct_set_evidence_items_added_for_rerank: int = 0
+    pre_rerank_distinct_set_evidence_items_rejected_before_rerank: int = 0
+    distinct_set_evidence_items_considered: int = 0
+    distinct_set_evidence_bodies_restored: int = 0
+    distinct_set_evidence_items_readded: int = 0
+    distinct_set_evidence_items_missing_after_ranking: int = 0
+    distinct_set_evidence_items_rejected_by_rerank: int = 0
+    distinct_set_candidates_considered: int = 0
+    distinct_set_source_candidates: int = 0
+    distinct_set_items_selected: int = 0
+    distinct_set_member_slots_selected: int = 0
+    distinct_set_redundant_items_suppressed: int = 0
     vector_query_count: int = 0
     vector_embedding_vector_count: int = 0
     vector_search_count: int = 0
@@ -607,6 +637,96 @@ def bundle_diagnostics_from_payload(value: object) -> ContextBundleDiagnostics:
         keyword_aggregation_chunks_considered=_non_negative_int(payload.get("keyword_aggregation_chunks_considered")),
         keyword_aggregation_chunks_used=_non_negative_int(payload.get("keyword_aggregation_chunks_used")),
         keyword_aggregation_chunks_skipped=_non_negative_int(payload.get("keyword_aggregation_chunks_skipped")),
+        keyword_aggregation_relaxed_relevance_used=_non_negative_int(
+            payload.get("keyword_aggregation_relaxed_relevance_used")
+        ),
+        keyword_aggregation_slot_reservations_used=_non_negative_int(
+            payload.get("keyword_aggregation_slot_reservations_used")
+        ),
+        keyword_aggregation_source_families_used=_non_negative_int(
+            payload.get("keyword_aggregation_source_families_used")
+        ),
+        keyword_aggregation_numeric_corroborations=_non_negative_int(
+            payload.get("keyword_aggregation_numeric_corroborations")
+        ),
+        keyword_aggregation_distinct_member_candidates=_non_negative_int(
+            payload.get("keyword_aggregation_distinct_member_candidates")
+        ),
+        keyword_aggregation_distinct_member_reservations_used=_non_negative_int(
+            payload.get("keyword_aggregation_distinct_member_reservations_used")
+        ),
+        keyword_aggregation_distinct_member_slots_used=_non_negative_int(
+            payload.get("keyword_aggregation_distinct_member_slots_used")
+        ),
+        keyword_aggregation_chunks_deduplicated=_non_negative_int(
+            payload.get("keyword_aggregation_chunks_deduplicated")
+        ),
+        keyword_aggregation_admitted_not_selected=_non_negative_int(
+            payload.get("keyword_aggregation_admitted_not_selected")
+        ),
+        keyword_aggregation_continuity_items_used=_non_negative_int(
+            payload.get("keyword_aggregation_continuity_items_used")
+        ),
+        keyword_aggregation_continuity_limit=_non_negative_int(
+            payload.get("keyword_aggregation_continuity_limit")
+        ),
+        keyword_aggregation_continuity_items_promoted=_non_negative_int(
+            payload.get("keyword_aggregation_continuity_items_promoted")
+        ),
+        keyword_aggregation_continuity_items_suppressed=_non_negative_int(
+            payload.get("keyword_aggregation_continuity_items_suppressed")
+        ),
+        keyword_aggregation_admission_queries=_non_negative_int(
+            payload.get("keyword_aggregation_admission_queries")
+        ),
+        keyword_aggregation_admission_seed_chunks=_non_negative_int(
+            payload.get("keyword_aggregation_admission_seed_chunks")
+        ),
+        keyword_aggregation_admission_seed_chunks_added=_non_negative_int(
+            payload.get("keyword_aggregation_admission_seed_chunks_added")
+        ),
+        pre_rerank_distinct_set_evidence_items_considered=_non_negative_int(
+            payload.get("pre_rerank_distinct_set_evidence_items_considered")
+        ),
+        pre_rerank_distinct_set_evidence_bodies_restored=_non_negative_int(
+            payload.get("pre_rerank_distinct_set_evidence_bodies_restored")
+        ),
+        pre_rerank_distinct_set_evidence_items_added_for_rerank=_non_negative_int(
+            payload.get("pre_rerank_distinct_set_evidence_items_added_for_rerank")
+        ),
+        pre_rerank_distinct_set_evidence_items_rejected_before_rerank=_non_negative_int(
+            payload.get("pre_rerank_distinct_set_evidence_items_rejected_before_rerank")
+        ),
+        distinct_set_evidence_items_considered=_non_negative_int(
+            payload.get("distinct_set_evidence_items_considered")
+        ),
+        distinct_set_evidence_bodies_restored=_non_negative_int(
+            payload.get("distinct_set_evidence_bodies_restored")
+        ),
+        distinct_set_evidence_items_readded=_non_negative_int(
+            payload.get("distinct_set_evidence_items_readded")
+        ),
+        distinct_set_evidence_items_missing_after_ranking=_non_negative_int(
+            payload.get("distinct_set_evidence_items_missing_after_ranking")
+        ),
+        distinct_set_evidence_items_rejected_by_rerank=_non_negative_int(
+            payload.get("distinct_set_evidence_items_rejected_by_rerank")
+        ),
+        distinct_set_candidates_considered=_non_negative_int(
+            payload.get("distinct_set_candidates_considered")
+        ),
+        distinct_set_source_candidates=_non_negative_int(
+            payload.get("distinct_set_source_candidates")
+        ),
+        distinct_set_items_selected=_non_negative_int(
+            payload.get("distinct_set_items_selected")
+        ),
+        distinct_set_member_slots_selected=_non_negative_int(
+            payload.get("distinct_set_member_slots_selected")
+        ),
+        distinct_set_redundant_items_suppressed=_non_negative_int(
+            payload.get("distinct_set_redundant_items_suppressed")
+        ),
         vector_query_count=_non_negative_int(payload.get("vector_query_count")),
         vector_embedding_vector_count=_non_negative_int(payload.get("vector_embedding_vector_count")),
         vector_search_count=_non_negative_int(payload.get("vector_search_count")),
