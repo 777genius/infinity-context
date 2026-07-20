@@ -9,6 +9,9 @@ from infinity_context_core.application.anchor_extraction import (
     canonical_anchor_key_for_kind,
     extract_observed_anchors,
 )
+from infinity_context_core.application.context_occupational_role_identity import (
+    is_non_person_identity_label,
+)
 from infinity_context_core.application.context_query_intent_common import (
     _bounded_unique,
     _metadata_text,
@@ -42,6 +45,7 @@ _RELOCATION_ORIGIN_EVIDENCE_RE = re.compile(
     re.IGNORECASE,
 )
 
+
 def match_query_anchor_intent(
     intent: QueryAnchorIntent,
     anchor: MemoryAnchor,
@@ -60,6 +64,7 @@ def match_query_anchor_intent(
         reasons=(f"query_{anchor.kind.value}_identity_match",),
         matched_keys=tuple(shared[:4]),
     )
+
 
 def match_query_anchor_intent_to_text(
     intent: QueryAnchorIntent,
@@ -104,6 +109,7 @@ def match_query_anchor_intent_to_text(
         matched_keys=tuple(_bounded_unique(matched_keys, limit=8)),
     )
 
+
 def query_anchor_intent_conflicts(
     intent: QueryAnchorIntent,
     anchor: MemoryAnchor,
@@ -117,6 +123,7 @@ def query_anchor_intent_conflicts(
         return False
     return not _compatible_identity_matches(_anchor_identity_keys(anchor), query_keys)
 
+
 def query_anchor_intent_text_conflicts(
     intent: QueryAnchorIntent,
     text: str,
@@ -128,14 +135,16 @@ def query_anchor_intent_text_conflicts(
     anchors = _text_intent_observed_anchors(text)
     return bool(anchors and _observed_anchor_conflicts_intent(intent, anchors, text=text))
 
+
 def _text_intent_observed_anchors(text: str) -> tuple[ObservedAnchor, ...]:
     return tuple(
         anchor
         for anchor in extract_observed_anchors(text)
-        if not _observed_anchor_is_text_intent_noise(anchor)
+        if not _observed_anchor_is_text_intent_noise(anchor, text=text)
     )
 
-def _observed_anchor_is_text_intent_noise(anchor: ObservedAnchor) -> bool:
+
+def _observed_anchor_is_text_intent_noise(anchor: ObservedAnchor, *, text: str) -> bool:
     canonical_key = _metadata_text(anchor.metadata.get("canonical_key"))
     if not canonical_key:
         canonical_key = canonical_anchor_key_for_kind(anchor.kind, anchor.label)
@@ -144,6 +153,7 @@ def _observed_anchor_is_text_intent_noise(anchor: ObservedAnchor) -> bool:
         return (
             canonical_key in _PERSON_HINT_STOP_WORDS
             or normalized_label in _PERSON_HINT_STOP_WORDS
+            or is_non_person_identity_label(label=anchor.label, text=text)
         )
     if anchor.kind == MemoryAnchorKind.PROJECT:
         return (
@@ -151,6 +161,7 @@ def _observed_anchor_is_text_intent_noise(anchor: ObservedAnchor) -> bool:
             or normalized_label in _PROJECT_HINT_STOP_WORDS
         )
     return False
+
 
 def _match_event_anchor(
     intent: QueryAnchorIntent,
@@ -223,6 +234,7 @@ def _match_event_anchor(
         matched_keys=tuple(_bounded_unique(matched_keys, limit=8)),
     )
 
+
 def _match_observed_event_anchor(
     intent: QueryAnchorIntent,
     anchor: ObservedAnchor,
@@ -292,6 +304,7 @@ def _match_observed_event_anchor(
         matched_keys=tuple(_bounded_unique(matched_keys, limit=8)),
     )
 
+
 def _observed_anchor_conflicts_intent(
     intent: QueryAnchorIntent,
     anchors: tuple[ObservedAnchor, ...],
@@ -328,15 +341,13 @@ def _observed_anchor_conflicts_intent(
             and not _is_relocation_origin_evidence_text(intent, text)
         ):
             return True
-        if (
-            _temporal_keys_conflict(
-                query_temporal_keys=intent.temporal_keys(),
-                anchor_temporal_keys=frozenset(observed_temporal_keys),
-            )
-            and not _is_relocation_origin_evidence_text(intent, text)
-        ):
+        if _temporal_keys_conflict(
+            query_temporal_keys=intent.temporal_keys(),
+            anchor_temporal_keys=frozenset(observed_temporal_keys),
+        ) and not _is_relocation_origin_evidence_text(intent, text):
             return True
     return False
+
 
 def _is_relocation_origin_evidence_text(intent: QueryAnchorIntent, text: str) -> bool:
     """Origin snippets often answer relocation questions without repeating the date."""
@@ -345,10 +356,12 @@ def _is_relocation_origin_evidence_text(intent: QueryAnchorIntent, text: str) ->
         return False
     return bool(_RELOCATION_ORIGIN_EVIDENCE_RE.search(str(text)[:2000]))
 
+
 def _is_broad_activity_event_query(intent: QueryAnchorIntent) -> bool:
     """Activity list questions often describe events with indirect verbs in evidence text."""
 
     return "group:activity" in intent.event_type_keys()
+
 
 def _event_anchor_conflicts_intent(
     intent: QueryAnchorIntent,

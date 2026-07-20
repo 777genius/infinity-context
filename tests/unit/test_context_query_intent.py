@@ -279,9 +279,7 @@ def test_query_anchor_intent_accepts_activity_event_paraphrase_text() -> None:
 
 
 def test_query_anchor_intent_does_not_promote_to_as_project() -> None:
-    intent = build_query_anchor_intent(
-        "What events has Caroline participated in to help children?"
-    )
+    intent = build_query_anchor_intent("What events has Caroline participated in to help children?")
     text = (
         "D9:2 Caroline: Last weekend I joined a mentorship program for LGBTQ youth. "
         "It is rewarding to help the community."
@@ -293,9 +291,7 @@ def test_query_anchor_intent_does_not_promote_to_as_project() -> None:
 
 
 def test_query_anchor_intent_ignores_auxiliary_and_determiner_anchor_noise() -> None:
-    intent = build_query_anchor_intent(
-        "What was discussed in the community counseling workshop?"
-    )
+    intent = build_query_anchor_intent("What was discussed in the community counseling workshop?")
     text = (
         "D4:7 Jordan: I went to a community counseling workshop recently. "
         "It was enlightening. They talked about different therapeutic methods "
@@ -683,3 +679,152 @@ def test_query_anchor_intent_rejects_wrong_project_anchor() -> None:
     match = match_query_anchor_intent(intent, apollo)
     assert match is not None
     assert match.reasons == ("query_project_identity_match",)
+
+
+def test_first_person_occupational_role_titles_are_not_person_hints() -> None:
+    questions = (
+        "How many people did I lead in my role as Senior Software Engineer?",
+        "I work as a Principal Data Scientist and lead researchers.",
+        "I am a Customer Success Representative with four direct reports.",
+        "I'm currently a Product Owner on the platform team.",
+        "As a Staff Platform Architect, I lead four engineers.",
+        "Engineering Manager was my role before the promotion.",
+        "Senior Software Engineer was my previous role.",
+        "Scrum Master is my current role; what changed?",
+        "How many reports did I have in my Director of Product role?",
+        "My role, Vice President of Engineering, started last year.",
+        "My role is “Chief Technology Officer”; how many people report to me?",
+        "My role is VP of Engineering; what changed?",
+        "I am the Chief of Staff.",
+        "My role is Human Resources Business Partner.",
+        "My current position: Lead UX Researcher—how many studies do I own?",
+    )
+
+    for question in questions:
+        intent = build_query_anchor_intent(question)
+
+        assert intent.keys_for_kind(MemoryAnchorKind.PERSON) == frozenset(), question
+
+
+def test_first_person_role_filter_preserves_named_people_and_possessives() -> None:
+    named = build_query_anchor_intent(
+        "How did Dana's scope change in my Senior Software Engineer role?"
+    )
+    punctuated = build_query_anchor_intent(
+        'I work as a "Director of Product"; what did Dana recommend to Alex?'
+    )
+    possessive_title = build_query_anchor_intent(
+        "What did Alex say about my role as Dana's manager?"
+    )
+    self_description = build_query_anchor_intent(
+        "I am a Senior Software Engineer with Dana on the incident review."
+    )
+    following_clause = build_query_anchor_intent(
+        "I work as an Engineering Manager and Dana handles recruiting"
+    )
+
+    assert named.keys_for_kind(MemoryAnchorKind.PERSON) == {"dana"}
+    assert punctuated.keys_for_kind(MemoryAnchorKind.PERSON) == {"aleks", "dana"}
+    assert possessive_title.keys_for_kind(MemoryAnchorKind.PERSON) == {"aleks", "dana"}
+    assert self_description.keys_for_kind(MemoryAnchorKind.PERSON) == {"dana"}
+    assert following_clause.keys_for_kind(MemoryAnchorKind.PERSON) == {"dana"}
+
+
+def test_role_descriptors_do_not_create_text_identity_conflicts() -> None:
+    role_only = build_query_anchor_intent(
+        "How many engineers did I lead when I started my new role as "
+        "Senior Software Engineer, and how many do I lead now?"
+    )
+
+    assert (
+        query_anchor_intent_text_conflicts(
+            role_only,
+            "Before: In my role as Staff Platform Engineer, I led four engineers.",
+        )
+        is False
+    )
+    assert (
+        query_anchor_intent_text_conflicts(
+            role_only,
+            "Now: I lead five engineers.",
+        )
+        is False
+    )
+
+    named = build_query_anchor_intent(
+        "How many engineers did Dana lead in my role as Senior Software Engineer?"
+    )
+
+    assert (
+        query_anchor_intent_text_conflicts(
+            named,
+            "Dana: In my role as Staff Platform Engineer, I led four engineers.",
+        )
+        is False
+    )
+    assert (
+        query_anchor_intent_text_conflicts(
+            named,
+            "Morgan: In my role as Staff Platform Engineer, I led four engineers.",
+        )
+        is True
+    )
+
+
+def test_role_filter_does_not_exempt_non_first_person_title_phrases() -> None:
+    third_person = build_query_anchor_intent(
+        "What did Alex say about Jordan's role as Senior Software Engineer?"
+    )
+    person_wording = build_query_anchor_intent(
+        "Was Senior Software Engineer the person who met Dana?"
+    )
+    generic_role = build_query_anchor_intent(
+        "What did Alex say about the role of Senior Software Engineer?"
+    )
+    relationship = build_query_anchor_intent("I am a friend of Senior Software Engineer Dana.")
+    unrelated_as = build_query_anchor_intent(
+        "I watched as Engineering Manager Morgan presented the roadmap."
+    )
+
+    assert third_person.keys_for_kind(MemoryAnchorKind.PERSON) == {
+        "aleks",
+        "engineer",
+        "senior software",
+    }
+    assert person_wording.keys_for_kind(MemoryAnchorKind.PERSON) == {
+        "dana",
+        "senior software engineer",
+    }
+    assert generic_role.keys_for_kind(MemoryAnchorKind.PERSON) == {
+        "aleks",
+        "engineer",
+        "senior software",
+    }
+    assert relationship.keys_for_kind(MemoryAnchorKind.PERSON) == {
+        "engineer dana",
+        "senior software",
+    }
+    assert unrelated_as.keys_for_kind(MemoryAnchorKind.PERSON) == {
+        "engineering manager",
+        "morgan",
+    }
+
+
+def test_unrelated_as_clause_reports_named_person_identity_conflict() -> None:
+    dana = build_query_anchor_intent("What did Dana present?")
+
+    assert (
+        query_anchor_intent_text_conflicts(
+            dana,
+            "I work as an Engineering Manager and Dana handles recruiting.",
+        )
+        is False
+    )
+    assert (
+        query_anchor_intent_text_conflicts(
+            dana,
+            "I watched as Engineering Manager Morgan presented the roadmap.",
+        )
+        is True
+    )
+    assert query_anchor_intent_text_conflicts(dana, "Dana presented the roadmap.") is False

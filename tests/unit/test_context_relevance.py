@@ -154,8 +154,7 @@ def test_query_terms_include_cyrillic_name_case_variants() -> None:
 
 def test_query_terms_include_russian_mention_and_write_aliases() -> None:
     variants_by_raw = {
-        term.raw: set(term.variants)
-        for term in query_terms("Что Мария упоминала и писала Сергею?")
+        term.raw: set(term.variants) for term in query_terms("Что Мария упоминала и писала Сергею?")
     }
     mention_relevance = score_query_relevance(
         query="Что Мария упоминала про Atlas?",
@@ -541,6 +540,37 @@ def test_query_relevance_avoids_unrelated_project_match() -> None:
     assert relevance.distinctive_term_count == 1
     assert relevance.distinctive_term_hits == 0
     assert is_query_relevance_sufficient(relevance) is False
+
+
+def test_chunk_candidate_relevance_keeps_before_and_now_role_state_evidence() -> None:
+    query = (
+        "How many engineers do I lead when I just started my new role as "
+        "Senior Software Engineer? How many engineers do I lead now?"
+    )
+    before_text = "Taylor: I had just started the role and led a team of 4 engineers."
+    now_text = "Taylor: I now lead a team of five engineers."
+
+    before_relevance = score_query_relevance(query=query, text=before_text)
+    now_relevance = score_query_relevance(query=query, text=now_text)
+
+    assert before_relevance.distinctive_term_hits >= 4
+    assert now_relevance.distinctive_term_hits >= 4
+    assert (
+        is_chunk_candidate_relevance_sufficient(
+            query=query,
+            text=before_text,
+            relevance=before_relevance,
+        )
+        is True
+    )
+    assert (
+        is_chunk_candidate_relevance_sufficient(
+            query=query,
+            text=now_text,
+            relevance=now_relevance,
+        )
+        is True
+    )
 
 
 def test_project_identity_mismatch_detects_shared_generic_terms() -> None:

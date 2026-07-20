@@ -11,6 +11,9 @@ from infinity_context_core.application.anchor_extraction import (
     extract_observed_anchors,
     structured_anchor_metadata_for_label,
 )
+from infinity_context_core.application.context_occupational_role_identity import (
+    is_non_person_identity_label,
+)
 from infinity_context_core.application.context_query_intent_common import (
     _metadata_text,
     _normalized,
@@ -276,10 +279,16 @@ _PROJECT_HINT_STOP_WORDS = frozenset(
     }
 ).union(_RELATIVE_TIME_HINT_STOP_WORDS)
 
+
 def build_query_anchor_intent(query: str) -> QueryAnchorIntent:
     hints: list[QueryAnchorHint] = []
     seen: set[tuple[str, str]] = set()
     for observed in extract_observed_anchors(query):
+        if observed.kind == MemoryAnchorKind.PERSON and is_non_person_identity_label(
+            label=observed.label,
+            text=query,
+        ):
+            continue
         _append_observed_hint(hints, seen, observed)
     _append_activity_state_event_type_hints(hints, seen, query)
     if _is_eventish_query(query):
@@ -287,6 +296,7 @@ def build_query_anchor_intent(query: str) -> QueryAnchorIntent:
         if not _event_temporal_keys(hints):
             _append_temporal_event_hints(hints, seen, query)
     return QueryAnchorIntent(hints=_without_project_person_duplicates(tuple(hints))[:16])
+
 
 def query_anchor_lookup_keys(intent: QueryAnchorIntent) -> tuple[QueryAnchorLookupKey, ...]:
     keys: list[QueryAnchorLookupKey] = []
@@ -315,6 +325,7 @@ def query_anchor_lookup_keys(intent: QueryAnchorIntent) -> tuple[QueryAnchorLook
                     return tuple(keys)
     return tuple(keys)
 
+
 def _without_project_person_duplicates(
     hints: tuple[QueryAnchorHint, ...],
 ) -> tuple[QueryAnchorHint, ...]:
@@ -327,6 +338,7 @@ def _without_project_person_duplicates(
         if not (hint.kind == MemoryAnchorKind.PERSON and hint.canonical_key in project_keys)
     )
 
+
 def _append_observed_hint(
     hints: list[QueryAnchorHint],
     seen: set[tuple[str, str]],
@@ -335,10 +347,7 @@ def _append_observed_hint(
     canonical_key = _metadata_text(observed.metadata.get("canonical_key"))
     if not canonical_key:
         canonical_key = canonical_anchor_key_for_kind(observed.kind, observed.label)
-    if (
-        observed.kind == MemoryAnchorKind.PROJECT
-        and canonical_key in _PROJECT_HINT_STOP_WORDS
-    ):
+    if observed.kind == MemoryAnchorKind.PROJECT and canonical_key in _PROJECT_HINT_STOP_WORDS:
         return
     if observed.kind == MemoryAnchorKind.PERSON and canonical_key in _PERSON_HINT_STOP_WORDS:
         return
@@ -351,6 +360,7 @@ def _append_observed_hint(
         reason=observed.reason,
         metadata=observed.metadata,
     )
+
 
 def _append_lowercase_event_hints(
     hints: list[QueryAnchorHint],
@@ -379,6 +389,7 @@ def _append_lowercase_event_hints(
             label=label,
             reason="event query project hint",
         )
+
 
 def _append_temporal_event_hints(
     hints: list[QueryAnchorHint],
@@ -412,6 +423,7 @@ def _append_temporal_event_hints(
             },
         )
 
+
 def _append_activity_state_event_type_hints(
     hints: list[QueryAnchorHint],
     seen: set[tuple[str, str]],
@@ -443,6 +455,7 @@ def _append_activity_state_event_type_hints(
             metadata=metadata,
         )
 
+
 def _temporal_metadata_from_phrase(phrase: str) -> dict[str, object]:
     hints = temporal_hint_windows(phrase)
     if not hints:
@@ -471,6 +484,7 @@ def _temporal_metadata_from_phrase(phrase: str) -> dict[str, object]:
         metadata["event_identity_terms"].append(f"{code}:{quantity}:{unit}")
     return metadata
 
+
 def _append_label_hint(
     hints: list[QueryAnchorHint],
     seen: set[tuple[str, str]],
@@ -495,6 +509,7 @@ def _append_label_hint(
             **structured_anchor_metadata_for_label(kind, label),
         },
     )
+
 
 def _append_hint(
     hints: list[QueryAnchorHint],
@@ -523,12 +538,14 @@ def _append_hint(
         )
     )
 
+
 def _event_temporal_keys(hints: Iterable[QueryAnchorHint]) -> frozenset[str]:
     keys: set[str] = set()
     for hint in hints:
         if hint.kind == MemoryAnchorKind.EVENT:
             keys.update(_temporal_identity_keys(hint.metadata))
     return frozenset(keys)
+
 
 def _is_eventish_query(query: str) -> bool:
     return bool(_EVENTISH_QUERY_RE.search(query) or _RELATIVE_TIME_RE.search(query))
