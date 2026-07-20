@@ -19,6 +19,7 @@ from infinity_context_adapters.postgres.models import (
     MemoryThreadRow,
 )
 from infinity_context_core.application import BuildContextQuery
+from infinity_context_core.application import context_packer as context_packer_module
 from infinity_context_core.application.context_collectors import (
     _bounded_derived_retrieval_queries,
     _keyword_candidate_pool_limit,
@@ -38,6 +39,7 @@ from infinity_context_core.application.context_source_siblings import (
 from infinity_context_core.application.document_text import (
     document_chunk_retrieval_text,
 )
+from infinity_context_core.application.dto import ContextItem
 from infinity_context_core.application.use_cases.build_context import (
     _best_query_relevance_cached,
     _prioritize_source_sibling_answer_evidence_seed_chunks,
@@ -50,26 +52,136 @@ from infinity_context_server.public_benchmark import (
     _load_cases,
     _run_case,
 )
+from infinity_context_server.public_benchmark_case_diagnostics import case_evidence_refs
 from infinity_context_server.public_benchmark_checkpoint import BenchmarkSeedStats
 from infinity_context_server.public_benchmark_http import auth_headers
 from infinity_context_server.public_benchmark_models import TestClientBenchmarkAdapter
 from sqlalchemy import select
+
+try:
+    from scripts.locomo_packing_boundary_trace import (
+        _bounded_unique_refs,
+        _copy_selection_state,
+        _packing_boundary_capture,
+    )
+except ModuleNotFoundError:
+    from locomo_packing_boundary_trace import (
+        _bounded_unique_refs,
+        _copy_selection_state,
+        _packing_boundary_capture,
+    )
+
+
+class _PackingBoundaryTracer:
+    """Capture one real ContextPacker call without changing its selection path."""
+
+    def __init__(self, delegate: Any, *, requested_refs: tuple[str, ...]) -> None:
+        self._delegate = delegate
+        self._requested_refs = _bounded_unique_refs(requested_refs)
+        self.capture: dict[str, Any] | None = None
+
+    def pack(
+        self,
+        *,
+        bundle_id: str,
+        items: tuple[ContextItem, ...],
+        token_budget: int,
+        query: str = "",
+        max_rendered_chars: int = 18000,
+    ) -> Any:
+        if self.capture is not None:
+            return self._delegate.pack(
+                bundle_id=bundle_id,
+                items=items,
+                token_budget=token_budget,
+                query=query,
+                max_rendered_chars=max_rendered_chars,
+            )
+
+        original_state_factory = context_packer_module._SelectionState
+        original_source_order = context_packer_module._source_diversified_order
+        active_state: Any | None = None
+        preselection_state: Any | None = None
+        selection_items: tuple[ContextItem, ...] = ()
+
+        def capture_state(**values: Any) -> Any:
+            nonlocal active_state
+            active_state = original_state_factory(**values)
+            return active_state
+
+        def capture_source_order(values: list[ContextItem]) -> tuple[ContextItem, ...]:
+            nonlocal preselection_state, selection_items
+            selection_items = original_source_order(values)
+            if active_state is not None:
+                preselection_state = _copy_selection_state(
+                    active_state,
+                    state_type=original_state_factory,
+                )
+            return selection_items
+
+        context_packer_module._SelectionState = capture_state
+        context_packer_module._source_diversified_order = capture_source_order
+        try:
+            result = self._delegate.pack(
+                bundle_id=bundle_id,
+                items=items,
+                token_budget=token_budget,
+                query=query,
+                max_rendered_chars=max_rendered_chars,
+            )
+        finally:
+            context_packer_module._SelectionState = original_state_factory
+            context_packer_module._source_diversified_order = original_source_order
+
+        self.capture = _packing_boundary_capture(
+            items=items,
+            requested_refs=self._requested_refs,
+            token_budget=token_budget,
+            max_rendered_chars=max_rendered_chars,
+            preselection_state=preselection_state,
+            selection_items=selection_items,
+            result=result,
+            state_type=original_state_factory,
+        )
+        return result
 
 
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--dataset", type=Path, default=Path(".e2e-artifacts/locomo10.json"))
     parser.add_argument("--case-id", default="conv-26:qa:14")
+    parser.add_argument(
+        "--evidence-ref",
+        action="append",
+        default=[],
+        help="Evidence ref to audit at the pack boundary (repeatable; defaults to case refs).",
+    )
+    parser.add_argument("--output", type=Path, help="Write the bounded JSON trace to this path.")
     args = parser.parse_args()
-    trace = _trace_case(dataset_path=args.dataset, case_id=args.case_id)
-    print(json.dumps(trace, indent=2, ensure_ascii=False, sort_keys=True))
+    trace = _trace_case(
+        dataset_path=args.dataset,
+        case_id=args.case_id,
+        requested_evidence_refs=tuple(args.evidence_ref),
+    )
+    rendered = json.dumps(trace, indent=2, ensure_ascii=False, sort_keys=True)
+    if args.output is None:
+        print(rendered)
+        return
+    args.output.parent.mkdir(parents=True, exist_ok=True)
+    args.output.write_text(f"{rendered}\n", encoding="utf-8")
 
 
-def _trace_case(*, dataset_path: Path, case_id: str) -> dict[str, Any]:
+def _trace_case(
+    *,
+    dataset_path: Path,
+    case_id: str,
+    requested_evidence_refs: tuple[str, ...] = (),
+) -> dict[str, Any]:
     cases = [case for case in _load_cases(dataset_path) if case.case_id == case_id]
     if len(cases) != 1:
         raise SystemExit(f"expected exactly one case for {case_id!r}, found {len(cases)}")
     case = cases[0]
+    trace_refs = _bounded_unique_refs(requested_evidence_refs or case_evidence_refs(case))
     token = "test-token"
     dataset_hash = _dataset_hash(dataset_path)
     scope_slug = f"public-benchmark-{dataset_hash[:16]}"
@@ -88,6 +200,11 @@ def _trace_case(*, dataset_path: Path, case_id: str) -> dict[str, Any]:
             )
         )
         with TestClient(app) as test_client:
+            packer_tracer = _PackingBoundaryTracer(
+                app.state.container.build_context._packer,
+                requested_refs=trace_refs,
+            )
+            app.state.container.build_context._packer = packer_tracer
             adapter = TestClientBenchmarkAdapter(test_client)
             result = _run_case(
                 adapter=adapter,
@@ -145,12 +262,14 @@ def _trace_case(*, dataset_path: Path, case_id: str) -> dict[str, Any]:
         "case_id": case.case_id,
         "capability": _case_capability(case),
         "question": case.question,
+        "requested_packing_evidence_refs": list(trace_refs),
         "evidence_refs": list(result.evidence_refs),
         "covered_evidence_refs": list(result.covered_evidence_refs),
         "missing_evidence_refs": list(result.missing_evidence_refs),
         "source_trace": source_trace,
         "keyword_trace": keyword_trace,
         "core_context": core_context,
+        "ranking_to_packing": packer_tracer.capture,
         "pre_pack": _pre_pack_summary(context_data.get("diagnostics", {})),
         "selected_items": _selected_items(context_data),
         "rendered_contains": {
