@@ -14,6 +14,10 @@ from infinity_context_core.application.context_action_subject_policy import (
 from infinity_context_core.application.context_identity_terms import (
     singularize_identity_term,
 )
+from infinity_context_core.application.context_property_interaction_evidence import (
+    PROPERTY_ENTITY_TERMS,
+    project_property_interaction_event,
+)
 
 _MAX_QUERY_CHARS = 512
 _MAX_EVIDENCE_CHARS = 12_000
@@ -306,12 +310,8 @@ _ENTITY_OBJECT_TERMS = {
             "table",
         }
     ),
-    "kit": frozenset(
-        {"bomber", "camaro", "diorama", "kit", "model", "spitfire", "tank"}
-    ),
-    "property": frozenset(
-        {"apartment", "bungalow", "condo", "home", "house", "property", "townhouse"}
-    ),
+    "kit": frozenset({"bomber", "camaro", "diorama", "kit", "model", "spitfire", "tank"}),
+    "property": PROPERTY_ENTITY_TERMS,
     "tank": frozenset({"aquarium", "tank"}),
     "wedding": frozenset({"marriage", "wedding"}),
 }
@@ -374,6 +374,7 @@ class DistinctSetEvidenceProjection:
     rendered_text: str = ""
     temporal_rejection_count: int = 0
     subject_rejection_count: int = 0
+    interaction_event_count: int = 0
 
     @property
     def present(self) -> bool:
@@ -462,6 +463,7 @@ def project_distinct_set_evidence(*, query: str, text: str) -> DistinctSetEviden
     seen_identities: set[str] = set()
     temporal_rejection_count = 0
     subject_rejection_count = 0
+    interaction_event_count = 0
     for sentence in _user_assertion_sentences(text):
         normalized_sentence = " ".join(sentence.split())
         if not normalized_sentence:
@@ -474,16 +476,34 @@ def project_distinct_set_evidence(*, query: str, text: str) -> DistinctSetEviden
             if not normalized_clause or normalized_clause.casefold() in seen_sentences:
                 continue
             clause_actions = set(_action_terms(normalized_clause))
-            inherited_grounding = clause_index > 0 and len(clauses) > 1
-            evidence_actions = clause_actions | (
-                sentence_actions if inherited_grounding else set()
+            interaction_event = project_property_interaction_event(
+                sentence=normalized_clause,
+                target_terms=request.target_terms,
+                requested_action_terms=request.action_terms,
+                subject_is_first_person=request.subject_is_first_person,
+                subject_terms=request.subject_terms,
             )
-            if not _request_action_supported(request, evidence_actions):
+            inherited_grounding = clause_index > 0 and len(clauses) > 1
+            evidence_actions = clause_actions | (sentence_actions if inherited_grounding else set())
+            if not _request_action_supported(request, evidence_actions) and not (
+                interaction_event.present
+            ):
+                subject_rejection_count += int(interaction_event.subject_conflict)
                 continue
-            clause_identities = _member_identities(request, normalized_clause)
+            if interaction_event.present:
+                clause_identities = (
+                    *interaction_event.completed_identities,
+                    *interaction_event.identities,
+                )
+            elif interaction_event.viewing_conflict:
+                clause_identities = interaction_event.completed_identities
+            else:
+                clause_identities = _member_identities(request, normalized_clause)
             if not clause_identities:
                 continue
-            subject_grounded = _subject_grounded(request, normalized_clause)
+            subject_grounded = interaction_event.present or _subject_grounded(
+                request, normalized_clause
+            )
             if not subject_grounded and inherited_grounding and sentence_subject_grounded:
                 subject_grounded = not _clause_has_conflicting_subject(request, normalized_clause)
             if not subject_grounded:
@@ -494,6 +514,7 @@ def project_distinct_set_evidence(*, query: str, text: str) -> DistinctSetEviden
                 continue
             seen_sentences.add(normalized_clause.casefold())
             evidence_sentences.append(normalized_clause)
+            interaction_event_count += interaction_event.matched_event_count
             for identity in clause_identities:
                 if identity in seen_identities:
                     continue
@@ -506,14 +527,16 @@ def project_distinct_set_evidence(*, query: str, text: str) -> DistinctSetEviden
                 or len(identities) >= _MAX_MEMBER_IDENTITIES
             ):
                 break
-        if len(evidence_sentences) >= _MAX_EVIDENCE_SENTENCES or len(
-            identities
-        ) >= _MAX_MEMBER_IDENTITIES:
+        if (
+            len(evidence_sentences) >= _MAX_EVIDENCE_SENTENCES
+            or len(identities) >= _MAX_MEMBER_IDENTITIES
+        ):
             break
     if not identities:
         return DistinctSetEvidenceProjection(
             temporal_rejection_count=temporal_rejection_count,
             subject_rejection_count=subject_rejection_count,
+            interaction_event_count=interaction_event_count,
         )
     member_ids = tuple(_opaque_member_id(identity) for identity in identities)
     rendered_text = _render_projection(text=text, evidence_sentences=evidence_sentences)
@@ -524,6 +547,7 @@ def project_distinct_set_evidence(*, query: str, text: str) -> DistinctSetEviden
         rendered_text=rendered_text,
         temporal_rejection_count=temporal_rejection_count,
         subject_rejection_count=subject_rejection_count,
+        interaction_event_count=interaction_event_count,
     )
 
 
@@ -567,9 +591,7 @@ def _sentence_within_request_bounds(request: DistinctSetRequest, sentence: str) 
         _MONTHS[int(match.group("month")) - 1] for match in _NUMERIC_DATE_RE.finditer(sentence)
     }
     return not (
-        request.month_terms
-        and numeric_months
-        and numeric_months.isdisjoint(request.month_terms)
+        request.month_terms and numeric_months and numeric_months.isdisjoint(request.month_terms)
     )
 
 
@@ -620,9 +642,7 @@ def _provider_member_identities(
     values: list[str] = []
     for match in _PROPER_NAME_RE.finditer(sentence):
         surface = match.group(0)
-        terms = tuple(
-            token.casefold().strip(".'/-") for token in _TOKEN_RE.findall(surface)
-        )
+        terms = tuple(token.casefold().strip(".'/-") for token in _TOKEN_RE.findall(surface))
         if not terms or any(term in _MONTHS for term in terms):
             continue
         while terms and terms[0] in _PROVIDER_NAME_STOPWORDS:
@@ -666,10 +686,14 @@ def _provider_name_grounded(
     has_implicit_provider_relation = (
         _IMPLICIT_PROVIDER_RELATION_CUE_RE.search(local_before) is not None
     )
-    return has_relation_cue and (has_target_cue or has_implicit_provider_relation) and (
-        _request_action_supported(request, set(_action_terms(relation)))
-        or "called" in local_before.casefold()
-        or "like" in local_before.casefold()
+    return (
+        has_relation_cue
+        and (has_target_cue or has_implicit_provider_relation)
+        and (
+            _request_action_supported(request, set(_action_terms(relation)))
+            or "called" in local_before.casefold()
+            or "like" in local_before.casefold()
+        )
     )
 
 
@@ -716,18 +740,15 @@ def _action_object_identities(
     )
     values: list[str] = []
     if {"gallery", "museum"}.intersection(request.target_terms):
-        values.extend(
-            match.group("venue") for match in _VISITED_NAMED_VENUE_RE.finditer(sentence)
-        )
+        values.extend(match.group("venue") for match in _VISITED_NAMED_VENUE_RE.finditer(sentence))
         if values:
             return tuple(values)
     for match in _ACTION_OBJECT_RE.finditer(sentence):
         value = match.group("object")
         terms = _normalized_terms(value, excluded=frozenset())
-        named_venue = (
-            {"gallery", "museum"}.intersection(request.target_terms)
-            and re.match(r"^(?:an?\s+|the\s+)?[A-Z]", value) is not None
-        )
+        named_venue = {"gallery", "museum"}.intersection(request.target_terms) and re.match(
+            r"^(?:an?\s+|the\s+)?[A-Z]", value
+        ) is not None
         if aliases.intersection(terms) or named_venue:
             values.append(value)
         elif (
@@ -884,19 +905,14 @@ def _evidence_clauses(
     sentence: str,
 ) -> tuple[str, ...]:
     clauses = tuple(
-        clause.strip()
-        for clause in _TEMPORAL_CLAUSE_BOUNDARY_RE.split(sentence)
-        if clause.strip()
+        clause.strip() for clause in _TEMPORAL_CLAUSE_BOUNDARY_RE.split(sentence) if clause.strip()
     )
     temporal_markers = len(tuple(_TEMPORAL_MARKER_RE.finditer(sentence)))
     named_subject_clauses = sum(
-        _subject_grounded(request, clause)
-        or _clause_has_conflicting_subject(request, clause)
+        _subject_grounded(request, clause) or _clause_has_conflicting_subject(request, clause)
         for clause in clauses
     )
-    if temporal_markers < 2 and (
-        request.subject_is_first_person or named_subject_clauses < 2
-    ):
+    if temporal_markers < 2 and (request.subject_is_first_person or named_subject_clauses < 2):
         return (sentence,)
     return clauses or (sentence,)
 

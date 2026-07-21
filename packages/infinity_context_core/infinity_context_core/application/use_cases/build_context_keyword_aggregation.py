@@ -172,6 +172,7 @@ class _KeywordAggregationCandidate:
     numeric_corroboration: bool
     member_ids: tuple[str, ...]
     member_evidence_text: str
+    interaction_event_support: bool
     obligation_evidence: _ObligationEvidenceProjection
 
 
@@ -769,6 +770,7 @@ def _keyword_aggregation_chunk_items(
                 numeric_corroboration=numeric_corroboration,
                 member_ids=member_evidence.member_ids,
                 member_evidence_text=member_evidence.rendered_text,
+                interaction_event_support=member_evidence.interaction_event_count > 0,
                 obligation_evidence=obligation_evidence,
             )
         )
@@ -848,6 +850,7 @@ def _keyword_aggregation_chunk_items(
             numeric_corroboration=candidate.numeric_corroboration,
             continuity_only=continuity_only,
             distinct_member_support=candidate_id in selection.member_reserved_ids,
+            interaction_event_support=candidate.interaction_event_support,
         )
         if candidate_id in selection.member_reserved_ids:
             item = _with_duplicate_member_source_refs(
