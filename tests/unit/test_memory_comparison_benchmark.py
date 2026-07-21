@@ -17846,7 +17846,10 @@ def test_codex_cli_llm_adapters_use_safe_exec_args_and_parse_fake_runner() -> No
         assert "--skip-git-repo-check" in args
         assert "read-only" in args
         assert 'approval_policy="never"' in args
-        if "memory benchmark answerer" in prompt:
+        answerer_contract = "Return the final answer text only."
+        judge_contract = "Return JSON only with keys verdict, score, and reason."
+        assert (answerer_contract in prompt) != (judge_contract in prompt)
+        if answerer_contract in prompt:
             return "It is in the blue notebook."
         return '```json\n{"verdict":"correct","score":1,"reason":"Supported."}\n```'
 
