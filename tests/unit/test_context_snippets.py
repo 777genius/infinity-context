@@ -30,6 +30,97 @@ def test_query_focused_snippet_selects_window_around_query_terms() -> None:
     assert len(snippet.text) < len(text)
 
 
+def test_query_focused_snippet_prefers_direct_user_assertion_over_conflicting_paraphrase() -> None:
+    text = (
+        "Record user: I configured my export batch to contain 12 records per run. "
+        "assistant: 20 records per run gives you more room for retries."
+    )
+    assistant_start = text.index("assistant:")
+
+    snippet = query_focused_snippet(
+        query="How many records are in my export batch?",
+        text=text,
+    )
+
+    assert snippet is not None
+    assert "12 records per run" in snippet.text
+    assert "20 records per run" not in snippet.text
+    assert snippet.char_end == assistant_start
+    assert text[snippet.char_start : snippet.char_end].strip() in snippet.text
+
+
+def test_query_focused_snippet_keeps_non_conflicting_assistant_elaboration() -> None:
+    text = (
+        "Record user: I configured my export batch to contain 12 records per run. "
+        "assistant: Twelve records per run leaves useful room for retries."
+    )
+
+    snippet = query_focused_snippet(
+        query="How many records are in my export batch?",
+        text=text,
+    )
+
+    assert snippet is not None
+    assert "12 records per run" in snippet.text
+    assert "Twelve records per run leaves useful room for retries" in snippet.text
+
+
+def test_query_focused_snippet_does_not_infer_roles_from_unlabeled_text() -> None:
+    text = (
+        "The configuration notes that my export batch contains 12 records per run. "
+        "A later summary says 20 records per run."
+    )
+
+    snippet = query_focused_snippet(
+        query="How many records are in my export batch?",
+        text=text,
+    )
+
+    assert snippet is not None
+    assert "12 records per run" in snippet.text
+    assert "20 records per run" in snippet.text
+
+
+def test_role_aware_snippet_preserves_source_provenance_and_projected_char_range() -> None:
+    text = (
+        "Record user: I configured my export batch to contain 12 records per run. "
+        "assistant: 20 records per run gives you more room for retries."
+    )
+    source_ref = SourceRef(
+        source_type="conversation",
+        source_id="thread-7",
+        chunk_id="turn-pair-3",
+        time_start_ms=400,
+        time_end_ms=800,
+    )
+    assistant_ref = SourceRef(
+        source_type="conversation_message",
+        source_id="thread-7-message-2",
+        chunk_id="turn-pair-3",
+        quote_preview="20 records per run gives you more room for retries.",
+    )
+    snippet = query_focused_snippet(
+        query="How many records are in my export batch?",
+        text=text,
+    )
+
+    enriched = source_refs_with_query_snippet(
+        (source_ref, assistant_ref),
+        snippet,
+        include_char_range=True,
+    )
+
+    assert snippet is not None
+    assert enriched[0].source_type == source_ref.source_type
+    assert enriched[0].source_id == source_ref.source_id
+    assert enriched[0].chunk_id == source_ref.chunk_id
+    assert enriched[0].time_start_ms == source_ref.time_start_ms
+    assert enriched[0].time_end_ms == source_ref.time_end_ms
+    assert enriched[0].char_start == snippet.char_start
+    assert enriched[0].char_end == text.index("assistant:")
+    assert enriched[1] == assistant_ref
+
+
 def test_query_focused_snippet_preserves_nearby_line_evidence_prefix() -> None:
     text = (
         "LoCoMo conv-26 session_4\n\n"

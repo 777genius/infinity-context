@@ -5,6 +5,9 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass, replace
 
+from infinity_context_core.application.context_dialogue_authority import (
+    prefer_direct_user_assertion,
+)
 from infinity_context_core.application.context_lexical import (
     LexicalQueryTerm,
     matching_token_spans,
@@ -89,6 +92,14 @@ def query_focused_snippet(
     end = _right_word_boundary(text, end)
     if structured_context_start:
         end = _right_structured_line_boundary(text=text, start=start, end=end)
+    evidence_range = prefer_direct_user_assertion(
+        query=query,
+        text=text,
+        char_start=start,
+        char_end=end,
+    )
+    start, end = evidence_range.char_start, evidence_range.char_end
+    matched_terms = _window_terms(hits=hits, start=start, end=end)
     snippet = _render_snippet(text=text, start=start, end=end, max_chars=max_chars)
     if structured_line and start != line_start:
         snippet = _prepend_structured_evidence_prefix(
