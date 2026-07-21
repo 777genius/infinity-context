@@ -2,80 +2,51 @@
 
 from __future__ import annotations
 
-from collections.abc import Mapping
 from datetime import datetime
 from hashlib import sha256
 
 from infinity_context_core.application.context_lexical import (
+    LexicalQueryTerm,
+    query_term_frequency,
     query_terms,
     text_variant_counts,
 )
-from sqlalchemy import func, or_
+from sqlalchemy import case, func, or_
 
 from infinity_context_adapters.postgres.models import MemorySourceRefRow
 
 _MAX_QUERY_TERMS = 24
 
 
-def _terms(query: str) -> tuple[str, ...]:
-    terms: list[str] = []
-    seen: set[str] = set()
+def _terms(query: str) -> tuple[LexicalQueryTerm, ...]:
+    terms: list[LexicalQueryTerm] = []
     for term in query_terms(query, max_terms=_MAX_QUERY_TERMS):
-        for variant in term.variants:
-            if len(variant) < 3 or variant in seen:
-                continue
-            terms.append(variant)
-            seen.add(variant)
+        variants = tuple(dict.fromkeys(variant for variant in term.variants if len(variant) >= 3))
+        if variants:
+            terms.append(LexicalQueryTerm(raw=term.raw, variants=variants))
     return tuple(terms)
 
 
-def _score(text: str, terms: tuple[str, ...]) -> int:
-    unique_terms = tuple(dict.fromkeys(terms))
+def _score(text: str, terms: tuple[LexicalQueryTerm, ...]) -> int:
     counts = text_variant_counts(text)
-    frequencies = tuple(
-        counts.get(term, 0) or _approximate_term_frequency(term, counts)
-        for term in unique_terms
-    )
-    unique_hits = sum(1 for frequency in frequencies if frequency > 0)
+    unique_hits = sum(1 for term in terms if query_term_frequency(term, counts) > 0)
     if unique_hits == 0:
         return 0
     density_penalty = len(text) // 800
     return unique_hits * 1000 - density_penalty
 
 
-def _approximate_term_frequency(term: str, counts: Mapping[str, int]) -> int:
-    if len(term) < 6:
-        return 0
-    for candidate, frequency in counts.items():
-        if len(candidate) < 6 or abs(len(candidate) - len(term)) > 1:
-            continue
-        if _edit_distance_at_most_one(term, candidate):
-            return frequency
-    return 0
+def _grouped_sql_matches(column, terms: tuple[LexicalQueryTerm, ...]):
+    """Return one SQL predicate per raw term, with aliases ORed inside it."""
+    return tuple(
+        or_(*(column.contains(variant) for variant in term.variants))
+        for term in terms
+    )
 
 
-def _edit_distance_at_most_one(left: str, right: str) -> bool:
-    if left == right:
-        return True
-    if abs(len(left) - len(right)) > 1:
-        return False
-    if len(left) > len(right):
-        left, right = right, left
-    mismatch_count = 0
-    left_index = 0
-    right_index = 0
-    while left_index < len(left) and right_index < len(right):
-        if left[left_index] == right[right_index]:
-            left_index += 1
-            right_index += 1
-            continue
-        mismatch_count += 1
-        if mismatch_count > 1:
-            return False
-        if len(left) == len(right):
-            left_index += 1
-        right_index += 1
-    return True
+def _grouped_sql_score(term_matches):
+    """Count matched raw-term groups without counting their aliases separately."""
+    return sum(case((match, 1), else_=0) for match in term_matches)
 
 
 def _retrieval_candidate_limit(limit: int) -> int:

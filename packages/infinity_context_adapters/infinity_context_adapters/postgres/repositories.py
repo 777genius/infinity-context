@@ -59,6 +59,8 @@ from infinity_context_adapters.postgres.models import (
 )
 from infinity_context_adapters.postgres.repository_helpers import (
     _escape_like,
+    _grouped_sql_matches,
+    _grouped_sql_score,
     _retrieval_candidate_limit,
     _score,
     _terms,
@@ -507,14 +509,11 @@ class PostgresChunkRepository(ChunkRepositoryPort):
             )
         statement = select(MemoryChunkRow).where(*conditions)
         if terms:
-            unique_terms = tuple(dict.fromkeys(terms))
-            term_matches = tuple(
-                MemoryChunkRow.normalized_text.contains(term) for term in unique_terms
+            term_matches = _grouped_sql_matches(
+                MemoryChunkRow.normalized_text,
+                terms,
             )
-            lexical_score = sum(
-                case((match, 1), else_=0)
-                for match in term_matches
-            )
+            lexical_score = _grouped_sql_score(term_matches)
             statement = statement.where(or_(*term_matches)).order_by(
                 lexical_score.desc(),
                 MemoryChunkRow.sequence.asc(),
