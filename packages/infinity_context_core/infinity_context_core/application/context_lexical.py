@@ -12,6 +12,10 @@ from infinity_context_core.application.anchor_identity_normalization import (
     normalize_cyrillic_person_case,
     normalize_cyrillic_project_case,
 )
+from infinity_context_core.application.context_retrieval_performance import (
+    cached_text_variant_profile,
+    remember_text_variant_profile,
+)
 
 _TERM_RE = re.compile(r"\w+", re.UNICODE)
 _ISO_DATE_RE = re.compile(
@@ -461,6 +465,10 @@ def text_variant_profile(
     *,
     min_chars: int = 2,
 ) -> tuple[Counter[str], tuple[tuple[str, ...], ...]]:
+    cached = cached_text_variant_profile(text, min_chars=min_chars)
+    if cached is not None:
+        count_items, sequence = cached
+        return Counter(dict(count_items)), sequence
     counts: Counter[str] = Counter()
     sequence: list[tuple[str, ...]] = []
     for token in _tokens(text, split_underscores=True):
@@ -472,7 +480,13 @@ def text_variant_profile(
         sequence.append(variants)
         for variant in variants:
             counts[variant] += 1
-    return counts, tuple(sequence)
+    frozen_sequence = tuple(sequence)
+    remember_text_variant_profile(
+        text,
+        min_chars=min_chars,
+        profile=(tuple(counts.items()), frozen_sequence),
+    )
+    return counts, frozen_sequence
 
 
 def text_variant_stats(text: str, *, min_chars: int = 2) -> tuple[Counter[str], int]:

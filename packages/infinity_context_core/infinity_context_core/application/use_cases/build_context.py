@@ -77,6 +77,9 @@ from infinity_context_core.application.context_requirement_coverage import (
 from infinity_context_core.application.context_requirement_guard import (
     _apply_explicit_requirement_guard,
 )
+from infinity_context_core.application.context_retrieval_performance import (
+    with_request_retrieval_performance_cache,
+)
 from infinity_context_core.application.context_source_sibling_answer_evidence_repair import (
     _pre_pack_candidate_source_ref_diagnostics,
     _restore_exact_source_sibling_answer_evidence_items,
@@ -197,6 +200,7 @@ class BuildContextUseCase:
             blob_storage=blob_storage,
         )
 
+    @with_request_retrieval_performance_cache
     async def execute(self, query: BuildContextQuery) -> ContextBundle:
         request_started_at = perf_counter()
         memory_scope_ids = tuple(str(memory_scope_id) for memory_scope_id in query.memory_scope_ids)
