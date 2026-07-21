@@ -12,9 +12,9 @@ from infinity_context_core.application.context_aggregation_answer_slots import (
 from infinity_context_core.application.context_aggregation_subject import (
     aggregation_subject_grounding,
 )
-from infinity_context_core.application.context_diagnostics import (
-    safe_diagnostic_mapping,
-    safe_score_signals,
+from infinity_context_core.application.context_internal_diagnostics import (
+    diagnostic_mapping,
+    diagnostic_text,
 )
 from infinity_context_core.application.context_item_purchase_evidence import (
     has_item_purchase_object_evidence,
@@ -26,6 +26,9 @@ from infinity_context_core.application.context_relative_duration_evidence import
     has_relative_duration_event_evidence,
 )
 from infinity_context_core.application.context_relevance import QueryRelevance
+from infinity_context_core.application.context_score_signal_rerank import (
+    score_signal_reason as _score_signal_reason,
+)
 from infinity_context_core.application.context_travel_place_evidence import (
     has_travel_place_inventory_evidence,
 )
@@ -2311,12 +2314,6 @@ def _matches_query_or_score_signal_reason(
     return query_reason == target_reason or _score_signal_reason(item) == target_reason
 
 
-def _score_signal_reason(item: ContextItem) -> str:
-    diagnostics = safe_diagnostic_mapping(item.diagnostics)
-    signals = safe_score_signals(diagnostics.get("score_signals"))
-    return str(signals.get("query_expansion_reason") or "").strip()
-
-
 def _is_aggregation_query(query: str) -> bool:
     return bool(
         _AGGREGATION_COUNT_QUERY_RE.search(query)
@@ -2357,8 +2354,8 @@ def _has_aggregation_subject_mismatch(
 
 
 def _is_aggregation_context_item(item: ContextItem) -> bool:
-    diagnostics = safe_diagnostic_mapping(item.diagnostics)
-    retrieval_source = str(diagnostics.get("retrieval_source") or "").strip()
+    diagnostics = diagnostic_mapping(item.diagnostics)
+    retrieval_source = diagnostic_text(diagnostics, "retrieval_source")
     if retrieval_source == _AGGREGATION_RETRIEVAL_SOURCE:
         return True
     sources = diagnostics.get("retrieval_sources")

@@ -53,6 +53,12 @@ from infinity_context_core.application.context_domain_rerank_signals import (
 from infinity_context_core.application.context_inference_evidence import (
     answer_evidence_rerank_signal,
 )
+from infinity_context_core.application.context_internal_diagnostics import (
+    diagnostic_mapping,
+    item_diagnostic_source_id,
+    nested_diagnostic_mapping,
+    provenance_flag_is_true,
+)
 from infinity_context_core.application.context_item_purchase_evidence import (
     has_item_purchase_object_evidence,
 )
@@ -3113,8 +3119,8 @@ def _query_relevance_from_item_diagnostics(
     plan: QueryExpansionPlan,
     item: ContextItem,
 ) -> tuple[str, str, QueryRelevance] | None:
-    diagnostics = safe_diagnostic_mapping(item.diagnostics)
-    signals = safe_score_signals(diagnostics.get("score_signals"))
+    diagnostics = diagnostic_mapping(item.diagnostics)
+    signals = nested_diagnostic_mapping(diagnostics, "score_signals")
     reason_value = signals.get("query_expansion_reason") or diagnostics.get(
         "query_expansion_reason"
     )
@@ -3231,8 +3237,8 @@ def _temporal_query_signal_already_applied(item: ContextItem) -> bool:
 
 
 def _item_temporal_hint_code(item: ContextItem) -> str:
-    diagnostics = normalize_context_diagnostics(item.diagnostics)
-    provenance = safe_diagnostic_mapping(diagnostics.get("provenance"))
+    diagnostics = diagnostic_mapping(item.diagnostics)
+    provenance = nested_diagnostic_mapping(diagnostics, "provenance")
     return temporal_hint_code_from_metadata(diagnostics, provenance)
 
 
@@ -3407,17 +3413,14 @@ def _matches_query_or_score_signal_reason(
 ) -> bool:
     if query_reason == target_reason:
         return True
-    diagnostics = safe_diagnostic_mapping(item.diagnostics)
-    signals = safe_score_signals(diagnostics.get("score_signals"))
-    return str(signals.get("query_expansion_reason") or "") == target_reason
+    signals = nested_diagnostic_mapping(
+        diagnostic_mapping(item.diagnostics), "score_signals"
+    )
+    return signals.get("query_expansion_reason") == target_reason
 
 
 def _item_source_is_turn(item: ContextItem) -> bool:
-    diagnostics = safe_diagnostic_mapping(item.diagnostics)
-    source_id = str(diagnostics.get("source_id") or "").strip()
-    if not source_id:
-        provenance = safe_diagnostic_mapping(diagnostics.get("provenance"))
-        source_id = str(provenance.get("source_id") or "").strip()
+    source_id = item_diagnostic_source_id(item)
     if source_id:
         return source_id.casefold().endswith(":turn")
     return any(_source_ref_is_turn(ref) for ref in item.source_refs)
@@ -3670,10 +3673,5 @@ def _provenance_flag_is_true(
     *,
     normalized: bool = False,
 ) -> bool:
-    diagnostics = (
-        safe_diagnostic_mapping(diagnostics)
-        if normalized
-        else normalize_context_diagnostics(diagnostics)
-    )
-    provenance = safe_diagnostic_mapping(diagnostics.get("provenance"))
-    return provenance.get(flag) is True
+    del normalized
+    return provenance_flag_is_true(diagnostics, flag)

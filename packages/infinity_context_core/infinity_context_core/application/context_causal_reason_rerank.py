@@ -4,9 +4,9 @@ from __future__ import annotations
 
 import re
 
-from infinity_context_core.application.context_diagnostics import safe_score_signals
 from infinity_context_core.application.context_domain_rerank_signals import DomainRerankSignal
 from infinity_context_core.application.context_relevance import QueryRelevance
+from infinity_context_core.application.context_score_signal_rerank import score_signal_reason
 from infinity_context_core.application.dto import ContextItem
 
 _CAUSAL_REASON_RERANK_REASONS = frozenset(
@@ -131,8 +131,7 @@ def _causal_reason_exact_evidence(text: str) -> bool:
 
 
 def _score_signal_reason(item: ContextItem) -> str:
-    signals = safe_score_signals(item.diagnostics)
-    return str(signals.get("query_expansion_reason") or "")
+    return score_signal_reason(item)
 
 
 def yoga_delay_gaming_answer_rank(text: str) -> int:

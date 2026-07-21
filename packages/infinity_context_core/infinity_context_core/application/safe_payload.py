@@ -2,6 +2,10 @@
 
 from __future__ import annotations
 
+from infinity_context_core.application.context_retrieval_performance import (
+    cached_safe_metadata_text,
+    remember_safe_metadata_text,
+)
 from infinity_context_core.application.sensitive_text import redact_sensitive_text
 
 _MAX_METADATA_DEPTH = 4
@@ -21,7 +25,11 @@ def safe_metadata(
 
 
 def safe_metadata_text(text: str, *, limit: int = 500) -> str:
-    return redact_sensitive_text(text)[:limit]
+    safe_text = cached_safe_metadata_text(text)
+    if safe_text is None:
+        safe_text = redact_sensitive_text(text)
+        remember_safe_metadata_text(text, safe_text)
+    return safe_text[:limit]
 
 
 def _safe_metadata_value(value: object, *, depth: int, max_items: int) -> object:

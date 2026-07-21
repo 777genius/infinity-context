@@ -2,17 +2,14 @@
 
 from __future__ import annotations
 
-from infinity_context_core.application.context_diagnostics import (
-    safe_diagnostic_mapping,
-    safe_score_signals,
+from infinity_context_core.application.context_internal_diagnostics import (
+    item_score_signal_reason,
 )
 from infinity_context_core.application.dto import ContextItem
 
 
 def score_signal_reason(item: ContextItem) -> str:
-    diagnostics = safe_diagnostic_mapping(item.diagnostics)
-    signals = safe_score_signals(diagnostics.get("score_signals"))
-    return str(signals.get("query_expansion_reason") or "").strip()
+    return item_score_signal_reason(item)
 
 
 def matches_query_or_score_signal_reason(

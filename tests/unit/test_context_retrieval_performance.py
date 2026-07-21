@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 
 import infinity_context_core.application.context_lexical as lexical_module
+import infinity_context_core.application.safe_payload as safe_payload_module
 import pytest
 from infinity_context_core.application.context_retrieval_performance import (
     with_request_retrieval_performance_cache,
@@ -122,3 +123,32 @@ def test_request_cache_skips_oversized_text_profiles(
     asyncio.run(exercise())
 
     assert call_count == 2
+
+
+def test_request_cache_redacts_each_unique_diagnostic_text_once(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    calls: list[str] = []
+    real_redact_sensitive_text = safe_payload_module.redact_sensitive_text
+
+    def counting_redact_sensitive_text(text: str) -> str:
+        calls.append(text)
+        return real_redact_sensitive_text(text)
+
+    monkeypatch.setattr(
+        safe_payload_module,
+        "redact_sensitive_text",
+        counting_redact_sensitive_text,
+    )
+
+    @with_request_retrieval_performance_cache
+    async def exercise() -> None:
+        first = safe_payload_module.safe_metadata_text("token=private-value", limit=80)
+        second = safe_payload_module.safe_metadata_text("token=private-value", limit=8)
+
+        assert "private-value" not in first
+        assert second == first[:8]
+
+    asyncio.run(exercise())
+
+    assert calls == ["token=private-value"]

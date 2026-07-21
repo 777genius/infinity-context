@@ -28,11 +28,13 @@ _R = TypeVar("_R")
 
 
 @dataclass
-class _RequestTextProfileCache:
+class _RequestRetrievalCache:
     profiles: OrderedDict[_ProfileKey, TextVariantProfileSnapshot] = field(
         default_factory=OrderedDict
     )
     text_chars: int = 0
+    safe_texts: OrderedDict[str, str] = field(default_factory=OrderedDict)
+    safe_text_chars: int = 0
 
     def get(self, key: _ProfileKey) -> TextVariantProfileSnapshot | None:
         profile = self.profiles.get(key)
@@ -59,9 +61,31 @@ class _RequestTextProfileCache:
             evicted_key, _ = self.profiles.popitem(last=False)
             self.text_chars -= len(evicted_key[0])
 
+    def get_safe_text(self, text: str) -> str | None:
+        safe_text = self.safe_texts.get(text)
+        if safe_text is not None:
+            self.safe_texts.move_to_end(text)
+        return safe_text
 
-_REQUEST_TEXT_PROFILE_CACHE: ContextVar[_RequestTextProfileCache | None] = ContextVar(
-    "infinity_context_request_text_profile_cache",
+    def remember_safe_text(self, text: str, safe_text: str) -> None:
+        text_chars = len(text)
+        if text_chars > _MAX_SINGLE_PROFILE_TEXT_CHARS:
+            return
+        existing = self.safe_texts.pop(text, None)
+        if existing is not None:
+            self.safe_text_chars -= text_chars
+        self.safe_texts[text] = safe_text
+        self.safe_text_chars += text_chars
+        while (
+            len(self.safe_texts) > _MAX_PROFILE_ENTRIES
+            or self.safe_text_chars > _MAX_PROFILE_TEXT_CHARS
+        ):
+            evicted_text, _ = self.safe_texts.popitem(last=False)
+            self.safe_text_chars -= len(evicted_text)
+
+
+_REQUEST_RETRIEVAL_CACHE: ContextVar[_RequestRetrievalCache | None] = ContextVar(
+    "infinity_context_request_retrieval_cache",
     default=None,
 )
 
@@ -73,13 +97,13 @@ def with_request_retrieval_performance_cache(
 
     @wraps(function)
     async def wrapped(*args: _P.args, **kwargs: _P.kwargs) -> _R:
-        if _REQUEST_TEXT_PROFILE_CACHE.get() is not None:
+        if _REQUEST_RETRIEVAL_CACHE.get() is not None:
             return await function(*args, **kwargs)
-        token = _REQUEST_TEXT_PROFILE_CACHE.set(_RequestTextProfileCache())
+        token = _REQUEST_RETRIEVAL_CACHE.set(_RequestRetrievalCache())
         try:
             return await function(*args, **kwargs)
         finally:
-            _REQUEST_TEXT_PROFILE_CACHE.reset(token)
+            _REQUEST_RETRIEVAL_CACHE.reset(token)
 
     return cast(Callable[_P, Awaitable[_R]], wrapped)
 
@@ -91,7 +115,7 @@ def cached_text_variant_profile(
 ) -> TextVariantProfileSnapshot | None:
     """Return an immutable lexical profile snapshot for the current request."""
 
-    cache = _REQUEST_TEXT_PROFILE_CACHE.get()
+    cache = _REQUEST_RETRIEVAL_CACHE.get()
     return cache.get((text, min_chars)) if cache is not None else None
 
 
@@ -103,14 +127,27 @@ def remember_text_variant_profile(
 ) -> None:
     """Remember a pure lexical profile only for the current request."""
 
-    cache = _REQUEST_TEXT_PROFILE_CACHE.get()
+    cache = _REQUEST_RETRIEVAL_CACHE.get()
     if cache is not None:
         cache.remember((text, min_chars), profile)
 
 
+def cached_safe_metadata_text(text: str) -> str | None:
+    cache = _REQUEST_RETRIEVAL_CACHE.get()
+    return cache.get_safe_text(text) if cache is not None else None
+
+
+def remember_safe_metadata_text(text: str, safe_text: str) -> None:
+    cache = _REQUEST_RETRIEVAL_CACHE.get()
+    if cache is not None:
+        cache.remember_safe_text(text, safe_text)
+
+
 __all__ = (
     "TextVariantProfileSnapshot",
+    "cached_safe_metadata_text",
     "cached_text_variant_profile",
+    "remember_safe_metadata_text",
     "remember_text_variant_profile",
     "with_request_retrieval_performance_cache",
 )
