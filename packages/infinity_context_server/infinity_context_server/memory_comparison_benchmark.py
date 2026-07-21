@@ -89,6 +89,12 @@ from infinity_context_server.memory_comparison_benchmark_shared import (
     _safe_error_reason,
     _unique_backend_names,
 )
+from infinity_context_server.memory_comparison_case_identity import (
+    case_corpus_key as _case_corpus_key,
+)
+from infinity_context_server.memory_comparison_case_loader import (
+    load_memory_comparison_cases as _load_memory_comparison_cases,
+)
 from infinity_context_server.memory_comparison_llm import (
     EvidenceOnlyAnswerer,
     ExpectedTermsJudge,
@@ -98,10 +104,6 @@ from infinity_context_server.memory_comparison_locomo_cases import (
 )
 from infinity_context_server.memory_comparison_locomo_cases import (
     LOCOMO_INGEST_RICH_DOCUMENTS,
-    _case_corpus_key,
-)
-from infinity_context_server.memory_comparison_locomo_cases import (
-    _load_memory_comparison_cases as _load_memory_comparison_cases,
 )
 from infinity_context_server.memory_comparison_models import (
     BackendIngestResult,
@@ -164,7 +166,6 @@ __all__ = [
     "run_memory_comparison_benchmark",
     "run_memory_comparison_replay",
 ]
-
 
 def _compact_fast_gate_summary(items: Sequence[Mapping[str, object]]) -> dict[str, object]:
     previous = _compact_fast_gate_module._fast_gate_metrics

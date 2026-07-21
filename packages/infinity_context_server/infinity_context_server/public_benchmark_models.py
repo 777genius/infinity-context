@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Any, Protocol
+from typing import TYPE_CHECKING, Any, Literal, Protocol
 
 if TYPE_CHECKING:
     import httpx
@@ -51,6 +51,32 @@ class BenchmarkDocumentInput:
     source_refs: tuple[Mapping[str, object], ...] = ()
 
 
+BenchmarkMessageRole = Literal["user", "assistant", "system"]
+
+
+@dataclass(frozen=True)
+class BenchmarkMessageInput:
+    """Provider-neutral message accepted by a benchmark ingestion adapter."""
+
+    role: BenchmarkMessageRole
+    content: str
+    source_external_id: str | None = None
+    timestamp: int | None = None
+    metadata: Mapping[str, object] = field(default_factory=dict)
+
+
+@dataclass(frozen=True)
+class BenchmarkConversationInput:
+    """Ordered messages that must be submitted as one ingestion operation."""
+
+    messages: tuple[BenchmarkMessageInput, ...]
+    source_external_id: str | None = None
+    session_external_id: str | None = None
+    session_date: str | None = None
+    timestamp: int | None = None
+    metadata: Mapping[str, object] = field(default_factory=dict)
+
+
 @dataclass(frozen=True)
 class PublicBenchmarkCase:
     benchmark: str
@@ -63,6 +89,7 @@ class PublicBenchmarkCase:
     memory_scope_external_ref: str | None = None
     thread_external_ref: str | None = None
     metadata: Mapping[str, object] = field(default_factory=dict)
+    conversations: tuple[BenchmarkConversationInput, ...] = ()
 
 
 class TestClientBenchmarkAdapter:

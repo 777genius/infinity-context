@@ -2,10 +2,8 @@
 
 from __future__ import annotations
 
-import json
 from collections.abc import Mapping, Sequence
 from datetime import UTC, datetime
-from hashlib import sha256
 from pathlib import Path
 
 from infinity_context_server.public_benchmark import (
@@ -15,8 +13,6 @@ from infinity_context_server.public_benchmark import (
     _first_str,
     _is_official_locomo_sample,
     _is_session_key,
-    _load_cases,
-    _load_dataset_payload,
     _official_locomo_evidence_lookup,
     _official_locomo_evidence_previews,
     _official_locomo_evidence_terms,
@@ -27,7 +23,6 @@ from infinity_context_server.public_benchmark import (
 )
 from infinity_context_server.public_benchmark_models import (
     BenchmarkMemoryInput,
-    BenchmarkValidationError,
     PublicBenchmarkCase,
 )
 
@@ -49,14 +44,16 @@ def _load_memory_comparison_cases(
     *,
     locomo_ingest_mode: str,
 ) -> tuple[PublicBenchmarkCase, ...]:
-    if locomo_ingest_mode == LOCOMO_INGEST_RICH_DOCUMENTS:
-        return _load_cases(dataset_path)
-    if locomo_ingest_mode != LOCOMO_INGEST_OFFICIAL_TURNS:
-        raise BenchmarkValidationError(f"Unsupported LoCoMo ingest mode: {locomo_ingest_mode}")
+    """Compatibility wrapper for the benchmark-neutral dataset loader."""
 
-    payload = _load_dataset_payload(dataset_path)
-    cases = _official_locomo_turn_cases_from_payload(payload)
-    return cases or _load_cases(dataset_path)
+    from infinity_context_server.memory_comparison_case_loader import (
+        load_memory_comparison_cases,
+    )
+
+    return load_memory_comparison_cases(
+        dataset_path,
+        locomo_ingest_mode=locomo_ingest_mode,
+    )
 
 
 def _official_locomo_turn_cases_from_payload(payload: object) -> tuple[PublicBenchmarkCase, ...]:
@@ -286,46 +283,6 @@ def _locomo_date_to_epoch(date_value: str) -> int | None:
             continue
         return int(parsed.replace(tzinfo=UTC).timestamp())
     return None
-
-
-def _case_corpus_key(case: PublicBenchmarkCase) -> str:
-    memory_scope = case.memory_scope_external_ref or case.case_id
-    thread = case.thread_external_ref or case.case_id
-    return f"{case.benchmark}:{memory_scope}:{thread}:{_case_corpus_fingerprint(case)}"
-
-
-def _case_corpus_fingerprint(case: PublicBenchmarkCase) -> str:
-    source_parts: list[dict[str, object]] = []
-    for index, memory in enumerate(case.memories):
-        source_parts.append(
-            {
-                "kind": "memory",
-                "index": index,
-                "memory_kind": memory.kind,
-                "source_external_id": memory.source_external_id,
-                "metadata": dict(memory.metadata),
-                "text": memory.text,
-            }
-        )
-    for index, document in enumerate(case.documents):
-        source_parts.append(
-            {
-                "kind": "document",
-                "index": index,
-                "title": document.title,
-                "source_type": document.source_type,
-                "classification": document.classification,
-                "source_external_id": document.source_external_id,
-                "text": document.text,
-            }
-        )
-    encoded = json.dumps(
-        source_parts,
-        ensure_ascii=False,
-        separators=(",", ":"),
-        sort_keys=True,
-    )
-    return sha256(encoded.encode("utf-8")).hexdigest()[:16]
 
 
 def _case_group(case: PublicBenchmarkCase) -> str:

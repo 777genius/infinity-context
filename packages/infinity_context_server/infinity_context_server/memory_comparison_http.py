@@ -11,6 +11,14 @@ from infinity_context_core.application.sensitive_text import redact_sensitive_te
 from infinity_context_server.memory_comparison_candidate_fusion import (
     fuse_query_results,
 )
+from infinity_context_server.memory_comparison_conversation_ingestion import (
+    conversation_documents,
+    conversation_message_payloads,
+    conversation_metadata,
+    safe_preview,
+    sanitize_source_refs,
+    source_ref_payload,
+)
 from infinity_context_server.memory_comparison_llm import approximate_token_count
 from infinity_context_server.memory_comparison_models import (
     BackendIngestResult,
@@ -78,20 +86,25 @@ class InfinityContextHttpComparisonBackend:
     ) -> BackendIngestResult:
         started = time.perf_counter()
         operations: list[IngestionOperation] = []
-        for index, memory in enumerate(case.memories, start=1):
-            operations.append(
-                self._post_fact(case, memory, run_id=run_id, step=index)
+        pair_documents = conversation_documents(case)
+        mirrored_documents: tuple[BenchmarkDocumentInput, ...] = ()
+        if case.conversations:
+            for index, document in enumerate(pair_documents, start=1):
+                operations.append(self._post_document(case, document, run_id=run_id, step=index))
+        else:
+            for index, memory in enumerate(case.memories, start=1):
+                operations.append(self._post_fact(case, memory, run_id=run_id, step=index))
+            mirrored_documents = (
+                _mirrored_memory_documents(case) if self._mirror_memories_as_documents else ()
             )
         offset = len(operations)
-        mirrored_documents = (
-            _mirrored_memory_documents(case) if self._mirror_memories_as_documents else ()
-        )
         for index, document in enumerate(mirrored_documents, start=1):
             operations.append(
                 self._post_document(case, document, run_id=run_id, step=offset + index)
             )
         offset = len(operations)
-        for index, document in enumerate(case.documents, start=1):
+        documents = () if case.conversations else case.documents
+        for index, document in enumerate(documents, start=1):
             operations.append(
                 self._post_document(case, document, run_id=run_id, step=offset + index)
             )
@@ -104,6 +117,7 @@ class InfinityContextHttpComparisonBackend:
             operations=tuple(operations),
             metadata={
                 "corpus_key": corpus_key,
+                "conversation_documents_created": len(pair_documents),
                 "mirrored_memory_documents_created": len(mirrored_documents),
                 "hybrid_raw_turn_documents_enabled": self._mirror_memories_as_documents,
             },
@@ -225,7 +239,7 @@ class InfinityContextHttpComparisonBackend:
                     _source_ref_payload(
                         source_type="memory_comparison_benchmark",
                         source_id=source_id,
-                        quote_preview=memory.text[:240],
+                        quote_preview=memory.text,
                     )
                 ],
             },
@@ -236,7 +250,7 @@ class InfinityContextHttpComparisonBackend:
             operation_type="fact",
             success=response.status_code < 400,
             latency_ms=_elapsed_ms(started),
-            memory=memory.text[:240],
+            memory=safe_preview(memory.text),
             item_id=source_id,
             metadata={
                 **_response_metadata(response),
@@ -268,7 +282,7 @@ class InfinityContextHttpComparisonBackend:
                 "source_type": document.source_type,
                 "source_external_id": source_id,
                 "classification": document.classification,
-                "source_refs": [dict(ref) for ref in document.source_refs],
+                "source_refs": sanitize_source_refs(document.source_refs),
             },
             headers={"Idempotency-Key": source_id},
         )
@@ -277,7 +291,7 @@ class InfinityContextHttpComparisonBackend:
             operation_type="document",
             success=response.status_code < 400,
             latency_ms=_elapsed_ms(started),
-            memory=document.text[:240],
+            memory=safe_preview(document.text),
             item_id=source_id,
             metadata=_response_metadata(response),
         )
@@ -349,9 +363,16 @@ class Mem0HttpComparisonBackend:
             }
             if self._send_timestamps and timestamp is not None:
                 payload["timestamp"] = timestamp
+            source_id = source_metadata.get("source_id")
+            headers = (
+                {"Idempotency-Key": str(source_id)}
+                if isinstance(source_id, str) and source_id
+                else None
+            )
             response = self._client.post(
                 "/memories",
                 json=payload,
+                headers=headers,
             )
             metadata = _response_metadata(response)
             created_count = (
@@ -367,6 +388,7 @@ class Mem0HttpComparisonBackend:
                     success=response.status_code < 400,
                     latency_ms=_elapsed_ms(op_started),
                     memory=_messages_preview(messages),
+                    item_id=str(source_id) if isinstance(source_id, str) else None,
                     metadata=metadata,
                 )
             )
@@ -540,11 +562,11 @@ def _source_ref_payload(
     source_id: str,
     quote_preview: str,
 ) -> dict[str, object]:
-    return {
-        "source_type": source_type,
-        "source_id": source_id,
-        "quote_preview": quote_preview,
-    }
+    return source_ref_payload(
+        source_type=source_type,
+        source_id=source_id,
+        quote_preview=quote_preview,
+    )
 
 
 def _source_temporal_metadata(metadata: Mapping[str, object]) -> dict[str, object]:
@@ -724,6 +746,19 @@ def _case_message_groups(
     case: PublicBenchmarkCase,
 ) -> tuple[tuple[tuple[dict[str, str], ...], int | None, dict[str, object]], ...]:
     groups: list[tuple[tuple[dict[str, str], ...], int | None, dict[str, object]]] = []
+    if case.conversations:
+        for index, conversation in enumerate(case.conversations, start=1):
+            messages = conversation_message_payloads(conversation)
+            if not messages:
+                continue
+            groups.append(
+                (
+                    messages,
+                    conversation.timestamp,
+                    conversation_metadata(case, conversation, index=index),
+                )
+            )
+        return tuple(groups)
     for memory in case.memories:
         groups.append(
             (
@@ -763,7 +798,8 @@ def _optional_int(value: object) -> int | None:
 
 
 def _messages_preview(messages: Sequence[Mapping[str, str]]) -> str:
-    return " ".join(str(message.get("content", "")) for message in messages)[:240]
+    content = " ".join(str(message.get("content", "")) for message in messages)
+    return safe_preview(content)
 
 
 def _response_data(payload: object) -> Mapping[str, object]:
