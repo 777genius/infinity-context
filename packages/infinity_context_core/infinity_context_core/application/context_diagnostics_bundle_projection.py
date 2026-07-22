@@ -45,6 +45,9 @@ from infinity_context_core.application.context_quality import retrieval_quality_
 from infinity_context_core.application.context_requirement_coverage import (
     sanitize_context_requirement_coverage,
 )
+from infinity_context_core.application.context_stage_diagnostics import (
+    normalize_context_stage_timings,
+)
 from infinity_context_core.application.dto import ContextItem
 from infinity_context_core.application.safe_payload import safe_metadata
 
@@ -92,6 +95,7 @@ def normalize_context_bundle_diagnostics(
     normalized["retrieval_sources_returned"] = len(retrieval_sources)
     normalized["retrieval_sources_truncated"] = len(all_retrieval_sources) > len(retrieval_sources)
     normalized["diagnostics_truncated"] = len(raw) > _MAX_BUNDLE_DIAGNOSTIC_MAPPING_ITEMS
+    normalized["stage_timings_ms"] = normalize_context_stage_timings(raw.get("stage_timings_ms"))
     for key in _BUNDLE_COUNTER_KEYS:
         if key in raw or key in _BUNDLE_COUNTER_DEFAULTS:
             normalized[key] = _non_negative_int(

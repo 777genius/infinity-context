@@ -10,6 +10,9 @@ from infinity_context_core.application.context_diagnostics import (
     normalize_context_bundle_diagnostics,
     normalize_context_diagnostics,
 )
+from infinity_context_core.application.context_stage_diagnostics import (
+    record_context_stage_duration,
+)
 
 from infinity_context_server.api.auth import require_service_token
 from infinity_context_server.api.dependencies import get_container
@@ -105,6 +108,7 @@ async def build_context(
             use_case="build_context",
         )
         return response
+    scope_started = perf_counter()
     scope = await resolve_existing_context_scope(
         container,
         space_id=request.space_id,
@@ -115,6 +119,7 @@ async def build_context(
         memory_scope_external_refs=request.memory_scope_external_refs,
         thread_external_ref=request.thread_external_ref,
     )
+    scope_resolution_ms = _elapsed_ms(scope_started)
     if scope is None:
         response = _LEGACY_CONTEXT_API_RESPONSES.empty_context_response(
             policy_mode=container.settings.policy_mode.value,
@@ -136,16 +141,33 @@ async def build_context(
             max_rendered_chars=container.settings.max_context_chars,
         )
     )
+    record_context_stage_duration(
+        bundle.diagnostics,
+        stage="scope_resolution",
+        duration_ms=scope_resolution_ms,
+    )
+    response_mapping_started = perf_counter()
     response = _LEGACY_CONTEXT_API_RESPONSES.context_response_from_bundle(
         bundle,
         request_id=request_id,
     )
+    response_diagnostics = response["data"]["diagnostics"]
+    record_context_stage_duration(
+        response_diagnostics,
+        stage="response_mapping",
+        duration_ms=_elapsed_ms(response_mapping_started),
+    )
     container.runtime_metrics.record_context(
         latency_ms=_elapsed_ms(started),
-        diagnostics=response["data"]["diagnostics"],
+        diagnostics=response_diagnostics,
         request_id=request_id,
         use_case="build_context",
         scope=_trace_scope(scope),
+    )
+    record_context_stage_duration(
+        response_diagnostics,
+        stage="total",
+        duration_ms=_elapsed_ms(started),
     )
     return response
 

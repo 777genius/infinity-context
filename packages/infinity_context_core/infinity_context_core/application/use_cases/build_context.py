@@ -88,6 +88,10 @@ from infinity_context_core.application.context_source_sibling_answer_evidence_re
 from infinity_context_core.application.context_source_siblings import (
     source_sibling_related_turn_anchor_evidence as _related_turn_anchor_evidence,
 )
+from infinity_context_core.application.context_stage_diagnostics import (
+    record_context_stage_interval,
+    record_context_stage_timing,
+)
 from infinity_context_core.application.context_temporal_query import (
     apply_temporal_query_intent_boosts,
     build_temporal_query_intent,
@@ -203,6 +207,7 @@ class BuildContextUseCase:
     @with_request_retrieval_performance_cache
     async def execute(self, query: BuildContextQuery) -> ContextBundle:
         request_started_at = perf_counter()
+        planning_started_at = perf_counter()
         memory_scope_ids = tuple(str(memory_scope_id) for memory_scope_id in query.memory_scope_ids)
         query_anchor_intent = build_query_anchor_intent(query.query)
         temporal_query_intent = build_temporal_query_intent(query.query)
@@ -215,6 +220,7 @@ class BuildContextUseCase:
             query.query,
             decomposition_plan=query_decomposition_plan,
         )
+        planning_finished_at = perf_counter()
         canonical_started_at = perf_counter()
         canonical = await self._canonical_collector.collect(
             query=query,
@@ -288,6 +294,12 @@ class BuildContextUseCase:
             "superseded_facts_used": 0,
             "pending_duplicate_merge_suggestions_considered": 0,
         }
+        record_context_stage_interval(
+            diagnostics,
+            stage="planning_expansion",
+            started_at=planning_started_at,
+            finished_at=planning_finished_at,
+        )
         _record_stage_timing(diagnostics, "canonical_collect", canonical_started_at)
         if query.consistency_mode == ConsistencyMode.CANONICAL_ONLY:
             diagnostics["vector_status"] = "skipped"
@@ -325,6 +337,7 @@ class BuildContextUseCase:
             )
             _record_stage_timing(diagnostics, "rag_collect", stage_started_at)
 
+        enrichment_started_at = perf_counter()
         items: list[ContextItem] = []
         now = self._clock.now() if self._clock is not None else None
         diagnostics.update(query_anchor_intent.diagnostics())
@@ -714,6 +727,13 @@ class BuildContextUseCase:
             memory_scope_ids=memory_scope_ids,
         )
         _record_stage_timing(diagnostics, "linked_temporal_relations", stage_started_at)
+        enrichment_finished_at = perf_counter()
+        record_context_stage_interval(
+            diagnostics,
+            stage="enrichment_hydration",
+            started_at=enrichment_started_at,
+            finished_at=enrichment_finished_at,
+        )
         final_rank_started_at = perf_counter()
         stage_started_at = perf_counter()
         final_source_items = (
@@ -769,12 +789,18 @@ class BuildContextUseCase:
         stage_started_at = perf_counter()
         fused_items = apply_rank_fusion_boosts(lexical_boosted_items)
         _record_stage_timing(diagnostics, "final_rank_fusion", stage_started_at)
+        final_rank_finished_at = perf_counter()
+        record_context_stage_interval(
+            diagnostics,
+            stage="final_rank",
+            started_at=final_rank_started_at,
+            finished_at=final_rank_finished_at,
+        )
+        rerank_started_at = perf_counter()
         stage_started_at = perf_counter()
-        fused_items, final_rerank_distinct_restoration = (
-            prepare_distinct_set_evidence_for_rerank(
-                fused_items,
-                evidence_items=distinct_set_evidence_items,
-            )
+        fused_items, final_rerank_distinct_restoration = prepare_distinct_set_evidence_for_rerank(
+            fused_items,
+            evidence_items=distinct_set_evidence_items,
         )
         diagnostics.update(
             {
@@ -815,7 +841,13 @@ class BuildContextUseCase:
             )
         )
         _record_stage_timing(diagnostics, "final_rank_dedupe", stage_started_at)
-        _record_stage_timing(diagnostics, "final_rank", final_rank_started_at)
+        rerank_finished_at = perf_counter()
+        record_context_stage_interval(
+            diagnostics,
+            stage="rerank",
+            started_at=rerank_started_at,
+            finished_at=rerank_finished_at,
+        )
         candidate_items, distinct_set_restoration_diagnostics = restore_distinct_set_evidence_items(
             candidate_items,
             query=query.query,
@@ -892,13 +924,7 @@ def _record_stage_timing(
     stage: str,
     started_at: float,
 ) -> None:
-    timings = diagnostics.get("stage_timings_ms")
-    if not isinstance(timings, dict):
-        timings = {}
-        diagnostics["stage_timings_ms"] = timings
-    if len(timings) >= 32 and stage not in timings:
-        return
-    timings[stage] = round((perf_counter() - started_at) * 1000, 2)
+    record_context_stage_timing(diagnostics, stage, started_at)
 
 
 def _trim_primary_fact_items(
