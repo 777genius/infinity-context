@@ -4,10 +4,16 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Any, Literal, Protocol
+from typing import Any, Literal, Protocol
 
-if TYPE_CHECKING:
-    import httpx
+
+def __getattr__(name: str) -> Any:
+    """Keep the historical adapter export without eagerly importing HTTPX."""
+    if name != "HttpBenchmarkAdapter":
+        raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+    from infinity_context_server.public_benchmark_transport import HttpBenchmarkAdapter
+
+    return HttpBenchmarkAdapter
 
 
 class BenchmarkValidationError(ValueError):
@@ -94,20 +100,6 @@ class PublicBenchmarkCase:
 
 class TestClientBenchmarkAdapter:
     def __init__(self, client: Any) -> None:
-        self._client = client
-
-    def post(
-        self,
-        path: str,
-        *,
-        json_body: Mapping[str, object],
-        headers: Mapping[str, str],
-    ) -> BenchmarkHttpResponsePort:
-        return self._client.post(path, json=dict(json_body), headers=dict(headers))
-
-
-class HttpBenchmarkAdapter:
-    def __init__(self, client: httpx.Client) -> None:
         self._client = client
 
     def post(
