@@ -13,6 +13,7 @@ from infinity_context_core.application.context_query_intent import QueryAnchorIn
 from infinity_context_core.domain.entities import MemoryAnchorKind
 
 _MAX_QUERY_CHARS = 220
+_MULTI_QUERY_REASON_PREFIXES = ("decomposition_clause", "decomposition_temporal_endpoint_")
 
 _MAX_IDENTITY_TERMS = 4
 
@@ -140,7 +141,10 @@ def _append_candidate(
     key = _query_dedupe_key(normalized_query)
     if any(
         _query_dedupe_key(item.query) == key
-        or (item.reason == reason and reason != "decomposition_clause")
+        or (
+            item.reason == reason
+            and not reason.startswith(_MULTI_QUERY_REASON_PREFIXES)
+        )
         for item in candidates
     ):
         return

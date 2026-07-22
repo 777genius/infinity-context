@@ -99,6 +99,9 @@ from infinity_context_core.application.context_query_workflow_intent import (
     gotcha_failure_query_variants,
     workflow_commitment_query_variants,
 )
+from infinity_context_core.application.context_temporal_intent_policy import (
+    temporal_ordering_intent,
+)
 from infinity_context_core.application.context_temporal_query import (
     TemporalQueryIntent,
     build_temporal_query_intent,
@@ -143,6 +146,18 @@ def build_query_decomposition_plan(
         variants=variants,
     )
     candidates: list[QueryDecomposition] = []
+    ordering_intent = temporal_ordering_intent(query)
+    for endpoint in ordering_intent.endpoints:
+        _append_candidate(candidates, query=endpoint.query, reason=endpoint.slot_id)
+    if ordering_intent.explicit and not ordering_intent.endpoints:
+        _append_candidate(
+            candidates,
+            query=_compose_query(
+                (*identities, *salient_terms),
+                "chronological order earliest first then later latest last timeline",
+            ),
+            reason="decomposition_temporal_ordering",
+        )
     _append_clause_decompositions(candidates, query=query, identities=identities)
     if requests_country_destination_context:
         _append_candidate(

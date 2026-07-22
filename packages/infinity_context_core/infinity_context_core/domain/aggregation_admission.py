@@ -136,15 +136,25 @@ class AggregationAdmissionPolicy:
         for family in selected_source_families:
             family_counts[family] = family_counts.get(family, 0) + 1
         reserved_slots: set[tuple[str, str]] = set()
+        sequence_families = set(selected_source_families)
 
         def add(candidate: AggregationAdmissionCandidate, *, reserve: bool) -> bool:
             candidate_id = candidate.candidate_id
             family = candidate.signals.source_family
-            if candidate_id in selected_ids or family_counts.get(family, 0) >= source_family_cap:
+            if (
+                candidate_id in selected_ids
+                or family_counts.get(family, 0) >= source_family_cap
+                or (
+                    candidate.signals.intent is AggregationIntent.SEQUENCE
+                    and family in sequence_families
+                )
+            ):
                 return False
             selected.append(candidate_id)
             selected_ids.add(candidate_id)
             family_counts[family] = family_counts.get(family, 0) + 1
+            if candidate.signals.intent is AggregationIntent.SEQUENCE:
+                sequence_families.add(family)
             if reserve:
                 reserved.append(candidate_id)
             return True
