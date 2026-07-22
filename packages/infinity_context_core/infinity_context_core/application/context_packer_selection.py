@@ -201,6 +201,70 @@ def _select_item(
     state.used_tokens += item_tokens
 
 
+def replace_selected_item(
+    state: _SelectionState,
+    *,
+    displaced: ContextItem,
+    replacement: ContextItem,
+    budget: int,
+    char_budget: int,
+) -> bool:
+    """Atomically replace one item while retaining selection-state invariants."""
+
+    displaced_key = _selection_key(displaced)
+    replacement_key = _selection_key(replacement)
+    if displaced_key not in state.selected_keys or replacement_key in state.selected_keys:
+        return False
+    retained = tuple(item for item in state.selected if _selection_key(item) != displaced_key)
+    if len(retained) != len(state.selected) - 1:
+        return False
+    trial = _SelectionState(
+        selected=[],
+        selected_keys=set(),
+        selected_answer_support_families=set(),
+        selected_chunks_by_source={},
+        selected_source_capped_items_by_source={},
+        selected_art_style_items_by_source_group={},
+    )
+    for item in retained:
+        answer_support_family = _answer_support_diversity_family(item)
+        _select_item(
+            trial,
+            item=item,
+            item_tokens=estimate_tokens(item.text) + 16,
+            mark_answer_support_family=(
+                bool(answer_support_family)
+                and answer_support_family in state.selected_answer_support_families
+            ),
+        )
+    replacement_tokens = estimate_tokens(replacement.text) + 16
+    if trial.used_tokens + replacement_tokens > budget:
+        return False
+    if _source_cap_applies(replacement):
+        source_key = _source_key(replacement)
+        if trial.selected_source_capped_items_by_source.get(source_key, 0) >= (
+            _MAX_ITEMS_PER_SOURCE
+        ):
+            return False
+        source_group_cap = _source_group_cap(replacement)
+        if source_group_cap is not None and (
+            trial.selected_art_style_items_by_source_group.get(_source_group_key(replacement), 0)
+            >= source_group_cap
+        ):
+            return False
+    if _rendered_char_count((*retained, replacement)) > char_budget:
+        return False
+    _select_item(trial, item=replacement, item_tokens=replacement_tokens)
+    state.selected = trial.selected
+    state.selected_keys = trial.selected_keys
+    state.selected_answer_support_families = trial.selected_answer_support_families
+    state.selected_chunks_by_source = trial.selected_chunks_by_source
+    state.selected_source_capped_items_by_source = trial.selected_source_capped_items_by_source
+    state.selected_art_style_items_by_source_group = trial.selected_art_style_items_by_source_group
+    state.used_tokens = trial.used_tokens
+    return True
+
+
 def _item_type_counts(items: tuple[ContextItem, ...]) -> dict[str, int]:
     counts: dict[str, int] = {}
     for item in items:
@@ -337,11 +401,7 @@ def _coverage_inputs(
 
 
 def _coverage_candidate_is_eligible(item: ContextItem) -> bool:
-    if (
-        item.is_instruction
-        or not item.source_refs
-        or has_unresolved_rerank_rejection(item)
-    ):
+    if item.is_instruction or not item.source_refs or has_unresolved_rerank_rejection(item):
         return False
     if diagnostic_value(item, "review_only") is True:
         return False

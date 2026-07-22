@@ -14,6 +14,16 @@ from infinity_context_core.features.context_building.application.handlers import
     PackContextHandler,
     PlanContextPipelineHandler,
 )
+from infinity_context_core.features.context_building.application.inference_evidence_reservation import (  # noqa: E501
+    InferenceEvidenceCandidate,
+    InferenceEvidenceReservation,
+    InferenceEvidenceReservationRequest,
+    InferenceQueryPredicate,
+    InferenceRelation,
+    InferenceReservationPressure,
+    inference_query_predicate,
+    reserve_inference_evidence,
+)
 from infinity_context_core.features.context_building.application.provider_pipeline import (
     ContextCandidateProviderPipeline,
     create_context_candidate_provider_pipeline,
@@ -46,6 +56,12 @@ __all__ = (
     "CandidateRanking",
     "ContextCandidateProviderPipeline",
     "ContextBuildingUseCases",
+    "InferenceEvidenceCandidate",
+    "InferenceEvidenceReservation",
+    "InferenceEvidenceReservationRequest",
+    "InferenceQueryPredicate",
+    "InferenceRelation",
+    "InferenceReservationPressure",
     "LoadContextCandidatesHandler",
     "LoadContextCandidatesQuery",
     "LoadContextCandidatesResult",
@@ -60,6 +76,8 @@ __all__ = (
     "PlanContextPipelineUseCase",
     "create_context_candidate_provider_pipeline",
     "fuse_ranked_candidate_keys",
+    "inference_query_predicate",
     "protected_candidate_head_keys",
+    "reserve_inference_evidence",
     "select_candidate_queries",
 )

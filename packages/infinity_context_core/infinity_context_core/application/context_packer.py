@@ -76,6 +76,9 @@ from infinity_context_core.application.context_packer_exact_prepasses import (
     _select_exact_shared_volunteering_turn_items,
     _select_exact_state_visit_turn_items,
 )
+from infinity_context_core.application.context_packer_inference_reservation import (
+    inference_reservation_for_char_pressure,
+)
 from infinity_context_core.application.context_packer_inventory_prepasses import (
     _is_exact_inventory_answer_family,
     _select_exact_cause_inventory_turn_items,
@@ -125,6 +128,7 @@ from infinity_context_core.application.context_packer_selection import (
     _select_item,
     _SelectionState,
     _try_select_item,
+    replace_selected_item,
     reserve_coverage_items,
 )
 from infinity_context_core.application.context_packer_source_policy import (
@@ -185,6 +189,9 @@ class ContextPacker:
         dropped_by_source_group_cap = 0
         dropped_by_budget = 0
         dropped_by_char_cap = 0
+        inference_reservation_attempted = False
+        inference_reservations_selected = 0
+        inference_generic_displacements = 0
         redacted_item_keys: set[tuple[str, str]] = set()
         for item in ordered_items:
             if item.is_instruction:
@@ -672,6 +679,24 @@ class ContextPacker:
                 continue
             if _rendered_char_count((*state.selected, item)) > char_budget:
                 dropped_by_char_cap += 1
+                if not inference_reservation_attempted:
+                    reservation = inference_reservation_for_char_pressure(
+                        query=query,
+                        rejected=item,
+                        selected=tuple(state.selected),
+                        protected_keys=coverage_reserved_keys,
+                    )
+                    if reservation is not None:
+                        inference_reservation_attempted = True
+                        if replace_selected_item(
+                            state,
+                            displaced=reservation.displaced,
+                            replacement=reservation.reserved,
+                            budget=budget,
+                            char_budget=char_budget,
+                        ):
+                            inference_reservations_selected = 1
+                            inference_generic_displacements = 1
                 continue
             _select_item(state, item=item, item_tokens=item_tokens)
 
@@ -700,6 +725,9 @@ class ContextPacker:
                     "coverage_selected_obligation_ids": (
                         coverage_reservation.selected_obligation_ids
                     ),
+                    "inference_reservation_attempted": inference_reservation_attempted,
+                    "inference_reservations_selected": inference_reservations_selected,
+                    "inference_generic_displacements": inference_generic_displacements,
                     "distinct_set_candidates_considered": (
                         distinct_set_selection.candidates_considered
                     ),
