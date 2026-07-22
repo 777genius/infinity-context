@@ -17,7 +17,10 @@ from infinity_context_core.domain.events import OutboxEvent
 from infinity_context_core.domain.idempotency import IdempotencyRecord
 from infinity_context_core.ports.captures import CaptureRepositoryPort
 from infinity_context_core.ports.repositories import (
+    ActiveAnchorKey,
     AnchorRepositoryPort,
+    AnchorScopeQuery,
+    ChunkKeywordSearch,
     ChunkRepositoryPort,
     DocumentRepositoryPort,
     EpisodeRepositoryPort,
@@ -30,6 +33,12 @@ from sqlalchemy import case, func, or_, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from infinity_context_adapters.postgres.canonical_retrieval_batching import (
+    find_active_anchor_keys,
+    get_anchor_ids,
+    keyword_search_many,
+    list_anchor_scopes,
+)
 from infinity_context_adapters.postgres.mappers import (
     anchor_row_to_domain,
     anchor_to_row,
@@ -124,6 +133,9 @@ class PostgresAnchorRepository(AnchorRepositoryPort):
         row = await self._session.get(MemoryAnchorRow, anchor_id)
         return anchor_row_to_domain(row) if row is not None else None
 
+    async def get_by_ids(self, anchor_ids: tuple[str, ...]) -> list[MemoryAnchor]:
+        return await get_anchor_ids(self._session, anchor_ids)
+
     async def find_active_by_key(
         self,
         *,
@@ -147,6 +159,12 @@ class PostgresAnchorRepository(AnchorRepositoryPort):
         ).scalar_one_or_none()
         return anchor_row_to_domain(row) if row is not None else None
 
+    async def find_active_by_keys(
+        self,
+        requests: tuple[ActiveAnchorKey, ...],
+    ) -> list[MemoryAnchor | None]:
+        return await find_active_anchor_keys(self._session, requests)
+
     async def list_for_scope(
         self,
         *,
@@ -164,15 +182,21 @@ class PostgresAnchorRepository(AnchorRepositoryPort):
             conditions.append(MemoryAnchorRow.kind == kind)
         if status:
             conditions.append(MemoryAnchorRow.status == status)
-        rows = (
-            await self._session.execute(
-                select(MemoryAnchorRow)
-                .where(*conditions)
-                .order_by(MemoryAnchorRow.updated_at.desc(), MemoryAnchorRow.id.desc())
-                .limit(limit)
-            )
-        ).scalars()
+        statement = (
+            select(MemoryAnchorRow)
+            .where(*conditions)
+            .order_by(MemoryAnchorRow.updated_at.desc(), MemoryAnchorRow.id.desc())
+        )
+        if limit >= 0:
+            statement = statement.limit(limit)
+        rows = (await self._session.execute(statement)).scalars()
         return [anchor_row_to_domain(row) for row in rows]
+
+    async def list_for_scopes(
+        self,
+        requests: tuple[AnchorScopeQuery, ...],
+    ) -> list[list[MemoryAnchor]]:
+        return await list_anchor_scopes(self._session, requests)
 
     async def save(self, anchor: MemoryAnchor) -> MemoryAnchor:
         row = await self._session.get(MemoryAnchorRow, str(anchor.id))
@@ -518,9 +542,12 @@ class PostgresChunkRepository(ChunkRepositoryPort):
                 lexical_score.desc(),
                 MemoryChunkRow.sequence.asc(),
                 MemoryChunkRow.created_at.asc(),
+                MemoryChunkRow.id.asc(),
             )
         else:
-            statement = statement.order_by(MemoryChunkRow.created_at.desc())
+            statement = statement.order_by(
+                MemoryChunkRow.created_at.desc(), MemoryChunkRow.id.desc()
+            )
         rows = list(
             (
                 await self._session.execute(
@@ -538,6 +565,12 @@ class PostgresChunkRepository(ChunkRepositoryPort):
             scored_rows.sort(key=lambda item: (-item[0], item[1]))
             rows = [row for _, _, row in scored_rows]
         return [chunk_row_to_domain(row) for row in rows[:limit]]
+
+    async def keyword_search_many(
+        self,
+        requests: tuple[ChunkKeywordSearch, ...],
+    ) -> list[list[MemoryChunk]]:
+        return await keyword_search_many(self._session, requests)
 
 
 class PostgresCaptureRepository(CaptureRepositoryPort):

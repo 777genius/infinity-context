@@ -53,6 +53,38 @@ class SessionStatus:
     pending_jobs: int
 
 
+@dataclass(frozen=True)
+class ChunkKeywordSearch:
+    """One logical canonical keyword query in an ordered bulk request."""
+
+    space_id: str
+    memory_scope_ids: tuple[str, ...]
+    thread_id: str | None
+    query: str
+    limit: int
+
+
+@dataclass(frozen=True)
+class AnchorScopeQuery:
+    """One logical anchor scope listing in an ordered bulk request."""
+
+    space_id: str
+    memory_scope_id: str
+    kind: str | None
+    status: str | None
+    limit: int
+
+
+@dataclass(frozen=True)
+class ActiveAnchorKey:
+    """One scoped active-anchor identity in an ordered bulk request."""
+
+    space_id: str
+    memory_scope_id: str
+    kind: str
+    normalized_key: str
+
+
 class ScopeRepositoryPort(Protocol):
     async def create_space(self, space: MemorySpace) -> MemorySpace:
         """Persist or return an existing active space by slug."""
@@ -223,6 +255,9 @@ class AnchorRepositoryPort(Protocol):
     async def get_by_id(self, anchor_id: str) -> MemoryAnchor | None:
         """Load a semantic anchor by canonical id."""
 
+    async def get_by_ids(self, anchor_ids: tuple[str, ...]) -> list[MemoryAnchor]:
+        """Load existing anchors in input order, including duplicate ids."""
+
     async def find_active_by_key(
         self,
         *,
@@ -232,6 +267,12 @@ class AnchorRepositoryPort(Protocol):
         normalized_key: str,
     ) -> MemoryAnchor | None:
         """Find an active anchor by scoped normalized key."""
+
+    async def find_active_by_keys(
+        self,
+        requests: tuple[ActiveAnchorKey, ...],
+    ) -> list[MemoryAnchor | None]:
+        """Find one active anchor per ordered scoped key."""
 
     async def list_for_scope(
         self,
@@ -243,6 +284,12 @@ class AnchorRepositoryPort(Protocol):
         limit: int,
     ) -> list[MemoryAnchor]:
         """List semantic anchors in a memory_scope."""
+
+    async def list_for_scopes(
+        self,
+        requests: tuple[AnchorScopeQuery, ...],
+    ) -> list[list[MemoryAnchor]]:
+        """List one ordered anchor sequence per ordered scope query."""
 
     async def save(self, anchor: MemoryAnchor) -> MemoryAnchor:
         """Persist changed anchor details."""
@@ -412,6 +459,12 @@ class ChunkRepositoryPort(Protocol):
         limit: int,
     ) -> list[MemoryChunk]:
         """Fallback canonical keyword search when vector retrieval is disabled."""
+
+    async def keyword_search_many(
+        self,
+        requests: tuple[ChunkKeywordSearch, ...],
+    ) -> list[list[MemoryChunk]]:
+        """Run ordered canonical keyword queries and retain each ranking."""
 
 
 class SuggestionRepositoryPort(Protocol):
