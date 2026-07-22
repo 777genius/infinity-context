@@ -5,7 +5,19 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass
 
-_ROLE_MARKER_RE = re.compile(r"(?<![\w-])(?P<role>user|assistant)\s*:\s*", re.IGNORECASE)
+_ROLE_MARKER_RE = re.compile(
+    r"(?<![\w-])(?P<role>user|assistant)\s*:\s*",
+    re.IGNORECASE,
+)
+_BACKTICK_RUN_RE = re.compile(r"`+")
+_QUOTED_SPAN_RE = re.compile(
+    r'(?:"[^"\n]*(?:user|assistant)\s*:[^"\n]*"'
+    r"|'[^'\n]*(?:user|assistant)\s*:[^'\n]*'"
+    r"|\u201c[^\u201d\n]*(?:user|assistant)\s*:[^\u201d\n]*\u201d"
+    r"|\u2018[^\u2019\n]*(?:user|assistant)\s*:[^\u2019\n]*\u2019)",
+    re.IGNORECASE,
+)
+_COMPACT_TRANSCRIPT_ENVELOPE = "Record user:"
 _SELF_REFERENCE_RE = re.compile(
     r"\b(?:i|i['’](?:m|ve|d|ll)|me|my|mine|myself)\b",
     re.IGNORECASE,
@@ -147,8 +159,14 @@ def prefer_direct_user_assertion(
 
 
 def _dialogue_turns(text: str) -> tuple[_DialogueTurn, ...]:
-    markers = tuple(_ROLE_MARKER_RE.finditer(text))
-    if len(markers) < 2:
+    ignored_ranges = _ignored_role_label_ranges(text)
+    markers = tuple(
+        marker
+        for marker in _ROLE_MARKER_RE.finditer(text)
+        if not _position_is_ignored(marker.start(), ignored_ranges)
+        and not _is_quoted_line(text, marker.start())
+    )
+    if len(markers) < 2 or not _valid_dialogue_markers(text, markers):
         return ()
     return tuple(
         _DialogueTurn(
@@ -159,6 +177,127 @@ def _dialogue_turns(text: str) -> tuple[_DialogueTurn, ...]:
         )
         for index, marker in enumerate(markers)
     )
+
+
+def _ignored_role_label_ranges(text: str) -> tuple[tuple[int, int], ...]:
+    """Return Markdown code ranges where role-shaped text is inert evidence."""
+
+    ranges: list[tuple[int, int]] = []
+    runs = tuple(_BACKTICK_RUN_RE.finditer(text))
+    index = 0
+    while index < len(runs):
+        opener = runs[index]
+        closer_index = index + 1
+        fenced = _is_fence_delimiter(text, opener, minimum_length=3)
+        while closer_index < len(runs) and not _closes_code_range(
+            text=text,
+            opener=opener,
+            candidate=runs[closer_index],
+            fenced=fenced,
+        ):
+            closer_index += 1
+        if closer_index >= len(runs):
+            ranges.append((opener.start(), len(text)))
+            break
+        ranges.append((opener.start(), runs[closer_index].end()))
+        index = closer_index + 1
+    ranges.extend(_indented_code_ranges(text))
+    ranges.extend((match.start(), match.end()) for match in _QUOTED_SPAN_RE.finditer(text))
+    return tuple(sorted(ranges))
+
+
+def _closes_code_range(
+    *,
+    text: str,
+    opener: re.Match[str],
+    candidate: re.Match[str],
+    fenced: bool,
+) -> bool:
+    if fenced:
+        if not _is_fence_delimiter(
+            text,
+            candidate,
+            minimum_length=len(opener.group()),
+        ):
+            return False
+        line_end = text.find("\n", candidate.end())
+        line_end = len(text) if line_end == -1 else line_end
+        return not text[candidate.end() : line_end].strip()
+    return len(candidate.group()) == len(opener.group())
+
+
+def _is_fence_delimiter(
+    text: str,
+    delimiter: re.Match[str],
+    *,
+    minimum_length: int,
+) -> bool:
+    if len(delimiter.group()) < minimum_length:
+        return False
+    line_start = text.rfind("\n", 0, delimiter.start()) + 1
+    prefix = text[line_start : delimiter.start()]
+    return len(prefix) <= 3 and not prefix.strip()
+
+
+def _indented_code_ranges(text: str) -> tuple[tuple[int, int], ...]:
+    ranges: list[tuple[int, int]] = []
+    offset = 0
+    for line in text.splitlines(keepends=True):
+        if line.startswith(("    ", "\t")):
+            ranges.append((offset, offset + len(line)))
+        offset += len(line)
+    return tuple(ranges)
+
+
+def _position_is_ignored(position: int, ranges: tuple[tuple[int, int], ...]) -> bool:
+    return any(start <= position < end for start, end in ranges)
+
+
+def _is_quoted_line(text: str, marker_start: int) -> bool:
+    line_start = text.rfind("\n", 0, marker_start) + 1
+    return text[line_start:marker_start].lstrip().startswith(">")
+
+
+def _valid_dialogue_markers(text: str, markers: tuple[re.Match[str], ...]) -> bool:
+    if markers[0].group("role").casefold() != "user" or not _starts_at_transcript_boundary(
+        text, markers[0].start()
+    ):
+        return False
+    expected_role = "user"
+    for index, marker in enumerate(markers):
+        role = marker.group("role").casefold()
+        if role != expected_role or text[marker.end() :].startswith(":"):
+            return False
+        body_end = markers[index + 1].start() if index + 1 < len(markers) else len(text)
+        if not text[marker.end() : body_end].strip():
+            return False
+        expected_role = "assistant" if expected_role == "user" else "user"
+    return True
+
+
+def _starts_at_transcript_boundary(text: str, marker_start: int) -> bool:
+    """Admit authority only when the first turn starts a transcript record.
+
+    Content before a first role marker is ordinary evidence (including provenance,
+    metadata, and instructions), never a provider-specific transcript declaration.
+    Whitespace and Markdown quote prefixes are handled structurally elsewhere.
+    """
+
+    line_start = text.rfind("\n", 0, marker_start) + 1
+    raw_prefix = text[line_start:marker_start]
+    if not raw_prefix.strip():
+        # A split legacy-looking envelope must not fall through as an ordinary
+        # line-start transcript after role normalization.
+        previous_line_end = max(0, line_start - 1)
+        if previous_line_end and text[previous_line_end - 1] == "\r":
+            previous_line_end -= 1
+        previous_line_start = text.rfind("\n", 0, previous_line_end) + 1
+        return text[previous_line_start:previous_line_end] != "Record"
+    # ``Record user:`` is the sole compatibility envelope. Keeping this contract
+    # byte-exact and checking it before the permissive role parser prevents
+    # normalized role spelling or whitespace from broadening legacy authority.
+    envelope_end = marker_start + len("user:")
+    return text[line_start:envelope_end] == _COMPACT_TRANSCRIPT_ENVELOPE
 
 
 def _is_direct_relevant_user_assertion(
@@ -200,9 +339,7 @@ def _asserted_values(text: str) -> frozenset[str]:
         match.group(0).casefold().replace(",", "") for match in _DIGIT_VALUE_RE.finditer(text)
     }
     values.update(
-        _NUMBER_WORD_VALUES[token]
-        for token in _tokens(text)
-        if token in _NUMBER_WORD_VALUES
+        _NUMBER_WORD_VALUES[token] for token in _tokens(text) if token in _NUMBER_WORD_VALUES
     )
     if _DISTRIBUTIVE_RE.search(text) and _ARTICLE_RE.search(text):
         values.add("1")
@@ -211,9 +348,7 @@ def _asserted_values(text: str) -> frozenset[str]:
 
 def _clauses(text: str) -> tuple[str, ...]:
     return tuple(
-        match.group(0).strip()
-        for match in _CLAUSE_RE.finditer(text)
-        if match.group(0).strip()
+        match.group(0).strip() for match in _CLAUSE_RE.finditer(text) if match.group(0).strip()
     )
 
 

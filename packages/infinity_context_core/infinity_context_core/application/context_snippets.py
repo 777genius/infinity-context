@@ -26,9 +26,7 @@ _MAX_STRUCTURED_PREFIX_LINES = 7
 _MAX_BOUNDARY_SCAN_CHARS = 40
 _MAX_LINE_PREFIX_SCAN_CHARS = 1200
 _STRUCTURED_EVIDENCE_LINE_RE = re.compile(r"^\s*(?:D\d+:\d+|S\d+:\d+|T\d+:\d+)\b")
-_STRUCTURED_EVIDENCE_PREFIX_RE = re.compile(
-    r"^\s*((?:(?:D|S|T)\d+:\d+\s+){0,7}(?:D|S|T)\d+:\d+)\b"
-)
+_STRUCTURED_EVIDENCE_PREFIX_RE = re.compile(r"^\s*((?:(?:D|S|T)\d+:\d+\s+){0,7}(?:D|S|T)\d+:\d+)\b")
 _INLINE_STRUCTURED_EVIDENCE_MARKER_RE = re.compile(r"\b(?:D|S|T)\d+:\d+\b")
 _MAX_INLINE_STRUCTURED_SNIPPET_CHARS = 640
 _MAX_INLINE_STRUCTURED_PREVIOUS_MARKERS = 2
@@ -71,6 +69,7 @@ def query_focused_snippet(
     structured_line = _is_structured_evidence_line(text, line_start)
     if not structured_line:
         inline_snippet = _inline_structured_evidence_snippet(
+            query=query,
             query_terms=terms,
             text=text,
         )
@@ -417,6 +416,7 @@ def _right_structured_line_boundary(*, text: str, start: int, end: int) -> int:
 
 def _inline_structured_evidence_snippet(
     *,
+    query: str,
     query_terms: tuple[LexicalQueryTerm, ...],
     text: str,
 ) -> QuerySnippet | None:
@@ -443,6 +443,15 @@ def _inline_structured_evidence_snippet(
     if best is None:
         return None
     _, start, end, matched_terms = best
+    evidence_range = prefer_direct_user_assertion(
+        query=query,
+        text=text,
+        char_start=start,
+        char_end=end,
+    )
+    start, end = evidence_range.char_start, evidence_range.char_end
+    hits = _term_hits(text[start:end], query_terms)
+    matched_terms = _window_terms(hits=hits, start=0, end=end - start)
     snippet = _render_snippet(
         text=text,
         start=start,
