@@ -18,6 +18,10 @@ from infinity_context_server.memory_comparison_source_identity import (
 from infinity_context_server.public_benchmark_case_diagnostics import (
     preview_value as _preview_value,
 )
+from infinity_context_server.public_benchmark_metrics_policy import (
+    CaseOutcome,
+    outcome_from_checkpoint,
+)
 
 _MAX_CHECKPOINT_BYTES = 64 * 1024 * 1024
 _MAX_CHECKPOINT_CASES = 50_000
@@ -50,6 +54,12 @@ class CaseRunResult:
     covered_evidence_refs: tuple[str, ...] = ()
     missing_evidence_refs: tuple[str, ...] = ()
     missing_evidence_ref_previews: tuple[str, ...] = ()
+    outcome: CaseOutcome = "success"
+
+    def __post_init__(self) -> None:
+        # Preserve callers that predate explicit terminal outcome accounting.
+        if not self.ok and self.outcome == "success":
+            object.__setattr__(self, "outcome", "semantic_failure")
 
 
 @dataclass
@@ -213,7 +223,16 @@ def load_checkpoint_resume_state_with_diagnostics(
     checkpoint_failed_case_count = 0
     checkpoint_invalid_case_count = 0
     for raw_case in raw_cases:
-        result = _case_run_result_from_payload(raw_case)
+        raw_case_mapping = _as_mapping(raw_case)
+        raw_key = (
+            str(raw_case_mapping.get("benchmark") or ""),
+            str(raw_case_mapping.get("case_id") or ""),
+        )
+        result = _case_run_result_from_payload(
+            raw_case,
+            checkpoint_failure_reports.get(raw_key)
+            or checkpoint_failure_reports.get(("", raw_key[1])),
+        )
         if result is None:
             checkpoint_invalid_case_count += 1
             continue
@@ -462,7 +481,10 @@ def safe_identifier(value: str, *, max_chars: int) -> str:
     return f"{prefix}:{digest}"
 
 
-def _case_run_result_from_payload(raw: object) -> CaseRunResult | None:
+def _case_run_result_from_payload(
+    raw: object,
+    failure_report: Mapping[str, object] | None = None,
+) -> CaseRunResult | None:
     if not isinstance(raw, Mapping):
         return None
     benchmark = _non_empty_str(raw.get("benchmark"))
@@ -470,13 +492,18 @@ def _case_run_result_from_payload(raw: object) -> CaseRunResult | None:
     if benchmark is None or case_id is None:
         return None
     status = str(raw.get("status") or "")
+    outcome = outcome_from_checkpoint(
+        status=status,
+        case_payload=raw,
+        failure_report=failure_report,
+    )
     expected_ok = _bool_field(raw, "expected_ok", default=status == "ok")
     forbidden_ok = _bool_field(raw, "forbidden_ok", default=status == "ok")
     return CaseRunResult(
         benchmark=benchmark,
         case_id=case_id,
         capability=str(raw.get("capability") or "unknown"),
-        ok=status == "ok" and expected_ok and forbidden_ok,
+        ok=outcome == "success",
         expected_ok=expected_ok,
         forbidden_ok=forbidden_ok,
         missing_terms=_str_tuple(raw.get("missing_terms")),
@@ -492,6 +519,7 @@ def _case_run_result_from_payload(raw: object) -> CaseRunResult | None:
         covered_evidence_refs=_str_tuple(raw.get("covered_evidence_refs")),
         missing_evidence_refs=_str_tuple(raw.get("missing_evidence_refs")),
         missing_evidence_ref_previews=_str_tuple(raw.get("missing_evidence_ref_previews")),
+        outcome=outcome,
     )
 
 

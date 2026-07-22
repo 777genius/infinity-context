@@ -20,6 +20,11 @@ from infinity_context_server.public_benchmark_case_diagnostics import (
     preview_value as _preview_value,
 )
 from infinity_context_server.public_benchmark_checkpoint import CaseRunResult
+from infinity_context_server.public_benchmark_metrics_policy import (
+    is_request_failure,
+    is_semantic_failure,
+    is_semantic_result,
+)
 
 _PREVIEW_CHARS = 240
 _TERM_CHARS = 120
@@ -33,6 +38,9 @@ def run_metric_summary(run_results: Sequence[CaseRunResult]) -> dict[str, object
     return {
         "case_count": len(run_results),
         "failure_count": sum(1 for item in run_results if not item.ok),
+        "request_failure_count": sum(is_request_failure(item) for item in run_results),
+        "semantic_case_count": sum(is_semantic_result(item) for item in run_results),
+        "semantic_failure_count": sum(is_semantic_failure(item) for item in run_results),
         "accuracy": accuracy(run_results),
         "latency_ms_p95": p95([item.latency_ms for item in run_results]),
         "capability_count": len({item.capability for item in run_results if item.capability}),
@@ -55,23 +63,29 @@ def benchmark_summaries(
     summaries: list[dict[str, object]] = []
     for benchmark in sorted(grouped):
         cases = grouped[benchmark]
+        semantic_cases = [item for item in cases if is_semantic_result(item)]
         benchmark_accuracy = accuracy(cases)
+        request_failure_count = sum(is_request_failure(item) for item in cases)
         summaries.append(
             {
                 "name": benchmark,
                 "suite": benchmark,
-                "ok": benchmark_accuracy >= min_accuracy,
+                "ok": request_failure_count == 0
+                and benchmark_accuracy >= min_accuracy,
                 "metrics": {
                     "accuracy": benchmark_accuracy,
                     "case_count": len(cases),
+                    "request_failure_count": request_failure_count,
+                    "semantic_case_count": len(semantic_cases),
+                    "semantic_failure_count": sum(is_semantic_failure(item) for item in cases),
                     "capability_count": len({item.capability for item in cases if item.capability}),
                     "expected_recall": _ratio(
-                        sum(1 for item in cases if item.expected_ok),
-                        len(cases),
+                        sum(1 for item in semantic_cases if item.expected_ok),
+                        len(semantic_cases),
                     ),
                     "forbidden_leak_rate": _ratio(
-                        sum(1 for item in cases if not item.forbidden_ok),
-                        len(cases),
+                        sum(1 for item in semantic_cases if not item.forbidden_ok),
+                        len(semantic_cases),
                     ),
                     "latency_ms_p95": p95([item.latency_ms for item in cases]),
                     **coverage_summary(cases),
@@ -88,6 +102,7 @@ def case_payload(item: CaseRunResult) -> dict[str, object]:
         "case_id": _safe_scalar_text(item.case_id, max_chars=_TERM_CHARS),
         "capability": _safe_scalar_text(item.capability, max_chars=_TERM_CHARS),
         "status": "ok" if item.ok else "failed",
+        "outcome": item.outcome,
         "expected_ok": item.expected_ok,
         "forbidden_ok": item.forbidden_ok,
         "missing_terms": _safe_preview_list(item.missing_terms),
@@ -129,7 +144,7 @@ def case_payload(item: CaseRunResult) -> dict[str, object]:
 
 
 def case_failures(run_results: Sequence[CaseRunResult]) -> list[dict[str, object]]:
-    return [_case_failure_payload(item) for item in run_results if not item.ok]
+    return [_case_failure_payload(item) for item in run_results if is_semantic_failure(item)]
 
 
 def _case_failure_payload(item: CaseRunResult) -> dict[str, object]:
@@ -261,11 +276,15 @@ def progress_case_outcome_fields(
     bounded_processed_case_count = max(0, min(processed_case_count, total_case_count))
     succeeded_case_count = sum(1 for item in run_results if item.ok)
     failed_case_count = sum(1 for item in run_results if not item.ok)
+    request_failure_count = sum(is_request_failure(item) for item in run_results)
+    semantic_failure_count = sum(is_semantic_failure(item) for item in run_results)
     remaining_case_count = max(0, total_case_count - bounded_processed_case_count)
     result: dict[str, object] = {
         "remaining_case_count": remaining_case_count,
         "succeeded_case_count": succeeded_case_count,
         "failed_case_count": failed_case_count,
+        "request_failure_count": request_failure_count,
+        "semantic_failure_count": semantic_failure_count,
         "resume_pending_case_count": remaining_case_count + failed_case_count,
         "failure_count": len(failures),
         "failure_report_count": len(failures),
@@ -281,6 +300,7 @@ def progress_case_outcome_fields(
                 "last_case_benchmark": _safe_progress_identifier(last.benchmark),
                 "last_case_id": _safe_progress_identifier(last.case_id),
                 "last_case_status": "ok" if last.ok else "failed",
+                "last_case_outcome": last.outcome,
                 "last_case_capability": _safe_progress_identifier(last.capability),
                 "last_case_latency_ms": round(last.latency_ms, 2),
             }
@@ -330,6 +350,9 @@ def benchmark_metric_map(
         benchmark: {
             "case_count": len(items),
             "failure_count": sum(1 for item in items if not item.ok),
+            "request_failure_count": sum(is_request_failure(item) for item in items),
+            "semantic_case_count": sum(is_semantic_result(item) for item in items),
+            "semantic_failure_count": sum(is_semantic_failure(item) for item in items),
             "accuracy": accuracy(items),
             "latency_ms_p95": p95([item.latency_ms for item in items]),
             "capability_count": len({item.capability for item in items if item.capability}),
@@ -350,14 +373,17 @@ def capability_breakdown(cases: Sequence[CaseRunResult]) -> dict[str, dict[str, 
         capability: {
             "case_count": len(items),
             "failure_count": sum(1 for item in items if not item.ok),
+            "request_failure_count": sum(is_request_failure(item) for item in items),
+            "semantic_case_count": sum(is_semantic_result(item) for item in items),
+            "semantic_failure_count": sum(is_semantic_failure(item) for item in items),
             "accuracy": accuracy(items),
             "expected_recall": _ratio(
-                sum(1 for item in items if item.expected_ok),
-                len(items),
+                sum(1 for item in items if is_semantic_result(item) and item.expected_ok),
+                sum(is_semantic_result(item) for item in items),
             ),
             "forbidden_leak_rate": _ratio(
-                sum(1 for item in items if not item.forbidden_ok),
-                len(items),
+                sum(1 for item in items if is_semantic_result(item) and not item.forbidden_ok),
+                sum(is_semantic_result(item) for item in items),
             ),
             **coverage_summary(items),
         }
@@ -366,6 +392,7 @@ def capability_breakdown(cases: Sequence[CaseRunResult]) -> dict[str, dict[str, 
 
 
 def coverage_summary(run_results: Sequence[CaseRunResult]) -> dict[str, object]:
+    run_results = [item for item in run_results if is_semantic_result(item)]
     expected_term_count = sum(
         len(item.covered_terms) + len(item.missing_terms) for item in run_results
     )
@@ -415,7 +442,8 @@ def flat_capability_failure_count(run_results: Sequence[CaseRunResult]) -> dict[
 
 
 def accuracy(run_results: Sequence[CaseRunResult]) -> float:
-    return _ratio(sum(1 for item in run_results if item.ok), len(run_results))
+    semantic_results = [item for item in run_results if is_semantic_result(item)]
+    return _ratio(sum(1 for item in semantic_results if item.ok), len(semantic_results))
 
 
 def p95(values: Sequence[float]) -> float:
