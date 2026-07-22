@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 from collections.abc import Awaitable
 from dataclasses import dataclass
+from itertools import islice
 from typing import TypeVar
 
 from infinity_context_core.application import (
@@ -46,6 +47,11 @@ from infinity_context_core.ports.capabilities import (
     CapabilityStatus,
     MemoryScopeFilter,
     RagRecallPort,
+)
+from infinity_context_core.ports.repositories import (
+    ActiveAnchorKey,
+    AnchorScopeQuery,
+    ChunkKeywordSearch,
 )
 from infinity_context_core.ports.unit_of_work import UnitOfWorkFactoryPort
 
@@ -148,38 +154,73 @@ class CanonicalContextCollector:
             )
             anchors: list[MemoryAnchor] = []
             anchor_limit = min(100, max(query.max_facts * 2, 20))
-            for memory_scope_id in memory_scope_ids:
-                anchors.extend(
-                    await uow.anchors.list_for_scope(
-                        space_id=str(query.space_id),
-                        memory_scope_id=memory_scope_id,
-                        kind=None,
-                        status="active",
-                        limit=anchor_limit,
-                    )
+            anchor_scope_requests = tuple(
+                AnchorScopeQuery(
+                    space_id=str(query.space_id),
+                    memory_scope_id=memory_scope_id,
+                    kind=None,
+                    status="active",
+                    limit=anchor_limit,
                 )
-            anchors_by_id = {str(anchor.id): anchor for anchor in anchors}
-            lookup_keys_considered = 0
-            anchors_loaded_by_lookup = 0
-            for memory_scope_id in memory_scope_ids:
-                for kind, normalized_key in _bounded_anchor_lookup_keys(
-                    anchor_lookup_keys or (),
-                ):
-                    if lookup_keys_considered >= 64:
-                        break
-                    lookup_keys_considered += 1
-                    anchor = await uow.anchors.find_active_by_key(
-                        space_id=str(query.space_id),
-                        memory_scope_id=memory_scope_id,
-                        kind=kind,
-                        normalized_key=normalized_key,
+                for memory_scope_id in memory_scope_ids
+            )
+            list_for_scopes = getattr(uow.anchors, "list_for_scopes", None)
+            if not anchor_scope_requests:
+                anchor_groups = []
+            elif callable(list_for_scopes):
+                anchor_groups = await list_for_scopes(anchor_scope_requests)
+            else:
+                anchor_groups = [
+                    await uow.anchors.list_for_scope(
+                        space_id=request.space_id,
+                        memory_scope_id=request.memory_scope_id,
+                        kind=request.kind,
+                        status=request.status,
+                        limit=request.limit,
                     )
-                    if anchor is None or str(anchor.id) in anchors_by_id:
-                        continue
-                    anchors_by_id[str(anchor.id)] = anchor
-                    anchors_loaded_by_lookup += 1
-                if lookup_keys_considered >= 64:
-                    break
+                    for request in anchor_scope_requests
+                ]
+            for anchor_group in anchor_groups:
+                anchors.extend(anchor_group)
+            anchors_by_id = {str(anchor.id): anchor for anchor in anchors}
+            bounded_lookup_keys = _bounded_anchor_lookup_keys(anchor_lookup_keys or ())
+            anchor_key_requests = tuple(
+                islice(
+                    (
+                        ActiveAnchorKey(
+                            space_id=str(query.space_id),
+                            memory_scope_id=memory_scope_id,
+                            kind=kind,
+                            normalized_key=normalized_key,
+                        )
+                        for memory_scope_id in memory_scope_ids
+                        for kind, normalized_key in bounded_lookup_keys
+                    ),
+                    64,
+                )
+            )
+            lookup_keys_considered = len(anchor_key_requests)
+            anchors_loaded_by_lookup = 0
+            find_active_by_keys = getattr(uow.anchors, "find_active_by_keys", None)
+            if not anchor_key_requests:
+                looked_up_anchors = []
+            elif callable(find_active_by_keys):
+                looked_up_anchors = await find_active_by_keys(anchor_key_requests)
+            else:
+                looked_up_anchors = [
+                    await uow.anchors.find_active_by_key(
+                        space_id=request.space_id,
+                        memory_scope_id=request.memory_scope_id,
+                        kind=request.kind,
+                        normalized_key=request.normalized_key,
+                    )
+                    for request in anchor_key_requests
+                ]
+            for anchor in looked_up_anchors:
+                if anchor is None or str(anchor.id) in anchors_by_id:
+                    continue
+                anchors_by_id[str(anchor.id)] = anchor
+                anchors_loaded_by_lookup += 1
         return CanonicalCollectionResult(
             facts=tuple(facts),
             keyword_chunks=tuple(keyword_chunks),
@@ -212,18 +253,44 @@ async def _keyword_search_chunks(
         total_limit=limit,
         candidate_limit=candidate_limit,
     )
+    indexed_queries: list[tuple[int, QueryExpansion]] = []
     for index, retrieval_query in enumerate(retrieval_queries):
         normalized_query = " ".join(retrieval_query.query.split()).casefold()
         if not normalized_query or normalized_query in seen_queries:
             continue
         seen_queries.add(normalized_query)
-        chunks = await uow.chunks.keyword_search(
+        indexed_queries.append((index, retrieval_query))
+    requests = tuple(
+        ChunkKeywordSearch(
             space_id=space_id,
             memory_scope_ids=memory_scope_ids,
             thread_id=thread_id,
             query=retrieval_query.query,
             limit=search_limit,
         )
+        for _, retrieval_query in indexed_queries
+    )
+    keyword_search_many = getattr(uow.chunks, "keyword_search_many", None)
+    if not requests:
+        chunk_groups = []
+    elif callable(keyword_search_many):
+        chunk_groups = await keyword_search_many(requests)
+    else:
+        chunk_groups = [
+            await uow.chunks.keyword_search(
+                space_id=request.space_id,
+                memory_scope_ids=request.memory_scope_ids,
+                thread_id=request.thread_id,
+                query=request.query,
+                limit=request.limit,
+            )
+            for request in requests
+        ]
+    for (index, retrieval_query), chunks in zip(
+        indexed_queries,
+        chunk_groups,
+        strict=True,
+    ):
         ranking_ids: list[str] = []
         for chunk in chunks:
             chunk_id = str(chunk.id)
