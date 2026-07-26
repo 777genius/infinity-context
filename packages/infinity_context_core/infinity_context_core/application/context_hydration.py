@@ -170,9 +170,16 @@ class ContextHydrator:
         if anchor_ids:
             async with self._uow_factory() as uow:
                 now = self._clock.now() if self._clock is not None else None
-                for anchor_id in anchor_ids:
-                    anchor = await uow.anchors.get_by_id(anchor_id)
-                    if anchor is not None and is_context_anchor_visible(
+                if hasattr(uow.anchors, "get_by_ids"):
+                    anchors = await uow.anchors.get_by_ids(anchor_ids)
+                else:
+                    anchors = []
+                    for anchor_id in anchor_ids:
+                        anchor = await uow.anchors.get_by_id(anchor_id)
+                        if anchor is not None:
+                            anchors.append(anchor)
+                for anchor in anchors:
+                    if is_context_anchor_visible(
                         anchor,
                         query=query,
                         memory_scope_ids=memory_scope_ids,
