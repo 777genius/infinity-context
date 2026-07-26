@@ -34,6 +34,9 @@
         "dropped_by_source_cap": 0,
         "dropped_by_source_group_cap": 0,
         "exact_query_object_turn_items_used": 0,
+        "inference_generic_displacements": 0,
+        "inference_reservation_attempted": false,
+        "inference_reservations_selected": 0,
         "item_type_counts": {
           "fact": 1
         },
@@ -106,6 +109,9 @@
         "exact_query_object_turn_items_used": 0,
         "graph_safe_message": "Graph retrieval degraded",
         "graph_status": "degraded",
+        "inference_generic_displacements": 0,
+        "inference_reservation_attempted": false,
+        "inference_reservations_selected": 0,
         "item_type_counts": {
           "fact": 1
         },
@@ -174,6 +180,9 @@
         "dropped_by_source_cap": 0,
         "dropped_by_source_group_cap": 0,
         "exact_query_object_turn_items_used": 0,
+        "inference_generic_displacements": 0,
+        "inference_reservation_attempted": false,
+        "inference_reservations_selected": 0,
         "item_type_counts": {
           "fact": 1
         },
@@ -245,6 +254,9 @@
         "dropped_by_source_group_cap": 0,
         "exact_query_object_turn_items_used": 0,
         "filtered_deleted_count": 1,
+        "inference_generic_displacements": 0,
+        "inference_reservation_attempted": false,
+        "inference_reservations_selected": 0,
         "item_type_counts": {
           "fact": 1
         },
@@ -315,6 +327,9 @@
         "dropped_by_source_cap": 0,
         "dropped_by_source_group_cap": 0,
         "exact_query_object_turn_items_used": 0,
+        "inference_generic_displacements": 0,
+        "inference_reservation_attempted": false,
+        "inference_reservations_selected": 0,
         "item_type_counts": {},
         "items_considered": 0,
         "items_used": 0,
@@ -367,6 +382,9 @@
         "dropped_by_source_cap": 0,
         "dropped_by_source_group_cap": 0,
         "exact_query_object_turn_items_used": 0,
+        "inference_generic_displacements": 0,
+        "inference_reservation_attempted": false,
+        "inference_reservations_selected": 0,
         "item_type_counts": {
           "fact": 2
         },
@@ -448,6 +466,9 @@
         "dropped_by_source_cap": 0,
         "dropped_by_source_group_cap": 0,
         "exact_query_object_turn_items_used": 0,
+        "inference_generic_displacements": 0,
+        "inference_reservation_attempted": false,
+        "inference_reservations_selected": 0,
         "item_type_counts": {
           "chunk": 1,
           "fact": 1
@@ -530,6 +551,9 @@
         "dropped_by_source_cap": 0,
         "dropped_by_source_group_cap": 0,
         "exact_query_object_turn_items_used": 0,
+        "inference_generic_displacements": 0,
+        "inference_reservation_attempted": false,
+        "inference_reservations_selected": 0,
         "instruction_candidate_contract": "drop_fail_closed",
         "item_type_counts": {
           "fact": 1
@@ -601,6 +625,9 @@
         "dropped_by_source_cap": 0,
         "dropped_by_source_group_cap": 0,
         "exact_query_object_turn_items_used": 0,
+        "inference_generic_displacements": 0,
+        "inference_reservation_attempted": false,
+        "inference_reservations_selected": 0,
         "item_type_counts": {
           "chunk": 1
         },
@@ -670,6 +697,9 @@
         "dropped_by_source_cap": 0,
         "dropped_by_source_group_cap": 0,
         "exact_query_object_turn_items_used": 0,
+        "inference_generic_displacements": 0,
+        "inference_reservation_attempted": false,
+        "inference_reservations_selected": 0,
         "item_type_counts": {
           "chunk": 1
         },
@@ -739,6 +769,9 @@
         "dropped_by_source_cap": 0,
         "dropped_by_source_group_cap": 0,
         "exact_query_object_turn_items_used": 0,
+        "inference_generic_displacements": 0,
+        "inference_reservation_attempted": false,
+        "inference_reservations_selected": 0,
         "item_type_counts": {
           "fact": 1
         },
