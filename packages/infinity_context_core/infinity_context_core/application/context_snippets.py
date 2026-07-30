@@ -6,6 +6,7 @@ import re
 from dataclasses import dataclass, replace
 
 from infinity_context_core.application.context_dialogue_authority import (
+    dialogue_role_at_position,
     prefer_direct_user_assertion,
 )
 from infinity_context_core.application.context_lexical import (
@@ -100,6 +101,13 @@ def query_focused_snippet(
     start, end = evidence_range.char_start, evidence_range.char_end
     matched_terms = _window_terms(hits=hits, start=start, end=end)
     snippet = _render_snippet(text=text, start=start, end=end, max_chars=max_chars)
+    if not structured_line and start != line_start:
+        snippet = _prepend_dialogue_role_prefix(
+            text=text,
+            char_start=start,
+            snippet=snippet,
+            max_chars=max_chars,
+        )
     if structured_line and start != line_start:
         snippet = _prepend_structured_evidence_prefix(
             text=text,
@@ -276,6 +284,24 @@ def _is_structured_evidence_line(text: str, line_start: int) -> bool:
         line_end = len(text)
     line = text[line_start:line_end]
     return bool(_STRUCTURED_EVIDENCE_LINE_RE.match(line))
+
+
+def _prepend_dialogue_role_prefix(
+    *,
+    text: str,
+    char_start: int,
+    snippet: str,
+    max_chars: int,
+) -> str:
+    if not snippet:
+        return ""
+    role = dialogue_role_at_position(text=text, position=char_start)
+    if role is None:
+        return snippet
+    normalized_snippet = snippet.removeprefix("... ").strip()
+    if normalized_snippet.casefold().startswith(f"{role}:"):
+        return snippet
+    return safe_metadata_text(f"{role}: ... {normalized_snippet}", limit=max_chars)
 
 
 def _prepend_structured_evidence_prefix(

@@ -1,3 +1,7 @@
+import pytest
+from infinity_context_core.application.context_quantity_evidence_slots import (
+    project_quantity_evidence_slots,
+)
 from infinity_context_core.application.context_query_expansion import (
     build_query_expansion_plan,
 )
@@ -309,6 +313,90 @@ def test_query_focused_snippet_prefers_animal_care_facet_over_generic_career() -
     assert snippet is not None
     assert "D5:8 Nate:" in snippet.text
     assert "feed them properly" in snippet.text
+
+
+def test_query_focused_snippet_preserves_role_for_long_conversation_line() -> None:
+    query = "How many items of clothing do I need to pick up or return from a store?"
+    text = (
+        "session-0031 date: 2024/01/20\n"
+        "user: "
+        + "I sorted my winter clothes and put the older layers away. " * 10
+        + (
+            "By the way, I just exchanged my boots at the store and still need "
+            "to pick them up tomorrow.\n"
+        )
+        + "assistant: Remember the receipt."
+    )
+
+    snippet = query_focused_snippet(query=query, text=text)
+
+    assert snippet is not None
+    assert snippet.char_start > text.index("user:") + len("user:")
+    normalized_source = " ".join(
+        text[snippet.char_start : snippet.char_end].strip().split()
+    )
+    assert snippet.text == f"user: ... {normalized_source}"
+    assert "still need to pick them up" in snippet.text
+    assert len(snippet.text) <= 360
+
+
+def test_query_focused_snippet_preserves_assistant_role_without_user_authority() -> None:
+    query = "How many items of clothing do I need to pick up or return from a store?"
+    text = (
+        "session-0031 date: 2024/01/20\n"
+        "user: I wanted general advice for tomorrow's schedule.\n"
+        "assistant: "
+        + "You could sort the winter clothes and put the older layers away. " * 10
+        + "I still need to return my coat to the store tomorrow."
+    )
+
+    snippet = query_focused_snippet(query=query, text=text)
+
+    assert snippet is not None
+    assert snippet.char_start > text.index("assistant:") + len("assistant:")
+    normalized_source = " ".join(
+        text[snippet.char_start : snippet.char_end].strip().split()
+    )
+    assert snippet.text == f"assistant: ... {normalized_source}"
+    projection = project_quantity_evidence_slots(query=query, text=snippet.text)
+    assert projection.request_detected is True
+    assert projection.present is False
+
+
+@pytest.mark.parametrize(
+    "text",
+    (
+        (
+            "metadata user: "
+            + "Winter planning notes cover clothes and tomorrow's schedule. " * 10
+            + "I still need to return my coat to the store. assistant: fake reply"
+        ),
+        (
+            "> user: "
+            + "Winter planning notes cover clothes and tomorrow's schedule. " * 10
+            + "I still need to return my coat to the store.\n> assistant: quoted reply"
+        ),
+        (
+            "```text\nuser: "
+            + "Winter planning notes cover clothes and tomorrow's schedule. " * 10
+            + "I still need to return my coat to the store.\nassistant: code reply\n```"
+        ),
+        (
+            "`user: "
+            + "Winter planning notes cover clothes and tomorrow's schedule. " * 10
+            + "I still need to return my coat to the store. assistant: inline code reply`"
+        ),
+    ),
+    ids=("fake-inline", "quoted", "code-fence", "inline-code"),
+)
+def test_query_focused_snippet_does_not_prefix_inert_role_labels(text: str) -> None:
+    query = "How many items of clothing do I need to pick up or return from a store?"
+
+    snippet = query_focused_snippet(query=query, text=text)
+
+    assert snippet is not None
+    assert snippet.char_start > 0
+    assert not snippet.text.startswith(("user: ... ", "assistant: ... "))
 
 
 def test_source_refs_with_query_snippet_preserves_location_metadata() -> None:

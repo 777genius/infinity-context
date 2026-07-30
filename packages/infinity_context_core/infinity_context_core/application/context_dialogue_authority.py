@@ -158,6 +158,22 @@ def prefer_direct_user_assertion(
     return selected
 
 
+def dialogue_role_at_position(*, text: str, position: int) -> str | None:
+    """Return the validated dialogue role owning one source-text position."""
+
+    if (
+        not isinstance(text, str)
+        or not isinstance(position, int)
+        or isinstance(position, bool)
+        or not 0 <= position < len(text)
+    ):
+        return None
+    for turn in _dialogue_turns(text):
+        if turn.marker_start <= position < turn.end:
+            return turn.role
+    return None
+
+
 def _dialogue_turns(text: str) -> tuple[_DialogueTurn, ...]:
     ignored_ranges = _ignored_role_label_ranges(text)
     markers = tuple(

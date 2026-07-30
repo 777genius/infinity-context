@@ -5,6 +5,7 @@ from copy import deepcopy
 from dataclasses import FrozenInstanceError
 
 import pytest
+from infinity_context_core.application.context_snippets import query_focused_snippet
 from infinity_context_server import ranked_evidence_answer_support as support_policy
 from infinity_context_server.ranked_evidence_answer_support import (
     RankedEvidenceAnswerSupportObservation,
@@ -596,6 +597,98 @@ def test_longmemeval_embedded_same_session_counts_three_and_rejects_decoy() -> N
 
     assert metrics["expected_unit_count"] == 3
     assert metrics["cutoffs"][0]["supported_unit_count"] == 3
+    assert metrics["matches"] is True
+
+
+def test_longmemeval_canonical_and_alias_refs_share_strict_session_authority() -> None:
+    canonical = "longmemeval:shape-case:session:12:pair:3:message:1"
+
+    assert (
+        support_policy._observation_session_key((canonical, "session-0012"))
+        == "longmemeval:session-0012"
+    )
+    assert support_policy._observation_session_key((canonical, "session-0020")) is False
+    assert support_policy._observation_session_key((f"{canonical}:session-0012",)) is False
+
+
+@pytest.mark.parametrize(
+    "canonical",
+    [
+        "longmemeval:shape-case:session:0:pair:3",
+        "longmemeval:shape-case:session:10000:pair:3",
+        "longmemeval:shape-case:session:12:pair:0",
+        "longmemeval:shape-case:session:12:pair:3:message:0",
+        f"longmemeval:{'x' * 161}:session:12:pair:3",
+        "longmemeval:shape/case:session:12:pair:3",
+    ],
+)
+def test_longmemeval_canonical_session_authority_rejects_invalid_bounds(
+    canonical: str,
+) -> None:
+    assert support_policy._observation_session_key((canonical,)) is False
+
+
+def test_production_shaped_quantity_observations_keep_three_supported_members() -> None:
+    question = _QUANTITY_QUESTION
+    long_source = (
+        "session-0031 date: 2024/01/20\n"
+        "user: "
+        + "I sorted my winter clothes and put the older layers away. " * 10
+        + (
+            "By the way, I just exchanged my boots at the store and still need "
+            "to pick them up tomorrow.\n"
+        )
+        + "assistant: Remember the receipt."
+    )
+    snippet = query_focused_snippet(query=question, text=long_source)
+    assert snippet is not None
+    source_rows = (
+        (
+            "first",
+            "user: I still need to return my coat to the store.",
+            ("longmemeval:shape-case:session:12:pair:3", "session-0012"),
+        ),
+        (
+            "second",
+            "user: I still need to return my blazer to the shop.",
+            ("longmemeval:shape-case:session:20:pair:7", "session-0020"),
+        ),
+        (
+            "third",
+            snippet.text,
+            (
+                "longmemeval:shape-case:session:31:pair:3:message:1",
+                "session-0031",
+            ),
+        ),
+    )
+    observations = tuple(
+        _observation(
+            fingerprint,
+            evidence,
+            cutoff=cutoff,
+            source_refs=source_refs,
+        )
+        for cutoff in (50, 200)
+        for fingerprint, evidence, source_refs in source_rows
+    )
+
+    metrics = _quantity_metrics(
+        observations,
+        expected_refs=("session-0012", "session-0020", "session-0031"),
+    )
+
+    assert metrics["applicable"] is True
+    assert metrics["expected_unit_count"] == 3
+    assert metrics["cutoffs"] == [
+        {
+            "cutoff": cutoff,
+            "supported_unit_count": 3,
+            "recall": 1.0,
+            "complete": True,
+        }
+        for cutoff in (50, 200)
+    ]
     assert metrics["matches"] is True
 
 

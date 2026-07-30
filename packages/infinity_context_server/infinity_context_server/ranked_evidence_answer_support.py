@@ -86,6 +86,13 @@ _LONGMEMEVAL_SESSION_REF_RE = re.compile(
     r"(?<![a-z0-9])session-(?P<session>\d{4})(?!\d)",
     re.IGNORECASE,
 )
+_LONGMEMEVAL_CANONICAL_SOURCE_REF_RE = re.compile(
+    r"^longmemeval:(?P<case>[a-z0-9][a-z0-9._-]{0,159}):"
+    r"session:(?P<session>[1-9]\d{0,3})"
+    r"(?::pair:(?P<pair>[1-9]\d{0,6})"
+    r"(?::message:(?P<message>[1-9]\d{0,6}))?)?$",
+    re.IGNORECASE,
+)
 _COUNT_WORDS = {
     "one": 1,
     "two": 2,
@@ -444,6 +451,11 @@ def _session_keys_from_ref(source_ref: str) -> frozenset[str] | None:
         f"longmemeval:session-{match.group('session')}"
         for match in _LONGMEMEVAL_SESSION_REF_RE.finditer(source_ref)
     )
+    canonical = _LONGMEMEVAL_CANONICAL_SOURCE_REF_RE.fullmatch(source_ref)
+    if source_ref.casefold().startswith("longmemeval:") and ":session:" in source_ref.casefold():
+        if canonical is None:
+            return None
+        sessions.add(f"longmemeval:session-{int(canonical.group('session')):04d}")
     if len(sessions) > 1:
         return None
     return frozenset(sessions)
