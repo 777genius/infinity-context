@@ -129,6 +129,7 @@ def test_context_building_server_feature_public_surface_composes_router() -> Non
         "build_context_building_server_feature",
         "build_context_query_from_contract",
         "build_context_result_to_contract",
+        "benchmark_context_char_budget",
         "build_legacy_context_query_from_request",
         "build_legacy_digest_query_from_request",
         "create_context_building_router",

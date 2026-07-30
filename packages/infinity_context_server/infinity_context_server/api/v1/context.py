@@ -38,6 +38,23 @@ _LEGACY_CONTEXT_API_RESPONSES = context_building_server.LegacyContextApiResponse
     source_ref_to_response=source_ref_to_response,
 )
 
+_RANKED_EVIDENCE_DIAGNOSTIC_KEYS = (
+    "ranked_evidence_candidate_count",
+    "ranked_evidence_projection_candidate_count",
+    "ranked_evidence_selectable_candidate_count",
+    "ranked_evidence_eligible_candidate_count",
+    "ranked_evidence_returned_count",
+    "ranked_evidence_compact_projection_count",
+    "ranked_evidence_source_diversity_count",
+    "ranked_evidence_budget_drop_count",
+    "ranked_evidence_item_budget_drop_count",
+    "ranked_evidence_token_budget_drop_count",
+    "ranked_evidence_char_budget_drop_count",
+    "ranked_evidence_instruction_drop_count",
+    "ranked_evidence_unsafe_source_drop_count",
+    "ranked_evidence_source_dedupe_drop_count",
+)
+
 
 def context_item_to_response(item: object) -> dict[str, Any]:
     return _LEGACY_CONTEXT_API_RESPONSES.context_item_to_response(item)
@@ -243,7 +260,90 @@ async def benchmark_search_memory(
     request: context_building_server.BenchmarkContextRequest,
     container: Annotated[Container, Depends(get_container)],
 ) -> dict[str, Any]:
-    return await search_memory(request, container)  # type: ignore[arg-type]
+    started = perf_counter()
+    request_id = container.ids.new_id("req")
+    if not should_retrieve(container):
+        response = _LEGACY_CONTEXT_API_RESPONSES.empty_search_response(
+            policy_mode=container.settings.policy_mode.value,
+            request_id=request_id,
+            consistency_mode=request.consistency_mode.value,
+            include_answer_support=False,
+        )
+        container.runtime_metrics.record_context(
+            latency_ms=_elapsed_ms(started),
+            diagnostics=response["data"]["diagnostics"],
+            request_id=request_id,
+            use_case="benchmark_search_memory",
+        )
+        return response
+    scope = await resolve_existing_context_scope(
+        container,
+        space_id=request.space_id,
+        memory_scope_ids=request.memory_scope_ids,
+        thread_id=request.thread_id,
+        space_slug=request.space_slug,
+        memory_scope_external_ref=request.memory_scope_external_ref,
+        memory_scope_external_refs=request.memory_scope_external_refs,
+        thread_external_ref=request.thread_external_ref,
+    )
+    if scope is None:
+        response = _LEGACY_CONTEXT_API_RESPONSES.empty_search_response(
+            policy_mode=container.settings.policy_mode.value,
+            request_id=request_id,
+            consistency_mode=request.consistency_mode.value,
+            scope_not_found=True,
+        )
+        container.runtime_metrics.record_context(
+            latency_ms=_elapsed_ms(started),
+            diagnostics=response["data"]["diagnostics"],
+            request_id=request_id,
+            use_case="benchmark_search_memory",
+        )
+        return response
+    bundle = await container.build_context.execute(
+        context_building_server.build_legacy_context_query_from_request(
+            request,
+            scope=scope,
+            max_rendered_chars=context_building_server.benchmark_context_char_budget(
+                token_budget=request.token_budget,
+                deployment_max_context_chars=container.settings.max_context_chars,
+            ),
+            selection_mode="ranked_evidence",
+            selection_item_limit=request.max_evidence_items,
+        )
+    )
+    response = _LEGACY_CONTEXT_API_RESPONSES.search_response_from_bundle(
+        bundle,
+        request_id=request_id,
+    )
+    _preserve_ranked_evidence_diagnostics(
+        response["data"]["diagnostics"],
+        bundle.diagnostics,
+    )
+    container.runtime_metrics.record_context(
+        latency_ms=_elapsed_ms(started),
+        diagnostics=response["data"]["diagnostics"],
+        request_id=request_id,
+        use_case="benchmark_search_memory",
+        scope=_trace_scope(scope),
+    )
+    return response
+
+
+def _preserve_ranked_evidence_diagnostics(
+    response_diagnostics: dict[str, Any],
+    bundle_diagnostics: dict[str, object],
+) -> None:
+    for key in tuple(response_diagnostics):
+        if key.startswith("ranked_evidence_") and key not in (_RANKED_EVIDENCE_DIAGNOSTIC_KEYS):
+            response_diagnostics.pop(key)
+    response_diagnostics.update(
+        {
+            key: bundle_diagnostics[key]
+            for key in _RANKED_EVIDENCE_DIAGNOSTIC_KEYS
+            if key in bundle_diagnostics
+        }
+    )
 
 
 def _elapsed_ms(started: float) -> float:

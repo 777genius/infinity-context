@@ -40,9 +40,11 @@ from infinity_context_server.public_benchmark_models import (
 
 _INFINITY_CONTEXT_PUBLIC_MAX_FACTS = 100
 _INFINITY_CONTEXT_PUBLIC_MAX_CHUNKS = 200
+_INFINITY_CONTEXT_PUBLIC_MAX_EVIDENCE_ITEMS = 100
 _INFINITY_CONTEXT_PUBLIC_MAX_TOKEN_BUDGET = 16_000
 _INFINITY_CONTEXT_BENCHMARK_MAX_FACTS = 1_000
 _INFINITY_CONTEXT_BENCHMARK_MAX_CHUNKS = 2_000
+_INFINITY_CONTEXT_BENCHMARK_MAX_EVIDENCE_ITEMS = 200
 _INFINITY_CONTEXT_BENCHMARK_MAX_TOKEN_BUDGET = 64_000
 class InfinityContextHttpComparisonBackend:
     """Benchmark backend for Infinity Context's public HTTP API."""
@@ -150,6 +152,12 @@ class InfinityContextHttpComparisonBackend:
         token_budget = min(requested_token_budget, token_budget_limit)
         max_facts = min(top_k, max_facts_limit)
         max_chunks = min(top_k, max_chunks_limit)
+        max_evidence_items_limit = (
+            _INFINITY_CONTEXT_BENCHMARK_MAX_EVIDENCE_ITEMS
+            if self._use_benchmark_search
+            else _INFINITY_CONTEXT_PUBLIC_MAX_EVIDENCE_ITEMS
+        )
+        max_evidence_items = min(top_k, max_evidence_items_limit)
         search_queries, query_decomposition = decomposed_search_queries(case)
         search_path = (
             "/v1/context/benchmark-search"
@@ -168,6 +176,7 @@ class InfinityContextHttpComparisonBackend:
                     "token_budget": token_budget,
                     "max_facts": max_facts,
                     "max_chunks": max_chunks,
+                    "max_evidence_items": max_evidence_items,
                 },
             )
             response.raise_for_status()
@@ -196,6 +205,7 @@ class InfinityContextHttpComparisonBackend:
                 "requested_top_k": top_k,
                 "applied_max_facts": max_facts,
                 "applied_max_chunks": max_chunks,
+                "applied_max_evidence_items": max_evidence_items,
                 "retrieval_source_counts": _retrieval_source_counts(memories),
                 "query_expansion": query_decomposition,
                 "query_decomposition": query_decomposition,
@@ -208,6 +218,7 @@ class InfinityContextHttpComparisonBackend:
                 "limited_by_http_api_caps": (
                     max_facts < top_k
                     or max_chunks < top_k
+                    or max_evidence_items < top_k
                     or token_budget < requested_token_budget
                 ),
             },

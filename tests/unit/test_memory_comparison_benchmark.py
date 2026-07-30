@@ -3706,6 +3706,7 @@ def test_infinity_context_http_search_uses_isolated_context_payload() -> None:
             "token_budget": 2048,
             "max_facts": 7,
             "max_chunks": 7,
+            "max_evidence_items": 7,
         }
     ]
     assert result.total_results == 1
@@ -17482,8 +17483,10 @@ def test_infinity_context_http_search_uses_benchmark_top_k_by_default() -> None:
     assert seen_payloads[0]["token_budget"] == 25600
     assert seen_payloads[0]["max_facts"] == 200
     assert seen_payloads[0]["max_chunks"] == 200
+    assert seen_payloads[0]["max_evidence_items"] == 200
     assert result.metadata["requested_top_k"] == 200
     assert result.metadata["applied_max_facts"] == 200
+    assert result.metadata["applied_max_evidence_items"] == 200
     assert result.metadata["applied_token_budget"] == 25600
     assert result.metadata["limited_by_http_api_caps"] is False
 
@@ -17519,8 +17522,10 @@ def test_infinity_context_http_search_can_use_public_api_caps() -> None:
     assert seen_payloads[0]["token_budget"] == 16000
     assert seen_payloads[0]["max_facts"] == 100
     assert seen_payloads[0]["max_chunks"] == 200
+    assert seen_payloads[0]["max_evidence_items"] == 100
     assert result.metadata["requested_top_k"] == 200
     assert result.metadata["applied_max_facts"] == 100
+    assert result.metadata["applied_max_evidence_items"] == 100
     assert result.metadata["applied_token_budget"] == 16000
     assert result.metadata["limited_by_http_api_caps"] is True
 
