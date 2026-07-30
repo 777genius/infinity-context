@@ -23,7 +23,10 @@ from infinity_context_core.application.context_ranking import (
     query_expansion_reason_priority,
     reciprocal_rank_fusion_scores,
 )
-from infinity_context_core.application.context_relevance import score_query_relevance
+from infinity_context_core.application.context_relevance import (
+    is_query_relevance_sufficient,
+    score_query_relevance,
+)
 from infinity_context_core.application.dto import ContextItem
 from infinity_context_core.domain.entities import SourceRef
 
@@ -448,7 +451,7 @@ def test_weak_item_purchase_bridge_does_not_override_direct_quantity_evidence() 
 
     assert reason == "decomposition_quantity_count"
     assert relevance.distinctive_term_hits >= 3
-    assert context_relevance_module.is_query_relevance_sufficient(relevance)
+    assert is_query_relevance_sufficient(relevance)
 
 
 def test_keyword_chunk_score_boosts_temporal_figurine_purchase_reason() -> None:
