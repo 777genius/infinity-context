@@ -380,6 +380,64 @@ def test_exact_gold_accessor_fails_closed_on_overflow_or_malformed_values(
         gate._exact_case_evidence_refs(case)
 
 
+def test_observed_source_refs_extracts_identity_without_mapping_payload_leakage() -> None:
+    private_quote = "private quote session-0042 " + "x" * 600
+    item = {
+        "source_refs": [
+            {
+                "source_id": "longmemeval:case:session-0031:pair:3",
+                "quote_preview": private_quote,
+            },
+            {"source_id": "session-0031", "quote_preview": private_quote},
+            {
+                "source_id": "provider:private-session-0031",
+                "quote_preview": private_quote,
+            },
+        ]
+    }
+
+    refs = gate._observed_source_refs(item)
+
+    assert refs == (
+        "longmemeval:case:session-0031:pair:3",
+        "session-0031",
+    )
+    assert all(0 < len(ref) <= 512 for ref in refs)
+    assert all("private quote" not in ref for ref in refs)
+
+
+def test_observed_source_refs_preserves_mixed_sessions_for_fail_closed_policy() -> None:
+    refs = gate._observed_source_refs(
+        {
+            "source_refs": [
+                {"source_id": "longmemeval:case:session-0031"},
+                {"source_id": "longmemeval:case:session-0042"},
+            ]
+        }
+    )
+
+    metrics = gate.ranked_evidence_answer_support_metrics(
+        (
+            gate.RankedEvidenceAnswerSupportObservation(
+                cutoff=2,
+                fingerprint="mixed-sessions",
+                text="I still need to return my coat to the store.",
+                source_refs=refs,
+            ),
+        ),
+        question="How many items of clothing do I need to pick up or return from a store?",
+        expected_terms=("1",),
+        expected_refs=("session-0031",),
+    )
+
+    assert refs == (
+        "longmemeval:case:session-0031",
+        "longmemeval:case:session-0042",
+    )
+    assert metrics["applicable"] is False
+    assert metrics["fallback_reason"] == "quantity_policy_error"
+
+
 def test_public_evidence_fingerprint_ignores_database_item_ids() -> None:
     first = {
         "item_id": "database-row-1",

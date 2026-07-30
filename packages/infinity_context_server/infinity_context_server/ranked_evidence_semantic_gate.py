@@ -29,11 +29,9 @@ from infinity_context_server.memory_comparison_locomo_cases import (
     LOCOMO_INGEST_OFFICIAL_TURNS,
     LOCOMO_INGEST_RICH_DOCUMENTS,
 )
-from infinity_context_server.memory_comparison_quality_accessors import (
-    source_refs_from_bundle_item,
-)
 from infinity_context_server.memory_comparison_source_identity import (
     safe_source_refs_for_output,
+    source_identity_refs_from_dedupe_key,
     source_identity_refs_from_source_refs,
 )
 from infinity_context_server.public_benchmark_artifacts import write_json_atomic
@@ -52,7 +50,6 @@ from infinity_context_server.ranked_evidence_answer_support import (
 from infinity_context_server.ranked_evidence_evaluator_helpers import (
     benchmark_memory_source_id,
     evaluator_only_payload,
-    source_ref_id,
 )
 from infinity_context_server.ranked_evidence_retrieval_request import (
     RankedEvidenceRetrievalRequest,
@@ -666,20 +663,15 @@ def _covered_expected_refs(
 
 
 def _observed_source_refs(item: Mapping[str, object]) -> tuple[str, ...]:
-    observed = list(source_refs_from_bundle_item(item))
-    raw_refs = item.get("source_refs")
-    if _is_sequence(raw_refs):
-        for raw_ref in raw_refs:
-            identifier = source_ref_id(raw_ref)
-            if not identifier:
-                continue
-            observed.extend(safe_source_refs_for_output((identifier,)))
-            observed.extend(
-                source_identity_refs_from_source_refs(
-                    (identifier,),
-                    include_exact_turn_refs=True,
-                )
-            )
+    observed = list(safe_source_refs_for_output((item,)))
+    observed.extend(
+        source_identity_refs_from_source_refs(
+            (item,),
+            include_exact_turn_refs=True,
+        )
+    )
+    for key in ("source_ref_dedupe_key", "dedupe_key"):
+        observed.extend(source_identity_refs_from_dedupe_key(item.get(key)))
     return tuple(dict.fromkeys(observed))
 
 
