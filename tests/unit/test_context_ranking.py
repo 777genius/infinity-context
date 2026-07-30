@@ -8566,6 +8566,63 @@ def test_deterministic_rerank_prefers_current_correction_over_old_session_fact()
     assert "temporal_query_current_active_match" not in old_reasons
 
 
+def test_temporal_supersedes_current_truth_overrides_stale_person_anchor_conflict() -> None:
+    query = "billing rollout owner was Alex last week"
+    plan = build_query_expansion_plan(query)
+    intent = build_query_anchor_intent(query)
+    replacement = _item(
+        "current_rollout_owner",
+        score=0.935,
+        retrieval_source="temporal_supersedes_relation",
+        text="Billing rollout owner is Priya now.",
+    )
+    ordinary_conflict = _item(
+        "unrelated_rollout_owner",
+        score=0.935,
+        retrieval_source="postgres_facts",
+        text="Billing rollout owner is Dana now.",
+    )
+
+    reranked = apply_deterministic_rerank_adjustments(
+        (replacement, ordinary_conflict),
+        query=query,
+        plan=plan,
+        query_anchor_intent=intent,
+    )
+    by_id = {item.item_id: item for item in reranked}
+    replacement_reasons = by_id["current_rollout_owner"].diagnostics["provenance"][
+        "deterministic_rerank_reasons"
+    ]
+    ordinary_reasons = by_id["unrelated_rollout_owner"].diagnostics["provenance"][
+        "deterministic_rerank_reasons"
+    ]
+
+    assert "query_anchor_conflict_overridden_by_temporal_supersedes" in replacement_reasons
+    assert "query_anchor_conflict" not in replacement_reasons
+    assert "query_anchor_conflict" in ordinary_reasons
+    assert by_id["current_rollout_owner"].score > by_id["unrelated_rollout_owner"].score
+
+
+def test_temporal_supersedes_override_does_not_apply_without_anchor_conflict() -> None:
+    query = "Who owns the billing rollout now?"
+    replacement = _item(
+        "current_rollout_owner",
+        score=0.935,
+        retrieval_source="temporal_supersedes_relation",
+        text="Billing rollout owner is Priya now.",
+    )
+
+    (reranked,) = apply_deterministic_rerank_adjustments(
+        (replacement,),
+        query=query,
+        plan=build_query_expansion_plan(query),
+        query_anchor_intent=build_query_anchor_intent(query),
+    )
+
+    reasons = reranked.diagnostics["provenance"]["deterministic_rerank_reasons"]
+    assert "query_anchor_conflict_overridden_by_temporal_supersedes" not in reasons
+
+
 def test_deterministic_rerank_prefers_latest_transition_over_old_current_state_fact() -> None:
     query = "What is the current Atlas provider?"
     plan = build_query_expansion_plan(query)

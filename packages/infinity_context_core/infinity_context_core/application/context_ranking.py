@@ -1929,6 +1929,10 @@ def _deterministic_rerank_signals(
             item=item,
         )
     )
+    temporal_supersedes_anchor_override = (
+        anchor_conflict
+        and "temporal_supersedes_relation" in sources
+    )
     current_state_correction_anchor_override = (
         anchor_conflict
         and temporal_query_intent.prefers_current
@@ -2355,6 +2359,8 @@ def _deterministic_rerank_signals(
         reasons.append("query_anchor_conflict_overridden_by_source_speaker")
     elif commonality_anchor_override:
         reasons.append("query_anchor_conflict_overridden_by_commonality_who_else")
+    elif temporal_supersedes_anchor_override:
+        reasons.append("query_anchor_conflict_overridden_by_temporal_supersedes")
     elif current_state_correction_anchor_override:
         reasons.append("query_anchor_conflict_overridden_by_current_state_correction")
     elif anchor_conflict and source_quote_anchor_matched:
