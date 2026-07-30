@@ -878,6 +878,12 @@ def _query_relevance_rank_key_for_plan(
         plan.original_query
     ):
         priority += 2
+    if reason == "decomposition_sport_team_attribute" and any(
+        item.reason == "decomposition_activity_duration" for item in plan.decompositions
+    ):
+        # Preserve the domain-specific decomposition when a compound query also
+        # requests a generic measured-duration answer unit.
+        priority += 2
     return (
         is_query_relevance_sufficient(relevance),
         priority,
