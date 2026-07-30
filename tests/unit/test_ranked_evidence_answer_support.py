@@ -14,6 +14,7 @@ from infinity_context_server.ranked_evidence_answer_support import (
 
 _QUESTION = "What activities has Riley done?"
 _EXPECTED = ("Museum visits, acrylic art; overnight trips and pool practice.",)
+_QUANTITY_QUESTION = "How many items of clothing do I need to pick up or return from a store?"
 _SLOT_ALIASES = {
     "museum": "activity_museum",
     "art": "activity_painting",
@@ -99,11 +100,27 @@ def _metrics(
     *,
     question: object = _QUESTION,
     expected_terms: object = _EXPECTED,
+    expected_refs: object = (),
 ) -> dict[str, object]:
     return ranked_evidence_answer_support_metrics(
         _full_observations() if observations is None else observations,
         question=question,
         expected_terms=expected_terms,
+        expected_refs=expected_refs,
+    )
+
+
+def _quantity_metrics(
+    observations: tuple[RankedEvidenceAnswerSupportObservation, ...],
+    *,
+    expected_terms: object = ("3",),
+    expected_refs: object = ("D2:1",),
+) -> dict[str, object]:
+    return _metrics(
+        observations,
+        question=_QUANTITY_QUESTION,
+        expected_terms=expected_terms,
+        expected_refs=expected_refs,
     )
 
 
@@ -524,3 +541,201 @@ def test_observation_cutoff_is_bounded_to_gate_contract() -> None:
         malformed,
         expected_cutoffs=(201,),
     )
+
+
+def test_locomo_quantity_counts_three_distinct_members_in_official_session() -> None:
+    metrics = _quantity_metrics(
+        (
+            _observation(
+                "locomo-colors",
+                "user: I still need to return my red and blue shirts to the store.",
+                source_refs=("source_session_turn_refs:session_2:D2:4",),
+            ),
+            _observation(
+                "locomo-boots",
+                "user: I still need to pick up my boots from Nordstrom Rack.",
+                source_refs=("source_session_turn_refs:session_2:D2:8",),
+            ),
+        ),
+    )
+
+    assert metrics["applicable"] is True
+    assert metrics["expected_unit_count"] == 3
+    assert metrics["cutoffs"] == [
+        {
+            "cutoff": 4,
+            "supported_unit_count": 3,
+            "recall": 1.0,
+            "complete": True,
+        }
+    ]
+    assert metrics["matches"] is True
+
+
+def test_longmemeval_embedded_same_session_counts_three_and_rejects_decoy() -> None:
+    metrics = _quantity_metrics(
+        (
+            _observation(
+                "longmem-official",
+                "user: I still need to return my red and blue shirts to the store.",
+                source_refs=("longmemeval:quantity-case:session-0012",),
+            ),
+            _observation(
+                "longmem-official-boots",
+                "user: I still need to pick up my boots from Nordstrom Rack.",
+                source_refs=("longmemeval:quantity-case:session-0012",),
+            ),
+            _observation(
+                "longmem-decoy",
+                "user: I still need to return my coat to Zara.",
+                source_refs=("longmemeval:quantity-case:session-0020",),
+            ),
+        ),
+        expected_refs=("session-0012",),
+    )
+
+    assert metrics["expected_unit_count"] == 3
+    assert metrics["cutoffs"][0]["supported_unit_count"] == 3
+    assert metrics["matches"] is True
+
+
+def test_quantity_unions_distinct_members_across_multiple_official_sessions() -> None:
+    metrics = _quantity_metrics(
+        (
+            _observation(
+                "union-first",
+                "user: I still need to return my red and blue shirts to the store.",
+                source_refs=("source_session_turn_refs:session_2:D2:4",),
+            ),
+            _observation(
+                "union-second",
+                "user: I still need to pick up my boots from Nordstrom Rack.",
+                source_refs=("source_session_turn_refs:session_4:D4:8",),
+            ),
+        ),
+        expected_refs=("D2:1", "session_4"),
+    )
+
+    assert metrics["cutoffs"][0]["supported_unit_count"] == 3
+    assert metrics["matches"] is True
+
+
+def test_quantity_incomplete_support_fails_match_without_leaking_values() -> None:
+    gold = "three"
+    official_session = "session-0031"
+    metrics = _quantity_metrics(
+        (
+            _observation(
+                "incomplete",
+                "user: I still need to return my red and blue shirts to the store.",
+                source_refs=(f"longmemeval:private-case:{official_session}",),
+            ),
+        ),
+        expected_terms=(gold,),
+        expected_refs=(official_session,),
+    )
+
+    assert metrics["cutoffs"][0] == {
+        "cutoff": 4,
+        "supported_unit_count": 2,
+        "recall": 2 / 3,
+        "complete": False,
+    }
+    assert metrics["matches"] is False
+    payload = json.dumps(metrics, sort_keys=True)
+    assert gold not in payload
+    assert official_session not in payload
+    assert "red" not in payload
+    assert "blue" not in payload
+    assert "member_" not in payload
+
+
+@pytest.mark.parametrize(
+    "expected_terms",
+    [
+        ("3 items",),
+        ("about three",),
+        ("03",),
+        ("seventeen",),
+        ("3", "three"),
+    ],
+)
+def test_quantity_gold_parser_accepts_only_exact_bounded_count(
+    expected_terms: tuple[str, ...],
+) -> None:
+    metrics = _quantity_metrics(
+        (
+            _observation(
+                "strict-gold",
+                "user: I still need to return my red and blue shirts to the store.",
+                source_refs=("source_session_turn_refs:session_2:D2:4",),
+            ),
+        ),
+        expected_terms=expected_terms,
+    )
+
+    assert metrics["applicable"] is False
+    assert metrics["matches"] is False
+
+
+def test_quantity_does_not_derive_retrieval_terms_from_gold(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    def must_not_expand(**_: object) -> tuple[str, ...]:
+        raise AssertionError("post-response gold must not seed retrieval terms")
+
+    monkeypatch.setattr(
+        support_policy._quantity_policy,
+        "quantity_evidence_retrieval_terms",
+        must_not_expand,
+    )
+    metrics = _quantity_metrics(
+        (
+            _observation(
+                "no-gold-retrieval",
+                "user: I still need to return my red and blue shirts to the store.",
+                source_refs=("source_session_turn_refs:session_2:D2:4",),
+            ),
+        ),
+    )
+
+    assert metrics["applicable"] is True
+
+
+def test_quantity_fails_closed_for_ambiguous_session_source_ref() -> None:
+    metrics = _quantity_metrics(
+        (
+            _observation(
+                "ambiguous-session",
+                "user: I still need to return my red and blue shirts to the store.",
+                source_refs=("longmemeval:quantity-case:session-0012:session-0020",),
+            ),
+        ),
+        expected_refs=("session-0012",),
+    )
+
+    assert metrics["applicable"] is False
+    assert metrics["fallback_reason"] == "quantity_policy_error"
+
+
+def test_quantity_fails_closed_for_official_and_unscoped_source_refs() -> None:
+    metrics = _quantity_metrics(
+        (
+            _observation(
+                "official-plus-unscoped-decoy",
+                (
+                    "user: I still need to return my red and blue shirts to the store. "
+                    "I also need to pick up my boots from Nordstrom Rack."
+                ),
+                source_refs=(
+                    "longmemeval:quantity-case:session-0012",
+                    "unscoped-decoy-source",
+                ),
+            ),
+        ),
+        expected_refs=("session-0012",),
+    )
+
+    assert metrics["applicable"] is False
+    assert metrics["fallback_reason"] == "quantity_policy_error"
+    assert metrics["matches"] is False

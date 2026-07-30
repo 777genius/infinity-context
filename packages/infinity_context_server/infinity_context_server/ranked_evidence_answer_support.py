@@ -1,8 +1,8 @@
-"""Gold-safe answer-unit support metrics for ranked activity evidence.
+"""Gold-safe answer-unit support metrics for ranked evidence.
 
 The caller must invoke this policy only after the benchmark response has been
-produced.  Expected answer terms are used transiently to derive generic activity
-slots and are never included in the returned metrics.
+produced. Expected answers and official refs are used transiently to derive
+generic support counts and are never included in the returned metrics.
 """
 
 from __future__ import annotations
@@ -11,6 +11,9 @@ import re
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 
+from infinity_context_core.application import (
+    context_quantity_evidence_slots as _quantity_policy,
+)
 from infinity_context_core.application import (
     context_ranked_activity_reservation as _activity_policy,
 )
@@ -29,6 +32,7 @@ _MAX_TEXT_CHARS = 32_768
 _MAX_SOURCE_REFS = 64
 _MAX_SOURCE_REF_CHARS = 512
 _MAX_EVIDENCE_SLOTS = 16
+_MAX_OFFICIAL_SESSIONS = 16
 
 _FALLBACK_REASONS = frozenset(
     {
@@ -36,9 +40,11 @@ _FALLBACK_REASONS = frozenset(
         "ambiguous_expected_unit_slots",
         "expected_unit_overflow",
         "invalid_expected_terms",
+        "invalid_expected_refs",
         "invalid_observations",
         "invalid_question",
         "non_monotonic_support",
+        "quantity_policy_error",
         "unsupported_answer_shape",
         "unsupported_query",
     }
@@ -67,6 +73,37 @@ _ANSWER_UNIT_SEPARATOR_RE = re.compile(
 )
 _UNSUPPORTED_ANSWER_DELIMITER_RE = re.compile(r"[\r\n|/&]")
 _SLOT_KEY_RE = re.compile(r"[a-z0-9][a-z0-9_-]{0,63}")
+_QUANTITY_MEMBER_ID_RE = re.compile(r"member_[0-9a-f]{16}")
+_LOCOMO_TURN_REF_RE = re.compile(
+    r"(?<![a-z0-9])D(?P<session>[1-9]\d{0,5}):[1-9]\d{0,6}(?!\d)",
+    re.IGNORECASE,
+)
+_LOCOMO_SESSION_REF_RE = re.compile(
+    r"(?<![a-z0-9])session_(?P<session>[1-9]\d{0,5})(?!\d)",
+    re.IGNORECASE,
+)
+_LONGMEMEVAL_SESSION_REF_RE = re.compile(
+    r"(?<![a-z0-9])session-(?P<session>\d{4})(?!\d)",
+    re.IGNORECASE,
+)
+_COUNT_WORDS = {
+    "one": 1,
+    "two": 2,
+    "three": 3,
+    "four": 4,
+    "five": 5,
+    "six": 6,
+    "seven": 7,
+    "eight": 8,
+    "nine": 9,
+    "ten": 10,
+    "eleven": 11,
+    "twelve": 12,
+    "thirteen": 13,
+    "fourteen": 14,
+    "fifteen": 15,
+    "sixteen": 16,
+}
 
 
 @dataclass(frozen=True, slots=True)
@@ -96,6 +133,7 @@ def ranked_evidence_answer_support_metrics(
     *,
     question: str,
     expected_terms: Sequence[str],
+    expected_refs: Sequence[str] = (),
 ) -> dict[str, object]:
     """Measure source-backed generic answer-unit support at ranked cutoffs.
 
@@ -116,7 +154,12 @@ def ranked_evidence_answer_support_metrics(
     if not isinstance(query_supported, bool):
         return _fallback("activity_policy_error")
     if not query_supported:
-        return _fallback("unsupported_query")
+        return _quantity_answer_support_metrics(
+            observations,
+            question=question,
+            expected_terms=expected_terms,
+            expected_refs=expected_refs,
+        )
 
     parsed = _expected_activity_slots(expected_terms)
     if isinstance(parsed, str):
@@ -196,7 +239,7 @@ def ranked_evidence_answer_support_metrics_contract_valid(
             and cutoffs == []
             and metrics["matches"] is False
         )
-    if fallback_reason is not None or not 2 <= expected_count <= _MAX_EXPECTED_UNITS or not cutoffs:
+    if fallback_reason is not None or not 1 <= expected_count <= _MAX_EXPECTED_UNITS or not cutoffs:
         return False
 
     previous_cutoff = 0
@@ -225,6 +268,7 @@ def ranked_evidence_answer_support(
     *,
     question: str,
     expected_terms: Sequence[str],
+    expected_refs: Sequence[str] = (),
 ) -> dict[str, object]:
     """Compatibility spelling for the public policy entry point."""
 
@@ -232,6 +276,7 @@ def ranked_evidence_answer_support(
         observations,
         question=question,
         expected_terms=expected_terms,
+        expected_refs=expected_refs,
     )
 
 
@@ -280,6 +325,176 @@ def _expected_activity_slots(expected_terms: object) -> tuple[str, ...] | str:
     except Exception:
         return "activity_policy_error"
     return tuple(slots)
+
+
+def _quantity_answer_support_metrics(
+    observations: object,
+    *,
+    question: str,
+    expected_terms: object,
+    expected_refs: object,
+) -> dict[str, object]:
+    try:
+        request = _quantity_policy.extract_quantity_evidence_request(question)
+    except Exception:
+        return _fallback("quantity_policy_error")
+    if (
+        not isinstance(request, _quantity_policy.QuantityEvidenceRequest)
+        or request.target_kind
+        is not _quantity_policy.QuantityEvidenceTargetKind.PENDING_CLOTHING_ACTION
+    ):
+        return _fallback("unsupported_query")
+
+    expected_count = _expected_quantity_count(expected_terms)
+    if isinstance(expected_count, str):
+        return _fallback(expected_count)
+    official_sessions = _official_session_keys(expected_refs)
+    if official_sessions is None:
+        return _fallback("invalid_expected_refs")
+    grouped = _validated_observation_groups(observations)
+    if grouped is None:
+        return _fallback("invalid_observations")
+
+    cutoff_metrics: list[dict[str, object]] = []
+    previous_supported: frozenset[str] = frozenset()
+    for cutoff, cutoff_observations in grouped:
+        supported = _supported_quantity_members(
+            cutoff_observations,
+            question=question,
+            official_sessions=official_sessions,
+        )
+        if supported is None or len(supported) > expected_count:
+            return _fallback("quantity_policy_error")
+        if not previous_supported <= supported:
+            return _fallback("non_monotonic_support")
+        previous_supported = supported
+        supported_count = len(supported)
+        cutoff_metrics.append(
+            {
+                "cutoff": cutoff,
+                "supported_unit_count": supported_count,
+                "recall": supported_count / expected_count,
+                "complete": supported_count == expected_count,
+            }
+        )
+
+    metrics = {
+        "schema_version": SCHEMA_VERSION,
+        "applicable": True,
+        "fallback_reason": None,
+        "expected_unit_count": expected_count,
+        "cutoffs": cutoff_metrics,
+        "matches": all(cutoff["complete"] is True for cutoff in cutoff_metrics),
+    }
+    if not ranked_evidence_answer_support_metrics_contract_valid(metrics):
+        return _fallback("invalid_observations")
+    return metrics
+
+
+def _expected_quantity_count(expected_terms: object) -> int | str:
+    if (
+        not _is_sequence(expected_terms)
+        or len(expected_terms) != 1
+        or not isinstance(expected_terms[0], str)
+        or not expected_terms[0].strip()
+        or len(expected_terms[0]) > _MAX_EXPECTED_TERM_CHARS
+    ):
+        return "invalid_expected_terms"
+    raw_count = expected_terms[0].strip()
+    if re.fullmatch(r"[1-9]\d*", raw_count):
+        count = int(raw_count)
+    else:
+        count = _COUNT_WORDS.get(raw_count.casefold(), 0)
+    if not 1 <= count <= _MAX_EXPECTED_UNITS:
+        return "unsupported_answer_shape"
+    return count
+
+
+def _official_session_keys(expected_refs: object) -> frozenset[str] | None:
+    if (
+        not _is_sequence(expected_refs)
+        or not expected_refs
+        or len(expected_refs) > _MAX_SOURCE_REFS
+    ):
+        return None
+    sessions: set[str] = set()
+    for raw_ref in expected_refs:
+        if (
+            not isinstance(raw_ref, str)
+            or raw_ref != raw_ref.strip()
+            or not 0 < len(raw_ref) <= _MAX_SOURCE_REF_CHARS
+        ):
+            return None
+        ref_sessions = _session_keys_from_ref(raw_ref)
+        if ref_sessions is None or len(ref_sessions) != 1:
+            return None
+        sessions.update(ref_sessions)
+        if len(sessions) > _MAX_OFFICIAL_SESSIONS:
+            return None
+    return frozenset(sessions)
+
+
+def _session_keys_from_ref(source_ref: str) -> frozenset[str] | None:
+    sessions = {
+        f"locomo:{int(match.group('session'))}"
+        for pattern in (_LOCOMO_TURN_REF_RE, _LOCOMO_SESSION_REF_RE)
+        for match in pattern.finditer(source_ref)
+    }
+    sessions.update(
+        f"longmemeval:session-{match.group('session')}"
+        for match in _LONGMEMEVAL_SESSION_REF_RE.finditer(source_ref)
+    )
+    if len(sessions) > 1:
+        return None
+    return frozenset(sessions)
+
+
+def _observation_session_key(source_refs: Sequence[str]) -> str | None | bool:
+    sessions: set[str] = set()
+    for source_ref in source_refs:
+        ref_sessions = _session_keys_from_ref(source_ref)
+        if ref_sessions is None or len(ref_sessions) != 1:
+            return False
+        sessions.update(ref_sessions)
+        if len(sessions) > 1:
+            return False
+    return next(iter(sessions)) if sessions else None
+
+
+def _supported_quantity_members(
+    observations: Sequence[RankedEvidenceAnswerSupportObservation],
+    *,
+    question: str,
+    official_sessions: frozenset[str],
+) -> frozenset[str] | None:
+    supported: set[str] = set()
+    for observation in observations:
+        source_session = _observation_session_key(observation.source_refs)
+        if source_session is False:
+            return None
+        if source_session is None or source_session not in official_sessions:
+            continue
+        try:
+            projection = _quantity_policy.project_quantity_evidence_slots(
+                query=question,
+                text=observation.text,
+            )
+        except Exception:
+            return None
+        if (
+            not isinstance(projection, _quantity_policy.QuantityEvidenceProjection)
+            or projection.request_detected is not True
+            or not _is_sequence(projection.member_ids)
+            or len(projection.member_ids) > _MAX_EVIDENCE_SLOTS
+            or any(
+                not isinstance(member_id, str)
+                or _QUANTITY_MEMBER_ID_RE.fullmatch(member_id) is None
+                for member_id in projection.member_ids
+            )
+        ):
+            return None
+        supported.update(projection.member_ids)
+    return frozenset(supported)
 
 
 def _validated_observation_groups(
