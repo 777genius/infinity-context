@@ -61,6 +61,20 @@ class ContextBundleDiagnostics:
     dropped_by_char_cap: int
     diagnostics_truncated: bool
     raw: Mapping[str, object]
+    ranked_evidence_candidate_count: int = 0
+    ranked_evidence_projection_candidate_count: int = 0
+    ranked_evidence_selectable_candidate_count: int = 0
+    ranked_evidence_eligible_candidate_count: int = 0
+    ranked_evidence_returned_count: int = 0
+    ranked_evidence_compact_projection_count: int = 0
+    ranked_evidence_source_diversity_count: int = 0
+    ranked_evidence_budget_drop_count: int = 0
+    ranked_evidence_item_budget_drop_count: int = 0
+    ranked_evidence_token_budget_drop_count: int = 0
+    ranked_evidence_char_budget_drop_count: int = 0
+    ranked_evidence_instruction_drop_count: int = 0
+    ranked_evidence_unsafe_source_drop_count: int = 0
+    ranked_evidence_source_dedupe_drop_count: int = 0
     vector_status: str = "unknown"
     graph_status: str = "unknown"
     rag_status: str = "unknown"
@@ -366,6 +380,48 @@ def bundle_diagnostics_from_payload(value: object) -> ContextBundleDiagnostics:
         ),
         items_considered=_non_negative_int(payload.get("items_considered")),
         items_used=_non_negative_int(payload.get("items_used")),
+        ranked_evidence_candidate_count=_non_negative_int(
+            payload.get("ranked_evidence_candidate_count")
+        ),
+        ranked_evidence_projection_candidate_count=_non_negative_int(
+            payload.get("ranked_evidence_projection_candidate_count")
+        ),
+        ranked_evidence_selectable_candidate_count=_non_negative_int(
+            payload.get("ranked_evidence_selectable_candidate_count")
+        ),
+        ranked_evidence_eligible_candidate_count=_non_negative_int(
+            payload.get("ranked_evidence_eligible_candidate_count")
+        ),
+        ranked_evidence_returned_count=_non_negative_int(
+            payload.get("ranked_evidence_returned_count")
+        ),
+        ranked_evidence_compact_projection_count=_non_negative_int(
+            payload.get("ranked_evidence_compact_projection_count")
+        ),
+        ranked_evidence_source_diversity_count=_non_negative_int(
+            payload.get("ranked_evidence_source_diversity_count")
+        ),
+        ranked_evidence_budget_drop_count=_non_negative_int(
+            payload.get("ranked_evidence_budget_drop_count")
+        ),
+        ranked_evidence_item_budget_drop_count=_non_negative_int(
+            payload.get("ranked_evidence_item_budget_drop_count")
+        ),
+        ranked_evidence_token_budget_drop_count=_non_negative_int(
+            payload.get("ranked_evidence_token_budget_drop_count")
+        ),
+        ranked_evidence_char_budget_drop_count=_non_negative_int(
+            payload.get("ranked_evidence_char_budget_drop_count")
+        ),
+        ranked_evidence_instruction_drop_count=_non_negative_int(
+            payload.get("ranked_evidence_instruction_drop_count")
+        ),
+        ranked_evidence_unsafe_source_drop_count=_non_negative_int(
+            payload.get("ranked_evidence_unsafe_source_drop_count")
+        ),
+        ranked_evidence_source_dedupe_drop_count=_non_negative_int(
+            payload.get("ranked_evidence_source_dedupe_drop_count")
+        ),
         dropped_by_instruction_flag=_non_negative_int(payload.get("dropped_by_instruction_flag")),
         dropped_by_budget=_non_negative_int(payload.get("dropped_by_budget")),
         dropped_by_source_cap=_non_negative_int(payload.get("dropped_by_source_cap")),
