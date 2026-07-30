@@ -52,6 +52,8 @@ class BuildContextQuery:
     tags_any: tuple[str, ...] = ()
     tags_all: tuple[str, ...] = ()
     tags_none: tuple[str, ...] = ()
+    selection_mode: str = "prompt_context"
+    selection_item_limit: int | None = None
 
 @dataclass(frozen=True)
 class BuildMemoryDigestQuery:

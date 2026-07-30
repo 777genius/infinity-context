@@ -112,6 +112,9 @@ from infinity_context_core.application.use_cases import (
 from infinity_context_core.application.use_cases import (
     build_context_source_selection as _source_selection_module,
 )
+from infinity_context_core.application.use_cases.build_context_final_packing import (
+    pack_final_context_items,
+)
 from infinity_context_core.application.use_cases.build_context_item_projection import (
     _best_query_relevance_cached,
     _chunk_context_item,
@@ -869,12 +872,11 @@ class BuildContextUseCase:
         )
         diagnostics.update(_pre_pack_candidate_source_ref_diagnostics(guarded_items))
         stage_started_at = perf_counter()
-        result = self._packer.pack(
-            bundle_id=self._ids.new_id("ctx"),
+        result = pack_final_context_items(
+            packer=self._packer,
+            ids=self._ids,
+            query=query,
             items=guarded_items,
-            token_budget=query.token_budget,
-            query=query.query,
-            max_rendered_chars=query.max_rendered_chars,
         )
         _record_stage_timing(diagnostics, "pack", stage_started_at)
         diagnostics.update(temporal_diagnostics)
