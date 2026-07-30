@@ -206,6 +206,7 @@ def test_gold_is_read_only_after_all_frozen_retrieval_responses(
     original_request = gate._request_cutoff
     original_evaluator_payload = gate.evaluator_only_payload
     original_expected_refs = gate._exact_case_evidence_refs
+    original_expected_terms = gate._answer_support_expected_terms
 
     def capture_request(*args, **kwargs):
         snapshot = original_request(*args, **kwargs)
@@ -219,19 +220,35 @@ def test_gold_is_read_only_after_all_frozen_retrieval_responses(
         events.append("gold:answer")
         return original_evaluator_payload(case)
 
-    def capture_expected_refs(case):
+    def capture_expected_terms(ground_truth):
         assert events[-1] == "gold:answer"
+        events.append("gold:terms")
+        return original_expected_terms(ground_truth)
+
+    def capture_expected_refs(case):
+        assert events[-1] == "gold:terms"
         events.append("gold:refs")
         return original_expected_refs(case)
 
     monkeypatch.setattr(gate, "_request_cutoff", capture_request)
     monkeypatch.setattr(gate, "evaluator_only_payload", capture_evaluator_payload)
+    monkeypatch.setattr(gate, "_answer_support_expected_terms", capture_expected_terms)
     monkeypatch.setattr(gate, "_exact_case_evidence_refs", capture_expected_refs)
 
     result = _run(dataset)
 
     assert result["ok"] is True
-    assert events == ["response:1", "response:2", "gold:answer", "gold:refs"]
+    assert events == ["response:1", "response:2", "gold:answer", "gold:terms", "gold:refs"]
+
+
+@pytest.mark.parametrize(
+    "ground_truth",
+    (True, 3.0, {"answer": "3"}, ("3", 3), (3,), [False]),
+)
+def test_answer_support_gold_normalization_rejects_unsupported_shapes(
+    ground_truth: object,
+) -> None:
+    assert gate._answer_support_expected_terms(ground_truth) == ()
 
 
 def test_total_gold_miss_fails_with_bounded_reference_reason(
@@ -474,8 +491,10 @@ def test_semantically_qualified_reference_miss_passes_without_rewriting_raw_metr
 
     def complete_support(*args, **kwargs):
         observed_expected_refs.append(tuple(kwargs["expected_refs"]))
+        assert tuple(kwargs["expected_terms"]) == ("3",)
         return _answer_support_payload(first_complete=True)
 
+    monkeypatch.setattr(gate, "evaluator_only_payload", lambda case: {"ground_truth": 3})
     monkeypatch.setattr(
         gate,
         "_exact_case_evidence_refs",
@@ -493,6 +512,8 @@ def test_semantically_qualified_reference_miss_passes_without_rewriting_raw_metr
     assert case["metrics"]["retrieval_miss_ref_count"] == 1
     assert case["metrics"]["cutoffs"][-1]["recall"] == 0.0
     assert case["metrics"]["cutoffs"][-1]["missing_refs"] == ["never-retrieved"]
+    assert "ground_truth" not in json.dumps(case)
+    assert "expected_terms" not in json.dumps(case)
 
 
 def test_incomplete_reference_support_cannot_waive_exact_reference_miss(

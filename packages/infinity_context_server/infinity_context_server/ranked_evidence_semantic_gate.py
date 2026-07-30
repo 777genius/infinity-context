@@ -436,13 +436,7 @@ def _run_case(
     # Gold evidence becomes visible only after every response is immutable here.
     evaluator_payload = evaluator_only_payload(case)
     ground_truth = evaluator_payload.get("ground_truth")
-    expected_terms = (
-        (ground_truth,)
-        if isinstance(ground_truth, str)
-        else tuple(ground_truth)
-        if _is_sequence(ground_truth)
-        else ()
-    )
+    expected_terms = _answer_support_expected_terms(ground_truth)
     expected_refs = _exact_case_evidence_refs(case)
     answer_support = ranked_evidence_answer_support_metrics(
         tuple(observation for snapshot in pending for observation in snapshot.observations),
@@ -949,6 +943,19 @@ def _require_scratch_database(database_path: Path) -> None:
                 raise _GateFailure("local_database_not_scratch")
     except OSError as exc:
         raise _GateFailure("invalid_local_database_url") from exc
+
+
+def _answer_support_expected_terms(ground_truth: object) -> tuple[str, ...]:
+    """Normalize only exact answer shapes supported by answer-unit policies."""
+
+    if isinstance(ground_truth, str):
+        return (ground_truth,)
+    if isinstance(ground_truth, int) and not isinstance(ground_truth, bool):
+        return (str(ground_truth),)
+    if not _is_sequence(ground_truth):
+        return ()
+    terms = tuple(ground_truth)
+    return terms if all(isinstance(term, str) for term in terms) else ()
 
 
 def _is_sequence(value: object) -> bool:
