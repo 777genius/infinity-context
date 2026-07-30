@@ -433,6 +433,24 @@ def test_keyword_chunk_score_boosts_item_purchase_reason() -> None:
     assert score >= 0.88
 
 
+def test_weak_item_purchase_bridge_does_not_override_direct_quantity_evidence() -> None:
+    plan = build_query_expansion_plan(
+        "How many items of clothing do I need to pick up or return from a store?"
+    )
+
+    _, reason, relevance = best_query_relevance(
+        plan,
+        text=(
+            "I need to return some boots to Zara because they were too small. "
+            "I exchanged them for a larger size and still need to pick up the new pair."
+        ),
+    )
+
+    assert reason == "decomposition_quantity_count"
+    assert relevance.distinctive_term_hits >= 3
+    assert context_relevance_module.is_query_relevance_sufficient(relevance)
+
+
 def test_keyword_chunk_score_boosts_temporal_figurine_purchase_reason() -> None:
     plan = build_query_expansion_plan("When did Melanie buy the figurines?")
     _, reason, relevance = best_query_relevance(

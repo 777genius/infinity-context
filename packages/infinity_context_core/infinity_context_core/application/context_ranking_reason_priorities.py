@@ -225,6 +225,7 @@ QUERY_REASON_PRIORITY_MIN_DISTINCTIVE_HITS = {
     "allergy_condition_inference_bridge": 4,
     "allergy_inventory_bridge": 4,
     "career_path_bridge": 4,
+    "item_purchase_bridge": 2,
     "cause_awareness_event_bridge": 4,
     "commonality_interest_bridge": 3,
     "community_membership_bridge": 3,
