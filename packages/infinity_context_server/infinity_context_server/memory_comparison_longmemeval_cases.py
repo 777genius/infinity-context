@@ -11,6 +11,12 @@ from typing import cast
 
 from infinity_context_core.application.sensitive_text import redact_sensitive_text
 
+from infinity_context_server.longmemeval_session_identity import (
+    LONGMEMEVAL_SESSION_IDENTITY_SCHEMA,
+    LongMemEvalSessionIdentity,
+    LongMemEvalSessionIdentityError,
+    build_longmemeval_session_identity,
+)
 from infinity_context_server.memory_comparison_case_identity import (
     safe_benchmark_identifier,
 )
@@ -23,6 +29,7 @@ from infinity_context_server.public_benchmark_models import (
     BenchmarkConversationInput,
     BenchmarkMessageInput,
     BenchmarkMessageRole,
+    BenchmarkValidationError,
     PublicBenchmarkCase,
 )
 
@@ -48,17 +55,45 @@ class _SessionInput:
 def official_longmemeval_pair_case(raw: Mapping[str, object]) -> PublicBenchmarkCase:
     """Build one case whose conversations are chronological message pairs."""
 
+    sessions = raw.get("haystack_sessions")
+    session_count = (
+        len(sessions)
+        if isinstance(sessions, Sequence) and not isinstance(sessions, str | bytes | bytearray)
+        else 0
+    )
+    try:
+        session_identity = build_longmemeval_session_identity(
+            raw.get("haystack_session_ids"),
+            session_count=session_count,
+        )
+        answer_aliases = session_identity.answer_aliases(raw.get("answer_session_ids"))
+    except LongMemEvalSessionIdentityError as exc:
+        raise BenchmarkValidationError("LongMemEval session identity is invalid") from exc
     case_id = _longmemeval_case_id(raw)
     canonical_raw = dict(raw)
     canonical_raw["question_id"] = case_id
+    # Session aliases are evidence refs, never answer terms. Removing private
+    # answer IDs here makes the canonical loader derive terms from the answer.
+    canonical_raw["answer_session_ids"] = []
     canonical = _official_longmemeval_case(canonical_raw)
+    metadata = dict(canonical.metadata)
+    metadata.pop("answer_session_ids", None)
+    metadata["answer_session_aliases"] = list(answer_aliases)
+    metadata["evidence"] = list(answer_aliases)
+    metadata["session_identity_schema"] = LONGMEMEVAL_SESSION_IDENTITY_SCHEMA
+    metadata["_evaluator_ground_truth"] = raw.get("answer")
     return replace(
         canonical,
         case_id=case_id,
         documents=(),
         memory_scope_external_ref=f"longmemeval-{case_id}",
         thread_external_ref=f"longmemeval-{case_id}",
-        conversations=_pair_conversations(raw, case_id=case_id),
+        conversations=_pair_conversations(
+            raw,
+            case_id=case_id,
+            session_identity=session_identity,
+        ),
+        metadata=metadata,
     )
 
 
@@ -82,6 +117,7 @@ def _pair_conversations(
     raw: Mapping[str, object],
     *,
     case_id: str,
+    session_identity: LongMemEvalSessionIdentity,
 ) -> tuple[BenchmarkConversationInput, ...]:
     sessions = raw.get("haystack_sessions")
     if not isinstance(sessions, Sequence) or isinstance(sessions, str | bytes):
@@ -90,7 +126,15 @@ def _pair_conversations(
         (
             session
             for index, value in enumerate(sessions)
-            if (session := _normalize_session(raw, value, original_index=index)) is not None
+            if (
+                session := _normalize_session(
+                    raw,
+                    value,
+                    original_index=index,
+                    session_identity=session_identity,
+                )
+            )
+            is not None
         ),
         key=_chronology_key,
     )
@@ -138,14 +182,13 @@ def _normalize_session(
     value: object,
     *,
     original_index: int,
+    session_identity: LongMemEvalSessionIdentity,
 ) -> _SessionInput | None:
     messages = _session_messages(value)
     if messages is None:
         return None
-    raw_id = _sequence_text(raw.get("haystack_session_ids"), original_index)
     raw_date = _sequence_text(raw.get("haystack_dates"), original_index)
     if isinstance(value, Mapping):
-        raw_id = raw_id or _first_str(value, "session_id", "id")
         raw_date = raw_date or _first_str(
             value,
             "date",
@@ -153,15 +196,11 @@ def _normalize_session(
             "datetime",
             "timestamp",
         )
-    external_id = safe_benchmark_identifier(
-        raw_id or f"session-{original_index + 1}",
-        max_chars=160,
-    )
     date = _safe_optional_text(raw_date, max_chars=120)
     return _SessionInput(
         original_index=original_index,
         messages=messages,
-        external_id=external_id,
+        external_id=session_identity.alias_for_index(original_index),
         date=date,
         timestamp=_date_to_epoch(raw_date),
     )

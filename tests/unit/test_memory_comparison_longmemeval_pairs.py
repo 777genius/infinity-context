@@ -83,11 +83,15 @@ def test_longmemeval_sessions_are_chronological_and_pair_boundaries_are_preserve
     assert case.memories == ()
     assert case.documents == ()
     assert [item.session_external_id for item in case.conversations] == [
-        "early-session",
-        "early-session",
-        "late-session",
-        "undated-session",
+        "session-0002",
+        "session-0002",
+        "session-0001",
+        "session-0003",
     ]
+    assert case.expected_terms == ("the launch notes",)
+    assert case.metadata["answer_session_aliases"] == ["session-0001"]
+    assert case.metadata["evidence"] == ["session-0001"]
+    assert "answer_session_ids" not in case.metadata
     assert [[message.content for message in item.messages] for item in case.conversations] == [
         ["early user", "early assistant"],
         ["early odd trailing"],
