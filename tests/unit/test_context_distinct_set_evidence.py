@@ -883,6 +883,30 @@ def test_quantity_projection_reuses_grounded_members_and_rejects_assistant_noise
     assert not assistant_noise.present
 
 
+def test_quantity_bridge_rejects_excluded_distinct_members() -> None:
+    query = "How many projects have I led or am currently leading?"
+    excluded = project_distinct_set_evidence(
+        query=query,
+        text="user: I recently participated in a case competition.",
+    )
+    mixed = project_distinct_set_evidence(
+        query=query,
+        text=(
+            "source-a\nuser: I recently participated in a case competition. "
+            "I'm working on a solo project for my Data Mining class."
+        ),
+    )
+
+    assert not excluded.present
+    assert excluded.identities == ()
+    assert mixed.identities == ("current:solo-project",)
+    assert len(mixed.member_ids) == 1
+    assert mixed.evidence_sentences == (
+        "I'm working on a solo project for my Data Mining class.",
+    )
+    assert "case competition" not in mixed.rendered_text
+
+
 def _candidate(candidate_id: str, source: str, member: str) -> DistinctSetMemberCandidate:
     return DistinctSetMemberCandidate(
         candidate_id=candidate_id,
