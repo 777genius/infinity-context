@@ -14,12 +14,23 @@ from infinity_context_core.application.context_distinct_set_evidence import (
 from infinity_context_core.application.context_provider_retrieval_terms import (
     provider_retrieval_term_policy,
 )
+from infinity_context_core.application.context_quantity_evidence_slots import (
+    extract_quantity_evidence_request,
+    quantity_evidence_retrieval_terms,
+)
 from infinity_context_core.application.context_query_expansion import QueryExpansionPlan
 from infinity_context_core.application.dto import BuildContextQuery
 from infinity_context_core.domain.entities import MemoryChunk
 from infinity_context_core.ports.unit_of_work import UnitOfWorkFactoryPort
 
 _MAX_AGGREGATION_ADMISSION_SEARCH_RESULTS = 72
+_PROJECT_LEADERSHIP_SEED_QUERIES = (
+    "marketing research",
+    "solo project",
+    "case competition",
+    "research poster",
+    "academic conference",
+)
 
 
 async def aggregation_admission_seed_chunks(
@@ -42,8 +53,17 @@ async def aggregation_admission_seed_chunks(
     ):
         return canonical_chunks, diagnostics
     search_queries = [query.query]
-    if (request := extract_distinct_set_request(query.query)) is not None:
-        retrieval_terms = distinct_set_retrieval_terms(request)
+    distinct_request = extract_distinct_set_request(query.query)
+    quantity_request = extract_quantity_evidence_request(query.query)
+    request = distinct_request or quantity_request
+    if request is not None:
+        if quantity_request is not None:
+            retrieval_terms = quantity_evidence_retrieval_terms(
+                target_terms=request.target_terms,
+                action_terms=request.action_terms,
+            )
+        else:
+            retrieval_terms = distinct_set_retrieval_terms(request)
         distinct_query = " ".join(retrieval_terms)
         if distinct_query and distinct_query.casefold() != query.query.casefold():
             search_queries.append(distinct_query)
@@ -58,7 +78,13 @@ async def aggregation_admission_seed_chunks(
                 value.casefold() for value in search_queries
             }:
                 search_queries.append(action_query)
-        if request.target_kind is DistinctSetTargetKind.NAMED_PROVIDER:
+        if "project_leadership" in request.action_terms:
+            for candidate in (*retrieval_terms, *_PROJECT_LEADERSHIP_SEED_QUERIES):
+                _append_unique_query(search_queries, candidate)
+        if (
+            distinct_request is not None
+            and request.target_kind is DistinctSetTargetKind.NAMED_PROVIDER
+        ):
             provider_policy = provider_retrieval_term_policy(
                 target_terms=request.target_terms,
                 action_terms=request.action_terms,

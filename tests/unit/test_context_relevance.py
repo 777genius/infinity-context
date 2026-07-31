@@ -602,6 +602,16 @@ def test_project_identity_mismatch_ignores_descriptive_project_memory_phrases() 
     )
 
 
+def test_project_identity_mismatch_ignores_grammatical_project_followers() -> None:
+    assert not has_project_identity_mismatch(
+        query="How many projects have I led or am currently leading?",
+        text=(
+            "user: My marketing research class project where I led the data "
+            "analysis team is one project I led."
+        ),
+    )
+
+
 def test_query_relevance_ignores_generic_retrieval_plumbing_terms() -> None:
     relevance = score_query_relevance(
         query="SHARDED_INDEX tenant scoped retrieval citations chunk recall",

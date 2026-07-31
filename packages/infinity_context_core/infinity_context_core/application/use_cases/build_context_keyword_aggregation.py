@@ -22,7 +22,13 @@ from infinity_context_core.application.context_count_cardinality import (
 from infinity_context_core.application.context_distinct_set_evidence import (
     project_distinct_set_evidence,
 )
+from infinity_context_core.application.context_keyword_aggregation_prefilter import (
+    prefilter_keyword_aggregation_seed_chunks,
+)
 from infinity_context_core.application.context_lexical import query_terms
+from infinity_context_core.application.context_quantity_evidence_slots import (
+    project_quantity_evidence_slots,
+)
 from infinity_context_core.application.context_query_expansion import QueryExpansionPlan
 from infinity_context_core.application.context_query_intent import (
     build_query_anchor_intent,
@@ -663,6 +669,9 @@ def _keyword_aggregation_chunk_items(
         "keyword_aggregation_chunks_deduplicated": 0,
         "keyword_aggregation_admitted_not_selected": 0,
         "keyword_aggregation_continuity_items_used": 0,
+        "keyword_aggregation_prefilter_candidates_selected": 0,
+        "keyword_aggregation_prefilter_candidates_skipped": 0,
+        "keyword_aggregation_prefilter_distinct_member_preserved": 0,
         "keyword_aggregation_continuity_limit": 0,
     }
     intent = _keyword_aggregation_intent(query.query, query_plan=query_plan)
@@ -684,10 +693,16 @@ def _keyword_aggregation_chunk_items(
     candidates: list[_KeywordAggregationCandidate] = []
     skipped = 0
     unique_seed_chunks = _dedupe_chunks_by_id(seed_chunks)
-    ordinary_ids = ordinary_seed_ids or frozenset(str(chunk.id) for chunk in unique_seed_chunks)
     diagnostics["keyword_aggregation_chunks_deduplicated"] = len(seed_chunks) - len(
         unique_seed_chunks
     )
+    ordinary_ids = ordinary_seed_ids or frozenset(str(chunk.id) for chunk in unique_seed_chunks)
+    unique_seed_chunks, prefilter_diagnostics = prefilter_keyword_aggregation_seed_chunks(
+        query=query.query,
+        max_chunks=query.max_chunks,
+        chunks=unique_seed_chunks,
+    )
+    diagnostics.update(prefilter_diagnostics)
     for order, chunk in enumerate(unique_seed_chunks):
         diagnostics["keyword_aggregation_chunks_considered"] = (
             int(diagnostics["keyword_aggregation_chunks_considered"]) + 1
@@ -717,6 +732,13 @@ def _keyword_aggregation_chunk_items(
             query=query.query,
             text=chunk_text,
         )
+        quantity_evidence = project_quantity_evidence_slots(
+            query=query.query,
+            text=chunk_text,
+        )
+        member_ids = quantity_evidence.member_ids or member_evidence.member_ids
+        member_evidence_text = quantity_evidence.rendered_text or member_evidence.rendered_text
+        member_present = bool(member_ids and member_evidence_text)
         anchor_conflict = aggregation_selection.distinct_set_anchor_conflict(
             anchor_intent,
             projection=member_evidence,
@@ -747,8 +769,8 @@ def _keyword_aggregation_chunk_items(
         )
         rank_key = (
             obligation_evidence.rank,
-            -int(member_evidence.present),
-            -len(member_evidence.member_ids),
+            -int(member_present),
+            -len(member_ids),
             -strict_hits,
             _aggregation_source_kind_rank(chunk),
             -relevance.distinctive_term_hits,
@@ -768,8 +790,8 @@ def _keyword_aggregation_chunk_items(
                 query_variant_sets=weighted_query_terms,
                 admission=admission,
                 numeric_corroboration=numeric_corroboration,
-                member_ids=member_evidence.member_ids,
-                member_evidence_text=member_evidence.rendered_text,
+                member_ids=member_ids,
+                member_evidence_text=member_evidence_text,
                 interaction_event_support=member_evidence.interaction_event_count > 0,
                 obligation_evidence=obligation_evidence,
             )

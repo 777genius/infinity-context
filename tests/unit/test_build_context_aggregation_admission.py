@@ -601,6 +601,69 @@ def test_aggregation_seed_helper_fans_out_distinct_set_queries_and_dedupes() -> 
     }
 
 
+def test_project_leadership_seed_helper_fans_out_bounded_evidence_queries() -> None:
+    chunks = _RecordingKeywordChunks(())
+    query = _query("How many projects have I led or am currently leading?")
+
+    asyncio.run(
+        aggregation_admission_seed_chunks(
+            uow_factory=lambda: _KeywordSeedUow(chunks),  # type: ignore[arg-type]
+            query=query,
+            query_plan=build_query_expansion_plan(query.query),
+            canonical_chunks=(),
+        )
+    )
+
+    assert {
+        "marketing research",
+        "solo project",
+        "case competition",
+        "research poster",
+        "academic conference",
+    }.issubset(chunks.queries)
+
+
+def test_project_leadership_prefilter_preserves_tail_member_evidence() -> None:
+    fillers = tuple(
+        _chunk(
+            f"project-prefilter-filler-{index}",
+            f"user: I reviewed a routine status item {index}.",
+        )
+        for index in range(150)
+    )
+    case_competition = _chunk(
+        "project-prefilter-case-competition",
+        "user: I joined a case competition with four teammates.",
+    )
+    generic_project_mention = _chunk(
+        "project-prefilter-generic-mention",
+        "user: I read a project status update from another team.",
+    )
+    query_text = "How many projects have I led or am currently leading?"
+
+    assert not project_distinct_set_evidence(
+        query=query_text,
+        text=case_competition.text,
+    ).present
+
+    items, diagnostics = _keyword_aggregation_chunk_items(
+        query=_query(query_text),
+        seed_chunks=(*fillers, case_competition, generic_project_mention),
+    )
+
+    assert [item.item_id for item in items] == [case_competition.id]
+    assert generic_project_mention.id not in {item.item_id for item in items}
+    assert (
+        items[0].diagnostics["score_signals"][
+            "keyword_aggregation_distinct_member_support"
+        ]
+        == 1
+    )
+    assert diagnostics["keyword_aggregation_prefilter_candidates_selected"] == 125
+    assert diagnostics["keyword_aggregation_prefilter_candidates_skipped"] == 27
+    assert diagnostics["keyword_aggregation_prefilter_distinct_member_preserved"] == 1
+
+
 def test_provider_seed_fanout_recovers_implicit_events_without_counting_noise() -> None:
     canonical = _chunk("canonical-seed", "user: I planned weekday lunches.")
     implicit = _chunk(
