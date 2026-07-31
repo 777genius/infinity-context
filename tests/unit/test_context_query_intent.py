@@ -77,6 +77,30 @@ def test_query_anchor_intent_extracts_future_relative_time_hints() -> None:
     assert "atlas" not in next_week.keys_for_kind(MemoryAnchorKind.PERSON)
 
 
+def test_temporal_query_does_not_conflict_with_unknown_evidence_time() -> None:
+    intent = build_query_anchor_intent("What did I discuss at the meeting last Saturday?")
+
+    assert (
+        query_anchor_intent_text_conflicts(
+            intent,
+            "Meeting planning music for the event.",
+        )
+        is False
+    )
+
+
+def test_temporal_query_still_conflicts_with_explicit_different_time() -> None:
+    intent = build_query_anchor_intent("What did I discuss at the meeting last Saturday?")
+
+    assert (
+        query_anchor_intent_text_conflicts(
+            intent,
+            "D1:1 user: We discussed music at the meeting yesterday.",
+        )
+        is True
+    )
+
+
 def test_query_anchor_intent_matches_activity_duration_and_recurrence_keys() -> None:
     duration = build_query_anchor_intent("Has Maria volunteered for three years?")
     duration_anchor = _anchor(
