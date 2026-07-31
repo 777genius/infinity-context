@@ -110,6 +110,7 @@ def _official_locomo_turn_cases(raw: Mapping[str, object]) -> tuple[PublicBenchm
                     "sample_id": sample_id,
                     "qa_index": index,
                     "category": category,
+                    "_evaluator_ground_truth": qa.get("answer"),
                     "answer_preview": _preview_value(qa.get("answer")),
                     "answer_terms": answer_terms,
                     "evidence_terms": evidence_terms,
