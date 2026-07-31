@@ -260,7 +260,12 @@ def test_structural_managed_port_and_successful_nine_slot_verdict(
     assert structural is managed_port
     assert ready.assembler.adapter_id == "managed-composite-assembler-v1"
     assert ready.assembler.implementation_sha256 == "7" * 64
-    _validate_ports(_ExecutionPortStub(), _PolicyPortStub(), ready.assembler)
+    _validate_ports(
+        *ready.ports,
+        _ExecutionPortStub(),
+        _PolicyPortStub(),
+        ready.assembler,
+    )
 
     components = _assemble(ready)
     assert tuple(_component_state(item).component_kind for item in components) == (
