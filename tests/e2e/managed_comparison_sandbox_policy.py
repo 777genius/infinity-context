@@ -56,7 +56,6 @@ from infinity_context_server.memory_comparison_managed_run_contract import (
 from managed_comparison_sandbox_adapters import (
     INFINITY_BACKEND,
     MEM0_BACKEND,
-    SANDBOX_SCOPE,
     SandboxBackendState,
     SandboxTrace,
     implementation_sha256,
@@ -65,13 +64,16 @@ from managed_comparison_sandbox_adapters import (
 
 class SandboxPolicyPort:
     def __init__(self, trace: SandboxTrace, state: SandboxBackendState) -> None:
-        self.adapter_id = "managed-locomo-sandbox-policy"
-        self.implementation_sha256 = implementation_sha256("policy")
+        self.adapter_id = f"{state.scenario.scenario_id}-policy"
+        self.implementation_sha256 = implementation_sha256(
+            "policy",
+            scenario_id=state.scenario.scenario_id,
+        )
         self.trace = trace
         self._state = state
         self._items: tuple[FullPolicyManifestItem, ...] = ()
         self._pairs: tuple[FullPolicyEvidencePair, ...] = ()
-        self._attestation = ""
+        self._attestation: str | None = None
         self._terminal: FullPolicyTerminalDeleteEvidence | None = None
 
     def seal_canonical_source(
@@ -85,9 +87,9 @@ class SandboxPolicyPort:
         managed_attestation_commitment_sha256: str,
     ) -> tuple[object, ...]:
         assert type(managed_attestation) is VerifiedManagedCompositionAttestation
-        assert len(cases) == 1 and len(ingest_receipts) == 2
+        assert cases and len(ingest_receipts) == 2 * len(cases)
         assert type(execution) is ManagedExecutionArtifacts
-        assert len(self._state.stores) == 2
+        assert len(self._state.stores) == 2 * len(cases)
         self._attestation = managed_attestation_commitment_sha256
         self._items = tuple(_policy_item(case, self._state) for case in cases)
         self.trace.add("canonical_source.issue")
@@ -98,6 +100,7 @@ class SandboxPolicyPort:
                 index,
                 managed_attestation_commitment_sha256,
                 self._state,
+                cases[index - 1].corpus_id,
             )
             for index, item in enumerate(self._items, start=1)
         )
@@ -113,10 +116,9 @@ class SandboxPolicyPort:
         pass_index: int,
     ) -> object:
         assert len(bindings.backend_targets) == 2 and len(target_identity_sha256) == 64
-        observation = self._state.delete(
+        observation = self._state.delete_scope(
             backend_role,
-            SANDBOX_SCOPE,
-            "sandbox-locomo-1",
+            self._state.scenario.scope_id,
             pass_index,
         )
         self.trace.add(f"delete:{backend_role}:{pass_index}")
@@ -136,9 +138,15 @@ class SandboxPolicyPort:
             (role, attempt) for attempt in (1, 2) for role in (INFINITY_BACKEND, MEM0_BACKEND)
         )
         assert tuple((item.backend_role, item.pass_index) for item in receipts) == expected
-        assert tuple(item.deleted_count for item in receipts) == (1, 1, 0, 0)
+        corpus_count = len(self._state.scenario.corpus_ids)
+        assert tuple(item.deleted_count for item in receipts) == (
+            corpus_count,
+            corpus_count,
+            0,
+            0,
+        )
         assert all(item.remaining_count == 0 for item in receipts)
-        if self._attestation:
+        if self._attestation is not None:
             assert managed_attestation_commitment_sha256 == self._attestation
         self._attestation = managed_attestation_commitment_sha256
         self._terminal = _terminal_delete(
@@ -159,6 +167,7 @@ class SandboxPolicyPort:
         assert type(managed_attestation) is VerifiedManagedCompositionAttestation
         assert canonical_source is self._pairs
         assert terminal_delete is self._terminal
+        assert self._attestation is not None
         assert managed_attestation_commitment_sha256 == self._attestation
         assert self._terminal is not None
         manifest = FullPolicyRunManifest(
@@ -166,8 +175,8 @@ class SandboxPolicyPort:
             profile_id=bindings.profile_id,
             infinity_backend_id=INFINITY_BACKEND,
             mem0_backend_id=MEM0_BACKEND,
-            scope_id=SANDBOX_SCOPE,
-            delete_source_id="sandbox-locomo-1",
+            scope_id=self._state.scenario.scope_id,
+            delete_source_id=self._state.scenario.delete_source_id,
             managed_attestation_commitment_sha256=self._attestation,
             items=self._items,
         )
@@ -175,7 +184,7 @@ class SandboxPolicyPort:
             manifest=manifest,
             evidence_pairs=self._pairs,
             terminal_delete=self._terminal,
-            consumer_id="managed-locomo-sandbox",
+            consumer_id=self._state.scenario.scenario_id,
         )
         self.trace.add("policy.aggregate")
         return seal_full_policy_component_validation(session)
@@ -185,7 +194,7 @@ def _policy_item(
     case: ManagedRunCase,
     state: SandboxBackendState,
 ) -> FullPolicyManifestItem:
-    source = "source://locomo/sandbox-locomo-1/session-1"
+    source = f"source://{state.scenario.benchmark}/{case.corpus_id}"
     infinity = state.source(INFINITY_BACKEND, case.corpus_id)
     mem0 = state.source(MEM0_BACKEND, case.corpus_id)
     assert infinity.canonical_bytes == mem0.canonical_bytes
@@ -205,15 +214,17 @@ class _PolicyItemSandbox:
         item: FullPolicyManifestItem,
         index: int,
         state: SandboxBackendState,
+        corpus_id: str,
     ) -> None:
         self.bindings = bindings
         self.item = item
         self.index = index
         self.state = state
+        self.corpus_id = corpus_id
 
     def _require_present(self) -> None:
-        infinity = self.state.source(INFINITY_BACKEND, "sandbox-locomo-1")
-        mem0 = self.state.source(MEM0_BACKEND, "sandbox-locomo-1")
+        infinity = self.state.source(INFINITY_BACKEND, self.corpus_id)
+        mem0 = self.state.source(MEM0_BACKEND, self.corpus_id)
         assert infinity.canonical_bytes == mem0.canonical_bytes
         assert infinity.source_sha256 == self.item.source_sha256
         assert mem0.source_sha256 == self.item.source_sha256
@@ -223,7 +234,7 @@ class _PolicyItemSandbox:
             "run_id": self.bindings.run_id,
             "profile_id": self.bindings.profile_id,
             "backend_id": backend_id,
-            "scope_id": SANDBOX_SCOPE,
+            "scope_id": self.state.scenario.scope_id,
             "case_id": self.item.case_id,
             "source_ref": self.item.source_ref,
         }
@@ -321,8 +332,9 @@ def _policy_pair(
     index: int,
     attestation: str,
     state: SandboxBackendState,
+    corpus_id: str,
 ) -> FullPolicyEvidencePair:
-    sandbox = _PolicyItemSandbox(bindings, item, index, state)
+    sandbox = _PolicyItemSandbox(bindings, item, index, state, corpus_id)
     policy = canonical_source_trust._composition_issue_canonical_source_evidence_trust_policy(
         policy_id=f"sandbox-item-policy-{index}",
         canonical_backend_id=INFINITY_BACKEND,
@@ -346,7 +358,7 @@ def _policy_pair(
         run_id=bindings.run_id,
         profile_id=bindings.profile_id,
         backend_id=INFINITY_BACKEND,
-        scope_id=SANDBOX_SCOPE,
+        scope_id=state.scenario.scope_id,
         case_id=item.case_id,
         source_ref=item.source_ref,
         minimum_generation=3,
@@ -358,7 +370,7 @@ def _policy_pair(
     source = issue_source_evidence_session(
         run_id=bindings.run_id,
         profile_id=bindings.profile_id,
-        scope_id=SANDBOX_SCOPE,
+        scope_id=state.scenario.scope_id,
         case_id=item.case_id,
         source_ref=item.source_ref,
         source_revision=item.source_revision,
@@ -450,8 +462,11 @@ def _terminal_delete(
     infinity = _InfinityDeleteSandbox(state)
     mem0 = _Mem0DeleteSandbox(state)
     issuer = _create_delete_verification_trust_policy_issuer_for_composition_root(
-        authority_id="managed-locomo-sandbox-delete",
-        authority_implementation_sha256=implementation_sha256("delete-authority"),
+        authority_id=f"{state.scenario.scenario_id}-delete",
+        authority_implementation_sha256=implementation_sha256(
+            "delete-authority",
+            scenario_id=state.scenario.scenario_id,
+        ),
     )
     policy = _issue_delete_verification_trust_policy_for_composition_root(
         issuer,
@@ -459,10 +474,16 @@ def _terminal_delete(
         mem0_port=mem0,
         infinity_backend_id=INFINITY_BACKEND,
         mem0_backend_id=MEM0_BACKEND,
-        infinity_adapter_id="managed-locomo-infinity-delete",
-        mem0_adapter_id="managed-locomo-mem0-delete",
-        infinity_implementation_sha256=implementation_sha256("infinity-delete"),
-        mem0_implementation_sha256=implementation_sha256("mem0-delete"),
+        infinity_adapter_id=f"{state.scenario.scenario_id}-infinity-delete",
+        mem0_adapter_id=f"{state.scenario.scenario_id}-mem0-delete",
+        infinity_implementation_sha256=implementation_sha256(
+            "infinity-delete",
+            scenario_id=state.scenario.scenario_id,
+        ),
+        mem0_implementation_sha256=implementation_sha256(
+            "mem0-delete",
+            scenario_id=state.scenario.scenario_id,
+        ),
         external_attestation_commitment=attestation,
     )
     session = create_terminal_delete_evidence_session(
@@ -470,8 +491,8 @@ def _terminal_delete(
         profile_id=bindings.profile_id,
         infinity_backend_id=INFINITY_BACKEND,
         mem0_backend_id=MEM0_BACKEND,
-        scope_id=SANDBOX_SCOPE,
-        source_id="sandbox-locomo-1",
+        scope_id=state.scenario.scope_id,
+        source_id=state.scenario.delete_source_id,
     )
     evidence = seal_terminal_delete_evidence(
         session,

@@ -1,4 +1,4 @@
-"""Real managed runtime capability behind deterministic in-process ports."""
+"""Synthetic managed-runtime contract simulation behind deterministic in-process ports."""
 
 from __future__ import annotations
 
@@ -29,19 +29,28 @@ from infinity_context_server.memory_comparison_mem0_runtime_attestation import (
 )
 from managed_comparison_sandbox_adapters import (
     INFINITY_BACKEND,
+    LOCOMO_SCENARIO,
     MEM0_BACKEND,
-    RUNTIME_NONCE,
     CleanStateBundle,
     SandboxBackendState,
+    SandboxScenario,
     SandboxTrace,
     implementation_sha256,
 )
 
 
 class _Port:
-    def __init__(self, role: str, trace: SandboxTrace) -> None:
-        self.adapter_id = f"managed-locomo-sandbox-{role}"
-        self.implementation_sha256 = implementation_sha256(role)
+    def __init__(
+        self,
+        role: str,
+        trace: SandboxTrace,
+        scenario: SandboxScenario = LOCOMO_SCENARIO,
+    ) -> None:
+        self.adapter_id = f"{scenario.scenario_id}-{role}"
+        self.implementation_sha256 = implementation_sha256(
+            role,
+            scenario_id=scenario.scenario_id,
+        )
         self.trace = trace
 
 
@@ -49,11 +58,12 @@ class _Port:
 class SandboxIngestReceipt:
     backend_role: str
     corpus_id: str
+    source_sha256: str
 
 
 class SandboxResetPort(_Port):
     def __init__(self, trace: SandboxTrace, state: SandboxBackendState) -> None:
-        super().__init__("reset", trace)
+        super().__init__("reset", trace, state.scenario)
         self._state = state
 
     def reset(
@@ -69,7 +79,7 @@ class SandboxResetPort(_Port):
             MEM0_BACKEND,
         )
         self._state.require_pristine()
-        self._state.clean_state = _clean_state_bundle(run_id)
+        self._state.clean_state = _clean_state_bundle(run_id, self._state.scenario)
         self.trace.add("reset")
 
 
@@ -82,8 +92,9 @@ class SandboxAttestationPort(_Port):
         run_id: str,
         probe_nonce_sha256: str,
         target_identity_sha256: str,
+        scenario: SandboxScenario,
     ) -> None:
-        super().__init__("attestation", trace)
+        super().__init__("attestation", trace, scenario)
         self._validation = validation
         self._expected = (run_id, probe_nonce_sha256, target_identity_sha256)
 
@@ -101,7 +112,7 @@ class SandboxAttestationPort(_Port):
 
 class SandboxIngestPort(_Port):
     def __init__(self, trace: SandboxTrace, state: SandboxBackendState) -> None:
-        super().__init__("ingest", trace)
+        super().__init__("ingest", trace, state.scenario)
         self._state = state
         self.receipts: list[SandboxIngestReceipt] = []
 
@@ -114,19 +125,25 @@ class SandboxIngestPort(_Port):
         record: Mapping[str, object],
     ) -> SandboxIngestReceipt:
         assert run_id and len(target_identity_sha256) == 64
-        assert type(record) is dict and record["sample_id"] == "sandbox-locomo-1"
-        corpus_id = str(record["sample_id"])
+        assert type(record) is dict
+        corpus_id = _record_corpus_id(record)
+        assert corpus_id in self._state.scenario.corpus_ids
         source = self._state.ingest(backend_role, corpus_id, record)
         assert source.source_sha256 == hashlib.sha256(source.canonical_bytes).hexdigest()
-        receipt = SandboxIngestReceipt(backend_role, corpus_id)
+        receipt = SandboxIngestReceipt(backend_role, corpus_id, source.source_sha256)
         self.receipts.append(receipt)
         self.trace.add(f"ingest:{backend_role}")
         return receipt
 
 
 class SandboxClockPort(_Port):
-    def __init__(self, trace: SandboxTrace, current: datetime) -> None:
-        super().__init__("clock", trace)
+    def __init__(
+        self,
+        trace: SandboxTrace,
+        current: datetime,
+        scenario: SandboxScenario,
+    ) -> None:
+        super().__init__("clock", trace, scenario)
         self._current = current
 
     def now(self) -> datetime:
@@ -155,6 +172,7 @@ def build_runtime_ports(
         run_id=run_id,
         target_identity_sha256=target_identity_sha256,
         observed_at=started_at,
+        scenario=state.scenario,
     )
     return SandboxRuntimePorts(
         SandboxResetPort(trace, state),
@@ -164,9 +182,10 @@ def build_runtime_ports(
             run_id=run_id,
             probe_nonce_sha256=probe_nonce_sha256,
             target_identity_sha256=target_identity_sha256,
+            scenario=state.scenario,
         ),
         SandboxIngestPort(trace, state),
-        SandboxClockPort(trace, started_at),
+        SandboxClockPort(trace, started_at, state.scenario),
         started_at,
     )
 
@@ -183,6 +202,7 @@ def _runtime_validation(
     run_id: str,
     target_identity_sha256: str,
     observed_at: datetime,
+    scenario: SandboxScenario,
 ) -> VerifiedMem0RuntimeAttestationValidation:
     checked_at = observed_at.isoformat(timespec="milliseconds").replace("+00:00", "Z")
     artifact = "9c567df69af794278bc051400829d1a2d4f8aa659cae6cd019d88ec66dbf4f3f"
@@ -234,7 +254,7 @@ def _runtime_validation(
         "refresh_binding": {
             "status": "passed",
             "run_id_sha256": hashlib.sha256(run_id.encode()).hexdigest(),
-            "probe_nonce_sha256": hashlib.sha256(RUNTIME_NONCE.encode()).hexdigest(),
+            "probe_nonce_sha256": hashlib.sha256(scenario.runtime_nonce.encode()).hexdigest(),
             "target_identity_sha256": target_identity_sha256,
             "refreshed_at": checked_at,
         },
@@ -254,7 +274,7 @@ def _runtime_validation(
             fingerprint,
         )
     ).encode()
-    token = "managed-locomo-sandbox-token"
+    token = f"{scenario.scenario_id}-token"
     manifest["refresh_witness"] = {
         "algorithm": "hmac-sha256",
         "manifest_fingerprint_sha256": fingerprint,
@@ -267,7 +287,7 @@ def _runtime_validation(
         openapi_contract_violations=(),
         probe_passed=True,
         run_id=run_id,
-        probe_nonce=RUNTIME_NONCE,
+        probe_nonce=scenario.runtime_nonce,
         target_identity_sha256=target_identity_sha256,
     )
     assert verified is not None
@@ -278,7 +298,7 @@ def _runtime_validation(
             _RuntimeBackend(MEM0_BACKEND, target_identity_sha256),
         ),
         run_id,
-        RUNTIME_NONCE,
+        scenario.runtime_nonce,
         validated_at=observed_at,
     )
     assert type(validation) is VerifiedMem0RuntimeAttestationValidation
@@ -286,49 +306,74 @@ def _runtime_validation(
     return validation
 
 
-def _clean_state_bundle(run_id: str) -> CleanStateBundle:
+def _record_corpus_id(record: Mapping[str, object]) -> str:
+    for key in ("sample_id", "question_id", "id"):
+        value = record.get(key)
+        if type(value) is str and value:
+            return value
+    raise AssertionError("sandbox record has no corpus identity")
+
+
+def _clean_state_bundle(
+    run_id: str,
+    scenario: SandboxScenario,
+) -> CleanStateBundle:
     clean_key = hashlib.sha256(f"{run_id}:clean-state".encode()).digest()
-    corpus = clean_state_identity_sha256("sandbox-locomo-1")
-    infinity_scope = clean_state_identity_sha256("managed-locomo-fresh-space")
-    mem0_scope = clean_state_identity_sha256("managed-locomo-private-user")
+    expected_count = len(scenario.corpus_ids)
+    corpus_hashes = tuple(
+        (corpus_id, clean_state_identity_sha256(corpus_id)) for corpus_id in scenario.corpus_ids
+    )
+    scope_hashes = {
+        corpus_id: clean_state_identity_sha256(scenario.corpus_scope(corpus_id))
+        for corpus_id in scenario.corpus_ids
+    }
     validation = validate_typed_clean_state_proofs(
         {
-            INFINITY_BACKEND: (
+            INFINITY_BACKEND: tuple(
                 fresh_namespace_clean_state_proof(
                     backend=INFINITY_BACKEND,
                     run_id=run_id,
-                    expected_slug="managed-locomo-fresh-space",
-                    corpus_identity_sha256=corpus,
-                    expected_scope_count=1,
+                    expected_slug=scenario.corpus_scope(corpus_id),
+                    corpus_identity_sha256=corpus_hash,
+                    expected_scope_count=expected_count,
                     status_code=201,
-                    payload={"data": {"slug": "managed-locomo-fresh-space"}},
+                    payload={"data": {"slug": scenario.corpus_scope(corpus_id)}},
                     attestation_key=clean_key,
-                ),
+                )
+                for corpus_id, corpus_hash in corpus_hashes
             ),
-            MEM0_BACKEND: (
+            MEM0_BACKEND: tuple(
                 mem0_delete_clean_state_proof(
                     run_id=run_id,
-                    scope_identity="managed-locomo-private-user",
-                    corpus_identity_sha256=corpus,
-                    expected_scope_count=1,
+                    scope_identity=scenario.corpus_scope(corpus_id),
+                    corpus_identity_sha256=corpus_hash,
+                    expected_scope_count=expected_count,
                     status_code=200,
                     payload={"deleted": True, "verified_absent": True},
                     attestation_key=clean_key,
-                ),
+                )
+                for corpus_id, corpus_hash in corpus_hashes
             ),
         },
         expected_run_id_sha256=clean_state_identity_sha256(run_id),
         expected_scopes_by_backend={
-            INFINITY_BACKEND: {corpus: infinity_scope},
-            MEM0_BACKEND: {corpus: mem0_scope},
+            backend: {
+                corpus_hash: scope_hashes[corpus_id] for corpus_id, corpus_hash in corpus_hashes
+            }
+            for backend in (INFINITY_BACKEND, MEM0_BACKEND)
         },
         attestation_key=clean_key,
     )
     return CleanStateBundle(
         validation,
-        (
-            FullExecutionCleanScope(INFINITY_BACKEND, corpus, infinity_scope),
-            FullExecutionCleanScope(MEM0_BACKEND, corpus, mem0_scope),
+        tuple(
+            FullExecutionCleanScope(
+                backend,
+                corpus_hash,
+                scope_hashes[corpus_id],
+            )
+            for backend in (INFINITY_BACKEND, MEM0_BACKEND)
+            for corpus_id, corpus_hash in corpus_hashes
         ),
         clean_key,
     )

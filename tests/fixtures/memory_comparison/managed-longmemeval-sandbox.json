@@ -1,0 +1,119 @@
+[
+  {
+    "question_id": "sandbox-longmem-multi",
+    "question_type": "multi-session",
+    "question": "Which two maintenance tasks still remain for Project Vega?",
+    "question_date": "2024/01/06 (Sat) 09:00",
+    "answer": "renew the TLS certificate and rotate the API key",
+    "answer_session_ids": [
+      "vega-answer-tls-private",
+      "vega-answer-key-private"
+    ],
+    "haystack_session_ids": [
+      "vega-answer-tls-private",
+      "vega-distractor-office-private",
+      "vega-answer-key-private",
+      "vega-distractor-backup-private"
+    ],
+    "haystack_dates": [
+      "2024/01/04 (Thu) 11:00",
+      "2024/01/01 (Mon) 08:00",
+      "2024/01/05 (Fri) 14:30",
+      "2024/01/03 (Wed) 16:00"
+    ],
+    "haystack_sessions": [
+      [
+        {
+          "role": "user",
+          "content": "For Project Vega, the TLS certificate still needs renewal."
+        },
+        {
+          "role": "assistant",
+          "content": "I noted that certificate task."
+        }
+      ],
+      [
+        {
+          "role": "user",
+          "content": "The office key cabinet was repainted blue."
+        },
+        {
+          "role": "assistant",
+          "content": "That is unrelated to Project Vega maintenance."
+        }
+      ],
+      [
+        {
+          "role": "user",
+          "content": "For Project Vega, the API key still needs rotation."
+        },
+        {
+          "role": "assistant",
+          "content": "I noted that API key task too."
+        }
+      ],
+      [
+        {
+          "role": "user",
+          "content": "The Project Vega database backup was completed already."
+        },
+        {
+          "role": "assistant",
+          "content": "The completed backup is not a remaining task."
+        }
+      ]
+    ]
+  },
+  {
+    "question_id": "sandbox-longmem-distractor",
+    "question_type": "single-session-user",
+    "question": "Where did I place the saffron envelope?",
+    "question_date": "2024/02/05 (Mon) 10:00",
+    "answer": "blue archive box",
+    "answer_session_ids": [
+      "envelope-answer-private"
+    ],
+    "haystack_session_ids": [
+      "envelope-distractor-desk-private",
+      "envelope-answer-private",
+      "envelope-distractor-kitchen-private"
+    ],
+    "haystack_dates": [
+      "2024/02/03 (Sat) 12:00",
+      "2024/02/04 (Sun) 18:15",
+      "2024/02/01 (Thu) 07:30"
+    ],
+    "haystack_sessions": [
+      [
+        {
+          "role": "user",
+          "content": "The amber folder is in the top desk drawer."
+        },
+        {
+          "role": "assistant",
+          "content": "I will remember the amber folder location."
+        }
+      ],
+      [
+        {
+          "role": "user",
+          "content": "I placed the saffron envelope in the blue archive box."
+        },
+        {
+          "role": "assistant",
+          "content": "I will remember the saffron envelope location."
+        }
+      ],
+      [
+        {
+          "role": "user",
+          "content": "The grocery coupons are beside the kitchen calendar."
+        },
+        {
+          "role": "assistant",
+          "content": "That location is saved separately."
+        }
+      ]
+    ]
+  }
+]

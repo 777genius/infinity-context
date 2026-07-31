@@ -43,6 +43,9 @@ from infinity_context_server.memory_comparison_mem0_runtime_attestation import (
 from infinity_context_server.memory_comparison_provider_provenance import (
     ProviderRouteAttestation,
 )
+from infinity_context_server.public_benchmark_checkpoint import (
+    selected_case_fingerprint,
+)
 from infinity_context_server.public_benchmark_models import PublicBenchmarkCase
 from managed_comparison_sandbox_adapters import (
     INFINITY_BACKEND,
@@ -102,6 +105,11 @@ def test_managed_locomo_canary_runs_real_nine_slot_lifecycle_without_skips() -> 
     assert report["managed_run"]["case_count"] == 1
     assert report["managed_run"]["component_count"] == 9
     assert report["managed_run"]["terminal_delete_complete"] is True
+    assert rig.plan.dataset_sha256 == hashlib.sha256(_FIXTURE.read_bytes()).hexdigest()
+    assert rig.plan.selection_fingerprint_sha256 == selected_case_fingerprint((rig.public_case,))
+    assert rig.state.clean_state is not None
+    expected_scope = hashlib.sha256(SANDBOX_SCOPE.encode()).hexdigest()
+    assert {item.scope_identity_sha256 for item in rig.state.clean_state.scopes} == {expected_scope}
 
     case_id = rig.public_case.case_id
     assert rig.trace.events == _expected_adapter_trace(case_id)
@@ -137,9 +145,7 @@ def test_dirty_prestate_never_reaches_a_public_verdict() -> None:
 
 def test_candidate_source_mismatch_never_reaches_a_public_verdict() -> None:
     rig = _rig("candidate-mismatch", answer_text="black coffee")
-    with pytest.raises(
-        GoldBlindContractError, match="Trusted judge evaluator failed"
-    ) as raised:
+    with pytest.raises(GoldBlindContractError, match="Trusted judge evaluator failed") as raised:
         _run(rig)
     assert not getattr(raised.value, "__notes__", ())
     assert "delete.seal" in rig.trace.events
@@ -173,7 +179,7 @@ def test_wrong_scope_delete_cannot_remove_the_ingested_source() -> None:
     assert (INFINITY_BACKEND, SANDBOX_SCOPE, "sandbox-locomo-1") in state.stores
 
 
-def _rig(name: str, *, answer_text: str = "green tea") -> _Rig:
+def _rig(name: str, *, answer_text: str | None = None) -> _Rig:
     raw, public_case = _fixture_case()
     run_id = f"managed-locomo-sandbox-{name}"
     corpus_id = str(raw["sample_id"])
@@ -200,8 +206,8 @@ def _rig(name: str, *, answer_text: str = "green tea") -> _Rig:
         runtime_probe_nonce_sha256=hashlib.sha256(RUNTIME_NONCE.encode()).hexdigest(),
         profile=profile,
         methodology=full_comparison_methodology_contract(profile),
-        dataset_sha256=profile.expected_dataset_hash,
-        selection_fingerprint_sha256=hashlib.sha256(f"{name}:one-case".encode()).hexdigest(),
+        dataset_sha256=hashlib.sha256(_FIXTURE.read_bytes()).hexdigest(),
+        selection_fingerprint_sha256=selected_case_fingerprint((public_case,)),
         backend_targets=(
             FullComparisonBackendTarget(
                 INFINITY_BACKEND,
@@ -226,10 +232,14 @@ def _rig(name: str, *, answer_text: str = "green tea") -> _Rig:
     execution = SandboxExecutionPort(
         trace,
         state=state,
-        public_case=public_case,
+        public_cases=(public_case,),
         case_manifest=manifest,
         provider_route=route,
-        answer_text=answer_text,
+        **(
+            {"answer_from_source": lambda _question, _source: answer_text}
+            if answer_text is not None
+            else {}
+        ),
     )
     policy = SandboxPolicyPort(trace, state)
     assembler = ManagedFullComparisonAssembler(
