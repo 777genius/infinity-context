@@ -2,9 +2,7 @@ from __future__ import annotations
 
 import json
 from copy import deepcopy
-from typing import Any
 
-import httpx
 import pytest
 from fastapi.testclient import TestClient
 from root_contract_import import import_root_contract
@@ -54,80 +52,88 @@ def _configure_publishable_manifest(monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 class _Response:
-    def __init__(self, status_code: int, payload: object) -> None:
+    def __init__(self, status_code: int, payload: object, headers: dict[str, str]) -> None:
         self.status_code = status_code
-        self._payload = payload
+        self.headers = {key.casefold(): value for key, value in headers.items()}
+        self._body = json.dumps(payload, separators=(",", ":")).encode()
+        self.closed = False
 
-    def json(self) -> object:
-        return self._payload
-
-    def __enter__(self):
+    async def __aenter__(self):
         return self
 
-    def __exit__(self, *_: object) -> None:
-        return None
+    async def __aexit__(self, *_: object) -> None:
+        self.closed = True
 
-    def iter_bytes(self, *, chunk_size: int):
-        del chunk_size
-        yield json.dumps(self._payload).encode()
+    async def aiter_raw(self, chunk_size: int | None = None):
+        assert chunk_size is not None and chunk_size <= 65_536
+        yield self._body
 
 
-def _install_client(
-    monkeypatch: pytest.MonkeyPatch,
-    app_client: TestClient,
-    requests: list[dict[str, object]],
-    *,
-    drop_refresh_operation: bool = False,
-    tamper_hmac: bool = False,
-) -> None:
-    class Client:
-        def __init__(self, **_: object) -> None:
-            requests.append({"method": "client_init"})
+class _VettedTransport:
+    def __init__(
+        self,
+        app_client: TestClient,
+        requests: list[dict[str, object]],
+        *,
+        drop_refresh_operation: bool = False,
+        tamper_hmac: bool = False,
+    ) -> None:
+        self.app_client = app_client
+        self.requests = requests
+        self.drop_refresh_operation = drop_refresh_operation
+        self.tamper_hmac = tamper_hmac
+        self.client_opened = False
+        self.client_closed = False
+        self.responses: list[_Response] = []
 
-        def __enter__(self):
-            return self
+    def open_client(self, *, base_url: str, timeout_seconds: float):
+        assert base_url == "https://mem0.example"
+        assert timeout_seconds == 1.0
+        return self
 
-        def __exit__(self, *_: object) -> None:
-            return None
+    async def __aenter__(self):
+        self.client_opened = True
+        return self
 
-        def _request(self, method: str, path: str, **kwargs: Any) -> _Response:
-            normalized_method = method.casefold()
-            request_record: dict[str, object] = {"method": normalized_method, "path": path}
-            if normalized_method == "post":
-                request_record.update(
-                    {
-                        "headers": dict(kwargs.get("headers") or {}),
-                        "json": dict(kwargs.get("json") or {}),
-                    }
-                )
-            requests.append(request_record)
-            response = app_client.request(
-                normalized_method,
-                path,
-                headers=kwargs.get("headers"),
-                json=kwargs.get("json"),
+    async def __aexit__(self, *_: object) -> None:
+        self.client_closed = True
+
+    def stream(
+        self,
+        method: str,
+        path: str,
+        *,
+        headers: object = None,
+        json: object = None,
+    ) -> _Response:
+        normalized_method = method.casefold()
+        request_record: dict[str, object] = {"method": normalized_method, "path": path}
+        if normalized_method == "post":
+            request_record.update(
+                {
+                    "headers": dict(headers or {}),
+                    "json": dict(json or {}),
+                }
             )
-            payload = response.json()
-            if drop_refresh_operation and path == "/openapi.json":
-                payload = deepcopy(payload)
-                payload["paths"].pop("/benchmark/attest-timestamp", None)
-            if tamper_hmac and normalized_method == "post" and response.status_code < 400:
-                payload["refresh_witness"]["signature"] = "0" * 64
-            return _Response(response.status_code, payload)
-
-        def get(self, path: str) -> _Response:
-            return self._request("get", path)
-
-        def post(self, path: str, **kwargs: Any) -> _Response:
-            return self._request("post", path, **kwargs)
-
-        def stream(self, method: str, path: str, **kwargs: Any) -> _Response:
-            return self._request(method, path, **kwargs)
-
-    monkeypatch.setattr(httpx, "Client", Client)
+        self.requests.append(request_record)
+        response = self.app_client.request(
+            normalized_method,
+            path,
+            headers=headers,
+            json=json,
+        )
+        payload = response.json()
+        if self.drop_refresh_operation and path == "/openapi.json":
+            payload = deepcopy(payload)
+            payload["paths"].pop("/benchmark/attest-timestamp", None)
+        if self.tamper_hmac and normalized_method == "post" and response.status_code < 400:
+            payload["refresh_witness"]["signature"] = "0" * 64
+        probe_response = _Response(response.status_code, payload, dict(response.headers))
+        self.responses.append(probe_response)
+        return probe_response
 
 
-def _run_probe() -> object:
+def _run_probe(transport: _VettedTransport) -> object:
     return probe_mem0_api(
         "https://mem0.example/ignored-base-path",
         require_timestamp=True,
@@ -138,6 +144,7 @@ def _run_probe() -> object:
         run_id=RUN_ID,
         probe_nonce=NONCE,
         allowed_target_hosts=("mem0.example",),
+        vetted_transport=transport,
     )
 
 
@@ -156,10 +163,13 @@ def test_valid_signed_refresh_yields_typed_target_bound_capability(
             attest_on_startup=False,
         )
     ) as client:
-        _install_client(monkeypatch, client, requests)
-        outcome = _run_probe()
+        transport = _VettedTransport(client, requests)
+        outcome = _run_probe(transport)
 
     assert outcome.passed is True, outcome.details
+    assert transport.client_opened is True
+    assert transport.client_closed is True
+    assert transport.responses and all(response.closed for response in transport.responses)
     verified = outcome.details["verified_runtime_attestation"]
     assert isinstance(verified, VerifiedMem0RuntimeAttestation)
     post = next(item for item in requests if item["method"] == "post")
@@ -189,31 +199,30 @@ def test_invalid_refresh_contract_or_hmac_never_yields_typed_capability(
             attest_on_startup=False,
         )
     ) as client:
-        _install_client(
-            monkeypatch,
+        transport = _VettedTransport(
             client,
             requests,
             drop_refresh_operation=mode == "missing_operation",
             tamper_hmac=mode == "bad_hmac",
         )
-        outcome = _run_probe()
+        outcome = _run_probe(transport)
 
     assert outcome.passed is False
+    assert transport.client_closed is True
+    assert transport.responses and all(response.closed for response in transport.responses)
     assert outcome.details.get("verified_runtime_attestation") is None
     post_count = sum(item["method"] == "post" for item in requests)
     assert post_count == (0 if mode == "missing_operation" else 1)
 
 
-def test_unsafe_target_rejects_before_http_client_or_token_request(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
+def test_unsafe_target_rejects_before_http_client_or_token_request() -> None:
     calls: list[str] = []
 
-    def fail_client(**_: object) -> None:
-        calls.append("client")
-        raise AssertionError("unsafe target must not construct an HTTP client")
+    class MustNotOpenTransport:
+        def open_client(self, **_: object):
+            calls.append("client")
+            raise AssertionError("unsafe target must not construct an HTTP client")
 
-    monkeypatch.setattr(httpx, "Client", fail_client)
     outcome = probe_mem0_api(
         "http://evil.example",
         require_timestamp=True,
@@ -223,6 +232,7 @@ def test_unsafe_target_rejects_before_http_client_or_token_request(
         benchmark_probe_token=TOKEN,
         run_id=RUN_ID,
         probe_nonce=NONCE,
+        vetted_transport=MustNotOpenTransport(),
     )
 
     assert outcome.passed is False
