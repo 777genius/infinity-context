@@ -35,6 +35,7 @@ from infinity_context_server.memory_comparison_provider_provenance import (
 from infinity_context_server.public_benchmark_models import BenchmarkValidationError
 
 _SHA = "a" * 64
+_MANAGED_ATTESTATION = object()
 
 
 class _Abort(BaseException):
@@ -137,12 +138,28 @@ class _Policy(_Port):
         self.fail_at = fail_at
         self.reuse_delete_receipts = False
         self.shared_delete_receipt = object()
+        self.expected_managed_commitment_sha256 = "8" * 64
+        self.sealed_managed_attestation: object | None = None
+        self.sealed_managed_commitment: str | None = None
 
     def seal_canonical_source(
-        self, *, cases: tuple[ManagedRunCase, ...], **kwargs: Any
+        self,
+        *,
+        cases: tuple[ManagedRunCase, ...],
+        managed_attestation: object,
+        managed_attestation_commitment_sha256: str | None,
+        **kwargs: Any,
     ) -> tuple[object, ...]:
         del kwargs
+        self.sealed_managed_attestation = managed_attestation
+        self.sealed_managed_commitment = managed_attestation_commitment_sha256
         self.events.append("canonical_source.seal")
+        if managed_attestation is None:
+            raise ManagedRunError("managed attestation is required for canonical/source")
+        if managed_attestation_commitment_sha256 is None:
+            raise ManagedRunError("managed attestation commitment is required")
+        if managed_attestation_commitment_sha256 != self.expected_managed_commitment_sha256:
+            raise ManagedRunError("managed attestation commitment mismatch")
         if self.fail_at == "canonical_source.seal":
             raise _Abort("canonical_source.seal")
         return tuple(object() for _ in cases)
@@ -289,16 +306,21 @@ def _rig() -> _Rig:
     )
 
 
-def _patch_attestation(monkeypatch: pytest.MonkeyPatch) -> None:
+def _patch_attestation(
+    monkeypatch: pytest.MonkeyPatch,
+    *,
+    commitment: object,
+    attestation: object,
+) -> None:
     monkeypatch.setattr(
         managed,
         "_issue_verified_managed_composition_attestation_for_composition_root",
-        lambda **kwargs: object(),
+        lambda **kwargs: attestation,
     )
     monkeypatch.setattr(
         managed,
         "public_managed_composition_attestation",
-        lambda *args, **kwargs: {"composition_attestation_sha256": "8" * 64},
+        lambda *args, **kwargs: {"composition_attestation_sha256": commitment},
     )
 
 
@@ -307,9 +329,15 @@ def _run(
     monkeypatch: pytest.MonkeyPatch,
     *,
     scope: str = "full",
+    attestation_commitment: object = "8" * 64,
+    managed_attestation: object = _MANAGED_ATTESTATION,
     plan: ManagedRunPlan | None = None,
 ):
-    _patch_attestation(monkeypatch)
+    _patch_attestation(
+        monkeypatch,
+        commitment=attestation_commitment,
+        attestation=managed_attestation,
+    )
     return run_managed_comparison(
         _plan(scope=scope) if plan is None else plan,
         reset_port=rig.reset,
@@ -349,6 +377,10 @@ def test_exact_lifecycle_orders_terminal_delete_before_nine_components(
     assert rig.events.index("delete.seal") < rig.events.index("components.issue")
     assert rig.events.index("components.issue") < rig.events.index("verdict.public")
     assert report["managed_run"]["component_count"] == 9
+    assert rig.policy.sealed_managed_attestation is _MANAGED_ATTESTATION
+    assert rig.policy.sealed_managed_commitment == "8" * 64
+    assert rig.events.count("canonical_source.seal") == 1
+    assert rig.events.index("canonical_source.seal") < rig.events.index("delete:infinity-context:1")
     assert rig.execution.sealed_manifest == _manifest()
     assert rig.execution.sealed_manifest_sha256 == execution_case_manifest_sha256(_manifest())
 
@@ -558,3 +590,52 @@ def test_live_manifest_revalidation_blocks_tampering_before_reset(
         _run(rig, monkeypatch, plan=plan)
 
     assert rig.events == []
+
+
+def test_policy_attestation_commitment_mismatch_cleans_up_before_publish(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    rig = _rig()
+    rig.policy.expected_managed_commitment_sha256 = "9" * 64
+
+    with pytest.raises(ManagedRunError, match="commitment mismatch"):
+        _run(rig, monkeypatch)
+
+    assert rig.events.count("canonical_source.seal") == 1
+    assert len(_deletes(rig.events)) == 4
+    assert rig.events.index("canonical_source.seal") < rig.events.index("delete:infinity-context:1")
+    assert "policy.aggregate" not in rig.events
+    assert "components.issue" not in rig.events
+    assert "verdict.public" not in rig.events
+
+
+def test_none_managed_attestation_commitment_cleans_up_before_ingest_or_policy_proof(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    rig = _rig()
+
+    with pytest.raises(ManagedRunError, match="managed attestation must be SHA-256"):
+        _run(rig, monkeypatch, attestation_commitment=None)
+
+    assert len(_deletes(rig.events)) == 4
+    assert not any(item.startswith("ingest:") for item in rig.events)
+    assert "canonical_source.seal" not in rig.events
+    assert "policy.aggregate" not in rig.events
+    assert "components.issue" not in rig.events
+    assert "verdict.public" not in rig.events
+
+
+def test_none_managed_attestation_cleans_up_before_ingest_or_policy_proof(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    rig = _rig()
+
+    with pytest.raises(ManagedRunError, match="managed attestation is missing"):
+        _run(rig, monkeypatch, managed_attestation=None)
+
+    assert len(_deletes(rig.events)) == 4
+    assert not any(item.startswith("ingest:") for item in rig.events)
+    assert "canonical_source.seal" not in rig.events
+    assert "policy.aggregate" not in rig.events
+    assert "components.issue" not in rig.events
+    assert "verdict.public" not in rig.events

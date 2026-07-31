@@ -209,6 +209,8 @@ class ManagedPolicyLifecyclePort(ManagedPortIdentity, Protocol):
         *,
         bindings: FullComparisonRunBindings,
         cases: tuple[ManagedRunCase, ...],
+        managed_attestation: VerifiedManagedCompositionAttestation,
+        managed_attestation_commitment_sha256: str,
         ingest_receipts: tuple[object, ...],
         execution: ManagedExecutionArtifacts,
     ) -> tuple[object, ...]: ...

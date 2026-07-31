@@ -174,6 +174,8 @@ def run_managed_comparison(
             runtime_validation=runtime_validation,
             provider_route=plan.provider_route,
         )
+        if managed_attestation is None:
+            raise ManagedRunError("managed attestation is missing")
         managed_report = public_managed_composition_attestation(
             managed_attestation,
             bindings=bindings,
@@ -204,6 +206,8 @@ def run_managed_comparison(
         canonical_source = policy_port.seal_canonical_source(
             bindings=bindings,
             cases=plan.cases,
+            managed_attestation=managed_attestation,
+            managed_attestation_commitment_sha256=managed_commitment,
             execution=execution,
             ingest_receipts=ingest_receipts,
         )
