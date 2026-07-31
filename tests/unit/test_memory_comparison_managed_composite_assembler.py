@@ -42,6 +42,7 @@ from infinity_context_server.memory_comparison_gold_blind_contract import (
     dispatch_answer,
     dispatch_judge,
     dispatch_retrieval,
+    issue_gold_blind_judge_dispatch_binding,
     verify_gold_blind_execution,
 )
 from infinity_context_server.memory_comparison_managed_attestation import (
@@ -194,6 +195,12 @@ def _gold_lanes(
             contract.judge_channel,
             backend_id=lane.judge_backend_id,
             dispatch_ledger=ledger,
+            answer_binding=issue_gold_blind_judge_dispatch_binding(
+                ledger,
+                run_id=bindings.run_id,
+                case_id=lane.case_id,
+                backend_id=lane.judge_backend_id,
+            ),
             key=key,
             run_id=bindings.run_id,
             case_id=lane.case_id,

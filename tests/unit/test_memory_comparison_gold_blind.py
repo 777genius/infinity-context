@@ -41,6 +41,7 @@ from infinity_context_server.memory_comparison_gold_blind_contract import (
     dispatch_judge,
     dispatch_retrieval,
     gold_blind_audit_commitment,
+    issue_gold_blind_judge_dispatch_binding,
     verified_gold_blind_execution_report,
     verify_gold_blind_execution,
 )
@@ -192,6 +193,7 @@ class _HostileString(str):
 
 def _trusted_correct(
     *,
+    candidate_answer: object,
     ground_truth: object,
     expected_terms: tuple[str, ...],
     forbidden_terms: tuple[str, ...],
@@ -206,6 +208,7 @@ def _trusted_correct(
 
 def _trusted_raw_return(
     *,
+    candidate_answer: object,
     ground_truth: object,
     expected_terms: tuple[str, ...],
     forbidden_terms: tuple[str, ...],
@@ -216,6 +219,7 @@ def _trusted_raw_return(
 
 def _trusted_failure(
     *,
+    candidate_answer: object,
     ground_truth: object,
     expected_terms: tuple[str, ...],
     forbidden_terms: tuple[str, ...],
@@ -226,6 +230,7 @@ def _trusted_failure(
 
 def _trusted_cancel(
     *,
+    candidate_answer: object,
     ground_truth: object,
     expected_terms: tuple[str, ...],
     forbidden_terms: tuple[str, ...],
@@ -236,6 +241,7 @@ def _trusted_cancel(
 
 def _trusted_mutated_result(
     *,
+    candidate_answer: object,
     ground_truth: object,
     expected_terms: tuple[str, ...],
     forbidden_terms: tuple[str, ...],
@@ -323,6 +329,12 @@ def _dispatch_judge(
         contract.judge_channel,
         backend_id=backend_id,
         dispatch_ledger=ledger,
+        answer_binding=issue_gold_blind_judge_dispatch_binding(
+            ledger,
+            run_id=_RUN_ID,
+            case_id=_CASE_ID,
+            backend_id=backend_id,
+        ),
         key=key,
         run_id=_RUN_ID,
         case_id=_CASE_ID,
@@ -408,13 +420,11 @@ def test_complete_backend_bound_receipts_issue_sealed_admission_and_report() -> 
 
 @pytest.mark.parametrize("missing_stage", ("retrieval", "answer", "judge"))
 def test_missing_dispatch_receipt_fails_admission(missing_stage: str) -> None:
-    contract, key, ledger = _contract()
+    contract, _, ledger = _contract()
     if missing_stage != "retrieval":
         _dispatch_retrieval(_CapturingBackend(), contract, ledger)
     if missing_stage not in ("retrieval", "answer"):
         _dispatch_answer(_CapturingAnswerer(), _answer_request(contract, ledger), ledger)
-    if missing_stage != "judge":
-        _dispatch_judge(contract, key, ledger)
     with pytest.raises(GoldBlindContractError, match="incomplete"):
         verify_gold_blind_execution(ledger)
 
@@ -492,6 +502,7 @@ def test_stateful_and_closure_judges_are_rejected_before_receiving_gold() -> Non
         def __call__(
             self,
             *,
+            candidate_answer: object,
             ground_truth: object,
             expected_terms: tuple[str, ...],
             forbidden_terms: tuple[str, ...],
@@ -510,6 +521,7 @@ def test_stateful_and_closure_judges_are_rejected_before_receiving_gold() -> Non
     def closure_factory() -> Any:
         def retaining_judge(
             *,
+            candidate_answer: object,
             ground_truth: object,
             expected_terms: tuple[str, ...],
             forbidden_terms: tuple[str, ...],
@@ -527,6 +539,8 @@ def test_stateful_and_closure_judges_are_rejected_before_receiving_gold() -> Non
 
 def test_judge_failure_and_cancellation_are_fresh_and_secret_free() -> None:
     contract, key, ledger = _contract()
+    _dispatch_retrieval(_CapturingBackend(), contract, ledger)
+    _dispatch_answer(_CapturingAnswerer(), _answer_request(contract, ledger), ledger)
     with pytest.raises(GoldBlindContractError, match="evaluator failed") as failure:
         _dispatch_judge(
             contract,
@@ -538,6 +552,8 @@ def test_judge_failure_and_cancellation_are_fresh_and_secret_free() -> None:
     assert _SECRET.casefold() not in str(failure.value).casefold()
 
     contract, key, ledger = _contract()
+    _dispatch_retrieval(_CapturingBackend(), contract, ledger)
+    _dispatch_answer(_CapturingAnswerer(), _answer_request(contract, ledger), ledger)
     with pytest.raises(asyncio.CancelledError) as cancelled:
         _dispatch_judge(
             contract,
@@ -550,25 +566,29 @@ def test_judge_failure_and_cancellation_are_fresh_and_secret_free() -> None:
 
 
 def test_key_and_channel_rebinding_is_rejected_by_audit_and_dispatch() -> None:
-    contract, key, _ = _contract()
+    contract, key, ledger = _contract()
+    _dispatch_retrieval(_CapturingBackend(), contract, ledger)
+    _dispatch_answer(_CapturingAnswerer(), _answer_request(contract, ledger), ledger)
+    answer_binding = issue_gold_blind_judge_dispatch_binding(
+        ledger,
+        run_id=_RUN_ID,
+        case_id=_CASE_ID,
+        backend_id=_JUDGE_BACKEND,
+    )
     object.__setattr__(key, "_JudgeRunKey__run_id", "rebound")
     object.__setattr__(contract.judge_channel, "_ExactGoldJudgeChannel__run_id", "rebound")
 
     with pytest.raises(GoldBlindContractError, match="integrity"):
         contract.audit_evidence()
-    rebound_ledger = create_gold_blind_run_dispatch_ledger(
-        run_id="rebound",
-        comparison_binding_commitment_sha256=_COMPARISON_BINDING,
-        expected_cases=(_expected_case(),),
-    )
-    with pytest.raises(GoldBlindContractError, match="integrity"):
+    with pytest.raises(GoldBlindContractError, match="evaluator failed"):
         dispatch_judge(
             _evaluator(),
             contract.judge_channel,
             backend_id=_JUDGE_BACKEND,
-            dispatch_ledger=rebound_ledger,
+            dispatch_ledger=ledger,
+            answer_binding=answer_binding,
             key=key,
-            run_id="rebound",
+            run_id=_RUN_ID,
             case_id=_CASE_ID,
         )
 

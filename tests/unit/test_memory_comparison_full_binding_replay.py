@@ -49,6 +49,7 @@ from infinity_context_server.memory_comparison_gold_blind_contract import (
     dispatch_answer,
     dispatch_judge,
     dispatch_retrieval,
+    issue_gold_blind_judge_dispatch_binding,
     verified_gold_blind_execution_report,
     verify_gold_blind_execution,
 )
@@ -128,6 +129,7 @@ class _Answerer:
 
 def _judge_callback(
     *,
+    candidate_answer: object,
     ground_truth: object,
     expected_terms: tuple[str, ...],
     forbidden_terms: tuple[str, ...],
@@ -189,6 +191,12 @@ def _gold_validation(
         contract.judge_channel,
         backend_id=_JUDGE,
         dispatch_ledger=ledger,
+        answer_binding=issue_gold_blind_judge_dispatch_binding(
+            ledger,
+            run_id=bindings.run_id,
+            case_id=_CASE,
+            backend_id=_JUDGE,
+        ),
         key=key,
         run_id=bindings.run_id,
         case_id=_CASE,

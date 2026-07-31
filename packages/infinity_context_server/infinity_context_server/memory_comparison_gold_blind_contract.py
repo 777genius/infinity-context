@@ -20,6 +20,9 @@ from infinity_context_server.memory_comparison_gold_blind_answer_contract import
     GoldBlindEvidence,
     validate_gold_blind_evidence,
 )
+from infinity_context_server.memory_comparison_gold_blind_judge_binding import (
+    GoldBlindJudgeDispatchBinding,
+)
 from infinity_context_server.memory_comparison_gold_blind_retrieval_contract import (
     RETRIEVAL_REQUEST_SCHEMA_VERSION,
     GoldBlindRetrievalRequest,
@@ -33,6 +36,7 @@ from infinity_context_server.memory_comparison_gold_blind_run_proof import (
     dispatch_answer,
     dispatch_judge,
     dispatch_retrieval,
+    issue_gold_blind_judge_dispatch_binding,
     verified_gold_blind_execution_report,
     verify_gold_blind_execution,
 )
@@ -60,6 +64,7 @@ __all__ = (
     "RUN_DISPATCH_PROOF_SCHEMA_VERSION",
     "GoldBlindContractError",
     "GoldBlindExpectedDispatchCase",
+    "GoldBlindJudgeDispatchBinding",
     "GoldBlindRetrievalRequest",
     "GoldBlindRunDispatchLedger",
     "VerifiedGoldBlindExecutionValidation",
@@ -69,6 +74,7 @@ __all__ = (
     "dispatch_answer",
     "dispatch_judge",
     "dispatch_retrieval",
+    "issue_gold_blind_judge_dispatch_binding",
     "validate_provider_text",
     "validate_string_terms",
     "verified_gold_blind_execution_report",
@@ -291,6 +297,7 @@ _KEY_INTEGRITY: weakref.WeakKeyDictionary[JudgeRunKey, _KeyIntegritySnapshot] = 
 _CHANNEL_INTEGRITY: weakref.WeakKeyDictionary[ExactGoldJudgeChannel, _ChannelIntegritySnapshot] = (
     weakref.WeakKeyDictionary()
 )
+_CONSUMED_CHANNELS: weakref.WeakSet[ExactGoldJudgeChannel] = weakref.WeakSet()
 _EVALUATOR_INTEGRITY: weakref.WeakKeyDictionary[
     TrustedGoldBlindEvaluator, _EvaluatorIntegritySnapshot
 ] = weakref.WeakKeyDictionary()
@@ -633,6 +640,26 @@ def _validate_channel_binding(
         raise
     except Exception:
         raise GoldBlindContractError("Judge capability integrity verification failed") from None
+    return snapshot
+
+
+def _consume_channel_binding(
+    *,
+    key: JudgeRunKey,
+    channel: ExactGoldJudgeChannel,
+    run_id: str,
+    case_id: str,
+) -> _ChannelIntegritySnapshot:
+    with _INTEGRITY_LOCK:
+        snapshot = _validate_channel_binding(
+            key=key,
+            channel=channel,
+            run_id=run_id,
+            case_id=case_id,
+        )
+        if channel in _CONSUMED_CHANNELS:
+            raise GoldBlindContractError("Judge channel is already consumed")
+        _CONSUMED_CHANNELS.add(channel)
     return snapshot
 
 

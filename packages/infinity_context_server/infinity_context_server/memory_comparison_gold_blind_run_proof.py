@@ -4,52 +4,49 @@ from __future__ import annotations
 
 import hashlib
 import hmac
-import json
-import math
-import re
 import secrets
 import threading
 import weakref
 from collections.abc import Callable
 from dataclasses import dataclass
-from types import MappingProxyType
 from typing import final
 
+from infinity_context_server.memory_comparison_gold_blind_dispatch_models import (
+    GoldBlindExpectedDispatchCase,
+)
+from infinity_context_server.memory_comparison_gold_blind_execution_validation import (
+    VerifiedGoldBlindExecutionValidation,
+    _GoldBlindExecutionValidationRegistry,
+)
+from infinity_context_server.memory_comparison_gold_blind_judge_binding import (
+    GoldBlindJudgeDispatchBinding,
+    _GoldBlindJudgeBindingRegistry,
+)
+from infinity_context_server.memory_comparison_gold_blind_run_validation import (
+    RUN_DISPATCH_PROOF_SCHEMA_VERSION,
+    build_dispatch_report_fields,
+    parse_canonical_dispatch_json,
+)
+from infinity_context_server.memory_comparison_gold_blind_run_validation import (
+    build_dispatch_commitment as _commitment,
+)
+from infinity_context_server.memory_comparison_gold_blind_run_validation import (
+    canonical_dispatch_json as _canonical_json,
+)
+from infinity_context_server.memory_comparison_gold_blind_run_validation import (
+    validate_dispatch_digest as _validate_digest,
+)
+from infinity_context_server.memory_comparison_gold_blind_run_validation import (
+    validate_dispatch_id as _validate_id,
+)
 from infinity_context_server.memory_comparison_gold_blind_validation import GoldBlindContractError
 
-RUN_DISPATCH_PROOF_SCHEMA_VERSION = "memory-comparison-gold-blind-dispatch-proof.v4"
-_MAX_ID_CHARS = 16_384
-_HEX_256 = re.compile(r"^[0-9a-f]{64}$")
 _STAGES = ("retrieval", "answer", "judge")
 _TOKEN = object()
 
 
 class GoldBlindRunDispatchProofError(GoldBlindContractError):
     """Raised when dispatch state cannot prove the expected execution."""
-
-
-@final
-@dataclass(frozen=True, slots=True)
-class GoldBlindExpectedDispatchCase:
-    """Exact backend-role selection for one expected case in a run."""
-
-    case_id: str
-    retrieval_backend_id: str
-    answer_backend_id: str
-    judge_backend_id: str
-
-    def __post_init__(self) -> None:
-        _validate_id(self.case_id, field_name="Expected case_id")
-        for value in (
-            self.retrieval_backend_id,
-            self.answer_backend_id,
-            self.judge_backend_id,
-        ):
-            _validate_id(value, field_name="Expected backend_id")
-
-    def __init_subclass__(cls, **kwargs: object) -> None:
-        del kwargs
-        raise TypeError("GoldBlindExpectedDispatchCase is final")
 
 
 @dataclass(frozen=True, slots=True)
@@ -66,7 +63,7 @@ class _ReceiptSnapshot:
     result_identity: str | None
 
 
-@dataclass(slots=True)
+@dataclass(slots=True, repr=False)
 class _LedgerState:
     run_id: str
     comparison_binding_commitment_sha256: str
@@ -74,6 +71,8 @@ class _LedgerState:
     expected: dict[str, _ExpectedSnapshot]
     receipts: dict[tuple[str, str], _ReceiptSnapshot]
     pending: set[tuple[str, str]]
+    answer_results: dict[str, bytes]
+    judge_bindings_issued: set[str]
     generation: int
     sealed: bool
 
@@ -86,15 +85,6 @@ class _AnswerBindingSnapshot:
     answer_backend_id: str
     retrieval_identity: str
     evidence_identity: str
-
-
-@dataclass(frozen=True, slots=True)
-class _ValidationSnapshot:
-    ledger: GoldBlindRunDispatchLedger
-    run_id: str
-    generation: int
-    commitment: str
-    report: MappingProxyType[str, object]
 
 
 @final
@@ -142,29 +132,6 @@ class GoldBlindAnswerDispatchBinding:
         raise TypeError("GoldBlindAnswerDispatchBinding is nonserializable")
 
 
-@final
-class VerifiedGoldBlindExecutionValidation:
-    """Issued admission capability; serialized reports are never admission input."""
-
-    __slots__ = ("__commitment", "__run_id", "__weakref__")
-
-    def __init__(self, *, run_id: str, commitment: str, _token: object) -> None:
-        if _token is not _TOKEN:
-            raise GoldBlindRunDispatchProofError("Execution validations must be issued")
-        self.__run_id = run_id
-        self.__commitment = commitment
-
-    def __init_subclass__(cls, **kwargs: object) -> None:
-        del kwargs
-        raise TypeError("VerifiedGoldBlindExecutionValidation is final")
-
-    def __repr__(self) -> str:
-        return "VerifiedGoldBlindExecutionValidation(<sealed>)"
-
-    def __reduce__(self) -> object:
-        raise TypeError("VerifiedGoldBlindExecutionValidation is nonserializable")
-
-
 _LOCK = threading.RLock()
 
 
@@ -176,9 +143,8 @@ def _build_public_dispatch_api() -> tuple[Callable[..., object], ...]:
     answer_bindings: weakref.WeakKeyDictionary[
         GoldBlindAnswerDispatchBinding, _AnswerBindingSnapshot
     ] = weakref.WeakKeyDictionary()
-    validations: weakref.WeakKeyDictionary[
-        VerifiedGoldBlindExecutionValidation, _ValidationSnapshot
-    ] = weakref.WeakKeyDictionary()
+    judge_binding_registry = _GoldBlindJudgeBindingRegistry()
+    execution_validation_registry = _GoldBlindExecutionValidationRegistry()
 
     def create_ledger(
         *,
@@ -213,6 +179,8 @@ def _build_public_dispatch_api() -> tuple[Callable[..., object], ...]:
                 comparison_binding_commitment_sha256,
                 secrets.token_bytes(32),
                 expected,
+                {},
+                set(),
                 {},
                 set(),
                 0,
@@ -371,6 +339,8 @@ def _build_public_dispatch_api() -> tuple[Callable[..., object], ...]:
             try:
                 result = port.answer(payload)  # type: ignore[attr-defined]
                 _validate_answer_provider_result(result)
+                answer_json = _canonical_json(result)
+                answer_result_identity = hashlib.sha256(answer_json).hexdigest()
             except BaseException as exc:
                 _raise_sanitized_provider_failure(exc, stage="Answer")
             event = _canonical_json(
@@ -378,13 +348,13 @@ def _build_public_dispatch_api() -> tuple[Callable[..., object], ...]:
                     "backend_id": backend_id,
                     "case_id": case_id,
                     "identity": payload,
-                    "result_identity": None,
+                    "result_identity": answer_result_identity,
                     "run_id": run_id,
                     "schema_version": RUN_DISPATCH_PROOF_SCHEMA_VERSION,
                     "stage": "answer",
                 }
             )
-            receipt = _ReceiptSnapshot(hashlib.sha256(event).hexdigest(), None)
+            receipt = _ReceiptSnapshot(hashlib.sha256(event).hexdigest(), answer_result_identity)
             with _LOCK:
                 if (
                     state.sealed  # type: ignore[union-attr]
@@ -394,6 +364,7 @@ def _build_public_dispatch_api() -> tuple[Callable[..., object], ...]:
                     raise GoldBlindRunDispatchProofError("Answer dispatch is not live")
                 state.pending.remove(receipt_key)  # type: ignore[union-attr]
                 state.receipts[receipt_key] = receipt  # type: ignore[union-attr]
+                state.answer_results[case_id] = answer_json  # type: ignore[union-attr]
                 state.generation += 1  # type: ignore[union-attr]
         except BaseException as exc:
             with _LOCK:
@@ -408,22 +379,76 @@ def _build_public_dispatch_api() -> tuple[Callable[..., object], ...]:
             raise
         return result
 
+    def issue_judge_binding(
+        dispatch_ledger: GoldBlindRunDispatchLedger,
+        *,
+        run_id: str,
+        case_id: str,
+        backend_id: str,
+    ) -> GoldBlindJudgeDispatchBinding:
+        try:
+            if dispatch_ledger not in owned_ledgers:
+                raise GoldBlindRunDispatchProofError("Dispatch ledger is not coordinator-owned")
+            with _LOCK:
+                state = states.get(dispatch_ledger)
+            _validate_registered_ledger_state(dispatch_ledger, state)
+            with _LOCK:
+                _validate_open_binding(
+                    state,  # type: ignore[arg-type]
+                    run_id,
+                    case_id,
+                    backend_id,
+                    "judge",
+                )
+                answer_receipt = state.receipts.get((case_id, "answer"))  # type: ignore[union-attr]
+                answer_json = state.answer_results.get(case_id)  # type: ignore[union-attr]
+                if (
+                    answer_receipt is None
+                    or answer_receipt.result_identity is None
+                    or answer_json is None
+                    or case_id in state.judge_bindings_issued  # type: ignore[union-attr]
+                ):
+                    raise GoldBlindRunDispatchProofError("Judge answer binding is unavailable")
+                answer_result_identity = hashlib.sha256(answer_json).hexdigest()
+                if not hmac.compare_digest(
+                    answer_receipt.result_identity,
+                    answer_result_identity,
+                ):
+                    raise GoldBlindRunDispatchProofError("Judge answer identity mismatch")
+                binding = judge_binding_registry.issue(
+                    ledger=dispatch_ledger,
+                    run_id=run_id,
+                    case_id=case_id,
+                    judge_backend_id=backend_id,
+                    answer_receipt_identity=answer_receipt.receipt_identity,
+                    answer_result_identity=answer_result_identity,
+                    answer_json=answer_json,
+                    secret=state.secret,  # type: ignore[union-attr]
+                    schema_version=RUN_DISPATCH_PROOF_SCHEMA_VERSION,
+                )
+                state.judge_bindings_issued.add(case_id)  # type: ignore[union-attr]
+                state.generation += 1  # type: ignore[union-attr]
+            return binding
+        except GoldBlindRunDispatchProofError:
+            raise GoldBlindContractError("Judge answer binding verification failed") from None
+
     def dispatch_judge(
         evaluator: object,
         channel: object,
         *,
         backend_id: str,
         dispatch_ledger: GoldBlindRunDispatchLedger,
+        answer_binding: GoldBlindJudgeDispatchBinding,
         key: object,
         run_id: str,
         case_id: str,
     ) -> object:
         from infinity_context_server.memory_comparison_gold_blind_contract import (
+            _consume_channel_binding,
             _judge_result_payload,
             _raise_sanitized_judge_failure,
             _reject_exact_deferred_result,
             _trusted_evaluator_callback,
-            _validate_channel_binding,
         )
         from infinity_context_server.memory_comparison_gold_blind_validation import (
             freeze_json_value,
@@ -432,12 +457,6 @@ def _build_public_dispatch_api() -> tuple[Callable[..., object], ...]:
         )
 
         callback = _trusted_evaluator_callback(evaluator)
-        snapshot = _validate_channel_binding(
-            key=key,
-            channel=channel,
-            run_id=run_id,
-            case_id=case_id,
-        )
         receipt_key = (case_id, "judge")
         try:
             if dispatch_ledger not in owned_ledgers:
@@ -453,6 +472,23 @@ def _build_public_dispatch_api() -> tuple[Callable[..., object], ...]:
                     backend_id,
                     "judge",
                 )
+                answer_receipt = state.receipts.get((case_id, "answer"))  # type: ignore[union-attr]
+                if answer_receipt is None or answer_receipt.result_identity is None:
+                    raise GoldBlindRunDispatchProofError("Answer receipt is missing")
+                try:
+                    binding_snapshot = judge_binding_registry.consume(
+                        answer_binding,
+                        ledger=dispatch_ledger,
+                        run_id=run_id,
+                        case_id=case_id,
+                        judge_backend_id=backend_id,
+                        answer_receipt_identity=answer_receipt.receipt_identity,
+                        answer_result_identity=answer_receipt.result_identity,
+                        secret=state.secret,  # type: ignore[union-attr]
+                        schema_version=RUN_DISPATCH_PROOF_SCHEMA_VERSION,
+                    )
+                except GoldBlindContractError:
+                    raise GoldBlindRunDispatchProofError("Judge answer binding mismatch") from None
                 if receipt_key in state.pending or receipt_key in state.receipts:  # type: ignore[union-attr]
                     raise GoldBlindRunDispatchProofError("Duplicate dispatch receipt")
                 state.pending.add(receipt_key)  # type: ignore[union-attr]
@@ -461,9 +497,18 @@ def _build_public_dispatch_api() -> tuple[Callable[..., object], ...]:
             raise GoldBlindContractError("Run dispatch ledger verification failed") from None
         try:
             try:
+                snapshot = _consume_channel_binding(
+                    key=key,
+                    channel=channel,
+                    run_id=run_id,
+                    case_id=case_id,
+                )
+                mutable_answer = parse_canonical_dispatch_json(binding_snapshot.answer_json)
+                immutable_answer = freeze_json_value(mutable_answer)
                 mutable_ground_truth = parse_canonical_gold_json(snapshot.ground_truth_json)
                 immutable_ground_truth = freeze_json_value(mutable_ground_truth)
                 result = callback(
+                    candidate_answer=immutable_answer,
                     ground_truth=immutable_ground_truth,
                     expected_terms=tuple(snapshot.expected_terms),
                     forbidden_terms=tuple(snapshot.forbidden_terms),
@@ -486,6 +531,7 @@ def _build_public_dispatch_api() -> tuple[Callable[..., object], ...]:
                     "case_id": case_id,
                     "identity": {
                         "gold_commitment": snapshot.commitment,
+                        "answer_result_identity": binding_snapshot.answer_result_identity,
                         "result": output,
                     },
                     "result_identity": None,
@@ -693,69 +739,42 @@ def _build_public_dispatch_api() -> tuple[Callable[..., object], ...]:
                 raise GoldBlindRunDispatchProofError("Gold-blind execution receipts are incomplete")
             state.sealed = True
             state.generation += 1
-            report_fields = _report_fields(state)
-            commitment = _commitment(state.secret, report_fields)
-            validation = VerifiedGoldBlindExecutionValidation(
+            return execution_validation_registry.issue(
+                ledger=ledger,
                 run_id=state.run_id,
-                commitment=commitment,
-                _token=_TOKEN,
+                generation=state.generation,
+                secret=state.secret,
+                report_fields=_report_fields(state),
+                schema_version=RUN_DISPATCH_PROOF_SCHEMA_VERSION,
             )
-            validations[validation] = _ValidationSnapshot(
-                ledger,
-                state.run_id,
-                state.generation,
-                commitment,
-                MappingProxyType(
-                    {
-                        "schema_version": RUN_DISPATCH_PROOF_SCHEMA_VERSION,
-                        **report_fields,
-                        "commitment": commitment,
-                    }
-                ),
-            )
-        return validation
 
     def execution_report(
         validation: VerifiedGoldBlindExecutionValidation,
     ) -> dict[str, object]:
-        if type(validation) is not VerifiedGoldBlindExecutionValidation:
-            raise GoldBlindRunDispatchProofError("Execution validation type must be exact")
-        with _LOCK:
-            snapshot = validations.get(validation)
-        if snapshot is None:
-            raise GoldBlindRunDispatchProofError("Execution validation registration is missing")
         try:
-            run_id = validation._VerifiedGoldBlindExecutionValidation__run_id
-            commitment = validation._VerifiedGoldBlindExecutionValidation__commitment
-        except Exception:
+            ledger = execution_validation_registry.ledger_for(validation)
+            if type(ledger) is not GoldBlindRunDispatchLedger:
+                raise GoldBlindContractError("Execution validation ledger type is invalid")
+            state = lookup_state(ledger)
+            with _LOCK:
+                return execution_validation_registry.report(
+                    validation,
+                    ledger=ledger,
+                    state_run_id=state.run_id,
+                    state_generation=state.generation,
+                    sealed=state.sealed,
+                    secret=state.secret,
+                    report_fields=_report_fields(state),
+                    schema_version=RUN_DISPATCH_PROOF_SCHEMA_VERSION,
+                )
+        except GoldBlindContractError:
             raise GoldBlindRunDispatchProofError("Execution validation integrity failed") from None
-        state = lookup_state(snapshot.ledger)
-        with _LOCK:
-            current_fields = _report_fields(state)
-            current_commitment = _commitment(state.secret, current_fields)
-            valid = (
-                state.sealed
-                and state.generation == snapshot.generation
-                and type(run_id) is str
-                and run_id == snapshot.run_id == state.run_id
-                and type(commitment) is str
-                and hmac.compare_digest(commitment, snapshot.commitment)
-                and hmac.compare_digest(current_commitment, snapshot.commitment)
-                and dict(snapshot.report)
-                == {
-                    "schema_version": RUN_DISPATCH_PROOF_SCHEMA_VERSION,
-                    **current_fields,
-                    "commitment": current_commitment,
-                }
-            )
-        if not valid:
-            raise GoldBlindRunDispatchProofError("Execution validation integrity failed")
-        return dict(snapshot.report)
 
     return (
         create_ledger,
         dispatch_retrieval,
         dispatch_answer,
+        issue_judge_binding,
         dispatch_judge,
         case_dispatch_fields,
         issue_answer_binding,
@@ -770,6 +789,7 @@ def _build_public_dispatch_api() -> tuple[Callable[..., object], ...]:
     create_gold_blind_run_dispatch_ledger,
     dispatch_retrieval,
     dispatch_answer,
+    issue_gold_blind_judge_dispatch_binding,
     dispatch_judge,
     _gold_blind_case_dispatch_fields,
     _issue_gold_blind_answer_dispatch_binding,
@@ -820,78 +840,10 @@ def _validate_open_binding(
 
 
 def _report_fields(state: _LedgerState) -> dict[str, object]:
-    stage_identities = {
-        stage: hashlib.sha256(
-            "".join(
-                state.receipts[(case_id, stage)].receipt_identity
-                for case_id in sorted(state.expected)
-            ).encode()
-        ).hexdigest()
-        for stage in _STAGES
-    }
-    count = len(state.expected)
-    return {
-        "run_id": state.run_id,
-        "comparison_binding_commitment_sha256": (state.comparison_binding_commitment_sha256),
-        "expected_case_count": count,
-        "retrieval_dispatch_count": count,
-        "answer_dispatch_count": count,
-        "judge_dispatch_count": count,
-        "retrieval_identity": stage_identities["retrieval"],
-        "answer_identity": stage_identities["answer"],
-        "judge_identity": stage_identities["judge"],
-    }
-
-
-def _commitment(secret: bytes, fields: dict[str, object]) -> str:
-    return hmac.new(
-        secret,
-        _canonical_json({"schema_version": RUN_DISPATCH_PROOF_SCHEMA_VERSION, **fields}),
-        hashlib.sha256,
-    ).hexdigest()
-
-
-def _validate_id(value: object, *, field_name: str) -> None:
-    if type(value) is not str or not value.strip() or len(value) > _MAX_ID_CHARS:
-        raise GoldBlindRunDispatchProofError(f"{field_name} is invalid")
-
-
-def _validate_digest(value: object, *, field_name: str) -> None:
-    if type(value) is not str or not _HEX_256.fullmatch(value):
-        raise GoldBlindRunDispatchProofError(f"{field_name} is invalid")
-
-
-def _canonical_json(value: object) -> bytes:
-    _validate_json(value, depth=0)
-    try:
-        return json.dumps(
-            value,
-            allow_nan=False,
-            ensure_ascii=False,
-            separators=(",", ":"),
-            sort_keys=True,
-        ).encode()
-    except (TypeError, ValueError):
-        raise GoldBlindRunDispatchProofError("Dispatch identity is not JSON") from None
-
-
-def _validate_json(value: object, *, depth: int) -> None:
-    if depth > 12:
-        raise GoldBlindRunDispatchProofError("Dispatch identity nesting is invalid")
-    if value is None or type(value) in (str, bool, int):
-        return
-    if type(value) is float:
-        if not math.isfinite(value):
-            raise GoldBlindRunDispatchProofError("Dispatch identity number is invalid")
-        return
-    if type(value) is list:
-        for item in value:
-            _validate_json(item, depth=depth + 1)
-        return
-    if type(value) is dict:
-        for key, item in value.items():
-            if type(key) is not str:
-                raise GoldBlindRunDispatchProofError("Dispatch identity key is invalid")
-            _validate_json(item, depth=depth + 1)
-        return
-    raise GoldBlindRunDispatchProofError("Dispatch identity is not exact JSON")
+    return build_dispatch_report_fields(
+        run_id=state.run_id,
+        comparison_binding_commitment_sha256=state.comparison_binding_commitment_sha256,
+        case_ids=tuple(state.expected),
+        stages=_STAGES,
+        receipt_identity=lambda case_id, stage: state.receipts[(case_id, stage)].receipt_identity,
+    )
