@@ -257,6 +257,7 @@ class RunScopedLocomoTransportEvidenceKey:
         request: LocomoOfficialTurnsTransportRequest,
         *,
         expected_turn: ExpectedOfficialLocomoTurn,
+        public_trigger_case_id: str | None = None,
     ) -> LocomoTimestampTransportEvidence:
         """Sign evidence only after an exact expected loader projection match."""
 
@@ -297,7 +298,10 @@ class RunScopedLocomoTransportEvidenceKey:
         corpus_key = metadata["corpus_key"]
         source_id = metadata["source_id"]
         turn_identity_sha256 = _logical_turn_identity_sha256(metadata)
-        trigger_case_id_sha256 = hashlib.sha256(metadata["case_id"].encode()).hexdigest()
+        if public_trigger_case_id is not None and not _bounded_id(public_trigger_case_id):
+            raise ValueError("public trigger case_id must be a bounded canonical string")
+        public_trigger = public_trigger_case_id or metadata["case_id"]
+        trigger_case_id_sha256 = hashlib.sha256(public_trigger.encode()).hexdigest()
         request_digest = hashlib.sha256(request_state.canonical_bytes).hexdigest()
         material = _evidence_material(
             run_id=key_state.run_id,

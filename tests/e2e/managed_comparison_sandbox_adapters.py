@@ -12,6 +12,7 @@ MEM0_BACKEND = "mem0"
 REQUIRED_MODEL = "gpt-5"
 RUNTIME_NONCE = "managed-locomo-sandbox-runtime-nonce"
 SANDBOX_SCOPE = "managed-locomo-sandbox-scope"
+MANAGED_CORPUS_SCHEMA_VERSION = "memory-comparison-managed-corpus.v1"
 
 
 @dataclass(frozen=True, slots=True)
@@ -43,7 +44,7 @@ LOCOMO_SCENARIO = SandboxScenario(
     "managed-locomo-sandbox",
     "locomo",
     SANDBOX_SCOPE,
-    ("sandbox-locomo-1",),
+    ("locomo-corpus-683450ee8a6ca9cdd2bc6f1ecbe58509a211c800589ddaf5aa4440c016cc3e59",),
 )
 
 
@@ -115,7 +116,11 @@ class SandboxBackendState:
     def ingest(self, backend_role: str, corpus_id: str, record: dict[str, object]) -> StoredSource:
         key = (backend_role, self.scenario.corpus_scope(corpus_id), corpus_id)
         assert key not in self.stores
-        ingest_payload = _ingest_payload(record, benchmark=self.scenario.benchmark)
+        ingest_payload = _ingest_payload(
+            record,
+            benchmark=self.scenario.benchmark,
+            corpus_id=corpus_id,
+        )
         canonical = json.dumps(
             ingest_payload,
             ensure_ascii=False,
@@ -126,7 +131,7 @@ class SandboxBackendState:
             corpus_id,
             canonical,
             hashlib.sha256(canonical).hexdigest(),
-            _source_text(ingest_payload, benchmark=self.scenario.benchmark),
+            _source_text(ingest_payload),
         )
         self.stores[key] = source
         return source
@@ -204,41 +209,52 @@ class SandboxBackendState:
         return observation
 
 
-def _ingest_payload(record: Mapping[str, object], *, benchmark: str) -> dict[str, object]:
-    if benchmark == "locomo":
-        conversation = record.get("conversation")
-        assert type(conversation) is dict
-        return {"conversation": conversation, "sample_id": record.get("sample_id")}
-    sessions = record.get("haystack_sessions")
-    assert isinstance(sessions, Sequence) and not isinstance(sessions, str | bytes)
-    return {
-        "haystack_dates": record.get("haystack_dates"),
-        "haystack_sessions": sessions,
+def _ingest_payload(
+    record: Mapping[str, object],
+    *,
+    benchmark: str,
+    corpus_id: str,
+) -> dict[str, object]:
+    assert type(record) is dict
+    assert set(record) == {
+        "schema_version",
+        "benchmark",
+        "corpus_id",
+        "thread_id",
+        "memories",
+        "documents",
+        "conversations",
     }
+    assert record["schema_version"] == MANAGED_CORPUS_SCHEMA_VERSION
+    assert record["benchmark"] == benchmark
+    assert record["corpus_id"] == corpus_id
+    assert type(record["thread_id"]) is str
+    for key in ("memories", "documents", "conversations"):
+        assert type(record[key]) is list
+    return record
 
 
-def _source_text(payload: Mapping[str, object], *, benchmark: str) -> str:
-    if benchmark == "locomo":
-        conversation = payload["conversation"]
-        assert isinstance(conversation, Mapping)
-        return "\n".join(
-            str(turn["text"])
-            for key, turns in sorted(conversation.items())
-            if key.startswith("session_")
-            and not key.endswith("_date_time")
-            and isinstance(turns, Sequence)
-            for turn in turns
-            if isinstance(turn, Mapping) and isinstance(turn.get("text"), str)
-        )
-    sessions = payload["haystack_sessions"]
-    assert isinstance(sessions, Sequence)
-    return "\n".join(
+def _source_text(payload: Mapping[str, object]) -> str:
+    memories = payload["memories"]
+    documents = payload["documents"]
+    conversations = payload["conversations"]
+    assert isinstance(memories, Sequence)
+    assert isinstance(documents, Sequence)
+    assert isinstance(conversations, Sequence)
+    texts = [
+        str(item["text"])
+        for items in (memories, documents)
+        for item in items
+        if isinstance(item, Mapping) and isinstance(item.get("text"), str)
+    ]
+    texts.extend(
         str(message["content"])
-        for session in sessions
-        if isinstance(session, Sequence)
-        for message in session
+        for conversation in conversations
+        if isinstance(conversation, Mapping)
+        for message in conversation.get("messages", ())
         if isinstance(message, Mapping) and isinstance(message.get("content"), str)
     )
+    return "\n".join(texts)
 
 
 __all__ = (

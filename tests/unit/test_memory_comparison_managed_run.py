@@ -1,6 +1,8 @@
 from __future__ import annotations
 
-from dataclasses import dataclass, replace
+import json
+from concurrent.futures import ThreadPoolExecutor
+from dataclasses import dataclass
 from typing import Any
 
 import pytest
@@ -20,7 +22,13 @@ from infinity_context_server.memory_comparison_full_run_evidence import (
     FULL_COMPARISON_COMPONENT_KINDS,
     FullComparisonBackendTarget,
 )
+from infinity_context_server.memory_comparison_managed_plan_builder import (
+    VerifiedManagedRunPlan,
+    build_verified_managed_run_plan,
+    managed_execution_case_material_sha256,
+)
 from infinity_context_server.memory_comparison_managed_run import (
+    ManagedAnswerCase,
     ManagedCaseExecution,
     ManagedExecutionArtifacts,
     ManagedRunCase,
@@ -32,7 +40,10 @@ from infinity_context_server.memory_comparison_managed_run import (
 from infinity_context_server.memory_comparison_provider_provenance import (
     ProviderRouteAttestation,
 )
-from infinity_context_server.public_benchmark_models import BenchmarkValidationError
+from infinity_context_server.public_benchmark_models import (
+    BenchmarkValidationError,
+    PublicBenchmarkCase,
+)
 
 _SHA = "a" * 64
 _MANAGED_ATTESTATION = object()
@@ -86,12 +97,10 @@ class _Execution(_Port):
     def __init__(self, events: list[str], fail_at: str | None = None) -> None:
         super().__init__("execution", events)
         self.fail_at = fail_at
-        self.sealed_manifest: tuple[FullExecutionCaseManifestEntry, ...] | None = None
-        self.sealed_manifest_sha256: str | None = None
-        self.sealed_executions: tuple[ManagedCaseExecution, ...] | None = None
-        self.manifest_override: str | None = None
         self.reuse_receipts = False
-        self.shared_receipts = {stage: object() for stage in ("retrieve", "answer", "judge")}
+        self.mutate_query = False
+        self.shared_receipts = {stage: object() for stage in ("retrieve", "answer")}
+        self.queries: list[ManagedAnswerCase] = []
 
     def _call(self, name: str, role: str, case: ManagedRunCase) -> object:
         self.events.append(f"{name}:{role}:{case.case_id}")
@@ -101,23 +110,98 @@ class _Execution(_Port):
             return self.shared_receipts[name]
         return object()
 
-    def retrieve(self, *, backend_role: str, case: ManagedRunCase, **kwargs: Any) -> object:
+    def retrieve(
+        self,
+        *,
+        backend_role: str,
+        case: ManagedRunCase,
+        query: ManagedAnswerCase,
+        **kwargs: Any,
+    ) -> object:
         del kwargs
+        self.queries.append(query)
         return self._call("retrieve", backend_role, case)
 
-    def answer(self, *, backend_role: str, case: ManagedRunCase, **kwargs: Any) -> object:
+    def answer(
+        self,
+        *,
+        backend_role: str,
+        case: ManagedRunCase,
+        query: ManagedAnswerCase,
+        **kwargs: Any,
+    ) -> object:
         del kwargs
+        self.queries.append(query)
+        if self.mutate_query:
+            object.__setattr__(query, "question", "substituted question")
+            self.mutate_query = False
         return self._call("answer", backend_role, case)
+
+
+class _Judge(_Port):
+    def __init__(self, events: list[str], fail_at: str | None = None) -> None:
+        super().__init__("judge", events)
+        self.fail_at = fail_at
+        self.sealed_manifest: tuple[FullExecutionCaseManifestEntry, ...] | None = None
+        self.sealed_manifest_sha256: str | None = None
+        self.sealed_executions: tuple[ManagedCaseExecution, ...] | None = None
+        self.sealed_case_material: tuple[tuple[str, str], ...] | None = None
+        self.manifest_override: str | None = None
+        self.material_override: tuple[tuple[str, str], ...] | None = None
+        self.bind_mismatch = False
+        self.mutate_during_bind = False
+        self.mutate_nested_metadata = False
+        self.bound_cases: tuple[PublicBenchmarkCase, ...] = ()
+        self.bound_aliases: tuple[str, ...] = ()
+
+    def bind_cases(
+        self,
+        *,
+        cases: tuple[PublicBenchmarkCase, ...],
+        case_aliases: tuple[str, ...],
+        **kwargs: Any,
+    ) -> tuple[tuple[str, str], ...]:
+        del kwargs
+        self.events.append("judge.bind")
+        self.bound_cases = cases
+        self.bound_aliases = case_aliases
+        material = tuple(
+            (
+                alias,
+                managed_execution_case_material_sha256(case, case_alias=alias),
+            )
+            for case, alias in zip(cases, case_aliases, strict=True)
+        )
+        if self.mutate_during_bind:
+            metadata = cases[0].metadata
+            assert type(metadata) is dict
+            evidence = metadata.get("evidence")
+            assert type(evidence) is list
+            evidence.append("bind-time-substitution")
+        if self.bind_mismatch:
+            return ((material[0][0], "0" * 64), *material[1:])
+        return material
 
     def judge(self, *, backend_role: str, case: ManagedRunCase, **kwargs: Any) -> object:
         del kwargs
-        return self._call("judge", backend_role, case)
+        self.events.append(f"judge:{backend_role}:{case.case_id}")
+        if self.mutate_nested_metadata:
+            metadata = self.bound_cases[0].metadata
+            assert type(metadata) is dict
+            evidence = metadata.get("evidence")
+            assert type(evidence) is list
+            evidence.append("substituted-evidence")
+            self.mutate_nested_metadata = False
+        if self.fail_at == "judge":
+            raise _Abort("judge")
+        return object()
 
     def seal_execution(
         self,
         *,
         case_manifest: tuple[FullExecutionCaseManifestEntry, ...],
         case_manifest_sha256: str,
+        case_material_sha256: tuple[tuple[str, str], ...],
         executions: tuple[ManagedCaseExecution, ...],
         **kwargs: Any,
     ) -> ManagedExecutionArtifacts:
@@ -125,6 +209,7 @@ class _Execution(_Port):
         self.sealed_manifest_sha256 = case_manifest_sha256
         self.sealed_manifest = case_manifest
         self.sealed_executions = executions
+        self.sealed_case_material = case_material_sha256
         self.events.append("execution.seal")
         if self.fail_at == "execution.seal":
             raise _Abort("execution.seal")
@@ -132,6 +217,7 @@ class _Execution(_Port):
             object(),
             object(),
             self.manifest_override or case_manifest_sha256,
+            self.material_override or case_material_sha256,
         )
 
 
@@ -237,6 +323,7 @@ class _Rig:
     ingest: _Ingest
     clock: _Clock
     execution: _Execution
+    judge: _Judge
     policy: _Policy
     assembler: _Assembler
 
@@ -269,27 +356,57 @@ def _manifest() -> tuple[FullExecutionCaseManifestEntry, ...]:
     )
 
 
+_CASE_IDS = ("corpus-1:qa:1", "corpus-2:qa:1")
+
+
+def _dataset_bytes() -> bytes:
+    return json.dumps(
+        [
+            {
+                "sample_id": f"corpus-{index}",
+                "conversation": {
+                    "speaker_a": "Alice",
+                    "speaker_b": "Bob",
+                    "session_1_date_time": "1:56 pm on 8 May, 2023",
+                    "session_1": [
+                        {
+                            "dia_id": "D1:1",
+                            "speaker": "Alice",
+                            "text": f"corpus memory {index}",
+                        }
+                    ],
+                },
+                "qa": [
+                    {
+                        "question": f"question {index}",
+                        "answer": f"answer {index}",
+                        "evidence": ["D1:1"],
+                        "category": 4,
+                    }
+                ],
+            }
+            for index in (1, 2)
+        ],
+        separators=(",", ":"),
+    ).encode()
+
+
 def _plan(
     *,
-    scope: str = "full",
-    cases: tuple[ManagedRunCase, ...] | None = None,
-    case_manifest: tuple[FullExecutionCaseManifestEntry, ...] | None = None,
-) -> ManagedRunPlan:
+    scope: str = "canary",
+) -> VerifiedManagedRunPlan:
     profile = resolve_full_comparison_profile(PROFILE_LOCOMO_TOP_50)
     assert profile is not None
-    return ManagedRunPlan(
+    return build_verified_managed_run_plan(
         run_id="managed-test",
         run_nonce_commitment_sha256="1" * 64,
         runtime_probe_nonce_sha256="2" * 64,
         profile=profile,
-        methodology=full_comparison_methodology_contract(profile),
-        dataset_sha256=profile.expected_dataset_hash,
-        selection_fingerprint_sha256="3" * 64,
+        dataset_bytes=_dataset_bytes(),
         backend_targets=(
             FullComparisonBackendTarget("infinity-context", "4" * 64),
             FullComparisonBackendTarget("mem0", "5" * 64),
         ),
-        case_manifest=_manifest() if case_manifest is None else case_manifest,
         provider_route=ProviderRouteAttestation(
             trust="official_openai",
             origin="https://api.openai.com",
@@ -300,8 +417,39 @@ def _plan(
             request_method="POST",
             response_status=200,
         ),
-        cases=_cases() if cases is None else cases,
         scope=scope,
+        selected_case_ids=_CASE_IDS,
+    )
+
+
+def _legacy_plan() -> ManagedRunPlan:
+    profile = resolve_full_comparison_profile(PROFILE_LOCOMO_TOP_50)
+    assert profile is not None
+    return ManagedRunPlan(
+        run_id="legacy-test",
+        run_nonce_commitment_sha256="1" * 64,
+        runtime_probe_nonce_sha256="2" * 64,
+        profile=profile,
+        methodology=full_comparison_methodology_contract(profile),
+        dataset_sha256=profile.expected_dataset_hash,
+        selection_fingerprint_sha256="3" * 64,
+        backend_targets=(
+            FullComparisonBackendTarget("infinity-context", "4" * 64),
+            FullComparisonBackendTarget("mem0", "5" * 64),
+        ),
+        case_manifest=_manifest(),
+        provider_route=ProviderRouteAttestation(
+            trust="official_openai",
+            origin="https://api.openai.com",
+            endpoint_path="/v1/chat/completions",
+            route_sha256="6" * 64,
+            transport_evidence="direct_https",
+            credential_binding_id="sha256:" + "7" * 64,
+            request_method="POST",
+            response_status=200,
+        ),
+        cases=_cases(),
+        scope="full",
     )
 
 
@@ -314,6 +462,7 @@ def _rig() -> _Rig:
         _Ingest("ingest", events),
         _Clock("clock", events),
         _Execution(events),
+        _Judge(events),
         _Policy(events),
         _Assembler(events),
     )
@@ -341,10 +490,10 @@ def _run(
     rig: _Rig,
     monkeypatch: pytest.MonkeyPatch,
     *,
-    scope: str = "full",
+    scope: str = "canary",
     attestation_commitment: object = "8" * 64,
     managed_attestation: object = _MANAGED_ATTESTATION,
-    plan: ManagedRunPlan | None = None,
+    plan: VerifiedManagedRunPlan | ManagedRunPlan | None = None,
 ):
     _patch_attestation(
         monkeypatch,
@@ -358,6 +507,7 @@ def _run(
         ingest_port=rig.ingest,
         clock=rig.clock,
         execution_port=rig.execution,
+        judge_port=rig.judge,
         policy_port=rig.policy,
         assembler=rig.assembler,
     )
@@ -394,15 +544,27 @@ def test_exact_lifecycle_orders_terminal_delete_before_nine_components(
     assert rig.policy.sealed_managed_commitment == "8" * 64
     assert rig.events.count("canonical_source.seal") == 1
     assert rig.events.index("canonical_source.seal") < rig.events.index("delete:infinity-context:1")
-    assert rig.execution.sealed_manifest == _manifest()
-    assert rig.execution.sealed_manifest_sha256 == execution_case_manifest_sha256(_manifest())
-    assert rig.execution.sealed_executions is not None
-    assert tuple((item.case_id, item.backend_role) for item in rig.execution.sealed_executions) == (
-        ("case-1", "infinity-context"),
-        ("case-1", "mem0"),
-        ("case-2", "infinity-context"),
-        ("case-2", "mem0"),
+    assert rig.judge.sealed_manifest is not None
+    assert tuple(item.case_id for item in rig.judge.sealed_manifest) == rig.judge.bound_aliases
+    assert all(raw_id not in repr(rig.judge.sealed_manifest) for raw_id in _CASE_IDS)
+    assert len({item.corpus_id for item in rig.judge.sealed_manifest}) == 2
+    assert rig.judge.sealed_manifest_sha256 == execution_case_manifest_sha256(
+        rig.judge.sealed_manifest
     )
+    assert rig.judge.sealed_executions is not None
+    first_alias, second_alias = rig.judge.bound_aliases
+    assert tuple((item.case_id, item.backend_role) for item in rig.judge.sealed_executions) == (
+        (first_alias, "infinity-context"),
+        (first_alias, "mem0"),
+        (second_alias, "infinity-context"),
+        (second_alias, "mem0"),
+    )
+    assert rig.judge.sealed_case_material is not None
+    assert all(type(item) is ManagedAnswerCase for item in rig.execution.queries)
+    assert not hasattr(rig.execution, "bound_cases")
+    rendered_report = json.dumps(report, sort_keys=True)
+    for private in (*_CASE_IDS, "question 1", "answer 1", "D1:1"):
+        assert private not in rendered_report
 
 
 @pytest.mark.parametrize(
@@ -416,6 +578,8 @@ def test_every_post_ingest_baseexception_runs_both_delete_passes(
     rig = _rig()
     if stage == "canonical_source.seal":
         rig.policy.fail_at = stage
+    elif stage in {"judge", "execution.seal"}:
+        rig.judge.fail_at = stage
     else:
         rig.execution.fail_at = stage
 
@@ -454,7 +618,7 @@ def test_manifest_mismatch_blocks_consumption_after_cleanup(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     rig = _rig()
-    rig.execution.manifest_override = "9" * 64
+    rig.judge.manifest_override = "9" * 64
 
     with pytest.raises(ManagedRunError, match="case manifest"):
         _run(rig, monkeypatch)
@@ -511,6 +675,7 @@ def test_reused_lane_receipts_fail_before_execution_seal(
         ("ingest", "ingest"),
         ("clock", "clock"),
         ("execution", "execution"),
+        ("judge", "judge"),
         ("policy", "policy"),
         ("assembler", "assembler"),
     ),
@@ -569,75 +734,167 @@ def test_reused_delete_receipt_attempts_all_cleanup_and_blocks_publish(
     assert "verdict.public" not in rig.events
 
 
-def test_plan_scope_is_normalized_and_invalid_scope_fails_at_construction() -> None:
-    assert _plan(scope=" CANARY ").scope == "canary"
+def test_plan_scope_is_normalized_and_invalid_scope_fails_at_construction(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    report = public_managed_run(_run(_rig(), monkeypatch, plan=_plan(scope=" CANARY ")))
 
+    assert report["scope"] == "canary"
     with pytest.raises(BenchmarkValidationError, match="unsupported full comparison scope"):
         _plan(scope="preview")
 
 
-@pytest.mark.parametrize(
-    ("case_manifest", "error_type", "message"),
-    (
-        (
-            (replace(_manifest()[0], case_id="case-x"), _manifest()[1]),
-            ManagedRunError,
-            "case manifest order or case/corpus binding",
-        ),
-        (
-            tuple(reversed(_manifest())),
-            ManagedRunError,
-            "case manifest order or case/corpus binding",
-        ),
-        (
-            (replace(_manifest()[0], corpus_id="corpus-x"), _manifest()[1]),
-            ManagedRunError,
-            "case manifest order or case/corpus binding",
-        ),
-        (
-            (replace(_manifest()[0], official_turn_count=0), _manifest()[1]),
-            ManagedRunError,
-            "LoCoMo official turn coverage is empty",
-        ),
-    ),
-)
-def test_manifest_contract_violations_fail_at_plan_construction_before_consume(
-    case_manifest: tuple[FullExecutionCaseManifestEntry, ...],
-    error_type: type[BaseException],
-    message: str,
-) -> None:
-    with pytest.raises(error_type, match=message):
-        _plan(case_manifest=case_manifest)
-
-
-def test_manifest_allows_case_local_thread_and_alias_reuse() -> None:
-    first, second = _manifest()
-    manifest = (
-        first,
-        replace(
-            second,
-            thread_id=first.thread_id,
-            session_aliases=first.session_aliases,
-        ),
-    )
-
-    plan = _plan(case_manifest=manifest)
-
-    assert plan.case_manifest == manifest
-
-
-def test_live_manifest_revalidation_blocks_tampering_before_reset(
+def test_direct_legacy_plan_never_authorizes_managed_execution(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     rig = _rig()
-    plan = _plan()
-    object.__setattr__(plan, "case_manifest", tuple(reversed(plan.case_manifest)))
+    with pytest.raises(ManagedRunError, match="requires a verified managed run plan"):
+        _run(rig, monkeypatch, plan=_legacy_plan())
+    assert rig.events == []
 
-    with pytest.raises(
-        ManagedRunError,
-        match="case manifest order or case/corpus binding",
-    ):
-        _run(rig, monkeypatch, plan=plan)
+
+def test_failed_port_preflight_does_not_consume_verified_plan(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    admission = _plan()
+    rig = _rig()
+    rig.ingest.adapter_id = ""
+
+    with pytest.raises(ManagedRunError, match="ingest adapter_id"):
+        _run(rig, monkeypatch, plan=admission)
+    assert rig.events == []
+
+    rig.ingest.adapter_id = "ingest"
+    public_managed_run(_run(rig, monkeypatch, plan=admission))
+    assert rig.events.count("reset") == 1
+
+
+def test_verified_plan_is_single_use(monkeypatch: pytest.MonkeyPatch) -> None:
+    admission = _plan()
+    public_managed_run(_run(_rig(), monkeypatch, plan=admission))
+    retry_rig = _rig()
+
+    with pytest.raises(ManagedRunError, match="unavailable or consumed"):
+        _run(retry_rig, monkeypatch, plan=admission)
+
+    assert retry_rig.events == []
+
+
+def test_concurrent_verified_plan_consume_binds_private_cases_once(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    admission = _plan()
+    _patch_attestation(
+        monkeypatch,
+        commitment="8" * 64,
+        attestation=_MANAGED_ATTESTATION,
+    )
+    rigs = (_rig(), _rig())
+
+    def invoke(rig: _Rig) -> object:
+        return run_managed_comparison(
+            admission,
+            reset_port=rig.reset,
+            attestation_port=rig.attest,
+            ingest_port=rig.ingest,
+            clock=rig.clock,
+            execution_port=rig.execution,
+            judge_port=rig.judge,
+            policy_port=rig.policy,
+            assembler=rig.assembler,
+        )
+
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        futures = tuple(pool.submit(invoke, rig) for rig in rigs)
+    successes = [future.result() for future in futures if future.exception() is None]
+    failures = [future.exception() for future in futures if future.exception() is not None]
+
+    assert len(successes) == len(failures) == 1
+    assert isinstance(failures[0], ManagedRunError)
+    assert sum(rig.events.count("judge.bind") for rig in rigs) == 1
+    assert sum(rig.events.count("reset") for rig in rigs) == 1
+
+
+def test_judge_binding_mismatch_burns_authority_before_reset_or_provider(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    admission = _plan()
+    rig = _rig()
+    rig.judge.bind_mismatch = True
+
+    with pytest.raises(ManagedRunError, match="judge case material"):
+        _run(rig, monkeypatch, plan=admission)
+
+    assert rig.events == ["judge.bind"]
+    retry = _rig()
+    with pytest.raises(ManagedRunError, match="unavailable or consumed"):
+        _run(retry, monkeypatch, plan=admission)
+    assert retry.events == []
+
+
+def test_judge_bind_time_mutation_fails_before_reset_or_provider(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    rig = _rig()
+    rig.judge.mutate_during_bind = True
+
+    with pytest.raises(ManagedRunError, match="changed during execution"):
+        _run(rig, monkeypatch)
+
+    assert rig.events == ["judge.bind"]
+
+
+def test_nested_private_metadata_mutation_fails_after_lanes_before_seal(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    rig = _rig()
+    rig.judge.mutate_nested_metadata = True
+
+    with pytest.raises(ManagedRunError, match="changed during execution"):
+        _run(rig, monkeypatch)
+
+    assert len(_deletes(rig.events)) == 4
+    assert "execution.seal" not in rig.events
+    assert "components.issue" not in rig.events
+
+
+def test_answer_query_mutation_fails_before_execution_seal(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    rig = _rig()
+    rig.execution.mutate_query = True
+
+    with pytest.raises(ManagedRunError, match="answer case material changed"):
+        _run(rig, monkeypatch)
+
+    assert len(_deletes(rig.events)) == 4
+    assert "execution.seal" not in rig.events
+    assert "components.issue" not in rig.events
+
+
+def test_execution_seal_revalidates_private_case_commitments(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    rig = _rig()
+    rig.judge.material_override = (("opaque-case", "0" * 64),)
+
+    with pytest.raises(ManagedRunError, match="admitted case material"):
+        _run(rig, monkeypatch)
+
+    assert len(_deletes(rig.events)) == 4
+    assert "canonical_source.seal" not in rig.events
+    assert "components.issue" not in rig.events
+
+
+def test_verified_plan_commitment_tampering_fails_before_reset(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    admission = _plan()
+    object.__setattr__(admission, "_VerifiedManagedRunPlan__commitment", "0" * 64)
+    rig = _rig()
+
+    with pytest.raises(ManagedRunError, match="integrity failed"):
+        _run(rig, monkeypatch, plan=admission)
 
     assert rig.events == []
 

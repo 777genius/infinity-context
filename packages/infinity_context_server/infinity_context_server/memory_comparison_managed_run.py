@@ -30,12 +30,21 @@ from infinity_context_server.memory_comparison_managed_attestation import (
     _issue_verified_managed_composition_attestation_for_composition_root,
     public_managed_composition_attestation,
 )
+from infinity_context_server.memory_comparison_managed_plan_builder import (
+    VerifiedManagedRunPlan,
+    _case_material_sha256,
+    _consume_verified_managed_run_plan,
+    _inspect_verified_managed_run_plan,
+    _managed_answer_cases,
+)
 from infinity_context_server.memory_comparison_managed_run_contract import (
+    ManagedAnswerCase,
     ManagedCaseExecution,
     ManagedCompositeAssemblerPort,
     ManagedExecutionArtifacts,
     ManagedExecutionPort,
     ManagedIngestEvidencePort,
+    ManagedJudgeExecutionPort,
     ManagedPolicyLifecyclePort,
     ManagedRunCase,
     ManagedRunError,
@@ -45,6 +54,7 @@ from infinity_context_server.memory_comparison_managed_run_contract import (
     _identifier,
     _thaw_json,
     _unique_corpora,
+    _validated_case_material_sha256,
     _validated_execution_case_manifest,
 )
 from infinity_context_server.memory_comparison_managed_run_ports import (
@@ -103,26 +113,27 @@ _OUTCOMES: weakref.WeakKeyDictionary[ManagedRunOutcome, _RunState] = weakref.Wea
 
 
 def run_managed_comparison(
-    plan: ManagedRunPlan,
+    admission: VerifiedManagedRunPlan,
     *,
     reset_port: ManagedResetPort,
     attestation_port: ManagedAttestationPort,
     ingest_port: ManagedIngestEvidencePort,
     clock: ManagedClockPort,
     execution_port: ManagedExecutionPort,
+    judge_port: ManagedJudgeExecutionPort,
     policy_port: ManagedPolicyLifecyclePort,
     assembler: ManagedCompositeAssemblerPort,
 ) -> ManagedRunOutcome:
     """Run the full lifecycle; terminal delete executes for every BaseException."""
 
-    if type(plan) is not ManagedRunPlan:
-        raise ManagedRunError("managed run plan type must be exact")
+    plan = _inspect_verified_managed_run_plan(admission)
     _validate_ports(
         reset_port,
         attestation_port,
         ingest_port,
         clock,
         execution_port,
+        judge_port,
         policy_port,
         assembler,
     )
@@ -153,6 +164,21 @@ def run_managed_comparison(
     primary_traceback = None
     cleanup = _CleanupResult(None, None)
 
+    run_material = _consume_verified_managed_run_plan(
+        admission,
+        expected_plan=plan,
+    )
+    plan = run_material.plan
+    bound_case_material = _validated_case_material_sha256(
+        judge_port.bind_cases(
+            bindings=bindings,
+            cases=run_material.cases,
+            case_aliases=run_material.case_aliases,
+        )
+    )
+    if bound_case_material != run_material.case_material_sha256:
+        raise ManagedRunError("judge case material differs from admitted dataset")
+    _revalidate_private_case_material(run_material)
     try:
         reset_port.reset(
             run_id=bindings.run_id,
@@ -190,18 +216,31 @@ def run_managed_comparison(
         )
         trace.append("attestation.live")
         ingest_receipts = _ingest(bindings, plan.cases, ingest_port, trace)
-        executions = _execute_cases(bindings, plan.cases, execution_port, trace)
-        execution = execution_port.seal_execution(
+        executions = _execute_cases(
+            bindings,
+            plan.cases,
+            run_material.answer_cases,
+            execution_port,
+            judge_port,
+            trace,
+        )
+        _revalidate_private_case_material(run_material)
+        execution = judge_port.seal_execution(
             bindings=bindings,
             case_manifest=case_manifest,
             executions=executions,
             case_manifest_sha256=case_manifest_sha256,
+            case_material_sha256=run_material.case_material_sha256,
         )
+        _revalidate_private_case_material(run_material)
         if (
             type(execution) is not ManagedExecutionArtifacts
             or execution.case_manifest_sha256 != case_manifest_sha256
+            or execution.case_material_sha256 != run_material.case_material_sha256
         ):
-            raise ManagedRunError("execution seal differs from case manifest")
+            raise ManagedRunError(
+                "execution seal differs from case manifest or admitted case material"
+            )
         trace.append("execution.seal")
         canonical_source = policy_port.seal_canonical_source(
             bindings=bindings,
@@ -341,17 +380,26 @@ def _ingest(
 def _execute_cases(
     bindings: FullComparisonRunBindings,
     cases: tuple[ManagedRunCase, ...],
+    answer_cases: tuple[ManagedAnswerCase, ...],
     port: ManagedExecutionPort,
+    judge_port: ManagedJudgeExecutionPort,
     trace: list[str],
 ) -> tuple[ManagedCaseExecution, ...]:
+    if (
+        type(answer_cases) is not tuple
+        or len(answer_cases) != len(cases)
+        or tuple(item.case_id for item in answer_cases) != tuple(item.case_id for item in cases)
+    ):
+        raise ManagedRunError("answer case coverage differs from managed cases")
     executions: list[ManagedCaseExecution] = []
-    for case in cases:
+    for case, query in zip(cases, answer_cases, strict=True):
         for target in bindings.backend_targets:
             retrieval = port.retrieve(
                 bindings=bindings,
                 backend_role=target.backend_role,
                 target_identity_sha256=target.target_identity_sha256,
                 case=case,
+                query=query,
             )
             trace.append(f"retrieve:{target.backend_role}:{case.case_id}")
             answer = port.answer(
@@ -359,10 +407,11 @@ def _execute_cases(
                 backend_role=target.backend_role,
                 target_identity_sha256=target.target_identity_sha256,
                 case=case,
+                query=query,
                 retrieval_receipt=retrieval,
             )
             trace.append(f"answer:{target.backend_role}:{case.case_id}")
-            judgment = port.judge(
+            judgment = judge_port.judge(
                 bindings=bindings,
                 backend_role=target.backend_role,
                 target_identity_sha256=target.target_identity_sha256,
@@ -397,6 +446,25 @@ def _execute_cases(
     if actual_lanes != expected_lanes or len({id(item) for item in receipts}) != 3 * len(result):
         raise ManagedRunError("execution lane coverage or receipt identity differs")
     return result
+
+
+def _revalidate_private_case_material(run_material: object) -> None:
+    try:
+        current = _case_material_sha256(
+            run_material.cases,
+            case_aliases=run_material.case_aliases,
+        )
+        current_answer_cases = _managed_answer_cases(
+            run_material.cases,
+            case_aliases=run_material.case_aliases,
+        )
+        expected = run_material.case_material_sha256
+    except Exception as exc:
+        raise ManagedRunError("admitted private case material integrity failed") from exc
+    if current != expected:
+        raise ManagedRunError("admitted private case material changed during execution")
+    if current_answer_cases != run_material.answer_cases:
+        raise ManagedRunError("admitted answer case material changed during execution")
 
 
 def _terminal_cleanup(
@@ -574,7 +642,8 @@ def _validate_ports(*ports: object) -> None:
         ("attestation", ("attest",)),
         ("ingest", ("ingest",)),
         ("clock", ("now",)),
-        ("execution", ("retrieve", "answer", "judge", "seal_execution")),
+        ("execution", ("retrieve", "answer")),
+        ("judge", ("bind_cases", "judge", "seal_execution")),
         (
             "policy",
             (
@@ -643,9 +712,11 @@ def _json_sha256(value: object) -> str:
 __all__ = (
     "MANAGED_RUN_SCHEMA_VERSION",
     "ManagedCaseExecution",
+    "ManagedAnswerCase",
     "ManagedCompositeAssemblerPort",
     "ManagedExecutionArtifacts",
     "ManagedExecutionPort",
+    "ManagedJudgeExecutionPort",
     "ManagedPolicyLifecyclePort",
     "ManagedRunCase",
     "ManagedRunError",

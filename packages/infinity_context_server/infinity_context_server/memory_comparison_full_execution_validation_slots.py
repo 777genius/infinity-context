@@ -487,13 +487,28 @@ def _transport_coverage(
         or verifier._run_id != bindings.run_id
     ):
         raise FullExecutionValidationError("LoCoMo transport verifier is invalid")
+    unique_manifest: list[FullExecutionCaseManifestEntry] = []
+    by_corpus: dict[str, FullExecutionCaseManifestEntry] = {}
+    for item in manifest:
+        current = by_corpus.get(item.corpus_id)
+        if current is None:
+            by_corpus[item.corpus_id] = item
+            unique_manifest.append(item)
+            continue
+        if (
+            current.thread_id != item.thread_id
+            or current.session_roles != item.session_roles
+            or current.session_aliases != item.session_aliases
+            or current.official_turn_count != item.official_turn_count
+        ):
+            raise FullExecutionValidationError("shared LoCoMo corpus manifest differs")
     evaluations = tuple(
         {
             "benchmark": "locomo",
             "backend": "mem0",
             "ingestion": {"metadata": {"corpus_key": item.corpus_id}},
         }
-        for item in manifest
+        for item in unique_manifest
     )
     contract = locomo_timestamp_transport_contract(
         benchmark="locomo",
@@ -519,21 +534,21 @@ def _transport_coverage(
             raise FullExecutionValidationError("LoCoMo transport identity is invalid")
         counts[corpus_hash] = counts.get(corpus_hash, 0) + 1
         triggers.setdefault(corpus_hash, set()).add(trigger_hash)
-    for item in manifest:
+    for item in unique_manifest:
         corpus_hash = hashlib.sha256(item.corpus_id.encode()).hexdigest()
         case_hash = hashlib.sha256(item.case_id.encode()).hexdigest()
         if counts.get(corpus_hash) != item.official_turn_count or triggers.get(corpus_hash) != {
             case_hash
         }:
             raise FullExecutionValidationError("LoCoMo official turn count differs")
-    required_turns = sum(item.official_turn_count for item in manifest)
+    required_turns = sum(item.official_turn_count for item in unique_manifest)
     if len(public_evidence) != required_turns:
         raise FullExecutionValidationError("LoCoMo total turn count differs")
     return {
         "required": True,
         "required_turn_count": required_turns,
         "verified_turn_count": len(public_evidence),
-        "corpus_count": len(manifest),
+        "corpus_count": len(unique_manifest),
         "live_verifier": True,
         "evidence_commitment_sha256": _json_sha256(public_evidence),
     }

@@ -312,6 +312,7 @@ def test_structural_managed_port_and_successful_nine_slot_verdict(
     _validate_ports(
         *ready.ports,
         _ExecutionPortStub(),
+        _JudgePortStub(),
         _PolicyPortStub(),
         ready.assembler,
     )
@@ -462,6 +463,13 @@ class _ExecutionPortStub:
 
     def retrieve(self): ...
     def answer(self): ...
+
+
+class _JudgePortStub:
+    adapter_id = "judge-stub"
+    implementation_sha256 = "a" * 64
+
+    def bind_cases(self): ...
     def judge(self): ...
     def seal_execution(self): ...
 

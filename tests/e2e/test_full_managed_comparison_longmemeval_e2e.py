@@ -11,11 +11,7 @@ from infinity_context_server.memory_comparison_case_loader import (
     load_memory_comparison_cases,
 )
 from infinity_context_server.memory_comparison_full_execution_validation import (
-    FullExecutionCaseManifestEntry,
     public_full_execution_validation_report,
-)
-from infinity_context_server.memory_comparison_full_methodology import (
-    full_comparison_methodology_contract,
 )
 from infinity_context_server.memory_comparison_full_profiles import (
     PROFILE_LONGMEMEVAL_TOP_50,
@@ -35,9 +31,15 @@ from infinity_context_server.memory_comparison_locomo_cases import (
 from infinity_context_server.memory_comparison_managed_composite_assembler import (
     ManagedFullComparisonAssembler,
 )
+from infinity_context_server.memory_comparison_managed_corpus_projection import (
+    _managed_corpus_identity,
+    _managed_corpus_record,
+)
+from infinity_context_server.memory_comparison_managed_plan_builder import (
+    VerifiedManagedRunPlan,
+    build_verified_managed_run_plan,
+)
 from infinity_context_server.memory_comparison_managed_run import (
-    ManagedRunCase,
-    ManagedRunPlan,
     public_managed_run,
     run_managed_comparison,
 )
@@ -62,6 +64,7 @@ from managed_comparison_sandbox_adapters import (
 from managed_comparison_sandbox_execution import (
     AnswerFromSource,
     SandboxExecutionPort,
+    SandboxJudgePort,
 )
 from managed_comparison_sandbox_policy import SandboxPolicyPort
 from managed_comparison_sandbox_runtime import SandboxRuntimePorts, build_runtime_ports
@@ -76,12 +79,13 @@ _FIXTURE = (
 
 @dataclass(frozen=True, slots=True)
 class _Rig:
-    plan: ManagedRunPlan
+    admission: VerifiedManagedRunPlan
     public_cases: tuple[PublicBenchmarkCase, ...]
     trace: SandboxTrace
     state: SandboxBackendState
     runtime: SandboxRuntimePorts
     execution: SandboxExecutionPort
+    judge: SandboxJudgePort
     policy: SandboxPolicyPort
     assembler: ManagedFullComparisonAssembler
 
@@ -100,18 +104,28 @@ def test_managed_longmemeval_canary_verifies_all_nine_slots_for_two_cases() -> N
     assert report["managed_run"]["case_count"] == 2
     assert report["managed_run"]["component_count"] == 9
     assert report["managed_run"]["terminal_delete_complete"] is True
-    assert rig.plan.dataset_sha256 == hashlib.sha256(_FIXTURE.read_bytes()).hexdigest()
-    assert rig.plan.selection_fingerprint_sha256 == selected_case_fingerprint(rig.public_cases)
+    assert (
+        report["commitments"]["dataset_sha256"] == hashlib.sha256(_FIXTURE.read_bytes()).hexdigest()
+    )
+    assert report["commitments"]["selection_sha256"] == selected_case_fingerprint(rig.public_cases)
 
-    assert rig.execution.case_manifest is rig.plan.case_manifest
-    assert all(item.official_turn_count == 0 for item in rig.plan.case_manifest)
-    assert tuple(item.session_aliases for item in rig.plan.case_manifest) == tuple(
-        _session_aliases(case) for case in rig.public_cases
+    assert rig.judge.case_manifest is not None
+    assert all(item.official_turn_count == 0 for item in rig.judge.case_manifest)
+    assert tuple(item.case_id for item in rig.judge.case_manifest) == tuple(
+        _case_alias(case) for case in rig.public_cases
+    )
+    assert tuple(item.session_roles for item in rig.judge.case_manifest) == tuple(
+        tuple(f"memory-{index:04d}" for index in range(1, len(case.conversations) + 1))
+        for case in rig.public_cases
+    )
+    assert tuple(item.session_aliases for item in rig.judge.case_manifest) == tuple(
+        tuple(f"session-{index:04d}" for index in range(1, len(case.conversations) + 1))
+        for case in rig.public_cases
     )
     assert tuple(
         (call.case_id, call.backend_role, call.stage) for call in rig.execution.provider_calls
     ) == tuple(
-        (case.case_id, backend, stage)
+        (_case_alias(case), backend, stage)
         for case in rig.public_cases
         for backend in (INFINITY_BACKEND, MEM0_BACKEND)
         for stage in ("answerer", "judge")
@@ -126,13 +140,13 @@ def test_managed_longmemeval_canary_verifies_all_nine_slots_for_two_cases() -> N
         for item_id in rig.execution.retrieval_item_ids
         for case in rig.public_cases
     )
-    gold = verified_gold_blind_execution_report(rig.execution.gold_validation)
+    gold = verified_gold_blind_execution_report(rig.judge.gold_validation)
     assert gold["expected_case_count"] == 4
     assert gold["retrieval_dispatch_count"] == 4
     assert gold["answer_dispatch_count"] == 4
     assert gold["judge_dispatch_count"] == 4
 
-    execution = public_full_execution_validation_report(rig.execution.execution_validation)
+    execution = public_full_execution_validation_report(rig.judge.execution_validation)
     transport = execution["official_transport_coverage"]
     assert transport == {
         "required": False,
@@ -192,11 +206,21 @@ def test_managed_longmemeval_canary_verifies_all_nine_slots_for_two_cases() -> N
         for item in rig.runtime.ingest.receipts
     }
     for raw, case in zip(_fixture_rows(), rig.public_cases, strict=True):
+        corpus_id, _thread_id = _managed_corpus_identity(case)
         private_ids = raw["haystack_session_ids"]
         assert isinstance(private_ids, list)
-        canonical = _ingested_canonical_bytes(case.case_id)
+        canonical = _ingested_canonical_bytes(case)
         canonical_payload = json.loads(canonical)
-        assert set(canonical_payload) == {"haystack_dates", "haystack_sessions"}
+        assert set(canonical_payload) == {
+            "schema_version",
+            "benchmark",
+            "corpus_id",
+            "thread_id",
+            "memories",
+            "documents",
+            "conversations",
+        }
+        assert canonical_payload["corpus_id"] == corpus_id
         assert all(str(item).encode() not in canonical for item in private_ids)
         assert case.case_id.encode() not in canonical
         for forbidden in (
@@ -208,8 +232,8 @@ def test_managed_longmemeval_canary_verifies_all_nine_slots_for_two_cases() -> N
         ):
             assert forbidden not in canonical
         expected_hash = hashlib.sha256(canonical).hexdigest()
-        assert receipt_hashes[(INFINITY_BACKEND, case.case_id)] == expected_hash
-        assert receipt_hashes[(MEM0_BACKEND, case.case_id)] == expected_hash
+        assert receipt_hashes[(INFINITY_BACKEND, corpus_id)] == expected_hash
+        assert receipt_hashes[(MEM0_BACKEND, corpus_id)] == expected_hash
 
     assert not rig.state.stores
     assert tuple(item.deleted_count for item in rig.state.delete_observations.values()) == (
@@ -218,11 +242,16 @@ def test_managed_longmemeval_canary_verifies_all_nine_slots_for_two_cases() -> N
         0,
         0,
     )
+    _assert_no_private_material_escaped(rig, report)
 
 
 def test_scope_delete_never_counts_or_removes_foreign_scope_data() -> None:
-    rows = _fixture_rows()
-    corpus_ids = tuple(str(row["question_id"]) for row in rows)
+    _fixture_rows()
+    public_cases = load_memory_comparison_cases(
+        _FIXTURE,
+        locomo_ingest_mode=LOCOMO_INGEST_RICH_DOCUMENTS,
+    )
+    corpus_ids = tuple(_managed_corpus_identity(case)[0] for case in public_cases)
     scenario = SandboxScenario(
         "managed-longmemeval-sandbox",
         "longmemeval",
@@ -231,7 +260,11 @@ def test_scope_delete_never_counts_or_removes_foreign_scope_data() -> None:
     )
     state = SandboxBackendState.create(scenario)
     corpus_id = corpus_ids[0]
-    source = state.ingest(INFINITY_BACKEND, corpus_id, rows[0])
+    source = state.ingest(
+        INFINITY_BACKEND,
+        corpus_id,
+        _managed_corpus_record(public_cases[0]),
+    )
     foreign_key = (INFINITY_BACKEND, "foreign-scope", corpus_id)
     state.stores[foreign_key] = source
 
@@ -258,8 +291,8 @@ def test_adversarial_answer_failure_never_reaches_a_public_verdict() -> None:
 
     assert not getattr(exc_info.value, "__notes__", ())
     assert "delete.seal" in rig.trace.events
-    assert rig.execution.gold_validation is None
-    assert rig.execution.execution_validation is None
+    assert rig.judge.gold_validation is None
+    assert rig.judge.execution_validation is None
     assert "execution.seal" not in rig.trace.events
     assert "canonical_source.seal" not in rig.trace.events
     assert "policy.aggregate" not in rig.trace.events
@@ -281,12 +314,13 @@ def _rig(
     answer_from_source: AnswerFromSource | None = None,
 ) -> _Rig:
     rows = _fixture_rows()
+    dataset_bytes = _FIXTURE.read_bytes()
     public_cases = load_memory_comparison_cases(
         _FIXTURE,
         locomo_ingest_mode=LOCOMO_INGEST_RICH_DOCUMENTS,
     )
     assert len(rows) == len(public_cases) == 2
-    corpus_ids = tuple(case.case_id for case in public_cases)
+    corpus_ids = tuple(_managed_corpus_identity(case)[0] for case in public_cases)
     scenario = SandboxScenario(
         "managed-longmemeval-sandbox",
         "longmemeval",
@@ -294,66 +328,49 @@ def _rig(
         corpus_ids,
     )
     run_id = f"{scenario.scenario_id}-{name}"
-    cases = tuple(
-        ManagedRunCase(case.case_id, case.case_id, raw)
-        for raw, case in zip(rows, public_cases, strict=True)
-    )
-    manifest = tuple(
-        FullExecutionCaseManifestEntry(
-            case.case_id,
-            case.case_id,
-            f"{case.thread_external_ref}-{name}",
-            tuple(
-                f"memory-{index}" for index, _alias in enumerate(_session_aliases(case), start=1)
-            ),
-            _session_aliases(case),
-            0,
-        )
-        for case in public_cases
-    )
+    assert len(rows) == len(corpus_ids)
     profile = resolve_full_comparison_profile(PROFILE_LONGMEMEVAL_TOP_50)
     assert profile is not None
     route = _provider_route(name)
     mem0_target = mem0_runtime_target_identity_sha256(
         f"https://mem0.example.test/{scenario.scenario_id}-{name}"
     )
-    plan = ManagedRunPlan(
+    runtime_probe_nonce_sha256 = hashlib.sha256(scenario.runtime_nonce.encode()).hexdigest()
+    backend_targets = (
+        FullComparisonBackendTarget(
+            INFINITY_BACKEND,
+            hashlib.sha256(name.encode()).hexdigest(),
+        ),
+        FullComparisonBackendTarget(MEM0_BACKEND, mem0_target),
+    )
+    admission = build_verified_managed_run_plan(
         run_id=run_id,
         run_nonce_commitment_sha256=hashlib.sha256(f"{name}:run-nonce".encode()).hexdigest(),
-        runtime_probe_nonce_sha256=hashlib.sha256(scenario.runtime_nonce.encode()).hexdigest(),
+        runtime_probe_nonce_sha256=runtime_probe_nonce_sha256,
         profile=profile,
-        methodology=full_comparison_methodology_contract(profile),
-        dataset_sha256=hashlib.sha256(_FIXTURE.read_bytes()).hexdigest(),
-        selection_fingerprint_sha256=selected_case_fingerprint(public_cases),
-        backend_targets=(
-            FullComparisonBackendTarget(
-                INFINITY_BACKEND,
-                hashlib.sha256(name.encode()).hexdigest(),
-            ),
-            FullComparisonBackendTarget(MEM0_BACKEND, mem0_target),
-        ),
-        case_manifest=manifest,
+        dataset_bytes=dataset_bytes,
+        backend_targets=backend_targets,
         provider_route=route,
-        cases=cases,
         scope="canary",
+        selected_case_ids=tuple(case.case_id for case in public_cases),
     )
+    assert repr(admission) == "VerifiedManagedRunPlan(<sealed>)"
     trace = SandboxTrace.create()
     state = SandboxBackendState.create(scenario)
     runtime = build_runtime_ports(
         trace,
         state,
         run_id=run_id,
-        probe_nonce_sha256=plan.runtime_probe_nonce_sha256,
+        probe_nonce_sha256=runtime_probe_nonce_sha256,
         target_identity_sha256=mem0_target,
     )
-    execution = SandboxExecutionPort(
+    judge = SandboxJudgePort(
         trace,
         state=state,
-        public_cases=public_cases,
-        case_manifest=manifest,
         provider_route=route,
         answer_from_source=answer_from_source or _answer_from_source,
     )
+    execution = SandboxExecutionPort(trace, candidate_channel=judge.candidate_channel)
     policy = SandboxPolicyPort(trace, state)
     assembler = ManagedFullComparisonAssembler(
         adapter_id=f"{scenario.scenario_id}-assembler",
@@ -366,17 +383,28 @@ def _rig(
         ingest_port=runtime.ingest,
         clock=runtime.clock,
     )
-    return _Rig(plan, public_cases, trace, state, runtime, execution, policy, assembler)
+    return _Rig(
+        admission,
+        public_cases,
+        trace,
+        state,
+        runtime,
+        execution,
+        judge,
+        policy,
+        assembler,
+    )
 
 
 def _run(rig: _Rig):
     return run_managed_comparison(
-        rig.plan,
+        rig.admission,
         reset_port=rig.runtime.reset,
         attestation_port=rig.runtime.attestation,
         ingest_port=rig.runtime.ingest,
         clock=rig.runtime.clock,
         execution_port=rig.execution,
+        judge_port=rig.judge,
         policy_port=rig.policy,
         assembler=rig.assembler,
     )
@@ -390,6 +418,40 @@ def _fixture_rows() -> tuple[dict[str, object], ...]:
 
 def _session_aliases(case: PublicBenchmarkCase) -> tuple[str, ...]:
     return tuple(dict.fromkeys(item.session_external_id for item in case.conversations))
+
+
+def _case_alias(case: PublicBenchmarkCase) -> str:
+    material = f"{case.benchmark}\0case\0{case.case_id}".encode()
+    return f"{case.benchmark}-case-{hashlib.sha256(material).hexdigest()}"
+
+
+def _assert_no_private_material_escaped(rig: _Rig, report: dict[str, object]) -> None:
+    public_spy = json.dumps(
+        {
+            "report": report,
+            "trace": report["managed_run"]["trace"],
+            "provider_calls": [
+                [call.case_id, call.backend_role, call.stage]
+                for call in rig.execution.provider_calls
+            ],
+            "ingest_receipts": [
+                [receipt.corpus_id, receipt.source_sha256]
+                for receipt in rig.runtime.ingest.receipts
+            ],
+            "retrieval_ids": rig.execution.retrieval_item_ids,
+        },
+        sort_keys=True,
+    )
+    for raw, case in zip(_fixture_rows(), rig.public_cases, strict=True):
+        private_values = (
+            case.case_id,
+            case.question,
+            str(raw["question_id"]),
+            str(raw["answer"]),
+            *(str(item) for item in raw["haystack_session_ids"]),
+            *(str(item) for item in raw["answer_session_ids"]),
+        )
+        assert all(value not in public_spy for value in private_values)
 
 
 def _answer_from_source(question: str, source: str) -> str:
@@ -418,15 +480,10 @@ def _provider_route(name: str) -> ProviderRouteAttestation:
     )
 
 
-def _ingested_canonical_bytes(corpus_id: str) -> bytes:
+def _ingested_canonical_bytes(case: PublicBenchmarkCase) -> bytes:
     # Terminal deletion completed; ingest receipts retain only the canonical source hashes.
-    row = next(item for item in _fixture_rows() if item["question_id"] == corpus_id)
-    payload = {
-        "haystack_dates": row["haystack_dates"],
-        "haystack_sessions": row["haystack_sessions"],
-    }
     return json.dumps(
-        payload,
+        _managed_corpus_record(case),
         ensure_ascii=False,
         sort_keys=True,
         separators=(",", ":"),

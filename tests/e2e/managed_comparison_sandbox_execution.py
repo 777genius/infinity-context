@@ -40,7 +40,14 @@ from infinity_context_server.memory_comparison_locomo_transport import (
     LocomoOfficialTurnsTransportRequest,
     RunScopedLocomoTransportEvidenceKey,
 )
+from infinity_context_server.memory_comparison_managed_corpus_projection import (
+    _managed_corpus_record,
+)
+from infinity_context_server.memory_comparison_managed_plan_builder import (
+    managed_execution_case_material_sha256,
+)
 from infinity_context_server.memory_comparison_managed_run_contract import (
+    ManagedAnswerCase,
     ManagedCaseExecution,
     ManagedExecutionArtifacts,
     ManagedRunCase,
@@ -63,6 +70,7 @@ from managed_comparison_sandbox_adapters import (
 )
 
 AnswerFromSource = Callable[[str, str], str]
+BindCaseTransform = Callable[[PublicBenchmarkCase], PublicBenchmarkCase]
 
 
 class _GoldRetriever:
@@ -134,27 +142,142 @@ class SandboxExecutionPort:
         self,
         trace: SandboxTrace,
         *,
-        state: SandboxBackendState,
-        public_cases: tuple[PublicBenchmarkCase, ...],
-        case_manifest: tuple[FullExecutionCaseManifestEntry, ...],
-        provider_route: ProviderRouteAttestation,
-        answer_from_source: AnswerFromSource = locomo_answer_from_source,
+        candidate_channel: _CandidateGoldBlindChannel,
     ) -> None:
-        scenario = state.scenario
+        scenario = candidate_channel.scenario
         self.adapter_id = f"{scenario.scenario_id}-execution"
         self.implementation_sha256 = implementation_sha256(
             "execution",
             scenario_id=scenario.scenario_id,
         )
         self.trace = trace
+        self._candidate_channel = candidate_channel
+        self._observed_queries: list[ManagedAnswerCase] = []
+
+    @property
+    def provider_calls(self) -> tuple[FullExecutionProviderCall, ...]:
+        return self._candidate_channel.provider_calls
+
+    @property
+    def retrieval_item_ids(self) -> tuple[str, ...]:
+        return self._candidate_channel.retrieval_item_ids
+
+    @property
+    def observed_queries(self) -> tuple[ManagedAnswerCase, ...]:
+        return tuple(self._observed_queries)
+
+    def retrieve(
+        self,
+        *,
+        bindings: FullComparisonRunBindings,
+        backend_role: str,
+        target_identity_sha256: str,
+        case: ManagedRunCase,
+        query: ManagedAnswerCase,
+    ) -> object:
+        assert len(target_identity_sha256) == 64
+        self._observed_queries.append(query)
+        result = self._candidate_channel.retrieve(
+            bindings=bindings,
+            backend_role=backend_role,
+            case=case,
+            query=query,
+        )
+        self.trace.add(f"retrieve:{backend_role}:{case.case_id}")
+        return result
+
+    def answer(
+        self,
+        *,
+        bindings: FullComparisonRunBindings,
+        backend_role: str,
+        target_identity_sha256: str,
+        case: ManagedRunCase,
+        query: ManagedAnswerCase,
+        retrieval_receipt: object,
+    ) -> object:
+        assert len(target_identity_sha256) == 64 and type(retrieval_receipt) is tuple
+        answer = self._candidate_channel.answer(
+            bindings=bindings,
+            backend_role=backend_role,
+            case=case,
+            query=query,
+            retrieval_receipt=retrieval_receipt,
+        )
+        self.trace.add(f"answer:{backend_role}:{case.case_id}")
+        return answer
+
+
+class _CandidateGoldBlindChannel:
+    def __init__(self, owner: SandboxJudgePort) -> None:
+        self.__owner = owner
+
+    @property
+    def scenario(self) -> SandboxScenario:
+        return self.__owner.scenario
+
+    @property
+    def provider_calls(self) -> tuple[FullExecutionProviderCall, ...]:
+        return self.__owner.provider_calls
+
+    @property
+    def retrieval_item_ids(self) -> tuple[str, ...]:
+        return self.__owner.retrieval_item_ids
+
+    def retrieve(
+        self,
+        *,
+        bindings: FullComparisonRunBindings,
+        backend_role: str,
+        case: ManagedRunCase,
+        query: ManagedAnswerCase,
+    ) -> object:
+        return self.__owner._candidate_retrieve(bindings, backend_role, case, query)
+
+    def answer(
+        self,
+        *,
+        bindings: FullComparisonRunBindings,
+        backend_role: str,
+        case: ManagedRunCase,
+        query: ManagedAnswerCase,
+        retrieval_receipt: object,
+    ) -> object:
+        return self.__owner._candidate_answer(
+            bindings,
+            backend_role,
+            case,
+            query,
+            retrieval_receipt,
+        )
+
+
+class SandboxJudgePort:
+    def __init__(
+        self,
+        trace: SandboxTrace,
+        *,
+        state: SandboxBackendState,
+        provider_route: ProviderRouteAttestation,
+        answer_from_source: AnswerFromSource = locomo_answer_from_source,
+        bind_case_transform: BindCaseTransform | None = None,
+    ) -> None:
+        scenario = state.scenario
+        self.adapter_id = f"{scenario.scenario_id}-judge"
+        self.implementation_sha256 = implementation_sha256(
+            "judge",
+            scenario_id=scenario.scenario_id,
+        )
+        self.trace = trace
+        self.scenario = scenario
         self._state = state
-        self._scenario = scenario
-        self._cases = {case.case_id: case for case in public_cases}
-        assert len(self._cases) == len(public_cases) == len(case_manifest)
-        self._manifest = case_manifest
         self._route = provider_route
         self._answer_from_source = answer_from_source
+        self._bind_case_transform = bind_case_transform
         self._bindings: FullComparisonRunBindings | None = None
+        self._cases: dict[str, PublicBenchmarkCase] = {}
+        self._case_aliases: tuple[str, ...] = ()
+        self._case_material_sha256: tuple[tuple[str, str], ...] = ()
         self._ledger = None
         self._contracts: dict[str, tuple[object, JudgeRunKey, object]] = {}
         self._provider_calls: list[FullExecutionProviderCall] = []
@@ -163,6 +286,7 @@ class SandboxExecutionPort:
         self.case_manifest: tuple[FullExecutionCaseManifestEntry, ...] | None = None
         self.gold_validation: object | None = None
         self.execution_validation: object | None = None
+        self.candidate_channel = _CandidateGoldBlindChannel(self)
 
     @property
     def provider_calls(self) -> tuple[FullExecutionProviderCall, ...]:
@@ -172,22 +296,44 @@ class SandboxExecutionPort:
     def retrieval_item_ids(self) -> tuple[str, ...]:
         return tuple(self._retrieval_item_ids)
 
+    def bind_cases(
+        self,
+        *,
+        bindings: FullComparisonRunBindings,
+        cases: tuple[PublicBenchmarkCase, ...],
+        case_aliases: tuple[str, ...],
+    ) -> tuple[tuple[str, str], ...]:
+        assert type(cases) is tuple and cases
+        assert type(case_aliases) is tuple and len(case_aliases) == len(cases)
+        assert len(set(case_aliases)) == len(case_aliases)
+        transform = self._bind_case_transform
+        bound_cases = tuple(transform(case) for case in cases) if transform else cases
+        if any(type(case) is not PublicBenchmarkCase for case in bound_cases):
+            raise AssertionError("sandbox judge bind produced an invalid case")
+        commitments = tuple(
+            (alias, managed_execution_case_material_sha256(case, case_alias=alias))
+            for alias, case in zip(case_aliases, bound_cases, strict=True)
+        )
+        self._bindings = bindings
+        self._cases = dict(zip(case_aliases, bound_cases, strict=True))
+        self._case_aliases = case_aliases
+        self._case_material_sha256 = commitments
+        self._initialize_gold(bindings)
+        return commitments
+
     def _lane_id(self, backend_role: str, case_id: str) -> str:
         return f"{case_id}:{backend_role}"
 
-    def _ensure_gold(self, bindings: FullComparisonRunBindings) -> None:
-        if self._bindings is not None:
-            assert self._bindings is bindings
-            return
-        self._bindings = bindings
+    def _initialize_gold(self, bindings: FullComparisonRunBindings) -> None:
+        assert self._ledger is None and self._bindings is bindings
         expected = tuple(
             GoldBlindExpectedDispatchCase(
-                case_id=self._lane_id(target.backend_role, item.case_id),
+                case_id=self._lane_id(target.backend_role, case_alias),
                 retrieval_backend_id=f"{target.backend_role}-retrieval",
                 answer_backend_id=f"{target.backend_role}-answerer",
                 judge_backend_id=f"{target.backend_role}-judge",
             )
-            for item in self._manifest
+            for case_alias in self._case_aliases
             for target in bindings.backend_targets
         )
         self._ledger = create_gold_blind_run_dispatch_ledger(
@@ -216,16 +362,20 @@ class SandboxExecutionPort:
             )
             self._contracts[lane.case_id] = (contract, key, expected_answer)
 
-    def retrieve(
+    def _require_query(self, case: ManagedRunCase, query: ManagedAnswerCase) -> None:
+        public_case = self._cases[case.case_id]
+        assert query.case_id == case.case_id
+        assert query.question == public_case.question
+
+    def _candidate_retrieve(
         self,
-        *,
         bindings: FullComparisonRunBindings,
         backend_role: str,
-        target_identity_sha256: str,
         case: ManagedRunCase,
+        query: ManagedAnswerCase,
     ) -> object:
-        assert len(target_identity_sha256) == 64
-        self._ensure_gold(bindings)
+        assert self._bindings is bindings
+        self._require_query(case, query)
         lane = self._lane_id(backend_role, case.case_id)
         contract, _key, _expected = self._contracts[lane]
         result = dispatch_retrieval(
@@ -237,19 +387,18 @@ class SandboxExecutionPort:
             top_k=5,
         )
         self._retrieval_item_ids.extend(item.item_id for item in result)
-        self.trace.add(f"retrieve:{backend_role}:{case.case_id}")
         return result
 
-    def answer(
+    def _candidate_answer(
         self,
-        *,
         bindings: FullComparisonRunBindings,
         backend_role: str,
-        target_identity_sha256: str,
         case: ManagedRunCase,
+        query: ManagedAnswerCase,
         retrieval_receipt: object,
     ) -> object:
-        assert len(target_identity_sha256) == 64 and type(retrieval_receipt) is tuple
+        assert self._bindings is bindings
+        self._require_query(case, query)
         lane = self._lane_id(backend_role, case.case_id)
         contract, _key, _expected = self._contracts[lane]
         answer = dispatch_answer(
@@ -262,7 +411,6 @@ class SandboxExecutionPort:
         )
         self._answers[lane] = answer
         self._provider_call(bindings, case.case_id, backend_role, "answerer")
-        self.trace.add(f"answer:{backend_role}:{case.case_id}")
         return answer
 
     def judge(
@@ -332,11 +480,13 @@ class SandboxExecutionPort:
         executions: tuple[ManagedCaseExecution, ...],
         case_manifest: tuple[FullExecutionCaseManifestEntry, ...],
         case_manifest_sha256: str,
+        case_material_sha256: tuple[tuple[str, str], ...],
     ) -> ManagedExecutionArtifacts:
         assert self._bindings is bindings
-        assert len(executions) == 2 * len(self._manifest)
-        assert case_manifest is self._manifest
-        assert len(self._provider_calls) == 4 * len(self._manifest)
+        assert len(executions) == 2 * len(self._case_aliases)
+        assert tuple(item.case_id for item in case_manifest) == self._case_aliases
+        assert case_material_sha256 == self._case_material_sha256
+        assert len(self._provider_calls) == 4 * len(self._case_aliases)
         assert {item.case_id for item in case_manifest} == set(self._cases)
         self.case_manifest = case_manifest
         execution = _execution_validation(
@@ -345,13 +495,19 @@ class SandboxExecutionPort:
             tuple(self._provider_calls),
             self._route,
             self._state,
-            self._scenario,
+            self.scenario,
+            self._cases,
         )
         gold = verify_gold_blind_execution(self._ledger)
         self.gold_validation = gold
         self.execution_validation = execution
         self.trace.add("execution.seal")
-        return ManagedExecutionArtifacts(gold, execution, case_manifest_sha256)
+        return ManagedExecutionArtifacts(
+            gold,
+            execution,
+            case_manifest_sha256,
+            case_material_sha256,
+        )
 
 
 def _execution_validation(
@@ -361,6 +517,7 @@ def _execution_validation(
     route: ProviderRouteAttestation,
     state: SandboxBackendState,
     scenario: SandboxScenario,
+    cases: Mapping[str, PublicBenchmarkCase],
 ) -> object:
     session_key = RunScopedSessionHmacKey.generate(run_id=bindings.run_id)
     mappings = tuple(
@@ -381,6 +538,7 @@ def _execution_validation(
         manifest,
         state,
         scenario,
+        cases,
     )
     session = issue_full_execution_validation_session(
         bindings=bindings,
@@ -405,54 +563,90 @@ def _transport(
     manifest: tuple[FullExecutionCaseManifestEntry, ...],
     state: SandboxBackendState,
     scenario: SandboxScenario,
+    cases: Mapping[str, PublicBenchmarkCase],
 ) -> tuple[RunScopedLocomoTransportEvidenceKey | None, tuple[object, ...]]:
     if scenario.benchmark == "longmemeval":
         return None, ()
-    assert len(manifest) == 1
-    item = manifest[0]
-    source_text = state.source("infinity-context", item.corpus_id).text
     transport_key = RunScopedLocomoTransportEvidenceKey.generate(run_id=bindings.run_id)
-    source = f"locomo:{item.corpus_id}:session_1:D1:1:turn"
-    metadata = {
-        "benchmark": "locomo",
-        "case_id": item.case_id,
-        "corpus_key": item.corpus_id,
-        "source_external_id": source,
-        "source_id": source,
-        "session_key": "session_1",
-        "session_date": "1:56 pm on 8 May, 2023",
-        "dia_id": "D1:1",
-        "role": "user",
-        "speaker": "Alice",
-        "locomo_evidence_ref": "D1:1",
-    }
-    request = LocomoOfficialTurnsTransportRequest.create(
-        messages=[{"role": "user", "content": source_text}],
-        user_id=mem0_benchmark_user_id(bindings.run_id),
-        run_id=bindings.run_id,
-        metadata=metadata,
-        timestamp=1_683_554_160,
-        idempotency_key=source,
-    )
-    turn = ExpectedOfficialLocomoTurn.create(
-        run_id=bindings.run_id,
-        corpus_key=item.corpus_id,
-        source_external_id=source,
-        source_id=source,
-        session_key="session_1",
-        speaker="Alice",
-        session_date=metadata["session_date"],
-        trigger_case_id=item.case_id,
-        dia_id="D1:1",
-        role="user",
-        content=source_text,
-        timestamp=1_683_554_160,
-    )
-    return transport_key, (transport_key.issue(request, expected_turn=turn),)
+    evidence: list[object] = []
+    observed_corpora: set[str] = set()
+    for item in manifest:
+        if item.corpus_id in observed_corpora:
+            continue
+        observed_corpora.add(item.corpus_id)
+        public_case = cases[item.case_id]
+        projected_memories = _managed_corpus_record(public_case)["memories"]
+        assert isinstance(projected_memories, list)
+        assert len(public_case.memories) == len(projected_memories) == item.official_turn_count
+        assert state.source("infinity-context", item.corpus_id).text
+        for memory, projected in zip(
+            public_case.memories,
+            projected_memories,
+            strict=True,
+        ):
+            assert isinstance(projected, Mapping) and type(projected.get("text")) is str
+            source_text = projected["text"]
+            memory_metadata = memory.metadata
+            source = memory.source_external_id
+            assert type(source) is str
+            session_key = memory_metadata["session_key"]
+            session_date = memory_metadata["session_date"]
+            dia_id = memory_metadata["dia_id"]
+            role = memory_metadata["role"]
+            speaker = memory_metadata["speaker"]
+            timestamp = memory_metadata["timestamp"]
+            assert all(
+                type(value) is str for value in (session_key, session_date, dia_id, role, speaker)
+            )
+            assert type(timestamp) is int
+            metadata = {
+                "benchmark": "locomo",
+                "case_id": public_case.case_id,
+                "corpus_key": item.corpus_id,
+                "source_external_id": source,
+                "source_id": source,
+                "session_key": session_key,
+                "session_date": session_date,
+                "dia_id": dia_id,
+                "role": role,
+                "speaker": speaker,
+                "locomo_evidence_ref": dia_id,
+            }
+            request = LocomoOfficialTurnsTransportRequest.create(
+                messages=[{"role": role, "content": source_text}],
+                user_id=mem0_benchmark_user_id(bindings.run_id),
+                run_id=bindings.run_id,
+                metadata=metadata,
+                timestamp=timestamp,
+                idempotency_key=source,
+            )
+            turn = ExpectedOfficialLocomoTurn.create(
+                run_id=bindings.run_id,
+                corpus_key=item.corpus_id,
+                source_external_id=source,
+                source_id=source,
+                session_key=session_key,
+                speaker=speaker,
+                session_date=session_date,
+                trigger_case_id=public_case.case_id,
+                dia_id=dia_id,
+                role=role,
+                content=source_text,
+                timestamp=timestamp,
+            )
+            evidence.append(
+                transport_key.issue(
+                    request,
+                    expected_turn=turn,
+                    public_trigger_case_id=item.case_id,
+                )
+            )
+    return transport_key, tuple(evidence)
 
 
 __all__ = (
     "AnswerFromSource",
     "SandboxExecutionPort",
+    "SandboxJudgePort",
     "locomo_answer_from_source",
 )

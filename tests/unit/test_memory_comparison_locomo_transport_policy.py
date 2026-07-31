@@ -180,6 +180,31 @@ def test_public_evidence_is_exact_safe_serializable_projection() -> None:
     payload["extra"] = "forged"
     assert locomo_timestamp_evidence_payload_is_exact(payload) is False
 
+
+def test_managed_public_trigger_binds_opaque_alias_after_raw_turn_validation() -> None:
+    key = RunScopedLocomoTransportEvidenceKey.generate(run_id=_RUN_ID)
+    opaque_alias = "locomo-case-" + "a" * 64
+    evidence = key.issue(
+        _request(),
+        expected_turn=_expected(),
+        public_trigger_case_id=opaque_alias,
+    )
+    payload = public_locomo_timestamp_transport_evidence(
+        evidence,
+        verifier=key,
+        expected_run_id=_RUN_ID,
+        expected_corpus_key="corpus-a",
+    )
+
+    assert payload["trigger_case_id_sha256"] == hashlib.sha256(opaque_alias.encode()).hexdigest()
+    assert payload["trigger_case_id_sha256"] != hashlib.sha256(b"corpus-a:qa:1").hexdigest()
+    with pytest.raises(ValueError, match="public trigger case_id"):
+        key.issue(
+            _request(),
+            expected_turn=_expected(),
+            public_trigger_case_id=" bad ",
+        )
+
     class MappingSubclass(dict):
         pass
 

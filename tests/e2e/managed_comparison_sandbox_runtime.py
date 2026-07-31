@@ -307,11 +307,10 @@ def _runtime_validation(
 
 
 def _record_corpus_id(record: Mapping[str, object]) -> str:
-    for key in ("sample_id", "question_id", "id"):
-        value = record.get(key)
-        if type(value) is str and value:
-            return value
-    raise AssertionError("sandbox record has no corpus identity")
+    value = record.get("corpus_id")
+    if type(value) is str and value:
+        return value
+    raise AssertionError("sandbox projection has no opaque corpus identity")
 
 
 def _clean_state_bundle(

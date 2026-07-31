@@ -595,6 +595,75 @@ def test_session_commitment_binds_case_local_shared_alias_identity():
     assert coverage["mapping_commitment_sha256"] != changed_coverage["mapping_commitment_sha256"]
 
 
+def test_transport_coverage_deduplicates_shared_corpus_and_uses_opaque_trigger() -> None:
+    inputs = _inputs()
+    first_alias = "locomo-case-" + "1" * 64
+    second_alias = "locomo-case-" + "2" * 64
+    base = replace(inputs["case_manifest"][0], case_id=first_alias)
+    manifest = (base, replace(base, case_id=second_alias))
+    source = "locomo:corpus-a:session_1:D1:1:turn"
+    metadata = {
+        "benchmark": "locomo",
+        "case_id": "corpus-a:qa:1",
+        "corpus_key": "corpus-a",
+        "source_external_id": source,
+        "source_id": source,
+        "session_key": "session_1",
+        "session_date": "1:56 pm on 8 May, 2023",
+        "dia_id": "D1:1",
+        "role": "user",
+        "speaker": "Caroline",
+        "locomo_evidence_ref": "D1:1",
+    }
+    request = LocomoOfficialTurnsTransportRequest.create(
+        messages=[{"role": "user", "content": "official turn"}],
+        user_id=mem0_benchmark_user_id(inputs["bindings"].run_id),
+        run_id=inputs["bindings"].run_id,
+        metadata=metadata,
+        timestamp=1_683_554_160,
+        idempotency_key=source,
+    )
+    expected = ExpectedOfficialLocomoTurn.create(
+        run_id=inputs["bindings"].run_id,
+        corpus_key="corpus-a",
+        source_external_id=source,
+        source_id=source,
+        session_key="session_1",
+        speaker="Caroline",
+        session_date="1:56 pm on 8 May, 2023",
+        trigger_case_id="corpus-a:qa:1",
+        dia_id="D1:1",
+        role="user",
+        content="official turn",
+        timestamp=1_683_554_160,
+    )
+    evidence = inputs["transport_verifier"].issue(
+        request,
+        expected_turn=expected,
+        public_trigger_case_id=first_alias,
+    )
+
+    coverage = _slots._transport_coverage(
+        inputs["bindings"],
+        benchmark="locomo",
+        manifest=manifest,
+        verifier=inputs["transport_verifier"],
+        evidence=(evidence,),
+    )
+
+    assert coverage["required_turn_count"] == 1
+    assert coverage["verified_turn_count"] == 1
+    assert coverage["corpus_count"] == 1
+    with pytest.raises(FullExecutionValidationError, match="shared LoCoMo corpus"):
+        _slots._transport_coverage(
+            inputs["bindings"],
+            benchmark="locomo",
+            manifest=(base, replace(base, case_id=second_alias, thread_id="other-thread")),
+            verifier=inputs["transport_verifier"],
+            evidence=(evidence,),
+        )
+
+
 def test_clean_coverage_deduplicates_shared_corpus_across_cases():
     inputs = _inputs()
     base = inputs["case_manifest"][0]

@@ -30,9 +30,11 @@ from infinity_context_server.memory_comparison_managed_attestation import (
 )
 from infinity_context_server.memory_comparison_managed_run_ports import ManagedPortIdentity
 from infinity_context_server.memory_comparison_provider_provenance import ProviderRouteAttestation
+from infinity_context_server.public_benchmark_models import PublicBenchmarkCase
 
 _ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:-]{0,199}$")
 _SHA256 = re.compile(r"^[0-9a-f]{64}$")
+ManagedExecutionCaseMaterial = tuple[tuple[str, str], ...]
 
 
 class ManagedRunError(RuntimeError):
@@ -113,6 +115,33 @@ class ManagedRunPlan:
 
 @final
 @dataclass(frozen=True, slots=True)
+class ManagedAnswerCase:
+    case_id: str
+    question: str
+    temporal_context: Mapping[str, object]
+
+    def __post_init__(self) -> None:
+        _identifier(self.case_id, "answer case_id")
+        if (
+            type(self.question) is not str
+            or not self.question
+            or self.question != self.question.strip()
+        ):
+            raise ManagedRunError("answer question is invalid")
+        if type(self.temporal_context) is not dict:
+            raise ManagedRunError("answer temporal context must be an exact dict")
+        frozen = _freeze_json(self.temporal_context)
+        if type(frozen) is not MappingProxyType:
+            raise ManagedRunError("answer temporal context must be an exact JSON object")
+        object.__setattr__(self, "temporal_context", frozen)
+
+    def __init_subclass__(cls, **kwargs: object) -> None:
+        del cls, kwargs
+        raise TypeError("ManagedAnswerCase is final")
+
+
+@final
+@dataclass(frozen=True, slots=True)
 class ManagedCaseExecution:
     backend_role: str
     target_identity_sha256: str
@@ -140,6 +169,7 @@ class ManagedExecutionArtifacts:
     gold_blind_validation: object
     execution_validation: object
     case_manifest_sha256: str
+    case_material_sha256: ManagedExecutionCaseMaterial
 
     def __post_init__(self) -> None:
         if self.gold_blind_validation is None or self.execution_validation is None:
@@ -147,6 +177,7 @@ class ManagedExecutionArtifacts:
         if self.gold_blind_validation is self.execution_validation:
             raise ManagedRunError("execution validations must be distinct")
         _digest(self.case_manifest_sha256, "case manifest")
+        _validated_case_material_sha256(self.case_material_sha256)
 
     def __init_subclass__(cls, **kwargs: object) -> None:
         del cls, kwargs
@@ -174,6 +205,7 @@ class ManagedExecutionPort(ManagedPortIdentity, Protocol):
         backend_role: str,
         target_identity_sha256: str,
         case: ManagedRunCase,
+        query: ManagedAnswerCase,
     ) -> object: ...
     def answer(
         self,
@@ -182,8 +214,19 @@ class ManagedExecutionPort(ManagedPortIdentity, Protocol):
         backend_role: str,
         target_identity_sha256: str,
         case: ManagedRunCase,
+        query: ManagedAnswerCase,
         retrieval_receipt: object,
     ) -> object: ...
+
+
+class ManagedJudgeExecutionPort(ManagedPortIdentity, Protocol):
+    def bind_cases(
+        self,
+        *,
+        bindings: FullComparisonRunBindings,
+        cases: tuple[PublicBenchmarkCase, ...],
+        case_aliases: tuple[str, ...],
+    ) -> ManagedExecutionCaseMaterial: ...
     def judge(
         self,
         *,
@@ -200,6 +243,7 @@ class ManagedExecutionPort(ManagedPortIdentity, Protocol):
         case_manifest: tuple[FullExecutionCaseManifestEntry, ...],
         executions: tuple[ManagedCaseExecution, ...],
         case_manifest_sha256: str,
+        case_material_sha256: ManagedExecutionCaseMaterial,
     ) -> ManagedExecutionArtifacts: ...
 
 
@@ -317,6 +361,28 @@ def _identifier(value: object, name: str) -> str:
     return value
 
 
+def _validated_case_material_sha256(value: object) -> ManagedExecutionCaseMaterial:
+    if (
+        type(value) is not tuple
+        or not value
+        or any(
+            type(item) is not tuple
+            or len(item) != 2
+            or type(item[0]) is not str
+            or type(item[1]) is not str
+            for item in value
+        )
+    ):
+        raise ManagedRunError("execution case material must be an exact ordered tuple")
+    trusted = value
+    for case_alias, digest in trusted:
+        _identifier(case_alias, "execution case alias")
+        _digest(digest, "execution case material")
+    if len({item[0] for item in trusted}) != len(trusted):
+        raise ManagedRunError("execution case material alias is duplicated")
+    return trusted
+
+
 def _digest(value: object, name: str) -> str:
     if type(value) is not str or _SHA256.fullmatch(value) is None:
         raise ManagedRunError(f"{name} must be SHA-256")
@@ -367,10 +433,13 @@ __all__ = (
     "ManagedCaseExecution",
     "ManagedCompositeAssemblerPort",
     "ManagedExecutionArtifacts",
+    "ManagedExecutionCaseMaterial",
     "ManagedExecutionPort",
+    "ManagedJudgeExecutionPort",
     "ManagedIngestEvidencePort",
     "ManagedPolicyLifecyclePort",
     "ManagedRunCase",
     "ManagedRunError",
     "ManagedRunPlan",
+    "ManagedAnswerCase",
 )
