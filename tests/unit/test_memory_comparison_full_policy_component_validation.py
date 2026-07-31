@@ -17,6 +17,7 @@ from infinity_context_server.memory_comparison_full_policy_component_validation 
     FullPolicyManifestItem,
     FullPolicyRunManifest,
     VerifiedFullPolicyComponentValidation,
+    consume_full_policy_component_validation,
     create_full_policy_component_validation_session,
     full_policy_component_validation_session_status,
     full_policy_run_manifest_commitment,
@@ -39,6 +40,14 @@ def _session(fixture=None):
     )
 
 
+def _consume(validation, fixture):
+    return consume_full_policy_component_validation(
+        validation,
+        binding_commitment_sha256=full_policy_run_manifest_commitment(fixture.manifest),
+        managed_attestation_commitment_sha256=ATTESTATION,
+    )
+
+
 def test_exact_manifest_coverage_seals_only_after_terminal_delete() -> None:
     fixture = build_policy_aggregate_fixture()
     session = _session(fixture)
@@ -49,6 +58,7 @@ def test_exact_manifest_coverage_seals_only_after_terminal_delete() -> None:
     assert full_policy_component_validation_session_status(session) == "sealed"
 
     report = public_full_policy_component_validation(validation)
+    assert _consume(validation, fixture) == report
     assert json.loads(json.dumps(report)) == report
     assert report["status"] == "verified"
     assert report["run_id"] == fixture.manifest.run_id
@@ -63,6 +73,132 @@ def test_exact_manifest_coverage_seals_only_after_terminal_delete() -> None:
     assert report["delete_consumed_last"] is True
     assert report["all_components_consumed"] is True
     assert report["admission_from_public_json"] is False
+
+
+def test_consumed_policy_validation_remains_publicly_revalidated(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    fixture = build_policy_aggregate_fixture()
+    validation = seal_full_policy_component_validation(_session(fixture))
+    original = policy_validation._preflight_from_validation
+    revalidations = 0
+
+    def tracked_revalidation(state):
+        nonlocal revalidations
+        revalidations += 1
+        return original(state)
+
+    monkeypatch.setattr(
+        policy_validation,
+        "_preflight_from_validation",
+        tracked_revalidation,
+    )
+
+    consumed = _consume(validation, fixture)
+
+    assert public_full_policy_component_validation(validation) == consumed
+    assert revalidations == 2
+    with pytest.raises(FullPolicyComponentValidationError, match="already consumed"):
+        _consume(validation, fixture)
+    assert public_full_policy_component_validation(validation) == consumed
+    assert revalidations == 3
+
+
+@pytest.mark.parametrize(
+    ("binding_commitment", "managed_attestation", "message"),
+    (
+        pytest.param("b" * 64, ATTESTATION, "binding commitment", id="binding"),
+        pytest.param(None, "b" * 64, "managed attestation", id="attestation"),
+    ),
+)
+def test_consume_commitment_mismatch_leaves_policy_validation_live(
+    binding_commitment: str | None,
+    managed_attestation: str,
+    message: str,
+) -> None:
+    fixture = build_policy_aggregate_fixture()
+    validation = seal_full_policy_component_validation(_session(fixture))
+    expected_binding = full_policy_run_manifest_commitment(fixture.manifest)
+
+    with pytest.raises(FullPolicyComponentValidationError, match=message):
+        consume_full_policy_component_validation(
+            validation,
+            binding_commitment_sha256=(
+                expected_binding if binding_commitment is None else binding_commitment
+            ),
+            managed_attestation_commitment_sha256=managed_attestation,
+        )
+
+    assert _consume(validation, fixture)["status"] == "verified"
+
+
+def test_consume_revalidation_failure_leaves_policy_validation_live(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    fixture = build_policy_aggregate_fixture()
+    validation = seal_full_policy_component_validation(_session(fixture))
+    original = policy_validation.public_full_policy_component_validation
+
+    def fail_revalidation(_validation):
+        raise KeyboardInterrupt
+
+    monkeypatch.setattr(
+        policy_validation,
+        "public_full_policy_component_validation",
+        fail_revalidation,
+    )
+    with pytest.raises(KeyboardInterrupt):
+        _consume(validation, fixture)
+
+    monkeypatch.setattr(
+        policy_validation,
+        "public_full_policy_component_validation",
+        original,
+    )
+    assert _consume(validation, fixture)["status"] == "verified"
+
+
+def test_concurrent_policy_consumers_have_exactly_one_winner(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    fixture = build_policy_aggregate_fixture()
+    validation = seal_full_policy_component_validation(_session(fixture))
+    original = policy_validation.public_full_policy_component_validation
+    revalidating = Event()
+    release = Event()
+
+    def blocked_revalidation(active_validation):
+        revalidating.set()
+        if not release.wait(timeout=5):
+            raise RuntimeError("test release timed out")
+        return original(active_validation)
+
+    monkeypatch.setattr(
+        policy_validation,
+        "public_full_policy_component_validation",
+        blocked_revalidation,
+    )
+
+    def outcome() -> str:
+        try:
+            _consume(validation, fixture)
+        except FullPolicyComponentValidationError as exc:
+            return str(exc)
+        return "consumed"
+
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        winner = pool.submit(outcome)
+        try:
+            assert revalidating.wait(timeout=5)
+            loser = pool.submit(outcome)
+            assert loser.result(timeout=1) == ("policy validation consumption already active")
+        finally:
+            release.set()
+        assert winner.result(timeout=5) == "consumed"
+
+    with pytest.raises(FullPolicyComponentValidationError, match="already consumed"):
+        _consume(validation, fixture)
+    assert public_full_policy_component_validation(validation)["status"] == "verified"
 
 
 def test_manifest_rejects_missing_extra_duplicate_and_reordered_coverage() -> None:

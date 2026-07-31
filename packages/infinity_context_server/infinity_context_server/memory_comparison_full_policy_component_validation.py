@@ -245,7 +245,7 @@ class _PreflightSnapshot:
     delete_policy_commitment: str
 
 
-@dataclass(frozen=True, slots=True)
+@dataclass(slots=True)
 class _ValidationState:
     session: FullPolicyComponentValidationSession
     manifest: _ManifestSnapshot
@@ -255,6 +255,7 @@ class _ValidationState:
     report: MappingProxyType[str, object]
     secret: bytes
     commitment: str
+    consume_phase: str = "live"
 
 
 _SESSIONS: weakref.WeakKeyDictionary[FullPolicyComponentValidationSession, _SessionState] = (
@@ -417,6 +418,61 @@ def public_full_policy_component_validation(
         raise FullPolicyComponentValidationError("policy validation integrity failed")
     report["commitment"] = commitment
     return _thaw(report)
+
+
+def consume_full_policy_component_validation(
+    validation: VerifiedFullPolicyComponentValidation,
+    *,
+    binding_commitment_sha256: str,
+    managed_attestation_commitment_sha256: str,
+) -> dict[str, object]:
+    """Consume one exact aggregate binding while preserving live public reads.
+
+    The binding commitment is the deterministic policy manifest commitment.
+    Failed identity checks or live revalidation restore the capability to live.
+    """
+
+    expected_binding = _digest(
+        binding_commitment_sha256,
+        "binding_commitment_sha256",
+    )
+    expected_attestation = _digest(
+        managed_attestation_commitment_sha256,
+        "managed_attestation_commitment_sha256",
+    )
+    state = _validation_state(validation)
+    with _LOCK:
+        if state.consume_phase == "consuming":
+            raise FullPolicyComponentValidationError("policy validation consumption already active")
+        if state.consume_phase == "consumed":
+            raise FullPolicyComponentValidationError("policy validation was already consumed")
+        if state.consume_phase != "live":
+            raise FullPolicyComponentValidationError(
+                "policy validation consumption lifecycle is invalid"
+            )
+        state.consume_phase = "consuming"
+    try:
+        report = public_full_policy_component_validation(validation)
+        if report.get("manifest_commitment_sha256") != expected_binding:
+            raise FullPolicyComponentValidationError(
+                "policy validation binding commitment does not match"
+            )
+        if report.get("managed_attestation_commitment_sha256") != expected_attestation:
+            raise FullPolicyComponentValidationError(
+                "policy validation managed attestation commitment does not match"
+            )
+        with _LOCK:
+            if state.consume_phase != "consuming":
+                raise FullPolicyComponentValidationError(
+                    "policy validation consumption lifecycle changed"
+                )
+            state.consume_phase = "consumed"
+    except BaseException:
+        with _LOCK:
+            if state.consume_phase == "consuming":
+                state.consume_phase = "live"
+        raise
+    return report
 
 
 def full_policy_run_manifest_commitment(manifest: FullPolicyRunManifest) -> str:
@@ -834,6 +890,7 @@ __all__ = (
     "FullPolicyRunManifest",
     "FullPolicyTerminalDeleteEvidence",
     "VerifiedFullPolicyComponentValidation",
+    "consume_full_policy_component_validation",
     "create_full_policy_component_validation_session",
     "full_policy_component_validation_session_status",
     "full_policy_run_manifest_commitment",
