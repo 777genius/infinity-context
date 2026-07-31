@@ -614,3 +614,78 @@ def test_clean_coverage_deduplicates_shared_corpus_across_cases():
         "infinity-context": 1,
         "mem0": 1,
     }
+
+
+def test_clean_coverage_allows_distinct_corpora_to_share_one_scope_per_backend():
+    inputs = _inputs()
+    bindings = inputs["bindings"]
+    base = inputs["case_manifest"][0]
+    manifest = (
+        base,
+        replace(
+            base,
+            case_id="corpus-b:qa:1",
+            corpus_id="corpus-b",
+            thread_id="thread-b",
+        ),
+    )
+    scope = "shared-clean-scope"
+    scope_hash = clean_state_identity_sha256(scope)
+    corpus_hashes = tuple(clean_state_identity_sha256(item.corpus_id) for item in manifest)
+    clean_key = inputs["clean_attestation_key"]
+    proofs = {
+        "infinity-context": tuple(
+            fresh_namespace_clean_state_proof(
+                backend="infinity-context",
+                run_id=bindings.run_id,
+                expected_slug=scope,
+                corpus_identity_sha256=corpus_hash,
+                expected_scope_count=2,
+                status_code=201,
+                payload={"data": {"slug": scope}},
+                attestation_key=clean_key,
+            )
+            for corpus_hash in corpus_hashes
+        ),
+        "mem0": tuple(
+            mem0_delete_clean_state_proof(
+                run_id=bindings.run_id,
+                scope_identity=scope,
+                corpus_identity_sha256=corpus_hash,
+                expected_scope_count=2,
+                status_code=200,
+                payload={"deleted": True, "verified_absent": True},
+                attestation_key=clean_key,
+            )
+            for corpus_hash in corpus_hashes
+        ),
+    }
+    validation = validate_typed_clean_state_proofs(
+        proofs,
+        expected_run_id_sha256=clean_state_identity_sha256(bindings.run_id),
+        expected_scopes_by_backend={
+            backend: {corpus_hash: scope_hash for corpus_hash in corpus_hashes}
+            for backend in ("infinity-context", "mem0")
+        },
+        attestation_key=clean_key,
+    )
+    scopes = tuple(
+        FullExecutionCleanScope(backend, corpus_hash, scope_hash)
+        for backend in ("infinity-context", "mem0")
+        for corpus_hash in corpus_hashes
+    )
+
+    coverage = _slots._clean_coverage(
+        bindings,
+        manifest,
+        validation=validation,
+        scopes=scopes,
+        attestation_key=clean_key,
+    )
+
+    assert coverage["required_scope_count"] == 4
+    assert coverage["verified_scope_count"] == 4
+    assert coverage["per_backend_scope_count"] == {
+        "infinity-context": 2,
+        "mem0": 2,
+    }

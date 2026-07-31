@@ -26,6 +26,8 @@ _RUN_HASH = clean_state_identity_sha256(_RUN)
 _INFINITY_CORPUS = clean_state_identity_sha256("run-namespace")
 _MEM0_CORPUS_A = clean_state_identity_sha256("corpus-a")
 _MEM0_CORPUS_B = clean_state_identity_sha256("corpus-b")
+_SHARED_SCOPE = "shared-scope"
+_SHARED_SCOPE_HASH = clean_state_identity_sha256(_SHARED_SCOPE)
 
 
 def _fresh() -> BackendCleanStateProof:
@@ -81,6 +83,43 @@ def _valid():
         expected_scopes_by_backend=_expectations(),
         attestation_key=_KEY,
     )
+
+
+def _shared_fresh(corpus_hash: str) -> BackendCleanStateProof:
+    return fresh_namespace_clean_state_proof(
+        backend="infinity-context",
+        run_id=_RUN,
+        expected_slug=_SHARED_SCOPE,
+        corpus_identity_sha256=corpus_hash,
+        expected_scope_count=2,
+        status_code=201,
+        payload={"data": {"slug": _SHARED_SCOPE}},
+        attestation_key=_KEY,
+    )
+
+
+def _shared_scope_expectations() -> dict[str, dict[str, str]]:
+    per_backend = {
+        _MEM0_CORPUS_A: _SHARED_SCOPE_HASH,
+        _MEM0_CORPUS_B: _SHARED_SCOPE_HASH,
+    }
+    return {
+        "infinity-context": dict(per_backend),
+        "mem0": dict(per_backend),
+    }
+
+
+def _shared_scope_proofs() -> dict[str, tuple[BackendCleanStateProof, ...]]:
+    return {
+        "infinity-context": (
+            _shared_fresh(_MEM0_CORPUS_A),
+            _shared_fresh(_MEM0_CORPUS_B),
+        ),
+        "mem0": (
+            _mem0(_MEM0_CORPUS_A, _SHARED_SCOPE),
+            _mem0(_MEM0_CORPUS_B, _SHARED_SCOPE),
+        ),
+    }
 
 
 def test_builders_require_exact_ack_and_non_exported_key() -> None:
@@ -178,6 +217,81 @@ def test_copied_signature_cannot_attest_different_proof() -> None:
         attestation_key=_KEY,
         require_verified=True,
     )
+
+
+def test_same_scope_covers_two_distinct_corpora_for_both_backends() -> None:
+    expectations = _shared_scope_expectations()
+    validation = validate_typed_clean_state_proofs(
+        _shared_scope_proofs(),
+        expected_run_id_sha256=_RUN_HASH,
+        expected_scopes_by_backend=expectations,
+        attestation_key=_KEY,
+    )
+
+    assert validation.eligible is True
+    payload = public_clean_state_validation(validation)
+    backends = payload["backends"]
+    assert isinstance(backends, dict)
+    for backend in ("infinity-context", "mem0"):
+        report = backends[backend]
+        assert isinstance(report, dict)
+        assert report["expected_scope_count"] == 2
+        assert report["observed_scope_count"] == 2
+        assert report["verified"] is True
+    assert clean_state_contract_is_publishable(
+        payload,
+        expected_run_id_sha256=_RUN_HASH,
+        expected_scopes_by_backend=expectations,
+        attestation_key=_KEY,
+    )
+
+
+def test_conflicting_scope_for_same_corpus_fails_closed() -> None:
+    proofs = _shared_scope_proofs()
+    proofs["mem0"] = (
+        _mem0(_MEM0_CORPUS_A, _SHARED_SCOPE),
+        _mem0(_MEM0_CORPUS_A, "conflicting-scope"),
+    )
+
+    validation = validate_typed_clean_state_proofs(
+        proofs,
+        expected_run_id_sha256=_RUN_HASH,
+        expected_scopes_by_backend=_shared_scope_expectations(),
+        attestation_key=_KEY,
+    )
+
+    assert validation.eligible is False
+    assert "mem0:clean_state_corpus_duplicate" in validation.payload["issues"]
+    assert "mem0:clean_state_scope_set_mismatch" in validation.payload["issues"]
+
+
+@pytest.mark.parametrize("backend", ("infinity-context", "mem0"))
+@pytest.mark.parametrize("mutation", ("replay", "swap"))
+def test_same_scope_evidence_replay_or_signature_swap_fails_closed(
+    backend: str,
+    mutation: str,
+) -> None:
+    proofs = _shared_scope_proofs()
+    first, second = proofs[backend]
+    if mutation == "replay":
+        proofs[backend] = (first, first)
+        expected_issue = f"{backend}:clean_state_corpus_duplicate"
+    else:
+        proofs[backend] = (
+            replace(first, attestation_hmac_sha256=second.attestation_hmac_sha256),
+            replace(second, attestation_hmac_sha256=first.attestation_hmac_sha256),
+        )
+        expected_issue = f"{backend}:clean_state_proof_invalid"
+
+    validation = validate_typed_clean_state_proofs(
+        proofs,
+        expected_run_id_sha256=_RUN_HASH,
+        expected_scopes_by_backend=_shared_scope_expectations(),
+        attestation_key=_KEY,
+    )
+
+    assert validation.eligible is False
+    assert expected_issue in validation.payload["issues"]
 
 
 @pytest.mark.parametrize(

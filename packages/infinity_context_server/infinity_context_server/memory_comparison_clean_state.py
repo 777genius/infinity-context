@@ -363,9 +363,10 @@ def _normalize_expectations(
             if not isinstance(scope_hash, str) or not _SHA256_RE.fullmatch(scope_hash):
                 issues.append(f"{backend}:clean_state_expected_scope_invalid")
                 continue
+            if corpus_hash in scopes:
+                issues.append(f"{backend}:clean_state_expected_corpus_duplicate")
+                continue
             scopes[corpus_hash] = scope_hash
-        if len(set(scopes.values())) != len(scopes):
-            issues.append(f"{backend}:clean_state_expected_scope_duplicate")
         result[backend] = scopes
     return result, issues
 
