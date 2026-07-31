@@ -345,8 +345,8 @@ def _execute_cases(
     trace: list[str],
 ) -> tuple[ManagedCaseExecution, ...]:
     executions: list[ManagedCaseExecution] = []
-    for target in bindings.backend_targets:
-        for case in cases:
+    for case in cases:
+        for target in bindings.backend_targets:
             retrieval = port.retrieve(
                 bindings=bindings,
                 backend_role=target.backend_role,
@@ -383,8 +383,8 @@ def _execute_cases(
     result = tuple(executions)
     expected_lanes = tuple(
         (target.backend_role, target.target_identity_sha256, case.case_id)
-        for target in bindings.backend_targets
         for case in cases
+        for target in bindings.backend_targets
     )
     actual_lanes = tuple(
         (item.backend_role, item.target_identity_sha256, item.case_id) for item in result

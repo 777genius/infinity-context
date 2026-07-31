@@ -21,6 +21,7 @@ from infinity_context_server.memory_comparison_full_run_evidence import (
     FullComparisonBackendTarget,
 )
 from infinity_context_server.memory_comparison_managed_run import (
+    ManagedCaseExecution,
     ManagedExecutionArtifacts,
     ManagedRunCase,
     ManagedRunError,
@@ -87,6 +88,7 @@ class _Execution(_Port):
         self.fail_at = fail_at
         self.sealed_manifest: tuple[FullExecutionCaseManifestEntry, ...] | None = None
         self.sealed_manifest_sha256: str | None = None
+        self.sealed_executions: tuple[ManagedCaseExecution, ...] | None = None
         self.manifest_override: str | None = None
         self.reuse_receipts = False
         self.shared_receipts = {stage: object() for stage in ("retrieve", "answer", "judge")}
@@ -116,11 +118,13 @@ class _Execution(_Port):
         *,
         case_manifest: tuple[FullExecutionCaseManifestEntry, ...],
         case_manifest_sha256: str,
+        executions: tuple[ManagedCaseExecution, ...],
         **kwargs: Any,
     ) -> ManagedExecutionArtifacts:
         del kwargs
         self.sealed_manifest_sha256 = case_manifest_sha256
         self.sealed_manifest = case_manifest
+        self.sealed_executions = executions
         self.events.append("execution.seal")
         if self.fail_at == "execution.seal":
             raise _Abort("execution.seal")
@@ -392,6 +396,13 @@ def test_exact_lifecycle_orders_terminal_delete_before_nine_components(
     assert rig.events.index("canonical_source.seal") < rig.events.index("delete:infinity-context:1")
     assert rig.execution.sealed_manifest == _manifest()
     assert rig.execution.sealed_manifest_sha256 == execution_case_manifest_sha256(_manifest())
+    assert rig.execution.sealed_executions is not None
+    assert tuple((item.case_id, item.backend_role) for item in rig.execution.sealed_executions) == (
+        ("case-1", "infinity-context"),
+        ("case-1", "mem0"),
+        ("case-2", "infinity-context"),
+        ("case-2", "mem0"),
+    )
 
 
 @pytest.mark.parametrize(
