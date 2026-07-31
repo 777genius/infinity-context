@@ -559,7 +559,7 @@ def test_provider_route_and_opaque_state_mutation_fail_closed() -> None:
         _public(second, second_bindings, second_ports)
 
 
-def test_composite_consume_is_one_shot_and_blocks_public_replay() -> None:
+def test_composite_consume_is_one_shot_and_keeps_public_revalidation_live() -> None:
     attestation, bindings, _, _, ports = _issue()
     report = managed._consume_verified_managed_composition_attestation_for_composite(
         attestation,
@@ -583,11 +583,8 @@ def test_composite_consume_is_one_shot_and_blocks_public_replay() -> None:
             ingest_port=ports[2],
             clock=ports[3],
         )
-    with pytest.raises(
-        managed.ManagedCompositionAttestationError,
-        match="already consumed",
-    ):
-        _public(attestation, bindings, ports)
+    assert _public(attestation, bindings, ports) == report
+    assert _public(attestation, bindings, ports) == report
 
 
 def test_current_clock_skew_boundary_and_staleness() -> None:

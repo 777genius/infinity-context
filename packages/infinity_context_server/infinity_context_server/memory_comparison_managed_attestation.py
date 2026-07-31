@@ -258,7 +258,7 @@ def _build_managed_attestation_api():
                 raise ManagedCompositionAttestationError(
                     "managed composition attestation was not issued"
                 )
-            if state.consumed:
+            if consume and state.consumed:
                 raise ManagedCompositionAttestationError(
                     "managed composition attestation was already consumed"
                 )
