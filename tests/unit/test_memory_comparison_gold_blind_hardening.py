@@ -29,6 +29,7 @@ from infinity_context_server.memory_comparison_gold_blind_contract import (
 from infinity_context_server.public_benchmark_models import PublicBenchmarkCase
 
 _RUN = "hardening-run"
+_COMPARISON_BINDING = "9" * 64
 _CASE = "hardening-case"
 _RETRIEVAL = "retrieval-v1"
 _ANSWER = "answer-v1"
@@ -39,6 +40,7 @@ _SECRET = "SECRET-DO-NOT-LEAK-779"
 def _setup() -> tuple[GoldBlindCaseContract, object]:
     ledger = create_gold_blind_run_dispatch_ledger(
         run_id=_RUN,
+        comparison_binding_commitment_sha256=_COMPARISON_BINDING,
         expected_cases=(
             GoldBlindExpectedDispatchCase(
                 case_id=_CASE,
@@ -473,6 +475,7 @@ expected = p.GoldBlindExpectedDispatchCase(
 )
 old_ledger = p.create_gold_blind_run_dispatch_ledger(
     run_id="reload-run",
+    comparison_binding_commitment_sha256="9" * 64,
     expected_cases=(expected,),
 )
 p = importlib.reload(p)

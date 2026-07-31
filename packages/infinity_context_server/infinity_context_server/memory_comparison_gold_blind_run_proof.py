@@ -17,7 +17,7 @@ from typing import final
 
 from infinity_context_server.memory_comparison_gold_blind_validation import GoldBlindContractError
 
-RUN_DISPATCH_PROOF_SCHEMA_VERSION = "memory-comparison-gold-blind-dispatch-proof.v3"
+RUN_DISPATCH_PROOF_SCHEMA_VERSION = "memory-comparison-gold-blind-dispatch-proof.v4"
 _MAX_ID_CHARS = 16_384
 _HEX_256 = re.compile(r"^[0-9a-f]{64}$")
 _STAGES = ("retrieval", "answer", "judge")
@@ -69,6 +69,7 @@ class _ReceiptSnapshot:
 @dataclass(slots=True)
 class _LedgerState:
     run_id: str
+    comparison_binding_commitment_sha256: str
     secret: bytes
     expected: dict[str, _ExpectedSnapshot]
     receipts: dict[tuple[str, str], _ReceiptSnapshot]
@@ -182,9 +183,14 @@ def _build_public_dispatch_api() -> tuple[Callable[..., object], ...]:
     def create_ledger(
         *,
         run_id: str,
+        comparison_binding_commitment_sha256: str,
         expected_cases: tuple[GoldBlindExpectedDispatchCase, ...],
     ) -> GoldBlindRunDispatchLedger:
         _validate_id(run_id, field_name="Dispatch run_id")
+        _validate_digest(
+            comparison_binding_commitment_sha256,
+            field_name="Comparison binding commitment",
+        )
         if type(expected_cases) is not tuple or not expected_cases:
             raise GoldBlindRunDispatchProofError("Expected dispatch cases must be a nonempty tuple")
         expected: dict[str, _ExpectedSnapshot] = {}
@@ -204,6 +210,7 @@ def _build_public_dispatch_api() -> tuple[Callable[..., object], ...]:
         with _LOCK:
             states[ledger] = _LedgerState(
                 run_id,
+                comparison_binding_commitment_sha256,
                 secrets.token_bytes(32),
                 expected,
                 {},
@@ -825,6 +832,7 @@ def _report_fields(state: _LedgerState) -> dict[str, object]:
     count = len(state.expected)
     return {
         "run_id": state.run_id,
+        "comparison_binding_commitment_sha256": (state.comparison_binding_commitment_sha256),
         "expected_case_count": count,
         "retrieval_dispatch_count": count,
         "answer_dispatch_count": count,

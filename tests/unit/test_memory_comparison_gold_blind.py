@@ -50,6 +50,7 @@ _SECRET = "ULTRAVIOLET-SAPPHIRE-9271"
 _CGJ_OBFUSCATED_SECRET = "\u034f".join(_SECRET)
 _VS_OBFUSCATED_SECRET = "\ufe0f".join(_SECRET)
 _RUN_ID = "run-1"
+_COMPARISON_BINDING = "9" * 64
 _CASE_ID = "case-1"
 _RETRIEVAL_BACKEND = "memo-retrieval-v1"
 _ANSWER_BACKEND = "official-answer-v1"
@@ -117,6 +118,7 @@ def _contract(
     judge_key = key or JudgeRunKey.issue(run_id=run_id, case_id=source_case.case_id)
     ledger = create_gold_blind_run_dispatch_ledger(
         run_id=run_id,
+        comparison_binding_commitment_sha256=_COMPARISON_BINDING,
         expected_cases=expected_cases or (_expected_case(case_id=source_case.case_id),),
     )
     contract = build_gold_blind_contract(
@@ -429,6 +431,7 @@ def test_duplicate_unexpected_and_backend_role_mismatch_fail_before_second_call(
 
     wrong_backend_ledger = create_gold_blind_run_dispatch_ledger(
         run_id=_RUN_ID,
+        comparison_binding_commitment_sha256=_COMPARISON_BINDING,
         expected_cases=(_expected_case(retrieval_backend="expected-backend"),),
     )
     with pytest.raises(
@@ -439,6 +442,7 @@ def test_duplicate_unexpected_and_backend_role_mismatch_fail_before_second_call(
 
     unexpected_ledger = create_gold_blind_run_dispatch_ledger(
         run_id=_RUN_ID,
+        comparison_binding_commitment_sha256=_COMPARISON_BINDING,
         expected_cases=(_expected_case(case_id="another-case"),),
     )
     with pytest.raises(
@@ -554,6 +558,7 @@ def test_key_and_channel_rebinding_is_rejected_by_audit_and_dispatch() -> None:
         contract.audit_evidence()
     rebound_ledger = create_gold_blind_run_dispatch_ledger(
         run_id="rebound",
+        comparison_binding_commitment_sha256=_COMPARISON_BINDING,
         expected_cases=(_expected_case(),),
     )
     with pytest.raises(GoldBlindContractError, match="integrity"):
@@ -908,6 +913,7 @@ def test_expected_backend_selection_is_snapshotted_before_object_mutation() -> N
     expected = _expected_case()
     ledger = create_gold_blind_run_dispatch_ledger(
         run_id=_RUN_ID,
+        comparison_binding_commitment_sha256=_COMPARISON_BINDING,
         expected_cases=(expected,),
     )
     object.__setattr__(expected, "retrieval_backend_id", "mutated-backend")
