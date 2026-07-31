@@ -118,6 +118,31 @@ def test_ranked_evidence_projects_exact_dialogue_turns_with_matching_refs() -> N
     assert result.dropped_count == 0
 
 
+def test_ranked_evidence_ignores_turn_inventory_markers_before_speaker() -> None:
+    parent = ContextItem(
+        item_id="window-with-turn-inventory",
+        item_type="chunk",
+        text=(
+            "D28:29 D28:30 D28:31 D28:25 Nate: Turtles bring me joy.\n"
+            "D28:29 Nate: Maybe we can watch a movie together or go to the park.\n"
+            "D28:30 Joanna: I would love either of those things."
+        ),
+        score=0.9,
+        source_refs=tuple(
+            SourceRef(source_type="episode", source_id=f"session:{marker}")
+            for marker in ("D28:25", "D28:29", "D28:30", "D28:31")
+        ),
+    )
+
+    result = _select((parent,))
+
+    selected_by_ref = {item.source_refs[0].source_id: item.text for item in result.bundle.items}
+    assert selected_by_ref["session:D28:29"] == (
+        "D28:29 Nate: Maybe we can watch a movie together or go to the park."
+    )
+    assert "session:D28:31" not in selected_by_ref
+
+
 def test_ranked_evidence_projection_drops_use_atomic_candidate_count() -> None:
     text = (
         "D2:24 User: I adopted a snake.\n"
@@ -142,6 +167,46 @@ def test_ranked_evidence_projection_drops_use_atomic_candidate_count() -> None:
     assert result.bundle.diagnostics["ranked_evidence_eligible_candidate_count"] == 3
     assert result.bundle.diagnostics["ranked_evidence_item_budget_drop_count"] == 1
     assert result.dropped_count == 1
+
+
+def test_ranked_evidence_reserves_producer_vetted_application_evidence() -> None:
+    ordinary = tuple(_item(index) for index in range(80))
+    direct = _item(81, text="Direct precise temporal answer.")
+    diagnostics = dict(direct.diagnostics or {})
+    diagnostics["score_signals"] = {"application_evidence_priority": 1}
+    direct = ContextItem(
+        item_id=direct.item_id,
+        item_type=direct.item_type,
+        text=direct.text,
+        score=direct.score,
+        source_refs=direct.source_refs,
+        diagnostics=diagnostics,
+    )
+
+    result = _select((*ordinary, direct), max_items=50)
+
+    assert result.bundle.items[0] == direct
+    assert len(result.bundle.items) == 50
+
+
+def test_ranked_evidence_priority_reservation_is_bounded_to_eight() -> None:
+    prioritized = tuple(
+        ContextItem(
+            item_id=f"priority-{index}",
+            item_type="chunk",
+            text=f"priority evidence {index}",
+            score=0.8,
+            source_refs=(SourceRef(source_type="episode", source_id=f"priority:{index}"),),
+            diagnostics={"score_signals": {"application_evidence_priority": 1}},
+        )
+        for index in range(12)
+    )
+    ordinary = _item(99)
+
+    result = _select((*prioritized, ordinary), max_items=20)
+
+    assert result.bundle.items[:8] == prioritized[:8]
+    assert result.bundle.items[8:] == (*prioritized[8:], ordinary)
 
 
 def test_ranked_evidence_enforces_token_and_character_budgets_independently() -> None:
@@ -256,8 +321,7 @@ def test_ranked_evidence_keeps_partial_overlap_when_it_adds_a_new_source() -> No
 
 def test_ranked_evidence_reserves_distinct_owned_activity_slots_before_cutoff() -> None:
     noise = tuple(
-        _item(index, text=f"D1:{index} Jordan: General memory {index}.")
-        for index in range(24)
+        _item(index, text=f"D1:{index} Jordan: General memory {index}.") for index in range(24)
     )
     wrong_speaker = _item(30, text="D2:1 Jordan: I went camping beside the lake.")
     activities = (
@@ -322,9 +386,7 @@ def test_ranked_evidence_activity_order_is_cutoff_independent_strict_prefix() ->
         "D4:8 Riley: I started taking dance lessons.",
         "D4:9 Riley: I started yoga classes.",
     )
-    activities = tuple(
-        _item(100 + index, text=text) for index, text in enumerate(activity_texts)
-    )
+    activities = tuple(_item(100 + index, text=text) for index, text in enumerate(activity_texts))
     duplicate_pottery = _item(
         120,
         text="D4:10 Riley: I made another piece in pottery class.",
@@ -354,9 +416,7 @@ def test_ranked_evidence_unrelated_query_keeps_original_order_and_prefixes() -> 
         _item(
             index,
             text=(
-                "D5:1 Riley: I took a pottery class."
-                if index == 25
-                else f"ranked evidence {index}"
+                "D5:1 Riley: I took a pottery class." if index == 25 else f"ranked evidence {index}"
             ),
         )
         for index in range(80)

@@ -10,12 +10,16 @@ from dataclasses import dataclass, replace
 from infinity_context_core.application.context_ranked_activity_reservation import (
     reserve_activity_inventory_head,
 )
+from infinity_context_core.application.context_ranked_evidence_priority_reservation import (
+    reserve_application_evidence_head,
+)
 from infinity_context_core.application.dto import ContextBundle, ContextItem
 from infinity_context_core.application.normalize import estimate_tokens
 from infinity_context_core.domain.entities import SourceRef
 
 _MARKER_RE = re.compile(r"\bD(?P<dialogue>\d+)[:-](?P<turn>\d+)\b", re.IGNORECASE)
 _SPEAKER_RE = re.compile(r"\s+[^:\n]{1,80}:")
+_DIALOGUE_LABEL_RE = re.compile(r"D\d+", re.IGNORECASE)
 _MAX_ITEMS = 200
 
 
@@ -71,9 +75,11 @@ def select_ranked_evidence(
         candidate_groups.append(candidates)
         selectable_candidate_count += len(candidates)
         counters["projection_candidate"] += len(projections)
-    ordered_candidates = reserve_activity_inventory_head(
+    ordered_candidates = reserve_application_evidence_head(
+        reserve_activity_inventory_head(
         tuple(_parent_fair_atomic_candidates(tuple(candidate_groups))),
         query=query,
+    )
     )
     for candidate in ordered_candidates:
         if candidate.is_instruction:
@@ -166,7 +172,7 @@ def _exact_turn_projections(item: ContextItem) -> tuple[ContextItem, ...]:
     matches = tuple(
         match
         for match in _MARKER_RE.finditer(item.text)
-        if _SPEAKER_RE.match(item.text[match.end() : match.end() + 96])
+        if _has_direct_speaker(item.text, marker=match)
     )
     if len(matches) < 2:
         return ()
@@ -193,6 +199,14 @@ def _exact_turn_projections(item: ContextItem) -> tuple[ContextItem, ...]:
             )
         )
     return tuple(projections)
+
+
+def _has_direct_speaker(text: str, *, marker: re.Match[str]) -> bool:
+    speaker = _SPEAKER_RE.match(text[marker.end() : marker.end() + 96])
+    if speaker is None or _MARKER_RE.search(speaker.group(0)) is not None:
+        return False
+    speaker_label = speaker.group(0).strip().removesuffix(":").strip()
+    return _DIALOGUE_LABEL_RE.fullmatch(speaker_label) is None
 
 
 def _canonical_source_keys(refs: tuple[SourceRef, ...]) -> frozenset[str]:

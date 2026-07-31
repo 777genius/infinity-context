@@ -43,6 +43,9 @@ from infinity_context_core.application.context_policy import (
     is_context_anchor_visible,
     is_context_fact_visible,
 )
+from infinity_context_core.application.context_precise_temporal_evidence import (
+    with_precise_temporal_evidence_contracts,
+)
 from infinity_context_core.application.context_query_decomposition import (
     build_query_decomposition_plan,
 )
@@ -842,6 +845,10 @@ class BuildContextUseCase:
             )
         )
         diagnostics.update(answer_evidence_repair_diagnostics)
+        candidate_items = with_precise_temporal_evidence_contracts(
+            candidate_items,
+            query=query.query,
+        )
         candidate_items, evidence_priority_diagnostics = apply_context_evidence_priority(
             candidate_items
         )

@@ -432,6 +432,88 @@ def test_requirement_guard_keeps_precise_temporal_source_sibling_answer_support(
     assert diagnostics["requirement_guard_items_dropped"] == 0
 
 
+def test_requirement_guard_keeps_relative_pet_acquisition_exact_turn() -> None:
+    item = _item(
+        "pet_acquisition_relative_turn",
+        (
+            "session_9 date: 9:02 am on 22 November, 2023\n"
+            "D9:6 Andrew: I adopted another dog the other day. "
+            "image query: puppy Scout new bundle of joy."
+        ),
+        deterministic_reasons=(
+            "relation_requirement_missing_relation",
+            "temporal_answer_evidence",
+        ),
+        source_refs=(
+            SourceRef(
+                source_type="locomo_turn",
+                source_id="locomo:conv-fixture:session_9:D9:6:turn",
+            ),
+        ),
+        diagnostics={
+            "retrieval_source": "postgres_facts",
+            "retrieval_sources": ["postgres_facts"],
+            "query_expansion_reason": "pet_acquisition_date_bridge",
+            "score_signals": {
+                "query_expansion_reason": "pet_acquisition_date_bridge",
+                "distinctive_term_hits": 8,
+                "unique_term_hits": 9,
+            },
+        },
+    )
+    query = "When did Andrew adopt Scout?"
+
+    guarded_items, diagnostics = _apply_explicit_requirement_guard(
+        query=query,
+        query_anchor_intent=build_query_anchor_intent(query),
+        items=(item,),
+    )
+
+    assert guarded_items == (item,)
+    assert diagnostics["requirement_guard_status"] == "satisfied"
+    assert diagnostics["requirement_guard_items_dropped"] == 0
+
+
+def test_requirement_guard_drops_relative_pet_acquisition_wrong_object() -> None:
+    item = _item(
+        "wrong_pet_acquisition_relative_turn",
+        (
+            "session_9 date: 9:02 am on 22 November, 2023\n"
+            "D9:4 Andrew: I adopted another dog named Toby the other day."
+        ),
+        deterministic_reasons=("relation_requirement_object_mismatch",),
+        source_refs=(
+            SourceRef(
+                source_type="locomo_turn",
+                source_id="locomo:conv-fixture:session_9:D9:4:turn",
+            ),
+        ),
+        diagnostics={
+            "retrieval_source": "postgres_facts",
+            "retrieval_sources": ["postgres_facts"],
+            "query_expansion_reason": "pet_acquisition_date_bridge",
+            "score_signals": {
+                "query_expansion_reason": "pet_acquisition_date_bridge",
+                "distinctive_term_hits": 8,
+                "unique_term_hits": 9,
+            },
+        },
+    )
+    query = "When did Andrew adopt Scout?"
+
+    guarded_items, diagnostics = _apply_explicit_requirement_guard(
+        query=query,
+        query_anchor_intent=build_query_anchor_intent(query),
+        items=(item,),
+    )
+
+    assert guarded_items == ()
+    assert diagnostics["requirement_guard_status"] == (
+        "dropped_relation_requirement_mismatch"
+    )
+    assert diagnostics["requirement_guard_relation_mismatch_drop_count"] == 1
+
+
 def test_requirement_guard_keeps_distant_temporal_source_sibling_answer_evidence() -> None:
     item = _item(
         "picnic_last_week_turn",

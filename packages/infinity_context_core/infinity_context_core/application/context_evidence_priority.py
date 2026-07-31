@@ -127,17 +127,16 @@ def has_unresolved_rerank_rejection(item: ContextItem) -> bool:
     reasons = provenance.get("deterministic_rerank_reasons")
     if not isinstance(reasons, list | tuple):
         return False
-    projection_verified = (
-        provenance.get("distinct_set_projection_verified") is True
-        and (
+    projection_verified = provenance.get("distinct_set_projection_verified") is True and (
             _positive(signals.get("distinct_set_projection_verified"))
             or _positive(signals.get("keyword_aggregation_distinct_member_support"))
         )
-    )
+    precise_temporal_verified = _positive(signals.get("precise_temporal_answer_evidence"))
     return any(
         _is_unresolved_conflict_reason(
             str(reason),
             projection_verified=projection_verified,
+            precise_temporal_verified=precise_temporal_verified,
         )
         for reason in reasons
     )
@@ -147,8 +146,11 @@ def _is_unresolved_conflict_reason(
     reason: str,
     *,
     projection_verified: bool,
+    precise_temporal_verified: bool,
 ) -> bool:
     if projection_verified and reason == "aggregation_subject_mismatch":
+        return False
+    if precise_temporal_verified and reason == "relation_requirement_missing_relation":
         return False
     unresolved_conflict = (
         "conflict" in reason
