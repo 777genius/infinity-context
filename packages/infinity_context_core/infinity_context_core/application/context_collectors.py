@@ -11,16 +11,18 @@ from typing import TypeVar
 from infinity_context_core.application import (
     context_building_legacy_candidate_adapter as _legacy_candidates,
 )
+from infinity_context_core.application.context_canonical_fact_retrieval import (
+    CanonicalFactMatch,
+    canonical_fact_candidate_limit,
+    canonical_fact_rerank_pool_limit,
+    collect_plan_aware_active_facts,
+    rank_fact_matches_for_query,
+)
 from infinity_context_core.application.context_hydration import ContextHydrator
 from infinity_context_core.application.context_media_time import enrich_context_item_with_media_time
 from infinity_context_core.application.context_query_expansion import (
     QueryExpansion,
     QueryExpansionPlan,
-)
-from infinity_context_core.application.context_relevance import (
-    has_project_identity_mismatch,
-    is_fact_candidate_relevance_sufficient,
-    score_query_relevance,
 )
 from infinity_context_core.application.context_snippets import (
     query_focused_snippet,
@@ -74,12 +76,8 @@ _SENSITIVE_VALUE_MARKERS = (
     "private_",
 )
 _HIGH_SIGNAL_EXPANSION_REASONS = _legacy_candidates._HIGH_SIGNAL_EXPANSION_REASONS
-_MULTI_EVIDENCE_PROTECTED_HEAD_REASONS = (
-    _legacy_candidates._MULTI_EVIDENCE_PROTECTED_HEAD_REASONS
-)
-_PROTECTED_EXPANSION_HEAD_REASONS = (
-    _legacy_candidates._PROTECTED_EXPANSION_HEAD_REASONS
-)
+_MULTI_EVIDENCE_PROTECTED_HEAD_REASONS = _legacy_candidates._MULTI_EVIDENCE_PROTECTED_HEAD_REASONS
+_PROTECTED_EXPANSION_HEAD_REASONS = _legacy_candidates._PROTECTED_EXPANSION_HEAD_REASONS
 _bounded_derived_retrieval_queries = _legacy_candidates._bounded_derived_retrieval_queries
 _fused_ranked_keys = _legacy_candidates._fused_ranked_keys
 _protected_query_head_keys = _legacy_candidates._protected_query_head_keys
@@ -104,6 +102,7 @@ class ContextRetrievalDeadlines:
 class CanonicalCollectionResult:
     facts: tuple[MemoryFact, ...]
     keyword_chunks: tuple[MemoryChunk, ...]
+    fact_matches: tuple[CanonicalFactMatch, ...] = ()
     anchors: tuple[MemoryAnchor, ...] = ()
     keyword_query_count: int = 0
     keyword_query_reasons: tuple[str, ...] = ()
@@ -124,22 +123,13 @@ class CanonicalContextCollector:
         anchor_lookup_keys: tuple[tuple[str, str], ...] | None = None,
     ) -> CanonicalCollectionResult:
         async with self._uow_factory() as uow:
-            facts = await uow.facts.find_active(
-                space_id=str(query.space_id),
+            fact_selection = await collect_plan_aware_active_facts(
+                uow.facts,
+                query=query,
                 memory_scope_ids=memory_scope_ids,
-                thread_id=str(query.thread_id) if query.thread_id else None,
-                query=query.query,
-                limit=_canonical_fact_candidate_limit(query.max_facts),
-                category=query.category,
-                tags_any=query.tags_any,
-                tags_all=query.tags_all,
-                tags_none=query.tags_none,
+                query_plan=keyword_query_plan,
             )
-            facts = _rank_facts_for_query(
-                tuple(facts),
-                query_text=query.query,
-                limit=_canonical_fact_rerank_pool_limit(query.max_facts),
-            )
+            facts = fact_selection.facts
             keyword_retrieval_queries = _bounded_derived_retrieval_queries(
                 keyword_query_plan,
                 fallback=query.query,
@@ -224,11 +214,10 @@ class CanonicalContextCollector:
         return CanonicalCollectionResult(
             facts=tuple(facts),
             keyword_chunks=tuple(keyword_chunks),
+            fact_matches=fact_selection.matches,
             anchors=tuple(anchors_by_id.values()),
             keyword_query_count=len(keyword_retrieval_queries),
-            keyword_query_reasons=tuple(
-                query.reason for query in keyword_retrieval_queries
-            ),
+            keyword_query_reasons=tuple(query.reason for query in keyword_retrieval_queries),
             anchor_lookup_keys_considered=lookup_keys_considered,
             anchors_loaded_by_lookup=anchors_loaded_by_lookup,
         )
@@ -322,15 +311,11 @@ def _keyword_query_search_limit(*, total_limit: int, candidate_limit: int) -> in
 
 
 def _canonical_fact_candidate_limit(max_facts: int) -> int:
-    if max_facts <= 0:
-        return 0
-    return min(100, max(max_facts * 4, max_facts + 8))
+    return canonical_fact_candidate_limit(max_facts)
 
 
 def _canonical_fact_rerank_pool_limit(max_facts: int) -> int:
-    if max_facts <= 0:
-        return 0
-    return min(40, max(max_facts * 4, max_facts + 3))
+    return canonical_fact_rerank_pool_limit(max_facts)
 
 
 def _bounded_anchor_lookup_keys(
@@ -359,28 +344,14 @@ def _rank_facts_for_query(
     query_text: str,
     limit: int,
 ) -> tuple[MemoryFact, ...]:
-    if limit <= 0 or not facts:
-        return ()
-    ranked = []
-    for index, fact in enumerate(facts):
-        if has_project_identity_mismatch(query=query_text, text=fact.text):
-            continue
-        relevance = score_query_relevance(query=query_text, text=fact.text)
-        if not is_fact_candidate_relevance_sufficient(relevance):
-            continue
-        ranked.append((relevance, index, fact))
-    ranked.sort(
-        key=lambda item: (
-            -item[0].phrase_bigram_hits,
-            -item[0].phrase_boost,
-            -item[0].score_boost,
-            -item[0].unique_term_hits,
-            -item[0].hit_ratio,
-            -item[0].capped_frequency_hits,
-            item[1],
+    return tuple(
+        match.fact
+        for match in rank_fact_matches_for_query(
+            facts,
+            retrieval_query=QueryExpansion(query=query_text, reason="original_query"),
+            limit=limit,
         )
     )
-    return tuple(fact for _, _, fact in ranked[:limit])
 
 
 class VectorContextCollector:
@@ -439,9 +410,7 @@ class VectorContextCollector:
 
         try:
             embedding = await _await_with_deadline(
-                self._embedder.embed_texts(
-                    tuple(item.query for item in retrieval_queries)
-                ),
+                self._embedder.embed_texts(tuple(item.query for item in retrieval_queries)),
                 timeout_seconds=self._deadlines.vector_embedding_seconds,
             )
         except Exception as exc:
@@ -458,9 +427,7 @@ class VectorContextCollector:
             if embedding.diagnostics:
                 diagnostics["vector_degraded_reason"] = embedding.diagnostics[0].code
             return ()
-        vector_queries = tuple(
-            zip(retrieval_queries, embedding.vectors, strict=False)
-        )
+        vector_queries = tuple(zip(retrieval_queries, embedding.vectors, strict=False))
         diagnostics["vector_embedding_vector_count"] = len(embedding.vectors)
         diagnostics["vector_search_count"] = len(vector_queries)
         diagnostics["vector_query_limit"] = _per_query_retrieval_limit(
@@ -636,9 +603,7 @@ class GraphContextCollector:
                 if not candidate.source_fact_ids and not candidate.source_chunk_ids
             )
             rankings[_retrieval_query_rank_key(index, retrieval_query)] = tuple(
-                fact_id
-                for candidate in result.items
-                for fact_id in candidate.source_fact_ids
+                fact_id for candidate in result.items for fact_id in candidate.source_fact_ids
             )
         diagnostics["graph_candidate_count"] = total_candidates
         diagnostics["graph_query_degraded_count"] = degraded_count

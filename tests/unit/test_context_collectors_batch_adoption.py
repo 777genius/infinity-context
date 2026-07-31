@@ -244,6 +244,7 @@ def test_scalar_only_repositories_use_narrow_sequential_compatibility_fallback()
     ]
     assert operations == [
         "facts",
+        "facts",
         "keyword:topic",
         "keyword:more",
         "scope:scope_a",

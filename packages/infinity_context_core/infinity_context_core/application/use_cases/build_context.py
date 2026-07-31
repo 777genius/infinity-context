@@ -346,6 +346,7 @@ class BuildContextUseCase:
         diagnostics.update(query_anchor_intent.diagnostics())
         diagnostics.update(query_expansion_plan.diagnostics())
         diagnostics.update(temporal_query_intent.diagnostics())
+        canonical_fact_match_by_id = {str(match.fact.id): match for match in canonical.fact_matches}
         for fact in canonical.facts:
             if not is_context_fact_visible(
                 fact,
@@ -354,7 +355,18 @@ class BuildContextUseCase:
                 now=now,
             ):
                 continue
-            items.append(_fact_context_item(fact, now=now, query_text=query.query))
+            fact_match = canonical_fact_match_by_id.get(str(fact.id))
+            items.append(
+                _fact_context_item(
+                    fact,
+                    now=now,
+                    query_text=fact_match.query if fact_match is not None else query.query,
+                    query_expansion_reason=(
+                        fact_match.reason if fact_match is not None else "original_query"
+                    ),
+                    relevance=fact_match.relevance if fact_match is not None else None,
+                )
+            )
         anchors_used = 0
         anchors_used_by_query_intent = 0
         anchors_dropped_by_query_intent_conflict = 0

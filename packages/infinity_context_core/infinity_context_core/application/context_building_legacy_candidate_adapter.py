@@ -298,9 +298,7 @@ def _bounded_derived_retrieval_queries(
         else (QueryExpansion(query=fallback, reason="original_query"),)
     )
     raw_queries = _drop_ally_support_identity_noise(raw_queries)
-    family_activity_mode = any(
-        query.reason == "family_activity_bridge" for query in raw_queries
-    )
+    family_activity_mode = any(query.reason == "family_activity_bridge" for query in raw_queries)
     candidates = tuple(
         _candidate_query(
             query,
@@ -414,9 +412,10 @@ def _fused_ranked_keys(
     rankings: dict[str, tuple[str, ...]],
     *,
     limit: int,
+    max_rank_floor: int = 0,
 ) -> tuple[str, ...]:
     return fuse_ranked_candidate_keys(
-        _candidate_rankings(rankings),
+        _candidate_rankings(rankings, max_rank_floor=max_rank_floor),
         limit=limit,
         rank_constant=_FUSION_RANK_CONSTANT,
     )
@@ -424,14 +423,23 @@ def _fused_ranked_keys(
 
 def _candidate_rankings(
     rankings: dict[str, tuple[str, ...]],
+    *,
+    max_rank_floor: int = 0,
 ) -> tuple[CandidateRanking, ...]:
-    return tuple(
-        CandidateRanking(
-            ranked_keys=ranked_keys,
-            policy=_query_policy_for_reason(_reason_from_ranking_key(ranking_key)),
+    candidates: list[CandidateRanking] = []
+    for ranking_key, ranked_keys in rankings.items():
+        policy = _query_policy_for_reason(_reason_from_ranking_key(ranking_key))
+        candidates.append(
+            CandidateRanking(
+                ranked_keys=ranked_keys,
+                policy=CandidateQueryPolicy(
+                    weight=policy.weight,
+                    max_rank=max(policy.max_rank, max_rank_floor),
+                    protected_head_count=policy.protected_head_count,
+                ),
+            )
         )
-        for ranking_key, ranked_keys in rankings.items()
-    )
+    return tuple(candidates)
 
 
 def _reason_from_ranking_key(ranking_key: str) -> str:
@@ -519,6 +527,4 @@ def _retrieval_query_fusion_weight_for_reason(reason: str) -> float:
 
 
 def _retrieval_query_fusion_weight(ranking_key: str) -> float:
-    return _retrieval_query_fusion_weight_for_reason(
-        _reason_from_ranking_key(ranking_key)
-    )
+    return _retrieval_query_fusion_weight_for_reason(_reason_from_ranking_key(ranking_key))
