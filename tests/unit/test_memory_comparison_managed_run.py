@@ -7,7 +7,6 @@ import pytest
 from infinity_context_server import memory_comparison_managed_run as managed
 from infinity_context_server.memory_comparison_full_execution_validation_slots import (
     FullExecutionCaseManifestEntry,
-    FullExecutionValidationError,
     execution_case_manifest_sha256,
 )
 from infinity_context_server.memory_comparison_full_methodology import (
@@ -553,14 +552,6 @@ def test_plan_scope_is_normalized_and_invalid_scope_fails_at_construction() -> N
             "case manifest order or case/corpus binding",
         ),
         (
-            (
-                _manifest()[0],
-                replace(_manifest()[1], thread_id=_manifest()[0].thread_id),
-            ),
-            FullExecutionValidationError,
-            "thread mapping is duplicated",
-        ),
-        (
             (replace(_manifest()[0], official_turn_count=0), _manifest()[1]),
             ManagedRunError,
             "LoCoMo official turn coverage is empty",
@@ -574,6 +565,22 @@ def test_manifest_contract_violations_fail_at_plan_construction_before_consume(
 ) -> None:
     with pytest.raises(error_type, match=message):
         _plan(case_manifest=case_manifest)
+
+
+def test_manifest_allows_case_local_thread_and_alias_reuse() -> None:
+    first, second = _manifest()
+    manifest = (
+        first,
+        replace(
+            second,
+            thread_id=first.thread_id,
+            session_aliases=first.session_aliases,
+        ),
+    )
+
+    plan = _plan(case_manifest=manifest)
+
+    assert plan.case_manifest == manifest
 
 
 def test_live_manifest_revalidation_blocks_tampering_before_reset(

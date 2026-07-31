@@ -270,15 +270,9 @@ def _validated_manifest_shape(
     manifest = value
     for item in manifest:
         item.__post_init__()
-    for values, label in (
-        ((item.case_id for item in manifest), "case"),
-        ((item.corpus_id for item in manifest), "corpus"),
-        ((item.thread_id for item in manifest), "thread"),
-        ((alias for item in manifest for alias in item.session_aliases), "session alias"),
-    ):
-        material = tuple(values)
-        if len(set(material)) != len(material):
-            raise FullExecutionValidationError(f"{label} mapping is duplicated")
+    case_ids = tuple(item.case_id for item in manifest)
+    if len(set(case_ids)) != len(case_ids):
+        raise FullExecutionValidationError("case mapping is duplicated")
     return manifest
 
 
@@ -431,6 +425,15 @@ def _session_coverage(
         "mapping_commitment_sha256": _json_sha256(
             [
                 {
+                    "mapping_identity_sha256": _json_sha256(
+                        {
+                            "case_id": item.case_id,
+                            "conversation_role": item.conversation_role,
+                            "corpus_id": item.corpus_id,
+                            "session_alias": item.session_alias,
+                            "thread_id": item.thread_id,
+                        }
+                    ),
                     "corpus_id_sha256": hashlib.sha256(item.corpus_id.encode()).hexdigest(),
                     "thread_id_sha256": hashlib.sha256(item.thread_id.encode()).hexdigest(),
                     "case_id_sha256": hashlib.sha256(item.case_id.encode()).hexdigest(),
@@ -552,10 +555,11 @@ def _clean_coverage(
         or len(attestation_key) < 32
     ):
         raise FullExecutionValidationError("clean-state live validation type is invalid")
+    corpus_ids = tuple(dict.fromkeys(item.corpus_id for item in manifest))
     required = tuple(
-        (target.backend_role, hashlib.sha256(item.corpus_id.encode()).hexdigest())
+        (target.backend_role, hashlib.sha256(corpus_id.encode()).hexdigest())
         for target in bindings.backend_targets
-        for item in manifest
+        for corpus_id in corpus_ids
     )
     seen: list[tuple[str, str]] = []
     scope_mapping: dict[str, dict[str, str]] = {

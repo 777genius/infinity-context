@@ -252,21 +252,16 @@ def test_each_case_requires_exactly_one_corpus_and_thread_before_hmac(
 
 
 @pytest.mark.parametrize(
-    ("field", "case_two_values", "failure"),
+    ("field", "case_two_values"),
     (
-        ("corpus_id", ("corpus-b", "corpus-b"), "cross_case_expected_corpus_reuse_count"),
-        ("thread_id", ("thread-a", "thread-a"), "cross_case_expected_thread_reuse_count"),
-        (
-            "session_alias",
-            ("session-0003", "session-0004"),
-            "cross_case_expected_alias_reuse_count",
-        ),
+        ("corpus_id", ("corpus-b", "corpus-b")),
+        ("thread_id", ("thread-a", "thread-a")),
+        ("session_alias", ("session-0003", "session-0004")),
     ),
 )
-def test_corpus_thread_and_alias_cannot_be_shared_across_cases(
+def test_corpus_thread_and_alias_may_be_shared_across_cases(
     field: str,
     case_two_values: tuple[str, str],
-    failure: str,
 ) -> None:
     key = _key()
     mappings = list(_mappings())
@@ -276,8 +271,66 @@ def test_corpus_thread_and_alias_cannot_be_shared_across_cases(
 
     contract = session_identity_contract(tuple(mappings), evidence, verifier=key)
 
+    assert contract["matches"] is True
+    assert contract["failure_counts"] == {}
+
+
+def test_case_local_aliases_allow_shared_corpus_and_thread_across_cases() -> None:
+    key = _key()
+    mappings = list(_mappings())
+    mappings[2] = replace(
+        mappings[2],
+        corpus_id=mappings[0].corpus_id,
+        thread_id=mappings[0].thread_id,
+        session_alias=mappings[0].session_alias,
+    )
+    mappings[3] = replace(
+        mappings[3],
+        corpus_id=mappings[1].corpus_id,
+        thread_id=mappings[1].thread_id,
+        session_alias=mappings[1].session_alias,
+    )
+    shared = tuple(mappings)
+
+    contract = session_identity_contract(shared, _evidence(shared, key=key), verifier=key)
+
+    assert contract["matches"] is True
+    assert contract["failure_counts"] == {}
+
+
+def test_cross_case_evidence_swap_and_replay_fail_closed() -> None:
+    key = _key()
+    mappings = _mappings()
+    evidence = list(_evidence(mappings, key=key))
+    swapped = list(evidence)
+    swapped[2] = replace(swapped[0], mapping=mappings[2])
+
+    swap_contract = session_identity_contract(mappings, tuple(swapped), verifier=key)
+    replay_contract = session_identity_contract(
+        mappings,
+        (evidence[0], evidence[1], evidence[0], evidence[3]),
+        verifier=key,
+    )
+
+    assert swap_contract["matches"] is False
+    assert swap_contract["failure_counts"]["invalid_hmac_proof_count"] == 1
+    assert replay_contract["matches"] is False
+    assert replay_contract["failure_counts"]["duplicate_evidence_count"] == 1
+    assert replay_contract["failure_counts"]["missing_mapping_count"] == 1
+
+
+def test_session_identity_evidence_requires_exact_manifest_order() -> None:
+    key = _key()
+    mappings = _mappings()
+
+    contract = session_identity_contract(
+        mappings,
+        tuple(reversed(_evidence(mappings, key=key))),
+        verifier=key,
+    )
+
     assert contract["matches"] is False
-    assert contract["failure_counts"][failure] >= 1
+    assert contract["failure_counts"] == {"mapping_order_mismatch_count": 1}
 
 
 @pytest.mark.parametrize(

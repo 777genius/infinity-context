@@ -149,6 +149,8 @@ def session_identity_contract(
     counters["missing_mapping_count"] += len(expected_set - observed_set)
     counters["unexpected_mapping_count"] += len(observed_set - expected_set)
     counters["duplicate_evidence_count"] += len(observed_mappings) - len(observed_set)
+    if observed_mappings != expected:
+        counters["mapping_order_mismatch_count"] += 1
 
     matches = bool(
         expected
@@ -221,9 +223,6 @@ def _validated_mappings(
     alias_keys: Counter[tuple[str, str]] = Counter()
     case_corpora: dict[str, set[str]] = {}
     case_threads: dict[str, set[str]] = {}
-    corpus_cases: dict[str, set[str]] = {}
-    thread_cases: dict[str, set[str]] = {}
-    alias_cases: dict[str, set[str]] = {}
     for value in values:
         if type(value) is not SessionIdentityMapping or not _valid_mapping(value):
             counters[f"invalid_{prefix}_mapping_count"] += 1
@@ -233,9 +232,6 @@ def _validated_mappings(
         alias_keys[(value.case_id, value.session_alias)] += 1
         case_corpora.setdefault(value.case_id, set()).add(value.corpus_id)
         case_threads.setdefault(value.case_id, set()).add(value.thread_id)
-        corpus_cases.setdefault(value.corpus_id, set()).add(value.case_id)
-        thread_cases.setdefault(value.thread_id, set()).add(value.case_id)
-        alias_cases.setdefault(value.session_alias, set()).add(value.case_id)
     counters[f"duplicate_{prefix}_role_count"] += sum(
         max(0, count - 1) for count in role_keys.values()
     )
@@ -247,15 +243,6 @@ def _validated_mappings(
     )
     counters[f"multiple_{prefix}_thread_per_case_count"] += sum(
         len(threads) != 1 for threads in case_threads.values()
-    )
-    counters[f"cross_case_{prefix}_corpus_reuse_count"] += sum(
-        len(cases) > 1 for cases in corpus_cases.values()
-    )
-    counters[f"cross_case_{prefix}_thread_reuse_count"] += sum(
-        len(cases) > 1 for cases in thread_cases.values()
-    )
-    counters[f"cross_case_{prefix}_alias_reuse_count"] += sum(
-        len(cases) > 1 for cases in alias_cases.values()
     )
     return tuple(valid)
 

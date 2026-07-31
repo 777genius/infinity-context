@@ -10,6 +10,7 @@ from dataclasses import replace
 
 import pytest
 from infinity_context_server import memory_comparison_full_execution_validation as _validation
+from infinity_context_server import memory_comparison_full_execution_validation_slots as _slots
 from infinity_context_server.memory_comparison_benchmark_identity import mem0_benchmark_user_id
 from infinity_context_server.memory_comparison_clean_state import (
     clean_state_identity_sha256,
@@ -496,3 +497,120 @@ def test_mutating_reserved_receipt_still_requires_fresh_capabilities():
     assert (
         type(issue_full_execution_validation_session(**_inputs())) is FullExecutionValidationSession
     )
+
+
+def test_manifest_allows_case_local_alias_reuse_for_shared_corpus_and_thread():
+    base = _inputs()["case_manifest"][0]
+    manifest = (base, replace(base, case_id="corpus-a:qa:2"))
+
+    digest = execution_case_manifest_sha256(manifest)
+
+    assert len(digest) == 64
+    assert digest != execution_case_manifest_sha256(tuple(reversed(manifest)))
+
+
+@pytest.mark.parametrize(
+    ("field", "value"),
+    (
+        ("case_id", "corpus-a:qa:2"),
+        ("corpus_id", "corpus-b"),
+        ("thread_id", "thread-b"),
+    ),
+)
+def test_manifest_digest_binds_exact_case_corpus_and_thread(field, value):
+    base = _inputs()["case_manifest"][0]
+    original = execution_case_manifest_sha256((base,))
+    changed = execution_case_manifest_sha256((replace(base, **{field: value}),))
+
+    assert changed != original
+
+
+def test_manifest_rejects_duplicate_case_and_same_case_role_or_alias():
+    base = _inputs()["case_manifest"][0]
+    with pytest.raises(FullExecutionValidationError, match="case mapping is duplicated"):
+        execution_case_manifest_sha256(
+            (base, replace(base, corpus_id="corpus-b", thread_id="thread-b"))
+        )
+
+    with pytest.raises(
+        FullExecutionValidationError,
+        match="session role mapping is duplicated",
+    ):
+        FullExecutionCaseManifestEntry(
+            "corpus-a:qa:2",
+            "corpus-a",
+            "thread-a",
+            ("memory", "query"),
+            ("session-0001", "session-0001"),
+            1,
+        )
+
+
+def test_session_commitment_binds_case_local_shared_alias_identity():
+    inputs = _inputs()
+    base = inputs["case_manifest"][0]
+    manifest = (base, replace(base, case_id="corpus-a:qa:2"))
+    mappings = tuple(
+        SessionIdentityMapping(
+            item.corpus_id,
+            item.thread_id,
+            item.case_id,
+            role,
+            alias,
+        )
+        for item in manifest
+        for role, alias in zip(item.session_roles, item.session_aliases, strict=True)
+    )
+    verifier = RunScopedSessionHmacKey.generate(run_id=inputs["bindings"].run_id)
+    coverage = _slots._session_coverage(
+        inputs["bindings"],
+        manifest,
+        verifier=verifier,
+        evidence=tuple(verifier.issue(item) for item in mappings),
+    )
+
+    changed_manifest = (
+        manifest[0],
+        replace(manifest[1], corpus_id="corpus-b", thread_id="thread-b"),
+    )
+    changed_mappings = tuple(
+        SessionIdentityMapping(
+            item.corpus_id,
+            item.thread_id,
+            item.case_id,
+            role,
+            alias,
+        )
+        for item in changed_manifest
+        for role, alias in zip(item.session_roles, item.session_aliases, strict=True)
+    )
+    changed_coverage = _slots._session_coverage(
+        inputs["bindings"],
+        changed_manifest,
+        verifier=verifier,
+        evidence=tuple(verifier.issue(item) for item in changed_mappings),
+    )
+
+    assert coverage["verified_mapping_count"] == 4
+    assert coverage["mapping_commitment_sha256"] != changed_coverage["mapping_commitment_sha256"]
+
+
+def test_clean_coverage_deduplicates_shared_corpus_across_cases():
+    inputs = _inputs()
+    base = inputs["case_manifest"][0]
+    manifest = (base, replace(base, case_id="corpus-a:qa:2"))
+
+    coverage = _slots._clean_coverage(
+        inputs["bindings"],
+        manifest,
+        validation=inputs["clean_validation"],
+        scopes=inputs["clean_scopes"],
+        attestation_key=inputs["clean_attestation_key"],
+    )
+
+    assert coverage["required_scope_count"] == 2
+    assert coverage["verified_scope_count"] == 2
+    assert coverage["per_backend_scope_count"] == {
+        "infinity-context": 1,
+        "mem0": 1,
+    }
