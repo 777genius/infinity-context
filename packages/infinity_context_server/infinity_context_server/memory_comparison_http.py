@@ -8,6 +8,9 @@ from collections.abc import Mapping, Sequence
 import httpx
 from infinity_context_core.application.sensitive_text import redact_sensitive_text
 
+from infinity_context_server.memory_comparison_benchmark_identity import (
+    mem0_benchmark_user_id,
+)
 from infinity_context_server.memory_comparison_candidate_fusion import (
     fuse_query_results,
 )
@@ -20,6 +23,15 @@ from infinity_context_server.memory_comparison_conversation_ingestion import (
     source_ref_payload,
 )
 from infinity_context_server.memory_comparison_llm import approximate_token_count
+from infinity_context_server.memory_comparison_locomo_transport import (
+    LocomoTimestampTransportEvidence,
+    RunScopedLocomoTransportEvidenceKey,
+)
+from infinity_context_server.memory_comparison_mem0_http_observation import (
+    Mem0HttpObservationRecorder,
+    expected_official_locomo_turn_for_group,
+    mem0_http_observation_metadata,
+)
 from infinity_context_server.memory_comparison_models import (
     BackendIngestResult,
     BackendSearchResult,
@@ -46,6 +58,8 @@ _INFINITY_CONTEXT_BENCHMARK_MAX_FACTS = 1_000
 _INFINITY_CONTEXT_BENCHMARK_MAX_CHUNKS = 2_000
 _INFINITY_CONTEXT_BENCHMARK_MAX_EVIDENCE_ITEMS = 200
 _INFINITY_CONTEXT_BENCHMARK_MAX_TOKEN_BUDGET = 64_000
+
+
 class InfinityContextHttpComparisonBackend:
     """Benchmark backend for Infinity Context's public HTTP API."""
 
@@ -326,16 +340,21 @@ class Mem0HttpComparisonBackend:
         send_timestamps: bool = False,
         transport: httpx.BaseTransport | None = None,
     ) -> None:
+        self._locomo_observations = Mem0HttpObservationRecorder()
         self._client = httpx.Client(
             base_url=base_url.rstrip("/"),
             timeout=timeout_seconds,
             headers={"X-API-Key": api_key} if api_key else None,
             transport=transport,
+            event_hooks={
+                "request": [self._locomo_observations.observe_at_transport_boundary]
+            },
         )
         self._reset_user_on_start = reset_user_on_start
         self._send_timestamps = send_timestamps
 
     def reset(self, *, run_id: str) -> None:
+        self._locomo_observations.reset(run_id=run_id)
         if not self._reset_user_on_start:
             return
         response = self._client.delete(
@@ -348,6 +367,24 @@ class Mem0HttpComparisonBackend:
     def close(self) -> None:
         self._client.close()
 
+    def locomo_timestamp_transport_verifier(
+        self,
+        *,
+        run_id: str,
+    ) -> RunScopedLocomoTransportEvidenceKey | None:
+        """Return the live run-scoped verifier without serializing its secret."""
+
+        return self._locomo_observations.verifier(run_id=run_id)
+
+    def locomo_timestamp_transport_evidence(
+        self,
+        *,
+        run_id: str,
+    ) -> tuple[LocomoTimestampTransportEvidence, ...]:
+        """Return immutable runtime observations for later composite validation."""
+
+        return self._locomo_observations.evidence(run_id=run_id)
+
     def ingest(
         self,
         case: PublicBenchmarkCase,
@@ -358,9 +395,19 @@ class Mem0HttpComparisonBackend:
         started = time.perf_counter()
         operations: list[IngestionOperation] = []
         total_memories_created = 0
+        observed_evidence_count = 0
+        observation_required = (
+            case.metadata.get("locomo_ingest_mode") == "official-turns"
+        )
         for step, group in enumerate(_case_message_groups(case), start=1):
             messages, timestamp, source_metadata = group
             op_started = time.perf_counter()
+            expected_turn = expected_official_locomo_turn_for_group(
+                case,
+                group_index=step,
+                run_id=run_id,
+                corpus_key=corpus_key,
+            )
             payload: dict[str, object] = {
                 "messages": messages,
                 "user_id": self._user_id(run_id),
@@ -380,11 +427,24 @@ class Mem0HttpComparisonBackend:
                 if isinstance(source_id, str) and source_id
                 else None
             )
-            response = self._client.post(
+            request = self._client.build_request(
+                "POST",
                 "/memories",
                 json=payload,
                 headers=headers,
             )
+            if expected_turn is not None and self._send_timestamps:
+                self._locomo_observations.prepare_request(
+                    request,
+                    run_id=run_id,
+                    expected_turn=expected_turn,
+                )
+            response = self._client.send(request)
+            if self._locomo_observations.record_completed_request(
+                request,
+                run_id=run_id,
+            ):
+                observed_evidence_count += 1
             metadata = _response_metadata(response)
             created_count = (
                 _mem0_created_memory_count(response) if response.status_code < 400 else 0
@@ -413,6 +473,10 @@ class Mem0HttpComparisonBackend:
             metadata={
                 "corpus_key": corpus_key,
                 "timestamps_sent": self._send_timestamps,
+                "locomo_http_request_observation": mem0_http_observation_metadata(
+                    required=observation_required,
+                    evidence_count=observed_evidence_count,
+                ),
             },
         )
 
@@ -445,7 +509,7 @@ class Mem0HttpComparisonBackend:
         )
 
     def _user_id(self, run_id: str) -> str:
-        return f"memo-stack-comparison-{_safe_slug(run_id)}"
+        return mem0_benchmark_user_id(run_id)
 
 
 def _infinity_context_memories(raw_items: object) -> list[RetrievedMemory]:
@@ -732,6 +796,9 @@ def _mem0_source_metadata(memory: BenchmarkMemoryInput) -> dict[str, object]:
         value = memory.metadata.get(key)
         if isinstance(value, str) and value.strip():
             metadata[key] = value.strip()
+    source_timestamp = _optional_int(memory.metadata.get("timestamp"))
+    if source_timestamp is not None:
+        metadata["source_timestamp"] = source_timestamp
     dia_id = metadata.get("dia_id")
     if isinstance(dia_id, str) and dia_id.strip():
         metadata["locomo_evidence_ref"] = dia_id.strip()

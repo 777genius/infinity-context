@@ -17559,7 +17559,8 @@ def test_mem0_http_ingest_uses_run_isolated_user_and_redacts_errors() -> None:
     finally:
         backend.close()
 
-    assert "user_id=memo-stack-comparison-run-42" in seen_requests[0][0]
+    expected_user_id = http_module.mem0_benchmark_user_id("Run 42")
+    assert f"user_id={expected_user_id}" in seen_requests[0][0]
     assert "run_id=Run+42" in seen_requests[0][0]
     assert result.items_processed == 1
     assert result.items_failed == 1
@@ -17569,7 +17570,7 @@ def test_mem0_http_ingest_uses_run_isolated_user_and_redacts_errors() -> None:
     assert "[redacted]" in str(failed_metadata["error_preview"])
     posted_payload = seen_requests[1][1]
     assert posted_payload is not None
-    assert posted_payload["user_id"] == "memo-stack-comparison-run-42"
+    assert posted_payload["user_id"] == expected_user_id
     assert posted_payload["run_id"] == "Run 42"
     assert posted_payload["metadata"] == {
         "benchmark": "locomo",
@@ -17656,7 +17657,7 @@ def test_mem0_http_ingest_sends_memory_role_without_timestamp_by_default() -> No
                     "content": "D1:1 Morgan: The checklist is in the blue notebook.",
                 }
             ],
-            "user_id": "memo-stack-comparison-run-42",
+            "user_id": http_module.mem0_benchmark_user_id("Run 42"),
             "run_id": "Run 42",
             "metadata": {
                 "benchmark": "locomo",
@@ -17669,6 +17670,7 @@ def test_mem0_http_ingest_sends_memory_role_without_timestamp_by_default() -> No
                 "dia_id": "D1:1",
                 "role": "assistant",
                 "speaker": "Morgan",
+                "source_timestamp": 1683546960,
                 "locomo_evidence_ref": "D1:1",
             },
         }
@@ -17757,7 +17759,7 @@ def test_mem0_http_search_uses_current_filters_and_top_k_payload() -> None:
         {
             "query": "Where is the checklist?",
             "filters": {
-                "user_id": "memo-stack-comparison-run-42",
+                "user_id": http_module.mem0_benchmark_user_id("Run 42"),
                 "run_id": "Run 42",
             },
             "limit": 7,
