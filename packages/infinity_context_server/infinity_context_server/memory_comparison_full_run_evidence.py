@@ -292,7 +292,10 @@ def create_full_comparison_run_bindings(
         raise FullComparisonEvidenceError("methodology benchmark differs from profile")
     if methodology_payload.get("dataset_sha256") != trusted_profile.expected_dataset_hash:
         raise FullComparisonEvidenceError("methodology dataset differs from profile")
-    if dataset_sha256 != trusted_profile.expected_dataset_hash:
+    if (
+        scope == FULL_COMPARISON_SCOPE_FULL
+        and dataset_sha256 != trusted_profile.expected_dataset_hash
+    ):
         raise FullComparisonEvidenceError("dataset differs from frozen profile")
     fields = _binding_fields(
         run_id=run_id,
@@ -634,7 +637,10 @@ def _validate_bindings(bindings: FullComparisonRunBindings) -> FullComparisonRun
     if not hmac.compare_digest(_json_sha256(fields), bindings.binding_commitment_sha256):
         raise FullComparisonEvidenceError("run binding commitment differs from fields")
     profile = _profile(bindings.profile_id)
-    if bindings.dataset_sha256 != profile.expected_dataset_hash:
+    if (
+        bindings.scope == FULL_COMPARISON_SCOPE_FULL
+        and bindings.dataset_sha256 != profile.expected_dataset_hash
+    ):
         raise FullComparisonEvidenceError("run dataset differs from profile")
     expected_methodology = _json_sha256(
         public_full_comparison_methodology_contract(full_comparison_methodology_contract(profile))

@@ -61,6 +61,7 @@ def _bindings(
     run_id: str = "run-1",
     scope: str = FULL_COMPARISON_SCOPE_FULL,
     selection: str = "b" * 64,
+    dataset_sha256: str | None = None,
 ) -> FullComparisonRunBindings:
     profile = resolve_full_comparison_profile(PROFILE_LOCOMO_TOP_50)
     assert profile is not None
@@ -70,7 +71,9 @@ def _bindings(
         runtime_probe_nonce_sha256="0" * 64,
         profile=profile,
         methodology=full_comparison_methodology_contract(profile),
-        dataset_sha256=profile.expected_dataset_hash,
+        dataset_sha256=(
+            profile.expected_dataset_hash if dataset_sha256 is None else dataset_sha256
+        ),
         selection_fingerprint_sha256=selection,
         backend_targets=(
             FullComparisonBackendTarget("infinity-context", "c" * 64),
@@ -176,6 +179,60 @@ def test_dataset_must_match_frozen_profile_and_methodology() -> None:
                 FullComparisonBackendTarget("mem0", "d" * 64),
             ),
         )
+
+
+def test_canary_binds_independent_actual_dataset_hash_and_never_publishes() -> None:
+    actual_dataset_sha256 = "1" * 64
+    bindings = _bindings(
+        scope=FULL_COMPARISON_SCOPE_CANARY,
+        dataset_sha256=actual_dataset_sha256,
+    )
+
+    assert bindings.dataset_sha256 == actual_dataset_sha256
+    evidence, _ = _empty_evidence(bindings=bindings)
+    report = public_full_comparison_verdict(verify_full_comparison_run(evidence))
+
+    assert report["scope"] == FULL_COMPARISON_SCOPE_CANARY
+    assert report["claim_scope"] == "diagnostic_canary"
+    assert report["publishable"] is False
+    assert report["commitments"]["dataset_sha256"] == actual_dataset_sha256
+
+
+@pytest.mark.parametrize("dataset_sha256", ("", "1" * 63, "G" * 64))
+def test_canary_rejects_invalid_actual_dataset_digest(dataset_sha256: str) -> None:
+    with pytest.raises(FullComparisonEvidenceError, match="digest must be SHA-256"):
+        _bindings(
+            scope=FULL_COMPARISON_SCOPE_CANARY,
+            dataset_sha256=dataset_sha256,
+        )
+
+
+def test_canary_binding_cannot_be_reused_or_laundered_as_full() -> None:
+    canary = _bindings(scope=FULL_COMPARISON_SCOPE_CANARY)
+    full = _bindings(scope=FULL_COMPARISON_SCOPE_FULL)
+    assert canary.binding_commitment_sha256 != full.binding_commitment_sha256
+
+    canary_issuer = create_full_comparison_evidence_issuer(canary)
+    component = issue_provider_component_evidence(canary_issuer, _route())
+    full_issuer = create_full_comparison_evidence_issuer(full)
+    with pytest.raises(FullComparisonEvidenceError, match="another issuer"):
+        issue_full_comparison_run_evidence(full, (component,), full_issuer)
+
+    object.__setattr__(canary, "scope", FULL_COMPARISON_SCOPE_FULL)
+    with pytest.raises(FullComparisonEvidenceError, match="commitment differs"):
+        create_full_comparison_evidence_issuer(canary)
+
+
+def test_canary_dataset_tampering_invalidates_bound_capability() -> None:
+    bindings = _bindings(
+        scope=FULL_COMPARISON_SCOPE_CANARY,
+        dataset_sha256="1" * 64,
+    )
+    create_full_comparison_evidence_issuer(bindings)
+    object.__setattr__(bindings, "dataset_sha256", "2" * 64)
+
+    with pytest.raises(FullComparisonEvidenceError, match="commitment differs"):
+        create_full_comparison_evidence_issuer(bindings)
 
 
 def test_nominal_component_slots_reject_public_mappings() -> None:
