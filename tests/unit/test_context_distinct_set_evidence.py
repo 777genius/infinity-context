@@ -862,6 +862,27 @@ def test_reserved_projection_does_not_override_relation_object_mismatch() -> Non
     assert diagnostics["distinct_set_evidence_items_rejected_by_rerank"] == 1
 
 
+def test_quantity_projection_reuses_grounded_members_and_rejects_assistant_noise() -> None:
+    query = "How many projects have I led or am currently leading?"
+    projection = project_distinct_set_evidence(
+        query=query,
+        text=(
+            "source-a\nuser assertion: I'm working on a customer data project. "
+            "In my Marketing Research class project, I led the data analysis team."
+        ),
+    )
+    assistant_noise = project_distinct_set_evidence(
+        query=query,
+        text="source-b\nassistant: You could lead a Marketing Research class project.",
+    )
+
+    assert projection.identities == (
+        "current:customer-data-project",
+        "led:marketing-research-class-project",
+    )
+    assert not assistant_noise.present
+
+
 def _candidate(candidate_id: str, source: str, member: str) -> DistinctSetMemberCandidate:
     return DistinctSetMemberCandidate(
         candidate_id=candidate_id,

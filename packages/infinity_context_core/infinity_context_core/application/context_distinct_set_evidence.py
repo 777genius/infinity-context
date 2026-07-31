@@ -18,6 +18,9 @@ from infinity_context_core.application.context_property_interaction_evidence imp
     PROPERTY_ENTITY_TERMS,
     project_property_interaction_event,
 )
+from infinity_context_core.application.context_quantity_evidence_slots import (
+    project_quantity_evidence_slots,
+)
 
 _MAX_QUERY_CHARS = 512
 _MAX_EVIDENCE_CHARS = 12_000
@@ -454,6 +457,14 @@ def extract_distinct_set_request(query: str) -> DistinctSetRequest | None:
 def project_distinct_set_evidence(*, query: str, text: str) -> DistinctSetEvidenceProjection:
     """Project bounded user assertions and opaque target-member identities."""
 
+    quantity = project_quantity_evidence_slots(query=query, text=text)
+    if quantity.request_detected:
+        return DistinctSetEvidenceProjection(
+            member_ids=quantity.member_ids,
+            identities=quantity.identities,
+            evidence_sentences=quantity.evidence_sentences,
+            rendered_text=quantity.rendered_text,
+        )
     request = extract_distinct_set_request(query)
     if request is None or not text.strip():
         return DistinctSetEvidenceProjection()
