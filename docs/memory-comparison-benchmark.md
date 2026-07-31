@@ -95,10 +95,25 @@ python -m infinity_context_server.eval memory-comparison-benchmark \
 ```
 
 Add `--preflight-probe-services` when Docker services are expected to be up.
-The probe verifies the memo-stack API health endpoint at `--memo-api-url` and
-the mem0 OSS OpenAPI contract for `/memories` and `/search` at `--mem0-url`, so
-swapped ports fail before ingest or search state is touched. The LoCoMo dataset
-is not vendored in this repository; stage it at the path passed to `--dataset`
+The non-managed probe verifies the memo-stack API health endpoint at
+`--memo-api-url` and the mem0 OSS OpenAPI contract for `/memories` and `/search`
+at `--mem0-url`, so swapped ports fail before ingest or search state is touched.
+
+For a managed mem0 benchmark runtime, set the non-secret marker
+`MEM0_BENCHMARK_REQUIRE_RUNTIME_CONTRACT=1` and configure the secret
+`MEM0_BENCHMARK_PROBE_TOKEN`. The marker selects managed mode independently of
+the secret, so a missing, empty or whitespace-only token fails before any HTTP
+request. Preflight first sends a cryptographic nonce to
+`POST /benchmark/auth-challenge`
+using `X-Benchmark-Probe-Token`, verifies the nonce SHA-256 and response HMAC,
+and only then runs the existing health/OpenAPI probes. The HMAC message is
+exactly `mem0-benchmark-auth-challenge.v1\n<nonce>`. A missing token fails before
+any service request. The credential-bearing challenge is allowed only for HTTPS
+targets or loopback HTTP targets. Reports expose only readiness, reason codes,
+path and status metadata, never the token, nonce or signature.
+
+The LoCoMo dataset is not vendored in this repository; stage it at the path
+passed to `--dataset`
 or update that flag before treating preflight output as service readiness. The
 preflight prints only boolean secret readiness, never token values. Treat
 `ready_for_locomo_fast=false` as a blocker for the short LoCoMo fast run and
@@ -780,8 +795,17 @@ Model defaults:
 - `--preflight-only` prints sanitized dataset, auth, URL, LLM and fast-readiness
   checks without ingesting, searching or resetting live benchmark state.
 - `--preflight-probe-services` adds unauthenticated memo-stack health and mem0
-  OpenAPI contract probes to the preflight report when local Docker services
-  should already be running.
+  OSS OpenAPI contract probes when local Docker services should already be
+  running.
+- `MEM0_BENCHMARK_REQUIRE_RUNTIME_CONTRACT=1` activates the managed runtime
+  contract independently of its secret. Accepted true values are `1`, `true`,
+  `yes` and `on`; false values are `0`, `false`, `no` and `off`. Invalid marker
+  values fail closed.
+- `MEM0_BENCHMARK_PROBE_TOKEN` supplies the auth-challenge secret. Its key
+  presence also selects managed mode defensively, including when its value is
+  empty or whitespace-only, so malformed secret configuration cannot silently
+  fall back to the unauthenticated OSS probe.
+- Managed mode without `--preflight-probe-services` fails closed.
 - `--allow-paid-llm` is required before OpenAI answerer or judge calls.
 - `--answerer-provider codex` / `--judge-provider codex` do not require
   `--allow-paid-llm` or an OpenAI API key, but they do consume the local Codex
