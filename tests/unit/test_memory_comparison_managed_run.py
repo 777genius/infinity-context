@@ -27,6 +27,7 @@ from infinity_context_server.memory_comparison_managed_run import (
 from infinity_context_server.memory_comparison_provider_provenance import (
     ProviderRouteAttestation,
 )
+from infinity_context_server.public_benchmark_models import BenchmarkValidationError
 
 _SHA = "a" * 64
 
@@ -121,6 +122,8 @@ class _Policy(_Port):
     def __init__(self, events: list[str], fail_at: str | None = None) -> None:
         super().__init__("policy", events)
         self.fail_at = fail_at
+        self.reuse_delete_receipts = False
+        self.shared_delete_receipt = object()
 
     def seal_canonical_source(
         self, *, cases: tuple[ManagedRunCase, ...], **kwargs: Any
@@ -137,6 +140,8 @@ class _Policy(_Port):
         self.events.append(event)
         if self.fail_at == event:
             raise RuntimeError(event)
+        if self.reuse_delete_receipts:
+            return self.shared_delete_receipt
         return object()
 
     def seal_terminal_delete(self, **kwargs: Any) -> object:
@@ -370,3 +375,76 @@ def test_reused_lane_receipts_fail_before_execution_seal(
     assert len(_deletes(rig.events)) == 4
     assert "execution.seal" not in rig.events
     assert "components.issue" not in rig.events
+
+
+@pytest.mark.parametrize(
+    ("attribute", "role"),
+    (
+        ("reset", "reset"),
+        ("attest", "attestation"),
+        ("ingest", "ingest"),
+        ("clock", "clock"),
+        ("execution", "execution"),
+        ("policy", "policy"),
+        ("assembler", "assembler"),
+    ),
+)
+def test_preflight_missing_provenance_blocks_all_lifecycle_calls(
+    monkeypatch: pytest.MonkeyPatch,
+    attribute: str,
+    role: str,
+) -> None:
+    rig = _rig()
+    delattr(getattr(rig, attribute), "implementation_sha256")
+
+    with pytest.raises(ManagedRunError, match=f"{role} port provenance"):
+        _run(rig, monkeypatch)
+
+    assert rig.events == []
+
+
+def test_preflight_invalid_provenance_blocks_all_lifecycle_calls(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    rig = _rig()
+    rig.ingest.adapter_id = ""
+
+    with pytest.raises(ManagedRunError, match="ingest adapter_id"):
+        _run(rig, monkeypatch)
+
+    assert rig.events == []
+
+
+def test_preflight_missing_operation_blocks_all_lifecycle_calls(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    rig = _rig()
+    rig.clock.now = None  # type: ignore[method-assign,assignment]
+
+    with pytest.raises(ManagedRunError, match="clock port operation"):
+        _run(rig, monkeypatch)
+
+    assert rig.events == []
+
+
+def test_reused_delete_receipt_attempts_all_cleanup_and_blocks_publish(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    rig = _rig()
+    rig.policy.reuse_delete_receipts = True
+
+    with pytest.raises(ManagedRunError, match="globally distinct"):
+        _run(rig, monkeypatch)
+
+    assert len(_deletes(rig.events)) == 4
+    assert "delete.seal" not in rig.events
+    assert "policy.aggregate" not in rig.events
+    assert "components.issue" not in rig.events
+    assert "verdict.public" not in rig.events
+
+
+def test_plan_scope_is_normalized_and_invalid_scope_fails_at_construction() -> None:
+    assert _plan(scope=" CANARY ").scope == "canary"
+
+    with pytest.raises(BenchmarkValidationError, match="unsupported full comparison scope"):
+        _plan(scope="preview")

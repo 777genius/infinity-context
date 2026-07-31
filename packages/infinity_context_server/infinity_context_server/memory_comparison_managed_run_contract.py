@@ -18,6 +18,9 @@ from infinity_context_server.memory_comparison_full_run_evidence import (
     FullComparisonEvidenceIssuer,
     FullComparisonRunBindings,
 )
+from infinity_context_server.memory_comparison_full_scope import (
+    normalize_full_comparison_scope,
+)
 from infinity_context_server.memory_comparison_managed_attestation import (
     VerifiedManagedCompositionAttestation,
 )
@@ -91,6 +94,7 @@ class ManagedRunPlan:
         if len({item.case_id for item in self.cases}) != len(self.cases):
             raise ManagedRunError("case_id is duplicated")
         _unique_corpora(self.cases)
+        object.__setattr__(self, "scope", normalize_full_comparison_scope(self.scope))
 
     def __init_subclass__(cls, **kwargs: object) -> None:
         del cls, kwargs

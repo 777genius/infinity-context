@@ -113,7 +113,15 @@ def run_managed_comparison(
 
     if type(plan) is not ManagedRunPlan:
         raise ManagedRunError("managed run plan type must be exact")
-    _validate_ports(execution_port, policy_port, assembler)
+    _validate_ports(
+        reset_port,
+        attestation_port,
+        ingest_port,
+        clock,
+        execution_port,
+        policy_port,
+        assembler,
+    )
     bindings = create_full_comparison_run_bindings(
         run_id=plan.run_id,
         run_nonce_commitment_sha256=plan.run_nonce_commitment_sha256,
@@ -390,11 +398,16 @@ def _terminal_cleanup(
                 )
                 if receipt is None:
                     raise ManagedRunError("terminal delete receipt is missing")
+                if any(receipt is current for current in receipts):
+                    raise ManagedRunError("terminal delete receipts must be globally distinct")
                 receipts.append(receipt)
             except BaseException as exc:
                 failures.append(exc)
     if failures:
         return _CleanupResult(None, failures[0])
+    expected_count = 2 * len(bindings.backend_targets)
+    if len(receipts) != expected_count:
+        return _CleanupResult(None, ManagedRunError("terminal delete receipt coverage differs"))
     try:
         terminal = port.seal_terminal_delete(
             bindings=bindings,
@@ -521,6 +534,10 @@ def _validate_outcome(outcome: ManagedRunOutcome, state: _RunState) -> None:
 
 def _validate_ports(*ports: object) -> None:
     required = (
+        ("reset", ("reset",)),
+        ("attestation", ("attest",)),
+        ("ingest", ("ingest",)),
+        ("clock", ("now",)),
         ("execution", ("retrieve", "answer", "judge", "seal_execution")),
         (
             "policy",
