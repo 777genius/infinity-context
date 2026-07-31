@@ -7,7 +7,9 @@ from infinity_context_core.application.context_building_legacy_candidate_adapter
     _fused_ranked_keys,
 )
 from infinity_context_core.application.context_canonical_fact_retrieval import (
+    _fact_match_is_preferred,
     canonical_fact_candidate_limit,
+    canonical_fact_match,
     canonical_fact_rerank_pool_limit,
     retrieve_plan_aware_active_facts,
 )
@@ -219,7 +221,7 @@ def test_original_query_head_survives_protected_derived_pool_pressure() -> None:
     assert result.matches[0].reason == "original_query"
 
 
-def test_original_fact_match_owns_final_relevance_over_derived_self_scoring() -> None:
+def test_current_truth_fact_match_preserves_original_query_provenance() -> None:
     target = _fact(
         "target",
         "Current active state latest valid now: local interview canary uses GPT-5.4 mini.",
@@ -265,6 +267,26 @@ def test_original_fact_match_owns_final_relevance_over_derived_self_scoring() ->
     )
     assert projected.diagnostics["query_expansion_reason"] == "original_query"
     assert projected.diagnostics["score_signals"]["unique_term_hits"] >= 6
+
+
+def test_domain_specific_derived_match_beats_original_match() -> None:
+    target = _fact("target", "Melanie identifies as part of the LGBTQ community.")
+    original = canonical_fact_match(
+        target,
+        retrieval_query=QueryExpansion(
+            "Would Melanie be considered a member of the LGBTQ community?",
+            "original_query",
+        ),
+    )
+    derived = canonical_fact_match(
+        target,
+        retrieval_query=QueryExpansion(
+            "Melanie LGBTQ part identify member community",
+            "community_membership_bridge",
+        ),
+    )
+
+    assert _fact_match_is_preferred(derived, current=original)
 
 
 def test_fair_derived_heads_preserve_strong_candidate_from_one_plan_lane() -> None:
@@ -362,6 +384,67 @@ def test_fair_derived_heads_do_not_reserve_weak_lane_noise() -> None:
     )
 
     assert "weak_lane_noise" not in {str(match.fact.id) for match in result.matches}
+
+
+def test_weak_unprioritized_derived_fact_is_not_admitted() -> None:
+    weak = _fact("weak_transcript", "Alex meeting decision.")
+    query = (
+        "alex conversation meeting call transcript notes discussed mentioned decision action item"
+    )
+    result = asyncio.run(
+        retrieve_plan_aware_active_facts(
+            _BatchFacts({query: (weak,)}),
+            space_id="space_test",
+            memory_scope_ids=("scope_test",),
+            thread_id=None,
+            retrieval_queries=(
+                QueryExpansion(
+                    query,
+                    "conversation_transcript_evidence_bridge",
+                ),
+            ),
+            total_limit=5,
+        )
+    )
+
+    assert result.query_results[0].facts == (weak,)
+    assert result.matches == ()
+
+
+def test_weak_current_truth_derived_fact_is_not_admitted() -> None:
+    weak = _fact("weak_current", "Active coding session uses retry strategy.")
+    query = "model current latest active final selected provider tool option"
+    result = asyncio.run(
+        retrieve_plan_aware_active_facts(
+            _BatchFacts({query: (weak,)}),
+            space_id="space_test",
+            memory_scope_ids=("scope_test",),
+            thread_id=None,
+            retrieval_queries=(QueryExpansion(query, "decomposition_knowledge_update_current"),),
+            total_limit=5,
+        )
+    )
+
+    assert result.query_results[0].facts == (weak,)
+    assert result.matches == ()
+
+
+def test_strong_current_truth_derived_fact_is_admitted() -> None:
+    current = _fact("current_model", "Local interview canary uses GPT-5.4 mini.")
+    query = "GPT mini local interview canary current latest active model"
+    result = asyncio.run(
+        retrieve_plan_aware_active_facts(
+            _BatchFacts({query: (current,)}),
+            space_id="space_test",
+            memory_scope_ids=("scope_test",),
+            thread_id=None,
+            retrieval_queries=(QueryExpansion(query, "decomposition_knowledge_update_current"),),
+            total_limit=5,
+        )
+    )
+
+    assert [str(match.fact.id) for match in result.matches] == ["current_model"]
+    assert result.matches[0].reason == "decomposition_knowledge_update_current"
 
 
 def test_broad_fact_request_preserves_full_ranked_candidate_window() -> None:

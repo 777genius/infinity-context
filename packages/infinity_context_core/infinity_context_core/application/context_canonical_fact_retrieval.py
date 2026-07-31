@@ -11,6 +11,10 @@ from infinity_context_core.application.context_query_expansion import (
     QueryExpansion,
     QueryExpansionPlan,
 )
+from infinity_context_core.application.context_query_relevance_ranking import (
+    query_reason_priority_for_relevance,
+    query_relevance_rank_key,
+)
 from infinity_context_core.application.context_relevance import (
     QueryRelevance,
     has_project_identity_mismatch,
@@ -26,6 +30,12 @@ _MAX_FAIR_DERIVED_RESERVED = 20
 _MAX_CANONICAL_FACT_CANDIDATES = 200
 _DEFAULT_CANONICAL_FACT_SEARCH_CAP = 100
 _DEFAULT_CANONICAL_FACT_RERANK_CAP = 40
+_CURRENT_TRUTH_DERIVED_CANONICAL_REASONS = frozenset(
+    {
+        "current_state_temporal_bridge",
+        "decomposition_knowledge_update_current",
+    }
+)
 
 
 @dataclass(frozen=True)
@@ -233,6 +243,8 @@ def rank_fact_matches_for_query(
         match = canonical_fact_match(fact, retrieval_query=retrieval_query)
         if has_project_identity_mismatch(query=match.query, text=fact.text):
             continue
+        if not _canonical_fact_match_is_admissible(match):
+            continue
         if not is_fact_candidate_relevance_sufficient(match.relevance):
             continue
         ranked.append(((*_relevance_rank_key(match.relevance), -index), match))
@@ -331,6 +343,25 @@ def _is_strong_derived_match(relevance: QueryRelevance) -> bool:
     )
 
 
+def _is_strong_current_truth_match(relevance: QueryRelevance) -> bool:
+    return (
+        relevance.hit_ratio >= 0.15
+        and relevance.unique_term_hits >= 4
+        and relevance.distinctive_term_hits >= 4
+        and (relevance.phrase_bigram_hits > 0 or relevance.distinctive_term_hits >= 5)
+    )
+
+
+def _canonical_fact_match_is_admissible(match: CanonicalFactMatch) -> bool:
+    if match.reason == "original_query":
+        return True
+    if match.reason in _CURRENT_TRUTH_DERIVED_CANONICAL_REASONS:
+        return _is_strong_current_truth_match(match.relevance)
+    return query_reason_priority_for_relevance(
+        match.reason, match.relevance
+    ) > 0 or _is_strong_derived_match(match.relevance)
+
+
 def _dedupe_retrieval_queries(
     retrieval_queries: tuple[QueryExpansion, ...],
 ) -> tuple[tuple[int, QueryExpansion], ...]:
@@ -346,10 +377,7 @@ def _dedupe_retrieval_queries(
 
 
 def _match_rank_key(match: CanonicalFactMatch) -> tuple[float | int, ...]:
-    return (
-        *_relevance_rank_key(match.relevance),
-        _candidate_policy._retrieval_query_fusion_weight_for_reason(match.reason),
-    )
+    return query_relevance_rank_key((match.query, match.reason, match.relevance))
 
 
 def _fact_match_is_preferred(
@@ -358,8 +386,16 @@ def _fact_match_is_preferred(
     current: CanonicalFactMatch,
 ) -> bool:
     if candidate.reason == "original_query" or current.reason == "original_query":
-        return candidate.reason == "original_query" and current.reason != "original_query"
-    return _match_rank_key(candidate) > _match_rank_key(current)
+        derived_reason = (
+            current.reason if candidate.reason == "original_query" else candidate.reason
+        )
+        if derived_reason in _CURRENT_TRUTH_DERIVED_CANONICAL_REASONS:
+            return candidate.reason == "original_query"
+    candidate_rank = _match_rank_key(candidate)
+    current_rank = _match_rank_key(current)
+    if candidate_rank != current_rank:
+        return candidate_rank > current_rank
+    return candidate.reason == "original_query" and current.reason != "original_query"
 
 
 def _relevance_rank_key(relevance: QueryRelevance) -> tuple[float | int, ...]:
