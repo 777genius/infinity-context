@@ -3,12 +3,17 @@ from __future__ import annotations
 from dataclasses import dataclass, replace
 from typing import Protocol
 
+import memory_comparison_full_policy_component_fixtures as policy_fixtures
 import pytest
 from infinity_context_server import (
     memory_comparison_managed_composite_assembler as assembler_module,
 )
 from infinity_context_server.memory_comparison_full_methodology import (
     full_comparison_methodology_contract,
+)
+from infinity_context_server.memory_comparison_full_policy_component_validation import (
+    create_full_policy_component_validation_session,
+    seal_full_policy_component_validation,
 )
 from infinity_context_server.memory_comparison_full_profiles import (
     resolve_full_comparison_profile,
@@ -239,16 +244,53 @@ def _ready(
     )
 
 
-def _assemble(ready: _Ready, *, gold: object | None = None):
+def _assemble(
+    ready: _Ready,
+    *,
+    gold: object | None = None,
+    policy: object | None = None,
+):
     return ready.assembler.assemble_components(
         bindings=ready.bindings,
         issuer=ready.issuer,
         managed_attestation=ready.managed,
         execution_validation=ready.execution,
         gold_blind_validation=ready.gold if gold is None else gold,
-        policy_validation=ready.policy,
+        policy_validation=ready.policy if policy is None else policy,
         case_manifest_sha256=ready.case_manifest_sha256,
     )
+
+
+def _policy_for_item_count(
+    monkeypatch: pytest.MonkeyPatch,
+    ready: _Ready,
+    *,
+    item_count: int,
+) -> object:
+    report = public_managed_composition_attestation(
+        ready.managed,
+        bindings=ready.bindings,
+        reset_port=ready.ports[0],
+        attestation_port=ready.ports[1],
+        ingest_port=ready.ports[2],
+        clock=ready.ports[3],
+    )
+    commitment = str(report["composition_attestation_sha256"])
+    monkeypatch.setattr(policy_fixtures, "RUN", ready.bindings.run_id)
+    monkeypatch.setattr(policy_fixtures, "PROFILE", ready.bindings.profile_id)
+    monkeypatch.setattr(policy_fixtures, "ATTESTATION", commitment)
+    fixture = policy_fixtures.build_policy_aggregate_fixture(
+        item_attestation=commitment,
+        delete_attestation=commitment,
+        item_count=item_count,
+    )
+    session = create_full_policy_component_validation_session(
+        manifest=fixture.manifest,
+        evidence_pairs=fixture.pairs,
+        terminal_delete=fixture.terminal_delete,
+        consumer_id=f"managed-composite-cardinality-{item_count}",
+    )
+    return seal_full_policy_component_validation(session)
 
 
 def test_structural_managed_port_and_successful_nine_slot_verdict(
@@ -307,6 +349,16 @@ def test_gold_lane_count_mismatch_does_not_consume_any_aggregate(
     one_lane = _gold_validation(ready.bindings)
     with pytest.raises(ManagedCompositeAssemblerError, match="preflight"):
         _assemble(ready, gold=one_lane)
+    assert len(_assemble(ready)) == 9
+
+
+def test_policy_manifest_count_mismatch_is_preflight_only_and_retry_succeeds(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    ready = _ready(monkeypatch)
+    two_item_policy = _policy_for_item_count(monkeypatch, ready, item_count=2)
+    with pytest.raises(ManagedCompositeAssemblerError, match="preflight"):
+        _assemble(ready, policy=two_item_policy)
     assert len(_assemble(ready)) == 9
 
 

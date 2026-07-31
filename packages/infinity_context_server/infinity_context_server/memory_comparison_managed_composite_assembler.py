@@ -320,6 +320,13 @@ class ManagedFullComparisonAssembler:
             bindings,
             managed_commitment=managed_commitment,
         )
+        manifest_item_count = policy_report.get("manifest_item_count")
+        if (
+            type(manifest_item_count) is not int
+            or manifest_item_count < 1
+            or manifest_item_count != case_count
+        ):
+            raise ManagedCompositeAssemblerError("policy manifest coverage differs")
         status, blocker = live_component_status("gold_blind", gold_blind_validation, bindings)
         if status != "verified" or blocker is not None:
             raise ManagedCompositeAssemblerError("gold validation binding is invalid")
