@@ -1,0 +1,32 @@
+[project]
+name = "mem0-platform-benchmark-adapter"
+version = "0.1.0"
+requires-python = ">=3.13,<3.14"
+dependencies = [
+  "fastapi==0.140.13",
+  "httpx==0.28.1",
+  "mem0ai",
+  "pydantic==2.13.4",
+  "uvicorn==0.52.0",
+]
+
+[dependency-groups]
+dev = [
+  "pytest==9.1.1",
+  "ruff==0.16.0",
+]
+
+[tool.pytest.ini_options]
+addopts = "-q"
+testpaths = ["tests"]
+pythonpath = ["."]
+markers = [
+  "contract: requires the Infinity Context root package",
+]
+
+[tool.ruff]
+line-length = 100
+target-version = "py313"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "SIM", "RUF"]
