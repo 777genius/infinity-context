@@ -109,6 +109,9 @@ from infinity_context_core.application.context_polarity_rerank import (
 from infinity_context_core.application.context_possession_source import (
     possession_source_signal,
 )
+from infinity_context_core.application.context_precise_temporal_evidence import (
+    requests_temporal_ranking_context,
+)
 from infinity_context_core.application.context_query_expansion import QueryExpansionPlan
 from infinity_context_core.application.context_query_intent import (
     QueryAnchorIntent,
@@ -425,17 +428,6 @@ _EVENT_PARTICIPATION_QUERY_RE = re.compile(
     re.IGNORECASE,
 )
 _EVENT_TERM_QUERY_RE = re.compile(r"\b(events?|parade|conference|group|program)\b", re.IGNORECASE)
-_TEMPORAL_ANSWER_QUERY_RE = re.compile(
-    r"\b(?:when|what\s+date|which\s+date|what\s+day|which\s+day|"
-    r"what\s+month|which\s+month|what\s+time|which\s+time|exact\s+time|"
-    r"how\s+long)\b|"
-    r"\b(?:before|after)\b|"
-    r"\b(?:next|last|previous|prior)\s+"
-    r"(?:time|day|week|month|year|night|weekend|meeting|call|conversation|"
-    r"chat|session|event)\b|"
-    r"\b(?:когда|какая\s+дата|в\s+какой\s+день|какого\s+числа|как\s+долго)\b",
-    re.IGNORECASE,
-)
 _MISSED_EVENT_TEXT_RE = re.compile(r"\bmissed\s+(?:it|the|that)?\b", re.IGNORECASE)
 _SELF_MISSED_EVENT_TEXT_RE = re.compile(r"\b(?:i|we)\s+missed\s+(?:it|the|that)?\b", re.IGNORECASE)
 _POSITIVE_EVENT_TEXT_RE = re.compile(
@@ -3260,7 +3252,7 @@ def _temporal_answer_signal(
     query_reason: str,
     item: ContextItem,
 ) -> tuple[float, float, str]:
-    if not _TEMPORAL_ANSWER_QUERY_RE.search(query):
+    if not requests_temporal_ranking_context(query):
         return 0.0, 0.0, ""
     if (
         query_reason == "item_purchase_bridge"

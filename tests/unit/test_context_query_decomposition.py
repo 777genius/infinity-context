@@ -1002,6 +1002,31 @@ def test_query_decomposition_adds_temporal_answer_query() -> None:
     assert "when date day time session date weekday" in temporal.query
 
 
+def test_query_decomposition_treats_subordinate_when_as_current_goal_context() -> None:
+    plan = build_query_decomposition_plan(
+        "What does Nate want to do when he goes over to Joanna's place?"
+    )
+    reasons = {item.reason for item in plan.decompositions}
+
+    assert "decomposition_current_preference_or_goal" in reasons
+    assert "decomposition_temporal_answer" not in reasons
+
+    current_goal = next(
+        item
+        for item in plan.decompositions
+        if item.reason == "decomposition_current_preference_or_goal"
+    )
+    assert "nate" in current_goal.query.casefold()
+    assert "joanna" in current_goal.query.casefold()
+    assert "current goal future plan" in current_goal.query
+
+
+def test_query_decomposition_preserves_direct_what_date_temporal_answer() -> None:
+    plan = build_query_decomposition_plan("What date did Nate visit Joanna?")
+
+    assert "decomposition_temporal_answer" in {item.reason for item in plan.decompositions}
+
+
 def test_query_decomposition_adds_knowledge_update_current_query() -> None:
     plan = build_query_decomposition_plan("What did I decide to use?")
 

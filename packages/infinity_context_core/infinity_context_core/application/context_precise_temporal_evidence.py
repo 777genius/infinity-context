@@ -10,11 +10,27 @@ from infinity_context_core.application.dto import ContextItem
 
 _DIRECT_TEMPORAL_ANSWER_RE = re.compile(
     r"^\s*(?:"
-    r"when\b|"
+    r"when\s+(?:did|does|do|was|were|is|are|will|would|has|have|had|"
+    r"can|could|should)\b|"
     r"(?:on\s+)?(?:what|which)\s+(?:date|day|time|weekday)\b|"
     r"когда\b|"
     r"(?:на\s+)?(?:какую|какой|какое)\s+(?:дату|день|время|число)\b"
     r")",
+    re.IGNORECASE,
+)
+_COORDINATED_TEMPORAL_ANSWER_RE = re.compile(
+    r"\b(?:and|or)\s+when\s+(?:did|does|do|was|were|is|are|will|would|"
+    r"has|have|had|can|could|should)\b",
+    re.IGNORECASE,
+)
+_TEMPORAL_RANKING_CONTEXT_RE = re.compile(
+    r"\b(?:how\s+long|(?:what|which)\s+(?:exact\s+)?(?:date|day|month|time)|"
+    r"exact\s+time)\b|"
+    r"\b(?:before|after)\b|"
+    r"\b(?:next|last|previous|prior)\s+"
+    r"(?:time|day|week|month|year|night|weekend|meeting|call|conversation|"
+    r"chat|session|event)\b|"
+    r"\b(?:какая\s+дата|в\s+какой\s+день|какого\s+числа|как\s+долго)\b",
     re.IGNORECASE,
 )
 _TEMPORAL_EVIDENCE_RE = re.compile(
@@ -43,7 +59,18 @@ _CONTRACT_TIER = 1
 def requests_temporal_answer(query: str) -> bool:
     """Return whether the interrogative head requests a temporal answer."""
 
-    return _DIRECT_TEMPORAL_ANSWER_RE.search(query or "") is not None
+    normalized = query or ""
+    return _DIRECT_TEMPORAL_ANSWER_RE.search(normalized) is not None or (
+        _COORDINATED_TEMPORAL_ANSWER_RE.search(normalized) is not None
+    )
+
+
+def requests_temporal_ranking_context(query: str) -> bool:
+    """Return whether temporal evidence can rank the requested answer context."""
+
+    return requests_temporal_answer(query) or (
+        _TEMPORAL_RANKING_CONTEXT_RE.search(query or "") is not None
+    )
 
 
 def is_precise_temporal_answer_evidence(*, item: ContextItem, query: str) -> bool:
@@ -124,5 +151,6 @@ def _numeric_signal(value: object) -> float:
 __all__ = (
     "is_precise_temporal_answer_evidence",
     "requests_temporal_answer",
+    "requests_temporal_ranking_context",
     "with_precise_temporal_evidence_contracts",
 )

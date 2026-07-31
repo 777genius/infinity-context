@@ -176,20 +176,6 @@ _COMPARISON_TERMS = frozenset(
     }
 )
 
-_TEMPORAL_ANSWER_TERMS = frozenset(
-    {
-        "date",
-        "day",
-        "time",
-        "when",
-        "weekday",
-        "дата",
-        "день",
-        "когда",
-        "число",
-    }
-)
-
 _KNOWLEDGE_UPDATE_ENTITY_TERMS = frozenset(
     {
         "choice",
@@ -587,7 +573,7 @@ def _requests_non_inference_career_goal(
         raw_tokens.intersection({"decided", "persue"}) or "path" in variants
     )
 
-def _requests_inference_current_preference_or_goal(
+def _requests_current_preference_or_goal(
     *,
     raw_tokens: frozenset[str],
     variants: frozenset[str],
