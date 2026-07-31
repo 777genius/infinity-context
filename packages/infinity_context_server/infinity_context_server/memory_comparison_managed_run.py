@@ -13,6 +13,9 @@ from dataclasses import dataclass
 from types import MappingProxyType
 from typing import final
 
+from infinity_context_server.memory_comparison_full_execution_validation_slots import (
+    execution_case_manifest_sha256,
+)
 from infinity_context_server.memory_comparison_full_run_evidence import (
     FULL_COMPARISON_COMPONENT_KINDS,
     FullComparisonRunBindings,
@@ -42,6 +45,7 @@ from infinity_context_server.memory_comparison_managed_run_contract import (
     _identifier,
     _thaw_json,
     _unique_corpora,
+    _validated_execution_case_manifest,
 )
 from infinity_context_server.memory_comparison_managed_run_ports import (
     ManagedAttestationPort,
@@ -122,6 +126,12 @@ def run_managed_comparison(
         policy_port,
         assembler,
     )
+    case_manifest = _validated_execution_case_manifest(
+        plan.cases,
+        plan.case_manifest,
+        benchmark=plan.profile.benchmark,
+    )
+    case_manifest_sha256 = execution_case_manifest_sha256(case_manifest)
     bindings = create_full_comparison_run_bindings(
         run_id=plan.run_id,
         run_nonce_commitment_sha256=plan.run_nonce_commitment_sha256,
@@ -179,9 +189,9 @@ def run_managed_comparison(
         trace.append("attestation.live")
         ingest_receipts = _ingest(bindings, plan.cases, ingest_port, trace)
         executions = _execute_cases(bindings, plan.cases, execution_port, trace)
-        case_manifest_sha256 = _case_manifest_sha256(bindings, plan.cases)
         execution = execution_port.seal_execution(
             bindings=bindings,
+            case_manifest=case_manifest,
             executions=executions,
             case_manifest_sha256=case_manifest_sha256,
         )
@@ -562,25 +572,6 @@ def _validate_ports(*ports: object) -> None:
         _digest(implementation_sha256, f"{role} implementation")
         if any(not callable(getattr(port, name, None)) for name in operations):
             raise ManagedRunError(f"{role} port operation is unavailable")
-
-
-def _case_manifest_sha256(
-    bindings: FullComparisonRunBindings,
-    cases: tuple[ManagedRunCase, ...],
-) -> str:
-    return _json_sha256(
-        {
-            "binding_commitment_sha256": bindings.binding_commitment_sha256,
-            "cases": [
-                {
-                    "case_id": item.case_id,
-                    "corpus_id_sha256": hashlib.sha256(item.corpus_id.encode()).hexdigest(),
-                    "record_sha256": _json_sha256(_thaw_json(item.record)),
-                }
-                for item in cases
-            ],
-        }
-    )
 
 
 def _target_pairs(

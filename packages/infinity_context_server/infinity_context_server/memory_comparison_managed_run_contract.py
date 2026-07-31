@@ -9,6 +9,10 @@ from dataclasses import dataclass
 from types import MappingProxyType
 from typing import Protocol, final
 
+from infinity_context_server.memory_comparison_full_execution_validation_slots import (
+    FullExecutionCaseManifestEntry,
+    execution_case_manifest_sha256,
+)
 from infinity_context_server.memory_comparison_full_methodology import (
     FrozenFullComparisonMethodology,
 )
@@ -68,6 +72,7 @@ class ManagedRunPlan:
     dataset_sha256: str
     selection_fingerprint_sha256: str
     backend_targets: tuple[FullComparisonBackendTarget, ...]
+    case_manifest: tuple[FullExecutionCaseManifestEntry, ...]
     provider_route: ProviderRouteAttestation
     cases: tuple[ManagedRunCase, ...]
     scope: str = "full"
@@ -93,6 +98,11 @@ class ManagedRunPlan:
             raise ManagedRunError("cases must be a nonempty exact typed tuple")
         if len({item.case_id for item in self.cases}) != len(self.cases):
             raise ManagedRunError("case_id is duplicated")
+        _validated_execution_case_manifest(
+            self.cases,
+            self.case_manifest,
+            benchmark=self.profile.benchmark,
+        )
         _unique_corpora(self.cases)
         object.__setattr__(self, "scope", normalize_full_comparison_scope(self.scope))
 
@@ -187,6 +197,7 @@ class ManagedExecutionPort(ManagedPortIdentity, Protocol):
         self,
         *,
         bindings: FullComparisonRunBindings,
+        case_manifest: tuple[FullExecutionCaseManifestEntry, ...],
         executions: tuple[ManagedCaseExecution, ...],
         case_manifest_sha256: str,
     ) -> ManagedExecutionArtifacts: ...
@@ -245,6 +256,34 @@ class ManagedCompositeAssemblerPort(ManagedPortIdentity, Protocol):
         components: tuple[object, ...],
     ) -> object: ...
     def public_verdict(self, verdict: object) -> Mapping[str, object]: ...
+
+
+def _validated_execution_case_manifest(
+    cases: tuple[ManagedRunCase, ...],
+    manifest: object,
+    *,
+    benchmark: str,
+) -> tuple[FullExecutionCaseManifestEntry, ...]:
+    if (
+        type(manifest) is not tuple
+        or len(manifest) != len(cases)
+        or any(type(item) is not FullExecutionCaseManifestEntry for item in manifest)
+    ):
+        raise ManagedRunError("case manifest must exactly cover managed cases")
+    trusted = manifest
+    expected = tuple((item.case_id, item.corpus_id) for item in cases)
+    observed = tuple((item.case_id, item.corpus_id) for item in trusted)
+    if observed != expected:
+        raise ManagedRunError("case manifest order or case/corpus binding differs")
+    execution_case_manifest_sha256(trusted)
+    turn_counts = tuple(item.official_turn_count for item in trusted)
+    if benchmark == "locomo" and any(count < 1 for count in turn_counts):
+        raise ManagedRunError("LoCoMo official turn coverage is empty")
+    if benchmark == "longmemeval" and any(count != 0 for count in turn_counts):
+        raise ManagedRunError("LongMemEval cannot claim LoCoMo turns")
+    if benchmark not in {"locomo", "longmemeval"}:
+        raise ManagedRunError("managed execution benchmark is invalid")
+    return trusted
 
 
 def _unique_corpora(

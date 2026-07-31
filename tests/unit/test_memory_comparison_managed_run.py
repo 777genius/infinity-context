@@ -1,10 +1,15 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import Any
 
 import pytest
 from infinity_context_server import memory_comparison_managed_run as managed
+from infinity_context_server.memory_comparison_full_execution_validation_slots import (
+    FullExecutionCaseManifestEntry,
+    FullExecutionValidationError,
+    execution_case_manifest_sha256,
+)
 from infinity_context_server.memory_comparison_full_methodology import (
     full_comparison_methodology_contract,
 )
@@ -80,6 +85,8 @@ class _Execution(_Port):
     def __init__(self, events: list[str], fail_at: str | None = None) -> None:
         super().__init__("execution", events)
         self.fail_at = fail_at
+        self.sealed_manifest: tuple[FullExecutionCaseManifestEntry, ...] | None = None
+        self.sealed_manifest_sha256: str | None = None
         self.manifest_override: str | None = None
         self.reuse_receipts = False
         self.shared_receipts = {stage: object() for stage in ("retrieve", "answer", "judge")}
@@ -105,9 +112,15 @@ class _Execution(_Port):
         return self._call("judge", backend_role, case)
 
     def seal_execution(
-        self, *, case_manifest_sha256: str, **kwargs: Any
+        self,
+        *,
+        case_manifest: tuple[FullExecutionCaseManifestEntry, ...],
+        case_manifest_sha256: str,
+        **kwargs: Any,
     ) -> ManagedExecutionArtifacts:
         del kwargs
+        self.sealed_manifest_sha256 = case_manifest_sha256
+        self.sealed_manifest = case_manifest
         self.events.append("execution.seal")
         if self.fail_at == "execution.seal":
             raise _Abort("execution.seal")
@@ -198,7 +211,40 @@ class _Rig:
     assembler: _Assembler
 
 
-def _plan(*, scope: str = "full") -> ManagedRunPlan:
+def _cases() -> tuple[ManagedRunCase, ...]:
+    return (
+        ManagedRunCase("case-1", "corpus-1", {"text": "one"}),
+        ManagedRunCase("case-2", "corpus-2", {"text": "two"}),
+    )
+
+
+def _manifest() -> tuple[FullExecutionCaseManifestEntry, ...]:
+    return (
+        FullExecutionCaseManifestEntry(
+            "case-1",
+            "corpus-1",
+            "thread-1",
+            ("memory", "query"),
+            ("session-0001", "session-0002"),
+            1,
+        ),
+        FullExecutionCaseManifestEntry(
+            "case-2",
+            "corpus-2",
+            "thread-2",
+            ("memory", "query"),
+            ("session-0003", "session-0004"),
+            1,
+        ),
+    )
+
+
+def _plan(
+    *,
+    scope: str = "full",
+    cases: tuple[ManagedRunCase, ...] | None = None,
+    case_manifest: tuple[FullExecutionCaseManifestEntry, ...] | None = None,
+) -> ManagedRunPlan:
     profile = resolve_full_comparison_profile(PROFILE_LOCOMO_TOP_50)
     assert profile is not None
     return ManagedRunPlan(
@@ -213,6 +259,7 @@ def _plan(*, scope: str = "full") -> ManagedRunPlan:
             FullComparisonBackendTarget("infinity-context", "4" * 64),
             FullComparisonBackendTarget("mem0", "5" * 64),
         ),
+        case_manifest=_manifest() if case_manifest is None else case_manifest,
         provider_route=ProviderRouteAttestation(
             trust="official_openai",
             origin="https://api.openai.com",
@@ -223,10 +270,7 @@ def _plan(*, scope: str = "full") -> ManagedRunPlan:
             request_method="POST",
             response_status=200,
         ),
-        cases=(
-            ManagedRunCase("case-1", "corpus-1", {"text": "one"}),
-            ManagedRunCase("case-2", "corpus-1", {"text": "one"}),
-        ),
+        cases=_cases() if cases is None else cases,
         scope=scope,
     )
 
@@ -258,10 +302,16 @@ def _patch_attestation(monkeypatch: pytest.MonkeyPatch) -> None:
     )
 
 
-def _run(rig: _Rig, monkeypatch: pytest.MonkeyPatch, *, scope: str = "full"):
+def _run(
+    rig: _Rig,
+    monkeypatch: pytest.MonkeyPatch,
+    *,
+    scope: str = "full",
+    plan: ManagedRunPlan | None = None,
+):
     _patch_attestation(monkeypatch)
     return run_managed_comparison(
-        _plan(scope=scope),
+        _plan(scope=scope) if plan is None else plan,
         reset_port=rig.reset,
         attestation_port=rig.attest,
         ingest_port=rig.ingest,
@@ -285,8 +335,8 @@ def test_exact_lifecycle_orders_terminal_delete_before_nine_components(
 
     assert rig.events.count("reset") == 1
     assert rig.events.count("attest") == 1
-    assert rig.events.count("ingest:infinity-context") == 1
-    assert rig.events.count("ingest:mem0") == 1
+    assert rig.events.count("ingest:infinity-context") == 2
+    assert rig.events.count("ingest:mem0") == 2
     assert sum(item.startswith("retrieve:") for item in rig.events) == 4
     assert sum(item.startswith("answer:") for item in rig.events) == 4
     assert sum(item.startswith("judge:") for item in rig.events) == 4
@@ -299,6 +349,8 @@ def test_exact_lifecycle_orders_terminal_delete_before_nine_components(
     assert rig.events.index("delete.seal") < rig.events.index("components.issue")
     assert rig.events.index("components.issue") < rig.events.index("verdict.public")
     assert report["managed_run"]["component_count"] == 9
+    assert rig.execution.sealed_manifest == _manifest()
+    assert rig.execution.sealed_manifest_sha256 == execution_case_manifest_sha256(_manifest())
 
 
 @pytest.mark.parametrize(
@@ -448,3 +500,61 @@ def test_plan_scope_is_normalized_and_invalid_scope_fails_at_construction() -> N
 
     with pytest.raises(BenchmarkValidationError, match="unsupported full comparison scope"):
         _plan(scope="preview")
+
+
+@pytest.mark.parametrize(
+    ("case_manifest", "error_type", "message"),
+    (
+        (
+            (replace(_manifest()[0], case_id="case-x"), _manifest()[1]),
+            ManagedRunError,
+            "case manifest order or case/corpus binding",
+        ),
+        (
+            tuple(reversed(_manifest())),
+            ManagedRunError,
+            "case manifest order or case/corpus binding",
+        ),
+        (
+            (replace(_manifest()[0], corpus_id="corpus-x"), _manifest()[1]),
+            ManagedRunError,
+            "case manifest order or case/corpus binding",
+        ),
+        (
+            (
+                _manifest()[0],
+                replace(_manifest()[1], thread_id=_manifest()[0].thread_id),
+            ),
+            FullExecutionValidationError,
+            "thread mapping is duplicated",
+        ),
+        (
+            (replace(_manifest()[0], official_turn_count=0), _manifest()[1]),
+            ManagedRunError,
+            "LoCoMo official turn coverage is empty",
+        ),
+    ),
+)
+def test_manifest_contract_violations_fail_at_plan_construction_before_consume(
+    case_manifest: tuple[FullExecutionCaseManifestEntry, ...],
+    error_type: type[BaseException],
+    message: str,
+) -> None:
+    with pytest.raises(error_type, match=message):
+        _plan(case_manifest=case_manifest)
+
+
+def test_live_manifest_revalidation_blocks_tampering_before_reset(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    rig = _rig()
+    plan = _plan()
+    object.__setattr__(plan, "case_manifest", tuple(reversed(plan.case_manifest)))
+
+    with pytest.raises(
+        ManagedRunError,
+        match="case manifest order or case/corpus binding",
+    ):
+        _run(rig, monkeypatch, plan=plan)
+
+    assert rig.events == []
