@@ -346,7 +346,9 @@ class BuildContextUseCase:
         diagnostics.update(query_anchor_intent.diagnostics())
         diagnostics.update(query_expansion_plan.diagnostics())
         diagnostics.update(temporal_query_intent.diagnostics())
-        canonical_fact_match_by_id = {str(match.fact.id): match for match in canonical.fact_matches}
+        canonical_fact_match_by_id = {
+            str(match.fact.id): match for match in getattr(canonical, "fact_matches", ())
+        }
         for fact in canonical.facts:
             if not is_context_fact_visible(
                 fact,
