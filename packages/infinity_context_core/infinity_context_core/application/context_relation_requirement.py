@@ -7,6 +7,9 @@ from dataclasses import dataclass
 from typing import NamedTuple
 
 from infinity_context_core.application.context_lexical import lexical_variants
+from infinity_context_core.application.context_museum_visit_policy import (
+    strong_dated_museum_visit_evidence,
+)
 
 
 class RelationRequirementSignal(NamedTuple):
@@ -203,6 +206,11 @@ _RELATION_GROUPS: tuple[_RelationGroup, ...] = (
 def relation_requirement_signal(*, query: str, text: str) -> RelationRequirementSignal:
     """Return a deterministic support/decoy signal for explicit relation queries."""
 
+    if strong_dated_museum_visit_evidence(query=query, text=text):
+        return RelationRequirementSignal(
+            boost=0.018,
+            reason="relation_requirement_match",
+        )
     requirement = _relation_requirement(query)
     if requirement is None:
         return RelationRequirementSignal()
@@ -247,8 +255,7 @@ def _text_satisfies_requirement(requirement: _RelationRequirement, text: str) ->
         if not _has_token_variants(sentence, requirement.subject.variants):
             continue
         if not all(
-            _has_token_variants(sentence, token.variants)
-            for token in requirement.object_tokens
+            _has_token_variants(sentence, token.variants) for token in requirement.object_tokens
         ):
             continue
         if requirement.group.key == "possession" and _has_possessive_match(
@@ -311,8 +318,7 @@ def _has_possessive_match(requirement: _RelationRequirement, sentence: str) -> b
 
 def _text_mentions_requirement_anchors(requirement: _RelationRequirement, text: str) -> bool:
     return _has_token_variants(text, requirement.subject.variants) and all(
-        _has_token_variants(text, token.variants)
-        for token in requirement.object_tokens
+        _has_token_variants(text, token.variants) for token in requirement.object_tokens
     )
 
 
@@ -327,8 +333,7 @@ def _text_mentions_subject_relation_without_object(
         if not requirement.group.text_re.search(sentence):
             continue
         if all(
-            _has_token_variants(sentence, token.variants)
-            for token in requirement.object_tokens
+            _has_token_variants(sentence, token.variants) for token in requirement.object_tokens
         ):
             continue
         return True
