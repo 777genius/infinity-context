@@ -217,7 +217,13 @@ def run_managed_comparison(
         primary_error = exc
         primary_traceback = exc.__traceback__
     finally:
-        cleanup = _terminal_cleanup(bindings, policy_port, trace)
+        cleanup = _terminal_cleanup(
+            bindings,
+            policy_port,
+            trace,
+            managed_attestation=managed_attestation,
+            managed_attestation_commitment_sha256=managed_commitment,
+        )
 
     if primary_error is not None:
         if cleanup.error is not None:
@@ -397,6 +403,9 @@ def _terminal_cleanup(
     bindings: FullComparisonRunBindings,
     port: ManagedPolicyLifecyclePort,
     trace: list[str],
+    *,
+    managed_attestation: VerifiedManagedCompositionAttestation | None,
+    managed_attestation_commitment_sha256: str | None,
 ) -> _CleanupResult:
     receipts: list[object] = []
     failures: list[BaseException] = []
@@ -422,9 +431,22 @@ def _terminal_cleanup(
     expected_count = 2 * len(bindings.backend_targets)
     if len(receipts) != expected_count:
         return _CleanupResult(None, ManagedRunError("terminal delete receipt coverage differs"))
+    attestation_missing = managed_attestation is None
+    commitment_missing = managed_attestation_commitment_sha256 is None
+    if attestation_missing and commitment_missing:
+        return _CleanupResult(None, None)
+    if attestation_missing != commitment_missing:
+        return _CleanupResult(
+            None,
+            ManagedRunError("terminal cleanup attestation pair is incomplete"),
+        )
     try:
+        assert managed_attestation is not None
+        assert managed_attestation_commitment_sha256 is not None
         terminal = port.seal_terminal_delete(
             bindings=bindings,
+            managed_attestation=managed_attestation,
+            managed_attestation_commitment_sha256=managed_attestation_commitment_sha256,
             receipts=tuple(receipts),
         )
         if terminal is None:

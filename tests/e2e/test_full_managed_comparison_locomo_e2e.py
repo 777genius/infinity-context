@@ -137,8 +137,12 @@ def test_dirty_prestate_never_reaches_a_public_verdict() -> None:
 
 def test_candidate_source_mismatch_never_reaches_a_public_verdict() -> None:
     rig = _rig("candidate-mismatch", answer_text="black coffee")
-    with pytest.raises(GoldBlindContractError, match="Trusted judge evaluator failed"):
+    with pytest.raises(
+        GoldBlindContractError, match="Trusted judge evaluator failed"
+    ) as raised:
         _run(rig)
+    assert not getattr(raised.value, "__notes__", ())
+    assert "delete.seal" in rig.trace.events
     assert "canonical_source.seal" not in rig.trace.events
     assert "policy.aggregate" not in rig.trace.events
 

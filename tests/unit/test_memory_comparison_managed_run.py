@@ -140,6 +140,8 @@ class _Policy(_Port):
         self.expected_managed_commitment_sha256 = "8" * 64
         self.sealed_managed_attestation: object | None = None
         self.sealed_managed_commitment: str | None = None
+        self.terminal_managed_attestation: object | None = None
+        self.terminal_managed_commitment: str | None = None
 
     def seal_canonical_source(
         self,
@@ -173,8 +175,16 @@ class _Policy(_Port):
             return self.shared_delete_receipt
         return object()
 
-    def seal_terminal_delete(self, **kwargs: Any) -> object:
+    def seal_terminal_delete(
+        self,
+        *,
+        managed_attestation: object,
+        managed_attestation_commitment_sha256: str,
+        **kwargs: Any,
+    ) -> object:
         del kwargs
+        self.terminal_managed_attestation = managed_attestation
+        self.terminal_managed_commitment = managed_attestation_commitment_sha256
         self.events.append("delete.seal")
         if self.fail_at == "delete.seal":
             raise RuntimeError("delete seal")
@@ -398,13 +408,35 @@ def test_every_post_ingest_baseexception_runs_both_delete_passes(
     else:
         rig.execution.fail_at = stage
 
-    with pytest.raises(_Abort, match=stage):
+    with pytest.raises(_Abort, match=stage) as raised:
         _run(rig, monkeypatch)
 
     assert len(_deletes(rig.events)) == 4
+    assert "delete.seal" in rig.events
+    assert rig.policy.terminal_managed_attestation is _MANAGED_ATTESTATION
+    assert rig.policy.terminal_managed_commitment == "8" * 64
+    assert not getattr(raised.value, "__notes__", ())
     assert "policy.aggregate" not in rig.events
     assert "components.issue" not in rig.events
     assert "verdict.public" not in rig.events
+
+
+def test_pre_attestation_failure_runs_deletes_without_false_cleanup_failure(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    rig = _rig()
+    rig.attest.fail = True
+
+    with pytest.raises(RuntimeError, match="attest failed") as raised:
+        _run(rig, monkeypatch)
+
+    assert len(_deletes(rig.events)) == 4
+    assert "delete.seal" not in rig.events
+    assert rig.policy.terminal_managed_attestation is None
+    assert rig.policy.terminal_managed_commitment is None
+    assert not getattr(raised.value, "__notes__", ())
+    assert "policy.aggregate" not in rig.events
+    assert "components.issue" not in rig.events
 
 
 def test_manifest_mismatch_blocks_consumption_after_cleanup(
@@ -621,10 +653,14 @@ def test_none_managed_attestation_commitment_cleans_up_before_ingest_or_policy_p
 ) -> None:
     rig = _rig()
 
-    with pytest.raises(ManagedRunError, match="managed attestation must be SHA-256"):
+    with pytest.raises(ManagedRunError, match="managed attestation must be SHA-256") as raised:
         _run(rig, monkeypatch, attestation_commitment=None)
 
     assert len(_deletes(rig.events)) == 4
+    assert "delete.seal" not in rig.events
+    assert getattr(raised.value, "__notes__", ()) == [
+        "terminal cleanup also failed: ManagedRunError"
+    ]
     assert not any(item.startswith("ingest:") for item in rig.events)
     assert "canonical_source.seal" not in rig.events
     assert "policy.aggregate" not in rig.events
@@ -637,10 +673,12 @@ def test_none_managed_attestation_cleans_up_before_ingest_or_policy_proof(
 ) -> None:
     rig = _rig()
 
-    with pytest.raises(ManagedRunError, match="managed attestation is missing"):
+    with pytest.raises(ManagedRunError, match="managed attestation is missing") as raised:
         _run(rig, monkeypatch, managed_attestation=None)
 
     assert len(_deletes(rig.events)) == 4
+    assert "delete.seal" not in rig.events
+    assert not getattr(raised.value, "__notes__", ())
     assert not any(item.startswith("ingest:") for item in rig.events)
     assert "canonical_source.seal" not in rig.events
     assert "policy.aggregate" not in rig.events

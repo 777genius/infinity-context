@@ -126,15 +126,24 @@ class SandboxPolicyPort:
         self,
         *,
         bindings: FullComparisonRunBindings,
+        managed_attestation: VerifiedManagedCompositionAttestation,
+        managed_attestation_commitment_sha256: str,
         receipts: tuple[object, ...],
     ) -> object:
+        assert type(managed_attestation) is VerifiedManagedCompositionAttestation
+        assert len(managed_attestation_commitment_sha256) == 64
         expected = tuple(
             (role, attempt) for attempt in (1, 2) for role in (INFINITY_BACKEND, MEM0_BACKEND)
         )
         assert tuple((item.backend_role, item.pass_index) for item in receipts) == expected
         assert tuple(item.deleted_count for item in receipts) == (1, 1, 0, 0)
         assert all(item.remaining_count == 0 for item in receipts)
-        self._terminal = _terminal_delete(bindings, self._attestation, self._state)
+        if self._attestation:
+            assert managed_attestation_commitment_sha256 == self._attestation
+        self._attestation = managed_attestation_commitment_sha256
+        self._terminal = _terminal_delete(
+            bindings, managed_attestation_commitment_sha256, self._state
+        )
         self.trace.add("delete.seal")
         return self._terminal
 

@@ -223,7 +223,12 @@ class ManagedPolicyLifecyclePort(ManagedPortIdentity, Protocol):
         pass_index: int,
     ) -> object: ...
     def seal_terminal_delete(
-        self, *, bindings: FullComparisonRunBindings, receipts: tuple[object, ...]
+        self,
+        *,
+        bindings: FullComparisonRunBindings,
+        managed_attestation: VerifiedManagedCompositionAttestation,
+        managed_attestation_commitment_sha256: str,
+        receipts: tuple[object, ...],
     ) -> object: ...
     def aggregate_policy(
         self,
