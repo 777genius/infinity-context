@@ -1021,6 +1021,22 @@ def test_query_decomposition_treats_subordinate_when_as_current_goal_context() -
     assert "current goal future plan" in current_goal.query
 
 
+def test_query_decomposition_leaves_direct_career_query_to_specialized_bridge() -> None:
+    plan = build_query_decomposition_plan("What career does Alex want?")
+
+    assert "decomposition_current_preference_or_goal" not in {
+        item.reason for item in plan.decompositions
+    }
+
+
+def test_query_decomposition_does_not_treat_ordinal_plan_step_as_current_goal() -> None:
+    plan = build_query_decomposition_plan("What was the second step in the Atlas migration plan?")
+
+    assert "decomposition_current_preference_or_goal" not in {
+        item.reason for item in plan.decompositions
+    }
+
+
 def test_query_decomposition_preserves_direct_what_date_temporal_answer() -> None:
     plan = build_query_decomposition_plan("What date did Nate visit Joanna?")
 

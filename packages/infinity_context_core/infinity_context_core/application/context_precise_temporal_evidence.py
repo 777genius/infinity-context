@@ -14,7 +14,7 @@ _DIRECT_TEMPORAL_ANSWER_RE = re.compile(
     r"can|could|should)\b|"
     r"(?:on\s+)?(?:what|which)\s+(?:date|day|time|weekday)\b|"
     r"когда\b|"
-    r"(?:на\s+)?(?:какую|какой|какое)\s+(?:дату|день|время|число)\b"
+    r"(?:(?:в|на)\s+)?(?:какую|какой|какое)\s+(?:дату|день|время|число)\b"
     r")",
     re.IGNORECASE,
 )
