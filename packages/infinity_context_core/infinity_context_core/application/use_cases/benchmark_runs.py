@@ -3,14 +3,18 @@
 from __future__ import annotations
 
 import hashlib
+import hmac
 import json
 import re
+from typing import Literal
 
 from infinity_context_core.application.dto_benchmark_runs import (
     CleanupBenchmarkRunCommand,
     CleanupBenchmarkRunResult,
     RegisterBenchmarkRunCommand,
     RegisterBenchmarkRunResult,
+    SealProjectionManifestCommand,
+    SealProjectionManifestResult,
 )
 from infinity_context_core.domain.errors import (
     MemoryConflictError,
@@ -23,6 +27,13 @@ from infinity_context_core.ports.unit_of_work import UnitOfWorkFactoryPort
 
 _SHA256 = re.compile(r"^[0-9a-f]{64}$")
 _SPACE_SLUG = re.compile(r"^memory-comparison-[a-z0-9-]{1,80}$")
+_MANIFEST_SCHEMA = "memory-comparison-projection-manifest.v1"
+_MAX_MANIFEST_BYTES = 2_000_000
+_MAX_SCOPES = 5_000
+_MAX_CANONICAL_IDS = 5_000
+_MAX_GRAPH_IDS = 20_000
+_CANONICAL_ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:-]{0,239}$")
+_GRAPH_ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:-]{0,511}$")
 
 
 class RegisterBenchmarkRunUseCase:
@@ -57,6 +68,9 @@ class RegisterBenchmarkRunUseCase:
             idempotency_key_sha256=command.idempotency_key_sha256,
             registration_fingerprint_sha256=fingerprint,
             state="active",
+            projection_manifest_json=None,
+            projection_manifest_sha256=None,
+            projection_cleanup_state="unsealed",
             cleanup_fingerprint_sha256=None,
             cleanup_receipt=None,
             created_at=now,
@@ -89,6 +103,65 @@ class RegisterBenchmarkRunUseCase:
         return by_run or by_key
 
 
+class SealProjectionManifestUseCase:
+    def __init__(self, *, uow_factory: UnitOfWorkFactoryPort, clock: ClockPort) -> None:
+        self._uow_factory = uow_factory
+        self._clock = clock
+
+    async def execute(
+        self,
+        command: SealProjectionManifestCommand,
+    ) -> SealProjectionManifestResult:
+        _digest(command.run_id_sha256)
+        manifest = _validated_projection_manifest_with_digest(
+            command.projection_manifest_json,
+            command.projection_manifest_sha256,
+        )
+
+        async with self._uow_factory() as uow:
+            record = await uow.benchmark_runs.get_by_run_id_sha256(
+                command.run_id_sha256,
+                for_update=True,
+            )
+            if record is None:
+                raise MemoryNotFoundError("Benchmark run not found")
+            _require_projection_manifest_binding(
+                manifest,
+                run_id_sha256=record.run_id_sha256,
+                binding_commitment_sha256=record.binding_commitment_sha256,
+                infinity_target_identity_sha256=record.infinity_target_identity_sha256,
+                space_id=record.space_id,
+            )
+            if record.projection_manifest_json is not None:
+                if (
+                    record.projection_manifest_sha256 != command.projection_manifest_sha256
+                    or record.projection_manifest_json != manifest
+                ):
+                    raise MemoryConflictError("Projection manifest conflicted")
+                if (record.state, record.projection_cleanup_state) not in {
+                    ("active", "sealed"),
+                    ("cleanup_pending", "pending"),
+                }:
+                    raise MemoryConflictError("Projection manifest state conflicted")
+                return SealProjectionManifestResult(record=record, replayed=True)
+            if record.state != "active" or record.projection_cleanup_state != "unsealed":
+                raise MemoryConflictError("Projection manifest state conflicted")
+            updated = await uow.benchmark_runs.seal_projection_manifest(
+                record,
+                projection_manifest_json=manifest,
+                projection_manifest_sha256=command.projection_manifest_sha256,
+                now=self._clock.now(),
+            )
+            if (
+                updated.projection_manifest_json != manifest
+                or updated.projection_manifest_sha256 != command.projection_manifest_sha256
+                or updated.projection_cleanup_state != "sealed"
+            ):
+                raise MemoryConflictError("Projection manifest was not persisted")
+            await uow.commit()
+            return SealProjectionManifestResult(record=updated, replayed=False)
+
+
 class CleanupBenchmarkRunUseCase:
     def __init__(self, *, uow_factory: UnitOfWorkFactoryPort, clock: ClockPort) -> None:
         self._uow_factory = uow_factory
@@ -116,7 +189,11 @@ class CleanupBenchmarkRunUseCase:
             if record.cleanup_receipt is not None:
                 if record.cleanup_fingerprint_sha256 != fingerprint:
                     raise MemoryConflictError("Benchmark cleanup fingerprint conflicted")
-                return CleanupBenchmarkRunResult(receipt=record.cleanup_receipt, replayed=True)
+                return CleanupBenchmarkRunResult(
+                    receipt=record.cleanup_receipt,
+                    projection_cleanup_state=_authoritative_cleanup_state(record),
+                    replayed=True,
+                )
             if record.state != "active":
                 raise MemoryConflictError("Benchmark run state conflicted")
             updated = await uow.benchmark_runs.begin_cleanup(
@@ -126,8 +203,13 @@ class CleanupBenchmarkRunUseCase:
             )
             if updated.cleanup_receipt is None or updated.state != "cleanup_pending":
                 raise MemoryConflictError("Benchmark cleanup receipt was not persisted")
+            projection_cleanup_state = _authoritative_cleanup_state(updated)
             await uow.commit()
-            return CleanupBenchmarkRunResult(receipt=updated.cleanup_receipt, replayed=False)
+            return CleanupBenchmarkRunResult(
+                receipt=updated.cleanup_receipt,
+                projection_cleanup_state=projection_cleanup_state,
+                replayed=False,
+            )
 
 
 def _registration_replay(
@@ -137,6 +219,14 @@ def _registration_replay(
     if record.registration_fingerprint_sha256 != fingerprint:
         raise MemoryConflictError("Benchmark registration fingerprint conflicted")
     return RegisterBenchmarkRunResult(record=record, created=False)
+
+
+def _authoritative_cleanup_state(
+    record: BenchmarkRunRegistryRecord,
+) -> Literal["pending", "blocked"]:
+    if record.projection_cleanup_state not in {"pending", "blocked"}:
+        raise MemoryConflictError("Benchmark projection cleanup state conflicted")
+    return record.projection_cleanup_state
 
 
 def _require_cleanup_binding(
@@ -157,6 +247,63 @@ def _require_cleanup_binding(
     )
     if actual != expected:
         raise MemoryConflictError("Benchmark cleanup binding conflicted")
+
+
+def validate_projection_manifest(
+    value: object,
+    projection_manifest_sha256: object,
+    *,
+    run_id_sha256: str,
+    binding_commitment_sha256: str,
+    infinity_target_identity_sha256: str,
+    space_id: str,
+) -> dict[str, object]:
+    """Validate a canonical manifest, its digest, and its registry binding."""
+
+    manifest = _validated_projection_manifest_with_digest(value, projection_manifest_sha256)
+    _require_projection_manifest_binding(
+        manifest,
+        run_id_sha256=run_id_sha256,
+        binding_commitment_sha256=binding_commitment_sha256,
+        infinity_target_identity_sha256=infinity_target_identity_sha256,
+        space_id=space_id,
+    )
+    return manifest
+
+
+def _validated_projection_manifest_with_digest(
+    value: object,
+    projection_manifest_sha256: object,
+) -> dict[str, object]:
+    _digest(projection_manifest_sha256)
+    manifest = _validated_projection_manifest(value)
+    if not hmac.compare_digest(projection_manifest_sha256, _json_sha256(manifest)):
+        raise MemoryValidationError("Projection manifest digest is invalid")
+    return manifest
+
+
+def _require_projection_manifest_binding(
+    manifest: dict[str, object],
+    *,
+    run_id_sha256: str,
+    binding_commitment_sha256: str,
+    infinity_target_identity_sha256: str,
+    space_id: str,
+) -> None:
+    expected = (
+        run_id_sha256,
+        binding_commitment_sha256,
+        infinity_target_identity_sha256,
+        space_id,
+    )
+    actual = (
+        manifest["run_id_sha256"],
+        manifest["binding_commitment_sha256"],
+        manifest["infinity_target_identity_sha256"],
+        manifest["space_id"],
+    )
+    if actual != expected:
+        raise MemoryConflictError("Projection manifest binding conflicted")
 
 
 def _validate_registration(command: RegisterBenchmarkRunCommand) -> None:
@@ -199,4 +346,171 @@ def _fingerprint(operation: str, *values: str) -> str:
     return hashlib.sha256(payload).hexdigest()
 
 
-__all__ = ("CleanupBenchmarkRunUseCase", "RegisterBenchmarkRunUseCase")
+def _validated_projection_manifest(value: object) -> dict[str, object]:
+    try:
+        encoded = json.dumps(value, sort_keys=True, separators=(",", ":"), ensure_ascii=True)
+    except (TypeError, ValueError) as exc:
+        raise MemoryValidationError("Projection manifest is not canonical JSON") from exc
+    if len(encoded.encode()) > _MAX_MANIFEST_BYTES:
+        raise MemoryValidationError("Projection manifest exceeds size limit")
+    if type(value) is not dict or set(value) != {
+        "schema_version",
+        "run_id_sha256",
+        "binding_commitment_sha256",
+        "infinity_target_identity_sha256",
+        "space_id",
+        "scopes",
+    }:
+        raise MemoryValidationError("Projection manifest envelope is invalid")
+    if value["schema_version"] != _MANIFEST_SCHEMA:
+        raise MemoryValidationError("Projection manifest schema is invalid")
+    for key in (
+        "run_id_sha256",
+        "binding_commitment_sha256",
+        "infinity_target_identity_sha256",
+    ):
+        _digest(value[key])
+    _canonical_id(value["space_id"])
+    scopes = value["scopes"]
+    if type(scopes) is not list or len(scopes) > _MAX_SCOPES:
+        raise MemoryValidationError("Projection manifest scopes are invalid")
+    scope_identities: list[tuple[str, str]] = []
+    canonical_identities: dict[str, set[str]] = {
+        "chunk_ids": set(),
+        "fact_ids": set(),
+        "document_ids": set(),
+    }
+    for scope in scopes:
+        scope_identities.append(_validate_manifest_scope(scope))
+        for field_name, seen in canonical_identities.items():
+            identities = set(scope[field_name])
+            if seen.intersection(identities):
+                raise MemoryValidationError(
+                    "Projection manifest canonical identities are not globally unique"
+                )
+            seen.update(identities)
+    if scope_identities != sorted(scope_identities) or len(scope_identities) != len(
+        set(scope_identities)
+    ):
+        raise MemoryValidationError("Projection manifest scopes are not sorted and unique")
+    canonical = json.loads(encoded)
+    if canonical != value:
+        raise MemoryValidationError("Projection manifest is not canonical JSON")
+    return canonical
+
+
+def _validate_manifest_scope(value: object) -> tuple[str, str]:
+    if type(value) is not dict or set(value) != {
+        "memory_scope_id",
+        "thread_id",
+        "chunk_ids",
+        "fact_ids",
+        "document_ids",
+        "qdrant",
+        "graphiti",
+        "cognee",
+    }:
+        raise MemoryValidationError("Projection manifest scope is invalid")
+    memory_scope_id = _canonical_id(value["memory_scope_id"])
+    thread_id = ""
+    if value["thread_id"] is not None:
+        thread_id = _canonical_id(value["thread_id"])
+    chunk_ids = _sorted_unique_ids(value["chunk_ids"], limit=_MAX_CANONICAL_IDS)
+    fact_ids = _sorted_unique_ids(value["fact_ids"], limit=_MAX_CANONICAL_IDS)
+    _sorted_unique_ids(value["document_ids"], limit=_MAX_CANONICAL_IDS)
+    qdrant = value["qdrant"]
+    if (qdrant is None) != (not chunk_ids):
+        raise MemoryValidationError("Projection manifest qdrant evidence is invalid")
+    if qdrant is not None:
+        _validate_commitment_pair(qdrant, lane="qdrant")
+    graphiti = value["graphiti"]
+    if (graphiti is None) != (not fact_ids):
+        raise MemoryValidationError("Projection manifest graphiti evidence is invalid")
+    if graphiti is not None:
+        if type(graphiti) is not dict or set(graphiti) != {
+            "target_commitment_sha256",
+            "manifest_binding_sha256",
+            "episode_ids",
+            "entity_ids",
+            "mentions_edge_ids",
+            "relates_to_edge_ids",
+        }:
+            raise MemoryValidationError("Projection manifest graphiti evidence is invalid")
+        _digest(graphiti["target_commitment_sha256"])
+        _digest(graphiti["manifest_binding_sha256"])
+        graph_identity_lanes = tuple(
+            _sorted_unique_graph_ids(graphiti[key], limit=_MAX_GRAPH_IDS)
+            for key in (
+                "episode_ids",
+                "entity_ids",
+                "mentions_edge_ids",
+                "relates_to_edge_ids",
+            )
+        )
+        graph_identities = tuple(identity for lane in graph_identity_lanes for identity in lane)
+        if (
+            not graph_identities
+            or len(graph_identities) > _MAX_GRAPH_IDS
+            or len(set(graph_identities)) != len(graph_identities)
+        ):
+            raise MemoryValidationError(
+                "Projection manifest graph identities are incomplete or ambiguous"
+            )
+    cognee = value["cognee"]
+    if type(cognee) is not dict or set(cognee) != {"disposition", "policy_sha256"}:
+        raise MemoryValidationError("Projection manifest cognee evidence is invalid")
+    if cognee["disposition"] != "not_projected":
+        raise MemoryValidationError("Projection manifest cognee disposition is invalid")
+    _digest(cognee["policy_sha256"])
+    return memory_scope_id, thread_id
+
+
+def _validate_commitment_pair(value: object, *, lane: str) -> None:
+    if type(value) is not dict or set(value) != {
+        "target_commitment_sha256",
+        "manifest_binding_sha256",
+    }:
+        raise MemoryValidationError(f"Projection manifest {lane} evidence is invalid")
+    _digest(value["target_commitment_sha256"])
+    _digest(value["manifest_binding_sha256"])
+
+
+def _sorted_unique_ids(value: object, *, limit: int) -> list[str]:
+    if type(value) is not list or len(value) > limit:
+        raise MemoryValidationError("Projection manifest identifiers are invalid")
+    identifiers = [_canonical_id(item) for item in value]
+    if identifiers != sorted(identifiers) or len(identifiers) != len(set(identifiers)):
+        raise MemoryValidationError("Projection manifest identifiers are not sorted and unique")
+    return identifiers
+
+
+def _sorted_unique_graph_ids(value: object, *, limit: int) -> list[str]:
+    if type(value) is not list or len(value) > limit:
+        raise MemoryValidationError("Projection manifest graph identifiers are invalid")
+    identifiers = value
+    if any(type(item) is not str or _GRAPH_ID.fullmatch(item) is None for item in identifiers):
+        raise MemoryValidationError("Projection manifest graph identifiers are invalid")
+    if identifiers != sorted(identifiers) or len(identifiers) != len(set(identifiers)):
+        raise MemoryValidationError(
+            "Projection manifest graph identifiers are not sorted and unique"
+        )
+    return identifiers
+
+
+def _canonical_id(value: object) -> str:
+    if type(value) is not str or _CANONICAL_ID.fullmatch(value) is None:
+        raise MemoryValidationError("Projection manifest identifier is invalid")
+    return value
+
+
+def _json_sha256(value: dict[str, object]) -> str:
+    payload = json.dumps(value, sort_keys=True, separators=(",", ":")).encode()
+    return hashlib.sha256(payload).hexdigest()
+
+
+__all__ = (
+    "CleanupBenchmarkRunUseCase",
+    "RegisterBenchmarkRunUseCase",
+    "SealProjectionManifestUseCase",
+    "validate_projection_manifest",
+)

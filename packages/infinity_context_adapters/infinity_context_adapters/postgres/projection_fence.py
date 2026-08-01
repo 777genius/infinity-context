@@ -10,7 +10,7 @@ from infinity_context_core.ports.projection_fence import (
     ProjectionFencePermit,
     ProjectionFencePort,
 )
-from sqlalchemy import Select, select
+from sqlalchemy import Select, and_, select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from infinity_context_adapters.postgres.models import MemoryComparisonBenchmarkRunRow
@@ -32,11 +32,11 @@ class PostgresProjectionFence(ProjectionFencePort):
 
     @asynccontextmanager
     async def hold(self, space_id: str) -> AsyncIterator[ProjectionFencePermit]:
-        state = await self._read_state(space_id)
-        if state is None:
+        authorized = await self._read_authorization(space_id)
+        if authorized is None:
             yield ProjectionFencePermit(allow_upsert=True)
             return
-        if state != "active":
+        if authorized is not True:
             yield ProjectionFencePermit(allow_upsert=False)
             return
 
@@ -46,8 +46,8 @@ class PostgresProjectionFence(ProjectionFencePort):
             session = self._session_factory()
             try:
                 async with session.begin():
-                    locked_state = await session.scalar(_projection_fence_query(space_id))
-                    if locked_state == "active":
+                    locked_authorized = await session.scalar(_projection_fence_query(space_id))
+                    if locked_authorized is True:
                         yield ProjectionFencePermit(allow_upsert=True)
                         return
             finally:
@@ -55,7 +55,7 @@ class PostgresProjectionFence(ProjectionFencePort):
 
         yield ProjectionFencePermit(allow_upsert=False)
 
-    async def _read_state(self, space_id: str) -> str | None:
+    async def _read_authorization(self, space_id: str) -> bool | None:
         session = self._session_factory()
         try:
             async with session.begin():
@@ -64,18 +64,17 @@ class PostgresProjectionFence(ProjectionFencePort):
             await session.close()
 
 
-def _projection_state_query(space_id: str) -> Select[tuple[str]]:
-    return select(MemoryComparisonBenchmarkRunRow.state).where(
-        MemoryComparisonBenchmarkRunRow.space_id == space_id
-    )
+def _projection_state_query(space_id: str) -> Select[tuple[bool]]:
+    return select(
+        and_(
+            MemoryComparisonBenchmarkRunRow.state == "active",
+            MemoryComparisonBenchmarkRunRow.projection_cleanup_state == "unsealed",
+        )
+    ).where(MemoryComparisonBenchmarkRunRow.space_id == space_id)
 
 
-def _projection_fence_query(space_id: str) -> Select[tuple[str]]:
-    return (
-        select(MemoryComparisonBenchmarkRunRow.state)
-        .where(MemoryComparisonBenchmarkRunRow.space_id == space_id)
-        .with_for_update(read=True)
-    )
+def _projection_fence_query(space_id: str) -> Select[tuple[bool]]:
+    return _projection_state_query(space_id).with_for_update(read=True)
 
 
 __all__ = ("PostgresProjectionFence",)

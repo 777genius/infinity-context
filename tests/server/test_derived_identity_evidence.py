@@ -45,7 +45,7 @@ class _Readiness:
         self.calls.append((scope, chunk_ids, fact_ids))
         return ProjectionOutboxCompletion(chunk_ids, fact_ids, len(chunk_ids) + len(fact_ids))
 
-    async def prove_delete_ready(self, *, scope, chunk_ids, fact_ids):
+    async def prove_delete_ready(self, *, scope, chunk_ids, fact_ids, lane):
         self.calls.append((scope, chunk_ids, fact_ids))
         return ProjectionOutboxCompletion(chunk_ids, fact_ids, len(chunk_ids) + len(fact_ids))
 
@@ -323,6 +323,8 @@ def test_delete_readiness_accepts_deleted_rows_only_after_done_delete_event() ->
         payload_json={"chunk_ids": ["chunk-1"]},
     )
 
+    with pytest.raises(MemoryConflictError, match="terminal projection event is missing"):
+        _prove_delete_event_completion(("chunk-1",), [row], [upsert], [])
     assert _prove_delete_event_completion(("chunk-1",), [row], [upsert], [delete]) == ("chunk-1",)
     delete.status = "dead"
     with pytest.raises(MemoryConflictError, match="not terminal"):

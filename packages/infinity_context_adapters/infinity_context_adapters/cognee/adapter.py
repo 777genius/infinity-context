@@ -57,14 +57,16 @@ class CogneeMemoryAdapter:
             )
         client = await self._client_or_none()
         if client is not None:
+            supports_recall = callable(getattr(client, "recall", None))
             return AdapterCapabilities(
                 name="cognee",
                 enabled=True,
-                healthy=True,
-                supports_upsert=True,
+                healthy=supports_recall,
+                supports_upsert=False,
                 supports_delete=False,
-                supports_search=True,
-                supports_filters=True,
+                supports_search=supports_recall,
+                supports_filters=False,
+                degraded_reason=None if supports_recall else "cognee_recall_unavailable",
             )
         return AdapterCapabilities(
             name="cognee",
@@ -74,24 +76,30 @@ class CogneeMemoryAdapter:
             supports_delete=False,
             supports_search=False,
             supports_filters=False,
-            degraded_reason=(
-                "cognee_sdk_missing" if self._configured else "cognee_not_configured"
-            ),
+            degraded_reason=("cognee_sdk_missing" if self._configured else "cognee_not_configured"),
         )
 
     async def capability_descriptors(self) -> tuple[CapabilityDescriptor, ...]:
         capabilities = await self.capabilities()
         return (
-            _descriptor(capabilities, MemoryCapability.DOCUMENT_MEMORY),
-            _descriptor(capabilities, MemoryCapability.RAG_RECALL),
+            _document_memory_descriptor(capabilities),
+            _rag_recall_descriptor(capabilities),
         )
 
     async def health(self) -> EngineHealthSnapshot:
         descriptors = await self.capability_descriptors()
-        status = (
-            CapabilityStatus.OK
-            if any(descriptor.status == CapabilityStatus.OK for descriptor in descriptors)
-            else descriptors[0].status
+        status = next(
+            (
+                candidate
+                for candidate in (
+                    CapabilityStatus.OK,
+                    CapabilityStatus.DEGRADED,
+                    CapabilityStatus.UNAVAILABLE,
+                    CapabilityStatus.DISABLED,
+                )
+                if any(descriptor.status == candidate for descriptor in descriptors)
+            ),
+            CapabilityStatus.DISABLED,
         )
         return EngineHealthSnapshot(
             adapter_name="cognee",
@@ -103,41 +111,33 @@ class CogneeMemoryAdapter:
         client = await self._client_or_none()
         if client is None:
             return self._disabled_write_result()
-        remember = getattr(client, "remember", None)
-        if remember is None:
-            return ProjectionWriteResult(
-                status=CapabilityStatus.DEGRADED,
-                affected_ids=(),
-                diagnostics=(_diagnostic("cognee.missing_remember"),),
-            )
-        dataset_name = self._dataset_name(command.space_id, command.memory_scope_id)
-        try:
-            await remember(
-                f"{command.title}\n\n{command.text}",
-                dataset_name=dataset_name,
-                node_set=list(command.chunk_ids or (command.document_id,)),
-                self_improvement=True,
-                run_in_background=False,
-            )
-        except Exception:
-            return ProjectionWriteResult(
-                status=CapabilityStatus.DEGRADED,
-                affected_ids=(),
-                diagnostics=(_diagnostic("cognee.remember_failed", retryable=True),),
-            )
         return ProjectionWriteResult(
-            status=CapabilityStatus.OK,
-            affected_ids=(command.document_id,),
+            status=CapabilityStatus.DISABLED,
+            affected_ids=(),
+            diagnostics=(_document_memory_disabled_diagnostic(),),
         )
 
     async def forget_document(
         self,
         _command: ProjectionForgetRequest,
     ) -> ProjectionForgetResult:
+        if not self._enabled:
+            return ProjectionForgetResult(
+                status=CapabilityStatus.DISABLED,
+                forgotten_ids=(),
+                diagnostics=(_disabled_diagnostic(),),
+            )
+        client = await self._client_or_none()
+        if client is None:
+            return ProjectionForgetResult(
+                status=CapabilityStatus.DEGRADED,
+                forgotten_ids=(),
+                diagnostics=(_diagnostic("cognee.runtime_unavailable", retryable=True),),
+            )
         return ProjectionForgetResult(
-            status=CapabilityStatus.DISABLED,
+            status=CapabilityStatus.DEGRADED,
             forgotten_ids=(),
-            diagnostics=(_disabled_diagnostic(),),
+            diagnostics=(_document_memory_disabled_diagnostic(),),
         )
 
     async def recall(self, _query: CapabilityRecallQuery) -> CapabilityRecallResult:
@@ -184,9 +184,11 @@ class CogneeMemoryAdapter:
         )
 
     async def _client_or_none(self) -> object | None:
+        if not self._enabled:
+            return None
         if self._client is not None:
             return self._client
-        if not self._enabled or not self._configured:
+        if not self._configured:
             return None
         try:
             import cognee
@@ -212,21 +214,46 @@ class CogneeMemoryAdapter:
         )
 
 
-def _descriptor(
+def _document_memory_descriptor(
     capabilities: AdapterCapabilities,
-    capability: MemoryCapability,
 ) -> CapabilityDescriptor:
-    status = CapabilityStatus.OK if capabilities.enabled else CapabilityStatus.DISABLED
     return CapabilityDescriptor(
-        capability=capability,
+        capability=MemoryCapability.DOCUMENT_MEMORY,
         adapter_name="cognee",
-        mode=CapabilityMode.PRIMARY if capabilities.enabled else CapabilityMode.DISABLED,
+        mode=CapabilityMode.DISABLED,
+        status=CapabilityStatus.DISABLED,
+        enabled=False,
+        supports_scope_filter=False,
+        supports_source_refs=False,
+        supports_update=False,
+        supports_delete=False,
+        degraded_reason=(
+            capabilities.degraded_reason
+            if not capabilities.enabled
+            else "cognee_exact_delete_readback_unavailable"
+        ),
+    )
+
+
+def _rag_recall_descriptor(capabilities: AdapterCapabilities) -> CapabilityDescriptor:
+    if not capabilities.enabled:
+        status = CapabilityStatus.DISABLED
+        mode = CapabilityMode.DISABLED
+        enabled = False
+    else:
+        status = CapabilityStatus.OK if capabilities.supports_search else CapabilityStatus.DEGRADED
+        mode = CapabilityMode.PRIMARY
+        enabled = True
+    return CapabilityDescriptor(
+        capability=MemoryCapability.RAG_RECALL,
+        adapter_name="cognee",
+        mode=mode,
         status=status,
-        enabled=capabilities.enabled,
+        enabled=enabled,
         supports_scope_filter=capabilities.supports_filters,
-        supports_source_refs=capabilities.enabled,
-        supports_update=capabilities.supports_upsert,
-        supports_delete=capabilities.supports_delete,
+        supports_source_refs=capabilities.supports_search,
+        supports_update=False,
+        supports_delete=False,
         degraded_reason=capabilities.degraded_reason,
     )
 
@@ -325,5 +352,13 @@ def _disabled_diagnostic() -> CapabilityDiagnostic:
     return CapabilityDiagnostic(
         code="cognee.disabled",
         safe_message="Cognee memory adapter is disabled",
+        retryable=False,
+    )
+
+
+def _document_memory_disabled_diagnostic() -> CapabilityDiagnostic:
+    return CapabilityDiagnostic(
+        code="cognee.exact_delete_readback_unavailable",
+        safe_message="Cognee document memory lifecycle is unavailable",
         retryable=False,
     )

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from typing import Literal
 
 from infinity_context_core.ports.benchmark_runs import (
     BenchmarkCleanupReceipt,
@@ -26,6 +27,19 @@ class RegisterBenchmarkRunResult:
 
 
 @dataclass(frozen=True, slots=True)
+class SealProjectionManifestCommand:
+    run_id_sha256: str
+    projection_manifest_json: dict[str, object]
+    projection_manifest_sha256: str
+
+
+@dataclass(frozen=True, slots=True)
+class SealProjectionManifestResult:
+    record: BenchmarkRunRegistryRecord
+    replayed: bool
+
+
+@dataclass(frozen=True, slots=True)
 class CleanupBenchmarkRunCommand:
     run_id_sha256: str
     binding_commitment_sha256: str
@@ -38,6 +52,7 @@ class CleanupBenchmarkRunCommand:
 @dataclass(frozen=True, slots=True)
 class CleanupBenchmarkRunResult:
     receipt: BenchmarkCleanupReceipt
+    projection_cleanup_state: Literal["pending", "blocked"]
     replayed: bool
 
 
@@ -46,4 +61,6 @@ __all__ = (
     "CleanupBenchmarkRunResult",
     "RegisterBenchmarkRunCommand",
     "RegisterBenchmarkRunResult",
+    "SealProjectionManifestCommand",
+    "SealProjectionManifestResult",
 )

@@ -23,6 +23,9 @@ from infinity_context_adapters.postgres.asset_repositories import (
     PostgresContextLinkRepository,
     PostgresContextLinkSuggestionRepository,
 )
+from infinity_context_adapters.postgres.benchmark_projection_schema import (
+    ensure_benchmark_projection_manifest_schema,
+)
 from infinity_context_adapters.postgres.benchmark_run_repositories import (
     PostgresBenchmarkRunRepository,
 )
@@ -549,6 +552,7 @@ async def create_schema(engine: AsyncEngine) -> None:
     async with engine.begin() as connection:
         await connection.run_sync(_ensure_legacy_profile_schema)
         await connection.run_sync(Base.metadata.create_all)
+        await connection.run_sync(ensure_benchmark_projection_manifest_schema)
         await connection.run_sync(_ensure_additive_schema_columns)
         await connection.run_sync(_ensure_document_thread_unique_indexes)
         await connection.run_sync(_ensure_outbox_lifecycle_indexes)

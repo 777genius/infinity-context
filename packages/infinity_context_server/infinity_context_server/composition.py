@@ -101,6 +101,7 @@ from infinity_context_core.application import (
     RunAssetExtractionUseCase,
     RunBlobStorageCleanupUseCase,
     RunBlobStorageIntegrityAuditUseCase,
+    SealProjectionManifestUseCase,
     SplitAnchorUseCase,
     SuggestAnchorMergesUseCase,
     SuggestContextLinksUseCase,
@@ -178,6 +179,7 @@ class Container:
     get_capabilities: GetCapabilitiesUseCase
     create_space: CreateSpaceUseCase
     register_benchmark_run: RegisterBenchmarkRunUseCase
+    seal_projection_manifest: SealProjectionManifestUseCase
     cleanup_benchmark_run: CleanupBenchmarkRunUseCase
     list_spaces: ListSpacesUseCase
     create_memory_scope: CreateMemoryScopeUseCase
@@ -341,6 +343,7 @@ def build_container(settings: Settings | None = None) -> Container:
         deploy_profile=resolved_settings.deploy_profile.value,
         policy_mode=resolved_settings.policy_mode.value,
         adapters=adapters,
+        capability_descriptor_providers=(cognee,),
         supported_policy_modes=SUPPORTED_POLICY_MODES,
         limits={
             "max_context_tokens": resolved_settings.max_context_tokens,
@@ -362,12 +365,9 @@ def build_container(settings: Settings | None = None) -> Container:
         },
     )
     create_space = CreateSpaceUseCase(uow_factory=uow_factory, clock=clock, ids=ids)
-    register_benchmark_run = RegisterBenchmarkRunUseCase(
-        uow_factory=uow_factory, clock=clock
-    )
-    cleanup_benchmark_run = CleanupBenchmarkRunUseCase(
-        uow_factory=uow_factory, clock=clock
-    )
+    register_benchmark_run = RegisterBenchmarkRunUseCase(uow_factory=uow_factory, clock=clock)
+    seal_projection_manifest = SealProjectionManifestUseCase(uow_factory=uow_factory, clock=clock)
+    cleanup_benchmark_run = CleanupBenchmarkRunUseCase(uow_factory=uow_factory, clock=clock)
     list_spaces = ListSpacesUseCase(uow_factory=uow_factory)
     create_memory_scope = CreateMemoryScopeUseCase(uow_factory=uow_factory, clock=clock, ids=ids)
     list_memory_scopes = ListMemoryScopesUseCase(uow_factory=uow_factory)
@@ -463,9 +463,7 @@ def build_container(settings: Settings | None = None) -> Container:
         max_archive_single_entry_bytes=(
             resolved_settings.extraction_max_archive_single_entry_bytes
         ),
-        max_archive_compression_ratio=(
-            resolved_settings.extraction_max_archive_compression_ratio
-        ),
+        max_archive_compression_ratio=(resolved_settings.extraction_max_archive_compression_ratio),
         enable_ocr=resolved_settings.extraction_ocr_enabled,
         enable_external_ai=resolved_settings.extraction_external_ai_enabled,
     )
@@ -655,6 +653,7 @@ def build_container(settings: Settings | None = None) -> Container:
         get_capabilities=get_capabilities,
         create_space=create_space,
         register_benchmark_run=register_benchmark_run,
+        seal_projection_manifest=seal_projection_manifest,
         cleanup_benchmark_run=cleanup_benchmark_run,
         list_spaces=list_spaces,
         create_memory_scope=create_memory_scope,

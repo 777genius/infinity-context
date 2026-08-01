@@ -155,6 +155,7 @@ def _graphiti_delete_data() -> dict[str, object]:
         "manifest_binding_sha256": _GRAPHITI_BINDING,
         "verified_absent": True,
         "bound_expected": expected,
+        "delete_expected": expected,
         "passes": [
             {
                 "pass_index": 1,
@@ -308,6 +309,7 @@ def test_graphiti_external_delete_replay_accepts_original_bound_expected() -> No
         data = _graphiti_delete_data()
         if call_count == 1:
             empty = _snapshot_json(ManagedGraphitiIdentitySnapshot((), (), (), ()))
+            data["delete_expected"] = empty
             data["passes"][0]["before"] = empty  # type: ignore[index]
             data["passes"][0]["deleted"] = empty  # type: ignore[index]
         call_count += 1
@@ -330,6 +332,43 @@ def test_graphiti_external_delete_replay_accepts_original_bound_expected() -> No
     assert replay.manifest_binding_sha256 == _GRAPHITI_BINDING
     assert len(transports) == 2
     assert all(item.closed for item in transports)
+
+
+def test_qdrant_delete_rejects_nonempty_second_pass_present_before() -> None:
+    data = _qdrant_delete_data()
+    data["passes"][1]["present_before"] = [  # type: ignore[index]
+        {"chunk_id": "chunk-1", "point_id": "point-1"}
+    ]
+
+    client, _ = _client(lambda _: httpx.Response(200, json={"data": data}))
+    with pytest.raises(
+        ManagedDerivedEvidenceHttpError,
+        match="^managed_derived_evidence_qdrant_delete_invalid$",
+    ):
+        client.delete_qdrant(
+            scope=_scope(),
+            manifest=_manifest(),
+            target_commitment_sha256=_QDRANT_TARGET,
+            manifest_binding_sha256=_QDRANT_BINDING,
+        )
+
+
+def test_graphiti_delete_rejects_delete_expected_drift() -> None:
+    data = _graphiti_delete_data()
+    data["delete_expected"] = _snapshot_json(ManagedGraphitiIdentitySnapshot((), (), (), ()))
+
+    client, _ = _client(lambda _: httpx.Response(200, json={"data": data}))
+    with pytest.raises(
+        ManagedDerivedEvidenceHttpError,
+        match="^managed_derived_evidence_graphiti_delete_invalid$",
+    ):
+        client.delete_graphiti(
+            scope=_scope(),
+            manifest=_manifest(),
+            identity_manifest=_graph_manifest(),
+            target_commitment_sha256=_GRAPHITI_TARGET,
+            manifest_binding_sha256=_GRAPHITI_BINDING,
+        )
 
 
 @pytest.mark.parametrize("lane", ("qdrant", "graphiti"))
@@ -443,9 +482,7 @@ def test_manifest_binding_includes_every_canonical_scope_component() -> None:
 
 
 def test_reused_custom_transport_is_rejected_before_second_request() -> None:
-    transport = _TrackingTransport(
-        lambda _: httpx.Response(200, json={"data": _presence_data()})
-    )
+    transport = _TrackingTransport(lambda _: httpx.Response(200, json={"data": _presence_data()}))
     config = ManagedInfinityHttpConfig(
         target_identity_sha256=_LIFECYCLE_TARGET,
         base_url=_BASE_URL,

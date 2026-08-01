@@ -78,3 +78,20 @@ def test_vector_projection_evidence_rejects_unbound_or_inexact_claims() -> None:
     )
 
     assert incomplete.complete is False
+
+
+def test_vector_projection_evidence_rejects_reappearance_on_second_pass() -> None:
+    point = VectorProjectionPointIdentity("chunk_1", "point_1")
+
+    with pytest.raises(ValueError, match="second delete pass"):
+        VectorProjectionDeleteEvidence(
+            scope=_scope(),
+            target_commitment_sha256="0" * 64,
+            pass_index=2,
+            expected=(point,),
+            present_before=(point,),
+            remaining=(),
+            scoped_point_ids_after=(),
+            exact_scoped_count_after=0,
+            delete_completed=True,
+        )

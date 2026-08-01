@@ -84,12 +84,44 @@ class PostgresBenchmarkRunRepository:
                 idempotency_key_sha256=record.idempotency_key_sha256,
                 registration_fingerprint_sha256=record.registration_fingerprint_sha256,
                 state=record.state,
+                projection_manifest_json=None,
+                projection_manifest_sha256=None,
+                projection_cleanup_state="unsealed",
                 cleanup_fingerprint_sha256=None,
                 cleanup_receipt_json=None,
                 created_at=record.created_at,
                 updated_at=record.updated_at,
             )
         )
+
+    async def seal_projection_manifest(
+        self,
+        record: BenchmarkRunRegistryRecord,
+        *,
+        projection_manifest_json: dict[str, object],
+        projection_manifest_sha256: str,
+        now: datetime,
+    ) -> BenchmarkRunRegistryRecord:
+        row = await self._session.get(MemoryComparisonBenchmarkRunRow, record.run_id_sha256)
+        if (
+            row is None
+            or row.state != "active"
+            or row.projection_cleanup_state != "unsealed"
+            or row.projection_manifest_json is not None
+            or row.projection_manifest_sha256 is not None
+        ):
+            raise MemoryConflictError("Projection manifest registry lock was lost")
+        await _require_projection_manifest_inventory(
+            self._session,
+            space_id=record.space_id,
+            manifest=projection_manifest_json,
+        )
+        row.projection_manifest_json = projection_manifest_json
+        row.projection_manifest_sha256 = projection_manifest_sha256
+        row.projection_cleanup_state = "sealed"
+        row.updated_at = now
+        await self._session.flush()
+        return _to_record(row)
 
     async def begin_cleanup(
         self,
@@ -101,6 +133,9 @@ class PostgresBenchmarkRunRepository:
         row = await self._session.get(MemoryComparisonBenchmarkRunRow, record.run_id_sha256)
         if row is None or row.state != "active" or row.cleanup_receipt_json is not None:
             raise MemoryConflictError("Benchmark cleanup registry lock was lost")
+        if row.projection_cleanup_state not in {"unsealed", "sealed"}:
+            raise MemoryConflictError("Benchmark projection cleanup state conflicted")
+        projection_cleanup = "pending" if row.projection_cleanup_state == "sealed" else "blocked"
         space = (
             await self._session.execute(
                 select(MemorySpaceRow).where(MemorySpaceRow.id == record.space_id).with_for_update()
@@ -151,14 +186,6 @@ class PostgresBenchmarkRunRepository:
             )
             obsolete_jobs = int(result.rowcount or 0)
 
-        await self._soft_delete(MemoryFactRow, record.space_id, now=now)
-        await self._soft_delete(MemoryDocumentRow, record.space_id, now=now)
-        await self._soft_delete(MemoryChunkRow, record.space_id, now=now)
-        await self._soft_delete(MemoryEpisodeRow, record.space_id, now=now)
-        await self._soft_delete(MemoryThreadRow, record.space_id, now=now)
-        await self._soft_delete(MemoryScopeRow, record.space_id, now=now)
-        await self._soft_delete(MemorySpaceRow, record.space_id, now=now)
-
         vector_jobs: list[MemoryOutboxRow] = []
         if chunk_ids:
             vector_jobs.append(
@@ -174,20 +201,24 @@ class PostgresBenchmarkRunRepository:
                     now=now,
                 )
             )
-        graph_jobs = [
-            _outbox_row(
-                event_type="graph.delete_fact",
-                aggregate_type="benchmark_run",
-                aggregate_id=fact_id,
-                payload={
-                    "fact_id": fact_id,
-                    "space_id": record.space_id,
-                    "cleanup_run_id_sha256": record.run_id_sha256,
-                },
-                now=now,
-            )
-            for fact_id in fact_ids
-        ]
+        graph_jobs: list[MemoryOutboxRow] = []
+        if record.projection_manifest_json is None:
+            graph_jobs = [
+                _outbox_row(
+                    event_type="graph.delete_fact",
+                    aggregate_type="benchmark_run",
+                    aggregate_id=fact_id,
+                    payload={
+                        "fact_id": fact_id,
+                        "space_id": record.space_id,
+                        "cleanup_run_id_sha256": record.run_id_sha256,
+                    },
+                    now=now,
+                )
+                for fact_id in fact_ids
+            ]
+        # A caller-provided not_projected disposition is not yet a server-owned
+        # proof that rolling or legacy Cognee writes never completed.
         cognee_jobs = [
             _outbox_row(
                 event_type="cognee.forget_document",
@@ -224,7 +255,7 @@ class PostgresBenchmarkRunRepository:
             "space_id": record.space_id,
             "space_slug": record.space_slug,
             "disposition": "cleanup_pending",
-            "projection_cleanup": "pending",
+            "projection_cleanup": projection_cleanup,
             "counts": _counts_json(counts),
             "vector_delete_outbox_ids": [job.id for job in vector_jobs],
             "graph_delete_outbox_ids": [job.id for job in graph_jobs],
@@ -235,7 +266,7 @@ class PostgresBenchmarkRunRepository:
             space_id=record.space_id,
             space_slug=record.space_slug,
             disposition="cleanup_pending",
-            projection_cleanup="pending",
+            projection_cleanup=projection_cleanup,
             counts=counts,
             vector_delete_outbox_ids=tuple(job.id for job in vector_jobs),
             graph_delete_outbox_ids=tuple(job.id for job in graph_jobs),
@@ -243,10 +274,20 @@ class PostgresBenchmarkRunRepository:
             receipt_sha256=_json_sha256(receipt_without_hash),
         )
         row.state = "cleanup_pending"
+        row.projection_cleanup_state = projection_cleanup
         row.cleanup_fingerprint_sha256 = cleanup_fingerprint_sha256
         row.cleanup_receipt_json = _receipt_json(receipt)
         row.updated_at = now
         await self._session.flush()
+
+        await self._soft_delete(MemoryFactRow, record.space_id, now=now)
+        await self._soft_delete(MemoryDocumentRow, record.space_id, now=now)
+        await self._soft_delete(MemoryChunkRow, record.space_id, now=now)
+        await self._soft_delete(MemoryEpisodeRow, record.space_id, now=now)
+        await self._soft_delete(MemoryThreadRow, record.space_id, now=now)
+        await self._soft_delete(MemoryScopeRow, record.space_id, now=now)
+        await self._soft_delete(MemorySpaceRow, record.space_id, now=now)
+
         return _to_record(row)
 
     async def _ids(self, model: type, space_id: str) -> tuple[str, ...]:
@@ -282,6 +323,91 @@ def _registry_query(run_id_sha256: str, *, for_update: bool):
         MemoryComparisonBenchmarkRunRow.run_id_sha256 == run_id_sha256
     )
     return query.with_for_update() if for_update else query
+
+
+async def _require_projection_manifest_inventory(
+    session: AsyncSession,
+    *,
+    space_id: str,
+    manifest: dict[str, object],
+) -> None:
+    scopes = manifest.get("scopes")
+    if type(scopes) is not list:
+        raise MemoryConflictError("Projection manifest canonical inventory differs")
+
+    expected: dict[type, set[tuple[str, str, str | None]]] = {
+        MemoryChunkRow: set(),
+        MemoryFactRow: set(),
+        MemoryDocumentRow: set(),
+    }
+    field_by_model = {
+        MemoryChunkRow: "chunk_ids",
+        MemoryFactRow: "fact_ids",
+        MemoryDocumentRow: "document_ids",
+    }
+    manifest_scopes: set[tuple[str, str | None]] = set()
+    for scope in scopes:
+        if type(scope) is not dict:
+            raise MemoryConflictError("Projection manifest canonical inventory differs")
+        memory_scope_id = str(scope.get("memory_scope_id"))
+        raw_thread_id = scope.get("thread_id")
+        thread_id = str(raw_thread_id) if raw_thread_id is not None else None
+        manifest_scopes.add((memory_scope_id, thread_id))
+        for model, field_name in field_by_model.items():
+            identities = scope.get(field_name)
+            if type(identities) is not list:
+                raise MemoryConflictError("Projection manifest canonical inventory differs")
+            expected[model].update(
+                (str(identity), memory_scope_id, thread_id) for identity in identities
+            )
+
+    active_scope_ids = set(
+        str(value)
+        for value in (
+            await session.execute(
+                select(MemoryScopeRow.id).where(
+                    MemoryScopeRow.space_id == space_id,
+                    MemoryScopeRow.status == "active",
+                )
+            )
+        ).scalars()
+    )
+    active_threads = set(
+        (str(memory_scope_id), str(thread_id))
+        for memory_scope_id, thread_id in (
+            await session.execute(
+                select(MemoryThreadRow.memory_scope_id, MemoryThreadRow.id).where(
+                    MemoryThreadRow.space_id == space_id,
+                    MemoryThreadRow.status == "active",
+                )
+            )
+        ).all()
+    )
+    if any(
+        memory_scope_id not in active_scope_ids
+        or (thread_id is not None and (memory_scope_id, thread_id) not in active_threads)
+        for memory_scope_id, thread_id in manifest_scopes
+    ):
+        raise MemoryConflictError("Projection manifest canonical inventory differs")
+
+    for model, expected_rows in expected.items():
+        actual_rows = set(
+            (
+                str(identity),
+                str(memory_scope_id),
+                str(thread_id) if thread_id is not None else None,
+            )
+            for identity, memory_scope_id, thread_id in (
+                await session.execute(
+                    select(model.id, model.memory_scope_id, model.thread_id).where(
+                        model.space_id == space_id,
+                        model.status == "active",
+                    )
+                )
+            ).all()
+        )
+        if actual_rows != expected_rows:
+            raise MemoryConflictError("Projection manifest canonical inventory differs")
 
 
 def _outbox_row(
@@ -326,6 +452,28 @@ def _to_record(row: MemoryComparisonBenchmarkRunRow) -> BenchmarkRunRegistryReco
         raise RuntimeError("benchmark_run_registry_invalid")
     if row.state not in {"active", "cleanup_pending"}:
         raise RuntimeError("benchmark_run_registry_invalid")
+    manifest = row.projection_manifest_json
+    manifest_sha256 = row.projection_manifest_sha256
+    if (manifest is None) != (manifest_sha256 is None):
+        raise RuntimeError("benchmark_run_registry_invalid")
+    if manifest is not None and (
+        type(manifest) is not dict
+        or not _valid_digest(manifest_sha256)
+        or not hmac.compare_digest(str(manifest_sha256), _json_sha256(manifest))
+        or manifest.get("run_id_sha256") != row.run_id_sha256
+        or manifest.get("binding_commitment_sha256") != row.binding_commitment_sha256
+        or manifest.get("infinity_target_identity_sha256") != row.infinity_target_identity_sha256
+        or manifest.get("space_id") != row.space_id
+    ):
+        raise RuntimeError("benchmark_projection_manifest_invalid")
+    lifecycle = (row.state, row.projection_cleanup_state, manifest is not None)
+    if lifecycle not in {
+        ("active", "unsealed", False),
+        ("active", "sealed", True),
+        ("cleanup_pending", "blocked", False),
+        ("cleanup_pending", "pending", True),
+    }:
+        raise RuntimeError("benchmark_run_registry_invalid")
     receipt = (
         _receipt_from_json(row.cleanup_receipt_json)
         if row.cleanup_receipt_json is not None
@@ -352,6 +500,9 @@ def _to_record(row: MemoryComparisonBenchmarkRunRow) -> BenchmarkRunRegistryReco
         idempotency_key_sha256=row.idempotency_key_sha256,
         registration_fingerprint_sha256=row.registration_fingerprint_sha256,
         state=row.state,
+        projection_manifest_json=manifest,
+        projection_manifest_sha256=manifest_sha256,
+        projection_cleanup_state=row.projection_cleanup_state,
         cleanup_fingerprint_sha256=row.cleanup_fingerprint_sha256,
         cleanup_receipt=receipt,
         created_at=row.created_at,
@@ -442,7 +593,7 @@ def _receipt_from_json(value: dict[str, object]) -> BenchmarkCleanupReceipt:
         or type(value["space_slug"]) is not str
         or not value["space_slug"]
         or value["disposition"] != "cleanup_pending"
-        or value["projection_cleanup"] != "pending"
+        or value["projection_cleanup"] not in {"pending", "blocked"}
         or not _valid_digest(value["receipt_sha256"])
     ):
         raise RuntimeError("benchmark_cleanup_receipt_invalid")
@@ -461,7 +612,7 @@ def _receipt_from_json(value: dict[str, object]) -> BenchmarkCleanupReceipt:
         space_id=value["space_id"],
         space_slug=value["space_slug"],
         disposition="cleanup_pending",
-        projection_cleanup="pending",
+        projection_cleanup=value["projection_cleanup"],
         counts=counts,
         vector_delete_outbox_ids=tuple(value["vector_delete_outbox_ids"]),
         graph_delete_outbox_ids=tuple(value["graph_delete_outbox_ids"]),

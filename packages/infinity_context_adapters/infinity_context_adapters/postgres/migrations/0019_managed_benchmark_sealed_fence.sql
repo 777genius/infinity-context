@@ -1,22 +1,4 @@
-"""Postgres DDL for the managed benchmark canonical writer fence."""
-
-from __future__ import annotations
-
-BENCHMARK_WRITER_FENCE_SQLSTATE = "23514"
-BENCHMARK_WRITER_FENCE_CONSTRAINT = "ck_memory_comparison_benchmark_run_writer_fence"
-BENCHMARK_WRITER_FENCE_FUNCTION = "memory_comparison_enforce_benchmark_writer_fence"
-BENCHMARK_WRITER_FENCE_TABLES = (
-    ("memory_spaces", "id, status"),
-    ("memory_scopes", "space_id, status"),
-    ("memory_threads", "space_id, status"),
-    ("memory_facts", "space_id, status"),
-    ("memory_episodes", "space_id, status"),
-    ("memory_documents", "space_id, status"),
-    ("memory_chunks", "space_id, status"),
-)
-
-BENCHMARK_WRITER_FENCE_FUNCTION_SQL = f"""
-CREATE OR REPLACE FUNCTION {BENCHMARK_WRITER_FENCE_FUNCTION}()
+CREATE OR REPLACE FUNCTION memory_comparison_enforce_benchmark_writer_fence()
 RETURNS TRIGGER
 LANGUAGE plpgsql
 AS $$
@@ -51,8 +33,8 @@ BEGIN
         ) THEN
             RAISE EXCEPTION 'benchmark canonical space identity is immutable'
                 USING
-                    ERRCODE = '{BENCHMARK_WRITER_FENCE_SQLSTATE}',
-                    CONSTRAINT = '{BENCHMARK_WRITER_FENCE_CONSTRAINT}';
+                    ERRCODE = '23514',
+                    CONSTRAINT = 'ck_memory_comparison_benchmark_run_writer_fence';
         END IF;
     END IF;
 
@@ -67,8 +49,8 @@ BEGIN
         WHEN lock_not_available THEN
             RAISE EXCEPTION 'benchmark canonical writer fence rejected data mutation'
                 USING
-                    ERRCODE = '{BENCHMARK_WRITER_FENCE_SQLSTATE}',
-                    CONSTRAINT = '{BENCHMARK_WRITER_FENCE_CONSTRAINT}';
+                    ERRCODE = '23514',
+                    CONSTRAINT = 'ck_memory_comparison_benchmark_run_writer_fence';
     END;
 
     IF registry_state IS NULL THEN
@@ -101,39 +83,49 @@ BEGIN
 
     RAISE EXCEPTION 'benchmark canonical writer fence rejected data mutation'
         USING
-            ERRCODE = '{BENCHMARK_WRITER_FENCE_SQLSTATE}',
-            CONSTRAINT = '{BENCHMARK_WRITER_FENCE_CONSTRAINT}';
+            ERRCODE = '23514',
+            CONSTRAINT = 'ck_memory_comparison_benchmark_run_writer_fence';
 END;
-$$
-""".strip()
+$$;
 
+DROP TRIGGER IF EXISTS trg_memory_spaces_benchmark_writer_fence ON memory_spaces;
+CREATE TRIGGER trg_memory_spaces_benchmark_writer_fence
+BEFORE INSERT OR UPDATE OR DELETE ON memory_spaces
+FOR EACH ROW
+EXECUTE FUNCTION memory_comparison_enforce_benchmark_writer_fence();
 
-def _trigger_statements(table: str, _update_columns: str) -> tuple[str, str]:
-    trigger_name = f"trg_{table}_benchmark_writer_fence"
-    return (
-        f"DROP TRIGGER IF EXISTS {trigger_name} ON {table}",
-        f"""
-        CREATE TRIGGER {trigger_name}
-        BEFORE INSERT OR UPDATE OR DELETE ON {table}
-        FOR EACH ROW
-        EXECUTE FUNCTION {BENCHMARK_WRITER_FENCE_FUNCTION}()
-        """.strip(),
-    )
+DROP TRIGGER IF EXISTS trg_memory_scopes_benchmark_writer_fence ON memory_scopes;
+CREATE TRIGGER trg_memory_scopes_benchmark_writer_fence
+BEFORE INSERT OR UPDATE OR DELETE ON memory_scopes
+FOR EACH ROW
+EXECUTE FUNCTION memory_comparison_enforce_benchmark_writer_fence();
 
+DROP TRIGGER IF EXISTS trg_memory_threads_benchmark_writer_fence ON memory_threads;
+CREATE TRIGGER trg_memory_threads_benchmark_writer_fence
+BEFORE INSERT OR UPDATE OR DELETE ON memory_threads
+FOR EACH ROW
+EXECUTE FUNCTION memory_comparison_enforce_benchmark_writer_fence();
 
-BENCHMARK_WRITER_FENCE_STATEMENTS = (
-    BENCHMARK_WRITER_FENCE_FUNCTION_SQL,
-    *(
-        statement
-        for table, update_columns in BENCHMARK_WRITER_FENCE_TABLES
-        for statement in _trigger_statements(table, update_columns)
-    ),
-)
+DROP TRIGGER IF EXISTS trg_memory_facts_benchmark_writer_fence ON memory_facts;
+CREATE TRIGGER trg_memory_facts_benchmark_writer_fence
+BEFORE INSERT OR UPDATE OR DELETE ON memory_facts
+FOR EACH ROW
+EXECUTE FUNCTION memory_comparison_enforce_benchmark_writer_fence();
 
-__all__ = (
-    "BENCHMARK_WRITER_FENCE_CONSTRAINT",
-    "BENCHMARK_WRITER_FENCE_FUNCTION",
-    "BENCHMARK_WRITER_FENCE_SQLSTATE",
-    "BENCHMARK_WRITER_FENCE_STATEMENTS",
-    "BENCHMARK_WRITER_FENCE_TABLES",
-)
+DROP TRIGGER IF EXISTS trg_memory_episodes_benchmark_writer_fence ON memory_episodes;
+CREATE TRIGGER trg_memory_episodes_benchmark_writer_fence
+BEFORE INSERT OR UPDATE OR DELETE ON memory_episodes
+FOR EACH ROW
+EXECUTE FUNCTION memory_comparison_enforce_benchmark_writer_fence();
+
+DROP TRIGGER IF EXISTS trg_memory_documents_benchmark_writer_fence ON memory_documents;
+CREATE TRIGGER trg_memory_documents_benchmark_writer_fence
+BEFORE INSERT OR UPDATE OR DELETE ON memory_documents
+FOR EACH ROW
+EXECUTE FUNCTION memory_comparison_enforce_benchmark_writer_fence();
+
+DROP TRIGGER IF EXISTS trg_memory_chunks_benchmark_writer_fence ON memory_chunks;
+CREATE TRIGGER trg_memory_chunks_benchmark_writer_fence
+BEFORE INSERT OR UPDATE OR DELETE ON memory_chunks
+FOR EACH ROW
+EXECUTE FUNCTION memory_comparison_enforce_benchmark_writer_fence();

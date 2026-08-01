@@ -1,4 +1,7 @@
 import asyncio
+import hashlib
+import inspect
+import json
 from dataclasses import replace
 from datetime import UTC, datetime
 from pathlib import Path
@@ -6,6 +9,7 @@ from pathlib import Path
 import pytest
 from infinity_context_adapters.noop import SystemClock
 from infinity_context_adapters.postgres.benchmark_run_repositories import (
+    PostgresBenchmarkRunRepository,
     _json_sha256,
     _receipt_from_json,
     _registry_query,
@@ -30,10 +34,12 @@ from infinity_context_adapters.postgres.unit_of_work import (
 from infinity_context_core.application.dto_benchmark_runs import (
     CleanupBenchmarkRunCommand,
     RegisterBenchmarkRunCommand,
+    SealProjectionManifestCommand,
 )
 from infinity_context_core.application.use_cases.benchmark_runs import (
     CleanupBenchmarkRunUseCase,
     RegisterBenchmarkRunUseCase,
+    SealProjectionManifestUseCase,
 )
 from infinity_context_core.domain.errors import MemoryConflictError
 from sqlalchemy import func, select
@@ -48,6 +54,28 @@ SLUG = "memory-comparison-managed-run"
 NOW = datetime(2026, 1, 1, tzinfo=UTC)
 
 
+def test_cleanup_authorizes_registry_before_canonical_tombstones() -> None:
+    source = inspect.getsource(PostgresBenchmarkRunRepository.begin_cleanup)
+
+    obsolete_upserts = source.index("delete(MemoryOutboxRow)")
+    add_delete_jobs = source.index("self._session.add_all")
+    jobs_flush = source.index("await self._session.flush()", add_delete_jobs)
+    build_receipt = source.index("receipt = BenchmarkCleanupReceipt")
+    authorize_cleanup = source.index('row.state = "cleanup_pending"')
+    registry_flush = source.index("await self._session.flush()", authorize_cleanup)
+    first_tombstone = source.index("await self._soft_delete")
+
+    assert (
+        obsolete_upserts
+        < add_delete_jobs
+        < jobs_flush
+        < build_receipt
+        < authorize_cleanup
+        < registry_flush
+        < first_tombstone
+    )
+
+
 def test_cleanup_query_uses_postgres_row_lock() -> None:
     sql = str(_registry_query(RUN, for_update=True).compile(dialect=postgresql.dialect()))
     assert "FOR UPDATE" in sql
@@ -60,6 +88,29 @@ def test_registry_model_enforces_current_state_coupling() -> None:
     assert "cleaned" not in ddl
     assert "state = 'active' AND cleanup_fingerprint_sha256 IS NULL" in ddl
     assert "state = 'cleanup_pending' AND cleanup_fingerprint_sha256 IS NOT NULL" in ddl
+    assert "projection_cleanup_state = 'unsealed'" in ddl
+    assert "projection_cleanup_state = 'sealed'" in ddl
+    assert "projection_cleanup_state = 'blocked'" in ddl
+    assert "projection_cleanup_state = 'pending'" in ddl
+    assert "projection_manifest_json JSONB" in ddl
+    assert "projection_cleanup_state VARCHAR(40) DEFAULT 'unsealed' NOT NULL" in ddl
+    assert "verified_absent" not in ddl
+    assert "projection_terminal_receipt" not in ddl
+
+
+def test_projection_manifest_migration_preserves_truthful_lifecycle() -> None:
+    migration = Path(
+        "packages/infinity_context_adapters/infinity_context_adapters/postgres/migrations/"
+        "0018_benchmark_projection_manifest.sql"
+    ).read_text()
+    assert "WHEN state = 'cleanup_pending' THEN 'blocked'" in migration
+    assert "projection_cleanup_state = 'sealed'" in migration
+    assert "projection_manifest_json JSONB" in migration
+    assert "ALTER COLUMN projection_cleanup_state SET DEFAULT 'unsealed'" in migration
+    assert "projection_cleanup_state = 'pending'" in migration
+    assert "verified_absent" not in migration
+    assert "projection_terminal_receipt" not in migration
+    assert "VALIDATE CONSTRAINT" in migration
 
 
 def test_receipt_rejects_duplicate_ids_within_one_lane() -> None:
@@ -88,12 +139,44 @@ async def _sqlite_contract(tmp_path: Path) -> None:
     )
     register = RegisterBenchmarkRunUseCase(uow_factory=factory, clock=FixedClock())
     cleanup = CleanupBenchmarkRunUseCase(uow_factory=factory, clock=FixedClock())
+    seal_manifest = SealProjectionManifestUseCase(uow_factory=factory, clock=FixedClock())
     try:
         registered = await register.execute(_registration())
         assert registered.created is True
         replay = await register.execute(_registration())
         assert replay.created is False
         assert replay.record.space_id == registered.record.space_id
+
+        await _seed_canonical_rows(engine, registered.record.space_id)
+        manifest = _manifest(registered.record.space_id)
+        incomplete_manifest = _manifest(registered.record.space_id)
+        incomplete_manifest["scopes"][0]["chunk_ids"] = []
+        incomplete_manifest["scopes"][0]["qdrant"] = None
+        with pytest.raises(MemoryConflictError, match="canonical inventory differs"):
+            await seal_manifest.execute(
+                SealProjectionManifestCommand(
+                    run_id_sha256=RUN,
+                    projection_manifest_json=incomplete_manifest,
+                    projection_manifest_sha256=_manifest_sha256(incomplete_manifest),
+                )
+            )
+        sealed = await seal_manifest.execute(
+            SealProjectionManifestCommand(
+                run_id_sha256=RUN,
+                projection_manifest_json=manifest,
+                projection_manifest_sha256=_manifest_sha256(manifest),
+            )
+        )
+        assert sealed.replayed is False
+        assert sealed.record.projection_cleanup_state == "sealed"
+        sealed_replay = await seal_manifest.execute(
+            SealProjectionManifestCommand(
+                run_id_sha256=RUN,
+                projection_manifest_json=manifest,
+                projection_manifest_sha256=_manifest_sha256(manifest),
+            )
+        )
+        assert sealed_replay.replayed is True
 
         async with AsyncSession(engine) as session:
             session.add(
@@ -131,7 +214,6 @@ async def _sqlite_contract(tmp_path: Path) -> None:
             preexisting = await session.get(MemorySpaceRow, "preexisting-space")
             assert preexisting is not None and preexisting.status == "active"
 
-        await _seed_canonical_rows(engine, registered.record.space_id)
         command = CleanupBenchmarkRunCommand(
             run_id_sha256=RUN,
             binding_commitment_sha256=BINDING,
@@ -151,7 +233,7 @@ async def _sqlite_contract(tmp_path: Path) -> None:
         assert first.receipt.counts.episodes == 1
         assert first.receipt.counts.obsolete_upsert_jobs == 3
         assert first.receipt.counts.vector_delete_jobs == 1
-        assert first.receipt.counts.graph_delete_jobs == 1
+        assert first.receipt.counts.graph_delete_jobs == 0
         assert first.receipt.counts.cognee_delete_jobs == 1
 
         before_replay_jobs = await _outbox_count(engine)
@@ -159,6 +241,15 @@ async def _sqlite_contract(tmp_path: Path) -> None:
         assert second.replayed is True
         assert second.receipt == first.receipt
         assert await _outbox_count(engine) == before_replay_jobs
+        manifest_replay_after_cleanup = await seal_manifest.execute(
+            SealProjectionManifestCommand(
+                run_id_sha256=RUN,
+                projection_manifest_json=manifest,
+                projection_manifest_sha256=_manifest_sha256(manifest),
+            )
+        )
+        assert manifest_replay_after_cleanup.replayed is True
+        assert manifest_replay_after_cleanup.record.projection_cleanup_state == "pending"
         await _assert_deleted_and_queued(engine, registered.record.space_id)
         await _tamper_receipt_and_require_rejection(engine, factory)
     finally:
@@ -295,13 +386,15 @@ async def _assert_deleted_and_queued(engine, space_id: str) -> None:
         )
         assert events == [
             "vector.delete_chunks",
-            "graph.delete_fact",
             "cognee.forget_document",
         ]
         registry = await session.get(MemoryComparisonBenchmarkRunRow, RUN)
         assert registry is not None
         assert registry.state == "cleanup_pending"
         assert registry.cleanup_receipt_json["projection_cleanup"] == "pending"
+        assert registry.projection_cleanup_state == "pending"
+        assert registry.projection_manifest_json == _manifest(space_id)
+        assert registry.projection_manifest_sha256 == _manifest_sha256(_manifest(space_id))
 
 
 async def _outbox_count(engine) -> int:
@@ -317,6 +410,46 @@ def _registration() -> RegisterBenchmarkRunCommand:
         space_slug=SLUG,
         idempotency_key_sha256="d" * 64,
     )
+
+
+def _manifest(space_id: str) -> dict[str, object]:
+    return {
+        "schema_version": "memory-comparison-projection-manifest.v1",
+        "run_id_sha256": RUN,
+        "binding_commitment_sha256": BINDING,
+        "infinity_target_identity_sha256": TARGET,
+        "space_id": space_id,
+        "scopes": [
+            {
+                "memory_scope_id": "scope-1",
+                "thread_id": "thread-1",
+                "chunk_ids": ["chunk-1"],
+                "fact_ids": ["fact-1"],
+                "document_ids": ["document-1"],
+                "qdrant": {
+                    "target_commitment_sha256": "1" * 64,
+                    "manifest_binding_sha256": "2" * 64,
+                },
+                "graphiti": {
+                    "target_commitment_sha256": "3" * 64,
+                    "manifest_binding_sha256": "4" * 64,
+                    "episode_ids": ["provider-episode-1"],
+                    "entity_ids": ["provider-entity-1"],
+                    "mentions_edge_ids": ["provider-mentions-edge-1"],
+                    "relates_to_edge_ids": ["provider-relates-edge-1"],
+                },
+                "cognee": {
+                    "disposition": "not_projected",
+                    "policy_sha256": "5" * 64,
+                },
+            }
+        ],
+    }
+
+
+def _manifest_sha256(value: dict[str, object]) -> str:
+    payload = json.dumps(value, sort_keys=True, separators=(",", ":")).encode()
+    return hashlib.sha256(payload).hexdigest()
 
 
 def _upsert_job(event_type: str, aggregate_type: str, aggregate_id: str) -> MemoryOutboxRow:

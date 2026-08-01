@@ -3,12 +3,15 @@ import hashlib
 import json
 from datetime import UTC, datetime
 from types import SimpleNamespace
+from typing import Literal
 
 import pytest
 from fastapi import Response
 from infinity_context_core.application.dto_benchmark_runs import (
     CleanupBenchmarkRunResult,
     RegisterBenchmarkRunResult,
+    SealProjectionManifestCommand,
+    SealProjectionManifestResult,
 )
 from infinity_context_core.domain.errors import MemoryForbiddenError
 from infinity_context_core.ports.benchmark_runs import (
@@ -28,6 +31,15 @@ TARGET = "c" * 64
 SPACE_ID = f"benchmark-space-{RUN[:48]}"
 SPACE_SLUG = "memory-comparison-managed-run"
 NOW = datetime(2026, 1, 1, tzinfo=UTC)
+MANIFEST_SHA256 = "9" * 64
+MANIFEST = {
+    "schema_version": "memory-comparison-projection-manifest.v1",
+    "run_id_sha256": RUN,
+    "binding_commitment_sha256": BINDING,
+    "infinity_target_identity_sha256": TARGET,
+    "space_id": SPACE_ID,
+    "scopes": [],
+}
 
 
 def test_hidden_api_returns_only_hashed_run_identity_and_pending_projection_state() -> None:
@@ -104,6 +116,73 @@ def test_exact_registration_replay_returns_http_200() -> None:
 
     assert response.status_code == 200
     assert payload["data"]["created"] is False
+
+
+def test_cleanup_api_uses_authoritative_legacy_state_without_rewriting_receipt() -> None:
+    container = FakeContainer(cleanup_projection_state="blocked")
+    receipt = container.cleanup_benchmark_run.result.receipt
+
+    payload = asyncio.run(
+        api.cleanup_benchmark_run(
+            RUN,
+            api.CleanupBenchmarkRunRequest(
+                schema_version="memory-comparison-run-cleanup.v1",
+                binding_commitment_sha256=BINDING,
+                infinity_target_identity_sha256=TARGET,
+                space_id=SPACE_ID,
+                space_slug=SPACE_SLUG,
+            ),
+            container,
+            "cleanup-secret-key",
+        )
+    )
+
+    assert receipt.projection_cleanup == "pending"
+    assert payload["data"]["projection_cleanup"] == "blocked"
+    assert container.cleanup_benchmark_run.result.receipt is receipt
+
+
+@pytest.mark.parametrize("replayed", [False, True])
+def test_projection_manifest_seal_forwards_exact_command_without_manifest_leakage(
+    replayed: bool,
+) -> None:
+    container = FakeContainer(manifest_replayed=replayed)
+
+    payload = asyncio.run(
+        api.seal_projection_manifest(
+            RUN,
+            api.SealProjectionManifestRequest(
+                schema_version="memory-comparison-projection-manifest-seal.v1",
+                projection_manifest_sha256=MANIFEST_SHA256,
+                projection_manifest=MANIFEST,
+            ),
+            container,
+        )
+    )
+
+    assert container.seal_projection_manifest.last_command == SealProjectionManifestCommand(
+        run_id_sha256=RUN,
+        projection_manifest_json=MANIFEST,
+        projection_manifest_sha256=MANIFEST_SHA256,
+    )
+    assert payload == {
+        "data": {
+            "schema_version": ("memory-comparison-projection-manifest-seal-response.v1"),
+            "authority": "infinity_canonical",
+            "run_id_sha256": RUN,
+            "binding_commitment_sha256": BINDING,
+            "infinity_target_identity_sha256": TARGET,
+            "projection_manifest_sha256": MANIFEST_SHA256,
+            "state": "active",
+            "projection_cleanup_state": "sealed",
+            "replayed": replayed,
+        }
+    }
+    serialized = json.dumps(payload, sort_keys=True)
+    assert SPACE_ID not in serialized
+    assert SPACE_SLUG not in serialized
+    assert "scopes" not in serialized
+    assert "projection_manifest" not in payload["data"]
 
 
 def test_root_configured_token_can_access_internal_benchmark_authority() -> None:
@@ -191,7 +270,13 @@ class FakeUseCase:
 
 
 class FakeContainer:
-    def __init__(self, *, registration_created: bool = True) -> None:
+    def __init__(
+        self,
+        *,
+        registration_created: bool = True,
+        manifest_replayed: bool = False,
+        cleanup_projection_state: Literal["pending", "blocked"] = "pending",
+    ) -> None:
         record = BenchmarkRunRegistryRecord(
             run_id_sha256=RUN,
             binding_commitment_sha256=BINDING,
@@ -201,6 +286,9 @@ class FakeContainer:
             idempotency_key_sha256="d" * 64,
             registration_fingerprint_sha256="e" * 64,
             state="active",
+            projection_manifest_json=MANIFEST,
+            projection_manifest_sha256=MANIFEST_SHA256,
+            projection_cleanup_state="sealed",
             cleanup_fingerprint_sha256=None,
             cleanup_receipt=None,
             created_at=NOW,
@@ -222,6 +310,11 @@ class FakeContainer:
         self.register_benchmark_run = FakeUseCase(
             RegisterBenchmarkRunResult(record=record, created=registration_created)
         )
+        self.seal_projection_manifest = FakeUseCase(
+            SealProjectionManifestResult(record=record, replayed=manifest_replayed)
+        )
         self.cleanup_benchmark_run = FakeUseCase(
-            CleanupBenchmarkRunResult(receipt=receipt, replayed=False)
+            CleanupBenchmarkRunResult(
+                receipt=receipt, projection_cleanup_state=cleanup_projection_state, replayed=False
+            )
         )

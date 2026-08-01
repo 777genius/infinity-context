@@ -155,6 +155,8 @@ from infinity_context_core.application.dto_benchmark_runs import (
     CleanupBenchmarkRunResult,
     RegisterBenchmarkRunCommand,
     RegisterBenchmarkRunResult,
+    SealProjectionManifestCommand,
+    SealProjectionManifestResult,
 )
 from infinity_context_core.application.use_cases.anchors import (
     BackfillAnchorsUseCase,
@@ -186,6 +188,8 @@ from infinity_context_core.application.use_cases.assets import (
 from infinity_context_core.application.use_cases.benchmark_runs import (
     CleanupBenchmarkRunUseCase,
     RegisterBenchmarkRunUseCase,
+    SealProjectionManifestUseCase,
+    validate_projection_manifest,
 )
 from infinity_context_core.application.use_cases.blob_storage_cleanup import (
     BlobStorageCleanupCommand,
@@ -303,6 +307,10 @@ __all__ = [
     "RegisterBenchmarkRunCommand",
     "RegisterBenchmarkRunResult",
     "RegisterBenchmarkRunUseCase",
+    "SealProjectionManifestCommand",
+    "SealProjectionManifestResult",
+    "SealProjectionManifestUseCase",
+    "validate_projection_manifest",
     "ApproveSuggestionCommand",
     "ApproveSuggestionUseCase",
     "AnchorBackfillSourceSummary",

@@ -9,6 +9,7 @@ from infinity_context_core.ports.capabilities import (
     CapabilityDescriptor,
     CapabilityMode,
     CapabilityStatus,
+    EngineHealthPort,
     MemoryCapability,
 )
 
@@ -32,6 +33,7 @@ class GetCapabilitiesUseCase:
         deploy_profile: str,
         policy_mode: str,
         adapters: tuple[MemoryAdapterPort, ...],
+        capability_descriptor_providers: tuple[EngineHealthPort, ...] = (),
         supported_policy_modes: tuple[str, ...],
         limits: dict[str, int],
     ) -> None:
@@ -39,6 +41,7 @@ class GetCapabilitiesUseCase:
         self._deploy_profile = deploy_profile
         self._policy_mode = policy_mode
         self._adapters = adapters
+        self._capability_descriptor_providers = capability_descriptor_providers
         self._supported_policy_modes = supported_policy_modes
         self._limits = limits
 
@@ -46,12 +49,22 @@ class GetCapabilitiesUseCase:
         adapters = []
         for adapter in self._adapters:
             adapters.append(await adapter.capabilities())
+        provided_descriptors = []
+        for provider in self._capability_descriptor_providers:
+            provided_descriptors.extend(await provider.capability_descriptors())
+        provided_adapter_names = {descriptor.adapter_name for descriptor in provided_descriptors}
+        generic_adapters = tuple(
+            adapter for adapter in adapters if adapter.name not in provided_adapter_names
+        )
         return CapabilitiesResult(
             service_name=self._service_name,
             deploy_profile=self._deploy_profile,
             policy_mode=self._policy_mode,
             adapters=tuple(adapters),
-            capabilities=tuple(_adapter_capability_descriptors(tuple(adapters))),
+            capabilities=(
+                *_adapter_capability_descriptors(generic_adapters),
+                *provided_descriptors,
+            ),
             supported_policy_modes=self._supported_policy_modes,
             limits=dict(self._limits),
         )

@@ -183,6 +183,7 @@ def _graph_delete_data(*, replay: bool = False) -> dict[str, object]:
         "manifest_binding_sha256": _GRAPH_BINDING,
         "verified_absent": True,
         "bound_expected": expected,
+        "delete_expected": first,
         "passes": [
             {
                 "pass_index": 1,
@@ -253,9 +254,7 @@ def test_two_external_passes_are_exact_authenticated_and_replay_safe() -> None:
         if request.method == "DELETE":
             assert request.content == b""
             delete_counts[identity] = delete_counts.get(identity, 0) + 1
-            indexing_status = (
-                "pending" if delete_counts[identity] == 1 else "already_deleted"
-            )
+            indexing_status = "pending" if delete_counts[identity] == 1 else "already_deleted"
         else:
             indexing_status = None
         data: dict[str, object] = {

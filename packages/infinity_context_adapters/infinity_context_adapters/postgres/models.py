@@ -799,6 +799,26 @@ class MemoryComparisonBenchmarkRunRow(Base):
             "AND cleanup_receipt_json IS NOT NULL))",
             name="ck_memory_comparison_benchmark_run_cleanup_state",
         ),
+        CheckConstraint(
+            "((projection_manifest_json IS NULL AND projection_manifest_sha256 IS NULL) OR "
+            "(projection_manifest_json IS NOT NULL AND projection_manifest_sha256 IS NOT NULL))",
+            name="ck_memory_comparison_benchmark_run_manifest_coupling",
+        ),
+        CheckConstraint(
+            "projection_cleanup_state IN ('unsealed', 'sealed', 'pending', 'blocked')",
+            name="ck_memory_comparison_benchmark_run_projection_cleanup_state",
+        ),
+        CheckConstraint(
+            "((state = 'active' AND projection_cleanup_state = 'unsealed' "
+            "AND projection_manifest_json IS NULL) OR "
+            "(state = 'active' AND projection_cleanup_state = 'sealed' "
+            "AND projection_manifest_json IS NOT NULL) OR "
+            "(state = 'cleanup_pending' AND projection_cleanup_state = 'blocked' "
+            "AND projection_manifest_json IS NULL) OR "
+            "(state = 'cleanup_pending' AND projection_cleanup_state = 'pending' "
+            "AND projection_manifest_json IS NOT NULL))",
+            name="ck_memory_comparison_benchmark_run_projection_lifecycle",
+        ),
         UniqueConstraint("space_id", name="uq_memory_comparison_benchmark_run_space_id"),
         UniqueConstraint("space_slug", name="uq_memory_comparison_benchmark_run_space_slug"),
         UniqueConstraint(
@@ -817,11 +837,17 @@ class MemoryComparisonBenchmarkRunRow(Base):
     idempotency_key_sha256: Mapped[str] = mapped_column(String(64), nullable=False)
     registration_fingerprint_sha256: Mapped[str] = mapped_column(String(64), nullable=False)
     state: Mapped[str] = mapped_column(String(40), nullable=False)
+    projection_manifest_json: Mapped[dict[str, object] | None] = mapped_column(
+        JSON(none_as_null=True).with_variant(JSONB(none_as_null=True), "postgresql"),
+        nullable=True,
+    )
+    projection_manifest_sha256: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    projection_cleanup_state: Mapped[str] = mapped_column(
+        String(40), nullable=False, default="unsealed", server_default="unsealed"
+    )
     cleanup_fingerprint_sha256: Mapped[str | None] = mapped_column(String(64), nullable=True)
     cleanup_receipt_json: Mapped[dict[str, object] | None] = mapped_column(
-        JSON(none_as_null=True).with_variant(
-            JSONB(none_as_null=True), "postgresql"
-        ),
+        JSON(none_as_null=True).with_variant(JSONB(none_as_null=True), "postgresql"),
         nullable=True,
     )
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)

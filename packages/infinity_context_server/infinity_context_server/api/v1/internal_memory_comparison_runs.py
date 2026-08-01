@@ -9,6 +9,7 @@ from fastapi import APIRouter, Depends, Header, Path, Response, status
 from infinity_context_core.application import (
     CleanupBenchmarkRunCommand,
     RegisterBenchmarkRunCommand,
+    SealProjectionManifestCommand,
 )
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -53,6 +54,14 @@ class CleanupBenchmarkRunRequest(BaseModel):
     )
 
 
+class SealProjectionManifestRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid", strict=True)
+
+    schema_version: str = Field(pattern=r"^memory-comparison-projection-manifest-seal\.v1$")
+    projection_manifest_sha256: str = Field(pattern=_DIGEST_PATTERN)
+    projection_manifest: dict[str, object]
+
+
 @router.post("", include_in_schema=False, status_code=status.HTTP_201_CREATED)
 async def register_benchmark_run(
     request: RegisterBenchmarkRunRequest,
@@ -91,6 +100,36 @@ async def register_benchmark_run(
     }
 
 
+@router.put("/{run_id_sha256}/projection-manifest", include_in_schema=False)
+async def seal_projection_manifest(
+    run_id_sha256: Annotated[str, Path(pattern=_DIGEST_PATTERN)],
+    request: SealProjectionManifestRequest,
+    container: Annotated[Container, Depends(get_container)],
+) -> dict[str, Any]:
+    ensure_server_writes_enabled(container)
+    result = await container.seal_projection_manifest.execute(
+        SealProjectionManifestCommand(
+            run_id_sha256=run_id_sha256,
+            projection_manifest_json=request.projection_manifest,
+            projection_manifest_sha256=request.projection_manifest_sha256,
+        )
+    )
+    record = result.record
+    return {
+        "data": {
+            "schema_version": "memory-comparison-projection-manifest-seal-response.v1",
+            "authority": "infinity_canonical",
+            "run_id_sha256": record.run_id_sha256,
+            "binding_commitment_sha256": record.binding_commitment_sha256,
+            "infinity_target_identity_sha256": (record.infinity_target_identity_sha256),
+            "projection_manifest_sha256": record.projection_manifest_sha256,
+            "state": record.state,
+            "projection_cleanup_state": record.projection_cleanup_state,
+            "replayed": result.replayed,
+        }
+    }
+
+
 @router.delete("/{run_id_sha256}", include_in_schema=False)
 async def cleanup_benchmark_run(
     run_id_sha256: Annotated[str, Path(pattern=_DIGEST_PATTERN)],
@@ -122,7 +161,7 @@ async def cleanup_benchmark_run(
             "space_slug": receipt.space_slug,
             "state": "cleanup_pending",
             "disposition": receipt.disposition,
-            "projection_cleanup": receipt.projection_cleanup,
+            "projection_cleanup": result.projection_cleanup_state,
             "counts": {
                 "facts": receipt.counts.facts,
                 "documents": receipt.counts.documents,

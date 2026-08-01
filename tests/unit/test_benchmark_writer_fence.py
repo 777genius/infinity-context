@@ -22,18 +22,20 @@ from infinity_context_core.domain.errors import MemoryConflictError
 from sqlalchemy.engine import make_url
 from sqlalchemy.exc import IntegrityError
 
-MIGRATION = (
+MIGRATIONS = (
     Path(__file__).parents[2]
     / "packages/infinity_context_adapters/infinity_context_adapters/postgres/migrations"
-    / "0017_managed_benchmark_writer_fence.sql"
 )
+INITIAL_MIGRATION = MIGRATIONS / "0017_managed_benchmark_writer_fence.sql"
+PROJECTION_MANIFEST_MIGRATION = MIGRATIONS / "0018_benchmark_projection_manifest.sql"
+SEALED_FENCE_MIGRATION = MIGRATIONS / "0019_managed_benchmark_sealed_fence.sql"
 FENCE_SQLSTATE = BENCHMARK_WRITER_FENCE_SQLSTATE
 FENCE_CONSTRAINT = BENCHMARK_WRITER_FENCE_CONSTRAINT
 FENCED_TABLES = tuple(table for table, _update_columns in BENCHMARK_WRITER_FENCE_TABLES)
 
 
 def test_migration_installs_active_writer_fence_on_all_canonical_tables() -> None:
-    sql = MIGRATION.read_text(encoding="utf-8")
+    sql = INITIAL_MIGRATION.read_text(encoding="utf-8")
 
     assert "FOR SHARE NOWAIT;" in sql
     assert "WHEN lock_not_available THEN" in sql
@@ -52,8 +54,33 @@ def test_migration_installs_active_writer_fence_on_all_canonical_tables() -> Non
     assert sql.count("BEFORE INSERT OR UPDATE OF space_id, status") == 6
 
 
-def test_runtime_installer_statements_do_not_drift_from_migration() -> None:
-    migration_sql = _normalize_sql(MIGRATION.read_text(encoding="utf-8"))
+def test_latest_migration_fails_closed_after_projection_manifest_seal() -> None:
+    sql = SEALED_FENCE_MIGRATION.read_text(encoding="utf-8")
+
+    assert sql.startswith(
+        "CREATE OR REPLACE FUNCTION memory_comparison_enforce_benchmark_writer_fence()"
+    )
+    assert "IF TG_OP <> 'DELETE' THEN" in sql
+    assert "IF TG_OP <> 'INSERT' THEN" in sql
+    assert "target_space_id := COALESCE(new_space_id, old_space_id)" in sql
+    assert "SELECT benchmark_run.state, benchmark_run.projection_cleanup_state" in sql
+    assert "registry_state = 'active'" in sql
+    assert "registry_projection_cleanup_state = 'unsealed'" in sql
+    assert "registry_projection_cleanup_state IN ('pending', 'blocked')" in sql
+    assert "OLD.status = 'active'" in sql
+    assert "NEW.status = 'deleted'" in sql
+    assert "to_jsonb(OLD) - 'status' - 'updated_at'" in sql
+    assert "to_jsonb(NEW) - 'status' - 'updated_at'" in sql
+    assert sql.count("BEFORE INSERT OR UPDATE OR DELETE") == len(FENCED_TABLES)
+    for table in FENCED_TABLES:
+        assert f"DROP TRIGGER IF EXISTS trg_{table}_benchmark_writer_fence ON {table};" in sql
+        assert f"CREATE TRIGGER trg_{table}_benchmark_writer_fence" in sql
+    assert f"ERRCODE = '{FENCE_SQLSTATE}'" in sql
+    assert f"CONSTRAINT = '{FENCE_CONSTRAINT}'" in sql
+
+
+def test_runtime_installer_statements_do_not_drift_from_latest_migration() -> None:
+    migration_sql = _normalize_sql(SEALED_FENCE_MIGRATION.read_text(encoding="utf-8"))
 
     assert len(BENCHMARK_WRITER_FENCE_STATEMENTS) == 15
     assert BENCHMARK_WRITER_FENCE_FUNCTION in migration_sql
@@ -276,7 +303,9 @@ async def _assert_real_postgres_fence(database_url: str) -> None:
         await admin.execute(f'CREATE SCHEMA "{schema}"')
         await admin.execute(f'SET search_path TO "{schema}"')
         await admin.execute(_minimal_postgres_schema())
-        await admin.execute(MIGRATION.read_text(encoding="utf-8"))
+        await admin.execute(INITIAL_MIGRATION.read_text(encoding="utf-8"))
+        await admin.execute(PROJECTION_MANIFEST_MIGRATION.read_text(encoding="utf-8"))
+        await admin.execute(SEALED_FENCE_MIGRATION.read_text(encoding="utf-8"))
         writer = await asyncpg.connect(dsn)
         cleanup = await asyncpg.connect(dsn)
         await writer.execute(f'SET search_path TO "{schema}"')
@@ -326,7 +355,7 @@ async def _assert_real_postgres_fence(database_url: str) -> None:
         await admin.execute(
             """
             UPDATE memory_comparison_benchmark_runs
-            SET state = 'active'
+            SET state = 'active', projection_cleanup_state = 'unsealed'
             WHERE space_id = 'space-1'
             """
         )
@@ -335,7 +364,7 @@ async def _assert_real_postgres_fence(database_url: str) -> None:
         await cleanup.execute(
             """
             UPDATE memory_comparison_benchmark_runs
-            SET state = 'cleanup_pending'
+            SET state = 'cleanup_pending', projection_cleanup_state = 'blocked'
             WHERE space_id = 'space-1'
             """
         )
@@ -412,6 +441,71 @@ async def _assert_real_postgres_fence(database_url: str) -> None:
             )
         assert move_out_of_managed.value.sqlstate == FENCE_SQLSTATE
         assert move_out_of_managed.value.constraint_name == FENCE_CONSTRAINT
+
+        await admin.execute(
+            """
+            UPDATE memory_comparison_benchmark_runs
+            SET projection_manifest_json = '{}'::json,
+                projection_manifest_sha256 = repeat('a', 64),
+                projection_cleanup_state = 'sealed'
+            WHERE space_id = 'space-1'
+            """
+        )
+        with pytest.raises(asyncpg.CheckViolationError) as sealed_write:
+            await writer.execute(
+                """
+                INSERT INTO memory_facts (id, space_id, status)
+                VALUES ('fact-after-manifest-seal', 'space-1', 'active')
+                """
+            )
+        assert sealed_write.value.sqlstate == FENCE_SQLSTATE
+        assert sealed_write.value.constraint_name == FENCE_CONSTRAINT
+
+        with pytest.raises(asyncpg.CheckViolationError) as sealed_content_update:
+            await writer.execute(
+                """
+                UPDATE memory_facts
+                SET payload = 'changed-after-seal'
+                WHERE id = 'fact-before-cleanup'
+                """
+            )
+        assert sealed_content_update.value.sqlstate == FENCE_SQLSTATE
+        assert sealed_content_update.value.constraint_name == FENCE_CONSTRAINT
+
+        with pytest.raises(asyncpg.CheckViolationError) as sealed_primary_key_update:
+            await writer.execute(
+                """
+                UPDATE memory_facts
+                SET id = 'fact-after-primary-key-change'
+                WHERE id = 'fact-before-cleanup'
+                """
+            )
+        assert sealed_primary_key_update.value.sqlstate == FENCE_SQLSTATE
+        assert sealed_primary_key_update.value.constraint_name == FENCE_CONSTRAINT
+
+        with pytest.raises(asyncpg.CheckViolationError) as sealed_physical_delete:
+            await writer.execute("DELETE FROM memory_facts WHERE id = 'fact-before-cleanup'")
+        assert sealed_physical_delete.value.sqlstate == FENCE_SQLSTATE
+        assert sealed_physical_delete.value.constraint_name == FENCE_CONSTRAINT
+
+        await admin.execute(
+            """
+            UPDATE memory_comparison_benchmark_runs
+            SET state = 'cleanup_pending', projection_cleanup_state = 'pending'
+            WHERE space_id = 'space-1'
+            """
+        )
+        await admin.execute(
+            """
+            UPDATE memory_facts
+            SET status = 'deleted', updated_at = now()
+            WHERE id = 'fact-before-cleanup'
+            """
+        )
+        assert (
+            await admin.fetchval("SELECT status FROM memory_facts WHERE id = 'fact-before-cleanup'")
+            == "deleted"
+        )
     finally:
         if writer is not None:
             await writer.close()
@@ -427,7 +521,7 @@ async def _mark_cleanup_pending(connection) -> int:
         await connection.execute(
             """
             UPDATE memory_comparison_benchmark_runs
-            SET state = 'cleanup_pending'
+            SET state = 'cleanup_pending', projection_cleanup_state = 'blocked'
             WHERE space_id = 'space-1'
             """
         )
@@ -465,7 +559,9 @@ def _minimal_postgres_schema() -> str:
         CREATE TABLE {table} (
             id VARCHAR(80) PRIMARY KEY,
             space_id VARCHAR(80) NOT NULL,
-            status VARCHAR(40) NOT NULL
+            status VARCHAR(40) NOT NULL,
+            payload VARCHAR(80),
+            updated_at TIMESTAMPTZ
         );
         """
         for table in FENCED_TABLES
@@ -474,7 +570,9 @@ def _minimal_postgres_schema() -> str:
     return f"""
     CREATE TABLE memory_spaces (
         id VARCHAR(80) PRIMARY KEY,
-        status VARCHAR(40) NOT NULL
+        status VARCHAR(40) NOT NULL,
+        payload VARCHAR(80),
+        updated_at TIMESTAMPTZ
     );
     CREATE TABLE memory_comparison_benchmark_runs (
         space_id VARCHAR(80) PRIMARY KEY,

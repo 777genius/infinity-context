@@ -227,10 +227,12 @@ class ProjectionOutboxProcess:
     async def handle_cognee_document_forget(self, job: ClaimedOutboxJob) -> None:
         document_id = str(job.payload_json.get("document_id") or job.aggregate_id)
         chunk_ids = tuple(str(value) for value in job.payload_json.get("chunk_ids", []))
+        require_delete_completion = _benchmark_cleanup_requires_delete_completion(job.payload_json)
         await self._forget_cognee_document(
             document_id,
             reason="canonical_document_deleted",
             chunk_ids=chunk_ids,
+            require_delete_completion=require_delete_completion,
         )
 
     async def _forget_cognee_document(
@@ -239,6 +241,7 @@ class ProjectionOutboxProcess:
         *,
         reason: str,
         chunk_ids: tuple[str, ...] = (),
+        require_delete_completion: bool = False,
     ) -> None:
         result = await self._container.cognee_memory.forget_document(
             ProjectionForgetRequest(
@@ -250,6 +253,7 @@ class ProjectionOutboxProcess:
             result.status,
             "cognee.forget_document",
             result.diagnostics,
+            disabled_is_error=require_delete_completion,
         )
 
 
@@ -269,12 +273,31 @@ def _raise_if_capability_degraded(
     status: CapabilityStatus,
     operation: str,
     diagnostics: tuple[CapabilityDiagnostic, ...] = (),
+    *,
+    disabled_is_error: bool = False,
 ) -> None:
-    if status == CapabilityStatus.DISABLED:
+    if status == CapabilityStatus.DISABLED and not disabled_is_error:
         return
     if status != CapabilityStatus.OK:
-        diagnostic_code = diagnostics[0].code if diagnostics else f"{operation}.degraded"
+        default_suffix = "disabled" if status == CapabilityStatus.DISABLED else "degraded"
+        diagnostic_code = diagnostics[0].code if diagnostics else f"{operation}.{default_suffix}"
         raise OutboxProjectionError(operation, diagnostic_code)
+
+
+def _benchmark_cleanup_requires_delete_completion(payload_json: dict[str, object]) -> bool:
+    if "cleanup_run_id_sha256" not in payload_json:
+        return False
+    cleanup_run_id_sha256 = payload_json["cleanup_run_id_sha256"]
+    if (
+        not isinstance(cleanup_run_id_sha256, str)
+        or len(cleanup_run_id_sha256) != 64
+        or any(character not in "0123456789abcdef" for character in cleanup_run_id_sha256)
+    ):
+        raise OutboxProjectionError(
+            "benchmark.cleanup_projection",
+            "benchmark.cleanup_run_id_sha256_invalid",
+        )
+    return True
 
 
 def _is_disabled_projection(diagnostics: tuple[PortDiagnostic, ...]) -> bool:

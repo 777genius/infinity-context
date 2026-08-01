@@ -17,6 +17,7 @@ from infinity_context_core.ports.adapters import (
     VectorWriteResult,
 )
 from infinity_context_core.ports.capabilities import (
+    CapabilityDiagnostic,
     CapabilityStatus,
     ProjectionForgetResult,
     ProjectionWriteResult,
@@ -172,6 +173,16 @@ class RecordingAdapters:
         self.events.append(f"{lane}.upsert.finish")
 
 
+class ConfigurableCogneeMemory:
+    def __init__(self, result: ProjectionForgetResult) -> None:
+        self._result = result
+        self.requests: list[object] = []
+
+    async def forget_document(self, command) -> ProjectionForgetResult:
+        self.requests.append(command)
+        return self._result
+
+
 def _chunk(space_id: str = "benchmark-space") -> SimpleNamespace:
     return SimpleNamespace(
         id="chunk-1",
@@ -281,6 +292,97 @@ async def _dispatch(process: ProjectionOutboxProcess, job: ClaimedOutboxJob) -> 
     await process.handlers()[job.event_type](job)
 
 
+def _cognee_forget_job(
+    *,
+    cleanup_run_id_sha256: str | None = None,
+) -> ClaimedOutboxJob:
+    payload: dict[str, object] = {
+        "document_id": "document-1",
+        "chunk_ids": ["chunk-1"],
+    }
+    if cleanup_run_id_sha256 is not None:
+        payload["cleanup_run_id_sha256"] = cleanup_run_id_sha256
+    return ClaimedOutboxJob(
+        id=3,
+        event_type="cognee.forget_document",
+        aggregate_id="document-1",
+        aggregate_version=None,
+        attempt_count=0,
+        workload_class="projection",
+        fairness_key="cognee:document-1",
+        payload_json=payload,
+    )
+
+
+@pytest.mark.parametrize(
+    ("status", "cleanup_run_id_sha256", "expected_diagnostic_code"),
+    [
+        (CapabilityStatus.DISABLED, None, None),
+        (CapabilityStatus.DISABLED, "a" * 64, "cognee.disabled"),
+        (CapabilityStatus.OK, "a" * 64, None),
+        (CapabilityStatus.DEGRADED, None, "cognee.degraded"),
+    ],
+)
+def test_cognee_forget_handler_preserves_ordinary_and_benchmark_status_semantics(
+    status: CapabilityStatus,
+    cleanup_run_id_sha256: str | None,
+    expected_diagnostic_code: str | None,
+) -> None:
+    async def run() -> tuple[str | None, ConfigurableCogneeMemory]:
+        diagnostics = (
+            ()
+            if status == CapabilityStatus.OK
+            else (
+                CapabilityDiagnostic(
+                    code=f"cognee.{status.value}",
+                    safe_message="Safe projection status.",
+                ),
+            )
+        )
+        adapter = ConfigurableCogneeMemory(
+            ProjectionForgetResult(
+                status=status,
+                forgotten_ids=(),
+                diagnostics=diagnostics,
+            )
+        )
+        process = ProjectionOutboxProcess(SimpleNamespace(cognee_memory=adapter))
+        try:
+            await _dispatch(
+                process,
+                _cognee_forget_job(
+                    cleanup_run_id_sha256=cleanup_run_id_sha256,
+                ),
+            )
+        except OutboxProjectionError as error:
+            return error.diagnostic_code, adapter
+        return None, adapter
+
+    diagnostic_code, adapter = asyncio.run(run())
+
+    assert diagnostic_code == expected_diagnostic_code
+    assert len(adapter.requests) == 1
+    assert adapter.requests[0].canonical_ids == ("document-1", "chunk-1")
+
+
+def test_cognee_benchmark_forget_rejects_invalid_cleanup_run_hash_before_delete() -> None:
+    adapter = ConfigurableCogneeMemory(
+        ProjectionForgetResult(status=CapabilityStatus.OK, forgotten_ids=())
+    )
+    process = ProjectionOutboxProcess(SimpleNamespace(cognee_memory=adapter))
+
+    with pytest.raises(OutboxProjectionError) as caught:
+        asyncio.run(
+            _dispatch(
+                process,
+                _cognee_forget_job(cleanup_run_id_sha256="not-a-sha256"),
+            )
+        )
+
+    assert caught.value.diagnostic_code == "benchmark.cleanup_run_id_sha256_invalid"
+    assert adapter.requests == []
+
+
 @pytest.mark.parametrize("lane", ["vector", "graph", "cognee"])
 def test_cleanup_delete_runs_after_active_projection_upsert(lane: str) -> None:
     async def run() -> list[str]:
@@ -360,7 +462,11 @@ class FakeSession:
         return FakeTransaction()
 
     async def scalar(self, query):
-        space_id = str(next(iter(query.compile().params.values())))
+        space_id = next(
+            str(value)
+            for value in query.compile().params.values()
+            if str(value) in self.factory.states
+        )
         locked = query._for_update_arg is not None  # noqa: SLF001
         self.factory.lookups.append((space_id, locked))
         if locked:
@@ -369,15 +475,28 @@ class FakeSession:
             self.factory.short_lookup_count += 1
             if self.factory.short_lookup_count >= 2:
                 self.factory.two_short_lookups.set()
-        return self.factory.states.get(space_id)
+        registry = (
+            self.factory.locked_states.get(space_id)
+            if locked
+            else self.factory.states.get(space_id)
+        )
+        if registry is None:
+            return None
+        return registry == ("active", "unsealed")
 
     async def close(self) -> None:
         self.closed = True
 
 
 class FakeSessionFactory:
-    def __init__(self, states: dict[str, str | None]) -> None:
+    def __init__(
+        self,
+        states: dict[str, tuple[str, str] | None],
+        *,
+        locked_states: dict[str, tuple[str, str] | None] | None = None,
+    ) -> None:
         self.states = states
+        self.locked_states = states if locked_states is None else locked_states
         self.sessions: list[FakeSession] = []
         self.lookups: list[tuple[str, bool]] = []
         self.short_lookup_count = 0
@@ -391,17 +510,24 @@ class FakeSessionFactory:
 
 
 @pytest.mark.parametrize(
-    ("state", "allowed", "open_inside", "session_count"),
-    [(None, True, 0, 1), ("active", True, 1, 2), ("cleanup_pending", False, 0, 1)],
+    ("registry", "allowed", "open_inside", "session_count"),
+    [
+        (None, True, 0, 1),
+        (("active", "unsealed"), True, 1, 2),
+        (("active", "sealed"), False, 0, 1),
+        (("active", "pending"), False, 0, 1),
+        (("active", "blocked"), False, 0, 1),
+        (("cleanup_pending", "unsealed"), False, 0, 1),
+    ],
 )
 def test_postgres_fence_decision_and_session_lifetime(
-    state: str | None,
+    registry: tuple[str, str] | None,
     allowed: bool,
     open_inside: int,
     session_count: int,
 ) -> None:
     async def run() -> tuple[bool, int, FakeSessionFactory]:
-        factory = FakeSessionFactory({"space-1": state})
+        factory = FakeSessionFactory({"space-1": registry})
         fence = PostgresProjectionFence(factory)  # type: ignore[arg-type]
         async with fence.hold("space-1") as permit:
             active_sessions = sum(not session.closed for session in factory.sessions)
@@ -415,11 +541,28 @@ def test_postgres_fence_decision_and_session_lifetime(
     assert all(session.closed for session in factory.sessions)
 
 
+def test_projection_fence_rechecks_manifest_seal_under_shared_lock() -> None:
+    async def run() -> tuple[bool, FakeSessionFactory]:
+        factory = FakeSessionFactory(
+            {"space-1": ("active", "unsealed")},
+            locked_states={"space-1": ("active", "sealed")},
+        )
+        fence = PostgresProjectionFence(factory)  # type: ignore[arg-type]
+        async with fence.hold("space-1") as permit:
+            return permit.allow_upsert, factory
+
+    allow_upsert, factory = asyncio.run(run())
+
+    assert allow_upsert is False
+    assert factory.lookups == [("space-1", False), ("space-1", True)]
+    assert all(session.closed for session in factory.sessions)
+
+
 def test_active_hold_semaphore_does_not_consume_waiting_or_nonbenchmark_sessions() -> None:
     async def run() -> tuple[int, int, int, bool]:
         factory = FakeSessionFactory(
             {
-                "benchmark-space": "active",
+                "benchmark-space": ("active", "unsealed"),
                 "regular-space": None,
             }
         )
@@ -484,6 +627,9 @@ def test_postgres_projection_fence_query_uses_shared_row_lock() -> None:
     assert "FOR SHARE" in sql
     assert "space-1" in sql
 
+    assert "state = 'active'" in sql
+    assert "projection_cleanup_state = 'unsealed'" in sql
+
 
 def test_postgres_projection_state_query_is_unlocked() -> None:
     sql = str(
@@ -494,3 +640,5 @@ def test_postgres_projection_state_query_is_unlocked() -> None:
     )
 
     assert "FOR SHARE" not in sql
+    assert "state = 'active'" in sql
+    assert "projection_cleanup_state = 'unsealed'" in sql

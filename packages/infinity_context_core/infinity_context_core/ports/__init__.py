@@ -19,6 +19,14 @@ from infinity_context_core.ports.auto_memory import (
     MemoryExtractorPort,
     SourceProvenance,
 )
+from infinity_context_core.ports.benchmark_runs import (
+    BenchmarkCleanupCounts,
+    BenchmarkCleanupReceipt,
+    BenchmarkRunRegistryRecord,
+    BenchmarkRunRepositoryPort,
+    BenchmarkRunState,
+    ProjectionCleanupState,
+)
 from infinity_context_core.ports.capabilities import (
     CapabilityDescriptor,
     CapabilityDiagnostic,
@@ -76,6 +84,11 @@ __all__ = [
     "AdapterCapabilities",
     "ALLOWED_TTL_POLICIES",
     "AuthPort",
+    "BenchmarkCleanupCounts",
+    "BenchmarkCleanupReceipt",
+    "BenchmarkRunRegistryRecord",
+    "BenchmarkRunRepositoryPort",
+    "BenchmarkRunState",
     "AssetExtractionRepositoryPort",
     "CapabilityDescriptor",
     "CapabilityDiagnostic",
@@ -117,6 +130,7 @@ __all__ = [
     "PortStatus",
     "ProjectionFencePermit",
     "ProjectionFencePort",
+    "ProjectionCleanupState",
     "ProjectionForgetPort",
     "ProjectionForgetRequest",
     "ProjectionForgetResult",
