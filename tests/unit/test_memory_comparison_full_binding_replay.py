@@ -317,6 +317,13 @@ def _runtime_manifest(
             "server_source_revision": None,
             "server_revision_attestable": False,
         },
+        "persisted_source_identity": {
+            "request_metadata_required": True,
+            "source_filtered_readback_supported": True,
+            "source_id_roundtrip_attested": True,
+            "source_sha256_roundtrip_attested": True,
+            "sanitized_identity_response": True,
+        },
         "timestamp": {
             "request_supported": True,
             "sdk_forwarding_supported": True,
@@ -402,6 +409,9 @@ def _runtime_validation(
         validated_at=datetime.now(UTC),
     )
     assert type(validation) is VerifiedMem0RuntimeAttestationValidation
+    public = component_module.public_mem0_runtime_attestation_validation(validation)
+    assert public["eligible"] is True
+    assert public["issues"] == []
     return validation
 
 
