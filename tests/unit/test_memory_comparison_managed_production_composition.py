@@ -24,15 +24,11 @@ def _prepared() -> VerifiedManagedLiveRunPreparation:
     (
         (
             "locomo",
-            (
-                "managed_production_execution_runner_unavailable",
-            ),
+            ("managed_production_execution_runner_unavailable",),
         ),
         (
             "longmemeval",
-            (
-                "managed_production_execution_runner_unavailable",
-            ),
+            ("managed_production_execution_runner_unavailable",),
         ),
     ),
 )
@@ -100,9 +96,7 @@ def test_pre_readiness_gate_returns_same_static_no_go_with_zero_live_calls(
     assert decision.readiness_provider_calls_already_performed == 0
     assert decision.additional_provider_calls_performed == 0
     assert decision.additional_backend_calls_performed == 0
-    assert decision.blockers == (
-        "managed_production_execution_runner_unavailable",
-    )
+    assert decision.blockers == ("managed_production_execution_runner_unavailable",)
     assert _PRIVATE_GOLD not in json.dumps(decision.public_payload(), sort_keys=True)
 
 
@@ -122,9 +116,7 @@ def test_no_go_only_root_reports_runner_blocker_when_policy_is_ready(
 
     decision = subject.run_verified_managed_production_comparison(prepared)
 
-    assert decision.blockers == (
-        subject.MANAGED_PRODUCTION_EXECUTION_RUNNER_UNAVAILABLE,
-    )
+    assert decision.blockers == (subject.MANAGED_PRODUCTION_EXECUTION_RUNNER_UNAVAILABLE,)
     assert decision.preparation_consumed is False
     assert decision.additional_provider_calls_performed == 0
     assert decision.additional_backend_calls_performed == 0
@@ -141,3 +133,45 @@ def test_forged_preparation_is_rejected_without_inspection(
     with pytest.raises(subject.ManagedProductionCompositionError) as caught:
         subject.run_verified_managed_production_comparison(object())  # type: ignore[arg-type]
     assert caught.value.code == "managed_production_preparation_invalid"
+
+
+def test_decision_contract_accepts_go_only_without_blockers() -> None:
+    decision = subject.ManagedProductionCompositionDecision(
+        schema_version=subject.MANAGED_PRODUCTION_COMPOSITION_SCHEMA_VERSION,
+        decision="go",
+        blockers=(),
+        preparation_consumed=False,
+        readiness_provider_calls_already_performed=0,
+        additional_provider_calls_performed=0,
+        additional_backend_calls_performed=0,
+    )
+
+    assert decision.public_payload()["decision"] == "go"
+    assert decision.public_payload()["blockers"] == []
+
+
+@pytest.mark.parametrize(
+    ("decision", "blockers"),
+    (
+        ("go", ("unexpected-blocker",)),
+        ("no-go", ()),
+        ("unknown", ()),
+    ),
+)
+def test_decision_contract_rejects_inconsistent_readiness(
+    decision: str,
+    blockers: tuple[str, ...],
+) -> None:
+    with pytest.raises(
+        subject.ManagedProductionCompositionError,
+        match="managed_production_decision_invalid",
+    ):
+        subject.ManagedProductionCompositionDecision(
+            schema_version=subject.MANAGED_PRODUCTION_COMPOSITION_SCHEMA_VERSION,
+            decision=decision,
+            blockers=blockers,
+            preparation_consumed=False,
+            readiness_provider_calls_already_performed=0,
+            additional_provider_calls_performed=0,
+            additional_backend_calls_performed=0,
+        )

@@ -19,6 +19,7 @@ from infinity_context_server.memory_comparison_full_execution_validation_slots i
 from infinity_context_server.memory_comparison_full_run_evidence import (
     FULL_COMPARISON_COMPONENT_KINDS,
     FullComparisonRunBindings,
+    _validate_bindings,
     create_full_comparison_evidence_issuer,
     create_full_comparison_run_bindings,
 )
@@ -112,6 +113,25 @@ class _CleanupResult:
 _OUTCOMES: weakref.WeakKeyDictionary[ManagedRunOutcome, _RunState] = weakref.WeakKeyDictionary()
 
 
+def create_managed_comparison_run_bindings(
+    admission: VerifiedManagedRunPlan,
+) -> FullComparisonRunBindings:
+    """Create the exact bindings a composition root must share with the runner."""
+
+    plan = _inspect_verified_managed_run_plan(admission)
+    return create_full_comparison_run_bindings(
+        run_id=plan.run_id,
+        run_nonce_commitment_sha256=plan.run_nonce_commitment_sha256,
+        runtime_probe_nonce_sha256=plan.runtime_probe_nonce_sha256,
+        profile=plan.profile,
+        methodology=plan.methodology,
+        dataset_sha256=plan.dataset_sha256,
+        selection_fingerprint_sha256=plan.selection_fingerprint_sha256,
+        backend_targets=plan.backend_targets,
+        scope=plan.scope,
+    )
+
+
 def run_managed_comparison(
     admission: VerifiedManagedRunPlan,
     *,
@@ -124,7 +144,37 @@ def run_managed_comparison(
     policy_port: ManagedPolicyLifecyclePort,
     assembler: ManagedCompositeAssemblerPort,
 ) -> ManagedRunOutcome:
-    """Run the full lifecycle; terminal delete executes for every BaseException."""
+    """Compatibility wrapper that creates bindings before delegating to the runner."""
+
+    bindings = create_managed_comparison_run_bindings(admission)
+    return run_managed_comparison_with_bindings(
+        admission,
+        bindings=bindings,
+        reset_port=reset_port,
+        attestation_port=attestation_port,
+        ingest_port=ingest_port,
+        clock=clock,
+        execution_port=execution_port,
+        judge_port=judge_port,
+        policy_port=policy_port,
+        assembler=assembler,
+    )
+
+
+def run_managed_comparison_with_bindings(
+    admission: VerifiedManagedRunPlan,
+    *,
+    bindings: FullComparisonRunBindings,
+    reset_port: ManagedResetPort,
+    attestation_port: ManagedAttestationPort,
+    ingest_port: ManagedIngestEvidencePort,
+    clock: ManagedClockPort,
+    execution_port: ManagedExecutionPort,
+    judge_port: ManagedJudgeExecutionPort,
+    policy_port: ManagedPolicyLifecyclePort,
+    assembler: ManagedCompositeAssemblerPort,
+) -> ManagedRunOutcome:
+    """Run with the same exact bindings object already used to compose the ports."""
 
     plan = _inspect_verified_managed_run_plan(admission)
     _validate_ports(
@@ -143,17 +193,7 @@ def run_managed_comparison(
         benchmark=plan.profile.benchmark,
     )
     case_manifest_sha256 = execution_case_manifest_sha256(case_manifest)
-    bindings = create_full_comparison_run_bindings(
-        run_id=plan.run_id,
-        run_nonce_commitment_sha256=plan.run_nonce_commitment_sha256,
-        runtime_probe_nonce_sha256=plan.runtime_probe_nonce_sha256,
-        profile=plan.profile,
-        methodology=plan.methodology,
-        dataset_sha256=plan.dataset_sha256,
-        selection_fingerprint_sha256=plan.selection_fingerprint_sha256,
-        backend_targets=plan.backend_targets,
-        scope=plan.scope,
-    )
+    bindings = _validated_bindings_for_plan(bindings, plan)
     issuer = create_full_comparison_evidence_issuer(bindings)
     trace = ["bindings.create", "issuer.create"]
     managed_attestation: VerifiedManagedCompositionAttestation | None = None
@@ -669,6 +709,28 @@ def _validate_ports(*ports: object) -> None:
             raise ManagedRunError(f"{role} port operation is unavailable")
 
 
+def _validated_bindings_for_plan(
+    bindings: FullComparisonRunBindings,
+    plan: ManagedRunPlan,
+) -> FullComparisonRunBindings:
+    try:
+        trusted = _validate_bindings(bindings)
+    except Exception:
+        raise ManagedRunError("managed run bindings are invalid") from None
+    if (
+        trusted.run_id != plan.run_id
+        or trusted.run_nonce_commitment_sha256 != plan.run_nonce_commitment_sha256
+        or trusted.runtime_probe_nonce_sha256 != plan.runtime_probe_nonce_sha256
+        or trusted.profile_id != plan.profile.profile_id
+        or trusted.dataset_sha256 != plan.dataset_sha256
+        or trusted.selection_fingerprint_sha256 != plan.selection_fingerprint_sha256
+        or trusted.backend_targets != plan.backend_targets
+        or trusted.scope != plan.scope
+    ):
+        raise ManagedRunError("managed run bindings differ from verified plan")
+    return trusted
+
+
 def _target_pairs(
     bindings: FullComparisonRunBindings,
 ) -> tuple[tuple[str, str], ...]:
@@ -722,6 +784,8 @@ __all__ = (
     "ManagedRunError",
     "ManagedRunOutcome",
     "ManagedRunPlan",
+    "create_managed_comparison_run_bindings",
     "public_managed_run",
     "run_managed_comparison",
+    "run_managed_comparison_with_bindings",
 )
