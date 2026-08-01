@@ -48,6 +48,8 @@ from infinity_context_server.memory_comparison_target_identity import (
 from infinity_context_server.public_benchmark_models import BenchmarkValidationError
 
 MANAGED_PREFLIGHT_SCHEMA_VERSION = "memory-comparison-managed-preflight.v1"
+MANAGED_PREFLIGHT_PROVIDER_OPENAI_API_KEY = "openai-api-key"
+MANAGED_PREFLIGHT_PROVIDER_SUBSCRIPTION_RUNTIME = "subscription-runtime"
 MANAGED_PREFLIGHT_REQUIRED_CREDENTIALS = (
     "openai",
     *REQUIRED_FULL_COMPARISON_BACKENDS,
@@ -57,6 +59,9 @@ MANAGED_PREFLIGHT_MAX_REQUEST_SECONDS = 300.0
 MANAGED_PREFLIGHT_MAX_RUN_SECONDS = 172_800.0
 
 _OFFICIAL_DIRECT_TRANSPORT = "httpx-direct-tls-no-env-v1"
+_SUBSCRIPTION_RUNTIME_TRUST = "codex_subscription_runtime"
+_SUBSCRIPTION_RUNTIME_ENDPOINT_PATH = "/v1/chat/completions"
+_SUBSCRIPTION_RUNTIME_TRANSPORT = "subscription-runtime-openai-codex-bridge.v1"
 _TARGET_IDENTITY_SCHEMA_VERSION = "memory-comparison-managed-target.v1"
 _SHA256 = re.compile(r"^[0-9a-f]{64}$")
 _CREDENTIAL_BINDING = re.compile(r"^sha256:[0-9a-f]{64}$")
@@ -76,6 +81,7 @@ _ERROR_MESSAGES = MappingProxyType(
         "dataset_metadata_invalid": "managed preflight dataset metadata is invalid",
         "dataset_mismatch": "managed preflight dataset differs from frozen profile",
         "scope_invalid": "managed preflight scope is invalid",
+        "provider_kind_invalid": "managed preflight provider kind is invalid",
         "model_invalid": "managed preflight model is invalid",
         "model_mismatch": "managed preflight model differs from official methodology",
         "provider_route_invalid": "managed preflight provider route is invalid",
@@ -233,6 +239,8 @@ class ManagedBackendEndpoint:
         normalized, loopback = _validated_backend_url(self.base_url)
         object.__setattr__(self, "base_url", normalized)
         object.__setattr__(self, "loopback", loopback)
+        if self.target.backend_role == "mem0" and urlsplit(normalized).path:
+            _reject("endpoint_invalid")
 
         expected_identity = managed_backend_target_identity_sha256(
             backend_role=self.target.backend_role,
@@ -294,6 +302,7 @@ class ManagedPreflightRequest:
     backend_endpoints: tuple[ManagedBackendEndpoint, ...]
     timeouts: ManagedPreflightTimeouts
     scope: str = FULL_COMPARISON_SCOPE_FULL
+    provider_kind: str = MANAGED_PREFLIGHT_PROVIDER_OPENAI_API_KEY
 
     def __post_init__(self) -> None:
         if (
@@ -318,7 +327,7 @@ class ManagedProviderRouteSummary:
     endpoint_path: str
     route_sha256: str
     transport_evidence: str
-    credential_binding_id: str = field(repr=False)
+    credential_binding_id: str | None = field(repr=False)
     request_method: str = "POST"
 
     def __init_subclass__(cls, **kwargs: object) -> None:
@@ -346,6 +355,7 @@ class ManagedPreflightResult:
     dataset_case_count: int
     dataset_distribution: tuple[tuple[str, int], ...]
     dataset_corpus_count: int | None
+    provider_kind: str
     answerer_model: str
     judge_model: str
     provider_route: ManagedProviderRouteSummary
@@ -362,6 +372,11 @@ class ManagedPreflightResult:
             self.schema_version != MANAGED_PREFLIGHT_SCHEMA_VERSION
             or self.ready is not True
             or self.scope != normalized_scope
+            or self.provider_kind
+            not in {
+                MANAGED_PREFLIGHT_PROVIDER_OPENAI_API_KEY,
+                MANAGED_PREFLIGHT_PROVIDER_SUBSCRIPTION_RUNTIME,
+            }
             or self.publishable is not False
             or self.eligible is not False
             or self.provider_calls_performed is not False
@@ -394,6 +409,7 @@ class ManagedPreflightResult:
                 "corpus_count": self.dataset_corpus_count,
             },
             "provider": {
+                "kind": self.provider_kind,
                 "answerer_model": self.answerer_model,
                 "judge_model": self.judge_model,
                 "route": {
@@ -402,7 +418,7 @@ class ManagedPreflightResult:
                     "endpoint_path": self.provider_route.endpoint_path,
                     "route_sha256": self.provider_route.route_sha256,
                     "transport_evidence": self.provider_route.transport_evidence,
-                    "credential_bound": True,
+                    "credential_bound": self.provider_route.credential_binding_id is not None,
                     "request_method": self.provider_route.request_method,
                 },
             },
@@ -446,25 +462,38 @@ def validate_managed_preflight(request: ManagedPreflightRequest) -> ManagedPrefl
     _validate_methodology(profile, methodology)
     _validate_dataset(profile, request.dataset)
     scope = _trusted_scope(request.scope)
+    provider_kind = _trusted_provider_kind(request.provider_kind, scope=scope)
     answerer_model = _model(request.answerer_model)
     judge_model = _model(request.judge_model)
-    if answerer_model != methodology.get("answerer_model") or judge_model != methodology.get(
-        "judge_model"
-    ):
-        _reject("model_mismatch")
-    route = _trusted_provider_route(
-        request.provider_route,
-        methodology=methodology,
-        openai_credential=request.openai_credential,
-    )
+    provider_credential = request.openai_credential
+    if provider_kind == MANAGED_PREFLIGHT_PROVIDER_OPENAI_API_KEY:
+        if answerer_model != methodology.get("answerer_model") or judge_model != methodology.get(
+            "judge_model"
+        ):
+            _reject("model_mismatch")
+        route = _trusted_provider_route(
+            request.provider_route,
+            methodology=methodology,
+            openai_credential=provider_credential,
+        )
+        provider_credential_name = "openai"
+    else:
+        if answerer_model != judge_model:
+            _reject("model_mismatch")
+        route = _trusted_subscription_provider_route(
+            request.provider_route,
+            scope=scope,
+            credential=provider_credential,
+        )
+        provider_credential_name = "subscription-runtime"
     endpoints = _trusted_backend_endpoints(request.backend_endpoints)
-    credentials = (request.openai_credential, *(item.credential for item in endpoints))
-    if (
-        tuple(item.credential_name for item in credentials)
-        != MANAGED_PREFLIGHT_REQUIRED_CREDENTIALS
+    credentials = (provider_credential, *(item.credential for item in endpoints))
+    if tuple(item.credential_name for item in credentials) != (
+        provider_credential_name,
+        *REQUIRED_FULL_COMPARISON_BACKENDS,
     ):
         _reject("credential_mismatch")
-    if any(not item.configured or item.binding_id is None for item in credentials):
+    if any(not item.configured or item.binding_id is None for item in credentials[1:]):
         _reject("credential_missing")
     return ManagedPreflightResult(
         schema_version=MANAGED_PREFLIGHT_SCHEMA_VERSION,
@@ -482,6 +511,7 @@ def validate_managed_preflight(request: ManagedPreflightRequest) -> ManagedPrefl
         dataset_case_count=request.dataset.case_count,
         dataset_distribution=tuple(profile.expected_distribution.items()),
         dataset_corpus_count=request.dataset.corpus_count,
+        provider_kind=provider_kind,
         answerer_model=answerer_model,
         judge_model=judge_model,
         provider_route=route,
@@ -537,6 +567,20 @@ def _trusted_scope(scope: object) -> str:
         return normalize_full_comparison_scope(scope)  # type: ignore[arg-type]
     except BenchmarkValidationError:
         _reject("scope_invalid")
+
+
+def _trusted_provider_kind(value: object, *, scope: str) -> str:
+    if type(value) is not str or value not in {
+        MANAGED_PREFLIGHT_PROVIDER_OPENAI_API_KEY,
+        MANAGED_PREFLIGHT_PROVIDER_SUBSCRIPTION_RUNTIME,
+    }:
+        _reject("provider_kind_invalid")
+    if (
+        value == MANAGED_PREFLIGHT_PROVIDER_SUBSCRIPTION_RUNTIME
+        and scope == FULL_COMPARISON_SCOPE_FULL
+    ):
+        _reject("provider_kind_invalid")
+    return value
 
 
 def _model(value: object) -> str:
@@ -600,6 +644,71 @@ def _trusted_provider_route(
         credential_binding_id=route.credential_binding_id,
         request_method=route.request_method,
     )
+
+
+def _trusted_subscription_provider_route(
+    route: object,
+    *,
+    scope: str,
+    credential: ManagedCredentialBinding,
+) -> ManagedProviderRouteSummary:
+    if (
+        scope == FULL_COMPARISON_SCOPE_FULL
+        or type(route) is not ProviderRouteAttestation
+        or type(credential) is not ManagedCredentialBinding
+        or credential.credential_name != "subscription-runtime"
+    ):
+        _reject("provider_route_mismatch")
+    try:
+        parsed = urlsplit(route.origin)
+        port = parsed.port
+        address = ipaddress.ip_address(parsed.hostname or "")
+    except ValueError:
+        _reject("provider_route_mismatch")
+    if (
+        parsed.scheme not in {"http", "https"}
+        or parsed.username is not None
+        or parsed.password is not None
+        or parsed.path
+        or parsed.query
+        or parsed.fragment
+        or port is None
+        or not address.is_loopback
+        or (isinstance(address, ipaddress.IPv6Address) and address.ipv4_mapped is not None)
+    ):
+        _reject("provider_route_mismatch")
+    expected_route_sha256 = hashlib.sha256(
+        f"{route.origin}{_SUBSCRIPTION_RUNTIME_ENDPOINT_PATH}".encode()
+    ).hexdigest()
+    expected_binding = credential.binding_id if credential.configured else None
+    if (
+        route.trust != _SUBSCRIPTION_RUNTIME_TRUST
+        or route.endpoint_path != _SUBSCRIPTION_RUNTIME_ENDPOINT_PATH
+        or route.route_sha256 != expected_route_sha256
+        or route.transport_evidence != _SUBSCRIPTION_RUNTIME_TRANSPORT
+        or route.request_method != "POST"
+        or type(route.response_status) is not int
+        or route.response_status != 0
+        or route.credential_binding_id != expected_binding
+        or (credential.configured and credential.binding_id is None)
+    ):
+        _reject("provider_route_mismatch")
+    public = route.public_payload()
+    if (
+        public.get("credential_bound") is credential.configured
+        and public.get("credential_binding_id") == expected_binding
+        and public.get("route_sha256") == route.route_sha256
+    ):
+        return ManagedProviderRouteSummary(
+            trust=route.trust,
+            origin=route.origin,
+            endpoint_path=route.endpoint_path,
+            route_sha256=route.route_sha256,
+            transport_evidence=route.transport_evidence,
+            credential_binding_id=route.credential_binding_id,
+            request_method=route.request_method,
+        )
+    _reject("provider_route_invalid")
 
 
 def _trusted_backend_endpoints(
@@ -668,7 +777,21 @@ def _validated_backend_url(value: object) -> tuple[str, bool]:
         _reject("endpoint_invalid")
     scheme = parsed.scheme.casefold()
     normalized_host = hostname.casefold().removesuffix(".")
-    loopback = _is_loopback(normalized_host)
+    try:
+        address = ipaddress.ip_address(normalized_host)
+    except ValueError:
+        address = None
+    if isinstance(address, ipaddress.IPv6Address) and address.ipv4_mapped is not None:
+        _reject("endpoint_invalid")
+    loopback = address.is_loopback if address is not None else normalized_host == "localhost"
+    if address is not None and not loopback and not address.is_global:
+        _reject("endpoint_invalid")
+    if address is None and (
+        re.fullmatch(r"[0-9.]+", normalized_host) is not None
+        or any(label.casefold().startswith("0x") for label in normalized_host.split("."))
+        or normalized_host.endswith((".internal", ".local", ".localhost", ".home.arpa"))
+    ):
+        _reject("endpoint_invalid")
     if scheme != "https" and not loopback:
         _reject("endpoint_invalid")
     if not loopback and _SAFE_HOST.fullmatch(normalized_host) is None:
@@ -680,15 +803,6 @@ def _validated_backend_url(value: object) -> tuple[str, bool]:
     netloc = f"{normalized_host}:{port}" if port is not None else normalized_host
     path = parsed.path.rstrip("/")
     return urlunsplit(SplitResult(scheme, netloc, path, "", "")), loopback
-
-
-def _is_loopback(hostname: str) -> bool:
-    if hostname.casefold() == "localhost":
-        return True
-    try:
-        return ipaddress.ip_address(hostname).is_loopback
-    except ValueError:
-        return False
 
 
 def _bounded_seconds(value: object, *, maximum: float) -> float:
@@ -709,6 +823,8 @@ __all__ = (
     "MANAGED_PREFLIGHT_MAX_CONNECT_SECONDS",
     "MANAGED_PREFLIGHT_MAX_REQUEST_SECONDS",
     "MANAGED_PREFLIGHT_MAX_RUN_SECONDS",
+    "MANAGED_PREFLIGHT_PROVIDER_OPENAI_API_KEY",
+    "MANAGED_PREFLIGHT_PROVIDER_SUBSCRIPTION_RUNTIME",
     "MANAGED_PREFLIGHT_REQUIRED_CREDENTIALS",
     "MANAGED_PREFLIGHT_SCHEMA_VERSION",
     "ManagedBackendEndpoint",

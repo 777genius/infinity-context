@@ -104,6 +104,7 @@ def _bindings(
     selection: str = "5" * 64,
     probe_nonce_sha256: str | None = None,
     mem0_target: str = _TARGET,
+    scope: str = "full",
 ) -> FullComparisonRunBindings:
     profile = resolve_full_comparison_profile(PROFILE_LOCOMO_TOP_50)
     assert profile is not None
@@ -123,6 +124,7 @@ def _bindings(
             FullComparisonBackendTarget("infinity-context", "6" * 64),
             FullComparisonBackendTarget("mem0", mem0_target),
         ),
+        scope=scope,
     )
 
 
@@ -143,6 +145,21 @@ def _route() -> ProviderRouteAttestation:
         route_sha256="e" * 64,
         transport_evidence="direct_https",
         credential_binding_id="sha256:" + "f" * 64,
+        request_method="POST",
+        response_status=200,
+    )
+
+
+def _subscription_route() -> ProviderRouteAttestation:
+    origin = "http://127.0.0.1:8890"
+    endpoint_path = "/v1/chat/completions"
+    return ProviderRouteAttestation(
+        trust="codex_subscription_runtime",
+        origin=origin,
+        endpoint_path=endpoint_path,
+        route_sha256=hashlib.sha256(f"{origin}{endpoint_path}".encode()).hexdigest(),
+        transport_evidence="subscription-runtime-openai-codex-bridge.v1",
+        credential_binding_id=None,
         request_method="POST",
         response_status=200,
     )
@@ -366,6 +383,28 @@ def test_component_report_binds_exact_live_composition() -> None:
     assert report["composite_consume_required"] is True
     assert report["externally_authentic"] is False
     assert not any("identity" in key for key in report)
+
+
+def test_canary_accepts_exact_credentialless_subscription_bridge_but_full_rejects() -> None:
+    route = _subscription_route()
+    canary_bindings = _bindings(scope="canary")
+
+    attestation, bindings, _, _, ports = _issue(
+        bindings=canary_bindings,
+        route=route,
+    )
+    report = _public(attestation, bindings, ports)
+
+    provider = report["provider_route"]
+    assert isinstance(provider, dict)
+    assert provider["trust"] == "codex_subscription_runtime"
+    assert provider["credential_binding_id"] is None
+
+    with pytest.raises(
+        managed.ManagedCompositionAttestationError,
+        match="credential binding",
+    ):
+        _issue(bindings=_bindings(scope="full"), route=_subscription_route())
 
 
 def test_no_public_self_issuer_or_raw_sha_wrapper() -> None:

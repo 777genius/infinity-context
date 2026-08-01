@@ -24,7 +24,7 @@ from infinity_context_server.memory_comparison_managed_preflight_cli import (
 )
 
 _INFINITY_URL = "https://private-infinity.example.test/internal"
-_MEM0_URL = "https://private-mem0.example.test/v3"
+_MEM0_URL = "https://private-mem0.example.test"
 _SECRETS = {
     "MEMORY_OPENAI_API_KEY": "sk-proj-openai-secret-value-1234567890",
     "MEMORY_EVAL_AUTH_TOKEN": "infinity-secret-value",

@@ -9,6 +9,7 @@ from __future__ import annotations
 import copy
 import hashlib
 import hmac
+import ipaddress
 import json
 import re
 import secrets
@@ -17,6 +18,7 @@ import weakref
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING, final
+from urllib.parse import urlsplit
 
 from infinity_context_server.memory_comparison_full_profiles import (
     resolve_full_comparison_profile,
@@ -24,6 +26,9 @@ from infinity_context_server.memory_comparison_full_profiles import (
 from infinity_context_server.memory_comparison_full_run_evidence import (
     FullComparisonRunBindings,
     _validate_bindings,
+)
+from infinity_context_server.memory_comparison_full_scope import (
+    FULL_COMPARISON_SCOPE_CANARY,
 )
 from infinity_context_server.memory_comparison_mem0_runtime_attestation import (
     VerifiedMem0RuntimeAttestationValidation,
@@ -125,7 +130,7 @@ class _ProviderSnapshot:
     endpoint_path: str
     route_sha256: str
     transport_evidence: str
-    credential_binding_id: str
+    credential_binding_id: str | None
     request_method: str
     response_status: int
     payload_sha256: str
@@ -185,7 +190,7 @@ def _build_managed_attestation_api():
         port_snapshots = _port_snapshots(ports)
         now = _clock_now(clock)
         runtime = _runtime_snapshot(trusted, runtime_validation, now)
-        provider = _provider_snapshot(provider_route)
+        provider = _provider_snapshot(provider_route, scope=trusted.scope)
         max_age = runtime.max_age_seconds
         checked_at = _instant_text(now)
         snapshot = _CompositionSnapshot(
@@ -281,7 +286,7 @@ def _build_managed_attestation_api():
             state.runtime_validation,
             now,
         )
-        current_provider = _provider_snapshot(state.provider_route)
+        current_provider = _provider_snapshot(state.provider_route, scope=trusted.scope)
         if (
             current_ports != state.snapshot.ports
             or current_runtime != state.snapshot.runtime
@@ -517,7 +522,11 @@ def _runtime_snapshot(
     )
 
 
-def _provider_snapshot(route: ProviderRouteAttestation) -> _ProviderSnapshot:
+def _provider_snapshot(
+    route: ProviderRouteAttestation,
+    *,
+    scope: str,
+) -> _ProviderSnapshot:
     if type(route) is not ProviderRouteAttestation:
         raise ManagedCompositionAttestationError("provider route capability type must be exact")
     public = route.public_payload()
@@ -538,31 +547,70 @@ def _provider_snapshot(route: ProviderRouteAttestation) -> _ProviderSnapshot:
     ):
         raise ManagedCompositionAttestationError("provider route fields are invalid")
     _digest(route.route_sha256, field_name="provider route_sha256")
-    credential = route.credential_binding_id
-    if (
-        type(credential) is not str
-        or not credential.startswith("sha256:")
-        or _SHA256_RE.fullmatch(credential[7:]) is None
-        or public.get("credential_bound") is not True
-        or public.get("credential_binding_id") != credential
-    ):
-        raise ManagedCompositionAttestationError("provider credential binding is invalid")
     if (
         route.request_method != "POST"
         or type(route.response_status) is not int
         or not 200 <= route.response_status < 300
     ):
         raise ManagedCompositionAttestationError("provider route did not attest a successful POST")
+    credential = route.credential_binding_id
+    credential_valid = bool(
+        type(credential) is str
+        and credential.startswith("sha256:")
+        and _SHA256_RE.fullmatch(credential[7:]) is not None
+        and public.get("credential_bound") is True
+        and public.get("credential_binding_id") == credential
+    )
+    if not credential_valid and not _credentialless_subscription_route(
+        route,
+        public=public,
+        scope=scope,
+    ):
+        raise ManagedCompositionAttestationError("provider credential binding is invalid")
     return _ProviderSnapshot(
         trust=route.trust,
         origin=route.origin,
         endpoint_path=route.endpoint_path,
         route_sha256=route.route_sha256,
         transport_evidence=route.transport_evidence,
-        credential_binding_id=credential,
+        credential_binding_id=credential if credential_valid else None,
         request_method=route.request_method,
         response_status=route.response_status,
         payload_sha256=_json_sha256(public),
+    )
+
+
+def _credentialless_subscription_route(
+    route: ProviderRouteAttestation,
+    *,
+    public: dict[str, object],
+    scope: str,
+) -> bool:
+    try:
+        parsed = urlsplit(route.origin)
+        address = ipaddress.ip_address(parsed.hostname or "")
+        port = parsed.port
+    except ValueError:
+        return False
+    return bool(
+        scope == FULL_COMPARISON_SCOPE_CANARY
+        and route.trust == "codex_subscription_runtime"
+        and parsed.scheme in {"http", "https"}
+        and address.is_loopback
+        and getattr(address, "ipv4_mapped", None) is None
+        and port is not None
+        and parsed.username is None
+        and parsed.password is None
+        and parsed.path == ""
+        and not parsed.query
+        and not parsed.fragment
+        and route.endpoint_path == "/v1/chat/completions"
+        and route.route_sha256
+        == hashlib.sha256(f"{route.origin}{route.endpoint_path}".encode()).hexdigest()
+        and route.transport_evidence == "subscription-runtime-openai-codex-bridge.v1"
+        and route.credential_binding_id is None
+        and public.get("credential_bound") is False
+        and public.get("credential_binding_id") is None
     )
 
 
