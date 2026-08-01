@@ -103,11 +103,8 @@ def test_no_go_is_decided_before_environment_credentials_readiness_or_backend(
     assert report["live_state_touched"] is False
     assert report["publishable"] is False
     assert report["blockers"] == [
-        "managed_production_ingest_manifest_binding_unavailable",
-        "managed_http_policy_infinity_document_chunk_identity_unavailable",
         "managed_http_policy_mem0_exact_source_identity_unavailable",
-        "managed_http_policy_exact_derived_identity_manifest_unavailable",
-        "managed_http_policy_terminal_manifest_binding_unavailable",
+        "managed_http_policy_evidence_capabilities_unavailable",
     ]
     assert report["planned_limits"] == {
         "benchmark_max_provider_calls": 4,

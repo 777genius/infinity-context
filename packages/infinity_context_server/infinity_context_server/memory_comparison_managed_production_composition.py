@@ -1,12 +1,11 @@
 """Fail-closed production entrypoint for managed memory comparison.
 
-The current backend wire contracts cannot yet prove every canonical/source and
-derived-delete invariant.  This root therefore evaluates those typed blockers
-before consuming the prepared run or opening any additional benchmark/backend
-lane.  One readiness provider probe has already happened during preparation.
-The execution branch remains deliberately sealed until that evidence is
-available; partial production runs would spend more tokens without a
-publishable verdict.
+The managed policy lifecycle remains sealed until its exact Mem0 source and
+aggregate evidence capabilities are production-proven. This root evaluates
+those typed blockers before consuming the prepared run or opening any
+additional benchmark/backend lane. One readiness provider probe has already
+happened during preparation. Partial production runs would spend more tokens
+without a publishable verdict.
 
 Orchestrators must evaluate the pure pre-readiness gate first so current static
 blockers cost zero provider tokens.  The prepared-run root is a defensive
@@ -29,9 +28,6 @@ from infinity_context_server.memory_comparison_managed_run_contract import Manag
 
 MANAGED_PRODUCTION_COMPOSITION_SCHEMA_VERSION = (
     "memory-comparison-managed-production-composition.v1"
-)
-_INGEST_MANIFEST_BINDING_BLOCKER = (
-    "managed_production_ingest_manifest_binding_unavailable"
 )
 
 
@@ -148,10 +144,7 @@ def evaluate_managed_production_pre_readiness(
 
 
 def _production_blockers(cases: tuple[ManagedRunCase, ...]) -> tuple[str, ...]:
-    return (
-        _INGEST_MANIFEST_BINDING_BLOCKER,
-        *managed_http_policy_production_blockers(cases),
-    )
+    return managed_http_policy_production_blockers(cases)
 
 
 __all__ = (
