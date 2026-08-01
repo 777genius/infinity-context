@@ -3,6 +3,8 @@ from __future__ import annotations
 import hashlib
 import hmac
 import json
+import weakref
+from dataclasses import FrozenInstanceError
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
@@ -10,6 +12,7 @@ import infinity_context_server.memory_comparison_managed_mem0_runtime_http as me
 import pytest
 from infinity_context_server.memory_comparison_managed_mem0_runtime_http import (
     ManagedMem0RuntimeAttestationPort,
+    ManagedMem0RuntimeAuthorityDescriptor,
     ManagedMem0RuntimeHttpError,
     ManagedUtcClockPort,
 )
@@ -67,6 +70,88 @@ def test_production_adapter_returns_exact_publishable_same_run_validation() -> N
     assert calls[1][2] == {"X-Benchmark-Probe-Token": _PROBE_TOKEN}
     rendered = json.dumps(public, sort_keys=True)
     assert all(value not in rendered for value in (_PROBE_TOKEN, NONCE, RUN_ID, TARGET_URL))
+
+
+def test_authority_descriptor_commits_exact_pending_private_authority() -> None:
+    transport = _Transport([], {})
+    adapter = _adapter(transport)
+
+    descriptor = adapter.authority_descriptor()
+
+    assert type(descriptor) is ManagedMem0RuntimeAuthorityDescriptor
+    assert descriptor.adapter_id == adapter.adapter_id
+    assert descriptor.implementation_sha256 == adapter.implementation_sha256
+    assert descriptor.target_identity_sha256 == TARGET_SHA
+    assert descriptor.probe_nonce_sha256 == _NONCE_SHA
+    assert descriptor.probe_token_credential_binding_id == (
+        "sha256:" + hashlib.sha256(_PROBE_TOKEN.encode()).hexdigest()
+    )
+    assert descriptor.request_timeout_seconds == 0.5
+    assert descriptor.max_attempts == 1
+    assert adapter.authority_descriptor() is descriptor
+    assert weakref.ref(adapter)() is adapter
+    assert transport.opened is False
+
+
+def test_authority_descriptor_is_immutable_and_secret_safe() -> None:
+    descriptor = _adapter(_Transport([], {})).authority_descriptor()
+
+    with pytest.raises(FrozenInstanceError):
+        descriptor.max_attempts = 2
+
+    rendered = repr(descriptor)
+    assert _PROBE_TOKEN not in rendered
+    assert NONCE not in rendered
+    assert _TARGET_ORIGIN not in rendered
+    assert TARGET_URL not in rendered
+
+
+def test_authority_descriptor_binds_actual_token_and_nonce_not_peer_claims() -> None:
+    other_token = "other-unit-probe-token"
+    other_nonce = "other-private-probe-nonce-00000001"
+    transport = _Transport([], {})
+    adapter = ManagedMem0RuntimeAttestationPort(
+        base_url=_TARGET_ORIGIN,
+        benchmark_probe_token=other_token,
+        probe_nonce=other_nonce,
+        timeout_seconds=0.5,
+        deadline_budget_seconds=60.0,
+        monotonic_clock=lambda: 100.0,
+        expected_implementation_sha256=_IMPLEMENTATION_SHA,
+        allowed_target_hosts=("mem0.example.test",),
+        vetted_transport=transport,
+    )
+
+    descriptor = adapter.authority_descriptor()
+
+    assert descriptor.probe_nonce_sha256 == hashlib.sha256(other_nonce.encode()).hexdigest()
+    assert descriptor.probe_nonce_sha256 != _NONCE_SHA
+    assert descriptor.probe_token_credential_binding_id == (
+        "sha256:" + hashlib.sha256(other_token.encode()).hexdigest()
+    )
+    assert descriptor.probe_token_credential_binding_id != (
+        "sha256:" + hashlib.sha256(_PROBE_TOKEN.encode()).hexdigest()
+    )
+    assert transport.opened is False
+
+
+def test_authority_descriptor_cannot_be_replayed_after_attest_claim() -> None:
+    transport = _Transport([], {})
+    adapter = _adapter(transport)
+    adapter.authority_descriptor()
+
+    with pytest.raises(ManagedMem0RuntimeHttpError):
+        adapter.attest(
+            run_id=RUN_ID,
+            probe_nonce_sha256="0" * 64,
+            target_identity_sha256=TARGET_SHA,
+        )
+
+    with pytest.raises(ManagedMem0RuntimeHttpError) as raised:
+        adapter.authority_descriptor()
+
+    assert raised.value.code == "managed_mem0_runtime_already_used"
+    assert transport.opened is False
 
 
 def test_target_mismatch_fails_before_any_http() -> None:
@@ -140,6 +225,8 @@ def test_unsafe_target_is_rejected_before_transport_open() -> None:
             benchmark_probe_token=_PROBE_TOKEN,
             probe_nonce=NONCE,
             timeout_seconds=0.5,
+            deadline_budget_seconds=60.0,
+            monotonic_clock=lambda: 100.0,
             expected_implementation_sha256=_IMPLEMENTATION_SHA,
             vetted_transport=transport,
         )
@@ -157,6 +244,8 @@ def test_base_url_path_is_rejected_before_transport_open() -> None:
             benchmark_probe_token=_PROBE_TOKEN,
             probe_nonce=NONCE,
             timeout_seconds=0.5,
+            deadline_budget_seconds=60.0,
+            monotonic_clock=lambda: 100.0,
             expected_implementation_sha256=_IMPLEMENTATION_SHA,
             allowed_target_hosts=("mem0.example.test",),
             vetted_transport=transport,
@@ -176,6 +265,8 @@ def test_private_nonce_bounds_fail_before_transport_open(nonce: str) -> None:
             benchmark_probe_token=_PROBE_TOKEN,
             probe_nonce=nonce,
             timeout_seconds=0.5,
+            deadline_budget_seconds=60.0,
+            monotonic_clock=lambda: 100.0,
             expected_implementation_sha256=_IMPLEMENTATION_SHA,
             allowed_target_hosts=("mem0.example.test",),
             vetted_transport=transport,
@@ -256,6 +347,8 @@ def test_expected_implementation_mismatch_fails_before_transport_open() -> None:
             benchmark_probe_token=_PROBE_TOKEN,
             probe_nonce=NONCE,
             timeout_seconds=0.5,
+            deadline_budget_seconds=60.0,
+            monotonic_clock=lambda: 100.0,
             expected_implementation_sha256="0" * 64,
             allowed_target_hosts=("mem0.example.test",),
             vetted_transport=transport,
@@ -271,6 +364,8 @@ def _adapter(transport: object) -> ManagedMem0RuntimeAttestationPort:
         benchmark_probe_token=_PROBE_TOKEN,
         probe_nonce=NONCE,
         timeout_seconds=0.5,
+        deadline_budget_seconds=60.0,
+        monotonic_clock=lambda: 100.0,
         expected_implementation_sha256=_IMPLEMENTATION_SHA,
         allowed_target_hosts=("mem0.example.test",),
         vetted_transport=transport,  # type: ignore[arg-type]
@@ -334,3 +429,158 @@ class _LeakingTransport:
         del base_url, timeout_seconds
         self.opened = True
         raise RuntimeError(self.secret_marker)
+
+
+class _FakeMonotonic:
+    def __init__(self, value: float) -> None:
+        self.value = value
+
+    def __call__(self) -> float:
+        return self.value
+
+
+class _TimeoutRecordingTransport(_Transport):
+    def __init__(
+        self,
+        calls: list[tuple[str, str, object, object]],
+        responses: dict[tuple[str, str], _Response],
+    ) -> None:
+        super().__init__(calls, responses)
+        self.timeouts: list[float] = []
+
+    def open_client(self, *, base_url: str, timeout_seconds: float):
+        self.timeouts.append(timeout_seconds)
+        return super().open_client(
+            base_url=base_url,
+            timeout_seconds=timeout_seconds,
+        )
+
+
+def _deadline_adapter(
+    transport: object,
+    clock: _FakeMonotonic,
+    *,
+    timeout_seconds: float,
+    deadline_budget_seconds: float,
+) -> ManagedMem0RuntimeAttestationPort:
+    return ManagedMem0RuntimeAttestationPort(
+        base_url=_TARGET_ORIGIN,
+        benchmark_probe_token=_PROBE_TOKEN,
+        probe_nonce=NONCE,
+        timeout_seconds=timeout_seconds,
+        deadline_budget_seconds=deadline_budget_seconds,
+        monotonic_clock=clock,
+        expected_implementation_sha256=_IMPLEMENTATION_SHA,
+        allowed_target_hosts=("mem0.example.test",),
+        vetted_transport=transport,  # type: ignore[arg-type]
+    )
+
+
+def test_attest_shrinks_transport_timeout_to_exact_monotonic_remaining() -> None:
+    calls: list[tuple[str, str, object, object]] = []
+    responses = {
+        ("GET", "/openapi.json"): _Response(200, _refreshable_openapi()),
+        (
+            "POST",
+            MEM0_BENCHMARK_ATTESTATION_REFRESH_PATH,
+        ): _Response(200, _witnessed_manifest(datetime.now(UTC))),
+    }
+    transport = _TimeoutRecordingTransport(calls, responses)
+    clock = _FakeMonotonic(100.0)
+    adapter = _deadline_adapter(
+        transport,
+        clock,
+        timeout_seconds=4.0,
+        deadline_budget_seconds=5.0,
+    )
+    descriptor = adapter.authority_descriptor()
+    assert descriptor.deadline_budget_seconds == 5.0
+    assert descriptor.deadline_policy == "monotonic-hard-deadline.v1"
+    assert descriptor.minimum_network_timeout_seconds == 0.001
+
+    clock.value = 102.0
+    adapter.attest(
+        run_id=RUN_ID,
+        probe_nonce_sha256=_NONCE_SHA,
+        target_identity_sha256=TARGET_SHA,
+    )
+
+    assert transport.timeouts == [3.0]
+
+
+@pytest.mark.parametrize("elapsed", (1.0, 0.9995))
+def test_expired_or_too_small_deadline_burns_claim_before_any_transport(
+    elapsed: float,
+) -> None:
+    transport = _Transport([], {})
+    clock = _FakeMonotonic(10.0)
+    adapter = _deadline_adapter(
+        transport,
+        clock,
+        timeout_seconds=0.5,
+        deadline_budget_seconds=1.0,
+    )
+    descriptor = adapter.authority_descriptor()
+    clock.value += elapsed
+
+    with pytest.raises(ManagedMem0RuntimeHttpError) as raised:
+        adapter.attest(
+            run_id=RUN_ID,
+            probe_nonce_sha256=_NONCE_SHA,
+            target_identity_sha256=TARGET_SHA,
+        )
+
+    assert raised.value.code == "managed_mem0_runtime_deadline_exceeded"
+    assert transport.opened is False
+    with pytest.raises(ManagedMem0RuntimeHttpError) as replay:
+        adapter.attest(
+            run_id=RUN_ID,
+            probe_nonce_sha256=descriptor.probe_nonce_sha256,
+            target_identity_sha256=descriptor.target_identity_sha256,
+        )
+    assert replay.value.code == "managed_mem0_runtime_already_used"
+
+
+@pytest.mark.parametrize(
+    "budget",
+    (True, 0.0, 0.0005, float("nan"), float("inf"), 172_801.0),
+)
+def test_invalid_deadline_budget_fails_before_transport_open(budget: object) -> None:
+    transport = _Transport([], {})
+
+    with pytest.raises(ManagedMem0RuntimeHttpError) as raised:
+        ManagedMem0RuntimeAttestationPort(
+            base_url=_TARGET_ORIGIN,
+            benchmark_probe_token=_PROBE_TOKEN,
+            probe_nonce=NONCE,
+            timeout_seconds=0.5,
+            deadline_budget_seconds=budget,  # type: ignore[arg-type]
+            monotonic_clock=lambda: 100.0,
+            expected_implementation_sha256=_IMPLEMENTATION_SHA,
+            allowed_target_hosts=("mem0.example.test",),
+            vetted_transport=transport,
+        )
+
+    assert raised.value.code == "managed_mem0_runtime_configuration_invalid"
+    assert transport.opened is False
+
+
+@pytest.mark.parametrize("observed", (True, float("nan"), float("inf"), "now"))
+def test_invalid_monotonic_clock_fails_before_transport_open(observed: object) -> None:
+    transport = _Transport([], {})
+
+    with pytest.raises(ManagedMem0RuntimeHttpError) as raised:
+        ManagedMem0RuntimeAttestationPort(
+            base_url=_TARGET_ORIGIN,
+            benchmark_probe_token=_PROBE_TOKEN,
+            probe_nonce=NONCE,
+            timeout_seconds=0.5,
+            deadline_budget_seconds=10.0,
+            monotonic_clock=lambda: observed,  # type: ignore[return-value]
+            expected_implementation_sha256=_IMPLEMENTATION_SHA,
+            allowed_target_hosts=("mem0.example.test",),
+            vetted_transport=transport,
+        )
+
+    assert raised.value.code == "managed_mem0_runtime_configuration_invalid"
+    assert transport.opened is False

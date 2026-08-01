@@ -192,27 +192,40 @@ def test_missing_and_invalid_usage_are_conservative() -> None:
         _complete(invalid_provider)
 
 
-def test_estimated_usage_charges_at_least_the_admitted_reservation() -> None:
+@pytest.mark.parametrize(
+    "usage_source",
+    ["estimated_by_subscription_adapter", "estimated_by_subscription_runtime"],
+)
+def test_estimated_usage_charges_at_least_the_admitted_reservation(
+    usage_source: str,
+) -> None:
     estimated = _Delegate(
         _completion(
             prompt_tokens=1,
             completion_tokens=1,
-            usage_source="estimated_by_subscription_adapter",
+            usage_source=usage_source,
         )
     )
     provider = _provider(estimated, max_total_tokens=10, estimate=2)
 
-    _complete(provider)
+    completion = _complete(provider)
 
     assert provider.usage_snapshot().consumed_tokens == 4
+    assert completion.token_usage_source == usage_source
 
 
-def test_estimated_usage_above_reservation_is_charged_and_closes_provider() -> None:
+@pytest.mark.parametrize(
+    "usage_source",
+    ["estimated_by_subscription_adapter", "estimated_by_subscription_runtime"],
+)
+def test_estimated_usage_above_reservation_is_charged_and_closes_provider(
+    usage_source: str,
+) -> None:
     estimated = _Delegate(
         _completion(
             prompt_tokens=3,
             completion_tokens=2,
-            usage_source="estimated_by_subscription_adapter",
+            usage_source=usage_source,
         )
     )
     provider = _provider(estimated, max_total_tokens=10, estimate=1)
@@ -222,6 +235,20 @@ def test_estimated_usage_above_reservation_is_charged_and_closes_provider() -> N
 
     assert exc_info.value.code == "bounded_provider_usage_exceeded_reservation"
     assert provider.usage_snapshot().consumed_tokens == 5
+    with pytest.raises(BoundedProviderError, match="bounded_provider_closed"):
+        _complete(provider)
+
+
+def test_unknown_usage_source_burns_reservation_and_closes_provider() -> None:
+    delegate = _Delegate(
+        _completion(prompt_tokens=1, completion_tokens=1, usage_source="provider_claimed")
+    )
+    provider = _provider(delegate, max_total_tokens=10, estimate=2)
+
+    with pytest.raises(BoundedProviderError, match="bounded_provider_usage_invalid"):
+        _complete(provider)
+
+    assert provider.usage_snapshot().consumed_tokens == 4
     with pytest.raises(BoundedProviderError, match="bounded_provider_closed"):
         _complete(provider)
 

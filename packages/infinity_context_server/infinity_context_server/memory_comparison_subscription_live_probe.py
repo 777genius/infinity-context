@@ -14,13 +14,16 @@ from collections.abc import Callable, Mapping
 from datetime import UTC, datetime
 
 from infinity_context_server.memory_comparison_provider_provenance import (
+    ProviderCallProvenance,
     ProviderChatCompletion,
     ProviderRouteAttestation,
     canonical_request_sha256,
 )
 from infinity_context_server.memory_comparison_subscription_chat import (
+    SUBSCRIPTION_ADAPTER_ESTIMATED_USAGE_SOURCE,
     SUBSCRIPTION_CHAT_ENDPOINT_PATH,
     SUBSCRIPTION_OUTPUT_LIMIT_EVIDENCE,
+    SUBSCRIPTION_RUNTIME_ESTIMATED_USAGE_SOURCE,
     SUBSCRIPTION_RUNTIME_TRANSPORT_EVIDENCE,
     SUBSCRIPTION_RUNTIME_TRUST,
     SubscriptionRuntimeChatCompletions,
@@ -118,21 +121,33 @@ def _perform_probe(
     if not callable(clock):
         _fail("subscription_live_probe_request_invalid")
 
-    completion = adapter.complete(
+    claim = adapter._claim_live_readiness()
+    receipt = adapter._complete_claimed_live_readiness(
+        claim,
         model=trusted_model,
         system_prompt=SUBSCRIPTION_LIVE_PROBE_SYSTEM_PROMPT,
         user_prompt=SUBSCRIPTION_LIVE_PROBE_USER_PROMPT,
         max_output_tokens=SUBSCRIPTION_LIVE_PROBE_MAX_OUTPUT_TOKENS,
     )
-    observed_route = adapter.route_attestation
+    if not adapter._owns_live_readiness_receipt(receipt):
+        _fail("subscription_live_probe_failed")
+    completion = receipt.completion
+    observed_route = receipt.route
     _require_observed_route(observed_route, planned=planned_route)
-    total_tokens = _trusted_usage(completion)
-    checked_at = _trusted_instant(clock())
-
+    request_payload = _probe_request_payload(trusted_model)
     request_sha256 = canonical_request_sha256(
         endpoint_path=planned_route.endpoint_path,
-        payload=_probe_request_payload(trusted_model),
+        payload=request_payload,
     )
+    if receipt.request_sha256 != request_sha256:
+        _fail("subscription_live_probe_response_invalid")
+    total_tokens, usage_source = _trusted_usage(
+        completion,
+        model=trusted_model,
+        route=observed_route,
+        request_sha256=request_sha256,
+    )
+    checked_at = _trusted_instant(clock())
     response_sha256 = _response_evidence_sha256(
         completion,
         model=trusted_model,
@@ -144,6 +159,7 @@ def _perform_probe(
             model=trusted_model,
             provider_call_count=1,
             total_tokens=total_tokens,
+            usage_source=usage_source,
             request_evidence_sha256=request_sha256,
             response_evidence_sha256=response_sha256,
             checked_at=checked_at,
@@ -199,14 +215,27 @@ def _require_observed_route(
         _fail("subscription_live_probe_route_invalid")
 
 
-def _trusted_usage(completion: object) -> int:
+def _trusted_usage(
+    completion: object,
+    *,
+    model: str,
+    route: ProviderRouteAttestation,
+    request_sha256: str,
+) -> tuple[int, str]:
     if type(completion) is not ProviderChatCompletion:
         _fail("subscription_live_probe_response_invalid")
+    provenance = completion.provenance
     if (
         completion.text != SUBSCRIPTION_LIVE_PROBE_EXPECTED_RESPONSE
         or completion.finish_reason != "stop"
         or completion.finish_reason_source != "provider_observed"
-        or completion.provenance is not None
+        or type(provenance) is not ProviderCallProvenance
+        or provenance.route != route
+        or provenance.requested_model != model
+        or provenance.observed_model != model
+        or _MODEL_RE.fullmatch(provenance.response_id) is None
+        or _MODEL_RE.fullmatch(provenance.system_fingerprint) is None
+        or provenance.request_sha256 != request_sha256
     ):
         _fail("subscription_live_probe_response_invalid")
     prompt_tokens = completion.prompt_tokens
@@ -216,13 +245,17 @@ def _trusted_usage(completion: object) -> int:
         or type(output_tokens) is not int
         or prompt_tokens <= 0
         or not 1 <= output_tokens <= SUBSCRIPTION_LIVE_PROBE_MAX_OUTPUT_TOKENS
-        or completion.token_usage_source != "provider_observed"
+        or completion.token_usage_source
+        not in {
+            SUBSCRIPTION_ADAPTER_ESTIMATED_USAGE_SOURCE,
+            SUBSCRIPTION_RUNTIME_ESTIMATED_USAGE_SOURCE,
+        }
     ):
         _fail("subscription_live_probe_usage_invalid")
     total_tokens = prompt_tokens + output_tokens
     if total_tokens > SUBSCRIPTION_LIVE_PROBE_MAX_TOTAL_TOKENS:
         _fail("subscription_live_probe_usage_invalid")
-    return total_tokens
+    return total_tokens, completion.token_usage_source
 
 
 def _trusted_instant(value: object) -> datetime:
@@ -251,6 +284,9 @@ def _response_evidence_sha256(
     model: str,
     route: ProviderRouteAttestation,
 ) -> str:
+    provenance = completion.provenance
+    if type(provenance) is not ProviderCallProvenance:  # pragma: no cover - validated first
+        _fail("subscription_live_probe_response_invalid")
     payload = {
         "completion_text_sha256": hashlib.sha256(completion.text.encode()).hexdigest(),
         "completion_tokens": completion.completion_tokens,
@@ -258,6 +294,7 @@ def _response_evidence_sha256(
         "finish_reason_source": completion.finish_reason_source,
         "model": model,
         "prompt_tokens": completion.prompt_tokens,
+        "provider_provenance": provenance.public_payload(),
         "route_sha256": route.route_sha256,
         "token_usage_source": completion.token_usage_source,
     }

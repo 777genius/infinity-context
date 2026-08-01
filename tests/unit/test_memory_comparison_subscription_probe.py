@@ -3,12 +3,14 @@ from __future__ import annotations
 import copy
 import json
 import pickle
+from dataclasses import replace
 from datetime import UTC, datetime, timedelta
 
 import httpx
 import pytest
 from infinity_context_server import memory_comparison_subscription_probe as probe
 from infinity_context_server.memory_comparison_subscription_chat import (
+    SUBSCRIPTION_RUNTIME_ESTIMATED_USAGE_SOURCE,
     SubscriptionRuntimeChatCompletions,
 )
 from infinity_context_server.memory_comparison_subscription_live_probe import (
@@ -26,6 +28,10 @@ def _issue(
         return httpx.Response(
             200,
             json={
+                "object": "chat.completion",
+                "id": "chatcmpl-subscription-probe-helper",
+                "model": "gpt-5.6-sol",
+                "system_fingerprint": "subscription-runtime-codex-bridge-v1",
                 "choices": [
                     {
                         "index": 0,
@@ -36,7 +42,12 @@ def _issue(
                         "finish_reason": "stop",
                     }
                 ],
-                "usage": {"prompt_tokens": 40, "completion_tokens": 2},
+                "usage": {
+                    "prompt_tokens": 40,
+                    "completion_tokens": 2,
+                    "total_tokens": 42,
+                    "usage_source": SUBSCRIPTION_RUNTIME_ESTIMATED_USAGE_SOURCE,
+                },
             },
         )
 
@@ -71,7 +82,9 @@ def test_probe_is_exactly_one_call_sealed_fresh_and_integrity_checked() -> None:
     )
     assert observation.model == "gpt-5.6-sol"
     assert observation.total_tokens == 42
+    assert observation.usage_source == SUBSCRIPTION_RUNTIME_ESTIMATED_USAGE_SOURCE
     assert observation.public_payload()["provider_call_count"] == 1
+    assert observation.public_payload()["usage_source"] == observation.usage_source
     assert repr(evidence) == "VerifiedSubscriptionRuntimeProbe(<sealed>)"
     assert "READY" not in json.dumps(observation.public_payload(), sort_keys=True)
 
@@ -97,6 +110,36 @@ def test_probe_is_exactly_one_call_sealed_fresh_and_integrity_checked() -> None:
     )
     with pytest.raises(probe.SubscriptionRuntimeProbeError, match="integrity"):
         probe.inspect_verified_subscription_runtime_probe(tampered, now=now)
+
+
+def test_usage_source_is_commitment_bound_and_invalid_sources_fail_closed() -> None:
+    now = datetime.now(UTC)
+    evidence = _issue(checked_at=now)
+    state = probe._PROBES[evidence]
+    probe._PROBES[evidence] = replace(
+        state,
+        observation=replace(
+            state.observation,
+            usage_source="estimated_by_subscription_adapter",
+        ),
+    )
+
+    with pytest.raises(probe.SubscriptionRuntimeProbeError, match="integrity"):
+        probe.inspect_verified_subscription_runtime_probe(evidence, now=now)
+
+    route_evidence = _issue(checked_at=now)
+    observation = probe.inspect_verified_subscription_runtime_probe(route_evidence, now=now)
+    with pytest.raises(probe.SubscriptionRuntimeProbeError, match="usage source"):
+        probe._subscription_runtime_probe_issuer(
+            route=observation.route,
+            model=observation.model,
+            provider_call_count=1,
+            total_tokens=observation.total_tokens,
+            usage_source="provider_observed",
+            request_evidence_sha256=observation.request_evidence_sha256,
+            response_evidence_sha256=observation.response_evidence_sha256,
+            checked_at=observation.checked_at,
+        )
 
 
 @pytest.mark.parametrize("bearer_token", (None, "private-test-token"))

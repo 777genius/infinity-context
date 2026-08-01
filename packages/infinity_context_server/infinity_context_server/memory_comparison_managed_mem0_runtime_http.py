@@ -13,13 +13,18 @@ import os
 import re
 import stat
 import threading
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from math import isfinite
 from typing import final
 from urllib.parse import urlsplit
 
+from infinity_context_server.memory_comparison_managed_mem0_runtime_authority import (
+    MANAGED_MEM0_RUNTIME_DEADLINE_POLICY,
+    ManagedMem0RuntimeAuthorityDescriptor,
+    _register_pending_managed_mem0_runtime_authority,
+)
 from infinity_context_server.memory_comparison_mem0_runtime_attestation import (
     MEM0_MANAGED_PLATFORM_RUNTIME_MODE,
     VerifiedMem0RuntimeAttestation,
@@ -45,12 +50,15 @@ _PRIVATE_NONCE_RE = re.compile(r"^[A-Za-z0-9._~:-]{32,256}$")
 _SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
 _MAX_PRIVATE_TOKEN_BYTES = 4_096
 _MAX_TIMEOUT_SECONDS = 120.0
+_MAX_DEADLINE_BUDGET_SECONDS = 172_800.0
+_MIN_NETWORK_TIMEOUT_SECONDS = 0.001
 _SAFE_ERROR_CODES = frozenset(
     {
         "managed_mem0_runtime_already_used",
         "managed_mem0_runtime_binding_invalid",
         "managed_mem0_runtime_capability_invalid",
         "managed_mem0_runtime_configuration_invalid",
+        "managed_mem0_runtime_deadline_exceeded",
         "managed_mem0_runtime_implementation_mismatch",
         "managed_mem0_runtime_implementation_unavailable",
         "managed_mem0_runtime_probe_failed",
@@ -79,16 +87,22 @@ class ManagedMem0RuntimeAttestationPort:
     """One-shot production implementation of the managed attestation port."""
 
     __slots__ = (
+        "__authority_descriptor",
         "__allowed_target_hosts",
         "__base_url",
         "__consumed",
+        "__deadline_budget_seconds",
+        "__deadline_monotonic",
         "__implementation_sha256",
         "__lock",
+        "__minimum_network_timeout_seconds",
+        "__monotonic_clock",
         "__probe_nonce",
         "__probe_token",
         "__target_identity_sha256",
         "__timeout_seconds",
         "__transport",
+        "__weakref__",
     )
 
     def __init__(
@@ -98,6 +112,8 @@ class ManagedMem0RuntimeAttestationPort:
         benchmark_probe_token: str,
         probe_nonce: str,
         timeout_seconds: float,
+        deadline_budget_seconds: float,
+        monotonic_clock: Callable[[], float],
         expected_implementation_sha256: str,
         allowed_target_hosts: Sequence[str] = (),
         vetted_transport: VettedProbeTransport | None = None,
@@ -109,6 +125,15 @@ class ManagedMem0RuntimeAttestationPort:
             timeout_seconds=timeout_seconds,
             allowed_target_hosts=allowed_target_hosts,
         )
+        try:
+            monotonic, deadline_budget, deadline = _monotonic_deadline(
+                monotonic_clock,
+                deadline_budget_seconds,
+            )
+        except Exception:
+            _wipe(token_bytes)
+            _wipe(nonce_bytes)
+            raise
         if type(base_url) is not str or not 0 < len(base_url) <= 2_048:
             _wipe(token_bytes)
             _wipe(nonce_bytes)
@@ -140,10 +165,32 @@ class ManagedMem0RuntimeAttestationPort:
         self.__transport = target.transport
         self.__allowed_target_hosts = hosts
         self.__timeout_seconds = timeout
+        self.__monotonic_clock = monotonic
+        self.__deadline_budget_seconds = deadline_budget
+        self.__deadline_monotonic = deadline
+        self.__minimum_network_timeout_seconds = _MIN_NETWORK_TIMEOUT_SECONDS
         self.__probe_token = token_bytes
         self.__probe_nonce = nonce_bytes
         self.__lock = threading.Lock()
         self.__consumed = False
+        self.__authority_descriptor = ManagedMem0RuntimeAuthorityDescriptor(
+            adapter_id=_ADAPTER_ID,
+            implementation_sha256=implementation_sha256,
+            target_identity_sha256=target.identity_sha256,
+            probe_nonce_sha256=hashlib.sha256(bytes(nonce_bytes)).hexdigest(),
+            probe_token_credential_binding_id=(
+                "sha256:" + hashlib.sha256(bytes(token_bytes)).hexdigest()
+            ),
+            request_timeout_seconds=timeout,
+            deadline_policy=MANAGED_MEM0_RUNTIME_DEADLINE_POLICY,
+            deadline_budget_seconds=deadline_budget,
+            minimum_network_timeout_seconds=_MIN_NETWORK_TIMEOUT_SECONDS,
+            max_attempts=1,
+        )
+        _register_pending_managed_mem0_runtime_authority(
+            self,
+            self.__authority_descriptor,
+        )
 
     def __init_subclass__(cls, **kwargs: object) -> None:
         del cls, kwargs
@@ -166,6 +213,14 @@ class ManagedMem0RuntimeAttestationPort:
         """Return the verified digest of the exact loaded adapter source."""
 
         return self.__implementation_sha256
+
+    def authority_descriptor(self) -> ManagedMem0RuntimeAuthorityDescriptor:
+        """Describe the exact pending one-shot authority without exposing secrets."""
+
+        with self.__lock:
+            if self.__consumed:
+                raise ManagedMem0RuntimeHttpError("managed_mem0_runtime_already_used")
+            return self.__authority_descriptor
 
     def attest(
         self,
@@ -195,11 +250,12 @@ class ManagedMem0RuntimeAttestationPort:
                 )
             ):
                 raise ManagedMem0RuntimeHttpError("managed_mem0_runtime_binding_invalid")
+            timeout_seconds = self.__remaining_timeout_seconds()
             outcome = probe_mem0_api(
                 self.__base_url,
                 require_timestamp=True,
                 require_runtime_contract=True,
-                timeout_seconds=self.__timeout_seconds,
+                timeout_seconds=timeout_seconds,
                 refresh_runtime_attestation=True,
                 benchmark_probe_token=token,
                 run_id=run_id,
@@ -258,6 +314,20 @@ class ManagedMem0RuntimeAttestationPort:
                 _wipe(self.__probe_token)
                 _wipe(self.__probe_nonce)
             return token, nonce
+
+    def __remaining_timeout_seconds(self) -> float:
+        try:
+            now = _monotonic_now(self.__monotonic_clock)
+        except ManagedMem0RuntimeHttpError:
+            raise
+        except Exception:
+            raise ManagedMem0RuntimeHttpError(
+                "managed_mem0_runtime_configuration_invalid"
+            ) from None
+        remaining = self.__deadline_monotonic - now
+        if remaining < self.__minimum_network_timeout_seconds:
+            raise ManagedMem0RuntimeHttpError("managed_mem0_runtime_deadline_exceeded")
+        return min(self.__timeout_seconds, remaining)
 
 
 @final
@@ -402,6 +472,40 @@ def _timeout(value: object) -> float:
     return timeout
 
 
+def _monotonic_deadline(
+    clock: object,
+    budget_seconds: object,
+) -> tuple[Callable[[], float], float, float]:
+    if not callable(clock):
+        raise ManagedMem0RuntimeHttpError("managed_mem0_runtime_configuration_invalid")
+    if isinstance(budget_seconds, bool) or not isinstance(budget_seconds, int | float):
+        raise ManagedMem0RuntimeHttpError("managed_mem0_runtime_configuration_invalid")
+    budget = float(budget_seconds)
+    if (
+        not isfinite(budget)
+        or not _MIN_NETWORK_TIMEOUT_SECONDS <= budget <= _MAX_DEADLINE_BUDGET_SECONDS
+    ):
+        raise ManagedMem0RuntimeHttpError("managed_mem0_runtime_configuration_invalid")
+    try:
+        started_at = _monotonic_now(clock)
+    except Exception:
+        raise ManagedMem0RuntimeHttpError("managed_mem0_runtime_configuration_invalid") from None
+    deadline = started_at + budget
+    if not isfinite(deadline):
+        raise ManagedMem0RuntimeHttpError("managed_mem0_runtime_configuration_invalid")
+    return clock, budget, deadline
+
+
+def _monotonic_now(clock: Callable[[], object]) -> float:
+    observed = clock()
+    if isinstance(observed, bool) or not isinstance(observed, int | float):
+        raise ManagedMem0RuntimeHttpError("managed_mem0_runtime_configuration_invalid")
+    instant = float(observed)
+    if not isfinite(instant):
+        raise ManagedMem0RuntimeHttpError("managed_mem0_runtime_configuration_invalid")
+    return instant
+
+
 def _host_sequence(value: object) -> tuple[str, ...]:
     if isinstance(value, str | bytes) or not isinstance(value, Sequence):
         raise ManagedMem0RuntimeHttpError("managed_mem0_runtime_configuration_invalid")
@@ -417,6 +521,7 @@ def _wipe(value: bytearray) -> None:
 
 
 __all__ = (
+    "ManagedMem0RuntimeAuthorityDescriptor",
     "ManagedMem0RuntimeAttestationPort",
     "ManagedMem0RuntimeHttpError",
     "ManagedUtcClockPort",
