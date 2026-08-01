@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import re
 from collections.abc import Mapping
 from threading import RLock
 from typing import NamedTuple
@@ -32,6 +33,7 @@ _EXPECTED_REQUEST_KEYS = {
 }
 _OBSERVATION_CONTEXT_EXTENSION = "infinity_context.mem0_observation_context"
 _EVIDENCE_EXTENSION = "infinity_context.mem0_locomo_transport_evidence"
+_MANAGED_TRIGGER_CASE_ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:-]{0,199}$")
 
 
 class _RequestObservationContext(NamedTuple):
@@ -39,6 +41,7 @@ class _RequestObservationContext(NamedTuple):
     generation: int
     verifier: RunScopedLocomoTransportEvidenceKey
     expected_turn: ExpectedOfficialLocomoTurn
+    public_trigger_case_id: str | None
 
 
 class Mem0HttpObservationRecorder:
@@ -62,7 +65,9 @@ class Mem0HttpObservationRecorder:
         *,
         run_id: str,
         expected_turn: ExpectedOfficialLocomoTurn,
+        public_trigger_case_id: str | None = None,
     ) -> None:
+        public_trigger = _validated_public_trigger_case_id(public_trigger_case_id)
         with self._lock:
             generation = self._generations.get(run_id, 0)
             verifier = self._verifiers.get(run_id)
@@ -74,6 +79,7 @@ class Mem0HttpObservationRecorder:
                 generation=generation,
                 verifier=verifier,
                 expected_turn=expected_turn,
+                public_trigger_case_id=public_trigger,
             )
 
     def observe_at_transport_boundary(self, request: httpx.Request) -> None:
@@ -86,6 +92,7 @@ class Mem0HttpObservationRecorder:
             request,
             expected_turn=context.expected_turn,
             verifier=context.verifier,
+            public_trigger_case_id=context.public_trigger_case_id,
         )
 
     def record_completed_request(self, request: httpx.Request, *, run_id: str) -> bool:
@@ -171,6 +178,7 @@ def observe_mem0_add_request(
     *,
     expected_turn: ExpectedOfficialLocomoTurn,
     verifier: RunScopedLocomoTransportEvidenceKey,
+    public_trigger_case_id: str | None = None,
 ) -> LocomoTimestampTransportEvidence:
     """Observe wrapper HTTP JSON, without claiming downstream SDK wire bytes."""
 
@@ -201,7 +209,19 @@ def observe_mem0_add_request(
         timestamp=_payload_int(payload, "timestamp"),
         idempotency_key=idempotency_key,
     )
-    return verifier.issue(projection, expected_turn=expected_turn)
+    return verifier.issue(
+        projection,
+        expected_turn=expected_turn,
+        public_trigger_case_id=_validated_public_trigger_case_id(public_trigger_case_id),
+    )
+
+
+def _validated_public_trigger_case_id(value: object) -> str | None:
+    if value is None:
+        return None
+    if type(value) is not str or _MANAGED_TRIGGER_CASE_ID.fullmatch(value) is None:
+        raise ValueError("managed public trigger case_id is invalid")
+    return value
 
 
 def mem0_http_observation_metadata(

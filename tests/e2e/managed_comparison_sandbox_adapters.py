@@ -7,12 +7,16 @@ import json
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 
+from infinity_context_server.memory_comparison_managed_corpus_projection import (
+    MANAGED_CORPUS_PROJECTION_SCHEMA_VERSION,
+)
+
 INFINITY_BACKEND = "infinity-context"
 MEM0_BACKEND = "mem0"
 REQUIRED_MODEL = "gpt-5"
 RUNTIME_NONCE = "managed-locomo-sandbox-runtime-nonce"
 SANDBOX_SCOPE = "managed-locomo-sandbox-scope"
-MANAGED_CORPUS_SCHEMA_VERSION = "memory-comparison-managed-corpus.v1"
+MANAGED_CORPUS_SCHEMA_VERSION = MANAGED_CORPUS_PROJECTION_SCHEMA_VERSION
 
 
 @dataclass(frozen=True, slots=True)
@@ -231,6 +235,45 @@ def _ingest_payload(
     assert type(record["thread_id"]) is str
     for key in ("memories", "documents", "conversations"):
         assert type(record[key]) is list
+    for memory in record["memories"]:
+        assert type(memory) is dict
+        assert set(memory) == {
+            "kind",
+            "role",
+            "session_alias",
+            "source_alias",
+            "speaker",
+            "session_date",
+            "text",
+            "timestamp",
+        }
+    for document in record["documents"]:
+        assert type(document) is dict
+        assert set(document) == {
+            "classification",
+            "source_alias",
+            "source_type",
+            "text",
+            "title",
+        }
+    for conversation in record["conversations"]:
+        assert type(conversation) is dict
+        assert set(conversation) == {
+            "messages",
+            "session_alias",
+            "session_date",
+            "source_alias",
+            "timestamp",
+        }
+        assert type(conversation["messages"]) is list
+        for message in conversation["messages"]:
+            assert type(message) is dict
+            assert set(message) == {
+                "content",
+                "role",
+                "source_alias",
+                "timestamp",
+            }
     return record
 
 

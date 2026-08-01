@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import json
 from concurrent.futures import ThreadPoolExecutor
 from threading import Barrier, Event
@@ -148,6 +149,83 @@ def test_runtime_observes_exact_official_turn_at_wrapper_http_transport_seam() -
         "observed_representation": MEM0_HTTP_OBSERVED_REPRESENTATION,
         "downstream_provider_sdk_wire_bytes_observed": False,
     }
+
+
+def test_runtime_binds_managed_public_trigger_without_changing_http_payload() -> None:
+    managed_case_id = "locomo-case-" + "a" * 64
+    base = _official_case()
+    case = PublicBenchmarkCase(
+        **{
+            **base.__dict__,
+            "metadata": {
+                **base.metadata,
+                "public_trigger_case_id": managed_case_id,
+            },
+        }
+    )
+    observed_payloads: list[dict[str, object]] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        observed_payloads.append(json.loads(request.content))
+        return httpx.Response(200, json={"results": [{"id": "memory-1"}]})
+
+    backend = Mem0HttpComparisonBackend(
+        base_url="http://mem0.test",
+        reset_user_on_start=False,
+        send_timestamps=True,
+        transport=httpx.MockTransport(handler),
+    )
+    try:
+        backend.ingest(case, run_id=_RUN_ID, corpus_key=_CORPUS_KEY)
+        verifier = backend.locomo_timestamp_transport_verifier(run_id=_RUN_ID)
+        evidence = backend.locomo_timestamp_transport_evidence(run_id=_RUN_ID)
+    finally:
+        backend.close()
+
+    assert verifier is not None
+    assert len(evidence) == 1
+    receipt = public_locomo_timestamp_transport_evidence(
+        evidence[0],
+        verifier=verifier,
+        expected_run_id=_RUN_ID,
+        expected_corpus_key=_CORPUS_KEY,
+    )
+    assert receipt["trigger_case_id_sha256"] == hashlib.sha256(managed_case_id.encode()).hexdigest()
+    assert observed_payloads[0]["metadata"]["case_id"] == base.case_id
+    assert "public_trigger_case_id" not in observed_payloads[0]["metadata"]
+
+
+def test_runtime_rejects_malformed_public_trigger_before_http() -> None:
+    base = _official_case()
+    case = PublicBenchmarkCase(
+        **{
+            **base.__dict__,
+            "metadata": {
+                **base.metadata,
+                "public_trigger_case_id": " malformed ",
+            },
+        }
+    )
+    request_count = 0
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        nonlocal request_count
+        request_count += 1
+        return httpx.Response(200, json={})
+
+    backend = Mem0HttpComparisonBackend(
+        base_url="http://mem0.test",
+        reset_user_on_start=False,
+        send_timestamps=True,
+        transport=httpx.MockTransport(handler),
+    )
+    try:
+        with pytest.raises(ValueError, match="public trigger"):
+            backend.ingest(case, run_id=_RUN_ID, corpus_key=_CORPUS_KEY)
+    finally:
+        backend.close()
+
+    assert request_count == 0
 
 
 def test_runtime_preserves_source_timestamp_without_claiming_unsent_timestamp() -> None:
