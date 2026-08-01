@@ -44,6 +44,12 @@ from infinity_context_server.memory_comparison_rerank import (
     decomposed_search_queries,
     temporal_rerank_memories,
 )
+from infinity_context_server.memory_comparison_retrieval_policy import (
+    INFINITY_TUNED_RETRIEVAL_POLICY,
+    NEUTRAL_COMPARISON_RETRIEVAL_POLICY,
+    ComparisonRetrievalPolicy,
+    disabled_postprocessing_telemetry,
+)
 from infinity_context_server.public_benchmark_checkpoint import safe_identifier
 from infinity_context_server.public_benchmark_models import (
     BenchmarkDocumentInput,
@@ -74,7 +80,8 @@ class InfinityContextHttpComparisonBackend:
         space_slug_prefix: str = "memory-comparison",
         timeout_seconds: float = 60.0,
         use_benchmark_search: bool = True,
-        mirror_memories_as_documents: bool = True,
+        retrieval_policy: ComparisonRetrievalPolicy = INFINITY_TUNED_RETRIEVAL_POLICY,
+        mirror_memories_as_documents: bool | None = None,
         transport: httpx.BaseTransport | None = None,
     ) -> None:
         self._client = httpx.Client(
@@ -85,6 +92,24 @@ class InfinityContextHttpComparisonBackend:
         )
         self._space_slug_prefix = space_slug_prefix
         self._use_benchmark_search = use_benchmark_search
+        if type(retrieval_policy) is not ComparisonRetrievalPolicy:
+            raise ValueError("retrieval_policy must use the exact policy type")
+        if not any(
+            retrieval_policy is item
+            for item in (
+                INFINITY_TUNED_RETRIEVAL_POLICY,
+                NEUTRAL_COMPARISON_RETRIEVAL_POLICY,
+            )
+        ):
+            raise ValueError("retrieval_policy must match a frozen comparison policy")
+        if mirror_memories_as_documents is None:
+            mirror_memories_as_documents = retrieval_policy.mirror_memories_as_documents
+        if (
+            type(mirror_memories_as_documents) is not bool
+            or mirror_memories_as_documents is not retrieval_policy.mirror_memories_as_documents
+        ):
+            raise ValueError("memory mirroring must match the retrieval policy")
+        self._retrieval_policy = retrieval_policy
         self._mirror_memories_as_documents = mirror_memories_as_documents
 
     def reset(self, *, run_id: str) -> None:
@@ -173,7 +198,14 @@ class InfinityContextHttpComparisonBackend:
             else _INFINITY_CONTEXT_PUBLIC_MAX_EVIDENCE_ITEMS
         )
         max_evidence_items = min(top_k, max_evidence_items_limit)
-        search_queries, query_decomposition = decomposed_search_queries(case)
+        neutral = self._retrieval_policy is NEUTRAL_COMPARISON_RETRIEVAL_POLICY
+        if neutral:
+            search_queries = (case.question,)
+            query_decomposition: Mapping[str, object] = disabled_postprocessing_telemetry(
+                stage="query_decomposition", policy=self._retrieval_policy
+            )
+        else:
+            search_queries, query_decomposition = decomposed_search_queries(case)
         search_path = (
             "/v1/context/benchmark-search" if self._use_benchmark_search else "/v1/context"
         )
@@ -195,16 +227,33 @@ class InfinityContextHttpComparisonBackend:
             response.raise_for_status()
             data = _response_data(response.json())
             query_results.append((query, _infinity_context_memories(data.get("items", ()))))
-        query_roles = _query_roles_from_decomposition(
-            query_decomposition,
-            search_queries,
-        )
-        memories, multi_query_merge = fuse_query_results(
-            query_results,
-            query_roles=query_roles,
-        )
-        memories, temporal_rerank = temporal_rerank_memories(case, memories)
-        memories, benchmark_rerank = benchmark_rerank_memories(case, memories)
+        if self._retrieval_policy.apply_candidate_fusion:
+            query_roles = _query_roles_from_decomposition(
+                query_decomposition,
+                search_queries,
+            )
+            memories, multi_query_merge = fuse_query_results(
+                query_results,
+                query_roles=query_roles,
+            )
+        else:
+            query_roles = ()
+            memories = query_results[0][1]
+            multi_query_merge = disabled_postprocessing_telemetry(
+                stage="candidate_fusion", policy=self._retrieval_policy
+            )
+        if self._retrieval_policy.apply_temporal_rerank:
+            memories, temporal_rerank = temporal_rerank_memories(case, memories)
+        else:
+            temporal_rerank = disabled_postprocessing_telemetry(
+                stage="temporal_rerank", policy=self._retrieval_policy
+            )
+        if self._retrieval_policy.apply_benchmark_rerank:
+            memories, benchmark_rerank = benchmark_rerank_memories(case, memories)
+        else:
+            benchmark_rerank = disabled_postprocessing_telemetry(
+                stage="benchmark_rerank", policy=self._retrieval_policy
+            )
         return BackendSearchResult(
             query=case.question,
             memories=tuple(memories[:top_k]),
@@ -223,6 +272,7 @@ class InfinityContextHttpComparisonBackend:
                 "query_expansion": query_decomposition,
                 "query_decomposition": query_decomposition,
                 "query_roles": list(query_roles),
+                "retrieval_policy": self._retrieval_policy.telemetry(),
                 "multi_query_merge": multi_query_merge,
                 "temporal_rerank": temporal_rerank,
                 "benchmark_rerank": benchmark_rerank,
