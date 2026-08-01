@@ -5,16 +5,42 @@ from __future__ import annotations
 import re
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
+from http import HTTPStatus
 from typing import Literal
 
 import httpx
+from infinity_context_core.application.sensitive_text import (
+    contains_sensitive_text,
+    redact_sensitive_text,
+)
 
 _MAX_ID_LENGTH = 512
-_MAX_EVENT_LENGTH = 64
-_MAX_INDEXING_STATUS_LENGTH = 128
 _MAX_SOURCE_REFS = 64
 _MAX_CREATED_ITEMS = 2_048
 _SHA256_RE = re.compile(r"[0-9a-f]{64}")
+_ASCII_ID_RE = re.compile(r"[A-Za-z0-9][A-Za-z0-9._:/@+~-]{0,511}")
+_ISSUE_RE = re.compile(r"[a-z0-9_.\[\]-]{1,160}")
+_INFINITY_STATUSES = frozenset({"active"})
+_INDEXING_STATUSES = frozenset(
+    {
+        "already_indexed_or_pending",
+        "indexed",
+        "indexing_failed",
+        "nothing_to_process",
+        "pending",
+    }
+)
+_MEM0_EVENTS = frozenset({"ADD", "UPDATE", "DELETE"})
+_GOLD_MARKERS = (
+    "answerpreview",
+    "evaluatorgold",
+    "evaluatorgroundtruth",
+    "expectedanswer",
+    "expectedterms",
+    "goldanswer",
+    "groundtruth",
+    "referenceanswer",
+)
 
 
 @dataclass(frozen=True)
@@ -29,6 +55,7 @@ class HttpIngestIdentityObservation:
     fact_ids: tuple[str, ...] = ()
     document_ids: tuple[str, ...] = ()
     chunk_ids: tuple[str, ...] = ()
+    observed_memory_ids: tuple[str, ...] = ()
     created_memory_ids: tuple[str, ...] = ()
     source_ids: tuple[str, ...] = ()
     source_sha256: tuple[str, ...] = ()
@@ -37,6 +64,51 @@ class HttpIngestIdentityObservation:
     indexing_status: str | None = None
     request_id: str | None = None
     events: tuple[str, ...] = ()
+
+    def __post_init__(self) -> None:
+        if self.backend not in {"infinity", "mem0"}:
+            raise ValueError("HTTP ingest observation backend is invalid")
+        if self.operation_type not in {"fact", "document", "messages"}:
+            raise ValueError("HTTP ingest observation operation is invalid")
+        if type(self.complete) is not bool:
+            raise ValueError("HTTP ingest observation completeness is invalid")
+        for lane in (
+            self.canonical_record_ids,
+            self.fact_ids,
+            self.document_ids,
+            self.chunk_ids,
+            self.observed_memory_ids,
+            self.created_memory_ids,
+            self.source_ids,
+        ):
+            _safe_identifier_tuple(lane)
+        _sha256_tuple(self.source_sha256)
+        _safe_issue_tuple(self.issues)
+        if self.complete != (not self.issues):
+            raise ValueError("HTTP ingest observation completeness is inconsistent")
+        if self.status is not None and self.status not in _INFINITY_STATUSES:
+            raise ValueError("HTTP ingest observation status is invalid")
+        if (
+            self.indexing_status is not None
+            and self.indexing_status not in _INDEXING_STATUSES
+        ):
+            raise ValueError("HTTP ingest observation indexing status is invalid")
+        if self.request_id is not None and not _safe_identifier(self.request_id):
+            raise ValueError("HTTP ingest observation request ID is invalid")
+        if type(self.events) is not tuple or any(
+            event not in _MEM0_EVENTS for event in self.events
+        ):
+            raise ValueError("HTTP ingest observation event is invalid")
+        if any(item not in self.observed_memory_ids for item in self.created_memory_ids):
+            raise ValueError("Created memory identity was not observed")
+        if self.complete and self.backend == "mem0":
+            expected_created = tuple(
+                item_id
+                for item_id, event in zip(self.observed_memory_ids, self.events, strict=True)
+                if event == "ADD"
+            )
+            if expected_created != self.created_memory_ids:
+                raise ValueError("Created memory event semantics are inconsistent")
 
     def metadata(self) -> dict[str, object]:
         """Return a stable primitive-only representation suitable for HMAC binding."""
@@ -51,6 +123,7 @@ class HttpIngestIdentityObservation:
             "fact_ids": list(self.fact_ids),
             "document_ids": list(self.document_ids),
             "chunk_ids": list(self.chunk_ids),
+            "observed_memory_ids": list(self.observed_memory_ids),
             "created_memory_ids": list(self.created_memory_ids),
             "source_ids": list(self.source_ids),
             "source_sha256": list(self.source_sha256),
@@ -74,9 +147,49 @@ class HttpIngestIdentityManifest:
     fact_ids: tuple[str, ...]
     document_ids: tuple[str, ...]
     chunk_ids: tuple[str, ...]
+    observed_memory_ids: tuple[str, ...]
     created_memory_ids: tuple[str, ...]
     source_ids: tuple[str, ...]
     source_sha256: tuple[str, ...]
+
+    def __post_init__(self) -> None:
+        if type(self.complete) is not bool or type(self.operation_count) is not int:
+            raise ValueError("HTTP ingest identity manifest shape is invalid")
+        if self.operation_count != len(self.operations):
+            raise ValueError("HTTP ingest identity manifest operation count is invalid")
+        if type(self.operations) is not tuple or any(
+            type(item) is not HttpIngestIdentityObservation for item in self.operations
+        ):
+            raise ValueError("HTTP ingest identity manifest operations are invalid")
+        _safe_issue_tuple(self.issues)
+        expected_complete = bool(self.operations) and not self.issues and all(
+            item.complete for item in self.operations
+        )
+        if self.complete != expected_complete:
+            raise ValueError("HTTP ingest identity manifest completeness is inconsistent")
+        for lane in (
+            self.canonical_record_ids,
+            self.fact_ids,
+            self.document_ids,
+            self.chunk_ids,
+            self.observed_memory_ids,
+            self.created_memory_ids,
+            self.source_ids,
+        ):
+            _safe_identifier_tuple(lane)
+        _sha256_tuple(self.source_sha256)
+        for field_name in (
+            "canonical_record_ids",
+            "fact_ids",
+            "document_ids",
+            "chunk_ids",
+            "observed_memory_ids",
+            "created_memory_ids",
+            "source_ids",
+            "source_sha256",
+        ):
+            if getattr(self, field_name) != _flatten(self.operations, field_name):
+                raise ValueError("HTTP ingest identity manifest lane is inconsistent")
 
     def metadata(self) -> dict[str, object]:
         return {
@@ -89,6 +202,7 @@ class HttpIngestIdentityManifest:
             "fact_ids": list(self.fact_ids),
             "document_ids": list(self.document_ids),
             "chunk_ids": list(self.chunk_ids),
+            "observed_memory_ids": list(self.observed_memory_ids),
             "created_memory_ids": list(self.created_memory_ids),
             "source_ids": list(self.source_ids),
             "source_sha256": list(self.source_sha256),
@@ -105,27 +219,36 @@ def infinity_ingest_identity_observation(
     issues: list[str] = []
     data = _success_data(response, issues)
     record_id = _identifier(data.get("id"), "canonical_record_id", issues)
-    status = _bounded_text(data.get("status"), "status", issues, required=True)
-    indexing_status = _bounded_text(
+    status = _enum_value(
+        data.get("status"),
+        "status",
+        _INFINITY_STATUSES,
+        issues,
+    )
+    indexing_status = _enum_value(
         data.get("indexing_status"),
         "indexing_status",
+        _INDEXING_STATUSES,
         issues,
-        required=True,
-        max_length=_MAX_INDEXING_STATUS_LENGTH,
     )
-    version = _positive_int(data.get("version"), "version", issues)
     source_ids, source_hashes = _source_identity_fields(data, issues)
     request_id = _response_request_id(response, data, issues)
     fact_ids: tuple[str, ...] = ()
     document_ids: tuple[str, ...] = ()
     chunk_ids: tuple[str, ...] = ()
     if operation_type == "fact":
+        version = _positive_int(data.get("version"), "version", issues)
         fact_ids = (record_id,) if record_id is not None else ()
         if not source_ids:
             issues.append("source_ids_missing")
         if not source_hashes:
             issues.append("source_sha256_missing")
     else:
+        version = (
+            _positive_int(data.get("version"), "version", issues)
+            if "version" in data
+            else None
+        )
         document_ids = (record_id,) if record_id is not None else ()
         chunk_ids = _document_chunk_ids(data, issues)
         document_hash = _sha256(data.get("content_hash"), "source_sha256", issues)
@@ -172,6 +295,7 @@ def mem0_ingest_identity_observation(
     if raw_results is None and isinstance(payload.get("data"), Mapping):
         raw_results = payload["data"].get("results")
     results = _bounded_mapping_sequence(raw_results, "results", issues)
+    observed_ids: list[str] = []
     created_ids: list[str] = []
     events: list[str] = []
     source_ids: list[str] = []
@@ -179,32 +303,35 @@ def mem0_ingest_identity_observation(
     for index, item in enumerate(results):
         item_id = _identifier(item.get("id"), f"results[{index}].id", issues)
         if item_id is not None:
-            created_ids.append(item_id)
-        event = _bounded_text(
+            observed_ids.append(item_id)
+        event = _enum_value(
             item.get("event"),
             f"results[{index}].event",
+            _MEM0_EVENTS,
             issues,
-            required=True,
-            max_length=_MAX_EVENT_LENGTH,
         )
         if event is not None:
             events.append(event)
+        if item_id is not None and event == "ADD":
+            created_ids.append(item_id)
         item_source_ids, item_hashes = _source_identity_fields(item, issues, prefix=index)
         source_ids.extend(item_source_ids)
         source_hashes.extend(item_hashes)
+    _duplicate_issue(observed_ids, "observed_memory_id_duplicate", issues)
     _duplicate_issue(created_ids, "created_memory_id_duplicate", issues)
     request_id = _response_request_id(response, payload, issues)
     if request_id is None:
         issues.append("request_id_missing")
-    if created_ids and not source_ids:
+    if observed_ids and not source_ids:
         issues.append("source_ids_missing")
-    if created_ids and not source_hashes:
+    if observed_ids and not source_hashes:
         issues.append("source_sha256_missing")
     return HttpIngestIdentityObservation(
         backend="mem0",
         operation_type="messages",
         complete=not issues,
         issues=tuple(issues),
+        observed_memory_ids=tuple(observed_ids),
         created_memory_ids=tuple(created_ids),
         source_ids=_ordered_unique(source_ids),
         source_sha256=_ordered_unique(source_hashes),
@@ -232,6 +359,7 @@ def ingest_identity_manifest(
         fact_ids=_flatten(exact, "fact_ids"),
         document_ids=_flatten(exact, "document_ids"),
         chunk_ids=_flatten(exact, "chunk_ids"),
+        observed_memory_ids=_flatten(exact, "observed_memory_ids"),
         created_memory_ids=_flatten(exact, "created_memory_ids"),
         source_ids=_flatten(exact, "source_ids"),
         source_sha256=_flatten(exact, "source_sha256"),
@@ -241,13 +369,19 @@ def ingest_identity_manifest(
 def response_metadata(response: httpx.Response) -> dict[str, object]:
     """Operational response metadata, kept separate from identity evidence."""
 
-    from infinity_context_core.application.sensitive_text import redact_sensitive_text
-
     metadata: dict[str, object] = {"status_code": response.status_code}
-    if response.reason_phrase:
-        metadata["reason_phrase"] = response.reason_phrase
+    try:
+        canonical_reason = HTTPStatus(response.status_code).phrase
+    except ValueError:
+        canonical_reason = None
+    if canonical_reason:
+        metadata["reason_phrase"] = canonical_reason
     if response.status_code >= 400:
-        preview = redact_sensitive_text(response.text.strip())[:500]
+        body = response.text.strip()
+        if contains_sensitive_text(body) or _contains_gold_marker(body):
+            preview = "[redacted]"
+        else:
+            preview = redact_sensitive_text(body)[:500]
         if preview:
             metadata["error_preview"] = preview
     return metadata
@@ -412,36 +546,56 @@ def _bounded_sequence(
 
 
 def _identifier(value: object, label: str, issues: list[str]) -> str | None:
-    if (
-        not isinstance(value, str)
-        or not value
-        or value != value.strip()
-        or len(value) > _MAX_ID_LENGTH
-    ):
+    if not isinstance(value, str) or not _safe_identifier(value):
         issues.append(f"{label}_missing_or_invalid")
         return None
     return value
 
 
-def _bounded_text(
+def _enum_value(
     value: object,
     label: str,
+    accepted: frozenset[str],
     issues: list[str],
-    *,
-    required: bool,
-    max_length: int = _MAX_ID_LENGTH,
 ) -> str | None:
-    if value is None and not required:
-        return None
-    if (
-        not isinstance(value, str)
-        or not value
-        or value != value.strip()
-        or len(value) > max_length
-    ):
+    if not isinstance(value, str) or value not in accepted:
         issues.append(f"{label}_missing_or_invalid")
         return None
     return value
+
+
+def _safe_identifier(value: str) -> bool:
+    if len(value) > _MAX_ID_LENGTH or not _ASCII_ID_RE.fullmatch(value):
+        return False
+    if contains_sensitive_text(value):
+        return False
+    return not _contains_gold_marker(value)
+
+
+def _contains_gold_marker(value: str) -> bool:
+    normalized = "".join(character.lower() for character in value if character.isalnum())
+    return any(marker in normalized for marker in _GOLD_MARKERS)
+
+
+def _safe_identifier_tuple(values: object) -> None:
+    if type(values) is not tuple or any(
+        not isinstance(value, str) or not _safe_identifier(value) for value in values
+    ):
+        raise ValueError("HTTP ingest observation identity lane is invalid")
+
+
+def _sha256_tuple(values: object) -> None:
+    if type(values) is not tuple or any(
+        not isinstance(value, str) or not _SHA256_RE.fullmatch(value) for value in values
+    ):
+        raise ValueError("HTTP ingest observation hash lane is invalid")
+
+
+def _safe_issue_tuple(values: object) -> None:
+    if type(values) is not tuple or any(
+        not isinstance(value, str) or not _ISSUE_RE.fullmatch(value) for value in values
+    ):
+        raise ValueError("HTTP ingest observation issue lane is invalid")
 
 
 def _positive_int(value: object, label: str, issues: list[str]) -> int | None:
@@ -472,6 +626,7 @@ def _manifest_duplicate_issues(
         ("fact_ids", "fact_id_duplicate"),
         ("document_ids", "document_id_duplicate"),
         ("chunk_ids", "chunk_id_duplicate"),
+        ("observed_memory_ids", "observed_memory_id_duplicate"),
         ("created_memory_ids", "created_memory_id_duplicate"),
     ):
         values = _flatten(observations, field_name)

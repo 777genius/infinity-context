@@ -1,8 +1,10 @@
 from __future__ import annotations
 
 import json
+from dataclasses import replace
 
 import httpx
+import pytest
 from infinity_context_server.memory_comparison_http import (
     InfinityContextHttpComparisonBackend,
     Mem0HttpComparisonBackend,
@@ -102,7 +104,6 @@ def test_longmemeval_infinity_document_manifest_is_complete_and_exact() -> None:
                 "data": {
                     "id": "long-document-server",
                     "status": "active",
-                    "version": 2,
                     "indexing_status": "indexed",
                     "source_external_id": "long-source-1",
                     "content_hash": _DOCUMENT_HASH,
@@ -125,6 +126,7 @@ def test_longmemeval_infinity_document_manifest_is_complete_and_exact() -> None:
         backend.close()
 
     manifest = result.metadata["ingest_identity_manifest"]
+    assert result.operations[0].metadata["ingest_identity_observation"]["version"] is None
     assert manifest == {
         "schema_version": "http_ingest_identity_manifest.v1",
         "complete": True,
@@ -135,6 +137,7 @@ def test_longmemeval_infinity_document_manifest_is_complete_and_exact() -> None:
         "fact_ids": [],
         "document_ids": ["long-document-server"],
         "chunk_ids": ["long-chunk-server"],
+        "observed_memory_ids": [],
         "created_memory_ids": [],
         "source_ids": ["long-source-1"],
         "source_sha256": [_DOCUMENT_HASH],
@@ -196,6 +199,7 @@ def test_locomo_mem0_manifest_preserves_created_ids_events_sources_and_requests(
     assert call_count == 2
     manifest = result.metadata["ingest_identity_manifest"]
     assert manifest["complete"] is True
+    assert manifest["observed_memory_ids"] == ["mem0-created-1", "mem0-created-2"]
     assert manifest["created_memory_ids"] == ["mem0-created-1", "mem0-created-2"]
     assert manifest["source_ids"] == ["locomo-source-1", "locomo-source-2"]
     assert manifest["source_sha256"] == [_MEM0_HASH_1, _MEM0_HASH_2]
@@ -294,13 +298,183 @@ def test_duplicate_mem0_ids_across_operations_make_manifest_policy_rejectable() 
     assert "created_memory_id_duplicate" in manifest["issues"]
 
 
+@pytest.mark.parametrize(
+    ("event", "expected_created_ids", "expected_complete"),
+    (
+        ("ADD", ["mem0-event-id"], True),
+        ("UPDATE", [], True),
+        ("DELETE", [], True),
+        ("UNKNOWN", [], False),
+        (None, [], False),
+    ),
+)
+def test_mem0_created_ids_are_exactly_add_events(
+    event: str | None,
+    expected_created_ids: list[str],
+    expected_complete: bool,
+) -> None:
+    def handler(_request: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            200,
+            json={
+                "request_id": "request-event-1",
+                "results": [
+                    {
+                        "id": "mem0-event-id",
+                        "event": event,
+                        "metadata": {
+                            "source_id": "source-event-1",
+                            "source_sha256": _MEM0_HASH_1,
+                        },
+                    }
+                ],
+            },
+        )
+
+    backend = Mem0HttpComparisonBackend(
+        base_url="http://mem0.test",
+        reset_user_on_start=False,
+        transport=httpx.MockTransport(handler),
+    )
+    try:
+        result = backend.ingest(_locomo_case(), run_id="run-1", corpus_key="corpus-1")
+    finally:
+        backend.close()
+
+    observation = result.operations[0].metadata["ingest_identity_observation"]
+    assert observation["observed_memory_ids"] == ["mem0-event-id"]
+    assert observation["created_memory_ids"] == expected_created_ids
+    assert observation["complete"] is expected_complete
+    assert observation["events"] == ([event] if event in {"ADD", "UPDATE", "DELETE"} else [])
+    if not expected_complete:
+        assert "results[0].event_missing_or_invalid" in observation["issues"]
+
+
+def test_reflected_secret_and_gold_like_mem0_fields_are_rejected_without_leak() -> None:
+    def handler(_request: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            200,
+            json={
+                "request_id": "evaluator-gold",
+                "results": [
+                    {
+                        "id": "sk-live-secret-material",
+                        "event": "ADD",
+                        "metadata": {
+                            "source_id": "evaluator_gold",
+                            "source_sha256": _MEM0_HASH_1,
+                        },
+                    }
+                ],
+            },
+        )
+
+    backend = Mem0HttpComparisonBackend(
+        base_url="http://mem0.test",
+        reset_user_on_start=False,
+        transport=httpx.MockTransport(handler),
+    )
+    try:
+        result = backend.ingest(_locomo_case(), run_id="run-1", corpus_key="corpus-1")
+    finally:
+        backend.close()
+
+    observation = result.operations[0].metadata["ingest_identity_observation"]
+    assert observation["complete"] is False
+    assert observation["observed_memory_ids"] == []
+    assert observation["created_memory_ids"] == []
+    assert observation["source_ids"] == []
+    assert observation["request_id"] is None
+    rendered = str(observation)
+    assert "sk-live-secret-material" not in rendered
+    assert "evaluator-gold" not in rendered
+    assert "evaluator_gold" not in rendered
+
+
+def test_reflected_secret_and_gold_like_infinity_fields_are_rejected_without_leak() -> None:
+    def handler(_request: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            201,
+            headers={"x-request-id": "sk-live-secret-material"},
+            json={
+                "data": {
+                    "id": "evaluator_gold",
+                    "status": "evaluator gold",
+                    "version": 1,
+                    "indexing_status": "sk-live-secret-material",
+                    "source_external_id": "reference_answer",
+                    "content_hash": _DOCUMENT_HASH,
+                    "chunks": 1,
+                    "chunk_ids": ["ground_truth"],
+                }
+            },
+        )
+
+    backend = InfinityContextHttpComparisonBackend(
+        base_url="http://infinity.test",
+        auth_token="unit-token",
+        transport=httpx.MockTransport(handler),
+    )
+    try:
+        result = backend.ingest(
+            _longmemeval_case(), run_id="run-2", corpus_key="corpus-2"
+        )
+    finally:
+        backend.close()
+
+    observation = result.operations[0].metadata["ingest_identity_observation"]
+    assert observation["complete"] is False
+    assert observation["canonical_record_ids"] == []
+    assert observation["document_ids"] == []
+    assert observation["chunk_ids"] == []
+    assert observation["source_ids"] == []
+    assert observation["status"] is None
+    assert observation["indexing_status"] is None
+    assert observation["request_id"] is None
+    rendered = str(observation)
+    for reflected in (
+        "sk-live-secret-material",
+        "evaluator gold",
+        "evaluator_gold",
+        "reference_answer",
+        "ground_truth",
+    ):
+        assert reflected not in rendered
+
+
+def test_direct_observation_cannot_serialize_unsafe_reflected_identity() -> None:
+    safe = HttpIngestIdentityObservation(
+        backend="mem0",
+        operation_type="messages",
+        complete=True,
+        issues=(),
+        observed_memory_ids=("safe-memory-id",),
+        created_memory_ids=("safe-memory-id",),
+        source_ids=("safe-source-id",),
+        source_sha256=(_MEM0_HASH_1,),
+        request_id="safe-request-id",
+        events=("ADD",),
+    )
+
+    with pytest.raises(ValueError, match="identity lane is invalid"):
+        replace(safe, source_ids=("sk-live-secret-material",))
+    with pytest.raises(ValueError, match="request ID is invalid"):
+        replace(safe, request_id="evaluator_gold")
+
+
 def test_failed_http_ingest_is_not_retried_and_observation_excludes_error_body() -> None:
     calls = 0
 
     def handler(_request: httpx.Request) -> httpx.Response:
         nonlocal calls
         calls += 1
-        return httpx.Response(503, text="secret error payload with evaluator gold")
+        return httpx.Response(
+            503,
+            text="secret error payload with evaluator gold and expected answer",
+            extensions={
+                "reason_phrase": b"evaluator gold sk-live-secret-material",
+            },
+        )
 
     backend = Mem0HttpComparisonBackend(
         base_url="http://mem0.test",
@@ -313,11 +487,17 @@ def test_failed_http_ingest_is_not_retried_and_observation_excludes_error_body()
         backend.close()
 
     assert calls == 1
-    observation = result.operations[0].metadata["ingest_identity_observation"]
+    operation_metadata = result.operations[0].metadata
+    observation = operation_metadata["ingest_identity_observation"]
     assert observation["complete"] is False
     assert "http_status_not_success" in observation["issues"]
-    assert "secret error payload" not in str(observation)
-    assert "evaluator gold" not in str(observation)
+    assert operation_metadata["reason_phrase"] == "Service Unavailable"
+    assert operation_metadata["error_preview"] == "[redacted]"
+    rendered = str(operation_metadata)
+    assert "secret error payload" not in rendered
+    assert "evaluator gold" not in rendered
+    assert "expected answer" not in rendered
+    assert "sk-live-secret-material" not in rendered
 
 
 def test_ingest_observation_contract_types_are_frozen() -> None:
