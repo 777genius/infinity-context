@@ -1,10 +1,11 @@
 """Fail-closed production entrypoint for managed memory comparison.
 
-The managed policy lifecycle remains sealed until its aggregate evidence
-capability is production-proven. This root evaluates that typed blocker before
-consuming the prepared run or opening any additional benchmark/backend lane.
-One readiness provider probe has already happened during preparation. Partial
-production runs would spend more tokens without a publishable verdict.
+The managed policy lifecycle is production-capable, but this composition root
+does not yet own an execution and judge runner. It reports that exact typed
+blocker before consuming the prepared run or opening any additional
+benchmark/backend lane. One readiness provider probe has already happened
+during preparation. Partial production runs would spend more tokens without a
+publishable verdict.
 
 Orchestrators must evaluate the pure pre-readiness gate first so current static
 blockers cost zero provider tokens.  The prepared-run root is a defensive
@@ -27,6 +28,9 @@ from infinity_context_server.memory_comparison_managed_run_contract import Manag
 
 MANAGED_PRODUCTION_COMPOSITION_SCHEMA_VERSION = (
     "memory-comparison-managed-production-composition.v1"
+)
+MANAGED_PRODUCTION_EXECUTION_RUNNER_UNAVAILABLE = (
+    "managed_production_execution_runner_unavailable"
 )
 
 
@@ -94,7 +98,7 @@ class ManagedProductionCompositionDecision:
 def run_verified_managed_production_comparison(
     prepared: VerifiedManagedLiveRunPreparation,
 ) -> ManagedProductionCompositionDecision:
-    """Return NO-GO before consuming preparation while policy proof is incomplete."""
+    """Return NO-GO before consuming preparation while the runner is unavailable."""
 
     if type(prepared) is not VerifiedManagedLiveRunPreparation:
         raise ManagedProductionCompositionError(
@@ -143,11 +147,16 @@ def evaluate_managed_production_pre_readiness(
 
 
 def _production_blockers(cases: tuple[ManagedRunCase, ...]) -> tuple[str, ...]:
-    return managed_http_policy_production_blockers(cases)
+    lifecycle_blockers = managed_http_policy_production_blockers(cases)
+    return (
+        *lifecycle_blockers,
+        MANAGED_PRODUCTION_EXECUTION_RUNNER_UNAVAILABLE,
+    )
 
 
 __all__ = (
     "MANAGED_PRODUCTION_COMPOSITION_SCHEMA_VERSION",
+    "MANAGED_PRODUCTION_EXECUTION_RUNNER_UNAVAILABLE",
     "ManagedProductionCompositionDecision",
     "ManagedProductionCompositionError",
     "evaluate_managed_production_pre_readiness",
