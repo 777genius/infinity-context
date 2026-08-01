@@ -764,6 +764,35 @@ The Codex provider shells out to `codex exec` with `--ephemeral`,
 usage locally because Codex CLI does not expose benchmark token usage through
 this adapter.
 
+### No-Key Local Mem0 OSS Canary
+
+`MEM0_API_KEY` is not required for an engineering canary against a local
+Mem0 OSS server whose ingress authentication is explicitly disabled. Leave the
+variable unset, point `--mem0-url` at that isolated server, and keep
+`--answerer-provider codex` plus `--judge-provider codex` so answer and
+judge calls use the Codex subscription runtime instead of an OpenAI API key.
+
+The local Mem0 process still needs extraction and embedding providers. Configure
+both with local models, for example Ollama, before running the live canary. Do
+not silently fall back to an external provider key. Start with the bounded
+8-case canary and the normal `--allow-live` safety gate; do not run full
+LoCoMo or LongMemEval as a development loop.
+
+This no-key route proves the HTTP pipeline and local OSS behavior, but it is not
+an authoritative Mem0 Platform comparison. The tracked
+`benchmarks/mem0-platform-adapter` still requires an account-issued upstream
+`MEM0_API_KEY`; the key cannot be generated locally. Use Platform or a frozen,
+identical OSS model/runtime stack before publishing an apples-to-apples quality
+claim.
+
+Decision rule:
+
+- offline/mock tests: no Mem0 key and no real Mem0 backend;
+- local auth-disabled Mem0 OSS: no Mem0 key, local extraction and embeddings;
+- hosted Mem0 Platform: upstream `MEM0_API_KEY` is mandatory;
+- Codex subscription replaces answer/judge credentials only, not Mem0 Platform
+  credentials or a local OSS extraction/embedding provider.
+
 Model defaults:
 
 - `--answerer-provider codex` and `--judge-provider codex` default to
