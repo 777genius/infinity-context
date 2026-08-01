@@ -1,18 +1,10 @@
-"""Fail-closed production HTTP policy lifecycle for managed comparisons.
-
-This adapter consumes real exact source/derived receipts and owns two cleanup
-passes without elevating an incomplete HTTP response into a policy capability.
-The final aggregate capability remains deliberately sealed.
-"""
+"""Fail-closed exact HTTP policy lifecycle for managed comparisons."""
 
 from __future__ import annotations
 
-import hashlib
-import json
 import math
 import re
 import threading
-import weakref
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from datetime import UTC, datetime
@@ -41,12 +33,43 @@ from infinity_context_server.memory_comparison_managed_http_execution import (
     ManagedMem0HttpConfig,
 )
 from infinity_context_server.memory_comparison_managed_http_lifecycle import (
-    ManagedHttpIngestEvidenceView,
     consume_managed_http_ingest_receipts,
+)
+from infinity_context_server.memory_comparison_managed_http_policy_material_projection import (
+    ManagedHttpPolicyExactCorpusBindings,
+    binding_snapshot,
+    lifecycle_implementation_sha256,
+    project_cleanup_passes,
+    project_corpus_material,
+    project_exact_corpus_bindings,
+    project_infinity_cleanup_commitments,
+    project_mem0_cleanup_commitments,
+    project_validation_material,
+    validate_ingest_evidence,
+)
+from infinity_context_server.memory_comparison_managed_http_policy_receipts import (
+    ManagedHttpPolicyCanonicalReceiptState,
+    ManagedHttpPolicyCanonicalSourceReceipt,
+    ManagedHttpPolicyDeleteReceipt,
+    ManagedHttpPolicyDeleteReceiptState,
+    ManagedHttpPolicyReceiptError,
+    ManagedHttpPolicyTerminalDeleteReceipt,
+    ManagedHttpPolicyTerminalReceiptState,
+    canonical_receipt_state,
+    delete_receipt_state,
+    issue_canonical_receipt,
+    issue_delete_receipt,
+    issue_terminal_receipt,
+    receipt_registry_transaction,
+    terminal_receipt_state,
 )
 from infinity_context_server.memory_comparison_managed_http_policy_requirements import (
     ManagedDerivedPresenceObservation,
-    managed_ingest_identity_manifest_sha256,
+)
+from infinity_context_server.memory_comparison_managed_http_policy_validation import (
+    ManagedHttpPolicyCorpusMaterial,
+    VerifiedManagedHttpPolicyValidation,
+    seal_managed_http_policy_validation,
 )
 from infinity_context_server.memory_comparison_managed_ingest_manifest import (
     ManagedCorpusIngestIdentity,
@@ -62,58 +85,14 @@ from infinity_context_server.memory_comparison_managed_run_contract import (
 
 MANAGED_HTTP_POLICY_ADAPTER_ID = "managed-comparison-http-policy-fail-closed-v1"
 _SHA256 = re.compile(r"^[0-9a-f]{64}$")
-_TOKEN = object()
-_RECEIPT_LOCK = threading.RLock()
 
 
 class ManagedHttpPolicyLifecycleError(RuntimeError):
-    """Stable machine-readable and secret-free blocker/error code."""
+    """Stable machine-readable and secret-free lifecycle failure."""
 
     def __init__(self, code: str) -> None:
         self.code = code
         super().__init__(code)
-
-
-@final
-class ManagedHttpPolicyDeleteReceipt:
-    """Opaque record of one real legacy cleanup/readback pass."""
-
-    __slots__ = ("__weakref__",)
-
-    def __init__(self, *, _token: object) -> None:
-        if _token is not _TOKEN:
-            raise ManagedHttpPolicyLifecycleError("managed_http_policy_delete_receipt_forged")
-
-    def __repr__(self) -> str:
-        return "ManagedHttpPolicyDeleteReceipt(<opaque>)"
-
-    def __reduce__(self) -> object:
-        raise TypeError("ManagedHttpPolicyDeleteReceipt is nonserializable")
-
-    def __init_subclass__(cls, **kwargs: object) -> None:
-        del cls, kwargs
-        raise TypeError("ManagedHttpPolicyDeleteReceipt is final")
-
-
-@final
-class ManagedHttpPolicyCanonicalSourceReceipt:
-    """Opaque per-case handle over one immutable corpus evidence bundle."""
-
-    __slots__ = ("__weakref__",)
-
-    def __init__(self, *, _token: object) -> None:
-        if _token is not _TOKEN:
-            raise ManagedHttpPolicyLifecycleError("managed_http_policy_canonical_receipt_forged")
-
-    def __repr__(self) -> str:
-        return "ManagedHttpPolicyCanonicalSourceReceipt(<opaque>)"
-
-    def __reduce__(self) -> object:
-        raise TypeError("ManagedHttpPolicyCanonicalSourceReceipt is nonserializable")
-
-    def __init_subclass__(cls, **kwargs: object) -> None:
-        del cls, kwargs
-        raise TypeError("ManagedHttpPolicyCanonicalSourceReceipt is final")
 
 
 @dataclass(frozen=True, slots=True)
@@ -122,56 +101,9 @@ class _CorpusEvidence:
     presence: ManagedDerivedPresenceObservation
 
 
-@dataclass(slots=True)
-class _CanonicalReceiptState:
-    owner: object
-    ordinal: int
-    case_id: str
-    corpus_id: str
-    run_id: str
-    binding_commitment_sha256: str
-    infinity_target_identity_sha256: str
-    mem0_target_identity_sha256: str
-    ingest_manifest_sha256: str
-    mem0_created_memory_ids: tuple[str, ...]
-    source_pairs: tuple[tuple[str, str], ...]
-    phase: str
-
-
-@dataclass(slots=True)
-class _LegacyDeleteState:
-    owner: object
-    run_id: str
-    binding_commitment_sha256: str
-    backend_role: str
-    target_identity_sha256: str
-    pass_index: int
-    source_scope_count: int
-    deleted_count: int
-    canonical_absent: bool
-    backend_verified_absent: bool
-    corpus_manifest_sha256: tuple[str, ...]
-    mem0_created_memory_ids: tuple[str, ...]
-    source_pairs: tuple[tuple[str, str], ...]
-    phase: str
-
-
-_DELETE_RECEIPTS: weakref.WeakKeyDictionary[ManagedHttpPolicyDeleteReceipt, _LegacyDeleteState] = (
-    weakref.WeakKeyDictionary()
-)
-_CANONICAL_RECEIPTS: weakref.WeakKeyDictionary[
-    ManagedHttpPolicyCanonicalSourceReceipt, _CanonicalReceiptState
-] = weakref.WeakKeyDictionary()
-
-
 @final
 class ManagedComparisonHttpPolicyLifecycleAdapter:
-    """Exact ManagedPolicyLifecyclePort backed by owned HTTP cleanup clients.
-
-    The constructor accepts transports only to provide transport ownership and
-    offline testing.  It accepts no evidence callbacks or caller-provided ports.
-    Each non-null transport must be distinct and is closed once by its pass.
-    """
+    """Own transport, evidence sequencing, and one-shot aggregate issuance."""
 
     def __init__(
         self,
@@ -250,7 +182,7 @@ class ManagedComparisonHttpPolicyLifecycleAdapter:
         }:
             raise ManagedHttpPolicyLifecycleError("managed_http_policy_target_binding_invalid")
         self._bindings = bindings
-        self._binding_snapshot = _binding_snapshot(bindings)
+        self._binding_snapshot = binding_snapshot(bindings)
         self._cases = cases
         self._preflight_request = preflight_request
         self._deadline = checked_deadline
@@ -269,6 +201,10 @@ class ManagedComparisonHttpPolicyLifecycleAdapter:
             transport_factory=lambda: self._new_transport("infinity-cleanup"),
         )
         self._corpora: tuple[_CorpusEvidence, ...] = ()
+        self._corpus_material: tuple[ManagedHttpPolicyCorpusMaterial, ...] = ()
+        self._execution_case_manifest_sha256: str | None = None
+        self._managed_attestation: VerifiedManagedCompositionAttestation | None = None
+        self._managed_attestation_commitment_sha256: str | None = None
         self._phase = "open"
         self._next_delete = 0
         self._lock = threading.RLock()
@@ -291,12 +227,18 @@ class ManagedComparisonHttpPolicyLifecycleAdapter:
         ingest_receipts: tuple[object, ...],
         execution: ManagedExecutionArtifacts,
     ) -> tuple[object, ...]:
-        """Seal immutable exact corpus evidence and return one receipt per case."""
-
         self._validate_call(bindings, cases)
-        _attestation(managed_attestation, managed_attestation_commitment_sha256)
+        self._bind_attestation(
+            managed_attestation,
+            managed_attestation_commitment_sha256,
+            allow_initial=True,
+        )
         if type(execution) is not ManagedExecutionArtifacts:
             raise ManagedHttpPolicyLifecycleError("managed_http_policy_execution_invalid")
+        execution_manifest = _digest(
+            execution.case_manifest_sha256,
+            "managed_http_policy_execution_manifest_invalid",
+        )
         with self._lock:
             if self._phase != "open":
                 raise ManagedHttpPolicyLifecycleError("managed_http_policy_canonical_source_replay")
@@ -309,10 +251,20 @@ class ManagedComparisonHttpPolicyLifecycleAdapter:
                 backend_targets=bindings.backend_targets,
                 cases=cases,
             )
-            _validate_ingest_evidence(views)
+            validate_ingest_evidence(views)
             bundles = parse_managed_ingest_identity_manifests(views)
             evidence = self._observe_corpora(bundles)
+            unordered_material = {
+                item.bundle.corpus_id: project_corpus_material(item.bundle, item.presence)
+                for item in evidence
+            }
+            corpus_material = tuple(
+                unordered_material[case.corpus_id]
+                for index, case in enumerate(cases)
+                if case.corpus_id not in {prior.corpus_id for prior in cases[:index]}
+            )
             by_corpus = {item.bundle.corpus_id: item for item in evidence}
+            material_by_corpus = {item.corpus_id: item for item in corpus_material}
             if set(by_corpus) != {case.corpus_id for case in cases}:
                 raise ManagedHttpPolicyLifecycleError("managed_http_policy_corpus_coverage_invalid")
         except ManagedHttpPolicyLifecycleError:
@@ -328,34 +280,25 @@ class ManagedComparisonHttpPolicyLifecycleAdapter:
         receipts: list[object] = []
         with self._lock:
             self._corpora = evidence
+            self._corpus_material = corpus_material
+            self._execution_case_manifest_sha256 = execution_manifest
             for ordinal, case in enumerate(cases):
-                corpus = by_corpus[case.corpus_id]
-                manifest = corpus.bundle.manifest
-                receipt = ManagedHttpPolicyCanonicalSourceReceipt(_token=_TOKEN)
-                state = _CanonicalReceiptState(
-                    owner=self,
-                    ordinal=ordinal,
-                    case_id=case.case_id,
-                    corpus_id=case.corpus_id,
-                    run_id=bindings.run_id,
-                    binding_commitment_sha256=bindings.binding_commitment_sha256,
-                    infinity_target_identity_sha256=(corpus.bundle.infinity_target_identity_sha256),
-                    mem0_target_identity_sha256=(corpus.bundle.mem0_target_identity_sha256),
-                    ingest_manifest_sha256=managed_ingest_identity_manifest_sha256(
-                        manifest, corpus.bundle.scope
-                    ),
-                    mem0_created_memory_ids=manifest.mem0_created_memory_ids,
-                    source_pairs=tuple(
-                        zip(
-                            manifest.mem0_source_ids,
-                            manifest.mem0_source_sha256,
-                            strict=True,
-                        )
-                    ),
-                    phase="live",
+                receipt = issue_canonical_receipt(
+                    ManagedHttpPolicyCanonicalReceiptState(
+                        owner=self,
+                        ordinal=ordinal,
+                        case_id=case.case_id,
+                        corpus_id=case.corpus_id,
+                        run_id=bindings.run_id,
+                        binding_commitment_sha256=bindings.binding_commitment_sha256,
+                        managed_attestation_commitment_sha256=(
+                            managed_attestation_commitment_sha256
+                        ),
+                        execution_case_manifest_sha256=execution_manifest,
+                        corpus=material_by_corpus[case.corpus_id],
+                        phase="live",
+                    )
                 )
-                with _RECEIPT_LOCK:
-                    _CANONICAL_RECEIPTS[receipt] = state
                 receipts.append(receipt)
             self._phase = "canonical-source-sealed"
         return tuple(receipts)
@@ -368,8 +311,6 @@ class ManagedComparisonHttpPolicyLifecycleAdapter:
         target_identity_sha256: str,
         pass_index: int,
     ) -> object:
-        """Run exactly one admitted legacy cleanup pass and readback."""
-
         self._validate_binding(bindings)
         expected = tuple(
             (role, self._target(role), attempt)
@@ -377,10 +318,13 @@ class ManagedComparisonHttpPolicyLifecycleAdapter:
             for role in ("infinity-context", "mem0")
         )
         with self._lock:
+            if self._phase not in {"canonical-source-sealed", "terminal-cleanup"}:
+                raise ManagedHttpPolicyLifecycleError("managed_http_policy_delete_phase_invalid")
             if self._next_delete >= len(expected):
                 raise ManagedHttpPolicyLifecycleError("managed_http_policy_delete_replay")
             if (backend_role, target_identity_sha256, pass_index) != expected[self._next_delete]:
                 raise ManagedHttpPolicyLifecycleError("managed_http_policy_delete_order_invalid")
+            self._phase = "terminal-cleanup"
             self._next_delete += 1
         client = None
         try:
@@ -390,18 +334,19 @@ class ManagedComparisonHttpPolicyLifecycleAdapter:
                 client = self._client(backend_role)
                 state = self._delete_mem0(client, target_identity_sha256, pass_index)
         except ManagedHttpPolicyLifecycleError:
+            with self._lock:
+                self._phase = "terminal"
             raise
         except BaseException:
+            with self._lock:
+                self._phase = "terminal"
             raise ManagedHttpPolicyLifecycleError(
                 f"managed_http_policy_{backend_role.replace('-', '_')}_delete_failed"
             ) from None
         finally:
             if client is not None:
                 client.close()
-        receipt = ManagedHttpPolicyDeleteReceipt(_token=_TOKEN)
-        with _RECEIPT_LOCK:
-            _DELETE_RECEIPTS[receipt] = state
-        return receipt
+        return issue_delete_receipt(state)
 
     def seal_terminal_delete(
         self,
@@ -411,10 +356,12 @@ class ManagedComparisonHttpPolicyLifecycleAdapter:
         managed_attestation_commitment_sha256: str,
         receipts: tuple[object, ...],
     ) -> object:
-        """Consume four receipts only after exact two-pass coverage validation."""
-
         self._validate_binding(bindings)
-        _attestation(managed_attestation, managed_attestation_commitment_sha256)
+        self._bind_attestation(
+            managed_attestation,
+            managed_attestation_commitment_sha256,
+            allow_initial=False,
+        )
         if type(receipts) is not tuple or len(receipts) != 4:
             raise ManagedHttpPolicyLifecycleError("managed_http_policy_delete_coverage_invalid")
         expected = (
@@ -423,25 +370,28 @@ class ManagedComparisonHttpPolicyLifecycleAdapter:
             ("infinity-context", 2),
             ("mem0", 2),
         )
-        with _RECEIPT_LOCK:
-            states = tuple(_delete_state(receipt) for receipt in receipts)
+        with self._lock:
+            if self._phase != "terminal-cleanup" or self._next_delete != 4:
+                raise ManagedHttpPolicyLifecycleError(
+                    "managed_http_policy_terminal_delete_phase_invalid"
+                )
+        with receipt_registry_transaction():
+            states = tuple(_receipt(delete_receipt_state, receipt) for receipt in receipts)
             if any(state.owner is not self for state in states):
                 raise ManagedHttpPolicyLifecycleError("managed_http_policy_delete_owner_invalid")
             if tuple((state.backend_role, state.pass_index) for state in states) != expected:
                 raise ManagedHttpPolicyLifecycleError("managed_http_policy_delete_coverage_invalid")
             if any(state.phase != "live" for state in states):
                 raise ManagedHttpPolicyLifecycleError("managed_http_policy_delete_receipt_replay")
-            manifests = self._corpus_manifest_sha256()
-            mem0_ids = self._mem0_created_memory_ids()
-            source_pairs = self._source_pairs()
+            exact = self._exact_corpus_bindings()
             if any(
                 state.target_identity_sha256 != self._target(state.backend_role)
                 or state.run_id != self._bindings.run_id
                 or state.binding_commitment_sha256 != self._bindings.binding_commitment_sha256
                 or state.source_scope_count != len(self._corpora)
-                or state.corpus_manifest_sha256 != manifests
-                or state.mem0_created_memory_ids != mem0_ids
-                or state.source_pairs != source_pairs
+                or state.corpus_manifest_sha256 != exact.manifest_sha256
+                or state.mem0_created_memory_ids != exact.mem0_created_memory_ids
+                or state.source_pairs != exact.source_pairs
                 for state in states
             ):
                 raise ManagedHttpPolicyLifecycleError(
@@ -460,9 +410,37 @@ class ManagedComparisonHttpPolicyLifecycleAdapter:
                 )
             if not all(state.backend_verified_absent for state in mem0_states):
                 raise ManagedHttpPolicyLifecycleError("managed_http_policy_mem0_absence_failed")
+            cleanup_passes = project_cleanup_passes(
+                tuple(
+                    (
+                        state.backend_role,
+                        state.target_identity_sha256,
+                        state.pass_index,
+                        state.cleanup_commitment_sha256,
+                        state.exact_absence_commitment_sha256,
+                        state.corpus_absence_commitments,
+                        state.backend_verified_absent
+                        and (state.backend_role != "infinity-context" or state.canonical_absent),
+                    )
+                    for state in states
+                )
+            )
             for state in states:
                 state.phase = "consumed"
-        return object()
+            receipt = issue_terminal_receipt(
+                ManagedHttpPolicyTerminalReceiptState(
+                    owner=self,
+                    run_id=self._bindings.run_id,
+                    binding_commitment_sha256=self._bindings.binding_commitment_sha256,
+                    managed_attestation_commitment_sha256=(managed_attestation_commitment_sha256),
+                    execution_case_manifest_sha256=self._execution_manifest(),
+                    cleanup_passes=cleanup_passes,
+                    phase="live",
+                )
+            )
+        with self._lock:
+            self._phase = "terminal-delete-sealed"
+        return receipt
 
     def aggregate_policy(
         self,
@@ -472,19 +450,98 @@ class ManagedComparisonHttpPolicyLifecycleAdapter:
         managed_attestation_commitment_sha256: str,
         canonical_source: tuple[object, ...],
         terminal_delete: object,
-    ) -> object:
+    ) -> VerifiedManagedHttpPolicyValidation:
         self._validate_binding(bindings)
-        _attestation(managed_attestation, managed_attestation_commitment_sha256)
-        del canonical_source, terminal_delete
-        raise ManagedHttpPolicyLifecycleError(
-            "managed_http_policy_evidence_capabilities_unavailable"
+        self._bind_attestation(
+            managed_attestation,
+            managed_attestation_commitment_sha256,
+            allow_initial=False,
         )
+        if type(canonical_source) is not tuple or len(canonical_source) != len(self._cases):
+            raise ManagedHttpPolicyLifecycleError("managed_http_policy_canonical_coverage_invalid")
+        with self._lock:
+            if self._phase != "terminal-delete-sealed":
+                raise ManagedHttpPolicyLifecycleError("managed_http_policy_aggregate_replay")
+            self._phase = "aggregating"
+        try:
+            with receipt_registry_transaction():
+                canonical = tuple(
+                    _receipt(canonical_receipt_state, item) for item in canonical_source
+                )
+                terminal = _receipt(terminal_receipt_state, terminal_delete)
+                expected = tuple(
+                    (ordinal, case.case_id, case.corpus_id)
+                    for ordinal, case in enumerate(self._cases)
+                )
+                if (
+                    tuple((item.ordinal, item.case_id, item.corpus_id) for item in canonical)
+                    != expected
+                ):
+                    raise ManagedHttpPolicyLifecycleError(
+                        "managed_http_policy_canonical_order_invalid"
+                    )
+                manifest = self._execution_manifest()
+                if any(
+                    item.owner is not self
+                    or item.phase != "live"
+                    or item.run_id != bindings.run_id
+                    or item.binding_commitment_sha256 != bindings.binding_commitment_sha256
+                    or item.managed_attestation_commitment_sha256
+                    != managed_attestation_commitment_sha256
+                    or item.execution_case_manifest_sha256 != manifest
+                    or item.corpus != self._corpus_for(item.corpus_id)
+                    for item in canonical
+                ):
+                    raise ManagedHttpPolicyLifecycleError(
+                        "managed_http_policy_canonical_binding_invalid"
+                    )
+                if (
+                    terminal.owner is not self
+                    or terminal.phase != "live"
+                    or terminal.run_id != bindings.run_id
+                    or terminal.binding_commitment_sha256 != bindings.binding_commitment_sha256
+                    or terminal.managed_attestation_commitment_sha256
+                    != managed_attestation_commitment_sha256
+                    or terminal.execution_case_manifest_sha256 != manifest
+                ):
+                    raise ManagedHttpPolicyLifecycleError(
+                        "managed_http_policy_terminal_binding_invalid"
+                    )
+                material = project_validation_material(
+                    bindings=bindings,
+                    managed_attestation_commitment_sha256=(managed_attestation_commitment_sha256),
+                    adapter_id=self.adapter_id,
+                    implementation_sha256=self.implementation_sha256,
+                    execution_case_manifest_sha256=manifest,
+                    cases=self._cases,
+                    corpora=self._corpus_material,
+                    cleanup_passes=terminal.cleanup_passes,
+                )
+                for item in canonical:
+                    item.phase = "consumed"
+                terminal.phase = "consumed"
+            validation = seal_managed_http_policy_validation(material=material)
+            if type(validation) is not VerifiedManagedHttpPolicyValidation:
+                raise ManagedHttpPolicyLifecycleError("managed_http_policy_validation_type_invalid")
+        except ManagedHttpPolicyLifecycleError:
+            with self._lock:
+                self._phase = "terminal"
+            raise
+        except BaseException:
+            with self._lock:
+                self._phase = "terminal"
+            raise ManagedHttpPolicyLifecycleError(
+                "managed_http_policy_validation_seal_failed"
+            ) from None
+        with self._lock:
+            self._phase = "aggregated"
+        return validation
 
     def _delete_infinity(
         self,
         target: str,
         pass_index: int,
-    ) -> _LegacyDeleteState:
+    ) -> ManagedHttpPolicyDeleteReceiptState:
         if not self._corpora:
             raise ManagedHttpPolicyLifecycleError(
                 "managed_http_policy_exact_cleanup_state_unavailable"
@@ -509,7 +566,12 @@ class ManagedComparisonHttpPolicyLifecycleAdapter:
             raise ManagedHttpPolicyLifecycleError(
                 "managed_http_policy_infinity_exact_cleanup_invalid"
             )
-        return _LegacyDeleteState(
+        commitments = project_infinity_cleanup_commitments(
+            observations,
+            target_identity_sha256=target,
+            pass_index=pass_index,
+        )
+        return ManagedHttpPolicyDeleteReceiptState(
             self,
             self._bindings.run_id,
             self._bindings.binding_commitment_sha256,
@@ -524,9 +586,12 @@ class ManagedComparisonHttpPolicyLifecycleAdapter:
                 and (item.graphiti is None or item.graphiti.verified_absent)
                 for item in observations
             ),
-            self._corpus_manifest_sha256(),
-            self._mem0_created_memory_ids(),
-            self._source_pairs(),
+            self._exact_corpus_bindings().manifest_sha256,
+            self._exact_corpus_bindings().mem0_created_memory_ids,
+            self._exact_corpus_bindings().source_pairs,
+            commitments.cleanup_commitment_sha256,
+            commitments.corpus_absence_commitments,
+            commitments.exact_absence_commitment_sha256,
             "live",
         )
 
@@ -535,7 +600,7 @@ class ManagedComparisonHttpPolicyLifecycleAdapter:
         client: httpx.Client,
         target: str,
         pass_index: int,
-    ) -> _LegacyDeleteState:
+    ) -> ManagedHttpPolicyDeleteReceiptState:
         if not self._corpora:
             raise ManagedHttpPolicyLifecycleError(
                 "managed_http_policy_exact_cleanup_state_unavailable"
@@ -552,7 +617,14 @@ class ManagedComparisonHttpPolicyLifecycleAdapter:
             payload.get(key) is not True for key in ("deleted", "verified_absent")
         ):
             raise ManagedHttpPolicyLifecycleError("managed_http_policy_mem0_delete_ack_invalid")
-        return _LegacyDeleteState(
+        commitments = project_mem0_cleanup_commitments(
+            tuple(corpus.bundle for corpus in self._corpora),
+            run_id=self._bindings.run_id,
+            target_identity_sha256=target,
+            pass_index=pass_index,
+            acknowledgement=payload,
+        )
+        return ManagedHttpPolicyDeleteReceiptState(
             self,
             self._bindings.run_id,
             self._bindings.binding_commitment_sha256,
@@ -560,12 +632,15 @@ class ManagedComparisonHttpPolicyLifecycleAdapter:
             target,
             pass_index,
             len(self._corpora),
-            len(self._mem0_created_memory_ids()) if pass_index == 1 else 0,
+            len(self._exact_corpus_bindings().mem0_created_memory_ids) if pass_index == 1 else 0,
             False,
             True,
-            self._corpus_manifest_sha256(),
-            self._mem0_created_memory_ids(),
-            self._source_pairs(),
+            self._exact_corpus_bindings().manifest_sha256,
+            self._exact_corpus_bindings().mem0_created_memory_ids,
+            self._exact_corpus_bindings().source_pairs,
+            commitments.cleanup_commitment_sha256,
+            commitments.corpus_absence_commitments,
+            commitments.exact_absence_commitment_sha256,
             "live",
         )
 
@@ -588,6 +663,41 @@ class ManagedComparisonHttpPolicyLifecycleAdapter:
                 clock=self._clock,
             ),
         )
+
+    def _bind_attestation(
+        self,
+        value: object,
+        commitment: object,
+        *,
+        allow_initial: bool,
+    ) -> None:
+        _attestation(value, commitment)
+        with self._lock:
+            if self._managed_attestation is None and allow_initial:
+                self._managed_attestation = value
+                self._managed_attestation_commitment_sha256 = commitment
+                return
+            if (
+                value is not self._managed_attestation
+                or commitment != self._managed_attestation_commitment_sha256
+            ):
+                raise ManagedHttpPolicyLifecycleError(
+                    "managed_http_policy_attestation_binding_invalid"
+                )
+
+    def _execution_manifest(self) -> str:
+        value = self._execution_case_manifest_sha256
+        if value is None:
+            raise ManagedHttpPolicyLifecycleError(
+                "managed_http_policy_execution_manifest_unavailable"
+            )
+        return value
+
+    def _corpus_for(self, corpus_id: str) -> ManagedHttpPolicyCorpusMaterial:
+        matches = tuple(item for item in self._corpus_material if item.corpus_id == corpus_id)
+        if len(matches) != 1:
+            raise ManagedHttpPolicyLifecycleError("managed_http_policy_corpus_binding_invalid")
+        return matches[0]
 
     def _observe_corpora(
         self,
@@ -612,40 +722,11 @@ class ManagedComparisonHttpPolicyLifecycleAdapter:
             for bundle in bundles
         )
 
-    def _corpus_manifest_sha256(self) -> tuple[str, ...]:
-        return tuple(
-            managed_ingest_identity_manifest_sha256(
-                corpus.bundle.manifest,
-                corpus.bundle.scope,
-            )
-            for corpus in self._corpora
-        )
-
-    def _mem0_created_memory_ids(self) -> tuple[str, ...]:
-        identities = tuple(
-            identity
-            for corpus in self._corpora
-            for identity in corpus.bundle.manifest.mem0_created_memory_ids
-        )
-        if not identities or len(set(identities)) != len(identities):
-            raise ManagedHttpPolicyLifecycleError(
-                "managed_http_policy_mem0_identity_binding_invalid"
-            )
-        return identities
-
-    def _source_pairs(self) -> tuple[tuple[str, str], ...]:
-        pairs = tuple(
-            pair
-            for corpus in self._corpora
-            for pair in zip(
-                corpus.bundle.manifest.mem0_source_ids,
-                corpus.bundle.manifest.mem0_source_sha256,
-                strict=True,
-            )
-        )
-        if not pairs:
-            raise ManagedHttpPolicyLifecycleError("managed_http_policy_mem0_source_binding_invalid")
-        return pairs
+    def _exact_corpus_bindings(self) -> ManagedHttpPolicyExactCorpusBindings:
+        try:
+            return project_exact_corpus_bindings(tuple(corpus.bundle for corpus in self._corpora))
+        except ValueError as exc:
+            raise ManagedHttpPolicyLifecycleError(str(exc)) from None
 
     def _new_transport(self, role: str) -> httpx.BaseTransport:
         factory = self._transport_factories[role]
@@ -684,7 +765,7 @@ class ManagedComparisonHttpPolicyLifecycleAdapter:
 
     def _validate_binding(self, bindings: FullComparisonRunBindings) -> None:
         self._ensure_deadline()
-        if bindings is not self._bindings or _binding_snapshot(bindings) != self._binding_snapshot:
+        if bindings is not self._bindings or binding_snapshot(bindings) != self._binding_snapshot:
             raise ManagedHttpPolicyLifecycleError("managed_http_policy_binding_changed")
 
     def _ensure_deadline(self) -> None:
@@ -741,39 +822,16 @@ class _DeadlineTransport(httpx.BaseTransport):
         self._inner.close()
 
 
-def _validate_ingest_evidence(views: object) -> None:
-    if (
-        type(views) is not tuple
-        or not views
-        or any(type(view) is not ManagedHttpIngestEvidenceView for view in views)
-    ):
-        raise ManagedHttpPolicyLifecycleError("managed_http_policy_ingest_evidence_invalid")
-    for view in views:
-        metadata = view.ingest_result.metadata
-        managed = metadata.get("managed_http_execution") if isinstance(metadata, Mapping) else None
-        if not isinstance(managed, Mapping):
-            raise ManagedHttpPolicyLifecycleError("managed_http_policy_ingest_provenance_missing")
-        blockers = managed.get("composition_blockers")
-        if managed.get("credential_continuity_proven") is not True or blockers not in ([], ()):
-            raise ManagedHttpPolicyLifecycleError(
-                "managed_http_policy_credential_continuity_unproven"
-            )
-
-
 def managed_http_policy_production_blockers(
     cases: tuple[ManagedRunCase, ...],
 ) -> tuple[str, ...]:
-    """Return stable blockers before any preparation, credential, or backend I/O."""
-
     if (
         type(cases) is not tuple
         or not cases
         or any(type(case) is not ManagedRunCase for case in cases)
     ):
         raise ManagedHttpPolicyLifecycleError("managed_http_policy_cases_invalid")
-    return (
-        "managed_http_policy_evidence_capabilities_unavailable",
-    )
+    return ()
 
 
 def _object_response(response: httpx.Response, code: str) -> dict[str, object]:
@@ -788,35 +846,17 @@ def _object_response(response: httpx.Response, code: str) -> dict[str, object]:
     return dict(payload)
 
 
-def _delete_state(value: object) -> _LegacyDeleteState:
-    if type(value) is not ManagedHttpPolicyDeleteReceipt:
-        raise ManagedHttpPolicyLifecycleError("managed_http_policy_delete_receipt_type_invalid")
-    state = _DELETE_RECEIPTS.get(value)
-    if state is None:
-        raise ManagedHttpPolicyLifecycleError("managed_http_policy_delete_receipt_unknown")
-    return state
+def _receipt(accessor: Callable[[object], object], value: object):
+    try:
+        return accessor(value)
+    except ManagedHttpPolicyReceiptError as exc:
+        raise ManagedHttpPolicyLifecycleError(exc.code) from None
 
 
 def _attestation(value: object, commitment: object) -> None:
     if type(value) is not VerifiedManagedCompositionAttestation:
         raise ManagedHttpPolicyLifecycleError("managed_http_policy_attestation_invalid")
     _digest(commitment, "managed_http_policy_attestation_commitment_invalid")
-
-
-def _binding_snapshot(bindings: FullComparisonRunBindings) -> str:
-    payload = {
-        "run_id": bindings.run_id,
-        "profile_id": bindings.profile_id,
-        "scope": bindings.scope,
-        "binding": bindings.binding_commitment_sha256,
-        "targets": [
-            [target.backend_role, target.target_identity_sha256]
-            for target in bindings.backend_targets
-        ],
-    }
-    return hashlib.sha256(
-        json.dumps(payload, sort_keys=True, separators=(",", ":")).encode()
-    ).hexdigest()
 
 
 def _digest(value: object, code: str) -> str:
@@ -832,23 +872,16 @@ def _aware(value: object, code: str) -> datetime:
 
 
 def managed_http_policy_lifecycle_implementation_sha256() -> str:
-    payload = {
-        "schema": "managed-comparison-http-policy-fail-closed.v1",
-        "ingest": "exact-target-major-one-use",
-        "canonical_source": "no-telemetry-elevation",
-        "delete": "two-pass-distinct-owned-transport",
-        "retries": 0,
-    }
-    return hashlib.sha256(
-        json.dumps(payload, sort_keys=True, separators=(",", ":")).encode()
-    ).hexdigest()
+    return lifecycle_implementation_sha256()
 
 
 __all__ = (
     "MANAGED_HTTP_POLICY_ADAPTER_ID",
     "ManagedComparisonHttpPolicyLifecycleAdapter",
+    "ManagedHttpPolicyCanonicalSourceReceipt",
     "ManagedHttpPolicyDeleteReceipt",
     "ManagedHttpPolicyLifecycleError",
+    "ManagedHttpPolicyTerminalDeleteReceipt",
     "managed_http_policy_production_blockers",
     "managed_http_policy_lifecycle_implementation_sha256",
 )

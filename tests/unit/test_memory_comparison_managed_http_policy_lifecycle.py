@@ -1,6 +1,9 @@
 from __future__ import annotations
 
+import json
+from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime
+from threading import Event
 
 import httpx
 import pytest
@@ -16,7 +19,12 @@ from infinity_context_server.memory_comparison_managed_http_policy_lifecycle imp
     ManagedHttpPolicyCanonicalSourceReceipt,
     ManagedHttpPolicyDeleteReceipt,
     ManagedHttpPolicyLifecycleError,
+    ManagedHttpPolicyTerminalDeleteReceipt,
     managed_http_policy_production_blockers,
+)
+from infinity_context_server.memory_comparison_managed_http_policy_validation import (
+    VerifiedManagedHttpPolicyValidation,
+    public_managed_http_policy_validation,
 )
 from infinity_context_server.memory_comparison_managed_preflight import (
     managed_backend_target_identity_sha256,
@@ -72,6 +80,7 @@ _INFINITY_TARGET = managed_backend_target_identity_sha256(
     backend_role="infinity-context", base_url=_INFINITY_URL
 )
 _MEM0_TARGET = managed_backend_target_identity_sha256(backend_role="mem0", base_url=_MEM0_URL)
+_ATTESTATION = object()
 
 
 class _Clock:
@@ -241,17 +250,82 @@ def _seal(adapter, bindings, cases, views, monkeypatch):
     return adapter.seal_canonical_source(
         bindings=bindings,
         cases=cases,
-        managed_attestation=object(),
+        managed_attestation=_ATTESTATION,
         managed_attestation_commitment_sha256="6" * 64,
         ingest_receipts=(object(),),
         execution=_execution(),
     )
 
 
-def test_static_blockers_keep_only_honest_remaining_capability_gaps() -> None:
-    expected = (
-        "managed_http_policy_evidence_capabilities_unavailable",
+def _complete_lifecycle(monkeypatch, cases=None):
+    selected = (_locomo_case(),) if cases is None else cases
+    graph_delete_count = 0
+
+    def derived(request: httpx.Request) -> httpx.Response:
+        nonlocal graph_delete_count
+        if request.url.path.endswith("/presence"):
+            return httpx.Response(200, json={"data": _presence_data()})
+        data = _graphiti_delete_data()
+        if graph_delete_count == 1:
+            empty = {key: [] for key in _snapshot_json(_graph_manifest())}
+            data["passes"][0]["before"] = empty  # type: ignore[index]
+            data["passes"][0]["deleted"] = empty  # type: ignore[index]
+        graph_delete_count += 1
+        return httpx.Response(200, json={"data": data})
+
+    delete_count = 0
+
+    def canonical(request: httpx.Request) -> httpx.Response:
+        nonlocal delete_count
+        data: dict[str, object] = {
+            "id": "fact-1",
+            "space_id": "space-1",
+            "memory_scope_id": "scope-1",
+            "thread_id": "thread-1",
+            "status": "deleted",
+        }
+        if request.method == "DELETE":
+            delete_count += 1
+            data["indexing_status"] = "pending" if delete_count == 1 else "already_deleted"
+        return httpx.Response(200, json={"data": data})
+
+    def mem0(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, json={"deleted": True, "verified_absent": True})
+
+    adapter, bindings = _adapter(
+        cases=selected,
+        derived_factory=lambda: httpx.MockTransport(derived),
+        cleanup_factory=lambda: httpx.MockTransport(canonical),
+        mem0_factory=lambda: httpx.MockTransport(mem0),
     )
+    canonical_receipts = _seal(
+        adapter,
+        bindings,
+        selected,
+        _views(selected[0]),
+        monkeypatch,
+    )
+    delete_receipts = tuple(
+        adapter.terminal_delete(
+            bindings=bindings,
+            backend_role=target.backend_role,
+            target_identity_sha256=target.target_identity_sha256,
+            pass_index=pass_index,
+        )
+        for pass_index in (1, 2)
+        for target in bindings.backend_targets
+    )
+    terminal = adapter.seal_terminal_delete(
+        bindings=bindings,
+        managed_attestation=_ATTESTATION,
+        managed_attestation_commitment_sha256="6" * 64,
+        receipts=delete_receipts,
+    )
+    return adapter, bindings, canonical_receipts, terminal, delete_receipts
+
+
+def test_static_blockers_keep_only_honest_remaining_capability_gaps() -> None:
+    expected = ()
     assert managed_http_policy_production_blockers((_locomo_case(),)) == expected
     assert managed_http_policy_production_blockers((_longmem_case(),)) == expected
 
@@ -352,11 +426,11 @@ def test_exact_infinity_two_pass_cleanup_and_mem0_receipts_are_sealed(
     assert all(type(item) is ManagedHttpPolicyDeleteReceipt for item in delete_receipts)
     terminal = adapter.seal_terminal_delete(
         bindings=bindings,
-        managed_attestation=object(),
+        managed_attestation=_ATTESTATION,
         managed_attestation_commitment_sha256="6" * 64,
         receipts=tuple(delete_receipts),
     )
-    assert terminal is not None
+    assert type(terminal) is ManagedHttpPolicyTerminalDeleteReceipt
     assert [request.method for request in mem0_requests] == ["DELETE", "DELETE"]
     assert [request.method for request in derived_requests] == ["POST", "POST", "POST"]
     assert delete_count == 2
@@ -364,17 +438,18 @@ def test_exact_infinity_two_pass_cleanup_and_mem0_receipts_are_sealed(
     assert all(
         item.closed for item in (*derived_transports, *canonical_transports, *mem0_transports)
     )
-    with pytest.raises(
-        ManagedHttpPolicyLifecycleError,
-        match="^managed_http_policy_evidence_capabilities_unavailable$",
-    ):
-        adapter.aggregate_policy(
-            bindings=bindings,
-            managed_attestation=object(),
-            managed_attestation_commitment_sha256="6" * 64,
-            canonical_source=canonical_receipts,
-            terminal_delete=terminal,
-        )
+    validation = adapter.aggregate_policy(
+        bindings=bindings,
+        managed_attestation=_ATTESTATION,
+        managed_attestation_commitment_sha256="6" * 64,
+        canonical_source=canonical_receipts,
+        terminal_delete=terminal,
+    )
+    assert type(validation) is VerifiedManagedHttpPolicyValidation
+    report = public_managed_http_policy_validation(validation)
+    assert report["execution_case_manifest_sha256"] == "4" * 64
+    assert report["case_count"] == report["unique_corpus_count"] == 1
+    assert report["cleanup_pass_count"] == 4
 
 
 def test_terminal_cleanup_before_presence_seal_fails_without_io() -> None:
@@ -394,7 +469,7 @@ def test_terminal_cleanup_before_presence_seal_fails_without_io() -> None:
     target = bindings.backend_targets[0]
     with pytest.raises(
         ManagedHttpPolicyLifecycleError,
-        match="^managed_http_policy_exact_cleanup_state_unavailable$",
+        match="^managed_http_policy_delete_phase_invalid$",
     ):
         adapter.terminal_delete(
             bindings=bindings,
@@ -442,3 +517,172 @@ def test_malformed_manifest_fails_before_presence_io(
     ):
         _seal(adapter, bindings, (case,), (broken, mem0), monkeypatch)
     assert calls == 0
+
+
+def test_aggregate_rejects_replay_after_issuing_one_validation(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    adapter, bindings, canonical, terminal, _ = _complete_lifecycle(monkeypatch)
+    validation = adapter.aggregate_policy(
+        bindings=bindings,
+        managed_attestation=_ATTESTATION,
+        managed_attestation_commitment_sha256="6" * 64,
+        canonical_source=canonical,
+        terminal_delete=terminal,
+    )
+    assert type(validation) is VerifiedManagedHttpPolicyValidation
+    with pytest.raises(
+        ManagedHttpPolicyLifecycleError,
+        match="^managed_http_policy_aggregate_replay$",
+    ):
+        adapter.aggregate_policy(
+            bindings=bindings,
+            managed_attestation=_ATTESTATION,
+            managed_attestation_commitment_sha256="6" * 64,
+            canonical_source=canonical,
+            terminal_delete=terminal,
+        )
+
+
+def test_aggregate_rejects_wrong_canonical_order(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    first = _locomo_case()
+    second = ManagedRunCase("case-two", first.corpus_id, _thaw(first.record))
+    adapter, bindings, canonical, terminal, _ = _complete_lifecycle(monkeypatch, (first, second))
+    with pytest.raises(
+        ManagedHttpPolicyLifecycleError,
+        match="^managed_http_policy_canonical_order_invalid$",
+    ):
+        adapter.aggregate_policy(
+            bindings=bindings,
+            managed_attestation=_ATTESTATION,
+            managed_attestation_commitment_sha256="6" * 64,
+            canonical_source=tuple(reversed(canonical)),
+            terminal_delete=terminal,
+        )
+
+
+def test_aggregate_rejects_wrong_terminal_type_and_foreign_owner(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    adapter, bindings, canonical, _, _ = _complete_lifecycle(monkeypatch)
+    with pytest.raises(
+        ManagedHttpPolicyLifecycleError,
+        match="^managed_http_policy_terminal_receipt_type_invalid$",
+    ):
+        adapter.aggregate_policy(
+            bindings=bindings,
+            managed_attestation=_ATTESTATION,
+            managed_attestation_commitment_sha256="6" * 64,
+            canonical_source=canonical,
+            terminal_delete=object(),
+        )
+
+    owner, owner_bindings, owner_canonical, _, _ = _complete_lifecycle(monkeypatch)
+    _, _, _, foreign_terminal, _ = _complete_lifecycle(monkeypatch)
+    with pytest.raises(
+        ManagedHttpPolicyLifecycleError,
+        match="^managed_http_policy_terminal_binding_invalid$",
+    ):
+        owner.aggregate_policy(
+            bindings=owner_bindings,
+            managed_attestation=_ATTESTATION,
+            managed_attestation_commitment_sha256="6" * 64,
+            canonical_source=owner_canonical,
+            terminal_delete=foreign_terminal,
+        )
+
+
+def test_aggregate_rejects_wrong_canonical_type_and_foreign_owner(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    typed, typed_bindings, _, typed_terminal, _ = _complete_lifecycle(monkeypatch)
+    with pytest.raises(
+        ManagedHttpPolicyLifecycleError,
+        match="^managed_http_policy_canonical_receipt_type_invalid$",
+    ):
+        typed.aggregate_policy(
+            bindings=typed_bindings,
+            managed_attestation=_ATTESTATION,
+            managed_attestation_commitment_sha256="6" * 64,
+            canonical_source=(object(),),
+            terminal_delete=typed_terminal,
+        )
+
+    owner, owner_bindings, _, owner_terminal, _ = _complete_lifecycle(monkeypatch)
+    _, _, foreign_canonical, _, _ = _complete_lifecycle(monkeypatch)
+    with pytest.raises(
+        ManagedHttpPolicyLifecycleError,
+        match="^managed_http_policy_canonical_binding_invalid$",
+    ):
+        owner.aggregate_policy(
+            bindings=owner_bindings,
+            managed_attestation=_ATTESTATION,
+            managed_attestation_commitment_sha256="6" * 64,
+            canonical_source=foreign_canonical,
+            terminal_delete=owner_terminal,
+        )
+
+
+def test_terminal_seal_is_one_shot(monkeypatch: pytest.MonkeyPatch) -> None:
+    adapter, bindings, _, _, deletes = _complete_lifecycle(monkeypatch)
+    with pytest.raises(
+        ManagedHttpPolicyLifecycleError,
+        match="^managed_http_policy_terminal_delete_phase_invalid$",
+    ):
+        adapter.seal_terminal_delete(
+            bindings=bindings,
+            managed_attestation=_ATTESTATION,
+            managed_attestation_commitment_sha256="6" * 64,
+            receipts=deletes,
+        )
+
+
+def test_aggregate_reservation_rejects_concurrent_caller(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    adapter, bindings, canonical, terminal, _ = _complete_lifecycle(monkeypatch)
+    entered = Event()
+    release = Event()
+    real_seal = policy.seal_managed_http_policy_validation
+
+    def delayed_seal(*, material):
+        entered.set()
+        assert release.wait(timeout=5)
+        return real_seal(material=material)
+
+    monkeypatch.setattr(policy, "seal_managed_http_policy_validation", delayed_seal)
+    arguments = {
+        "bindings": bindings,
+        "managed_attestation": _ATTESTATION,
+        "managed_attestation_commitment_sha256": "6" * 64,
+        "canonical_source": canonical,
+        "terminal_delete": terminal,
+    }
+    with ThreadPoolExecutor(max_workers=1) as executor:
+        primary = executor.submit(adapter.aggregate_policy, **arguments)
+        assert entered.wait(timeout=5)
+        with pytest.raises(
+            ManagedHttpPolicyLifecycleError,
+            match="^managed_http_policy_aggregate_replay$",
+        ):
+            adapter.aggregate_policy(**arguments)
+        release.set()
+        assert type(primary.result(timeout=5)) is VerifiedManagedHttpPolicyValidation
+
+
+def test_public_validation_does_not_expose_raw_evidence_ids(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    adapter, bindings, canonical, terminal, _ = _complete_lifecycle(monkeypatch)
+    validation = adapter.aggregate_policy(
+        bindings=bindings,
+        managed_attestation=_ATTESTATION,
+        managed_attestation_commitment_sha256="6" * 64,
+        canonical_source=canonical,
+        terminal_delete=terminal,
+    )
+    encoded = json.dumps(public_managed_http_policy_validation(validation))
+    assert "fact-1" not in encoded
+    assert "memory-1" not in encoded
