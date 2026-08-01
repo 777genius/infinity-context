@@ -19,32 +19,10 @@ from infinity_context_core.domain.errors import MemoryValidationError
 from infinity_context_server.features.memory_facts import public as server_public
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
-FEATURE_ROOT = (
-    REPO_ROOT
-    / "packages"
-    / "infinity_context_server"
-    / "infinity_context_server"
-    / "features"
-    / "memory_facts"
-)
-API_FACTS_PATH = (
-    REPO_ROOT
-    / "packages"
-    / "infinity_context_server"
-    / "infinity_context_server"
-    / "api"
-    / "v1"
-    / "facts.py"
-)
-API_SUGGESTIONS_PATH = (
-    REPO_ROOT
-    / "packages"
-    / "infinity_context_server"
-    / "infinity_context_server"
-    / "api"
-    / "v1"
-    / "suggestions.py"
-)
+SERVER_ROOT = REPO_ROOT / "packages" / "infinity_context_server" / "infinity_context_server"
+FEATURE_ROOT = SERVER_ROOT / "features" / "memory_facts"
+API_FACTS_PATH = SERVER_ROOT / "api" / "v1" / "facts.py"
+API_SUGGESTIONS_PATH = SERVER_ROOT / "api" / "v1" / "suggestions.py"
 
 
 class RecordingRememberFact:
@@ -578,9 +556,7 @@ def test_memory_facts_public_seam_maps_suggestion_responses_and_batches() -> Non
 
     assert body["review_kind"] == "duplicate_fact_merge"
     assert "resolve_duplicate" in body["available_review_actions"]
-    assert body["review_payload"]["duplicate_merge_policy_version"] == (
-        "duplicate-merge-review-v1"
-    )
+    assert body["review_payload"]["duplicate_merge_policy_version"] == ("duplicate-merge-review-v1")
     assert body["review_resolution_options"][0]["id"] == "merge_source_refs"
     assert body["safe_reason"] == "[redacted]"
     assert body["review_reason"] == "[redacted]"
@@ -590,9 +566,10 @@ def test_memory_facts_public_seam_maps_suggestion_responses_and_batches() -> Non
     assert result_body["suggestion"]["id"] == "sug_1"
     assert result_body["fact"]["id"] == "fact_1"
     assert result_body["fact"]["indexing_status"] == "pending"
-    assert result_body["fact"]["content_sha256"] == hashlib.sha256(
-        b"Duplicate merge candidate."
-    ).hexdigest()
+    assert (
+        result_body["fact"]["content_sha256"]
+        == hashlib.sha256(b"Duplicate merge candidate.").hexdigest()
+    )
     assert review_batch["results"][0]["fact"]["id"] == "fact_1"
     assert review_batch["results"][1]["error_code"] == "memory.conflict"
     assert create_batch["results"][0]["suggestion"]["id"] == "sug_1"
@@ -602,10 +579,13 @@ def test_memory_facts_public_seam_maps_suggestion_requests_to_commands() -> None
     source_ref = server_public.SourceRefRequest(**_source_ref_json())
     request = server_public.CreateSuggestionRequest(
         candidate_text="  Batch suggest routes through the feature seam.  ",
-        kind="note", source_refs=[source_ref],
-        confidence="high", trust_level="medium",
+        kind="note",
+        source_refs=[source_ref],
+        confidence="high",
+        trust_level="medium",
         safe_reason="human reviewed",
-        operation="add", category="architecture",
+        operation="add",
+        category="architecture",
         tags=["RAG", "cognee", "rag", " "],
         review_payload={"review_kind": "candidate_review"},
     )
@@ -629,8 +609,10 @@ def test_memory_facts_public_seam_maps_suggestion_requests_to_commands() -> None
         server_public.CreateSuggestionsBatchRequest(
             items=[
                 server_public.CreateSuggestionBatchItemRequest(
-                    candidate_text="Batch suggestion one.", source_refs=[source_ref],
-                    safe_reason="human reviewed", tags=["Queue"],
+                    candidate_text="Batch suggestion one.",
+                    source_refs=[source_ref],
+                    safe_reason="human reviewed",
+                    tags=["Queue"],
                 )
             ],
             continue_on_error=True,
@@ -647,7 +629,10 @@ def test_memory_facts_public_seam_maps_suggestion_requests_to_commands() -> None
         server_public.ReviewSuggestionsBatchRequest(
             items=[
                 server_public.ReviewSuggestionBatchItemRequest(
-                    suggestion_id="sug_1", action="approve", reason="accurate", force=True,
+                    suggestion_id="sug_1",
+                    action="approve",
+                    reason="accurate",
+                    force=True,
                 )
             ],
             continue_on_error=True,
@@ -724,9 +709,7 @@ def test_memory_facts_routes_map_http_contracts_to_feature_use_cases() -> None:
                 kind="note",
                 category="architecture",
                 tags=["postgres"],
-                source_refs=[
-                    server_public.MemoryFactSourceRefHttpRequest(**_source_ref_json())
-                ],
+                source_refs=[server_public.MemoryFactSourceRefHttpRequest(**_source_ref_json())],
             ),
             idempotency_key="remember_1",
         )
@@ -758,9 +741,7 @@ def test_memory_facts_routes_map_http_contracts_to_feature_use_cases() -> None:
                 expected_version=1,
                 text="Postgres remains the canonical lifecycle store.",
                 reason="clarify owner",
-                source_refs=[
-                    server_public.MemoryFactSourceRefHttpRequest(**_source_ref_json())
-                ],
+                source_refs=[server_public.MemoryFactSourceRefHttpRequest(**_source_ref_json())],
             ),
             idempotency_key="update_1",
         )
@@ -838,9 +819,7 @@ def test_v1_suggestions_route_delegates_feature_helpers_to_public_seam() -> None
     ]
 
     assert "from infinity_context_server.features.memory_facts import public as " in source
-    assert memory_facts_imports == [
-        ("infinity_context_server.features.memory_facts", ("public",))
-    ]
+    assert memory_facts_imports == [("infinity_context_server.features.memory_facts", ("public",))]
     for removed in (
         "class CreateSuggestionRequest",
         "class CreateSuggestionBatchItemRequest",
@@ -914,18 +893,24 @@ def test_memory_facts_server_slice_uses_only_public_feature_boundaries() -> None
     for path in sorted(FEATURE_ROOT.rglob("*.py")):
         for imported in _imports(path):
             rel = path.relative_to(REPO_ROOT)
-            if path.name in {
-                "compatibility.py",
-                "suggestion_requests.py",
-            } and imported in legacy_v1_memory_facts_seam_imports:
+            if (
+                path.name
+                in {
+                    "compatibility.py",
+                    "suggestion_requests.py",
+                }
+                and imported in legacy_v1_memory_facts_seam_imports
+            ):
                 continue
-            if imported.startswith(
-                "infinity_context_core.features."
-            ) and not imported.endswith(".public"):
+            if imported.startswith("infinity_context_core.features.") and not imported.endswith(
+                ".public"
+            ):
                 violations.append(f"{rel}: imports {imported}")
-            if imported == "infinity_context_core" or any(
-                imported.startswith(f"{prefix}.") for prefix in forbidden_prefixes
-            ) or imported in forbidden_prefixes:
+            if (
+                imported == "infinity_context_core"
+                or any(imported.startswith(f"{prefix}.") for prefix in forbidden_prefixes)
+                or imported in forbidden_prefixes
+            ):
                 violations.append(f"{rel}: imports {imported}")
 
     assert violations == []
