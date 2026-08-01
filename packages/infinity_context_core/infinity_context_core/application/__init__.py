@@ -150,6 +150,12 @@ from infinity_context_core.application.dto import (
     UserResult,
     UsersResult,
 )
+from infinity_context_core.application.dto_benchmark_runs import (
+    CleanupBenchmarkRunCommand,
+    CleanupBenchmarkRunResult,
+    RegisterBenchmarkRunCommand,
+    RegisterBenchmarkRunResult,
+)
 from infinity_context_core.application.use_cases.anchors import (
     BackfillAnchorsUseCase,
     CreateAnchorUseCase,
@@ -176,6 +182,10 @@ from infinity_context_core.application.use_cases.assets import (
     GetAssetUseCase,
     ListAssetsUseCase,
     ReadAssetBytesUseCase,
+)
+from infinity_context_core.application.use_cases.benchmark_runs import (
+    CleanupBenchmarkRunUseCase,
+    RegisterBenchmarkRunUseCase,
 )
 from infinity_context_core.application.use_cases.blob_storage_cleanup import (
     BlobStorageCleanupCommand,
@@ -287,6 +297,12 @@ MemoryFactLifecycleUseCases = memory_facts_public.MemoryFactLifecycleUseCases
 MemoryScopeUseCases = memory_scopes_public.MemoryScopeUseCases
 
 __all__ = [
+    "CleanupBenchmarkRunCommand",
+    "CleanupBenchmarkRunResult",
+    "CleanupBenchmarkRunUseCase",
+    "RegisterBenchmarkRunCommand",
+    "RegisterBenchmarkRunResult",
+    "RegisterBenchmarkRunUseCase",
     "ApproveSuggestionCommand",
     "ApproveSuggestionUseCase",
     "AnchorBackfillSourceSummary",
