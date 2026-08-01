@@ -103,7 +103,7 @@ def test_no_go_is_decided_before_environment_credentials_readiness_or_backend(
     assert report["live_state_touched"] is False
     assert report["publishable"] is False
     assert report["blockers"] == [
-        "managed_http_policy_evidence_capabilities_unavailable",
+        "managed_production_execution_runner_unavailable",
     ]
     assert report["planned_limits"] == {
         "benchmark_max_provider_calls": 4,

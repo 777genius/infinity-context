@@ -25,13 +25,13 @@ def _prepared() -> VerifiedManagedLiveRunPreparation:
         (
             "locomo",
             (
-                "managed_http_policy_evidence_capabilities_unavailable",
+                "managed_production_execution_runner_unavailable",
             ),
         ),
         (
             "longmemeval",
             (
-                "managed_http_policy_evidence_capabilities_unavailable",
+                "managed_production_execution_runner_unavailable",
             ),
         ),
     ),
@@ -101,7 +101,7 @@ def test_pre_readiness_gate_returns_same_static_no_go_with_zero_live_calls(
     assert decision.additional_provider_calls_performed == 0
     assert decision.additional_backend_calls_performed == 0
     assert decision.blockers == (
-        "managed_http_policy_evidence_capabilities_unavailable",
+        "managed_production_execution_runner_unavailable",
     )
     assert _PRIVATE_GOLD not in json.dumps(decision.public_payload(), sort_keys=True)
 
@@ -112,7 +112,7 @@ def test_pre_readiness_gate_rejects_invalid_cases_without_live_work() -> None:
     assert caught.value.code == "managed_production_pre_readiness_failed"
 
 
-def test_no_go_only_root_fails_closed_when_policy_reports_no_blockers(
+def test_no_go_only_root_reports_runner_blocker_when_policy_is_ready(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     prepared = _prepared()
@@ -120,9 +120,14 @@ def test_no_go_only_root_fails_closed_when_policy_reports_no_blockers(
     monkeypatch.setattr(subject, "_inspect_managed_live_policy_cases", lambda _: cases)
     monkeypatch.setattr(subject, "managed_http_policy_production_blockers", lambda _: ())
 
-    with pytest.raises(subject.ManagedProductionCompositionError) as caught:
-        subject.run_verified_managed_production_comparison(prepared)
-    assert caught.value.code == "managed_production_decision_invalid"
+    decision = subject.run_verified_managed_production_comparison(prepared)
+
+    assert decision.blockers == (
+        subject.MANAGED_PRODUCTION_EXECUTION_RUNNER_UNAVAILABLE,
+    )
+    assert decision.preparation_consumed is False
+    assert decision.additional_provider_calls_performed == 0
+    assert decision.additional_backend_calls_performed == 0
 
 
 def test_forged_preparation_is_rejected_without_inspection(
