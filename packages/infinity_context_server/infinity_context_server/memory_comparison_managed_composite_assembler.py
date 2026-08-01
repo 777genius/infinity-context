@@ -13,7 +13,9 @@ from infinity_context_server.memory_comparison_full_execution_validation import 
 )
 from infinity_context_server.memory_comparison_full_policy_component_validation import (
     VerifiedFullPolicyComponentValidation,
-    public_full_policy_component_validation,
+)
+from infinity_context_server.memory_comparison_full_run_component_sets import (
+    _public_policy_component_validation,
 )
 from infinity_context_server.memory_comparison_full_run_components import (
     _digest_value,
@@ -50,6 +52,9 @@ from infinity_context_server.memory_comparison_gold_blind_run_proof import (
 from infinity_context_server.memory_comparison_managed_attestation import (
     VerifiedManagedCompositionAttestation,
     public_managed_composition_attestation,
+)
+from infinity_context_server.memory_comparison_managed_http_policy_validation import (
+    VerifiedManagedHttpPolicyValidation,
 )
 from infinity_context_server.memory_comparison_managed_run_ports import (
     ManagedAttestationPort,
@@ -295,7 +300,10 @@ class ManagedFullComparisonAssembler:
             raise ManagedCompositeAssemblerError("execution validation type must be exact")
         if type(gold_blind_validation) is not VerifiedGoldBlindExecutionValidation:
             raise ManagedCompositeAssemblerError("gold validation type must be exact")
-        if type(policy_validation) is not VerifiedFullPolicyComponentValidation:
+        if type(policy_validation) not in {
+            VerifiedFullPolicyComponentValidation,
+            VerifiedManagedHttpPolicyValidation,
+        }:
             raise ManagedCompositeAssemblerError("policy validation type must be exact")
         self._require_ports_stable()
         managed_report = public_managed_composition_attestation(
@@ -314,13 +322,19 @@ class ManagedFullComparisonAssembler:
         case_count = execution_report.get("case_count")
         if type(case_count) is not int or case_count < 1:
             raise ManagedCompositeAssemblerError("execution case count is invalid")
-        policy_report = public_full_policy_component_validation(policy_validation)
+        policy_report = _public_policy_component_validation(policy_validation)
         _validate_policy_aggregate_report(
             policy_report,
             bindings,
             managed_commitment=managed_commitment,
+            capability=policy_validation,
+            execution_case_manifest_sha256=observed_manifest,
         )
-        manifest_item_count = policy_report.get("manifest_item_count")
+        manifest_item_count = (
+            policy_report.get("case_count")
+            if type(policy_validation) is VerifiedManagedHttpPolicyValidation
+            else policy_report.get("manifest_item_count")
+        )
         if (
             type(manifest_item_count) is not int
             or manifest_item_count < 1

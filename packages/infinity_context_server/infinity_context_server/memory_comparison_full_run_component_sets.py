@@ -18,6 +18,9 @@ if TYPE_CHECKING:
     from infinity_context_server.memory_comparison_managed_attestation import (
         VerifiedManagedCompositionAttestation,
     )
+    from infinity_context_server.memory_comparison_managed_http_policy_validation import (
+        VerifiedManagedHttpPolicyValidation,
+    )
     from infinity_context_server.memory_comparison_managed_run_ports import (
         ManagedAttestationPort,
         ManagedClockPort,
@@ -167,27 +170,28 @@ def issue_execution_component_evidence_set(
     except BaseException:
         _finish_aggregate_set(issuer, "execution", success=False)
         raise
-    _finish_aggregate_set(issuer, "execution", success=True)
+    _finish_aggregate_set(
+        issuer,
+        "execution",
+        success=True,
+        execution_case_manifest=case_manifest,
+    )
     return components
 
 
 def issue_policy_component_evidence_set(
     issuer: FullComparisonEvidenceIssuer,
-    validation: VerifiedFullPolicyComponentValidation,
+    validation: VerifiedFullPolicyComponentValidation | VerifiedManagedHttpPolicyValidation,
 ) -> tuple[FullComparisonComponentEvidence, ...]:
     """Consume one policy aggregate and atomically mint delete/canonical/source."""
 
-    from infinity_context_server.memory_comparison_full_policy_component_validation import (
-        VerifiedFullPolicyComponentValidation,
-        consume_full_policy_component_validation,
-        public_full_policy_component_validation,
-    )
     from infinity_context_server.memory_comparison_full_run_components import (
         _POLICY_KINDS,
         _aggregate_wrapper,
         _begin_aggregate_consumption,
         _evidence_error,
         _finish_aggregate_set,
+        _issued_execution_case_manifest,
         _mint_component_set,
         _reserve_aggregate_set,
         _rollback_prevalidation,
@@ -196,18 +200,21 @@ def issue_policy_component_evidence_set(
 
     bindings, managed_commitment = _reserve_aggregate_set(issuer, "policy", require_runtime=True)
     try:
-        if type(validation) is not VerifiedFullPolicyComponentValidation:
-            raise _evidence_error("policy aggregate validation type must be exact")
-        report = public_full_policy_component_validation(validation)
+        report = _public_policy_component_validation(validation)
+        execution_case_manifest = _issued_execution_case_manifest(issuer, validation)
         policy_binding = _validate_policy_aggregate_report(
-            report, bindings, managed_commitment=managed_commitment
+            report,
+            bindings,
+            managed_commitment=managed_commitment,
+            capability=validation,
+            execution_case_manifest_sha256=execution_case_manifest,
         )
     except BaseException:
         _rollback_prevalidation(issuer, "policy")
         raise
     _begin_aggregate_consumption(issuer, "policy")
     try:
-        consumed = consume_full_policy_component_validation(
+        consumed = _consume_policy_component_validation(
             validation,
             binding_commitment_sha256=policy_binding,
             managed_attestation_commitment_sha256=managed_commitment,
@@ -218,7 +225,7 @@ def issue_policy_component_evidence_set(
             source="policy",
             kinds=_POLICY_KINDS,
             capability=validation,
-            context=(),
+            context=(execution_case_manifest,) if execution_case_manifest is not None else (),
             bindings=bindings,
             managed_commitment=managed_commitment,
             report=report,
@@ -229,6 +236,65 @@ def issue_policy_component_evidence_set(
         raise
     _finish_aggregate_set(issuer, "policy", success=True)
     return components
+
+
+def _public_policy_component_validation(validation: object) -> dict[str, object]:
+    """Project either exact policy aggregate without admitting public mappings."""
+
+    from infinity_context_server.memory_comparison_full_policy_component_validation import (
+        VerifiedFullPolicyComponentValidation,
+        public_full_policy_component_validation,
+    )
+    from infinity_context_server.memory_comparison_managed_http_policy_validation import (
+        VerifiedManagedHttpPolicyValidation,
+        public_managed_http_policy_validation,
+    )
+
+    if type(validation) is VerifiedFullPolicyComponentValidation:
+        return public_full_policy_component_validation(validation)
+    if type(validation) is VerifiedManagedHttpPolicyValidation:
+        return public_managed_http_policy_validation(validation)
+    from infinity_context_server.memory_comparison_full_run_components import _evidence_error
+
+    raise _evidence_error("policy aggregate validation type must be exact")
+
+
+def _consume_policy_component_validation(
+    validation: object,
+    *,
+    binding_commitment_sha256: str,
+    managed_attestation_commitment_sha256: str,
+) -> dict[str, object]:
+    """Consume the exact admitted aggregate through its native one-shot boundary."""
+
+    from infinity_context_server.memory_comparison_full_policy_component_validation import (
+        VerifiedFullPolicyComponentValidation,
+        consume_full_policy_component_validation,
+    )
+    from infinity_context_server.memory_comparison_managed_http_policy_validation import (
+        VerifiedManagedHttpPolicyValidation,
+        consume_managed_http_policy_validation,
+    )
+
+    if type(validation) is VerifiedFullPolicyComponentValidation:
+        return consume_full_policy_component_validation(
+            validation,
+            binding_commitment_sha256=binding_commitment_sha256,
+            managed_attestation_commitment_sha256=(
+                managed_attestation_commitment_sha256
+            ),
+        )
+    if type(validation) is VerifiedManagedHttpPolicyValidation:
+        return consume_managed_http_policy_validation(
+            validation,
+            binding_commitment_sha256=binding_commitment_sha256,
+            managed_attestation_commitment_sha256=(
+                managed_attestation_commitment_sha256
+            ),
+        )
+    from infinity_context_server.memory_comparison_full_run_components import _evidence_error
+
+    raise _evidence_error("policy aggregate validation type must be exact")
 
 
 __all__ = (
