@@ -9,7 +9,6 @@ from __future__ import annotations
 import inspect
 from collections.abc import Callable, Iterable
 from dataclasses import dataclass
-from uuid import NAMESPACE_URL, uuid5
 
 from infinity_context_core.ports.adapters import (
     AdapterCapabilities,
@@ -19,6 +18,16 @@ from infinity_context_core.ports.adapters import (
     VectorSearchResult,
     VectorUpsertItem,
     VectorWriteResult,
+)
+from infinity_context_core.ports.vector_projection_evidence import (
+    VectorProjectionDeleteEvidence,
+    VectorProjectionPresenceEvidence,
+    VectorProjectionScope,
+)
+
+from infinity_context_adapters.qdrant.identity_evidence import (
+    QdrantIdentityEvidence,
+    qdrant_point_id_for_chunk,
 )
 
 
@@ -73,6 +82,12 @@ class QdrantVectorMemoryAdapter:
         self._sparse_vector_name = sparse_vector_name
         self._sparse_encoder_factory = sparse_encoder_factory
         self._sparse_encoder: object | None = None
+        self._identity_evidence = QdrantIdentityEvidence(
+            client_factory=lambda: self._client(),
+            url=url,
+            collection_name=collection_name,
+            projection_version=projection_version,
+        )
 
     async def capabilities(self) -> AdapterCapabilities:
         client = None
@@ -182,7 +197,7 @@ class QdrantVectorMemoryAdapter:
             await self._ensure_collection(client, models)
             points = [
                 models.PointStruct(
-                    id=str(uuid5(NAMESPACE_URL, item.chunk_id)),
+                    id=qdrant_point_id_for_chunk(item.chunk_id),
                     vector=self._point_vector(models, item),
                     payload={
                         "chunk_id": item.chunk_id,
@@ -218,7 +233,7 @@ class QdrantVectorMemoryAdapter:
             client, models = await self._client()
             if not await client.collection_exists(self._collection_name):
                 return VectorWriteResult.ok(0)
-            point_ids = [str(uuid5(NAMESPACE_URL, chunk_id)) for chunk_id in chunk_ids]
+            point_ids = [qdrant_point_id_for_chunk(chunk_id) for chunk_id in chunk_ids]
             await client.delete(
                 collection_name=self._collection_name,
                 points_selector=models.PointIdsList(points=point_ids),
@@ -229,6 +244,34 @@ class QdrantVectorMemoryAdapter:
             return VectorWriteResult.degraded("qdrant.delete_failed", retryable=True)
         finally:
             await _close_client(client)
+
+    @property
+    def target_commitment_sha256(self) -> str:
+        return self._identity_evidence.target_commitment_sha256
+
+    async def observe_exact(
+        self,
+        *,
+        scope: VectorProjectionScope,
+        chunk_ids: tuple[str, ...],
+    ) -> VectorProjectionPresenceEvidence:
+        return await self._identity_evidence.observe_exact(
+            scope=scope,
+            chunk_ids=chunk_ids,
+        )
+
+    async def delete_and_observe_exact(
+        self,
+        *,
+        scope: VectorProjectionScope,
+        chunk_ids: tuple[str, ...],
+        pass_index: int,
+    ) -> VectorProjectionDeleteEvidence:
+        return await self._identity_evidence.delete_and_observe_exact(
+            scope=scope,
+            chunk_ids=chunk_ids,
+            pass_index=pass_index,
+        )
 
     async def search_chunks(
         self,
