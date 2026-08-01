@@ -16,6 +16,18 @@ from mem0_platform_adapter.models import EventSnapshot
 from mem0_platform_adapter.port import UnconfiguredPlatformPort
 from mem0_platform_adapter.service import PollingPolicy
 
+_INGRESS_API_KEY = "adapter-ingress-test-key"
+_INGRESS_HEADERS = {"X-API-Key": _INGRESS_API_KEY}
+
+
+@pytest.fixture(autouse=True)
+def _configured_ingress_api_key(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("MEM0_ADAPTER_INGRESS_API_KEY", _INGRESS_API_KEY)
+
+
+def _authorized_client(app: Any) -> TestClient:
+    return TestClient(app, headers=_INGRESS_HEADERS)
+
 
 @dataclass
 class FakePlatform:
@@ -122,7 +134,7 @@ def test_startup_attestation_passes_and_health_requires_all_provenance(
         token_factory=lambda: "fixed",
     )
 
-    with TestClient(app) as client:
+    with _authorized_client(app) as client:
         health = client.get("/health").json()
         manifest = client.get("/benchmark/capabilities").json()
 
@@ -132,6 +144,7 @@ def test_startup_attestation_passes_and_health_requires_all_provenance(
         "configured": True,
         "ready": True,
         "attestation_status": "passed",
+        "ingress_auth_configured": True,
     }
     attestation = manifest["timestamp"]["attestation"]
     assert manifest["timestamp"]["readback_supported"] is True
@@ -161,7 +174,7 @@ def test_startup_attestation_readback_failure_is_sanitized_and_cleaned() -> None
         token_factory=lambda: "fixed",
     )
 
-    with TestClient(app) as client:
+    with _authorized_client(app) as client:
         health = client.get("/health").json()
         manifest = client.get("/benchmark/capabilities").json()
 
@@ -188,7 +201,7 @@ def test_startup_attestation_cleanup_failure_blocks_readiness() -> None:
         token_factory=lambda: "fixed",
     )
 
-    with TestClient(app) as client:
+    with _authorized_client(app) as client:
         health = client.get("/health").json()
         attestation = client.get("/benchmark/capabilities").json()["timestamp"]["attestation"]
 
@@ -202,7 +215,7 @@ def test_startup_attestation_cleanup_failure_blocks_readiness() -> None:
 def test_unconfigured_startup_does_not_call_platform() -> None:
     platform = FakePlatform(is_configured=False)
 
-    with TestClient(create_app(platform, token_factory=lambda: "fixed")) as client:
+    with _authorized_client(create_app(platform, token_factory=lambda: "fixed")) as client:
         health = client.get("/health").json()
 
     assert health["status"] == "unconfigured"
@@ -219,7 +232,7 @@ def test_benchmark_attestation_refresh_is_protected_and_returns_bound_snapshot(
     nonce = "c" * 64
     target_sha = "d" * 64
 
-    with TestClient(
+    with _authorized_client(
         create_app(
             platform,
             sleeper=lambda _: None,
@@ -278,7 +291,7 @@ def test_auth_challenge_is_token_bound_and_side_effect_free(
     nonce = "ab" * 32
     monkeypatch.setenv("MEM0_BENCHMARK_PROBE_TOKEN", token)
     platform = FakePlatform()
-    client = TestClient(create_app(platform))
+    client = _authorized_client(create_app(platform))
 
     denied = client.post(
         "/benchmark/auth-challenge",
@@ -319,7 +332,7 @@ def test_auth_challenge_fails_closed_without_server_token(
 ) -> None:
     monkeypatch.delenv("MEM0_BENCHMARK_PROBE_TOKEN", raising=False)
     platform = FakePlatform()
-    client = TestClient(create_app(platform))
+    client = _authorized_client(create_app(platform))
 
     response = client.post(
         "/benchmark/auth-challenge",
@@ -356,7 +369,7 @@ def test_add_forwards_timestamp_polls_and_attests_readback() -> None:
         },
     )
     sleeps: list[float] = []
-    client = TestClient(
+    client = _authorized_client(
         create_app(
             platform,
             policy=PollingPolicy(max_attempts=4, interval_seconds=0.25),
@@ -420,7 +433,7 @@ def test_add_source_readback_paginates_beyond_first_200_results() -> None:
             },
         }
     )
-    client = TestClient(create_app(platform, sleeper=lambda _: None))
+    client = _authorized_client(create_app(platform, sleeper=lambda _: None))
 
     response = client.post("/memories", json=_add_payload())
 
@@ -450,7 +463,7 @@ def test_add_readback_rejects_invalid_continuation(continuation: str) -> None:
             }
         }
     )
-    client = TestClient(create_app(platform, sleeper=lambda _: None))
+    client = _authorized_client(create_app(platform, sleeper=lambda _: None))
 
     response = client.post("/memories", json=_add_payload())
 
@@ -463,7 +476,7 @@ def test_add_polling_is_bounded() -> None:
     platform = FakePlatform(
         events=[EventSnapshot(status="PENDING"), EventSnapshot(status="RUNNING")]
     )
-    client = TestClient(
+    client = _authorized_client(
         create_app(
             platform,
             policy=PollingPolicy(max_attempts=2, interval_seconds=0),
@@ -489,7 +502,7 @@ def test_add_rejects_timestamp_readback_mismatch() -> None:
             ]
         }
     )
-    client = TestClient(create_app(platform, sleeper=lambda _: None))
+    client = _authorized_client(create_app(platform, sleeper=lambda _: None))
 
     response = client.post("/memories", json=_add_payload())
 
@@ -499,7 +512,7 @@ def test_add_rejects_timestamp_readback_mismatch() -> None:
 
 def test_add_requires_safe_source_id_and_forbids_unknown_fields() -> None:
     platform = FakePlatform()
-    client = TestClient(create_app(platform))
+    client = _authorized_client(create_app(platform))
 
     unsafe = client.post(
         "/memories",
@@ -517,7 +530,7 @@ def test_search_maps_limit_to_top_k_without_mutating_filters() -> None:
     platform = FakePlatform(
         search_response={"results": [{"id": "mem-1", "memory": "evidence", "score": 0.8}]}
     )
-    client = TestClient(create_app(platform))
+    client = _authorized_client(create_app(platform))
 
     response = client.post(
         "/search",
@@ -531,7 +544,7 @@ def test_search_maps_limit_to_top_k_without_mutating_filters() -> None:
 
 def test_search_rejects_entity_name_only_in_a_value() -> None:
     platform = FakePlatform()
-    client = TestClient(create_app(platform))
+    client = _authorized_client(create_app(platform))
 
     response = client.post(
         "/search",
@@ -563,7 +576,7 @@ def test_search_rejects_entity_name_only_in_a_value() -> None:
 )
 def test_search_rejects_or_not_scope_bypasses(filters: dict[str, Any]) -> None:
     platform = FakePlatform()
-    client = TestClient(create_app(platform))
+    client = _authorized_client(create_app(platform))
 
     response = client.post(
         "/search",
@@ -582,7 +595,7 @@ def test_search_rejects_every_invalid_identity_filter_value(
     invalid_value: object,
 ) -> None:
     platform = FakePlatform()
-    client = TestClient(create_app(platform))
+    client = _authorized_client(create_app(platform))
 
     response = client.post(
         "/search",
@@ -604,7 +617,7 @@ def test_search_rejects_every_invalid_identity_filter_value(
 
 def test_delete_is_exactly_scoped_and_health_is_strict() -> None:
     platform = FakePlatform()
-    client = TestClient(create_app(platform))
+    client = _authorized_client(create_app(platform))
 
     health = client.get("/health")
     deleted = client.delete("/memories", params={"user_id": "benchmark-user", "run_id": "run-1"})
@@ -616,6 +629,7 @@ def test_delete_is_exactly_scoped_and_health_is_strict() -> None:
         "configured": True,
         "ready": False,
         "attestation_status": "not_run",
+        "ingress_auth_configured": True,
     }
     assert deleted.json() == {"deleted": True, "verified_absent": True}
     assert missing_scope.status_code == 422
@@ -633,7 +647,7 @@ def test_delete_is_exactly_scoped_and_health_is_strict() -> None:
 
 
 def test_unconfigured_runtime_never_calls_a_platform() -> None:
-    client = TestClient(create_app(UnconfiguredPlatformPort()))
+    client = _authorized_client(create_app(UnconfiguredPlatformPort()))
 
     assert client.get("/health").json() == {
         "status": "unconfigured",
@@ -641,6 +655,7 @@ def test_unconfigured_runtime_never_calls_a_platform() -> None:
         "configured": False,
         "ready": False,
         "attestation_status": "not_run",
+        "ingress_auth_configured": True,
     }
     manifest = client.get("/benchmark/capabilities").json()
     assert manifest["configured"] is False

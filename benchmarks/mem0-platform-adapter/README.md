@@ -35,5 +35,31 @@ import failures fatal with `MEM0_ADAPTER_REQUIRE_ROOT_CONTRACTS=1`.
 Every file, including the generated lock, stays below the repository's 1000-line cap. Run the
 lock consistency gate with `./.venv/bin/pytest tests/test_runtime_lock.py`.
 
-Set `MEM0_API_KEY` only in the runtime environment. Capability responses never include the key,
-the local wheel URL, or filesystem paths.
+Set `MEM0_API_KEY`, `MEM0_ADAPTER_INGRESS_API_KEY`, and
+`MEM0_BENCHMARK_PROBE_TOKEN` only through the runtime's secret manager. Never reuse one value for
+another purpose.
+
+The HTTP authentication policy is intentionally split:
+
+- `POST /memories`, `POST /search`, and `DELETE /memories` are the benchmark data plane. They
+  require the exact `X-API-Key` value configured as `MEM0_ADAPTER_INGRESS_API_KEY`.
+- A missing, blank, or whitespace-padded server ingress key fails closed with sanitized HTTP 503. A missing, wrong, or
+  non-exact client key returns sanitized HTTP 401.
+- `GET /health` and `GET /benchmark/capabilities` are public, read-only discovery endpoints. They
+  expose neither ingress nor upstream credentials.
+  Health reports `ingress_auth_configured=false` and never reports `ready=true` while the
+  data-plane credential is absent.
+- `POST /benchmark/auth-challenge` and `POST /benchmark/attest-timestamp` are control-plane probes.
+  They continue to require only the separate `X-Benchmark-Probe-Token` value configured as
+  `MEM0_BENCHMARK_PROBE_TOKEN`.
+- Readback used to prove timestamp persistence and delete absence is internal to authenticated
+  data-plane operations or the separately authenticated attestation refresh. No public readback
+  route exists.
+
+For example, a benchmark client sends:
+
+```text
+X-API-Key: <value supplied by the benchmark secret manager>
+```
+
+Capability responses never include keys, the local wheel URL, or filesystem paths.

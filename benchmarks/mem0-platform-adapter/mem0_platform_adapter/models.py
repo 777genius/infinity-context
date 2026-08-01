@@ -71,6 +71,7 @@ class HealthResponse(StrictModel):
     configured: bool
     ready: bool
     attestation_status: Literal["not_run", "passed", "failed"]
+    ingress_auth_configured: bool
 
 
 class BenchmarkAttestationRefreshRequest(StrictModel):
