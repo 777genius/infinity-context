@@ -278,6 +278,7 @@ def _reported_usage(completion: ProviderChatCompletion) -> int | None:
     if usage_source not in {
         "provider_observed",
         "estimated_by_subscription_adapter",
+        "estimated_by_subscription_runtime",
     }:
         raise BoundedProviderError(_USAGE_INVALID)
     if prompt_tokens <= 0 or completion_tokens <= 0:

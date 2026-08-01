@@ -2,14 +2,15 @@ from __future__ import annotations
 
 import copy
 import hashlib
-import hmac
-import json
+import inspect
 import pickle
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import replace
 from datetime import UTC, datetime, timedelta
+from pathlib import Path
 
 import httpx
+import infinity_context_server.memory_comparison_managed_mem0_runtime_http as mem0_runtime_http
 import pytest
 from infinity_context_server import memory_comparison_managed_live_admission as live
 from infinity_context_server.memory_comparison_full_methodology import (
@@ -22,6 +23,14 @@ from infinity_context_server.memory_comparison_full_profiles import (
 from infinity_context_server.memory_comparison_full_run_evidence import (
     FullComparisonBackendTarget,
 )
+from infinity_context_server.memory_comparison_managed_mem0_runtime_authority import (
+    ManagedMem0RuntimeAuthorityDescriptor,
+    _register_pending_managed_mem0_runtime_authority,
+)
+from infinity_context_server.memory_comparison_managed_mem0_runtime_http import (
+    ManagedMem0RuntimeAttestationPort,
+    ManagedMem0RuntimeHttpError,
+)
 from infinity_context_server.memory_comparison_managed_preflight import (
     ManagedBackendEndpoint,
     ManagedCredentialBinding,
@@ -30,27 +39,23 @@ from infinity_context_server.memory_comparison_managed_preflight import (
     ManagedPreflightTimeouts,
     managed_backend_target_identity_sha256,
 )
-from infinity_context_server.memory_comparison_mem0_contract import (
-    MEM0_BENCHMARK_CAPABILITIES_SCHEMA_VERSION_V2,
-)
-from infinity_context_server.memory_comparison_mem0_runtime_attestation import (
-    VerifiedMem0RuntimeAttestationValidation,
-    build_verified_mem0_runtime_attestation,
-    validate_mem0_runtime_attestation_for_backends,
-)
 from infinity_context_server.memory_comparison_provider_provenance import (
     ProviderRouteAttestation,
 )
 from infinity_context_server.memory_comparison_subscription_chat import (
+    SUBSCRIPTION_RUNTIME_ESTIMATED_USAGE_SOURCE,
     SubscriptionRuntimeChatCompletions,
 )
 from infinity_context_server.memory_comparison_subscription_live_probe import (
     SUBSCRIPTION_LIVE_PROBE_EXPECTED_RESPONSE,
     run_subscription_runtime_live_probe,
 )
+from test_memory_comparison_service_probes import _Transport
 
 _RUN_ID = "managed-live-admission-run"
 _PROBE_NONCE = "probe-" + ("p" * 40)
+_MEM0_PROBE_TOKEN = "managed-live-runtime-probe-token"
+_MEM0_PROBE_BINDING = "sha256:" + hashlib.sha256(_MEM0_PROBE_TOKEN.encode()).hexdigest()
 _INFINITY_URL = "https://infinity.example.test/api"
 _MEM0_URL = "https://mem0.example.test"
 _ORIGIN = "https://api.openai.com"
@@ -62,13 +67,9 @@ _SUBSCRIPTION_BINDING = "sha256:" + hashlib.sha256(_SUBSCRIPTION_BEARER.encode()
 _SUBSCRIPTION_ROUTE_SHA256 = hashlib.sha256(
     f"{_SUBSCRIPTION_ORIGIN}{live.SUBSCRIPTION_BRIDGE_ENDPOINT_PATH}".encode()
 ).hexdigest()
-
-
-class _RuntimeBackend:
-    def __init__(self, name: str, target: str | None = None) -> None:
-        self.name = name
-        if target is not None:
-            self.runtime_target_identity_sha256 = target
+_MEM0_RUNTIME_IMPLEMENTATION_SHA256 = hashlib.sha256(
+    Path(mem0_runtime_http.__file__).read_bytes()
+).hexdigest()
 
 
 def _binding(name: str, marker: str) -> ManagedCredentialBinding:
@@ -84,6 +85,10 @@ def _subscription_probe(now: datetime) -> live.VerifiedSubscriptionRuntimeProbe:
         return httpx.Response(
             200,
             json={
+                "id": "chatcmpl-managed-live-probe-1",
+                "model": "gpt-5.6-sol",
+                "object": "chat.completion",
+                "system_fingerprint": "subscription-runtime-codex-bridge-v1",
                 "choices": [
                     {
                         "index": 0,
@@ -94,7 +99,12 @@ def _subscription_probe(now: datetime) -> live.VerifiedSubscriptionRuntimeProbe:
                         "finish_reason": "stop",
                     }
                 ],
-                "usage": {"prompt_tokens": 98, "completion_tokens": 2},
+                "usage": {
+                    "prompt_tokens": 98,
+                    "completion_tokens": 2,
+                    "total_tokens": 100,
+                    "usage_source": SUBSCRIPTION_RUNTIME_ESTIMATED_USAGE_SOURCE,
+                },
             },
         )
 
@@ -205,145 +215,33 @@ def _request(
     )
 
 
-def _runtime_manifest(
-    now: datetime,
+def _runtime_port(
     *,
-    run_id: str,
-    probe_nonce: str,
-    target: str,
-) -> dict[str, object]:
-    instant = now.isoformat(timespec="milliseconds").replace("+00:00", "Z")
-    return {
-        "schema_version": MEM0_BENCHMARK_CAPABILITIES_SCHEMA_VERSION_V2,
-        "runtime_mode": "managed_platform",
-        "wrapper_source_sha256": "a" * 64,
-        "wrapper_source_revision": "b" * 40,
-        "config_fingerprint_sha256": "c" * 64,
-        "sdk": {
-            "distribution": "mem0ai",
-            "version": "2.0.14",
-            "source_revision": "b357a5a1b03c299ec8229c268e63cfac0f7c6566",
-            "artifact_sha256": ("9c567df69af794278bc051400829d1a2d4f8aa659cae6cd019d88ec66dbf4f3f"),
-            "verification": {
-                "method": "direct_url_archive_info_sha256",
-                "observed_sha256": (
-                    "9c567df69af794278bc051400829d1a2d4f8aa659cae6cd019d88ec66dbf4f3f"
-                ),
-                "passed": True,
-            },
-        },
-        "platform": {
-            "api_origin": "https://api.mem0.ai",
-            "api_generation": "v3",
-            "add_path": "/v3/memories/add/",
-            "search_path": "/v3/memories/search/",
-            "event_path_template": "/v1/event/{event_id}/",
-            "server_source_revision": None,
-            "server_revision_attestable": False,
-        },
-        "timestamp": {
-            "request_supported": True,
-            "sdk_forwarding_supported": True,
-            "event_completion_supported": True,
-            "readback_supported": True,
-            "attestation": {
-                "status": "passed",
-                "checked_at": instant,
-                "probe_mode": "live_sentinel",
-                "input_epoch_seconds": 1_672_531_200,
-                "expected_created_at": "2023-01-01T00:00:00Z",
-                "event_terminal_status": "SUCCEEDED",
-                "readback_result_count": 1,
-                "persisted_created_at": "2023-01-01T00:00:00Z",
-                "delta_seconds": 0.0,
-                "cleanup_succeeded": True,
-                "failure_code": None,
-            },
-        },
-        "refresh_binding": {
-            "status": "passed",
-            "run_id_sha256": hashlib.sha256(run_id.encode()).hexdigest(),
-            "probe_nonce_sha256": hashlib.sha256(probe_nonce.encode()).hexdigest(),
-            "target_identity_sha256": target,
-            "refreshed_at": instant,
-        },
-    }
-
-
-def _runtime_validation(
-    request: ManagedPreflightRequest,
-    now: datetime,
-    *,
-    run_id: str = _RUN_ID,
+    base_url: str = _MEM0_URL,
+    probe_token: str = _MEM0_PROBE_TOKEN,
     probe_nonce: str = _PROBE_NONCE,
-) -> VerifiedMem0RuntimeAttestationValidation:
-    target = next(
-        item.target.target_identity_sha256
-        for item in request.backend_endpoints
-        if item.target.backend_role == "mem0"
-    )
-    manifest = _runtime_manifest(
-        now,
-        run_id=run_id,
+    timeout_seconds: float = 0.5,
+    deadline_budget_seconds: float = 60.0,
+) -> ManagedMem0RuntimeAttestationPort:
+    host = base_url.removeprefix("https://").split(":", 1)[0]
+    return ManagedMem0RuntimeAttestationPort(
+        base_url=base_url,
+        benchmark_probe_token=probe_token,
         probe_nonce=probe_nonce,
-        target=target,
+        timeout_seconds=timeout_seconds,
+        deadline_budget_seconds=deadline_budget_seconds,
+        monotonic_clock=lambda: 100.0,
+        expected_implementation_sha256=_MEM0_RUNTIME_IMPLEMENTATION_SHA256,
+        allowed_target_hosts=(host,),
+        vetted_transport=_Transport([], {}),
     )
-    fingerprint = hashlib.sha256(
-        json.dumps(
-            manifest,
-            ensure_ascii=False,
-            separators=(",", ":"),
-            sort_keys=True,
-        ).encode()
-    ).hexdigest()
-    binding = manifest["refresh_binding"]
-    assert isinstance(binding, dict)
-    message = "\n".join(
-        (
-            "mem0-benchmark-runtime-witness.v1",
-            str(binding["run_id_sha256"]),
-            str(binding["probe_nonce_sha256"]),
-            str(binding["target_identity_sha256"]),
-            str(binding["refreshed_at"]),
-            fingerprint,
-        )
-    ).encode()
-    token = "managed-live-runtime-probe-token"
-    manifest["refresh_witness"] = {
-        "algorithm": "hmac-sha256",
-        "manifest_fingerprint_sha256": fingerprint,
-        "signature": hmac.new(token.encode(), message, hashlib.sha256).hexdigest(),
-    }
-    verified = build_verified_mem0_runtime_attestation(
-        runtime_manifest=manifest,
-        benchmark_probe_token=token,
-        openapi_fingerprint_sha256="d" * 64,
-        openapi_contract_violations=(),
-        probe_passed=True,
-        run_id=run_id,
-        probe_nonce=probe_nonce,
-        target_identity_sha256=target,
-    )
-    assert verified is not None
-    result = validate_mem0_runtime_attestation_for_backends(
-        verified,
-        (
-            _RuntimeBackend("infinity-context"),
-            _RuntimeBackend("mem0", target),
-        ),
-        run_id,
-        probe_nonce,
-        validated_at=now,
-    )
-    assert type(result) is VerifiedMem0RuntimeAttestationValidation
-    return result
 
 
 def _issue(
     *,
     request: ManagedPreflightRequest | None = None,
     now: datetime | None = None,
-    validation: object | None = None,
+    runtime_port: object | None = None,
     route: object | None = None,
     case_ids: tuple[str, ...] | None = None,
     allow_live: object = True,
@@ -382,9 +280,18 @@ def _issue(
         ),
         run_id=_RUN_ID,
         run_nonce_commitment_sha256="e" * 64,
-        runtime_probe_nonce=_PROBE_NONCE,
         canary_case_ids=selected,
-        mem0_probe_credential=probe_credential or _binding("mem0-probe", "f"),
+        mem0_probe_credential=probe_credential
+        or ManagedCredentialBinding(
+            credential_name="mem0-probe",
+            configured=True,
+            binding_id=_MEM0_PROBE_BINDING,
+        ),
+        mem0_runtime_port=(
+            runtime_port
+            if runtime_port is not None
+            else _runtime_port(deadline_budget_seconds=deadline_delta.total_seconds())
+        ),
         provider_kind=current_request.provider_kind,
         live_provider_evidence=(
             route
@@ -395,16 +302,46 @@ def _issue(
                 else _live_route(current_request.openai_credential)
             )
         ),
-        runtime_validation=(
-            validation
-            if validation is not None
-            else _runtime_validation(current_request, current_now)
-        ),
         budget=current_budget,
         issued_at=current_now,
         deadline=current_now + deadline_delta,
         now=current_now,
     )
+
+
+class _RegisteredRuntimeTestDouble:
+    def __init__(self, descriptor: ManagedMem0RuntimeAuthorityDescriptor) -> None:
+        self.descriptor = descriptor
+
+    def authority_descriptor(self) -> ManagedMem0RuntimeAuthorityDescriptor:
+        return self.descriptor
+
+    def attest(
+        self,
+        *,
+        run_id: str,
+        probe_nonce_sha256: str,
+        target_identity_sha256: str,
+    ) -> object:
+        raise AssertionError("admission must not attest")
+
+
+def test_admission_accepts_registered_non_http_contract_implementation() -> None:
+    request = _request()
+    now = datetime.now(UTC)
+    descriptor = replace(_runtime_port().authority_descriptor())
+    port = _RegisteredRuntimeTestDouble(descriptor)
+    _register_pending_managed_mem0_runtime_authority(port, descriptor)
+
+    admission = _issue(request=request, now=now, runtime_port=port)
+    material = live._consume_verified_managed_live_admission(
+        admission,
+        expected_request=request,
+        now=now + timedelta(seconds=1),
+    )
+
+    assert material.mem0_runtime_port is port
+    assert material.mem0_runtime_descriptor is descriptor
 
 
 def test_subscription_admission_binds_exact_material_and_consumes_once() -> None:
@@ -422,8 +359,12 @@ def test_subscription_admission_binds_exact_material_and_consumes_once() -> None
     assert material.request is request
     assert material.run_id == _RUN_ID
     assert material.run_nonce_commitment_sha256 == "e" * 64
-    assert material.runtime_probe_nonce == _PROBE_NONCE
-    assert material.runtime_probe_nonce_sha256 == hashlib.sha256(_PROBE_NONCE.encode()).hexdigest()
+    assert (
+        material.mem0_runtime_descriptor.probe_nonce_sha256
+        == hashlib.sha256(_PROBE_NONCE.encode()).hexdigest()
+    )
+    assert type(material.mem0_runtime_descriptor) is ManagedMem0RuntimeAuthorityDescriptor
+    assert material.mem0_runtime_port.authority_descriptor() is (material.mem0_runtime_descriptor)
     assert material.canary_case_ids == ("case-z", "case-a")
     assert material.budget.max_cases == 2
     assert material.provider_usage_budget.readiness_probe_provider_calls == 1
@@ -432,12 +373,38 @@ def test_subscription_admission_binds_exact_material_and_consumes_once() -> None
         == material.budget.max_provider_calls + 1
     )
     assert _PROBE_NONCE not in repr(material)
+    assert _MEM0_PROBE_TOKEN not in repr(material)
     with pytest.raises(live.ManagedLiveAdmissionError, match="consumed"):
         live._consume_verified_managed_live_admission(
             admission,
             expected_request=request,
             now=now + timedelta(seconds=1),
         )
+
+
+def test_admission_api_has_no_plaintext_nonce_or_prior_runtime_validation() -> None:
+    parameters = inspect.signature(live.issue_verified_managed_live_admission).parameters
+
+    assert "runtime_probe_nonce" not in parameters
+    assert "runtime_validation" not in parameters
+    assert "mem0_runtime_port" in parameters
+
+
+def test_consumed_mem0_runtime_authority_is_rejected_without_probe_io() -> None:
+    request = _request()
+    now = datetime.now(UTC)
+    port = _runtime_port()
+    descriptor = port.authority_descriptor()
+
+    with pytest.raises(ManagedMem0RuntimeHttpError):
+        port.attest(
+            run_id=_RUN_ID,
+            probe_nonce_sha256="0" * 64,
+            target_identity_sha256=descriptor.target_identity_sha256,
+        )
+
+    with pytest.raises(live.ManagedLiveAdmissionError, match="unavailable"):
+        _issue(request=request, now=now, runtime_port=port)
 
 
 @pytest.mark.parametrize(
@@ -468,7 +435,6 @@ def test_official_live_route_is_rejected_without_opaque_call_evidence() -> None:
         provider_kind=live.MANAGED_PROVIDER_OPENAI_API_KEY,
     )
     now = datetime.now(UTC)
-    validation = _runtime_validation(request, now)
 
     for route in (
         _live_route(request.openai_credential, status=401),
@@ -482,19 +448,19 @@ def test_official_live_route_is_rejected_without_opaque_call_evidence() -> None:
         ),
     ):
         with pytest.raises(live.ManagedLiveAdmissionError, match="provider"):
-            _issue(request=request, now=now, validation=validation, route=route)
+            _issue(request=request, now=now, route=route)
 
 
-def test_subscription_probe_and_runtime_evidence_each_mint_only_one_admission() -> None:
+def test_subscription_probe_and_runtime_authority_each_mint_only_one_admission() -> None:
     request = _request()
     now = datetime.now(UTC)
     provider_evidence = _subscription_probe(now)
-    runtime_validation = _runtime_validation(request, now)
+    runtime_port = _runtime_port()
     _issue(
         request=request,
         now=now,
         route=provider_evidence,
-        validation=runtime_validation,
+        runtime_port=runtime_port,
     )
 
     with pytest.raises(live.ManagedLiveAdmissionError, match="already reserved"):
@@ -502,16 +468,16 @@ def test_subscription_probe_and_runtime_evidence_each_mint_only_one_admission() 
             request=request,
             now=now,
             route=provider_evidence,
-            validation=_runtime_validation(request, now),
+            runtime_port=_runtime_port(),
         )
 
     unused_provider_evidence = _subscription_probe(now)
-    with pytest.raises(live.ManagedLiveAdmissionError, match="runtime validation"):
+    with pytest.raises(live.ManagedLiveAdmissionError, match="runtime authority"):
         _issue(
             request=request,
             now=now,
             route=unused_provider_evidence,
-            validation=runtime_validation,
+            runtime_port=runtime_port,
         )
 
     # A failed runtime reservation cannot partially burn fresh provider evidence.
@@ -519,7 +485,7 @@ def test_subscription_probe_and_runtime_evidence_each_mint_only_one_admission() 
         request=request,
         now=now,
         route=unused_provider_evidence,
-        validation=_runtime_validation(request, now),
+        runtime_port=_runtime_port(),
     )
     assert type(admission) is live.VerifiedManagedLiveAdmission
 
@@ -528,7 +494,7 @@ def test_live_evidence_reservation_is_atomic_under_concurrency() -> None:
     request = _request()
     now = datetime.now(UTC)
     provider_evidence = _subscription_probe(now)
-    runtime_validation = _runtime_validation(request, now)
+    runtime_port = _runtime_port()
 
     def attempt() -> object:
         try:
@@ -536,7 +502,7 @@ def test_live_evidence_reservation_is_atomic_under_concurrency() -> None:
                 request=request,
                 now=now,
                 route=provider_evidence,
-                validation=runtime_validation,
+                runtime_port=runtime_port,
             )
         except live.ManagedLiveAdmissionError as exc:
             return exc
@@ -550,36 +516,89 @@ def test_live_evidence_reservation_is_atomic_under_concurrency() -> None:
     assert "already reserved" in str(failures[0])
 
 
+def test_admission_consume_is_atomic_under_concurrency() -> None:
+    request = _request()
+    now = datetime.now(UTC)
+    admission = _issue(request=request, now=now)
+
+    def attempt() -> object:
+        try:
+            return live._consume_verified_managed_live_admission(
+                admission,
+                expected_request=request,
+                now=now + timedelta(seconds=1),
+            )
+        except live.ManagedLiveAdmissionError as exc:
+            return exc
+
+    with ThreadPoolExecutor(max_workers=2) as executor:
+        outcomes = tuple(executor.map(lambda _: attempt(), range(2)))
+
+    failures = tuple(item for item in outcomes if type(item) is live.ManagedLiveAdmissionError)
+    successes = tuple(item for item in outcomes if type(item) is not live.ManagedLiveAdmissionError)
+    assert len(successes) == 1
+    assert successes[0].mem0_runtime_port.authority_descriptor() is (
+        successes[0].mem0_runtime_descriptor
+    )
+    assert len(failures) == 1
+    assert "unavailable or consumed" in str(failures[0])
+
+
 def test_provider_kind_rejects_unhashable_values_fail_closed() -> None:
     with pytest.raises(live.ManagedLiveAdmissionError, match="provider kind"):
         live._provider_kind([], scope="canary")
 
 
-def test_runtime_validation_type_run_nonce_target_and_freshness_are_exact() -> None:
+def test_runtime_authority_type_target_nonce_implementation_and_budget_are_exact() -> None:
     request = _request()
     now = datetime.now(UTC)
-    with pytest.raises(live.ManagedLiveAdmissionError, match="type"):
-        _issue(request=request, now=now, validation={})
+    with pytest.raises(live.ManagedLiveAdmissionError, match="not registered"):
+        _issue(request=request, now=now, runtime_port={})
 
-    wrong_run = _runtime_validation(request, now, run_id="different-run")
+    wrong_target = _runtime_port(base_url="https://other-mem0.example.test")
     with pytest.raises(live.ManagedLiveAdmissionError, match="binding differs"):
-        _issue(request=request, now=now, validation=wrong_run)
+        _issue(request=request, now=now, runtime_port=wrong_target)
 
-    wrong_nonce = _runtime_validation(request, now, probe_nonce="x" * 40)
+    wrong_token = _runtime_port(probe_token="different-probe-token")
     with pytest.raises(live.ManagedLiveAdmissionError, match="binding differs"):
-        _issue(request=request, now=now, validation=wrong_nonce)
+        _issue(request=request, now=now, runtime_port=wrong_token)
 
-    admission = _issue(
+    for field, value in (
+        ("implementation_sha256", "0" * 64),
+        ("probe_nonce_sha256", "not-a-digest"),
+        ("max_attempts", 2),
+    ):
+        port = _runtime_port()
+        object.__setattr__(port.authority_descriptor(), field, value)
+        with pytest.raises(live.ManagedLiveAdmissionError, match="descriptor changed"):
+            _issue(request=request, now=now, runtime_port=port)
+
+    with pytest.raises(live.ManagedLiveAdmissionError, match="deadline"):
+        _issue(
+            request=request,
+            now=now,
+            runtime_port=_runtime_port(
+                timeout_seconds=0.5,
+                deadline_budget_seconds=1.0,
+            ),
+            deadline_delta=timedelta(milliseconds=100),
+        )
+
+    near_deadline = _issue(
         request=request,
         now=now,
-        deadline_delta=timedelta(seconds=180),
+        runtime_port=_runtime_port(
+            timeout_seconds=0.5,
+            deadline_budget_seconds=2.0,
+        ),
+        deadline_delta=timedelta(seconds=2),
     )
-    with pytest.raises(live.ManagedLiveAdmissionError, match="stale"):
-        live._consume_verified_managed_live_admission(
-            admission,
-            expected_request=request,
-            now=now + timedelta(seconds=121),
-        )
+    material = live._consume_verified_managed_live_admission(
+        near_deadline,
+        expected_request=request,
+        now=now + timedelta(milliseconds=1_600),
+    )
+    assert material.mem0_runtime_descriptor.deadline_budget_seconds == 2.0
 
 
 def test_canary_cap_duplicates_and_order_are_fail_closed() -> None:
@@ -647,6 +666,8 @@ def test_probe_credential_is_separate_and_all_commitments_are_bound() -> None:
         )
     with pytest.raises(live.ManagedLiveAdmissionError, match="probe credential"):
         _issue(request=request, probe_credential=_binding("mem0", "f"))
+    with pytest.raises(live.ManagedLiveAdmissionError, match="binding differs"):
+        _issue(request=request, probe_credential=_binding("mem0-probe", "f"))
 
 
 def test_expiry_request_identity_replay_and_tamper_fail() -> None:
@@ -715,23 +736,15 @@ def test_subscription_canary_probe_is_accounted_and_authorizes_benchmark_budget(
     now = datetime.now(UTC)
     probe = _subscription_probe(now)
     case_ids = ("future-case-2", "future-case-1")
-    admission = live.issue_verified_managed_live_admission(
+    runtime_port = _runtime_port()
+    admission = _issue(
         request=request,
-        allow_live=True,
-        allow_paid_llm=True,
-        allow_full_run=False,
-        run_id=_RUN_ID,
-        run_nonce_commitment_sha256="e" * 64,
-        runtime_probe_nonce=_PROBE_NONCE,
-        canary_case_ids=case_ids,
-        mem0_probe_credential=_binding("mem0-probe", "f"),
-        provider_kind=live.MANAGED_PROVIDER_SUBSCRIPTION_RUNTIME,
-        live_provider_evidence=probe,
-        runtime_validation=_runtime_validation(request, now),
-        budget=live.ManagedLiveBudget(2, 8, 2_000_000),
-        issued_at=now,
-        deadline=now + timedelta(hours=2),
         now=now,
+        route=probe,
+        runtime_port=runtime_port,
+        case_ids=case_ids,
+        budget=live.ManagedLiveBudget(2, 8, 2_000_000),
+        deadline_delta=timedelta(hours=2),
     )
     material = live._consume_verified_managed_live_admission(
         admission,
@@ -741,50 +754,50 @@ def test_subscription_canary_probe_is_accounted_and_authorizes_benchmark_budget(
     assert material.canary_case_ids == case_ids
     assert material.budget.max_provider_calls == 8
     assert material.provider_usage_budget.public_payload() == {
+        "provider_kind": live.MANAGED_PROVIDER_SUBSCRIPTION_RUNTIME,
         "benchmark_max_provider_calls": 8,
         "readiness_probe_provider_calls": 1,
         "total_provider_attempt_ceiling": 9,
-        "benchmark_max_total_tokens": 2_000_000,
-        "readiness_probe_observed_tokens": 100,
-        "total_token_ceiling": 2_000_100,
+        "benchmark_reserved_token_ceiling": 2_000_000,
+        "readiness_probe_estimated_tokens": 100,
+        "readiness_probe_usage_source": SUBSCRIPTION_RUNTIME_ESTIMATED_USAGE_SOURCE,
+        "total_accounted_tokens": 2_000_100,
+        "token_accounting_publishable": False,
     }
 
+    for invalid_changes in (
+        {"readiness_probe_usage_source": "provider_observed"},
+        {"token_accounting_publishable": True},
+        {"total_accounted_tokens": 2_000_000},
+    ):
+        with pytest.raises(
+            live.ManagedLiveAdmissionError,
+            match="provider usage budget is invalid",
+        ):
+            replace(material.provider_usage_budget, **invalid_changes)
+
     with pytest.raises(live.ManagedLiveAdmissionError, match="already reserved"):
-        live.issue_verified_managed_live_admission(
+        _issue(
             request=request,
-            allow_live=True,
-            allow_paid_llm=True,
-            allow_full_run=False,
-            run_id=_RUN_ID,
-            run_nonce_commitment_sha256="e" * 64,
-            runtime_probe_nonce=_PROBE_NONCE,
-            canary_case_ids=case_ids,
-            mem0_probe_credential=_binding("mem0-probe", "f"),
-            provider_kind=live.MANAGED_PROVIDER_SUBSCRIPTION_RUNTIME,
-            live_provider_evidence=probe,
-            runtime_validation=_runtime_validation(request, now),
-            budget=live.ManagedLiveBudget(2, 8, 2_000_000),
-            issued_at=now,
-            deadline=now + timedelta(hours=2),
             now=now,
+            route=probe,
+            runtime_port=_runtime_port(),
+            case_ids=case_ids,
+            budget=live.ManagedLiveBudget(2, 8, 2_000_000),
+            deadline_delta=timedelta(hours=2),
         )
 
-    with pytest.raises(live.ManagedLiveAdmissionError, match="budget"):
-        live.issue_verified_managed_live_admission(
-            request=request,
-            allow_live=True,
-            allow_paid_llm=True,
-            allow_full_run=False,
-            run_id=_RUN_ID,
-            run_nonce_commitment_sha256="e" * 64,
-            runtime_probe_nonce=_PROBE_NONCE,
-            canary_case_ids=case_ids,
-            mem0_probe_credential=_binding("mem0-probe", "f"),
-            provider_kind=live.MANAGED_PROVIDER_SUBSCRIPTION_RUNTIME,
-            live_provider_evidence=_subscription_probe(now),
-            runtime_validation=_runtime_validation(request, now),
-            budget=live.ManagedLiveBudget(2, 8, 2_000_001),
-            issued_at=now,
-            deadline=now + timedelta(hours=2),
-            now=now,
-        )
+    for invalid_budget in (
+        live.ManagedLiveBudget(2, 7, 2_000_000),
+        live.ManagedLiveBudget(2, 8, 2_000_001),
+    ):
+        with pytest.raises(live.ManagedLiveAdmissionError, match="budget"):
+            _issue(
+                request=request,
+                now=now,
+                route=_subscription_probe(now),
+                runtime_port=_runtime_port(),
+                case_ids=case_ids,
+                budget=invalid_budget,
+                deadline_delta=timedelta(hours=2),
+            )

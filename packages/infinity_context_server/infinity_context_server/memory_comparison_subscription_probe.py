@@ -34,6 +34,9 @@ SUBSCRIPTION_RUNTIME_ROUTE_SHA256 = hashlib.sha256(
 SUBSCRIPTION_BRIDGE_ENDPOINT_PATH = "/v1/chat/completions"
 SUBSCRIPTION_BRIDGE_TRANSPORT = "subscription-runtime-openai-codex-bridge.v1"
 SUBSCRIPTION_RUNTIME_PROBE_MAX_AGE_SECONDS = 120
+SUBSCRIPTION_RUNTIME_USAGE_ESTIMATE_SOURCES = frozenset(
+    {"estimated_by_subscription_adapter", "estimated_by_subscription_runtime"}
+)
 
 _TOKEN = object()
 _LOCK = threading.RLock()
@@ -91,6 +94,7 @@ class SubscriptionRuntimeProbeObservation:
     route: ProviderRouteAttestation
     model: str
     total_tokens: int
+    usage_source: str
     request_evidence_sha256: str
     response_evidence_sha256: str
     checked_at: datetime
@@ -101,6 +105,7 @@ class SubscriptionRuntimeProbeObservation:
             "model": self.model,
             "provider_call_count": 1,
             "total_tokens": self.total_tokens,
+            "usage_source": self.usage_source,
             "request_evidence_sha256": self.request_evidence_sha256,
             "response_evidence_sha256": self.response_evidence_sha256,
             "checked_at": _instant_text(self.checked_at),
@@ -133,6 +138,7 @@ def _build_subscription_runtime_probe_issuer() -> Callable[..., VerifiedSubscrip
         model: str,
         provider_call_count: int,
         total_tokens: int,
+        usage_source: str,
         request_evidence_sha256: str,
         response_evidence_sha256: str,
         checked_at: datetime,
@@ -146,10 +152,16 @@ def _build_subscription_runtime_probe_issuer() -> Callable[..., VerifiedSubscrip
             or not 1 <= total_tokens <= 100_000
         ):
             _fail("subscription runtime probe usage evidence is invalid")
+        if (
+            type(usage_source) is not str
+            or usage_source not in SUBSCRIPTION_RUNTIME_USAGE_ESTIMATE_SOURCES
+        ):
+            _fail("subscription runtime probe usage source is invalid")
         observation = SubscriptionRuntimeProbeObservation(
             route=trusted_route,
             model=trusted_model,
             total_tokens=total_tokens,
+            usage_source=usage_source,
             request_evidence_sha256=_digest(
                 request_evidence_sha256,
                 "subscription request evidence",
@@ -347,6 +359,7 @@ __all__ = (
     "SUBSCRIPTION_RUNTIME_ROUTE_SHA256",
     "SUBSCRIPTION_RUNTIME_TRANSPORT",
     "SUBSCRIPTION_RUNTIME_TRUST",
+    "SUBSCRIPTION_RUNTIME_USAGE_ESTIMATE_SOURCES",
     "SubscriptionRuntimeProbeError",
     "SubscriptionRuntimeProbeObservation",
     "VerifiedSubscriptionRuntimeProbe",
