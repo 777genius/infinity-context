@@ -65,6 +65,30 @@ audited pins before building:
 +qdrant-client==1.18.0
 ```
 
+The frozen wrapper also passes identity fields as top-level arguments to
+`Memory.search()`. `mem0ai==2.0.14` rejects that legacy call shape, so apply
+this disposable compatibility overlay before building:
+
+```diff
+ def search_memories(req: SearchRequest):
+     mem = _get_memory()
+     params: dict[str, Any] = {"limit": req.limit}
++    filters = dict(req.filters or {})
+     if req.user_id:
+-        params["user_id"] = req.user_id
++        filters["user_id"] = req.user_id
+     if req.agent_id:
+-        params["agent_id"] = req.agent_id
++        filters["agent_id"] = req.agent_id
+     if req.run_id:
+-        params["run_id"] = req.run_id
+-    if req.filters:
+-        params["filters"] = req.filters
++        filters["run_id"] = req.run_id
++    if filters:
++        params["filters"] = filters
+```
+
 Do not commit this overlay to either repository. Build the wrapper from the
 frozen external checkout:
 
@@ -129,6 +153,21 @@ On Docker Desktop, Ollama may run natively on the host instead of inside the
 `ollama pull nomic-embed-text` on the host, and omit the Ollama container,
 network alias and Ollama volume below. Qdrant and the Mem0 wrapper remain
 isolated in Docker.
+
+Do not treat `ollama list` alone as proof that the model is usable. A stale
+manifest can leave a tag visible while `/api/chat` rejects it. Verify both the
+model manifest and one local chat completion before starting Mem0 ingest:
+
+```sh
+ollama show llama3.1 >/dev/null
+curl --fail --silent http://127.0.0.1:11434/api/chat \
+  -H 'Content-Type: application/json' \
+  --data '{"model":"llama3.1","messages":[{"role":"user","content":"Reply OK"}],"stream":false}' \
+  >/dev/null
+```
+
+This probe performs local inference only. It does not use an API key or a
+provider token budget.
 
 Start the isolated services. Bind HTTP ports to loopback because the frozen
 wrapper deliberately has no ingress authentication:
