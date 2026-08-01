@@ -534,7 +534,7 @@ def _source_identity_fields(
                     )
                     if digest is not None:
                         source_hashes.append(digest)
-    for hash_key in ("source_sha256", "content_hash", "hash"):
+    for hash_key in ("source_sha256", "content_sha256", "content_hash", "hash"):
         raw_hash = item.get(hash_key, metadata.get(hash_key))
         if raw_hash is not None:
             digest = _sha256(raw_hash, f"{label}.{hash_key}", issues)

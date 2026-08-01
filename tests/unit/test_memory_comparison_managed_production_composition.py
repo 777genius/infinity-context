@@ -27,7 +27,6 @@ def _prepared() -> VerifiedManagedLiveRunPreparation:
             (
                 "managed_production_ingest_manifest_binding_unavailable",
                 "managed_http_policy_infinity_document_chunk_identity_unavailable",
-                "managed_http_policy_infinity_fact_source_hash_unavailable",
                 "managed_http_policy_mem0_exact_source_identity_unavailable",
                 "managed_http_policy_exact_derived_identity_manifest_unavailable",
                 "managed_http_policy_terminal_manifest_binding_unavailable",
@@ -112,7 +111,6 @@ def test_pre_readiness_gate_returns_same_static_no_go_with_zero_live_calls(
     assert decision.blockers == (
         "managed_production_ingest_manifest_binding_unavailable",
         "managed_http_policy_infinity_document_chunk_identity_unavailable",
-        "managed_http_policy_infinity_fact_source_hash_unavailable",
         "managed_http_policy_mem0_exact_source_identity_unavailable",
         "managed_http_policy_exact_derived_identity_manifest_unavailable",
         "managed_http_policy_terminal_manifest_binding_unavailable",

@@ -206,7 +206,6 @@ def test_current_legacy_ingest_receipt_is_rejected_before_evidence(
 def test_pure_blockers_are_available_before_credentials_or_io() -> None:
     assert managed_http_policy_production_blockers((_locomo_case(),)) == (
         "managed_http_policy_infinity_document_chunk_identity_unavailable",
-        "managed_http_policy_infinity_fact_source_hash_unavailable",
         "managed_http_policy_mem0_exact_source_identity_unavailable",
         "managed_http_policy_exact_derived_identity_manifest_unavailable",
         "managed_http_policy_terminal_manifest_binding_unavailable",

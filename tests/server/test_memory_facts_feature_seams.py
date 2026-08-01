@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import ast
 import asyncio
+import hashlib
 from datetime import UTC, datetime
 from pathlib import Path
 from types import SimpleNamespace
@@ -589,6 +590,9 @@ def test_memory_facts_public_seam_maps_suggestion_responses_and_batches() -> Non
     assert result_body["suggestion"]["id"] == "sug_1"
     assert result_body["fact"]["id"] == "fact_1"
     assert result_body["fact"]["indexing_status"] == "pending"
+    assert result_body["fact"]["content_sha256"] == hashlib.sha256(
+        b"Duplicate merge candidate."
+    ).hexdigest()
     assert review_batch["results"][0]["fact"]["id"] == "fact_1"
     assert review_batch["results"][1]["error_code"] == "memory.conflict"
     assert create_batch["results"][0]["suggestion"]["id"] == "sug_1"

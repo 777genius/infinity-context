@@ -586,8 +586,6 @@ def managed_http_policy_production_blockers(
     blockers.append(
         "managed_http_policy_infinity_document_chunk_identity_unavailable"
     )
-    if any(case.record.get("benchmark") == "locomo" for case in cases):
-        blockers.append("managed_http_policy_infinity_fact_source_hash_unavailable")
     blockers.extend(
         (
             "managed_http_policy_mem0_exact_source_identity_unavailable",
