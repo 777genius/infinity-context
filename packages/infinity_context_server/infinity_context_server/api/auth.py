@@ -62,6 +62,9 @@ def _required_permission(request: Request) -> str | None:
     if path == "/v1/capabilities":
         return MEMORY_PERMISSION_READ
 
+    if path.startswith("/v1/internal/memory-comparison/runs"):
+        return MEMORY_PERMISSION_ADMIN
+
     if path in {
         "/v1/diagnostics/derived-evidence/qdrant/delete",
         "/v1/diagnostics/derived-evidence/graphiti/delete",
@@ -185,6 +188,10 @@ async def _ensure_scoped_token_can_access_request(
 ) -> None:
     if token.space_id is None:
         return
+    if request.url.path.startswith("/v1/internal/memory-comparison/runs"):
+        raise MemoryForbiddenError(
+            "Scoped service token cannot access unscoped endpoint"
+        )
     if _is_safe_unscoped_endpoint(request):
         return
 
@@ -204,6 +211,10 @@ async def _ensure_memory_scope_scoped_token_can_access_request(
 ) -> None:
     if token.memory_scope_ids is None:
         return
+    if request.url.path.startswith("/v1/internal/memory-comparison/runs"):
+        raise MemoryForbiddenError(
+            "MemoryScope-scoped service token cannot access unscoped endpoint"
+        )
     if _is_safe_unscoped_endpoint(request):
         return
 

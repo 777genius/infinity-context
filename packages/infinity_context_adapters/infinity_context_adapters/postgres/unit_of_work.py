@@ -23,6 +23,9 @@ from infinity_context_adapters.postgres.asset_repositories import (
     PostgresContextLinkRepository,
     PostgresContextLinkSuggestionRepository,
 )
+from infinity_context_adapters.postgres.benchmark_run_repositories import (
+    PostgresBenchmarkRunRepository,
+)
 from infinity_context_adapters.postgres.fact_repositories import (
     PostgresFactRelationRepository,
     PostgresFactRepository,
@@ -643,6 +646,7 @@ class PostgresUnitOfWork:
 
     async def __aenter__(self) -> PostgresUnitOfWork:
         self._session = self._session_factory()
+        self.benchmark_runs = PostgresBenchmarkRunRepository(self._session)
         now = self._clock.now()
         self.scope = PostgresScopeRepository(self._session)
         self.users = PostgresUserRepository(self._session)

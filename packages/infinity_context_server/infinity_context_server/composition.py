@@ -31,6 +31,7 @@ from infinity_context_core.application import (
     BuildMemoryOperationsConsoleUseCase,
     CancelAssetExtractionUseCase,
     CheckSpaceAccessUseCase,
+    CleanupBenchmarkRunUseCase,
     ConsolidateCaptureUseCase,
     CreateAnchorUseCase,
     CreateAssetUseCase,
@@ -85,6 +86,7 @@ from infinity_context_core.application import (
     ReadAssetBytesUseCase,
     ReadExtractionArtifactBytesUseCase,
     ReceiveCaptureUseCase,
+    RegisterBenchmarkRunUseCase,
     RejectSuggestionUseCase,
     RelatedFactsUseCase,
     RememberFactUseCase,
@@ -172,6 +174,8 @@ class Container:
     blob_storage: BlobStorageMaintenancePort
     get_capabilities: GetCapabilitiesUseCase
     create_space: CreateSpaceUseCase
+    register_benchmark_run: RegisterBenchmarkRunUseCase
+    cleanup_benchmark_run: CleanupBenchmarkRunUseCase
     list_spaces: ListSpacesUseCase
     create_memory_scope: CreateMemoryScopeUseCase
     list_memory_scopes: ListMemoryScopesUseCase
@@ -354,6 +358,12 @@ def build_container(settings: Settings | None = None) -> Container:
         },
     )
     create_space = CreateSpaceUseCase(uow_factory=uow_factory, clock=clock, ids=ids)
+    register_benchmark_run = RegisterBenchmarkRunUseCase(
+        uow_factory=uow_factory, clock=clock
+    )
+    cleanup_benchmark_run = CleanupBenchmarkRunUseCase(
+        uow_factory=uow_factory, clock=clock
+    )
     list_spaces = ListSpacesUseCase(uow_factory=uow_factory)
     create_memory_scope = CreateMemoryScopeUseCase(uow_factory=uow_factory, clock=clock, ids=ids)
     list_memory_scopes = ListMemoryScopesUseCase(uow_factory=uow_factory)
@@ -639,6 +649,8 @@ def build_container(settings: Settings | None = None) -> Container:
         blob_storage=blob_storage,
         get_capabilities=get_capabilities,
         create_space=create_space,
+        register_benchmark_run=register_benchmark_run,
+        cleanup_benchmark_run=cleanup_benchmark_run,
         list_spaces=list_spaces,
         create_memory_scope=create_memory_scope,
         list_memory_scopes=list_memory_scopes,
