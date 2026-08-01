@@ -445,6 +445,8 @@ class Neo4jGraphitiIdentityEvidenceAdapter:
             raise GraphitiIdentityEvidenceError(
                 "graphiti total identity cardinality exceeds the hard cap"
             )
+        if not node_records and not relationship_records:
+            return GraphProjectionIdentitySnapshot()
 
         episode_ids: list[str] = []
         entity_ids: list[str] = []

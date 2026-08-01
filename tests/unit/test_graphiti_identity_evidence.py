@@ -224,6 +224,16 @@ def test_graphiti_inventory_enforces_total_identity_cardinality_cap() -> None:
         asyncio.run(adapter.inventory_group(GROUP_ID, expected_fact_ids=("fact-1",)))
 
 
+def test_graphiti_inventory_allows_exact_absence_for_external_delete_pass_two() -> None:
+    adapter = Neo4jGraphitiIdentityEvidenceAdapter(driver=_Driver([], []))
+
+    snapshot = asyncio.run(
+        adapter.inventory_group(GROUP_ID, expected_fact_ids=("fact-1",))
+    )
+
+    assert snapshot.empty
+
+
 def test_graphiti_two_pass_delete_is_exact_global_and_idempotent() -> None:
     nodes, relationships = _graph()
     driver = _Driver(nodes, relationships)
