@@ -39,6 +39,7 @@ from infinity_context_server.memory_comparison_managed_plan_builder import (
     _validate_provider_route,
     build_verified_managed_run_plan,
     managed_execution_case_material_sha256,
+    managed_policy_cases_from_dataset,
 )
 from infinity_context_server.memory_comparison_managed_run_contract import ManagedRunError
 from infinity_context_server.memory_comparison_provider_provenance import (
@@ -204,6 +205,31 @@ def test_canary_builder_rejects_ambiguous_case_selection(
 ) -> None:
     with pytest.raises(ManagedRunError, match=message):
         _build(_canary_bytes(), selected_case_ids=case_ids)
+
+
+def test_policy_case_projection_is_pure_ordered_and_gold_free() -> None:
+    cases = managed_policy_cases_from_dataset(
+        profile=_profile(),
+        dataset_bytes=_canary_bytes(),
+        scope="canary",
+        selected_case_ids=(
+            "raw-sample-a:qa:1",
+            "raw-sample-a:qa:2",
+        ),
+    )
+
+    assert len(cases) == 2
+    assert tuple(item.case_id for item in cases) == tuple(
+        _managed_case_alias(case)
+        for case in cases_from_payload(
+            parse_memory_comparison_dataset_bytes(_canary_bytes()),
+            locomo_ingest_mode=LOCOMO_INGEST_OFFICIAL_TURNS,
+        )[:2]
+    )
+    rendered = repr(cases)
+    assert "secret-question" not in rendered
+    assert "secret-gold" not in rendered
+    assert "raw-sample" not in rendered
 
 
 def test_canary_builder_rejects_selection_above_hard_budget() -> None:

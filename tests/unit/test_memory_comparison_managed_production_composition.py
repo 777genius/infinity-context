@@ -25,7 +25,6 @@ def _prepared() -> VerifiedManagedLiveRunPreparation:
         (
             "locomo",
             (
-                "managed_production_sealed_cli_entry_unavailable",
                 "managed_production_ingest_manifest_binding_unavailable",
                 "managed_http_policy_infinity_document_chunk_identity_unavailable",
                 "managed_http_policy_infinity_fact_source_hash_unavailable",
@@ -37,7 +36,6 @@ def _prepared() -> VerifiedManagedLiveRunPreparation:
         (
             "longmemeval",
             (
-                "managed_production_sealed_cli_entry_unavailable",
                 "managed_production_ingest_manifest_binding_unavailable",
                 "managed_http_policy_infinity_document_chunk_identity_unavailable",
                 "managed_http_policy_mem0_exact_source_identity_unavailable",
@@ -112,7 +110,6 @@ def test_pre_readiness_gate_returns_same_static_no_go_with_zero_live_calls(
     assert decision.additional_provider_calls_performed == 0
     assert decision.additional_backend_calls_performed == 0
     assert decision.blockers == (
-        "managed_production_sealed_cli_entry_unavailable",
         "managed_production_ingest_manifest_binding_unavailable",
         "managed_http_policy_infinity_document_chunk_identity_unavailable",
         "managed_http_policy_infinity_fact_source_hash_unavailable",
@@ -138,10 +135,7 @@ def test_structural_blockers_remain_when_policy_contracts_become_ready(
     monkeypatch.setattr(subject, "managed_http_policy_production_blockers", lambda _: ())
 
     decision = subject.run_verified_managed_production_comparison(prepared)
-    assert decision.blockers == (
-        "managed_production_sealed_cli_entry_unavailable",
-        "managed_production_ingest_manifest_binding_unavailable",
-    )
+    assert decision.blockers == ("managed_production_ingest_manifest_binding_unavailable",)
     assert decision.preparation_consumed is False
 
 
