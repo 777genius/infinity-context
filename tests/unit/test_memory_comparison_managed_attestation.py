@@ -201,6 +201,13 @@ def _runtime_manifest(
             "server_source_revision": None,
             "server_revision_attestable": False,
         },
+        "persisted_source_identity": {
+            "request_metadata_required": True,
+            "source_filtered_readback_supported": True,
+            "source_id_roundtrip_attested": True,
+            "source_sha256_roundtrip_attested": True,
+            "sanitized_identity_response": True,
+        },
         "timestamp": {
             "request_supported": True,
             "sdk_forwarding_supported": True,

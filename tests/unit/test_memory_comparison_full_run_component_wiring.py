@@ -6,6 +6,7 @@ from datetime import timedelta
 
 import memory_comparison_full_policy_component_fixtures as policy_fixtures
 import pytest
+from infinity_context_server import memory_comparison_full_run_components as components_module
 from infinity_context_server import memory_comparison_full_run_evidence as evidence_module
 from infinity_context_server.memory_comparison_full_execution_validation import (
     FullExecutionValidationError,
@@ -35,6 +36,14 @@ from infinity_context_server.memory_comparison_managed_attestation import (
     ManagedCompositionAttestationError,
     _consume_verified_managed_composition_attestation_for_composite,
     public_managed_composition_attestation,
+)
+from infinity_context_server.memory_comparison_managed_http_policy_validation import (
+    ManagedHttpPolicyCleanupPassMaterial,
+    ManagedHttpPolicyCorpusMaterial,
+    ManagedHttpPolicyValidationError,
+    ManagedHttpPolicyValidationMaterial,
+    consume_managed_http_policy_validation,
+    seal_managed_http_policy_validation,
 )
 from test_memory_comparison_full_binding_replay import _gold_validation
 from test_memory_comparison_full_execution_validation import (
@@ -111,6 +120,64 @@ def _policy_validation(monkeypatch: pytest.MonkeyPatch, bindings, managed_commit
     return seal_full_policy_component_validation(session)
 
 
+def _managed_http_policy_validation(
+    bindings,
+    managed_commitment: str,
+    case_manifest_sha256: str,
+):
+    corpus_id = "shared-corpus"
+    cleanup_commitments = ("8" * 64, "9" * 64, "a" * 64, "b" * 64)
+    absence_commitments = ("c" * 64, "d" * 64, "e" * 64, "f" * 64)
+    cleanup_order = (
+        ("infinity-context", 1, None),
+        ("mem0", 1, None),
+        ("infinity-context", 2, cleanup_commitments[0]),
+        ("mem0", 2, cleanup_commitments[1]),
+    )
+    target_by_role = {
+        target.backend_role: target.target_identity_sha256
+        for target in bindings.backend_targets
+    }
+    material = ManagedHttpPolicyValidationMaterial(
+        run_id=bindings.run_id,
+        profile_id=bindings.profile_id,
+        scope_id=bindings.scope,
+        binding_commitment_sha256=bindings.binding_commitment_sha256,
+        managed_attestation_commitment_sha256=managed_commitment,
+        backend_targets=tuple(
+            (target.backend_role, target.target_identity_sha256)
+            for target in bindings.backend_targets
+        ),
+        adapter_id="managed-http-policy-v2",
+        implementation_sha256="1" * 64,
+        execution_case_manifest_sha256=case_manifest_sha256,
+        case_corpus_mapping=(("case-1", corpus_id),),
+        corpora=(
+            ManagedHttpPolicyCorpusMaterial(
+                corpus_id=corpus_id,
+                ingest_manifest_sha256="2" * 64,
+                source_pairs=(("source-1", "3" * 64), ("source-2", "4" * 64)),
+                presence_commitment_sha256="5" * 64,
+                derived_commitments=(("qdrant", "6" * 64), ("graphiti", "7" * 64)),
+            ),
+        ),
+        cleanup_passes=tuple(
+            ManagedHttpPolicyCleanupPassMaterial(
+                backend_role=role,
+                target_identity_sha256=target_by_role[role],
+                pass_index=pass_index,
+                cleanup_commitment_sha256=cleanup_commitments[index],
+                exact_absence_commitment_sha256=absence_commitments[index],
+                replay_of_cleanup_commitment_sha256=replay,
+                corpus_absence_commitments=((corpus_id, absence_commitments[index]),),
+                verified_absent=True,
+            )
+            for index, (role, pass_index, replay) in enumerate(cleanup_order)
+        ),
+    )
+    return seal_managed_http_policy_validation(material=material)
+
+
 def test_all_nine_slots_wire_from_nominal_aggregates_and_revalidate_twice(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -153,6 +220,75 @@ def test_all_nine_slots_wire_from_nominal_aggregates_and_revalidate_twice(
         FULL_COMPARISON_COMPONENT_KINDS
     )
     assert {item["status"] for item in first["components"]} == {"verified"}
+
+
+def test_managed_http_policy_wires_exact_execution_and_revalidates_live() -> None:
+    bindings = _managed_bindings()
+    issuer = create_full_comparison_evidence_issuer(bindings)
+    managed_commitment = "a" * 64
+    case_manifest = "b" * 64
+    components_module._ISSUER_AGGREGATES[issuer] = components_module._IssuerAggregateState(
+        runtime_phase="issued",
+        execution_phase="issued",
+        managed_attestation_commitment_sha256=managed_commitment,
+        execution_case_manifest_sha256=case_manifest,
+    )
+    validation = _managed_http_policy_validation(
+        bindings,
+        managed_commitment,
+        case_manifest,
+    )
+
+    components = issue_policy_component_evidence_set(issuer, validation)
+
+    assert len(components) == 3
+    assert all(
+        components_module.live_component_status(
+            kind,
+            evidence_module._component_state(component).live_validation,
+            bindings,
+        )
+        == ("verified", None)
+        for kind, component in zip(
+            ("delete", "canonical", "source"),
+            components,
+            strict=True,
+        )
+    )
+    with pytest.raises(ManagedHttpPolicyValidationError, match="replay"):
+        consume_managed_http_policy_validation(
+            validation,
+            binding_commitment_sha256=bindings.binding_commitment_sha256,
+            managed_attestation_commitment_sha256=managed_commitment,
+        )
+
+
+def test_managed_http_policy_manifest_mismatch_rolls_back_for_exact_retry() -> None:
+    bindings = _managed_bindings()
+    issuer = create_full_comparison_evidence_issuer(bindings)
+    managed_commitment = "a" * 64
+    case_manifest = "b" * 64
+    components_module._ISSUER_AGGREGATES[issuer] = components_module._IssuerAggregateState(
+        runtime_phase="issued",
+        execution_phase="issued",
+        managed_attestation_commitment_sha256=managed_commitment,
+        execution_case_manifest_sha256=case_manifest,
+    )
+    mismatched = _managed_http_policy_validation(
+        bindings,
+        managed_commitment,
+        "c" * 64,
+    )
+
+    with pytest.raises(FullComparisonEvidenceError, match="aggregate binding is invalid"):
+        issue_policy_component_evidence_set(issuer, mismatched)
+
+    correct = _managed_http_policy_validation(
+        bindings,
+        managed_commitment,
+        case_manifest,
+    )
+    assert len(issue_policy_component_evidence_set(issuer, correct)) == 3
 
 
 def test_runtime_consume_is_one_shot_but_public_revalidation_remains_live() -> None:

@@ -69,7 +69,10 @@ from test_memory_comparison_full_execution_validation import (
 )
 from test_memory_comparison_full_execution_validation import _inputs as _execution_inputs
 from test_memory_comparison_full_execution_validation import _proof as _execution_proof
-from test_memory_comparison_full_run_component_wiring import _policy_validation
+from test_memory_comparison_full_run_component_wiring import (
+    _managed_http_policy_validation,
+    _policy_validation,
+)
 from test_memory_comparison_managed_attestation import _bindings as _managed_bindings
 from test_memory_comparison_managed_attestation import _issue as _managed_issue
 from test_memory_comparison_managed_attestation import (
@@ -331,6 +334,34 @@ def test_structural_managed_port_and_successful_nine_slot_verdict(
     assert first == second
     assert first["publishable"] is True
     assert {item["status"] for item in first["components"]} == {"verified"}
+
+
+def test_managed_http_policy_validation_seals_nine_slot_verdict(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    ready = _ready(monkeypatch)
+    managed_report = public_managed_composition_attestation(
+        ready.managed,
+        bindings=ready.bindings,
+        reset_port=ready.ports[0],
+        attestation_port=ready.ports[1],
+        ingest_port=ready.ports[2],
+        clock=ready.ports[3],
+    )
+    policy = _managed_http_policy_validation(
+        ready.bindings,
+        str(managed_report["composition_attestation_sha256"]),
+        ready.case_manifest_sha256,
+    )
+
+    components = _assemble(ready, policy=policy)
+    verdict = ready.assembler.seal_verdict(
+        bindings=ready.bindings,
+        issuer=ready.issuer,
+        components=components,
+    )
+
+    assert ready.assembler.public_verdict(verdict)["publishable"] is True
 
 
 def test_case_manifest_mismatch_is_preflight_only_and_correct_retry_succeeds(

@@ -63,6 +63,7 @@ class _IssuerAggregateState:
     execution_phase: str = "open"
     policy_phase: str = "open"
     managed_attestation_commitment_sha256: str | None = None
+    execution_case_manifest_sha256: str | None = None
 
 
 @final
@@ -345,6 +346,7 @@ def _finish_aggregate_set(
     *,
     success: bool,
     managed_commitment: str | None = None,
+    execution_case_manifest: str | None = None,
 ) -> None:
     phase_name = f"{source}_phase"
     with _AGGREGATE_LOCK:
@@ -357,6 +359,30 @@ def _finish_aggregate_set(
                 managed_commitment,
                 "managed attestation commitment",
             )
+        if success and source == "execution":
+            state.execution_case_manifest_sha256 = _digest_value(
+                execution_case_manifest,
+                "execution case manifest",
+            )
+
+
+def _issued_execution_case_manifest(
+    issuer: FullComparisonEvidenceIssuer,
+    capability: object,
+) -> str | None:
+    if not _is_managed_http_policy_validation(capability):
+        return None
+    with _AGGREGATE_LOCK:
+        state = _ISSUER_AGGREGATES.get(issuer)
+        if (
+            state is None
+            or state.execution_phase != "issued"
+            or state.execution_case_manifest_sha256 is None
+        ):
+            raise _evidence_error(
+                "managed HTTP policy requires issued execution aggregate"
+            )
+        return state.execution_case_manifest_sha256
 
 
 def _aggregate_wrapper(
@@ -472,11 +498,11 @@ def _current_aggregate_report(
 
         return public_full_execution_validation_report(validation.capability)
     if validation.source == "policy":
-        from infinity_context_server.memory_comparison_full_policy_component_validation import (
-            public_full_policy_component_validation,
+        from infinity_context_server.memory_comparison_full_run_component_sets import (
+            _public_policy_component_validation,
         )
 
-        return public_full_policy_component_validation(validation.capability)
+        return _public_policy_component_validation(validation.capability)
     raise _evidence_error("aggregate component source is invalid")
 
 
@@ -497,6 +523,10 @@ def _validate_current_aggregate_report(
             report,
             validation.bindings,
             managed_commitment=validation.managed_attestation_commitment_sha256,
+            capability=validation.capability,
+            execution_case_manifest_sha256=(
+                validation.context[0] if len(validation.context) == 1 else None
+            ),
         )
         return
     raise _evidence_error("aggregate component source is invalid")
@@ -546,7 +576,16 @@ def _validate_policy_aggregate_report(
     bindings: FullComparisonRunBindings,
     *,
     managed_commitment: str,
+    capability: object | None = None,
+    execution_case_manifest_sha256: str | None = None,
 ) -> str:
+    if _is_managed_http_policy_validation(capability):
+        return _validate_managed_http_policy_aggregate_report(
+            report,
+            bindings,
+            managed_commitment=managed_commitment,
+            execution_case_manifest_sha256=execution_case_manifest_sha256,
+        )
     trusted = _exact_report(report, "policy aggregate report")
     roles = tuple(target.backend_role for target in bindings.backend_targets)
     if (
@@ -565,6 +604,82 @@ def _validate_policy_aggregate_report(
         trusted.get("manifest_commitment_sha256"),
         "policy manifest commitment",
     )
+
+
+def _is_managed_http_policy_validation(value: object) -> bool:
+    from infinity_context_server.memory_comparison_managed_http_policy_validation import (
+        VerifiedManagedHttpPolicyValidation,
+    )
+
+    return type(value) is VerifiedManagedHttpPolicyValidation
+
+
+def _validate_managed_http_policy_aggregate_report(
+    report: dict[str, object],
+    bindings: FullComparisonRunBindings,
+    *,
+    managed_commitment: str,
+    execution_case_manifest_sha256: str | None,
+) -> str:
+    from infinity_context_server.memory_comparison_managed_http_policy_validation import (
+        MANAGED_HTTP_POLICY_VALIDATION_SCHEMA_VERSION,
+    )
+
+    trusted = _exact_report(report, "managed HTTP policy aggregate report")
+    expected_targets = [
+        {
+            "backend_role": target.backend_role,
+            "target_identity_sha256": target.target_identity_sha256,
+        }
+        for target in bindings.backend_targets
+    ]
+    case_count = trusted.get("case_count")
+    unique_corpus_count = trusted.get("unique_corpus_count")
+    source_pair_count = trusted.get("source_pair_count")
+    derived_commitment_count = trusted.get("derived_commitment_count")
+    cleanup_pass_count = trusted.get("cleanup_pass_count")
+    if (
+        trusted.get("schema_version") != MANAGED_HTTP_POLICY_VALIDATION_SCHEMA_VERSION
+        or trusted.get("run_id") != bindings.run_id
+        or trusted.get("profile_id") != bindings.profile_id
+        or trusted.get("scope_id") != bindings.scope
+        or trusted.get("binding_commitment_sha256")
+        != bindings.binding_commitment_sha256
+        or trusted.get("managed_attestation_commitment_sha256") != managed_commitment
+        or trusted.get("execution_case_manifest_sha256")
+        != execution_case_manifest_sha256
+        or trusted.get("backend_targets") != expected_targets
+        or type(case_count) is not int
+        or case_count < 1
+        or type(unique_corpus_count) is not int
+        or unique_corpus_count < 1
+        or unique_corpus_count > case_count
+        or type(source_pair_count) is not int
+        or source_pair_count < unique_corpus_count
+        or type(derived_commitment_count) is not int
+        or derived_commitment_count < unique_corpus_count
+        or cleanup_pass_count != 4
+    ):
+        raise _evidence_error("managed HTTP policy aggregate binding is invalid")
+    adapter_id = trusted.get("adapter_id")
+    if (
+        type(adapter_id) is not str
+        or not adapter_id
+        or adapter_id != adapter_id.strip()
+        or len(adapter_id) > 200
+    ):
+        raise _evidence_error("managed HTTP policy adapter id is invalid")
+    for key, label in (
+        ("implementation_sha256", "managed HTTP policy implementation"),
+        ("execution_case_manifest_sha256", "managed HTTP execution case manifest"),
+        ("case_corpus_mapping_sha256", "managed HTTP case corpus mapping"),
+        ("corpus_evidence_commitment_sha256", "managed HTTP corpus evidence"),
+        ("cleanup_commitment_sha256", "managed HTTP cleanup"),
+        ("material_commitment_sha256", "managed HTTP policy material"),
+        ("validation_commitment_sha256", "managed HTTP policy validation"),
+    ):
+        _digest_value(trusted.get(key), label)
+    return bindings.binding_commitment_sha256
 
 
 def _exact_report(value: object, name: str) -> dict[str, object]:
