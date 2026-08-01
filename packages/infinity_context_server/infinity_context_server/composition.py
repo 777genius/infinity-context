@@ -16,6 +16,7 @@ from infinity_context_adapters.noop import (
     UuidIdGenerator,
 )
 from infinity_context_adapters.postgres import (
+    PostgresProjectionFence,
     PostgresUnitOfWorkFactory,
     build_async_engine,
     build_session_factory,
@@ -129,6 +130,7 @@ from infinity_context_core.ports.clock import ClockPort
 from infinity_context_core.ports.extraction import ExtractionLimits
 from infinity_context_core.ports.graph_evidence import GraphProjectionEvidencePort
 from infinity_context_core.ports.ids import IdGeneratorPort
+from infinity_context_core.ports.projection_fence import ProjectionFencePort
 from infinity_context_core.ports.unit_of_work import UnitOfWorkFactoryPort
 from infinity_context_core.ports.vector_projection_evidence import VectorProjectionEvidencePort
 from sqlalchemy.ext.asyncio import AsyncEngine
@@ -163,6 +165,7 @@ class Container:
     clock: ClockPort
     ids: IdGeneratorPort
     uow_factory: UnitOfWorkFactoryPort
+    projection_fence: ProjectionFencePort
     adapters: tuple[MemoryAdapterPort, ...]
     cognee_memory: DocumentMemoryPort
     vector_index: VectorMemoryPort
@@ -291,6 +294,7 @@ def build_container(settings: Settings | None = None) -> Container:
     engine = build_async_engine(resolved_settings.database_url)
     session_factory = build_session_factory(engine)
     uow_factory = PostgresUnitOfWorkFactory(session_factory=session_factory, clock=clock)
+    projection_fence = PostgresProjectionFence(session_factory)
 
     raw_vector = _build_vector_adapter(resolved_settings)
     raw_graph = _build_graph_adapter(resolved_settings)
@@ -638,6 +642,7 @@ def build_container(settings: Settings | None = None) -> Container:
         clock=clock,
         ids=ids,
         uow_factory=uow_factory,
+        projection_fence=projection_fence,
         adapters=adapters,
         cognee_memory=cognee,
         vector_index=vector,
