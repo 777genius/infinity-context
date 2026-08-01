@@ -23,9 +23,6 @@ from typing import final
 
 import httpx
 
-from infinity_context_server.memory_comparison_backend_target import (
-    FullComparisonBackendTarget,
-)
 from infinity_context_server.memory_comparison_managed_http_execution import (
     ManagedInfinityHttpConfig,
     ManagedMem0HttpConfig,
@@ -35,7 +32,6 @@ from infinity_context_server.memory_comparison_managed_preflight import (
     ManagedBackendEndpoint,
     ManagedCredentialBinding,
     ManagedPreflightRequest,
-    managed_backend_target_identity_sha256,
     validate_managed_preflight,
 )
 from infinity_context_server.memory_comparison_managed_runtime_credentials_capability import (
@@ -43,10 +39,19 @@ from infinity_context_server.memory_comparison_managed_runtime_credentials_capab
     _issue_backend_credential_material,
 )
 from infinity_context_server.memory_comparison_managed_runtime_credentials_integrity import (
-    canonical_json_bytes,
+    adapter_credential_binding,
     hmac_sha256,
     managed_preflight_request_snapshot,
+    runtime_authority_integrity,
     secret_commitments,
+    validate_mock_transport,
+)
+from infinity_context_server.memory_comparison_managed_runtime_credentials_models import (
+    ManagedCredentialPreflightMaterial,
+    ManagedRuntimeCredentialError,
+)
+from infinity_context_server.memory_comparison_managed_runtime_credentials_targets import (
+    _normalized_backend,
 )
 from infinity_context_server.memory_comparison_provider_provenance import (
     ProviderRouteAttestation,
@@ -62,59 +67,14 @@ from infinity_context_server.memory_comparison_subscription_live_probe import (
     run_subscription_runtime_live_probe,
 )
 from infinity_context_server.memory_comparison_subscription_probe import (
+    SubscriptionRuntimeProbeObservation,
     VerifiedSubscriptionRuntimeProbe,
+    inspect_verified_subscription_runtime_probe,
 )
 
 _ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:-]{0,199}$")
-_SAFE_CODES = frozenset(
-    {
-        "managed_credentials_configuration_invalid",
-        "managed_credentials_context_mismatch",
-        "managed_credentials_expired",
-        "managed_credentials_integrity_failed",
-        "managed_credentials_preflight_invalid",
-        "managed_credentials_readiness_failed",
-        "managed_credentials_terminal",
-    }
-)
 _MAX_SECRET_BYTES = 16_384
 _TOKEN = object()
-
-
-class ManagedRuntimeCredentialError(RuntimeError):
-    """Secret-safe fail-closed authority error."""
-
-    __slots__ = ("code",)
-
-    def __init__(self, code: str) -> None:
-        safe = code if code in _SAFE_CODES else "managed_credentials_terminal"
-        self.code = safe
-        super().__init__(safe)
-
-
-@final
-@dataclass(frozen=True, slots=True)
-class ManagedCredentialPreflightMaterial:
-    """Non-consuming public facts used verbatim in one preflight request."""
-
-    provider_credential: ManagedCredentialBinding
-    backend_endpoints: tuple[ManagedBackendEndpoint, ...]
-    provider_route: ProviderRouteAttestation
-    mem0_probe_credential: ManagedCredentialBinding
-
-    def __post_init__(self) -> None:
-        if (
-            type(self.provider_credential) is not ManagedCredentialBinding
-            or type(self.backend_endpoints) is not tuple
-            or any(type(item) is not ManagedBackendEndpoint for item in self.backend_endpoints)
-            or type(self.provider_route) is not ProviderRouteAttestation
-            or type(self.mem0_probe_credential) is not ManagedCredentialBinding
-        ):
-            _fail("managed_credentials_configuration_invalid")
-
-    def __init_subclass__(cls, **kwargs: object) -> None:
-        del cls, kwargs
-        raise TypeError("ManagedCredentialPreflightMaterial is final")
 
 
 @dataclass(slots=True)
@@ -151,7 +111,14 @@ class _AuthorityState:
 class ManagedSubscriptionReadinessClaim:
     """Opaque owner of the sole retry-free readiness adapter and attempt."""
 
-    __slots__ = ("__adapter", "__authority_state", "__lock", "__phase")
+    __slots__ = (
+        "__adapter",
+        "__authority_state",
+        "__lock",
+        "__phase",
+        "__proof",
+        "__proof_observation",
+    )
 
     def __init__(
         self,
@@ -166,6 +133,8 @@ class ManagedSubscriptionReadinessClaim:
         self.__authority_state = authority_state
         self.__lock = threading.Lock()
         self.__phase = "pending"
+        self.__proof: VerifiedSubscriptionRuntimeProbe | None = None
+        self.__proof_observation: SubscriptionRuntimeProbeObservation | None = None
 
     def __init_subclass__(cls, **kwargs: object) -> None:
         del cls, kwargs
@@ -219,6 +188,18 @@ class ManagedSubscriptionReadinessClaim:
             )
             if type(proof) is not VerifiedSubscriptionRuntimeProbe:
                 _fail("managed_credentials_readiness_failed")
+            observation = inspect_verified_subscription_runtime_probe(
+                proof,
+                now=_aware(clock(), "managed_credentials_readiness_failed"),
+            )
+            if (
+                type(observation) is not SubscriptionRuntimeProbeObservation
+                or observation.model != model
+                or observation.route != self.__adapter.route_attestation
+                or observation.checked_at < state.issued_at
+                or observation.checked_at >= state.deadline
+            ):
+                _fail("managed_credentials_readiness_failed")
         except BaseException as exc:
             with self.__lock:
                 self.__phase = "terminal"
@@ -240,15 +221,36 @@ class ManagedSubscriptionReadinessClaim:
                 _fail("managed_credentials_terminal")
             self.__phase = "completed"
             self.__authority_state.readiness_phase = "completed"
+            self.__proof = proof
+            self.__proof_observation = observation
             return proof
 
     def _is_completed_for(self, state: _AuthorityState) -> bool:
         with self.__lock:
-            return (
-                self.__authority_state is state
-                and self.__phase == "completed"
-                and state.readiness_phase == "completed"
-            )
+            return self._is_completed_for_unlocked(state)
+
+    def _completed_probe_for(
+        self,
+        state: _AuthorityState,
+    ) -> tuple[VerifiedSubscriptionRuntimeProbe, SubscriptionRuntimeProbeObservation] | None:
+        with self.__lock:
+            if not self._is_completed_for_unlocked(state):
+                return None
+            proof = self.__proof
+            observation = self.__proof_observation
+            if (
+                type(proof) is not VerifiedSubscriptionRuntimeProbe
+                or type(observation) is not SubscriptionRuntimeProbeObservation
+            ):
+                return None
+            return proof, observation
+
+    def _is_completed_for_unlocked(self, state: _AuthorityState) -> bool:
+        return (
+            self.__authority_state is state
+            and self.__phase == "completed"
+            and state.readiness_phase == "completed"
+        )
 
     def __copy__(self) -> object:
         raise TypeError("managed subscription readiness claim is noncopyable")
@@ -286,6 +288,32 @@ class ManagedRuntimeCredentialAuthority:
 
     def __repr__(self) -> str:
         return "ManagedRuntimeCredentialAuthority(<sealed-one-run>)"
+
+    def _inspect_completed_context(
+        self,
+        **context: object,
+    ) -> str:
+        from infinity_context_server.memory_comparison_managed_runtime_credentials_context import (  # noqa: PLC0415
+            _inspect_completed_context_for_authority,
+        )
+
+        with self.__lock:
+            self._require_integrity_locked()
+            state = self.__state
+            self._require_static_context_locked(
+                expected_request=context["expected_request"],
+                run_id=context["run_id"],
+                subscription_origin=state.subscription_origin,
+                deadline=context["deadline"],
+            )
+            self._require_bound_request_locked(context["expected_request"])
+            return _inspect_completed_context_for_authority(
+                self,
+                state,
+                readiness_claim=context["readiness_claim"],
+                expected_request=context["expected_request"],
+                expected_probe=context["expected_probe"],
+            )
 
     def preflight_material(self) -> ManagedCredentialPreflightMaterial:
         """Return the same immutable public material without consuming a lane."""
@@ -327,7 +355,7 @@ class ManagedRuntimeCredentialAuthority:
                 state.preflight_commitment = hmac_sha256(state.binding_key, snapshot)
                 state.bound_request_identity = id(request)
                 state.root_phase = "bound"
-                state.integrity = _authority_integrity(state)
+                state.integrity = runtime_authority_integrity(state)
             except BaseException as exc:
                 self._terminal_all_locked()
                 if isinstance(exc, ManagedRuntimeCredentialError):
@@ -360,7 +388,7 @@ class ManagedRuntimeCredentialAuthority:
                     now=now,
                 )
                 state = self.__state
-                _test_transport(transport)
+                validate_mock_transport(transport)
                 adapter = SubscriptionRuntimeChatCompletions(
                     origin=state.subscription_origin,
                     bearer_token=state.subscription_secret,
@@ -422,7 +450,7 @@ class ManagedRuntimeCredentialAuthority:
                     or not readiness_claim._is_completed_for(state)
                 ):
                     _fail("managed_credentials_context_mismatch")
-                _test_transport(transport)
+                validate_mock_transport(transport)
                 adapter = SubscriptionRuntimeChatCompletions(
                     origin=state.subscription_origin,
                     bearer_token=state.subscription_secret,
@@ -479,8 +507,8 @@ class ManagedRuntimeCredentialAuthority:
                     or _normalized_backend("mem0", mem0_origin)[0] != state.mem0_origin
                 ):
                     _fail("managed_credentials_context_mismatch")
-                _test_transport(infinity_transport)
-                _test_transport(mem0_transport)
+                validate_mock_transport(infinity_transport)
+                validate_mock_transport(mem0_transport)
                 if (
                     infinity_transport is not None
                     and mem0_transport is not None
@@ -510,11 +538,18 @@ class ManagedRuntimeCredentialAuthority:
                 )
                 if state.backend_phase != "active":
                     _fail("managed_credentials_terminal")
+                if (
+                    type(state.preflight_snapshot) is not bytes
+                    or type(state.preflight_commitment) is not str
+                ):
+                    _fail("managed_credentials_integrity_failed")
                 result = _issue_backend_credential_material(
                     infinity=infinity,
                     mem0=mem0,
                     probe_token=state.probe_secret,
                     request=expected_request,
+                    preflight_snapshot=state.preflight_snapshot,
+                    preflight_commitment=state.preflight_commitment,
                     run_id=state.run_id,
                     deadline=state.deadline,
                 )
@@ -617,7 +652,7 @@ class ManagedRuntimeCredentialAuthority:
         state = self.__state
         try:
             self._require_secret_continuity_locked()
-            expected = _authority_integrity(state)
+            expected = runtime_authority_integrity(state)
         except Exception:
             self._terminal_all_locked()
             _fail("managed_credentials_integrity_failed")
@@ -714,14 +749,14 @@ def issue_managed_runtime_credential_authority(
             subscription_secret=subscription_secret,
         )
         provider_credential = ManagedCredentialBinding(
-            "subscription-runtime", True, _adapter_binding(subscription_secret)
+            "subscription-runtime", True, adapter_credential_binding(subscription_secret)
         )
         infinity_binding = ManagedCredentialBinding(
             "infinity-context", True, "sha256:" + commitments[0]
         )
         mem0_binding = ManagedCredentialBinding("mem0", True, "sha256:" + commitments[1])
         probe_credential = ManagedCredentialBinding(
-            "mem0-probe", True, _adapter_binding(probe_secret)
+            "mem0-probe", True, adapter_credential_binding(probe_secret)
         )
         endpoints = (
             ManagedBackendEndpoint(infinity_target, normalized_infinity, infinity_binding),
@@ -761,24 +796,12 @@ def issue_managed_runtime_credential_authority(
             material=material,
             integrity="",
         )
-        state.integrity = _authority_integrity(state)
+        state.integrity = runtime_authority_integrity(state)
         return ManagedRuntimeCredentialAuthority(state=state, _token=_TOKEN)
     except ManagedRuntimeCredentialError:
         raise
     except Exception:
         _fail("managed_credentials_configuration_invalid")
-
-
-def _normalized_backend(
-    role: str, origin: str
-) -> tuple[str, FullComparisonBackendTarget]:
-    identity = managed_backend_target_identity_sha256(backend_role=role, base_url=origin)
-    endpoint = ManagedBackendEndpoint(
-        target=FullComparisonBackendTarget(role, identity),
-        base_url=origin,
-        credential=ManagedCredentialBinding(role, True, "sha256:" + "0" * 64),
-    )
-    return endpoint.base_url, endpoint.target
 
 
 def _validated_subscription_origin(origin: object) -> str:
@@ -826,60 +849,6 @@ def _aware(value: object, code: str) -> datetime:
         return value.astimezone(UTC)
     except Exception:
         _fail(code)
-
-
-def _adapter_binding(secret: str) -> str:
-    return "sha256:" + hashlib.sha256(secret.encode()).hexdigest()
-
-
-def _authority_integrity(state: _AuthorityState) -> str:
-    material = state.material
-    payload = {
-        "run_id": state.run_id,
-        "issued_at": state.issued_at.isoformat(),
-        "deadline": state.deadline.isoformat(),
-        "request_timeout_seconds": state.request_timeout_seconds,
-        "origins": [state.infinity_origin, state.mem0_origin, state.subscription_origin],
-        "secret_commitments": list(state.secret_commitments),
-        "provider_credential": _credential_snapshot(material.provider_credential),
-        "mem0_probe_credential": _credential_snapshot(
-            material.mem0_probe_credential
-        ),
-        "backend_endpoints": [
-            {
-                "target": {
-                    "backend_role": item.target.backend_role,
-                    "target_identity_sha256": item.target.target_identity_sha256,
-                },
-                "base_url": item.base_url,
-                "loopback": item.loopback,
-                "credential": _credential_snapshot(item.credential),
-            }
-            for item in material.backend_endpoints
-        ],
-        "route": material.provider_route.public_payload(),
-        "preflight_snapshot_sha256": (
-            hashlib.sha256(state.preflight_snapshot).hexdigest()
-            if state.preflight_snapshot is not None
-            else None
-        ),
-        "preflight_commitment": state.preflight_commitment,
-        "bound_request_identity": state.bound_request_identity,
-    }
-    return hmac_sha256(state.binding_key, canonical_json_bytes(payload))
-
-
-def _credential_snapshot(value: ManagedCredentialBinding) -> dict[str, object]:
-    return {
-        "credential_name": value.credential_name,
-        "configured": value.configured,
-        "binding_id": value.binding_id,
-    }
-
-
-def _test_transport(transport: object) -> None:
-    if transport is not None and type(transport) is not httpx.MockTransport:
-        _fail("managed_credentials_configuration_invalid")
 
 
 def _fail(code: str) -> None:

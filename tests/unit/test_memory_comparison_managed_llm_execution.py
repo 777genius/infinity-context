@@ -41,8 +41,6 @@ from infinity_context_server.memory_comparison_managed_corpus_projection import 
 )
 from infinity_context_server.memory_comparison_managed_http_execution import (
     ManagedComparisonHttpExecutionAdapter,
-    ManagedInfinityHttpConfig,
-    ManagedMem0HttpConfig,
 )
 from infinity_context_server.memory_comparison_managed_http_lifecycle import (
     ManagedComparisonHttpLifecycleAdapter,
@@ -62,6 +60,10 @@ from infinity_context_server.memory_comparison_managed_llm_execution import (
     create_managed_comparison_execution_ports,
 )
 from infinity_context_server.memory_comparison_managed_preflight import (
+    MANAGED_PREFLIGHT_PROVIDER_SUBSCRIPTION_RUNTIME,
+    ManagedDatasetMetadata,
+    ManagedPreflightRequest,
+    ManagedPreflightTimeouts,
     managed_backend_target_identity_sha256,
 )
 from infinity_context_server.memory_comparison_managed_run_contract import (
@@ -69,6 +71,9 @@ from infinity_context_server.memory_comparison_managed_run_contract import (
     ManagedCaseExecution,
     ManagedRunCase,
     _thaw_json,
+)
+from infinity_context_server.memory_comparison_managed_runtime_credentials import (
+    issue_managed_runtime_credential_authority,
 )
 from infinity_context_server.memory_comparison_provider_provenance import (
     ProviderCallProvenance,
@@ -344,28 +349,64 @@ def _scenario(*, deadline_monotonic: float | None = None) -> _Scenario:
             )
         return httpx.Response(200, json={"results": [{"id": "memory-created"}]})
 
-    infinity = ManagedInfinityHttpConfig(
-        _INFINITY_TARGET,
-        "https://infinity.test",
-        "token",
-        20,
-        httpx.MockTransport(infinity_handler),
+    authority = issue_managed_runtime_credential_authority(
+        run_id=_RUN,
+        infinity_origin="https://infinity.test",
+        infinity_auth_token="token",
+        mem0_origin="https://mem0.test",
+        mem0_api_key="mem0-token",
+        mem0_probe_token="mem0-probe-token",
+        subscription_origin="http://127.0.0.1:8890",
+        subscription_bearer_token="subscription-token",
+        request_timeout_seconds=20,
+        issued_at=clock.value,
+        deadline=deadline,
     )
-    mem0 = ManagedMem0HttpConfig(
-        _MEM0_TARGET,
-        "https://mem0.test",
-        "mem0-token",
-        20,
-        False,
-        httpx.MockTransport(mem0_handler),
+    preflight_material = authority.preflight_material()
+    preflight_request = ManagedPreflightRequest(
+        profile=profile,
+        methodology=full_comparison_methodology_contract(profile),
+        dataset=ManagedDatasetMetadata(
+            profile.profile_id,
+            profile.benchmark,
+            profile.expected_dataset_hash,
+            profile.expected_case_count,
+            dict(profile.expected_distribution),
+            profile.expected_corpus_count,
+        ),
+        provider_route=preflight_material.provider_route,
+        answerer_model=_MODEL,
+        judge_model=_MODEL,
+        openai_credential=preflight_material.provider_credential,
+        backend_endpoints=preflight_material.backend_endpoints,
+        timeouts=ManagedPreflightTimeouts(
+            1,
+            20,
+            (deadline - clock.value).total_seconds(),
+        ),
+        scope=FULL_COMPARISON_SCOPE_CANARY,
+        provider_kind=MANAGED_PREFLIGHT_PROVIDER_SUBSCRIPTION_RUNTIME,
+    )
+    authority.bind_preflight_request(
+        preflight_request,
+        run_id=_RUN,
+        deadline=deadline,
+    )
+    credential_material = authority.issue_backend_credential_material(
+        expected_request=preflight_request,
+        run_id=_RUN,
+        infinity_origin="https://infinity.test",
+        mem0_origin="https://mem0.test",
+        deadline=deadline,
+        now=clock.value,
+        infinity_transport=httpx.MockTransport(infinity_handler),
+        mem0_transport=httpx.MockTransport(mem0_handler),
     )
     http = ManagedComparisonHttpExecutionAdapter(
-        admitted_targets=targets,
+        preflight_request=preflight_request,
         run_id=_RUN,
-        profile=profile,
         deadline=deadline,
-        infinity=infinity,
-        mem0=mem0,
+        credential_material=credential_material,
         retrieval_policy=NEUTRAL_COMPARISON_RETRIEVAL_POLICY,
         clock=clock,
     )
@@ -376,8 +417,8 @@ def _scenario(*, deadline_monotonic: float | None = None) -> _Scenario:
         cases=(managed,),
         deadline=deadline,
         execution=http,
-        infinity=infinity,
-        mem0=mem0,
+        preflight_request=preflight_request,
+        credential_material=credential_material,
         infinity_reset_transport=httpx.MockTransport(infinity_handler),
         mem0_reset_transport=httpx.MockTransport(mem0_handler),
         clock=clock,

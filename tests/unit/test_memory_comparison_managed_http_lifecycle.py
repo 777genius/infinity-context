@@ -13,6 +13,9 @@ from infinity_context_server import (
 from infinity_context_server.memory_comparison_backend_target import (
     FullComparisonBackendTarget,
 )
+from infinity_context_server.memory_comparison_full_methodology import (
+    full_comparison_methodology_contract,
+)
 from infinity_context_server.memory_comparison_full_profiles import (
     PROFILE_LOCOMO_TOP_50,
     PROFILE_LONGMEMEVAL_TOP_50,
@@ -29,8 +32,6 @@ from infinity_context_server.memory_comparison_managed_corpus_projection import 
 )
 from infinity_context_server.memory_comparison_managed_http_execution import (
     ManagedComparisonHttpExecutionAdapter,
-    ManagedInfinityHttpConfig,
-    ManagedMem0HttpConfig,
 )
 from infinity_context_server.memory_comparison_managed_http_lifecycle import (
     ManagedComparisonHttpLifecycleAdapter,
@@ -40,9 +41,16 @@ from infinity_context_server.memory_comparison_managed_http_lifecycle import (
     consume_managed_http_ingest_receipts,
 )
 from infinity_context_server.memory_comparison_managed_preflight import (
+    MANAGED_PREFLIGHT_PROVIDER_SUBSCRIPTION_RUNTIME,
+    ManagedDatasetMetadata,
+    ManagedPreflightRequest,
+    ManagedPreflightTimeouts,
     managed_backend_target_identity_sha256,
 )
 from infinity_context_server.memory_comparison_managed_run_contract import ManagedRunCase
+from infinity_context_server.memory_comparison_managed_runtime_credentials import (
+    issue_managed_runtime_credential_authority,
+)
 from infinity_context_server.memory_comparison_retrieval_policy import (
     NEUTRAL_COMPARISON_RETRIEVAL_POLICY,
 )
@@ -166,37 +174,88 @@ def _build(
     clock: _Clock,
     send_timestamps: bool = False,
     deadline_delta: timedelta = timedelta(seconds=10),
+    lifecycle_credential_action: str | None = None,
 ) -> tuple[ManagedComparisonHttpLifecycleAdapter, ManagedComparisonHttpExecutionAdapter]:
-    infinity = ManagedInfinityHttpConfig(
-        target_identity_sha256=_INFINITY_TARGET,
-        base_url=_INFINITY_URL,
-        auth_token=_INFINITY_TOKEN,
-        timeout_seconds=20,
-        transport=httpx.MockTransport(infinity_handler),
-    )
-    mem0 = ManagedMem0HttpConfig(
-        target_identity_sha256=_MEM0_TARGET,
-        base_url=_MEM0_URL,
-        api_key=_MEM0_TOKEN,
-        timeout_seconds=20,
-        send_timestamps=send_timestamps,
-        transport=httpx.MockTransport(mem0_handler),
+    profile = _profile(
+        PROFILE_LOCOMO_TOP_50
+        if case.record["benchmark"] == "locomo"
+        else PROFILE_LONGMEMEVAL_TOP_50
     )
     deadline = clock.value + deadline_delta
-    execution = ManagedComparisonHttpExecutionAdapter(
-        admitted_targets=_targets(),
+    authority = issue_managed_runtime_credential_authority(
         run_id=_RUN,
-        profile=_profile(
-            PROFILE_LOCOMO_TOP_50
-            if case.record["benchmark"] == "locomo"
-            else PROFILE_LONGMEMEVAL_TOP_50
-        ),
+        infinity_origin=_INFINITY_URL,
+        infinity_auth_token=_INFINITY_TOKEN,
+        mem0_origin=_MEM0_URL,
+        mem0_api_key=_MEM0_TOKEN,
+        mem0_probe_token="mem0-private-probe-token",
+        subscription_origin="http://127.0.0.1:8890",
+        subscription_bearer_token="subscription-private-token",
+        request_timeout_seconds=20,
+        issued_at=clock.value,
         deadline=deadline,
-        infinity=infinity,
-        mem0=mem0,
+    )
+    preflight_material = authority.preflight_material()
+    preflight_request = ManagedPreflightRequest(
+        profile=profile,
+        methodology=full_comparison_methodology_contract(profile),
+        dataset=ManagedDatasetMetadata(
+            profile.profile_id,
+            profile.benchmark,
+            profile.expected_dataset_hash,
+            profile.expected_case_count,
+            dict(profile.expected_distribution),
+            profile.expected_corpus_count,
+        ),
+        provider_route=preflight_material.provider_route,
+        answerer_model="gpt-5.6-sol",
+        judge_model="gpt-5.6-sol",
+        openai_credential=preflight_material.provider_credential,
+        backend_endpoints=preflight_material.backend_endpoints,
+        timeouts=ManagedPreflightTimeouts(1, 20, 120),
+        scope="canary",
+        provider_kind=MANAGED_PREFLIGHT_PROVIDER_SUBSCRIPTION_RUNTIME,
+    )
+    authority.bind_preflight_request(
+        preflight_request,
+        run_id=_RUN,
+        deadline=deadline,
+    )
+    credential_material = authority.issue_backend_credential_material(
+        expected_request=preflight_request,
+        run_id=_RUN,
+        infinity_origin=_INFINITY_URL,
+        mem0_origin=_MEM0_URL,
+        deadline=deadline,
+        now=clock.value,
+        infinity_transport=httpx.MockTransport(infinity_handler),
+        mem0_transport=httpx.MockTransport(mem0_handler),
+        mem0_send_timestamps=send_timestamps,
+    )
+    execution = ManagedComparisonHttpExecutionAdapter(
+        preflight_request=preflight_request,
+        run_id=_RUN,
+        deadline=deadline,
+        credential_material=credential_material,
         retrieval_policy=NEUTRAL_COMPARISON_RETRIEVAL_POLICY,
         clock=clock,
     )
+    if lifecycle_credential_action == "replay":
+        credential_material.consume_for_http_lifecycle(
+            expected_request=preflight_request,
+            run_id=_RUN,
+            deadline=deadline,
+        )
+    elif lifecycle_credential_action == "wrong-run":
+        with pytest.raises(ValueError, match="continuity failed"):
+            credential_material.consume_for_http_lifecycle(
+                expected_request=preflight_request,
+                run_id="wrong-managed-run",
+                deadline=deadline,
+            )
+    elif lifecycle_credential_action == "tamper":
+        object.__setattr__(preflight_request, "answerer_model", "gpt-5.6-sol-tampered")
+        object.__setattr__(preflight_request, "judge_model", "gpt-5.6-sol-tampered")
     lifecycle = ManagedComparisonHttpLifecycleAdapter(
         run_id=_RUN,
         binding_commitment_sha256=_BINDING,
@@ -204,13 +263,39 @@ def _build(
         cases=(case,),
         deadline=deadline,
         execution=execution,
-        infinity=infinity,
+        preflight_request=preflight_request,
+        credential_material=credential_material,
         infinity_reset_transport=httpx.MockTransport(infinity_handler),
-        mem0=mem0,
         mem0_reset_transport=httpx.MockTransport(mem0_handler),
         clock=clock,
     )
     return lifecycle, execution
+
+
+@pytest.mark.parametrize(
+    "action",
+    ("replay", "wrong-run", "tamper"),
+)
+def test_lifecycle_credential_lane_fails_before_backend_io(action: str) -> None:
+    calls = 0
+
+    def unexpected(_: httpx.Request) -> httpx.Response:
+        nonlocal calls
+        calls += 1
+        return httpx.Response(500)
+
+    with pytest.raises(
+        ManagedHttpLifecycleError,
+        match="managed_http_lifecycle_credential_continuity_failed",
+    ):
+        _build(
+            case=_longmem_case(),
+            infinity_handler=unexpected,
+            mem0_handler=unexpected,
+            clock=_Clock(),
+            lifecycle_credential_action=action,
+        )
+    assert calls == 0
 
 
 def _reset(adapter: ManagedComparisonHttpLifecycleAdapter) -> None:

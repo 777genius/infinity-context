@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import hashlib
 import hmac
+import re
 import secrets
 import threading
 from datetime import datetime
@@ -14,13 +16,16 @@ from infinity_context_server.memory_comparison_managed_http_execution import (
 )
 from infinity_context_server.memory_comparison_managed_preflight import (
     ManagedPreflightRequest,
+    validate_managed_preflight,
 )
 from infinity_context_server.memory_comparison_managed_runtime_credentials_integrity import (
     canonical_json_bytes,
     hmac_sha256,
+    managed_preflight_request_snapshot,
 )
 
 _TOKEN = object()
+_SHA256 = re.compile(r"^[0-9a-f]{64}$")
 
 
 @final
@@ -42,8 +47,12 @@ class ManagedBackendCredentialMaterial:
         "__lock",
         "__mem0",
         "__http_phase",
+        "__lifecycle_phase",
+        "__policy_phase",
         "__probe_token",
         "__probe_phase",
+        "__preflight_commitment",
+        "__preflight_snapshot",
         "__request",
         "__run_id",
         "__snapshot",
@@ -56,6 +65,8 @@ class ManagedBackendCredentialMaterial:
         mem0: ManagedMem0HttpConfig,
         probe_token: str,
         request: ManagedPreflightRequest,
+        preflight_snapshot: bytes,
+        preflight_commitment: str,
         run_id: str,
         deadline: datetime,
         _token: object,
@@ -66,6 +77,9 @@ class ManagedBackendCredentialMaterial:
             or type(mem0) is not ManagedMem0HttpConfig
             or type(probe_token) is not str
             or type(request) is not ManagedPreflightRequest
+            or type(preflight_snapshot) is not bytes
+            or type(preflight_commitment) is not str
+            or _SHA256.fullmatch(preflight_commitment) is None
             or type(run_id) is not str
             or type(deadline) is not datetime
         ):
@@ -74,11 +88,18 @@ class ManagedBackendCredentialMaterial:
         self.__mem0 = mem0
         self.__probe_token = probe_token
         self.__request = request
+        current_preflight = _canonical_preflight_snapshot(request)
+        if not hmac.compare_digest(current_preflight, preflight_snapshot):
+            raise TypeError("managed backend credential material is invalid")
+        self.__preflight_snapshot = preflight_snapshot
+        self.__preflight_commitment = preflight_commitment
         self.__run_id = run_id
         self.__deadline = deadline
         self.__key = secrets.token_bytes(32)
         self.__lock = threading.Lock()
         self.__http_phase = "pending"
+        self.__lifecycle_phase = "pending"
+        self.__policy_phase = "pending"
         self.__probe_phase = "pending"
         self.__snapshot = self._current_snapshot()
         self.__commitment = hmac_sha256(self.__key, self.__snapshot)
@@ -111,6 +132,48 @@ class ManagedBackendCredentialMaterial:
             self.__http_phase = "consumed"
             return self.__infinity, self.__mem0
 
+    def consume_for_http_lifecycle(
+        self,
+        *,
+        expected_request: ManagedPreflightRequest,
+        run_id: str,
+        deadline: datetime,
+    ) -> tuple[ManagedInfinityHttpConfig, ManagedMem0HttpConfig]:
+        """Consume the independent lifecycle lane and return fresh configs."""
+
+        with self.__lock:
+            phase = self.__lifecycle_phase
+            self.__lifecycle_phase = "terminal"
+            if phase != "pending" or not self._context_matches(
+                expected_request=expected_request,
+                run_id=run_id,
+                deadline=deadline,
+            ):
+                raise ValueError("managed backend credential continuity failed")
+            self.__lifecycle_phase = "consumed"
+            return self._fresh_transportless_configs()
+
+    def consume_for_http_policy(
+        self,
+        *,
+        expected_request: ManagedPreflightRequest,
+        run_id: str,
+        deadline: datetime,
+    ) -> tuple[ManagedInfinityHttpConfig, ManagedMem0HttpConfig]:
+        """Consume the independent policy lane and return fresh configs."""
+
+        with self.__lock:
+            phase = self.__policy_phase
+            self.__policy_phase = "terminal"
+            if phase != "pending" or not self._context_matches(
+                expected_request=expected_request,
+                run_id=run_id,
+                deadline=deadline,
+            ):
+                raise ValueError("managed backend credential continuity failed")
+            self.__policy_phase = "consumed"
+            return self._fresh_transportless_configs()
+
     def consume_mem0_probe_token(
         self,
         *,
@@ -140,6 +203,7 @@ class ManagedBackendCredentialMaterial:
         deadline: datetime,
     ) -> bool:
         try:
+            current_preflight = _canonical_preflight_snapshot(self.__request)
             current = self._current_snapshot()
             commitment = hmac_sha256(self.__key, current)
         except Exception:
@@ -148,6 +212,7 @@ class ManagedBackendCredentialMaterial:
             expected_request is self.__request
             and run_id == self.__run_id
             and deadline == self.__deadline
+            and hmac.compare_digest(current_preflight, self.__preflight_snapshot)
             and hmac.compare_digest(current, self.__snapshot)
             and hmac.compare_digest(commitment, self.__commitment)
         )
@@ -160,6 +225,13 @@ class ManagedBackendCredentialMaterial:
                 "run_id": self.__run_id,
                 "deadline": self.__deadline.isoformat(),
                 "request_identity": id(self.__request),
+                "preflight_snapshot_sha256": hashlib.sha256(
+                    _canonical_preflight_snapshot(self.__request)
+                ).hexdigest(),
+                "authority_preflight_snapshot_sha256": hashlib.sha256(
+                    self.__preflight_snapshot
+                ).hexdigest(),
+                "authority_preflight_commitment": self.__preflight_commitment,
                 "infinity": {
                     "target_identity_sha256": infinity.target_identity_sha256,
                     "base_url": infinity.base_url,
@@ -189,6 +261,29 @@ class ManagedBackendCredentialMaterial:
             }
         )
 
+    def _fresh_transportless_configs(
+        self,
+    ) -> tuple[ManagedInfinityHttpConfig, ManagedMem0HttpConfig]:
+        infinity = self.__infinity
+        mem0 = self.__mem0
+        return (
+            ManagedInfinityHttpConfig(
+                target_identity_sha256=infinity.target_identity_sha256,
+                base_url=infinity.base_url,
+                auth_token=infinity.auth_token,
+                timeout_seconds=infinity.timeout_seconds,
+                transport=None,
+            ),
+            ManagedMem0HttpConfig(
+                target_identity_sha256=mem0.target_identity_sha256,
+                base_url=mem0.base_url,
+                api_key=mem0.api_key,
+                timeout_seconds=mem0.timeout_seconds,
+                send_timestamps=mem0.send_timestamps,
+                transport=None,
+            ),
+        )
+
     def __copy__(self) -> object:
         raise TypeError("managed backend credential material is noncopyable")
 
@@ -213,6 +308,8 @@ def _issue_backend_credential_material(
     mem0: ManagedMem0HttpConfig,
     probe_token: str,
     request: ManagedPreflightRequest,
+    preflight_snapshot: bytes,
+    preflight_commitment: str,
     run_id: str,
     deadline: datetime,
 ) -> ManagedBackendCredentialMaterial:
@@ -221,10 +318,22 @@ def _issue_backend_credential_material(
         mem0=mem0,
         probe_token=probe_token,
         request=request,
+        preflight_snapshot=preflight_snapshot,
+        preflight_commitment=preflight_commitment,
         run_id=run_id,
         deadline=deadline,
         _token=_TOKEN,
     )
+
+
+def _canonical_preflight_snapshot(request: ManagedPreflightRequest) -> bytes:
+    try:
+        result = validate_managed_preflight(request)
+        if result.ready is not True:
+            raise ValueError
+        return managed_preflight_request_snapshot(request, result)
+    except Exception:
+        raise ValueError("managed backend credential continuity failed") from None
 
 
 __all__ = ("ManagedBackendCredentialMaterial",)

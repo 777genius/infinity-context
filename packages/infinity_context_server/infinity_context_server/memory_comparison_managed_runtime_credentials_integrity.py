@@ -7,6 +7,8 @@ import hmac
 import json
 from collections.abc import Mapping
 
+import httpx
+
 from infinity_context_server.memory_comparison_managed_preflight import (
     ManagedPreflightRequest,
     ManagedPreflightResult,
@@ -74,6 +76,50 @@ def secret_commitments(
     return values[0], values[1], values[2], values[3]
 
 
+def adapter_credential_binding(secret: str) -> str:
+    return "sha256:" + hashlib.sha256(secret.encode()).hexdigest()
+
+
+def validate_mock_transport(transport: object) -> None:
+    if transport is not None and type(transport) is not httpx.MockTransport:
+        raise ValueError("managed credential test transport is invalid")
+
+
+def runtime_authority_integrity(state: object) -> str:
+    material = state.material
+    payload = {
+        "run_id": state.run_id,
+        "issued_at": state.issued_at.isoformat(),
+        "deadline": state.deadline.isoformat(),
+        "request_timeout_seconds": state.request_timeout_seconds,
+        "origins": [state.infinity_origin, state.mem0_origin, state.subscription_origin],
+        "secret_commitments": list(state.secret_commitments),
+        "provider_credential": _credential_snapshot(material.provider_credential),
+        "mem0_probe_credential": _credential_snapshot(material.mem0_probe_credential),
+        "backend_endpoints": [
+            {
+                "target": {
+                    "backend_role": item.target.backend_role,
+                    "target_identity_sha256": item.target.target_identity_sha256,
+                },
+                "base_url": item.base_url,
+                "loopback": item.loopback,
+                "credential": _credential_snapshot(item.credential),
+            }
+            for item in material.backend_endpoints
+        ],
+        "route": material.provider_route.public_payload(),
+        "preflight_snapshot_sha256": (
+            hashlib.sha256(state.preflight_snapshot).hexdigest()
+            if state.preflight_snapshot is not None
+            else None
+        ),
+        "preflight_commitment": state.preflight_commitment,
+        "bound_request_identity": state.bound_request_identity,
+    }
+    return hmac_sha256(state.binding_key, canonical_json_bytes(payload))
+
+
 def managed_preflight_request_snapshot(
     request: ManagedPreflightRequest,
     result: ManagedPreflightResult,
@@ -134,6 +180,9 @@ def _credential(value: object) -> dict[str, object]:
         "configured": getattr(value, "configured", None),
         "binding_id": getattr(value, "binding_id", None),
     }
+
+
+_credential_snapshot = _credential
 
 
 __all__ = (
