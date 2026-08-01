@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import inspect
 from dataclasses import dataclass
+from typing import cast
 
 from infinity_context_adapters.features import document_ingestion as document_ingestion_adapters
 from infinity_context_adapters.local_blob import LocalBlobStorage
@@ -124,11 +125,18 @@ from infinity_context_core.ports.auto_memory import MemoryExtractorPort
 from infinity_context_core.ports.capabilities import DocumentMemoryPort
 from infinity_context_core.ports.clock import ClockPort
 from infinity_context_core.ports.extraction import ExtractionLimits
+from infinity_context_core.ports.graph_evidence import GraphProjectionEvidencePort
 from infinity_context_core.ports.ids import IdGeneratorPort
 from infinity_context_core.ports.unit_of_work import UnitOfWorkFactoryPort
+from infinity_context_core.ports.vector_projection_evidence import VectorProjectionEvidencePort
 from sqlalchemy.ext.asyncio import AsyncEngine
 
 from infinity_context_server.config import CaptureMode, MemoryPolicyMode, Settings
+from infinity_context_server.derived_identity_evidence import (
+    DerivedIdentityEvidenceCoordinator,
+    SqlAlchemyProjectionReadiness,
+    graphiti_target_commitment_sha256,
+)
 from infinity_context_server.metrics import RuntimeMetrics
 from infinity_context_server.provider_budget import QueryEmbeddingBudgetAdapter
 from infinity_context_server.provider_circuit import (
@@ -157,6 +165,9 @@ class Container:
     cognee_memory: DocumentMemoryPort
     vector_index: VectorMemoryPort
     graph_index: GraphMemoryPort
+    vector_projection_evidence: VectorProjectionEvidencePort | None
+    graph_projection_evidence: GraphProjectionEvidencePort | None
+    derived_identity_evidence: DerivedIdentityEvidenceCoordinator
     embedder: EmbeddingPort
     blob_storage: BlobStorageMaintenancePort
     get_capabilities: GetCapabilitiesUseCase
@@ -253,8 +264,12 @@ class Container:
             self.cognee_memory,
             self.vector_index,
             self.graph_index,
+            self.vector_projection_evidence,
+            self.graph_projection_evidence,
             self.embedder,
         ):
+            if resource is None:
+                continue
             resource_id = id(resource)
             if resource_id in closed:
                 continue
@@ -275,6 +290,22 @@ def build_container(settings: Settings | None = None) -> Container:
 
     raw_vector = _build_vector_adapter(resolved_settings)
     raw_graph = _build_graph_adapter(resolved_settings)
+    vector_projection_evidence = (
+        cast(VectorProjectionEvidencePort, raw_vector) if resolved_settings.qdrant_enabled else None
+    )
+    graph_projection_evidence = _build_graph_projection_evidence(resolved_settings)
+    derived_identity_evidence = DerivedIdentityEvidenceCoordinator(
+        readiness=SqlAlchemyProjectionReadiness(engine),
+        vector_evidence=vector_projection_evidence,
+        graph_evidence=graph_projection_evidence,
+        graph_target_commitment_sha256=(
+            graphiti_target_commitment_sha256(
+                neo4j_uri=resolved_settings.graphiti_neo4j_uri,
+            )
+            if graph_projection_evidence is not None
+            else None
+        ),
+    )
     raw_embeddings = _build_embedding_adapter(resolved_settings)
     provider_circuits = (
         _provider_circuit("qdrant", "vector", clock, resolved_settings),
@@ -601,6 +632,9 @@ def build_container(settings: Settings | None = None) -> Container:
         cognee_memory=cognee,
         vector_index=vector,
         graph_index=graph,
+        vector_projection_evidence=vector_projection_evidence,
+        graph_projection_evidence=graph_projection_evidence,
+        derived_identity_evidence=derived_identity_evidence,
         embedder=embeddings,
         blob_storage=blob_storage,
         get_capabilities=get_capabilities,
@@ -747,6 +781,22 @@ def _build_graph_adapter(settings: Settings) -> MemoryAdapterPort:
         neo4j_user=settings.graphiti_neo4j_user,
         neo4j_password=settings.graphiti_neo4j_password,
         build_indices=settings.graphiti_build_indices,
+    )
+
+
+def _build_graph_projection_evidence(
+    settings: Settings,
+) -> GraphProjectionEvidencePort | None:
+    if not settings.graphiti_enabled:
+        return None
+    from infinity_context_adapters.graphiti.identity_evidence import (
+        Neo4jGraphitiIdentityEvidenceAdapter,
+    )
+
+    return Neo4jGraphitiIdentityEvidenceAdapter(
+        neo4j_uri=settings.graphiti_neo4j_uri,
+        neo4j_user=settings.graphiti_neo4j_user,
+        neo4j_password=settings.graphiti_neo4j_password,
     )
 
 
