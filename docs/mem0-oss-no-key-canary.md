@@ -25,7 +25,7 @@ contain a checked-in Compose definition for the no-key stack.
   `4b61c5d31b9c668a12b4f5e78064248a02c82d2b`
 - `mem0ai==2.0.14`
 - `ollama==0.6.2` (Python client installed in the Mem0 wrapper image)
-- `qdrant-client==1.18.3`
+- `qdrant-client==1.18.0`
 - `ollama/ollama:0.32.3`
 - `qdrant/qdrant:v1.18.3`
 - Ollama extraction model: `llama3.1`
@@ -41,7 +41,7 @@ Primary sources:
 - [Mem0 OSS configuration documentation](https://docs.mem0.ai/open-source/configure)
 - [mem0ai 2.0.14 package](https://pypi.org/project/mem0ai/2.0.14/)
 - [Ollama v0.32.3 release](https://github.com/ollama/ollama/releases/tag/v0.32.3)
-- [qdrant-client 1.18.3 package](https://pypi.org/project/qdrant-client/1.18.3/)
+- [qdrant-client 1.18.0 package](https://pypi.org/project/qdrant-client/1.18.0/)
 - [Qdrant v1.18.3 release](https://github.com/qdrant/qdrant/releases/tag/v1.18.3)
 - [LoCoMo dataset source](https://github.com/snap-research/locomo/blob/main/data/locomo10.json)
 
@@ -62,7 +62,7 @@ audited pins before building:
 -mem0ai @ git+https://github.com/mem0ai/mem0.git@feat/v3-pipeline
 +mem0ai==2.0.14
 +ollama==0.6.2
-+qdrant-client==1.18.3
++qdrant-client==1.18.0
 ```
 
 Do not commit this overlay to either repository. Build the wrapper from the
@@ -78,7 +78,7 @@ docker run --rm mem0-oss-no-key:mb-4b61c5d31b9 \
   python -c 'from importlib.metadata import version; print(version("mem0ai"), version("ollama"), version("qdrant-client"))'
 ```
 
-The version check must print `2.0.14 0.6.2 1.18.3`.
+The version check must print `2.0.14 0.6.2 1.18.0`.
 
 Stage `locomo10.json` from the primary LoCoMo source or an already audited
 local copy. Do not let a benchmark command silently download it. Verify it:
@@ -157,6 +157,7 @@ docker run -d --name mem0-no-key-qdrant \
 docker run -d --name mem0-no-key-api \
   --network mem0-no-key-canary \
   -p 127.0.0.1:8888:8000 \
+  -e MEM0_TELEMETRY=false \
   -e QDRANT_HOST=qdrant \
   -e QDRANT_PORT=6333 \
   -e COLLECTION_NAME=mem0_no_key_canary_v1 \
@@ -167,7 +168,8 @@ docker run -d --name mem0-no-key-api \
 
 Do not pass `OPENAI_API_KEY`, `MEMORY_OPENAI_API_KEY`, `MEM0_API_KEY`, Azure,
 Anthropic or AWS credentials to these containers. The explicit YAML prevents
-Mem0 from falling back to its OpenAI defaults.
+Mem0 from falling back to its OpenAI defaults. Keep `MEM0_TELEMETRY=false` so
+the isolated canary does not send anonymous usage events to PostHog.
 
 ## Service and CLI preflight
 
