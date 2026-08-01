@@ -112,6 +112,8 @@ def test_no_go_is_decided_before_environment_credentials_readiness_or_backend(
     ]
     assert report["planned_limits"] == {
         "benchmark_max_provider_calls": 4,
+        "readiness_max_provider_calls": 1,
+        "total_max_provider_calls": 5,
         "benchmark_reserved_token_ceiling": 100_000,
         "max_output_tokens_per_call": 4096,
         "readiness_max_output_tokens": 8,

@@ -225,6 +225,8 @@ def _no_go_report(
         "selected_case_count": selected_count,
         "planned_limits": {
             "benchmark_max_provider_calls": selected_count * 4,
+            "readiness_max_provider_calls": 1,
+            "total_max_provider_calls": selected_count * 4 + 1,
             "benchmark_reserved_token_ceiling": config.max_total_tokens,
             "max_output_tokens_per_call": (
                 MANAGED_PRODUCTION_CLI_MAX_OUTPUT_TOKENS_PER_CALL
