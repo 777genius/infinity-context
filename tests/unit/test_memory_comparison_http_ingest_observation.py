@@ -37,6 +37,9 @@ def test_locomo_infinity_ingest_preserves_exact_ordered_response_identities() ->
                 json={
                     "data": {
                         "id": "fact-server-1",
+                        "space_id": "space-server-1",
+                        "memory_scope_id": "scope-server-1",
+                        "thread_id": "thread-server-1",
                         "status": "active",
                         "version": 3,
                         "indexing_status": "indexed",
@@ -56,6 +59,9 @@ def test_locomo_infinity_ingest_preserves_exact_ordered_response_identities() ->
             json={
                 "data": {
                     "id": "document-server-1",
+                    "space_id": "space-server-1",
+                    "memory_scope_id": "scope-server-1",
+                    "thread_id": "thread-server-1",
                     "status": "active",
                     "version": 1,
                     "indexing_status": "indexed",
@@ -86,6 +92,9 @@ def test_locomo_infinity_ingest_preserves_exact_ordered_response_identities() ->
     assert manifest["fact_ids"] == ["fact-server-1"]
     assert manifest["document_ids"] == ["document-server-1"]
     assert manifest["chunk_ids"] == ["chunk-server-1", "chunk-server-2"]
+    assert manifest["space_id"] == "space-server-1"
+    assert manifest["memory_scope_id"] == "scope-server-1"
+    assert manifest["thread_id"] == "thread-server-1"
     assert manifest["source_ids"] == [
         "locomo-source-1",
         "locomo-source-1:raw-turn-document",
@@ -103,6 +112,9 @@ def test_longmemeval_infinity_document_manifest_is_complete_and_exact() -> None:
             json={
                 "data": {
                     "id": "long-document-server",
+                    "space_id": "space-server-2",
+                    "memory_scope_id": "scope-server-2",
+                    "thread_id": "thread-server-2",
                     "status": "active",
                     "indexing_status": "indexed",
                     "source_external_id": "long-source-1",
@@ -128,7 +140,7 @@ def test_longmemeval_infinity_document_manifest_is_complete_and_exact() -> None:
     manifest = result.metadata["ingest_identity_manifest"]
     assert result.operations[0].metadata["ingest_identity_observation"]["version"] is None
     assert manifest == {
-        "schema_version": "http_ingest_identity_manifest.v1",
+        "schema_version": "http_ingest_identity_manifest.v2",
         "complete": True,
         "operation_count": 1,
         "issues": [],
@@ -137,6 +149,9 @@ def test_longmemeval_infinity_document_manifest_is_complete_and_exact() -> None:
         "fact_ids": [],
         "document_ids": ["long-document-server"],
         "chunk_ids": ["long-chunk-server"],
+        "space_id": "space-server-2",
+        "memory_scope_id": "scope-server-2",
+        "thread_id": "thread-server-2",
         "observed_memory_ids": [],
         "created_memory_ids": [],
         "source_ids": ["long-source-1"],
