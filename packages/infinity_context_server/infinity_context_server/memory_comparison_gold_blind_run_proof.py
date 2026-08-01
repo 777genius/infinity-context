@@ -450,13 +450,20 @@ def _build_public_dispatch_api() -> tuple[Callable[..., object], ...]:
             _reject_exact_deferred_result,
             _trusted_evaluator_callback,
         )
+        from infinity_context_server.memory_comparison_gold_blind_judge_capability import (
+            TrustedGoldBlindJudgeCapability,
+            _consume_trusted_gold_blind_judge_capability,
+            _invoke_trusted_gold_blind_judge_capability,
+        )
         from infinity_context_server.memory_comparison_gold_blind_validation import (
             freeze_json_value,
             parse_canonical_gold_json,
             secret_fragments,
         )
 
-        callback = _trusted_evaluator_callback(evaluator)
+        stateful_capability = type(evaluator) is TrustedGoldBlindJudgeCapability
+        if not stateful_capability:
+            callback = _trusted_evaluator_callback(evaluator)
         receipt_key = (case_id, "judge")
         try:
             if dispatch_ledger not in owned_ledgers:
@@ -487,6 +494,17 @@ def _build_public_dispatch_api() -> tuple[Callable[..., object], ...]:
                         secret=state.secret,  # type: ignore[union-attr]
                         schema_version=RUN_DISPATCH_PROOF_SCHEMA_VERSION,
                     )
+                    if stateful_capability:
+                        capability_snapshot, stateful_channel_snapshot = (
+                            _consume_trusted_gold_blind_judge_capability(
+                                evaluator,
+                                key=key,  # type: ignore[arg-type]
+                                channel=channel,  # type: ignore[arg-type]
+                                run_id=run_id,
+                                case_id=case_id,
+                                backend_id=backend_id,
+                            )
+                        )
                 except GoldBlindContractError:
                     raise GoldBlindRunDispatchProofError("Judge answer binding mismatch") from None
                 if receipt_key in state.pending or receipt_key in state.receipts:  # type: ignore[union-attr]
@@ -497,24 +515,37 @@ def _build_public_dispatch_api() -> tuple[Callable[..., object], ...]:
             raise GoldBlindContractError("Run dispatch ledger verification failed") from None
         try:
             try:
-                snapshot = _consume_channel_binding(
-                    key=key,
-                    channel=channel,
-                    run_id=run_id,
-                    case_id=case_id,
-                )
+                if stateful_capability:
+                    snapshot = stateful_channel_snapshot
+                else:
+                    snapshot = _consume_channel_binding(
+                        key=key,
+                        channel=channel,
+                        run_id=run_id,
+                        case_id=case_id,
+                    )
                 mutable_answer = parse_canonical_dispatch_json(binding_snapshot.answer_json)
                 immutable_answer = freeze_json_value(mutable_answer)
                 mutable_ground_truth = parse_canonical_gold_json(snapshot.ground_truth_json)
                 immutable_ground_truth = freeze_json_value(mutable_ground_truth)
-                result = callback(
-                    candidate_answer=immutable_answer,
-                    ground_truth=immutable_ground_truth,
-                    expected_terms=tuple(snapshot.expected_terms),
-                    forbidden_terms=tuple(snapshot.forbidden_terms),
-                )
+                if stateful_capability:
+                    result = _invoke_trusted_gold_blind_judge_capability(
+                        capability_snapshot,
+                        candidate_answer=immutable_answer,
+                        ground_truth=immutable_ground_truth,
+                        expected_terms=tuple(snapshot.expected_terms),
+                        forbidden_terms=tuple(snapshot.forbidden_terms),
+                    )
+                else:
+                    result = callback(
+                        candidate_answer=immutable_answer,
+                        ground_truth=immutable_ground_truth,
+                        expected_terms=tuple(snapshot.expected_terms),
+                        forbidden_terms=tuple(snapshot.forbidden_terms),
+                    )
                 _reject_exact_deferred_result(result)
-                _trusted_evaluator_callback(evaluator)
+                if not stateful_capability:
+                    _trusted_evaluator_callback(evaluator)
                 output = _judge_result_payload(
                     result,
                     secrets_to_hide=secret_fragments(
