@@ -25,21 +25,15 @@ def _prepared() -> VerifiedManagedLiveRunPreparation:
         (
             "locomo",
             (
-                "managed_production_ingest_manifest_binding_unavailable",
-                "managed_http_policy_infinity_document_chunk_identity_unavailable",
                 "managed_http_policy_mem0_exact_source_identity_unavailable",
-                "managed_http_policy_exact_derived_identity_manifest_unavailable",
-                "managed_http_policy_terminal_manifest_binding_unavailable",
+                "managed_http_policy_evidence_capabilities_unavailable",
             ),
         ),
         (
             "longmemeval",
             (
-                "managed_production_ingest_manifest_binding_unavailable",
-                "managed_http_policy_infinity_document_chunk_identity_unavailable",
                 "managed_http_policy_mem0_exact_source_identity_unavailable",
-                "managed_http_policy_exact_derived_identity_manifest_unavailable",
-                "managed_http_policy_terminal_manifest_binding_unavailable",
+                "managed_http_policy_evidence_capabilities_unavailable",
             ),
         ),
     ),
@@ -109,11 +103,8 @@ def test_pre_readiness_gate_returns_same_static_no_go_with_zero_live_calls(
     assert decision.additional_provider_calls_performed == 0
     assert decision.additional_backend_calls_performed == 0
     assert decision.blockers == (
-        "managed_production_ingest_manifest_binding_unavailable",
-        "managed_http_policy_infinity_document_chunk_identity_unavailable",
         "managed_http_policy_mem0_exact_source_identity_unavailable",
-        "managed_http_policy_exact_derived_identity_manifest_unavailable",
-        "managed_http_policy_terminal_manifest_binding_unavailable",
+        "managed_http_policy_evidence_capabilities_unavailable",
     )
     assert _PRIVATE_GOLD not in json.dumps(decision.public_payload(), sort_keys=True)
 
@@ -124,7 +115,7 @@ def test_pre_readiness_gate_rejects_invalid_cases_without_live_work() -> None:
     assert caught.value.code == "managed_production_pre_readiness_failed"
 
 
-def test_structural_blockers_remain_when_policy_contracts_become_ready(
+def test_no_go_only_root_fails_closed_when_policy_reports_no_blockers(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     prepared = _prepared()
@@ -132,9 +123,9 @@ def test_structural_blockers_remain_when_policy_contracts_become_ready(
     monkeypatch.setattr(subject, "_inspect_managed_live_policy_cases", lambda _: cases)
     monkeypatch.setattr(subject, "managed_http_policy_production_blockers", lambda _: ())
 
-    decision = subject.run_verified_managed_production_comparison(prepared)
-    assert decision.blockers == ("managed_production_ingest_manifest_binding_unavailable",)
-    assert decision.preparation_consumed is False
+    with pytest.raises(subject.ManagedProductionCompositionError) as caught:
+        subject.run_verified_managed_production_comparison(prepared)
+    assert caught.value.code == "managed_production_decision_invalid"
 
 
 def test_forged_preparation_is_rejected_without_inspection(
