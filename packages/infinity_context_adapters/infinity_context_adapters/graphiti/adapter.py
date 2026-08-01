@@ -7,7 +7,6 @@ canonical ids only; application use cases hydrate through Postgres.
 from __future__ import annotations
 
 import inspect
-import re
 from datetime import datetime
 from typing import Any
 
@@ -34,6 +33,7 @@ from infinity_context_core.ports.capabilities import (
     ProjectionWriteResult,
 )
 
+from infinity_context_adapters.graphiti.scope_identity import graphiti_group_id
 from infinity_context_adapters.provider_errors import classify_provider_exception
 
 
@@ -312,13 +312,7 @@ class GraphitiGraphMemoryAdapter:
         )
 
     def _group_id(self, space_id: str, memory_scope_id: str) -> str:
-        return "__".join(
-            (
-                _safe_group_id_part(self._group_id_prefix),
-                _safe_group_id_part(space_id),
-                _safe_group_id_part(memory_scope_id),
-            )
-        )
+        return graphiti_group_id(space_id, memory_scope_id, prefix=self._group_id_prefix)
 
     def _is_configured(self) -> bool:
         return self._client is not None or bool(
@@ -553,12 +547,6 @@ async def _call_search(search: Any, *, query: str, group_id: str, limit: int) ->
             return list(await search(query=query, group_id=group_id, num_results=limit))
         except TypeError:
             return list(await search(query, num_results=limit))
-
-
-def _safe_group_id_part(value: str) -> str:
-    cleaned = re.sub(r"[^a-zA-Z0-9_-]+", "_", value.strip())
-    cleaned = cleaned.strip("_")
-    return cleaned or "default"
 
 
 def _supports_delete_episode(client: object) -> bool:
