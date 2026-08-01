@@ -161,26 +161,13 @@ def build_verified_managed_run_plan(
         provider_route,
         scope=trusted_scope,
     )
-    payload = parse_memory_comparison_dataset_bytes(dataset_bytes)
-    locomo_mode = trusted_profile.required_locomo_ingest_mode or LOCOMO_INGEST_OFFICIAL_TURNS
-    loaded_cases = cases_from_payload(payload, locomo_ingest_mode=locomo_mode)
-    profile_cases = select_full_comparison_profile_cases(
-        profile=trusted_profile,
-        cases=loaded_cases,
-    )
-    _validate_unique_case_ids(profile_cases)
-    selected_cases = _select_cases(
-        profile_cases,
+    selected_cases = _selected_profile_cases_from_dataset(
+        trusted_profile,
+        dataset_bytes,
         scope=trusted_scope,
         selected_case_ids=selected_case_ids,
     )
     dataset_sha256 = hashlib.sha256(dataset_bytes).hexdigest()
-    if trusted_scope == FULL_COMPARISON_SCOPE_FULL:
-        _validate_full_dataset(
-            trusted_profile,
-            profile_cases,
-            dataset_sha256=dataset_sha256,
-        )
 
     managed_cases, manifest = _managed_cases_and_manifest(selected_cases)
     plan = ManagedRunPlan(
@@ -199,6 +186,58 @@ def build_verified_managed_run_plan(
     )
     _validate_plan(plan)
     return _seal_verified_plan(plan, selected_cases)
+
+
+def _selected_profile_cases_from_dataset(
+    profile: FullComparisonProfile,
+    dataset_bytes: bytes,
+    *,
+    scope: str,
+    selected_case_ids: tuple[str, ...],
+) -> tuple[PublicBenchmarkCase, ...]:
+    payload = parse_memory_comparison_dataset_bytes(dataset_bytes)
+    locomo_mode = profile.required_locomo_ingest_mode or LOCOMO_INGEST_OFFICIAL_TURNS
+    loaded_cases = cases_from_payload(payload, locomo_ingest_mode=locomo_mode)
+    profile_cases = select_full_comparison_profile_cases(
+        profile=profile,
+        cases=loaded_cases,
+    )
+    _validate_unique_case_ids(profile_cases)
+    selected = _select_cases(
+        profile_cases,
+        scope=scope,
+        selected_case_ids=selected_case_ids,
+    )
+    if scope == FULL_COMPARISON_SCOPE_FULL:
+        _validate_full_dataset(
+            profile,
+            profile_cases,
+            dataset_sha256=hashlib.sha256(dataset_bytes).hexdigest(),
+        )
+    return selected
+
+
+def managed_policy_cases_from_dataset(
+    *,
+    profile: FullComparisonProfile,
+    dataset_bytes: bytes,
+    scope: str,
+    selected_case_ids: tuple[str, ...],
+) -> tuple[ManagedRunCase, ...]:
+    """Project exact selected dataset bytes into gold-free policy cases only."""
+
+    if type(dataset_bytes) is not bytes:
+        raise ManagedRunError("dataset_bytes must be exact bytes")
+    trusted_profile = frozen_full_comparison_profile(profile)
+    trusted_scope = normalize_full_comparison_scope(scope)
+    selected = _selected_profile_cases_from_dataset(
+        trusted_profile,
+        dataset_bytes,
+        scope=trusted_scope,
+        selected_case_ids=selected_case_ids,
+    )
+    managed, _manifest = _managed_cases_and_manifest(selected)
+    return managed
 
 
 def _select_cases(
@@ -642,4 +681,5 @@ __all__ = (
     "VerifiedManagedRunPlan",
     "build_verified_managed_run_plan",
     "managed_execution_case_material_sha256",
+    "managed_policy_cases_from_dataset",
 )

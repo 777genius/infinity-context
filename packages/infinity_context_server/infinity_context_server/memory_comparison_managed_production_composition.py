@@ -33,7 +33,6 @@ MANAGED_PRODUCTION_COMPOSITION_SCHEMA_VERSION = (
 _INGEST_MANIFEST_BINDING_BLOCKER = (
     "managed_production_ingest_manifest_binding_unavailable"
 )
-_SEALED_CLI_BLOCKER = "managed_production_sealed_cli_entry_unavailable"
 
 
 class ManagedProductionCompositionError(RuntimeError):
@@ -150,7 +149,6 @@ def evaluate_managed_production_pre_readiness(
 
 def _production_blockers(cases: tuple[ManagedRunCase, ...]) -> tuple[str, ...]:
     return (
-        _SEALED_CLI_BLOCKER,
         _INGEST_MANIFEST_BINDING_BLOCKER,
         *managed_http_policy_production_blockers(cases),
     )
