@@ -23,6 +23,8 @@ from mem0_platform_adapter.models import (
     BenchmarkAuthChallengeResponse,
     DeleteResponse,
     HealthResponse,
+    PersistedMemoryIdentity,
+    PersistedSourceMetadata,
     SafeIdentifier,
     SearchRequest,
     SearchResponse,
@@ -135,7 +137,20 @@ def create_app(
     ) -> AddResponse:
         if not selected_platform.configured:
             raise HTTPException(status_code=503, detail="missing_mem0_api_key")
-        return AddResponse(results=service.add(request))
+        proof = service.add(request)
+        return AddResponse(
+            request_id=proof.request_id,
+            results=[
+                PersistedMemoryIdentity(
+                    id=item.memory_id,
+                    metadata=PersistedSourceMetadata(
+                        source_id=item.source_id,
+                        source_sha256=item.source_sha256,
+                    ),
+                )
+                for item in proof.results
+            ],
+        )
 
     @app.post("/search", response_model=SearchResponse)
     def search_memories(

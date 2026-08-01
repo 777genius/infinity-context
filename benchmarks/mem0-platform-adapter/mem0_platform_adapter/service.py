@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import secrets
 import time
 from collections.abc import Callable, Mapping, Sequence
@@ -48,6 +49,27 @@ class DeleteVerification:
 
 
 @dataclass(frozen=True, slots=True)
+class PersistedMemoryIdentityProof:
+    memory_id: str
+    source_id: str
+    source_sha256: str
+
+
+@dataclass(frozen=True, slots=True)
+class AddVerification:
+    request_id: str
+    results: tuple[PersistedMemoryIdentityProof, ...]
+
+
+@dataclass(frozen=True, slots=True)
+class _AddReadback:
+    request_id: str
+    event_status: str
+    persisted: tuple[PersistedMemoryIdentityProof, ...]
+    raw_results: tuple[dict[str, Any], ...]
+
+
+@dataclass(frozen=True, slots=True)
 class PollingPolicy:
     max_attempts: int = 60
     interval_seconds: float = 0.5
@@ -83,11 +105,11 @@ class Mem0CompatibilityService:
             failure_code=None if platform.configured else "missing_mem0_api_key"
         )
 
-    def add(self, request: AddRequest) -> list[dict[str, Any]]:
-        correlated, _event_status = self._add_and_readback(request)
+    def add(self, request: AddRequest) -> AddVerification:
+        readback = self._add_and_readback(request)
         if request.timestamp is not None:
-            self._verify_timestamp(request, correlated)
-        return correlated
+            self._verify_timestamp(request, readback.raw_results)
+        return AddVerification(request_id=readback.request_id, results=readback.persisted)
 
     def attest_timestamp(self) -> TimestampAttestation:
         token = self._token_factory()
@@ -98,7 +120,13 @@ class Mem0CompatibilityService:
             messages=[{"role": "user", "content": "Mem0 timestamp attestation sentinel."}],
             user_id=user_id,
             run_id=run_id,
-            metadata={"source_id": source_id, "benchmark_probe": True},
+            metadata={
+                "source_id": source_id,
+                "source_sha256": hashlib.sha256(
+                    b"Mem0 timestamp attestation sentinel."
+                ).hexdigest(),
+                "benchmark_probe": True,
+            },
             timestamp=1672531200,
         )
         event_status: str | None = None
@@ -108,8 +136,10 @@ class Mem0CompatibilityService:
         max_delta: float | None = None
         failure_code: str | None = None
         try:
-            correlated, event_status = self._add_and_readback(request)
-            observed, max_delta = self._verify_timestamp(request, correlated)
+            readback = self._add_and_readback(request)
+            correlated = list(readback.raw_results)
+            event_status = readback.event_status
+            observed, max_delta = self._verify_timestamp(request, readback.raw_results)
         except TimestampReadbackError as exc:
             failure_code = exc.attestation_code
         except AdapterError as exc:
@@ -148,7 +178,7 @@ class Mem0CompatibilityService:
             failure_code=code,
         )
 
-    def _add_and_readback(self, request: AddRequest) -> tuple[list[dict[str, Any]], str]:
+    def _add_and_readback(self, request: AddRequest) -> _AddReadback:
         payload = self.platform.add(
             messages=[message.model_dump() for message in request.messages],
             user_id=request.user_id,
@@ -162,24 +192,27 @@ class Mem0CompatibilityService:
             raise AdapterError("Mem0 add response did not include event_id")
 
         event = self._wait_for_event(event_id)
-        filters = _scope_filters(request)
-        correlated = self._readback_source_results(
-            filters=filters,
-            source_id=str(request.metadata["source_id"]),
+        source_id = str(request.metadata["source_id"])
+        source_sha256 = str(request.metadata["source_sha256"])
+        raw_results, persisted = self._readback_source_results(
+            filters=_source_filters(request, source_id=source_id),
+            source_id=source_id,
+            source_sha256=source_sha256,
         )
-        if not correlated:
-            raise TimestampReadbackError(
-                "no persisted memory matched metadata.source_id",
-                attestation_code="source_id_not_found",
-            )
-        return correlated, event.status
+        return _AddReadback(
+            request_id=event_id,
+            event_status=event.status,
+            persisted=tuple(persisted),
+            raw_results=tuple(raw_results),
+        )
 
     def _readback_source_results(
         self,
         *,
         filters: Mapping[str, Any],
         source_id: str,
-    ) -> list[dict[str, Any]]:
+        source_sha256: str,
+    ) -> tuple[list[dict[str, Any]], list[PersistedMemoryIdentityProof]]:
         try:
             results = self._readback_all(filters=filters)
         except ReadbackPaginationError as exc:
@@ -187,7 +220,8 @@ class Mem0CompatibilityService:
                 str(exc),
                 attestation_code=exc.attestation_code,
             ) from exc
-        return _correlate_source_results(results, source_id)
+        persisted = _prove_persisted_source_results(results, source_id, source_sha256)
+        return results, persisted
 
     def _readback_all(
         self,
@@ -308,17 +342,14 @@ class Mem0CompatibilityService:
         return observed, max(deltas)
 
 
-def _scope_filters(request: AddRequest) -> dict[str, Any]:
-    filters = [
-        {key: value}
-        for key, value in (
-            ("user_id", request.user_id),
-            ("agent_id", request.agent_id),
-            ("run_id", request.run_id),
-        )
-        if value is not None
-    ]
-    return filters[0] if len(filters) == 1 else {"AND": filters}
+def _source_filters(request: AddRequest, *, source_id: str) -> dict[str, Any]:
+    return {
+        "AND": [
+            {"user_id": request.user_id},
+            {"run_id": request.run_id},
+            {"metadata": {"source_id": source_id}},
+        ]
+    }
 
 
 def _results(payload: Mapping[str, Any]) -> list[dict[str, Any]]:
@@ -416,16 +447,55 @@ def _next_page(
     return next_page
 
 
-def _correlate_source_results(
+def _prove_persisted_source_results(
     results: Sequence[Mapping[str, Any]],
     source_id: str,
-) -> list[dict[str, Any]]:
-    return [
-        dict(item)
-        for item in results
-        if isinstance(item.get("metadata"), Mapping)
-        and item["metadata"].get("source_id") == source_id
-    ]
+    source_sha256: str,
+) -> list[PersistedMemoryIdentityProof]:
+    if not results:
+        raise TimestampReadbackError(
+            "no persisted memory matched metadata.source_id",
+            attestation_code="source_id_not_found",
+        )
+    persisted: list[PersistedMemoryIdentityProof] = []
+    seen_ids: set[str] = set()
+    for item in results:
+        memory_id = item.get("id")
+        if (
+            not isinstance(memory_id, str)
+            or not memory_id
+            or memory_id != memory_id.strip()
+            or len(memory_id) > 160
+        ):
+            raise TimestampReadbackError(
+                "persisted memory id is absent or invalid",
+                attestation_code="invalid_persisted_memory_id",
+            )
+        if memory_id in seen_ids:
+            raise TimestampReadbackError(
+                "persisted memory id was duplicated",
+                attestation_code="duplicate_persisted_memory_id",
+            )
+        seen_ids.add(memory_id)
+        metadata = item.get("metadata")
+        if not isinstance(metadata, Mapping) or metadata.get("source_id") != source_id:
+            raise TimestampReadbackError(
+                "persisted metadata.source_id does not match request",
+                attestation_code="source_id_mismatch",
+            )
+        if metadata.get("source_sha256") != source_sha256:
+            raise TimestampReadbackError(
+                "persisted metadata.source_sha256 does not match request",
+                attestation_code="source_sha256_mismatch",
+            )
+        persisted.append(
+            PersistedMemoryIdentityProof(
+                memory_id=memory_id,
+                source_id=source_id,
+                source_sha256=source_sha256,
+            )
+        )
+    return persisted
 
 
 def _parse_created_at(value: Any) -> datetime:
