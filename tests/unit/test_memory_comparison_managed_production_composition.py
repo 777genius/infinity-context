@@ -25,14 +25,12 @@ def _prepared() -> VerifiedManagedLiveRunPreparation:
         (
             "locomo",
             (
-                "managed_http_policy_mem0_exact_source_identity_unavailable",
                 "managed_http_policy_evidence_capabilities_unavailable",
             ),
         ),
         (
             "longmemeval",
             (
-                "managed_http_policy_mem0_exact_source_identity_unavailable",
                 "managed_http_policy_evidence_capabilities_unavailable",
             ),
         ),
@@ -103,7 +101,6 @@ def test_pre_readiness_gate_returns_same_static_no_go_with_zero_live_calls(
     assert decision.additional_provider_calls_performed == 0
     assert decision.additional_backend_calls_performed == 0
     assert decision.blockers == (
-        "managed_http_policy_mem0_exact_source_identity_unavailable",
         "managed_http_policy_evidence_capabilities_unavailable",
     )
     assert _PRIVATE_GOLD not in json.dumps(decision.public_payload(), sort_keys=True)

@@ -250,7 +250,6 @@ def _seal(adapter, bindings, cases, views, monkeypatch):
 
 def test_static_blockers_keep_only_honest_remaining_capability_gaps() -> None:
     expected = (
-        "managed_http_policy_mem0_exact_source_identity_unavailable",
         "managed_http_policy_evidence_capabilities_unavailable",
     )
     assert managed_http_policy_production_blockers((_locomo_case(),)) == expected
