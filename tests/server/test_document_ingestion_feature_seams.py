@@ -414,6 +414,7 @@ def test_document_ingestion_public_seam_maps_legacy_document_api_responses() -> 
         "created_at": "2026-01-02T03:04:05",
         "updated_at": "2026-01-02T03:04:05",
         "chunks": 2,
+        "chunk_ids": ["chunk_1", "chunk_2"],
         "fragment_summary": {
             "fragment_count": 2,
             "node_counts": {"claim": 1, "risk": 1},

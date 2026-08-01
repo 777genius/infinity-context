@@ -55,6 +55,9 @@ class HttpIngestIdentityObservation:
     fact_ids: tuple[str, ...] = ()
     document_ids: tuple[str, ...] = ()
     chunk_ids: tuple[str, ...] = ()
+    space_id: str | None = None
+    memory_scope_id: str | None = None
+    thread_id: str | None = None
     observed_memory_ids: tuple[str, ...] = ()
     created_memory_ids: tuple[str, ...] = ()
     source_ids: tuple[str, ...] = ()
@@ -82,6 +85,13 @@ class HttpIngestIdentityObservation:
             self.source_ids,
         ):
             _safe_identifier_tuple(lane)
+        for scope_identity in (self.space_id, self.memory_scope_id, self.thread_id):
+            if scope_identity is not None and not _safe_identifier(scope_identity):
+                raise ValueError("HTTP ingest observation scope identity is invalid")
+        if self.complete and self.backend == "infinity" and (
+            self.space_id is None or self.memory_scope_id is None
+        ):
+            raise ValueError("Complete Infinity observation requires canonical scope")
         _sha256_tuple(self.source_sha256)
         _safe_issue_tuple(self.issues)
         if self.complete != (not self.issues):
@@ -114,7 +124,7 @@ class HttpIngestIdentityObservation:
         """Return a stable primitive-only representation suitable for HMAC binding."""
 
         return {
-            "schema_version": "http_ingest_identity_observation.v1",
+            "schema_version": "http_ingest_identity_observation.v2",
             "backend": self.backend,
             "operation_type": self.operation_type,
             "complete": self.complete,
@@ -123,6 +133,9 @@ class HttpIngestIdentityObservation:
             "fact_ids": list(self.fact_ids),
             "document_ids": list(self.document_ids),
             "chunk_ids": list(self.chunk_ids),
+            "space_id": self.space_id,
+            "memory_scope_id": self.memory_scope_id,
+            "thread_id": self.thread_id,
             "observed_memory_ids": list(self.observed_memory_ids),
             "created_memory_ids": list(self.created_memory_ids),
             "source_ids": list(self.source_ids),
@@ -147,6 +160,9 @@ class HttpIngestIdentityManifest:
     fact_ids: tuple[str, ...]
     document_ids: tuple[str, ...]
     chunk_ids: tuple[str, ...]
+    space_id: str | None
+    memory_scope_id: str | None
+    thread_id: str | None
     observed_memory_ids: tuple[str, ...]
     created_memory_ids: tuple[str, ...]
     source_ids: tuple[str, ...]
@@ -177,6 +193,12 @@ class HttpIngestIdentityManifest:
             self.source_ids,
         ):
             _safe_identifier_tuple(lane)
+        for field_name in ("space_id", "memory_scope_id", "thread_id"):
+            value = getattr(self, field_name)
+            if value is not None and not _safe_identifier(value):
+                raise ValueError("HTTP ingest manifest scope identity is invalid")
+            if value != _shared_scope_identity(self.operations, field_name, []):
+                raise ValueError("HTTP ingest manifest scope identity is inconsistent")
         _sha256_tuple(self.source_sha256)
         for field_name in (
             "canonical_record_ids",
@@ -193,7 +215,7 @@ class HttpIngestIdentityManifest:
 
     def metadata(self) -> dict[str, object]:
         return {
-            "schema_version": "http_ingest_identity_manifest.v1",
+            "schema_version": "http_ingest_identity_manifest.v2",
             "complete": self.complete,
             "operation_count": self.operation_count,
             "issues": list(self.issues),
@@ -202,6 +224,9 @@ class HttpIngestIdentityManifest:
             "fact_ids": list(self.fact_ids),
             "document_ids": list(self.document_ids),
             "chunk_ids": list(self.chunk_ids),
+            "space_id": self.space_id,
+            "memory_scope_id": self.memory_scope_id,
+            "thread_id": self.thread_id,
             "observed_memory_ids": list(self.observed_memory_ids),
             "created_memory_ids": list(self.created_memory_ids),
             "source_ids": list(self.source_ids),
@@ -218,6 +243,15 @@ def infinity_ingest_identity_observation(
 
     issues: list[str] = []
     data = _success_data(response, issues)
+    space_id = _identifier(data.get("space_id"), "space_id", issues)
+    memory_scope_id = _identifier(
+        data.get("memory_scope_id"), "memory_scope_id", issues
+    )
+    thread_id = (
+        _identifier(data.get("thread_id"), "thread_id", issues)
+        if data.get("thread_id") is not None
+        else None
+    )
     record_id = _identifier(data.get("id"), "canonical_record_id", issues)
     status = _enum_value(
         data.get("status"),
@@ -275,6 +309,9 @@ def infinity_ingest_identity_observation(
         fact_ids=fact_ids,
         document_ids=document_ids,
         chunk_ids=chunk_ids,
+        space_id=space_id,
+        memory_scope_id=memory_scope_id,
+        thread_id=thread_id,
         source_ids=source_ids,
         source_sha256=source_hashes,
         status=status,
@@ -346,19 +383,25 @@ def ingest_identity_manifest(
     """Aggregate ordered per-operation observations without synthesizing identities."""
 
     exact = tuple(observations)
-    issues = (
+    issues = [
         *(issue for observation in exact for issue in observation.issues),
         *_manifest_duplicate_issues(exact),
-    )
+    ]
+    space_id = _shared_scope_identity(exact, "space_id", issues)
+    memory_scope_id = _shared_scope_identity(exact, "memory_scope_id", issues)
+    thread_id = _shared_scope_identity(exact, "thread_id", issues)
     return HttpIngestIdentityManifest(
         complete=bool(exact) and not issues and all(item.complete for item in exact),
         operation_count=len(exact),
-        issues=issues,
+        issues=tuple(issues),
         operations=exact,
         canonical_record_ids=_flatten(exact, "canonical_record_ids"),
         fact_ids=_flatten(exact, "fact_ids"),
         document_ids=_flatten(exact, "document_ids"),
         chunk_ids=_flatten(exact, "chunk_ids"),
+        space_id=space_id,
+        memory_scope_id=memory_scope_id,
+        thread_id=thread_id,
         observed_memory_ids=_flatten(exact, "observed_memory_ids"),
         created_memory_ids=_flatten(exact, "created_memory_ids"),
         source_ids=_flatten(exact, "source_ids"),
@@ -633,6 +676,23 @@ def _manifest_duplicate_issues(
         if len(values) != len(set(values)):
             issues.append(issue)
     return tuple(issues)
+
+
+def _shared_scope_identity(
+    observations: Sequence[HttpIngestIdentityObservation],
+    field_name: str,
+    issues: list[str],
+) -> str | None:
+    values = tuple(getattr(observation, field_name) for observation in observations)
+    if not values or all(value is None for value in values):
+        return None
+    non_null = tuple(value for value in values if value is not None)
+    if len(non_null) != len(values) or len(set(non_null)) != 1:
+        issue = f"{field_name}_mismatch"
+        if issue not in issues:
+            issues.append(issue)
+        return None
+    return non_null[0]
 
 
 def _ordered_unique(values: Sequence[str]) -> tuple[str, ...]:

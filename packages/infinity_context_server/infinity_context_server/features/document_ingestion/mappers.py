@@ -167,6 +167,7 @@ def document_to_response(
     if chunks is not None:
         body["chunks"] = chunks
         chunk_tuple = tuple(chunk_items)
+        body["chunk_ids"] = [str(chunk.id) for chunk in chunk_tuple]
         if chunk_tuple:
             body["fragment_summary"] = _document_fragment_summary_from_nodes(
                 (_chunk_node_kind(chunk), chunk.sequence) for chunk in chunk_tuple
