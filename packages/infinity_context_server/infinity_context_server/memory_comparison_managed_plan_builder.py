@@ -5,6 +5,7 @@ from __future__ import annotations
 import hashlib
 import hmac
 import json
+import re
 import secrets
 import threading
 import weakref
@@ -73,6 +74,9 @@ from infinity_context_server.public_benchmark_models import (
 
 _TOKEN = object()
 _LOCK = threading.RLock()
+MANAGED_CANARY_MAX_CASES = 8
+_OFFICIAL_DIRECT_TRANSPORT = "httpx-direct-tls-no-env-v1"
+_CREDENTIAL_BINDING = re.compile(r"^sha256:[0-9a-f]{64}$")
 
 
 @final
@@ -151,6 +155,11 @@ def build_verified_managed_run_plan(
         raise ManagedRunError("dataset_bytes must be exact bytes")
     trusted_profile = frozen_full_comparison_profile(profile)
     trusted_scope = normalize_full_comparison_scope(scope)
+    _validate_provider_route(
+        trusted_profile,
+        provider_route,
+        scope=trusted_scope,
+    )
     payload = parse_memory_comparison_dataset_bytes(dataset_bytes)
     locomo_mode = trusted_profile.required_locomo_ingest_mode or LOCOMO_INGEST_OFFICIAL_TURNS
     loaded_cases = cases_from_payload(payload, locomo_ingest_mode=locomo_mode)
@@ -209,6 +218,8 @@ def _select_cases(
         return cases
     if scope != FULL_COMPARISON_SCOPE_CANARY or not selected_case_ids:
         raise ManagedRunError("canary scope requires selected_case_ids")
+    if len(selected_case_ids) > MANAGED_CANARY_MAX_CASES:
+        raise ManagedRunError("canary scope exceeds the bounded case budget")
     if len(set(selected_case_ids)) != len(selected_case_ids):
         raise ManagedRunError("selected_case_ids contains duplicates")
     requested = set(selected_case_ids)
@@ -218,6 +229,51 @@ def _select_cases(
     if tuple(case.case_id for case in selected) != selected_case_ids:
         raise ManagedRunError("selected_case_ids must preserve authoritative dataset order")
     return selected
+
+
+def _validate_provider_route(
+    profile: FullComparisonProfile,
+    route: ProviderRouteAttestation,
+    *,
+    scope: str,
+) -> None:
+    if type(route) is not ProviderRouteAttestation:
+        raise ManagedRunError("provider route attestation type must be exact")
+    public = route.public_payload()
+    if (
+        public.get("route_sha256") != route.route_sha256
+        or not route.trust
+        or not route.origin
+        or not route.endpoint_path
+        or type(route.response_status) is not int
+        or isinstance(route.response_status, bool)
+        or not 200 <= route.response_status < 300
+    ):
+        raise ManagedRunError("provider route attestation is invalid")
+    if scope == FULL_COMPARISON_SCOPE_CANARY:
+        return
+    if scope != FULL_COMPARISON_SCOPE_FULL:
+        raise ManagedRunError("provider route scope is invalid")
+    methodology = public_full_comparison_methodology_contract(
+        full_comparison_methodology_contract(profile)
+    )
+    official = methodology.get("official_provider_route")
+    if type(official) is not dict:
+        raise ManagedRunError("official provider route methodology is invalid")
+    origin = str(official.get("origin") or "")
+    endpoint_path = str(official.get("endpoint_path") or "")
+    expected_route_sha256 = hashlib.sha256(f"{origin}{endpoint_path}".encode()).hexdigest()
+    if (
+        route.trust != official.get("trust")
+        or route.origin != origin
+        or route.endpoint_path != endpoint_path
+        or route.route_sha256 != expected_route_sha256
+        or route.transport_evidence != _OFFICIAL_DIRECT_TRANSPORT
+        or route.request_method != "POST"
+        or type(route.credential_binding_id) is not str
+        or _CREDENTIAL_BINDING.fullmatch(route.credential_binding_id) is None
+    ):
+        raise ManagedRunError("full scope provider route differs from frozen methodology")
 
 
 def _validate_full_dataset(

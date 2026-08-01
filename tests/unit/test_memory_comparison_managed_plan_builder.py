@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import copy
+import hashlib
 import json
 import pickle
 from dataclasses import replace
@@ -29,12 +30,14 @@ from infinity_context_server.memory_comparison_managed_corpus_projection import 
     _managed_corpus_record,
 )
 from infinity_context_server.memory_comparison_managed_plan_builder import (
+    MANAGED_CANARY_MAX_CASES,
     VerifiedManagedRunPlan,
     _inspect_verified_managed_run_plan,
     _managed_answer_cases,
     _managed_case_alias,
     _managed_cases_and_manifest,
     _validate_full_dataset,
+    _validate_provider_route,
     build_verified_managed_run_plan,
     managed_execution_case_material_sha256,
 )
@@ -59,12 +62,14 @@ def _profile():
 
 
 def _route() -> ProviderRouteAttestation:
+    origin = "https://api.openai.com"
+    endpoint_path = "/v1/chat/completions"
     return ProviderRouteAttestation(
         trust="official_openai",
-        origin="https://api.openai.com",
-        endpoint_path="/v1/chat/completions",
-        route_sha256="6" * 64,
-        transport_evidence="direct_https",
+        origin=origin,
+        endpoint_path=endpoint_path,
+        route_sha256=hashlib.sha256(f"{origin}{endpoint_path}".encode()).hexdigest(),
+        transport_evidence="httpx-direct-tls-no-env-v1",
         credential_binding_id="sha256:" + "7" * 64,
         request_method="POST",
         response_status=200,
@@ -201,6 +206,45 @@ def test_canary_builder_rejects_ambiguous_case_selection(
 ) -> None:
     with pytest.raises(ManagedRunError, match=message):
         _build(_canary_bytes(), selected_case_ids=case_ids)
+
+
+def test_canary_builder_rejects_selection_above_hard_budget() -> None:
+    selected_case_ids = tuple(
+        f"raw-sample-a:qa:{index}" for index in range(1, MANAGED_CANARY_MAX_CASES + 2)
+    )
+    sample = _locomo_sample(
+        "raw-sample-a",
+        qas=[_qa(index) for index in range(1, MANAGED_CANARY_MAX_CASES + 2)],
+    )
+
+    with pytest.raises(ManagedRunError, match="bounded case budget"):
+        _build(
+            json.dumps([sample], separators=(",", ":")).encode(),
+            selected_case_ids=selected_case_ids,
+        )
+
+
+def test_full_provider_route_is_exact_but_canary_can_use_subscription_runtime() -> None:
+    profile = _profile()
+    _validate_provider_route(profile, _route(), scope="full")
+    subscription_origin = "http://127.0.0.1:8890"
+    subscription_path = "/v1/chat/completions"
+    subscription = ProviderRouteAttestation(
+        trust="codex_subscription_runtime",
+        origin=subscription_origin,
+        endpoint_path=subscription_path,
+        route_sha256=hashlib.sha256(
+            f"{subscription_origin}{subscription_path}".encode()
+        ).hexdigest(),
+        transport_evidence="subscription-runtime-openai-codex-bridge.v1",
+        credential_binding_id=None,
+        request_method="POST",
+        response_status=200,
+    )
+
+    _validate_provider_route(profile, subscription, scope="canary")
+    with pytest.raises(ManagedRunError, match="differs from frozen methodology"):
+        _validate_provider_route(profile, subscription, scope="full")
 
 
 def test_full_builder_rejects_caller_selection_and_noncanonical_dataset_hash() -> None:

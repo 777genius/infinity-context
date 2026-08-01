@@ -481,6 +481,13 @@ def test_raw_secret_is_never_retained_or_echoed() -> None:
         "https://backend.example.test/%2Fsecret",
         " backend.example.test ",
         "https://backend.example.test/sk-proj-super-secret",
+        "https://10.0.0.1",
+        "https://169.254.169.254",
+        "https://2130706433",
+        "https://0x7f000001",
+        "https://0x7f.0x0.0x0.0x1",
+        "https://metadata.google.internal",
+        "https://[::ffff:127.0.0.1]",
     ),
 )
 def test_backend_endpoint_rejects_unsafe_or_non_tls_remote_url(url: str) -> None:
@@ -507,9 +514,25 @@ def test_https_and_exact_loopback_endpoints_are_sanitized(
     url: str,
     normalized: str,
 ) -> None:
-    target = _target("mem0", url)
-    endpoint = ManagedBackendEndpoint(target, url, _binding("mem0", "c"))
+    target = _target("infinity-context", url)
+    endpoint = ManagedBackendEndpoint(
+        target,
+        url,
+        _binding("infinity-context", "c"),
+    )
     assert endpoint.base_url == normalized
+
+
+def test_mem0_endpoint_rejects_path_that_runtime_identity_would_discard() -> None:
+    url = "https://mem0.example.test/tenant-a"
+    _assert_code(
+        "endpoint_invalid",
+        lambda: ManagedBackendEndpoint(
+            _target("mem0", url),
+            url,
+            _binding("mem0", "c"),
+        ),
+    )
 
 
 def test_backend_target_identity_must_bind_role_and_normalized_url() -> None:
@@ -551,9 +574,9 @@ def test_backend_roles_order_and_target_identities_are_exact_and_distinct() -> N
 @pytest.mark.parametrize(
     ("infinity_url", "mem0_url"),
     (
-        ("https://shared.example.test/api", "https://shared.example.test/api"),
-        ("https://shared.example.test/api", "https://shared.example.test:443/api"),
-        ("https://shared.example.test/api", "https://shared.example.test./api"),
+        ("https://shared.example.test", "https://shared.example.test"),
+        ("https://shared.example.test", "https://shared.example.test:443"),
+        ("https://shared.example.test", "https://shared.example.test."),
     ),
 )
 def test_backend_endpoints_must_not_use_the_same_normalized_url(
