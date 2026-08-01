@@ -6,7 +6,6 @@ import time
 from collections.abc import Mapping, Sequence
 
 import httpx
-from infinity_context_core.application.sensitive_text import redact_sensitive_text
 
 from infinity_context_server.memory_comparison_benchmark_identity import (
     mem0_benchmark_user_id,
@@ -16,11 +15,23 @@ from infinity_context_server.memory_comparison_candidate_fusion import (
 )
 from infinity_context_server.memory_comparison_conversation_ingestion import (
     conversation_documents,
-    conversation_message_payloads,
-    conversation_metadata,
     safe_preview,
     sanitize_source_refs,
-    source_ref_payload,
+)
+from infinity_context_server.memory_comparison_http_ingest_observation import (
+    HttpIngestIdentityObservation,
+    infinity_ingest_identity_observation,
+    ingest_identity_manifest,
+    mem0_created_memory_count,
+    mem0_ingest_identity_observation,
+    response_metadata,
+)
+from infinity_context_server.memory_comparison_http_ingest_request import (
+    case_message_groups,
+    messages_preview,
+    mirrored_memory_documents,
+    source_reference_payload,
+    source_temporal_metadata,
 )
 from infinity_context_server.memory_comparison_llm import approximate_token_count
 from infinity_context_server.memory_comparison_locomo_transport import (
@@ -128,28 +139,41 @@ class InfinityContextHttpComparisonBackend:
     ) -> BackendIngestResult:
         started = time.perf_counter()
         operations: list[IngestionOperation] = []
+        observations: list[HttpIngestIdentityObservation] = []
         pair_documents = conversation_documents(case)
         mirrored_documents: tuple[BenchmarkDocumentInput, ...] = ()
         if case.conversations:
             for index, document in enumerate(pair_documents, start=1):
-                operations.append(self._post_document(case, document, run_id=run_id, step=index))
+                operation, observation = self._post_document(
+                    case, document, run_id=run_id, step=index
+                )
+                operations.append(operation)
+                observations.append(observation)
         else:
             for index, memory in enumerate(case.memories, start=1):
-                operations.append(self._post_fact(case, memory, run_id=run_id, step=index))
+                operation, observation = self._post_fact(
+                    case, memory, run_id=run_id, step=index
+                )
+                operations.append(operation)
+                observations.append(observation)
             mirrored_documents = (
-                _mirrored_memory_documents(case) if self._mirror_memories_as_documents else ()
+                mirrored_memory_documents(case) if self._mirror_memories_as_documents else ()
             )
         offset = len(operations)
         for index, document in enumerate(mirrored_documents, start=1):
-            operations.append(
-                self._post_document(case, document, run_id=run_id, step=offset + index)
+            operation, observation = self._post_document(
+                case, document, run_id=run_id, step=offset + index
             )
+            operations.append(operation)
+            observations.append(observation)
         offset = len(operations)
         documents = () if case.conversations else case.documents
         for index, document in enumerate(documents, start=1):
-            operations.append(
-                self._post_document(case, document, run_id=run_id, step=offset + index)
+            operation, observation = self._post_document(
+                case, document, run_id=run_id, step=offset + index
             )
+            operations.append(operation)
+            observations.append(observation)
         failed = sum(1 for operation in operations if not operation.success)
         return BackendIngestResult(
             items_processed=len(operations),
@@ -162,6 +186,7 @@ class InfinityContextHttpComparisonBackend:
                 "conversation_documents_created": len(pair_documents),
                 "mirrored_memory_documents_created": len(mirrored_documents),
                 "hybrid_raw_turn_documents_enabled": self._mirror_memories_as_documents,
+                "ingest_identity_manifest": ingest_identity_manifest(observations).metadata(),
             },
         )
 
@@ -294,7 +319,7 @@ class InfinityContextHttpComparisonBackend:
         *,
         run_id: str,
         step: int,
-    ) -> IngestionOperation:
+    ) -> tuple[IngestionOperation, HttpIngestIdentityObservation]:
         started = time.perf_counter()
         source_id = safe_identifier(
             memory.source_external_id or f"{case.case_id}:memory:{step}",
@@ -310,7 +335,7 @@ class InfinityContextHttpComparisonBackend:
                 "kind": memory.kind,
                 "classification": "internal",
                 "source_refs": [
-                    _source_ref_payload(
+                    source_reference_payload(
                         source_type="memory_comparison_benchmark",
                         source_id=source_id,
                         quote_preview=memory.text,
@@ -318,6 +343,10 @@ class InfinityContextHttpComparisonBackend:
                 ],
             },
             headers={"Idempotency-Key": source_id},
+        )
+        observation = infinity_ingest_identity_observation(
+            response,
+            operation_type="fact",
         )
         return IngestionOperation(
             step=step,
@@ -327,10 +356,11 @@ class InfinityContextHttpComparisonBackend:
             memory=safe_preview(memory.text),
             item_id=source_id,
             metadata={
-                **_response_metadata(response),
-                **_source_temporal_metadata(memory.metadata),
+                **response_metadata(response),
+                **source_temporal_metadata(memory.metadata),
+                "ingest_identity_observation": observation.metadata(),
             },
-        )
+        ), observation
 
     def _post_document(
         self,
@@ -339,7 +369,7 @@ class InfinityContextHttpComparisonBackend:
         *,
         run_id: str,
         step: int,
-    ) -> IngestionOperation:
+    ) -> tuple[IngestionOperation, HttpIngestIdentityObservation]:
         started = time.perf_counter()
         source_id = safe_identifier(
             document.source_external_id or f"{case.case_id}:document:{step}",
@@ -360,6 +390,10 @@ class InfinityContextHttpComparisonBackend:
             },
             headers={"Idempotency-Key": source_id},
         )
+        observation = infinity_ingest_identity_observation(
+            response,
+            operation_type="document",
+        )
         return IngestionOperation(
             step=step,
             operation_type="document",
@@ -367,8 +401,11 @@ class InfinityContextHttpComparisonBackend:
             latency_ms=_elapsed_ms(started),
             memory=safe_preview(document.text),
             item_id=source_id,
-            metadata=_response_metadata(response),
-        )
+            metadata={
+                **response_metadata(response),
+                "ingest_identity_observation": observation.metadata(),
+            },
+        ), observation
 
     def _run_space_slug(self, run_id: str) -> str:
         return f"{self._space_slug_prefix}-{_safe_slug(run_id)}"
@@ -446,10 +483,11 @@ class Mem0HttpComparisonBackend:
             raise ValueError("managed public trigger case_id is invalid")
         started = time.perf_counter()
         operations: list[IngestionOperation] = []
+        observations: list[HttpIngestIdentityObservation] = []
         total_memories_created = 0
         observed_evidence_count = 0
         observation_required = case.metadata.get("locomo_ingest_mode") == "official-turns"
-        for step, group in enumerate(_case_message_groups(case), start=1):
+        for step, group in enumerate(case_message_groups(case), start=1):
             messages, timestamp, source_metadata = group
             op_started = time.perf_counter()
             expected_turn = expected_official_locomo_turn_for_group(
@@ -496,20 +534,23 @@ class Mem0HttpComparisonBackend:
                 run_id=run_id,
             ):
                 observed_evidence_count += 1
-            metadata = _response_metadata(response)
+            metadata = response_metadata(response)
+            observation = mem0_ingest_identity_observation(response)
+            observations.append(observation)
             created_count = (
-                _mem0_created_memory_count(response) if response.status_code < 400 else 0
+                mem0_created_memory_count(response) if response.status_code < 400 else 0
             )
             if response.status_code < 400:
                 total_memories_created += created_count
                 metadata["created_memory_count"] = created_count
+            metadata["ingest_identity_observation"] = observation.metadata()
             operations.append(
                 IngestionOperation(
                     step=step,
                     operation_type="messages",
                     success=response.status_code < 400,
                     latency_ms=_elapsed_ms(op_started),
-                    memory=_messages_preview(messages),
+                    memory=messages_preview(messages),
                     item_id=str(source_id) if isinstance(source_id, str) else None,
                     metadata=metadata,
                 )
@@ -528,6 +569,7 @@ class Mem0HttpComparisonBackend:
                     required=observation_required,
                     evidence_count=observed_evidence_count,
                 ),
+                "ingest_identity_manifest": ingest_identity_manifest(observations).metadata(),
             },
         )
 
@@ -647,46 +689,6 @@ def _item_diagnostics(item: Mapping[str, object]) -> dict[str, object]:
     return diagnostics
 
 
-def _mirrored_memory_documents(
-    case: PublicBenchmarkCase,
-) -> tuple[BenchmarkDocumentInput, ...]:
-    if case.documents:
-        return ()
-    documents: list[BenchmarkDocumentInput] = []
-    for index, memory in enumerate(case.memories, start=1):
-        source_external_id = memory.source_external_id or f"{case.case_id}:memory:{index}"
-        documents.append(
-            BenchmarkDocumentInput(
-                title=f"Raw memory turn {index}",
-                text=memory.text,
-                source_type="memory_comparison_raw_turn",
-                classification="internal",
-                source_external_id=f"{source_external_id}:raw-turn-document",
-                source_refs=(
-                    _source_ref_payload(
-                        source_type="memory_comparison_benchmark",
-                        source_id=safe_identifier(source_external_id, max_chars=160),
-                        quote_preview=memory.text[:240],
-                    ),
-                ),
-            )
-        )
-    return tuple(documents)
-
-
-def _source_ref_payload(
-    *,
-    source_type: str,
-    source_id: str,
-    quote_preview: str,
-) -> dict[str, object]:
-    return source_ref_payload(
-        source_type=source_type,
-        source_id=source_id,
-        quote_preview=quote_preview,
-    )
-
-
 def _source_temporal_metadata(metadata: Mapping[str, object]) -> dict[str, object]:
     timestamp = _optional_int(metadata.get("source_timestamp"))
     if timestamp is None:
@@ -777,19 +779,6 @@ def _mem0_memories(payload: object) -> list[RetrievedMemory]:
     return memories
 
 
-def _mem0_created_memory_count(response: httpx.Response) -> int:
-    try:
-        payload = response.json()
-    except ValueError:
-        return 0
-    if not isinstance(payload, Mapping):
-        return 0
-    results = payload.get("results")
-    if isinstance(results, Sequence) and not isinstance(results, str | bytes):
-        return len(results)
-    return 0
-
-
 def _mem0_metadata(item: Mapping[str, object]) -> dict[str, object]:
     metadata = item.get("metadata")
     return dict(metadata) if isinstance(metadata, Mapping) else {}
@@ -827,85 +816,6 @@ def _mem0_source_refs(
     return tuple(dict.fromkeys(refs))
 
 
-def _mem0_source_metadata(memory: BenchmarkMemoryInput) -> dict[str, object]:
-    metadata: dict[str, object] = {}
-    if memory.source_external_id:
-        metadata["source_external_id"] = memory.source_external_id
-        metadata["source_id"] = safe_identifier(memory.source_external_id, max_chars=160)
-    for key in ("session_key", "session_date", "dia_id", "role", "speaker"):
-        value = memory.metadata.get(key)
-        if isinstance(value, str) and value.strip():
-            metadata[key] = value.strip()
-    source_timestamp = _optional_int(memory.metadata.get("timestamp"))
-    if source_timestamp is not None:
-        metadata["source_timestamp"] = source_timestamp
-    dia_id = metadata.get("dia_id")
-    if isinstance(dia_id, str) and dia_id.strip():
-        metadata["locomo_evidence_ref"] = dia_id.strip()
-    return metadata
-
-
-def _mem0_document_metadata(document: BenchmarkDocumentInput) -> dict[str, object]:
-    metadata: dict[str, object] = {}
-    if document.source_external_id:
-        metadata["source_external_id"] = document.source_external_id
-        metadata["source_id"] = safe_identifier(document.source_external_id, max_chars=160)
-    source_ids = tuple(
-        str(ref.get("source_id"))
-        for ref in document.source_refs
-        if isinstance(ref, Mapping) and ref.get("source_id")
-    )
-    if source_ids:
-        metadata["source_refs"] = list(source_ids)
-    return metadata
-
-
-def _case_message_groups(
-    case: PublicBenchmarkCase,
-) -> tuple[tuple[tuple[dict[str, str], ...], int | None, dict[str, object]], ...]:
-    groups: list[tuple[tuple[dict[str, str], ...], int | None, dict[str, object]]] = []
-    if case.conversations:
-        for index, conversation in enumerate(case.conversations, start=1):
-            messages = conversation_message_payloads(conversation)
-            if not messages:
-                continue
-            groups.append(
-                (
-                    messages,
-                    conversation.timestamp,
-                    conversation_metadata(case, conversation, index=index),
-                )
-            )
-        return tuple(groups)
-    for memory in case.memories:
-        groups.append(
-            (
-                (
-                    {
-                        "role": _message_role(memory.metadata.get("role")),
-                        "content": memory.text,
-                    },
-                ),
-                _optional_int(memory.metadata.get("timestamp")),
-                _mem0_source_metadata(memory),
-            )
-        )
-    for document in case.documents:
-        groups.append(
-            (
-                ({"role": "user", "content": document.text},),
-                None,
-                _mem0_document_metadata(document),
-            )
-        )
-    return tuple(groups)
-
-
-def _message_role(value: object) -> str:
-    role = str(value or "user").strip().lower()
-    return role if role in {"user", "assistant", "system"} else "user"
-
-
 def _optional_int(value: object) -> int | None:
     if isinstance(value, bool) or value is None:
         return None
@@ -913,11 +823,6 @@ def _optional_int(value: object) -> int | None:
         return int(value)
     except (TypeError, ValueError):
         return None
-
-
-def _messages_preview(messages: Sequence[Mapping[str, str]]) -> str:
-    content = " ".join(str(message.get("content", "")) for message in messages)
-    return safe_preview(content)
 
 
 def _response_data(payload: object) -> Mapping[str, object]:
@@ -934,17 +839,6 @@ def _sequence(value: object) -> tuple[object, ...]:
     if isinstance(value, Sequence) and not isinstance(value, str | bytes):
         return tuple(value)
     return ()
-
-
-def _response_metadata(response: httpx.Response) -> dict[str, object]:
-    metadata: dict[str, object] = {"status_code": response.status_code}
-    if response.reason_phrase:
-        metadata["reason_phrase"] = response.reason_phrase
-    if response.status_code >= 400:
-        preview = redact_sensitive_text(response.text.strip())[:500]
-        if preview:
-            metadata["error_preview"] = preview
-    return metadata
 
 
 def _memory_scope_ref(case: PublicBenchmarkCase) -> str:
