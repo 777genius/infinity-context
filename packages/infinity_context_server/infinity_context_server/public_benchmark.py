@@ -169,9 +169,6 @@ from infinity_context_server.public_benchmark_models import (
     PublicBenchmarkCase,
 )
 from infinity_context_server.public_benchmark_models import (
-    HttpBenchmarkAdapter as _HttpBenchmarkAdapter,
-)
-from infinity_context_server.public_benchmark_models import (
     TestClientBenchmarkAdapter as _TestClientBenchmarkAdapter,
 )
 from infinity_context_server.public_benchmark_progress import (
@@ -442,11 +439,15 @@ def run_public_memory_benchmark(
         return result
 
     if api_url:
+        from infinity_context_server.public_benchmark_transport import (
+            HttpBenchmarkAdapter,
+        )
+
         with httpx.Client(
             base_url=api_url.rstrip("/"),
             timeout=request_timeout_seconds,
         ) as http_client:
-            adapter: BenchmarkHttpClientPort = _HttpBenchmarkAdapter(http_client)
+            adapter: BenchmarkHttpClientPort = HttpBenchmarkAdapter(http_client)
             result = _execute_cases(
                 adapter=adapter,
                 headers=_auth_headers(token),

@@ -16,6 +16,10 @@ import weakref
 from dataclasses import dataclass
 from typing import Final, final
 
+from infinity_context_server.memory_comparison_backend_target import (
+    FullComparisonBackendTarget,
+    FullComparisonEvidenceError,
+)
 from infinity_context_server.memory_comparison_full_methodology import (
     FrozenFullComparisonMethodology,
     full_comparison_methodology_contract,
@@ -35,7 +39,6 @@ from infinity_context_server.memory_comparison_full_scope import (
     FULL_COMPARISON_SCOPE_CANARY,
     FULL_COMPARISON_SCOPE_FULL,
 )
-from infinity_context_server.public_benchmark_models import BenchmarkValidationError
 
 FULL_COMPARISON_RUN_EVIDENCE_SCHEMA_VERSION = "memory-comparison-full-run-evidence.v1"
 FULL_COMPARISON_COMPONENT_KINDS: Final[tuple[str, ...]] = (
@@ -60,29 +63,6 @@ _ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:-]{0,199}$")
 _BLOCKER_RE = re.compile(r"^[a-z][a-z0-9_]{0,127}$")
 _TOKEN = object()
 _LOCK = threading.RLock()
-
-
-class FullComparisonEvidenceError(BenchmarkValidationError):
-    """Raised when opaque full-run evidence cannot be trusted."""
-
-
-@final
-@dataclass(frozen=True, slots=True)
-class FullComparisonBackendTarget:
-    """One ordered backend role and its sanitized target commitment."""
-
-    backend_role: str
-    target_identity_sha256: str
-
-    def __post_init__(self) -> None:
-        if type(self.backend_role) is not str or not _ID_RE.fullmatch(self.backend_role):
-            raise FullComparisonEvidenceError("backend role is invalid")
-        if not _sha256(self.target_identity_sha256):
-            raise FullComparisonEvidenceError("backend target identity must be SHA-256")
-
-    def __init_subclass__(cls, **kwargs: object) -> None:
-        del cls, kwargs
-        raise TypeError("FullComparisonBackendTarget is final")
 
 
 @final
