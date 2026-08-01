@@ -5,7 +5,6 @@ import hashlib
 import json
 import pickle
 from dataclasses import replace
-from types import MappingProxyType
 
 import pytest
 from infinity_context_server.memory_comparison_case_loader import (
@@ -48,7 +47,6 @@ from infinity_context_server.memory_comparison_provider_provenance import (
 from infinity_context_server.public_benchmark_checkpoint import selected_case_fingerprint
 from infinity_context_server.public_benchmark_models import (
     BenchmarkConversationInput,
-    BenchmarkMemoryInput,
     BenchmarkMessageInput,
     BenchmarkValidationError,
     PublicBenchmarkCase,
@@ -222,6 +220,39 @@ def test_canary_builder_rejects_selection_above_hard_budget() -> None:
             json.dumps([sample], separators=(",", ":")).encode(),
             selected_case_ids=selected_case_ids,
         )
+
+
+def test_canary_builder_rejects_incomplete_official_timestamp_before_run_start() -> None:
+    sample = _locomo_sample("raw-sample-a", qas=[_qa(1)])
+    conversation = sample["conversation"]
+    assert type(conversation) is dict
+    conversation["session_1_date_time"] = "not-an-official-date"
+
+    with pytest.raises(ManagedRunError, match="official turn semantics are incomplete"):
+        _build(
+            json.dumps([sample], separators=(",", ":")).encode(),
+            selected_case_ids=("raw-sample-a:qa:1",),
+        )
+
+
+def test_managed_case_projection_rejects_missing_official_role_before_run_start() -> None:
+    case = cases_from_payload(
+        parse_memory_comparison_dataset_bytes(_canary_bytes()),
+        locomo_ingest_mode=LOCOMO_INGEST_OFFICIAL_TURNS,
+    )[0]
+    memory = case.memories[0]
+    malformed = replace(
+        case,
+        memories=(
+            replace(
+                memory,
+                metadata={key: value for key, value in memory.metadata.items() if key != "role"},
+            ),
+        ),
+    )
+
+    with pytest.raises(ManagedRunError, match="memory role is invalid"):
+        _managed_cases_and_manifest((malformed,))
 
 
 def test_full_provider_route_is_exact_but_canary_can_use_subscription_runtime() -> None:
@@ -418,19 +449,6 @@ def test_longmemeval_pairs_share_neutral_session_alias_without_raw_ids() -> None
         case_id="long-case",
         question="secret question",
         expected_terms=("secret gold",),
-        memories=(
-            BenchmarkMemoryInput(
-                "session_9 date: raw-date\nD9:1 Alice: memory text",
-                metadata=MappingProxyType(
-                    {
-                        "session_key": "session_9",
-                        "session_date": "raw-date",
-                        "dia_id": "D9:1",
-                        "speaker": "Alice",
-                    }
-                ),
-            ),
-        ),
         memory_scope_external_ref="raw-corpus-id",
         thread_external_ref="raw-thread-id",
         conversations=conversations,
@@ -442,7 +460,7 @@ def test_longmemeval_pairs_share_neutral_session_alias_without_raw_ids() -> None
         "session-0001",
         "session-0001",
     ]
-    assert record["memories"][0]["text"] == "memory text"
+    assert record["memories"] == []
     corpus_id, thread_id = _managed_corpus_identity(case)
     assert len(corpus_id.rsplit("-", 1)[-1]) == 64
     assert len(thread_id.rsplit("-", 1)[-1]) == 64

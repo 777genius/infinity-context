@@ -50,6 +50,7 @@ from infinity_context_server.memory_comparison_managed_corpus_projection import 
     _managed_corpus_record,
     _managed_corpus_session_mapping,
     _managed_official_turn_count,
+    _validated_projection,
 )
 from infinity_context_server.memory_comparison_managed_run_contract import (
     ManagedAnswerCase,
@@ -307,6 +308,7 @@ def _managed_cases_and_manifest(
         corpus_id, thread_id = _managed_corpus_identity(case)
         case_alias = _managed_case_alias(case)
         record = _managed_corpus_record(case)
+        _validated_projection(record)
         session_roles, session_aliases = _managed_corpus_session_mapping(record)
         managed.append(ManagedRunCase(case_alias, corpus_id, record))
         manifest.append(

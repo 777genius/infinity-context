@@ -29,6 +29,7 @@ from infinity_context_server.memory_comparison_locomo_transport import (
 )
 from infinity_context_server.memory_comparison_mem0_http_observation import (
     Mem0HttpObservationRecorder,
+    _validated_public_trigger_case_id,
     expected_official_locomo_turn_for_group,
     mem0_http_observation_metadata,
 )
@@ -174,9 +175,7 @@ class InfinityContextHttpComparisonBackend:
         max_evidence_items = min(top_k, max_evidence_items_limit)
         search_queries, query_decomposition = decomposed_search_queries(case)
         search_path = (
-            "/v1/context/benchmark-search"
-            if self._use_benchmark_search
-            else "/v1/context"
+            "/v1/context/benchmark-search" if self._use_benchmark_search else "/v1/context"
         )
         query_results: list[tuple[str, list[RetrievedMemory]]] = []
         for query in search_queries:
@@ -346,9 +345,7 @@ class Mem0HttpComparisonBackend:
             timeout=timeout_seconds,
             headers={"X-API-Key": api_key} if api_key else None,
             transport=transport,
-            event_hooks={
-                "request": [self._locomo_observations.observe_at_transport_boundary]
-            },
+            event_hooks={"request": [self._locomo_observations.observe_at_transport_boundary]},
         )
         self._reset_user_on_start = reset_user_on_start
         self._send_timestamps = send_timestamps
@@ -392,13 +389,16 @@ class Mem0HttpComparisonBackend:
         run_id: str,
         corpus_key: str,
     ) -> BackendIngestResult:
+        public_trigger_case_id = _validated_public_trigger_case_id(
+            case.metadata.get("public_trigger_case_id")
+        )
+        if "public_trigger_case_id" in case.metadata and public_trigger_case_id is None:
+            raise ValueError("managed public trigger case_id is invalid")
         started = time.perf_counter()
         operations: list[IngestionOperation] = []
         total_memories_created = 0
         observed_evidence_count = 0
-        observation_required = (
-            case.metadata.get("locomo_ingest_mode") == "official-turns"
-        )
+        observation_required = case.metadata.get("locomo_ingest_mode") == "official-turns"
         for step, group in enumerate(_case_message_groups(case), start=1):
             messages, timestamp, source_metadata = group
             op_started = time.perf_counter()
@@ -438,6 +438,7 @@ class Mem0HttpComparisonBackend:
                     request,
                     run_id=run_id,
                     expected_turn=expected_turn,
+                    public_trigger_case_id=public_trigger_case_id,
                 )
             response = self._client.send(request)
             if self._locomo_observations.record_completed_request(
@@ -532,9 +533,7 @@ def _infinity_context_memories(raw_items: object) -> list[RetrievedMemory]:
             for ref in source_ref_payloads
             if (timestamp := _source_ref_time_start_ms(ref)) is not None
         )
-        item_metadata = (
-            item.get("metadata") if isinstance(item.get("metadata"), Mapping) else {}
-        )
+        item_metadata = item.get("metadata") if isinstance(item.get("metadata"), Mapping) else {}
         temporal_metadata = _source_temporal_metadata(item_metadata)
         memories.append(
             RetrievedMemory(
@@ -548,14 +547,10 @@ def _infinity_context_memories(raw_items: object) -> list[RetrievedMemory]:
                     "item_type": item.get("item_type"),
                     "diagnostics": _item_diagnostics(item),
                     "source_ref_payloads": [
-                        dict(ref)
-                        for ref in source_ref_payloads
-                        if isinstance(ref, Mapping)
+                        dict(ref) for ref in source_ref_payloads if isinstance(ref, Mapping)
                     ],
                     "source_ref_time_start_ms": list(time_start_ms),
-                    "has_temporal_source_ref": bool(
-                        time_start_ms or temporal_metadata
-                    ),
+                    "has_temporal_source_ref": bool(time_start_ms or temporal_metadata),
                 },
             )
         )
@@ -592,9 +587,7 @@ def _source_ref_time_start_ms(ref: object) -> int | None:
 
 def _item_diagnostics(item: Mapping[str, object]) -> dict[str, object]:
     metadata = item.get("metadata")
-    nested_diagnostics = (
-        metadata.get("diagnostics") if isinstance(metadata, Mapping) else None
-    )
+    nested_diagnostics = metadata.get("diagnostics") if isinstance(metadata, Mapping) else None
     diagnostics: dict[str, object] = {}
     if isinstance(nested_diagnostics, Mapping):
         diagnostics.update(dict(nested_diagnostics))
@@ -658,7 +651,6 @@ def _source_temporal_metadata(metadata: Mapping[str, object]) -> dict[str, objec
     return result
 
 
-
 def _retrieval_source_counts(memories: Sequence[RetrievedMemory]) -> dict[str, int]:
     counts: dict[str, int] = {}
     for memory in memories:
@@ -689,9 +681,7 @@ def _memory_retrieval_sources(memory: RetrievedMemory) -> tuple[str, ...]:
             fusion_sources,
             str | bytes,
         ):
-            values.extend(
-                str(source) for source in fusion_sources if str(source).strip()
-            )
+            values.extend(str(source) for source in fusion_sources if str(source).strip())
     return tuple(dict.fromkeys(values))
 
 
