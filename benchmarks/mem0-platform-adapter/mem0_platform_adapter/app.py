@@ -11,7 +11,8 @@ from collections.abc import Callable
 from contextlib import asynccontextmanager
 from typing import Annotated, Any
 
-from fastapi import FastAPI, Header, HTTPException, Query
+from fastapi import Depends, FastAPI, Header, HTTPException, Query, Request, Security
+from fastapi.security import APIKeyHeader
 
 from mem0_platform_adapter.manifest import capabilities_manifest, manifest_is_ready
 from mem0_platform_adapter.models import (
@@ -33,6 +34,39 @@ from mem0_platform_adapter.service import (
     Mem0CompatibilityService,
     PollingPolicy,
 )
+
+_INGRESS_API_KEY_ENV = "MEM0_ADAPTER_INGRESS_API_KEY"
+_INGRESS_API_KEY_HEADER_NAME = "X-API-Key"
+_INGRESS_API_KEY_HEADER = APIKeyHeader(
+    name=_INGRESS_API_KEY_HEADER_NAME,
+    scheme_name="Mem0AdapterIngressApiKey",
+    description="Dedicated authentication for benchmark data-plane operations.",
+    auto_error=False,
+)
+
+
+def _configured_ingress_api_key() -> str | None:
+    value = os.getenv(_INGRESS_API_KEY_ENV)
+    return value if value is not None and value and value == value.strip() else None
+
+
+def _require_ingress_api_key(
+    request: Request,
+    presented_key: Annotated[str | None, Security(_INGRESS_API_KEY_HEADER)],
+) -> None:
+    expected_key = _configured_ingress_api_key()
+    if expected_key is None:
+        raise HTTPException(status_code=503, detail="missing_adapter_ingress_api_key")
+    presented_values = request.headers.getlist(_INGRESS_API_KEY_HEADER_NAME)
+    if (
+        len(presented_values) != 1
+        or presented_key is None
+        or not secrets.compare_digest(
+            presented_key.encode(),
+            expected_key.encode(),
+        )
+    ):
+        raise HTTPException(status_code=401, detail="invalid_adapter_ingress_api_key")
 
 
 def create_app(
@@ -84,22 +118,30 @@ def create_app(
     @app.get("/health", response_model=HealthResponse)
     def health() -> HealthResponse:
         configured = selected_platform.configured
-        ready = manifest_is_ready(runtime_manifest())
+        ingress_auth_configured = _configured_ingress_api_key() is not None
+        ready = ingress_auth_configured and manifest_is_ready(runtime_manifest())
         return HealthResponse(
             status="ok" if ready else ("not_ready" if configured else "unconfigured"),
             configured=configured,
             ready=ready,
             attestation_status=service.attestation.status,
+            ingress_auth_configured=ingress_auth_configured,
         )
 
     @app.post("/memories", response_model=AddResponse)
-    def add_memories(request: AddRequest) -> AddResponse:
+    def add_memories(
+        request: AddRequest,
+        _ingress_auth: Annotated[None, Depends(_require_ingress_api_key)],
+    ) -> AddResponse:
         if not selected_platform.configured:
             raise HTTPException(status_code=503, detail="missing_mem0_api_key")
         return AddResponse(results=service.add(request))
 
     @app.post("/search", response_model=SearchResponse)
-    def search_memories(request: SearchRequest) -> SearchResponse:
+    def search_memories(
+        request: SearchRequest,
+        _ingress_auth: Annotated[None, Depends(_require_ingress_api_key)],
+    ) -> SearchResponse:
         if not selected_platform.configured:
             raise HTTPException(status_code=503, detail="missing_mem0_api_key")
         return SearchResponse(results=service.search(request))
@@ -108,6 +150,7 @@ def create_app(
     def delete_memories(
         user_id: Annotated[SafeIdentifier, Query()],
         run_id: Annotated[SafeIdentifier, Query()],
+        _ingress_auth: Annotated[None, Depends(_require_ingress_api_key)],
     ) -> DeleteResponse:
         if not selected_platform.configured:
             raise HTTPException(status_code=503, detail="missing_mem0_api_key")
