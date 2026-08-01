@@ -74,6 +74,13 @@ def capabilities_manifest(
             "readback_supported": attestation.status == "passed",
             "attestation": attestation.model_dump(),
         },
+        "persisted_source_identity": {
+            "request_metadata_required": True,
+            "source_filtered_readback_supported": True,
+            "source_id_roundtrip_attested": attestation.status == "passed",
+            "source_sha256_roundtrip_attested": attestation.status == "passed",
+            "sanitized_identity_response": True,
+        },
     }
 
 

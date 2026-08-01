@@ -14,6 +14,8 @@ from mem0_platform_adapter.models import EventSnapshot
 from mem0_platform_adapter.port import UnconfiguredPlatformPort
 
 _INGRESS_API_KEY = "adapter-ingress-test-key"
+_SOURCE_SHA256 = "a" * 64
+_SENTINEL_SHA256 = "ed6f4f0c92e7994b6f9ceaba666f1bd0b0ada51f59a0227973c75caf3d30b433"
 
 
 @pytest.fixture(autouse=True)
@@ -68,7 +70,10 @@ def _add_payload() -> dict[str, Any]:
         "messages": [{"role": "user", "content": "Caroline attended the group."}],
         "user_id": "benchmark-user",
         "run_id": "run-1",
-        "metadata": {"source_id": "conv0/session-1/turn-1"},
+        "metadata": {
+            "source_id": "conv0/session-1/turn-1",
+            "source_sha256": _SOURCE_SHA256,
+        },
         "timestamp": 1672531200,
     }
 
@@ -88,7 +93,10 @@ def _sentinel_readback() -> dict[str, Any]:
                 "id": "sentinel-memory",
                 "memory": "Mem0 timestamp attestation sentinel.",
                 "created_at": "2023-01-01T00:00:00Z",
-                "metadata": {"source_id": "mem0-attest-source-fixed"},
+                "metadata": {
+                    "source_id": "mem0-attest-source-fixed",
+                    "source_sha256": _SENTINEL_SHA256,
+                },
             }
         ]
     }

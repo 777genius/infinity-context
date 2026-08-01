@@ -20,6 +20,7 @@ SafeIdentifier = Annotated[
     Field(strict=True, min_length=1, max_length=160, pattern=r".*\S.*"),
 ]
 _SAFE_SOURCE_ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:/-]{0,159}$")
+_LOWERCASE_SHA256 = re.compile(r"^[0-9a-f]{64}$")
 _IDENTITY_FILTER_KEYS = frozenset({"user_id", "agent_id", "app_id", "run_id"})
 _REJECTED_FILTER_OPERATORS = frozenset({"or", "not"})
 _SAFE_IDENTIFIER_ADAPTER = TypeAdapter(SafeIdentifier)
@@ -36,19 +37,23 @@ class Message(StrictModel):
 
 class AddRequest(StrictModel):
     messages: Annotated[list[Message], Field(min_length=1)]
-    user_id: SafeIdentifier | None = None
+    user_id: SafeIdentifier
     agent_id: SafeIdentifier | None = None
-    run_id: SafeIdentifier | None = None
+    run_id: SafeIdentifier
     metadata: dict[str, Any] = Field(default_factory=dict)
     timestamp: Annotated[int, Field(ge=0)]
 
     @model_validator(mode="after")
-    def require_scope_and_safe_source_id(self) -> AddRequest:
-        if not any((self.user_id, self.agent_id, self.run_id)):
-            raise ValueError("at least one entity id is required")
+    def require_persisted_source_identity(self) -> AddRequest:
         source_id = self.metadata.get("source_id")
         if not isinstance(source_id, str) or not _SAFE_SOURCE_ID.fullmatch(source_id):
             raise ValueError("metadata.source_id must be a safe identifier")
+        source_sha256 = self.metadata.get("source_sha256")
+        if (
+            not isinstance(source_sha256, str)
+            or _LOWERCASE_SHA256.fullmatch(source_sha256) is None
+        ):
+            raise ValueError("metadata.source_sha256 must be lowercase sha256")
         return self
 
 
@@ -90,8 +95,20 @@ class BenchmarkAuthChallengeResponse(StrictModel):
     signature: Annotated[str, Field(pattern=r"^[0-9a-f]{64}$")]
 
 
+class PersistedSourceMetadata(StrictModel):
+    source_id: SafeIdentifier
+    source_sha256: Annotated[str, Field(pattern=r"^[0-9a-f]{64}$")]
+
+
+class PersistedMemoryIdentity(StrictModel):
+    id: SafeIdentifier
+    event: Literal["ADD"] = "ADD"
+    metadata: PersistedSourceMetadata
+
+
 class AddResponse(StrictModel):
-    results: list[dict[str, Any]]
+    request_id: SafeIdentifier
+    results: list[PersistedMemoryIdentity]
 
 
 class SearchResponse(StrictModel):

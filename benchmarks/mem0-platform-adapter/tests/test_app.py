@@ -18,6 +18,8 @@ from mem0_platform_adapter.service import PollingPolicy
 
 _INGRESS_API_KEY = "adapter-ingress-test-key"
 _INGRESS_HEADERS = {"X-API-Key": _INGRESS_API_KEY}
+_SOURCE_SHA256 = "a" * 64
+_SENTINEL_SHA256 = "ed6f4f0c92e7994b6f9ceaba666f1bd0b0ada51f59a0227973c75caf3d30b433"
 
 
 @pytest.fixture(autouse=True)
@@ -85,7 +87,10 @@ def _add_payload(**overrides: Any) -> dict[str, Any]:
         "messages": [{"role": "user", "content": "Caroline attended the group."}],
         "user_id": "benchmark-user",
         "run_id": "run-1",
-        "metadata": {"source_id": "conv0/session-1/turn-1"},
+        "metadata": {
+            "source_id": "conv0/session-1/turn-1",
+            "source_sha256": _SOURCE_SHA256,
+        },
         "timestamp": 1672531200,
     }
     payload.update(overrides)
@@ -99,7 +104,10 @@ def _sentinel_readback() -> dict[str, Any]:
                 "id": "sentinel-memory",
                 "memory": "Mem0 timestamp attestation sentinel.",
                 "created_at": "2023-01-01T00:00:00Z",
-                "metadata": {"source_id": "mem0-attest-source-fixed"},
+                "metadata": {
+                    "source_id": "mem0-attest-source-fixed",
+                    "source_sha256": _SENTINEL_SHA256,
+                },
             }
         ]
     }
@@ -148,6 +156,13 @@ def test_startup_attestation_passes_and_health_requires_all_provenance(
     }
     attestation = manifest["timestamp"]["attestation"]
     assert manifest["timestamp"]["readback_supported"] is True
+    assert manifest["persisted_source_identity"] == {
+        "request_metadata_required": True,
+        "source_filtered_readback_supported": True,
+        "source_id_roundtrip_attested": True,
+        "source_sha256_roundtrip_attested": True,
+        "sanitized_identity_response": True,
+    }
     assert attestation["status"] == "passed"
     assert attestation["probe_mode"] == "live_sentinel"
     assert attestation["event_terminal_status"] == "SUCCEEDED"
@@ -358,12 +373,10 @@ def test_add_forwards_timestamp_polls_and_attests_readback() -> None:
                     "id": "mem-1",
                     "memory": "Caroline attended the group.",
                     "created_at": "2023-01-01T00:00:00Z",
-                    "metadata": {"source_id": "conv0/session-1/turn-1"},
-                },
-                {
-                    "id": "unrelated",
-                    "created_at": "2023-01-01T00:00:00Z",
-                    "metadata": {"source_id": "another-source"},
+                    "metadata": {
+                        "source_id": "conv0/session-1/turn-1",
+                        "source_sha256": _SOURCE_SHA256,
+                    },
                 },
             ]
         },
@@ -380,16 +393,35 @@ def test_add_forwards_timestamp_polls_and_attests_readback() -> None:
     response = client.post("/memories", json=_add_payload())
 
     assert response.status_code == 200
-    assert [item["id"] for item in response.json()["results"]] == ["mem-1"]
+    assert response.json() == {
+        "request_id": "evt-1",
+        "results": [
+            {
+                "id": "mem-1",
+                "event": "ADD",
+                "metadata": {
+                    "source_id": "conv0/session-1/turn-1",
+                    "source_sha256": _SOURCE_SHA256,
+                },
+            }
+        ],
+    }
     assert sleeps == [0.25, 0.25]
     add_call = platform.calls[0]
     assert add_call[0] == "add"
     assert add_call[1]["timestamp"] == 1672531200
     assert add_call[1]["metadata"]["source_id"] == "conv0/session-1/turn-1"
+    assert add_call[1]["metadata"]["source_sha256"] == _SOURCE_SHA256
     expected_readback_call = (
         "get_all",
         {
-            "filters": {"AND": [{"user_id": "benchmark-user"}, {"run_id": "run-1"}]},
+            "filters": {
+                "AND": [
+                    {"user_id": "benchmark-user"},
+                    {"run_id": "run-1"},
+                    {"metadata": {"source_id": "conv0/session-1/turn-1"}},
+                ]
+            },
             "page": 1,
             "page_size": 200,
         },
@@ -404,12 +436,15 @@ def test_add_forwards_timestamp_polls_and_attests_readback() -> None:
     assert manifest["timestamp"]["attestation"]["status"] == "not_run"
 
 
-def test_add_source_readback_paginates_beyond_first_200_results() -> None:
-    unrelated = [
+def test_add_source_filtered_readback_paginates_beyond_first_200_results() -> None:
+    first_page = [
         {
-            "id": f"unrelated-{index}",
+            "id": f"target-{index}",
             "created_at": "2023-01-01T00:00:00Z",
-            "metadata": {"source_id": f"other-{index}"},
+            "metadata": {
+                "source_id": "conv0/session-1/turn-1",
+                "source_sha256": _SOURCE_SHA256,
+            },
         }
         for index in range(200)
     ]
@@ -418,7 +453,7 @@ def test_add_source_readback_paginates_beyond_first_200_results() -> None:
             1: {
                 "count": 201,
                 "next": "https://api.mem0.ai/v3/memories/?page=2",
-                "results": unrelated,
+                "results": first_page,
             },
             2: {
                 "count": 201,
@@ -427,7 +462,10 @@ def test_add_source_readback_paginates_beyond_first_200_results() -> None:
                     {
                         "id": "target",
                         "created_at": "2023-01-01T00:00:00Z",
-                        "metadata": {"source_id": "conv0/session-1/turn-1"},
+                        "metadata": {
+                            "source_id": "conv0/session-1/turn-1",
+                            "source_sha256": _SOURCE_SHA256,
+                        },
                     }
                 ],
             },
@@ -438,7 +476,8 @@ def test_add_source_readback_paginates_beyond_first_200_results() -> None:
     response = client.post("/memories", json=_add_payload())
 
     assert response.status_code == 200
-    assert [item["id"] for item in response.json()["results"]] == ["target"]
+    assert len(response.json()["results"]) == 201
+    assert response.json()["results"][-1]["id"] == "target"
     readback_calls = [payload for name, payload in platform.calls if name == "get_all"]
     assert [call["page"] for call in readback_calls] == [1, 2]
     assert all(call["page_size"] == 200 for call in readback_calls)
@@ -496,8 +535,12 @@ def test_add_rejects_timestamp_readback_mismatch() -> None:
         readback={
             "results": [
                 {
+                    "id": "mem-mismatch",
                     "created_at": "2024-01-01T00:00:00Z",
-                    "metadata": {"source_id": "conv0/session-1/turn-1"},
+                    "metadata": {
+                        "source_id": "conv0/session-1/turn-1",
+                        "source_sha256": _SOURCE_SHA256,
+                    },
                 }
             ]
         }
@@ -510,19 +553,110 @@ def test_add_rejects_timestamp_readback_mismatch() -> None:
     assert response.json() == {"detail": "timestamp_readback_failed"}
 
 
-def test_add_requires_safe_source_id_and_forbids_unknown_fields() -> None:
+@pytest.mark.parametrize(
+    "metadata",
+    (
+        {"source_id": "secret source id", "source_sha256": _SOURCE_SHA256},
+        {"source_id": "conv0/session-1/turn-1"},
+        {
+            "source_id": "conv0/session-1/turn-1",
+            "source_sha256": "A" * 64,
+        },
+    ),
+)
+def test_add_requires_exact_safe_source_identity(metadata: dict[str, str]) -> None:
     platform = FakePlatform()
     client = _authorized_client(create_app(platform))
 
-    unsafe = client.post(
-        "/memories",
-        json=_add_payload(metadata={"source_id": "secret source id"}),
-    )
+    response = client.post("/memories", json=_add_payload(metadata=metadata))
+
+    assert response.status_code == 422
+    assert platform.calls == []
+
+
+def test_add_forbids_unknown_request_fields() -> None:
+    platform = FakePlatform()
+    client = _authorized_client(create_app(platform))
+
     unknown = client.post("/memories", json=_add_payload(unexpected=True))
 
-    assert unsafe.status_code == 422
     assert unknown.status_code == 422
     assert platform.calls == []
+
+
+@pytest.mark.parametrize(
+    "persisted_metadata",
+    (
+        {
+            "source_id": "conv0/session-1/turn-1",
+            "source_sha256": "b" * 64,
+        },
+        {
+            "source_id": "wrong-source",
+            "source_sha256": _SOURCE_SHA256,
+        },
+    ),
+)
+def test_add_fails_closed_when_filtered_row_misbinds_source_identity(
+    persisted_metadata: dict[str, str],
+) -> None:
+    platform = FakePlatform(
+        readback={
+            "results": [
+                {
+                    "id": "mem-wrong-hash",
+                    "created_at": "2023-01-01T00:00:00Z",
+                    "metadata": persisted_metadata,
+                }
+            ]
+        }
+    )
+    client = _authorized_client(create_app(platform, sleeper=lambda _: None))
+
+    response = client.post("/memories", json=_add_payload())
+
+    assert response.status_code == 502
+    assert response.json() == {"detail": "timestamp_readback_failed"}
+    readback = next(payload for name, payload in platform.calls if name == "get_all")
+    assert readback["filters"]["AND"][-1] == {
+        "metadata": {"source_id": "conv0/session-1/turn-1"}
+    }
+
+
+@pytest.mark.parametrize("memory_id", ("", " duplicated "))
+def test_add_fails_closed_on_invalid_persisted_id(memory_id: str) -> None:
+    platform = FakePlatform(
+        readback={
+            "results": [
+                {
+                    "id": memory_id,
+                    "created_at": "2023-01-01T00:00:00Z",
+                    "metadata": {
+                        "source_id": "conv0/session-1/turn-1",
+                        "source_sha256": _SOURCE_SHA256,
+                    },
+                }
+            ]
+        }
+    )
+    client = _authorized_client(create_app(platform, sleeper=lambda _: None))
+
+    assert client.post("/memories", json=_add_payload()).status_code == 502
+
+
+def test_add_fails_closed_on_duplicate_persisted_ids() -> None:
+    row = {
+        "id": "duplicate",
+        "created_at": "2023-01-01T00:00:00Z",
+        "metadata": {
+            "source_id": "conv0/session-1/turn-1",
+            "source_sha256": _SOURCE_SHA256,
+        },
+    }
+    platform = FakePlatform(readback={"results": [row, dict(row)]})
+    client = _authorized_client(create_app(platform, sleeper=lambda _: None))
+
+    assert client.post("/memories", json=_add_payload()).status_code == 502
 
 
 def test_search_maps_limit_to_top_k_without_mutating_filters() -> None:
