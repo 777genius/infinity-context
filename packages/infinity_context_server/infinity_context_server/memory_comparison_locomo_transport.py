@@ -48,7 +48,7 @@ _LOCOMO_REQUIRED_METADATA_KEYS = {
     "speaker",
     "locomo_evidence_ref",
 }
-_LOCOMO_OPTIONAL_METADATA_KEYS = {"source_timestamp"}
+_LOCOMO_OPTIONAL_METADATA_KEYS = {"source_sha256", "source_timestamp"}
 _EVIDENCE_PAYLOAD_KEYS = {
     "schema_version",
     "run_id_sha256",
@@ -743,6 +743,8 @@ def _parse_canonical_request_bytes(payload: object) -> dict[str, object]:
         type(metadata["source_timestamp"]) is not int or metadata["source_timestamp"] != timestamp
     ):
         raise ValueError("metadata.source_timestamp must equal the AddRequest timestamp")
+    if "source_sha256" in metadata and not _sha256(metadata["source_sha256"]):
+        raise ValueError("metadata.source_sha256 must be an exact lowercase SHA-256 digest")
     messages = parsed["messages"]
     if type(messages) is not list or len(messages) != 1:
         raise ValueError("official LoCoMo AddRequest must contain exactly one turn message")
