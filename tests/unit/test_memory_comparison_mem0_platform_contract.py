@@ -5,6 +5,7 @@ from copy import deepcopy
 import pytest
 from infinity_context_server.memory_comparison_mem0_contract import (
     MEM0_BENCHMARK_CAPABILITIES_SCHEMA_VERSION_V2,
+    MEM0_RUNTIME_CAPABILITY_ISSUE_CODES,
     evaluate_mem0_runtime_capabilities,
     public_mem0_runtime_manifest,
 )
@@ -81,6 +82,66 @@ def test_managed_platform_snapshot_rejects_false_reproducibility_claims() -> Non
         payload,
         require_timestamp=False,
     ) == ("platform_server_revision_claim_inconsistent",)
+
+
+_PERSISTED_SOURCE_IDENTITY_ISSUES = {
+    "request_metadata_required": (
+        "persisted_source_identity_request_metadata_not_required"
+    ),
+    "source_filtered_readback_supported": (
+        "persisted_source_identity_filtered_readback_not_supported"
+    ),
+    "source_id_roundtrip_attested": (
+        "persisted_source_identity_source_id_roundtrip_not_attested"
+    ),
+    "source_sha256_roundtrip_attested": (
+        "persisted_source_identity_source_sha256_roundtrip_not_attested"
+    ),
+    "sanitized_identity_response": "persisted_source_identity_response_not_sanitized",
+}
+
+
+@pytest.mark.parametrize(
+    ("field_name", "issue_code"),
+    tuple(_PERSISTED_SOURCE_IDENTITY_ISSUES.items()),
+)
+def test_managed_platform_snapshot_requires_exact_persisted_source_identity_attestation(
+    field_name: str,
+    issue_code: str,
+) -> None:
+    payload = _valid_platform_capabilities()
+    payload["persisted_source_identity"][field_name] = False
+
+    issues = evaluate_mem0_runtime_capabilities(payload, require_timestamp=False)
+
+    assert issues == (issue_code,)
+    assert issue_code in MEM0_RUNTIME_CAPABILITY_ISSUE_CODES
+
+
+def test_managed_platform_snapshot_fails_closed_without_persisted_source_identity() -> None:
+    payload = _valid_platform_capabilities()
+    del payload["persisted_source_identity"]
+
+    issues = evaluate_mem0_runtime_capabilities(payload, require_timestamp=False)
+
+    assert set(issues) == set(_PERSISTED_SOURCE_IDENTITY_ISSUES.values())
+
+
+def test_public_manifest_bounds_persisted_source_identity_attestation() -> None:
+    payload = _valid_platform_capabilities()
+    payload["persisted_source_identity"]["source_id_roundtrip_attested"] = "secret"
+    payload["persisted_source_identity"]["credential"] = "secret"
+
+    public = public_mem0_runtime_manifest(payload)
+
+    assert public["persisted_source_identity"] == {
+        "request_metadata_required": True,
+        "source_filtered_readback_supported": True,
+        "source_id_roundtrip_attested": False,
+        "source_sha256_roundtrip_attested": True,
+        "sanitized_identity_response": True,
+    }
+    assert "credential" not in str(public)
 
 
 @pytest.mark.parametrize(
@@ -188,6 +249,13 @@ def _valid_platform_capabilities() -> dict[str, object]:
             "event_path_template": "/v1/event/{event_id}/",
             "server_source_revision": None,
             "server_revision_attestable": False,
+        },
+        "persisted_source_identity": {
+            "request_metadata_required": True,
+            "source_filtered_readback_supported": True,
+            "source_id_roundtrip_attested": True,
+            "source_sha256_roundtrip_attested": True,
+            "sanitized_identity_response": True,
         },
         "timestamp": {
             "request_supported": True,

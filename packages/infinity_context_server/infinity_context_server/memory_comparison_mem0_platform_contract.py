@@ -51,6 +51,11 @@ MANAGED_PLATFORM_CAPABILITY_ISSUE_CODES = frozenset(
         "platform_server_revision_claim_inconsistent",
         "platform_server_revision_unpinned",
         "platform_server_revision_attestability_missing",
+        "persisted_source_identity_request_metadata_not_required",
+        "persisted_source_identity_filtered_readback_not_supported",
+        "persisted_source_identity_source_id_roundtrip_not_attested",
+        "persisted_source_identity_source_sha256_roundtrip_not_attested",
+        "persisted_source_identity_response_not_sanitized",
         "timestamp_live_attestation_not_passed",
         "timestamp_attestation_probe_mode_invalid",
         "timestamp_attestation_checked_at_invalid",
@@ -105,6 +110,11 @@ def evaluate_managed_platform_capabilities(
         if platform.get(field_name) != expected:
             issues.append(f"platform_{field_name}_mismatch")
     _validate_server_revision(platform, issues)
+
+    _validate_persisted_source_identity(
+        _mapping(payload.get("persisted_source_identity")),
+        issues,
+    )
 
     timestamp = _mapping(payload.get("timestamp"))
     if require_timestamp:
@@ -175,6 +185,23 @@ def public_managed_platform_contract(payload: Mapping[str, object]) -> dict[str,
         None if revision is None else _public_digest(revision, _REVISION_RE)
     )
     return public
+
+
+def public_managed_persisted_source_identity_contract(
+    payload: Mapping[str, object],
+) -> dict[str, bool]:
+    """Project only bounded persisted-source capability attestations."""
+
+    return {
+        field_name: payload.get(field_name) is True
+        for field_name in (
+            "request_metadata_required",
+            "source_filtered_readback_supported",
+            "source_id_roundtrip_attested",
+            "source_sha256_roundtrip_attested",
+            "sanitized_identity_response",
+        )
+    }
 
 
 def public_managed_refresh_binding(payload: Mapping[str, object]) -> dict[str, object]:
@@ -277,6 +304,28 @@ def _validate_server_revision(
             issues.append("platform_server_revision_unpinned")
         return
     issues.append("platform_server_revision_attestability_missing")
+
+
+def _validate_persisted_source_identity(
+    payload: Mapping[str, object],
+    issues: list[str],
+) -> None:
+    expected_fields = {
+        "request_metadata_required": "persisted_source_identity_request_metadata_not_required",
+        "source_filtered_readback_supported": (
+            "persisted_source_identity_filtered_readback_not_supported"
+        ),
+        "source_id_roundtrip_attested": (
+            "persisted_source_identity_source_id_roundtrip_not_attested"
+        ),
+        "source_sha256_roundtrip_attested": (
+            "persisted_source_identity_source_sha256_roundtrip_not_attested"
+        ),
+        "sanitized_identity_response": "persisted_source_identity_response_not_sanitized",
+    }
+    for field_name, issue_code in expected_fields.items():
+        if payload.get(field_name) is not True:
+            issues.append(issue_code)
 
 
 def _require_sha256(
@@ -395,6 +444,7 @@ __all__ = (
     "MANAGED_PLATFORM_CAPABILITY_ISSUE_CODES",
     "evaluate_managed_platform_capabilities",
     "public_managed_platform_contract",
+    "public_managed_persisted_source_identity_contract",
     "public_managed_refresh_binding",
     "public_managed_sdk_contract",
     "public_managed_timestamp_contract",

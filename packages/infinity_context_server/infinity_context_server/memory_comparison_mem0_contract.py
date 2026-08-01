@@ -14,6 +14,9 @@ from infinity_context_server.memory_comparison_mem0_platform_contract import (
     evaluate_managed_platform_capabilities as _evaluate_managed_platform_capabilities,
 )
 from infinity_context_server.memory_comparison_mem0_platform_contract import (
+    public_managed_persisted_source_identity_contract as _public_source_identity_contract,
+)
+from infinity_context_server.memory_comparison_mem0_platform_contract import (
     public_managed_platform_contract as _public_platform_contract,
 )
 from infinity_context_server.memory_comparison_mem0_platform_contract import (
@@ -264,6 +267,11 @@ def public_mem0_runtime_manifest(payload: object) -> dict[str, object]:
     platform = payload.get("platform")
     if isinstance(platform, Mapping):
         public["platform"] = _public_platform_contract(platform)
+    persisted_source_identity = payload.get("persisted_source_identity")
+    if isinstance(persisted_source_identity, Mapping):
+        public["persisted_source_identity"] = _public_source_identity_contract(
+            persisted_source_identity
+        )
     refresh_binding = payload.get("refresh_binding")
     if isinstance(refresh_binding, Mapping):
         public["refresh_binding"] = _public_refresh_binding(refresh_binding)

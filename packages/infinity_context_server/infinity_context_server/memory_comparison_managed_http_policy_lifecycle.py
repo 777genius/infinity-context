@@ -1,9 +1,8 @@
 """Fail-closed production HTTP policy lifecycle for managed comparisons.
 
-Legacy backend APIs can perform part of cleanup, but cannot prove exact
-canonical/source/derived identity for every corpus.  This adapter consumes the
-real managed receipts and owns two cleanup passes without ever elevating an
-incomplete HTTP response into a policy capability.
+This adapter consumes real exact source/derived receipts and owns two cleanup
+passes without elevating an incomplete HTTP response into a policy capability.
+The final aggregate capability remains deliberately sealed.
 """
 
 from __future__ import annotations
@@ -773,7 +772,6 @@ def managed_http_policy_production_blockers(
     ):
         raise ManagedHttpPolicyLifecycleError("managed_http_policy_cases_invalid")
     return (
-        "managed_http_policy_mem0_exact_source_identity_unavailable",
         "managed_http_policy_evidence_capabilities_unavailable",
     )
 

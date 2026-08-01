@@ -1,11 +1,10 @@
 """Fail-closed production entrypoint for managed memory comparison.
 
-The managed policy lifecycle remains sealed until its exact Mem0 source and
-aggregate evidence capabilities are production-proven. This root evaluates
-those typed blockers before consuming the prepared run or opening any
-additional benchmark/backend lane. One readiness provider probe has already
-happened during preparation. Partial production runs would spend more tokens
-without a publishable verdict.
+The managed policy lifecycle remains sealed until its aggregate evidence
+capability is production-proven. This root evaluates that typed blocker before
+consuming the prepared run or opening any additional benchmark/backend lane.
+One readiness provider probe has already happened during preparation. Partial
+production runs would spend more tokens without a publishable verdict.
 
 Orchestrators must evaluate the pure pre-readiness gate first so current static
 blockers cost zero provider tokens.  The prepared-run root is a defensive
