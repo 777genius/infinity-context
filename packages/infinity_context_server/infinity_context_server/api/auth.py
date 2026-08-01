@@ -62,6 +62,12 @@ def _required_permission(request: Request) -> str | None:
     if path == "/v1/capabilities":
         return MEMORY_PERMISSION_READ
 
+    if path in {
+        "/v1/diagnostics/derived-evidence/qdrant/delete",
+        "/v1/diagnostics/derived-evidence/graphiti/delete",
+    }:
+        return MEMORY_PERMISSION_ADMIN
+
     if path.startswith("/v1/diagnostics"):
         return MEMORY_PERMISSION_DIAGNOSTICS
 
