@@ -60,6 +60,10 @@ from infinity_context_core.ports.extraction import (
     FileTypeDetectorPort,
 )
 from infinity_context_core.ports.ids import IdGeneratorPort
+from infinity_context_core.ports.projection_fence import (
+    ProjectionFencePermit,
+    ProjectionFencePort,
+)
 from infinity_context_core.ports.transcription import (
     SpeechTranscriptionPort,
     SpeechTranscriptionRequest,
@@ -111,6 +115,8 @@ __all__ = [
     "MemoryScopeFilter",
     "PortDiagnostic",
     "PortStatus",
+    "ProjectionFencePermit",
+    "ProjectionFencePort",
     "ProjectionForgetPort",
     "ProjectionForgetRequest",
     "ProjectionForgetResult",
