@@ -766,6 +766,10 @@ this adapter.
 
 ### No-Key Local Mem0 OSS Canary
 
+For the pinned setup, explicit `env -u` safety, preflight, 8-case/32-call
+command, resource floor and publication limits, follow
+[Mem0 OSS No-Key Canary](./mem0-oss-no-key-canary.md).
+
 `MEM0_API_KEY` is not required for an engineering canary against a local
 Mem0 OSS server whose ingress authentication is explicitly disabled. Leave the
 variable unset, point `--mem0-url` at that isolated server, and keep
