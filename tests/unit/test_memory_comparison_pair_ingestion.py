@@ -5,8 +5,12 @@ from dataclasses import replace
 
 import httpx
 from infinity_context_core.application.sensitive_text import contains_sensitive_text
+from infinity_context_core.features.document_ingestion.public import content_hash_for_text
 from infinity_context_server.memory_comparison_case_identity import (
     case_corpus_fingerprint,
+)
+from infinity_context_server.memory_comparison_conversation_ingestion import (
+    conversation_documents,
 )
 from infinity_context_server.memory_comparison_http import (
     InfinityContextHttpComparisonBackend,
@@ -177,6 +181,9 @@ def test_mem0_ingests_one_messages_operation_per_pair_without_metadata_leakage()
     ]
     first_metadata = requests[0][1]["metadata"]
     assert first_metadata["source_id"] == "pair-1"
+    assert first_metadata["source_sha256"] == content_hash_for_text(
+        conversation_documents(_conversation_case(secret))[0].text
+    )
     assert first_metadata["session_id"] == "session-a"
     assert first_metadata["source_timestamp"] == 1_683_110_400
     assert "has_answer" not in first_metadata

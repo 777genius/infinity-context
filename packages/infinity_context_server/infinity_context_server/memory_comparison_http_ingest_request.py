@@ -4,6 +4,13 @@ from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
 
+from infinity_context_server.memory_comparison_canonical_source_hash import (
+    CanonicalSourceHash,
+    conversation_source_hashes,
+    document_source_hash,
+    memory_source_hash,
+    validate_unambiguous_source_hashes,
+)
 from infinity_context_server.memory_comparison_conversation_ingestion import (
     conversation_message_payloads,
     conversation_metadata,
@@ -76,19 +83,41 @@ def case_message_groups(
     case: PublicBenchmarkCase,
 ) -> tuple[tuple[tuple[dict[str, str], ...], int | None, dict[str, object]], ...]:
     groups: list[tuple[tuple[dict[str, str], ...], int | None, dict[str, object]]] = []
+    identities: list[CanonicalSourceHash] = []
     if case.conversations:
+        conversation_identities = iter(conversation_source_hashes(case))
         for index, conversation in enumerate(case.conversations, start=1):
             messages = conversation_message_payloads(conversation)
             if messages:
+                identity = next(conversation_identities, None)
+                if identity is None:
+                    raise ValueError("canonical conversation identity rendering drifted")
+                metadata = conversation_metadata(case, conversation, index=index)
+                metadata_source_id = metadata.get("source_id")
+                if (
+                    not isinstance(metadata_source_id, str)
+                    or safe_identifier(metadata_source_id, max_chars=160)
+                    != identity.source_id
+                ):
+                    raise ValueError("canonical conversation source_id rendering drifted")
+                metadata.update(identity.metadata())
                 groups.append(
                     (
                         messages,
                         conversation.timestamp,
-                        conversation_metadata(case, conversation, index=index),
+                        metadata,
                     )
                 )
+                identities.append(identity)
+        if next(conversation_identities, None) is not None:
+            raise ValueError("canonical conversation identity rendering drifted")
         return tuple(groups)
     for memory in case.memories:
+        identity = memory_source_hash(memory)
+        metadata = _mem0_source_metadata(memory)
+        if metadata.get("source_id") != identity.source_id:
+            raise ValueError("canonical memory source_id projection drifted")
+        metadata.update(identity.metadata())
         groups.append(
             (
                 (
@@ -98,17 +127,25 @@ def case_message_groups(
                     },
                 ),
                 optional_int(memory.metadata.get("timestamp")),
-                _mem0_source_metadata(memory),
+                metadata,
             )
         )
+        identities.append(identity)
     for document in case.documents:
+        identity = document_source_hash(document)
+        metadata = _mem0_document_metadata(document)
+        if metadata.get("source_id") != identity.source_id:
+            raise ValueError("canonical document source_id projection drifted")
+        metadata.update(identity.metadata())
         groups.append(
             (
                 ({"role": "user", "content": document.text},),
                 None,
-                _mem0_document_metadata(document),
+                metadata,
             )
         )
+        identities.append(identity)
+    validate_unambiguous_source_hashes(tuple(identities))
     return tuple(groups)
 
 

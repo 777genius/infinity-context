@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import json
 import time
 from collections import defaultdict
@@ -3590,7 +3591,7 @@ def test_infinity_context_http_ingest_bounds_source_ids_for_public_api() -> None
     assert len(str(fact_source_id)) == 160
     assert raw_fact_id not in str(fact_source_id)
     assert fact_headers["idempotency-key"] == fact_source_id
-    assert len(str(document_source_id)) == 240
+    assert len(str(document_source_id)) == 160
     assert raw_document_id not in str(document_source_id)
     assert document_headers["idempotency-key"] == document_source_id
 
@@ -17578,6 +17579,9 @@ def test_mem0_http_ingest_uses_run_isolated_user_and_redacts_errors() -> None:
         "corpus_key": "corpus-a",
         "source_external_id": "conv-1-doc",
         "source_id": "conv-1-doc",
+        "source_sha256": hashlib.sha256(
+            b"Morgan said: blue notebook"
+        ).hexdigest(),
     }
 
 
@@ -17672,6 +17676,9 @@ def test_mem0_http_ingest_sends_memory_role_without_timestamp_by_default() -> No
                 "speaker": "Morgan",
                 "source_timestamp": 1683546960,
                 "locomo_evidence_ref": "D1:1",
+                "source_sha256": hashlib.sha256(
+                    b"D1:1 Morgan: The checklist is in the blue notebook."
+                ).hexdigest(),
             },
         }
     ]
@@ -17698,6 +17705,7 @@ def test_mem0_http_ingest_can_send_timestamp_when_enabled() -> None:
         memories=(
             BenchmarkMemoryInput(
                 text="D1:1 Morgan: The checklist is in the blue notebook.",
+                source_external_id="memory-timestamp",
                 metadata={"role": "assistant", "timestamp": 1683546960},
             ),
         ),
