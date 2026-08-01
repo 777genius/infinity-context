@@ -34,8 +34,10 @@ from infinity_context_server.memory_comparison_managed_run import (
     ManagedRunCase,
     ManagedRunError,
     ManagedRunPlan,
+    create_managed_comparison_run_bindings,
     public_managed_run,
     run_managed_comparison,
+    run_managed_comparison_with_bindings,
 )
 from infinity_context_server.memory_comparison_provider_provenance import (
     ProviderRouteAttestation,
@@ -521,6 +523,15 @@ def test_exact_lifecycle_orders_terminal_delete_before_nine_components(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     rig = _rig()
+    created_bindings: list[object] = []
+    factory = managed.create_full_comparison_run_bindings
+
+    def capture_bindings(**kwargs: Any) -> object:
+        created = factory(**kwargs)
+        created_bindings.append(created)
+        return created
+
+    monkeypatch.setattr(managed, "create_full_comparison_run_bindings", capture_bindings)
     outcome = _run(rig, monkeypatch)
     report = public_managed_run(outcome)
 
@@ -565,6 +576,38 @@ def test_exact_lifecycle_orders_terminal_delete_before_nine_components(
     rendered_report = json.dumps(report, sort_keys=True)
     for private in (*_CASE_IDS, "question 1", "answer 1", "D1:1"):
         assert private not in rendered_report
+    assert len(created_bindings) == 1
+    assert rig.assembler.bindings is created_bindings[0]
+
+
+def test_precreated_bindings_are_reused_without_runner_reconstruction(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    admission = _plan()
+    bindings = create_managed_comparison_run_bindings(admission)
+    rig = _rig()
+    _patch_attestation(monkeypatch, commitment="8" * 64, attestation=_MANAGED_ATTESTATION)
+    monkeypatch.setattr(
+        managed,
+        "create_full_comparison_run_bindings",
+        lambda **_: pytest.fail("runner must reuse composition bindings"),
+    )
+
+    outcome = run_managed_comparison_with_bindings(
+        admission,
+        bindings=bindings,
+        reset_port=rig.reset,
+        attestation_port=rig.attest,
+        ingest_port=rig.ingest,
+        clock=rig.clock,
+        execution_port=rig.execution,
+        judge_port=rig.judge,
+        policy_port=rig.policy,
+        assembler=rig.assembler,
+    )
+
+    assert public_managed_run(outcome)["managed_run"]["component_count"] == 9
+    assert rig.assembler.bindings is bindings
 
 
 @pytest.mark.parametrize(

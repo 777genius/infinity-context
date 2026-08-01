@@ -29,9 +29,7 @@ from infinity_context_server.memory_comparison_managed_run_contract import Manag
 MANAGED_PRODUCTION_COMPOSITION_SCHEMA_VERSION = (
     "memory-comparison-managed-production-composition.v1"
 )
-MANAGED_PRODUCTION_EXECUTION_RUNNER_UNAVAILABLE = (
-    "managed_production_execution_runner_unavailable"
-)
+MANAGED_PRODUCTION_EXECUTION_RUNNER_UNAVAILABLE = "managed_production_execution_runner_unavailable"
 
 
 class ManagedProductionCompositionError(RuntimeError):
@@ -60,11 +58,12 @@ class ManagedProductionCompositionDecision:
     def __post_init__(self) -> None:
         if (
             self.schema_version != MANAGED_PRODUCTION_COMPOSITION_SCHEMA_VERSION
-            or self.decision != "no-go"
+            or self.decision not in {"go", "no-go"}
             or type(self.blockers) is not tuple
-            or not self.blockers
             or any(type(item) is not str or not item for item in self.blockers)
             or len(set(self.blockers)) != len(self.blockers)
+            or (self.decision == "go" and self.blockers)
+            or (self.decision == "no-go" and not self.blockers)
             or self.preparation_consumed is not False
             or type(self.readiness_provider_calls_already_performed) is not int
             or self.readiness_provider_calls_already_performed not in (0, 1)
@@ -73,9 +72,7 @@ class ManagedProductionCompositionDecision:
             or type(self.additional_backend_calls_performed) is not int
             or self.additional_backend_calls_performed != 0
         ):
-            raise ManagedProductionCompositionError(
-                "managed_production_decision_invalid"
-            )
+            raise ManagedProductionCompositionError("managed_production_decision_invalid")
 
     def public_payload(self) -> dict[str, object]:
         return {
@@ -101,18 +98,14 @@ def run_verified_managed_production_comparison(
     """Return NO-GO before consuming preparation while the runner is unavailable."""
 
     if type(prepared) is not VerifiedManagedLiveRunPreparation:
-        raise ManagedProductionCompositionError(
-            "managed_production_preparation_invalid"
-        )
+        raise ManagedProductionCompositionError("managed_production_preparation_invalid")
     try:
         cases = _inspect_managed_live_policy_cases(prepared)
         blockers = _production_blockers(cases)
     except ManagedProductionCompositionError:
         raise
     except Exception:
-        raise ManagedProductionCompositionError(
-            "managed_production_preflight_failed"
-        ) from None
+        raise ManagedProductionCompositionError("managed_production_preflight_failed") from None
     return ManagedProductionCompositionDecision(
         schema_version=MANAGED_PRODUCTION_COMPOSITION_SCHEMA_VERSION,
         decision="no-go",
@@ -132,9 +125,7 @@ def evaluate_managed_production_pre_readiness(
     try:
         blockers = _production_blockers(cases)
     except Exception:
-        raise ManagedProductionCompositionError(
-            "managed_production_pre_readiness_failed"
-        ) from None
+        raise ManagedProductionCompositionError("managed_production_pre_readiness_failed") from None
     return ManagedProductionCompositionDecision(
         schema_version=MANAGED_PRODUCTION_COMPOSITION_SCHEMA_VERSION,
         decision="no-go",
