@@ -13,6 +13,10 @@ from infinity_context_server.memory_comparison_benchmark_identity import (
 from infinity_context_server.memory_comparison_candidate_fusion import (
     fuse_query_results,
 )
+from infinity_context_server.memory_comparison_canonical_source_hash import (
+    document_source_hash,
+    memory_source_hash,
+)
 from infinity_context_server.memory_comparison_conversation_ingestion import (
     conversation_documents,
     safe_preview,
@@ -61,7 +65,6 @@ from infinity_context_server.memory_comparison_retrieval_policy import (
     ComparisonRetrievalPolicy,
     disabled_postprocessing_telemetry,
 )
-from infinity_context_server.public_benchmark_checkpoint import safe_identifier
 from infinity_context_server.public_benchmark_models import (
     BenchmarkDocumentInput,
     BenchmarkMemoryInput,
@@ -321,10 +324,8 @@ class InfinityContextHttpComparisonBackend:
         step: int,
     ) -> tuple[IngestionOperation, HttpIngestIdentityObservation]:
         started = time.perf_counter()
-        source_id = safe_identifier(
-            memory.source_external_id or f"{case.case_id}:memory:{step}",
-            max_chars=160,
-        )
+        source = memory_source_hash(memory)
+        source_id = source.source_id
         response = self._client.post(
             "/v1/facts",
             json={
@@ -371,10 +372,8 @@ class InfinityContextHttpComparisonBackend:
         step: int,
     ) -> tuple[IngestionOperation, HttpIngestIdentityObservation]:
         started = time.perf_counter()
-        source_id = safe_identifier(
-            document.source_external_id or f"{case.case_id}:document:{step}",
-            max_chars=240,
-        )
+        source = document_source_hash(document)
+        source_id = source.source_id
         response = self._client.post(
             "/v1/documents",
             json={
