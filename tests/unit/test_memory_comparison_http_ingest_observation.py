@@ -40,13 +40,13 @@ def test_locomo_infinity_ingest_preserves_exact_ordered_response_identities() ->
                         "space_id": "space-server-1",
                         "memory_scope_id": "scope-server-1",
                         "thread_id": "thread-server-1",
+                        "content_sha256": _FACT_HASH,
                         "status": "active",
                         "version": 3,
                         "indexing_status": "indexed",
                         "source_refs": [
                             {
                                 "source_id": "locomo-source-1",
-                                "source_sha256": _FACT_HASH,
                             }
                         ],
                     }
