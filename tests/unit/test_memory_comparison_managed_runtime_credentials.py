@@ -191,9 +191,7 @@ def test_readiness_then_distinct_execution_adapter_preserve_exact_bearer() -> No
     proof = claim.run(model=_MODEL, clock=lambda: _NOW)
     assert type(proof).__name__ == "VerifiedSubscriptionRuntimeProbe"
     assert len(readiness_requests) == 1
-    assert readiness_requests[0].headers["Authorization"] == (
-        f"Bearer {_SUBSCRIPTION_SECRET}"
-    )
+    assert readiness_requests[0].headers["Authorization"] == (f"Bearer {_SUBSCRIPTION_SECRET}")
 
     def execution_handler(raw: httpx.Request) -> httpx.Response:
         execution_requests.append(raw)
@@ -219,9 +217,7 @@ def test_readiness_then_distinct_execution_adapter_preserve_exact_bearer() -> No
     )
     assert completion.text == "ordinary response"
     assert len(execution_requests) == 1
-    assert execution_requests[0].headers["Authorization"] == (
-        f"Bearer {_SUBSCRIPTION_SECRET}"
-    )
+    assert execution_requests[0].headers["Authorization"] == (f"Bearer {_SUBSCRIPTION_SECRET}")
     execution.close()
 
     with pytest.raises(ManagedRuntimeCredentialError) as replay:
@@ -296,9 +292,7 @@ def test_completed_readiness_context_inspection_is_stable_and_non_consuming() ->
         subscription_origin=_SUBSCRIPTION_ORIGIN,
         deadline=_DEADLINE,
         now=_NOW,
-        transport=httpx.MockTransport(
-            lambda _: httpx.Response(200, json=_success_payload())
-        ),
+        transport=httpx.MockTransport(lambda _: httpx.Response(200, json=_success_payload())),
     )
     foreign_probe = foreign_claim.run(model=_MODEL, clock=lambda: _NOW)
     with pytest.raises(ManagedRuntimeCredentialError) as foreign:
@@ -385,10 +379,19 @@ def test_backend_configs_preserve_exact_secrets_and_are_single_use() -> None:
         run_id=_RUN_ID,
         deadline=_DEADLINE,
     )
+    registry_infinity = material.consume_for_benchmark_registry(
+        expected_request=request,
+        run_id=_RUN_ID,
+        deadline=_DEADLINE,
+    )
     assert lifecycle_infinity.transport is None
     assert lifecycle_mem0.transport is None
     assert policy_infinity.transport is None
     assert policy_mem0.transport is None
+    assert registry_infinity.transport is None
+    assert registry_infinity.auth_token == _INFINITY_SECRET
+    assert registry_infinity is not lifecycle_infinity
+    assert registry_infinity is not policy_infinity
     assert lifecycle_infinity is not policy_infinity
     assert lifecycle_mem0 is not policy_mem0
     _assert_secret_safe(infinity)
@@ -407,6 +410,12 @@ def test_backend_configs_preserve_exact_secrets_and_are_single_use() -> None:
         )
     with pytest.raises(ValueError, match="continuity failed"):
         material.consume_for_http_policy(
+            expected_request=request,
+            run_id=_RUN_ID,
+            deadline=_DEADLINE,
+        )
+    with pytest.raises(ValueError, match="continuity failed"):
+        material.consume_for_benchmark_registry(
             expected_request=request,
             run_id=_RUN_ID,
             deadline=_DEADLINE,
@@ -467,11 +476,20 @@ def test_backend_material_rejects_equal_model_request_tamper_before_io() -> None
         deadline=_DEADLINE,
     )
     assert all(config.transport is None for config in policy)
-    assert material.consume_mem0_probe_token(
+    registry = material.consume_for_benchmark_registry(
         expected_request=request,
         run_id=_RUN_ID,
         deadline=_DEADLINE,
-    ) == _PROBE_SECRET
+    )
+    assert registry.transport is None
+    assert (
+        material.consume_mem0_probe_token(
+            expected_request=request,
+            run_id=_RUN_ID,
+            deadline=_DEADLINE,
+        )
+        == _PROBE_SECRET
+    )
     assert calls == 0
 
 

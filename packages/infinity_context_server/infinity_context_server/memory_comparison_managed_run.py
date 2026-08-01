@@ -256,6 +256,16 @@ def run_managed_comparison_with_bindings(
         )
         trace.append("attestation.live")
         ingest_receipts = _ingest(bindings, plan.cases, ingest_port, trace)
+        canonical_source = policy_port.seal_canonical_source(
+            bindings=bindings,
+            cases=plan.cases,
+            managed_attestation=managed_attestation,
+            managed_attestation_commitment_sha256=managed_commitment,
+            ingest_receipts=ingest_receipts,
+            case_manifest_sha256=case_manifest_sha256,
+        )
+        _validate_canonical_source(canonical_source, expected_count=len(plan.cases))
+        trace.append("canonical_source.seal")
         executions = _execute_cases(
             bindings,
             plan.cases,
@@ -282,16 +292,6 @@ def run_managed_comparison_with_bindings(
                 "execution seal differs from case manifest or admitted case material"
             )
         trace.append("execution.seal")
-        canonical_source = policy_port.seal_canonical_source(
-            bindings=bindings,
-            cases=plan.cases,
-            managed_attestation=managed_attestation,
-            managed_attestation_commitment_sha256=managed_commitment,
-            execution=execution,
-            ingest_receipts=ingest_receipts,
-        )
-        _validate_canonical_source(canonical_source, expected_count=len(plan.cases))
-        trace.append("canonical_source.seal")
     except BaseException as exc:
         primary_error = exc
         primary_traceback = exc.__traceback__

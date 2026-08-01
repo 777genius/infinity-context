@@ -256,7 +256,7 @@ class ManagedPolicyLifecyclePort(ManagedPortIdentity, Protocol):
         managed_attestation: VerifiedManagedCompositionAttestation,
         managed_attestation_commitment_sha256: str,
         ingest_receipts: tuple[object, ...],
-        execution: ManagedExecutionArtifacts,
+        case_manifest_sha256: str,
     ) -> tuple[object, ...]: ...
     def terminal_delete(
         self,

@@ -50,7 +50,6 @@ from infinity_context_server.memory_comparison_managed_attestation import (
     VerifiedManagedCompositionAttestation,
 )
 from infinity_context_server.memory_comparison_managed_run_contract import (
-    ManagedExecutionArtifacts,
     ManagedRunCase,
 )
 from managed_comparison_sandbox_adapters import (
@@ -82,13 +81,13 @@ class SandboxPolicyPort:
         bindings: FullComparisonRunBindings,
         cases: tuple[ManagedRunCase, ...],
         ingest_receipts: tuple[object, ...],
-        execution: ManagedExecutionArtifacts,
+        case_manifest_sha256: str,
         managed_attestation: VerifiedManagedCompositionAttestation,
         managed_attestation_commitment_sha256: str,
     ) -> tuple[object, ...]:
         assert type(managed_attestation) is VerifiedManagedCompositionAttestation
         assert cases and len(ingest_receipts) == 2 * len(cases)
-        assert type(execution) is ManagedExecutionArtifacts
+        assert len(case_manifest_sha256) == 64
         assert len(self._state.stores) == 2 * len(cases)
         self._attestation = managed_attestation_commitment_sha256
         self._items = tuple(_policy_item(case, self._state) for case in cases)
