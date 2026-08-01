@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import copy
 import hashlib
+import inspect
 import json
 import pickle
 from concurrent.futures import ThreadPoolExecutor
@@ -9,6 +10,9 @@ from datetime import UTC, datetime, timedelta
 
 import httpx
 import pytest
+from infinity_context_server import (
+    memory_comparison_managed_runtime_credentials_context as credential_context_module,
+)
 from infinity_context_server.memory_comparison_full_methodology import (
     full_comparison_methodology_contract,
 )
@@ -26,6 +30,9 @@ from infinity_context_server.memory_comparison_managed_runtime_credentials impor
     ManagedRuntimeCredentialAuthority,
     ManagedRuntimeCredentialError,
     issue_managed_runtime_credential_authority,
+)
+from infinity_context_server.memory_comparison_managed_runtime_credentials_context import (
+    _inspect_completed_managed_runtime_credential_context,
 )
 from infinity_context_server.memory_comparison_subscription_chat import (
     SUBSCRIPTION_RUNTIME_ESTIMATED_USAGE_SOURCE,
@@ -230,6 +237,98 @@ def test_readiness_then_distinct_execution_adapter_preserve_exact_bearer() -> No
     assert replay.value.code == "managed_credentials_terminal"
 
 
+def test_completed_readiness_context_inspection_is_stable_and_non_consuming() -> None:
+    authority = _authority()
+    request = _bind(authority)
+    calls = 0
+
+    def handler(_: httpx.Request) -> httpx.Response:
+        nonlocal calls
+        calls += 1
+        return httpx.Response(200, json=_success_payload())
+
+    claim = authority.issue_subscription_readiness_claim(
+        expected_request=request,
+        run_id=_RUN_ID,
+        subscription_origin=_SUBSCRIPTION_ORIGIN,
+        deadline=_DEADLINE,
+        now=_NOW,
+        transport=httpx.MockTransport(handler),
+    )
+    with pytest.raises(ManagedRuntimeCredentialError) as incomplete:
+        _inspect_completed_managed_runtime_credential_context(
+            authority,
+            claim,
+            expected_request=request,
+            expected_probe=object(),
+            run_id=_RUN_ID,
+            deadline=_DEADLINE,
+        )
+    assert incomplete.value.code == "managed_credentials_context_mismatch"
+    assert calls == 0
+
+    proof = claim.run(model=_MODEL, clock=lambda: _NOW)
+    first = _inspect_completed_managed_runtime_credential_context(
+        authority,
+        claim,
+        expected_request=request,
+        expected_probe=proof,
+        run_id=_RUN_ID,
+        deadline=_DEADLINE,
+    )
+    second = _inspect_completed_managed_runtime_credential_context(
+        authority,
+        claim,
+        expected_request=request,
+        expected_probe=proof,
+        run_id=_RUN_ID,
+        deadline=_DEADLINE,
+    )
+    assert first == second
+    assert len(first) == 64
+    assert calls == 1
+
+    foreign_authority = _authority()
+    foreign_request = _bind(foreign_authority)
+    foreign_claim = foreign_authority.issue_subscription_readiness_claim(
+        expected_request=foreign_request,
+        run_id=_RUN_ID,
+        subscription_origin=_SUBSCRIPTION_ORIGIN,
+        deadline=_DEADLINE,
+        now=_NOW,
+        transport=httpx.MockTransport(
+            lambda _: httpx.Response(200, json=_success_payload())
+        ),
+    )
+    foreign_probe = foreign_claim.run(model=_MODEL, clock=lambda: _NOW)
+    with pytest.raises(ManagedRuntimeCredentialError) as foreign:
+        _inspect_completed_managed_runtime_credential_context(
+            authority,
+            claim,
+            expected_request=request,
+            expected_probe=foreign_probe,
+            run_id=_RUN_ID,
+            deadline=_DEADLINE,
+        )
+    assert foreign.value.code == "managed_credentials_context_mismatch"
+
+    execution = authority.issue_subscription_execution_adapter(
+        readiness_claim=claim,
+        expected_request=request,
+        run_id=_RUN_ID,
+        subscription_origin=_SUBSCRIPTION_ORIGIN,
+        deadline=_DEADLINE,
+        now=_NOW,
+        transport=httpx.MockTransport(lambda _: httpx.Response(500)),
+    )
+    execution.close()
+
+
+def test_context_helper_uses_authority_owned_inspection_seam() -> None:
+    source = inspect.getsource(credential_context_module)
+    assert "_ManagedRuntimeCredentialAuthority__" not in source
+
+
 def test_backend_configs_preserve_exact_secrets_and_are_single_use() -> None:
     authority = _authority()
     request = _bind(authority)
@@ -276,10 +375,38 @@ def test_backend_configs_preserve_exact_secrets_and_are_single_use() -> None:
     assert mem0.base_url == "http://127.0.0.1:8765"
     assert infinity.transport is infinity_transport
     assert mem0.transport is mem0_transport
+    lifecycle_infinity, lifecycle_mem0 = material.consume_for_http_lifecycle(
+        expected_request=request,
+        run_id=_RUN_ID,
+        deadline=_DEADLINE,
+    )
+    policy_infinity, policy_mem0 = material.consume_for_http_policy(
+        expected_request=request,
+        run_id=_RUN_ID,
+        deadline=_DEADLINE,
+    )
+    assert lifecycle_infinity.transport is None
+    assert lifecycle_mem0.transport is None
+    assert policy_infinity.transport is None
+    assert policy_mem0.transport is None
+    assert lifecycle_infinity is not policy_infinity
+    assert lifecycle_mem0 is not policy_mem0
     _assert_secret_safe(infinity)
     _assert_secret_safe(mem0)
     with pytest.raises(ValueError, match="continuity failed"):
         material.consume_for_http_execution(
+            expected_request=request,
+            run_id=_RUN_ID,
+            deadline=_DEADLINE,
+        )
+    with pytest.raises(ValueError, match="continuity failed"):
+        material.consume_for_http_lifecycle(
+            expected_request=request,
+            run_id=_RUN_ID,
+            deadline=_DEADLINE,
+        )
+    with pytest.raises(ValueError, match="continuity failed"):
+        material.consume_for_http_policy(
             expected_request=request,
             run_id=_RUN_ID,
             deadline=_DEADLINE,
@@ -295,6 +422,57 @@ def test_backend_configs_preserve_exact_secrets_and_are_single_use() -> None:
             now=_NOW,
         )
     assert replay.value.code == "managed_credentials_terminal"
+
+
+def test_backend_material_rejects_equal_model_request_tamper_before_io() -> None:
+    authority = _authority()
+    request = _bind(authority)
+    calls = 0
+
+    def unexpected(_: httpx.Request) -> httpx.Response:
+        nonlocal calls
+        calls += 1
+        return httpx.Response(500)
+
+    material = authority.issue_backend_credential_material(
+        expected_request=request,
+        run_id=_RUN_ID,
+        infinity_origin=_INFINITY_ORIGIN,
+        mem0_origin=_MEM0_ORIGIN,
+        deadline=_DEADLINE,
+        now=_NOW,
+        infinity_transport=httpx.MockTransport(unexpected),
+        mem0_transport=httpx.MockTransport(unexpected),
+    )
+    object.__setattr__(request, "answerer_model", "gpt-5.6-sol-tampered")
+    object.__setattr__(request, "judge_model", "gpt-5.6-sol-tampered")
+
+    with pytest.raises(ValueError, match="continuity failed"):
+        material.consume_for_http_execution(
+            expected_request=request,
+            run_id=_RUN_ID,
+            deadline=_DEADLINE,
+        )
+    object.__setattr__(request, "answerer_model", _MODEL)
+    object.__setattr__(request, "judge_model", _MODEL)
+    lifecycle = material.consume_for_http_lifecycle(
+        expected_request=request,
+        run_id=_RUN_ID,
+        deadline=_DEADLINE,
+    )
+    assert all(config.transport is None for config in lifecycle)
+    policy = material.consume_for_http_policy(
+        expected_request=request,
+        run_id=_RUN_ID,
+        deadline=_DEADLINE,
+    )
+    assert all(config.transport is None for config in policy)
+    assert material.consume_mem0_probe_token(
+        expected_request=request,
+        run_id=_RUN_ID,
+        deadline=_DEADLINE,
+    ) == _PROBE_SECRET
+    assert calls == 0
 
 
 def test_request_mutation_after_bind_is_detected_and_backend_lane_terminal() -> None:

@@ -20,7 +20,6 @@ from infinity_context_server.memory_comparison_backend_target import (
 from infinity_context_server.memory_comparison_full_profiles import (
     INFINITY_COMPARISON_BACKEND,
     REQUIRED_FULL_COMPARISON_BACKENDS,
-    FullComparisonProfile,
     frozen_full_comparison_profile,
 )
 from infinity_context_server.memory_comparison_gold_blind_answer_contract import (
@@ -39,7 +38,9 @@ from infinity_context_server.memory_comparison_managed_corpus_projection import 
     _reconstruct_managed_corpus_case,
 )
 from infinity_context_server.memory_comparison_managed_preflight import (
+    ManagedPreflightRequest,
     managed_backend_target_identity_sha256,
+    validate_managed_preflight,
 )
 from infinity_context_server.memory_comparison_managed_run_contract import (
     ManagedAnswerCase,
@@ -142,27 +143,22 @@ class ManagedComparisonHttpExecutionAdapter:
     def __init__(
         self,
         *,
-        admitted_targets: tuple[FullComparisonBackendTarget, ...],
+        preflight_request: ManagedPreflightRequest,
         run_id: str,
-        profile: FullComparisonProfile,
         deadline: datetime,
-        infinity: ManagedInfinityHttpConfig,
-        mem0: ManagedMem0HttpConfig,
+        credential_material: object,
         retrieval_policy: ComparisonRetrievalPolicy,
         clock: Callable[[], datetime] = lambda: datetime.now(UTC),
     ) -> None:
-        trusted_profile = frozen_full_comparison_profile(profile)
+        if type(preflight_request) is not ManagedPreflightRequest:
+            raise ManagedHttpExecutionError("managed HTTP preflight request type is invalid")
+        try:
+            preflight = validate_managed_preflight(preflight_request)
+            trusted_profile = frozen_full_comparison_profile(preflight_request.profile)
+        except Exception:
+            raise ManagedHttpExecutionError("managed HTTP preflight request is invalid") from None
         trusted_run_id = _identifier(run_id, "managed HTTP admitted run_id")
         _validate_neutral_policy(retrieval_policy)
-        if type(admitted_targets) is not tuple or any(
-            type(item) is not FullComparisonBackendTarget for item in admitted_targets
-        ):
-            raise ManagedHttpExecutionError("admitted targets must be an exact typed tuple")
-        if (
-            type(infinity) is not ManagedInfinityHttpConfig
-            or type(mem0) is not ManagedMem0HttpConfig
-        ):
-            raise ManagedHttpExecutionError("managed HTTP configs must use exact types")
         if not callable(clock):
             raise ManagedHttpExecutionError("managed HTTP clock must be callable")
         trusted_deadline = _aware_instant(deadline, "managed HTTP deadline")
@@ -170,7 +166,34 @@ class ManagedComparisonHttpExecutionAdapter:
         if now >= trusted_deadline:
             raise ManagedHttpExecutionError("managed HTTP deadline is expired")
 
+        admitted_targets = tuple(item.target for item in preflight.backend_endpoints)
         target_map = _admitted_target_map(admitted_targets)
+        from infinity_context_server import (  # noqa: PLC0415
+            memory_comparison_managed_runtime_credentials_capability as credential_capability,
+        )
+
+        if (
+            type(credential_material)
+            is not credential_capability.ManagedBackendCredentialMaterial
+        ):
+            raise ManagedHttpExecutionError(
+                "managed HTTP credential material must use the exact sealed type"
+            )
+        try:
+            infinity, mem0 = credential_material.consume_for_http_execution(
+                expected_request=preflight_request,
+                run_id=trusted_run_id,
+                deadline=trusted_deadline,
+            )
+        except (TypeError, ValueError):
+            raise ManagedHttpExecutionError(
+                "managed HTTP credential continuity failed"
+            ) from None
+        if (
+            type(infinity) is not ManagedInfinityHttpConfig
+            or type(mem0) is not ManagedMem0HttpConfig
+        ):
+            raise ManagedHttpExecutionError("managed HTTP credential configs are invalid")
         configured = {
             INFINITY_COMPARISON_BACKEND: infinity.target_identity_sha256,
             "mem0": mem0.target_identity_sha256,
@@ -269,8 +292,8 @@ class ManagedComparisonHttpExecutionAdapter:
                 **dict(result.metadata),
                 "managed_http_execution": {
                     "adapter_id": MANAGED_HTTP_EXECUTION_ADAPTER_ID,
-                    "composition_blockers": ["credential_authority_not_bound"],
-                    "credential_continuity_proven": False,
+                    "composition_blockers": [],
+                    "credential_continuity_proven": True,
                     "question_forwarded": False,
                     "gold_fields_forwarded": False,
                     "retries": 0,
@@ -315,8 +338,8 @@ class ManagedComparisonHttpExecutionAdapter:
         )
         metadata = {
             "adapter_id": MANAGED_HTTP_EXECUTION_ADAPTER_ID,
-            "composition_blockers": ["credential_authority_not_bound"],
-            "credential_continuity_proven": False,
+            "composition_blockers": [],
+            "credential_continuity_proven": True,
             "backend_role": backend_role,
             "target_identity_sha256": target_identity_sha256,
             "retrieval_top_k": self._profile.retrieval_top_k,
@@ -593,7 +616,7 @@ def _freeze_json(value: object, *, depth: int = 0) -> object:
         return value
     if type(value) is list or type(value) is tuple:
         return tuple(_freeze_json(item, depth=depth + 1) for item in value)
-    if type(value) is dict:
+    if type(value) in {dict, MappingProxyType}:
         if any(type(key) is not str for key in value):
             raise ManagedHttpExecutionError("retrieval metadata key is invalid")
         return MappingProxyType(
@@ -609,7 +632,7 @@ def managed_http_execution_implementation_sha256() -> str:
         "adapter_id": MANAGED_HTTP_EXECUTION_ADAPTER_ID,
         "answer_cutoff_source": "frozen_full_comparison_profile",
         "deadline_policy": "min-configured-and-remaining-per-io",
-        "credential_continuity": "composition_authority_required",
+        "credential_continuity": "opaque-authority-consumed-before-http-io",
         "retries": 0,
         "retrieval_policy": NEUTRAL_COMPARISON_RETRIEVAL_POLICY.policy_id,
         "retrieval_top_k_source": "frozen_full_comparison_profile",

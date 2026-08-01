@@ -48,6 +48,10 @@ from infinity_context_server.memory_comparison_managed_http_execution import (
     ManagedInfinityHttpConfig,
     ManagedMem0HttpConfig,
 )
+from infinity_context_server.memory_comparison_managed_http_lifecycle_credentials import (
+    ManagedHttpLifecycleCredentialError,
+    consume_managed_http_lifecycle_credentials,
+)
 from infinity_context_server.memory_comparison_managed_http_lifecycle_evidence import (
     ManagedHttpExecutionEvidenceCapability,
     _advance_execution_evidence,
@@ -62,6 +66,9 @@ from infinity_context_server.memory_comparison_managed_http_lifecycle_evidence i
 )
 from infinity_context_server.memory_comparison_managed_http_lifecycle_evidence import (
     consume_managed_http_execution_evidence as consume_managed_http_execution_evidence,
+)
+from infinity_context_server.memory_comparison_managed_preflight import (
+    ManagedPreflightRequest,
 )
 from infinity_context_server.memory_comparison_managed_run_contract import ManagedRunCase
 from infinity_context_server.memory_comparison_models import BackendIngestResult
@@ -164,33 +171,38 @@ class ManagedComparisonHttpLifecycleAdapter:
         cases: tuple[ManagedRunCase, ...],
         deadline: datetime,
         execution: ManagedComparisonHttpExecutionAdapter,
-        infinity: ManagedInfinityHttpConfig,
-        mem0: ManagedMem0HttpConfig,
+        preflight_request: ManagedPreflightRequest,
+        credential_material: object,
         infinity_reset_transport: httpx.BaseTransport | None = None,
         mem0_reset_transport: httpx.BaseTransport | None = None,
         clock: Callable[[], datetime] = lambda: datetime.now(UTC),
     ) -> None:
         _identifier(run_id, "managed_http_lifecycle_run_invalid")
         _digest(binding_commitment_sha256, "managed_http_lifecycle_binding_invalid")
-        targets = _targets(admitted_targets)
+        _targets(admitted_targets)
         corpora = _corpora(cases)
         if type(execution) is not ManagedComparisonHttpExecutionAdapter:
             raise ManagedHttpLifecycleError("managed_http_lifecycle_execution_invalid")
-        if (
-            type(infinity) is not ManagedInfinityHttpConfig
-            or type(mem0) is not ManagedMem0HttpConfig
-        ):
-            raise ManagedHttpLifecycleError("managed_http_lifecycle_config_invalid")
-        if targets != {
-            INFINITY_COMPARISON_BACKEND: infinity.target_identity_sha256,
-            "mem0": mem0.target_identity_sha256,
-        }:
-            raise ManagedHttpLifecycleError("managed_http_lifecycle_config_target_mismatch")
         reset_transports = (infinity_reset_transport, mem0_reset_transport)
         if any(
             item is not None and type(item) is not httpx.MockTransport for item in reset_transports
         ):
             raise ManagedHttpLifecycleError("managed_http_lifecycle_reset_transport_invalid")
+        if not callable(clock):
+            raise ManagedHttpLifecycleError("managed_http_lifecycle_clock_invalid")
+        trusted_deadline = _aware(deadline, "managed_http_lifecycle_deadline_invalid")
+        if _aware(clock(), "managed_http_lifecycle_clock_invalid") >= trusted_deadline:
+            raise ManagedHttpLifecycleError("managed_http_lifecycle_deadline_expired")
+        try:
+            infinity, mem0 = consume_managed_http_lifecycle_credentials(
+                preflight_request=preflight_request,
+                credential_material=credential_material,
+                run_id=run_id,
+                deadline=trusted_deadline,
+                admitted_targets=admitted_targets,
+            )
+        except ManagedHttpLifecycleCredentialError as exc:
+            raise ManagedHttpLifecycleError(exc.code) from None
         owned = tuple(
             item
             for item in (*reset_transports, infinity.transport, mem0.transport)
@@ -198,11 +210,6 @@ class ManagedComparisonHttpLifecycleAdapter:
         )
         if len({id(item) for item in owned}) != len(owned):
             raise ManagedHttpLifecycleError("managed_http_lifecycle_transport_alias")
-        if not callable(clock):
-            raise ManagedHttpLifecycleError("managed_http_lifecycle_clock_invalid")
-        trusted_deadline = _aware(deadline, "managed_http_lifecycle_deadline_invalid")
-        if _aware(clock(), "managed_http_lifecycle_clock_invalid") >= trusted_deadline:
-            raise ManagedHttpLifecycleError("managed_http_lifecycle_deadline_expired")
         if (
             any(case.record.get("benchmark") == "locomo" for case in cases)
             and mem0.send_timestamps is not True

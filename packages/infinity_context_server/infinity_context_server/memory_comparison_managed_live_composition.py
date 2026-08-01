@@ -39,12 +39,24 @@ from infinity_context_server.memory_comparison_managed_mem0_runtime_authority im
 )
 from infinity_context_server.memory_comparison_managed_plan_builder import (
     VerifiedManagedRunPlan,
+    _inspect_verified_managed_run_plan,
     build_verified_managed_run_plan,
 )
 from infinity_context_server.memory_comparison_managed_preflight import (
     ManagedPreflightRequest,
 )
-from infinity_context_server.memory_comparison_managed_run_contract import ManagedRunError
+from infinity_context_server.memory_comparison_managed_run_contract import (
+    ManagedRunCase,
+    ManagedRunError,
+)
+from infinity_context_server.memory_comparison_managed_runtime_credentials import (
+    ManagedRuntimeCredentialAuthority,
+    ManagedRuntimeCredentialError,
+    ManagedSubscriptionReadinessClaim,
+)
+from infinity_context_server.memory_comparison_managed_runtime_credentials_context import (
+    _inspect_completed_managed_runtime_credential_context,
+)
 from infinity_context_server.memory_comparison_provider_provenance import (
     ProviderRouteAttestation,
 )
@@ -178,7 +190,13 @@ class VerifiedManagedLiveRunPreparation:
 @dataclass(frozen=True, slots=True)
 class _PreparedLiveRunState:
     plan: VerifiedManagedRunPlan = field(repr=False)
+    run_id: str
     limits: ManagedLiveExecutionLimits
+    preflight_request: ManagedPreflightRequest = field(repr=False)
+    credential_authority: ManagedRuntimeCredentialAuthority = field(repr=False)
+    readiness_claim: ManagedSubscriptionReadinessClaim = field(repr=False)
+    provider_probe: VerifiedSubscriptionRuntimeProbe = field(repr=False)
+    credential_context_fingerprint: str = field(repr=False)
     mem0_runtime_port: ManagedMem0RuntimeAttestationPort = field(repr=False)
     mem0_runtime_descriptor: ManagedMem0RuntimeAuthorityDescriptor = field(repr=False)
     secret: bytes = field(repr=False)
@@ -189,6 +207,9 @@ class _PreparedLiveRunState:
 class _PreparedLiveRunMaterial:
     plan: VerifiedManagedRunPlan = field(repr=False)
     limits: ManagedLiveExecutionLimits
+    preflight_request: ManagedPreflightRequest = field(repr=False)
+    credential_authority: ManagedRuntimeCredentialAuthority = field(repr=False)
+    readiness_claim: ManagedSubscriptionReadinessClaim = field(repr=False)
     mem0_runtime_port: ManagedMem0RuntimeAttestationPort = field(repr=False)
     mem0_runtime_descriptor: ManagedMem0RuntimeAuthorityDescriptor = field(repr=False)
 
@@ -202,6 +223,8 @@ def prepare_verified_managed_live_run(
     admission: VerifiedManagedLiveAdmission,
     *,
     expected_request: ManagedPreflightRequest,
+    credential_authority: ManagedRuntimeCredentialAuthority,
+    readiness_claim: ManagedSubscriptionReadinessClaim,
     dataset_bytes: bytes,
     now: datetime,
 ) -> VerifiedManagedLiveRunPreparation:
@@ -249,11 +272,25 @@ def prepare_verified_managed_live_run(
         issued_at=material.issued_at,
         deadline=material.deadline,
     )
+    credential_context_fingerprint = _credential_context_fingerprint(
+        credential_authority,
+        readiness_claim,
+        expected_request=expected_request,
+        expected_probe=material.live_provider_evidence,
+        run_id=material.run_id,
+        deadline=material.deadline,
+    )
     secret = secrets.token_bytes(32)
     commitment = _state_commitment(
         secret,
         plan=plan,
+        run_id=material.run_id,
         limits=limits,
+        preflight_request=expected_request,
+        credential_authority=credential_authority,
+        readiness_claim=readiness_claim,
+        provider_probe=material.live_provider_evidence,
+        credential_context_fingerprint=credential_context_fingerprint,
         mem0_runtime_port=material.mem0_runtime_port,
         mem0_runtime_descriptor=material.mem0_runtime_descriptor,
     )
@@ -261,7 +298,13 @@ def prepare_verified_managed_live_run(
     with _LOCK:
         _PREPARED_RUNS[prepared] = _PreparedLiveRunState(
             plan=plan,
+            run_id=material.run_id,
             limits=limits,
+            preflight_request=expected_request,
+            credential_authority=credential_authority,
+            readiness_claim=readiness_claim,
+            provider_probe=material.live_provider_evidence,
+            credential_context_fingerprint=credential_context_fingerprint,
             mem0_runtime_port=material.mem0_runtime_port,
             mem0_runtime_descriptor=material.mem0_runtime_descriptor,
             secret=secret,
@@ -280,6 +323,19 @@ def managed_live_execution_limits(
         return state.limits
 
 
+def _inspect_managed_live_policy_cases(
+    prepared: VerifiedManagedLiveRunPreparation,
+) -> tuple[ManagedRunCase, ...]:
+    """Return exact gold-free policy cases without consuming preparation."""
+
+    with _LOCK:
+        state = _trusted_state(prepared)
+        plan = _inspect_verified_managed_run_plan(state.plan)
+        if plan.run_id != state.run_id:
+            raise ManagedRunError("managed live preparation plan differs")
+        return plan.cases
+
+
 def _consume_verified_managed_live_run_preparation(
     prepared: VerifiedManagedLiveRunPreparation,
     *,
@@ -294,13 +350,16 @@ def _consume_verified_managed_live_run_preparation(
         state = _PREPARED_RUNS.get(prepared)
         if state is None:
             raise ManagedRunError("managed live preparation is unavailable or consumed")
-        del _PREPARED_RUNS[prepared]
         _validate_state(prepared, state)
+        del _PREPARED_RUNS[prepared]
         if trusted_now < state.limits.issued_at or trusted_now > state.limits.deadline:
             raise ManagedRunError("managed live preparation is expired or not yet current")
         return _PreparedLiveRunMaterial(
             plan=state.plan,
             limits=state.limits,
+            preflight_request=state.preflight_request,
+            credential_authority=state.credential_authority,
+            readiness_claim=state.readiness_claim,
             mem0_runtime_port=state.mem0_runtime_port,
             mem0_runtime_descriptor=state.mem0_runtime_descriptor,
         )
@@ -383,12 +442,30 @@ def _validate_state(
     expected = _state_commitment(
         state.secret,
         plan=state.plan,
+        run_id=state.run_id,
         limits=state.limits,
+        preflight_request=state.preflight_request,
+        credential_authority=state.credential_authority,
+        readiness_claim=state.readiness_claim,
+        provider_probe=state.provider_probe,
+        credential_context_fingerprint=state.credential_context_fingerprint,
         mem0_runtime_port=state.mem0_runtime_port,
         mem0_runtime_descriptor=state.mem0_runtime_descriptor,
     )
+    current_credential_fingerprint = _credential_context_fingerprint(
+        state.credential_authority,
+        state.readiness_claim,
+        expected_request=state.preflight_request,
+        expected_probe=state.provider_probe,
+        run_id=state.run_id,
+        deadline=state.limits.deadline,
+    )
     if (
         type(observed) is not str
+        or not hmac.compare_digest(
+            current_credential_fingerprint,
+            state.credential_context_fingerprint,
+        )
         or not hmac.compare_digest(observed, state.commitment)
         or not hmac.compare_digest(expected, state.commitment)
     ):
@@ -412,7 +489,13 @@ def _state_commitment(
     secret: bytes,
     *,
     plan: VerifiedManagedRunPlan,
+    run_id: str,
     limits: ManagedLiveExecutionLimits,
+    preflight_request: ManagedPreflightRequest,
+    credential_authority: ManagedRuntimeCredentialAuthority,
+    readiness_claim: ManagedSubscriptionReadinessClaim,
+    provider_probe: VerifiedSubscriptionRuntimeProbe,
+    credential_context_fingerprint: str,
     mem0_runtime_port: ManagedMem0RuntimeAttestationPort,
     mem0_runtime_descriptor: ManagedMem0RuntimeAuthorityDescriptor,
 ) -> str:
@@ -422,6 +505,12 @@ def _state_commitment(
     material = "\n".join(
         (
             str(id(plan)),
+            run_id,
+            str(id(preflight_request)),
+            str(id(credential_authority)),
+            str(id(readiness_claim)),
+            str(id(provider_probe)),
+            credential_context_fingerprint,
             runtime_identity,
             descriptor_identity,
             runtime_fingerprint,
@@ -443,6 +532,31 @@ def _state_commitment(
         )
     ).encode()
     return hmac.new(secret, material, hashlib.sha256).hexdigest()
+
+
+def _credential_context_fingerprint(
+    authority: object,
+    readiness_claim: object,
+    *,
+    expected_request: object,
+    expected_probe: object,
+    run_id: str,
+    deadline: datetime,
+) -> str:
+    try:
+        fingerprint = _inspect_completed_managed_runtime_credential_context(
+            authority,
+            readiness_claim,
+            expected_request=expected_request,
+            expected_probe=expected_probe,
+            run_id=run_id,
+            deadline=deadline,
+        )
+    except ManagedRuntimeCredentialError:
+        raise ManagedRunError("managed live credential authority is invalid") from None
+    if type(fingerprint) is not str or _SHA256.fullmatch(fingerprint) is None:
+        raise ManagedRunError("managed live credential authority is invalid")
+    return fingerprint
 
 
 def _runtime_authority_evidence_key(

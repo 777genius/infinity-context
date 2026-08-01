@@ -79,6 +79,8 @@ def _prepare(
     captured: dict[str, object] = {}
     admitted = object()
     request = object()
+    credential_authority = object()
+    readiness_claim = object()
     profile = object()
     route = object()
     plan = object()
@@ -100,9 +102,18 @@ def _prepare(
     monkeypatch.setattr(subject, "resolve_full_comparison_profile", lambda _: profile)
     monkeypatch.setattr(subject, "_provider_route", lambda *args, **kwargs: route)
     monkeypatch.setattr(subject, "build_verified_managed_run_plan", build)
+    monkeypatch.setattr(
+        subject,
+        "_credential_context_fingerprint",
+        lambda authority, claim, **context: hashlib.sha256(
+            f"{id(authority)}:{id(claim)}:{context!r}".encode()
+        ).hexdigest(),
+    )
     prepared = subject.prepare_verified_managed_live_run(
         admitted,
         expected_request=request,
+        credential_authority=credential_authority,
+        readiness_claim=readiness_claim,
         dataset_bytes=_DATASET,
         now=_NOW,
     )
@@ -110,6 +121,8 @@ def _prepare(
         {
             "admitted": admitted,
             "request": request,
+            "credential_authority": credential_authority,
+            "readiness_claim": readiness_claim,
             "profile": profile,
             "route": route,
             "plan": plan,
@@ -221,6 +234,8 @@ def test_prepare_burns_admission_before_dataset_hash_validation(
         subject.prepare_verified_managed_live_run(
             object(),
             expected_request=object(),
+            credential_authority=object(),
+            readiness_claim=object(),
             dataset_bytes=b"different",
             now=_NOW,
         )
@@ -279,6 +294,9 @@ def test_private_consume_returns_exact_plan_once(
         now=_NOW,
     )
     assert material.plan is captured["plan"]
+    assert material.preflight_request is captured["request"]
+    assert material.credential_authority is captured["credential_authority"]
+    assert material.readiness_claim is captured["readiness_claim"]
     assert material.mem0_runtime_port is admitted_material.mem0_runtime_port
     assert material.mem0_runtime_descriptor is admitted_material.mem0_runtime_descriptor
 
@@ -297,6 +315,20 @@ def test_runtime_authority_identity_is_bound_to_sealed_state(
     subject._PREPARED_RUNS[prepared] = replace(
         state,
         mem0_runtime_port=_runtime_port(),
+    )
+
+    with pytest.raises(ManagedRunError, match="integrity failed"):
+        subject.managed_live_execution_limits(prepared)
+
+
+def test_credential_authority_identity_is_bound_to_sealed_state(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    prepared, _, _ = _prepare(monkeypatch)
+    state = subject._PREPARED_RUNS[prepared]
+    subject._PREPARED_RUNS[prepared] = replace(
+        state,
+        credential_authority=object(),
     )
 
     with pytest.raises(ManagedRunError, match="integrity failed"):
