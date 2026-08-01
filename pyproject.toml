@@ -58,6 +58,7 @@ dev = [
 
 [project.scripts]
 infinity-context = "infinity_context_cli.cli:main"
+infinity-context-managed-preflight = "infinity_context_server.memory_comparison_managed_preflight_cli:main"
 infinity-context-mcp = "infinity_context_mcp.server:main"
 infinity-context-mcp-bench = "infinity_context_mcp.bench:main"
 infinity-context-mcp-agent-bench = "infinity_context_mcp.agent_behavior_bench:main"

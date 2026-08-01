@@ -14,7 +14,16 @@ ArtifactValidationErrorFactory = Callable[[str], Exception]
 def write_json_atomic(path: Path, payload: Mapping[str, object]) -> None:
     """Write a JSON artifact as an all-or-nothing file replacement."""
     path.parent.mkdir(parents=True, exist_ok=True)
-    rendered = json.dumps(payload, ensure_ascii=False, sort_keys=True, indent=2) + "\n"
+    rendered = (
+        json.dumps(
+            payload,
+            ensure_ascii=False,
+            sort_keys=True,
+            indent=2,
+            allow_nan=False,
+        )
+        + "\n"
+    )
     tmp_path: Path | None = None
     try:
         with tempfile.NamedTemporaryFile(
@@ -26,6 +35,7 @@ def write_json_atomic(path: Path, payload: Mapping[str, object]) -> None:
             delete=False,
         ) as handle:
             tmp_path = Path(handle.name)
+            os.fchmod(handle.fileno(), 0o600)
             handle.write(rendered)
             handle.flush()
             os.fsync(handle.fileno())

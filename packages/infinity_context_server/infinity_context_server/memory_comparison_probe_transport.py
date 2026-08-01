@@ -2,13 +2,16 @@
 
 from __future__ import annotations
 
-import hashlib
 import ipaddress
 from collections.abc import AsyncIterator, Mapping, Sequence
 from contextlib import AbstractAsyncContextManager
 from dataclasses import dataclass
 from typing import Protocol
-from urllib.parse import urlsplit
+
+from infinity_context_server.memory_comparison_target_identity import (
+    mem0_runtime_target_identity_sha256,
+    normalized_mem0_runtime_origin,
+)
 
 
 class ProbeResponse(Protocol):
@@ -80,7 +83,7 @@ def vet_probe_target(
     """Return a usable target only when routing cannot silently change after vetting."""
 
     try:
-        origin, host, scheme = _normalized_origin(base_url)
+        origin, host, scheme = normalized_mem0_runtime_origin(base_url)
     except ValueError:
         return None
     allowlist = _validated_host_allowlist(allowed_hosts)
@@ -102,16 +105,9 @@ def vet_probe_target(
     return VettedProbeTarget(
         base_url=origin,
         host=host,
-        identity_sha256=hashlib.sha256(origin.encode("utf-8")).hexdigest(),
+        identity_sha256=mem0_runtime_target_identity_sha256(origin),
         transport=transport,
     )
-
-
-def mem0_runtime_target_identity_sha256(base_url: str) -> str:
-    """Hash a normalized target origin without exposing its URL."""
-
-    origin, _, _ = _normalized_origin(base_url)
-    return hashlib.sha256(origin.encode("utf-8")).hexdigest()
 
 
 def mem0_live_probe_target_is_safe(
@@ -132,27 +128,6 @@ def mem0_live_probe_target_is_safe(
         )
         is not None
     )
-
-
-def _normalized_origin(base_url: str) -> tuple[str, str, str]:
-    raw = str(base_url).strip()
-    try:
-        parsed = urlsplit(raw)
-        host = (parsed.hostname or "").casefold().removesuffix(".")
-        port = parsed.port
-    except ValueError as exc:
-        raise ValueError("probe target URL is invalid") from exc
-    scheme = parsed.scheme.casefold()
-    if scheme not in {"http", "https"} or not host:
-        raise ValueError("probe target URL must use HTTP(S) with a hostname")
-    if parsed.username is not None or parsed.password is not None:
-        raise ValueError("probe target URL must not contain credentials")
-    if parsed.query or parsed.fragment:
-        raise ValueError("probe target URL must not contain query or fragment")
-    default_port = (scheme == "http" and port == 80) or (scheme == "https" and port == 443)
-    rendered_host = f"[{host}]" if ":" in host else host
-    port_suffix = "" if port is None or default_port else f":{port}"
-    return f"{scheme}://{rendered_host}{port_suffix}", host, scheme
 
 
 def _validated_host_allowlist(values: Sequence[str]) -> frozenset[str] | None:
