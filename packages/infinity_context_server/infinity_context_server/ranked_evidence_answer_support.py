@@ -18,6 +18,11 @@ from infinity_context_core.application import (
     context_ranked_activity_reservation as _activity_policy,
 )
 
+from infinity_context_server.ranked_evidence_session_identity import (
+    longmemeval_source_identity,
+    source_ref_session_keys,
+)
+
 SCHEMA_VERSION = "ranked-evidence-answer-support-metrics.v1"
 
 _MAX_CUTOFFS = 8
@@ -74,25 +79,6 @@ _ANSWER_UNIT_SEPARATOR_RE = re.compile(
 _UNSUPPORTED_ANSWER_DELIMITER_RE = re.compile(r"[\r\n|/&]")
 _SLOT_KEY_RE = re.compile(r"[a-z0-9][a-z0-9_-]{0,63}")
 _QUANTITY_MEMBER_ID_RE = re.compile(r"member_[0-9a-f]{16}")
-_LOCOMO_TURN_REF_RE = re.compile(
-    r"(?<![a-z0-9])D(?P<session>[1-9]\d{0,5}):[1-9]\d{0,6}(?!\d)",
-    re.IGNORECASE,
-)
-_LOCOMO_SESSION_REF_RE = re.compile(
-    r"(?<![a-z0-9])session_(?P<session>[1-9]\d{0,5})(?!\d)",
-    re.IGNORECASE,
-)
-_LONGMEMEVAL_SESSION_REF_RE = re.compile(
-    r"(?<![a-z0-9])session-(?P<session>\d{4})(?!\d)",
-    re.IGNORECASE,
-)
-_LONGMEMEVAL_CANONICAL_SOURCE_REF_RE = re.compile(
-    r"^longmemeval:(?P<case>[a-z0-9][a-z0-9._-]{0,159}):"
-    r"session:(?P<session>[1-9]\d{0,3})"
-    r"(?::pair:(?P<pair>[1-9]\d{0,6})"
-    r"(?::message:(?P<message>[1-9]\d{0,6}))?)?$",
-    re.IGNORECASE,
-)
 _COUNT_WORDS = {
     "one": 1,
     "two": 2,
@@ -141,6 +127,7 @@ def ranked_evidence_answer_support_metrics(
     question: str,
     expected_terms: Sequence[str],
     expected_refs: Sequence[str] = (),
+    longmemeval_case_id: str | None = None,
 ) -> dict[str, object]:
     """Measure source-backed generic answer-unit support at ranked cutoffs.
 
@@ -154,6 +141,17 @@ def ranked_evidence_answer_support_metrics(
         or len(question) > _MAX_EXPECTED_TERM_CHARS
     ):
         return _fallback("invalid_question")
+    if longmemeval_case_id is not None and (
+        not isinstance(longmemeval_case_id, str)
+        or longmemeval_case_id != longmemeval_case_id.strip()
+        or not 0 < len(longmemeval_case_id) <= 160
+    ):
+        return _fallback("invalid_observations")
+    if longmemeval_case_id is not None and not _observations_belong_to_longmemeval_case(
+        observations,
+        case_id=longmemeval_case_id,
+    ):
+        return _fallback("invalid_observations")
     try:
         query_supported = _activity_policy.activity_inventory_query_supported(question)
     except Exception:
@@ -276,6 +274,7 @@ def ranked_evidence_answer_support(
     question: str,
     expected_terms: Sequence[str],
     expected_refs: Sequence[str] = (),
+    longmemeval_case_id: str | None = None,
 ) -> dict[str, object]:
     """Compatibility spelling for the public policy entry point."""
 
@@ -284,6 +283,7 @@ def ranked_evidence_answer_support(
         question=question,
         expected_terms=expected_terms,
         expected_refs=expected_refs,
+        longmemeval_case_id=longmemeval_case_id,
     )
 
 
@@ -417,6 +417,25 @@ def _expected_quantity_count(expected_terms: object) -> int | str:
     return count
 
 
+def _observations_belong_to_longmemeval_case(
+    observations: object,
+    *,
+    case_id: str,
+) -> bool:
+    if not _is_sequence(observations):
+        return False
+    for observation in observations:
+        if not isinstance(observation, RankedEvidenceAnswerSupportObservation):
+            return False
+        for source_ref in observation.source_refs:
+            if not source_ref.casefold().startswith("longmemeval:"):
+                continue
+            identity = longmemeval_source_identity(source_ref)
+            if identity is None or identity.case_id != case_id:
+                return False
+    return True
+
+
 def _official_session_keys(expected_refs: object) -> frozenset[str] | None:
     if (
         not _is_sequence(expected_refs)
@@ -432,7 +451,7 @@ def _official_session_keys(expected_refs: object) -> frozenset[str] | None:
             or not 0 < len(raw_ref) <= _MAX_SOURCE_REF_CHARS
         ):
             return None
-        ref_sessions = _session_keys_from_ref(raw_ref)
+        ref_sessions = source_ref_session_keys(raw_ref)
         if ref_sessions is None or len(ref_sessions) != 1:
             return None
         sessions.update(ref_sessions)
@@ -441,30 +460,10 @@ def _official_session_keys(expected_refs: object) -> frozenset[str] | None:
     return frozenset(sessions)
 
 
-def _session_keys_from_ref(source_ref: str) -> frozenset[str] | None:
-    sessions = {
-        f"locomo:{int(match.group('session'))}"
-        for pattern in (_LOCOMO_TURN_REF_RE, _LOCOMO_SESSION_REF_RE)
-        for match in pattern.finditer(source_ref)
-    }
-    sessions.update(
-        f"longmemeval:session-{match.group('session')}"
-        for match in _LONGMEMEVAL_SESSION_REF_RE.finditer(source_ref)
-    )
-    canonical = _LONGMEMEVAL_CANONICAL_SOURCE_REF_RE.fullmatch(source_ref)
-    if source_ref.casefold().startswith("longmemeval:") and ":session:" in source_ref.casefold():
-        if canonical is None:
-            return None
-        sessions.add(f"longmemeval:session-{int(canonical.group('session')):04d}")
-    if len(sessions) > 1:
-        return None
-    return frozenset(sessions)
-
-
 def _observation_session_key(source_refs: Sequence[str]) -> str | None | bool:
     sessions: set[str] = set()
     for source_ref in source_refs:
-        ref_sessions = _session_keys_from_ref(source_ref)
+        ref_sessions = source_ref_session_keys(source_ref)
         if ref_sessions is None or len(ref_sessions) != 1:
             return False
         sessions.update(ref_sessions)

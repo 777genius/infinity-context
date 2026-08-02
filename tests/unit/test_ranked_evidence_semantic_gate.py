@@ -438,6 +438,69 @@ def test_observed_source_refs_preserves_mixed_sessions_for_fail_closed_policy() 
     assert metrics["fallback_reason"] == "quantity_policy_error"
 
 
+def _longmemeval_observation(source_ref: str):
+    return (
+        gate.RankedEvidenceAnswerSupportObservation(
+            cutoff=1,
+            fingerprint="canonical-pair",
+            text="Bounded public evidence.",
+            source_refs=(source_ref,),
+        ),
+    )
+
+
+def test_same_case_canonical_longmemeval_pair_covers_official_session() -> None:
+    observed = _longmemeval_observation(
+        "longmemeval:gpt4_1d4ab0c9:session:14:pair:1"
+    )
+
+    assert gate._covered_expected_refs(
+        observed,
+        expected_refs=("session-0014",),
+        benchmark="longmemeval",
+        case_id="gpt4_1d4ab0c9",
+    ) == (
+        "session-0014",
+    )
+
+
+def test_foreign_case_canonical_longmemeval_pair_does_not_cover_official_session() -> None:
+    observed = _longmemeval_observation("longmemeval:other-case:session:14:pair:1")
+
+    assert gate._covered_expected_refs(
+        observed,
+        expected_refs=("session-0014",),
+        benchmark="longmemeval",
+        case_id="gpt4_1d4ab0c9",
+    ) == ()
+
+
+def test_canonical_longmemeval_ref_does_not_match_exact_foreign_case_ref() -> None:
+    observed = _longmemeval_observation(
+        "longmemeval:gpt4_1d4ab0c9:session:14:pair:1"
+    )
+
+    assert gate._covered_expected_refs(
+        observed,
+        expected_refs=("longmemeval:other-case:session:14:pair:1",),
+        benchmark="longmemeval",
+        case_id="gpt4_1d4ab0c9",
+    ) == ()
+
+
+def test_malformed_canonical_longmemeval_ref_fails_closed() -> None:
+    observed = _longmemeval_observation(
+        "longmemeval:gpt4_1d4ab0c9:session:0:pair:1"
+    )
+
+    assert gate._covered_expected_refs(
+        observed,
+        expected_refs=("session-0000",),
+        benchmark="longmemeval",
+        case_id="gpt4_1d4ab0c9",
+    ) == ()
+
+
 def test_public_evidence_fingerprint_ignores_database_item_ids() -> None:
     first = {
         "item_id": "database-row-1",

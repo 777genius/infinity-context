@@ -104,6 +104,9 @@ from infinity_context_core.application.context_query_workflow_intent import (
 from infinity_context_core.application.context_temporal_intent_policy import (
     temporal_ordering_intent,
 )
+from infinity_context_core.application.context_temporal_interval_requirements import (
+    temporal_interval_requirements,
+)
 from infinity_context_core.application.context_temporal_query import (
     TemporalQueryIntent,
     build_temporal_query_intent,
@@ -148,6 +151,9 @@ def build_query_decomposition_plan(
         variants=variants,
     )
     candidates: list[QueryDecomposition] = []
+    interval_requirements = temporal_interval_requirements(query)
+    for endpoint in interval_requirements.endpoints:
+        _append_candidate(candidates, query=endpoint.query, reason=endpoint.slot_id)
     ordering_intent = temporal_ordering_intent(query)
     for endpoint in ordering_intent.endpoints:
         _append_candidate(candidates, query=endpoint.query, reason=endpoint.slot_id)
@@ -666,7 +672,10 @@ def build_query_decomposition_plan(
             ),
             reason="decomposition_current_preference_or_goal",
         )
-    if _requests_comparison_preference(raw_tokens=raw_tokens, variants=variants):
+    if not interval_requirements.explicit and _requests_comparison_preference(
+        raw_tokens=raw_tokens,
+        variants=variants,
+    ):
         _append_candidate(
             candidates,
             query=_compose_query(

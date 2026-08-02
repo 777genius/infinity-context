@@ -611,6 +611,53 @@ def test_longmemeval_canonical_and_alias_refs_share_strict_session_authority() -
     assert support_policy._observation_session_key((f"{canonical}:session-0012",)) is False
 
 
+def test_answer_support_accepts_only_same_case_canonical_longmemeval_refs() -> None:
+    observation = _observation(
+        "same-case",
+        "user: I still need to return my coat to the store.",
+        source_refs=("longmemeval:shape-case:session:14:pair:1",),
+    )
+
+    metrics = ranked_evidence_answer_support_metrics(
+        (observation,),
+        question=_QUANTITY_QUESTION,
+        expected_terms=("1",),
+        expected_refs=("session-0014",),
+        longmemeval_case_id="shape-case",
+    )
+
+    assert metrics["applicable"] is True
+    assert metrics["matches"] is True
+
+
+@pytest.mark.parametrize(
+    "source_ref",
+    [
+        "longmemeval:other-case:session:14:pair:1",
+        "longmemeval:shape-case:session:0:pair:1",
+    ],
+)
+def test_answer_support_rejects_foreign_or_malformed_canonical_longmemeval_refs(
+    source_ref: str,
+) -> None:
+    observation = _observation(
+        "invalid-case-binding",
+        "user: I still need to return my coat to the store.",
+        source_refs=(source_ref,),
+    )
+
+    metrics = ranked_evidence_answer_support_metrics(
+        (observation,),
+        question=_QUANTITY_QUESTION,
+        expected_terms=("1",),
+        expected_refs=("session-0014",),
+        longmemeval_case_id="shape-case",
+    )
+
+    assert metrics["applicable"] is False
+    assert metrics["fallback_reason"] == "invalid_observations"
+
+
 @pytest.mark.parametrize(
     "canonical",
     [

@@ -164,6 +164,7 @@ _BUNDLE_COUNTER_KEYS = (
     "ranked_evidence_instruction_drop_count",
     "ranked_evidence_unsafe_source_drop_count",
     "ranked_evidence_source_dedupe_drop_count",
+    "ranked_evidence_temporal_interval_reservation_count",
     "hybrid_items_used",
     "items_considered",
     "items_used",
