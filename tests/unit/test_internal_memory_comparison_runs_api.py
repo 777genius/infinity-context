@@ -188,9 +188,8 @@ def test_projection_manifest_seal_forwards_exact_command_without_manifest_leakag
 def test_root_configured_token_can_access_internal_benchmark_authority() -> None:
     container = SimpleNamespace(settings=SimpleNamespace(service_token="root-token"))
     asyncio.run(
-        auth.require_service_token(
+        auth.require_strict_admin_service_token(
             container,
-            _request("POST"),
             authorization="Bearer root-token",
         )
     )
@@ -291,6 +290,9 @@ class FakeContainer:
             projection_cleanup_state="sealed",
             cleanup_fingerprint_sha256=None,
             cleanup_receipt=None,
+            finalization_fingerprint_sha256=None,
+            completion_receipt=None,
+            completed_at=None,
             created_at=NOW,
             updated_at=NOW,
         )

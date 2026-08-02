@@ -20,6 +20,9 @@ from infinity_context_adapters.postgres.unit_of_work import (
     build_async_engine,
     create_schema,
 )
+from infinity_context_core.application.use_cases.benchmark_runs import (
+    BENCHMARK_COGNEE_NOT_PROJECTED_POLICY_SHA256,
+)
 from infinity_context_core.domain.errors import MemoryConflictError, MemoryValidationError
 from infinity_context_core.ports.graph_evidence import GraphProjectionIdentitySnapshot
 from infinity_context_server.derived_identity_evidence import (
@@ -463,7 +466,7 @@ def _projection_manifest(scope: CanonicalProjectionScope) -> dict[str, object]:
                 "graphiti": None,
                 "cognee": {
                     "disposition": "not_projected",
-                    "policy_sha256": "1" * 64,
+                    "policy_sha256": BENCHMARK_COGNEE_NOT_PROJECTED_POLICY_SHA256,
                 },
             }
         ],

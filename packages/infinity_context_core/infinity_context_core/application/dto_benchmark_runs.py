@@ -6,6 +6,7 @@ from dataclasses import dataclass
 from typing import Literal
 
 from infinity_context_core.ports.benchmark_runs import (
+    BenchmarkCleanupCompletionReceipt,
     BenchmarkCleanupReceipt,
     BenchmarkRunRegistryRecord,
 )
@@ -56,10 +57,37 @@ class CleanupBenchmarkRunResult:
     replayed: bool
 
 
+@dataclass(frozen=True, slots=True)
+class FinalizeBenchmarkRunCleanupCommand:
+    run_id_sha256: str
+    expected_cleanup_receipt_sha256: str
+    idempotency_key_sha256: str
+
+
+@dataclass(frozen=True, slots=True)
+class FinalizeBenchmarkRunCleanupResult:
+    receipt: BenchmarkCleanupCompletionReceipt
+    replayed: bool
+
+
+@dataclass(frozen=True, slots=True)
+class GetBenchmarkRunLifecycleQuery:
+    run_id_sha256: str
+
+
+@dataclass(frozen=True, slots=True)
+class GetBenchmarkRunLifecycleResult:
+    record: BenchmarkRunRegistryRecord
+
+
 __all__ = (
     "CleanupBenchmarkRunCommand",
     "CleanupBenchmarkRunResult",
+    "FinalizeBenchmarkRunCleanupCommand",
+    "FinalizeBenchmarkRunCleanupResult",
     "RegisterBenchmarkRunCommand",
+    "GetBenchmarkRunLifecycleQuery",
+    "GetBenchmarkRunLifecycleResult",
     "RegisterBenchmarkRunResult",
     "SealProjectionManifestCommand",
     "SealProjectionManifestResult",

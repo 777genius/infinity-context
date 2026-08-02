@@ -22,6 +22,8 @@ from memory_comparison_managed_benchmark_registry_test_support import (
     _config,
     _DeadlineAdvancingStream,
     _digest,
+    _finalize,
+    _lifecycle,
     _manifest,
     _MutableClock,
     _registration,
@@ -109,6 +111,8 @@ def test_unknown_registration_replays_only_exact_attempt_then_allows_cleanup() -
             if registration_calls == 1:
                 raise RuntimeError(f"committed registration leaked {TOKEN}")
             return httpx.Response(200, json=_registration(created=False))
+        if request.method == "GET":
+            return httpx.Response(200, json=_lifecycle())
         return httpx.Response(200, json=_cleanup(projection_cleanup="blocked"))
 
     adapter = ManagedBenchmarkRegistryHttpAdapter(_config(httpx.MockTransport(handler)))
@@ -140,7 +144,7 @@ def test_unknown_registration_replays_only_exact_attempt_then_allows_cleanup() -
     )
     assert recovered.created is False
     assert adapter.begin_cleanup().projection_cleanup == "blocked"
-    assert methods == ["POST", "POST", "DELETE"]
+    assert methods == ["POST", "POST", "GET", "DELETE"]
 
 
 def test_unknown_registration_recovery_uses_fresh_recovery_window() -> None:
@@ -156,6 +160,8 @@ def test_unknown_registration_recovery_uses_fresh_recovery_window() -> None:
             raise RuntimeError("registration response lost")
         if request.method == "POST":
             return httpx.Response(200, json=_registration(created=False))
+        if request.method == "GET":
+            return httpx.Response(200, json=_lifecycle())
         return httpx.Response(200, json=_cleanup(projection_cleanup="blocked"))
 
     config = ManagedBenchmarkRegistryHttpConfig(
@@ -182,7 +188,7 @@ def test_unknown_registration_recovery_uses_fresh_recovery_window() -> None:
         space_slug=SPACE_SLUG,
     )
     adapter.begin_cleanup()
-    assert calls == 3
+    assert calls == 4
 
 
 def test_unknown_cleanup_replays_after_truncated_response_and_missed_window() -> None:
@@ -233,7 +239,144 @@ def test_unknown_cleanup_replays_after_truncated_response_and_missed_window() ->
     receipt = adapter.begin_cleanup(idempotency_key="exact-cleanup-key")
     assert receipt.replayed is True
     assert delete_calls == 2
+    assert adapter._client.is_closed is False
+    assert adapter.cleanup_required is True
+
+
+def test_unknown_finalize_replays_only_exact_attempt_then_closes() -> None:
+    manifest = _manifest()
+    manifest_sha256 = _digest(manifest)
+    finalize_calls = 0
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        nonlocal finalize_calls
+        if request.url.path.endswith("/cleanup/finalize"):
+            finalize_calls += 1
+            if finalize_calls == 1:
+                return httpx.Response(
+                    200,
+                    headers={"content-type": "application/json"},
+                    stream=_TruncatedCommittedStream(),
+                )
+            return httpx.Response(200, json=_finalize(manifest_sha256, replayed=True))
+        if request.method == "POST":
+            return httpx.Response(201, json=_registration())
+        if request.method == "PUT":
+            return httpx.Response(200, json=_seal(manifest_sha256))
+        return httpx.Response(200, json=_cleanup())
+
+    adapter = ManagedBenchmarkRegistryHttpAdapter(_config(httpx.MockTransport(handler)))
+    adapter.register(
+        run_id_sha256=RUN,
+        binding_commitment_sha256=BINDING,
+        space_slug=SPACE_SLUG,
+    )
+    adapter.seal_projection_manifest(
+        projection_manifest=manifest,
+        projection_manifest_sha256=manifest_sha256,
+    )
+    initiation = adapter.begin_cleanup()
+
+    with pytest.raises(ManagedBenchmarkRegistryHttpError) as caught:
+        adapter.finalize_cleanup(
+            cleanup_initiation_receipt_sha256=initiation.receipt_sha256,
+            idempotency_key="exact-finalize-key",
+        )
+    assert caught.value.code == "managed_benchmark_registry_request_failed"
+    assert adapter.cleanup_required is True
+    assert adapter._client.is_closed is False
+
+    with pytest.raises(ManagedBenchmarkRegistryHttpError) as mismatch:
+        adapter.finalize_cleanup(
+            cleanup_initiation_receipt_sha256=initiation.receipt_sha256,
+            idempotency_key="different-finalize-key",
+        )
+    assert mismatch.value.code == "managed_benchmark_registry_lifecycle_invalid"
+    assert finalize_calls == 1
+
+    completion = adapter.finalize_cleanup(
+        cleanup_initiation_receipt_sha256=initiation.receipt_sha256,
+        idempotency_key="exact-finalize-key",
+    )
+    assert completion.replayed is True
+    assert finalize_calls == 2
+    assert adapter.cleanup_required is False
     assert adapter._client.is_closed is True
+
+
+def test_finalize_rejects_false_completion_digest_then_recovers_same_key() -> None:
+    manifest = _manifest()
+    manifest_sha256 = _digest(manifest)
+    finalize_calls = 0
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        nonlocal finalize_calls
+        if request.url.path.endswith("/cleanup/finalize"):
+            finalize_calls += 1
+            response = _finalize(
+                manifest_sha256,
+                receipt_sha256="f" * 64 if finalize_calls == 1 else None,
+                replayed=finalize_calls > 1,
+            )
+            return httpx.Response(200, json=response)
+        if request.method == "POST":
+            return httpx.Response(201, json=_registration())
+        if request.method == "PUT":
+            return httpx.Response(200, json=_seal(manifest_sha256))
+        return httpx.Response(200, json=_cleanup())
+
+    adapter = ManagedBenchmarkRegistryHttpAdapter(_config(httpx.MockTransport(handler)))
+    adapter.register(
+        run_id_sha256=RUN,
+        binding_commitment_sha256=BINDING,
+        space_slug=SPACE_SLUG,
+    )
+    adapter.seal_projection_manifest(
+        projection_manifest=manifest,
+        projection_manifest_sha256=manifest_sha256,
+    )
+    initiation = adapter.begin_cleanup()
+
+    with pytest.raises(ManagedBenchmarkRegistryHttpError) as caught:
+        adapter.finalize_cleanup(
+            cleanup_initiation_receipt_sha256=initiation.receipt_sha256,
+            idempotency_key="terminal-receipt-key",
+        )
+    assert caught.value.code == "managed_benchmark_registry_finalize_response_invalid"
+    assert adapter.cleanup_required is True
+
+    recovered = adapter.finalize_cleanup(
+        cleanup_initiation_receipt_sha256=initiation.receipt_sha256,
+        idempotency_key="terminal-receipt-key",
+    )
+    assert recovered.replayed is True
+    assert adapter._client.is_closed is True
+
+
+def test_unsealed_cleanup_cannot_claim_terminal_completion() -> None:
+    calls = 0
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        nonlocal calls
+        calls += 1
+        if request.method == "POST":
+            return httpx.Response(201, json=_registration())
+        return httpx.Response(200, json=_cleanup(projection_cleanup="blocked"))
+
+    adapter = ManagedBenchmarkRegistryHttpAdapter(_config(httpx.MockTransport(handler)))
+    adapter.register(
+        run_id_sha256=RUN,
+        binding_commitment_sha256=BINDING,
+        space_slug=SPACE_SLUG,
+    )
+    initiation = adapter.begin_cleanup()
+
+    with pytest.raises(ManagedBenchmarkRegistryHttpError) as caught:
+        adapter.finalize_cleanup(cleanup_initiation_receipt_sha256=initiation.receipt_sha256)
+    assert caught.value.code == "managed_benchmark_registry_lifecycle_invalid"
+    assert calls == 2
+    assert adapter.cleanup_required is True
+    assert adapter._client.is_closed is False
 
 
 def test_cleanup_uses_fresh_window_after_benchmark_deadline_expires() -> None:
@@ -289,7 +432,8 @@ def test_cleanup_can_start_immediately_after_unsealed_registration() -> None:
 
     assert receipt.projection_cleanup == "blocked"
     assert methods == ["POST", "DELETE"]
-    assert adapter._client.is_closed is True
+    assert adapter._client.is_closed is False
+    assert adapter.cleanup_required is True
 
 
 def test_rejected_seal_keeps_client_usable_for_best_effort_cleanup() -> None:
@@ -321,7 +465,75 @@ def test_rejected_seal_keeps_client_usable_for_best_effort_cleanup() -> None:
     assert adapter._client.is_closed is False
     receipt = adapter.begin_cleanup()
     assert receipt.projection_cleanup == "blocked"
+    with pytest.raises(ManagedBenchmarkRegistryHttpError) as finalize_error:
+        adapter.finalize_cleanup(cleanup_initiation_receipt_sha256=receipt.receipt_sha256)
+    assert finalize_error.value.code == "managed_benchmark_registry_lifecycle_invalid"
     assert methods == ["POST", "PUT", "DELETE"]
+    assert adapter.cleanup_required is True
+    assert adapter._client.is_closed is False
+
+
+def test_lost_seal_response_pending_cleanup_can_finalize_exact_attempt() -> None:
+    methods: list[str] = []
+    manifest = _manifest()
+    manifest_sha256 = _digest(manifest)
+    cleanup_calls = 0
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        nonlocal cleanup_calls
+        methods.append(request.method)
+        if request.url.path.endswith("/cleanup/finalize"):
+            return httpx.Response(200, json=_finalize(manifest_sha256))
+        if request.method == "POST":
+            return httpx.Response(201, json=_registration())
+        if request.method == "PUT":
+            return httpx.Response(
+                200,
+                headers={"content-type": "application/json"},
+                stream=_TruncatedCommittedStream(),
+            )
+        cleanup_calls += 1
+        if cleanup_calls == 1:
+            return httpx.Response(
+                200,
+                headers={"content-type": "application/json"},
+                stream=_TruncatedCommittedStream(),
+            )
+        return httpx.Response(
+            200,
+            json=_cleanup(projection_cleanup="pending", replayed=True),
+        )
+
+    adapter = ManagedBenchmarkRegistryHttpAdapter(_config(httpx.MockTransport(handler)))
+    adapter.register(
+        run_id_sha256=RUN,
+        binding_commitment_sha256=BINDING,
+        space_slug=SPACE_SLUG,
+    )
+    with pytest.raises(ManagedBenchmarkRegistryHttpError) as seal_error:
+        adapter.seal_projection_manifest(
+            projection_manifest=manifest,
+            projection_manifest_sha256=manifest_sha256,
+        )
+    assert seal_error.value.code == "managed_benchmark_registry_request_failed"
+
+    with pytest.raises(ManagedBenchmarkRegistryHttpError) as cleanup_error:
+        adapter.begin_cleanup(idempotency_key="lost-seal-cleanup-key")
+    assert cleanup_error.value.code == "managed_benchmark_registry_request_failed"
+    initiation = adapter.begin_cleanup(idempotency_key="lost-seal-cleanup-key")
+    assert initiation.projection_cleanup == "pending"
+    assert initiation.replayed is True
+    assert adapter.cleanup_required is True
+    assert adapter._client.is_closed is False
+
+    completion = adapter.finalize_cleanup(
+        cleanup_initiation_receipt_sha256=initiation.receipt_sha256
+    )
+    assert completion.projection_manifest_sha256 == manifest_sha256
+    assert completion.projection_cleanup == "complete"
+    assert methods == ["POST", "PUT", "DELETE", "DELETE", "POST"]
+    assert adapter.cleanup_required is False
+    assert adapter._client.is_closed is True
 
 
 def test_unknown_seal_outcome_keeps_client_usable_for_cleanup() -> None:
@@ -440,30 +652,41 @@ def test_adapter_owns_close_once_and_surfaces_secret_free_typed_failure(
     assert close_calls == 1
 
 
-def test_successful_cleanup_receipt_is_returned_when_client_close_fails(
+def test_successful_completion_receipt_is_returned_when_client_close_fails(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    transport = httpx.MockTransport(
-        lambda request: (
-            httpx.Response(201, json=_registration())
-            if request.method == "POST"
-            else httpx.Response(200, json=_cleanup(projection_cleanup="blocked"))
-        )
-    )
+    manifest = _manifest()
+    manifest_sha256 = _digest(manifest)
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path.endswith("/cleanup/finalize"):
+            return httpx.Response(200, json=_finalize(manifest_sha256))
+        if request.method == "POST":
+            return httpx.Response(201, json=_registration())
+        if request.method == "PUT":
+            return httpx.Response(200, json=_seal(manifest_sha256))
+        return httpx.Response(200, json=_cleanup())
+
+    transport = httpx.MockTransport(handler)
     adapter = ManagedBenchmarkRegistryHttpAdapter(_config(transport))
     adapter.register(
         run_id_sha256=RUN,
         binding_commitment_sha256=BINDING,
         space_slug=SPACE_SLUG,
     )
+    adapter.seal_projection_manifest(
+        projection_manifest=manifest,
+        projection_manifest_sha256=manifest_sha256,
+    )
+    initiation = adapter.begin_cleanup()
 
     def fail_close() -> None:
         raise RuntimeError(f"close leaked {TOKEN}")
 
     monkeypatch.setattr(transport, "close", fail_close)
-    receipt = adapter.begin_cleanup()
+    receipt = adapter.finalize_cleanup(cleanup_initiation_receipt_sha256=initiation.receipt_sha256)
 
-    assert receipt.projection_cleanup == "blocked"
+    assert receipt.projection_cleanup == "complete"
     assert adapter.cleanup_required is False
     assert adapter.close_warning_code == "managed_benchmark_registry_close_failed"
 

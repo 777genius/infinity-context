@@ -15,12 +15,18 @@ from infinity_context_core.application.use_cases.benchmark_runs import (
 )
 
 from infinity_context_server.memory_comparison_managed_benchmark_registry_contracts import (
+    FINALIZE_CLEANUP_REQUEST_SCHEMA_VERSION,
+    REGISTRATION_SCHEMA_VERSION,
     REGISTRY_RUNS_PATH,
+    ManagedBenchmarkCleanupCompletionReceipt,
     ManagedBenchmarkCleanupCounts,
     ManagedBenchmarkCleanupReceipt,
+    ManagedBenchmarkPersistedCleanupReceipt,
+    ManagedBenchmarkPersistedCompletionReceipt,
     ManagedBenchmarkProjectionSeal,
     ManagedBenchmarkRegistryHttpConfig,
     ManagedBenchmarkRegistryHttpError,
+    ManagedBenchmarkRunLifecycleSnapshot,
     ManagedBenchmarkRunRegistration,
     digest,
     fail,
@@ -34,7 +40,9 @@ from infinity_context_server.memory_comparison_managed_benchmark_registry_contra
 )
 from infinity_context_server.memory_comparison_managed_benchmark_registry_wire import (
     fresh_io_deadline,
+    parse_cleanup_completion_receipt,
     parse_cleanup_receipt,
+    parse_lifecycle_snapshot,
     parse_projection_seal,
     parse_registration,
     read_json_envelope,
@@ -53,6 +61,12 @@ _CLEANUP_REQUIRED_PHASES = frozenset(
         "seal_outcome_unknown",
         "cleaning",
         "cleanup_outcome_unknown",
+        "pending",
+        "finalizing",
+        "finalize_outcome_unknown",
+        "recovery_required",
+        "recovering",
+        "recovery_outcome_unknown",
     }
 )
 
@@ -68,6 +82,23 @@ class _RegistrationAttempt:
 @dataclass(frozen=True, slots=True)
 class _CleanupAttempt:
     registration: ManagedBenchmarkRunRegistration
+    idempotency_key: str
+    seal_attempt_sha256: str | None
+    confirm_seal_from_pending_cleanup: bool
+
+
+@dataclass(frozen=True, slots=True)
+class _LifecycleRecoveryAttempt:
+    run_id_sha256: str
+    binding_commitment_sha256: str
+    space_slug: str
+
+
+@dataclass(frozen=True, slots=True)
+class _FinalizeAttempt:
+    registration: ManagedBenchmarkRunRegistration
+    cleanup_initiation_receipt_sha256: str
+    projection_manifest_sha256: str
     idempotency_key: str
 
 
@@ -86,11 +117,20 @@ class ManagedBenchmarkRegistryHttpAdapter:
         "_close_attempted",
         "_close_warning_code",
         "_cleanup_attempt",
+        "_cleanup_receipt",
+        "_completion_receipt",
         "_config",
+        "_finalize_attempt",
+        "_lifecycle_state",
         "_lock",
         "_phase",
+        "_projection_manifest_sha256",
+        "_recovered_cleanup_receipt",
+        "_recovered_completion_receipt",
+        "_recovery_attempt",
         "_registration",
         "_registration_attempt",
+        "_seal_attempt_sha256",
     )
 
     def __init__(self, config: ManagedBenchmarkRegistryHttpConfig) -> None:
@@ -121,6 +161,21 @@ class ManagedBenchmarkRegistryHttpAdapter:
         self._registration: ManagedBenchmarkRunRegistration | None = None
         self._registration_attempt: _RegistrationAttempt | None = None
         self._cleanup_attempt: _CleanupAttempt | None = None
+        self._cleanup_receipt: (
+            ManagedBenchmarkCleanupReceipt | ManagedBenchmarkPersistedCleanupReceipt | None
+        ) = None
+        self._completion_receipt: (
+            ManagedBenchmarkCleanupCompletionReceipt
+            | ManagedBenchmarkPersistedCompletionReceipt
+            | None
+        ) = None
+        self._finalize_attempt: _FinalizeAttempt | None = None
+        self._projection_manifest_sha256: str | None = None
+        self._seal_attempt_sha256: str | None = None
+        self._recovery_attempt: _LifecycleRecoveryAttempt | None = None
+        self._recovered_cleanup_receipt: ManagedBenchmarkPersistedCleanupReceipt | None = None
+        self._recovered_completion_receipt: ManagedBenchmarkPersistedCompletionReceipt | None = None
+        self._lifecycle_state: str | None = None
         self._close_attempted = False
         self._close_warning_code: str | None = None
 
@@ -151,6 +206,23 @@ class ManagedBenchmarkRegistryHttpAdapter:
     def close_warning_code(self) -> str | None:
         with self._lock:
             return self._close_warning_code
+
+    @property
+    def lifecycle_state(self) -> str | None:
+        with self._lock:
+            return self._lifecycle_state
+
+    @property
+    def recovered_cleanup_receipt(self) -> ManagedBenchmarkPersistedCleanupReceipt | None:
+        with self._lock:
+            return self._recovered_cleanup_receipt
+
+    @property
+    def recovered_completion_receipt(
+        self,
+    ) -> ManagedBenchmarkPersistedCompletionReceipt | None:
+        with self._lock:
+            return self._recovered_completion_receipt
 
     def register(
         self,
@@ -228,8 +300,37 @@ class ManagedBenchmarkRegistryHttpAdapter:
                 self._phase = "failed"
                 fail("managed_benchmark_registry_lifecycle_invalid")
             self._registration = registration
-            self._phase = "registered"
+            if registration.created:
+                self._phase = "registered"
+                self._lifecycle_state = "active"
+            else:
+                self._phase = "recovery_required"
+                self._lifecycle_state = "unknown"
+        if not registration.created:
+            self._recover_lifecycle(_LifecycleRecoveryAttempt(run_id, binding, slug))
         return registration
+
+    def recover_lifecycle(
+        self,
+        *,
+        run_id_sha256: str,
+        binding_commitment_sha256: str,
+        space_slug: str,
+    ) -> ManagedBenchmarkRunLifecycleSnapshot:
+        """Recover one canonical lifecycle after a process restart or lost GET."""
+
+        attempt = _LifecycleRecoveryAttempt(
+            digest(run_id_sha256, "managed_benchmark_registry_recovery_invalid"),
+            digest(
+                binding_commitment_sha256,
+                "managed_benchmark_registry_recovery_invalid",
+            ),
+            _validated_space_slug(
+                space_slug,
+                "managed_benchmark_registry_recovery_invalid",
+            ),
+        )
+        return self._recover_lifecycle(attempt)
 
     def seal_projection_manifest(
         self,
@@ -253,7 +354,7 @@ class ManagedBenchmarkRegistryHttpAdapter:
             )
         except Exception:
             fail("managed_benchmark_registry_manifest_invalid")
-        self._reserve_exact("registered", "sealing")
+        self._reserve_seal(manifest_digest)
         dispatched = False
 
         def mark_dispatched() -> None:
@@ -285,7 +386,7 @@ class ManagedBenchmarkRegistryHttpAdapter:
             else:
                 self._restore_phase("sealing", "registered")
             raise
-        self._advance("sealing", "sealed")
+        self._record_projection_seal(sealed)
         return sealed
 
     def begin_cleanup(
@@ -295,7 +396,7 @@ class ManagedBenchmarkRegistryHttpAdapter:
     ) -> ManagedBenchmarkCleanupReceipt:
         """Start cleanup after registration, regardless of seal outcome."""
 
-        registration = self._registration_for(_CLEANUP_REGISTRATION_PHASES)
+        registration, seal_attempt_sha256, confirm_seal = self._cleanup_context()
         key = _validated_idempotency_key(
             idempotency_key,
             operation="begin-cleanup",
@@ -303,7 +404,12 @@ class ManagedBenchmarkRegistryHttpAdapter:
             binding_commitment_sha256=registration.binding_commitment_sha256,
             target_identity_sha256=registration.infinity_target_identity_sha256,
         )
-        attempt = _CleanupAttempt(registration, key)
+        attempt = _CleanupAttempt(
+            registration,
+            key,
+            seal_attempt_sha256,
+            confirm_seal,
+        )
         previous_phase = self._reserve_cleanup(attempt)
         dispatched = False
 
@@ -339,7 +445,73 @@ class ManagedBenchmarkRegistryHttpAdapter:
             else:
                 self._restore_phase("cleaning", previous_phase)
             raise
-        self._advance("cleaning", "complete")
+        self._record_cleanup_receipt(receipt, attempt)
+        return receipt
+
+    def finalize_cleanup(
+        self,
+        *,
+        cleanup_initiation_receipt_sha256: str,
+        idempotency_key: str | None = None,
+    ) -> ManagedBenchmarkCleanupCompletionReceipt:
+        """Ask canonical authority to prove terminal projection absence."""
+
+        initiation_digest = digest(
+            cleanup_initiation_receipt_sha256,
+            "managed_benchmark_registry_finalize_invalid",
+        )
+        registration, projection_manifest_sha256 = self._finalize_context(initiation_digest)
+        key = _validated_idempotency_key(
+            idempotency_key,
+            operation="finalize-cleanup",
+            run_id_sha256=registration.run_id_sha256,
+            binding_commitment_sha256=registration.binding_commitment_sha256,
+            target_identity_sha256=registration.infinity_target_identity_sha256,
+        )
+        attempt = _FinalizeAttempt(
+            registration,
+            initiation_digest,
+            projection_manifest_sha256,
+            key,
+        )
+        recovering = self._reserve_finalize(attempt)
+        dispatched = False
+
+        def mark_dispatched() -> None:
+            nonlocal dispatched
+            dispatched = True
+
+        try:
+            data, _ = self._request(
+                "POST",
+                (f"{REGISTRY_RUNS_PATH}/{registration.run_id_sha256}/cleanup/finalize"),
+                payload={
+                    "schema_version": FINALIZE_CLEANUP_REQUEST_SCHEMA_VERSION,
+                    "receipt_sha256": initiation_digest,
+                },
+                idempotency_key=key,
+                accepted_statuses=frozenset({200}),
+                deadline=fresh_io_deadline(
+                    timeout_seconds=self._config.cleanup_recovery_timeout_seconds,
+                    clock=self._config.clock,
+                ),
+                on_dispatch=mark_dispatched,
+            )
+            receipt = parse_cleanup_completion_receipt(
+                data,
+                registration=registration,
+                cleanup_initiation_receipt_sha256=initiation_digest,
+                projection_manifest_sha256=projection_manifest_sha256,
+            )
+        except BaseException:
+            if dispatched:
+                self._mark_finalize_outcome_unknown()
+            elif recovering:
+                self._restore_phase("finalizing", "finalize_outcome_unknown")
+            else:
+                self._restore_phase("finalizing", "pending")
+            raise
+        self._record_completion_receipt(receipt)
         self._close_client(suppress_failure=True)
         return receipt
 
@@ -377,7 +549,7 @@ class ManagedBenchmarkRegistryHttpAdapter:
         method: str,
         path: str,
         *,
-        payload: dict[str, object],
+        payload: dict[str, object] | None,
         idempotency_key: str | None,
         accepted_statuses: frozenset[int],
         deadline: datetime,
@@ -392,13 +564,23 @@ class ManagedBenchmarkRegistryHttpAdapter:
         url = f"{self._config.base_url.rstrip('/')}/{path}"
         try:
             on_dispatch()
-            with self._client.stream(
-                method,
-                url,
-                json=payload,
-                headers=headers,
-                timeout=timeout,
-            ) as response:
+            response_context = (
+                self._client.stream(
+                    method,
+                    url,
+                    headers=headers,
+                    timeout=timeout,
+                )
+                if payload is None
+                else self._client.stream(
+                    method,
+                    url,
+                    json=payload,
+                    headers=headers,
+                    timeout=timeout,
+                )
+            )
+            with response_context as response:
                 if response.status_code not in accepted_statuses:
                     fail("managed_benchmark_registry_response_rejected")
                 data = read_json_envelope(
@@ -418,6 +600,115 @@ class ManagedBenchmarkRegistryHttpAdapter:
             fail("managed_benchmark_registry_request_failed")
         return data, status
 
+    def _recover_lifecycle(
+        self,
+        attempt: _LifecycleRecoveryAttempt,
+    ) -> ManagedBenchmarkRunLifecycleSnapshot:
+        previous_phase = self._reserve_recovery(attempt)
+        dispatched = False
+
+        def mark_dispatched() -> None:
+            nonlocal dispatched
+            dispatched = True
+
+        try:
+            data, _ = self._request(
+                "GET",
+                f"{REGISTRY_RUNS_PATH}/{attempt.run_id_sha256}/cleanup",
+                payload=None,
+                idempotency_key=None,
+                accepted_statuses=frozenset({200}),
+                deadline=fresh_io_deadline(
+                    timeout_seconds=self._config.cleanup_recovery_timeout_seconds,
+                    clock=self._config.clock,
+                ),
+                on_dispatch=mark_dispatched,
+            )
+            snapshot = parse_lifecycle_snapshot(
+                data,
+                run_id_sha256=attempt.run_id_sha256,
+                binding_commitment_sha256=attempt.binding_commitment_sha256,
+                target_identity_sha256=self._config.target_identity_sha256,
+                space_slug=attempt.space_slug,
+            )
+            self._bootstrap_lifecycle(snapshot)
+        except BaseException:
+            if dispatched:
+                self._mark_recovery_outcome_unknown()
+            else:
+                self._restore_phase("recovering", previous_phase)
+            raise
+        if snapshot.state == "cleanup_complete":
+            self._close_client(suppress_failure=True)
+        return snapshot
+
+    def _reserve_recovery(self, attempt: _LifecycleRecoveryAttempt) -> str:
+        with self._lock:
+            previous_phase = self._phase
+            if previous_phase == "ready":
+                self._recovery_attempt = attempt
+            elif previous_phase == "recovery_required":
+                registration = self._registration
+                if (
+                    type(registration) is not ManagedBenchmarkRunRegistration
+                    or registration.run_id_sha256 != attempt.run_id_sha256
+                    or registration.binding_commitment_sha256 != attempt.binding_commitment_sha256
+                    or registration.space_slug != attempt.space_slug
+                ):
+                    fail("managed_benchmark_registry_lifecycle_invalid")
+                self._recovery_attempt = attempt
+            elif previous_phase != "recovery_outcome_unknown" or self._recovery_attempt != attempt:
+                fail("managed_benchmark_registry_lifecycle_invalid")
+            self._phase = "recovering"
+            return previous_phase
+
+    def _bootstrap_lifecycle(
+        self,
+        snapshot: ManagedBenchmarkRunLifecycleSnapshot,
+    ) -> None:
+        with self._lock:
+            if self._phase != "recovering":
+                self._phase = "failed"
+                fail("managed_benchmark_registry_lifecycle_invalid")
+            previous_registration = self._registration
+            state_order = {"active": 0, "cleanup_pending": 1, "cleanup_complete": 2}
+            if type(previous_registration) is ManagedBenchmarkRunRegistration and (
+                previous_registration.run_id_sha256 != snapshot.run_id_sha256
+                or previous_registration.binding_commitment_sha256
+                != snapshot.binding_commitment_sha256
+                or previous_registration.infinity_target_identity_sha256
+                != snapshot.infinity_target_identity_sha256
+                or previous_registration.space_id != snapshot.space_id
+                or previous_registration.space_slug != snapshot.space_slug
+                or state_order[snapshot.state] < state_order[previous_registration.state]
+            ):
+                fail("managed_benchmark_registry_lifecycle_response_invalid")
+            self._registration = ManagedBenchmarkRunRegistration(
+                schema_version=REGISTRATION_SCHEMA_VERSION,
+                authority="infinity_canonical",
+                run_id_sha256=snapshot.run_id_sha256,
+                binding_commitment_sha256=snapshot.binding_commitment_sha256,
+                infinity_target_identity_sha256=snapshot.infinity_target_identity_sha256,
+                space_id=snapshot.space_id,
+                space_slug=snapshot.space_slug,
+                state=snapshot.state,
+                created=False,
+            )
+            self._projection_manifest_sha256 = snapshot.projection_manifest_sha256
+            self._cleanup_receipt = snapshot.cleanup_receipt
+            self._completion_receipt = snapshot.completion_receipt
+            self._recovered_cleanup_receipt = snapshot.cleanup_receipt
+            self._recovered_completion_receipt = snapshot.completion_receipt
+            self._lifecycle_state = snapshot.state
+            if snapshot.state == "active":
+                self._phase = (
+                    "sealed" if snapshot.projection_cleanup_state == "sealed" else "registered"
+                )
+            elif snapshot.state == "cleanup_pending":
+                self._phase = "pending"
+            else:
+                self._phase = "complete"
+
     def _registration_for(
         self,
         expected_phases: frozenset[str],
@@ -430,8 +721,35 @@ class ManagedBenchmarkRegistryHttpAdapter:
                 fail("managed_benchmark_registry_lifecycle_invalid")
             return self._registration
 
-    def _reserve_exact(self, expected_phase: str, active_phase: str) -> None:
-        self._reserve_any(frozenset({expected_phase}), active_phase)
+    def _reserve_seal(self, projection_manifest_sha256: str) -> None:
+        with self._lock:
+            if self._phase != "registered":
+                fail("managed_benchmark_registry_lifecycle_invalid")
+            self._seal_attempt_sha256 = projection_manifest_sha256
+            self._phase = "sealing"
+
+    def _cleanup_context(
+        self,
+    ) -> tuple[ManagedBenchmarkRunRegistration, str | None, bool]:
+        with self._lock:
+            if (
+                self._phase not in _CLEANUP_REGISTRATION_PHASES
+                or type(self._registration) is not ManagedBenchmarkRunRegistration
+            ):
+                fail("managed_benchmark_registry_lifecycle_invalid")
+            if self._phase == "seal_outcome_unknown":
+                if type(self._seal_attempt_sha256) is not str:
+                    fail("managed_benchmark_registry_lifecycle_invalid")
+                return self._registration, self._seal_attempt_sha256, True
+            if self._phase == "cleanup_outcome_unknown":
+                if type(self._cleanup_attempt) is not _CleanupAttempt:
+                    fail("managed_benchmark_registry_lifecycle_invalid")
+                return (
+                    self._registration,
+                    self._cleanup_attempt.seal_attempt_sha256,
+                    self._cleanup_attempt.confirm_seal_from_pending_cleanup,
+                )
+            return self._registration, self._projection_manifest_sha256, False
 
     def _reserve_registration(self, attempt: _RegistrationAttempt) -> bool:
         with self._lock:
@@ -456,18 +774,78 @@ class ManagedBenchmarkRegistryHttpAdapter:
             self._phase = "cleaning"
             return previous_phase
 
-    def _reserve_any(self, expected_phases: frozenset[str], active_phase: str) -> None:
+    def _finalize_context(
+        self,
+        cleanup_initiation_receipt_sha256: str,
+    ) -> tuple[ManagedBenchmarkRunRegistration, str]:
         with self._lock:
-            if self._phase not in expected_phases:
+            if (
+                self._phase not in {"pending", "finalize_outcome_unknown"}
+                or type(self._registration) is not ManagedBenchmarkRunRegistration
+                or type(self._cleanup_receipt)
+                not in {
+                    ManagedBenchmarkCleanupReceipt,
+                    ManagedBenchmarkPersistedCleanupReceipt,
+                }
+                or self._cleanup_receipt.receipt_sha256 != cleanup_initiation_receipt_sha256
+                or type(self._projection_manifest_sha256) is not str
+            ):
                 fail("managed_benchmark_registry_lifecycle_invalid")
-            self._phase = active_phase
+            return self._registration, self._projection_manifest_sha256
 
-    def _advance(self, active_phase: str, next_phase: str) -> None:
+    def _reserve_finalize(self, attempt: _FinalizeAttempt) -> bool:
         with self._lock:
-            if self._phase != active_phase:
+            recovering = self._phase == "finalize_outcome_unknown"
+            if self._phase == "pending":
+                self._finalize_attempt = attempt
+            elif not recovering or self._finalize_attempt != attempt:
+                fail("managed_benchmark_registry_lifecycle_invalid")
+            self._phase = "finalizing"
+            return recovering
+
+    def _record_projection_seal(self, seal: ManagedBenchmarkProjectionSeal) -> None:
+        with self._lock:
+            if (
+                self._phase != "sealing"
+                or self._seal_attempt_sha256 != seal.projection_manifest_sha256
+            ):
                 self._phase = "failed"
                 fail("managed_benchmark_registry_lifecycle_invalid")
-            self._phase = next_phase
+            self._projection_manifest_sha256 = seal.projection_manifest_sha256
+            self._lifecycle_state = "active"
+            self._phase = "sealed"
+
+    def _record_cleanup_receipt(
+        self,
+        receipt: ManagedBenchmarkCleanupReceipt,
+        attempt: _CleanupAttempt,
+    ) -> None:
+        with self._lock:
+            if self._phase != "cleaning" or self._cleanup_attempt != attempt:
+                self._phase = "failed"
+                fail("managed_benchmark_registry_lifecycle_invalid")
+            if (
+                self._projection_manifest_sha256 is None
+                and attempt.confirm_seal_from_pending_cleanup
+                and receipt.projection_cleanup == "pending"
+                and type(attempt.seal_attempt_sha256) is str
+            ):
+                self._projection_manifest_sha256 = attempt.seal_attempt_sha256
+            self._cleanup_receipt = receipt
+            self._lifecycle_state = "cleanup_pending"
+            self._phase = "pending"
+
+    def _record_completion_receipt(
+        self,
+        receipt: ManagedBenchmarkCleanupCompletionReceipt,
+    ) -> None:
+        with self._lock:
+            if self._phase != "finalizing":
+                self._phase = "failed"
+                fail("managed_benchmark_registry_lifecycle_invalid")
+            self._completion_receipt = receipt
+            self._lifecycle_state = "cleanup_complete"
+            self._phase = "complete"
 
     def _restore_phase(self, active_phase: str, previous_phase: str) -> None:
         with self._lock:
@@ -480,6 +858,7 @@ class ManagedBenchmarkRegistryHttpAdapter:
         with self._lock:
             if self._phase == "registering":
                 self._phase = "registration_outcome_unknown"
+                self._lifecycle_state = "unknown"
             else:
                 self._phase = "failed"
 
@@ -487,6 +866,7 @@ class ManagedBenchmarkRegistryHttpAdapter:
         with self._lock:
             if self._phase == "sealing":
                 self._phase = "seal_outcome_unknown"
+                self._lifecycle_state = "unknown"
             else:
                 self._phase = "failed"
 
@@ -494,12 +874,30 @@ class ManagedBenchmarkRegistryHttpAdapter:
         with self._lock:
             if self._phase == "cleaning":
                 self._phase = "cleanup_outcome_unknown"
+                self._lifecycle_state = "unknown"
+            else:
+                self._phase = "failed"
+
+    def _mark_finalize_outcome_unknown(self) -> None:
+        with self._lock:
+            if self._phase == "finalizing":
+                self._phase = "finalize_outcome_unknown"
+                self._lifecycle_state = "unknown"
+            else:
+                self._phase = "failed"
+
+    def _mark_recovery_outcome_unknown(self) -> None:
+        with self._lock:
+            if self._phase == "recovering":
+                self._phase = "recovery_outcome_unknown"
+                self._lifecycle_state = "unknown"
             else:
                 self._phase = "failed"
 
     def _terminal_preserving_primary(self) -> None:
         with self._lock:
             self._phase = "failed"
+            self._lifecycle_state = "failed"
         self._close_client(suppress_failure=True)
 
     def _close_client(self, *, suppress_failure: bool) -> None:
@@ -523,9 +921,13 @@ class ManagedBenchmarkRegistryHttpAdapter:
 
 
 __all__ = (
+    "ManagedBenchmarkCleanupCompletionReceipt",
     "ManagedBenchmarkCleanupCounts",
     "ManagedBenchmarkCleanupReceipt",
+    "ManagedBenchmarkPersistedCleanupReceipt",
+    "ManagedBenchmarkPersistedCompletionReceipt",
     "ManagedBenchmarkProjectionSeal",
+    "ManagedBenchmarkRunLifecycleSnapshot",
     "ManagedBenchmarkRegistryHttpAdapter",
     "ManagedBenchmarkRegistryHttpConfig",
     "ManagedBenchmarkRegistryHttpError",

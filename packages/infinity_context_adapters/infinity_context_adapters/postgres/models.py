@@ -789,14 +789,22 @@ class MemoryComparisonBenchmarkRunRow(Base):
     __tablename__ = "memory_comparison_benchmark_runs"
     __table_args__ = (
         CheckConstraint(
-            "state IN ('active', 'cleanup_pending')",
+            "state IN ('active', 'cleanup_pending', 'cleanup_complete')",
             name="ck_memory_comparison_benchmark_run_state",
         ),
         CheckConstraint(
             "((state = 'active' AND cleanup_fingerprint_sha256 IS NULL "
-            "AND cleanup_receipt_json IS NULL) OR "
+            "AND cleanup_receipt_json IS NULL "
+            "AND finalization_fingerprint_sha256 IS NULL "
+            "AND completion_receipt_json IS NULL AND completed_at IS NULL) OR "
             "(state = 'cleanup_pending' AND cleanup_fingerprint_sha256 IS NOT NULL "
-            "AND cleanup_receipt_json IS NOT NULL))",
+            "AND cleanup_receipt_json IS NOT NULL "
+            "AND finalization_fingerprint_sha256 IS NULL "
+            "AND completion_receipt_json IS NULL AND completed_at IS NULL) OR "
+            "(state = 'cleanup_complete' AND cleanup_fingerprint_sha256 IS NOT NULL "
+            "AND cleanup_receipt_json IS NOT NULL "
+            "AND finalization_fingerprint_sha256 IS NOT NULL "
+            "AND completion_receipt_json IS NOT NULL AND completed_at IS NOT NULL))",
             name="ck_memory_comparison_benchmark_run_cleanup_state",
         ),
         CheckConstraint(
@@ -805,7 +813,7 @@ class MemoryComparisonBenchmarkRunRow(Base):
             name="ck_memory_comparison_benchmark_run_manifest_coupling",
         ),
         CheckConstraint(
-            "projection_cleanup_state IN ('unsealed', 'sealed', 'pending', 'blocked')",
+            "projection_cleanup_state IN ('unsealed', 'sealed', 'pending', 'blocked', 'complete')",
             name="ck_memory_comparison_benchmark_run_projection_cleanup_state",
         ),
         CheckConstraint(
@@ -816,6 +824,8 @@ class MemoryComparisonBenchmarkRunRow(Base):
             "(state = 'cleanup_pending' AND projection_cleanup_state = 'blocked' "
             "AND projection_manifest_json IS NULL) OR "
             "(state = 'cleanup_pending' AND projection_cleanup_state = 'pending' "
+            "AND projection_manifest_json IS NOT NULL) OR "
+            "(state = 'cleanup_complete' AND projection_cleanup_state = 'complete' "
             "AND projection_manifest_json IS NOT NULL))",
             name="ck_memory_comparison_benchmark_run_projection_lifecycle",
         ),
@@ -850,5 +860,11 @@ class MemoryComparisonBenchmarkRunRow(Base):
         JSON(none_as_null=True).with_variant(JSONB(none_as_null=True), "postgresql"),
         nullable=True,
     )
+    finalization_fingerprint_sha256: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    completion_receipt_json: Mapped[dict[str, object] | None] = mapped_column(
+        JSON(none_as_null=True).with_variant(JSONB(none_as_null=True), "postgresql"),
+        nullable=True,
+    )
+    completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)

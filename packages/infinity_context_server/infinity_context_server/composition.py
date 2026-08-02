@@ -53,9 +53,11 @@ from infinity_context_core.application import (
     ExpirePendingSuggestionsUseCase,
     ExpireSuggestionUseCase,
     ExportGraphUseCase,
+    FinalizeBenchmarkRunCleanupUseCase,
     ForgetFactUseCase,
     GetAssetExtractionUseCase,
     GetAssetUseCase,
+    GetBenchmarkRunLifecycleUseCase,
     GetCapabilitiesUseCase,
     GetCaptureUseCase,
     GetDocumentUseCase,
@@ -136,6 +138,9 @@ from infinity_context_core.ports.unit_of_work import UnitOfWorkFactoryPort
 from infinity_context_core.ports.vector_projection_evidence import VectorProjectionEvidencePort
 from sqlalchemy.ext.asyncio import AsyncEngine
 
+from infinity_context_server.benchmark_projection_absence import (
+    ServerBenchmarkProjectionAbsence,
+)
 from infinity_context_server.config import CaptureMode, MemoryPolicyMode, Settings
 from infinity_context_server.derived_identity_evidence import (
     DerivedIdentityEvidenceCoordinator,
@@ -181,6 +186,8 @@ class Container:
     register_benchmark_run: RegisterBenchmarkRunUseCase
     seal_projection_manifest: SealProjectionManifestUseCase
     cleanup_benchmark_run: CleanupBenchmarkRunUseCase
+    get_benchmark_run_lifecycle: GetBenchmarkRunLifecycleUseCase
+    finalize_benchmark_run_cleanup: FinalizeBenchmarkRunCleanupUseCase
     list_spaces: ListSpacesUseCase
     create_memory_scope: CreateMemoryScopeUseCase
     list_memory_scopes: ListMemoryScopesUseCase
@@ -368,6 +375,13 @@ def build_container(settings: Settings | None = None) -> Container:
     register_benchmark_run = RegisterBenchmarkRunUseCase(uow_factory=uow_factory, clock=clock)
     seal_projection_manifest = SealProjectionManifestUseCase(uow_factory=uow_factory, clock=clock)
     cleanup_benchmark_run = CleanupBenchmarkRunUseCase(uow_factory=uow_factory, clock=clock)
+    get_benchmark_run_lifecycle = GetBenchmarkRunLifecycleUseCase(uow_factory=uow_factory)
+    benchmark_projection_absence = ServerBenchmarkProjectionAbsence(derived_identity_evidence)
+    finalize_benchmark_run_cleanup = FinalizeBenchmarkRunCleanupUseCase(
+        uow_factory=uow_factory,
+        clock=clock,
+        projection_absence=benchmark_projection_absence,
+    )
     list_spaces = ListSpacesUseCase(uow_factory=uow_factory)
     create_memory_scope = CreateMemoryScopeUseCase(uow_factory=uow_factory, clock=clock, ids=ids)
     list_memory_scopes = ListMemoryScopesUseCase(uow_factory=uow_factory)
@@ -655,6 +669,8 @@ def build_container(settings: Settings | None = None) -> Container:
         register_benchmark_run=register_benchmark_run,
         seal_projection_manifest=seal_projection_manifest,
         cleanup_benchmark_run=cleanup_benchmark_run,
+        get_benchmark_run_lifecycle=get_benchmark_run_lifecycle,
+        finalize_benchmark_run_cleanup=finalize_benchmark_run_cleanup,
         list_spaces=list_spaces,
         create_memory_scope=create_memory_scope,
         list_memory_scopes=list_memory_scopes,

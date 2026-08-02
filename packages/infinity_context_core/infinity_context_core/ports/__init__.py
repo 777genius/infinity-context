@@ -26,6 +26,7 @@ from infinity_context_core.ports.benchmark_runs import (
     BenchmarkRunRepositoryPort,
     BenchmarkRunState,
     ProjectionCleanupState,
+    is_managed_benchmark_space_id,
 )
 from infinity_context_core.ports.capabilities import (
     CapabilityDescriptor,
@@ -131,6 +132,7 @@ __all__ = [
     "ProjectionFencePermit",
     "ProjectionFencePort",
     "ProjectionCleanupState",
+    "is_managed_benchmark_space_id",
     "ProjectionForgetPort",
     "ProjectionForgetRequest",
     "ProjectionForgetResult",

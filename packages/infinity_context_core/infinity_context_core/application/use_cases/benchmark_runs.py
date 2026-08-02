@@ -11,6 +11,10 @@ from typing import Literal
 from infinity_context_core.application.dto_benchmark_runs import (
     CleanupBenchmarkRunCommand,
     CleanupBenchmarkRunResult,
+    FinalizeBenchmarkRunCleanupCommand,
+    FinalizeBenchmarkRunCleanupResult,
+    GetBenchmarkRunLifecycleQuery,
+    GetBenchmarkRunLifecycleResult,
     RegisterBenchmarkRunCommand,
     RegisterBenchmarkRunResult,
     SealProjectionManifestCommand,
@@ -21,13 +25,28 @@ from infinity_context_core.domain.errors import (
     MemoryNotFoundError,
     MemoryValidationError,
 )
-from infinity_context_core.ports.benchmark_runs import BenchmarkRunRegistryRecord
+from infinity_context_core.ports.benchmark_runs import (
+    BenchmarkProjectionAbsencePort,
+    BenchmarkProjectionCleanupProof,
+    BenchmarkRunRegistryRecord,
+)
 from infinity_context_core.ports.clock import ClockPort
 from infinity_context_core.ports.unit_of_work import UnitOfWorkFactoryPort
 
 _SHA256 = re.compile(r"^[0-9a-f]{64}$")
 _SPACE_SLUG = re.compile(r"^memory-comparison-[a-z0-9-]{1,80}$")
 _MANIFEST_SCHEMA = "memory-comparison-projection-manifest.v1"
+_COGNEE_NOT_PROJECTED_POLICY_SCHEMA = "memory-comparison-cognee-not-projected-policy.v1"
+BENCHMARK_COGNEE_NOT_PROJECTED_POLICY_SHA256 = hashlib.sha256(
+    json.dumps(
+        {
+            "disposition": "not_projected",
+            "schema_version": _COGNEE_NOT_PROJECTED_POLICY_SCHEMA,
+        },
+        sort_keys=True,
+        separators=(",", ":"),
+    ).encode()
+).hexdigest()
 _MAX_MANIFEST_BYTES = 2_000_000
 _MAX_SCOPES = 5_000
 _MAX_CANONICAL_IDS = 5_000
@@ -73,6 +92,9 @@ class RegisterBenchmarkRunUseCase:
             projection_cleanup_state="unsealed",
             cleanup_fingerprint_sha256=None,
             cleanup_receipt=None,
+            finalization_fingerprint_sha256=None,
+            completion_receipt=None,
+            completed_at=None,
             created_at=now,
             updated_at=now,
         )
@@ -210,6 +232,287 @@ class CleanupBenchmarkRunUseCase:
                 projection_cleanup_state=projection_cleanup_state,
                 replayed=False,
             )
+
+
+class GetBenchmarkRunLifecycleUseCase:
+    """Load one authoritative lifecycle snapshot without acquiring a write lock."""
+
+    def __init__(self, *, uow_factory: UnitOfWorkFactoryPort) -> None:
+        self._uow_factory = uow_factory
+
+    async def execute(
+        self,
+        query: GetBenchmarkRunLifecycleQuery,
+    ) -> GetBenchmarkRunLifecycleResult:
+        _digest(query.run_id_sha256)
+        async with self._uow_factory() as uow:
+            record = await uow.benchmark_runs.get_by_run_id_sha256(query.run_id_sha256)
+        if record is None:
+            raise MemoryNotFoundError("Benchmark run not found")
+        _require_lifecycle_snapshot_consistent(record)
+        return GetBenchmarkRunLifecycleResult(record=record)
+
+
+class FinalizeBenchmarkRunCleanupUseCase:
+    """Finalize only after an internal projection absence proof succeeds."""
+
+    def __init__(
+        self,
+        *,
+        uow_factory: UnitOfWorkFactoryPort,
+        clock: ClockPort,
+        projection_absence: BenchmarkProjectionAbsencePort,
+    ) -> None:
+        self._uow_factory = uow_factory
+        self._clock = clock
+        self._projection_absence = projection_absence
+
+    async def execute(
+        self,
+        command: FinalizeBenchmarkRunCleanupCommand,
+    ) -> FinalizeBenchmarkRunCleanupResult:
+        _validate_finalization(command)
+        fingerprint = _fingerprint(
+            "finalize_cleanup",
+            command.run_id_sha256,
+            command.expected_cleanup_receipt_sha256,
+            command.idempotency_key_sha256,
+        )
+        record = await self._load(command.run_id_sha256)
+        replay = _finalization_replay(record, fingerprint)
+        if replay is not None:
+            return replay
+        _require_finalization_candidate(record, command.expected_cleanup_receipt_sha256)
+
+        proof = await self._projection_absence.prove_absence(record=record)
+        proof_sha256 = _validated_projection_cleanup_proof(record, proof)
+
+        async with self._uow_factory() as uow:
+            locked = await uow.benchmark_runs.get_by_run_id_sha256(
+                command.run_id_sha256,
+                for_update=True,
+            )
+            if locked is None:
+                raise MemoryNotFoundError("Benchmark run not found")
+            replay = _finalization_replay(locked, fingerprint)
+            if replay is not None:
+                return replay
+            _require_finalization_candidate(
+                locked,
+                command.expected_cleanup_receipt_sha256,
+            )
+            if _pending_registry_identity(locked) != _pending_registry_identity(record):
+                raise MemoryConflictError("Benchmark cleanup changed during finalization")
+            updated = await uow.benchmark_runs.finalize_cleanup(
+                locked,
+                finalization_fingerprint_sha256=fingerprint,
+                projection_absence_proof_sha256=proof_sha256,
+                now=self._clock.now(),
+            )
+            if (
+                updated.state != "cleanup_complete"
+                or updated.projection_cleanup_state != "complete"
+                or updated.completion_receipt is None
+                or updated.finalization_fingerprint_sha256 != fingerprint
+            ):
+                raise MemoryConflictError("Benchmark cleanup completion was not persisted")
+            await uow.commit()
+            return FinalizeBenchmarkRunCleanupResult(
+                receipt=updated.completion_receipt,
+                replayed=False,
+            )
+
+    async def _load(self, run_id_sha256: str) -> BenchmarkRunRegistryRecord:
+        async with self._uow_factory() as uow:
+            record = await uow.benchmark_runs.get_by_run_id_sha256(run_id_sha256)
+        if record is None:
+            raise MemoryNotFoundError("Benchmark run not found")
+        return record
+
+
+def _require_lifecycle_snapshot_consistent(record: BenchmarkRunRegistryRecord) -> None:
+    manifest_pair = (
+        record.projection_manifest_json is not None,
+        record.projection_manifest_sha256 is not None,
+    )
+    if manifest_pair[0] != manifest_pair[1]:
+        raise MemoryConflictError("Benchmark lifecycle snapshot is inconsistent")
+
+    if record.state == "active":
+        expected_manifest = record.projection_cleanup_state == "sealed"
+        if (
+            record.projection_cleanup_state not in {"unsealed", "sealed"}
+            or manifest_pair[0] is not expected_manifest
+            or any(
+                value is not None
+                for value in (
+                    record.cleanup_fingerprint_sha256,
+                    record.cleanup_receipt,
+                    record.finalization_fingerprint_sha256,
+                    record.completion_receipt,
+                    record.completed_at,
+                )
+            )
+        ):
+            raise MemoryConflictError("Benchmark lifecycle snapshot is inconsistent")
+        return
+
+    if record.state == "cleanup_pending":
+        receipt = record.cleanup_receipt
+        expected_manifest = record.projection_cleanup_state == "pending"
+        if (
+            record.projection_cleanup_state not in {"blocked", "pending"}
+            or manifest_pair[0] is not expected_manifest
+            or record.cleanup_fingerprint_sha256 is None
+            or receipt is None
+            or record.finalization_fingerprint_sha256 is not None
+            or record.completion_receipt is not None
+            or record.completed_at is not None
+            or (
+                receipt.run_id_sha256,
+                receipt.space_id,
+                receipt.space_slug,
+            )
+            != (
+                record.run_id_sha256,
+                record.space_id,
+                record.space_slug,
+            )
+            or (
+                record.projection_cleanup_state == "pending"
+                and receipt.projection_cleanup != "pending"
+            )
+            or receipt.projection_cleanup not in {"pending", "blocked"}
+        ):
+            raise MemoryConflictError("Benchmark lifecycle snapshot is inconsistent")
+        return
+
+    if record.state == "cleanup_complete":
+        initiation = record.cleanup_receipt
+        completion = record.completion_receipt
+        if (
+            record.projection_cleanup_state != "complete"
+            or manifest_pair != (True, True)
+            or record.cleanup_fingerprint_sha256 is None
+            or initiation is None
+            or record.finalization_fingerprint_sha256 is None
+            or completion is None
+            or record.completed_at is None
+            or (
+                initiation.run_id_sha256,
+                initiation.space_id,
+                initiation.space_slug,
+                initiation.projection_cleanup,
+            )
+            != (record.run_id_sha256, record.space_id, record.space_slug, "pending")
+            or (
+                completion.run_id_sha256,
+                completion.space_id,
+                completion.space_slug,
+                completion.projection_manifest_sha256,
+                completion.cleanup_initiation_receipt_sha256,
+                completion.completed_at,
+            )
+            != (
+                record.run_id_sha256,
+                record.space_id,
+                record.space_slug,
+                record.projection_manifest_sha256,
+                initiation.receipt_sha256,
+                record.completed_at,
+            )
+        ):
+            raise MemoryConflictError("Benchmark lifecycle snapshot is inconsistent")
+        return
+
+    raise MemoryConflictError("Benchmark lifecycle snapshot is inconsistent")
+
+
+def _finalization_replay(
+    record: BenchmarkRunRegistryRecord,
+    fingerprint: str,
+) -> FinalizeBenchmarkRunCleanupResult | None:
+    if record.completion_receipt is None:
+        if record.finalization_fingerprint_sha256 is not None or record.completed_at is not None:
+            raise MemoryConflictError("Benchmark cleanup completion state conflicted")
+        return None
+    if record.finalization_fingerprint_sha256 != fingerprint:
+        raise MemoryConflictError("Benchmark cleanup finalization fingerprint conflicted")
+    if record.state != "cleanup_complete" or record.projection_cleanup_state != "complete":
+        raise MemoryConflictError("Benchmark cleanup completion state conflicted")
+    return FinalizeBenchmarkRunCleanupResult(receipt=record.completion_receipt, replayed=True)
+
+
+def _require_finalization_candidate(
+    record: BenchmarkRunRegistryRecord,
+    expected_cleanup_receipt_sha256: str,
+) -> None:
+    if (
+        record.state != "cleanup_pending"
+        or record.projection_cleanup_state != "pending"
+        or record.projection_manifest_json is None
+        or record.projection_manifest_sha256 is None
+        or record.cleanup_receipt is None
+    ):
+        raise MemoryConflictError("Benchmark cleanup is not finalizable")
+    if not hmac.compare_digest(
+        record.cleanup_receipt.receipt_sha256,
+        expected_cleanup_receipt_sha256,
+    ):
+        raise MemoryConflictError("Benchmark cleanup initiation receipt conflicted")
+
+
+def _pending_registry_identity(record: BenchmarkRunRegistryRecord) -> tuple[object, ...]:
+    receipt = record.cleanup_receipt
+    return (
+        record.run_id_sha256,
+        record.state,
+        record.projection_cleanup_state,
+        record.projection_manifest_sha256,
+        record.cleanup_fingerprint_sha256,
+        receipt.receipt_sha256 if receipt is not None else None,
+        record.updated_at,
+    )
+
+
+def _validated_projection_cleanup_proof(
+    record: BenchmarkRunRegistryRecord,
+    proof: BenchmarkProjectionCleanupProof,
+) -> str:
+    if (
+        type(proof) is not BenchmarkProjectionCleanupProof
+        or record.projection_manifest_sha256 is None
+        or record.cleanup_receipt is None
+        or (
+            proof.run_id_sha256,
+            proof.projection_manifest_sha256,
+            proof.cleanup_initiation_receipt_sha256,
+        )
+        != (
+            record.run_id_sha256,
+            record.projection_manifest_sha256,
+            record.cleanup_receipt.receipt_sha256,
+        )
+        or proof.qdrant_absent is not True
+        or proof.graphiti_absent is not True
+        or proof.cognee_absent is not True
+    ):
+        raise MemoryConflictError("Benchmark projection absence proof conflicted")
+    return _fingerprint(
+        "projection_absence",
+        proof.run_id_sha256,
+        proof.projection_manifest_sha256,
+        proof.cleanup_initiation_receipt_sha256,
+        "qdrant_absent",
+        "graphiti_absent",
+        "cognee_absent",
+    )
+
+
+def _validate_finalization(command: FinalizeBenchmarkRunCleanupCommand) -> None:
+    _digest(command.run_id_sha256)
+    _digest(command.expected_cleanup_receipt_sha256)
+    _digest(command.idempotency_key_sha256)
 
 
 def _registration_replay(
@@ -459,9 +762,11 @@ def _validate_manifest_scope(value: object) -> tuple[str, str]:
     cognee = value["cognee"]
     if type(cognee) is not dict or set(cognee) != {"disposition", "policy_sha256"}:
         raise MemoryValidationError("Projection manifest cognee evidence is invalid")
-    if cognee["disposition"] != "not_projected":
-        raise MemoryValidationError("Projection manifest cognee disposition is invalid")
-    _digest(cognee["policy_sha256"])
+    if (
+        cognee["disposition"] != "not_projected"
+        or cognee["policy_sha256"] != BENCHMARK_COGNEE_NOT_PROJECTED_POLICY_SHA256
+    ):
+        raise MemoryValidationError("Projection manifest cognee policy is invalid")
     return memory_scope_id, thread_id
 
 
@@ -509,7 +814,10 @@ def _json_sha256(value: dict[str, object]) -> str:
 
 
 __all__ = (
+    "BENCHMARK_COGNEE_NOT_PROJECTED_POLICY_SHA256",
     "CleanupBenchmarkRunUseCase",
+    "FinalizeBenchmarkRunCleanupUseCase",
+    "GetBenchmarkRunLifecycleUseCase",
     "RegisterBenchmarkRunUseCase",
     "SealProjectionManifestUseCase",
     "validate_projection_manifest",

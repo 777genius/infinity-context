@@ -107,6 +107,7 @@ def _registration(
     created: bool = True,
     binding: str = BINDING,
     target: str | None = None,
+    state: str = "active",
 ) -> dict[str, object]:
     return {
         "data": {
@@ -117,7 +118,7 @@ def _registration(
             "infinity_target_identity_sha256": target or _target(),
             "space_id": SPACE_ID,
             "space_slug": SPACE_SLUG,
-            "state": "active",
+            "state": state,
             "created": created,
         }
     }
@@ -176,5 +177,104 @@ def _cleanup(
             "state": "cleanup_pending",
             "receipt_sha256": receipt_sha256 or _digest(material),
             "replayed": replayed,
+        }
+    }
+
+
+PROJECTION_ABSENCE_PROOF = "c" * 64
+COMPLETED_AT = "2026-08-02T04:05:06.123456Z"
+
+
+def _finalize(
+    projection_manifest_sha256: str,
+    *,
+    cleanup_initiation_receipt_sha256: str | None = None,
+    projection_absence_proof_sha256: str = PROJECTION_ABSENCE_PROOF,
+    receipt_sha256: str | None = None,
+    completed_at: str = COMPLETED_AT,
+    replayed: bool = False,
+) -> dict[str, object]:
+    initiation = cleanup_initiation_receipt_sha256 or str(_cleanup()["data"]["receipt_sha256"])
+    material = {
+        "run_id_sha256": RUN,
+        "space_id": SPACE_ID,
+        "space_slug": SPACE_SLUG,
+        "disposition": "cleanup_complete",
+        "projection_cleanup": "complete",
+        "projection_manifest_sha256": projection_manifest_sha256,
+        "cleanup_initiation_receipt_sha256": initiation,
+        "projection_absence_proof_sha256": projection_absence_proof_sha256,
+        "completed_at": completed_at,
+    }
+    return {
+        "data": {
+            "schema_version": "memory-comparison-run-cleanup-finalize-response.v1",
+            "authority": "infinity_canonical",
+            **material,
+            "state": "cleanup_complete",
+            "receipt_sha256": receipt_sha256 or _digest(material),
+            "replayed": replayed,
+        }
+    }
+
+
+def _persisted_cleanup(
+    *,
+    projection_cleanup: str = "pending",
+    receipt_sha256: str | None = None,
+) -> dict[str, object]:
+    value = dict(
+        _cleanup(
+            projection_cleanup=projection_cleanup,
+            receipt_sha256=receipt_sha256,
+        )["data"]
+    )
+    for key in ("schema_version", "authority", "state", "replayed"):
+        value.pop(key)
+    return value
+
+
+def _persisted_completion(
+    projection_manifest_sha256: str,
+    *,
+    cleanup_initiation_receipt_sha256: str | None = None,
+    receipt_sha256: str | None = None,
+) -> dict[str, object]:
+    value = dict(
+        _finalize(
+            projection_manifest_sha256,
+            cleanup_initiation_receipt_sha256=cleanup_initiation_receipt_sha256,
+            receipt_sha256=receipt_sha256,
+        )["data"]
+    )
+    for key in ("schema_version", "authority", "state", "replayed"):
+        value.pop(key)
+    return value
+
+
+def _lifecycle(
+    *,
+    state: str = "active",
+    projection_cleanup_state: str = "unsealed",
+    projection_manifest_sha256: str | None = None,
+    cleanup_receipt: dict[str, object] | None = None,
+    completion_receipt: dict[str, object] | None = None,
+    binding: str = BINDING,
+    target: str | None = None,
+) -> dict[str, object]:
+    return {
+        "data": {
+            "schema_version": "memory-comparison-run-lifecycle-response.v1",
+            "authority": "infinity_canonical",
+            "run_id_sha256": RUN,
+            "binding_commitment_sha256": binding,
+            "infinity_target_identity_sha256": target or _target(),
+            "space_id": SPACE_ID,
+            "space_slug": SPACE_SLUG,
+            "state": state,
+            "projection_cleanup_state": projection_cleanup_state,
+            "projection_manifest_sha256": projection_manifest_sha256,
+            "cleanup_receipt": cleanup_receipt,
+            "completion_receipt": completion_receipt,
         }
     }

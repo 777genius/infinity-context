@@ -6,6 +6,7 @@ from datetime import UTC, datetime, timedelta
 import httpx
 import pytest
 from infinity_context_server.memory_comparison_managed_benchmark_registry_contracts import (
+    ManagedBenchmarkCleanupCompletionReceipt,
     ManagedBenchmarkRunRegistration,
 )
 from infinity_context_server.memory_comparison_managed_benchmark_registry_http import (
@@ -25,6 +26,8 @@ from memory_comparison_managed_benchmark_registry_test_support import (
     _close_with_cleanup_required,
     _config,
     _digest,
+    _finalize,
+    _lifecycle,
     _manifest,
     _registration,
     _seal,
@@ -39,6 +42,14 @@ def test_exact_lifecycle_sends_bound_requests_and_returns_typed_receipts() -> No
 
     def handler(request: httpx.Request) -> httpx.Response:
         requests.append(request)
+        if request.url.path.endswith("/cleanup/finalize"):
+            return httpx.Response(
+                200,
+                json=_finalize(
+                    manifest_sha256,
+                    completed_at="2026-08-02T04:05:06.000000Z",
+                ),
+            )
         if request.method == "POST":
             return httpx.Response(201, json=_registration())
         if request.method == "PUT":
@@ -56,6 +67,9 @@ def test_exact_lifecycle_sends_bound_requests_and_returns_typed_receipts() -> No
         projection_manifest_sha256=manifest_sha256,
     )
     cleanup = adapter.begin_cleanup()
+    assert adapter._client.is_closed is False
+    assert adapter.cleanup_required is True
+    completion = adapter.finalize_cleanup(cleanup_initiation_receipt_sha256=cleanup.receipt_sha256)
 
     assert type(registration) is ManagedBenchmarkRunRegistration
     assert registration.schema_version == "memory-comparison-run-registration-response.v1"
@@ -67,26 +81,47 @@ def test_exact_lifecycle_sends_bound_requests_and_returns_typed_receipts() -> No
     assert cleanup.counts.vector_delete_jobs == 1
     assert cleanup.vector_delete_outbox_ids == (101,)
     assert cleanup.receipt_sha256 == _cleanup()["data"]["receipt_sha256"]
+    assert type(completion) is ManagedBenchmarkCleanupCompletionReceipt
+    assert completion.state == "cleanup_complete"
+    assert completion.projection_cleanup == "complete"
+    assert completion.cleanup_initiation_receipt_sha256 == cleanup.receipt_sha256
+    assert completion.projection_manifest_sha256 == manifest_sha256
+    assert completion.completed_at == "2026-08-02T04:05:06.000000Z"
     assert adapter.retries == 0
     assert adapter._client.is_closed is True
     assert adapter.cleanup_required is False
-    assert [request.method for request in requests] == ["POST", "PUT", "DELETE"]
+    assert [request.method for request in requests] == ["POST", "PUT", "DELETE", "POST"]
     assert [request.url.path for request in requests] == [
         "/v1/internal/memory-comparison/runs",
         f"/v1/internal/memory-comparison/runs/{RUN}/projection-manifest",
         f"/v1/internal/memory-comparison/runs/{RUN}",
+        f"/v1/internal/memory-comparison/runs/{RUN}/cleanup/finalize",
     ]
     assert all(request.headers["authorization"] == f"Bearer {TOKEN}" for request in requests)
     assert "idempotency-key" in requests[0].headers
     assert "idempotency-key" not in requests[1].headers
     assert "idempotency-key" in requests[2].headers
-    assert requests[0].headers["idempotency-key"] != requests[2].headers["idempotency-key"]
+    assert "idempotency-key" in requests[3].headers
+    assert (
+        len(
+            {
+                requests[0].headers["idempotency-key"],
+                requests[2].headers["idempotency-key"],
+                requests[3].headers["idempotency-key"],
+            }
+        )
+        == 3
+    )
     assert json.loads(requests[0].content) == {
         "schema_version": "memory-comparison-run-registration.v1",
         "run_id_sha256": RUN,
         "binding_commitment_sha256": BINDING,
         "infinity_target_identity_sha256": _target(),
         "space_slug": SPACE_SLUG,
+    }
+    assert json.loads(requests[3].content) == {
+        "schema_version": "memory-comparison-run-cleanup-finalize.v1",
+        "receipt_sha256": cleanup.receipt_sha256,
     }
     assert TOKEN not in repr(adapter)
     assert TOKEN not in repr(adapter._config)
@@ -100,6 +135,8 @@ def test_caller_supplied_idempotency_keys_are_forwarded_exactly() -> None:
     def handler(request: httpx.Request) -> httpx.Response:
         if "idempotency-key" in request.headers:
             keys.append(request.headers["idempotency-key"])
+        if request.url.path.endswith("/cleanup/finalize"):
+            return httpx.Response(200, json=_finalize(manifest_sha256))
         if request.method == "POST":
             return httpx.Response(201, json=_registration())
         if request.method == "PUT":
@@ -117,9 +154,17 @@ def test_caller_supplied_idempotency_keys_are_forwarded_exactly() -> None:
         projection_manifest=manifest,
         projection_manifest_sha256=manifest_sha256,
     )
-    adapter.begin_cleanup(idempotency_key="caller-cleanup-key")
+    cleanup = adapter.begin_cleanup(idempotency_key="caller-cleanup-key")
+    adapter.finalize_cleanup(
+        cleanup_initiation_receipt_sha256=cleanup.receipt_sha256,
+        idempotency_key="caller-finalize-key",
+    )
 
-    assert keys == ["caller-register-key", "caller-cleanup-key"]
+    assert keys == [
+        "caller-register-key",
+        "caller-cleanup-key",
+        "caller-finalize-key",
+    ]
 
 
 def test_deterministic_idempotency_helper_binds_operation_and_target() -> None:
@@ -142,7 +187,14 @@ def test_deterministic_idempotency_helper_binds_operation_and_target() -> None:
         binding_commitment_sha256=BINDING,
         target_identity_sha256=_target(),
     )
-    assert register != cleanup
+    finalize = managed_benchmark_registry_idempotency_key(
+        "finalize-cleanup",
+        run_id_sha256=RUN,
+        binding_commitment_sha256=BINDING,
+        target_identity_sha256=_target(),
+    )
+
+    assert len({register, cleanup, finalize}) == 3
     assert 8 <= len(register) <= 240
     assert RUN not in register
     assert BINDING not in register
@@ -150,7 +202,10 @@ def test_deterministic_idempotency_helper_binds_operation_and_target() -> None:
 
 def test_registration_replay_requires_http_200_and_created_false() -> None:
     transport = httpx.MockTransport(
-        lambda request: httpx.Response(200, json=_registration(created=False))
+        lambda request: httpx.Response(
+            200,
+            json=(_lifecycle() if request.method == "GET" else _registration(created=False)),
+        )
     )
     adapter = ManagedBenchmarkRegistryHttpAdapter(_config(transport))
 
@@ -161,6 +216,7 @@ def test_registration_replay_requires_http_200_and_created_false() -> None:
     )
 
     assert result.created is False
+    assert adapter.lifecycle_state == "active"
     _close_with_cleanup_required(adapter)
 
 

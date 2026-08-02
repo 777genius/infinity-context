@@ -21,6 +21,10 @@ from infinity_context_core.domain.entities import (
 from infinity_context_core.domain.errors import MemoryConflictError, MemoryInvariantError
 from infinity_context_core.domain.events import OutboxEvent
 from infinity_context_core.domain.idempotency import IdempotencyRecord
+from infinity_context_core.ports.benchmark_runs import (
+    BenchmarkRunRegistryRecord,
+    is_managed_benchmark_space_id,
+)
 from infinity_context_core.ports.clock import ClockPort
 from infinity_context_core.ports.ids import IdGeneratorPort
 from infinity_context_core.ports.unit_of_work import UnitOfWorkFactoryPort
@@ -52,6 +56,13 @@ class IngestDocumentUseCase:
         )
 
         async with self._uow_factory() as uow:
+            space_id = str(command.space_id)
+            benchmark_run = (
+                await uow.benchmark_runs.get_by_space_id(space_id)
+                if is_managed_benchmark_space_id(space_id)
+                else None
+            )
+            managed_not_projected = _managed_document_projection_is_suppressed(benchmark_run)
             existing = await uow.idempotency.find(space_id=str(command.space_id), key=key)
             if existing:
                 if existing.fingerprint != body_hash:
@@ -207,8 +218,10 @@ class IngestDocumentUseCase:
                         payload={"chunk_id": upsert.chunk_id},
                     )
                 )
-            if stored_chunks and _can_project_document_to_external_memory(
-                saved_document.classification
+            if (
+                stored_chunks
+                and not managed_not_projected
+                and _can_project_document_to_external_memory(saved_document.classification)
             ):
                 await uow.outbox.enqueue(
                     OutboxEvent(
@@ -276,6 +289,23 @@ class IngestDocumentUseCase:
             duplicate_chunks=duplicate_chunks,
             indexing_status="pending",
         )
+
+
+def _managed_document_projection_is_suppressed(
+    benchmark_run: BenchmarkRunRegistryRecord | None,
+) -> bool:
+    if benchmark_run is None:
+        return False
+    if (
+        benchmark_run.state != "active"
+        or benchmark_run.projection_cleanup_state != "unsealed"
+        or benchmark_run.projection_manifest_json is not None
+        or benchmark_run.projection_manifest_sha256 is not None
+        or benchmark_run.cleanup_receipt is not None
+        or benchmark_run.completion_receipt is not None
+    ):
+        raise MemoryConflictError("Managed benchmark document admission is closed")
+    return True
 
 
 def _can_project_document_to_external_memory(classification: str) -> bool:

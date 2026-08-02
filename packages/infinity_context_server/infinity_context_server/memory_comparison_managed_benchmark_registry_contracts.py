@@ -17,6 +17,8 @@ from infinity_context_server.memory_comparison_managed_preflight import (
 )
 
 REGISTRATION_SCHEMA_VERSION = "memory-comparison-run-registration-response.v1"
+FINALIZE_CLEANUP_REQUEST_SCHEMA_VERSION = "memory-comparison-run-cleanup-finalize.v1"
+FINALIZE_CLEANUP_RESPONSE_SCHEMA_VERSION = "memory-comparison-run-cleanup-finalize-response.v1"
 REGISTRY_RUNS_PATH = "v1/internal/memory-comparison/runs"
 
 _SHA256 = re.compile(r"^[0-9a-f]{64}$")
@@ -24,7 +26,7 @@ _SPACE_SLUG = re.compile(r"^memory-comparison-[a-z0-9-]{1,80}$")
 _CANONICAL_ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:-]{0,79}$")
 _IDEMPOTENCY_KEY = re.compile(r"^[\x21-\x7e]{8,240}$")
 _BEARER_TOKEN = re.compile(r"^[\x21-\x7e]+$")
-_IDEMPOTENCY_OPERATIONS = frozenset({"register", "begin-cleanup"})
+_IDEMPOTENCY_OPERATIONS = frozenset({"register", "begin-cleanup", "finalize-cleanup"})
 
 
 def _utc_now() -> datetime:
@@ -118,7 +120,7 @@ class ManagedBenchmarkRunRegistration:
         if (
             self.schema_version != REGISTRATION_SCHEMA_VERSION
             or self.authority != "infinity_canonical"
-            or self.state != "active"
+            or self.state not in {"active", "cleanup_pending", "cleanup_complete"}
             or any(
                 type(value) is not str or _SHA256.fullmatch(value) is None
                 for value in (
@@ -241,6 +243,242 @@ class ManagedBenchmarkCleanupReceipt:
             fail("managed_benchmark_registry_cleanup_response_invalid")
 
 
+@final
+@dataclass(frozen=True, slots=True)
+class ManagedBenchmarkCleanupCompletionReceipt:
+    """Canonical proof that every registered projection is absent."""
+
+    schema_version: str
+    authority: str
+    run_id_sha256: str
+    space_id: str
+    space_slug: str
+    state: Literal["cleanup_complete"]
+    disposition: Literal["cleanup_complete"]
+    projection_cleanup: Literal["complete"]
+    projection_manifest_sha256: str
+    cleanup_initiation_receipt_sha256: str
+    projection_absence_proof_sha256: str
+    completed_at: str
+    receipt_sha256: str
+    replayed: bool
+
+    def __post_init__(self) -> None:
+        if (
+            self.schema_version != FINALIZE_CLEANUP_RESPONSE_SCHEMA_VERSION
+            or self.authority != "infinity_canonical"
+            or type(self.run_id_sha256) is not str
+            or _SHA256.fullmatch(self.run_id_sha256) is None
+            or type(self.space_id) is not str
+            or _CANONICAL_ID.fullmatch(self.space_id) is None
+            or type(self.space_slug) is not str
+            or _SPACE_SLUG.fullmatch(self.space_slug) is None
+            or self.state != "cleanup_complete"
+            or self.disposition != "cleanup_complete"
+            or self.projection_cleanup != "complete"
+            or any(
+                type(value) is not str or _SHA256.fullmatch(value) is None
+                for value in (
+                    self.projection_manifest_sha256,
+                    self.cleanup_initiation_receipt_sha256,
+                    self.projection_absence_proof_sha256,
+                    self.receipt_sha256,
+                )
+            )
+            or utc_timestamp(
+                self.completed_at,
+                "managed_benchmark_registry_finalize_response_invalid",
+            )
+            != self.completed_at
+            or type(self.replayed) is not bool
+        ):
+            fail("managed_benchmark_registry_finalize_response_invalid")
+
+    def __init_subclass__(cls, **kwargs: object) -> None:
+        del cls, kwargs
+        raise TypeError("ManagedBenchmarkCleanupCompletionReceipt is final")
+
+
+@final
+@dataclass(frozen=True, slots=True)
+class ManagedBenchmarkPersistedCleanupReceipt:
+    """Canonical cleanup-initiation receipt persisted by server authority."""
+
+    run_id_sha256: str
+    space_id: str
+    space_slug: str
+    disposition: Literal["cleanup_pending"]
+    projection_cleanup: Literal["pending", "blocked"]
+    counts: ManagedBenchmarkCleanupCounts
+    vector_delete_outbox_ids: tuple[int, ...]
+    graph_delete_outbox_ids: tuple[int, ...]
+    cognee_delete_outbox_ids: tuple[int, ...]
+    receipt_sha256: str
+
+    def __post_init__(self) -> None:
+        lanes = (
+            self.vector_delete_outbox_ids,
+            self.graph_delete_outbox_ids,
+            self.cognee_delete_outbox_ids,
+        )
+        flattened = tuple(item for lane in lanes for item in lane)
+        if (
+            type(self.run_id_sha256) is not str
+            or _SHA256.fullmatch(self.run_id_sha256) is None
+            or type(self.space_id) is not str
+            or _CANONICAL_ID.fullmatch(self.space_id) is None
+            or type(self.space_slug) is not str
+            or _SPACE_SLUG.fullmatch(self.space_slug) is None
+            or self.disposition != "cleanup_pending"
+            or self.projection_cleanup not in {"pending", "blocked"}
+            or type(self.counts) is not ManagedBenchmarkCleanupCounts
+            or any(
+                type(lane) is not tuple or any(type(item) is not int or item <= 0 for item in lane)
+                for lane in lanes
+            )
+            or len(flattened) != len(set(flattened))
+            or self.counts.vector_delete_jobs != len(lanes[0])
+            or self.counts.graph_delete_jobs != len(lanes[1])
+            or self.counts.cognee_delete_jobs != len(lanes[2])
+            or type(self.receipt_sha256) is not str
+            or _SHA256.fullmatch(self.receipt_sha256) is None
+        ):
+            fail("managed_benchmark_registry_lifecycle_response_invalid")
+
+
+@final
+@dataclass(frozen=True, slots=True)
+class ManagedBenchmarkPersistedCompletionReceipt:
+    """Canonical terminal cleanup receipt persisted by server authority."""
+
+    run_id_sha256: str
+    space_id: str
+    space_slug: str
+    disposition: Literal["cleanup_complete"]
+    projection_cleanup: Literal["complete"]
+    projection_manifest_sha256: str
+    cleanup_initiation_receipt_sha256: str
+    projection_absence_proof_sha256: str
+    completed_at: str
+    receipt_sha256: str
+
+    def __post_init__(self) -> None:
+        if (
+            type(self.run_id_sha256) is not str
+            or _SHA256.fullmatch(self.run_id_sha256) is None
+            or type(self.space_id) is not str
+            or _CANONICAL_ID.fullmatch(self.space_id) is None
+            or type(self.space_slug) is not str
+            or _SPACE_SLUG.fullmatch(self.space_slug) is None
+            or self.disposition != "cleanup_complete"
+            or self.projection_cleanup != "complete"
+            or any(
+                type(value) is not str or _SHA256.fullmatch(value) is None
+                for value in (
+                    self.projection_manifest_sha256,
+                    self.cleanup_initiation_receipt_sha256,
+                    self.projection_absence_proof_sha256,
+                    self.receipt_sha256,
+                )
+            )
+            or utc_timestamp(
+                self.completed_at,
+                "managed_benchmark_registry_lifecycle_response_invalid",
+            )
+            != self.completed_at
+        ):
+            fail("managed_benchmark_registry_lifecycle_response_invalid")
+
+
+@final
+@dataclass(frozen=True, slots=True)
+class ManagedBenchmarkRunLifecycleSnapshot:
+    """Strict canonical lifecycle used to recover a fresh process."""
+
+    schema_version: str
+    authority: str
+    run_id_sha256: str
+    binding_commitment_sha256: str
+    infinity_target_identity_sha256: str
+    space_id: str
+    space_slug: str
+    state: Literal["active", "cleanup_pending", "cleanup_complete"]
+    projection_cleanup_state: Literal["unsealed", "sealed", "blocked", "pending", "complete"]
+    projection_manifest_sha256: str | None
+    cleanup_receipt: ManagedBenchmarkPersistedCleanupReceipt | None
+    completion_receipt: ManagedBenchmarkPersistedCompletionReceipt | None
+
+    def __post_init__(self) -> None:
+        if (
+            self.schema_version != "memory-comparison-run-lifecycle-response.v1"
+            or self.authority != "infinity_canonical"
+            or any(
+                type(value) is not str or _SHA256.fullmatch(value) is None
+                for value in (
+                    self.run_id_sha256,
+                    self.binding_commitment_sha256,
+                    self.infinity_target_identity_sha256,
+                )
+            )
+            or type(self.space_id) is not str
+            or _CANONICAL_ID.fullmatch(self.space_id) is None
+            or type(self.space_slug) is not str
+            or _SPACE_SLUG.fullmatch(self.space_slug) is None
+            or not self._valid_combination()
+        ):
+            fail("managed_benchmark_registry_lifecycle_response_invalid")
+
+    def _valid_combination(self) -> bool:
+        cleanup = self.cleanup_receipt
+        completion = self.completion_receipt
+        manifest = self.projection_manifest_sha256
+        if manifest is not None and (
+            type(manifest) is not str or _SHA256.fullmatch(manifest) is None
+        ):
+            return False
+        if self.state == "active":
+            return (
+                self.projection_cleanup_state in {"unsealed", "sealed"}
+                and (manifest is not None) == (self.projection_cleanup_state == "sealed")
+                and cleanup is None
+                and completion is None
+            )
+        if type(cleanup) is not ManagedBenchmarkPersistedCleanupReceipt:
+            return False
+        if (
+            cleanup.run_id_sha256 != self.run_id_sha256
+            or cleanup.space_id != self.space_id
+            or cleanup.space_slug != self.space_slug
+        ):
+            return False
+        if self.state == "cleanup_pending":
+            legacy_blocked_pending_receipt = (
+                self.projection_cleanup_state == "blocked"
+                and cleanup.projection_cleanup == "pending"
+            )
+            return (
+                self.projection_cleanup_state in {"pending", "blocked"}
+                and (
+                    cleanup.projection_cleanup == self.projection_cleanup_state
+                    or legacy_blocked_pending_receipt
+                )
+                and (manifest is not None) == (self.projection_cleanup_state == "pending")
+                and completion is None
+            )
+        return (
+            self.state == "cleanup_complete"
+            and self.projection_cleanup_state == "complete"
+            and manifest is not None
+            and cleanup.projection_cleanup == "pending"
+            and type(completion) is ManagedBenchmarkPersistedCompletionReceipt
+            and completion.run_id_sha256 == self.run_id_sha256
+            and completion.space_id == self.space_id
+            and completion.space_slug == self.space_slug
+            and completion.projection_manifest_sha256 == manifest
+            and completion.cleanup_initiation_receipt_sha256 == cleanup.receipt_sha256
+        )
+
+
 def managed_benchmark_registry_idempotency_key(
     operation: str,
     *,
@@ -308,14 +546,37 @@ def canonical_id(value: object, code: str) -> str:
     return value
 
 
+def utc_timestamp(value: object, code: str) -> str:
+    if type(value) is not str or not value.endswith("Z"):
+        fail(code)
+    try:
+        parsed = datetime.fromisoformat(f"{value[:-1]}+00:00")
+    except ValueError:
+        fail(code)
+    if (
+        parsed.tzinfo is None
+        or parsed.utcoffset() is None
+        or parsed.utcoffset() != UTC.utcoffset(parsed)
+        or parsed.astimezone(UTC).isoformat(timespec="microseconds").replace("+00:00", "Z") != value
+    ):
+        fail(code)
+    return value
+
+
 def fail(code: str) -> None:
     raise ManagedBenchmarkRegistryHttpError(code) from None
 
 
 __all__ = (
+    "FINALIZE_CLEANUP_REQUEST_SCHEMA_VERSION",
+    "FINALIZE_CLEANUP_RESPONSE_SCHEMA_VERSION",
+    "ManagedBenchmarkCleanupCompletionReceipt",
     "ManagedBenchmarkCleanupCounts",
     "ManagedBenchmarkCleanupReceipt",
+    "ManagedBenchmarkPersistedCleanupReceipt",
+    "ManagedBenchmarkPersistedCompletionReceipt",
     "ManagedBenchmarkProjectionSeal",
+    "ManagedBenchmarkRunLifecycleSnapshot",
     "ManagedBenchmarkRegistryHttpConfig",
     "ManagedBenchmarkRegistryHttpError",
     "ManagedBenchmarkRunRegistration",

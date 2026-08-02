@@ -1,7 +1,11 @@
 import asyncio
+import sys
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
+import infinity_context_server.admin as admin_module
+import infinity_context_server.admin_outbox as admin_outbox_module
+import pytest
 from fastapi.testclient import TestClient
 from infinity_context_adapters.postgres.models import (
     MemoryChunkRow,
@@ -400,10 +404,50 @@ def test_replay_dead_outbox_job_is_idempotent(
     with make_client(tmp_path) as client:
         rows = asyncio.run(_outbox_items(client))
 
-    assert first == {"replayed": 1, "from_status": "dead"}
+    assert first == {"replayed": 2, "from_status": "dead"}
     assert second == {"replayed": 0, "from_status": "dead"}
-    assert rows[0]["status"] == "pending"
+    assert {row["aggregate_type"] for row in rows} == {"benchmark_run", "chunk"}
+    assert all(row["status"] == "pending" for row in rows)
     assert "RAW_REPLAY_SECRET" not in str(first)
+
+
+def test_replay_rejects_done_before_container_and_preserves_all_done_rows(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    monkeypatch.setenv("MEMORY_DEPLOY_PROFILE", "test")
+    monkeypatch.setenv("MEMORY_DATABASE_URL", f"sqlite+aiosqlite:///{tmp_path / 'memory.db'}")
+    monkeypatch.setenv("MEMORY_SERVICE_TOKEN", "test-token")
+    with make_client(tmp_path) as client:
+        asyncio.run(_insert_done_outbox_with_raw_payload(client))
+        before = asyncio.run(_outbox_items(client))
+
+        def fail_build_container(_settings: Settings) -> None:
+            raise AssertionError("container must not be built for a forbidden replay status")
+
+        monkeypatch.setattr(admin_outbox_module, "build_container", fail_build_container)
+        with pytest.raises(ValueError, match="status must be exactly 'dead'"):
+            asyncio.run(replay_outbox(status="done", limit=50))
+
+        after = asyncio.run(_outbox_items(client))
+
+    assert {row["aggregate_type"] for row in before} == {"benchmark_run", "chunk"}
+    assert all(row["status"] == "done" for row in before)
+    assert after == before
+
+
+def test_replay_cli_rejects_done_status(monkeypatch, capsys) -> None:
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        ["infinity-context-admin", "replay-outbox", "--status", "done"],
+    )
+
+    with pytest.raises(SystemExit) as error:
+        admin_module.main()
+
+    assert error.value.code == 2
+    assert "invalid choice" in capsys.readouterr().err
 
 
 def test_compact_done_outbox_redacts_payload_but_keeps_audit_columns(
@@ -440,6 +484,12 @@ def test_compact_done_outbox_redacts_payload_but_keeps_audit_columns(
         "space_id": "space_client_app",
         "memory_scope_id": "memory_scope_default",
         "chunk_id": "chunk_done_compact",
+    }
+    assert rows[1]["aggregate_type"] == "benchmark_run"
+    assert rows[1]["payload_json"] == {
+        "space_id": "space_client_app",
+        "cleanup_run_id_sha256": "benchmark-run-evidence",
+        "raw": "IMMUTABLE_BENCHMARK_CLEANUP_EVIDENCE",
     }
     assert "RAW_DONE_PAYLOAD_SECRET" not in str(rows)
     assert "RAW_DONE_PAYLOAD_SECRET" not in str(compacted)
@@ -554,6 +604,24 @@ async def _insert_dead_outbox(client: TestClient) -> None:
                 last_safe_diagnostic_code="qdrant.upsert_failed",
             )
         )
+        session.add(
+            MemoryOutboxRow(
+                event_type="vector.delete_chunks",
+                aggregate_type="benchmark_run",
+                aggregate_id="benchmark_dead_replay",
+                aggregate_version=None,
+                payload_json={"raw": "RAW_REPLAY_SECRET benchmark cleanup evidence"},
+                status="dead",
+                attempt_count=5,
+                next_attempt_at=now,
+                created_at=now,
+                updated_at=now,
+                workload_class="projection",
+                fairness_key="benchmark_run:benchmark_dead_replay",
+                last_safe_error="Vector delete degraded",
+                last_safe_diagnostic_code="qdrant.delete_failed",
+            )
+        )
         await session.commit()
 
 
@@ -579,6 +647,28 @@ async def _insert_done_outbox_with_raw_payload(client: TestClient) -> None:
                 updated_at=now - timedelta(days=1),
                 workload_class="projection",
                 fairness_key="chunk:chunk_done_compact",
+                last_safe_error=None,
+                last_safe_diagnostic_code=None,
+            )
+        )
+        session.add(
+            MemoryOutboxRow(
+                event_type="vector.delete_chunks",
+                aggregate_type="benchmark_run",
+                aggregate_id="benchmark-run-evidence",
+                aggregate_version=None,
+                payload_json={
+                    "space_id": "space_client_app",
+                    "cleanup_run_id_sha256": "benchmark-run-evidence",
+                    "raw": "IMMUTABLE_BENCHMARK_CLEANUP_EVIDENCE",
+                },
+                status="done",
+                attempt_count=1,
+                next_attempt_at=now - timedelta(days=1),
+                created_at=now - timedelta(days=1),
+                updated_at=now - timedelta(days=1),
+                workload_class="projection",
+                fairness_key="benchmark_run:benchmark-run-evidence",
                 last_safe_error=None,
                 last_safe_diagnostic_code=None,
             )

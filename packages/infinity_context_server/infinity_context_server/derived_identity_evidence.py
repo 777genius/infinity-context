@@ -38,6 +38,13 @@ from infinity_context_core.ports.vector_projection_evidence import (
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession
 
+from infinity_context_server.benchmark_projection_delete_outbox import (
+    SealedBenchmarkDeleteScope,
+    load_exact_projection_delete_events,
+    projection_manifest_ids,
+    validate_delete_outbox_ids,
+)
+
 QDRANT_PROJECTION_VERSION = "v1"
 MAX_EXPECTED_IDENTITIES = 5_000
 MAX_GRAPH_PHYSICAL_IDENTITIES = 20_000
@@ -75,10 +82,12 @@ class ProjectionDeleteLane:
     target_commitment_sha256: str
     manifest_binding_sha256: str
     graph_snapshot: GraphProjectionIdentitySnapshot | None = None
+    delete_outbox_ids: tuple[int, ...] | None = None
 
     def __post_init__(self) -> None:
         _digest(self.target_commitment_sha256, "target_commitment_sha256")
         _digest(self.manifest_binding_sha256, "manifest_binding_sha256")
+        validate_delete_outbox_ids(self.delete_outbox_ids)
         if self.graph_snapshot is not None:
             _graph_snapshot_cap(self.graph_snapshot)
 
@@ -198,7 +207,7 @@ class SqlAlchemyProjectionReadiness:
         async with AsyncSession(self._engine) as session:
             manifest_scope = await _prove_delete_scope_exists(session, scope)
             if manifest_scope is not None:
-                _prove_sealed_delete_lane(manifest_scope, chunk_ids, fact_ids, lane)
+                _prove_sealed_delete_lane(manifest_scope.manifest_scope, chunk_ids, fact_ids, lane)
             chunk_rows = await _load_rows(session, MemoryChunkRow, chunk_ids)
             fact_rows = await _load_rows(session, MemoryFactRow, fact_ids)
             _prove_delete_rows(scope, chunk_ids, chunk_rows, kind="chunk")
@@ -210,10 +219,20 @@ class SqlAlchemyProjectionReadiness:
                 session, aggregate_ids=fact_ids, event_type="graph.upsert_fact"
             )
             delete_chunks = await _load_projection_delete_events(
-                session, event_type="vector.delete_chunks", expected_ids=chunk_ids
+                session,
+                event_type="vector.delete_chunks",
+                expected_ids=chunk_ids,
+                exact_outbox_ids=lane.delete_outbox_ids,
+                space_id=scope.space_id,
+                sealed_scope=manifest_scope,
             )
             delete_facts = await _load_projection_delete_events(
-                session, event_type="graph.delete_fact", expected_ids=fact_ids
+                session,
+                event_type="graph.delete_fact",
+                expected_ids=fact_ids,
+                exact_outbox_ids=lane.delete_outbox_ids,
+                space_id=scope.space_id,
+                sealed_scope=manifest_scope,
             )
         done_chunks = _prove_delete_event_completion(
             chunk_ids, chunk_rows, upsert_chunks, delete_chunks
@@ -277,6 +296,7 @@ class DerivedIdentityEvidenceCoordinator:
         chunk_ids: tuple[str, ...],
         target_commitment_sha256: str,
         manifest_binding_sha256: str,
+        delete_outbox_ids: tuple[int, ...] | None = None,
     ) -> QdrantDeleteResult:
         _expected_ids(chunk_ids, "chunk_ids", allow_empty=False)
         _digest(target_commitment_sha256, "target_commitment_sha256")
@@ -288,6 +308,7 @@ class DerivedIdentityEvidenceCoordinator:
             lane=ProjectionDeleteLane(
                 target_commitment_sha256,
                 manifest_binding_sha256,
+                delete_outbox_ids=delete_outbox_ids,
             ),
         )
         current_evidence = await self._require_vector().observe_exact(
@@ -327,6 +348,7 @@ class DerivedIdentityEvidenceCoordinator:
         relates_to_edge_ids: tuple[str, ...],
         target_commitment_sha256: str,
         manifest_binding_sha256: str,
+        delete_outbox_ids: tuple[int, ...] | None = None,
     ) -> GraphitiDeleteResult:
         _expected_ids(fact_ids, "fact_ids", allow_empty=False)
         group_id = graphiti_group_id(scope.space_id, scope.memory_scope_id)
@@ -348,6 +370,7 @@ class DerivedIdentityEvidenceCoordinator:
                 target_commitment_sha256,
                 manifest_binding_sha256,
                 expected,
+                delete_outbox_ids=delete_outbox_ids,
             ),
         )
         graph = self._require_graph()
@@ -485,7 +508,7 @@ async def _prove_scope_exists(session: AsyncSession, scope: CanonicalProjectionS
 async def _prove_delete_scope_exists(
     session: AsyncSession,
     scope: CanonicalProjectionScope,
-) -> dict[str, object] | None:
+) -> SealedBenchmarkDeleteScope | None:
     """Resolve a valid sealed manifest scope, or permit an ordinary live scope."""
 
     space = await session.get(MemorySpaceRow, scope.space_id)
@@ -541,7 +564,12 @@ async def _prove_delete_scope_exists(
         raise MemoryValidationError(
             "Projection scope is not protected by sealed benchmark cleanup"
         ) from exc
-    return _projection_manifest_scope(manifest, scope)
+    return SealedBenchmarkDeleteScope(
+        manifest_scope=_projection_manifest_scope(manifest, scope),
+        run_id_sha256=benchmark.run_id_sha256,
+        all_chunk_ids=projection_manifest_ids(manifest, "chunk_ids"),
+        all_fact_ids=projection_manifest_ids(manifest, "fact_ids"),
+    )
 
 
 def _projection_manifest_scope(
@@ -712,9 +740,25 @@ async def _load_projection_delete_events(
     *,
     event_type: str,
     expected_ids: tuple[str, ...],
+    exact_outbox_ids: tuple[int, ...] | None = None,
+    space_id: str | None = None,
+    sealed_scope: SealedBenchmarkDeleteScope | None = None,
 ) -> list[object]:
     if not expected_ids:
         return []
+    if exact_outbox_ids is not None:
+        if space_id is None or sealed_scope is None:
+            raise MemoryConflictError(
+                "Exact projection delete outbox receipt requires a sealed benchmark"
+            )
+        return await load_exact_projection_delete_events(
+            session,
+            event_type=event_type,
+            expected_ids=expected_ids,
+            exact_outbox_ids=exact_outbox_ids,
+            space_id=space_id,
+            sealed_scope=sealed_scope,
+        )
     rows = list(
         (
             await session.execute(
