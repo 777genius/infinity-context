@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import threading
 from collections.abc import Callable
-from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import final
 
@@ -60,8 +59,10 @@ from infinity_context_server.memory_comparison_managed_http_policy_receipts impo
     receipt_registry_transaction,
     terminal_receipt_state,
 )
-from infinity_context_server.memory_comparison_managed_http_policy_requirements import (
-    ManagedDerivedPresenceObservation,
+from infinity_context_server.memory_comparison_managed_http_policy_registry_evidence import (
+    ManagedHttpPolicyExactProjectionEvidence,
+    ManagedHttpPolicyObservedCorpusEvidence,
+    ManagedHttpPolicyRegistryEvidenceBinding,
 )
 from infinity_context_server.memory_comparison_managed_http_policy_support import (
     ManagedHttpPolicyLifecycleError,
@@ -74,11 +75,11 @@ from infinity_context_server.memory_comparison_managed_http_policy_support impor
 )
 from infinity_context_server.memory_comparison_managed_http_policy_validation import (
     ManagedHttpPolicyCorpusMaterial,
+    ManagedHttpPolicyRegistryMaterial,
     VerifiedManagedHttpPolicyValidation,
     seal_managed_http_policy_validation,
 )
 from infinity_context_server.memory_comparison_managed_ingest_manifest import (
-    ManagedCorpusIngestIdentity,
     parse_managed_ingest_identity_manifests,
 )
 from infinity_context_server.memory_comparison_managed_preflight import (
@@ -89,12 +90,6 @@ from infinity_context_server.memory_comparison_managed_run_contract import (
 )
 
 MANAGED_HTTP_POLICY_ADAPTER_ID = "managed-comparison-http-policy-fail-closed-v1"
-
-
-@dataclass(frozen=True, slots=True)
-class _CorpusEvidence:
-    bundle: ManagedCorpusIngestIdentity
-    presence: ManagedDerivedPresenceObservation
 
 
 @final
@@ -196,11 +191,12 @@ class ManagedComparisonHttpPolicyLifecycleAdapter:
             derived_evidence=self._derived_evidence,
             transport_factory=lambda: self._new_transport("infinity-cleanup"),
         )
-        self._corpora: tuple[_CorpusEvidence, ...] = ()
+        self._corpora: tuple[ManagedHttpPolicyObservedCorpusEvidence, ...] = ()
         self._corpus_material: tuple[ManagedHttpPolicyCorpusMaterial, ...] = ()
         self._execution_case_manifest_sha256: str | None = None
         self._managed_attestation: VerifiedManagedCompositionAttestation | None = None
         self._managed_attestation_commitment_sha256: str | None = None
+        self._registry_evidence = ManagedHttpPolicyRegistryEvidenceBinding()
         self._phase = "open"
         self._next_delete = 0
         self._delete_in_flight: tuple[str, str, int] | None = None
@@ -213,6 +209,17 @@ class ManagedComparisonHttpPolicyLifecycleAdapter:
     @property
     def implementation_sha256(self) -> str:
         return managed_http_policy_lifecycle_implementation_sha256()
+
+    @property
+    def exact_projection_evidence(self) -> ManagedHttpPolicyExactProjectionEvidence:
+        """Expose the sealed, immutable manifest inputs without transport internals."""
+
+        with self._lock:
+            phase, evidence = self._phase, self._corpora
+        return self._registry_evidence.exact_projection_evidence(
+            phase=phase,
+            evidence=evidence,
+        )
 
     def seal_canonical_source(
         self,
@@ -249,7 +256,12 @@ class ManagedComparisonHttpPolicyLifecycleAdapter:
             )
             validate_ingest_evidence(views)
             bundles = parse_managed_ingest_identity_manifests(views)
-            evidence = self._observe_corpora(bundles)
+            evidence = self._registry_evidence.observe_corpora(
+                bundles=bundles,
+                infinity_target_identity_sha256=self._infinity.target_identity_sha256,
+                mem0_target_identity_sha256=self._mem0.target_identity_sha256,
+                observe_presence=self._derived_evidence.observe_presence,
+            )
             self._bind_cleanup_evidence(evidence, execution_manifest)
             cleanup_ready = True
             unordered_material = {
@@ -458,6 +470,19 @@ class ManagedComparisonHttpPolicyLifecycleAdapter:
             self._phase = "terminal-delete-sealed"
         return receipt
 
+    def bind_registry_completion_evidence(
+        self,
+        *,
+        material: ManagedHttpPolicyRegistryMaterial,
+    ) -> None:
+        """Bind one exact wrapper completion proof before aggregate issuance."""
+
+        with self._lock:
+            self._registry_evidence.bind_completion(
+                material=material,
+                phase=self._phase,
+            )
+
     def aggregate_policy(
         self,
         *,
@@ -478,6 +503,7 @@ class ManagedComparisonHttpPolicyLifecycleAdapter:
         with self._lock:
             if self._phase != "terminal-delete-sealed":
                 raise ManagedHttpPolicyLifecycleError("managed_http_policy_aggregate_replay")
+            registry_evidence = self._registry_evidence
             self._phase = "aggregating"
         try:
             with receipt_registry_transaction():
@@ -533,6 +559,7 @@ class ManagedComparisonHttpPolicyLifecycleAdapter:
                     corpora=self._corpus_material,
                     cleanup_passes=terminal.cleanup_passes,
                 )
+                material = registry_evidence.bind_validation_material(material)
                 for item in canonical:
                     item.phase = "consumed"
                 terminal.phase = "consumed"
@@ -708,53 +735,20 @@ class ManagedComparisonHttpPolicyLifecycleAdapter:
         return value
 
     def _corpus_for(self, corpus_id: str) -> ManagedHttpPolicyCorpusMaterial:
-        matches = tuple(item for item in self._corpus_material if item.corpus_id == corpus_id)
-        if len(matches) != 1:
-            raise ManagedHttpPolicyLifecycleError("managed_http_policy_corpus_binding_invalid")
-        return matches[0]
-
-    def _observe_corpora(
-        self,
-        bundles: tuple[ManagedCorpusIngestIdentity, ...],
-    ) -> tuple[_CorpusEvidence, ...]:
-        if not bundles or any(
-            bundle.infinity_target_identity_sha256 != self._infinity.target_identity_sha256
-            or bundle.mem0_target_identity_sha256 != self._mem0.target_identity_sha256
-            for bundle in bundles
-        ):
-            raise ManagedHttpPolicyLifecycleError(
-                "managed_http_policy_ingest_target_binding_invalid"
-            )
-        return tuple(
-            _CorpusEvidence(
-                bundle=bundle,
-                presence=self._derived_evidence.observe_presence(
-                    scope=bundle.scope,
-                    manifest=bundle.manifest,
-                ),
-            )
-            for bundle in bundles
+        return self._registry_evidence.corpus_material_for(
+            corpora=self._corpus_material,
+            corpus_id=corpus_id,
         )
 
     def _bind_cleanup_evidence(
         self,
-        evidence: tuple[_CorpusEvidence, ...],
+        evidence: tuple[ManagedHttpPolicyObservedCorpusEvidence, ...],
         execution_manifest: str,
     ) -> None:
-        corpus_ids = tuple(item.bundle.corpus_id for item in evidence)
-        expected_corpus_ids = {case.corpus_id for case in self._cases}
-        if (
-            type(evidence) is not tuple
-            or not evidence
-            or any(type(item) is not _CorpusEvidence for item in evidence)
-            or len(evidence) != len(expected_corpus_ids)
-            or set(corpus_ids) != expected_corpus_ids
-        ):
-            raise ManagedHttpPolicyLifecycleError("managed_http_policy_corpus_coverage_invalid")
-        try:
-            project_exact_corpus_bindings(tuple(item.bundle for item in evidence))
-        except ValueError as exc:
-            raise ManagedHttpPolicyLifecycleError(str(exc)) from None
+        self._registry_evidence.validate_corpus_evidence(
+            evidence=evidence,
+            expected_corpus_ids={case.corpus_id for case in self._cases},
+        )
         with self._lock:
             if self._phase != "consuming-ingest-evidence":
                 raise ManagedHttpPolicyLifecycleError("managed_http_policy_canonical_source_replay")
@@ -877,6 +871,7 @@ def managed_http_policy_lifecycle_implementation_sha256() -> str:
 __all__ = (
     "MANAGED_HTTP_POLICY_ADAPTER_ID",
     "ManagedComparisonHttpPolicyLifecycleAdapter",
+    "ManagedHttpPolicyExactProjectionEvidence",
     "ManagedHttpPolicyCanonicalSourceReceipt",
     "ManagedHttpPolicyDeleteReceipt",
     "ManagedHttpPolicyLifecycleError",

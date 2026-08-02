@@ -19,6 +19,8 @@ from infinity_context_server.memory_comparison_managed_preflight import (
 REGISTRATION_SCHEMA_VERSION = "memory-comparison-run-registration-response.v1"
 FINALIZE_CLEANUP_REQUEST_SCHEMA_VERSION = "memory-comparison-run-cleanup-finalize.v1"
 FINALIZE_CLEANUP_RESPONSE_SCHEMA_VERSION = "memory-comparison-run-cleanup-finalize-response.v1"
+FINALIZE_ABORT_REQUEST_SCHEMA_VERSION = "memory-comparison-run-abort-finalize.v1"
+FINALIZE_ABORT_RESPONSE_SCHEMA_VERSION = "memory-comparison-run-abort-finalize-response.v1"
 REGISTRY_RUNS_PATH = "v1/internal/memory-comparison/runs"
 
 _SHA256 = re.compile(r"^[0-9a-f]{64}$")
@@ -26,7 +28,9 @@ _SPACE_SLUG = re.compile(r"^memory-comparison-[a-z0-9-]{1,80}$")
 _CANONICAL_ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:-]{0,79}$")
 _IDEMPOTENCY_KEY = re.compile(r"^[\x21-\x7e]{8,240}$")
 _BEARER_TOKEN = re.compile(r"^[\x21-\x7e]+$")
-_IDEMPOTENCY_OPERATIONS = frozenset({"register", "begin-cleanup", "finalize-cleanup"})
+_IDEMPOTENCY_OPERATIONS = frozenset(
+    {"register", "begin-cleanup", "finalize-cleanup", "finalize-abort"}
+)
 
 
 def _utc_now() -> datetime:
@@ -120,7 +124,13 @@ class ManagedBenchmarkRunRegistration:
         if (
             self.schema_version != REGISTRATION_SCHEMA_VERSION
             or self.authority != "infinity_canonical"
-            or self.state not in {"active", "cleanup_pending", "cleanup_complete"}
+            or self.state
+            not in {
+                "active",
+                "cleanup_pending",
+                "cleanup_complete",
+                "cleanup_aborted",
+            }
             or any(
                 type(value) is not str or _SHA256.fullmatch(value) is None
                 for value in (
@@ -301,6 +311,57 @@ class ManagedBenchmarkCleanupCompletionReceipt:
 
 @final
 @dataclass(frozen=True, slots=True)
+class ManagedBenchmarkAbortCompletionReceipt:
+    schema_version: str
+    authority: str
+    run_id_sha256: str
+    binding_commitment_sha256: str
+    infinity_target_identity_sha256: str
+    space_id: str
+    space_slug: str
+    state: Literal["cleanup_aborted"]
+    disposition: Literal["abort_complete"]
+    projection_cleanup: Literal["unsealed_abort_complete"]
+    cleanup_initiation_receipt_sha256: str
+    cleanup_verification_sha256: str
+    completed_at: str
+    receipt_sha256: str
+    replayed: bool
+
+    def __post_init__(self) -> None:
+        if (
+            self.schema_version != FINALIZE_ABORT_RESPONSE_SCHEMA_VERSION
+            or self.authority != "infinity_canonical"
+            or self.state != "cleanup_aborted"
+            or self.disposition != "abort_complete"
+            or self.projection_cleanup != "unsealed_abort_complete"
+            or any(
+                type(value) is not str or _SHA256.fullmatch(value) is None
+                for value in (
+                    self.run_id_sha256,
+                    self.binding_commitment_sha256,
+                    self.infinity_target_identity_sha256,
+                    self.cleanup_initiation_receipt_sha256,
+                    self.cleanup_verification_sha256,
+                    self.receipt_sha256,
+                )
+            )
+            or type(self.space_id) is not str
+            or _CANONICAL_ID.fullmatch(self.space_id) is None
+            or type(self.space_slug) is not str
+            or _SPACE_SLUG.fullmatch(self.space_slug) is None
+            or utc_timestamp(
+                self.completed_at,
+                "managed_benchmark_registry_abort_response_invalid",
+            )
+            != self.completed_at
+            or type(self.replayed) is not bool
+        ):
+            fail("managed_benchmark_registry_abort_response_invalid")
+
+
+@final
+@dataclass(frozen=True, slots=True)
 class ManagedBenchmarkPersistedCleanupReceipt:
     """Canonical cleanup-initiation receipt persisted by server authority."""
 
@@ -392,6 +453,49 @@ class ManagedBenchmarkPersistedCompletionReceipt:
 
 @final
 @dataclass(frozen=True, slots=True)
+class ManagedBenchmarkPersistedAbortReceipt:
+    run_id_sha256: str
+    binding_commitment_sha256: str
+    infinity_target_identity_sha256: str
+    space_id: str
+    space_slug: str
+    disposition: Literal["abort_complete"]
+    projection_cleanup: Literal["unsealed_abort_complete"]
+    cleanup_initiation_receipt_sha256: str
+    cleanup_verification_sha256: str
+    completed_at: str
+    receipt_sha256: str
+
+    def __post_init__(self) -> None:
+        if (
+            self.disposition != "abort_complete"
+            or self.projection_cleanup != "unsealed_abort_complete"
+            or any(
+                type(value) is not str or _SHA256.fullmatch(value) is None
+                for value in (
+                    self.run_id_sha256,
+                    self.binding_commitment_sha256,
+                    self.infinity_target_identity_sha256,
+                    self.cleanup_initiation_receipt_sha256,
+                    self.cleanup_verification_sha256,
+                    self.receipt_sha256,
+                )
+            )
+            or type(self.space_id) is not str
+            or _CANONICAL_ID.fullmatch(self.space_id) is None
+            or type(self.space_slug) is not str
+            or _SPACE_SLUG.fullmatch(self.space_slug) is None
+            or utc_timestamp(
+                self.completed_at,
+                "managed_benchmark_registry_lifecycle_response_invalid",
+            )
+            != self.completed_at
+        ):
+            fail("managed_benchmark_registry_lifecycle_response_invalid")
+
+
+@final
+@dataclass(frozen=True, slots=True)
 class ManagedBenchmarkRunLifecycleSnapshot:
     """Strict canonical lifecycle used to recover a fresh process."""
 
@@ -402,11 +506,20 @@ class ManagedBenchmarkRunLifecycleSnapshot:
     infinity_target_identity_sha256: str
     space_id: str
     space_slug: str
-    state: Literal["active", "cleanup_pending", "cleanup_complete"]
-    projection_cleanup_state: Literal["unsealed", "sealed", "blocked", "pending", "complete"]
+    state: Literal["active", "cleanup_pending", "cleanup_complete", "cleanup_aborted"]
+    projection_cleanup_state: Literal[
+        "unsealed",
+        "sealed",
+        "blocked",
+        "pending",
+        "complete",
+        "unsealed_abort_complete",
+    ]
     projection_manifest_sha256: str | None
     cleanup_receipt: ManagedBenchmarkPersistedCleanupReceipt | None
-    completion_receipt: ManagedBenchmarkPersistedCompletionReceipt | None
+    completion_receipt: (
+        ManagedBenchmarkPersistedCompletionReceipt | ManagedBenchmarkPersistedAbortReceipt | None
+    )
 
     def __post_init__(self) -> None:
         if (
@@ -465,16 +578,29 @@ class ManagedBenchmarkRunLifecycleSnapshot:
                 and (manifest is not None) == (self.projection_cleanup_state == "pending")
                 and completion is None
             )
+        if self.state == "cleanup_complete":
+            return (
+                self.projection_cleanup_state == "complete"
+                and manifest is not None
+                and cleanup.projection_cleanup == "pending"
+                and type(completion) is ManagedBenchmarkPersistedCompletionReceipt
+                and completion.run_id_sha256 == self.run_id_sha256
+                and completion.space_id == self.space_id
+                and completion.space_slug == self.space_slug
+                and completion.projection_manifest_sha256 == manifest
+                and completion.cleanup_initiation_receipt_sha256 == cleanup.receipt_sha256
+            )
         return (
-            self.state == "cleanup_complete"
-            and self.projection_cleanup_state == "complete"
-            and manifest is not None
-            and cleanup.projection_cleanup == "pending"
-            and type(completion) is ManagedBenchmarkPersistedCompletionReceipt
+            self.state == "cleanup_aborted"
+            and self.projection_cleanup_state == "unsealed_abort_complete"
+            and manifest is None
+            and cleanup.projection_cleanup == "blocked"
+            and type(completion) is ManagedBenchmarkPersistedAbortReceipt
             and completion.run_id_sha256 == self.run_id_sha256
+            and completion.binding_commitment_sha256 == self.binding_commitment_sha256
+            and completion.infinity_target_identity_sha256 == self.infinity_target_identity_sha256
             and completion.space_id == self.space_id
             and completion.space_slug == self.space_slug
-            and completion.projection_manifest_sha256 == manifest
             and completion.cleanup_initiation_receipt_sha256 == cleanup.receipt_sha256
         )
 
@@ -568,13 +694,17 @@ def fail(code: str) -> None:
 
 
 __all__ = (
+    "FINALIZE_ABORT_REQUEST_SCHEMA_VERSION",
+    "FINALIZE_ABORT_RESPONSE_SCHEMA_VERSION",
     "FINALIZE_CLEANUP_REQUEST_SCHEMA_VERSION",
     "FINALIZE_CLEANUP_RESPONSE_SCHEMA_VERSION",
     "ManagedBenchmarkCleanupCompletionReceipt",
+    "ManagedBenchmarkAbortCompletionReceipt",
     "ManagedBenchmarkCleanupCounts",
     "ManagedBenchmarkCleanupReceipt",
     "ManagedBenchmarkPersistedCleanupReceipt",
     "ManagedBenchmarkPersistedCompletionReceipt",
+    "ManagedBenchmarkPersistedAbortReceipt",
     "ManagedBenchmarkProjectionSeal",
     "ManagedBenchmarkRunLifecycleSnapshot",
     "ManagedBenchmarkRegistryHttpConfig",

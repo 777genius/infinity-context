@@ -9,6 +9,7 @@ from datetime import UTC, datetime
 
 from infinity_context_core.domain.errors import MemoryConflictError
 from infinity_context_core.ports.benchmark_runs import (
+    BenchmarkAbortCompletionReceipt,
     BenchmarkCleanupCompletionReceipt,
     BenchmarkRunRegistryRecord,
 )
@@ -149,6 +150,116 @@ async def require_exact_cleanup_outbox_completion(
         receipt.cognee_delete_outbox_ids,
         record,
         documents,
+    )
+
+
+async def unsealed_abort_cleanup_verification_sha256(
+    session: AsyncSession,
+    *,
+    record: BenchmarkRunRegistryRecord,
+) -> str:
+    """Verify exact tombstones and completed delete jobs without provider calls."""
+
+    receipt = record.cleanup_receipt
+    if (
+        receipt is None
+        or receipt.projection_cleanup != "blocked"
+        or record.projection_manifest_json is not None
+        or record.projection_manifest_sha256 is not None
+    ):
+        raise MemoryConflictError("Benchmark unsealed abort proof inputs are incomplete")
+    space = await session.get(MemorySpaceRow, record.space_id)
+    if space is None or space.slug != record.space_slug or space.status != "deleted":
+        raise MemoryConflictError("Benchmark canonical space tombstone is incomplete")
+
+    inventories: dict[str, list[str]] = {}
+    models = (
+        (MemoryFactRow, "facts"),
+        (MemoryDocumentRow, "documents"),
+        (MemoryChunkRow, "chunks"),
+        (MemoryEpisodeRow, "episodes"),
+        (MemoryThreadRow, "threads"),
+        (MemoryScopeRow, "memory_scopes"),
+    )
+    for model, count_field in models:
+        rows = tuple(
+            (
+                await session.execute(
+                    select(model.id, model.status)
+                    .where(model.space_id == record.space_id)
+                    .order_by(model.id)
+                )
+            ).all()
+        )
+        if len(rows) != getattr(receipt.counts, count_field) or any(
+            status != "deleted" for _, status in rows
+        ):
+            raise MemoryConflictError("Benchmark canonical tombstones are incomplete")
+        inventories[count_field] = [str(identity) for identity, _ in rows]
+    for model in _UNSUPPORTED_MODELS:
+        found = await session.scalar(
+            select(model.space_id).where(model.space_id == record.space_id).limit(1)
+        )
+        if found is not None:
+            raise MemoryConflictError("Benchmark canonical inventory contains unsupported rows")
+
+    lane_ids = (
+        receipt.vector_delete_outbox_ids,
+        receipt.graph_delete_outbox_ids,
+        receipt.cognee_delete_outbox_ids,
+    )
+    if any(ids != tuple(sorted(ids)) for ids in lane_ids):
+        raise MemoryConflictError("Benchmark cleanup outbox receipt is not canonical")
+    all_ids = tuple(item for lane in lane_ids for item in lane)
+    rows = (
+        tuple((await session.execute(_cleanup_outbox_rows_query(all_ids))).scalars())
+        if all_ids
+        else ()
+    )
+    if tuple(row.id for row in rows) != tuple(sorted(all_ids)):
+        raise MemoryConflictError("Benchmark cleanup outbox proof is incomplete")
+    by_id = {row.id: row for row in rows}
+    _require_vector_jobs(
+        by_id,
+        receipt.vector_delete_outbox_ids,
+        record,
+        inventories["chunks"],
+    )
+    _require_graph_jobs(
+        by_id,
+        receipt.graph_delete_outbox_ids,
+        record,
+        inventories["facts"],
+    )
+    documents = dict(
+        (str(document_id), str(memory_scope_id))
+        for document_id, memory_scope_id in (
+            await session.execute(
+                select(MemoryDocumentRow.id, MemoryDocumentRow.memory_scope_id)
+                .where(MemoryDocumentRow.space_id == record.space_id)
+                .order_by(MemoryDocumentRow.id)
+            )
+        ).all()
+    )
+    await _require_cognee_jobs(
+        session,
+        by_id,
+        receipt.cognee_delete_outbox_ids,
+        record,
+        documents,
+    )
+    return _json_sha256(
+        {
+            "schema_version": "memory-comparison-unsealed-abort-verification.v1",
+            "run_id_sha256": record.run_id_sha256,
+            "binding_commitment_sha256": record.binding_commitment_sha256,
+            "infinity_target_identity_sha256": record.infinity_target_identity_sha256,
+            "space_id": record.space_id,
+            "space_slug": record.space_slug,
+            "cleanup_initiation_receipt_sha256": receipt.receipt_sha256,
+            "canonical_inventory": inventories,
+            "delete_outbox_ids": [list(ids) for ids in lane_ids],
+        }
     )
 
 
@@ -370,6 +481,114 @@ def completion_receipt_from_json(
     )
 
 
+def build_abort_completion_receipt(
+    *,
+    record: BenchmarkRunRegistryRecord,
+    cleanup_verification_sha256: str,
+    completed_at: datetime,
+) -> BenchmarkAbortCompletionReceipt:
+    if record.cleanup_receipt is None or not _valid_digest(cleanup_verification_sha256):
+        raise MemoryConflictError("Benchmark abort proof inputs are incomplete")
+    material: dict[str, object] = {
+        "run_id_sha256": record.run_id_sha256,
+        "binding_commitment_sha256": record.binding_commitment_sha256,
+        "infinity_target_identity_sha256": record.infinity_target_identity_sha256,
+        "space_id": record.space_id,
+        "space_slug": record.space_slug,
+        "disposition": "abort_complete",
+        "projection_cleanup": "unsealed_abort_complete",
+        "cleanup_initiation_receipt_sha256": record.cleanup_receipt.receipt_sha256,
+        "cleanup_verification_sha256": cleanup_verification_sha256,
+        "completed_at": _timestamp_json(completed_at),
+    }
+    return BenchmarkAbortCompletionReceipt(
+        run_id_sha256=record.run_id_sha256,
+        binding_commitment_sha256=record.binding_commitment_sha256,
+        infinity_target_identity_sha256=record.infinity_target_identity_sha256,
+        space_id=record.space_id,
+        space_slug=record.space_slug,
+        disposition="abort_complete",
+        projection_cleanup="unsealed_abort_complete",
+        cleanup_initiation_receipt_sha256=record.cleanup_receipt.receipt_sha256,
+        cleanup_verification_sha256=cleanup_verification_sha256,
+        completed_at=_parse_timestamp(material["completed_at"]),
+        receipt_sha256=_json_sha256(material),
+    )
+
+
+def abort_completion_receipt_json(
+    receipt: BenchmarkAbortCompletionReceipt,
+) -> dict[str, object]:
+    return {
+        "run_id_sha256": receipt.run_id_sha256,
+        "binding_commitment_sha256": receipt.binding_commitment_sha256,
+        "infinity_target_identity_sha256": receipt.infinity_target_identity_sha256,
+        "space_id": receipt.space_id,
+        "space_slug": receipt.space_slug,
+        "disposition": receipt.disposition,
+        "projection_cleanup": receipt.projection_cleanup,
+        "cleanup_initiation_receipt_sha256": receipt.cleanup_initiation_receipt_sha256,
+        "cleanup_verification_sha256": receipt.cleanup_verification_sha256,
+        "completed_at": _timestamp_json(receipt.completed_at),
+        "receipt_sha256": receipt.receipt_sha256,
+    }
+
+
+def abort_completion_receipt_from_json(
+    value: dict[str, object],
+) -> BenchmarkAbortCompletionReceipt:
+    expected = {
+        "run_id_sha256",
+        "binding_commitment_sha256",
+        "infinity_target_identity_sha256",
+        "space_id",
+        "space_slug",
+        "disposition",
+        "projection_cleanup",
+        "cleanup_initiation_receipt_sha256",
+        "cleanup_verification_sha256",
+        "completed_at",
+        "receipt_sha256",
+    }
+    digest_fields = (
+        "run_id_sha256",
+        "binding_commitment_sha256",
+        "infinity_target_identity_sha256",
+        "cleanup_initiation_receipt_sha256",
+        "cleanup_verification_sha256",
+        "receipt_sha256",
+    )
+    if (
+        type(value) is not dict
+        or set(value) != expected
+        or any(not _valid_digest(value[field]) for field in digest_fields)
+        or type(value["space_id"]) is not str
+        or not value["space_id"]
+        or type(value["space_slug"]) is not str
+        or not value["space_slug"]
+        or value["disposition"] != "abort_complete"
+        or value["projection_cleanup"] != "unsealed_abort_complete"
+    ):
+        raise RuntimeError("benchmark_abort_completion_receipt_invalid")
+    completed_at = _parse_timestamp(value["completed_at"])
+    material = {key: item for key, item in value.items() if key != "receipt_sha256"}
+    if not hmac.compare_digest(str(value["receipt_sha256"]), _json_sha256(material)):
+        raise RuntimeError("benchmark_abort_completion_receipt_invalid")
+    return BenchmarkAbortCompletionReceipt(
+        run_id_sha256=value["run_id_sha256"],
+        binding_commitment_sha256=value["binding_commitment_sha256"],
+        infinity_target_identity_sha256=value["infinity_target_identity_sha256"],
+        space_id=value["space_id"],
+        space_slug=value["space_slug"],
+        disposition="abort_complete",
+        projection_cleanup="unsealed_abort_complete",
+        cleanup_initiation_receipt_sha256=value["cleanup_initiation_receipt_sha256"],
+        cleanup_verification_sha256=value["cleanup_verification_sha256"],
+        completed_at=completed_at,
+        receipt_sha256=value["receipt_sha256"],
+    )
+
+
 def same_completion_timestamp(left: datetime, right: datetime) -> bool:
     try:
         database_value = right.replace(tzinfo=UTC) if right.tzinfo is None else right
@@ -413,10 +632,14 @@ def _json_sha256(value: dict[str, object]) -> str:
 
 
 __all__ = (
+    "abort_completion_receipt_from_json",
+    "abort_completion_receipt_json",
+    "build_abort_completion_receipt",
     "build_completion_receipt",
     "completion_receipt_from_json",
     "completion_receipt_json",
     "require_canonical_tombstones",
     "require_exact_cleanup_outbox_completion",
     "same_completion_timestamp",
+    "unsealed_abort_cleanup_verification_sha256",
 )

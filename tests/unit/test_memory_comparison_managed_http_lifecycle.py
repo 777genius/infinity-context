@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import json
 import pickle
 import threading
@@ -24,6 +25,10 @@ from infinity_context_server.memory_comparison_full_profiles import (
 from infinity_context_server.memory_comparison_locomo_transport import (
     LocomoTimestampTransportEvidence,
     RunScopedLocomoTransportEvidenceKey,
+)
+from infinity_context_server.memory_comparison_managed_benchmark_registry_contracts import (
+    REGISTRATION_SCHEMA_VERSION,
+    ManagedBenchmarkRunRegistration,
 )
 from infinity_context_server.memory_comparison_managed_corpus_projection import (
     _managed_corpus_identity,
@@ -91,6 +96,20 @@ def _targets() -> tuple[FullComparisonBackendTarget, ...]:
     return (
         FullComparisonBackendTarget("infinity-context", _INFINITY_TARGET),
         FullComparisonBackendTarget("mem0", _MEM0_TARGET),
+    )
+
+
+def _registration() -> ManagedBenchmarkRunRegistration:
+    return ManagedBenchmarkRunRegistration(
+        schema_version=REGISTRATION_SCHEMA_VERSION,
+        authority="infinity_canonical",
+        run_id_sha256=hashlib.sha256(_RUN.encode()).hexdigest(),
+        binding_commitment_sha256=_BINDING,
+        infinity_target_identity_sha256=_INFINITY_TARGET,
+        space_id="space-registry-1",
+        space_slug=f"memory-comparison-{_RUN}",
+        state="active",
+        created=True,
     )
 
 
@@ -175,6 +194,7 @@ def _build(
     send_timestamps: bool = False,
     deadline_delta: timedelta = timedelta(seconds=10),
     lifecycle_credential_action: str | None = None,
+    benchmark_registration: ManagedBenchmarkRunRegistration | None = None,
 ) -> tuple[ManagedComparisonHttpLifecycleAdapter, ManagedComparisonHttpExecutionAdapter]:
     profile = _profile(
         PROFILE_LOCOMO_TOP_50
@@ -261,6 +281,7 @@ def _build(
         binding_commitment_sha256=_BINDING,
         admitted_targets=_targets(),
         cases=(case,),
+        benchmark_registration=benchmark_registration,
         deadline=deadline,
         execution=execution,
         preflight_request=preflight_request,
@@ -809,5 +830,37 @@ def test_execution_evidence_capability_rejects_direct_state_tamper() -> None:
                 backend_targets=_targets(),
                 cases=(case,),
             )
+    finally:
+        execution.close()
+
+
+def test_registry_registration_is_clean_namespace_proof_without_duplicate_space_post() -> None:
+    case = _longmem_case()
+    clock = _Clock()
+    infinity_calls = 0
+    mem0_calls = 0
+
+    def infinity_handler(_: httpx.Request) -> httpx.Response:
+        nonlocal infinity_calls
+        infinity_calls += 1
+        pytest.fail("registry-backed reset must not POST a duplicate Infinity space")
+
+    def mem0_handler(request: httpx.Request) -> httpx.Response:
+        nonlocal mem0_calls
+        mem0_calls += 1
+        assert request.method == "DELETE"
+        return httpx.Response(200, json={"deleted": True, "verified_absent": True})
+
+    adapter, execution = _build(
+        case=case,
+        infinity_handler=infinity_handler,
+        mem0_handler=mem0_handler,
+        clock=clock,
+        benchmark_registration=_registration(),
+    )
+    try:
+        _reset(adapter)
+        assert infinity_calls == 0
+        assert mem0_calls == 1
     finally:
         execution.close()

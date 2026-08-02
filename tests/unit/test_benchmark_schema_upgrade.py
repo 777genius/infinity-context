@@ -18,17 +18,19 @@ def test_postgres_projection_upgrade_orders_backfill_before_constraints(monkeypa
     benchmark_projection_schema._ensure_postgres_benchmark_projection_manifest_schema(connection)
 
     statements = connection.statements
-    assert len(statements) == 14
-    assert all("ADD COLUMN" in statement for statement in statements[:3])
+    assert len(statements) == 23
+    assert all("ADD COLUMN" in statement for statement in statements[:6])
     assert "projection_manifest_json JSONB" in statements[0]
-    assert "UPDATE memory_comparison_benchmark_runs" in statements[3]
-    assert "WHEN state = 'cleanup_pending' THEN 'blocked'" in statements[3]
-    assert "SET DEFAULT 'unsealed'" in statements[4]
-    assert "SET NOT NULL" in statements[4]
-    assert all("DROP CONSTRAINT IF EXISTS" in statement for statement in statements[5:8])
-    assert all("ADD CONSTRAINT" in statement for statement in statements[8:11])
-    assert all("NOT VALID" in statement for statement in statements[8:11])
-    assert all("VALIDATE CONSTRAINT" in statement for statement in statements[11:])
+    assert "completed_at TIMESTAMPTZ" in statements[5]
+    assert "UPDATE memory_comparison_benchmark_runs" in statements[6]
+    assert "WHEN state = 'cleanup_pending' THEN 'blocked'" in statements[6]
+    assert "WHEN state = 'cleanup_aborted' THEN 'unsealed_abort_complete'" in statements[6]
+    assert "SET DEFAULT 'unsealed'" in statements[7]
+    assert "SET NOT NULL" in statements[7]
+    assert all("DROP CONSTRAINT IF EXISTS" in statement for statement in statements[8:13])
+    assert all("ADD CONSTRAINT" in statement for statement in statements[13:18])
+    assert all("NOT VALID" in statement for statement in statements[13:18])
+    assert all("VALIDATE CONSTRAINT" in statement for statement in statements[18:])
 
 
 def test_create_schema_upgrades_pre_projection_manifest_benchmark_rows(tmp_path: Path) -> None:
@@ -192,6 +194,9 @@ class _CurrentProjectionSchemaInspector:
         return [
             {"name": "projection_manifest_json"},
             {"name": "projection_manifest_sha256"},
+            {"name": "finalization_fingerprint_sha256"},
+            {"name": "completion_receipt_json"},
+            {"name": "completed_at"},
             {
                 "name": "projection_cleanup_state",
                 "nullable": False,
@@ -201,7 +206,91 @@ class _CurrentProjectionSchemaInspector:
 
     def get_check_constraints(self, _table_name: str) -> list[dict[str, object]]:
         return [
-            {"name": "ck_memory_comparison_benchmark_run_manifest_coupling"},
-            {"name": "ck_memory_comparison_benchmark_run_projection_cleanup_state"},
-            {"name": "ck_memory_comparison_benchmark_run_projection_lifecycle"},
+            {
+                "name": "ck_memory_comparison_benchmark_run_state",
+                "sqltext": "state IN ('active', 'cleanup_aborted')",
+            },
+            {
+                "name": "ck_memory_comparison_benchmark_run_cleanup_state",
+                "sqltext": (
+                    "cleanup_aborted finalization_fingerprint_sha256 "
+                    "completion_receipt_json completed_at"
+                ),
+            },
+            {
+                "name": "ck_memory_comparison_benchmark_run_manifest_coupling",
+                "sqltext": "projection_manifest_json projection_manifest_sha256",
+            },
+            {
+                "name": "ck_memory_comparison_benchmark_run_projection_cleanup_state",
+                "sqltext": "complete unsealed_abort_complete",
+            },
+            {
+                "name": "ck_memory_comparison_benchmark_run_projection_lifecycle",
+                "sqltext": "cleanup_complete cleanup_aborted unsealed_abort_complete",
+            },
+        ]
+
+
+def test_postgres_projection_upgrade_replaces_0020_lifecycle_constraints(
+    monkeypatch,
+) -> None:
+    connection = _RecordingConnection()
+    monkeypatch.setattr(
+        benchmark_projection_schema,
+        "_column_names",
+        lambda *_args: {
+            "projection_manifest_json",
+            "projection_manifest_sha256",
+            "projection_cleanup_state",
+            "finalization_fingerprint_sha256",
+            "completion_receipt_json",
+            "completed_at",
+        },
+    )
+
+    benchmark_projection_schema._ensure_postgres_benchmark_projection_manifest_schema(
+        connection,
+        _CleanupCompletionSchemaInspector(),
+    )
+
+    statements = connection.statements
+    assert not any("ADD COLUMN" in statement for statement in statements)
+    dropped = statements[2:7]
+    added = statements[7:12]
+    validated = statements[12:]
+    assert len(dropped) == len(added) == len(validated) == 5
+    assert any("ck_memory_comparison_benchmark_run_state" in item for item in dropped)
+    assert any("cleanup_aborted" in item for item in added)
+    assert any("unsealed_abort_complete" in item for item in added)
+    assert all("NOT VALID" in item for item in added)
+    assert all("VALIDATE CONSTRAINT" in item for item in validated)
+
+
+class _CleanupCompletionSchemaInspector(_CurrentProjectionSchemaInspector):
+    def get_check_constraints(self, _table_name: str) -> list[dict[str, object]]:
+        return [
+            {
+                "name": "ck_memory_comparison_benchmark_run_state",
+                "sqltext": "state IN ('active', 'cleanup_pending', 'cleanup_complete')",
+            },
+            {
+                "name": "ck_memory_comparison_benchmark_run_cleanup_state",
+                "sqltext": (
+                    "cleanup_complete finalization_fingerprint_sha256 "
+                    "completion_receipt_json completed_at"
+                ),
+            },
+            {
+                "name": "ck_memory_comparison_benchmark_run_manifest_coupling",
+                "sqltext": "projection_manifest_json projection_manifest_sha256",
+            },
+            {
+                "name": "ck_memory_comparison_benchmark_run_projection_cleanup_state",
+                "sqltext": "unsealed sealed pending blocked complete",
+            },
+            {
+                "name": "ck_memory_comparison_benchmark_run_projection_lifecycle",
+                "sqltext": "cleanup_pending cleanup_complete",
+            },
         ]

@@ -23,12 +23,10 @@ from infinity_context_server.memory_comparison_benchmark_identity import mem0_be
 from infinity_context_server.memory_comparison_clean_state import (
     VerifiedCleanStateValidation,
     clean_state_identity_sha256,
-    fresh_namespace_clean_state_proof,
     public_clean_state_validation,
     validate_typed_clean_state_proofs,
 )
 from infinity_context_server.memory_comparison_clean_state_http import (
-    InfinityCleanStateSession,
     Mem0CleanStateSession,
 )
 from infinity_context_server.memory_comparison_full_execution_validation_slots import (
@@ -42,6 +40,9 @@ from infinity_context_server.memory_comparison_http import _safe_slug
 from infinity_context_server.memory_comparison_locomo_transport import (
     LocomoTimestampTransportEvidence,
     RunScopedLocomoTransportEvidenceKey,
+)
+from infinity_context_server.memory_comparison_managed_benchmark_registry_contracts import (
+    ManagedBenchmarkRunRegistration,
 )
 from infinity_context_server.memory_comparison_managed_http_execution import (
     ManagedComparisonHttpExecutionAdapter,
@@ -66,6 +67,10 @@ from infinity_context_server.memory_comparison_managed_http_lifecycle_evidence i
 )
 from infinity_context_server.memory_comparison_managed_http_lifecycle_evidence import (
     consume_managed_http_execution_evidence as consume_managed_http_execution_evidence,
+)
+from infinity_context_server.memory_comparison_managed_http_lifecycle_registration import (
+    infinity_clean_state_proofs,
+    validate_benchmark_registration,
 )
 from infinity_context_server.memory_comparison_managed_preflight import (
     ManagedPreflightRequest,
@@ -173,6 +178,7 @@ class ManagedComparisonHttpLifecycleAdapter:
         execution: ManagedComparisonHttpExecutionAdapter,
         preflight_request: ManagedPreflightRequest,
         credential_material: object,
+        benchmark_registration: ManagedBenchmarkRunRegistration | None = None,
         infinity_reset_transport: httpx.BaseTransport | None = None,
         mem0_reset_transport: httpx.BaseTransport | None = None,
         clock: Callable[[], datetime] = lambda: datetime.now(UTC),
@@ -180,7 +186,20 @@ class ManagedComparisonHttpLifecycleAdapter:
         _identifier(run_id, "managed_http_lifecycle_run_invalid")
         _digest(binding_commitment_sha256, "managed_http_lifecycle_binding_invalid")
         _targets(admitted_targets)
+        target_pairs = tuple(
+            (item.backend_role, item.target_identity_sha256) for item in admitted_targets
+        )
         corpora = _corpora(cases)
+        try:
+            registration = validate_benchmark_registration(
+                benchmark_registration,
+                run_id=run_id,
+                binding_commitment_sha256=binding_commitment_sha256,
+                target_pairs=target_pairs,
+                space_slug=managed_http_lifecycle_space_slug(run_id),
+            )
+        except ValueError:
+            raise ManagedHttpLifecycleError("managed_http_lifecycle_registry_invalid") from None
         if type(execution) is not ManagedComparisonHttpExecutionAdapter:
             raise ManagedHttpLifecycleError("managed_http_lifecycle_execution_invalid")
         reset_transports = (infinity_reset_transport, mem0_reset_transport)
@@ -218,9 +237,8 @@ class ManagedComparisonHttpLifecycleAdapter:
 
         self._run_id = run_id
         self._binding = binding_commitment_sha256
-        self._target_pairs = tuple(
-            (item.backend_role, item.target_identity_sha256) for item in admitted_targets
-        )
+        self._target_pairs = target_pairs
+        self._benchmark_registration = registration
         self._corpora = corpora
         self._deadline = trusted_deadline
         self._clock = clock
@@ -258,6 +276,12 @@ class ManagedComparisonHttpLifecycleAdapter:
     @property
     def implementation_sha256(self) -> str:
         return managed_http_lifecycle_implementation_sha256()
+
+    @property
+    def space_slug(self) -> str:
+        """Return the exact canonical namespace used by reset and ingestion."""
+
+        return managed_http_lifecycle_space_slug(self._run_id)
 
     def execution_evidence_capability(self) -> ManagedHttpExecutionEvidenceCapability:
         """Release the disjoint one-use execution evidence authority after full ingest."""
@@ -411,37 +435,22 @@ class ManagedComparisonHttpLifecycleAdapter:
         MappingProxyType[str, object],
     ]:
         count = len(self._corpora)
-        slug = f"memory-comparison-{_safe_slug(self._run_id)}"
+        slug = self.space_slug
         user_id = mem0_benchmark_user_id(self._run_id)
         corpus_hashes = tuple(clean_state_identity_sha256(case.corpus_id) for case in self._corpora)
         key = secrets.token_bytes(32)
-        infinity_session = InfinityCleanStateSession(backend=INFINITY_COMPARISON_BACKEND)
         mem0_session = Mem0CleanStateSession(reset_enabled=True)
-        infinity_client = self._client(self._infinity, self._infinity_reset_transport)
+        infinity_proofs = infinity_clean_state_proofs(
+            registration=self._benchmark_registration,
+            run_id=self._run_id,
+            slug=slug,
+            corpus_hashes=corpus_hashes,
+            expected_scope_count=count,
+            attestation_key=key,
+            client_factory=lambda: self._client(self._infinity, self._infinity_reset_transport),
+        )
         mem0_client = self._client(self._mem0, self._mem0_reset_transport)
         try:
-            first = infinity_session.reset(
-                infinity_client,
-                run_id=self._run_id,
-                slug=slug,
-                corpus_identity_sha256=corpus_hashes[0],
-                expected_scope_count=count,
-                attestation_key=key,
-            )
-            infinity_proofs = [first]
-            infinity_proofs.extend(
-                fresh_namespace_clean_state_proof(
-                    backend=INFINITY_COMPARISON_BACKEND,
-                    run_id=self._run_id,
-                    expected_slug=slug,
-                    corpus_identity_sha256=corpus_hash,
-                    expected_scope_count=count,
-                    status_code=201,
-                    payload={"data": {"slug": slug}},
-                    attestation_key=key,
-                )
-                for corpus_hash in corpus_hashes[1:]
-            )
             for corpus_hash in corpus_hashes:
                 self._ensure_deadline()
                 mem0_session.reset_scope(
@@ -454,7 +463,6 @@ class ManagedComparisonHttpLifecycleAdapter:
                     record=True,
                 )
         finally:
-            infinity_client.close()
             mem0_client.close()
         expected = {
             INFINITY_COMPARISON_BACKEND: {
@@ -853,6 +861,13 @@ def _aware(value: object, code: str) -> datetime:
     return value
 
 
+def managed_http_lifecycle_space_slug(run_id: str) -> str:
+    """Return the deterministic canonical namespace for one managed run."""
+
+    trusted_run_id = _identifier(run_id, "managed_http_lifecycle_run_invalid")
+    return f"memory-comparison-{_safe_slug(trusted_run_id)}"
+
+
 def managed_http_lifecycle_implementation_sha256() -> str:
     material = {
         "adapter_id": MANAGED_HTTP_LIFECYCLE_ADAPTER_ID,
@@ -880,4 +895,5 @@ __all__ = (
     "consume_managed_http_execution_evidence",
     "consume_managed_http_ingest_receipts",
     "managed_http_lifecycle_implementation_sha256",
+    "managed_http_lifecycle_space_slug",
 )

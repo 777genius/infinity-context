@@ -20,12 +20,16 @@ from infinity_context_core.application.dto_benchmark_runs import (
     SealProjectionManifestCommand,
     SealProjectionManifestResult,
 )
+from infinity_context_core.application.use_cases.benchmark_unsealed_abort import (
+    FinalizeUnsealedBenchmarkAbortUseCase,
+)
 from infinity_context_core.domain.errors import (
     MemoryConflictError,
     MemoryNotFoundError,
     MemoryValidationError,
 )
 from infinity_context_core.ports.benchmark_runs import (
+    BenchmarkAbortCompletionReceipt,
     BenchmarkProjectionAbsencePort,
     BenchmarkProjectionCleanupProof,
     BenchmarkRunRegistryRecord,
@@ -425,6 +429,40 @@ def _require_lifecycle_snapshot_consistent(record: BenchmarkRunRegistryRecord) -
             raise MemoryConflictError("Benchmark lifecycle snapshot is inconsistent")
         return
 
+    if record.state == "cleanup_aborted":
+        initiation = record.cleanup_receipt
+        completion = record.completion_receipt
+        if (
+            record.projection_cleanup_state != "unsealed_abort_complete"
+            or manifest_pair != (False, False)
+            or record.cleanup_fingerprint_sha256 is None
+            or initiation is None
+            or initiation.projection_cleanup != "blocked"
+            or record.finalization_fingerprint_sha256 is None
+            or type(completion) is not BenchmarkAbortCompletionReceipt
+            or record.completed_at is None
+            or (
+                completion.run_id_sha256,
+                completion.binding_commitment_sha256,
+                completion.infinity_target_identity_sha256,
+                completion.space_id,
+                completion.space_slug,
+                completion.cleanup_initiation_receipt_sha256,
+                completion.completed_at,
+            )
+            != (
+                record.run_id_sha256,
+                record.binding_commitment_sha256,
+                record.infinity_target_identity_sha256,
+                record.space_id,
+                record.space_slug,
+                initiation.receipt_sha256,
+                record.completed_at,
+            )
+        ):
+            raise MemoryConflictError("Benchmark lifecycle snapshot is inconsistent")
+        return
+
     raise MemoryConflictError("Benchmark lifecycle snapshot is inconsistent")
 
 
@@ -817,6 +855,7 @@ __all__ = (
     "BENCHMARK_COGNEE_NOT_PROJECTED_POLICY_SHA256",
     "CleanupBenchmarkRunUseCase",
     "FinalizeBenchmarkRunCleanupUseCase",
+    "FinalizeUnsealedBenchmarkAbortUseCase",
     "GetBenchmarkRunLifecycleUseCase",
     "RegisterBenchmarkRunUseCase",
     "SealProjectionManifestUseCase",

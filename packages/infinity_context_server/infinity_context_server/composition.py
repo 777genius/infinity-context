@@ -54,6 +54,7 @@ from infinity_context_core.application import (
     ExpireSuggestionUseCase,
     ExportGraphUseCase,
     FinalizeBenchmarkRunCleanupUseCase,
+    FinalizeUnsealedBenchmarkAbortUseCase,
     ForgetFactUseCase,
     GetAssetExtractionUseCase,
     GetAssetUseCase,
@@ -188,6 +189,7 @@ class Container:
     cleanup_benchmark_run: CleanupBenchmarkRunUseCase
     get_benchmark_run_lifecycle: GetBenchmarkRunLifecycleUseCase
     finalize_benchmark_run_cleanup: FinalizeBenchmarkRunCleanupUseCase
+    finalize_unsealed_benchmark_abort: FinalizeUnsealedBenchmarkAbortUseCase
     list_spaces: ListSpacesUseCase
     create_memory_scope: CreateMemoryScopeUseCase
     list_memory_scopes: ListMemoryScopesUseCase
@@ -381,6 +383,10 @@ def build_container(settings: Settings | None = None) -> Container:
         uow_factory=uow_factory,
         clock=clock,
         projection_absence=benchmark_projection_absence,
+    )
+    finalize_unsealed_benchmark_abort = FinalizeUnsealedBenchmarkAbortUseCase(
+        uow_factory=uow_factory,
+        clock=clock,
     )
     list_spaces = ListSpacesUseCase(uow_factory=uow_factory)
     create_memory_scope = CreateMemoryScopeUseCase(uow_factory=uow_factory, clock=clock, ids=ids)
@@ -671,6 +677,7 @@ def build_container(settings: Settings | None = None) -> Container:
         cleanup_benchmark_run=cleanup_benchmark_run,
         get_benchmark_run_lifecycle=get_benchmark_run_lifecycle,
         finalize_benchmark_run_cleanup=finalize_benchmark_run_cleanup,
+        finalize_unsealed_benchmark_abort=finalize_unsealed_benchmark_abort,
         list_spaces=list_spaces,
         create_memory_scope=create_memory_scope,
         list_memory_scopes=list_memory_scopes,

@@ -12,11 +12,14 @@ from datetime import UTC, datetime, timedelta
 import httpx
 
 from infinity_context_server.memory_comparison_managed_benchmark_registry_contracts import (
+    FINALIZE_ABORT_RESPONSE_SCHEMA_VERSION,
     FINALIZE_CLEANUP_RESPONSE_SCHEMA_VERSION,
     REGISTRATION_SCHEMA_VERSION,
+    ManagedBenchmarkAbortCompletionReceipt,
     ManagedBenchmarkCleanupCompletionReceipt,
     ManagedBenchmarkCleanupCounts,
     ManagedBenchmarkCleanupReceipt,
+    ManagedBenchmarkPersistedAbortReceipt,
     ManagedBenchmarkPersistedCleanupReceipt,
     ManagedBenchmarkPersistedCompletionReceipt,
     ManagedBenchmarkProjectionSeal,
@@ -158,7 +161,7 @@ def parse_registration(
         or value["binding_commitment_sha256"] != binding_commitment_sha256
         or value["infinity_target_identity_sha256"] != target_identity_sha256
         or value["space_slug"] != space_slug
-        or state not in {"active", "cleanup_pending", "cleanup_complete"}
+        or state not in {"active", "cleanup_pending", "cleanup_complete", "cleanup_aborted"}
         or type(created) is not bool
         or status != (201 if created else 200)
         or (created and state != "active")
@@ -409,6 +412,93 @@ def parse_cleanup_completion_receipt(
     )
 
 
+def parse_abort_completion_receipt(
+    data: object,
+    *,
+    registration: ManagedBenchmarkRunRegistration,
+    cleanup_initiation_receipt_sha256: str,
+) -> ManagedBenchmarkAbortCompletionReceipt:
+    value = _exact_object(
+        data,
+        frozenset(
+            {
+                "schema_version",
+                "authority",
+                "run_id_sha256",
+                "binding_commitment_sha256",
+                "infinity_target_identity_sha256",
+                "space_id",
+                "space_slug",
+                "state",
+                "disposition",
+                "projection_cleanup",
+                "cleanup_initiation_receipt_sha256",
+                "cleanup_verification_sha256",
+                "completed_at",
+                "receipt_sha256",
+                "replayed",
+            }
+        ),
+        "managed_benchmark_registry_abort_response_invalid",
+    )
+    initiation = digest(
+        cleanup_initiation_receipt_sha256,
+        "managed_benchmark_registry_abort_response_invalid",
+    )
+    verification = digest(
+        value["cleanup_verification_sha256"],
+        "managed_benchmark_registry_abort_response_invalid",
+    )
+    receipt = digest(
+        value["receipt_sha256"],
+        "managed_benchmark_registry_abort_response_invalid",
+    )
+    completed_at = utc_timestamp(
+        value["completed_at"],
+        "managed_benchmark_registry_abort_response_invalid",
+    )
+    replayed = value["replayed"]
+    if (
+        value["schema_version"] != FINALIZE_ABORT_RESPONSE_SCHEMA_VERSION
+        or value["authority"] != "infinity_canonical"
+        or value["run_id_sha256"] != registration.run_id_sha256
+        or value["binding_commitment_sha256"] != registration.binding_commitment_sha256
+        or value["infinity_target_identity_sha256"] != registration.infinity_target_identity_sha256
+        or value["space_id"] != registration.space_id
+        or value["space_slug"] != registration.space_slug
+        or value["state"] != "cleanup_aborted"
+        or value["disposition"] != "abort_complete"
+        or value["projection_cleanup"] != "unsealed_abort_complete"
+        or value["cleanup_initiation_receipt_sha256"] != initiation
+        or type(replayed) is not bool
+    ):
+        fail("managed_benchmark_registry_abort_response_invalid")
+    material = {
+        key: item
+        for key, item in value.items()
+        if key not in {"schema_version", "authority", "state", "replayed", "receipt_sha256"}
+    }
+    if not hmac.compare_digest(receipt, _json_sha256(material)):
+        fail("managed_benchmark_registry_abort_response_invalid")
+    return ManagedBenchmarkAbortCompletionReceipt(
+        schema_version=FINALIZE_ABORT_RESPONSE_SCHEMA_VERSION,
+        authority="infinity_canonical",
+        run_id_sha256=registration.run_id_sha256,
+        binding_commitment_sha256=registration.binding_commitment_sha256,
+        infinity_target_identity_sha256=registration.infinity_target_identity_sha256,
+        space_id=registration.space_id,
+        space_slug=registration.space_slug,
+        state="cleanup_aborted",
+        disposition="abort_complete",
+        projection_cleanup="unsealed_abort_complete",
+        cleanup_initiation_receipt_sha256=initiation,
+        cleanup_verification_sha256=verification,
+        completed_at=completed_at,
+        receipt_sha256=receipt,
+        replayed=replayed,
+    )
+
+
 def parse_lifecycle_snapshot(
     data: object,
     *,
@@ -578,9 +668,16 @@ def _parse_persisted_completion_receipt(
     run_id_sha256: str,
     space_id: str,
     space_slug: str,
-) -> ManagedBenchmarkPersistedCompletionReceipt | None:
+) -> ManagedBenchmarkPersistedCompletionReceipt | ManagedBenchmarkPersistedAbortReceipt | None:
     if data is None:
         return None
+    if type(data) is dict and data.get("disposition") == "abort_complete":
+        return _parse_persisted_abort_receipt(
+            data,
+            run_id_sha256=run_id_sha256,
+            space_id=space_id,
+            space_slug=space_slug,
+        )
     value = _exact_object(
         data,
         frozenset(
@@ -641,6 +738,74 @@ def _parse_persisted_completion_receipt(
         projection_absence_proof_sha256=proof,
         completed_at=completed_at,
         receipt_sha256=receipt,
+    )
+
+
+def _parse_persisted_abort_receipt(
+    data: object,
+    *,
+    run_id_sha256: str,
+    space_id: str,
+    space_slug: str,
+) -> ManagedBenchmarkPersistedAbortReceipt:
+    value = _exact_object(
+        data,
+        frozenset(
+            {
+                "run_id_sha256",
+                "binding_commitment_sha256",
+                "infinity_target_identity_sha256",
+                "space_id",
+                "space_slug",
+                "disposition",
+                "projection_cleanup",
+                "cleanup_initiation_receipt_sha256",
+                "cleanup_verification_sha256",
+                "completed_at",
+                "receipt_sha256",
+            }
+        ),
+        "managed_benchmark_registry_lifecycle_response_invalid",
+    )
+    digest_keys = (
+        "run_id_sha256",
+        "binding_commitment_sha256",
+        "infinity_target_identity_sha256",
+        "cleanup_initiation_receipt_sha256",
+        "cleanup_verification_sha256",
+        "receipt_sha256",
+    )
+    parsed = {
+        key: digest(value[key], "managed_benchmark_registry_lifecycle_response_invalid")
+        for key in digest_keys
+    }
+    completed_at = utc_timestamp(
+        value["completed_at"],
+        "managed_benchmark_registry_lifecycle_response_invalid",
+    )
+    if (
+        parsed["run_id_sha256"] != run_id_sha256
+        or value["space_id"] != space_id
+        or value["space_slug"] != space_slug
+        or value["disposition"] != "abort_complete"
+        or value["projection_cleanup"] != "unsealed_abort_complete"
+    ):
+        fail("managed_benchmark_registry_lifecycle_response_invalid")
+    material = {key: item for key, item in value.items() if key != "receipt_sha256"}
+    if not hmac.compare_digest(parsed["receipt_sha256"], _json_sha256(material)):
+        fail("managed_benchmark_registry_lifecycle_response_invalid")
+    return ManagedBenchmarkPersistedAbortReceipt(
+        run_id_sha256=run_id_sha256,
+        binding_commitment_sha256=parsed["binding_commitment_sha256"],
+        infinity_target_identity_sha256=parsed["infinity_target_identity_sha256"],
+        space_id=space_id,
+        space_slug=space_slug,
+        disposition="abort_complete",
+        projection_cleanup="unsealed_abort_complete",
+        cleanup_initiation_receipt_sha256=parsed["cleanup_initiation_receipt_sha256"],
+        cleanup_verification_sha256=parsed["cleanup_verification_sha256"],
+        completed_at=completed_at,
+        receipt_sha256=parsed["receipt_sha256"],
     )
 
 
@@ -714,6 +879,7 @@ def _json_sha256(value: dict[str, object]) -> str:
 
 __all__ = (
     "fresh_io_deadline",
+    "parse_abort_completion_receipt",
     "parse_cleanup_completion_receipt",
     "parse_cleanup_receipt",
     "parse_lifecycle_snapshot",

@@ -12,20 +12,27 @@ from infinity_context_core.application.use_cases.benchmark_runs import (
 )
 from infinity_context_core.domain.errors import MemoryConflictError
 from infinity_context_core.ports.benchmark_runs import (
+    BenchmarkAbortCompletionReceipt,
+    BenchmarkCleanupCompletionReceipt,
     BenchmarkCleanupCounts,
     BenchmarkCleanupReceipt,
     BenchmarkRunRegistryRecord,
 )
 from sqlalchemy import delete, select, update
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from infinity_context_adapters.postgres.benchmark_run_completion import (
+    abort_completion_receipt_from_json,
+    abort_completion_receipt_json,
+    build_abort_completion_receipt,
     build_completion_receipt,
     completion_receipt_from_json,
     completion_receipt_json,
     require_canonical_tombstones,
     require_exact_cleanup_outbox_completion,
     same_completion_timestamp,
+    unsealed_abort_cleanup_verification_sha256,
 )
 from infinity_context_adapters.postgres.models import (
     MemoryAnchorRow,
@@ -106,6 +113,13 @@ class PostgresBenchmarkRunRepository:
                 updated_at=record.updated_at,
             )
         )
+        # Flush the canonical space first. Postgres enforces the benchmark
+        # registry foreign key immediately, and the two mappers intentionally
+        # have no ORM relationship that could otherwise order their inserts.
+        try:
+            await self._session.flush()
+        except IntegrityError as exc:
+            raise MemoryConflictError("Canonical write conflicted with existing data") from exc
         self._session.add(
             MemoryComparisonBenchmarkRunRow(
                 run_id_sha256=record.run_id_sha256,
@@ -380,6 +394,47 @@ class PostgresBenchmarkRunRepository:
         await self._session.flush()
         return _to_record(row)
 
+    async def finalize_unsealed_abort(
+        self,
+        record: BenchmarkRunRegistryRecord,
+        *,
+        finalization_fingerprint_sha256: str,
+        now: datetime,
+    ) -> BenchmarkRunRegistryRecord:
+        row = await self._session.get(MemoryComparisonBenchmarkRunRow, record.run_id_sha256)
+        if (
+            row is None
+            or row.state != "cleanup_pending"
+            or row.projection_cleanup_state != "blocked"
+            or row.projection_manifest_json is not None
+            or row.projection_manifest_sha256 is not None
+            or row.cleanup_receipt_json is None
+            or row.finalization_fingerprint_sha256 is not None
+            or row.completion_receipt_json is not None
+            or row.completed_at is not None
+        ):
+            raise MemoryConflictError("Benchmark abort finalization lock was lost")
+        current = _to_record(row)
+        if current != record or current.cleanup_receipt is None:
+            raise MemoryConflictError("Benchmark abort finalization lock was lost")
+        verification = await unsealed_abort_cleanup_verification_sha256(
+            self._session,
+            record=current,
+        )
+        completion = build_abort_completion_receipt(
+            record=current,
+            cleanup_verification_sha256=verification,
+            completed_at=now,
+        )
+        row.state = "cleanup_aborted"
+        row.projection_cleanup_state = "unsealed_abort_complete"
+        row.finalization_fingerprint_sha256 = finalization_fingerprint_sha256
+        row.completion_receipt_json = abort_completion_receipt_json(completion)
+        row.completed_at = now
+        row.updated_at = now
+        await self._session.flush()
+        return _to_record(row)
+
     async def _ids(self, model: type, space_id: str) -> tuple[str, ...]:
         rows = (
             await self._session.execute(
@@ -610,7 +665,12 @@ def _to_record(row: MemoryComparisonBenchmarkRunRow) -> BenchmarkRunRegistryReco
         row.finalization_fingerprint_sha256
     ):
         raise RuntimeError("benchmark_run_registry_invalid")
-    if row.state not in {"active", "cleanup_pending", "cleanup_complete"}:
+    if row.state not in {
+        "active",
+        "cleanup_pending",
+        "cleanup_complete",
+        "cleanup_aborted",
+    }:
         raise RuntimeError("benchmark_run_registry_invalid")
     manifest = row.projection_manifest_json
     manifest_sha256 = row.projection_manifest_sha256
@@ -633,6 +693,7 @@ def _to_record(row: MemoryComparisonBenchmarkRunRow) -> BenchmarkRunRegistryReco
         ("cleanup_pending", "blocked", False),
         ("cleanup_pending", "pending", True),
         ("cleanup_complete", "complete", True),
+        ("cleanup_aborted", "unsealed_abort_complete", False),
     }:
         raise RuntimeError("benchmark_run_registry_invalid")
     receipt = (
@@ -646,18 +707,20 @@ def _to_record(row: MemoryComparisonBenchmarkRunRow) -> BenchmarkRunRegistryReco
         raise RuntimeError("benchmark_run_registry_invalid")
     if row.state != "active" and (row.cleanup_fingerprint_sha256 is None or receipt is None):
         raise RuntimeError("benchmark_run_registry_invalid")
-    completion = (
-        completion_receipt_from_json(row.completion_receipt_json)
-        if row.completion_receipt_json is not None
-        else None
-    )
-    if row.state != "cleanup_complete" and (
+    completion = None
+    if row.completion_receipt_json is not None:
+        completion = (
+            abort_completion_receipt_from_json(row.completion_receipt_json)
+            if row.completion_receipt_json.get("disposition") == "abort_complete"
+            else completion_receipt_from_json(row.completion_receipt_json)
+        )
+    if row.state not in {"cleanup_complete", "cleanup_aborted"} and (
         row.finalization_fingerprint_sha256 is not None
         or completion is not None
         or row.completed_at is not None
     ):
         raise RuntimeError("benchmark_run_registry_invalid")
-    if row.state == "cleanup_complete" and (
+    if row.state in {"cleanup_complete", "cleanup_aborted"} and (
         row.finalization_fingerprint_sha256 is None
         or completion is None
         or row.completed_at is None
@@ -669,15 +732,27 @@ def _to_record(row: MemoryComparisonBenchmarkRunRow) -> BenchmarkRunRegistryReco
         or receipt.space_slug != row.space_slug
     ):
         raise RuntimeError("benchmark_run_registry_invalid")
-    if completion is not None and (
-        completion.run_id_sha256 != row.run_id_sha256
-        or completion.space_id != row.space_id
-        or completion.space_slug != row.space_slug
-        or completion.projection_manifest_sha256 != row.projection_manifest_sha256
-        or completion.cleanup_initiation_receipt_sha256 != receipt.receipt_sha256
-        or not same_completion_timestamp(completion.completed_at, row.completed_at)
-    ):
-        raise RuntimeError("benchmark_run_registry_invalid")
+    if completion is not None:
+        shared_invalid = (
+            completion.run_id_sha256 != row.run_id_sha256
+            or completion.space_id != row.space_id
+            or completion.space_slug != row.space_slug
+            or completion.cleanup_initiation_receipt_sha256 != receipt.receipt_sha256
+            or not same_completion_timestamp(completion.completed_at, row.completed_at)
+        )
+        if row.state == "cleanup_complete":
+            shared_invalid = shared_invalid or (
+                type(completion) is not BenchmarkCleanupCompletionReceipt
+                or completion.projection_manifest_sha256 != row.projection_manifest_sha256
+            )
+        else:
+            shared_invalid = shared_invalid or (
+                type(completion) is not BenchmarkAbortCompletionReceipt
+                or completion.binding_commitment_sha256 != row.binding_commitment_sha256
+                or completion.infinity_target_identity_sha256 != row.infinity_target_identity_sha256
+            )
+        if shared_invalid:
+            raise RuntimeError("benchmark_run_registry_invalid")
     return BenchmarkRunRegistryRecord(
         run_id_sha256=row.run_id_sha256,
         binding_commitment_sha256=row.binding_commitment_sha256,
@@ -694,7 +769,11 @@ def _to_record(row: MemoryComparisonBenchmarkRunRow) -> BenchmarkRunRegistryReco
         cleanup_receipt=receipt,
         finalization_fingerprint_sha256=row.finalization_fingerprint_sha256,
         completion_receipt=completion,
-        completed_at=row.completed_at,
+        # The immutable receipt is the canonical UTC representation. SQLite
+        # drops timezone information when reloading DateTime columns, while
+        # Postgres preserves it; expose one adapter-independent value after the
+        # exact database/receipt timestamp match above has succeeded.
+        completed_at=completion.completed_at if completion is not None else None,
         created_at=row.created_at,
         updated_at=row.updated_at,
     )

@@ -10,11 +10,13 @@ from fastapi import APIRouter, Depends, Header, Path, Response, status
 from infinity_context_core.application import (
     CleanupBenchmarkRunCommand,
     FinalizeBenchmarkRunCleanupCommand,
+    FinalizeUnsealedBenchmarkAbortCommand,
     GetBenchmarkRunLifecycleQuery,
     RegisterBenchmarkRunCommand,
     SealProjectionManifestCommand,
 )
 from infinity_context_core.ports.benchmark_runs import (
+    BenchmarkAbortCompletionReceipt,
     BenchmarkCleanupCompletionReceipt,
     BenchmarkCleanupReceipt,
 )
@@ -67,6 +69,21 @@ class FinalizeBenchmarkRunCleanupRequest(BaseModel):
     model_config = ConfigDict(extra="forbid", strict=True)
 
     schema_version: str = Field(pattern=r"^memory-comparison-run-cleanup-finalize\.v1$")
+    receipt_sha256: str = Field(pattern=_DIGEST_PATTERN)
+
+
+class FinalizeUnsealedBenchmarkAbortRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid", strict=True)
+
+    schema_version: str = Field(pattern=r"^memory-comparison-run-abort-finalize\.v1$")
+    binding_commitment_sha256: str = Field(pattern=_DIGEST_PATTERN)
+    infinity_target_identity_sha256: str = Field(pattern=_DIGEST_PATTERN)
+    space_id: str = Field(min_length=1, max_length=80)
+    space_slug: str = Field(
+        min_length=19,
+        max_length=98,
+        pattern=r"^memory-comparison-[a-z0-9-]{1,80}$",
+    )
     receipt_sha256: str = Field(pattern=_DIGEST_PATTERN)
 
 
@@ -268,6 +285,53 @@ async def finalize_benchmark_run_cleanup(
     }
 
 
+@router.post(
+    "/{run_id_sha256}/cleanup/abort/finalize",
+    include_in_schema=False,
+)
+async def finalize_unsealed_benchmark_abort(
+    run_id_sha256: Annotated[str, Path(pattern=_DIGEST_PATTERN)],
+    request: FinalizeUnsealedBenchmarkAbortRequest,
+    container: Annotated[Container, Depends(get_container)],
+    idempotency_key: Annotated[
+        str,
+        Header(alias="Idempotency-Key", min_length=8, max_length=240),
+    ],
+) -> dict[str, Any]:
+    ensure_server_writes_enabled(container)
+    result = await container.finalize_unsealed_benchmark_abort.execute(
+        FinalizeUnsealedBenchmarkAbortCommand(
+            run_id_sha256=run_id_sha256,
+            binding_commitment_sha256=request.binding_commitment_sha256,
+            infinity_target_identity_sha256=request.infinity_target_identity_sha256,
+            space_id=request.space_id,
+            space_slug=request.space_slug,
+            expected_cleanup_receipt_sha256=request.receipt_sha256,
+            idempotency_key_sha256=_sha256(idempotency_key),
+        )
+    )
+    receipt = result.receipt
+    return {
+        "data": {
+            "schema_version": "memory-comparison-run-abort-finalize-response.v1",
+            "authority": "infinity_canonical",
+            "run_id_sha256": receipt.run_id_sha256,
+            "binding_commitment_sha256": receipt.binding_commitment_sha256,
+            "infinity_target_identity_sha256": receipt.infinity_target_identity_sha256,
+            "space_id": receipt.space_id,
+            "space_slug": receipt.space_slug,
+            "state": "cleanup_aborted",
+            "disposition": receipt.disposition,
+            "projection_cleanup": receipt.projection_cleanup,
+            "cleanup_initiation_receipt_sha256": (receipt.cleanup_initiation_receipt_sha256),
+            "cleanup_verification_sha256": receipt.cleanup_verification_sha256,
+            "completed_at": _rfc3339(receipt.completed_at),
+            "receipt_sha256": receipt.receipt_sha256,
+            "replayed": result.replayed,
+        }
+    }
+
+
 def _cleanup_receipt_json(
     receipt: BenchmarkCleanupReceipt | None,
 ) -> dict[str, Any] | None:
@@ -299,10 +363,24 @@ def _cleanup_receipt_json(
 
 
 def _completion_receipt_json(
-    receipt: BenchmarkCleanupCompletionReceipt | None,
+    receipt: BenchmarkCleanupCompletionReceipt | BenchmarkAbortCompletionReceipt | None,
 ) -> dict[str, Any] | None:
     if receipt is None:
         return None
+    if type(receipt) is BenchmarkAbortCompletionReceipt:
+        return {
+            "run_id_sha256": receipt.run_id_sha256,
+            "binding_commitment_sha256": receipt.binding_commitment_sha256,
+            "infinity_target_identity_sha256": receipt.infinity_target_identity_sha256,
+            "space_id": receipt.space_id,
+            "space_slug": receipt.space_slug,
+            "disposition": receipt.disposition,
+            "projection_cleanup": receipt.projection_cleanup,
+            "cleanup_initiation_receipt_sha256": (receipt.cleanup_initiation_receipt_sha256),
+            "cleanup_verification_sha256": receipt.cleanup_verification_sha256,
+            "completed_at": _rfc3339(receipt.completed_at),
+            "receipt_sha256": receipt.receipt_sha256,
+        }
     return {
         "run_id_sha256": receipt.run_id_sha256,
         "space_id": receipt.space_id,

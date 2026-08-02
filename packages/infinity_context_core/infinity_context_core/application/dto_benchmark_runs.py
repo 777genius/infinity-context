@@ -6,6 +6,7 @@ from dataclasses import dataclass
 from typing import Literal
 
 from infinity_context_core.ports.benchmark_runs import (
+    BenchmarkAbortCompletionReceipt,
     BenchmarkCleanupCompletionReceipt,
     BenchmarkCleanupReceipt,
     BenchmarkRunRegistryRecord,
@@ -71,6 +72,23 @@ class FinalizeBenchmarkRunCleanupResult:
 
 
 @dataclass(frozen=True, slots=True)
+class FinalizeUnsealedBenchmarkAbortCommand:
+    run_id_sha256: str
+    binding_commitment_sha256: str
+    infinity_target_identity_sha256: str
+    space_id: str
+    space_slug: str
+    expected_cleanup_receipt_sha256: str
+    idempotency_key_sha256: str
+
+
+@dataclass(frozen=True, slots=True)
+class FinalizeUnsealedBenchmarkAbortResult:
+    receipt: BenchmarkAbortCompletionReceipt
+    replayed: bool
+
+
+@dataclass(frozen=True, slots=True)
 class GetBenchmarkRunLifecycleQuery:
     run_id_sha256: str
 
@@ -85,6 +103,8 @@ __all__ = (
     "CleanupBenchmarkRunResult",
     "FinalizeBenchmarkRunCleanupCommand",
     "FinalizeBenchmarkRunCleanupResult",
+    "FinalizeUnsealedBenchmarkAbortCommand",
+    "FinalizeUnsealedBenchmarkAbortResult",
     "RegisterBenchmarkRunCommand",
     "GetBenchmarkRunLifecycleQuery",
     "GetBenchmarkRunLifecycleResult",

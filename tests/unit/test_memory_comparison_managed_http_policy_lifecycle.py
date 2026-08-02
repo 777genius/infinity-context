@@ -10,6 +10,7 @@ from infinity_context_server.memory_comparison_managed_http_policy_lifecycle imp
     managed_http_policy_production_blockers,
 )
 from infinity_context_server.memory_comparison_managed_http_policy_validation import (
+    ManagedHttpPolicyRegistryMaterial,
     VerifiedManagedHttpPolicyValidation,
     public_managed_http_policy_validation,
 )
@@ -29,6 +30,18 @@ from memory_comparison_managed_http_policy_lifecycle_test_support import (
     _TrackingTransport,
     _views,
 )
+
+
+def _registry_material() -> ManagedHttpPolicyRegistryMaterial:
+    return ManagedHttpPolicyRegistryMaterial(
+        registration_commitment_sha256="a" * 64,
+        projection_manifest_sha256="b" * 64,
+        cleanup_initiation_receipt_sha256="c" * 64,
+        completion_receipt_sha256="d" * 64,
+        projection_absence_proof_sha256="e" * 64,
+        wrapper_adapter_id="managed-registry-wrapper-v1",
+        wrapper_implementation_sha256="f" * 64,
+    )
 
 
 def test_static_blockers_keep_only_honest_remaining_capability_gaps() -> None:
@@ -87,6 +100,39 @@ def test_aggregate_rejects_replay_after_issuing_one_validation(
             canonical_source=canonical,
             terminal_delete=terminal,
         )
+
+
+def test_registry_binding_is_terminal_one_shot_and_snapshot_immutable(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    open_adapter, _ = _adapter(cases=(_locomo_case(),))
+    with pytest.raises(
+        ManagedHttpPolicyLifecycleError,
+        match="^managed_http_policy_registry_binding_phase_invalid$",
+    ):
+        open_adapter.bind_registry_completion_evidence(material=_registry_material())
+
+    adapter, bindings, canonical, terminal, _ = _complete_lifecycle(monkeypatch)
+    material = _registry_material()
+    adapter.bind_registry_completion_evidence(material=material)
+    with pytest.raises(
+        ManagedHttpPolicyLifecycleError,
+        match="^managed_http_policy_registry_binding_replay$",
+    ):
+        adapter.bind_registry_completion_evidence(material=material)
+    object.__setattr__(material, "completion_receipt_sha256", "0" * 64)
+
+    validation = adapter.aggregate_policy(
+        bindings=bindings,
+        managed_attestation=_ATTESTATION,
+        managed_attestation_commitment_sha256="6" * 64,
+        canonical_source=canonical,
+        terminal_delete=terminal,
+    )
+    report = public_managed_http_policy_validation(validation)
+    assert report["adapter_id"] == "managed-registry-wrapper-v1"
+    assert report["implementation_sha256"] == "f" * 64
+    assert report["registry_evidence"]["completion_receipt_sha256"] == "d" * 64
 
 
 def test_aggregate_rejects_wrong_canonical_order(

@@ -15,6 +15,7 @@ from infinity_context_server.memory_comparison_managed_http_policy_validation im
     MANAGED_HTTP_POLICY_VALIDATION_SCHEMA_VERSION,
     ManagedHttpPolicyCleanupPassMaterial,
     ManagedHttpPolicyCorpusMaterial,
+    ManagedHttpPolicyRegistryMaterial,
     ManagedHttpPolicyValidationError,
     ManagedHttpPolicyValidationMaterial,
     VerifiedManagedHttpPolicyValidation,
@@ -113,6 +114,18 @@ def _material(
     )
 
 
+def _registry() -> ManagedHttpPolicyRegistryMaterial:
+    return ManagedHttpPolicyRegistryMaterial(
+        registration_commitment_sha256=_sha("registry-registration"),
+        projection_manifest_sha256=_sha("registry-projection"),
+        cleanup_initiation_receipt_sha256=_sha("registry-cleanup"),
+        completion_receipt_sha256=_sha("registry-completion"),
+        projection_absence_proof_sha256=_sha("registry-absence"),
+        wrapper_adapter_id="managed-registry-wrapper-v1",
+        wrapper_implementation_sha256=_sha("registry-wrapper-implementation"),
+    )
+
+
 def test_seals_shared_corpus_and_returns_sanitized_json_report() -> None:
     material = _material()
     validation = seal_managed_http_policy_validation(material=material)
@@ -139,6 +152,40 @@ def test_seals_shared_corpus_and_returns_sanitized_json_report() -> None:
     assert "source-a" not in encoded
     assert len(report["material_commitment_sha256"]) == 64
     assert len(report["validation_commitment_sha256"]) == 64
+    assert report["registry_evidence"] is None
+
+
+def test_registry_evidence_is_exact_public_and_snapshot_immutable() -> None:
+    registry = _registry()
+    material = replace(
+        _material(),
+        adapter_id=registry.wrapper_adapter_id,
+        implementation_sha256=registry.wrapper_implementation_sha256,
+        registry=registry,
+    )
+    validation = seal_managed_http_policy_validation(material=material)
+    object.__setattr__(registry, "completion_receipt_sha256", _sha("tampered"))
+
+    report = public_managed_http_policy_validation(validation)
+
+    assert report["adapter_id"] == "managed-registry-wrapper-v1"
+    assert report["implementation_sha256"] == _sha("registry-wrapper-implementation")
+    assert report["registry_evidence"] == {
+        "registration_commitment_sha256": _sha("registry-registration"),
+        "projection_manifest_sha256": _sha("registry-projection"),
+        "cleanup_initiation_receipt_sha256": _sha("registry-cleanup"),
+        "completion_receipt_sha256": _sha("registry-completion"),
+        "projection_absence_proof_sha256": _sha("registry-absence"),
+        "wrapper_adapter_id": "managed-registry-wrapper-v1",
+        "wrapper_implementation_sha256": _sha("registry-wrapper-implementation"),
+    }
+
+
+def test_registry_adapter_provenance_mismatch_is_rejected() -> None:
+    registry = _registry()
+    with pytest.raises(ManagedHttpPolicyValidationError) as raised:
+        replace(_material(), registry=registry)
+    assert raised.value.code == "managed_policy_registry_adapter_binding_invalid"
 
 
 def test_material_commitment_is_deterministic_but_live_seals_are_unique() -> None:

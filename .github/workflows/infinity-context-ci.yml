@@ -20,6 +20,24 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 90
 
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: infinity_context
+          POSTGRES_PASSWORD: infinity_context
+          POSTGRES_DB: infinity_context
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U infinity_context -d infinity_context"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 20
+
+    env:
+      INFINITY_CONTEXT_TEST_POSTGRES_URL: postgresql+asyncpg://infinity_context:infinity_context@127.0.0.1:5432/infinity_context
+
     steps:
       - name: Checkout
         uses: actions/checkout@v6

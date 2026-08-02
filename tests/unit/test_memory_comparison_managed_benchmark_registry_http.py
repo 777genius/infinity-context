@@ -6,6 +6,7 @@ from datetime import UTC, datetime, timedelta
 import httpx
 import pytest
 from infinity_context_server.memory_comparison_managed_benchmark_registry_contracts import (
+    ManagedBenchmarkAbortCompletionReceipt,
     ManagedBenchmarkCleanupCompletionReceipt,
     ManagedBenchmarkRunRegistration,
 )
@@ -125,6 +126,71 @@ def test_exact_lifecycle_sends_bound_requests_and_returns_typed_receipts() -> No
     }
     assert TOKEN not in repr(adapter)
     assert TOKEN not in repr(adapter._config)
+
+
+def test_unsealed_abort_uses_exact_binding_and_terminal_server_receipt() -> None:
+    requests: list[httpx.Request] = []
+    cleanup_envelope = _cleanup(projection_cleanup="blocked")
+    cleanup_digest = cleanup_envelope["data"]["receipt_sha256"]
+
+    def abort_response() -> dict[str, object]:
+        material = {
+            "run_id_sha256": RUN,
+            "binding_commitment_sha256": BINDING,
+            "infinity_target_identity_sha256": _target(),
+            "space_id": SPACE_ID,
+            "space_slug": SPACE_SLUG,
+            "disposition": "abort_complete",
+            "projection_cleanup": "unsealed_abort_complete",
+            "cleanup_initiation_receipt_sha256": cleanup_digest,
+            "cleanup_verification_sha256": "9" * 64,
+            "completed_at": "2026-08-02T04:05:06.000000Z",
+        }
+        return {
+            "data": {
+                "schema_version": "memory-comparison-run-abort-finalize-response.v1",
+                "authority": "infinity_canonical",
+                **material,
+                "state": "cleanup_aborted",
+                "receipt_sha256": _digest(material),
+                "replayed": False,
+            }
+        }
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        requests.append(request)
+        if request.url.path.endswith("/cleanup/abort/finalize"):
+            return httpx.Response(200, json=abort_response())
+        if request.method == "POST":
+            return httpx.Response(201, json=_registration())
+        return httpx.Response(200, json=cleanup_envelope)
+
+    adapter = ManagedBenchmarkRegistryHttpAdapter(_config(httpx.MockTransport(handler)))
+    adapter.register(
+        run_id_sha256=RUN,
+        binding_commitment_sha256=BINDING,
+        space_slug=SPACE_SLUG,
+    )
+    cleanup = adapter.begin_cleanup()
+    completion = adapter.finalize_unsealed_abort(
+        cleanup_initiation_receipt_sha256=cleanup.receipt_sha256,
+    )
+
+    assert type(completion) is ManagedBenchmarkAbortCompletionReceipt
+    assert completion.state == "cleanup_aborted"
+    assert completion.cleanup_verification_sha256 == "9" * 64
+    assert adapter.lifecycle_state == "cleanup_aborted"
+    assert adapter.cleanup_required is False
+    request = requests[-1]
+    assert request.url.path.endswith(f"/{RUN}/cleanup/abort/finalize")
+    assert json.loads(request.content) == {
+        "schema_version": "memory-comparison-run-abort-finalize.v1",
+        "binding_commitment_sha256": BINDING,
+        "infinity_target_identity_sha256": _target(),
+        "space_id": SPACE_ID,
+        "space_slug": SPACE_SLUG,
+        "receipt_sha256": cleanup.receipt_sha256,
+    }
 
 
 def test_caller_supplied_idempotency_keys_are_forwarded_exactly() -> None:

@@ -16,13 +16,19 @@ def is_managed_benchmark_space_id(value: object) -> bool:
     return type(value) is str and _MANAGED_BENCHMARK_SPACE_ID.fullmatch(value) is not None
 
 
-BenchmarkRunState = Literal["active", "cleanup_pending", "cleanup_complete"]
+BenchmarkRunState = Literal[
+    "active",
+    "cleanup_pending",
+    "cleanup_complete",
+    "cleanup_aborted",
+]
 ProjectionCleanupState = Literal[
     "unsealed",
     "sealed",
     "pending",
     "blocked",
     "complete",
+    "unsealed_abort_complete",
 ]
 
 
@@ -83,6 +89,23 @@ class BenchmarkCleanupCompletionReceipt:
 
 
 @dataclass(frozen=True, slots=True)
+class BenchmarkAbortCompletionReceipt:
+    """Terminal proof for manifestless abort cleanup without provider probing."""
+
+    run_id_sha256: str
+    binding_commitment_sha256: str
+    infinity_target_identity_sha256: str
+    space_id: str
+    space_slug: str
+    disposition: Literal["abort_complete"]
+    projection_cleanup: Literal["unsealed_abort_complete"]
+    cleanup_initiation_receipt_sha256: str
+    cleanup_verification_sha256: str
+    completed_at: datetime
+    receipt_sha256: str
+
+
+@dataclass(frozen=True, slots=True)
 class BenchmarkRunRegistryRecord:
     run_id_sha256: str
     binding_commitment_sha256: str
@@ -98,7 +121,7 @@ class BenchmarkRunRegistryRecord:
     cleanup_fingerprint_sha256: str | None
     cleanup_receipt: BenchmarkCleanupReceipt | None
     finalization_fingerprint_sha256: str | None
-    completion_receipt: BenchmarkCleanupCompletionReceipt | None
+    completion_receipt: BenchmarkCleanupCompletionReceipt | BenchmarkAbortCompletionReceipt | None
     completed_at: datetime | None
     created_at: datetime
     updated_at: datetime
@@ -158,9 +181,18 @@ class BenchmarkRunRepositoryPort(Protocol):
         now: datetime,
     ) -> BenchmarkRunRegistryRecord: ...
 
+    async def finalize_unsealed_abort(
+        self,
+        record: BenchmarkRunRegistryRecord,
+        *,
+        finalization_fingerprint_sha256: str,
+        now: datetime,
+    ) -> BenchmarkRunRegistryRecord: ...
+
 
 __all__ = (
     "BenchmarkCleanupCompletionReceipt",
+    "BenchmarkAbortCompletionReceipt",
     "BenchmarkCleanupCounts",
     "BenchmarkCleanupReceipt",
     "BenchmarkProjectionAbsencePort",

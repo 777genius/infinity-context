@@ -155,6 +155,8 @@ from infinity_context_core.application.dto_benchmark_runs import (
     CleanupBenchmarkRunResult,
     FinalizeBenchmarkRunCleanupCommand,
     FinalizeBenchmarkRunCleanupResult,
+    FinalizeUnsealedBenchmarkAbortCommand,
+    FinalizeUnsealedBenchmarkAbortResult,
     GetBenchmarkRunLifecycleQuery,
     GetBenchmarkRunLifecycleResult,
     RegisterBenchmarkRunCommand,
@@ -197,6 +199,9 @@ from infinity_context_core.application.use_cases.benchmark_runs import (
     RegisterBenchmarkRunUseCase,
     SealProjectionManifestUseCase,
     validate_projection_manifest,
+)
+from infinity_context_core.application.use_cases.benchmark_unsealed_abort import (
+    FinalizeUnsealedBenchmarkAbortUseCase,
 )
 from infinity_context_core.application.use_cases.blob_storage_cleanup import (
     BlobStorageCleanupCommand,
@@ -314,6 +319,9 @@ __all__ = [
     "FinalizeBenchmarkRunCleanupCommand",
     "FinalizeBenchmarkRunCleanupResult",
     "FinalizeBenchmarkRunCleanupUseCase",
+    "FinalizeUnsealedBenchmarkAbortCommand",
+    "FinalizeUnsealedBenchmarkAbortResult",
+    "FinalizeUnsealedBenchmarkAbortUseCase",
     "GetBenchmarkRunLifecycleQuery",
     "GetBenchmarkRunLifecycleResult",
     "GetBenchmarkRunLifecycleUseCase",

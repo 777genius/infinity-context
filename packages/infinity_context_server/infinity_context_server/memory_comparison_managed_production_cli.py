@@ -52,6 +52,7 @@ MANAGED_PRODUCTION_CLI_READINESS_MAX_TOTAL_TOKENS = 512
 MANAGED_PRODUCTION_CLI_READINESS_MAX_OUTPUT_TOKENS = 8
 MANAGED_PRODUCTION_CLI_MAX_OUTPUT_TOKENS_PER_CALL = 4096
 
+MANAGED_PRODUCTION_EXIT_READY = 2
 MANAGED_PRODUCTION_EXIT_NO_GO = 1
 MANAGED_PRODUCTION_EXIT_FAILURE = 3
 
@@ -99,9 +100,7 @@ class ManagedProductionCliConfig:
             or type(self.selected_case_ids) is not tuple
             or not 1 <= len(self.selected_case_ids) <= MANAGED_CANARY_MAX_CASES
             or any(
-                type(item) is not str
-                or item != item.strip()
-                or _CASE_ID.fullmatch(item) is None
+                type(item) is not str or item != item.strip() or _CASE_ID.fullmatch(item) is None
                 for item in self.selected_case_ids
             )
             or len(set(self.selected_case_ids)) != len(self.selected_case_ids)
@@ -146,7 +145,7 @@ def run_managed_production_cli(
             selected_case_ids=config.selected_case_ids,
         )
         decision = evaluate_managed_production_pre_readiness(cases)
-        report = _no_go_report(
+        report = _pre_readiness_report(
             config=config,
             profile=profile,
             dataset_bytes=dataset_bytes,
@@ -196,7 +195,7 @@ def _read_dataset_bytes(path: Path) -> bytes:
     return payload
 
 
-def _no_go_report(
+def _pre_readiness_report(
     *,
     config: ManagedProductionCliConfig,
     profile: FullComparisonProfile,
@@ -205,7 +204,7 @@ def _no_go_report(
 ) -> dict[str, object]:
     if (
         type(decision) is not ManagedProductionCompositionDecision
-        or decision.decision != "no-go"
+        or decision.decision not in {"go", "no-go"}
         or decision.preparation_consumed is not False
         or decision.readiness_provider_calls_already_performed != 0
         or decision.additional_provider_calls_performed != 0
@@ -216,8 +215,8 @@ def _no_go_report(
     return {
         "suite": MANAGED_PRODUCTION_CLI_SUITE,
         "schema_version": MANAGED_PRODUCTION_CLI_SCHEMA_VERSION,
-        "ok": False,
-        "status": "no-go-pre-readiness",
+        "ok": decision.decision == "go",
+        "status": f"{decision.decision}-pre-readiness",
         "provider_kind": MANAGED_PRODUCTION_CLI_PROVIDER_KIND,
         "profile_id": profile.profile_id,
         "scope": FULL_COMPARISON_SCOPE_CANARY,
@@ -228,20 +227,15 @@ def _no_go_report(
             "readiness_max_provider_calls": 1,
             "total_max_provider_calls": selected_count * 4 + 1,
             "benchmark_reserved_token_ceiling": config.max_total_tokens,
-            "max_output_tokens_per_call": (
-                MANAGED_PRODUCTION_CLI_MAX_OUTPUT_TOKENS_PER_CALL
-            ),
-            "readiness_max_output_tokens": (
-                MANAGED_PRODUCTION_CLI_READINESS_MAX_OUTPUT_TOKENS
-            ),
-            "readiness_max_total_tokens": (
-                MANAGED_PRODUCTION_CLI_READINESS_MAX_TOTAL_TOKENS
-            ),
+            "max_output_tokens_per_call": (MANAGED_PRODUCTION_CLI_MAX_OUTPUT_TOKENS_PER_CALL),
+            "readiness_max_output_tokens": (MANAGED_PRODUCTION_CLI_READINESS_MAX_OUTPUT_TOKENS),
+            "readiness_max_total_tokens": (MANAGED_PRODUCTION_CLI_READINESS_MAX_TOTAL_TOKENS),
         },
         "credentials_read": False,
         "provider_calls_performed": 0,
         "backend_calls_performed": 0,
         "live_state_touched": False,
+        "execution_performed": False,
         "publishable": False,
         **decision.public_payload(),
     }
@@ -262,16 +256,17 @@ def _failed_report(code: str) -> dict[str, object]:
         "provider_calls_performed": 0,
         "backend_calls_performed": 0,
         "live_state_touched": False,
+        "execution_performed": False,
         "publishable": False,
     }
 
 
 def _parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
-        prog="infinity-context-managed-production",
+        prog="infinity-context-managed-production-pre-readiness",
         description=(
             "Evaluate the sealed subscription-runtime canary production gate "
-            "before credentials, readiness, provider calls, or backend calls."
+            "before credentials, readiness, provider calls, or backend calls; it does not execute."
         ),
     )
     parser.add_argument("--dataset", type=Path, required=True)
@@ -301,6 +296,8 @@ def main(argv: Sequence[str] | None = None) -> int:
     except ManagedProductionCliError as exc:
         report = _failed_report(exc.code)
     print(json.dumps(report, ensure_ascii=False, sort_keys=True, allow_nan=False))
+    if report.get("status") == "go-pre-readiness":
+        return MANAGED_PRODUCTION_EXIT_READY
     if report.get("status") == "no-go-pre-readiness":
         return MANAGED_PRODUCTION_EXIT_NO_GO
     return MANAGED_PRODUCTION_EXIT_FAILURE
@@ -316,6 +313,7 @@ __all__ = (
     "ManagedProductionCliError",
     "main",
     "run_managed_production_cli",
+    "MANAGED_PRODUCTION_EXIT_READY",
 )
 
 

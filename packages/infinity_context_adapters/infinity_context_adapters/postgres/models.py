@@ -789,7 +789,7 @@ class MemoryComparisonBenchmarkRunRow(Base):
     __tablename__ = "memory_comparison_benchmark_runs"
     __table_args__ = (
         CheckConstraint(
-            "state IN ('active', 'cleanup_pending', 'cleanup_complete')",
+            "state IN ('active', 'cleanup_pending', 'cleanup_complete', 'cleanup_aborted')",
             name="ck_memory_comparison_benchmark_run_state",
         ),
         CheckConstraint(
@@ -804,6 +804,10 @@ class MemoryComparisonBenchmarkRunRow(Base):
             "(state = 'cleanup_complete' AND cleanup_fingerprint_sha256 IS NOT NULL "
             "AND cleanup_receipt_json IS NOT NULL "
             "AND finalization_fingerprint_sha256 IS NOT NULL "
+            "AND completion_receipt_json IS NOT NULL AND completed_at IS NOT NULL) OR "
+            "(state = 'cleanup_aborted' AND cleanup_fingerprint_sha256 IS NOT NULL "
+            "AND cleanup_receipt_json IS NOT NULL "
+            "AND finalization_fingerprint_sha256 IS NOT NULL "
             "AND completion_receipt_json IS NOT NULL AND completed_at IS NOT NULL))",
             name="ck_memory_comparison_benchmark_run_cleanup_state",
         ),
@@ -813,7 +817,8 @@ class MemoryComparisonBenchmarkRunRow(Base):
             name="ck_memory_comparison_benchmark_run_manifest_coupling",
         ),
         CheckConstraint(
-            "projection_cleanup_state IN ('unsealed', 'sealed', 'pending', 'blocked', 'complete')",
+            "projection_cleanup_state IN ('unsealed', 'sealed', 'pending', 'blocked', "
+            "'complete', 'unsealed_abort_complete')",
             name="ck_memory_comparison_benchmark_run_projection_cleanup_state",
         ),
         CheckConstraint(
@@ -826,7 +831,10 @@ class MemoryComparisonBenchmarkRunRow(Base):
             "(state = 'cleanup_pending' AND projection_cleanup_state = 'pending' "
             "AND projection_manifest_json IS NOT NULL) OR "
             "(state = 'cleanup_complete' AND projection_cleanup_state = 'complete' "
-            "AND projection_manifest_json IS NOT NULL))",
+            "AND projection_manifest_json IS NOT NULL) OR "
+            "(state = 'cleanup_aborted' "
+            "AND projection_cleanup_state = 'unsealed_abort_complete' "
+            "AND projection_manifest_json IS NULL))",
             name="ck_memory_comparison_benchmark_run_projection_lifecycle",
         ),
         UniqueConstraint("space_id", name="uq_memory_comparison_benchmark_run_space_id"),
