@@ -3,6 +3,9 @@ from infinity_context_core.application.context_packer import ContextPacker
 from infinity_context_core.application.context_packer_answer_support import (
     _answer_support_diversity_family,
 )
+from infinity_context_core.application.context_packer_inference_reservation import (
+    inference_reservation_for_char_pressure,
+)
 from infinity_context_core.application.context_packer_selection import (
     _rendered_char_count,
     _select_item,
@@ -29,8 +32,8 @@ def test_char_pressure_preserves_exact_positive_projection() -> None:
             "target",
             score=0.935,
             text=(
-                "John said his family had serious money problems and was struggling "
-                "financially when he was younger."
+                "John earned a salary and saved enough income to cover bills and "
+                "expenses when he was younger."
             ),
         ),
         projected_chars=19_375,
@@ -169,6 +172,290 @@ def test_policy_rejects_unrelated_or_purchase_evidence(target_text: str) -> None
     assert reserve_inference_evidence(request) is None
 
 
+def test_policy_reserves_household_resource_contrast_from_financial_lane() -> None:
+    request = _policy_request(
+        target_text=(
+            "John mentioned his kids having a lot while others lack resources, "
+            "indicating a material disparity."
+        ),
+        target_overrides={
+            "query_reason": "decomposition_financial_resources_inference"
+        },
+    )
+
+    reservation = reserve_inference_evidence(request)
+
+    assert reservation is not None
+    assert reservation.candidate_id == "target"
+    assert reservation.displaced_candidate_id == "generic"
+
+
+def test_adapter_swaps_compatible_inference_lanes_across_real_source_groups() -> None:
+    displaced = _item(
+        "generic-source-group",
+        score=0.99,
+        text="A generic inference support note about homework and time.",
+        source_id="D4:2",
+        extra={"keyword_aggregation_source_group": "conversation:D4"},
+    )
+    reserved = _item(
+        "financial-source-group",
+        score=0.935,
+        text=(
+            "John mentioned his kids having a lot while others lack resources, "
+            "indicating a material disparity."
+        ),
+        reason="decomposition_financial_resources_inference",
+        source_id="D5:5",
+        extra={"keyword_aggregation_source_group": "conversation:D5"},
+    )
+
+    assert _answer_support_diversity_family(reserved) != _answer_support_diversity_family(
+        displaced
+    )
+    reservation = inference_reservation_for_char_pressure(
+        query="What might John's financial status be?",
+        rejected=reserved,
+        selected=(displaced,),
+        protected_keys=frozenset(),
+    )
+
+    assert reservation is not None
+    assert reservation.reserved is reserved
+    assert reservation.displaced is displaced
+    assert (
+        inference_reservation_for_char_pressure(
+            query="What might John's financial status be?",
+            rejected=reserved,
+            selected=(displaced,),
+            protected_keys=frozenset({(displaced.item_type, displaced.item_id)}),
+        )
+        is None
+    )
+
+
+@pytest.mark.parametrize(
+    "target_text",
+    (
+        "John explained his family has surplus assets while other households lack "
+        "basic resources.",
+        "John said his dependents have plenty of possessions whereas other families "
+        "cannot afford material needs.",
+    ),
+)
+def test_policy_reserves_paraphrased_local_material_contrasts(
+    target_text: str,
+) -> None:
+    request = _policy_request(
+        target_text=target_text,
+        target_overrides={
+            "query_reason": "decomposition_financial_resources_inference"
+        },
+    )
+
+    assert reserve_inference_evidence(request) is not None
+
+
+@pytest.mark.parametrize(
+    "target_text",
+    (
+        "John earns a salary that covers bills.",
+        "John's savings cover household expenses.",
+        "John has financial security and assets.",
+    ),
+)
+def test_policy_reserves_subject_bound_direct_financial_evidence(
+    target_text: str,
+) -> None:
+    assert reserve_inference_evidence(_policy_request(target_text=target_text)) is not None
+
+
+def test_policy_rejects_reversed_household_resource_contrast() -> None:
+    request = _policy_request(
+        target_text=(
+            "John said his children don't have enough while other families have plenty "
+            "and need nothing."
+        ),
+        target_overrides={
+            "query_reason": "decomposition_financial_resources_inference"
+        },
+    )
+
+    assert reserve_inference_evidence(request) is None
+
+
+@pytest.mark.parametrize(
+    "target_text",
+    (
+        "John said Maria told him her kids have a lot while others lack resources.",
+        "John is happy; Maria has money.",
+        "John's kids have a lot. Other families lack resources.",
+        "John mentioned his kids having a lot of homework. Other families lack resources.",
+        "John bought a gift; other families lack resources.",
+        "John gives charity help to other families.",
+        "John said his kids have a lot while other families need help.",
+        "John mentioned his kids not having a lot while others lack resources.",
+        "John mentioned his kids having a lot while Maria said others lack resources.",
+        "John said his kids have plenty of homework while others lack resources.",
+        "John said his kids have a lot while others do not lack resources.",
+        "John said his kids have a lot while others don't lack resources.",
+        "John said his kids have a lot while others deny they lack resources.",
+        "John said his kids have a lot while others claim they lack resources.",
+        "John said his kids have a lot while others say they lack resources.",
+    ),
+)
+def test_policy_rejects_cross_speaker_cross_clause_and_nonmaterial_contrasts(
+    target_text: str,
+) -> None:
+    request = _policy_request(
+        target_text=target_text,
+        target_overrides={
+            "query_reason": "decomposition_financial_resources_inference"
+        },
+    )
+
+    assert reserve_inference_evidence(request) is None
+
+
+@pytest.mark.parametrize(
+    "target_text",
+    (
+        "John said his children have so much homework while others lack time.",
+        "John said his kids have so much fun while others don't.",
+        "John said his children get plenty of attention while other kids get less.",
+        "John said his family has plenty of chores while others have nothing scheduled.",
+        "John said other children need help.",
+        "John said his children have plenty.",
+    ),
+)
+def test_policy_rejects_unrelated_or_incomplete_household_contrasts(
+    target_text: str,
+) -> None:
+    request = _policy_request(
+        target_text=target_text,
+        target_overrides={
+            "query_reason": "decomposition_financial_resources_inference"
+        },
+    )
+
+    assert reserve_inference_evidence(request) is None
+
+
+@pytest.mark.parametrize(
+    "target_text",
+    (
+        "John said Maria has substantial savings.",
+        "John's friend has plenty of money saved.",
+        "Maria has a financial budget, while John mentioned the money.",
+    ),
+)
+def test_policy_rejects_financial_evidence_not_bound_to_subject(
+    target_text: str,
+) -> None:
+    assert reserve_inference_evidence(_policy_request(target_text=target_text)) is None
+
+
+@pytest.mark.parametrize(
+    "target_text",
+    (
+        "John said his children never have enough while other families lack resources.",
+        "John said his children aren't having enough while other families lack resources.",
+        "John's wealthy friend has enough resources to cover bills.",
+        "John's wealth manager has income and savings.",
+    ),
+)
+def test_policy_rejects_negated_or_third_party_financial_false_positives(
+    target_text: str,
+) -> None:
+    request = _policy_request(
+        target_text=target_text,
+        target_overrides={
+            "query_reason": "decomposition_financial_resources_inference"
+        },
+    )
+
+    assert reserve_inference_evidence(request) is None
+
+
+@pytest.mark.parametrize(
+    "target_text",
+    (
+        "John's brother has savings.",
+        "John's sister has assets.",
+        "John's lawyer has savings.",
+        "John's company has assets.",
+        "John has a friend with savings.",
+        "John believes Maria has savings.",
+        "John thinks Maria has income.",
+        "John knows Maria has savings.",
+        "John is convinced Maria has savings.",
+        "John was told Maria has savings.",
+    ),
+)
+def test_policy_rejects_nonassertive_subject_financial_mentions(
+    target_text: str,
+) -> None:
+    request = _policy_request(
+        target_text=target_text,
+        target_overrides={
+            "query_reason": "decomposition_financial_resources_inference"
+        },
+    )
+
+    assert reserve_inference_evidence(request) is None
+
+
+@pytest.mark.parametrize(
+    "target_text",
+    (
+        "John was poor at chess.",
+        "John is rich in ideas.",
+        "John is wealthy in experience.",
+        "John is wealthy with experience.",
+        "John is wealthy in ideas.",
+        "Spiritually, John is wealthy.",
+        "In experience, John is wealthy.",
+        "Creatively, John is bankrupt.",
+        "John is wealthy. In experience, not money.",
+    ),
+)
+def test_policy_rejects_ambiguous_or_metaphorical_financial_states(
+    target_text: str,
+) -> None:
+    request = _policy_request(
+        target_text=target_text,
+        target_overrides={
+            "query_reason": "decomposition_financial_resources_inference"
+        },
+    )
+
+    assert reserve_inference_evidence(request) is None
+
+
+@pytest.mark.parametrize(
+    "target_text",
+    (
+        "John earns a salary.",
+        "John has financial security and assets.",
+        "John saved enough income.",
+        "John is in debt.",
+        "John was in debt.",
+        "John is financially secure.",
+        "John is financially struggling.",
+        "John's savings cover household expenses.",
+    ),
+)
+def test_policy_reserves_immediate_subject_financial_grammar(target_text: str) -> None:
+    request = _policy_request(
+        target_text=target_text,
+        target_overrides={
+            "query_reason": "decomposition_financial_resources_inference"
+        },
+    )
+
+    assert reserve_inference_evidence(request) is not None
+
+
 @pytest.mark.parametrize("conflict_key", ("conflicting_fact_id", "conflict_fact_id"))
 def test_conflict_ids_prevent_reservation(conflict_key: str) -> None:
     selected, generic = _pressure_selected_items()
@@ -296,11 +583,12 @@ def _policy_candidate(
     instruction: bool = False,
     conflict_ids: frozenset[str] = frozenset(),
     review_only: bool = False,
+    query_reason: str = "decomposition_inference_support",
 ) -> InferenceEvidenceCandidate:
     return InferenceEvidenceCandidate(
         candidate_id=candidate_id,
         text=text,
-        query_reason="decomposition_inference_support",
+        query_reason=query_reason,
         rank=rank,
         score=score,
         source_backed=True,

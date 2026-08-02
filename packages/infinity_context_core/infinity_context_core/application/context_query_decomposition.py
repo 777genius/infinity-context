@@ -82,6 +82,9 @@ from infinity_context_core.application.context_query_duration import (
     activity_duration_tail,
     requests_activity_duration_context,
 )
+from infinity_context_core.application.context_query_financial_resources_inference import (
+    financial_resources_inference_tail,
+)
 from infinity_context_core.application.context_query_frequency import (
     frequency_recurrence_tail,
     requests_frequency_recurrence_context,
@@ -630,6 +633,21 @@ def build_query_decomposition_plan(
             variants=variants,
         )
     )
+    financial_resources_tail = financial_resources_inference_tail(
+        query=query,
+        identities=identities,
+        raw_tokens=raw_tokens,
+        variants=variants,
+    )
+    if financial_resources_tail is not None:
+        _append_candidate(
+            candidates,
+            query=_compose_query(
+                (*identities, *salient_terms),
+                financial_resources_tail,
+            ),
+            reason="decomposition_financial_resources_inference",
+        )
     if variants.intersection(_INFERENCE_TERMS):
         _append_candidate(
             candidates,
