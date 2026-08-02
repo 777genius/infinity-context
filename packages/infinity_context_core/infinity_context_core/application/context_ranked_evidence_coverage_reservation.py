@@ -20,12 +20,10 @@ from infinity_context_core.application.context_temporal_interval_requirements im
 )
 from infinity_context_core.application.dto import ContextItem
 from infinity_context_core.application.normalize import estimate_tokens
-from infinity_context_core.features.context_building.application.coverage_reservation_selector import (  # noqa: E501
+from infinity_context_core.features.context_building.public import (
     CoverageReservationBudget,
     CoverageReservationCandidate,
     CoverageReservationSelector,
-)
-from infinity_context_core.features.context_building.domain.evidence_obligations import (
     EvidenceClaim,
     EvidenceObligation,
     EvidenceObligationConfidence,

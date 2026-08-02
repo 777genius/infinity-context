@@ -46,6 +46,12 @@ from infinity_context_core.features.context_building.application.use_cases impor
     PlanContextPipelineUseCase,
 )
 
+from .coverage_reservation_selector import (
+    CoverageReservationBudget,
+    CoverageReservationCandidate,
+    CoverageReservationSelector,
+)
+
 __all__ = (
     "BuildContextHandler",
     "BuildContextQuery",
@@ -56,6 +62,9 @@ __all__ = (
     "CandidateRanking",
     "ContextCandidateProviderPipeline",
     "ContextBuildingUseCases",
+    "CoverageReservationBudget",
+    "CoverageReservationCandidate",
+    "CoverageReservationSelector",
     "InferenceEvidenceCandidate",
     "InferenceEvidenceReservation",
     "InferenceEvidenceReservationRequest",

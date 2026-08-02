@@ -20,6 +20,12 @@ from infinity_context_core.features.context_building.domain.context import (
     ContextTrustLevel,
     estimate_token_count,
 )
+from infinity_context_core.features.context_building.domain.evidence_obligations import (
+    EvidenceClaim,
+    EvidenceObligation,
+    EvidenceObligationConfidence,
+    EvidenceObligationId,
+)
 from infinity_context_core.features.context_building.domain.feature import (
     FEATURE_ID,
     ContextBuildingFeature,
@@ -75,6 +81,10 @@ __all__ = (
     "ContextScope",
     "ContextSourceRef",
     "ContextTrustLevel",
+    "EvidenceClaim",
+    "EvidenceObligation",
+    "EvidenceObligationConfidence",
+    "EvidenceObligationId",
     "EvidenceRenderPolicy",
     "NormalizedContextQuery",
     "PromptEvidenceSection",
