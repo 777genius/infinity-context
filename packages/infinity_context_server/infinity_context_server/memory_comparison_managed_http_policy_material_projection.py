@@ -2,12 +2,15 @@
 
 from __future__ import annotations
 
-import hashlib
-import json
 from collections.abc import Mapping
 from dataclasses import asdict, dataclass
 from typing import final
 
+from infinity_context_core.ports.derived_projection_policy import (
+    DerivedProjectionLaneDisposition,
+)
+
+from infinity_context_server.memory_comparison_evidence_commitment import evidence_commitment
 from infinity_context_server.memory_comparison_full_run_evidence import (
     FullComparisonRunBindings,
 )
@@ -53,10 +56,14 @@ def project_corpus_material(
     presence: ManagedDerivedPresenceObservation,
 ) -> ManagedHttpPolicyCorpusMaterial:
     manifest = bundle.manifest
-    derived = tuple(
-        (name, evidence_commitment(f"{name}-presence.v1", asdict(lane)))
+    lanes = tuple(
+        (name, lane)
         for name, lane in (("qdrant", presence.qdrant), ("graphiti", presence.graphiti))
         if lane is not None
+    )
+    derived = tuple(
+        (name, evidence_commitment(f"{name}-presence.v1", asdict(lane)))
+        for name, lane in lanes
     )
     return ManagedHttpPolicyCorpusMaterial(
         corpus_id=bundle.corpus_id,
@@ -64,7 +71,17 @@ def project_corpus_material(
         source_pairs=tuple(zip(manifest.mem0_source_ids, manifest.mem0_source_sha256, strict=True)),
         presence_commitment_sha256=evidence_commitment("derived-presence.v1", asdict(presence)),
         derived_commitments=derived,
+        derived_dispositions=tuple(_derived_disposition(name, lane) for name, lane in lanes),
     )
+
+
+def _derived_disposition(
+    lane: str,
+    evidence: object,
+) -> tuple[str, str, str | None]:
+    if type(evidence) is DerivedProjectionLaneDisposition:
+        return (lane, evidence.disposition, evidence.policy_sha256)
+    return (lane, "projected", None)
 
 
 def project_infinity_cleanup_commitments(
@@ -269,15 +286,6 @@ def binding_snapshot(bindings: FullComparisonRunBindings) -> str:
             ],
         },
     )
-
-
-def evidence_commitment(schema: str, evidence: object) -> str:
-    encoded = json.dumps(
-        {"schema": schema, "evidence": evidence},
-        sort_keys=True,
-        separators=(",", ":"),
-    ).encode()
-    return hashlib.sha256(encoded).hexdigest()
 
 
 def _absence_commitment(

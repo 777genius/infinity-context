@@ -35,6 +35,9 @@ from infinity_context_core.ports.benchmark_runs import (
     BenchmarkRunRegistryRecord,
 )
 from infinity_context_core.ports.clock import ClockPort
+from infinity_context_core.ports.derived_projection_policy import (
+    derived_not_projected_policy_sha256,
+)
 from infinity_context_core.ports.unit_of_work import UnitOfWorkFactoryPort
 
 _SHA256 = re.compile(r"^[0-9a-f]{64}$")
@@ -760,14 +763,18 @@ def _validate_manifest_scope(value: object) -> tuple[str, str]:
     fact_ids = _sorted_unique_ids(value["fact_ids"], limit=_MAX_CANONICAL_IDS)
     _sorted_unique_ids(value["document_ids"], limit=_MAX_CANONICAL_IDS)
     qdrant = value["qdrant"]
-    if (qdrant is None) != (not chunk_ids):
+    if not chunk_ids and qdrant is not None:
         raise MemoryValidationError("Projection manifest qdrant evidence is invalid")
-    if qdrant is not None:
+    if chunk_ids and _is_not_projected_lane(qdrant, lane="qdrant"):
+        pass
+    elif chunk_ids:
         _validate_commitment_pair(qdrant, lane="qdrant")
     graphiti = value["graphiti"]
-    if (graphiti is None) != (not fact_ids):
+    if not fact_ids and graphiti is not None:
         raise MemoryValidationError("Projection manifest graphiti evidence is invalid")
-    if graphiti is not None:
+    if fact_ids and _is_not_projected_lane(graphiti, lane="graphiti"):
+        pass
+    elif fact_ids:
         if type(graphiti) is not dict or set(graphiti) != {
             "target_commitment_sha256",
             "manifest_binding_sha256",
@@ -816,6 +823,13 @@ def _validate_commitment_pair(value: object, *, lane: str) -> None:
         raise MemoryValidationError(f"Projection manifest {lane} evidence is invalid")
     _digest(value["target_commitment_sha256"])
     _digest(value["manifest_binding_sha256"])
+
+
+def _is_not_projected_lane(value: object, *, lane: str) -> bool:
+    return value == {
+        "disposition": "not_projected",
+        "policy_sha256": derived_not_projected_policy_sha256(lane),
+    }
 
 
 def _sorted_unique_ids(value: object, *, limit: int) -> list[str]:

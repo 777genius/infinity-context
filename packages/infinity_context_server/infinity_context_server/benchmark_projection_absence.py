@@ -10,6 +10,9 @@ from infinity_context_core.ports.benchmark_runs import (
     BenchmarkProjectionCleanupProof,
     BenchmarkRunRegistryRecord,
 )
+from infinity_context_core.ports.derived_projection_policy import (
+    derived_not_projected_policy_sha256,
+)
 
 from infinity_context_server.derived_identity_evidence import (
     CanonicalProjectionScope,
@@ -78,12 +81,19 @@ class ServerBenchmarkProjectionAbsence:
         delete_outbox_ids: tuple[int, ...],
     ) -> None:
         lane = manifest_scope["qdrant"]
-        if lane is None:
+        chunk_ids = tuple(cast(list[str], manifest_scope["chunk_ids"]))
+        if not chunk_ids:
+            if lane is not None:
+                raise MemoryConflictError("Qdrant empty lane disposition is invalid")
             return
+        if _is_not_projected_lane(lane, lane="qdrant"):
+            return
+        if type(lane) is not dict:
+            raise MemoryConflictError("Qdrant lane evidence is invalid")
         evidence = cast(dict[str, object], lane)
         result = await self._evidence.delete_qdrant_two_pass(
             scope=scope,
-            chunk_ids=tuple(cast(list[str], manifest_scope["chunk_ids"])),
+            chunk_ids=chunk_ids,
             target_commitment_sha256=cast(str, evidence["target_commitment_sha256"]),
             manifest_binding_sha256=cast(str, evidence["manifest_binding_sha256"]),
             delete_outbox_ids=delete_outbox_ids,
@@ -98,12 +108,19 @@ class ServerBenchmarkProjectionAbsence:
         delete_outbox_ids: tuple[int, ...],
     ) -> None:
         lane = manifest_scope["graphiti"]
-        if lane is None:
+        fact_ids = tuple(cast(list[str], manifest_scope["fact_ids"]))
+        if not fact_ids:
+            if lane is not None:
+                raise MemoryConflictError("Graphiti empty lane disposition is invalid")
             return
+        if _is_not_projected_lane(lane, lane="graphiti"):
+            return
+        if type(lane) is not dict:
+            raise MemoryConflictError("Graphiti lane evidence is invalid")
         evidence = cast(dict[str, object], lane)
         result = await self._evidence.delete_graphiti_two_pass(
             scope=scope,
-            fact_ids=tuple(cast(list[str], manifest_scope["fact_ids"])),
+            fact_ids=fact_ids,
             episode_ids=tuple(cast(list[str], evidence["episode_ids"])),
             entity_ids=tuple(cast(list[str], evidence["entity_ids"])),
             mentions_edge_ids=tuple(cast(list[str], evidence["mentions_edge_ids"])),
@@ -126,6 +143,13 @@ def _require_cognee_not_projected(manifest_scope: dict[str, object]) -> None:
         "policy_sha256": MANAGED_COGNEE_NOT_PROJECTED_POLICY_SHA256,
     }:
         raise MemoryConflictError("Cognee not-projected policy differs from server policy")
+
+
+def _is_not_projected_lane(value: object, *, lane: str) -> bool:
+    return value == {
+        "disposition": "not_projected",
+        "policy_sha256": derived_not_projected_policy_sha256(lane),
+    }
 
 
 __all__ = ("ServerBenchmarkProjectionAbsence",)

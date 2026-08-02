@@ -9,6 +9,10 @@ from collections.abc import Callable
 from typing import final
 
 import httpx
+from infinity_context_core.ports.derived_projection_policy import (
+    DerivedProjectionLaneDisposition,
+    DerivedProjectionLanePolicyError,
+)
 
 from infinity_context_server.memory_comparison_managed_http_execution import (
     ManagedInfinityHttpConfig,
@@ -316,13 +320,13 @@ def _presence_observation(
     ):
         _invalid()
     lanes = _object(root["lanes"], {"qdrant", "graphiti"})
-    qdrant = _qdrant_presence(lanes["qdrant"]) if lanes["qdrant"] is not None else None
-    graphiti = (
-        _graphiti_presence(lanes["graphiti"], scope) if lanes["graphiti"] is not None else None
-    )
+    qdrant = _qdrant_lane(lanes["qdrant"])
+    graphiti = _graphiti_lane(lanes["graphiti"], scope)
     if bool(chunk_ids) != (qdrant is not None) or bool(fact_ids) != (graphiti is not None):
         _invalid()
-    if qdrant is not None and tuple(item.chunk_id for item in qdrant.expected) != chunk_ids:
+    if type(qdrant) is ManagedQdrantPresenceObservation and (
+        tuple(item.chunk_id for item in qdrant.expected) != chunk_ids
+    ):
         _invalid()
     return ManagedDerivedPresenceObservation(
         target,
@@ -334,10 +338,32 @@ def _presence_observation(
     )
 
 
+def _qdrant_lane(
+    value: object,
+) -> ManagedQdrantPresenceObservation | DerivedProjectionLaneDisposition | None:
+    if value is None:
+        return None
+    if _is_not_projected(value):
+        return _not_projected_lane(value, lane="qdrant")
+    return _qdrant_presence(value)
+
+
+def _graphiti_lane(
+    value: object,
+    scope: ManagedCanonicalProjectionScope,
+) -> ManagedGraphitiPresenceObservation | DerivedProjectionLaneDisposition | None:
+    if value is None:
+        return None
+    if _is_not_projected(value):
+        return _not_projected_lane(value, lane="graphiti")
+    return _graphiti_presence(value, scope)
+
+
 def _qdrant_presence(value: object) -> ManagedQdrantPresenceObservation:
     data = _object(
         value,
         {
+            "disposition",
             "projection_version",
             "target_commitment_sha256",
             "manifest_binding_sha256",
@@ -348,6 +374,8 @@ def _qdrant_presence(value: object) -> ManagedQdrantPresenceObservation:
             "complete",
         },
     )
+    if data["disposition"] != "projected":
+        _invalid()
     return ManagedQdrantPresenceObservation(
         _identity(data["projection_version"]),
         _digest(data["target_commitment_sha256"]),
@@ -367,6 +395,7 @@ def _graphiti_presence(
     data = _object(
         value,
         {
+            "disposition",
             "target_commitment_sha256",
             "manifest_binding_sha256",
             "identity_manifest",
@@ -374,6 +403,8 @@ def _graphiti_presence(
             "complete",
         },
     )
+    if data["disposition"] != "projected":
+        _invalid()
     return ManagedGraphitiPresenceObservation(
         scope,
         _digest(data["target_commitment_sha256"]),
@@ -382,6 +413,23 @@ def _graphiti_presence(
         _integer(data["exact_identity_count"]),
         _boolean(data["complete"]),
     )
+
+
+def _is_not_projected(value: object) -> bool:
+    return type(value) is dict and value.get("disposition") == "not_projected"
+
+
+def _not_projected_lane(value: object, *, lane: str) -> DerivedProjectionLaneDisposition:
+    data = _object(value, {"disposition", "policy_sha256"})
+    try:
+        return DerivedProjectionLaneDisposition(
+            lane=lane,
+            disposition=str(data["disposition"]),
+            policy_sha256=_digest(data["policy_sha256"]),
+        )
+    except DerivedProjectionLanePolicyError:
+        _invalid()
+        raise AssertionError("unreachable") from None
 
 
 def _qdrant_delete_observation(

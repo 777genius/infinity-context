@@ -5,12 +5,17 @@ import hashlib
 import json
 import pickle
 import threading
-from dataclasses import replace
+from dataclasses import asdict, replace
 
 import pytest
+from infinity_context_core.ports.derived_projection_policy import (
+    DerivedProjectionLaneDisposition,
+    derived_not_projected_policy_sha256,
+)
 from infinity_context_server import (
     memory_comparison_managed_http_policy_validation as validation_module,
 )
+from infinity_context_server.memory_comparison_evidence_commitment import evidence_commitment
 from infinity_context_server.memory_comparison_managed_http_policy_validation import (
     MANAGED_HTTP_POLICY_VALIDATION_SCHEMA_VERSION,
     ManagedHttpPolicyCleanupPassMaterial,
@@ -42,6 +47,10 @@ def _corpus(
         derived_commitments=(
             ("qdrant", _sha(f"qdrant:{corpus_id}")),
             ("graphiti", _sha(f"graphiti:{corpus_id}")),
+        ),
+        derived_dispositions=(
+            ("qdrant", "projected", None),
+            ("graphiti", "projected", None),
         ),
     )
 
@@ -205,6 +214,85 @@ def test_material_commitment_is_deterministic_but_live_seals_are_unique() -> Non
         first_report["validation_commitment_sha256"]
         != second_report["validation_commitment_sha256"]
     )
+
+
+def _not_projected_presence_commitment(lane: str) -> str:
+    disposition = DerivedProjectionLaneDisposition(
+        lane=lane,
+        disposition="not_projected",
+        policy_sha256=derived_not_projected_policy_sha256(lane),
+    )
+    return evidence_commitment(f"{lane}-presence.v1", asdict(disposition))
+
+
+def test_not_projected_dispositions_are_bound_into_policy_material() -> None:
+    dispositions = (
+        ("qdrant", "not_projected", derived_not_projected_policy_sha256("qdrant")),
+        ("graphiti", "not_projected", derived_not_projected_policy_sha256("graphiti")),
+    )
+    corpus = replace(
+        _corpus(),
+        derived_commitments=(
+            ("qdrant", _not_projected_presence_commitment("qdrant")),
+            ("graphiti", _not_projected_presence_commitment("graphiti")),
+        ),
+        derived_dispositions=dispositions,
+    )
+    material = _material(corpora=(corpus,))
+
+    first = managed_http_policy_validation_material_sha256(material)
+    second = managed_http_policy_validation_material_sha256(material)
+
+    assert first == second
+    with pytest.raises(ManagedHttpPolicyValidationError) as raised:
+        replace(
+            corpus,
+            derived_dispositions=(
+                ("qdrant", "not_projected", "0" * 64),
+                ("graphiti", "not_projected", derived_not_projected_policy_sha256("graphiti")),
+            ),
+        )
+    assert raised.value.code == "managed_policy_derived_disposition_invalid"
+
+
+def test_not_projected_disposition_commitment_tampering_is_rejected() -> None:
+    corpus = replace(
+        _corpus(),
+        derived_commitments=(
+            ("qdrant", _not_projected_presence_commitment("qdrant")),
+            ("graphiti", _not_projected_presence_commitment("graphiti")),
+        ),
+        derived_dispositions=(
+            ("qdrant", "not_projected", derived_not_projected_policy_sha256("qdrant")),
+            ("graphiti", "not_projected", derived_not_projected_policy_sha256("graphiti")),
+        ),
+    )
+
+    with pytest.raises(ManagedHttpPolicyValidationError) as raised:
+        replace(
+            corpus,
+            derived_commitments=(
+                ("qdrant", _sha("tampered-not-projected-commitment")),
+                ("graphiti", _not_projected_presence_commitment("graphiti")),
+            ),
+        )
+
+    assert raised.value.code == "managed_policy_derived_disposition_binding_invalid"
+
+
+def test_projected_disposition_cannot_retain_not_projected_commitment() -> None:
+    corpus = _corpus()
+
+    with pytest.raises(ManagedHttpPolicyValidationError) as raised:
+        replace(
+            corpus,
+            derived_commitments=(
+                ("qdrant", _not_projected_presence_commitment("qdrant")),
+                corpus.derived_commitments[1],
+            ),
+        )
+
+    assert raised.value.code == "managed_policy_derived_disposition_binding_invalid"
 
 
 def test_consume_is_exact_one_shot_and_failed_binding_restores_live() -> None:

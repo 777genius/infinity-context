@@ -1,9 +1,14 @@
 from __future__ import annotations
 
 import copy
+from dataclasses import replace
 
 import httpx
 import pytest
+from infinity_context_core.ports.derived_projection_policy import (
+    DerivedProjectionLaneDisposition,
+    derived_not_projected_policy_sha256,
+)
 from infinity_context_server.memory_comparison_managed_http_derived_evidence import (
     ManagedDerivedEvidenceHttpClient,
 )
@@ -348,6 +353,70 @@ def test_absent_derived_lane_is_skipped() -> None:
     assert result.graphiti is None
     assert result.qdrant is not None
     assert derived_paths == ["/api/v1/diagnostics/derived-evidence/qdrant/delete"]
+
+
+def test_bound_not_projected_lanes_skip_only_derived_cleanup() -> None:
+    manifest = _manifest()
+    presence = replace(
+        _presence(manifest),
+        qdrant=DerivedProjectionLaneDisposition(
+            "qdrant",
+            "not_projected",
+            derived_not_projected_policy_sha256("qdrant"),
+        ),
+        graphiti=DerivedProjectionLaneDisposition(
+            "graphiti",
+            "not_projected",
+            derived_not_projected_policy_sha256("graphiti"),
+        ),
+    )
+    derived_calls: list[str] = []
+
+    def derived_handler(request: httpx.Request) -> httpx.Response:
+        derived_calls.append(request.url.path)
+        return httpx.Response(500)
+
+    canonical_calls: list[str] = []
+
+    def canonical_handler(request: httpx.Request) -> httpx.Response:
+        canonical_calls.append(f"{request.method} {request.url.path}")
+        identity = request.url.path.rsplit("/", 1)[-1]
+        data: dict[str, object] = {
+            "id": identity,
+            "space_id": "space-1",
+            "memory_scope_id": "scope-1",
+            "thread_id": "thread-1",
+            "status": "deleted",
+        }
+        if request.method == "DELETE":
+            data["indexing_status"] = "pending"
+        return httpx.Response(200, json={"data": data})
+
+    coordinator = ManagedInfinityExactCleanupCoordinator(
+        config=_config(),
+        derived_evidence=ManagedDerivedEvidenceHttpClient(
+            config=_config(),
+            transport_factory=lambda: httpx.MockTransport(derived_handler),
+        ),
+        transport_factory=lambda: httpx.MockTransport(canonical_handler),
+    )
+
+    result = coordinator.cleanup(
+        scope=_scope(),
+        manifest=manifest,
+        presence=presence,
+        pass_index=1,
+    )
+
+    assert result.qdrant is None
+    assert result.graphiti is None
+    assert derived_calls == []
+    assert canonical_calls == [
+        "DELETE /api/v1/facts/fact-1",
+        "GET /api/v1/facts/fact-1",
+        "DELETE /api/v1/documents/document-1",
+        "GET /api/v1/documents/document-1",
+    ]
 
 
 def test_binding_mismatch_fails_before_any_io() -> None:

@@ -5,6 +5,10 @@ import json
 from dataclasses import replace
 
 import pytest
+from infinity_context_core.ports.derived_projection_policy import (
+    DerivedProjectionLaneDisposition,
+    derived_not_projected_policy_sha256,
+)
 from infinity_context_server.memory_comparison_backend_target import (
     FullComparisonBackendTarget,
 )
@@ -301,6 +305,35 @@ def test_rejects_missing_required_graphiti_lane() -> None:
         _build((corpus,), (replace(presence, graphiti=None),))
 
     assert caught.value.code == "managed_projection_graphiti_mismatch"
+
+
+def test_binds_not_projected_derived_lanes_into_the_canonical_manifest() -> None:
+    corpus, presence = _corpus("a")
+    not_projected = replace(
+        presence,
+        qdrant=DerivedProjectionLaneDisposition(
+            "qdrant",
+            "not_projected",
+            derived_not_projected_policy_sha256("qdrant"),
+        ),
+        graphiti=DerivedProjectionLaneDisposition(
+            "graphiti",
+            "not_projected",
+            derived_not_projected_policy_sha256("graphiti"),
+        ),
+    )
+
+    result = _build((corpus,), (not_projected,))
+    scope = result.projection_manifest["scopes"][0]
+
+    assert scope["qdrant"] == {
+        "disposition": "not_projected",
+        "policy_sha256": derived_not_projected_policy_sha256("qdrant"),
+    }
+    assert scope["graphiti"] == {
+        "disposition": "not_projected",
+        "policy_sha256": derived_not_projected_policy_sha256("graphiti"),
+    }
 
 
 def test_rejects_duplicate_scope_or_corpus_coverage() -> None:

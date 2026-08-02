@@ -6,9 +6,7 @@ import hashlib
 import re
 from dataclasses import dataclass
 
-from infinity_context_core.features.document_ingestion.public import (
-    content_hash_for_text,
-)
+from infinity_context_core.application.normalize import content_hash
 
 from infinity_context_server.memory_comparison_conversation_ingestion import (
     conversation_documents,
@@ -63,12 +61,12 @@ def memory_source_hash(memory: BenchmarkMemoryInput) -> CanonicalSourceHash:
 
 
 def document_source_hash(document: BenchmarkDocumentInput) -> CanonicalSourceHash:
-    """Match Infinity Context's normalized document content hash contract."""
+    """Match the legacy ``/v1/documents`` content-hash contract exactly."""
 
     source_id = _required_external_id(document.source_external_id, kind="document")
     return CanonicalSourceHash(
         source_id=safe_identifier(source_id, max_chars=160),
-        source_sha256=content_hash_for_text(document.text),
+        source_sha256=content_hash(document.text),
     )
 
 
@@ -77,9 +75,7 @@ def conversation_source_hashes(
 ) -> tuple[CanonicalSourceHash, ...]:
     """Hash the exact canonical conversation documents sent to Infinity Context."""
 
-    identities = tuple(
-        document_source_hash(document) for document in conversation_documents(case)
-    )
+    identities = tuple(document_source_hash(document) for document in conversation_documents(case))
     validate_unambiguous_source_hashes(identities)
     return identities
 
@@ -92,9 +88,7 @@ def validate_unambiguous_source_hashes(
     seen: set[str] = set()
     for identity in identities:
         if identity.source_id in seen:
-            raise CanonicalSourceHashError(
-                f"ambiguous benchmark source_id: {identity.source_id}"
-            )
+            raise CanonicalSourceHashError(f"ambiguous benchmark source_id: {identity.source_id}")
         seen.add(identity.source_id)
 
 

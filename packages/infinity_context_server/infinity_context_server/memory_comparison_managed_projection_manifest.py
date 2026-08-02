@@ -11,6 +11,9 @@ from typing import final
 
 from infinity_context_core.application import validate_projection_manifest
 from infinity_context_core.domain.errors import MemoryConflictError, MemoryValidationError
+from infinity_context_core.ports.derived_projection_policy import (
+    DerivedProjectionLaneDisposition,
+)
 
 from infinity_context_server.memory_comparison_full_run_evidence import (
     FullComparisonRunBindings,
@@ -158,13 +161,19 @@ def build_managed_projection_manifest(
             ),
             "managed_projection_canonical_ids_ambiguous",
         )
-        if observation.qdrant is not None:
+        if (
+            observation.qdrant is not None
+            and type(observation.qdrant) is not DerivedProjectionLaneDisposition
+        ):
             _require_globally_unique(
                 qdrant_point_ids,
                 tuple(item.point_id for item in observation.qdrant.expected),
                 "managed_projection_qdrant_ids_ambiguous",
             )
-        if observation.graphiti is not None:
+        if (
+            observation.graphiti is not None
+            and type(observation.graphiti) is not DerivedProjectionLaneDisposition
+        ):
             _require_globally_unique(
                 graph_ids,
                 _graph_identities(observation.graphiti.identity_manifest),
@@ -292,17 +301,9 @@ def _validate_pair(
         != len(manifest.infinity_chunk_ids) + len(manifest.infinity_fact_ids)
     ):
         raise ManagedProjectionManifestError("managed_projection_evidence_mismatch")
-    qdrant = observation.qdrant
-    if bool(manifest.infinity_chunk_ids) != (qdrant is not None):
+    if not _matches_qdrant_disposition(observation.qdrant, manifest.infinity_chunk_ids):
         raise ManagedProjectionManifestError("managed_projection_qdrant_mismatch")
-    if qdrant is not None and tuple(item.chunk_id for item in qdrant.expected) != (
-        manifest.infinity_chunk_ids
-    ):
-        raise ManagedProjectionManifestError("managed_projection_qdrant_mismatch")
-    graphiti = observation.graphiti
-    if bool(manifest.infinity_fact_ids) != (graphiti is not None):
-        raise ManagedProjectionManifestError("managed_projection_graphiti_mismatch")
-    if graphiti is not None and graphiti.group_scope != bundle.scope:
+    if not _matches_graphiti_disposition(observation.graphiti, manifest.infinity_fact_ids, bundle):
         raise ManagedProjectionManifestError("managed_projection_graphiti_mismatch")
 
 
@@ -319,23 +320,8 @@ def _scope_projection(
         "chunk_ids": sorted(manifest.infinity_chunk_ids),
         "fact_ids": sorted(manifest.infinity_fact_ids),
         "document_ids": sorted(manifest.infinity_document_ids),
-        "qdrant": (
-            None
-            if qdrant is None
-            else {
-                "target_commitment_sha256": qdrant.target_commitment_sha256,
-                "manifest_binding_sha256": qdrant.manifest_binding_sha256,
-            }
-        ),
-        "graphiti": (
-            None
-            if graphiti is None
-            else _graphiti_projection(
-                graphiti.identity_manifest,
-                graphiti.target_commitment_sha256,
-                graphiti.manifest_binding_sha256,
-            )
-        ),
+        "qdrant": _qdrant_projection(qdrant),
+        "graphiti": _graphiti_projection_value(graphiti),
         "cognee": {
             "disposition": "not_projected",
             "policy_sha256": MANAGED_COGNEE_NOT_PROJECTED_POLICY_SHA256,
@@ -356,6 +342,56 @@ def _graphiti_projection(
         "mentions_edge_ids": sorted(snapshot.mentions_edge_ids),
         "relates_to_edge_ids": sorted(snapshot.relates_to_edge_ids),
     }
+
+
+def _matches_qdrant_disposition(
+    lane: object,
+    chunk_ids: tuple[str, ...],
+) -> bool:
+    if not chunk_ids:
+        return lane is None
+    if type(lane) is DerivedProjectionLaneDisposition:
+        return lane.lane == "qdrant" and lane.is_not_projected
+    return lane is not None and tuple(item.chunk_id for item in lane.expected) == chunk_ids
+
+
+def _matches_graphiti_disposition(
+    lane: object,
+    fact_ids: tuple[str, ...],
+    bundle: ManagedCorpusIngestIdentity,
+) -> bool:
+    if not fact_ids:
+        return lane is None
+    if type(lane) is DerivedProjectionLaneDisposition:
+        return lane.lane == "graphiti" and lane.is_not_projected
+    return lane is not None and lane.group_scope == bundle.scope
+
+
+def _qdrant_projection(lane: object) -> dict[str, object] | None:
+    if lane is None:
+        return None
+    if type(lane) is DerivedProjectionLaneDisposition:
+        return _not_projected_projection(lane)
+    return {
+        "target_commitment_sha256": lane.target_commitment_sha256,
+        "manifest_binding_sha256": lane.manifest_binding_sha256,
+    }
+
+
+def _graphiti_projection_value(lane: object) -> dict[str, object] | None:
+    if lane is None:
+        return None
+    if type(lane) is DerivedProjectionLaneDisposition:
+        return _not_projected_projection(lane)
+    return _graphiti_projection(
+        lane.identity_manifest,
+        lane.target_commitment_sha256,
+        lane.manifest_binding_sha256,
+    )
+
+
+def _not_projected_projection(policy: DerivedProjectionLaneDisposition) -> dict[str, object]:
+    return {"disposition": policy.disposition, "policy_sha256": policy.policy_sha256}
 
 
 def _graph_identities(snapshot: ManagedGraphitiIdentitySnapshot) -> tuple[str, ...]:

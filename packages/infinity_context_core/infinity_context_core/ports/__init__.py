@@ -56,6 +56,12 @@ from infinity_context_core.ports.capabilities import (
     VectorRecallPort,
 )
 from infinity_context_core.ports.clock import ClockPort
+from infinity_context_core.ports.derived_projection_policy import (
+    DERIVED_NOT_PROJECTED_POLICY_SCHEMA_VERSION,
+    DerivedProjectionLaneDisposition,
+    DerivedProjectionLanePolicyError,
+    derived_not_projected_policy_sha256,
+)
 from infinity_context_core.ports.extraction import (
     AssetExtractionRepositoryPort,
     ContentExtractionPort,
@@ -103,6 +109,10 @@ __all__ = [
     "ContentExtractionPort",
     "DocumentMemoryPort",
     "DocumentMemoryWrite",
+    "DERIVED_NOT_PROJECTED_POLICY_SCHEMA_VERSION",
+    "DerivedProjectionLaneDisposition",
+    "DerivedProjectionLanePolicyError",
+    "derived_not_projected_policy_sha256",
     "EngineHealthPort",
     "EngineHealthSnapshot",
     "ExtractedElement",

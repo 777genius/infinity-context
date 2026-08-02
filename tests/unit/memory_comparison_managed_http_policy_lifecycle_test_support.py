@@ -217,6 +217,7 @@ def _presence_data() -> dict[str, object]:
         "lanes": {
             "qdrant": None,
             "graphiti": {
+                "disposition": "projected",
                 "target_commitment_sha256": _GRAPHITI_TARGET,
                 "manifest_binding_sha256": _GRAPHITI_BINDING,
                 "identity_manifest": _snapshot_json(snapshot),

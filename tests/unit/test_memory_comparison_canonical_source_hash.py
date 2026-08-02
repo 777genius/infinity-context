@@ -6,6 +6,7 @@ from dataclasses import replace
 
 import httpx
 import pytest
+from infinity_context_core.application.normalize import content_hash
 from infinity_context_core.features.document_ingestion.public import content_hash_for_text
 from infinity_context_server.memory_comparison_canonical_source_hash import (
     CanonicalSourceHashError,
@@ -33,9 +34,7 @@ from infinity_context_server.public_benchmark_models import (
 
 def test_memory_hash_matches_raw_utf8_fact_content() -> None:
     text = "  Café\r\nraw fact\x1f  "
-    identity = memory_source_hash(
-        BenchmarkMemoryInput(text=text, source_external_id="memory-1")
-    )
+    identity = memory_source_hash(BenchmarkMemoryInput(text=text, source_external_id="memory-1"))
 
     assert identity.metadata() == {
         "source_id": "memory-1",
@@ -44,8 +43,8 @@ def test_memory_hash_matches_raw_utf8_fact_content() -> None:
     assert identity.source_sha256 != content_hash_for_text(text)
 
 
-def test_document_hash_matches_infinity_normalized_content_hash() -> None:
-    text = "  Document\r\ncontent\x1f  "
+def test_document_hash_matches_legacy_infinity_documents_content_hash() -> None:
+    text = "  Document\r\nCONTENT\x1f  "
     identity = document_source_hash(
         BenchmarkDocumentInput(
             title="Document",
@@ -56,8 +55,9 @@ def test_document_hash_matches_infinity_normalized_content_hash() -> None:
 
     assert identity.metadata() == {
         "source_id": "document-1",
-        "source_sha256": content_hash_for_text(text),
+        "source_sha256": content_hash(text),
     }
+    assert identity.source_sha256 != content_hash_for_text(text)
     assert identity.source_sha256 != hashlib.sha256(text.encode("utf-8")).hexdigest()
 
 
@@ -110,7 +110,7 @@ def test_conversation_hash_reuses_exact_infinity_document_rendering() -> None:
 
     assert len(identities) == len(groups) == 1
     assert identities[0].source_id == canonical_document.source_external_id
-    assert identities[0].source_sha256 == content_hash_for_text(canonical_document.text)
+    assert identities[0].source_sha256 == content_hash(canonical_document.text)
     assert groups[0][2]["source_sha256"] == identities[0].source_sha256
 
 
@@ -186,9 +186,7 @@ def test_message_groups_fail_closed_on_ambiguous_source_id() -> None:
         case_id="duplicate-source-id",
         question="q",
         expected_terms=(),
-        memories=(
-            BenchmarkMemoryInput(text="memory", source_external_id="same-source"),
-        ),
+        memories=(BenchmarkMemoryInput(text="memory", source_external_id="same-source"),),
         documents=(
             BenchmarkDocumentInput(
                 title="d",

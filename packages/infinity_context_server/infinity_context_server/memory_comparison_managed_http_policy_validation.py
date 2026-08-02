@@ -9,12 +9,20 @@ import re
 import secrets
 import threading
 import weakref
-from dataclasses import dataclass
+from dataclasses import asdict, dataclass
 from types import MappingProxyType
 from typing import final
 
+from infinity_context_core.ports.derived_projection_policy import (
+    DerivedProjectionLaneDisposition,
+    DerivedProjectionLanePolicyError,
+    derived_not_projected_policy_sha256,
+)
+
+from infinity_context_server.memory_comparison_evidence_commitment import evidence_commitment
+
 MANAGED_HTTP_POLICY_VALIDATION_SCHEMA_VERSION = (
-    "memory-comparison-managed-http-policy-validation.v3"
+    "memory-comparison-managed-http-policy-validation.v5"
 )
 _SHA256 = re.compile(r"^[0-9a-f]{64}$")
 _BACKEND_ROLES = ("infinity-context", "mem0")
@@ -47,6 +55,7 @@ class ManagedHttpPolicyCorpusMaterial:
     source_pairs: tuple[tuple[str, str], ...]
     presence_commitment_sha256: str
     derived_commitments: tuple[tuple[str, str], ...]
+    derived_dispositions: tuple[tuple[str, str, str | None], ...]
 
     def __post_init__(self) -> None:
         _corpus_snapshot(self)
@@ -170,6 +179,7 @@ class _CorpusSnapshot:
     source_pairs: tuple[tuple[str, str], ...]
     presence_commitment_sha256: str
     derived_commitments: tuple[tuple[str, str], ...]
+    derived_dispositions: tuple[tuple[str, str, str | None], ...]
 
 
 @dataclass(frozen=True, slots=True)
@@ -406,12 +416,14 @@ def _corpus_snapshot(value: object) -> _CorpusSnapshot:
     lanes = tuple(lane for lane, _ in derived)
     if not lanes or lanes != tuple(lane for lane in _DERIVED_LANES if lane in lanes):
         raise ManagedHttpPolicyValidationError("managed_policy_derived_order_invalid")
+    dispositions = _derived_dispositions(value.derived_dispositions, lanes, derived)
     return _CorpusSnapshot(
         _text(value.corpus_id, "managed_policy_corpus_id_invalid"),
         _digest(value.ingest_manifest_sha256, "managed_policy_ingest_manifest_invalid"),
         sources,
         _digest(value.presence_commitment_sha256, "managed_policy_presence_invalid"),
         derived,
+        dispositions,
     )
 
 
@@ -579,6 +591,7 @@ def _material_payload(snapshot: _MaterialSnapshot) -> dict[str, object]:
                 item.source_pairs,
                 item.presence_commitment_sha256,
                 item.derived_commitments,
+                item.derived_dispositions,
             )
             for item in snapshot.corpora
         ),
@@ -608,6 +621,60 @@ def _material_payload(snapshot: _MaterialSnapshot) -> dict[str, object]:
             )
         ),
     }
+
+
+def _derived_dispositions(
+    value: object,
+    expected_lanes: tuple[str, ...],
+    derived_commitments: tuple[tuple[str, str], ...],
+) -> tuple[tuple[str, str, str | None], ...]:
+    if type(value) is not tuple:
+        raise ManagedHttpPolicyValidationError("managed_policy_derived_disposition_invalid")
+    commitments = dict(derived_commitments)
+    checked: list[tuple[str, str, str | None]] = []
+    for item in value:
+        if type(item) is not tuple or len(item) != 3:
+            raise ManagedHttpPolicyValidationError("managed_policy_derived_disposition_invalid")
+        lane = _text(item[0], "managed_policy_derived_disposition_invalid")
+        disposition = _text(item[1], "managed_policy_derived_disposition_invalid")
+        policy = item[2]
+        if lane not in _DERIVED_LANES or lane not in commitments:
+            raise ManagedHttpPolicyValidationError("managed_policy_derived_disposition_invalid")
+        try:
+            policy_disposition = DerivedProjectionLaneDisposition(
+                lane=lane,
+                disposition=disposition,
+                policy_sha256=policy,
+            )
+        except DerivedProjectionLanePolicyError:
+            raise ManagedHttpPolicyValidationError(
+                "managed_policy_derived_disposition_invalid"
+            ) from None
+        not_projected_disposition = (
+            policy_disposition
+            if policy_disposition.is_not_projected
+            else DerivedProjectionLaneDisposition(
+                lane=lane,
+                disposition="not_projected",
+                policy_sha256=derived_not_projected_policy_sha256(lane),
+            )
+        )
+        has_not_projected_commitment = hmac.compare_digest(
+            commitments[lane],
+            evidence_commitment(
+                f"{lane}-presence.v1",
+                asdict(not_projected_disposition),
+            ),
+        )
+        if policy_disposition.is_not_projected != has_not_projected_commitment:
+            raise ManagedHttpPolicyValidationError(
+                "managed_policy_derived_disposition_binding_invalid"
+            )
+        checked.append((lane, disposition, policy))
+    result = tuple(checked)
+    if tuple(item[0] for item in result) != expected_lanes:
+        raise ManagedHttpPolicyValidationError("managed_policy_derived_disposition_invalid")
+    return result
 
 
 def _pairs(value: object, *, digest_second: bool = False) -> tuple[tuple[str, str], ...]:

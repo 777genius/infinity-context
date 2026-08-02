@@ -5,6 +5,10 @@ import json
 
 import httpx
 import pytest
+from infinity_context_core.ports.derived_projection_policy import (
+    DerivedProjectionLaneDisposition,
+    derived_not_projected_policy_sha256,
+)
 from infinity_context_server.memory_comparison_managed_http_derived_evidence import (
     ManagedDerivedEvidenceHttpClient,
     ManagedDerivedEvidenceHttpError,
@@ -90,6 +94,7 @@ def _presence_data() -> dict[str, object]:
         },
         "lanes": {
             "qdrant": {
+                "disposition": "projected",
                 "projection_version": "v1",
                 "target_commitment_sha256": _QDRANT_TARGET,
                 "manifest_binding_sha256": _QDRANT_BINDING,
@@ -100,6 +105,7 @@ def _presence_data() -> dict[str, object]:
                 "complete": True,
             },
             "graphiti": {
+                "disposition": "projected",
                 "target_commitment_sha256": _GRAPHITI_TARGET,
                 "manifest_binding_sha256": _GRAPHITI_BINDING,
                 "identity_manifest": _snapshot_json(_graph_manifest()),
@@ -238,6 +244,30 @@ def test_presence_is_strict_identity_only_and_bound_to_manifest_scope() -> None:
         "expected_fact_ids": ["fact-1"],
     }
     assert _LIFECYCLE_TARGET not in requests[0].content.decode()
+
+
+def test_presence_accepts_only_bound_not_projected_dispositions() -> None:
+    data = _presence_data()
+    lanes = data["lanes"]
+    assert type(lanes) is dict
+    lanes["qdrant"] = {
+        "disposition": "not_projected",
+        "policy_sha256": derived_not_projected_policy_sha256("qdrant"),
+    }
+    lanes["graphiti"] = {
+        "disposition": "not_projected",
+        "policy_sha256": derived_not_projected_policy_sha256("graphiti"),
+    }
+
+    client, _ = _client(lambda _: httpx.Response(200, json={"data": data}))
+    observation = client.observe_presence(scope=_scope(), manifest=_manifest())
+
+    assert type(observation.qdrant) is DerivedProjectionLaneDisposition
+    assert observation.qdrant.lane == "qdrant"
+    assert observation.qdrant.is_not_projected
+    assert type(observation.graphiti) is DerivedProjectionLaneDisposition
+    assert observation.graphiti.lane == "graphiti"
+    assert observation.graphiti.is_not_projected
 
 
 def test_each_delete_owns_a_fresh_transport_and_checks_echoed_bindings() -> None:
@@ -419,6 +449,7 @@ def test_delete_rejects_stale_binding_or_partial_first_pass(lane: str) -> None:
         lambda data: data["outbox"].update(  # type: ignore[union-attr]
             {"done_chunk_ids": []}
         ),
+        lambda data: data["lanes"]["qdrant"].pop("disposition"),  # type: ignore[index,union-attr]
     ),
 )
 def test_presence_rejects_extra_content_or_identity_mismatch(mutate) -> None:

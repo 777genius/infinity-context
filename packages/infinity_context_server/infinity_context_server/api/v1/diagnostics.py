@@ -5,6 +5,7 @@ from __future__ import annotations
 from typing import Annotated, Any
 
 from fastapi import APIRouter, Depends, Query
+from infinity_context_core.ports.derived_projection_policy import DerivedProjectionLaneDisposition
 from infinity_context_core.ports.graph_evidence import (
     GraphProjectionDeletePass,
     GraphProjectionIdentitySnapshot,
@@ -200,8 +201,6 @@ def _scope(request: object) -> CanonicalProjectionScope:
 
 
 def _presence_response(evidence: DerivedProjectionPresence) -> dict[str, Any]:
-    qdrant = evidence.qdrant
-    graphiti = evidence.graphiti
     return {
         "scope": {
             "space_id": evidence.scope.space_id,
@@ -215,28 +214,42 @@ def _presence_response(evidence: DerivedProjectionPresence) -> dict[str, Any]:
             "done_event_count": evidence.outbox.done_event_count,
         },
         "lanes": {
-            "qdrant": None
-            if qdrant is None
-            else {
-                "projection_version": qdrant.evidence.scope.projection_version,
-                "target_commitment_sha256": qdrant.evidence.target_commitment_sha256,
-                "manifest_binding_sha256": qdrant.manifest_binding_sha256,
-                "expected": [_point_response(item) for item in qdrant.evidence.expected],
-                "observed": [_point_response(item) for item in qdrant.evidence.observed],
-                "scoped_point_ids": list(qdrant.evidence.scoped_point_ids),
-                "exact_scoped_count": qdrant.evidence.exact_scoped_count,
-                "complete": qdrant.evidence.complete,
-            },
-            "graphiti": None
-            if graphiti is None
-            else {
-                "target_commitment_sha256": graphiti.target_commitment_sha256,
-                "manifest_binding_sha256": graphiti.manifest_binding_sha256,
-                "identity_manifest": _graph_snapshot_response(graphiti.snapshot),
-                "exact_identity_count": graphiti.snapshot.identity_count,
-                "complete": True,
-            },
+            "qdrant": _qdrant_presence_response(evidence.qdrant),
+            "graphiti": _graphiti_presence_response(evidence.graphiti),
         },
+    }
+
+
+def _qdrant_presence_response(evidence: object) -> dict[str, Any] | None:
+    if evidence is None:
+        return None
+    if type(evidence) is DerivedProjectionLaneDisposition:
+        return {"disposition": evidence.disposition, "policy_sha256": evidence.policy_sha256}
+    return {
+        "disposition": "projected",
+        "projection_version": evidence.evidence.scope.projection_version,
+        "target_commitment_sha256": evidence.evidence.target_commitment_sha256,
+        "manifest_binding_sha256": evidence.manifest_binding_sha256,
+        "expected": [_point_response(item) for item in evidence.evidence.expected],
+        "observed": [_point_response(item) for item in evidence.evidence.observed],
+        "scoped_point_ids": list(evidence.evidence.scoped_point_ids),
+        "exact_scoped_count": evidence.evidence.exact_scoped_count,
+        "complete": evidence.evidence.complete,
+    }
+
+
+def _graphiti_presence_response(evidence: object) -> dict[str, Any] | None:
+    if evidence is None:
+        return None
+    if type(evidence) is DerivedProjectionLaneDisposition:
+        return {"disposition": evidence.disposition, "policy_sha256": evidence.policy_sha256}
+    return {
+        "disposition": "projected",
+        "target_commitment_sha256": evidence.target_commitment_sha256,
+        "manifest_binding_sha256": evidence.manifest_binding_sha256,
+        "identity_manifest": _graph_snapshot_response(evidence.snapshot),
+        "exact_identity_count": evidence.snapshot.identity_count,
+        "complete": True,
     }
 
 

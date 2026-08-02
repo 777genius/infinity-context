@@ -797,6 +797,58 @@ Decision rule:
 - Codex subscription replaces answer/judge credentials only, not Mem0 Platform
   credentials or a local OSS extraction/embedding provider.
 
+### Managed Subscription Canary
+
+`infinity-context-managed-live-canary` is the executable, fail-closed managed
+canary entrypoint. It is deliberately separate from the plain local Mem0 OSS
+lane above. The managed target must implement the benchmark challenge, runtime
+attestation, witness, lifecycle and cleanup contracts used by the production
+runner. A stock auth-disabled Mem0 OSS server is not sufficient.
+
+Run `infinity-context-managed-production-pre-readiness` first. Notify the
+operator who owns subscription capacity, review its bounded plan, and only then
+run the live command with all three acknowledgements:
+
+```sh
+env -u MEM0_API_KEY \
+infinity-context-managed-live-canary \
+  --dataset /private/official-locomo10.json \
+  --profile mem0-locomo-top200-v1 \
+  --case-id '<official-case-id>' \
+  --run-id managed-locomo-canary-001 \
+  --infinity-api-url http://127.0.0.1:7788 \
+  --mem0-api-url http://127.0.0.1:8888 \
+  --subscription-runtime-url http://127.0.0.1:8890 \
+  --max-total-tokens 250000 \
+  --mem0-runtime-implementation-sha256 '<reviewed-adapter-sha256>' \
+  --allow-live \
+  --allow-paid-llm \
+  --operator-notified \
+  --mem0-local-auth-disabled-managed \
+  --allow-mem0-host 127.0.0.1
+```
+
+Required private environment values are `MEMORY_EVAL_AUTH_TOKEN` (or
+`MEMORY_SERVICE_TOKEN`), `MEM0_BENCHMARK_PROBE_TOKEN`, and
+`SUBSCRIPTION_RUNTIME_BRIDGE_BEARER_TOKEN`. `MEM0_API_KEY` is also required
+unless `--mem0-local-auth-disabled-managed` is set. That exception is accepted
+only for an explicitly listed numeric IPv4 loopback host such as
+`--allow-mem0-host 127.0.0.1`; `localhost` and IPv6 targets are rejected. In
+this keyless lane the CLI ignores an ambient `MEM0_API_KEY`; use `env -u
+MEM0_API_KEY` to make the operator intent explicit. It denotes an auth-disabled
+managed wrapper with the full runtime contract, not ordinary OSS. The CLI never
+reads an OpenAI API key.
+
+The canary accepts one to eight unique cases, reserves four benchmark provider
+calls per case, performs exactly one separate readiness attempt, caps benchmark
+tokens at 2,000,000 and sets an admission deadline of at most two hours. An
+adapter request already in flight is not preempted by that deadline; it remains
+bounded by its request timeout. `--operator-notified` is an operator
+acknowledgement, not a sealed proof that binds the reviewed pre-readiness plan.
+Every run reports `publishable=false`. Any missing flag, credential, exact
+dataset binding, readiness proof, runtime attestation or cleanup evidence fails
+closed.
+
 Model defaults:
 
 - `--answerer-provider codex` and `--judge-provider codex` default to

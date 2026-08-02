@@ -14,6 +14,9 @@ from dataclasses import dataclass
 from typing import final
 
 import httpx
+from infinity_context_core.ports.derived_projection_policy import (
+    DerivedProjectionLaneDisposition,
+)
 
 from infinity_context_server.memory_comparison_managed_http_derived_evidence import (
     ManagedDerivedEvidenceHttpClient,
@@ -25,8 +28,10 @@ from infinity_context_server.memory_comparison_managed_http_policy_requirements 
     ManagedCanonicalProjectionScope,
     ManagedDerivedPresenceObservation,
     ManagedGraphitiDeleteObservation,
+    ManagedGraphitiPresenceObservation,
     ManagedIngestIdentityManifest,
     ManagedQdrantDeleteObservation,
+    ManagedQdrantPresenceObservation,
     managed_ingest_identity_manifest_sha256,
 )
 
@@ -159,7 +164,7 @@ class ManagedInfinityExactCleanupCoordinator:
         )
         failure: ManagedExactCleanupError | None = None
         qdrant = None
-        if presence.qdrant is not None:
+        if type(presence.qdrant) is ManagedQdrantPresenceObservation:
             try:
                 qdrant = self._derived_evidence.delete_qdrant(
                     scope=scope,
@@ -170,7 +175,7 @@ class ManagedInfinityExactCleanupCoordinator:
             except BaseException as exc:
                 failure = _first_failure(failure, exc)
         graphiti = None
-        if presence.graphiti is not None:
+        if type(presence.graphiti) is ManagedGraphitiPresenceObservation:
             try:
                 graphiti = self._derived_evidence.delete_graphiti(
                     scope=scope,
@@ -274,19 +279,14 @@ class ManagedInfinityExactCleanupCoordinator:
             presence.lifecycle_target_identity_sha256 != self._config.target_identity_sha256
             or presence.ingest_manifest_sha256 != manifest_sha256
             or presence.scope != scope
+            or not presence.outbox.complete
+            or presence.outbox.done_chunk_ids != manifest.infinity_chunk_ids
+            or presence.outbox.done_fact_ids != manifest.infinity_fact_ids
         ):
             raise ManagedExactCleanupError("managed_exact_cleanup_binding_mismatch")
-        if bool(manifest.infinity_chunk_ids) != (presence.qdrant is not None):
+        if not _matches_qdrant_disposition(presence.qdrant, manifest.infinity_chunk_ids):
             raise ManagedExactCleanupError("managed_exact_cleanup_qdrant_binding_invalid")
-        if bool(manifest.infinity_fact_ids) != (presence.graphiti is not None):
-            raise ManagedExactCleanupError("managed_exact_cleanup_graphiti_binding_invalid")
-        if (
-            presence.qdrant is not None
-            and tuple(item.chunk_id for item in presence.qdrant.expected)
-            != manifest.infinity_chunk_ids
-        ):
-            raise ManagedExactCleanupError("managed_exact_cleanup_qdrant_binding_invalid")
-        if presence.graphiti is not None and presence.graphiti.group_scope != scope:
+        if not _matches_graphiti_disposition(presence.graphiti, manifest.infinity_fact_ids, scope):
             raise ManagedExactCleanupError("managed_exact_cleanup_graphiti_binding_invalid")
         return manifest_sha256
 
@@ -415,6 +415,31 @@ class ManagedInfinityExactCleanupCoordinator:
                 raise ManagedExactCleanupError("managed_exact_cleanup_transport_reused")
             self._owned_transports.append(transport)
         return transport
+
+
+def _matches_qdrant_disposition(
+    lane: object,
+    chunk_ids: tuple[str, ...],
+) -> bool:
+    if not chunk_ids:
+        return lane is None
+    if type(lane) is DerivedProjectionLaneDisposition:
+        return lane.lane == "qdrant" and lane.is_not_projected
+    return type(lane) is ManagedQdrantPresenceObservation and (
+        tuple(item.chunk_id for item in lane.expected) == chunk_ids
+    )
+
+
+def _matches_graphiti_disposition(
+    lane: object,
+    fact_ids: tuple[str, ...],
+    scope: ManagedCanonicalProjectionScope,
+) -> bool:
+    if not fact_ids:
+        return lane is None
+    if type(lane) is DerivedProjectionLaneDisposition:
+        return lane.lane == "graphiti" and lane.is_not_projected
+    return type(lane) is ManagedGraphitiPresenceObservation and lane.group_scope == scope
 
 
 def _object(value: object) -> dict[str, object]:

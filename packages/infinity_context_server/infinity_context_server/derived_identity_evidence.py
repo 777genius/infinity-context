@@ -6,7 +6,6 @@ import hashlib
 import json
 from dataclasses import dataclass
 from typing import Protocol
-from urllib.parse import urlsplit, urlunsplit
 
 from infinity_context_adapters.graphiti.scope_identity import graphiti_group_id
 from infinity_context_adapters.postgres.models import (
@@ -23,6 +22,9 @@ from infinity_context_core.domain.errors import (
     MemoryConflictError,
     MemoryInfrastructureError,
     MemoryValidationError,
+)
+from infinity_context_core.ports.derived_projection_policy import (
+    DerivedProjectionLaneDisposition,
 )
 from infinity_context_core.ports.graph_evidence import (
     GraphProjectionDeleteEvidence,
@@ -43,6 +45,13 @@ from infinity_context_server.benchmark_projection_delete_outbox import (
     load_exact_projection_delete_events,
     projection_manifest_ids,
     validate_delete_outbox_ids,
+)
+from infinity_context_server.derived_identity_target import (
+    graphiti_target_commitment_sha256,
+)
+from infinity_context_server.derived_projection_policy import (
+    DerivedProjectionLanePolicies,
+    validate_derived_evidence_wiring,
 )
 
 QDRANT_PROJECTION_VERSION = "v1"
@@ -109,8 +118,8 @@ class GraphitiPresenceLane:
 class DerivedProjectionPresence:
     scope: CanonicalProjectionScope
     outbox: ProjectionOutboxCompletion
-    qdrant: QdrantPresenceLane | None
-    graphiti: GraphitiPresenceLane | None
+    qdrant: QdrantPresenceLane | DerivedProjectionLaneDisposition | None
+    graphiti: GraphitiPresenceLane | DerivedProjectionLaneDisposition | None
 
 
 @dataclass(frozen=True, slots=True)
@@ -266,13 +275,23 @@ class DerivedIdentityEvidenceCoordinator:
         vector_evidence: VectorProjectionEvidencePort | None,
         graph_evidence: GraphProjectionEvidencePort | None,
         graph_target_commitment_sha256: str | None,
+        lane_policies: DerivedProjectionLanePolicies,
     ) -> None:
+        if type(lane_policies) is not DerivedProjectionLanePolicies:
+            raise MemoryValidationError("Derived projection lane policies are invalid")
         if graph_target_commitment_sha256 is not None:
             _digest(graph_target_commitment_sha256, "graph_target_commitment_sha256")
+        validate_derived_evidence_wiring(
+            lane_policies,
+            vector_evidence=vector_evidence,
+            graph_evidence=graph_evidence,
+            graph_target_commitment_sha256=graph_target_commitment_sha256,
+        )
         self._readiness = readiness
         self._vector = vector_evidence
         self._graph = graph_evidence
         self._graph_target = graph_target_commitment_sha256
+        self._lane_policies = lane_policies
 
     async def observe_presence(
         self,
@@ -285,8 +304,20 @@ class DerivedIdentityEvidenceCoordinator:
         outbox = await self._readiness.prove_presence_ready(
             scope=scope, chunk_ids=chunk_ids, fact_ids=fact_ids
         )
-        qdrant = await self._observe_qdrant(scope, chunk_ids, outbox) if chunk_ids else None
-        graphiti = await self._observe_graphiti(scope, fact_ids, outbox) if fact_ids else None
+        qdrant = None
+        if chunk_ids:
+            qdrant = (
+                self._lane_policies.qdrant
+                if self._lane_policies.qdrant.is_not_projected
+                else await self._observe_qdrant(scope, chunk_ids, outbox)
+            )
+        graphiti = None
+        if fact_ids:
+            graphiti = (
+                self._lane_policies.graphiti
+                if self._lane_policies.graphiti.is_not_projected
+                else await self._observe_graphiti(scope, fact_ids, outbox)
+            )
         return DerivedProjectionPresence(scope, outbox, qdrant, graphiti)
 
     async def delete_qdrant_two_pass(
@@ -441,33 +472,6 @@ class DerivedIdentityEvidenceCoordinator:
         if self._graph_target is None:
             raise MemoryInfrastructureError("Graphiti target commitment is unavailable")
         return self._graph_target
-
-
-def graphiti_target_commitment_sha256(*, neo4j_uri: str, database: str = "default") -> str:
-    """Bind evidence to a configured target without exposing its URL or database."""
-    if not neo4j_uri.strip() or not database.strip():
-        raise MemoryValidationError("Graphiti target configuration is incomplete")
-    normalized_uri = _normalized_neo4j_target(neo4j_uri)
-    return hashlib.sha256(f"graphiti\0{normalized_uri}\0{database}".encode()).hexdigest()
-
-
-def _normalized_neo4j_target(value: str) -> str:
-    try:
-        parsed = urlsplit(value.strip())
-        port = parsed.port
-    except ValueError as exc:
-        raise MemoryValidationError("Graphiti target URI is invalid") from exc
-    scheme = parsed.scheme.lower()
-    if scheme not in {"neo4j", "neo4j+s", "bolt", "bolt+s"}:
-        raise MemoryValidationError("Graphiti target URI scheme is invalid")
-    hostname = parsed.hostname
-    if hostname is None or not hostname.strip():
-        raise MemoryValidationError("Graphiti target URI host is invalid")
-    normalized_host = hostname.lower()
-    if ":" in normalized_host:
-        normalized_host = f"[{normalized_host}]"
-    netloc = normalized_host if port is None else f"{normalized_host}:{port}"
-    return urlunsplit((scheme, netloc, parsed.path, "", ""))
 
 
 async def _prove_scope_exists(session: AsyncSession, scope: CanonicalProjectionScope) -> None:

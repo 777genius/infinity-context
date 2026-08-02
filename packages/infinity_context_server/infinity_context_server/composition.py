@@ -148,6 +148,7 @@ from infinity_context_server.derived_identity_evidence import (
     SqlAlchemyProjectionReadiness,
     graphiti_target_commitment_sha256,
 )
+from infinity_context_server.derived_projection_policy import derived_projection_lane_policies
 from infinity_context_server.metrics import RuntimeMetrics
 from infinity_context_server.provider_budget import QueryEmbeddingBudgetAdapter
 from infinity_context_server.provider_circuit import (
@@ -313,6 +314,10 @@ def build_container(settings: Settings | None = None) -> Container:
         cast(VectorProjectionEvidencePort, raw_vector) if resolved_settings.qdrant_enabled else None
     )
     graph_projection_evidence = _build_graph_projection_evidence(resolved_settings)
+    derived_lane_policies = derived_projection_lane_policies(
+        qdrant_enabled=resolved_settings.qdrant_enabled,
+        graphiti_enabled=resolved_settings.graphiti_enabled,
+    )
     derived_identity_evidence = DerivedIdentityEvidenceCoordinator(
         readiness=SqlAlchemyProjectionReadiness(engine),
         vector_evidence=vector_projection_evidence,
@@ -324,6 +329,7 @@ def build_container(settings: Settings | None = None) -> Container:
             if graph_projection_evidence is not None
             else None
         ),
+        lane_policies=derived_lane_policies,
     )
     raw_embeddings = _build_embedding_adapter(resolved_settings)
     provider_circuits = (

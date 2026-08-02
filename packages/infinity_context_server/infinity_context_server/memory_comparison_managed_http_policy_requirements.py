@@ -13,6 +13,10 @@ import re
 from dataclasses import dataclass
 from typing import Protocol, final
 
+from infinity_context_core.ports.derived_projection_policy import (
+    DerivedProjectionLaneDisposition,
+)
+
 _SHA256 = re.compile(r"^[0-9a-f]{64}$")
 _OPAQUE_IDENTITY = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:-]{0,511}$")
 _KINDS = (
@@ -275,8 +279,8 @@ class ManagedDerivedPresenceObservation:
     ingest_manifest_sha256: str
     scope: ManagedCanonicalProjectionScope
     outbox: ManagedProjectionOutboxObservation
-    qdrant: ManagedQdrantPresenceObservation | None
-    graphiti: ManagedGraphitiPresenceObservation | None
+    qdrant: ManagedQdrantPresenceObservation | DerivedProjectionLaneDisposition | None
+    graphiti: ManagedGraphitiPresenceObservation | DerivedProjectionLaneDisposition | None
 
     def __post_init__(self) -> None:
         _digest(
@@ -288,13 +292,25 @@ class ManagedDerivedPresenceObservation:
             raise ManagedPolicyObservationContractError("presence scope is invalid")
         if type(self.outbox) is not ManagedProjectionOutboxObservation:
             raise ManagedPolicyObservationContractError("presence outbox is invalid")
-        if self.qdrant is not None and type(self.qdrant) is not ManagedQdrantPresenceObservation:
+        if self.qdrant is not None and type(self.qdrant) not in {
+            ManagedQdrantPresenceObservation,
+            DerivedProjectionLaneDisposition,
+        }:
             raise ManagedPolicyObservationContractError("qdrant presence type is invalid")
+        if type(self.qdrant) is DerivedProjectionLaneDisposition and (
+            self.qdrant.lane != "qdrant" or not self.qdrant.is_not_projected
+        ):
+            raise ManagedPolicyObservationContractError("qdrant disposition is invalid")
         if (
             self.graphiti is not None
-            and type(self.graphiti) is not ManagedGraphitiPresenceObservation
+            and type(self.graphiti)
+            not in {ManagedGraphitiPresenceObservation, DerivedProjectionLaneDisposition}
         ):
             raise ManagedPolicyObservationContractError("graphiti presence type is invalid")
+        if type(self.graphiti) is DerivedProjectionLaneDisposition and (
+            self.graphiti.lane != "graphiti" or not self.graphiti.is_not_projected
+        ):
+            raise ManagedPolicyObservationContractError("graphiti disposition is invalid")
 
 
 @final
