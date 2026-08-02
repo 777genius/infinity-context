@@ -303,6 +303,14 @@ def create_full_comparison_run_bindings(
     return _validate_bindings(binding)
 
 
+def validate_full_comparison_run_bindings(
+    bindings: FullComparisonRunBindings,
+) -> FullComparisonRunBindings:
+    """Publicly validate exact committed run bindings at adapter boundaries."""
+
+    return _validate_bindings(bindings)
+
+
 def create_full_comparison_evidence_issuer(
     bindings: FullComparisonRunBindings,
 ) -> FullComparisonEvidenceIssuer:
@@ -747,4 +755,5 @@ __all__ = (
     "create_full_comparison_evidence_issuer",
     "create_full_comparison_run_bindings",
     "issue_full_comparison_run_evidence",
+    "validate_full_comparison_run_bindings",
 )

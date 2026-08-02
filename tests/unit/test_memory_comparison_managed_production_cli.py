@@ -9,6 +9,9 @@ from pathlib import Path
 import pytest
 from infinity_context_server import memory_comparison_managed_production_cli as subject
 from infinity_context_server.memory_comparison_full_profiles import PROFILE_LOCOMO_TOP_50
+from infinity_context_server.memory_comparison_managed_production_composition import (
+    MANAGED_PRODUCTION_COMPOSITION_SCHEMA_VERSION,
+)
 
 _PRIVATE_GOLD = "PRIVATE-GOLD-MUST-NOT-LEAK"
 _PRIVATE_ENV_SECRET = "PRIVATE-ENV-MUST-NOT-LEAK"
@@ -84,7 +87,7 @@ class _EnvironmentAccessForbidden(dict[str, str]):
         raise AssertionError("environment iteration forbidden")
 
 
-def test_no_go_is_decided_before_environment_credentials_readiness_or_backend(
+def test_go_is_decided_before_environment_credentials_readiness_or_backend(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -92,7 +95,8 @@ def test_no_go_is_decided_before_environment_credentials_readiness_or_backend(
     monkeypatch.setattr(os, "environ", _EnvironmentAccessForbidden())
     report = subject.run_managed_production_cli(_config(tmp_path))
 
-    assert report["status"] == "no-go-pre-readiness"
+    assert report["status"] == "go-pre-readiness"
+    assert report["ok"] is True
     assert report["provider_kind"] == "subscription-runtime"
     assert report["scope"] == "canary"
     assert report["selected_case_count"] == 1
@@ -101,10 +105,9 @@ def test_no_go_is_decided_before_environment_credentials_readiness_or_backend(
     assert report["provider_calls_performed"] == 0
     assert report["backend_calls_performed"] == 0
     assert report["live_state_touched"] is False
+    assert report["execution_performed"] is False
     assert report["publishable"] is False
-    assert report["blockers"] == [
-        "managed_production_execution_runner_unavailable",
-    ]
+    assert report["blockers"] == []
     assert report["planned_limits"] == {
         "benchmark_max_provider_calls": 4,
         "readiness_max_provider_calls": 1,
@@ -114,6 +117,38 @@ def test_no_go_is_decided_before_environment_credentials_readiness_or_backend(
         "readiness_max_output_tokens": 8,
         "readiness_max_total_tokens": 512,
     }
+
+
+def test_explicit_no_go_decision_remains_zero_io(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _accept_official_metadata(monkeypatch)
+    monkeypatch.setattr(os, "environ", _EnvironmentAccessForbidden())
+    decision = subject.ManagedProductionCompositionDecision(
+        schema_version=MANAGED_PRODUCTION_COMPOSITION_SCHEMA_VERSION,
+        decision="no-go",
+        blockers=("explicit-policy-blocker",),
+        preparation_consumed=False,
+        readiness_provider_calls_already_performed=0,
+        additional_provider_calls_performed=0,
+        additional_backend_calls_performed=0,
+    )
+    monkeypatch.setattr(
+        subject,
+        "evaluate_managed_production_pre_readiness",
+        lambda _: decision,
+    )
+
+    report = subject.run_managed_production_cli(_config(tmp_path))
+
+    assert report["status"] == "no-go-pre-readiness"
+    assert report["ok"] is False
+    assert report["blockers"] == ["explicit-policy-blocker"]
+    assert report["credentials_read"] is False
+    assert report["provider_calls_performed"] == 0
+    assert report["backend_calls_performed"] == 0
+    assert report["live_state_touched"] is False
 
 
 def test_json_and_private_atomic_report_never_expose_gold_case_ids_or_paths(
@@ -162,9 +197,7 @@ def test_official_dataset_validation_precedes_case_projection(
     monkeypatch.setattr(
         subject,
         "managed_dataset_metadata_from_bytes",
-        lambda **_: (_ for _ in ()).throw(
-            subject.ManagedPreflightError("dataset_mismatch")
-        ),
+        lambda **_: (_ for _ in ()).throw(subject.ManagedPreflightError("dataset_mismatch")),
     )
     monkeypatch.setattr(
         subject,
@@ -209,9 +242,7 @@ def test_unknown_or_out_of_order_case_selection_is_secret_safe(
 ) -> None:
     _accept_official_metadata(monkeypatch)
     unknown = "private-unknown-case"
-    report = subject.run_managed_production_cli(
-        _config(tmp_path, selected_case_ids=(unknown,))
-    )
+    report = subject.run_managed_production_cli(_config(tmp_path, selected_case_ids=(unknown,)))
 
     rendered = json.dumps(report, sort_keys=True)
     assert report["reason_code"] == "selection_invalid"
@@ -242,7 +273,7 @@ def test_dataset_size_and_report_collision_fail_before_projection(
     assert config.dataset_path.read_bytes() == _dataset_bytes()
 
 
-def test_main_prints_one_safe_json_line_and_returns_no_go(
+def test_main_prints_one_safe_json_line_and_returns_ready_not_success(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
@@ -264,11 +295,13 @@ def test_main_prints_one_safe_json_line_and_returns_no_go(
     )
 
     captured = capsys.readouterr()
-    assert exit_code == subject.MANAGED_PRODUCTION_EXIT_NO_GO
+    assert exit_code == subject.MANAGED_PRODUCTION_EXIT_READY
     assert captured.err == ""
     assert len(captured.out.splitlines()) == 1
     report = json.loads(captured.out)
-    assert report["status"] == "no-go-pre-readiness"
+    assert report["status"] == "go-pre-readiness"
+    assert report["execution_performed"] is False
+    assert report["blockers"] == []
     assert _PRIVATE_GOLD not in captured.out
     assert _CASE_ID not in captured.out
 
@@ -303,11 +336,10 @@ def test_parser_has_no_full_provider_or_openai_escape_hatch(
     assert caught.value.code == 2
 
 
-def test_project_registers_sealed_production_entrypoint() -> None:
+def test_project_registers_explicit_pre_readiness_entrypoint() -> None:
     pyproject = Path(__file__).parents[2] / "pyproject.toml"
     text = pyproject.read_text(encoding="utf-8")
     assert (
-        "infinity-context-managed-production = "
-        '"infinity_context_server.memory_comparison_managed_production_cli:main"'
-        in text
+        "infinity-context-managed-production-pre-readiness = "
+        '"infinity_context_server.memory_comparison_managed_production_cli:main"' in text
     )

@@ -8,6 +8,9 @@ from infinity_context_core.application.context_query_expansion import QueryExpan
 from infinity_context_core.application.context_temporal_intent_policy import (
     temporal_ordering_intent,
 )
+from infinity_context_core.application.context_temporal_interval_requirements import (
+    temporal_interval_requirements,
+)
 from infinity_context_core.domain.aggregation_admission import AggregationIntent
 
 _CARDINALITY_VALUE = (
@@ -125,6 +128,8 @@ def keyword_aggregation_intent(
     """Normalize generic count, list, and sequence requests for admission policy."""
 
     if temporal_ordering_intent(query).explicit:
+        return AggregationIntent.SEQUENCE
+    if temporal_interval_requirements(query).explicit:
         return AggregationIntent.SEQUENCE
     if _COUNT_AGGREGATION_QUERY_RE.search(query):
         return AggregationIntent.COUNT

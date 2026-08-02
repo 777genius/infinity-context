@@ -8,7 +8,14 @@ import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 from infinity_context_adapters.graphiti.scope_identity import graphiti_group_id
-from infinity_context_core.domain.errors import MemoryConflictError, MemoryError
+from infinity_context_core.domain.errors import (
+    MemoryConflictError,
+    MemoryError,
+    MemoryValidationError,
+)
+from infinity_context_core.ports.derived_projection_policy import (
+    DerivedProjectionLaneDisposition,
+)
 from infinity_context_core.ports.graph_evidence import (
     GraphProjectionDeleteEvidence,
     GraphProjectionDeletePass,
@@ -35,6 +42,7 @@ from infinity_context_server.derived_identity_evidence import (
     _prove_delete_event_completion,
     graphiti_target_commitment_sha256,
 )
+from infinity_context_server.derived_projection_policy import derived_projection_lane_policies
 
 
 class _Readiness:
@@ -45,7 +53,7 @@ class _Readiness:
         self.calls.append((scope, chunk_ids, fact_ids))
         return ProjectionOutboxCompletion(chunk_ids, fact_ids, len(chunk_ids) + len(fact_ids))
 
-    async def prove_delete_ready(self, *, scope, chunk_ids, fact_ids):
+    async def prove_delete_ready(self, *, scope, chunk_ids, fact_ids, lane):
         self.calls.append((scope, chunk_ids, fact_ids))
         return ProjectionOutboxCompletion(chunk_ids, fact_ids, len(chunk_ids) + len(fact_ids))
 
@@ -131,6 +139,10 @@ def _coordinator():
         vector_evidence=vector,
         graph_evidence=graph,
         graph_target_commitment_sha256=target,
+        lane_policies=derived_projection_lane_policies(
+            qdrant_enabled=True,
+            graphiti_enabled=True,
+        ),
     )
     return coordinator, scope, readiness, vector, graph, target
 
@@ -159,6 +171,72 @@ def test_coordinator_binds_exact_lanes_to_outbox_scope_and_target() -> None:
     assert len(evidence.graphiti.manifest_binding_sha256) == 64
     assert readiness.calls == [(scope, ("chunk-1",), ("fact-1",))]
     assert graph.groups == [graphiti_group_id("space-1", "scope-1")]
+
+
+def test_coordinator_uses_bound_not_projected_dispositions_without_adapters() -> None:
+    scope = CanonicalProjectionScope("space-1", "scope-1", "thread-1")
+    readiness = _Readiness()
+    coordinator = DerivedIdentityEvidenceCoordinator(
+        readiness=readiness,
+        vector_evidence=None,
+        graph_evidence=None,
+        graph_target_commitment_sha256=None,
+        lane_policies=derived_projection_lane_policies(
+            qdrant_enabled=False,
+            graphiti_enabled=False,
+        ),
+    )
+
+    evidence = asyncio.run(
+        coordinator.observe_presence(
+            scope=scope,
+            chunk_ids=("chunk-1",),
+            fact_ids=("fact-1",),
+        )
+    )
+
+    assert readiness.calls == [(scope, ("chunk-1",), ("fact-1",))]
+    assert type(evidence.qdrant) is DerivedProjectionLaneDisposition
+    assert evidence.qdrant.lane == "qdrant"
+    assert evidence.qdrant.is_not_projected
+    assert type(evidence.graphiti) is DerivedProjectionLaneDisposition
+    assert evidence.graphiti.lane == "graphiti"
+    assert evidence.graphiti.is_not_projected
+
+
+@pytest.mark.parametrize(
+    ("qdrant_enabled", "graphiti_enabled", "has_vector", "has_graph", "has_graph_target"),
+    (
+        (False, False, True, False, False),
+        (True, False, False, False, False),
+        (False, False, False, True, False),
+        (False, False, False, False, True),
+        (False, True, False, False, False),
+        (False, True, False, True, False),
+        (False, True, False, False, True),
+    ),
+)
+def test_coordinator_rejects_miswired_derived_evidence(
+    qdrant_enabled: bool,
+    graphiti_enabled: bool,
+    has_vector: bool,
+    has_graph: bool,
+    has_graph_target: bool,
+) -> None:
+    vector = _VectorEvidence() if has_vector else None
+    graph = _GraphEvidence(GraphProjectionIdentitySnapshot()) if has_graph else None
+
+    with pytest.raises(MemoryValidationError):
+        DerivedIdentityEvidenceCoordinator(
+            readiness=_Readiness(),
+            vector_evidence=vector,
+            graph_evidence=graph,
+            graph_target_commitment_sha256="a" * 64 if has_graph_target else None,
+            lane_policies=derived_projection_lane_policies(
+                qdrant_enabled=qdrant_enabled,
+                graphiti_enabled=graphiti_enabled,
+            ),
+        )
 
 
 def test_graphiti_target_commitment_strips_uri_secrets_and_binds_host() -> None:
@@ -323,6 +401,8 @@ def test_delete_readiness_accepts_deleted_rows_only_after_done_delete_event() ->
         payload_json={"chunk_ids": ["chunk-1"]},
     )
 
+    with pytest.raises(MemoryConflictError, match="terminal projection event is missing"):
+        _prove_delete_event_completion(("chunk-1",), [row], [upsert], [])
     assert _prove_delete_event_completion(("chunk-1",), [row], [upsert], [delete]) == ("chunk-1",)
     delete.status = "dead"
     with pytest.raises(MemoryConflictError, match="not terminal"):
@@ -384,6 +464,8 @@ def test_presence_route_is_service_token_protected_and_identity_only() -> None:
     }
     assert payload["lanes"]["qdrant"]["complete"] is True
     assert payload["lanes"]["graphiti"]["complete"] is True
+    assert payload["lanes"]["qdrant"]["disposition"] == "projected"
+    assert payload["lanes"]["graphiti"]["disposition"] == "projected"
     assert "group_id" not in response.text
     assert "service-secret" not in response.text
     assert route_coordinator.request == {

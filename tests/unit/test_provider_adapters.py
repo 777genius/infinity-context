@@ -3,7 +3,6 @@ import importlib.util
 import json
 from types import SimpleNamespace
 
-from infinity_context_adapters.cognee import CogneeMemoryAdapter
 from infinity_context_adapters.embeddings import OpenAIEmbeddingAdapter
 from infinity_context_adapters.extraction import OpenAIJsonMemoryExtractor
 from infinity_context_adapters.extraction.openai_json import _prompt_text
@@ -21,7 +20,6 @@ from infinity_context_core.ports.auto_memory import CandidateOperation, SourcePr
 from infinity_context_core.ports.capabilities import (
     CapabilityRecallQuery,
     CapabilityStatus,
-    DocumentMemoryWrite,
     FactProjectionWrite,
     MemoryCapability,
     MemoryScopeFilter,
@@ -230,26 +228,6 @@ class FakeGraphitiWithEpisodeLookup(FakeGraphiti):
     async def search(self, **kwargs: object) -> list[object]:
         self.search_calls.append(kwargs)
         return [SimpleNamespace(episodes=["generated_episode_uuid"], score=0.91)]
-
-
-class FakeCognee:
-    def __init__(self) -> None:
-        self.remember_calls: list[dict[str, object]] = []
-        self.recall_calls: list[dict[str, object]] = []
-
-    async def remember(self, data: str, **kwargs: object) -> None:
-        self.remember_calls.append({"data": data, **kwargs})
-
-    async def recall(self, query: str, **kwargs: object) -> list[dict[str, object]]:
-        self.recall_calls.append({"query": query, **kwargs})
-        return [
-            {
-                "id": "cognee_chunk_1",
-                "chunk_id": "chunk_canonical_1",
-                "text": "Cognee recalled tenant scoped document chunk.",
-                "score": 0.87,
-            }
-        ]
 
 
 def test_graphiti_adapter_hydrates_only_canonical_fact_ids() -> None:
@@ -637,79 +615,6 @@ def test_openai_embedding_adapter_keeps_unknown_errors_retryable() -> None:
         assert result.diagnostics[0].code == "embeddings.provider_error"
         assert result.diagnostics[0].retryable is True
         assert client.closed is True
-
-    asyncio.run(run())
-
-
-def test_cognee_skeleton_is_disabled_without_importing_runtime_sdk() -> None:
-    async def run() -> None:
-        adapter = CogneeMemoryAdapter()
-
-        capabilities = await adapter.capabilities()
-        descriptors = await adapter.capability_descriptors()
-        health = await adapter.health()
-        recalled = await adapter.recall(
-            CapabilityRecallQuery(
-                scope=MemoryScopeFilter(space_id="space", memory_scope_ids=("memory_scope",)),
-                query="anything",
-                limit=1,
-            )
-        )
-
-        assert capabilities.name == "cognee"
-        assert capabilities.enabled is False
-        assert {descriptor.capability for descriptor in descriptors} == {
-            MemoryCapability.DOCUMENT_MEMORY,
-            MemoryCapability.RAG_RECALL,
-        }
-        assert health.status == CapabilityStatus.DISABLED
-        assert recalled.status == CapabilityStatus.DISABLED
-        assert recalled.items == ()
-
-    asyncio.run(run())
-
-
-def test_cognee_runtime_adapter_remembers_and_recalls_by_scoped_dataset() -> None:
-    async def run() -> None:
-        fake = FakeCognee()
-        adapter = CogneeMemoryAdapter(enabled=True, client=fake, dataset_prefix="mp")
-
-        capabilities = await adapter.capabilities()
-        projected = await adapter.ingest_document(
-            DocumentMemoryWrite(
-                document_id="doc_1",
-                space_id="space_client_app",
-                memory_scope_id="memory_scope_default",
-                title="Architecture note",
-                text="Tenant scoped retrieval belongs in Cognee RAG.",
-                source_refs=(),
-                chunk_ids=("chunk_canonical_1",),
-            )
-        )
-        recalled = await adapter.recall(
-            CapabilityRecallQuery(
-                scope=MemoryScopeFilter(
-                    space_id="space_client_app",
-                    memory_scope_ids=("memory_scope_default",),
-                ),
-                query="tenant scoped retrieval",
-                limit=5,
-            )
-        )
-
-        assert capabilities.enabled is True
-        assert projected.status == CapabilityStatus.OK
-        assert projected.affected_ids == ("doc_1",)
-        assert (
-            fake.remember_calls[0]["dataset_name"] == "mp__space_client_app__memory_scope_default"
-        )
-        assert fake.remember_calls[0]["node_set"] == ["chunk_canonical_1"]
-        assert fake.recall_calls[0]["datasets"] == ["mp__space_client_app__memory_scope_default"]
-        assert fake.recall_calls[0]["top_k"] == 5
-        assert recalled.status == CapabilityStatus.OK
-        assert recalled.items[0].text == "Cognee recalled tenant scoped document chunk."
-        assert recalled.items[0].source_refs[0].source_type == "chunk"
-        assert recalled.items[0].source_refs[0].chunk_id == "chunk_canonical_1"
 
     asyncio.run(run())
 
@@ -1764,13 +1669,6 @@ def test_qdrant_hybrid_sparse_vector_names_must_differ() -> None:
         assert "MEMORY_QDRANT_DENSE_VECTOR_NAME" in str(exc)
     else:
         raise AssertionError("Expected Qdrant vector name validation to fail")
-
-
-def test_cognee_config_is_disabled_by_default() -> None:
-    settings = Settings()
-
-    assert settings.cognee_enabled is False
-    assert settings.cognee_runtime_configured is False
 
 
 def test_embeddings_enabled_requires_supported_provider_and_api_key() -> None:

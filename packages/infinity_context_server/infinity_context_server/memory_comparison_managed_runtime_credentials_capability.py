@@ -49,6 +49,7 @@ class ManagedBackendCredentialMaterial:
         "__http_phase",
         "__lifecycle_phase",
         "__policy_phase",
+        "__registry_phase",
         "__probe_token",
         "__probe_phase",
         "__preflight_commitment",
@@ -100,6 +101,7 @@ class ManagedBackendCredentialMaterial:
         self.__http_phase = "pending"
         self.__lifecycle_phase = "pending"
         self.__policy_phase = "pending"
+        self.__registry_phase = "pending"
         self.__probe_phase = "pending"
         self.__snapshot = self._current_snapshot()
         self.__commitment = hmac_sha256(self.__key, self.__snapshot)
@@ -174,6 +176,28 @@ class ManagedBackendCredentialMaterial:
             self.__policy_phase = "consumed"
             return self._fresh_transportless_configs()
 
+    def consume_for_benchmark_registry(
+        self,
+        *,
+        expected_request: ManagedPreflightRequest,
+        run_id: str,
+        deadline: datetime,
+    ) -> ManagedInfinityHttpConfig:
+        """Consume the independent canonical registry lane exactly once."""
+
+        with self.__lock:
+            phase = self.__registry_phase
+            self.__registry_phase = "terminal"
+            if phase != "pending" or not self._context_matches(
+                expected_request=expected_request,
+                run_id=run_id,
+                deadline=deadline,
+            ):
+                raise ValueError("managed backend credential continuity failed")
+            self.__registry_phase = "consumed"
+            infinity, _ = self._fresh_transportless_configs()
+            return infinity
+
     def consume_mem0_probe_token(
         self,
         *,
@@ -239,9 +263,7 @@ class ManagedBackendCredentialMaterial:
                     "transport_identity": (
                         id(infinity.transport) if infinity.transport is not None else None
                     ),
-                    "credential_commitment": hmac_sha256(
-                        self.__key, infinity.auth_token.encode()
-                    ),
+                    "credential_commitment": hmac_sha256(self.__key, infinity.auth_token.encode()),
                 },
                 "mem0": {
                     "target_identity_sha256": mem0.target_identity_sha256,
@@ -251,9 +273,7 @@ class ManagedBackendCredentialMaterial:
                     "transport_identity": (
                         id(mem0.transport) if mem0.transport is not None else None
                     ),
-                    "credential_commitment": hmac_sha256(
-                        self.__key, (mem0.api_key or "").encode()
-                    ),
+                    "credential_commitment": hmac_sha256(self.__key, (mem0.api_key or "").encode()),
                     "probe_credential_commitment": hmac_sha256(
                         self.__key, self.__probe_token.encode()
                     ),

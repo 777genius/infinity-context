@@ -13,6 +13,10 @@ import re
 from dataclasses import dataclass
 from typing import Protocol, final
 
+from infinity_context_core.ports.derived_projection_policy import (
+    DerivedProjectionLaneDisposition,
+)
+
 _SHA256 = re.compile(r"^[0-9a-f]{64}$")
 _OPAQUE_IDENTITY = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:-]{0,511}$")
 _KINDS = (
@@ -80,11 +84,7 @@ class ManagedIngestIdentityManifest:
             or not self.mem0_source_ids
             or len(self.mem0_source_sha256) != len(self.mem0_source_ids)
             or (self.infinity_document_ids and not self.infinity_chunk_ids)
-            or not (
-                self.infinity_fact_ids
-                or self.infinity_document_ids
-                or self.infinity_chunk_ids
-            )
+            or not (self.infinity_fact_ids or self.infinity_document_ids or self.infinity_chunk_ids)
         ):
             raise ManagedPolicyObservationContractError(
                 "complete ingest manifest lacks exact identities"
@@ -222,9 +222,7 @@ class ManagedGraphitiIdentitySnapshot:
             _bounded_identity_tuple(lane, name)
         flattened = tuple(identity for lane in lanes for identity in lane)
         if len(flattened) > _MAX_IDENTITIES or len(set(flattened)) != len(flattened):
-            raise ManagedPolicyObservationContractError(
-                "graphiti snapshot identities are invalid"
-            )
+            raise ManagedPolicyObservationContractError("graphiti snapshot identities are invalid")
 
     @property
     def exact_identity_count(self) -> int:
@@ -267,8 +265,7 @@ class ManagedGraphitiPresenceObservation:
         if (
             not self.complete
             or self.identity_manifest.empty
-            or self.exact_identity_count
-            != self.identity_manifest.exact_identity_count
+            or self.exact_identity_count != self.identity_manifest.exact_identity_count
         ):
             raise ManagedPolicyObservationContractError("graphiti presence is incomplete")
 
@@ -282,8 +279,8 @@ class ManagedDerivedPresenceObservation:
     ingest_manifest_sha256: str
     scope: ManagedCanonicalProjectionScope
     outbox: ManagedProjectionOutboxObservation
-    qdrant: ManagedQdrantPresenceObservation | None
-    graphiti: ManagedGraphitiPresenceObservation | None
+    qdrant: ManagedQdrantPresenceObservation | DerivedProjectionLaneDisposition | None
+    graphiti: ManagedGraphitiPresenceObservation | DerivedProjectionLaneDisposition | None
 
     def __post_init__(self) -> None:
         _digest(
@@ -295,12 +292,25 @@ class ManagedDerivedPresenceObservation:
             raise ManagedPolicyObservationContractError("presence scope is invalid")
         if type(self.outbox) is not ManagedProjectionOutboxObservation:
             raise ManagedPolicyObservationContractError("presence outbox is invalid")
-        if self.qdrant is not None and type(self.qdrant) is not ManagedQdrantPresenceObservation:
+        if self.qdrant is not None and type(self.qdrant) not in {
+            ManagedQdrantPresenceObservation,
+            DerivedProjectionLaneDisposition,
+        }:
             raise ManagedPolicyObservationContractError("qdrant presence type is invalid")
-        if self.graphiti is not None and type(
-            self.graphiti
-        ) is not ManagedGraphitiPresenceObservation:
+        if type(self.qdrant) is DerivedProjectionLaneDisposition and (
+            self.qdrant.lane != "qdrant" or not self.qdrant.is_not_projected
+        ):
+            raise ManagedPolicyObservationContractError("qdrant disposition is invalid")
+        if (
+            self.graphiti is not None
+            and type(self.graphiti)
+            not in {ManagedGraphitiPresenceObservation, DerivedProjectionLaneDisposition}
+        ):
             raise ManagedPolicyObservationContractError("graphiti presence type is invalid")
+        if type(self.graphiti) is DerivedProjectionLaneDisposition and (
+            self.graphiti.lane != "graphiti" or not self.graphiti.is_not_projected
+        ):
+            raise ManagedPolicyObservationContractError("graphiti disposition is invalid")
 
 
 @final
@@ -378,6 +388,8 @@ class ManagedQdrantDeleteObservation:
             not self.verified_absent
             or expected_chunks != self.expected_chunk_ids
             or self.passes[1].expected != self.passes[0].expected
+            or self.passes[0].present_before not in (self.passes[0].expected, ())
+            or self.passes[1].present_before
             or any(
                 item.target_commitment_sha256 != self.target_commitment_sha256
                 for item in self.passes
@@ -451,12 +463,9 @@ class ManagedGraphitiDeleteObservation:
         _exact_bool(self.verified_absent)
         empty = ManagedGraphitiIdentitySnapshot((), (), (), ())
         first_pass_is_initial = (
-            self.passes[0].before == self.expected
-            and self.passes[0].deleted == self.expected
+            self.passes[0].before == self.expected and self.passes[0].deleted == self.expected
         )
-        first_pass_is_replay = (
-            self.passes[0].before == empty and self.passes[0].deleted == empty
-        )
+        first_pass_is_replay = self.passes[0].before == empty and self.passes[0].deleted == empty
         if (
             not self.verified_absent
             or not (first_pass_is_initial or first_pass_is_replay)
@@ -564,16 +573,13 @@ class ManagedCanonicalSourceObservation:
         if any(type(lane) is not ManagedExactPresenceLane for lane in lanes):
             raise ManagedPolicyObservationContractError("presence lane type is invalid")
         if (
-            self.canonical.identity_kind
-            not in ("infinity_fact", "infinity_document")
+            self.canonical.identity_kind not in ("infinity_fact", "infinity_document")
             or self.infinity_source.identity_kind != "infinity_source"
             or self.mem0_source.identity_kind != "mem0_source"
             or self.qdrant.identity_kind != "qdrant_point"
             or self.graphiti.identity_kind != "graphiti_entity"
         ):
-            raise ManagedPolicyObservationContractError(
-                "presence lane roles are invalid"
-            )
+            raise ManagedPolicyObservationContractError("presence lane roles are invalid")
         if type(self.source_revision) is not int or self.source_revision < 1:
             raise ManagedPolicyObservationContractError("source_revision is invalid")
         _digest(self.source_sha256, "source_sha256")
@@ -637,9 +643,7 @@ class ManagedDeleteIdentityLane:
             raise ManagedPolicyObservationContractError("delete identity coverage differs")
         if self.deleted_ids != tuple(item for item in self.expected_ids if item in deleted):
             raise ManagedPolicyObservationContractError("deleted identity order differs")
-        if self.remaining_ids != tuple(
-            item for item in self.expected_ids if item in remaining
-        ):
+        if self.remaining_ids != tuple(item for item in self.expected_ids if item in remaining):
             raise ManagedPolicyObservationContractError("remaining identity order differs")
 
     @property
@@ -689,9 +693,7 @@ class ManagedTerminalDeleteObservation:
         if self.verified_absent != actual_absent:
             raise ManagedPolicyObservationContractError("absence claim is inconsistent")
         if self.complete:
-            raise ManagedPolicyObservationContractError(
-                "terminal manifest binding is unavailable"
-            )
+            raise ManagedPolicyObservationContractError("terminal manifest binding is unavailable")
         if not self.issues:
             raise ManagedPolicyObservationContractError("delete completeness is inconsistent")
 

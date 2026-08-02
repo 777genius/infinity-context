@@ -788,6 +788,35 @@ def test_add_request_requires_exact_idempotency_and_matching_source_timestamp() 
         )
 
 
+def test_add_request_accepts_and_binds_canonical_source_sha256() -> None:
+    metadata = {**_metadata(), "source_sha256": "a" * 64}
+    request = LocomoOfficialTurnsTransportRequest.create(
+        messages=_messages(),
+        user_id=mem0_benchmark_user_id(_RUN_ID),
+        run_id=_RUN_ID,
+        metadata=metadata,
+        timestamp=1_683_554_160,
+        idempotency_key=str(metadata["source_id"]),
+    )
+    key = RunScopedLocomoTransportEvidenceKey.generate(run_id=_RUN_ID)
+    evidence = key.issue(request, expected_turn=_expected(metadata=metadata))
+    assert type(evidence) is LocomoTimestampTransportEvidence
+
+
+@pytest.mark.parametrize("invalid", ("A" * 64, "a" * 63, 1, None))
+def test_add_request_rejects_invalid_canonical_source_sha256(invalid: object) -> None:
+    metadata = {**_metadata(), "source_sha256": invalid}
+    with pytest.raises(ValueError, match="source_sha256"):
+        LocomoOfficialTurnsTransportRequest.create(
+            messages=_messages(),
+            user_id=mem0_benchmark_user_id(_RUN_ID),
+            run_id=_RUN_ID,
+            metadata=metadata,
+            timestamp=1_683_554_160,
+            idempotency_key=str(metadata["source_id"]),
+        )
+
+
 def test_hashed_benchmark_user_id_is_accepted_by_transport() -> None:
     run_id = "Run X/Y"
     key = RunScopedLocomoTransportEvidenceKey.generate(run_id=run_id)

@@ -102,6 +102,8 @@ class VectorProjectionDeleteEvidence:
         _point_identities(self.remaining, "remaining", require_nonempty=False)
         _subset(self.present_before, self.expected, "present_before")
         _subset(self.remaining, self.expected, "remaining")
+        if self.pass_index == 2 and self.present_before:
+            raise ValueError("second delete pass must observe idempotent absence")
         _identity_tuple(
             self.scoped_point_ids_after,
             "scoped_point_ids_after",

@@ -148,6 +148,9 @@ def test_managed_locomo_canary_runs_real_nine_slot_lifecycle_without_skips() -> 
     assert rig.trace.events == _expected_adapter_trace(case_alias)
     assert report["managed_run"]["trace"] == _expected_managed_trace(case_alias)
     assert rig.trace.events.index("canonical_source.seal") < rig.trace.events.index(
+        f"retrieve:{INFINITY_BACKEND}:{case_alias}"
+    )
+    assert rig.trace.events.index("canonical_source.seal") < rig.trace.events.index(
         f"delete:{INFINITY_BACKEND}:1"
     )
     assert not rig.state.stores
@@ -185,7 +188,7 @@ def test_candidate_source_mismatch_never_reaches_a_public_verdict() -> None:
         _run(rig)
     assert not getattr(raised.value, "__notes__", ())
     assert "delete.seal" in rig.trace.events
-    assert "canonical_source.seal" not in rig.trace.events
+    assert "canonical_source.seal" in rig.trace.events
     assert "policy.aggregate" not in rig.trace.events
 
 
@@ -444,6 +447,8 @@ def _expected_adapter_trace(case_id: str) -> list[str]:
         "attest",
         f"ingest:{INFINITY_BACKEND}",
         f"ingest:{MEM0_BACKEND}",
+        "canonical_source.issue",
+        "canonical_source.seal",
         f"retrieve:{INFINITY_BACKEND}:{case_id}",
         f"answer:{INFINITY_BACKEND}:{case_id}",
         f"judge:{INFINITY_BACKEND}:{case_id}",
@@ -451,8 +456,6 @@ def _expected_adapter_trace(case_id: str) -> list[str]:
         f"answer:{MEM0_BACKEND}:{case_id}",
         f"judge:{MEM0_BACKEND}:{case_id}",
         "execution.seal",
-        "canonical_source.issue",
-        "canonical_source.seal",
         f"delete:{INFINITY_BACKEND}:1",
         f"delete:{MEM0_BACKEND}:1",
         f"delete:{INFINITY_BACKEND}:2",
@@ -471,6 +474,7 @@ def _expected_managed_trace(case_id: str) -> list[str]:
         "attestation.live",
         f"ingest:{INFINITY_BACKEND}:{corpus_id}",
         f"ingest:{MEM0_BACKEND}:{corpus_id}",
+        "canonical_source.seal",
         f"retrieve:{INFINITY_BACKEND}:{case_id}",
         f"answer:{INFINITY_BACKEND}:{case_id}",
         f"judge:{INFINITY_BACKEND}:{case_id}",
@@ -478,7 +482,6 @@ def _expected_managed_trace(case_id: str) -> list[str]:
         f"answer:{MEM0_BACKEND}:{case_id}",
         f"judge:{MEM0_BACKEND}:{case_id}",
         "execution.seal",
-        "canonical_source.seal",
         f"delete:{INFINITY_BACKEND}:1",
         f"delete:{MEM0_BACKEND}:1",
         f"delete:{INFINITY_BACKEND}:2",

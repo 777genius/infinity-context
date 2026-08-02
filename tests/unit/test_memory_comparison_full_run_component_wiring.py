@@ -159,6 +159,10 @@ def _managed_http_policy_validation(
                 source_pairs=(("source-1", "3" * 64), ("source-2", "4" * 64)),
                 presence_commitment_sha256="5" * 64,
                 derived_commitments=(("qdrant", "6" * 64), ("graphiti", "7" * 64)),
+                derived_dispositions=(
+                    ("qdrant", "projected", None),
+                    ("graphiti", "projected", None),
+                ),
             ),
         ),
         cleanup_passes=tuple(

@@ -1,5 +1,6 @@
 """HTTP auth dependency and Core Lite scope guard."""
 
+import hmac
 from typing import Annotated, Any
 
 from fastapi import Depends, Header, Request
@@ -47,6 +48,31 @@ async def require_service_token(
     await _ensure_memory_scope_scoped_token_can_access_request(container, request, db_token)
 
 
+async def require_strict_admin_service_token(
+    container: Annotated[Container, Depends(get_container)],
+    authorization: Annotated[str | None, Header()] = None,
+) -> None:
+    """Require an unscoped root or database-backed admin token, even when unset."""
+
+    prefix = "Bearer "
+    if not authorization or not authorization.startswith(prefix):
+        raise MemoryUnauthorizedError("Missing or invalid service token")
+    token = authorization.removeprefix(prefix).strip()
+    if not token:
+        raise MemoryUnauthorizedError("Missing or invalid service token")
+
+    expected = container.settings.service_token
+    if expected and hmac.compare_digest(token, expected):
+        return
+    db_token = await get_active_db_token(container, token)
+    if db_token is None:
+        raise MemoryUnauthorizedError("Missing or invalid service token")
+    if MEMORY_PERMISSION_ADMIN not in db_token.permissions:
+        raise MemoryForbiddenError("Service token lacks required permission")
+    if db_token.space_id is not None or db_token.memory_scope_ids is not None:
+        raise MemoryForbiddenError("Scoped service token cannot access unscoped endpoint")
+
+
 def _ensure_permission(request: Request, token: ActiveServiceToken) -> None:
     required = _required_permission(request)
     if required is None:
@@ -61,6 +87,9 @@ def _required_permission(request: Request) -> str | None:
 
     if path == "/v1/capabilities":
         return MEMORY_PERMISSION_READ
+
+    if path.startswith("/v1/internal/memory-comparison/runs"):
+        return MEMORY_PERMISSION_ADMIN
 
     if path in {
         "/v1/diagnostics/derived-evidence/qdrant/delete",
@@ -185,6 +214,8 @@ async def _ensure_scoped_token_can_access_request(
 ) -> None:
     if token.space_id is None:
         return
+    if request.url.path.startswith("/v1/internal/memory-comparison/runs"):
+        raise MemoryForbiddenError("Scoped service token cannot access unscoped endpoint")
     if _is_safe_unscoped_endpoint(request):
         return
 
@@ -204,6 +235,10 @@ async def _ensure_memory_scope_scoped_token_can_access_request(
 ) -> None:
     if token.memory_scope_ids is None:
         return
+    if request.url.path.startswith("/v1/internal/memory-comparison/runs"):
+        raise MemoryForbiddenError(
+            "MemoryScope-scoped service token cannot access unscoped endpoint"
+        )
     if _is_safe_unscoped_endpoint(request):
         return
 

@@ -82,6 +82,9 @@ from infinity_context_core.application.context_query_duration import (
     activity_duration_tail,
     requests_activity_duration_context,
 )
+from infinity_context_core.application.context_query_financial_resources_inference import (
+    financial_resources_inference_tail,
+)
 from infinity_context_core.application.context_query_frequency import (
     frequency_recurrence_tail,
     requests_frequency_recurrence_context,
@@ -103,6 +106,9 @@ from infinity_context_core.application.context_query_workflow_intent import (
 )
 from infinity_context_core.application.context_temporal_intent_policy import (
     temporal_ordering_intent,
+)
+from infinity_context_core.application.context_temporal_interval_requirements import (
+    temporal_interval_requirements,
 )
 from infinity_context_core.application.context_temporal_query import (
     TemporalQueryIntent,
@@ -148,6 +154,9 @@ def build_query_decomposition_plan(
         variants=variants,
     )
     candidates: list[QueryDecomposition] = []
+    interval_requirements = temporal_interval_requirements(query)
+    for endpoint in interval_requirements.endpoints:
+        _append_candidate(candidates, query=endpoint.query, reason=endpoint.slot_id)
     ordering_intent = temporal_ordering_intent(query)
     for endpoint in ordering_intent.endpoints:
         _append_candidate(candidates, query=endpoint.query, reason=endpoint.slot_id)
@@ -624,6 +633,21 @@ def build_query_decomposition_plan(
             variants=variants,
         )
     )
+    financial_resources_tail = financial_resources_inference_tail(
+        query=query,
+        identities=identities,
+        raw_tokens=raw_tokens,
+        variants=variants,
+    )
+    if financial_resources_tail is not None:
+        _append_candidate(
+            candidates,
+            query=_compose_query(
+                (*identities, *salient_terms),
+                financial_resources_tail,
+            ),
+            reason="decomposition_financial_resources_inference",
+        )
     if variants.intersection(_INFERENCE_TERMS):
         _append_candidate(
             candidates,
@@ -666,7 +690,10 @@ def build_query_decomposition_plan(
             ),
             reason="decomposition_current_preference_or_goal",
         )
-    if _requests_comparison_preference(raw_tokens=raw_tokens, variants=variants):
+    if not interval_requirements.explicit and _requests_comparison_preference(
+        raw_tokens=raw_tokens,
+        variants=variants,
+    ):
         _append_candidate(
             candidates,
             query=_compose_query(

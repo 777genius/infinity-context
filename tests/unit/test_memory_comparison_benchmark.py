@@ -13,6 +13,7 @@ import httpx
 import infinity_context_server.memory_comparison_http as http_module
 import infinity_context_server.memory_comparison_rerank as rerank_module
 import pytest
+from infinity_context_core.application.normalize import content_hash
 from infinity_context_server import eval as eval_module
 from infinity_context_server.memory_comparison_benchmark import (
     LOCOMO_INGEST_OFFICIAL_TURNS,
@@ -17579,9 +17580,7 @@ def test_mem0_http_ingest_uses_run_isolated_user_and_redacts_errors() -> None:
         "corpus_key": "corpus-a",
         "source_external_id": "conv-1-doc",
         "source_id": "conv-1-doc",
-        "source_sha256": hashlib.sha256(
-            b"Morgan said: blue notebook"
-        ).hexdigest(),
+        "source_sha256": content_hash("Morgan said: blue notebook"),
     }
 
 

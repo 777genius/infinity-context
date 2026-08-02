@@ -294,7 +294,7 @@ def test_adversarial_answer_failure_never_reaches_a_public_verdict() -> None:
     assert rig.judge.gold_validation is None
     assert rig.judge.execution_validation is None
     assert "execution.seal" not in rig.trace.events
-    assert "canonical_source.seal" not in rig.trace.events
+    assert "canonical_source.seal" in rig.trace.events
     assert "policy.aggregate" not in rig.trace.events
     assert "components.issue" not in rig.trace.events
     assert "verdict.seal" not in rig.trace.events

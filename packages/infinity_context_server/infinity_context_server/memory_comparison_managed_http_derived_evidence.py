@@ -9,6 +9,10 @@ from collections.abc import Callable
 from typing import final
 
 import httpx
+from infinity_context_core.ports.derived_projection_policy import (
+    DerivedProjectionLaneDisposition,
+    DerivedProjectionLanePolicyError,
+)
 
 from infinity_context_server.memory_comparison_managed_http_execution import (
     ManagedInfinityHttpConfig,
@@ -54,9 +58,7 @@ class ManagedDerivedEvidenceHttpClient:
         transport_factory: Callable[[], httpx.BaseTransport] | None = None,
     ) -> None:
         if type(config) is not ManagedInfinityHttpConfig or config.transport is not None:
-            raise ManagedDerivedEvidenceHttpError(
-                "managed_derived_evidence_config_invalid"
-            )
+            raise ManagedDerivedEvidenceHttpError("managed_derived_evidence_config_invalid")
         if transport_factory is not None and not callable(transport_factory):
             raise ManagedDerivedEvidenceHttpError(
                 "managed_derived_evidence_transport_factory_invalid"
@@ -127,9 +129,7 @@ class ManagedDerivedEvidenceHttpClient:
         _digest_request(target_commitment_sha256)
         _digest_request(manifest_binding_sha256)
         if not manifest.infinity_chunk_ids:
-            raise ManagedDerivedEvidenceHttpError(
-                "managed_derived_evidence_qdrant_manifest_empty"
-            )
+            raise ManagedDerivedEvidenceHttpError("managed_derived_evidence_qdrant_manifest_empty")
         payload = {
             **_scope_request(scope),
             "expected_chunk_ids": list(manifest.infinity_chunk_ids),
@@ -163,9 +163,11 @@ class ManagedDerivedEvidenceHttpClient:
         manifest_sha256 = _request_manifest(scope, manifest)
         _digest_request(target_commitment_sha256)
         _digest_request(manifest_binding_sha256)
-        if not manifest.infinity_fact_ids or type(
-            identity_manifest
-        ) is not ManagedGraphitiIdentitySnapshot or identity_manifest.empty:
+        if (
+            not manifest.infinity_fact_ids
+            or type(identity_manifest) is not ManagedGraphitiIdentitySnapshot
+            or identity_manifest.empty
+        ):
             raise ManagedDerivedEvidenceHttpError(
                 "managed_derived_evidence_graphiti_manifest_invalid"
             )
@@ -281,14 +283,10 @@ class ManagedDerivedEvidenceHttpClient:
                 "managed_derived_evidence_transport_factory_failed"
             ) from None
         if not isinstance(transport, httpx.BaseTransport):
-            raise ManagedDerivedEvidenceHttpError(
-                "managed_derived_evidence_transport_invalid"
-            )
+            raise ManagedDerivedEvidenceHttpError("managed_derived_evidence_transport_invalid")
         with self._transport_lock:
             if any(item is transport for item in self._owned_transports):
-                raise ManagedDerivedEvidenceHttpError(
-                    "managed_derived_evidence_transport_reused"
-                )
+                raise ManagedDerivedEvidenceHttpError("managed_derived_evidence_transport_reused")
             self._owned_transports.append(transport)
         return transport
 
@@ -322,15 +320,13 @@ def _presence_observation(
     ):
         _invalid()
     lanes = _object(root["lanes"], {"qdrant", "graphiti"})
-    qdrant = _qdrant_presence(lanes["qdrant"]) if lanes["qdrant"] is not None else None
-    graphiti = (
-        _graphiti_presence(lanes["graphiti"], scope)
-        if lanes["graphiti"] is not None
-        else None
-    )
+    qdrant = _qdrant_lane(lanes["qdrant"])
+    graphiti = _graphiti_lane(lanes["graphiti"], scope)
     if bool(chunk_ids) != (qdrant is not None) or bool(fact_ids) != (graphiti is not None):
         _invalid()
-    if qdrant is not None and tuple(item.chunk_id for item in qdrant.expected) != chunk_ids:
+    if type(qdrant) is ManagedQdrantPresenceObservation and (
+        tuple(item.chunk_id for item in qdrant.expected) != chunk_ids
+    ):
         _invalid()
     return ManagedDerivedPresenceObservation(
         target,
@@ -342,10 +338,32 @@ def _presence_observation(
     )
 
 
+def _qdrant_lane(
+    value: object,
+) -> ManagedQdrantPresenceObservation | DerivedProjectionLaneDisposition | None:
+    if value is None:
+        return None
+    if _is_not_projected(value):
+        return _not_projected_lane(value, lane="qdrant")
+    return _qdrant_presence(value)
+
+
+def _graphiti_lane(
+    value: object,
+    scope: ManagedCanonicalProjectionScope,
+) -> ManagedGraphitiPresenceObservation | DerivedProjectionLaneDisposition | None:
+    if value is None:
+        return None
+    if _is_not_projected(value):
+        return _not_projected_lane(value, lane="graphiti")
+    return _graphiti_presence(value, scope)
+
+
 def _qdrant_presence(value: object) -> ManagedQdrantPresenceObservation:
     data = _object(
         value,
         {
+            "disposition",
             "projection_version",
             "target_commitment_sha256",
             "manifest_binding_sha256",
@@ -356,6 +374,8 @@ def _qdrant_presence(value: object) -> ManagedQdrantPresenceObservation:
             "complete",
         },
     )
+    if data["disposition"] != "projected":
+        _invalid()
     return ManagedQdrantPresenceObservation(
         _identity(data["projection_version"]),
         _digest(data["target_commitment_sha256"]),
@@ -375,6 +395,7 @@ def _graphiti_presence(
     data = _object(
         value,
         {
+            "disposition",
             "target_commitment_sha256",
             "manifest_binding_sha256",
             "identity_manifest",
@@ -382,6 +403,8 @@ def _graphiti_presence(
             "complete",
         },
     )
+    if data["disposition"] != "projected":
+        _invalid()
     return ManagedGraphitiPresenceObservation(
         scope,
         _digest(data["target_commitment_sha256"]),
@@ -390,6 +413,23 @@ def _graphiti_presence(
         _integer(data["exact_identity_count"]),
         _boolean(data["complete"]),
     )
+
+
+def _is_not_projected(value: object) -> bool:
+    return type(value) is dict and value.get("disposition") == "not_projected"
+
+
+def _not_projected_lane(value: object, *, lane: str) -> DerivedProjectionLaneDisposition:
+    data = _object(value, {"disposition", "policy_sha256"})
+    try:
+        return DerivedProjectionLaneDisposition(
+            lane=lane,
+            disposition=str(data["disposition"]),
+            policy_sha256=_digest(data["policy_sha256"]),
+        )
+    except DerivedProjectionLanePolicyError:
+        _invalid()
+        raise AssertionError("unreachable") from None
 
 
 def _qdrant_delete_observation(
@@ -488,18 +528,29 @@ def _graphiti_delete_observation(
             "manifest_binding_sha256",
             "verified_absent",
             "bound_expected",
+            "delete_expected",
             "passes",
         },
     )
+    bound_expected = _snapshot(root["bound_expected"])
+    delete_expected = _snapshot(root["delete_expected"])
     if (
         root["lane"] != "graphiti"
         or _digest(root["target_commitment_sha256"]) != target_commitment
         or _digest(root["manifest_binding_sha256"]) != manifest_binding
-        or _snapshot(root["bound_expected"]) != expected
+        or bound_expected != expected
     ):
         _invalid()
     passes_value = _array(root["passes"], maximum=2)
     if len(passes_value) != 2:
+        _invalid()
+    passes = tuple(_graphiti_delete_pass(item) for item in passes_value)
+    empty = ManagedGraphitiIdentitySnapshot((), (), (), ())
+    if (
+        delete_expected not in (bound_expected, empty)
+        or passes[0].before != delete_expected
+        or passes[0].deleted != delete_expected
+    ):
         _invalid()
     return ManagedGraphitiDeleteObservation(
         lifecycle_target,
@@ -509,7 +560,7 @@ def _graphiti_delete_observation(
         expected_fact_ids,
         expected,
         scope,
-        tuple(_graphiti_delete_pass(item) for item in passes_value),
+        passes,
         _boolean(root["verified_absent"]),
     )
 
@@ -543,9 +594,7 @@ def _request_manifest(
     try:
         return managed_ingest_identity_manifest_sha256(manifest, scope)
     except ManagedPolicyObservationContractError:
-        raise ManagedDerivedEvidenceHttpError(
-            "managed_derived_evidence_manifest_invalid"
-        ) from None
+        raise ManagedDerivedEvidenceHttpError("managed_derived_evidence_manifest_invalid") from None
 
 
 def _scope_request(scope: ManagedCanonicalProjectionScope) -> dict[str, object]:
@@ -606,9 +655,7 @@ def _points(value: object) -> tuple[ManagedQdrantPointIdentity, ...]:
 
 
 def _identities(value: object) -> tuple[str, ...]:
-    return tuple(
-        _identity(item) for item in _array(value, maximum=_MAX_IDENTITIES)
-    )
+    return tuple(_identity(item) for item in _array(value, maximum=_MAX_IDENTITIES))
 
 
 def _object(value: object, keys: set[str]) -> dict[str, object]:
@@ -652,9 +699,7 @@ def _digest_request(value: object) -> None:
     try:
         _digest(value)
     except ManagedPolicyObservationContractError:
-        raise ManagedDerivedEvidenceHttpError(
-            "managed_derived_evidence_binding_invalid"
-        ) from None
+        raise ManagedDerivedEvidenceHttpError("managed_derived_evidence_binding_invalid") from None
 
 
 def _integer(value: object) -> int:

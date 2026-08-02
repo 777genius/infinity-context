@@ -5,16 +5,22 @@ import hashlib
 import json
 import pickle
 import threading
-from dataclasses import replace
+from dataclasses import asdict, replace
 
 import pytest
+from infinity_context_core.ports.derived_projection_policy import (
+    DerivedProjectionLaneDisposition,
+    derived_not_projected_policy_sha256,
+)
 from infinity_context_server import (
     memory_comparison_managed_http_policy_validation as validation_module,
 )
+from infinity_context_server.memory_comparison_evidence_commitment import evidence_commitment
 from infinity_context_server.memory_comparison_managed_http_policy_validation import (
     MANAGED_HTTP_POLICY_VALIDATION_SCHEMA_VERSION,
     ManagedHttpPolicyCleanupPassMaterial,
     ManagedHttpPolicyCorpusMaterial,
+    ManagedHttpPolicyRegistryMaterial,
     ManagedHttpPolicyValidationError,
     ManagedHttpPolicyValidationMaterial,
     VerifiedManagedHttpPolicyValidation,
@@ -41,6 +47,10 @@ def _corpus(
         derived_commitments=(
             ("qdrant", _sha(f"qdrant:{corpus_id}")),
             ("graphiti", _sha(f"graphiti:{corpus_id}")),
+        ),
+        derived_dispositions=(
+            ("qdrant", "projected", None),
+            ("graphiti", "projected", None),
         ),
     )
 
@@ -113,6 +123,18 @@ def _material(
     )
 
 
+def _registry() -> ManagedHttpPolicyRegistryMaterial:
+    return ManagedHttpPolicyRegistryMaterial(
+        registration_commitment_sha256=_sha("registry-registration"),
+        projection_manifest_sha256=_sha("registry-projection"),
+        cleanup_initiation_receipt_sha256=_sha("registry-cleanup"),
+        completion_receipt_sha256=_sha("registry-completion"),
+        projection_absence_proof_sha256=_sha("registry-absence"),
+        wrapper_adapter_id="managed-registry-wrapper-v1",
+        wrapper_implementation_sha256=_sha("registry-wrapper-implementation"),
+    )
+
+
 def test_seals_shared_corpus_and_returns_sanitized_json_report() -> None:
     material = _material()
     validation = seal_managed_http_policy_validation(material=material)
@@ -139,6 +161,40 @@ def test_seals_shared_corpus_and_returns_sanitized_json_report() -> None:
     assert "source-a" not in encoded
     assert len(report["material_commitment_sha256"]) == 64
     assert len(report["validation_commitment_sha256"]) == 64
+    assert report["registry_evidence"] is None
+
+
+def test_registry_evidence_is_exact_public_and_snapshot_immutable() -> None:
+    registry = _registry()
+    material = replace(
+        _material(),
+        adapter_id=registry.wrapper_adapter_id,
+        implementation_sha256=registry.wrapper_implementation_sha256,
+        registry=registry,
+    )
+    validation = seal_managed_http_policy_validation(material=material)
+    object.__setattr__(registry, "completion_receipt_sha256", _sha("tampered"))
+
+    report = public_managed_http_policy_validation(validation)
+
+    assert report["adapter_id"] == "managed-registry-wrapper-v1"
+    assert report["implementation_sha256"] == _sha("registry-wrapper-implementation")
+    assert report["registry_evidence"] == {
+        "registration_commitment_sha256": _sha("registry-registration"),
+        "projection_manifest_sha256": _sha("registry-projection"),
+        "cleanup_initiation_receipt_sha256": _sha("registry-cleanup"),
+        "completion_receipt_sha256": _sha("registry-completion"),
+        "projection_absence_proof_sha256": _sha("registry-absence"),
+        "wrapper_adapter_id": "managed-registry-wrapper-v1",
+        "wrapper_implementation_sha256": _sha("registry-wrapper-implementation"),
+    }
+
+
+def test_registry_adapter_provenance_mismatch_is_rejected() -> None:
+    registry = _registry()
+    with pytest.raises(ManagedHttpPolicyValidationError) as raised:
+        replace(_material(), registry=registry)
+    assert raised.value.code == "managed_policy_registry_adapter_binding_invalid"
 
 
 def test_material_commitment_is_deterministic_but_live_seals_are_unique() -> None:
@@ -158,6 +214,85 @@ def test_material_commitment_is_deterministic_but_live_seals_are_unique() -> Non
         first_report["validation_commitment_sha256"]
         != second_report["validation_commitment_sha256"]
     )
+
+
+def _not_projected_presence_commitment(lane: str) -> str:
+    disposition = DerivedProjectionLaneDisposition(
+        lane=lane,
+        disposition="not_projected",
+        policy_sha256=derived_not_projected_policy_sha256(lane),
+    )
+    return evidence_commitment(f"{lane}-presence.v1", asdict(disposition))
+
+
+def test_not_projected_dispositions_are_bound_into_policy_material() -> None:
+    dispositions = (
+        ("qdrant", "not_projected", derived_not_projected_policy_sha256("qdrant")),
+        ("graphiti", "not_projected", derived_not_projected_policy_sha256("graphiti")),
+    )
+    corpus = replace(
+        _corpus(),
+        derived_commitments=(
+            ("qdrant", _not_projected_presence_commitment("qdrant")),
+            ("graphiti", _not_projected_presence_commitment("graphiti")),
+        ),
+        derived_dispositions=dispositions,
+    )
+    material = _material(corpora=(corpus,))
+
+    first = managed_http_policy_validation_material_sha256(material)
+    second = managed_http_policy_validation_material_sha256(material)
+
+    assert first == second
+    with pytest.raises(ManagedHttpPolicyValidationError) as raised:
+        replace(
+            corpus,
+            derived_dispositions=(
+                ("qdrant", "not_projected", "0" * 64),
+                ("graphiti", "not_projected", derived_not_projected_policy_sha256("graphiti")),
+            ),
+        )
+    assert raised.value.code == "managed_policy_derived_disposition_invalid"
+
+
+def test_not_projected_disposition_commitment_tampering_is_rejected() -> None:
+    corpus = replace(
+        _corpus(),
+        derived_commitments=(
+            ("qdrant", _not_projected_presence_commitment("qdrant")),
+            ("graphiti", _not_projected_presence_commitment("graphiti")),
+        ),
+        derived_dispositions=(
+            ("qdrant", "not_projected", derived_not_projected_policy_sha256("qdrant")),
+            ("graphiti", "not_projected", derived_not_projected_policy_sha256("graphiti")),
+        ),
+    )
+
+    with pytest.raises(ManagedHttpPolicyValidationError) as raised:
+        replace(
+            corpus,
+            derived_commitments=(
+                ("qdrant", _sha("tampered-not-projected-commitment")),
+                ("graphiti", _not_projected_presence_commitment("graphiti")),
+            ),
+        )
+
+    assert raised.value.code == "managed_policy_derived_disposition_binding_invalid"
+
+
+def test_projected_disposition_cannot_retain_not_projected_commitment() -> None:
+    corpus = _corpus()
+
+    with pytest.raises(ManagedHttpPolicyValidationError) as raised:
+        replace(
+            corpus,
+            derived_commitments=(
+                ("qdrant", _not_projected_presence_commitment("qdrant")),
+                corpus.derived_commitments[1],
+            ),
+        )
+
+    assert raised.value.code == "managed_policy_derived_disposition_binding_invalid"
 
 
 def test_consume_is_exact_one_shot_and_failed_binding_restores_live() -> None:

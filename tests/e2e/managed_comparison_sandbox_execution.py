@@ -20,7 +20,11 @@ from infinity_context_server.memory_comparison_full_run_evidence import (
     FullComparisonRunBindings,
 )
 from infinity_context_server.memory_comparison_gold_blind import build_gold_blind_contract
+from infinity_context_server.memory_comparison_gold_blind_answer_contract import (
+    gold_blind_evidence_identity,
+)
 from infinity_context_server.memory_comparison_gold_blind_contract import (
+    JUDGE_RESULT_SCHEMA_VERSION,
     GoldBlindEvidence,
     GoldBlindExpectedDispatchCase,
     GoldBlindJudgeResult,
@@ -33,6 +37,9 @@ from infinity_context_server.memory_comparison_gold_blind_contract import (
     issue_gold_blind_judge_dispatch_binding,
     verify_gold_blind_execution,
 )
+from infinity_context_server.memory_comparison_gold_blind_run_validation import (
+    canonical_dispatch_json,
+)
 from infinity_context_server.memory_comparison_locomo_expected_turn import (
     ExpectedOfficialLocomoTurn,
 )
@@ -43,8 +50,21 @@ from infinity_context_server.memory_comparison_locomo_transport import (
 from infinity_context_server.memory_comparison_managed_corpus_projection import (
     _managed_corpus_record,
 )
+from infinity_context_server.memory_comparison_managed_execution_receipts import (
+    ManagedSealedJudgeOutcome,
+    consume_sealed_managed_execution_receipt,
+    create_managed_execution_receipt_issuer,
+    issue_managed_answer_receipt,
+    issue_managed_judge_receipt,
+    issue_managed_retrieval_receipt,
+    seal_managed_execution_receipt,
+)
 from infinity_context_server.memory_comparison_managed_plan_builder import (
     managed_execution_case_material_sha256,
+)
+from infinity_context_server.memory_comparison_managed_provider_calls import (
+    ManagedProviderCallOutcome,
+    ManagedProviderLaneBinding,
 )
 from infinity_context_server.memory_comparison_managed_run_contract import (
     ManagedAnswerCase,
@@ -54,6 +74,7 @@ from infinity_context_server.memory_comparison_managed_run_contract import (
 )
 from infinity_context_server.memory_comparison_provider_provenance import (
     ProviderCallProvenance,
+    ProviderChatCompletion,
     ProviderRouteAttestation,
 )
 from infinity_context_server.memory_comparison_session_identity_contract import (
@@ -502,12 +523,121 @@ class SandboxJudgePort:
         self.gold_validation = gold
         self.execution_validation = execution
         self.trace.add("execution.seal")
+        provider_calls = {
+            (item.case_id, item.backend_role, item.stage): item
+            for item in self._provider_calls
+        }
+        quality_outcomes = tuple(
+            _sealed_quality_outcome(
+                bindings=bindings,
+                execution=item,
+                provider_calls=provider_calls,
+            )
+            for item in executions
+        )
         return ManagedExecutionArtifacts(
             gold,
             execution,
             case_manifest_sha256,
             case_material_sha256,
+            quality_outcomes,
         )
+
+
+def _sealed_quality_outcome(
+    *,
+    bindings: FullComparisonRunBindings,
+    execution: ManagedCaseExecution,
+    provider_calls: Mapping[tuple[str, str, str], FullExecutionProviderCall],
+) -> ManagedSealedJudgeOutcome:
+    raw_result = execution.judge_receipt
+    assert type(raw_result) is dict
+    result = GoldBlindJudgeResult(
+        verdict=raw_result.get("verdict"),
+        score=raw_result.get("score"),
+    )
+    assert raw_result == {
+        "schema_version": JUDGE_RESULT_SCHEMA_VERSION,
+        "verdict": result.verdict,
+        "score": result.score,
+    }
+    target = tuple(
+        item.target_identity_sha256
+        for item in bindings.backend_targets
+        if item.backend_role == execution.backend_role
+    )
+    assert len(target) == 1
+    answer_binding = ManagedProviderLaneBinding(
+        bindings.binding_commitment_sha256,
+        bindings.run_id,
+        bindings.profile_id,
+        execution.case_id,
+        execution.backend_role,
+        "answerer",
+        REQUIRED_MODEL,
+        0,
+    )
+    judge_binding = ManagedProviderLaneBinding(
+        bindings.binding_commitment_sha256,
+        bindings.run_id,
+        bindings.profile_id,
+        execution.case_id,
+        execution.backend_role,
+        "judge",
+        REQUIRED_MODEL,
+        1,
+    )
+    issuer = create_managed_execution_receipt_issuer(
+        answer_binding=answer_binding,
+        judge_binding=judge_binding,
+        target_identity_sha256=target[0],
+    )
+    evidence = (GoldBlindEvidence("receipt-evidence", "sandbox receipt evidence", 1, None),)
+    retrieved = issue_managed_retrieval_receipt(
+        issuer,
+        evidence=evidence,
+        retrieval_identity=gold_blind_evidence_identity(evidence),
+    )
+    answer_call = provider_calls[(execution.case_id, execution.backend_role, "answerer")]
+    answered = issue_managed_answer_receipt(
+        issuer,
+        predecessor=retrieved,
+        outcome=_receipt_outcome(answer_binding, answer_call),
+        answer_result_identity=hashlib.sha256(
+            canonical_dispatch_json(execution.answer_receipt)
+        ).hexdigest(),
+    )
+    judge_call = provider_calls[(execution.case_id, execution.backend_role, "judge")]
+    judged = issue_managed_judge_receipt(
+        issuer,
+        predecessor=answered,
+        outcome=_receipt_outcome(judge_binding, judge_call),
+        judge_result=result,
+        judge_result_sha256=hashlib.sha256(
+            canonical_dispatch_json(raw_result)
+        ).hexdigest(),
+    )
+    calls, proof = consume_sealed_managed_execution_receipt(
+        issuer,
+        seal_managed_execution_receipt(issuer, predecessor=judged),
+    )
+    assert calls == (answer_call, judge_call)
+    return proof
+
+
+def _receipt_outcome(
+    binding: ManagedProviderLaneBinding,
+    provider_call: FullExecutionProviderCall,
+) -> ManagedProviderCallOutcome:
+    provenance = provider_call.provenance
+    completion = ProviderChatCompletion(
+        text="sandbox-receipt",
+        prompt_tokens=1,
+        completion_tokens=1,
+        token_usage_source="provider_observed",
+        provenance=provenance,
+    )
+    return ManagedProviderCallOutcome(binding, completion, provider_call)
 
 
 def _execution_validation(

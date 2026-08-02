@@ -9,12 +9,20 @@ import re
 import secrets
 import threading
 import weakref
-from dataclasses import dataclass
+from dataclasses import asdict, dataclass
 from types import MappingProxyType
 from typing import final
 
+from infinity_context_core.ports.derived_projection_policy import (
+    DerivedProjectionLaneDisposition,
+    DerivedProjectionLanePolicyError,
+    derived_not_projected_policy_sha256,
+)
+
+from infinity_context_server.memory_comparison_evidence_commitment import evidence_commitment
+
 MANAGED_HTTP_POLICY_VALIDATION_SCHEMA_VERSION = (
-    "memory-comparison-managed-http-policy-validation.v2"
+    "memory-comparison-managed-http-policy-validation.v5"
 )
 _SHA256 = re.compile(r"^[0-9a-f]{64}$")
 _BACKEND_ROLES = ("infinity-context", "mem0")
@@ -47,6 +55,7 @@ class ManagedHttpPolicyCorpusMaterial:
     source_pairs: tuple[tuple[str, str], ...]
     presence_commitment_sha256: str
     derived_commitments: tuple[tuple[str, str], ...]
+    derived_dispositions: tuple[tuple[str, str, str | None], ...]
 
     def __post_init__(self) -> None:
         _corpus_snapshot(self)
@@ -80,6 +89,27 @@ class ManagedHttpPolicyCleanupPassMaterial:
 
 @final
 @dataclass(frozen=True, slots=True)
+class ManagedHttpPolicyRegistryMaterial:
+    """Exact canonical registry completion evidence bound by the wrapper."""
+
+    registration_commitment_sha256: str
+    projection_manifest_sha256: str
+    cleanup_initiation_receipt_sha256: str
+    completion_receipt_sha256: str
+    projection_absence_proof_sha256: str
+    wrapper_adapter_id: str
+    wrapper_implementation_sha256: str
+
+    def __post_init__(self) -> None:
+        _registry_snapshot(self)
+
+    def __init_subclass__(cls, **kwargs: object) -> None:
+        del cls, kwargs
+        raise TypeError("ManagedHttpPolicyRegistryMaterial is final")
+
+
+@final
+@dataclass(frozen=True, slots=True)
 class ManagedHttpPolicyValidationMaterial:
     """Complete provider-neutral material required to mint policy authority."""
 
@@ -95,6 +125,7 @@ class ManagedHttpPolicyValidationMaterial:
     case_corpus_mapping: tuple[tuple[str, str], ...]
     corpora: tuple[ManagedHttpPolicyCorpusMaterial, ...]
     cleanup_passes: tuple[ManagedHttpPolicyCleanupPassMaterial, ...]
+    registry: ManagedHttpPolicyRegistryMaterial | None = None
 
     def __post_init__(self) -> None:
         _material_snapshot(self)
@@ -148,6 +179,7 @@ class _CorpusSnapshot:
     source_pairs: tuple[tuple[str, str], ...]
     presence_commitment_sha256: str
     derived_commitments: tuple[tuple[str, str], ...]
+    derived_dispositions: tuple[tuple[str, str, str | None], ...]
 
 
 @dataclass(frozen=True, slots=True)
@@ -159,6 +191,17 @@ class _CleanupSnapshot:
     exact_absence_commitment_sha256: str
     replay_of_cleanup_commitment_sha256: str | None
     corpus_absence_commitments: tuple[tuple[str, str], ...]
+
+
+@dataclass(frozen=True, slots=True)
+class _RegistrySnapshot:
+    registration_commitment_sha256: str
+    projection_manifest_sha256: str
+    cleanup_initiation_receipt_sha256: str
+    completion_receipt_sha256: str
+    projection_absence_proof_sha256: str
+    wrapper_adapter_id: str
+    wrapper_implementation_sha256: str
 
 
 @dataclass(frozen=True, slots=True)
@@ -175,6 +218,7 @@ class _MaterialSnapshot:
     case_corpus_mapping: tuple[tuple[str, str], ...]
     corpora: tuple[_CorpusSnapshot, ...]
     cleanup_passes: tuple[_CleanupSnapshot, ...]
+    registry: _RegistrySnapshot | None
 
 
 @dataclass(slots=True)
@@ -273,6 +317,25 @@ def managed_http_policy_validation_material_sha256(
     return _json_sha256(_material_payload(_material_snapshot(material)))
 
 
+def managed_http_policy_registry_material_sha256(
+    material: ManagedHttpPolicyRegistryMaterial,
+) -> str:
+    """Return a deterministic integrity commitment for copied registry evidence."""
+
+    snapshot = _registry_snapshot(material)
+    return _json_sha256(
+        (
+            snapshot.registration_commitment_sha256,
+            snapshot.projection_manifest_sha256,
+            snapshot.cleanup_initiation_receipt_sha256,
+            snapshot.completion_receipt_sha256,
+            snapshot.projection_absence_proof_sha256,
+            snapshot.wrapper_adapter_id,
+            snapshot.wrapper_implementation_sha256,
+        )
+    )
+
+
 def _material_snapshot(value: object) -> _MaterialSnapshot:
     if type(value) is not ManagedHttpPolicyValidationMaterial:
         raise ManagedHttpPolicyValidationError("managed_policy_material_type_invalid")
@@ -309,6 +372,17 @@ def _material_snapshot(value: object) -> _MaterialSnapshot:
     )
     cleanup_snapshots = tuple(_cleanup_snapshot(item) for item in cleanup)
     _validate_cleanup(cleanup_snapshots, targets, corpus_ids)
+    registry = None if value.registry is None else _registry_snapshot(value.registry)
+    adapter_id = _text(value.adapter_id, "managed_policy_adapter_id_invalid")
+    implementation = _digest(
+        value.implementation_sha256,
+        "managed_policy_implementation_invalid",
+    )
+    if registry is not None and (
+        registry.wrapper_adapter_id != adapter_id
+        or registry.wrapper_implementation_sha256 != implementation
+    ):
+        raise ManagedHttpPolicyValidationError("managed_policy_registry_adapter_binding_invalid")
     return _MaterialSnapshot(
         _text(value.run_id, "managed_policy_run_id_invalid"),
         _text(value.profile_id, "managed_policy_profile_id_invalid"),
@@ -319,8 +393,8 @@ def _material_snapshot(value: object) -> _MaterialSnapshot:
             "managed_policy_attestation_invalid",
         ),
         targets,
-        _text(value.adapter_id, "managed_policy_adapter_id_invalid"),
-        _digest(value.implementation_sha256, "managed_policy_implementation_invalid"),
+        adapter_id,
+        implementation,
         _digest(
             value.execution_case_manifest_sha256,
             "managed_policy_case_manifest_invalid",
@@ -328,6 +402,7 @@ def _material_snapshot(value: object) -> _MaterialSnapshot:
         mapping,
         corpus_snapshots,
         cleanup_snapshots,
+        registry,
     )
 
 
@@ -341,12 +416,14 @@ def _corpus_snapshot(value: object) -> _CorpusSnapshot:
     lanes = tuple(lane for lane, _ in derived)
     if not lanes or lanes != tuple(lane for lane in _DERIVED_LANES if lane in lanes):
         raise ManagedHttpPolicyValidationError("managed_policy_derived_order_invalid")
+    dispositions = _derived_dispositions(value.derived_dispositions, lanes, derived)
     return _CorpusSnapshot(
         _text(value.corpus_id, "managed_policy_corpus_id_invalid"),
         _digest(value.ingest_manifest_sha256, "managed_policy_ingest_manifest_invalid"),
         sources,
         _digest(value.presence_commitment_sha256, "managed_policy_presence_invalid"),
         derived,
+        dispositions,
     )
 
 
@@ -368,6 +445,38 @@ def _cleanup_snapshot(value: object) -> _CleanupSnapshot:
         _digest(value.exact_absence_commitment_sha256, "managed_policy_exact_absence_invalid"),
         replay,
         _pairs(value.corpus_absence_commitments, digest_second=True),
+    )
+
+
+def _registry_snapshot(value: object) -> _RegistrySnapshot:
+    if type(value) is not ManagedHttpPolicyRegistryMaterial:
+        raise ManagedHttpPolicyValidationError("managed_policy_registry_type_invalid")
+    return _RegistrySnapshot(
+        _digest(
+            value.registration_commitment_sha256,
+            "managed_policy_registry_registration_invalid",
+        ),
+        _digest(
+            value.projection_manifest_sha256,
+            "managed_policy_registry_projection_invalid",
+        ),
+        _digest(
+            value.cleanup_initiation_receipt_sha256,
+            "managed_policy_registry_cleanup_invalid",
+        ),
+        _digest(
+            value.completion_receipt_sha256,
+            "managed_policy_registry_completion_invalid",
+        ),
+        _digest(
+            value.projection_absence_proof_sha256,
+            "managed_policy_registry_absence_invalid",
+        ),
+        _text(value.wrapper_adapter_id, "managed_policy_registry_adapter_invalid"),
+        _digest(
+            value.wrapper_implementation_sha256,
+            "managed_policy_registry_implementation_invalid",
+        ),
     )
 
 
@@ -421,6 +530,7 @@ def _verify_integrity(
 
 def _report(snapshot: _MaterialSnapshot, commitment: str) -> dict[str, object]:
     payload = _material_payload(snapshot)
+    registry = snapshot.registry
     return {
         "schema_version": MANAGED_HTTP_POLICY_VALIDATION_SCHEMA_VERSION,
         "run_id": snapshot.run_id,
@@ -443,6 +553,19 @@ def _report(snapshot: _MaterialSnapshot, commitment: str) -> dict[str, object]:
         "case_corpus_mapping_sha256": _json_sha256(payload["case_corpus_mapping"]),
         "corpus_evidence_commitment_sha256": _json_sha256(payload["corpora"]),
         "cleanup_commitment_sha256": _json_sha256(payload["cleanup_passes"]),
+        "registry_evidence": (
+            None
+            if registry is None
+            else {
+                "registration_commitment_sha256": (registry.registration_commitment_sha256),
+                "projection_manifest_sha256": registry.projection_manifest_sha256,
+                "cleanup_initiation_receipt_sha256": (registry.cleanup_initiation_receipt_sha256),
+                "completion_receipt_sha256": registry.completion_receipt_sha256,
+                "projection_absence_proof_sha256": (registry.projection_absence_proof_sha256),
+                "wrapper_adapter_id": registry.wrapper_adapter_id,
+                "wrapper_implementation_sha256": (registry.wrapper_implementation_sha256),
+            }
+        ),
         "material_commitment_sha256": _json_sha256(payload),
         "validation_commitment_sha256": commitment,
     }
@@ -468,6 +591,7 @@ def _material_payload(snapshot: _MaterialSnapshot) -> dict[str, object]:
                 item.source_pairs,
                 item.presence_commitment_sha256,
                 item.derived_commitments,
+                item.derived_dispositions,
             )
             for item in snapshot.corpora
         ),
@@ -483,7 +607,74 @@ def _material_payload(snapshot: _MaterialSnapshot) -> dict[str, object]:
             )
             for item in snapshot.cleanup_passes
         ),
+        "registry": (
+            None
+            if snapshot.registry is None
+            else (
+                snapshot.registry.registration_commitment_sha256,
+                snapshot.registry.projection_manifest_sha256,
+                snapshot.registry.cleanup_initiation_receipt_sha256,
+                snapshot.registry.completion_receipt_sha256,
+                snapshot.registry.projection_absence_proof_sha256,
+                snapshot.registry.wrapper_adapter_id,
+                snapshot.registry.wrapper_implementation_sha256,
+            )
+        ),
     }
+
+
+def _derived_dispositions(
+    value: object,
+    expected_lanes: tuple[str, ...],
+    derived_commitments: tuple[tuple[str, str], ...],
+) -> tuple[tuple[str, str, str | None], ...]:
+    if type(value) is not tuple:
+        raise ManagedHttpPolicyValidationError("managed_policy_derived_disposition_invalid")
+    commitments = dict(derived_commitments)
+    checked: list[tuple[str, str, str | None]] = []
+    for item in value:
+        if type(item) is not tuple or len(item) != 3:
+            raise ManagedHttpPolicyValidationError("managed_policy_derived_disposition_invalid")
+        lane = _text(item[0], "managed_policy_derived_disposition_invalid")
+        disposition = _text(item[1], "managed_policy_derived_disposition_invalid")
+        policy = item[2]
+        if lane not in _DERIVED_LANES or lane not in commitments:
+            raise ManagedHttpPolicyValidationError("managed_policy_derived_disposition_invalid")
+        try:
+            policy_disposition = DerivedProjectionLaneDisposition(
+                lane=lane,
+                disposition=disposition,
+                policy_sha256=policy,
+            )
+        except DerivedProjectionLanePolicyError:
+            raise ManagedHttpPolicyValidationError(
+                "managed_policy_derived_disposition_invalid"
+            ) from None
+        not_projected_disposition = (
+            policy_disposition
+            if policy_disposition.is_not_projected
+            else DerivedProjectionLaneDisposition(
+                lane=lane,
+                disposition="not_projected",
+                policy_sha256=derived_not_projected_policy_sha256(lane),
+            )
+        )
+        has_not_projected_commitment = hmac.compare_digest(
+            commitments[lane],
+            evidence_commitment(
+                f"{lane}-presence.v1",
+                asdict(not_projected_disposition),
+            ),
+        )
+        if policy_disposition.is_not_projected != has_not_projected_commitment:
+            raise ManagedHttpPolicyValidationError(
+                "managed_policy_derived_disposition_binding_invalid"
+            )
+        checked.append((lane, disposition, policy))
+    result = tuple(checked)
+    if tuple(item[0] for item in result) != expected_lanes:
+        raise ManagedHttpPolicyValidationError("managed_policy_derived_disposition_invalid")
+    return result
 
 
 def _pairs(value: object, *, digest_second: bool = False) -> tuple[tuple[str, str], ...]:
@@ -559,10 +750,12 @@ __all__ = (
     "MANAGED_HTTP_POLICY_VALIDATION_SCHEMA_VERSION",
     "ManagedHttpPolicyCleanupPassMaterial",
     "ManagedHttpPolicyCorpusMaterial",
+    "ManagedHttpPolicyRegistryMaterial",
     "ManagedHttpPolicyValidationError",
     "ManagedHttpPolicyValidationMaterial",
     "VerifiedManagedHttpPolicyValidation",
     "consume_managed_http_policy_validation",
+    "managed_http_policy_registry_material_sha256",
     "managed_http_policy_validation_material_sha256",
     "public_managed_http_policy_validation",
     "seal_managed_http_policy_validation",

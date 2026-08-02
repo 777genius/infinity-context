@@ -14,6 +14,7 @@ from types import MappingProxyType
 from typing import final
 
 from infinity_context_server.memory_comparison_full_execution_validation_slots import (
+    FullExecutionCaseManifestEntry,
     execution_case_manifest_sha256,
 )
 from infinity_context_server.memory_comparison_full_run_evidence import (
@@ -21,6 +22,7 @@ from infinity_context_server.memory_comparison_full_run_evidence import (
     FullComparisonRunBindings,
     create_full_comparison_evidence_issuer,
     create_full_comparison_run_bindings,
+    validate_full_comparison_run_bindings,
 )
 from infinity_context_server.memory_comparison_full_scope import (
     FULL_COMPARISON_SCOPE_CANARY,
@@ -36,6 +38,11 @@ from infinity_context_server.memory_comparison_managed_plan_builder import (
     _consume_verified_managed_run_plan,
     _inspect_verified_managed_run_plan,
     _managed_answer_cases,
+)
+from infinity_context_server.memory_comparison_managed_quality_projection import (
+    ManagedPairedQualityProjection,
+    create_managed_paired_quality_projection_input,
+    project_managed_paired_quality,
 )
 from infinity_context_server.memory_comparison_managed_run_contract import (
     ManagedAnswerCase,
@@ -96,6 +103,8 @@ class _RunState:
     assembler: ManagedCompositeAssemblerPort
     verdict: object
     projection: MappingProxyType[str, object]
+    quality_projection: ManagedPairedQualityProjection
+    quality_commitment_sha256: str
     trace: tuple[str, ...]
     case_count: int
     corpus_count: int
@@ -112,6 +121,25 @@ class _CleanupResult:
 _OUTCOMES: weakref.WeakKeyDictionary[ManagedRunOutcome, _RunState] = weakref.WeakKeyDictionary()
 
 
+def create_managed_comparison_run_bindings(
+    admission: VerifiedManagedRunPlan,
+) -> FullComparisonRunBindings:
+    """Create the exact bindings a composition root must share with the runner."""
+
+    plan = _inspect_verified_managed_run_plan(admission)
+    return create_full_comparison_run_bindings(
+        run_id=plan.run_id,
+        run_nonce_commitment_sha256=plan.run_nonce_commitment_sha256,
+        runtime_probe_nonce_sha256=plan.runtime_probe_nonce_sha256,
+        profile=plan.profile,
+        methodology=plan.methodology,
+        dataset_sha256=plan.dataset_sha256,
+        selection_fingerprint_sha256=plan.selection_fingerprint_sha256,
+        backend_targets=plan.backend_targets,
+        scope=plan.scope,
+    )
+
+
 def run_managed_comparison(
     admission: VerifiedManagedRunPlan,
     *,
@@ -124,7 +152,37 @@ def run_managed_comparison(
     policy_port: ManagedPolicyLifecyclePort,
     assembler: ManagedCompositeAssemblerPort,
 ) -> ManagedRunOutcome:
-    """Run the full lifecycle; terminal delete executes for every BaseException."""
+    """Compatibility wrapper that creates bindings before delegating to the runner."""
+
+    bindings = create_managed_comparison_run_bindings(admission)
+    return run_managed_comparison_with_bindings(
+        admission,
+        bindings=bindings,
+        reset_port=reset_port,
+        attestation_port=attestation_port,
+        ingest_port=ingest_port,
+        clock=clock,
+        execution_port=execution_port,
+        judge_port=judge_port,
+        policy_port=policy_port,
+        assembler=assembler,
+    )
+
+
+def run_managed_comparison_with_bindings(
+    admission: VerifiedManagedRunPlan,
+    *,
+    bindings: FullComparisonRunBindings,
+    reset_port: ManagedResetPort,
+    attestation_port: ManagedAttestationPort,
+    ingest_port: ManagedIngestEvidencePort,
+    clock: ManagedClockPort,
+    execution_port: ManagedExecutionPort,
+    judge_port: ManagedJudgeExecutionPort,
+    policy_port: ManagedPolicyLifecyclePort,
+    assembler: ManagedCompositeAssemblerPort,
+) -> ManagedRunOutcome:
+    """Run with the same exact bindings object already used to compose the ports."""
 
     plan = _inspect_verified_managed_run_plan(admission)
     _validate_ports(
@@ -143,17 +201,7 @@ def run_managed_comparison(
         benchmark=plan.profile.benchmark,
     )
     case_manifest_sha256 = execution_case_manifest_sha256(case_manifest)
-    bindings = create_full_comparison_run_bindings(
-        run_id=plan.run_id,
-        run_nonce_commitment_sha256=plan.run_nonce_commitment_sha256,
-        runtime_probe_nonce_sha256=plan.runtime_probe_nonce_sha256,
-        profile=plan.profile,
-        methodology=plan.methodology,
-        dataset_sha256=plan.dataset_sha256,
-        selection_fingerprint_sha256=plan.selection_fingerprint_sha256,
-        backend_targets=plan.backend_targets,
-        scope=plan.scope,
-    )
+    bindings = _validated_bindings_for_plan(bindings, plan)
     issuer = create_full_comparison_evidence_issuer(bindings)
     trace = ["bindings.create", "issuer.create"]
     managed_attestation: VerifiedManagedCompositionAttestation | None = None
@@ -216,6 +264,16 @@ def run_managed_comparison(
         )
         trace.append("attestation.live")
         ingest_receipts = _ingest(bindings, plan.cases, ingest_port, trace)
+        canonical_source = policy_port.seal_canonical_source(
+            bindings=bindings,
+            cases=plan.cases,
+            managed_attestation=managed_attestation,
+            managed_attestation_commitment_sha256=managed_commitment,
+            ingest_receipts=ingest_receipts,
+            case_manifest_sha256=case_manifest_sha256,
+        )
+        _validate_canonical_source(canonical_source, expected_count=len(plan.cases))
+        trace.append("canonical_source.seal")
         executions = _execute_cases(
             bindings,
             plan.cases,
@@ -242,16 +300,6 @@ def run_managed_comparison(
                 "execution seal differs from case manifest or admitted case material"
             )
         trace.append("execution.seal")
-        canonical_source = policy_port.seal_canonical_source(
-            bindings=bindings,
-            cases=plan.cases,
-            managed_attestation=managed_attestation,
-            managed_attestation_commitment_sha256=managed_commitment,
-            execution=execution,
-            ingest_receipts=ingest_receipts,
-        )
-        _validate_canonical_source(canonical_source, expected_count=len(plan.cases))
-        trace.append("canonical_source.seal")
     except BaseException as exc:
         primary_error = exc
         primary_traceback = exc.__traceback__
@@ -278,6 +326,11 @@ def run_managed_comparison(
         or cleanup.terminal_delete is None
     ):
         raise ManagedRunError("managed lifecycle artifacts are incomplete")
+    quality_projection = _managed_paired_quality_projection(
+        bindings=bindings,
+        case_manifest=case_manifest,
+        execution=execution,
+    )
 
     policy_validation = policy_port.aggregate_policy(
         bindings=bindings,
@@ -318,6 +371,7 @@ def run_managed_comparison(
         assembler=assembler,
         verdict=verdict,
         projection=projection,
+        quality_projection=quality_projection,
         trace=tuple(trace),
         case_count=len(plan.cases),
         corpus_count=len(_unique_corpora(plan.cases)),
@@ -340,7 +394,15 @@ def public_managed_run(outcome: ManagedRunOutcome) -> dict[str, object]:
     )
     if _freeze_json(current) != state.projection:
         raise ManagedRunError("managed verdict projection changed")
+    quality = state.quality_projection.public_payload()
+    quality_commitment = _digest(
+        quality.get("completeness_commitment_sha256"),
+        "quality completeness commitment",
+    )
+    if not hmac.compare_digest(quality_commitment, state.quality_commitment_sha256):
+        raise ManagedRunError("managed paired quality projection changed")
     report = copy.deepcopy(current)
+    report["paired_quality"] = copy.deepcopy(quality)
     report["managed_run"] = {
         "schema_version": MANAGED_RUN_SCHEMA_VERSION,
         "trace": list(state.trace),
@@ -350,6 +412,28 @@ def public_managed_run(outcome: ManagedRunOutcome) -> dict[str, object]:
         "component_count": len(FULL_COMPARISON_COMPONENT_KINDS),
     }
     return report
+
+
+def _managed_paired_quality_projection(
+    *,
+    bindings: FullComparisonRunBindings,
+    case_manifest: tuple[FullExecutionCaseManifestEntry, ...],
+    execution: ManagedExecutionArtifacts,
+) -> ManagedPairedQualityProjection:
+    """Create a manifest-bound aggregate from the actual sealed judge outcomes."""
+
+    try:
+        if execution.case_manifest_sha256 != execution_case_manifest_sha256(case_manifest):
+            raise ValueError("execution manifest differs")
+        value = create_managed_paired_quality_projection_input(
+            bindings=bindings,
+            case_manifest=case_manifest,
+            case_manifest_sha256=execution.case_manifest_sha256,
+            outcomes=execution.quality_outcomes,
+        )
+        return project_managed_paired_quality(value)
+    except Exception:
+        raise ManagedRunError("managed paired quality projection is invalid") from None
 
 
 def _ingest(
@@ -579,14 +663,23 @@ def _seal_outcome(
     assembler: ManagedCompositeAssemblerPort,
     verdict: object,
     projection: dict[str, object],
+    quality_projection: ManagedPairedQualityProjection,
     trace: tuple[str, ...],
     case_count: int,
     corpus_count: int,
 ) -> ManagedRunOutcome:
+    if type(quality_projection) is not ManagedPairedQualityProjection:
+        raise ManagedRunError("managed paired quality projection type is invalid")
+    quality = quality_projection.public_payload()
+    quality_commitment = _digest(
+        quality.get("completeness_commitment_sha256"),
+        "quality completeness commitment",
+    )
     secret = secrets.token_bytes(32)
     body = {
         "binding_commitment_sha256": bindings.binding_commitment_sha256,
         "projection_sha256": _json_sha256(projection),
+        "quality_completeness_commitment_sha256": quality_commitment,
         "trace": list(trace),
         "case_count": case_count,
         "corpus_count": corpus_count,
@@ -604,6 +697,8 @@ def _seal_outcome(
             assembler,
             verdict,
             frozen,
+            quality_projection,
+            quality_commitment,
             trace,
             case_count,
             corpus_count,
@@ -621,6 +716,7 @@ def _validate_outcome(outcome: ManagedRunOutcome, state: _RunState) -> None:
     body = {
         "binding_commitment_sha256": state.bindings.binding_commitment_sha256,
         "projection_sha256": _json_sha256(_thaw_json(state.projection)),
+        "quality_completeness_commitment_sha256": state.quality_commitment_sha256,
         "trace": list(state.trace),
         "case_count": state.case_count,
         "corpus_count": state.corpus_count,
@@ -667,6 +763,28 @@ def _validate_ports(*ports: object) -> None:
         _digest(implementation_sha256, f"{role} implementation")
         if any(not callable(getattr(port, name, None)) for name in operations):
             raise ManagedRunError(f"{role} port operation is unavailable")
+
+
+def _validated_bindings_for_plan(
+    bindings: FullComparisonRunBindings,
+    plan: ManagedRunPlan,
+) -> FullComparisonRunBindings:
+    try:
+        trusted = validate_full_comparison_run_bindings(bindings)
+    except Exception:
+        raise ManagedRunError("managed run bindings are invalid") from None
+    if (
+        trusted.run_id != plan.run_id
+        or trusted.run_nonce_commitment_sha256 != plan.run_nonce_commitment_sha256
+        or trusted.runtime_probe_nonce_sha256 != plan.runtime_probe_nonce_sha256
+        or trusted.profile_id != plan.profile.profile_id
+        or trusted.dataset_sha256 != plan.dataset_sha256
+        or trusted.selection_fingerprint_sha256 != plan.selection_fingerprint_sha256
+        or trusted.backend_targets != plan.backend_targets
+        or trusted.scope != plan.scope
+    ):
+        raise ManagedRunError("managed run bindings differ from verified plan")
+    return trusted
 
 
 def _target_pairs(
@@ -722,6 +840,8 @@ __all__ = (
     "ManagedRunError",
     "ManagedRunOutcome",
     "ManagedRunPlan",
+    "create_managed_comparison_run_bindings",
     "public_managed_run",
     "run_managed_comparison",
+    "run_managed_comparison_with_bindings",
 )

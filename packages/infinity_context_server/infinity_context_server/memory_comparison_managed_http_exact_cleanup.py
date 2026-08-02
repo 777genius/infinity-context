@@ -14,6 +14,9 @@ from dataclasses import dataclass
 from typing import final
 
 import httpx
+from infinity_context_core.ports.derived_projection_policy import (
+    DerivedProjectionLaneDisposition,
+)
 
 from infinity_context_server.memory_comparison_managed_http_derived_evidence import (
     ManagedDerivedEvidenceHttpClient,
@@ -25,8 +28,10 @@ from infinity_context_server.memory_comparison_managed_http_policy_requirements 
     ManagedCanonicalProjectionScope,
     ManagedDerivedPresenceObservation,
     ManagedGraphitiDeleteObservation,
+    ManagedGraphitiPresenceObservation,
     ManagedIngestIdentityManifest,
     ManagedQdrantDeleteObservation,
+    ManagedQdrantPresenceObservation,
     managed_ingest_identity_manifest_sha256,
 )
 
@@ -59,7 +64,7 @@ class ManagedCanonicalDeleteReceipt:
             or self.identity.strip() != self.identity
         ):
             raise ManagedExactCleanupError("managed_exact_cleanup_receipt_invalid")
-        if self.disposition not in {"deleted", "already_absent"}:
+        if self.disposition not in {"deleted", "already_absent", "recovered_absent"}:
             raise ManagedExactCleanupError("managed_exact_cleanup_receipt_invalid")
 
 
@@ -85,21 +90,19 @@ class ManagedExactCleanupObservation:
             raise ManagedExactCleanupError("managed_exact_cleanup_observation_invalid")
         if (
             type(self.canonical) is not tuple
-            or any(
-                type(item) is not ManagedCanonicalDeleteReceipt
-                for item in self.canonical
-            )
-            or len(
-                {(item.identity_kind, item.identity) for item in self.canonical}
-            )
+            or any(type(item) is not ManagedCanonicalDeleteReceipt for item in self.canonical)
+            or len({(item.identity_kind, item.identity) for item in self.canonical})
             != len(self.canonical)
         ):
             raise ManagedExactCleanupError("managed_exact_cleanup_observation_invalid")
         if type(self.verified_absent) is not bool or not self.verified_absent:
             raise ManagedExactCleanupError("managed_exact_cleanup_observation_invalid")
-        if self.pass_index == 2 and any(
-            item.disposition != "already_absent" for item in self.canonical
-        ):
+        allowed = (
+            {"deleted", "already_absent"}
+            if self.pass_index == 1
+            else {"already_absent", "recovered_absent"}
+        )
+        if any(item.disposition not in allowed for item in self.canonical):
             raise ManagedExactCleanupError("managed_exact_cleanup_replay_invalid")
 
 
@@ -117,19 +120,14 @@ class ManagedInfinityExactCleanupCoordinator:
         if type(config) is not ManagedInfinityHttpConfig or config.transport is not None:
             raise ManagedExactCleanupError("managed_exact_cleanup_config_invalid")
         if type(derived_evidence) is not ManagedDerivedEvidenceHttpClient:
-            raise ManagedExactCleanupError(
-                "managed_exact_cleanup_derived_client_invalid"
-            )
+            raise ManagedExactCleanupError("managed_exact_cleanup_derived_client_invalid")
         if (
-            derived_evidence.lifecycle_target_identity_sha256
-            != config.target_identity_sha256
+            derived_evidence.lifecycle_target_identity_sha256 != config.target_identity_sha256
             or derived_evidence.retries != 0
         ):
             raise ManagedExactCleanupError("managed_exact_cleanup_target_mismatch")
         if transport_factory is not None and not callable(transport_factory):
-            raise ManagedExactCleanupError(
-                "managed_exact_cleanup_transport_factory_invalid"
-            )
+            raise ManagedExactCleanupError("managed_exact_cleanup_transport_factory_invalid")
         self._config = config
         self._derived_evidence = derived_evidence
         self._transport_factory = transport_factory
@@ -164,43 +162,52 @@ class ManagedInfinityExactCleanupCoordinator:
             presence=presence,
             pass_index=pass_index,
         )
+        failure: ManagedExactCleanupError | None = None
         qdrant = None
-        if presence.qdrant is not None:
-            qdrant = self._derived_evidence.delete_qdrant(
-                scope=scope,
-                manifest=manifest,
-                target_commitment_sha256=presence.qdrant.target_commitment_sha256,
-                manifest_binding_sha256=presence.qdrant.manifest_binding_sha256,
-            )
+        if type(presence.qdrant) is ManagedQdrantPresenceObservation:
+            try:
+                qdrant = self._derived_evidence.delete_qdrant(
+                    scope=scope,
+                    manifest=manifest,
+                    target_commitment_sha256=presence.qdrant.target_commitment_sha256,
+                    manifest_binding_sha256=presence.qdrant.manifest_binding_sha256,
+                )
+            except BaseException as exc:
+                failure = _first_failure(failure, exc)
         graphiti = None
-        if presence.graphiti is not None:
-            graphiti = self._derived_evidence.delete_graphiti(
-                scope=scope,
-                manifest=manifest,
-                identity_manifest=presence.graphiti.identity_manifest,
-                target_commitment_sha256=presence.graphiti.target_commitment_sha256,
-                manifest_binding_sha256=presence.graphiti.manifest_binding_sha256,
-            )
+        if type(presence.graphiti) is ManagedGraphitiPresenceObservation:
+            try:
+                graphiti = self._derived_evidence.delete_graphiti(
+                    scope=scope,
+                    manifest=manifest,
+                    identity_manifest=presence.graphiti.identity_manifest,
+                    target_commitment_sha256=presence.graphiti.target_commitment_sha256,
+                    manifest_binding_sha256=presence.graphiti.manifest_binding_sha256,
+                )
+            except BaseException as exc:
+                failure = _first_failure(failure, exc)
 
-        canonical = tuple(
-            self._delete_and_readback(
-                identity_kind="infinity_fact",
-                identity=identity,
-                scope=scope,
-                pass_index=pass_index,
-            )
-            for identity in manifest.infinity_fact_ids
-        ) + tuple(
-            self._delete_and_readback(
-                identity_kind="infinity_document",
-                identity=identity,
-                scope=scope,
-                pass_index=pass_index,
-            )
-            for identity in manifest.infinity_document_ids
+        canonical: list[ManagedCanonicalDeleteReceipt] = []
+        identities = (
+            *(("infinity_fact", item) for item in manifest.infinity_fact_ids),
+            *(("infinity_document", item) for item in manifest.infinity_document_ids),
         )
+        for identity_kind, identity in identities:
+            try:
+                canonical.append(
+                    self._delete_and_readback(
+                        identity_kind=identity_kind,
+                        identity=identity,
+                        scope=scope,
+                        pass_index=pass_index,
+                    )
+                )
+            except BaseException as exc:
+                failure = _first_failure(failure, exc)
         if len(canonical) != manifest.infinity_canonical_count:
-            raise ManagedExactCleanupError("managed_exact_cleanup_coverage_invalid")
+            failure = failure or ManagedExactCleanupError("managed_exact_cleanup_coverage_invalid")
+        if failure is not None:
+            raise failure from None
         return ManagedExactCleanupObservation(
             lifecycle_target_identity_sha256=self._config.target_identity_sha256,
             ingest_manifest_sha256=manifest_sha256,
@@ -209,9 +216,44 @@ class ManagedInfinityExactCleanupCoordinator:
             pass_index=pass_index,
             qdrant=qdrant,
             graphiti=graphiti,
-            canonical=canonical,
+            canonical=tuple(canonical),
             verified_absent=True,
         )
+
+    def cleanup_all(
+        self,
+        requests: tuple[
+            tuple[
+                ManagedCanonicalProjectionScope,
+                ManagedIngestIdentityManifest,
+                ManagedDerivedPresenceObservation,
+            ],
+            ...,
+        ],
+        *,
+        pass_index: int,
+    ) -> tuple[ManagedExactCleanupObservation, ...]:
+        """Attempt every corpus and return evidence only for complete coverage."""
+        if type(requests) is not tuple or not requests:
+            raise ManagedExactCleanupError("managed_exact_cleanup_batch_invalid")
+        observations: list[ManagedExactCleanupObservation] = []
+        failure: ManagedExactCleanupError | None = None
+        for request in requests:
+            try:
+                scope, manifest, presence = request
+                observations.append(
+                    self.cleanup(
+                        scope=scope,
+                        manifest=manifest,
+                        presence=presence,
+                        pass_index=pass_index,
+                    )
+                )
+            except BaseException as exc:
+                failure = _first_failure(failure, exc)
+        if failure is not None or len(observations) != len(requests):
+            raise failure or ManagedExactCleanupError("managed_exact_cleanup_batch_incomplete")
+        return tuple(observations)
 
     def _validate_request(
         self,
@@ -232,34 +274,20 @@ class ManagedInfinityExactCleanupCoordinator:
         try:
             manifest_sha256 = managed_ingest_identity_manifest_sha256(manifest, scope)
         except ValueError:
-            raise ManagedExactCleanupError(
-                "managed_exact_cleanup_manifest_invalid"
-            ) from None
+            raise ManagedExactCleanupError("managed_exact_cleanup_manifest_invalid") from None
         if (
-            presence.lifecycle_target_identity_sha256
-            != self._config.target_identity_sha256
+            presence.lifecycle_target_identity_sha256 != self._config.target_identity_sha256
             or presence.ingest_manifest_sha256 != manifest_sha256
             or presence.scope != scope
+            or not presence.outbox.complete
+            or presence.outbox.done_chunk_ids != manifest.infinity_chunk_ids
+            or presence.outbox.done_fact_ids != manifest.infinity_fact_ids
         ):
             raise ManagedExactCleanupError("managed_exact_cleanup_binding_mismatch")
-        if bool(manifest.infinity_chunk_ids) != (presence.qdrant is not None):
-            raise ManagedExactCleanupError(
-                "managed_exact_cleanup_qdrant_binding_invalid"
-            )
-        if bool(manifest.infinity_fact_ids) != (presence.graphiti is not None):
-            raise ManagedExactCleanupError(
-                "managed_exact_cleanup_graphiti_binding_invalid"
-            )
-        if presence.qdrant is not None and tuple(
-            item.chunk_id for item in presence.qdrant.expected
-        ) != manifest.infinity_chunk_ids:
-            raise ManagedExactCleanupError(
-                "managed_exact_cleanup_qdrant_binding_invalid"
-            )
-        if presence.graphiti is not None and presence.graphiti.group_scope != scope:
-            raise ManagedExactCleanupError(
-                "managed_exact_cleanup_graphiti_binding_invalid"
-            )
+        if not _matches_qdrant_disposition(presence.qdrant, manifest.infinity_chunk_ids):
+            raise ManagedExactCleanupError("managed_exact_cleanup_qdrant_binding_invalid")
+        if not _matches_graphiti_disposition(presence.graphiti, manifest.infinity_fact_ids, scope):
+            raise ManagedExactCleanupError("managed_exact_cleanup_graphiti_binding_invalid")
         return manifest_sha256
 
     def _delete_and_readback(
@@ -279,8 +307,6 @@ class ManagedInfinityExactCleanupCoordinator:
             scope=scope,
             acknowledgement=True,
         )
-        if pass_index == 2 and disposition != "already_absent":
-            raise ManagedExactCleanupError("managed_exact_cleanup_replay_invalid")
         readback = self._request("GET", path)
         self._validate_canonical_payload(
             readback,
@@ -288,6 +314,8 @@ class ManagedInfinityExactCleanupCoordinator:
             scope=scope,
             acknowledgement=False,
         )
+        if pass_index == 2 and disposition == "deleted":
+            disposition = "recovered_absent"
         return ManagedCanonicalDeleteReceipt(identity_kind, identity, disposition)
 
     def _validate_canonical_payload(
@@ -335,22 +363,18 @@ class ManagedInfinityExactCleanupCoordinator:
             )
         except BaseException:
             transport.close()
-            raise ManagedExactCleanupError(
-                "managed_exact_cleanup_client_failed"
-            ) from None
+            raise ManagedExactCleanupError("managed_exact_cleanup_client_failed") from None
         try:
             try:
                 with client.stream(method, path) as response:
                     if response.status_code != 200:
-                        raise ManagedExactCleanupError(
-                            "managed_exact_cleanup_request_rejected"
-                        )
-                    if not response.headers.get(
-                        "content-type", ""
-                    ).lower().startswith("application/json"):
-                        raise ManagedExactCleanupError(
-                            "managed_exact_cleanup_response_invalid"
-                        )
+                        raise ManagedExactCleanupError("managed_exact_cleanup_request_rejected")
+                    if (
+                        not response.headers.get("content-type", "")
+                        .lower()
+                        .startswith("application/json")
+                    ):
+                        raise ManagedExactCleanupError("managed_exact_cleanup_response_invalid")
                     body = bytearray()
                     for chunk in response.iter_bytes():
                         body.extend(chunk)
@@ -361,9 +385,7 @@ class ManagedInfinityExactCleanupCoordinator:
             except ManagedExactCleanupError:
                 raise
             except httpx.HTTPError:
-                raise ManagedExactCleanupError(
-                    "managed_exact_cleanup_request_failed"
-                ) from None
+                raise ManagedExactCleanupError("managed_exact_cleanup_request_failed") from None
             try:
                 return json.loads(bytes(body), object_pairs_hook=_unique_object)
             except (
@@ -371,9 +393,7 @@ class ManagedInfinityExactCleanupCoordinator:
                 json.JSONDecodeError,
                 ManagedExactCleanupError,
             ):
-                raise ManagedExactCleanupError(
-                    "managed_exact_cleanup_response_invalid"
-                ) from None
+                raise ManagedExactCleanupError("managed_exact_cleanup_response_invalid") from None
         finally:
             client.close()
 
@@ -397,10 +417,46 @@ class ManagedInfinityExactCleanupCoordinator:
         return transport
 
 
+def _matches_qdrant_disposition(
+    lane: object,
+    chunk_ids: tuple[str, ...],
+) -> bool:
+    if not chunk_ids:
+        return lane is None
+    if type(lane) is DerivedProjectionLaneDisposition:
+        return lane.lane == "qdrant" and lane.is_not_projected
+    return type(lane) is ManagedQdrantPresenceObservation and (
+        tuple(item.chunk_id for item in lane.expected) == chunk_ids
+    )
+
+
+def _matches_graphiti_disposition(
+    lane: object,
+    fact_ids: tuple[str, ...],
+    scope: ManagedCanonicalProjectionScope,
+) -> bool:
+    if not fact_ids:
+        return lane is None
+    if type(lane) is DerivedProjectionLaneDisposition:
+        return lane.lane == "graphiti" and lane.is_not_projected
+    return type(lane) is ManagedGraphitiPresenceObservation and lane.group_scope == scope
+
+
 def _object(value: object) -> dict[str, object]:
     if type(value) is not dict or any(type(key) is not str for key in value):
         raise ManagedExactCleanupError("managed_exact_cleanup_response_invalid")
     return value
+
+
+def _first_failure(
+    current: ManagedExactCleanupError | None,
+    failure: BaseException,
+) -> ManagedExactCleanupError:
+    if current is not None:
+        return current
+    if type(failure) is ManagedExactCleanupError:
+        return failure
+    return ManagedExactCleanupError("managed_exact_cleanup_incomplete")
 
 
 def _unique_object(pairs: list[tuple[str, object]]) -> dict[str, object]:

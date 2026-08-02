@@ -150,6 +150,20 @@ from infinity_context_core.application.dto import (
     UserResult,
     UsersResult,
 )
+from infinity_context_core.application.dto_benchmark_runs import (
+    CleanupBenchmarkRunCommand,
+    CleanupBenchmarkRunResult,
+    FinalizeBenchmarkRunCleanupCommand,
+    FinalizeBenchmarkRunCleanupResult,
+    FinalizeUnsealedBenchmarkAbortCommand,
+    FinalizeUnsealedBenchmarkAbortResult,
+    GetBenchmarkRunLifecycleQuery,
+    GetBenchmarkRunLifecycleResult,
+    RegisterBenchmarkRunCommand,
+    RegisterBenchmarkRunResult,
+    SealProjectionManifestCommand,
+    SealProjectionManifestResult,
+)
 from infinity_context_core.application.use_cases.anchors import (
     BackfillAnchorsUseCase,
     CreateAnchorUseCase,
@@ -176,6 +190,18 @@ from infinity_context_core.application.use_cases.assets import (
     GetAssetUseCase,
     ListAssetsUseCase,
     ReadAssetBytesUseCase,
+)
+from infinity_context_core.application.use_cases.benchmark_runs import (
+    BENCHMARK_COGNEE_NOT_PROJECTED_POLICY_SHA256,
+    CleanupBenchmarkRunUseCase,
+    FinalizeBenchmarkRunCleanupUseCase,
+    GetBenchmarkRunLifecycleUseCase,
+    RegisterBenchmarkRunUseCase,
+    SealProjectionManifestUseCase,
+    validate_projection_manifest,
+)
+from infinity_context_core.application.use_cases.benchmark_unsealed_abort import (
+    FinalizeUnsealedBenchmarkAbortUseCase,
 )
 from infinity_context_core.application.use_cases.blob_storage_cleanup import (
     BlobStorageCleanupCommand,
@@ -287,6 +313,26 @@ MemoryFactLifecycleUseCases = memory_facts_public.MemoryFactLifecycleUseCases
 MemoryScopeUseCases = memory_scopes_public.MemoryScopeUseCases
 
 __all__ = [
+    "CleanupBenchmarkRunCommand",
+    "CleanupBenchmarkRunResult",
+    "CleanupBenchmarkRunUseCase",
+    "FinalizeBenchmarkRunCleanupCommand",
+    "FinalizeBenchmarkRunCleanupResult",
+    "FinalizeBenchmarkRunCleanupUseCase",
+    "FinalizeUnsealedBenchmarkAbortCommand",
+    "FinalizeUnsealedBenchmarkAbortResult",
+    "FinalizeUnsealedBenchmarkAbortUseCase",
+    "GetBenchmarkRunLifecycleQuery",
+    "GetBenchmarkRunLifecycleResult",
+    "GetBenchmarkRunLifecycleUseCase",
+    "RegisterBenchmarkRunCommand",
+    "RegisterBenchmarkRunResult",
+    "RegisterBenchmarkRunUseCase",
+    "SealProjectionManifestCommand",
+    "SealProjectionManifestResult",
+    "SealProjectionManifestUseCase",
+    "BENCHMARK_COGNEE_NOT_PROJECTED_POLICY_SHA256",
+    "validate_projection_manifest",
     "ApproveSuggestionCommand",
     "ApproveSuggestionUseCase",
     "AnchorBackfillSourceSummary",

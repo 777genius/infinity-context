@@ -28,6 +28,9 @@ from infinity_context_server.memory_comparison_full_scope import (
 from infinity_context_server.memory_comparison_managed_attestation import (
     VerifiedManagedCompositionAttestation,
 )
+from infinity_context_server.memory_comparison_managed_execution_receipts import (
+    ManagedSealedJudgeOutcome,
+)
 from infinity_context_server.memory_comparison_managed_run_ports import ManagedPortIdentity
 from infinity_context_server.memory_comparison_provider_provenance import ProviderRouteAttestation
 from infinity_context_server.public_benchmark_models import PublicBenchmarkCase
@@ -170,6 +173,7 @@ class ManagedExecutionArtifacts:
     execution_validation: object
     case_manifest_sha256: str
     case_material_sha256: ManagedExecutionCaseMaterial
+    quality_outcomes: tuple[ManagedSealedJudgeOutcome, ...] = ()
 
     def __post_init__(self) -> None:
         if self.gold_blind_validation is None or self.execution_validation is None:
@@ -178,6 +182,11 @@ class ManagedExecutionArtifacts:
             raise ManagedRunError("execution validations must be distinct")
         _digest(self.case_manifest_sha256, "case manifest")
         _validated_case_material_sha256(self.case_material_sha256)
+        if type(self.quality_outcomes) is not tuple or any(
+            type(item) is not ManagedSealedJudgeOutcome
+            for item in self.quality_outcomes
+        ):
+            raise ManagedRunError("execution quality outcomes must be exact")
 
     def __init_subclass__(cls, **kwargs: object) -> None:
         del cls, kwargs
@@ -256,7 +265,7 @@ class ManagedPolicyLifecyclePort(ManagedPortIdentity, Protocol):
         managed_attestation: VerifiedManagedCompositionAttestation,
         managed_attestation_commitment_sha256: str,
         ingest_receipts: tuple[object, ...],
-        execution: ManagedExecutionArtifacts,
+        case_manifest_sha256: str,
     ) -> tuple[object, ...]: ...
     def terminal_delete(
         self,

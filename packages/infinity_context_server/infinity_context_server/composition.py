@@ -16,6 +16,7 @@ from infinity_context_adapters.noop import (
     UuidIdGenerator,
 )
 from infinity_context_adapters.postgres import (
+    PostgresProjectionFence,
     PostgresUnitOfWorkFactory,
     build_async_engine,
     build_session_factory,
@@ -31,6 +32,7 @@ from infinity_context_core.application import (
     BuildMemoryOperationsConsoleUseCase,
     CancelAssetExtractionUseCase,
     CheckSpaceAccessUseCase,
+    CleanupBenchmarkRunUseCase,
     ConsolidateCaptureUseCase,
     CreateAnchorUseCase,
     CreateAssetUseCase,
@@ -51,9 +53,12 @@ from infinity_context_core.application import (
     ExpirePendingSuggestionsUseCase,
     ExpireSuggestionUseCase,
     ExportGraphUseCase,
+    FinalizeBenchmarkRunCleanupUseCase,
+    FinalizeUnsealedBenchmarkAbortUseCase,
     ForgetFactUseCase,
     GetAssetExtractionUseCase,
     GetAssetUseCase,
+    GetBenchmarkRunLifecycleUseCase,
     GetCapabilitiesUseCase,
     GetCaptureUseCase,
     GetDocumentUseCase,
@@ -85,6 +90,7 @@ from infinity_context_core.application import (
     ReadAssetBytesUseCase,
     ReadExtractionArtifactBytesUseCase,
     ReceiveCaptureUseCase,
+    RegisterBenchmarkRunUseCase,
     RejectSuggestionUseCase,
     RelatedFactsUseCase,
     RememberFactUseCase,
@@ -98,6 +104,7 @@ from infinity_context_core.application import (
     RunAssetExtractionUseCase,
     RunBlobStorageCleanupUseCase,
     RunBlobStorageIntegrityAuditUseCase,
+    SealProjectionManifestUseCase,
     SplitAnchorUseCase,
     SuggestAnchorMergesUseCase,
     SuggestContextLinksUseCase,
@@ -127,16 +134,21 @@ from infinity_context_core.ports.clock import ClockPort
 from infinity_context_core.ports.extraction import ExtractionLimits
 from infinity_context_core.ports.graph_evidence import GraphProjectionEvidencePort
 from infinity_context_core.ports.ids import IdGeneratorPort
+from infinity_context_core.ports.projection_fence import ProjectionFencePort
 from infinity_context_core.ports.unit_of_work import UnitOfWorkFactoryPort
 from infinity_context_core.ports.vector_projection_evidence import VectorProjectionEvidencePort
 from sqlalchemy.ext.asyncio import AsyncEngine
 
+from infinity_context_server.benchmark_projection_absence import (
+    ServerBenchmarkProjectionAbsence,
+)
 from infinity_context_server.config import CaptureMode, MemoryPolicyMode, Settings
 from infinity_context_server.derived_identity_evidence import (
     DerivedIdentityEvidenceCoordinator,
     SqlAlchemyProjectionReadiness,
     graphiti_target_commitment_sha256,
 )
+from infinity_context_server.derived_projection_policy import derived_projection_lane_policies
 from infinity_context_server.metrics import RuntimeMetrics
 from infinity_context_server.provider_budget import QueryEmbeddingBudgetAdapter
 from infinity_context_server.provider_circuit import (
@@ -161,6 +173,7 @@ class Container:
     clock: ClockPort
     ids: IdGeneratorPort
     uow_factory: UnitOfWorkFactoryPort
+    projection_fence: ProjectionFencePort
     adapters: tuple[MemoryAdapterPort, ...]
     cognee_memory: DocumentMemoryPort
     vector_index: VectorMemoryPort
@@ -172,6 +185,12 @@ class Container:
     blob_storage: BlobStorageMaintenancePort
     get_capabilities: GetCapabilitiesUseCase
     create_space: CreateSpaceUseCase
+    register_benchmark_run: RegisterBenchmarkRunUseCase
+    seal_projection_manifest: SealProjectionManifestUseCase
+    cleanup_benchmark_run: CleanupBenchmarkRunUseCase
+    get_benchmark_run_lifecycle: GetBenchmarkRunLifecycleUseCase
+    finalize_benchmark_run_cleanup: FinalizeBenchmarkRunCleanupUseCase
+    finalize_unsealed_benchmark_abort: FinalizeUnsealedBenchmarkAbortUseCase
     list_spaces: ListSpacesUseCase
     create_memory_scope: CreateMemoryScopeUseCase
     list_memory_scopes: ListMemoryScopesUseCase
@@ -287,6 +306,7 @@ def build_container(settings: Settings | None = None) -> Container:
     engine = build_async_engine(resolved_settings.database_url)
     session_factory = build_session_factory(engine)
     uow_factory = PostgresUnitOfWorkFactory(session_factory=session_factory, clock=clock)
+    projection_fence = PostgresProjectionFence(session_factory)
 
     raw_vector = _build_vector_adapter(resolved_settings)
     raw_graph = _build_graph_adapter(resolved_settings)
@@ -294,6 +314,10 @@ def build_container(settings: Settings | None = None) -> Container:
         cast(VectorProjectionEvidencePort, raw_vector) if resolved_settings.qdrant_enabled else None
     )
     graph_projection_evidence = _build_graph_projection_evidence(resolved_settings)
+    derived_lane_policies = derived_projection_lane_policies(
+        qdrant_enabled=resolved_settings.qdrant_enabled,
+        graphiti_enabled=resolved_settings.graphiti_enabled,
+    )
     derived_identity_evidence = DerivedIdentityEvidenceCoordinator(
         readiness=SqlAlchemyProjectionReadiness(engine),
         vector_evidence=vector_projection_evidence,
@@ -305,6 +329,7 @@ def build_container(settings: Settings | None = None) -> Container:
             if graph_projection_evidence is not None
             else None
         ),
+        lane_policies=derived_lane_policies,
     )
     raw_embeddings = _build_embedding_adapter(resolved_settings)
     provider_circuits = (
@@ -333,6 +358,7 @@ def build_container(settings: Settings | None = None) -> Container:
         deploy_profile=resolved_settings.deploy_profile.value,
         policy_mode=resolved_settings.policy_mode.value,
         adapters=adapters,
+        capability_descriptor_providers=(cognee,),
         supported_policy_modes=SUPPORTED_POLICY_MODES,
         limits={
             "max_context_tokens": resolved_settings.max_context_tokens,
@@ -354,6 +380,20 @@ def build_container(settings: Settings | None = None) -> Container:
         },
     )
     create_space = CreateSpaceUseCase(uow_factory=uow_factory, clock=clock, ids=ids)
+    register_benchmark_run = RegisterBenchmarkRunUseCase(uow_factory=uow_factory, clock=clock)
+    seal_projection_manifest = SealProjectionManifestUseCase(uow_factory=uow_factory, clock=clock)
+    cleanup_benchmark_run = CleanupBenchmarkRunUseCase(uow_factory=uow_factory, clock=clock)
+    get_benchmark_run_lifecycle = GetBenchmarkRunLifecycleUseCase(uow_factory=uow_factory)
+    benchmark_projection_absence = ServerBenchmarkProjectionAbsence(derived_identity_evidence)
+    finalize_benchmark_run_cleanup = FinalizeBenchmarkRunCleanupUseCase(
+        uow_factory=uow_factory,
+        clock=clock,
+        projection_absence=benchmark_projection_absence,
+    )
+    finalize_unsealed_benchmark_abort = FinalizeUnsealedBenchmarkAbortUseCase(
+        uow_factory=uow_factory,
+        clock=clock,
+    )
     list_spaces = ListSpacesUseCase(uow_factory=uow_factory)
     create_memory_scope = CreateMemoryScopeUseCase(uow_factory=uow_factory, clock=clock, ids=ids)
     list_memory_scopes = ListMemoryScopesUseCase(uow_factory=uow_factory)
@@ -449,9 +489,7 @@ def build_container(settings: Settings | None = None) -> Container:
         max_archive_single_entry_bytes=(
             resolved_settings.extraction_max_archive_single_entry_bytes
         ),
-        max_archive_compression_ratio=(
-            resolved_settings.extraction_max_archive_compression_ratio
-        ),
+        max_archive_compression_ratio=(resolved_settings.extraction_max_archive_compression_ratio),
         enable_ocr=resolved_settings.extraction_ocr_enabled,
         enable_external_ai=resolved_settings.extraction_external_ai_enabled,
     )
@@ -628,6 +666,7 @@ def build_container(settings: Settings | None = None) -> Container:
         clock=clock,
         ids=ids,
         uow_factory=uow_factory,
+        projection_fence=projection_fence,
         adapters=adapters,
         cognee_memory=cognee,
         vector_index=vector,
@@ -639,6 +678,12 @@ def build_container(settings: Settings | None = None) -> Container:
         blob_storage=blob_storage,
         get_capabilities=get_capabilities,
         create_space=create_space,
+        register_benchmark_run=register_benchmark_run,
+        seal_projection_manifest=seal_projection_manifest,
+        cleanup_benchmark_run=cleanup_benchmark_run,
+        get_benchmark_run_lifecycle=get_benchmark_run_lifecycle,
+        finalize_benchmark_run_cleanup=finalize_benchmark_run_cleanup,
+        finalize_unsealed_benchmark_abort=finalize_unsealed_benchmark_abort,
         list_spaces=list_spaces,
         create_memory_scope=create_memory_scope,
         list_memory_scopes=list_memory_scopes,

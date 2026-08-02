@@ -66,6 +66,9 @@ from infinity_context_server.ranked_evidence_semantic_metrics import (
     RankedEvidenceCutoffSnapshot,
     ranked_evidence_semantic_metrics,
 )
+from infinity_context_server.ranked_evidence_session_identity import (
+    longmemeval_official_session_aliases,
+)
 
 _SCHEMA_VERSION = "ranked-evidence-semantic-gate.v1"
 _AUTH_TOKEN = "ranked-evidence-semantic-gate-token"
@@ -440,6 +443,7 @@ def _run_case(
         question=request_case.question,
         expected_terms=expected_terms,
         expected_refs=expected_refs,
+        longmemeval_case_id=case.case_id if case.benchmark == "longmemeval" else None,
     )
     snapshots = tuple(
         RankedEvidenceCutoffSnapshot(
@@ -448,6 +452,8 @@ def _run_case(
             covered_refs=_covered_expected_refs(
                 snapshot.observations,
                 expected_refs=expected_refs,
+                benchmark=case.benchmark,
+                case_id=case.case_id,
             ),
             ranked_telemetry=snapshot.telemetry,
         )
@@ -653,8 +659,20 @@ def _covered_expected_refs(
     observations: Sequence[RankedEvidenceAnswerSupportObservation],
     *,
     expected_refs: Sequence[str],
+    benchmark: str,
+    case_id: str,
 ) -> tuple[str, ...]:
     observed = {ref for observation in observations for ref in observation.source_refs}
+    if benchmark == "longmemeval":
+        observed.update(
+            alias
+            for observation in observations
+            for source_ref in observation.source_refs
+            for alias in longmemeval_official_session_aliases(
+                source_ref,
+                case_id=case_id,
+            )
+        )
     return tuple(
         expected
         for expected in expected_refs
