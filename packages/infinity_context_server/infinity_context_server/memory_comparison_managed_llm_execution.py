@@ -33,7 +33,7 @@ from infinity_context_server.memory_comparison_full_profiles import (
 )
 from infinity_context_server.memory_comparison_full_run_evidence import (
     FullComparisonRunBindings,
-    _validate_bindings,
+    validate_full_comparison_run_bindings,
 )
 from infinity_context_server.memory_comparison_gold_blind import build_gold_blind_contract
 from infinity_context_server.memory_comparison_gold_blind_answer_contract import (
@@ -62,6 +62,7 @@ from infinity_context_server.memory_comparison_managed_corpus_projection import 
 from infinity_context_server.memory_comparison_managed_execution_receipts import (
     ManagedExecutionReceipt,
     ManagedExecutionReceiptIssuer,
+    ManagedSealedJudgeOutcome,
     consume_sealed_managed_execution_receipt,
     create_managed_execution_receipt_issuer,
     inspect_managed_retrieval_receipt_for_answer,
@@ -222,7 +223,7 @@ class _ManagedExecutionCoordinator:
                 if self._phase != "new":
                     raise ManagedLlmExecutionError("managed_execution_bind_replay")
                 self._phase = "binding"
-            trusted = _validate_bindings(bindings)
+            trusted = validate_full_comparison_run_bindings(bindings)
             if (
                 type(cases) is not tuple
                 or not cases
@@ -482,11 +483,13 @@ class _ManagedExecutionCoordinator:
                 or result.get("score") != judge_result.score
             ):
                 raise ManagedLlmExecutionError("managed_judge_result_invalid")
+            judge_result_sha256 = hashlib.sha256(canonical_dispatch_json(result)).hexdigest()
             receipt = issue_managed_judge_receipt(
                 lane.receipt_issuer,
                 predecessor=answer_receipt,
                 outcome=outcome,
-                judge_result_identity=hashlib.sha256(canonical_dispatch_json(result)).hexdigest(),
+                judge_result=judge_result,
+                judge_result_sha256=judge_result_sha256,
             )
             lane.judge_receipt = receipt
         except BaseException as exc:
@@ -528,6 +531,7 @@ class _ManagedExecutionCoordinator:
                 for target in bindings.backend_targets
             )
             calls = []
+            quality_outcomes: list[ManagedSealedJudgeOutcome] = []
             for execution, key in zip(executions, expected_lanes, strict=True):
                 lane = self._lanes[key]
                 if (
@@ -550,7 +554,12 @@ class _ManagedExecutionCoordinator:
                     lane.receipt_issuer,
                     predecessor=execution.judge_receipt,
                 )
-                calls.extend(consume_sealed_managed_execution_receipt(lane.receipt_issuer, sealed))
+                lane_calls, proof = consume_sealed_managed_execution_receipt(
+                    lane.receipt_issuer,
+                    sealed,
+                )
+                calls.extend(lane_calls)
+                quality_outcomes.append(proof)
             collected = self._collector_required().seal()
             if len(calls) != 4 * len(self._aliases) or any(
                 observed is not expected
@@ -601,6 +610,7 @@ class _ManagedExecutionCoordinator:
                 seal_full_execution_validation(session),
                 manifest_sha256,
                 material,
+                tuple(quality_outcomes),
             )
             with self._lock:
                 self._phase = "sealed"
@@ -666,7 +676,7 @@ class _ManagedExecutionCoordinator:
             self._active = False
 
     def _require_bindings(self, bindings: FullComparisonRunBindings) -> None:
-        trusted = _validate_bindings(bindings)
+        trusted = validate_full_comparison_run_bindings(bindings)
         if trusted is not self._bindings:
             raise ManagedLlmExecutionError("managed_execution_bindings_invalid")
 

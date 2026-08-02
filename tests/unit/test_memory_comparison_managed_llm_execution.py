@@ -500,6 +500,15 @@ def test_exact_two_backend_execution_is_gold_blind_and_seals_full_validation() -
     )
 
     assert artifacts.gold_blind_validation is not artifacts.execution_validation
+    assert len(artifacts.quality_outcomes) == 2
+    assert all(
+        repr(item) == "ManagedSealedJudgeOutcome(<opaque>)"
+        and not any(
+            hasattr(item, field)
+            for field in ("case_alias", "backend_role", "verdict", "score", "judge_result_sha256")
+        )
+        for item in artifacts.quality_outcomes
+    )
     assert len(scenario.delegate.calls) == 4
     assert [item["model"] for item in scenario.delegate.calls] == [_MODEL] * 4
     assert all(item["max_output_tokens"] == 4096 for item in scenario.delegate.calls)

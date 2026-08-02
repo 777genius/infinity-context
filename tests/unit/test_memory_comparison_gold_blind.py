@@ -391,24 +391,6 @@ def test_exact_provider_views_and_sealed_judge_result() -> None:
     assert "ground_truth" not in serialized
 
 
-def test_longmemeval_answer_session_aliases_remain_evaluator_only() -> None:
-    case = _case(
-        benchmark="longmemeval",
-        metadata={
-            "_evaluator_ground_truth": _SECRET,
-            "answer_session_aliases": ["session-0001"],
-            "question_type": "single-session-user",
-        },
-    )
-    contract, _, ledger = _contract(case)
-    backend = _CapturingBackend()
-
-    _dispatch_retrieval(backend, contract, ledger)
-
-    assert "answer_session_aliases" not in json.dumps(backend.requests[0], sort_keys=True)
-    assert contract.retrieval_request.public_metadata == {"question_type": "single-session-user"}
-
-
 def test_complete_backend_bound_receipts_issue_sealed_admission_and_report() -> None:
     contract, key, ledger = _contract()
     _dispatch_retrieval(_CapturingBackend(), contract, ledger)

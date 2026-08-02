@@ -849,6 +849,20 @@ Every run reports `publishable=false`. Any missing flag, credential, exact
 dataset binding, readiness proof, runtime attestation or cleanup evidence fails
 closed.
 
+#### Paired quality proof
+
+The managed public report contains a recomputed `paired_quality` proof only
+after the judge outcomes are sealed against the exact execution manifest. It
+reports per-backend `total`, `correct`, and `accuracy`; paired memo-stack win,
+tie, and mem0-win counts; accuracy delta; exact lane coverage; the manifest and
+judge-outcome hashes; and a deterministic completeness commitment.
+
+It never returns case aliases, real case IDs, questions, gold answers,
+candidate answers, raw judge output, or individual judge-result hashes. A
+missing, duplicate, mismatched, or score/verdict-inconsistent lane fails the
+projection. The report recomputes these aggregates rather than accepting a
+serialized aggregate from a runner or adapter.
+
 Model defaults:
 
 - `--answerer-provider codex` and `--judge-provider codex` default to

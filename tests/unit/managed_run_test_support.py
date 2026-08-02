@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import json
 from dataclasses import dataclass
 from typing import Any
@@ -8,6 +9,7 @@ import pytest
 from infinity_context_server import memory_comparison_managed_run as managed
 from infinity_context_server.memory_comparison_full_execution_validation_slots import (
     FullExecutionCaseManifestEntry,
+    FullExecutionProviderCall,
 )
 from infinity_context_server.memory_comparison_full_methodology import (
     full_comparison_methodology_contract,
@@ -19,11 +21,36 @@ from infinity_context_server.memory_comparison_full_profiles import (
 from infinity_context_server.memory_comparison_full_run_evidence import (
     FULL_COMPARISON_COMPONENT_KINDS,
     FullComparisonBackendTarget,
+    FullComparisonRunBindings,
+)
+from infinity_context_server.memory_comparison_gold_blind_answer_contract import (
+    GoldBlindEvidence,
+    gold_blind_evidence_identity,
+)
+from infinity_context_server.memory_comparison_gold_blind_contract import (
+    JUDGE_RESULT_SCHEMA_VERSION,
+    GoldBlindJudgeResult,
+)
+from infinity_context_server.memory_comparison_gold_blind_run_validation import (
+    canonical_dispatch_json,
+)
+from infinity_context_server.memory_comparison_managed_execution_receipts import (
+    ManagedSealedJudgeOutcome,
+    consume_sealed_managed_execution_receipt,
+    create_managed_execution_receipt_issuer,
+    issue_managed_answer_receipt,
+    issue_managed_judge_receipt,
+    issue_managed_retrieval_receipt,
+    seal_managed_execution_receipt,
 )
 from infinity_context_server.memory_comparison_managed_plan_builder import (
     VerifiedManagedRunPlan,
     build_verified_managed_run_plan,
     managed_execution_case_material_sha256,
+)
+from infinity_context_server.memory_comparison_managed_provider_calls import (
+    ManagedProviderCallOutcome,
+    ManagedProviderLaneBinding,
 )
 from infinity_context_server.memory_comparison_managed_run import (
     ManagedAnswerCase,
@@ -35,12 +62,24 @@ from infinity_context_server.memory_comparison_managed_run import (
     run_managed_comparison,
 )
 from infinity_context_server.memory_comparison_provider_provenance import (
+    ProviderCallProvenance,
+    ProviderChatCompletion,
     ProviderRouteAttestation,
 )
 from infinity_context_server.public_benchmark_models import PublicBenchmarkCase
 
 SHA = "a" * 64
 MANAGED_ATTESTATION = object()
+_RECEIPT_ROUTE = ProviderRouteAttestation(
+    trust="official_openai",
+    origin="https://api.openai.com",
+    endpoint_path="/v1/chat/completions",
+    route_sha256="b" * 64,
+    transport_evidence="direct_https",
+    credential_binding_id="sha256:" + "c" * 64,
+    request_method="POST",
+    response_status=200,
+)
 
 
 class Abort(BaseException):
@@ -193,6 +232,7 @@ class _Judge(_Port):
     def seal_execution(
         self,
         *,
+        bindings: FullComparisonRunBindings,
         case_manifest: tuple[FullExecutionCaseManifestEntry, ...],
         case_manifest_sha256: str,
         case_material_sha256: tuple[tuple[str, str], ...],
@@ -212,7 +252,128 @@ class _Judge(_Port):
             object(),
             self.manifest_override or case_manifest_sha256,
             self.material_override or case_material_sha256,
+            tuple(
+                sealed_judge_outcome(
+                    bindings=bindings,
+                    case_alias=item.case_id,
+                    backend_role=item.backend_role,
+                    verdict=(
+                        "correct"
+                        if item.backend_role == "infinity-context"
+                        else "incorrect"
+                    ),
+                    score=1.0 if item.backend_role == "infinity-context" else 0.0,
+                )
+                for item in executions
+            ),
         )
+
+
+def sealed_judge_outcome(
+    *,
+    bindings: FullComparisonRunBindings,
+    case_alias: str,
+    backend_role: str,
+    verdict: str,
+    score: float,
+) -> ManagedSealedJudgeOutcome:
+    """Build a test proof through the same receipt issue/seal/consume path."""
+
+    target = tuple(
+        item.target_identity_sha256
+        for item in bindings.backend_targets
+        if item.backend_role == backend_role
+    )
+    assert len(target) == 1
+    answer_binding = ManagedProviderLaneBinding(
+        bindings.binding_commitment_sha256,
+        bindings.run_id,
+        bindings.profile_id,
+        case_alias,
+        backend_role,
+        "answerer",
+        "receipt-answerer",
+        0,
+    )
+    judge_binding = ManagedProviderLaneBinding(
+        bindings.binding_commitment_sha256,
+        bindings.run_id,
+        bindings.profile_id,
+        case_alias,
+        backend_role,
+        "judge",
+        "receipt-judge",
+        1,
+    )
+    issuer = create_managed_execution_receipt_issuer(
+        answer_binding=answer_binding,
+        judge_binding=judge_binding,
+        target_identity_sha256=target[0],
+    )
+    evidence = (GoldBlindEvidence("receipt-evidence", "receipt evidence", 1, None),)
+    retrieved = issue_managed_retrieval_receipt(
+        issuer,
+        evidence=evidence,
+        retrieval_identity=gold_blind_evidence_identity(evidence),
+    )
+    answered = issue_managed_answer_receipt(
+        issuer,
+        predecessor=retrieved,
+        outcome=_receipt_outcome(answer_binding),
+        answer_result_identity=hashlib.sha256(b"receipt-answer").hexdigest(),
+    )
+    result = GoldBlindJudgeResult(verdict=verdict, score=score)
+    result_sha256 = hashlib.sha256(
+        canonical_dispatch_json(
+            {
+                "schema_version": JUDGE_RESULT_SCHEMA_VERSION,
+                "score": result.score,
+                "verdict": result.verdict,
+            }
+        )
+    ).hexdigest()
+    judged = issue_managed_judge_receipt(
+        issuer,
+        predecessor=answered,
+        outcome=_receipt_outcome(judge_binding),
+        judge_result=result,
+        judge_result_sha256=result_sha256,
+    )
+    _calls, proof = consume_sealed_managed_execution_receipt(
+        issuer,
+        seal_managed_execution_receipt(issuer, predecessor=judged),
+    )
+    return proof
+
+
+def _receipt_outcome(binding: ManagedProviderLaneBinding) -> ManagedProviderCallOutcome:
+    response_id = f"receipt-{binding.public_case_alias}-{binding.backend_role}-{binding.stage}"
+    provenance = ProviderCallProvenance(
+        _RECEIPT_ROUTE,
+        binding.model,
+        binding.model,
+        response_id,
+        "receipt-fingerprint",
+        hashlib.sha256(response_id.encode()).hexdigest(),
+    )
+    completion = ProviderChatCompletion(
+        text="receipt-bound",
+        prompt_tokens=1,
+        completion_tokens=1,
+        token_usage_source="provider_observed",
+        provenance=provenance,
+    )
+    call = FullExecutionProviderCall(
+        binding.comparison_commitment_sha256,
+        binding.run_id,
+        binding.profile_id,
+        binding.public_case_alias,
+        binding.backend_role,
+        binding.stage,
+        False,
+        provenance,
+    )
+    return ManagedProviderCallOutcome(binding, completion, call)
 
 
 class _Policy(_Port):
@@ -391,11 +552,12 @@ def _dataset_bytes() -> bytes:
 def make_plan(
     *,
     scope: str = "canary",
+    run_id: str = "managed-test",
 ) -> VerifiedManagedRunPlan:
     profile = resolve_full_comparison_profile(PROFILE_LOCOMO_TOP_50)
     assert profile is not None
     return build_verified_managed_run_plan(
-        run_id="managed-test",
+        run_id=run_id,
         run_nonce_commitment_sha256="1" * 64,
         runtime_probe_nonce_sha256="2" * 64,
         profile=profile,
@@ -530,4 +692,5 @@ __all__ = (
     "make_rig",
     "patch_attestation",
     "run_managed",
+    "sealed_judge_outcome",
 )

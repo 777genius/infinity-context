@@ -1,10 +1,12 @@
 from __future__ import annotations
 
+import hashlib
 import pickle
 import threading
 from collections.abc import Mapping
 
 import pytest
+from infinity_context_server import memory_comparison_managed_execution_receipts as receipts
 from infinity_context_server.memory_comparison_bounded_provider import (
     BoundedProviderBudget,
     BoundedProviderChatCompletions,
@@ -13,9 +15,17 @@ from infinity_context_server.memory_comparison_gold_blind_answer_contract import
     GoldBlindEvidence,
     gold_blind_evidence_identity,
 )
+from infinity_context_server.memory_comparison_gold_blind_contract import (
+    JUDGE_RESULT_SCHEMA_VERSION,
+    GoldBlindJudgeResult,
+)
+from infinity_context_server.memory_comparison_gold_blind_run_validation import (
+    canonical_dispatch_json,
+)
 from infinity_context_server.memory_comparison_managed_execution_receipts import (
     ManagedExecutionReceipt,
     ManagedExecutionReceiptError,
+    ManagedSealedJudgeOutcome,
     consume_sealed_managed_execution_receipt,
     create_managed_execution_receipt_issuer,
     inspect_managed_retrieval_receipt_for_answer,
@@ -220,20 +230,25 @@ def test_receipt_chain_binds_frozen_evidence_completions_and_exact_calls() -> No
         outcome=answer,
         answer_result_identity="e" * 64,
     )
+    judge_result = _judge_result("partial", 0.4)
     judged = issue_managed_judge_receipt(
         issuer,
         predecessor=answered,
         outcome=judge,
-        judge_result_identity="f" * 64,
+        judge_result=judge_result,
+        judge_result_sha256=_judge_result_sha256(judge_result),
     )
     sealed = seal_managed_execution_receipt(issuer, predecessor=judged)
-    calls = consume_sealed_managed_execution_receipt(issuer, sealed)
+    calls, proof = consume_sealed_managed_execution_receipt(issuer, sealed)
 
     assert view.evidence == evidence
     assert view.evidence is not evidence
     assert view.retrieval_identity == identity
     assert calls == (answer.provider_call, judge.provider_call)
     assert repr(sealed) == "ManagedExecutionReceipt(<redacted>)"
+    assert repr(proof) == "ManagedSealedJudgeOutcome(<opaque>)"
+    with pytest.raises(TypeError, match="nonserializable"):
+        pickle.dumps(proof)
     with pytest.raises(ManagedExecutionReceiptError, match="predecessor_invalid"):
         consume_sealed_managed_execution_receipt(issuer, sealed)
 
@@ -330,7 +345,109 @@ def test_receipt_detects_evidence_and_provider_completion_mutation() -> None:
             issuer,
             predecessor=answered,
             outcome=judge,
-            judge_result_identity="f" * 64,
+            judge_result=_judge_result("correct", 1.0),
+            judge_result_sha256=_judge_result_sha256(_judge_result("correct", 1.0)),
+        )
+
+
+def test_issuer_rejects_post_issue_binding_and_target_mutation() -> None:
+    answer, judge = _first_lane_outcomes()
+    issuer = create_managed_execution_receipt_issuer(
+        answer_binding=answer.binding,
+        judge_binding=judge.binding,
+        target_identity_sha256=_TARGET,
+    )
+    object.__setattr__(answer.binding, "model", "tampered-model")
+    with pytest.raises(ManagedExecutionReceiptError, match="binding_mutated"):
+        issue_managed_retrieval_receipt(
+            issuer,
+            evidence=_evidence(),
+            retrieval_identity=gold_blind_evidence_identity(_evidence()),
+        )
+
+    answer, judge = _first_lane_outcomes()
+    issuer = create_managed_execution_receipt_issuer(
+        answer_binding=answer.binding,
+        judge_binding=judge.binding,
+        target_identity_sha256=_TARGET,
+    )
+    object.__setattr__(receipts._ISSUERS[issuer], "target_identity_sha256", "f" * 64)
+    with pytest.raises(ManagedExecutionReceiptError, match="binding_mutated"):
+        issue_managed_retrieval_receipt(
+            issuer,
+            evidence=_evidence(),
+            retrieval_identity=gold_blind_evidence_identity(_evidence()),
+        )
+
+
+def test_judge_result_receipt_and_proof_reject_tampering_and_forgery() -> None:
+    answer, judge = _first_lane_outcomes()
+    issuer = create_managed_execution_receipt_issuer(
+        answer_binding=answer.binding,
+        judge_binding=judge.binding,
+        target_identity_sha256=_TARGET,
+    )
+    evidence = _evidence()
+    retrieved = issue_managed_retrieval_receipt(
+        issuer,
+        evidence=evidence,
+        retrieval_identity=gold_blind_evidence_identity(evidence),
+    )
+    answered = issue_managed_answer_receipt(
+        issuer,
+        predecessor=retrieved,
+        outcome=answer,
+        answer_result_identity="e" * 64,
+    )
+    result = _judge_result("correct", 0.6)
+    judged = issue_managed_judge_receipt(
+        issuer,
+        predecessor=answered,
+        outcome=judge,
+        judge_result=result,
+        judge_result_sha256=_judge_result_sha256(result),
+    )
+    state = receipts._RECEIPTS[judged]
+    assert state.judge_outcome is not None
+    object.__setattr__(state.judge_outcome, "score", 0.2)
+    changed = _judge_result("correct", 0.2)
+    object.__setattr__(
+        state.judge_outcome,
+        "judge_result_sha256",
+        _judge_result_sha256(changed),
+    )
+    with pytest.raises(ManagedExecutionReceiptError, match="mutated"):
+        seal_managed_execution_receipt(issuer, predecessor=judged)
+    with pytest.raises(ManagedExecutionReceiptError, match="forged"):
+        ManagedSealedJudgeOutcome(_token=object())
+
+
+def test_judge_receipt_rejects_noncanonical_result_hash() -> None:
+    answer, judge = _first_lane_outcomes()
+    issuer = create_managed_execution_receipt_issuer(
+        answer_binding=answer.binding,
+        judge_binding=judge.binding,
+        target_identity_sha256=_TARGET,
+    )
+    evidence = _evidence()
+    retrieved = issue_managed_retrieval_receipt(
+        issuer,
+        evidence=evidence,
+        retrieval_identity=gold_blind_evidence_identity(evidence),
+    )
+    answered = issue_managed_answer_receipt(
+        issuer,
+        predecessor=retrieved,
+        outcome=answer,
+        answer_result_identity="e" * 64,
+    )
+    with pytest.raises(ManagedExecutionReceiptError, match="identity_invalid"):
+        issue_managed_judge_receipt(
+            issuer,
+            predecessor=answered,
+            outcome=judge,
+            judge_result=_judge_result("abstain", 0.3),
+            judge_result_sha256="f" * 64,
         )
 
 
@@ -482,3 +599,19 @@ def _complete_lane(lane, *, retries: int = 0) -> ManagedProviderCallOutcome:
 
 def _evidence() -> tuple[GoldBlindEvidence, ...]:
     return (GoldBlindEvidence("memory-1", "retrieved evidence", 1, None),)
+
+
+def _judge_result(verdict: str, score: float) -> GoldBlindJudgeResult:
+    return GoldBlindJudgeResult(verdict=verdict, score=score)
+
+
+def _judge_result_sha256(result: GoldBlindJudgeResult) -> str:
+    return hashlib.sha256(
+        canonical_dispatch_json(
+            {
+                "schema_version": JUDGE_RESULT_SCHEMA_VERSION,
+                "score": result.score,
+                "verdict": result.verdict,
+            }
+        )
+    ).hexdigest()

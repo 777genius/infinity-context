@@ -14,14 +14,15 @@ from types import MappingProxyType
 from typing import final
 
 from infinity_context_server.memory_comparison_full_execution_validation_slots import (
+    FullExecutionCaseManifestEntry,
     execution_case_manifest_sha256,
 )
 from infinity_context_server.memory_comparison_full_run_evidence import (
     FULL_COMPARISON_COMPONENT_KINDS,
     FullComparisonRunBindings,
-    _validate_bindings,
     create_full_comparison_evidence_issuer,
     create_full_comparison_run_bindings,
+    validate_full_comparison_run_bindings,
 )
 from infinity_context_server.memory_comparison_full_scope import (
     FULL_COMPARISON_SCOPE_CANARY,
@@ -37,6 +38,11 @@ from infinity_context_server.memory_comparison_managed_plan_builder import (
     _consume_verified_managed_run_plan,
     _inspect_verified_managed_run_plan,
     _managed_answer_cases,
+)
+from infinity_context_server.memory_comparison_managed_quality_projection import (
+    ManagedPairedQualityProjection,
+    create_managed_paired_quality_projection_input,
+    project_managed_paired_quality,
 )
 from infinity_context_server.memory_comparison_managed_run_contract import (
     ManagedAnswerCase,
@@ -97,6 +103,8 @@ class _RunState:
     assembler: ManagedCompositeAssemblerPort
     verdict: object
     projection: MappingProxyType[str, object]
+    quality_projection: ManagedPairedQualityProjection
+    quality_commitment_sha256: str
     trace: tuple[str, ...]
     case_count: int
     corpus_count: int
@@ -318,6 +326,11 @@ def run_managed_comparison_with_bindings(
         or cleanup.terminal_delete is None
     ):
         raise ManagedRunError("managed lifecycle artifacts are incomplete")
+    quality_projection = _managed_paired_quality_projection(
+        bindings=bindings,
+        case_manifest=case_manifest,
+        execution=execution,
+    )
 
     policy_validation = policy_port.aggregate_policy(
         bindings=bindings,
@@ -358,6 +371,7 @@ def run_managed_comparison_with_bindings(
         assembler=assembler,
         verdict=verdict,
         projection=projection,
+        quality_projection=quality_projection,
         trace=tuple(trace),
         case_count=len(plan.cases),
         corpus_count=len(_unique_corpora(plan.cases)),
@@ -380,7 +394,15 @@ def public_managed_run(outcome: ManagedRunOutcome) -> dict[str, object]:
     )
     if _freeze_json(current) != state.projection:
         raise ManagedRunError("managed verdict projection changed")
+    quality = state.quality_projection.public_payload()
+    quality_commitment = _digest(
+        quality.get("completeness_commitment_sha256"),
+        "quality completeness commitment",
+    )
+    if not hmac.compare_digest(quality_commitment, state.quality_commitment_sha256):
+        raise ManagedRunError("managed paired quality projection changed")
     report = copy.deepcopy(current)
+    report["paired_quality"] = copy.deepcopy(quality)
     report["managed_run"] = {
         "schema_version": MANAGED_RUN_SCHEMA_VERSION,
         "trace": list(state.trace),
@@ -390,6 +412,28 @@ def public_managed_run(outcome: ManagedRunOutcome) -> dict[str, object]:
         "component_count": len(FULL_COMPARISON_COMPONENT_KINDS),
     }
     return report
+
+
+def _managed_paired_quality_projection(
+    *,
+    bindings: FullComparisonRunBindings,
+    case_manifest: tuple[FullExecutionCaseManifestEntry, ...],
+    execution: ManagedExecutionArtifacts,
+) -> ManagedPairedQualityProjection:
+    """Create a manifest-bound aggregate from the actual sealed judge outcomes."""
+
+    try:
+        if execution.case_manifest_sha256 != execution_case_manifest_sha256(case_manifest):
+            raise ValueError("execution manifest differs")
+        value = create_managed_paired_quality_projection_input(
+            bindings=bindings,
+            case_manifest=case_manifest,
+            case_manifest_sha256=execution.case_manifest_sha256,
+            outcomes=execution.quality_outcomes,
+        )
+        return project_managed_paired_quality(value)
+    except Exception:
+        raise ManagedRunError("managed paired quality projection is invalid") from None
 
 
 def _ingest(
@@ -619,14 +663,23 @@ def _seal_outcome(
     assembler: ManagedCompositeAssemblerPort,
     verdict: object,
     projection: dict[str, object],
+    quality_projection: ManagedPairedQualityProjection,
     trace: tuple[str, ...],
     case_count: int,
     corpus_count: int,
 ) -> ManagedRunOutcome:
+    if type(quality_projection) is not ManagedPairedQualityProjection:
+        raise ManagedRunError("managed paired quality projection type is invalid")
+    quality = quality_projection.public_payload()
+    quality_commitment = _digest(
+        quality.get("completeness_commitment_sha256"),
+        "quality completeness commitment",
+    )
     secret = secrets.token_bytes(32)
     body = {
         "binding_commitment_sha256": bindings.binding_commitment_sha256,
         "projection_sha256": _json_sha256(projection),
+        "quality_completeness_commitment_sha256": quality_commitment,
         "trace": list(trace),
         "case_count": case_count,
         "corpus_count": corpus_count,
@@ -644,6 +697,8 @@ def _seal_outcome(
             assembler,
             verdict,
             frozen,
+            quality_projection,
+            quality_commitment,
             trace,
             case_count,
             corpus_count,
@@ -661,6 +716,7 @@ def _validate_outcome(outcome: ManagedRunOutcome, state: _RunState) -> None:
     body = {
         "binding_commitment_sha256": state.bindings.binding_commitment_sha256,
         "projection_sha256": _json_sha256(_thaw_json(state.projection)),
+        "quality_completeness_commitment_sha256": state.quality_commitment_sha256,
         "trace": list(state.trace),
         "case_count": state.case_count,
         "corpus_count": state.corpus_count,
@@ -714,7 +770,7 @@ def _validated_bindings_for_plan(
     plan: ManagedRunPlan,
 ) -> FullComparisonRunBindings:
     try:
-        trusted = _validate_bindings(bindings)
+        trusted = validate_full_comparison_run_bindings(bindings)
     except Exception:
         raise ManagedRunError("managed run bindings are invalid") from None
     if (
