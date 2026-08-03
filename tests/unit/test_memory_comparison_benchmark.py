@@ -15,9 +15,6 @@ import infinity_context_server.memory_comparison_rerank as rerank_module
 import pytest
 from infinity_context_core.application.normalize import content_hash
 from infinity_context_server import eval as eval_module
-from infinity_context_server.memory_comparison_benchmark_identity import (
-    mem0_benchmark_corpus_user_id,
-)
 from infinity_context_server.memory_comparison_benchmark import (
     LOCOMO_INGEST_OFFICIAL_TURNS,
     MEMORY_COMPARISON_MODE,
@@ -28,6 +25,9 @@ from infinity_context_server.memory_comparison_benchmark import (
     _load_memory_comparison_cases,
     run_memory_comparison_benchmark,
     run_memory_comparison_replay,
+)
+from infinity_context_server.memory_comparison_benchmark_identity import (
+    mem0_benchmark_corpus_user_id,
 )
 from infinity_context_server.memory_comparison_llm import (
     CodexCliAnswerer,
