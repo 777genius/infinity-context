@@ -47,6 +47,10 @@ _STATE_HISTORY_RE = re.compile(
     r"superseded|deprecated)\b",
     re.IGNORECASE,
 )
+_CURRENT_STATE_LABEL_RE = re.compile(
+    r"\b(?:active|canonical|current(?:ly)?|final|latest|now|present|still)\b",
+    re.IGNORECASE,
+)
 _MEASUREMENT_RELATION_RE = re.compile(
     r"\b(?:per|for\s+(?:each|every)|ratio)\b",
     re.IGNORECASE,
@@ -308,7 +312,9 @@ def _state_claim_strength(
     if role_id == "current_state":
         if markers.metadata_stale or (markers.text_stale and not markers.text_transition):
             return None
-        return 0.95 if markers.has_active_state else 0.85 if markers.text_transition else 0.7
+        if markers.has_active_state or _CURRENT_STATE_LABEL_RE.search(item.text):
+            return 0.95
+        return 0.85 if markers.text_transition else 0.7
     return None
 
 
