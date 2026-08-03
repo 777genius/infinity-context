@@ -93,6 +93,26 @@ _GENERIC_MEMORY_QUERY_TERMS = frozenset(
         "человек",
     }
 )
+_PROJECT_IDENTITY_NON_LABEL_TERMS = frozenset(
+    {
+        "had",
+        "has",
+        "have",
+        "he",
+        "i",
+        "it",
+        "she",
+        "that",
+        "they",
+        "we",
+        "when",
+        "where",
+        "which",
+        "who",
+        "whose",
+        "you",
+    }
+)
 _IDENTITY_TOKEN_RE = re.compile(r"\w+", re.UNICODE)
 _TEXT_IDENTITY_LABEL_RE = re.compile(
     r"\b(?:D\d+:\d+\s+|person:\s*|speaker:\s*|name:\s*)"
@@ -350,7 +370,7 @@ def _project_identity_variant_sets(text: str) -> tuple[tuple[str, ...], ...]:
         if index + 1 >= len(token_variants):
             continue
         candidate = token_variants[index + 1]
-        if not _is_distinctive_variants(candidate):
+        if not _is_project_identity_label_variants(candidate):
             continue
         key = tuple(candidate)
         if key not in seen:
@@ -375,6 +395,12 @@ def _is_project_marker_variants(variants: tuple[str, ...]) -> bool:
 
 def _is_distinctive_variants(variants: tuple[str, ...]) -> bool:
     return not any(variant in _GENERIC_MEMORY_QUERY_TERMS for variant in variants)
+
+
+def _is_project_identity_label_variants(variants: tuple[str, ...]) -> bool:
+    return _is_distinctive_variants(variants) and not any(
+        variant in _PROJECT_IDENTITY_NON_LABEL_TERMS for variant in variants
+    )
 
 
 def _phrase_bigram_hits(

@@ -2,6 +2,10 @@
 
 from __future__ import annotations
 
+from infinity_context_core.application.context_museum_visit_policy import (
+    ordered_museum_visit_query,
+    strong_dated_museum_visit_evidence,
+)
 from infinity_context_core.application.context_policy import (
     is_context_fact_visible,
     is_context_review_fact_visible,
@@ -276,6 +280,7 @@ async def _keyword_source_sibling_chunk_items(
         "keyword_source_sibling_candidate_limit": 0,
         "keyword_source_sibling_companion_extra_used": 0,
         "keyword_source_sibling_named_preference_answer_diversity": False,
+        "keyword_source_sibling_ordered_museum_coverage": False,
         "keyword_source_sibling_group_backfill_limit": 0,
         "keyword_source_sibling_group_backfill_chunks_used": 0,
         "keyword_source_sibling_groups_sample": [],
@@ -313,10 +318,12 @@ async def _keyword_source_sibling_chunk_items(
             query_plan=query_plan,
         )
     )
+    ordered_museum_coverage = ordered_museum_visit_query(query.query)
     answer_evidence_group_diversity = (
         place_list_answer_diversity
         or named_preference_answer_diversity
         or relationship_status_answer_diversity
+        or ordered_museum_coverage
     )
     source_group_limit = _source_sibling_group_limit_for_request(
         source_group_count=len(source_groups),
@@ -415,6 +422,7 @@ async def _keyword_source_sibling_chunk_items(
             bool,
             bool,
             _ObligationEvidenceProjection,
+            bool,
         ]
     ] = []
     for chunk in candidates:
@@ -427,6 +435,10 @@ async def _keyword_source_sibling_chunk_items(
             query_plan,
             text=chunk_text,
             cache=query_relevance_cache,
+        )
+        museum_visit_evidence = strong_dated_museum_visit_evidence(
+            query=query.query,
+            text=chunk_text,
         )
         if rank is None:
             rank = _source_sibling_distant_answer_evidence_rank(
@@ -451,7 +463,10 @@ async def _keyword_source_sibling_chunk_items(
             text=chunk_text,
             expansion_query=expansion_query,
         )
-        if not _source_sibling_relevance_allowed(
+        if museum_visit_evidence:
+            score = max(score, 0.99)
+            score_cap = None
+        if not museum_visit_evidence and not _source_sibling_relevance_allowed(
             rank=rank,
             relevance=relevance,
             expansion_query=expansion_query,
@@ -500,12 +515,16 @@ async def _keyword_source_sibling_chunk_items(
         if obligation_evidence.rank == 2:
             skipped += 1
             continue
-        answer_evidence = obligation_evidence.rank == 0 or (
-            obligation_evidence.rank == 1
-            and _source_sibling_answer_evidence(
-                expansion_query=expansion_query,
-                expansion_reason=expansion_reason,
-                text=chunk_text,
+        answer_evidence = (
+            museum_visit_evidence
+            or obligation_evidence.rank == 0
+            or (
+                obligation_evidence.rank == 1
+                and _source_sibling_answer_evidence(
+                    expansion_query=expansion_query,
+                    expansion_reason=expansion_reason,
+                    text=chunk_text,
+                )
             )
         )
         answer_evidence_role_rank = _source_sibling_answer_evidence_role_rank(
@@ -513,6 +532,8 @@ async def _keyword_source_sibling_chunk_items(
             expansion_reason=expansion_reason,
             text=chunk_text,
         )
+        if museum_visit_evidence:
+            answer_evidence_role_rank = 0
         ranked_candidates.append(
             (
                 _source_sibling_candidate_rank_key(
@@ -543,6 +564,7 @@ async def _keyword_source_sibling_chunk_items(
                 observation_companion,
                 answer_evidence,
                 obligation_evidence,
+                museum_visit_evidence,
             )
         )
     ranked_candidates.sort(key=lambda item: item[0])
@@ -569,6 +591,7 @@ async def _keyword_source_sibling_chunk_items(
         observation_companion,
         answer_evidence,
         obligation_evidence,
+        museum_visit_evidence,
     ) in ranked_candidates:
         companion_slot = ""
         answer_evidence_extra_key = _source_sibling_answer_evidence_extra_key(
@@ -654,7 +677,7 @@ async def _keyword_source_sibling_chunk_items(
             relevance=relevance,
             query_text=expansion_query,
             query_expansion_reason=expansion_reason,
-            use_query_snippet=not observation_companion,
+            use_query_snippet=not (observation_companion or museum_visit_evidence),
         )
         items.append(
             _with_source_sibling_score_signals(
@@ -688,6 +711,7 @@ async def _keyword_source_sibling_chunk_items(
         "keyword_source_sibling_named_preference_answer_diversity": (
             named_preference_answer_diversity
         ),
+        "keyword_source_sibling_ordered_museum_coverage": ordered_museum_coverage,
         "keyword_source_sibling_companion_extra_used": companion_extra_used,
         "keyword_source_sibling_group_backfill_limit": group_backfill_limit,
         "keyword_source_sibling_group_backfill_chunks_used": group_backfill_chunks_used,

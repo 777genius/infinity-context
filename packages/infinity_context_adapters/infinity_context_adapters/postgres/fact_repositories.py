@@ -2,11 +2,13 @@
 
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import UTC, datetime
 
 from infinity_context_core.domain.entities import MemoryFact, MemoryFactRelation, SourceRef
 from infinity_context_core.domain.errors import MemoryConflictError, MemoryNotFoundError
 from infinity_context_core.ports.repositories import (
+    ActiveFactBatchRepositoryPort,
+    ActiveFactSearch,
     FactRelationRepositoryPort,
     FactRepositoryPort,
 )
@@ -34,8 +36,10 @@ from infinity_context_adapters.postgres.repository_helpers import (
     _terms,
 )
 
+_MAX_FACT_HYDRATION_BINDS = 900
 
-class PostgresFactRepository(FactRepositoryPort):
+
+class PostgresFactRepository(FactRepositoryPort, ActiveFactBatchRepositoryPort):
     def __init__(self, session: AsyncSession, *, now: datetime | None = None) -> None:
         self._session = session
         self._now = now
@@ -233,46 +237,88 @@ class PostgresFactRepository(FactRepositoryPort):
         tags_all: tuple[str, ...] = (),
         tags_none: tuple[str, ...] = (),
     ) -> list[MemoryFact]:
-        conditions = [
-            MemoryFactRow.space_id == space_id,
-            MemoryFactRow.memory_scope_id.in_(memory_scope_ids),
-            MemoryFactRow.status == "active",
-            MemoryFactRow.classification != "restricted",
-            _not_expired(MemoryFactRow, self._now),
-        ]
-        if category:
-            conditions.append(MemoryFactRow.category == category)
-        if thread_id is not None:
-            conditions.append(
-                or_(MemoryFactRow.thread_id == thread_id, MemoryFactRow.thread_id.is_(None))
-            )
-        statement = (
-            select(MemoryFactRow)
-            .where(*conditions)
-            .order_by(MemoryFactRow.updated_at.desc())
-            .limit(_retrieval_candidate_limit(limit))
-        )
-        rows = list((await self._session.execute(statement)).scalars())
-        if tags_any or tags_all or tags_none:
-            rows = [
-                row
-                for row in rows
-                if _tags_match(
-                    row.tags_json or [],
+        (facts,) = await self.find_active_many(
+            (
+                ActiveFactSearch(
+                    space_id=space_id,
+                    memory_scope_ids=memory_scope_ids,
+                    thread_id=thread_id,
+                    query=query,
+                    limit=limit,
+                    category=category,
                     tags_any=tags_any,
                     tags_all=tags_all,
                     tags_none=tags_none,
-                )
-            ]
-        terms = _terms(query)
-        if terms:
-            rows = [row for row in rows if _score(row.text, terms) > 0]
-            rows.sort(key=lambda row: _score(row.text, terms), reverse=True)
-        facts = []
-        for row in rows[:limit]:
-            refs = await self._load_source_refs(fact_id=row.id, version=row.version)
-            facts.append(fact_row_to_domain(row, refs))
+                ),
+            )
+        )
         return facts
+
+    async def find_active_many(
+        self,
+        searches: tuple[ActiveFactSearch, ...],
+    ) -> list[list[MemoryFact]]:
+        if not searches:
+            return []
+        grouped: dict[tuple[object, ...], list[tuple[int, ActiveFactSearch]]] = {}
+        for index, search in enumerate(searches):
+            grouped.setdefault(_active_fact_search_group_key(search), []).append((index, search))
+        results: list[list[MemoryFact]] = [[] for _ in searches]
+        for indexed_searches in grouped.values():
+            max_candidate_limit = max(
+                (_retrieval_candidate_limit(search.limit) for _, search in indexed_searches),
+                default=0,
+            )
+            if max_candidate_limit <= 0:
+                continue
+            first = indexed_searches[0][1]
+            rows = list(
+                (
+                    await self._session.execute(
+                        select(MemoryFactRow)
+                        .where(*_active_fact_conditions(first, now=self._now))
+                        .order_by(MemoryFactRow.updated_at.desc())
+                        .limit(max_candidate_limit)
+                    )
+                ).scalars()
+            )
+            selected_ids: dict[int, tuple[str, ...]] = {}
+            hydration_ids: list[str] = []
+            for index, search in indexed_searches:
+                candidate_rows = rows[: _retrieval_candidate_limit(search.limit)]
+                if search.tags_any or search.tags_all or search.tags_none:
+                    candidate_rows = [
+                        row
+                        for row in candidate_rows
+                        if _tags_match(
+                            row.tags_json or [],
+                            tags_any=search.tags_any,
+                            tags_all=search.tags_all,
+                            tags_none=search.tags_none,
+                        )
+                    ]
+                ids = tuple(
+                    row.id
+                    for row in _rank_active_fact_rows(
+                        candidate_rows,
+                        query=search.query,
+                        limit=search.limit,
+                    )
+                )
+                selected_ids[index] = ids
+                hydration_ids.extend(ids)
+            facts_by_id = await _hydrate_fact_rows_by_ids(
+                self._session,
+                tuple(dict.fromkeys(hydration_ids)),
+            )
+            for index, search in indexed_searches:
+                results[index] = [
+                    fact
+                    for fact_id in selected_ids[index]
+                    if (fact := facts_by_id.get(fact_id)) is not None
+                    and _active_fact_matches_search(fact, search, now=self._now)
+                ]
+        return results
 
     async def list_for_scope(
         self,
@@ -446,6 +492,147 @@ class PostgresFactRepository(FactRepositoryPort):
                 )
             ).scalars()
         )
+
+
+def _active_fact_conditions(
+    search: ActiveFactSearch,
+    *,
+    now: datetime | None,
+) -> tuple[object, ...]:
+    conditions = [
+        MemoryFactRow.space_id == search.space_id,
+        MemoryFactRow.memory_scope_id.in_(search.memory_scope_ids),
+        MemoryFactRow.status == "active",
+        MemoryFactRow.classification != "restricted",
+        _not_expired(MemoryFactRow, now),
+    ]
+    if search.category:
+        conditions.append(MemoryFactRow.category == search.category)
+    if search.thread_id is not None:
+        conditions.append(
+            or_(
+                MemoryFactRow.thread_id == search.thread_id,
+                MemoryFactRow.thread_id.is_(None),
+            )
+        )
+    return tuple(conditions)
+
+
+def _active_fact_search_group_key(search: ActiveFactSearch) -> tuple[object, ...]:
+    return (
+        search.space_id,
+        search.memory_scope_ids,
+        search.thread_id,
+        search.category,
+        search.tags_any,
+        search.tags_all,
+        search.tags_none,
+    )
+
+
+def _rank_active_fact_rows(
+    rows: list[MemoryFactRow],
+    *,
+    query: str,
+    limit: int,
+) -> list[MemoryFactRow]:
+    if limit <= 0:
+        return []
+    terms = _terms(query)
+    if not terms:
+        return rows[:limit]
+    scored_rows = [
+        (score, index, row)
+        for index, row in enumerate(rows)
+        for score in (_score(row.text, terms),)
+        if score > 0
+    ]
+    scored_rows.sort(key=lambda item: (-item[0], item[1]))
+    return [row for _, _, row in scored_rows[:limit]]
+
+
+async def _hydrate_fact_rows_by_ids(
+    session: AsyncSession,
+    fact_ids: tuple[str, ...],
+) -> dict[str, MemoryFact]:
+    rows_by_id: dict[str, MemoryFactRow] = {}
+    refs_by_fact_version: dict[tuple[str, int], list[MemorySourceRefRow]] = {}
+    for fact_id_batch in _batches(fact_ids, _MAX_FACT_HYDRATION_BINDS):
+        rows = list(
+            (
+                await session.execute(
+                    select(MemoryFactRow)
+                    .where(MemoryFactRow.id.in_(fact_id_batch))
+                    .execution_options(populate_existing=True)
+                )
+            ).scalars()
+        )
+        rows_by_id.update((row.id, row) for row in rows)
+        if not rows:
+            continue
+        refs = list(
+            (
+                await session.execute(
+                    select(MemorySourceRefRow)
+                    .where(MemorySourceRefRow.fact_id.in_(tuple(row.id for row in rows)))
+                    .order_by(
+                        MemorySourceRefRow.fact_id,
+                        MemorySourceRefRow.fact_version,
+                        MemorySourceRefRow.id,
+                    )
+                )
+            ).scalars()
+        )
+        for ref in refs:
+            refs_by_fact_version.setdefault((ref.fact_id, ref.fact_version), []).append(ref)
+    return {
+        fact_id: fact_row_to_domain(
+            row,
+            refs_by_fact_version.get((row.id, row.version), []),
+        )
+        for fact_id in fact_ids
+        if (row := rows_by_id.get(fact_id)) is not None
+    }
+
+
+def _active_fact_matches_search(
+    fact: MemoryFact,
+    search: ActiveFactSearch,
+    *,
+    now: datetime | None,
+) -> bool:
+    comparable_now = now or datetime.now(UTC)
+    expires_at = fact.expires_at
+    if expires_at is not None:
+        if expires_at.tzinfo is None and comparable_now.tzinfo is not None:
+            comparable_now = comparable_now.replace(tzinfo=None)
+        if expires_at <= comparable_now:
+            return False
+    return (
+        str(fact.space_id) == search.space_id
+        and str(fact.memory_scope_id) in search.memory_scope_ids
+        and fact.status.value == "active"
+        and fact.classification != "restricted"
+        and (not search.category or fact.category == search.category)
+        and (
+            search.thread_id is None
+            or fact.thread_id is None
+            or str(fact.thread_id) == search.thread_id
+        )
+        and _tags_match(
+            list(fact.tags),
+            tags_any=search.tags_any,
+            tags_all=search.tags_all,
+            tags_none=search.tags_none,
+        )
+    )
+
+
+def _batches(values: tuple[str, ...], size: int) -> tuple[tuple[str, ...], ...]:
+    return tuple(
+        values[offset : offset + size]
+        for offset in range(0, len(values), size)
+    )
 
 
 class PostgresFactRelationRepository(FactRelationRepositoryPort):

@@ -46,6 +46,7 @@ class BenchmarkContextRequest(ContextRequest):
     token_budget: int = Field(default=16000, ge=64, le=64000)
     max_facts: int = Field(default=200, ge=0, le=1000)
     max_chunks: int = Field(default=400, ge=0, le=2000)
+    max_evidence_items: int = Field(default=200, ge=0, le=200)
 
 
 class LegacyContextScope(Protocol):
@@ -59,6 +60,8 @@ def build_legacy_context_query_from_request(
     *,
     scope: LegacyContextScope,
     max_rendered_chars: int,
+    selection_mode: str = "prompt_context",
+    selection_item_limit: int | None = None,
 ) -> BuildContextQuery:
     feature_query = _feature_context_query_for_legacy_request(request, scope=scope)
     memory_scope_ids = scope.memory_scope_ids
@@ -92,6 +95,8 @@ def build_legacy_context_query_from_request(
         tags_any=_normalize_tags(request.tags_any),
         tags_all=_normalize_tags(request.tags_all),
         tags_none=_normalize_tags(request.tags_none),
+        selection_mode=selection_mode,
+        selection_item_limit=selection_item_limit,
     )
 
 

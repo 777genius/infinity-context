@@ -5,6 +5,9 @@ from infinity_context_core.application.context_evidence_priority import (
     has_unresolved_rerank_rejection,
 )
 from infinity_context_core.application.context_packer import ContextPacker
+from infinity_context_core.application.context_precise_temporal_evidence import (
+    with_precise_temporal_evidence_contracts,
+)
 from infinity_context_core.application.dto import ContextItem
 from infinity_context_core.domain.entities import SourceRef
 
@@ -127,6 +130,97 @@ def test_verified_exact_projection_does_not_override_a_real_anchor_conflict() ->
     prioritized, diagnostics = apply_context_evidence_priority((projected,))
     assert prioritized[0].score == 0.8
     assert diagnostics["evidence_priority_items_prioritized"] == 0
+
+
+def test_precise_temporal_contract_respects_source_diversity_and_eight_slot_cap() -> None:
+    candidates = tuple(
+        _temporal_item(
+            f"temporal-{index}",
+            source_id=f"locomo:fixture:session_{index}:D{index}:6:turn",
+            score=0.8 - index * 0.01,
+        )
+        for index in range(10)
+    )
+    shared_source = _temporal_item(
+        "temporal-shared-source",
+        source_id="locomo:fixture:session_0:D0:6:turn",
+        score=0.79,
+    )
+
+    contracted = with_precise_temporal_evidence_contracts(
+        (*candidates, shared_source),
+        query="When did Andrew adopt Scout?",
+    )
+    prioritized, diagnostics = apply_context_evidence_priority(contracted)
+
+    prioritized_items = tuple(item for item in prioritized if _priority(item) == 1)
+    assert len(prioritized_items) == 8
+    assert (
+        sum(
+            item.source_refs[0].source_id == "locomo:fixture:session_0:D0:6:turn"
+            for item in prioritized_items
+        )
+        == 1
+    )
+    assert diagnostics["evidence_priority_items_eligible"] == 11
+    assert diagnostics["evidence_priority_items_prioritized"] == 8
+    assert diagnostics["evidence_priority_item_limit"] == 8
+
+
+def test_precise_temporal_contract_never_overrides_wrong_object_mismatch() -> None:
+    wrong_object = _temporal_item(
+        "wrong-object",
+        source_id="locomo:fixture:session_9:D9:4:turn",
+        score=0.8,
+    )
+    diagnostics = dict(wrong_object.diagnostics or {})
+    diagnostics["provenance"] = {
+        "deterministic_rerank_reasons": [
+            "relation_requirement_object_mismatch",
+            "temporal_answer_evidence",
+        ],
+    }
+    wrong_object = replace(wrong_object, diagnostics=diagnostics)
+
+    contracted = with_precise_temporal_evidence_contracts(
+        (wrong_object,),
+        query="When did Andrew adopt Scout?",
+    )
+    prioritized, priority_diagnostics = apply_context_evidence_priority(contracted)
+
+    signals = contracted[0].diagnostics["score_signals"]
+    assert "precise_temporal_answer_evidence" not in signals
+    assert has_unresolved_rerank_rejection(contracted[0]) is True
+    assert _priority(prioritized[0]) is None
+    assert priority_diagnostics["evidence_priority_items_prioritized"] == 0
+
+
+def _temporal_item(item_id: str, *, source_id: str, score: float) -> ContextItem:
+    return ContextItem(
+        item_id=item_id,
+        item_type="chunk",
+        text=(
+            "session_9 date: 9:02 am on 22 November, 2023\n"
+            "D9:6 Andrew: I adopted another dog the other day. "
+            "image query: puppy Scout new bundle of joy."
+        ),
+        score=score,
+        source_refs=(SourceRef(source_type="locomo_turn", source_id=source_id),),
+        diagnostics={
+            "query_expansion_reason": "pet_acquisition_date_bridge",
+            "score_signals": {
+                "query_expansion_reason": "pet_acquisition_date_bridge",
+                "distinctive_term_hits": 8,
+                "unique_term_hits": 9,
+            },
+            "provenance": {
+                "deterministic_rerank_reasons": [
+                    "relation_requirement_missing_relation",
+                    "temporal_answer_evidence",
+                ],
+            },
+        },
+    )
 
 
 def _item(

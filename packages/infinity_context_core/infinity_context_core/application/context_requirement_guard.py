@@ -17,6 +17,9 @@ from infinity_context_core.application.context_packer_answer_support_patterns im
     _RECOGNITION_CERTIFICATE_QUERY_RE,
     _RECOGNITION_CERTIFICATE_VISUAL_ANSWER_RE,
 )
+from infinity_context_core.application.context_precise_temporal_evidence import (
+    is_precise_temporal_answer_evidence,
+)
 from infinity_context_core.application.context_query_intent import QueryAnchorIntent
 from infinity_context_core.application.context_requirement_coverage import (
     context_requirement_coverage,
@@ -37,6 +40,7 @@ _TEMPORAL_SOURCE_SIBLING_SUPPORT_RE = re.compile(
     r"thu(?:rsday)?|fri(?:day)?|sat(?:urday)?|sun(?:day)?)|"
     r"(?:one|two|three|four|five|six|seven|\d+)\s+days?\s+ago|"
     r"(?:one|two|three|four|five|six|seven|\d+)\s+weeks?\s+ago"
+    r"|the\s+other\s+day"
     r")\b",
     re.IGNORECASE,
 )
@@ -191,6 +195,10 @@ def _apply_explicit_requirement_guard(
             item,
             query=query,
         )
+        or is_precise_temporal_answer_evidence(
+            item=item,
+            query=query,
+        )
         or _is_precise_temporal_source_sibling_answer_support(
             item,
             requested_answer_shapes=requested_answer_shapes,
@@ -212,9 +220,7 @@ def _apply_explicit_requirement_guard(
     relation_mismatch_drop_count = len(items) - len(kept_items)
     if relation_mismatch_drop_count > 0:
         diagnostics["requirement_guard_items_dropped"] = relation_mismatch_drop_count
-        diagnostics["requirement_guard_relation_mismatch_drop_count"] = (
-            relation_mismatch_drop_count
-        )
+        diagnostics["requirement_guard_relation_mismatch_drop_count"] = relation_mismatch_drop_count
         diagnostics["requirement_guard_status"] = (
             "dropped_relation_requirement_mismatch"
             if not kept_items
@@ -301,11 +307,14 @@ def _is_precise_food_inventory_exact_turn_support(
         return False
     if not any(str(ref.source_id).casefold().endswith(":turn") for ref in item.source_refs):
         return False
-    if food_inventory_role_alignment_rank(
+    if (
+        food_inventory_role_alignment_rank(
         text=item.text,
         query=query,
         query_reason=query_reason,
-    ) > 1:
+        )
+        > 1
+    ):
         return False
     return (
         food_inventory_answer_support_rank(
@@ -486,6 +495,7 @@ def _deterministic_rerank_reasons(item: ContextItem) -> frozenset[str]:
     if not isinstance(raw_reasons, list | tuple):
         return frozenset()
     return frozenset(str(reason) for reason in raw_reasons if isinstance(reason, str))
+
 
 def _coverage_strings(value: object) -> tuple[str, ...]:
     if not isinstance(value, list | tuple):

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import json
 import time
 from collections import defaultdict
@@ -12,6 +13,7 @@ import httpx
 import infinity_context_server.memory_comparison_http as http_module
 import infinity_context_server.memory_comparison_rerank as rerank_module
 import pytest
+from infinity_context_core.application.normalize import content_hash
 from infinity_context_server import eval as eval_module
 from infinity_context_server.memory_comparison_benchmark import (
     LOCOMO_INGEST_OFFICIAL_TURNS,
@@ -3590,7 +3592,7 @@ def test_infinity_context_http_ingest_bounds_source_ids_for_public_api() -> None
     assert len(str(fact_source_id)) == 160
     assert raw_fact_id not in str(fact_source_id)
     assert fact_headers["idempotency-key"] == fact_source_id
-    assert len(str(document_source_id)) == 240
+    assert len(str(document_source_id)) == 160
     assert raw_document_id not in str(document_source_id)
     assert document_headers["idempotency-key"] == document_source_id
 
@@ -3706,6 +3708,7 @@ def test_infinity_context_http_search_uses_isolated_context_payload() -> None:
             "token_budget": 2048,
             "max_facts": 7,
             "max_chunks": 7,
+            "max_evidence_items": 7,
         }
     ]
     assert result.total_results == 1
@@ -17482,8 +17485,10 @@ def test_infinity_context_http_search_uses_benchmark_top_k_by_default() -> None:
     assert seen_payloads[0]["token_budget"] == 25600
     assert seen_payloads[0]["max_facts"] == 200
     assert seen_payloads[0]["max_chunks"] == 200
+    assert seen_payloads[0]["max_evidence_items"] == 200
     assert result.metadata["requested_top_k"] == 200
     assert result.metadata["applied_max_facts"] == 200
+    assert result.metadata["applied_max_evidence_items"] == 200
     assert result.metadata["applied_token_budget"] == 25600
     assert result.metadata["limited_by_http_api_caps"] is False
 
@@ -17519,8 +17524,10 @@ def test_infinity_context_http_search_can_use_public_api_caps() -> None:
     assert seen_payloads[0]["token_budget"] == 16000
     assert seen_payloads[0]["max_facts"] == 100
     assert seen_payloads[0]["max_chunks"] == 200
+    assert seen_payloads[0]["max_evidence_items"] == 100
     assert result.metadata["requested_top_k"] == 200
     assert result.metadata["applied_max_facts"] == 100
+    assert result.metadata["applied_max_evidence_items"] == 100
     assert result.metadata["applied_token_budget"] == 16000
     assert result.metadata["limited_by_http_api_caps"] is True
 
@@ -17554,7 +17561,8 @@ def test_mem0_http_ingest_uses_run_isolated_user_and_redacts_errors() -> None:
     finally:
         backend.close()
 
-    assert "user_id=memo-stack-comparison-run-42" in seen_requests[0][0]
+    expected_user_id = http_module.mem0_benchmark_user_id("Run 42")
+    assert f"user_id={expected_user_id}" in seen_requests[0][0]
     assert "run_id=Run+42" in seen_requests[0][0]
     assert result.items_processed == 1
     assert result.items_failed == 1
@@ -17564,7 +17572,7 @@ def test_mem0_http_ingest_uses_run_isolated_user_and_redacts_errors() -> None:
     assert "[redacted]" in str(failed_metadata["error_preview"])
     posted_payload = seen_requests[1][1]
     assert posted_payload is not None
-    assert posted_payload["user_id"] == "memo-stack-comparison-run-42"
+    assert posted_payload["user_id"] == expected_user_id
     assert posted_payload["run_id"] == "Run 42"
     assert posted_payload["metadata"] == {
         "benchmark": "locomo",
@@ -17572,6 +17580,7 @@ def test_mem0_http_ingest_uses_run_isolated_user_and_redacts_errors() -> None:
         "corpus_key": "corpus-a",
         "source_external_id": "conv-1-doc",
         "source_id": "conv-1-doc",
+        "source_sha256": content_hash("Morgan said: blue notebook"),
     }
 
 
@@ -17651,7 +17660,7 @@ def test_mem0_http_ingest_sends_memory_role_without_timestamp_by_default() -> No
                     "content": "D1:1 Morgan: The checklist is in the blue notebook.",
                 }
             ],
-            "user_id": "memo-stack-comparison-run-42",
+            "user_id": http_module.mem0_benchmark_user_id("Run 42"),
             "run_id": "Run 42",
             "metadata": {
                 "benchmark": "locomo",
@@ -17664,7 +17673,11 @@ def test_mem0_http_ingest_sends_memory_role_without_timestamp_by_default() -> No
                 "dia_id": "D1:1",
                 "role": "assistant",
                 "speaker": "Morgan",
+                "source_timestamp": 1683546960,
                 "locomo_evidence_ref": "D1:1",
+                "source_sha256": hashlib.sha256(
+                    b"D1:1 Morgan: The checklist is in the blue notebook."
+                ).hexdigest(),
             },
         }
     ]
@@ -17691,6 +17704,7 @@ def test_mem0_http_ingest_can_send_timestamp_when_enabled() -> None:
         memories=(
             BenchmarkMemoryInput(
                 text="D1:1 Morgan: The checklist is in the blue notebook.",
+                source_external_id="memory-timestamp",
                 metadata={"role": "assistant", "timestamp": 1683546960},
             ),
         ),
@@ -17752,7 +17766,7 @@ def test_mem0_http_search_uses_current_filters_and_top_k_payload() -> None:
         {
             "query": "Where is the checklist?",
             "filters": {
-                "user_id": "memo-stack-comparison-run-42",
+                "user_id": http_module.mem0_benchmark_user_id("Run 42"),
                 "run_id": "Run 42",
             },
             "limit": 7,

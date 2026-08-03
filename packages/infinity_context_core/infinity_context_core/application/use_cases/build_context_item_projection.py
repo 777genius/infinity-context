@@ -76,8 +76,14 @@ def _fact_context_item(
     *,
     now: datetime | None,
     query_text: str,
+    query_expansion_reason: str = "original_query",
+    relevance: QueryRelevance | None = None,
 ) -> ContextItem:
-    relevance = score_query_relevance(query=query_text, text=fact.text, max_boost=0.03)
+    relevance = relevance or score_query_relevance(
+        query=query_text,
+        text=fact.text,
+        max_boost=0.03,
+    )
     fact_score, fact_signals = _fact_score_signals(
         fact,
         now=now,
@@ -89,6 +95,14 @@ def _fact_context_item(
             **fact_signals,
             "same_script_query_boost": 0.012,
         }
+    reason_priority = query_expansion_reason_priority(query_expansion_reason)
+    fact_signals = {
+        **fact_signals,
+        "query_expansion_reason": query_expansion_reason,
+        "query_expansion_query": query_text,
+    }
+    if reason_priority > 0:
+        fact_signals["query_expansion_reason_priority"] = reason_priority
     snippet = query_focused_snippet(query=query_text, text=fact.text)
     source_refs = source_refs_with_query_snippet(fact.source_refs, snippet)
     return enrich_context_item_with_media_time(
@@ -103,6 +117,8 @@ def _fact_context_item(
                 "retrieval_source": "postgres_facts",
                 "retrieval_sources": ["postgres_facts"],
                 "ranking_reason": "canonical active fact matched query and filters",
+                "query_expansion_reason": query_expansion_reason,
+                "query_expansion_query": query_text,
                 "score_signals": {
                     **fact_signals,
                     **query_snippet_score_signals(snippet),
@@ -112,6 +128,8 @@ def _fact_context_item(
                     "source_ref_count": len(source_refs),
                     "fact_status": fact.status.value,
                     "fact_version": fact.version,
+                    "query_expansion_reason": query_expansion_reason,
+                    "query_expansion_query": query_text,
                     **query_snippet_diagnostics(snippet),
                 },
                 "confidence": fact.confidence.value,

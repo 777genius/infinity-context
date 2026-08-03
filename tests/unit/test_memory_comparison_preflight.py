@@ -1470,6 +1470,8 @@ def test_memory_comparison_preflight_diagnostics_are_stable_and_bounded(
         "auth_token_configured",
         "fallback_openai_api_key_configured",
         "fallback_openai_api_key_env",
+        "mem0_benchmark_probe_token_configured",
+        "mem0_benchmark_probe_token_env",
         "mem0_api_key_configured",
         "mem0_api_key_env",
         "openai_api_key_configured",

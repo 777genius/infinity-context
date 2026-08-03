@@ -366,7 +366,7 @@ def _temporal_keys_conflict(
     query_temporal_keys: frozenset[str],
     anchor_temporal_keys: frozenset[str],
 ) -> bool:
-    if not query_temporal_keys:
+    if not query_temporal_keys or not anchor_temporal_keys:
         return False
     if "relative_recent" in anchor_temporal_keys:
         return False

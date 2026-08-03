@@ -4537,7 +4537,9 @@ def test_context_batches_graph_fact_hydration_and_revalidation(
                     BuildContextQuery(
                         space_id=SpaceId("space_client_app"),
                         memory_scope_ids=(MemoryScopeId("memory_scope_default"),),
-                        query="unrelated graph batch query",
+                        # Keep canonical keyword retrieval empty so these counters isolate
+                        # graph hydration and final visibility revalidation.
+                        query="nebulous platypus cascade",
                         token_budget=2048,
                     )
                 )
@@ -4551,8 +4553,8 @@ def test_context_batches_graph_fact_hydration_and_revalidation(
     assert graph_adapter.search_calls
     assert context.diagnostics["graph_candidate_count"] == 1
     assert context.diagnostics["graph_hydrated_count"] == 4
-    assert 1 <= fact_batch_select_count <= 2
-    assert 1 <= source_ref_batch_select_count <= 2
+    assert fact_batch_select_count == 2
+    assert source_ref_batch_select_count == 2
 
 
 def test_graph_adapter_schema_mismatch_degrades_context(tmp_path: Path) -> None:

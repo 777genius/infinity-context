@@ -176,20 +176,6 @@ _COMPARISON_TERMS = frozenset(
     }
 )
 
-_TEMPORAL_ANSWER_TERMS = frozenset(
-    {
-        "date",
-        "day",
-        "time",
-        "when",
-        "weekday",
-        "дата",
-        "день",
-        "когда",
-        "число",
-    }
-)
-
 _KNOWLEDGE_UPDATE_ENTITY_TERMS = frozenset(
     {
         "choice",
@@ -528,6 +514,13 @@ _CURRENT_GOAL_TERMS = frozenset(
     }
 )
 
+_ORDINAL_SEQUENCE_TERMS = frozenset(
+    {"first", "second", "third", "fourth", "fifth", "last", "final"}
+)
+_SEQUENCE_TARGET_TERMS = frozenset({"event", "events", "item", "items", "step", "steps"})
+_SPECIALIZED_CAREER_GOAL_TERMS = frozenset({"decided", "option", "path", "persue", "pursue"})
+_CAREER_INFERENCE_TERMS = frozenset({"could", "likely", "might", "would"})
+
 _EVIDENCE_REASON_RE = re.compile(
     r"\b("
     r"why|reason|because|what evidence|which evidence|what shows|what showed|"
@@ -587,11 +580,20 @@ def _requests_non_inference_career_goal(
         raw_tokens.intersection({"decided", "persue"}) or "path" in variants
     )
 
-def _requests_inference_current_preference_or_goal(
+def _requests_current_preference_or_goal(
     *,
     raw_tokens: frozenset[str],
     variants: frozenset[str],
 ) -> bool:
+    if raw_tokens.intersection(_ORDINAL_SEQUENCE_TERMS) and raw_tokens.intersection(
+        _SEQUENCE_TARGET_TERMS
+    ):
+        return False
+    if "career" in variants and not raw_tokens.intersection(
+        _SPECIALIZED_CAREER_GOAL_TERMS
+        | _CAREER_INFERENCE_TERMS
+    ):
+        return False
     if raw_tokens.intersection(_CURRENT_GOAL_TERMS):
         return True
     return bool("career" in variants and raw_tokens.intersection({"option", "path", "pursue"}))

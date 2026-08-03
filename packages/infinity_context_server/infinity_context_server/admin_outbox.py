@@ -27,6 +27,8 @@ SAFE_COMPACTED_OUTBOX_PAYLOAD_KEYS = frozenset(
 
 
 async def replay_outbox(*, status: str, limit: int) -> dict[str, object]:
+    if status != "dead":
+        raise ValueError("status must be exactly 'dead'")
     container = build_container(Settings())
     try:
         async with AsyncSession(container.engine) as session:
@@ -74,6 +76,7 @@ async def compact_done_outbox(
                         .where(
                             MemoryOutboxRow.status == "done",
                             MemoryOutboxRow.updated_at <= cutoff,
+                            MemoryOutboxRow.aggregate_type != "benchmark_run",
                         )
                         .order_by(MemoryOutboxRow.updated_at, MemoryOutboxRow.id)
                         .limit(limit)

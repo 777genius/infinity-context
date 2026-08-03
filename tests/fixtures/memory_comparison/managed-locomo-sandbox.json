@@ -1,0 +1,27 @@
+[
+  {
+    "sample_id": "sandbox-locomo-1",
+    "conversation": {
+      "speaker_a": "Alice",
+      "speaker_b": "Bob",
+      "session_1_date_time": "1:56 pm on 8 May, 2023",
+      "session_1": [
+        {
+          "dia_id": "D1:1",
+          "speaker": "Alice",
+          "text": "Alice bought green tea after work."
+        }
+      ]
+    },
+    "qa": [
+      {
+        "question": "What did Alice buy after work?",
+        "answer": "green tea",
+        "evidence": [
+          "D1:1"
+        ],
+        "category": 4
+      }
+    ]
+  }
+]

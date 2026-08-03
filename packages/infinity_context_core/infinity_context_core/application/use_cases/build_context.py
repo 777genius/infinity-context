@@ -43,6 +43,9 @@ from infinity_context_core.application.context_policy import (
     is_context_anchor_visible,
     is_context_fact_visible,
 )
+from infinity_context_core.application.context_precise_temporal_evidence import (
+    with_precise_temporal_evidence_contracts,
+)
 from infinity_context_core.application.context_query_decomposition import (
     build_query_decomposition_plan,
 )
@@ -111,6 +114,9 @@ from infinity_context_core.application.use_cases import (
 )
 from infinity_context_core.application.use_cases import (
     build_context_source_selection as _source_selection_module,
+)
+from infinity_context_core.application.use_cases.build_context_final_packing import (
+    pack_final_context_items,
 )
 from infinity_context_core.application.use_cases.build_context_item_projection import (
     _best_query_relevance_cached,
@@ -343,6 +349,9 @@ class BuildContextUseCase:
         diagnostics.update(query_anchor_intent.diagnostics())
         diagnostics.update(query_expansion_plan.diagnostics())
         diagnostics.update(temporal_query_intent.diagnostics())
+        canonical_fact_match_by_id = {
+            str(match.fact.id): match for match in getattr(canonical, "fact_matches", ())
+        }
         for fact in canonical.facts:
             if not is_context_fact_visible(
                 fact,
@@ -351,7 +360,18 @@ class BuildContextUseCase:
                 now=now,
             ):
                 continue
-            items.append(_fact_context_item(fact, now=now, query_text=query.query))
+            fact_match = canonical_fact_match_by_id.get(str(fact.id))
+            items.append(
+                _fact_context_item(
+                    fact,
+                    now=now,
+                    query_text=fact_match.query if fact_match is not None else query.query,
+                    query_expansion_reason=(
+                        fact_match.reason if fact_match is not None else "original_query"
+                    ),
+                    relevance=fact_match.relevance if fact_match is not None else None,
+                )
+            )
         anchors_used = 0
         anchors_used_by_query_intent = 0
         anchors_dropped_by_query_intent_conflict = 0
@@ -825,6 +845,10 @@ class BuildContextUseCase:
             )
         )
         diagnostics.update(answer_evidence_repair_diagnostics)
+        candidate_items = with_precise_temporal_evidence_contracts(
+            candidate_items,
+            query=query.query,
+        )
         candidate_items, evidence_priority_diagnostics = apply_context_evidence_priority(
             candidate_items
         )
@@ -869,12 +893,11 @@ class BuildContextUseCase:
         )
         diagnostics.update(_pre_pack_candidate_source_ref_diagnostics(guarded_items))
         stage_started_at = perf_counter()
-        result = self._packer.pack(
-            bundle_id=self._ids.new_id("ctx"),
+        result = pack_final_context_items(
+            packer=self._packer,
+            ids=self._ids,
+            query=query,
             items=guarded_items,
-            token_budget=query.token_budget,
-            query=query.query,
-            max_rendered_chars=query.max_rendered_chars,
         )
         _record_stage_timing(diagnostics, "pack", stage_started_at)
         diagnostics.update(temporal_diagnostics)

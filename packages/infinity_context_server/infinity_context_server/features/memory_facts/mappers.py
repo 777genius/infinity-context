@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import re
 from collections.abc import Mapping, Sequence
 from datetime import UTC, datetime
@@ -334,10 +335,14 @@ def fact_to_response(
 ) -> dict[str, Any]:
     if isinstance(fact, MemoryFactSnapshot):
         body = memory_fact_snapshot_to_response(fact)
-        if indexing_status is not None:
-            body["indexing_status"] = indexing_status
-        return body
-    return legacy_memory_fact_to_response(fact, indexing_status)
+    else:
+        body = legacy_memory_fact_to_response(fact, indexing_status)
+    if indexing_status is not None:
+        body["indexing_status"] = indexing_status
+        body["content_sha256"] = hashlib.sha256(
+            str(_required_value(fact, "text")).encode("utf-8")
+        ).hexdigest()
+    return body
 
 
 def related_fact_to_response(item: object) -> dict[str, Any]:

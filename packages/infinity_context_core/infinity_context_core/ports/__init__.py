@@ -19,6 +19,15 @@ from infinity_context_core.ports.auto_memory import (
     MemoryExtractorPort,
     SourceProvenance,
 )
+from infinity_context_core.ports.benchmark_runs import (
+    BenchmarkCleanupCounts,
+    BenchmarkCleanupReceipt,
+    BenchmarkRunRegistryRecord,
+    BenchmarkRunRepositoryPort,
+    BenchmarkRunState,
+    ProjectionCleanupState,
+    is_managed_benchmark_space_id,
+)
 from infinity_context_core.ports.capabilities import (
     CapabilityDescriptor,
     CapabilityDiagnostic,
@@ -47,6 +56,12 @@ from infinity_context_core.ports.capabilities import (
     VectorRecallPort,
 )
 from infinity_context_core.ports.clock import ClockPort
+from infinity_context_core.ports.derived_projection_policy import (
+    DERIVED_NOT_PROJECTED_POLICY_SCHEMA_VERSION,
+    DerivedProjectionLaneDisposition,
+    DerivedProjectionLanePolicyError,
+    derived_not_projected_policy_sha256,
+)
 from infinity_context_core.ports.extraction import (
     AssetExtractionRepositoryPort,
     ContentExtractionPort,
@@ -60,6 +75,10 @@ from infinity_context_core.ports.extraction import (
     FileTypeDetectorPort,
 )
 from infinity_context_core.ports.ids import IdGeneratorPort
+from infinity_context_core.ports.projection_fence import (
+    ProjectionFencePermit,
+    ProjectionFencePort,
+)
 from infinity_context_core.ports.transcription import (
     SpeechTranscriptionPort,
     SpeechTranscriptionRequest,
@@ -72,6 +91,11 @@ __all__ = [
     "AdapterCapabilities",
     "ALLOWED_TTL_POLICIES",
     "AuthPort",
+    "BenchmarkCleanupCounts",
+    "BenchmarkCleanupReceipt",
+    "BenchmarkRunRegistryRecord",
+    "BenchmarkRunRepositoryPort",
+    "BenchmarkRunState",
     "AssetExtractionRepositoryPort",
     "CapabilityDescriptor",
     "CapabilityDiagnostic",
@@ -85,6 +109,10 @@ __all__ = [
     "ContentExtractionPort",
     "DocumentMemoryPort",
     "DocumentMemoryWrite",
+    "DERIVED_NOT_PROJECTED_POLICY_SCHEMA_VERSION",
+    "DerivedProjectionLaneDisposition",
+    "DerivedProjectionLanePolicyError",
+    "derived_not_projected_policy_sha256",
     "EngineHealthPort",
     "EngineHealthSnapshot",
     "ExtractedElement",
@@ -111,6 +139,10 @@ __all__ = [
     "MemoryScopeFilter",
     "PortDiagnostic",
     "PortStatus",
+    "ProjectionFencePermit",
+    "ProjectionFencePort",
+    "ProjectionCleanupState",
+    "is_managed_benchmark_space_id",
     "ProjectionForgetPort",
     "ProjectionForgetRequest",
     "ProjectionForgetResult",

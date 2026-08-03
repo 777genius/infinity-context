@@ -77,6 +77,30 @@ def test_query_anchor_intent_extracts_future_relative_time_hints() -> None:
     assert "atlas" not in next_week.keys_for_kind(MemoryAnchorKind.PERSON)
 
 
+def test_temporal_query_does_not_conflict_with_unknown_evidence_time() -> None:
+    intent = build_query_anchor_intent("What did I discuss at the meeting last Saturday?")
+
+    assert (
+        query_anchor_intent_text_conflicts(
+            intent,
+            "Meeting planning music for the event.",
+        )
+        is False
+    )
+
+
+def test_temporal_query_still_conflicts_with_explicit_different_time() -> None:
+    intent = build_query_anchor_intent("What did I discuss at the meeting last Saturday?")
+
+    assert (
+        query_anchor_intent_text_conflicts(
+            intent,
+            "D1:1 user: We discussed music at the meeting yesterday.",
+        )
+        is True
+    )
+
+
 def test_query_anchor_intent_matches_activity_duration_and_recurrence_keys() -> None:
     duration = build_query_anchor_intent("Has Maria volunteered for three years?")
     duration_anchor = _anchor(
@@ -276,6 +300,14 @@ def test_query_anchor_intent_accepts_activity_event_paraphrase_text() -> None:
 
     assert query_anchor_intent_text_conflicts(intent, text) is False
     assert match_query_anchor_intent_to_text(intent, text) is not None
+
+
+def test_calendar_months_are_not_person_anchor_hints() -> None:
+    intent = build_query_anchor_intent(
+        "What was the page count of the two novels I finished in January and March?"
+    )
+
+    assert intent.keys_for_kind(MemoryAnchorKind.PERSON) == frozenset()
 
 
 def test_query_anchor_intent_does_not_promote_to_as_project() -> None:
@@ -704,6 +736,28 @@ def test_first_person_occupational_role_titles_are_not_person_hints() -> None:
         intent = build_query_anchor_intent(question)
 
         assert intent.keys_for_kind(MemoryAnchorKind.PERSON) == frozenset(), question
+
+
+def test_lowercase_person_hints_reject_function_words_after_prepositions() -> None:
+    questions = (
+        "What was discussed with another team?",
+        "What was discussed with the team?",
+        "What was discussed with those sessions?",
+        "What was discussed with some participants?",
+    )
+
+    for question in questions:
+        intent = build_query_anchor_intent(question)
+
+        assert intent.keys_for_kind(MemoryAnchorKind.PERSON) == frozenset(), question
+
+
+def test_lowercase_person_hints_preserve_named_participants() -> None:
+    from_person = build_query_anchor_intent("What did I hear from dana yesterday?")
+    with_person = build_query_anchor_intent("What did I discuss with alex during the meeting?")
+
+    assert from_person.keys_for_kind(MemoryAnchorKind.PERSON) == {"dana"}
+    assert with_person.keys_for_kind(MemoryAnchorKind.PERSON) == {"aleks"}
 
 
 def test_first_person_role_filter_preserves_named_people_and_possessives() -> None:

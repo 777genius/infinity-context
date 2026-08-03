@@ -8,7 +8,6 @@ from infinity_context_core.application.context_evidence_priority import (
     has_unresolved_rerank_rejection,
 )
 from infinity_context_core.application.context_packer_answer_support import (
-    _answer_support_diversity_family,
     _answer_support_query_reason,
 )
 from infinity_context_core.application.context_packer_diagnostics import diagnostic_value
@@ -22,6 +21,12 @@ from infinity_context_core.features.context_building.public import (
 )
 
 _CONFLICT_ID_KEYS = ("conflicting_fact_id", "conflict_fact_id")
+_INFERENCE_LANE_REASONS = frozenset(
+    {
+        "decomposition_financial_resources_inference",
+        "decomposition_inference_support",
+    }
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -62,11 +67,25 @@ def inference_reservation_for_char_pressure(
         reserved=item_by_id[decision.candidate_id],
         displaced=item_by_id[decision.displaced_candidate_id],
     )
-    if _answer_support_diversity_family(reservation.reserved) != _answer_support_diversity_family(
-        reservation.displaced
+    if not _is_inference_lane_compatible(
+        reserved=reservation.reserved,
+        displaced=reservation.displaced,
     ):
         return None
     return reservation
+
+
+def _is_inference_lane_compatible(
+    *,
+    reserved: ContextItem,
+    displaced: ContextItem,
+) -> bool:
+    """Keep the adapter's defensive swap boundary within the inference lane."""
+
+    return {
+        _answer_support_query_reason(reserved),
+        _answer_support_query_reason(displaced),
+    } <= _INFERENCE_LANE_REASONS
 
 
 def _candidate(item: ContextItem, *, rank: int) -> InferenceEvidenceCandidate:

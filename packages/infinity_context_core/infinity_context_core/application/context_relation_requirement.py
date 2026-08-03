@@ -7,6 +7,9 @@ from dataclasses import dataclass
 from typing import NamedTuple
 
 from infinity_context_core.application.context_lexical import lexical_variants
+from infinity_context_core.application.context_museum_visit_policy import (
+    strong_dated_museum_visit_evidence,
+)
 
 
 class RelationRequirementSignal(NamedTuple):
@@ -38,6 +41,16 @@ class _RelationRequirement:
 
 
 _TOKEN_RE = re.compile(r"[A-Za-zА-Яа-яЁё][A-Za-zА-Яа-яЁё0-9._-]*", re.UNICODE)
+_DIALOGUE_SPEAKER_LABEL_RE = (
+    r"[A-ZА-ЯЁ][A-Za-zА-Яа-яЁё._-]{1,39}"
+    r"(?:\s+[A-ZА-ЯЁ][A-Za-zА-Яа-яЁё._-]{1,39}){0,2}"
+)
+_DIALOGUE_TURN_RE = re.compile(
+    rf"\bD\d+:\d+\s+(?P<speaker>{_DIALOGUE_SPEAKER_LABEL_RE}):\s*"
+    r"(?P<content>.*?)(?=\bD\d+:\d+\s+"
+    rf"{_DIALOGUE_SPEAKER_LABEL_RE}:|$)",
+    re.IGNORECASE | re.DOTALL,
+)
 _SENTENCE_RE = re.compile(r"[^.?!;\n]+")
 _QUESTION_RE = re.compile(
     r"\b(?:do\s+we\s+know|is\s+there\s+any|are\s+there\s+any|"
@@ -70,6 +83,28 @@ _SUBJECT_STOP_VARIANTS = frozenset(
         "известно",
         "ли",
     }
+)
+_SUBJECT_SKIPPED_VARIANTS = _SUBJECT_STOP_VARIANTS | frozenset(
+    {
+        "decid",
+        "decide",
+        "decided",
+        "deciding",
+        "plan",
+        "plann",
+        "planned",
+        "planning",
+        "to",
+        "want",
+        "wanted",
+        "wanting",
+    }
+)
+_COORDINATED_SUBJECT_COMPANION_VARIANTS = frozenset(
+    {"colleague", "coworker", "friend", "mate", "partner", "teammate"}
+)
+_COORDINATED_SUBJECT_POSSESSIVE_VARIANTS = frozenset(
+    {"a", "an", "her", "his", "my", "our", "their"}
 )
 _OBJECT_STOP_VARIANTS = frozenset(
     {
@@ -192,7 +227,7 @@ _RELATION_GROUPS: tuple[_RelationGroup, ...] = (
             re.IGNORECASE,
         ),
         text_re=re.compile(
-            r"\b(?:use(?:d|s|ing)?|tried|ran|install(?:ed|s|ing)?|"
+            r"\b(?:use(?:d|s|ing)?|try|tried|trying|ran|install(?:ed|s|ing)?|"
             r"использовал\w*|запустил\w*)\b",
             re.IGNORECASE,
         ),
@@ -203,9 +238,18 @@ _RELATION_GROUPS: tuple[_RelationGroup, ...] = (
 def relation_requirement_signal(*, query: str, text: str) -> RelationRequirementSignal:
     """Return a deterministic support/decoy signal for explicit relation queries."""
 
+    if strong_dated_museum_visit_evidence(query=query, text=text):
+        return RelationRequirementSignal(
+            boost=0.018,
+            reason="relation_requirement_match",
+        )
     requirement = _relation_requirement(query)
     if requirement is None:
         return RelationRequirementSignal()
+    if requirement.group.key in {"mention", "use"} and _has_compact_direct_speaker_relation(
+        requirement, text
+    ):
+        return RelationRequirementSignal(boost=0.018, reason="relation_requirement_match")
     if _text_satisfies_requirement(requirement, text):
         return RelationRequirementSignal(boost=0.018, reason="relation_requirement_match")
     if _text_mentions_requirement_anchors(requirement, text):
@@ -241,14 +285,31 @@ def _relation_requirement(query: str) -> _RelationRequirement | None:
     return None
 
 
+def _has_compact_direct_speaker_relation(
+    requirement: _RelationRequirement,
+    text: str,
+) -> bool:
+    turns = tuple(_DIALOGUE_TURN_RE.finditer(text))
+    if len(turns) != 1:
+        return False
+    turn = turns[0]
+    if not _has_token_variants(turn.group("speaker"), requirement.subject.variants):
+        return False
+    content = turn.group("content")
+    if not all(_has_token_variants(content, token.variants) for token in requirement.object_tokens):
+        return False
+    if requirement.group.key == "mention":
+        return True
+    return requirement.group.text_re.search(content) is not None
+
+
 def _text_satisfies_requirement(requirement: _RelationRequirement, text: str) -> bool:
     for sentence_match in _SENTENCE_RE.finditer(text):
         sentence = sentence_match.group(0)
         if not _has_token_variants(sentence, requirement.subject.variants):
             continue
         if not all(
-            _has_token_variants(sentence, token.variants)
-            for token in requirement.object_tokens
+            _has_token_variants(sentence, token.variants) for token in requirement.object_tokens
         ):
             continue
         if requirement.group.key == "possession" and _has_possessive_match(
@@ -311,8 +372,7 @@ def _has_possessive_match(requirement: _RelationRequirement, sentence: str) -> b
 
 def _text_mentions_requirement_anchors(requirement: _RelationRequirement, text: str) -> bool:
     return _has_token_variants(text, requirement.subject.variants) and all(
-        _has_token_variants(text, token.variants)
-        for token in requirement.object_tokens
+        _has_token_variants(text, token.variants) for token in requirement.object_tokens
     )
 
 
@@ -327,8 +387,7 @@ def _text_mentions_subject_relation_without_object(
         if not requirement.group.text_re.search(sentence):
             continue
         if all(
-            _has_token_variants(sentence, token.variants)
-            for token in requirement.object_tokens
+            _has_token_variants(sentence, token.variants) for token in requirement.object_tokens
         ):
             continue
         return True
@@ -337,11 +396,42 @@ def _text_mentions_subject_relation_without_object(
 
 def _nearest_subject(tokens: tuple[_Token, ...], relation_start: int) -> _Token | None:
     before = [token for token in tokens if token.end <= relation_start]
-    for token in reversed(before[-6:]):
-        if _is_stop_token(token, _SUBJECT_STOP_VARIANTS):
+    window = before[-10:]
+    for index in range(len(window) - 1, -1, -1):
+        token = window[index]
+        if _is_stop_token(token, _SUBJECT_SKIPPED_VARIANTS):
             continue
+        coordinated_owner = _coordinated_subject_owner(window, companion_index=index)
+        if coordinated_owner is not None:
+            return coordinated_owner
         return token
     return None
+
+
+def _coordinated_subject_owner(
+    tokens: list[_Token],
+    *,
+    companion_index: int,
+) -> _Token | None:
+    companion = tokens[companion_index]
+    if not _is_stop_token(companion, _COORDINATED_SUBJECT_COMPANION_VARIANTS):
+        return None
+    owner_index = companion_index - 1
+    if owner_index >= 0 and _is_stop_token(
+        tokens[owner_index],
+        _COORDINATED_SUBJECT_POSSESSIVE_VARIANTS,
+    ):
+        owner_index -= 1
+    if owner_index < 0 or "and" not in tokens[owner_index].variants:
+        return None
+    return next(
+        (
+            candidate
+            for candidate in reversed(tokens[:owner_index])
+            if not _is_stop_token(candidate, _SUBJECT_SKIPPED_VARIANTS)
+        ),
+        None,
+    )
 
 
 def _object_tokens(tokens: tuple[_Token, ...], relation_end: int) -> tuple[_Token, ...]:

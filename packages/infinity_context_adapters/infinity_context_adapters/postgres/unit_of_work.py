@@ -23,6 +23,21 @@ from infinity_context_adapters.postgres.asset_repositories import (
     PostgresContextLinkRepository,
     PostgresContextLinkSuggestionRepository,
 )
+from infinity_context_adapters.postgres.benchmark_projection_schema import (
+    ensure_benchmark_projection_manifest_schema,
+)
+from infinity_context_adapters.postgres.benchmark_run_repositories import (
+    PostgresBenchmarkRunRepository,
+)
+from infinity_context_adapters.postgres.benchmark_writer_fence import (
+    BENCHMARK_WRITER_FENCE_CONSTRAINT as _BENCHMARK_WRITER_FENCE_CONSTRAINT,
+)
+from infinity_context_adapters.postgres.benchmark_writer_fence import (
+    BENCHMARK_WRITER_FENCE_SQLSTATE as _BENCHMARK_WRITER_FENCE_SQLSTATE,
+)
+from infinity_context_adapters.postgres.benchmark_writer_fence import (
+    BENCHMARK_WRITER_FENCE_STATEMENTS,
+)
 from infinity_context_adapters.postgres.fact_repositories import (
     PostgresFactRelationRepository,
     PostgresFactRepository,
@@ -41,6 +56,44 @@ from infinity_context_adapters.postgres.repositories import (
 from infinity_context_adapters.postgres.scope_repositories import PostgresScopeRepository
 from infinity_context_adapters.postgres.usage_repositories import PostgresUsageRepository
 from infinity_context_adapters.postgres.user_repositories import PostgresUserRepository
+
+_BENCHMARK_WRITER_FENCE_MESSAGE = "Benchmark canonical write conflicted with cleanup in progress"
+
+
+def _is_benchmark_writer_fence_error(exc: IntegrityError) -> bool:
+    """Match only the stable Postgres trigger identity, including wrapped drivers."""
+
+    pending: list[BaseException] = [exc]
+    seen: set[int] = set()
+    while pending:
+        current = pending.pop()
+        if id(current) in seen:
+            continue
+        seen.add(id(current))
+        diagnostics = getattr(current, "diag", None)
+        sqlstate = getattr(current, "sqlstate", None) or getattr(
+            current,
+            "pgcode",
+            None,
+        )
+        constraint = getattr(current, "constraint_name", None) or getattr(
+            diagnostics,
+            "constraint_name",
+            None,
+        )
+        if (
+            sqlstate == _BENCHMARK_WRITER_FENCE_SQLSTATE
+            and constraint == _BENCHMARK_WRITER_FENCE_CONSTRAINT
+        ):
+            return True
+        for nested in (
+            getattr(current, "orig", None),
+            current.__cause__,
+            current.__context__,
+        ):
+            if isinstance(nested, BaseException):
+                pending.append(nested)
+    return False
 
 
 def build_async_engine(database_url: str) -> AsyncEngine:
@@ -499,11 +552,20 @@ async def create_schema(engine: AsyncEngine) -> None:
     async with engine.begin() as connection:
         await connection.run_sync(_ensure_legacy_profile_schema)
         await connection.run_sync(Base.metadata.create_all)
+        await connection.run_sync(ensure_benchmark_projection_manifest_schema)
         await connection.run_sync(_ensure_additive_schema_columns)
         await connection.run_sync(_ensure_document_thread_unique_indexes)
         await connection.run_sync(_ensure_outbox_lifecycle_indexes)
         await connection.run_sync(_ensure_capture_indexes)
         await connection.run_sync(_ensure_suggestion_metadata_indexes)
+        await connection.run_sync(_ensure_managed_benchmark_writer_fence)
+
+
+def _ensure_managed_benchmark_writer_fence(connection: Connection) -> None:
+    if connection.dialect.name != "postgresql":
+        return
+    for statement in BENCHMARK_WRITER_FENCE_STATEMENTS:
+        connection.execute(text(statement))
 
 
 def _ensure_outbox_lifecycle_indexes(connection: Connection) -> None:
@@ -643,6 +705,7 @@ class PostgresUnitOfWork:
 
     async def __aenter__(self) -> PostgresUnitOfWork:
         self._session = self._session_factory()
+        self.benchmark_runs = PostgresBenchmarkRunRepository(self._session)
         now = self._clock.now()
         self.scope = PostgresScopeRepository(self._session)
         self.users = PostgresUserRepository(self._session)
@@ -671,11 +734,18 @@ class PostgresUnitOfWork:
     ) -> None:
         if self._session is None:
             return
+        writer_fence_error = (
+            exc
+            if isinstance(exc, IntegrityError) and _is_benchmark_writer_fence_error(exc)
+            else None
+        )
         if exc_type is not None or not self._committed:
             await self._session.rollback()
         await self._session.close()
         self._session = None
         self._committed = False
+        if writer_fence_error is not None:
+            raise MemoryConflictError(_BENCHMARK_WRITER_FENCE_MESSAGE) from writer_fence_error
 
     async def commit(self) -> None:
         if self._session is None:
@@ -685,6 +755,8 @@ class PostgresUnitOfWork:
             await self._session.commit()
         except IntegrityError as exc:
             await self._session.rollback()
+            if _is_benchmark_writer_fence_error(exc):
+                raise MemoryConflictError(_BENCHMARK_WRITER_FENCE_MESSAGE) from exc
             raise MemoryConflictError("Canonical write conflicted with existing data") from exc
         self._committed = True
 

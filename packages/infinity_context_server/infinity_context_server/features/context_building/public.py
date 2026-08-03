@@ -4,6 +4,9 @@ from __future__ import annotations
 
 import infinity_context_core.features.context_building.public as context_building
 
+from infinity_context_server.features.context_building.benchmark_budget import (
+    benchmark_context_char_budget,
+)
 from infinity_context_server.features.context_building.composition import (
     ContextBuildingServerFeature,
     build_context_building_server_feature,
@@ -56,6 +59,7 @@ __all__ = (
     "build_context_building_server_feature",
     "build_context_query_from_contract",
     "build_context_result_to_contract",
+    "benchmark_context_char_budget",
     "build_legacy_context_query_from_request",
     "build_legacy_digest_query_from_request",
     "create_context_building_router",

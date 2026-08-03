@@ -11,6 +11,7 @@ from infinity_context_core.ports.assets import (
     ContextLinkRepositoryPort,
     ContextLinkSuggestionRepositoryPort,
 )
+from infinity_context_core.ports.benchmark_runs import BenchmarkRunRepositoryPort
 from infinity_context_core.ports.captures import CaptureRepositoryPort
 from infinity_context_core.ports.extraction import AssetExtractionRepositoryPort
 from infinity_context_core.ports.repositories import (
@@ -34,6 +35,7 @@ class OutboxPort(Protocol):
 
 
 class UnitOfWorkPort(Protocol):
+    benchmark_runs: BenchmarkRunRepositoryPort
     scope: ScopeRepositoryPort
     users: UserRepositoryPort
     facts: FactRepositoryPort

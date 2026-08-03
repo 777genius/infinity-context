@@ -54,6 +54,21 @@ class SessionStatus:
 
 
 @dataclass(frozen=True)
+class ActiveFactSearch:
+    """One logical canonical fact query in an ordered bulk request."""
+
+    space_id: str
+    memory_scope_ids: tuple[str, ...]
+    thread_id: str | None
+    query: str
+    limit: int
+    category: str | None = None
+    tags_any: tuple[str, ...] = ()
+    tags_all: tuple[str, ...] = ()
+    tags_none: tuple[str, ...] = ()
+
+
+@dataclass(frozen=True)
 class ChunkKeywordSearch:
     """One logical canonical keyword query in an ordered bulk request."""
 
@@ -246,6 +261,16 @@ class FactRepositoryPort(Protocol):
         now: datetime,
     ) -> tuple[tuple[str, int], ...]:
         """Delete active facts whose current evidence only points to a deleted document."""
+
+
+class ActiveFactBatchRepositoryPort(Protocol):
+    """Optional capability for ordered canonical fact searches."""
+
+    async def find_active_many(
+        self,
+        searches: tuple[ActiveFactSearch, ...],
+    ) -> list[list[MemoryFact]]:
+        """Find active facts for ordered queries without per-query hydration."""
 
 
 class AnchorRepositoryPort(Protocol):

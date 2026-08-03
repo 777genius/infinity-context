@@ -18,6 +18,9 @@ from infinity_context_core.application.context_property_interaction_evidence imp
     PROPERTY_ENTITY_TERMS,
     project_property_interaction_event,
 )
+from infinity_context_core.application.context_quantity_evidence_slots import (
+    project_quantity_evidence_slots,
+)
 
 _MAX_QUERY_CHARS = 512
 _MAX_EVIDENCE_CHARS = 12_000
@@ -454,6 +457,35 @@ def extract_distinct_set_request(query: str) -> DistinctSetRequest | None:
 def project_distinct_set_evidence(*, query: str, text: str) -> DistinctSetEvidenceProjection:
     """Project bounded user assertions and opaque target-member identities."""
 
+    quantity = project_quantity_evidence_slots(query=query, text=text)
+    if quantity.request_detected:
+        if len(quantity.member_ids) != len(quantity.identities):
+            return DistinctSetEvidenceProjection()
+        admissible = tuple(
+            (index, member_id, identity)
+            for index, (member_id, identity) in enumerate(
+                zip(quantity.member_ids, quantity.identities, strict=False)
+            )
+            if not identity.startswith("excluded:")
+        )
+        if not admissible:
+            return DistinctSetEvidenceProjection()
+        evidence_sentences = quantity.evidence_sentences
+        rendered_text = quantity.rendered_text
+        if len(admissible) != len(quantity.identities):
+            if len(evidence_sentences) != len(quantity.identities):
+                return DistinctSetEvidenceProjection()
+            evidence_sentences = tuple(evidence_sentences[index] for index, _, _ in admissible)
+            rendered_text = _render_projection(
+                text=text,
+                evidence_sentences=list(evidence_sentences),
+            )
+        return DistinctSetEvidenceProjection(
+            member_ids=tuple(member_id for _, member_id, _ in admissible),
+            identities=tuple(identity for _, _, identity in admissible),
+            evidence_sentences=evidence_sentences,
+            rendered_text=rendered_text,
+        )
     request = extract_distinct_set_request(query)
     if request is None or not text.strip():
         return DistinctSetEvidenceProjection()

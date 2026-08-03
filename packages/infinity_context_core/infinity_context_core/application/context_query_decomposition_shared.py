@@ -99,6 +99,7 @@ _SALIENT_DROP_VARIANTS = frozenset(
         "focus",
         "kind",
         "kinds",
+        "many",
         "option",
         "still",
         "topic",

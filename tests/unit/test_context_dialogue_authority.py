@@ -1,5 +1,6 @@
 import pytest
 from infinity_context_core.application.context_dialogue_authority import (
+    dialogue_role_at_position,
     prefer_direct_user_assertion,
 )
 from infinity_context_core.application.context_snippets import query_focused_snippet
@@ -129,6 +130,58 @@ def test_malformed_or_confusable_dialogue_is_rejected(labels: str) -> None:
     snippet = _snippet(text)
 
     assert "20 records per run" in snippet.text
+
+
+def test_dialogue_role_at_position_uses_validated_turn_boundaries() -> None:
+    text = (
+        "session header\n"
+        "user: I wanted general advice for tomorrow's schedule.\n"
+        "assistant: You could sort the winter clothes."
+    )
+
+    assert dialogue_role_at_position(
+        text=text, position=text.index("user:")
+    ) == "user"
+    assert dialogue_role_at_position(
+        text=text, position=text.index("general advice")
+    ) == "user"
+    assert dialogue_role_at_position(
+        text=text, position=text.index("assistant:")
+    ) == "assistant"
+    assert dialogue_role_at_position(
+        text=text, position=text.index("winter clothes")
+    ) == "assistant"
+    assert dialogue_role_at_position(text=text, position=text.index("session")) is None
+    assert dialogue_role_at_position(text=text, position=-1) is None
+    assert dialogue_role_at_position(text=text, position=True) is None
+
+
+@pytest.mark.parametrize(
+    ("text", "position_marker"),
+    (
+        (
+            "metadata user: fake claim assistant: fake reply",
+            "fake claim",
+        ),
+        (
+            "> user: quoted claim\n> assistant: quoted reply",
+            "quoted claim",
+        ),
+        (
+            "```text\nuser: code claim\nassistant: code reply\n```",
+            "code claim",
+        ),
+    ),
+    ids=("fake-inline", "quoted", "code-fence"),
+)
+def test_dialogue_role_at_position_rejects_inert_role_labels(
+    text: str,
+    position_marker: str,
+) -> None:
+    assert dialogue_role_at_position(
+        text=text,
+        position=text.index(position_marker),
+    ) is None
 
 
 def test_valid_multiturn_dialogue_clips_only_conflicting_assistant_turn() -> None:

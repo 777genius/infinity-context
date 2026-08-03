@@ -11,6 +11,12 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from urllib.parse import urlparse
 
+from infinity_context_server.memory_comparison_service_probe import (
+    MEM0_BENCHMARK_PROBE_TOKEN_ENV,
+    ServiceProbeCheck,
+    run_memory_comparison_service_probe,
+)
+
 MEMORY_COMPARISON_PREFLIGHT_SUITE = "memory-comparison-preflight"
 MEMORY_COMPARISON_PREFLIGHT_SCHEMA_VERSION = "memory-comparison-preflight.v1"
 _MAX_DIAGNOSTIC_TEXT = 256
@@ -75,6 +81,7 @@ class MemoryComparisonPreflightConfig:
     auth_token_configured: bool
     probe_services: bool = False
     probe_timeout_seconds: float = 1.5
+    require_mem0_runtime_contract: bool = False
     env: Mapping[str, str] = field(default_factory=lambda: os.environ)
 
 
@@ -114,6 +121,14 @@ def run_memory_comparison_preflight(
     """Return a sanitized readiness report without starting benchmark state."""
 
     normalized_cutoffs = _normalized_cutoffs(config.top_k_cutoffs)
+    service_probe = run_memory_comparison_service_probe(
+        memo_api_url=config.memo_api_url,
+        mem0_url=config.mem0_url,
+        timeout_seconds=config.probe_timeout_seconds,
+        probe_services=config.probe_services,
+        require_mem0_runtime_contract=config.require_mem0_runtime_contract,
+        env=config.env,
+    )
     checks = [
         _dataset_check(config.dataset_path),
         _url_check("memo_api_url_valid", config.memo_api_url),
@@ -144,8 +159,8 @@ def run_memory_comparison_preflight(
         *_fast_readiness_checks(config),
         *_locomo_fast_dataset_checks(config),
     ]
-    if config.probe_services:
-        checks.extend(_service_probe_checks(config))
+    if not service_probe.skipped:
+        checks.extend(_service_probe_check(check) for check in service_probe.checks)
     else:
         checks.append(
             MemoryComparisonPreflightCheck(
@@ -199,6 +214,9 @@ def run_memory_comparison_preflight(
             "judge_provider": config.judge_provider,
             "uses_openai": _uses_openai(config),
             "probe_services": config.probe_services,
+            "require_mem0_runtime_contract": (
+                service_probe.require_mem0_runtime_contract
+            ),
             "safe_reporting_contracts": _safe_reporting_contracts(config.report_mode),
             "secrets": _secret_diagnostics(config),
         },
@@ -448,20 +466,15 @@ def _locomo_fast_dataset_checks(
     )
 
 
-def _service_probe_checks(
-    config: MemoryComparisonPreflightConfig,
-) -> tuple[MemoryComparisonPreflightCheck, ...]:
-    return (
-        _probe_memo_api(
-            "memo_api_reachable",
-            config.memo_api_url,
-            timeout_seconds=config.probe_timeout_seconds,
-        ),
-        _probe_mem0_api(
-            "mem0_api_reachable",
-            config.mem0_url,
-            timeout_seconds=config.probe_timeout_seconds,
-        ),
+
+def _service_probe_check(result: ServiceProbeCheck) -> MemoryComparisonPreflightCheck:
+    return MemoryComparisonPreflightCheck(
+        name=result.name,
+        passed=result.passed,
+        severity="service-probe",
+        reason=result.reason,
+        reason_code=result.reason_code,
+        details=result.details,
     )
 
 
@@ -481,6 +494,10 @@ def _safe_reporting_contracts(report_mode: str) -> list[dict[str, object]]:
 def _secret_diagnostics(config: MemoryComparisonPreflightConfig) -> dict[str, object]:
     return {
         "auth_token_configured": config.auth_token_configured,
+        "mem0_benchmark_probe_token_configured": _env_is_set(
+            config.env, MEM0_BENCHMARK_PROBE_TOKEN_ENV
+        ),
+        "mem0_benchmark_probe_token_env": MEM0_BENCHMARK_PROBE_TOKEN_ENV,
         "mem0_api_key_configured": _env_is_set(config.env, config.mem0_api_key_env),
         "mem0_api_key_env": _compact_diagnostic_text(config.mem0_api_key_env),
         "openai_api_key_configured": _env_is_set(
@@ -495,87 +512,6 @@ def _secret_diagnostics(config: MemoryComparisonPreflightConfig) -> dict[str, ob
         "fallback_openai_api_key_env": "OPENAI_API_KEY",
     }
 
-
-def _probe_memo_api(
-    name: str,
-    base_url: str,
-    *,
-    timeout_seconds: float,
-) -> MemoryComparisonPreflightCheck:
-    path = "/v1/health"
-    try:
-        import httpx
-
-        with httpx.Client(
-            base_url=str(base_url).rstrip("/"),
-            timeout=max(0.1, timeout_seconds),
-            follow_redirects=False,
-        ) as client:
-            response = client.get(path)
-    except Exception as exc:
-        return MemoryComparisonPreflightCheck(
-            name=name,
-            passed=False,
-            severity="service-probe",
-            reason="memo API did not respond to unauthenticated health probe",
-            reason_code="memo_api_probe_failed",
-            details={"path": path, "error_type": type(exc).__name__},
-        )
-    passed = response.status_code < 400
-    return MemoryComparisonPreflightCheck(
-        name=name,
-        passed=passed,
-        severity="service-probe",
-        reason=None if passed else "memo API health endpoint did not return HTTP 2xx/3xx",
-        reason_code=None if passed else "memo_api_unhealthy_status",
-        details={"path": path, "status_code": response.status_code},
-    )
-
-
-def _probe_mem0_api(
-    name: str,
-    base_url: str,
-    *,
-    timeout_seconds: float,
-) -> MemoryComparisonPreflightCheck:
-    path = "/openapi.json"
-    required_paths = frozenset({"/memories", "/search"})
-    try:
-        import httpx
-
-        with httpx.Client(
-            base_url=str(base_url).rstrip("/"),
-            timeout=max(0.1, timeout_seconds),
-            follow_redirects=False,
-        ) as client:
-            response = client.get(path)
-            payload = response.json() if response.status_code < 400 else {}
-    except Exception as exc:
-        return MemoryComparisonPreflightCheck(
-            name=name,
-            passed=False,
-            severity="service-probe",
-            reason="mem0 API did not expose an unauthenticated OpenAPI contract",
-            reason_code="mem0_api_openapi_probe_failed",
-            details={"path": path, "error_type": type(exc).__name__},
-        )
-
-    available_paths = _openapi_paths(payload)
-    matched_paths = required_paths.intersection(available_paths)
-    passed = response.status_code < 400 and required_paths.issubset(available_paths)
-    return MemoryComparisonPreflightCheck(
-        name=name,
-        passed=passed,
-        severity="service-probe",
-        reason=None if passed else "mem0 API contract is missing required OSS benchmark endpoints",
-        reason_code=None if passed else "mem0_api_contract_missing_required_paths",
-        details={
-            "path": path,
-            "status_code": response.status_code,
-            "required_paths": sorted(required_paths),
-            "matched_paths": sorted(matched_paths),
-        },
-    )
 
 
 def _required_check(
@@ -1175,14 +1111,6 @@ def _has_text_value(value: object) -> bool:
         return any(_has_text_value(item) for item in value)
     return False
 
-
-def _openapi_paths(payload: object) -> frozenset[str]:
-    if not isinstance(payload, Mapping):
-        return frozenset()
-    paths = payload.get("paths")
-    if not isinstance(paths, Mapping):
-        return frozenset()
-    return frozenset(str(path) for path in paths)
 
 
 def _json_safe_mapping(value: Mapping[str, object]) -> dict[str, object]:

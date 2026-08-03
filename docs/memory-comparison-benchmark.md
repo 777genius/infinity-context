@@ -95,10 +95,25 @@ python -m infinity_context_server.eval memory-comparison-benchmark \
 ```
 
 Add `--preflight-probe-services` when Docker services are expected to be up.
-The probe verifies the memo-stack API health endpoint at `--memo-api-url` and
-the mem0 OSS OpenAPI contract for `/memories` and `/search` at `--mem0-url`, so
-swapped ports fail before ingest or search state is touched. The LoCoMo dataset
-is not vendored in this repository; stage it at the path passed to `--dataset`
+The non-managed probe verifies the memo-stack API health endpoint at
+`--memo-api-url` and the mem0 OSS OpenAPI contract for `/memories` and `/search`
+at `--mem0-url`, so swapped ports fail before ingest or search state is touched.
+
+For a managed mem0 benchmark runtime, set the non-secret marker
+`MEM0_BENCHMARK_REQUIRE_RUNTIME_CONTRACT=1` and configure the secret
+`MEM0_BENCHMARK_PROBE_TOKEN`. The marker selects managed mode independently of
+the secret, so a missing, empty or whitespace-only token fails before any HTTP
+request. Preflight first sends a cryptographic nonce to
+`POST /benchmark/auth-challenge`
+using `X-Benchmark-Probe-Token`, verifies the nonce SHA-256 and response HMAC,
+and only then runs the existing health/OpenAPI probes. The HMAC message is
+exactly `mem0-benchmark-auth-challenge.v1\n<nonce>`. A missing token fails before
+any service request. The credential-bearing challenge is allowed only for HTTPS
+targets or loopback HTTP targets. Reports expose only readiness, reason codes,
+path and status metadata, never the token, nonce or signature.
+
+The LoCoMo dataset is not vendored in this repository; stage it at the path
+passed to `--dataset`
 or update that flag before treating preflight output as service readiness. The
 preflight prints only boolean secret readiness, never token values. Treat
 `ready_for_locomo_fast=false` as a blocker for the short LoCoMo fast run and
@@ -749,6 +764,105 @@ The Codex provider shells out to `codex exec` with `--ephemeral`,
 usage locally because Codex CLI does not expose benchmark token usage through
 this adapter.
 
+### No-Key Local Mem0 OSS Canary
+
+For the pinned setup, explicit `env -u` safety, preflight, 8-case/32-call
+command, resource floor and publication limits, follow
+[Mem0 OSS No-Key Canary](./mem0-oss-no-key-canary.md).
+
+`MEM0_API_KEY` is not required for an engineering canary against a local
+Mem0 OSS server whose ingress authentication is explicitly disabled. Leave the
+variable unset, point `--mem0-url` at that isolated server, and keep
+`--answerer-provider codex` plus `--judge-provider codex` so answer and
+judge calls use the Codex subscription runtime instead of an OpenAI API key.
+
+The local Mem0 process still needs extraction and embedding providers. Configure
+both with local models, for example Ollama, before running the live canary. Do
+not silently fall back to an external provider key. Start with the bounded
+8-case canary and the normal `--allow-live` safety gate; do not run full
+LoCoMo or LongMemEval as a development loop.
+
+This no-key route proves the HTTP pipeline and local OSS behavior, but it is not
+an authoritative Mem0 Platform comparison. The tracked
+`benchmarks/mem0-platform-adapter` still requires an account-issued upstream
+`MEM0_API_KEY`; the key cannot be generated locally. Use Platform or a frozen,
+identical OSS model/runtime stack before publishing an apples-to-apples quality
+claim.
+
+Decision rule:
+
+- offline/mock tests: no Mem0 key and no real Mem0 backend;
+- local auth-disabled Mem0 OSS: no Mem0 key, local extraction and embeddings;
+- hosted Mem0 Platform: upstream `MEM0_API_KEY` is mandatory;
+- Codex subscription replaces answer/judge credentials only, not Mem0 Platform
+  credentials or a local OSS extraction/embedding provider.
+
+### Managed Subscription Canary
+
+`infinity-context-managed-live-canary` is the executable, fail-closed managed
+canary entrypoint. It is deliberately separate from the plain local Mem0 OSS
+lane above. The managed target must implement the benchmark challenge, runtime
+attestation, witness, lifecycle and cleanup contracts used by the production
+runner. A stock auth-disabled Mem0 OSS server is not sufficient.
+
+Run `infinity-context-managed-production-pre-readiness` first. Notify the
+operator who owns subscription capacity, review its bounded plan, and only then
+run the live command with all three acknowledgements:
+
+```sh
+env -u MEM0_API_KEY \
+infinity-context-managed-live-canary \
+  --dataset /private/official-locomo10.json \
+  --profile mem0-locomo-top200-v1 \
+  --case-id '<official-case-id>' \
+  --run-id managed-locomo-canary-001 \
+  --infinity-api-url http://127.0.0.1:7788 \
+  --mem0-api-url http://127.0.0.1:8888 \
+  --subscription-runtime-url http://127.0.0.1:8890 \
+  --max-total-tokens 250000 \
+  --mem0-runtime-implementation-sha256 '<reviewed-adapter-sha256>' \
+  --allow-live \
+  --allow-paid-llm \
+  --operator-notified \
+  --mem0-local-auth-disabled-managed \
+  --allow-mem0-host 127.0.0.1
+```
+
+Required private environment values are `MEMORY_EVAL_AUTH_TOKEN` (or
+`MEMORY_SERVICE_TOKEN`), `MEM0_BENCHMARK_PROBE_TOKEN`, and
+`SUBSCRIPTION_RUNTIME_BRIDGE_BEARER_TOKEN`. `MEM0_API_KEY` is also required
+unless `--mem0-local-auth-disabled-managed` is set. That exception is accepted
+only for an explicitly listed numeric IPv4 loopback host such as
+`--allow-mem0-host 127.0.0.1`; `localhost` and IPv6 targets are rejected. In
+this keyless lane the CLI ignores an ambient `MEM0_API_KEY`; use `env -u
+MEM0_API_KEY` to make the operator intent explicit. It denotes an auth-disabled
+managed wrapper with the full runtime contract, not ordinary OSS. The CLI never
+reads an OpenAI API key.
+
+The canary accepts one to eight unique cases, reserves four benchmark provider
+calls per case, performs exactly one separate readiness attempt, caps benchmark
+tokens at 2,000,000 and sets an admission deadline of at most two hours. An
+adapter request already in flight is not preempted by that deadline; it remains
+bounded by its request timeout. `--operator-notified` is an operator
+acknowledgement, not a sealed proof that binds the reviewed pre-readiness plan.
+Every run reports `publishable=false`. Any missing flag, credential, exact
+dataset binding, readiness proof, runtime attestation or cleanup evidence fails
+closed.
+
+#### Paired quality proof
+
+The managed public report contains a recomputed `paired_quality` proof only
+after the judge outcomes are sealed against the exact execution manifest. It
+reports per-backend `total`, `correct`, and `accuracy`; paired memo-stack win,
+tie, and mem0-win counts; accuracy delta; exact lane coverage; the manifest and
+judge-outcome hashes; and a deterministic completeness commitment.
+
+It never returns case aliases, real case IDs, questions, gold answers,
+candidate answers, raw judge output, or individual judge-result hashes. A
+missing, duplicate, mismatched, or score/verdict-inconsistent lane fails the
+projection. The report recomputes these aggregates rather than accepting a
+serialized aggregate from a runner or adapter.
+
 Model defaults:
 
 - `--answerer-provider codex` and `--judge-provider codex` default to
@@ -780,8 +894,17 @@ Model defaults:
 - `--preflight-only` prints sanitized dataset, auth, URL, LLM and fast-readiness
   checks without ingesting, searching or resetting live benchmark state.
 - `--preflight-probe-services` adds unauthenticated memo-stack health and mem0
-  OpenAPI contract probes to the preflight report when local Docker services
-  should already be running.
+  OSS OpenAPI contract probes when local Docker services should already be
+  running.
+- `MEM0_BENCHMARK_REQUIRE_RUNTIME_CONTRACT=1` activates the managed runtime
+  contract independently of its secret. Accepted true values are `1`, `true`,
+  `yes` and `on`; false values are `0`, `false`, `no` and `off`. Invalid marker
+  values fail closed.
+- `MEM0_BENCHMARK_PROBE_TOKEN` supplies the auth-challenge secret. Its key
+  presence also selects managed mode defensively, including when its value is
+  empty or whitespace-only, so malformed secret configuration cannot silently
+  fall back to the unauthenticated OSS probe.
+- Managed mode without `--preflight-probe-services` fails closed.
 - `--allow-paid-llm` is required before OpenAI answerer or judge calls.
 - `--answerer-provider codex` / `--judge-provider codex` do not require
   `--allow-paid-llm` or an OpenAI API key, but they do consume the local Codex

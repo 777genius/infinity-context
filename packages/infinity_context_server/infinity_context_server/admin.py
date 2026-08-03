@@ -751,7 +751,7 @@ def main() -> None:
         reindex.add_argument("--dry-run", action="store_true")
         reindex.add_argument("--i-understand-this-enqueues-projection-jobs", action="store_true")
     replay = sub.add_parser("replay-outbox")
-    replay.add_argument("--status", default="dead")
+    replay.add_argument("--status", choices=("dead",), default="dead")
     replay.add_argument("--limit", type=int, default=50)
     compact = sub.add_parser("compact-outbox")
     compact.add_argument("--older-than-seconds", type=int, default=86_400)

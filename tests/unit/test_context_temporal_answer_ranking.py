@@ -50,6 +50,57 @@ def test_deterministic_rerank_prefers_temporal_answer_evidence() -> None:
     )
 
 
+def test_deterministic_rerank_ignores_subordinate_when_clause() -> None:
+    query = "What does Nate want to do when he goes over to Joanna's place?"
+    plan = build_query_expansion_plan(query)
+    intent = build_query_anchor_intent(query)
+    item = _item(
+        "desired_activity",
+        score=0.7,
+        text=(
+            "session_28 date: 9 November 2022\n"
+            "Nate: Maybe we can watch a movie together or go to the park."
+        ),
+    )
+
+    reranked = apply_deterministic_rerank_adjustments(
+        (item,),
+        query=query,
+        plan=plan,
+        query_anchor_intent=intent,
+    )
+    reasons = reranked[0].diagnostics["provenance"][
+        "deterministic_rerank_reasons"
+    ]
+
+    assert "temporal_answer_evidence" not in reasons
+    assert "temporal_answer_evidence_missing" not in reasons
+    assert "temporal_answer_ungrounded_evidence" not in reasons
+
+
+def test_deterministic_rerank_preserves_relative_temporal_context() -> None:
+    query = "What did Alex decide after the call about Atlas?"
+    plan = build_query_expansion_plan(query)
+    intent = build_query_anchor_intent(query)
+    item = _item(
+        "relative_temporal_context",
+        score=0.7,
+        text="Yesterday Alex decided after the call to delay the Atlas launch.",
+    )
+
+    reranked = apply_deterministic_rerank_adjustments(
+        (item,),
+        query=query,
+        plan=plan,
+        query_anchor_intent=intent,
+    )
+    reasons = reranked[0].diagnostics["provenance"][
+        "deterministic_rerank_reasons"
+    ]
+
+    assert "temporal_answer_evidence" in reasons
+
+
 def test_deterministic_rerank_does_not_boost_unrelated_nearby_dates() -> None:
     query = "When did Caroline go to the LGBTQ support group?"
     plan = build_query_expansion_plan(query)

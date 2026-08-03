@@ -862,6 +862,51 @@ def test_reserved_projection_does_not_override_relation_object_mismatch() -> Non
     assert diagnostics["distinct_set_evidence_items_rejected_by_rerank"] == 1
 
 
+def test_quantity_projection_reuses_grounded_members_and_rejects_assistant_noise() -> None:
+    query = "How many projects have I led or am currently leading?"
+    projection = project_distinct_set_evidence(
+        query=query,
+        text=(
+            "source-a\nuser assertion: I'm working on a customer data project. "
+            "In my Marketing Research class project, I led the data analysis team."
+        ),
+    )
+    assistant_noise = project_distinct_set_evidence(
+        query=query,
+        text="source-b\nassistant: You could lead a Marketing Research class project.",
+    )
+
+    assert projection.identities == (
+        "current:customer-data-project",
+        "led:marketing-research-class-project",
+    )
+    assert not assistant_noise.present
+
+
+def test_quantity_bridge_rejects_excluded_distinct_members() -> None:
+    query = "How many projects have I led or am currently leading?"
+    excluded = project_distinct_set_evidence(
+        query=query,
+        text="user: I recently participated in a case competition.",
+    )
+    mixed = project_distinct_set_evidence(
+        query=query,
+        text=(
+            "source-a\nuser: I recently participated in a case competition. "
+            "I'm working on a solo project for my Data Mining class."
+        ),
+    )
+
+    assert not excluded.present
+    assert excluded.identities == ()
+    assert mixed.identities == ("current:solo-project",)
+    assert len(mixed.member_ids) == 1
+    assert mixed.evidence_sentences == (
+        "I'm working on a solo project for my Data Mining class.",
+    )
+    assert "case competition" not in mixed.rendered_text
+
+
 def _candidate(candidate_id: str, source: str, member: str) -> DistinctSetMemberCandidate:
     return DistinctSetMemberCandidate(
         candidate_id=candidate_id,

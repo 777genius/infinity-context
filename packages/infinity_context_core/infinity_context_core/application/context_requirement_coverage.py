@@ -10,6 +10,9 @@ from infinity_context_core.application.context_answer_unit_shapes import (
     covered_answer_unit_shapes,
     requested_answer_unit_shapes,
 )
+from infinity_context_core.application.context_precise_temporal_evidence import (
+    requests_temporal_answer,
+)
 from infinity_context_core.application.context_query_intent import QueryAnchorIntent
 from infinity_context_core.application.context_query_state_transition import (
     state_transition_query_variants,
@@ -84,7 +87,6 @@ from infinity_context_core.application.context_requirement_patterns import (
     _STATE_UPDATE_ANSWER_QUERY_RE,
     _SUMMARY_ANSWER_QUERY_RE,
     _SUMMARY_ANSWER_TEXT_RE,
-    _TEMPORAL_ANSWER_QUERY_RE,
     _TEMPORAL_ANSWER_TEXT_RE,
 )
 from infinity_context_core.application.context_state_evidence import (
@@ -439,7 +441,7 @@ def _requested_answer_shapes(query: str) -> tuple[str, ...]:
         shapes.append("list")
     if _ORDINAL_ANSWER_QUERY_RE.search(query):
         shapes.append("ordinal")
-    if _TEMPORAL_ANSWER_QUERY_RE.search(query) or _has_relative_time_hint(query):
+    if requests_temporal_answer(query) or _has_relative_time_hint(query):
         shapes.append("temporal")
     if _CAUSAL_ANSWER_QUERY_RE.search(query):
         shapes.append("causal")
