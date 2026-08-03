@@ -7,7 +7,6 @@ from collections import deque
 from collections.abc import Iterator
 from dataclasses import dataclass, replace
 
-from infinity_context_core.application.dto import ContextBundle, ContextItem
 from infinity_context_core.application.context_paired_evidence_requirements import (
     PairedEvidenceKind,
 )
@@ -20,6 +19,7 @@ from infinity_context_core.application.context_ranked_evidence_coverage_reservat
 from infinity_context_core.application.context_ranked_evidence_priority_reservation import (
     reserve_application_evidence_head,
 )
+from infinity_context_core.application.dto import ContextBundle, ContextItem
 from infinity_context_core.application.normalize import estimate_tokens
 from infinity_context_core.domain.entities import SourceRef
 
