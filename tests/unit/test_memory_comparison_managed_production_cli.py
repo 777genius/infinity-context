@@ -109,9 +109,13 @@ def test_go_is_decided_before_environment_credentials_readiness_or_backend(
     assert report["publishable"] is False
     assert report["blockers"] == []
     assert report["planned_limits"] == {
-        "benchmark_max_provider_calls": 4,
-        "readiness_max_provider_calls": 1,
-        "total_max_provider_calls": 5,
+        "benchmark_answer_judge_provider_call_ceiling": 4,
+        "benchmark_provider_call_scope": "answer_judge_only",
+        "readiness_provider_call_ceiling": 1,
+        "answer_judge_and_readiness_provider_attempt_ceiling": 5,
+        "backend_internal_provider_calls": "unmeasured",
+        "backend_internal_provider_cost": "unmeasured",
+        "total_provider_calls_claimed": False,
         "benchmark_reserved_token_ceiling": 100_000,
         "max_output_tokens_per_call": 4096,
         "readiness_max_output_tokens": 8,

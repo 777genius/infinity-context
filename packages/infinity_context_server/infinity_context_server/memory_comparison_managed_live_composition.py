@@ -76,7 +76,10 @@ _BINDING = re.compile(r"^sha256:[0-9a-f]{64}$")
 @final
 @dataclass(frozen=True, slots=True)
 class ManagedLiveExecutionLimits:
-    """Immutable hard reservations and non-publishable usage estimates."""
+    """Immutable answer/judge reservations and non-publishable usage estimates.
+
+    Provider work internal to memory backends is not measured by these limits.
+    """
 
     provider_kind: str
     answerer_model: str
@@ -137,8 +140,13 @@ class ManagedLiveExecutionLimits:
             "judge_model": self.judge_model,
             "max_cases": self.max_cases,
             "benchmark_max_provider_calls": self.benchmark_max_provider_calls,
+            "benchmark_provider_call_scope": "answer_judge_only",
             "readiness_probe_provider_calls": self.readiness_probe_provider_calls,
             "total_provider_attempt_ceiling": self.total_provider_attempt_ceiling,
+            "total_provider_attempt_ceiling_scope": "answer_judge_and_readiness_only",
+            "backend_internal_provider_calls": "unmeasured",
+            "backend_internal_provider_cost": "unmeasured",
+            "total_provider_calls_claimed": False,
             "benchmark_reserved_token_ceiling": self.benchmark_reserved_token_ceiling,
             "readiness_probe_estimated_tokens": self.readiness_probe_estimated_tokens,
             "readiness_probe_usage_source": self.readiness_probe_usage_source,

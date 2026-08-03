@@ -11,6 +11,10 @@ import pytest
 from infinity_context_server.memory_comparison_mem0_contract import (
     MEM0_BENCHMARK_CAPABILITIES_SCHEMA_VERSION_V2,
 )
+from infinity_context_server.memory_comparison_mem0_platform_contract import (
+    REVIEWED_MEM0_MANAGED_WRAPPER_SOURCE_REVISION,
+    REVIEWED_MEM0_MANAGED_WRAPPER_SOURCE_SHA256,
+)
 from infinity_context_server.memory_comparison_mem0_runtime_attestation import (
     build_mem0_runtime_attestation,
     build_verified_mem0_runtime_attestation,
@@ -39,6 +43,30 @@ def test_same_run_managed_attestation_is_valid_and_sanitized() -> None:
     assert RUN_ID not in rendered
     assert NONCE not in rendered
     assert TARGET_URL not in rendered
+
+
+def test_attestation_binds_and_rejects_valid_shaped_wrapper_profile_drift() -> None:
+    now = datetime.now(UTC)
+    manifest = _runtime_manifest(now)
+    manifest["wrapper_source_sha256"] = "f" * 64
+    manifest["wrapper_source_revision"] = "e" * 40
+    attestation = build_mem0_runtime_attestation(
+        runtime_manifest=manifest,
+        openapi_fingerprint_sha256="d" * 64,
+        probe_passed=True,
+        run_id=RUN_ID,
+        probe_nonce=NONCE,
+        target_identity_sha256=TARGET_SHA,
+        witness_verified=True,
+        witness_signature_sha256="e" * 64,
+        checked_at=now,
+    )
+
+    validation = _validate(attestation, now=now)
+
+    assert validation["eligible"] is False
+    assert "runtime_manifest:wrapper_source_sha256_mismatch" in validation["issues"]
+    assert "runtime_manifest:wrapper_source_revision_mismatch" in validation["issues"]
 
 
 @pytest.mark.parametrize(
@@ -311,8 +339,8 @@ def _runtime_manifest(now: datetime) -> dict[str, object]:
     return {
         "schema_version": MEM0_BENCHMARK_CAPABILITIES_SCHEMA_VERSION_V2,
         "runtime_mode": "managed_platform",
-        "wrapper_source_sha256": "a" * 64,
-        "wrapper_source_revision": "b" * 40,
+        "wrapper_source_sha256": REVIEWED_MEM0_MANAGED_WRAPPER_SOURCE_SHA256,
+        "wrapper_source_revision": REVIEWED_MEM0_MANAGED_WRAPPER_SOURCE_REVISION,
         "config_fingerprint_sha256": "c" * 64,
         "sdk": {
             "distribution": "mem0ai",

@@ -142,7 +142,6 @@ def create_app(
             configured=selected_platform.configured,
             attestation=snapshot.attestation if snapshot is not None else service.attestation,
             policy=service.policy,
-            wrapper_revision=os.getenv("MEM0_ADAPTER_SOURCE_REVISION"),
         )
 
     @app.get("/health", response_model=HealthResponse)

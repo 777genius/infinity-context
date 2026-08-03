@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import threading
 from collections.abc import Callable
 from datetime import UTC, datetime
@@ -10,7 +11,7 @@ from typing import final
 import httpx
 
 from infinity_context_server.memory_comparison_benchmark_identity import (
-    mem0_benchmark_user_id,
+    mem0_benchmark_corpus_user_id,
 )
 from infinity_context_server.memory_comparison_full_run_evidence import (
     FullComparisonRunBindings,
@@ -646,24 +647,36 @@ class ManagedComparisonHttpPolicyLifecycleAdapter:
             raise ManagedHttpPolicyLifecycleError(
                 "managed_http_policy_exact_cleanup_state_unavailable"
             )
-        response = client.delete(
-            "/memories",
-            params={
-                "user_id": mem0_benchmark_user_id(self._bindings.run_id),
-                "run_id": self._bindings.run_id,
-            },
-        )
-        payload = _object_response(response, "managed_http_policy_mem0_delete_ack_invalid")
-        if set(payload) != {"deleted", "verified_absent"} or any(
-            payload.get(key) is not True for key in ("deleted", "verified_absent")
-        ):
-            raise ManagedHttpPolicyLifecycleError("managed_http_policy_mem0_delete_ack_invalid")
+        acknowledgements: list[dict[str, object]] = []
+        for corpus in self._corpora:
+            user_id = mem0_benchmark_corpus_user_id(
+                self._bindings.run_id,
+                corpus.bundle.corpus_id,
+            )
+            response = client.delete(
+                "/memories",
+                params={"user_id": user_id, "run_id": self._bindings.run_id},
+            )
+            payload = _object_response(response, "managed_http_policy_mem0_delete_ack_invalid")
+            if set(payload) != {"deleted", "verified_absent"} or any(
+                payload.get(key) is not True for key in ("deleted", "verified_absent")
+            ):
+                raise ManagedHttpPolicyLifecycleError(
+                    "managed_http_policy_mem0_delete_ack_invalid"
+                )
+            acknowledgements.append(
+                {
+                    "corpus_id": corpus.bundle.corpus_id,
+                    "user_id_sha256": hashlib.sha256(user_id.encode()).hexdigest(),
+                    "ack": payload,
+                }
+            )
         commitments = project_mem0_cleanup_commitments(
             tuple(corpus.bundle for corpus in self._corpora),
             run_id=self._bindings.run_id,
             target_identity_sha256=target,
             pass_index=pass_index,
-            acknowledgement=payload,
+            acknowledgement={"scopes": tuple(acknowledgements)},
         )
         return ManagedHttpPolicyDeleteReceiptState(
             self,

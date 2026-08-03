@@ -19,7 +19,9 @@ from typing import final
 import httpx
 
 from infinity_context_server.memory_comparison_backend_target import FullComparisonBackendTarget
-from infinity_context_server.memory_comparison_benchmark_identity import mem0_benchmark_user_id
+from infinity_context_server.memory_comparison_benchmark_identity import (
+    mem0_benchmark_corpus_user_id,
+)
 from infinity_context_server.memory_comparison_clean_state import (
     VerifiedCleanStateValidation,
     clean_state_identity_sha256,
@@ -436,7 +438,6 @@ class ManagedComparisonHttpLifecycleAdapter:
     ]:
         count = len(self._corpora)
         slug = self.space_slug
-        user_id = mem0_benchmark_user_id(self._run_id)
         corpus_hashes = tuple(clean_state_identity_sha256(case.corpus_id) for case in self._corpora)
         key = secrets.token_bytes(32)
         mem0_session = Mem0CleanStateSession(reset_enabled=True)
@@ -451,11 +452,11 @@ class ManagedComparisonHttpLifecycleAdapter:
         )
         mem0_client = self._client(self._mem0, self._mem0_reset_transport)
         try:
-            for corpus_hash in corpus_hashes:
+            for case, corpus_hash in zip(self._corpora, corpus_hashes, strict=True):
                 self._ensure_deadline()
                 mem0_session.reset_scope(
                     mem0_client,
-                    user_id=user_id,
+                    user_id=mem0_benchmark_corpus_user_id(self._run_id, case.corpus_id),
                     run_id=self._run_id,
                     corpus_identity_sha256=corpus_hash,
                     expected_scope_count=count,
@@ -468,7 +469,12 @@ class ManagedComparisonHttpLifecycleAdapter:
             INFINITY_COMPARISON_BACKEND: {
                 item: clean_state_identity_sha256(slug) for item in corpus_hashes
             },
-            "mem0": {item: clean_state_identity_sha256(user_id) for item in corpus_hashes},
+            "mem0": {
+                corpus_hash: clean_state_identity_sha256(
+                    mem0_benchmark_corpus_user_id(self._run_id, case.corpus_id)
+                )
+                for case, corpus_hash in zip(self._corpora, corpus_hashes, strict=True)
+            },
         }
         validation = validate_typed_clean_state_proofs(
             {

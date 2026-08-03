@@ -4,7 +4,7 @@ import hashlib
 
 import pytest
 from infinity_context_server.memory_comparison_benchmark_identity import (
-    mem0_benchmark_user_id,
+    mem0_benchmark_corpus_user_id,
 )
 from infinity_context_server.memory_comparison_locomo_expected_turn import (
     ExpectedOfficialLocomoTurn,
@@ -41,7 +41,7 @@ def _request(
 ) -> LocomoOfficialTurnsTransportRequest:
     return LocomoOfficialTurnsTransportRequest.create(
         messages=({"role": "user", "content": "official LoCoMo turn D1:1"},),
-        user_id=mem0_benchmark_user_id(_RUN_ID),
+        user_id=mem0_benchmark_corpus_user_id(_RUN_ID, str(metadata["corpus_key"])),
         run_id=_RUN_ID,
         metadata=metadata,
         timestamp=timestamp,

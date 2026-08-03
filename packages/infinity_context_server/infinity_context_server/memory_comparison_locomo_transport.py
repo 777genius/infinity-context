@@ -13,7 +13,7 @@ from threading import RLock
 from typing import NamedTuple
 
 from infinity_context_server.memory_comparison_benchmark_identity import (
-    mem0_benchmark_user_id,
+    mem0_benchmark_corpus_user_id,
     valid_benchmark_run_id,
 )
 from infinity_context_server.memory_comparison_locomo_expected_turn import (
@@ -715,11 +715,6 @@ def _parse_canonical_request_bytes(payload: object) -> dict[str, object]:
     run_id = parsed["run_id"]
     if not valid_benchmark_run_id(run_id):
         raise ValueError("AddRequest run_id must match the adapter SafeIdentifier contract")
-    expected_user_id = mem0_benchmark_user_id(run_id)
-    if type(parsed["user_id"]) is not str or not hmac.compare_digest(
-        parsed["user_id"].encode(), expected_user_id.encode()
-    ):
-        raise ValueError("AddRequest user_id does not match the canonical benchmark run user")
     metadata = parsed["metadata"]
     if type(metadata) is not dict:
         raise ValueError("AddRequest metadata must be an exact object")
@@ -733,6 +728,11 @@ def _parse_canonical_request_bytes(payload: object) -> dict[str, object]:
     for key in _LOCOMO_REQUIRED_METADATA_KEYS - {"benchmark"}:
         if not _bounded_id(metadata[key]):
             raise ValueError(f"AddRequest metadata.{key} must be a bounded canonical string")
+    expected_user_id = mem0_benchmark_corpus_user_id(run_id, metadata["corpus_key"])
+    if type(parsed["user_id"]) is not str or not hmac.compare_digest(
+        parsed["user_id"].encode(), expected_user_id.encode()
+    ):
+        raise ValueError("AddRequest user_id does not match the canonical benchmark corpus user")
     if metadata["locomo_evidence_ref"] != metadata["dia_id"]:
         raise ValueError("LoCoMo evidence ref must equal dia_id")
     idempotency_key = parsed["idempotency_key"]

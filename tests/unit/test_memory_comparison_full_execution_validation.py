@@ -11,7 +11,9 @@ from dataclasses import replace
 import pytest
 from infinity_context_server import memory_comparison_full_execution_validation as _validation
 from infinity_context_server import memory_comparison_full_execution_validation_slots as _slots
-from infinity_context_server.memory_comparison_benchmark_identity import mem0_benchmark_user_id
+from infinity_context_server.memory_comparison_benchmark_identity import (
+    mem0_benchmark_corpus_user_id,
+)
 from infinity_context_server.memory_comparison_clean_state import (
     clean_state_identity_sha256,
     fresh_namespace_clean_state_proof,
@@ -148,7 +150,7 @@ def _inputs():
     transport_key = RunScopedLocomoTransportEvidenceKey.generate(run_id=bindings.run_id)
     request = LocomoOfficialTurnsTransportRequest.create(
         messages=[{"role": "user", "content": "official turn"}],
-        user_id=mem0_benchmark_user_id(bindings.run_id),
+        user_id=mem0_benchmark_corpus_user_id(bindings.run_id, str(metadata["corpus_key"])),
         run_id=bindings.run_id,
         metadata=metadata,
         timestamp=1_683_554_160,
@@ -252,6 +254,10 @@ def test_exact_complete_run_report_and_one_shot_consume():
     assert report["composite_wiring_required"] is True
     assert report["admission_from_public_mapping"] is False
     assert report["provider_call_coverage"]["verified_call_count"] == 4
+    assert report["provider_call_coverage"]["provider_call_scope"] == "answer_judge_only"
+    assert report["provider_call_coverage"]["backend_internal_provider_calls"] == "unmeasured"
+    assert report["provider_call_coverage"]["backend_internal_provider_cost"] == "unmeasured"
+    assert report["provider_call_coverage"]["total_provider_calls_claimed"] is False
     assert report["session_identity_coverage"]["verified_mapping_count"] == 2
     assert report["official_transport_coverage"]["verified_turn_count"] == 1
     assert report["clean_state_coverage"]["verified_scope_count"] == 2
@@ -617,7 +623,10 @@ def test_transport_coverage_deduplicates_shared_corpus_and_uses_opaque_trigger()
     }
     request = LocomoOfficialTurnsTransportRequest.create(
         messages=[{"role": "user", "content": "official turn"}],
-        user_id=mem0_benchmark_user_id(inputs["bindings"].run_id),
+        user_id=mem0_benchmark_corpus_user_id(
+            inputs["bindings"].run_id,
+            str(metadata["corpus_key"]),
+        ),
         run_id=inputs["bindings"].run_id,
         metadata=metadata,
         timestamp=1_683_554_160,
