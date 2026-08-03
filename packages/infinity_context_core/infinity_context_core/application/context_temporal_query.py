@@ -14,6 +14,7 @@ from infinity_context_core.application.context_diagnostics import (
 from infinity_context_core.application.context_lexical import date_tokens, query_terms
 from infinity_context_core.application.context_query_state_transition import (
     state_transition_query_variants,
+    state_transition_requires_pair,
 )
 from infinity_context_core.application.context_state_evidence import state_evidence_markers
 from infinity_context_core.application.context_temporal_hints import temporal_hint_codes
@@ -644,7 +645,11 @@ def build_temporal_query_intent(query: str) -> TemporalQueryIntent:
     requests_recent_event = (
         bool(_RECENT_EVENT_REQUEST_RE.search(query)) and not requests_upcoming
     )
-    requests_previous = (bool(previous_terms) or no_longer_current_state) and not excludes_stale
+    requests_previous = (
+        bool(previous_terms)
+        or no_longer_current_state
+        or state_transition_requires_pair(query)
+    ) and not excludes_stale
     prefers_current = (
         excludes_stale
         or still_current_state

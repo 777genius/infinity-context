@@ -11,7 +11,10 @@ from infinity_context_core.application.context_ranked_activity_reservation impor
     reserve_activity_inventory_head,
 )
 from infinity_context_core.application.context_ranked_evidence_coverage_reservation import (
-    reserve_temporal_interval_evidence_head,
+    reserve_paired_evidence_head,
+)
+from infinity_context_core.application.context_paired_evidence_requirements import (
+    PairedEvidenceKind,
 )
 from infinity_context_core.application.context_ranked_evidence_priority_reservation import (
     reserve_application_evidence_head,
@@ -84,14 +87,14 @@ def select_ranked_evidence(
             query=query,
         )
     )
-    temporal_interval_reservation = reserve_temporal_interval_evidence_head(
+    paired_evidence_reservation = reserve_paired_evidence_head(
         ordinarily_ordered_candidates,
         query=query,
         max_items=limits.max_items,
         max_tokens=limits.max_tokens,
         max_chars=limits.max_chars,
     )
-    ordered_candidates = temporal_interval_reservation.items
+    ordered_candidates = paired_evidence_reservation.items
     for candidate in ordered_candidates:
         if candidate.is_instruction:
             counters["instruction"] += 1
@@ -147,7 +150,13 @@ def select_ranked_evidence(
         "ranked_evidence_unsafe_source_drop_count": counters["unsafe_source"],
         "ranked_evidence_source_dedupe_drop_count": counters["source_dedupe"],
         "ranked_evidence_temporal_interval_reservation_count": (
-            temporal_interval_reservation.reservation_count
+            paired_evidence_reservation.reservation_count
+            if paired_evidence_reservation.requirement_kind
+            is PairedEvidenceKind.TEMPORAL_INTERVAL
+            else 0
+        ),
+        "ranked_evidence_paired_reservation_count": (
+            paired_evidence_reservation.reservation_count
         ),
         "items_considered": len(items),
         "items_used": len(selected_items),

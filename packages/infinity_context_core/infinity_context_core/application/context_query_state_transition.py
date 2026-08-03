@@ -26,9 +26,28 @@ _STATE_TRANSITION_QUERY_VARIANTS = frozenset(
         "state_transition_request",
     }
 )
+_DIRECTIONAL_ALTERNATIVES_RE = re.compile(
+    r"\b(?:more|less|higher|lower|increase|decrease)\b"
+    r".{0,100}\b(?:or|versus|vs\.?)\b.{0,100}"
+    r"\b(?:more|less|higher|lower|increase|decrease)\b",
+    re.IGNORECASE | re.DOTALL,
+)
 
 
 def state_transition_query_variants(query: str) -> frozenset[str]:
     if not _STATE_TRANSITION_QUERY_RE.search(query):
         return frozenset()
     return _STATE_TRANSITION_QUERY_VARIANTS
+
+
+def state_transition_requires_pair(query: str) -> bool:
+    """Recognize an explicit directional switch that needs old and new evidence."""
+
+    return bool(
+        isinstance(query, str)
+        and _STATE_TRANSITION_QUERY_RE.search(query)
+        and _DIRECTIONAL_ALTERNATIVES_RE.search(query)
+    )
+
+
+__all__ = ("state_transition_query_variants", "state_transition_requires_pair")
