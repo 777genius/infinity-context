@@ -208,6 +208,7 @@ _PERSON_HINT_STOP_WORDS = frozenset(
         "customer",
         "each",
         "either",
+        "for",
         "from",
         "her",
         "him",
