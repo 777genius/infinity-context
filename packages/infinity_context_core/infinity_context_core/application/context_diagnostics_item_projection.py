@@ -25,10 +25,6 @@ from infinity_context_core.application.context_diagnostics_signals import (
     _safe_source_sibling_provenance,
     safe_score_signals,
 )
-from infinity_context_core.application.context_paired_evidence_roles import (
-    PAIRED_EVIDENCE_ROLE_MEMBERSHIPS_KEY,
-    merge_paired_evidence_role_memberships,
-)
 from infinity_context_core.application.context_diagnostics_sources import (
     _prioritized_retrieval_sources,
     diagnostic_retrieval_sources,
@@ -36,6 +32,10 @@ from infinity_context_core.application.context_diagnostics_sources import (
 )
 from infinity_context_core.application.context_item_evidence import (
     with_context_item_evidence_diagnostics,
+)
+from infinity_context_core.application.context_paired_evidence_roles import (
+    PAIRED_EVIDENCE_ROLE_MEMBERSHIPS_KEY,
+    merge_paired_evidence_role_memberships,
 )
 from infinity_context_core.application.dto import ContextItem
 
