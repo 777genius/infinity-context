@@ -8,6 +8,9 @@ from types import SimpleNamespace
 import httpx
 import pytest
 from infinity_context_server import memory_comparison_managed_http_policy_lifecycle as policy
+from infinity_context_server.memory_comparison_benchmark_identity import (
+    mem0_benchmark_corpus_user_id,
+)
 from infinity_context_server.memory_comparison_managed_http_derived_evidence import (
     ManagedDerivedEvidenceHttpClient,
 )
@@ -165,6 +168,59 @@ def test_exact_infinity_two_pass_cleanup_and_mem0_receipts_are_sealed(
     assert report["execution_case_manifest_sha256"] == "4" * 64
     assert report["case_count"] == report["unique_corpus_count"] == 1
     assert report["cleanup_pass_count"] == 4
+
+
+def test_mem0_terminal_cleanup_proves_each_exact_corpus_user_scope(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    adapter, bindings, _ = _cleanup_ready_lifecycle(monkeypatch)
+    first = adapter._corpora[0]
+    second_manifest = replace(
+        first.bundle.manifest,
+        corpus_id="corpus-2",
+        infinity_fact_ids=("fact-2",),
+        infinity_source_ids=("source-2",),
+        infinity_source_sha256=("b" * 64,),
+        mem0_created_memory_ids=("memory-2",),
+        mem0_source_ids=("source-2",),
+        mem0_source_sha256=("b" * 64,),
+    )
+    second_bundle = replace(
+        first.bundle,
+        case_id="case-2",
+        corpus_id="corpus-2",
+        manifest=second_manifest,
+    )
+    adapter._corpora = (first, type(first)(second_bundle, first.presence))
+    seen_scopes: list[tuple[str, str]] = []
+
+    def mem0(request: httpx.Request) -> httpx.Response:
+        seen_scopes.append((str(request.url.params["user_id"]), str(request.url.params["run_id"])))
+        return httpx.Response(200, json={"deleted": True, "verified_absent": True})
+
+    client = httpx.Client(
+        base_url="https://mem0.test",
+        transport=httpx.MockTransport(mem0),
+    )
+    try:
+        state = adapter._delete_mem0(
+            client,
+            bindings.backend_targets[1].target_identity_sha256,
+            1,
+        )
+    finally:
+        client.close()
+
+    assert seen_scopes == [
+        (
+            mem0_benchmark_corpus_user_id(bindings.run_id, first.bundle.corpus_id),
+            bindings.run_id,
+        ),
+        (mem0_benchmark_corpus_user_id(bindings.run_id, "corpus-2"), bindings.run_id),
+    ]
+    assert state.source_scope_count == 2
+    assert state.backend_verified_absent is True
+    assert len(state.cleanup_commitment_sha256) == 64
 
 
 def test_terminal_cleanup_before_presence_seal_fails_without_io() -> None:

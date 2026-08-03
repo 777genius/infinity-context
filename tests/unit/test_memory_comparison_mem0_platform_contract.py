@@ -9,6 +9,10 @@ from infinity_context_server.memory_comparison_mem0_contract import (
     evaluate_mem0_runtime_capabilities,
     public_mem0_runtime_manifest,
 )
+from infinity_context_server.memory_comparison_mem0_platform_contract import (
+    REVIEWED_MEM0_MANAGED_WRAPPER_SOURCE_REVISION,
+    REVIEWED_MEM0_MANAGED_WRAPPER_SOURCE_SHA256,
+)
 
 
 def test_managed_platform_snapshot_requires_live_persisted_timestamp_attestation() -> None:
@@ -21,6 +25,17 @@ def test_managed_platform_snapshot_requires_live_persisted_timestamp_attestation
         )
         == ()
     )
+
+
+def test_managed_platform_snapshot_rejects_valid_shaped_wrapper_profile_drift() -> None:
+    payload = _valid_platform_capabilities()
+    payload["wrapper_source_sha256"] = "f" * 64
+    payload["wrapper_source_revision"] = "e" * 40
+
+    issues = evaluate_mem0_runtime_capabilities(payload, require_timestamp=True)
+
+    assert "wrapper_source_sha256_mismatch" in issues
+    assert "wrapper_source_revision_mismatch" in issues
 
 
 def test_managed_platform_snapshot_fails_closed_when_live_probe_was_not_run() -> None:
@@ -225,8 +240,8 @@ def _valid_platform_capabilities() -> dict[str, object]:
     return {
         "schema_version": MEM0_BENCHMARK_CAPABILITIES_SCHEMA_VERSION_V2,
         "runtime_mode": "managed_platform",
-        "wrapper_source_sha256": "a" * 64,
-        "wrapper_source_revision": "b" * 40,
+        "wrapper_source_sha256": REVIEWED_MEM0_MANAGED_WRAPPER_SOURCE_SHA256,
+        "wrapper_source_revision": REVIEWED_MEM0_MANAGED_WRAPPER_SOURCE_REVISION,
         "config_fingerprint_sha256": "c" * 64,
         "sdk": {
             "distribution": "mem0ai",

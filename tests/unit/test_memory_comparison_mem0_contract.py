@@ -10,6 +10,10 @@ from infinity_context_server.memory_comparison_mem0_contract import (
     evaluate_mem0_runtime_capabilities,
     public_mem0_runtime_manifest,
 )
+from infinity_context_server.memory_comparison_mem0_platform_contract import (
+    REVIEWED_MEM0_MANAGED_WRAPPER_SOURCE_REVISION,
+    REVIEWED_MEM0_MANAGED_WRAPPER_SOURCE_SHA256,
+)
 
 
 def test_mem0_openapi_contract_accepts_canonical_adapter_schema() -> None:
@@ -252,8 +256,8 @@ def _valid_managed_capabilities() -> dict[str, object]:
     return {
         "schema_version": MEM0_BENCHMARK_CAPABILITIES_SCHEMA_VERSION_V2,
         "runtime_mode": "managed_platform",
-        "wrapper_source_sha256": "a" * 64,
-        "wrapper_source_revision": "b" * 40,
+        "wrapper_source_sha256": REVIEWED_MEM0_MANAGED_WRAPPER_SOURCE_SHA256,
+        "wrapper_source_revision": REVIEWED_MEM0_MANAGED_WRAPPER_SOURCE_REVISION,
         "config_fingerprint_sha256": "c" * 64,
         "sdk": {
             "distribution": "mem0ai",

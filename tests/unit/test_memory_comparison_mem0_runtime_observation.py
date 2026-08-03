@@ -8,7 +8,7 @@ from threading import Barrier, Event
 import httpx
 import pytest
 from infinity_context_server.memory_comparison_benchmark_identity import (
-    mem0_benchmark_user_id,
+    mem0_benchmark_corpus_user_id,
 )
 from infinity_context_server.memory_comparison_http import Mem0HttpComparisonBackend
 from infinity_context_server.memory_comparison_locomo_transport import (
@@ -80,7 +80,7 @@ def _official_http_request(*, speaker: str = "Caroline") -> httpx.Request:
         headers={"Idempotency-Key": source_id},
         json={
             "messages": [{"role": "user", "content": case.memories[0].text}],
-            "user_id": mem0_benchmark_user_id(_RUN_ID),
+            "user_id": mem0_benchmark_corpus_user_id(_RUN_ID, _CORPUS_KEY),
             "run_id": _RUN_ID,
             "metadata": {
                 "benchmark": "locomo",
@@ -128,7 +128,7 @@ def test_runtime_observes_exact_official_turn_at_wrapper_http_transport_seam() -
     assert len(observed_requests) == 1
     headers, payload = observed_requests[0]
     assert headers["idempotency-key"] == "locomo:corpus-a:session_1:D1:1:turn"
-    assert payload["user_id"] == mem0_benchmark_user_id(_RUN_ID)
+    assert payload["user_id"] == mem0_benchmark_corpus_user_id(_RUN_ID, _CORPUS_KEY)
     assert payload["user_id"] != "memo-stack-comparison-run-x"
     assert payload["timestamp"] == _TIMESTAMP
     assert payload["metadata"]["source_timestamp"] == _TIMESTAMP

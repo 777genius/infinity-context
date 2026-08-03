@@ -21,8 +21,6 @@ from mem0_platform_adapter.runtime_pin import (
 from mem0_platform_adapter.service import PollingPolicy
 
 SDK_VERIFICATION_METHOD = "direct_url_archive_info_sha256"
-_REVISION = re.compile(r"^[0-9a-f]{40}$")
-
 __all__ = (
     "PLATFORM_API_ORIGIN",
     "RUNTIME_PIN",
@@ -38,9 +36,8 @@ def capabilities_manifest(
     configured: bool,
     attestation: TimestampAttestation,
     policy: PollingPolicy,
-    wrapper_revision: str | None = None,
 ) -> dict[str, Any]:
-    revision = _tracked_wrapper_revision(wrapper_revision)
+    wrapper_source_sha256 = _wrapper_source_sha256()
     static_config = {
         "platform_api_origin": PLATFORM_API_ORIGIN,
         "max_poll_attempts": policy.max_attempts,
@@ -54,8 +51,8 @@ def capabilities_manifest(
         "schema_version": "mem0-benchmark-capabilities.v2",
         "runtime_mode": "managed_platform",
         "configured": configured,
-        "wrapper_source_sha256": _wrapper_source_sha256(),
-        "wrapper_source_revision": revision,
+        "wrapper_source_sha256": wrapper_source_sha256,
+        "wrapper_source_revision": RUNTIME_PIN.wrapper_source_revision,
         "config_fingerprint_sha256": _sha256_json(static_config),
         "sdk": sdk,
         "platform": {
@@ -119,7 +116,8 @@ def manifest_is_ready(payload: dict[str, Any]) -> bool:
     attestation = timestamp.get("attestation")
     return bool(
         payload.get("configured") is True
-        and payload.get("wrapper_source_revision") is not None
+        and payload.get("wrapper_source_revision") == RUNTIME_PIN.wrapper_source_revision
+        and payload.get("wrapper_source_sha256") == RUNTIME_PIN.wrapper_source_sha256
         and sdk.get("pin_matches") is True
         and isinstance(attestation, dict)
         and attestation.get("status") == "passed"
@@ -127,12 +125,6 @@ def manifest_is_ready(payload: dict[str, Any]) -> bool:
         and bool(attestation["checked_at"])
         and attestation.get("cleanup_succeeded") is True
     )
-
-
-def _tracked_wrapper_revision(value: str | None) -> str | None:
-    if value is None or not _REVISION.fullmatch(value) or value == "0" * 40:
-        return None
-    return value
 
 
 def _direct_url_archive_sha256(distribution: Any) -> str | None:

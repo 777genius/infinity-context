@@ -22,6 +22,8 @@ class RuntimePin:
     version: str
     source_repository: str
     source_revision: str
+    wrapper_source_revision: str
+    wrapper_source_sha256: str
     wheel_filename: str
     wheel_sha256: str
     runtime_lock_sha256: str
@@ -54,6 +56,8 @@ def load_runtime_pin(path: Path = _RUNTIME_PIN_PATH) -> RuntimePin:
         not _DISTRIBUTION.fullmatch(pin.distribution)
         or not _VERSION.fullmatch(pin.version)
         or not _REVISION.fullmatch(pin.source_revision)
+        or not _REVISION.fullmatch(pin.wrapper_source_revision)
+        or not _SHA256.fullmatch(pin.wrapper_source_sha256)
         or not _SHA256.fullmatch(pin.wheel_sha256)
         or not _SHA256.fullmatch(pin.runtime_lock_sha256)
         or not _WHEEL_FILENAME.fullmatch(pin.wheel_filename)

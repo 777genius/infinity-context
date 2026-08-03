@@ -756,8 +756,13 @@ def test_subscription_canary_probe_is_accounted_and_authorizes_benchmark_budget(
     assert material.provider_usage_budget.public_payload() == {
         "provider_kind": live.MANAGED_PROVIDER_SUBSCRIPTION_RUNTIME,
         "benchmark_max_provider_calls": 8,
+        "benchmark_provider_call_scope": "answer_judge_only",
         "readiness_probe_provider_calls": 1,
         "total_provider_attempt_ceiling": 9,
+        "total_provider_attempt_ceiling_scope": "answer_judge_and_readiness_only",
+        "backend_internal_provider_calls": "unmeasured",
+        "backend_internal_provider_cost": "unmeasured",
+        "total_provider_calls_claimed": False,
         "benchmark_reserved_token_ceiling": 2_000_000,
         "readiness_probe_estimated_tokens": 100,
         "readiness_probe_usage_source": SUBSCRIPTION_RUNTIME_ESTIMATED_USAGE_SOURCE,

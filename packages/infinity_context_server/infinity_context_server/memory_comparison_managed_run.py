@@ -73,6 +73,22 @@ from infinity_context_server.memory_comparison_managed_run_ports import (
 MANAGED_RUN_SCHEMA_VERSION = "memory-comparison-managed-run.v1"
 _TOKEN = object()
 _LOCK = threading.RLock()
+_PUBLIC_TRACE_FIXED_EVENTS = frozenset(
+    {
+        "bindings.create",
+        "issuer.create",
+        "reset.complete",
+        "attestation.live",
+        "canonical_source.seal",
+        "execution.seal",
+        "delete.seal",
+        "policy.aggregate",
+        "components.issue",
+        "verdict.seal",
+        "verdict.public",
+    }
+)
+_PUBLIC_TRACE_BACKENDS = frozenset({"infinity-context", "mem0"})
 
 
 @final
@@ -405,13 +421,42 @@ def public_managed_run(outcome: ManagedRunOutcome) -> dict[str, object]:
     report["paired_quality"] = copy.deepcopy(quality)
     report["managed_run"] = {
         "schema_version": MANAGED_RUN_SCHEMA_VERSION,
-        "trace": list(state.trace),
+        "trace": _public_trace(state.trace),
         "case_count": state.case_count,
         "unique_corpus_count": state.corpus_count,
         "terminal_delete_complete": True,
         "component_count": len(FULL_COMPARISON_COMPONENT_KINDS),
     }
     return report
+
+
+def _public_trace(private_trace: tuple[str, ...]) -> list[str]:
+    """Project lifecycle progress without publishing deterministic case/corpus IDs."""
+
+    public: list[str] = []
+    for event in private_trace:
+        if event in _PUBLIC_TRACE_FIXED_EVENTS:
+            public.append(event)
+            continue
+        parts = event.split(":")
+        if (
+            len(parts) == 3
+            and parts[0] in {"ingest", "retrieve", "answer", "judge"}
+            and parts[1] in _PUBLIC_TRACE_BACKENDS
+            and parts[2]
+        ):
+            public.append(f"{parts[0]}:{parts[1]}")
+            continue
+        if (
+            len(parts) == 3
+            and parts[0] == "delete"
+            and parts[1] in _PUBLIC_TRACE_BACKENDS
+            and parts[2] in {"1", "2"}
+        ):
+            public.append(event)
+            continue
+        raise ManagedRunError("managed private trace is not publishable")
+    return public
 
 
 def _managed_paired_quality_projection(

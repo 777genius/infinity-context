@@ -5,7 +5,7 @@ import json
 
 import pytest
 from infinity_context_server.memory_comparison_benchmark_identity import (
-    mem0_benchmark_user_id,
+    mem0_benchmark_corpus_user_id,
 )
 from infinity_context_server.memory_comparison_locomo_expected_turn import (
     ExpectedOfficialLocomoTurn,
@@ -22,6 +22,12 @@ from infinity_context_server.memory_comparison_locomo_transport import (
 from infinity_context_server.public_benchmark_models import BenchmarkValidationError
 
 _RUN_ID = "run-transport-1"
+
+
+def mem0_benchmark_user_id(run_id: str) -> str:
+    """Build the default test corpus identity for explicit request fixtures."""
+
+    return mem0_benchmark_corpus_user_id(run_id, "corpus-a")
 
 
 def _messages() -> list[dict[str, object]]:
@@ -58,7 +64,7 @@ def _request(
     metadata = _metadata(corpus_key)
     return LocomoOfficialTurnsTransportRequest.create(
         messages=_messages(),
-        user_id=mem0_benchmark_user_id(run_id),
+        user_id=mem0_benchmark_corpus_user_id(run_id, corpus_key),
         run_id=run_id,
         metadata=metadata,
         timestamp=timestamp,
@@ -734,7 +740,7 @@ def test_add_request_rejects_unrelated_user_whitespace_content_and_epoch_zero() 
         "metadata": metadata,
         "idempotency_key": str(metadata["source_id"]),
     }
-    with pytest.raises(ValueError, match="canonical benchmark run user"):
+    with pytest.raises(ValueError, match="canonical benchmark corpus user"):
         LocomoOfficialTurnsTransportRequest.create(
             messages=_messages(),
             user_id="unrelated-user",

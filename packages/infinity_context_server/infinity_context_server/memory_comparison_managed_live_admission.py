@@ -80,7 +80,10 @@ class ManagedLiveAdmissionError(ValueError):
 @final
 @dataclass(frozen=True, slots=True)
 class ManagedLiveBudget:
-    """Hard upper bounds carried into the live composition."""
+    """Hard answer/judge bounds carried into the live composition.
+
+    Backend-internal provider work is deliberately outside this budget.
+    """
 
     max_cases: int
     max_provider_calls: int
@@ -105,7 +108,10 @@ class ManagedLiveBudget:
 @final
 @dataclass(frozen=True, slots=True)
 class ManagedLiveProviderUsageBudget:
-    """Hard benchmark reservations plus non-publishable readiness estimates."""
+    """Hard answer/judge reservations plus non-publishable readiness estimates.
+
+    Backend-internal provider calls and costs are intentionally unmeasured.
+    """
 
     provider_kind: str
     benchmark_max_provider_calls: int
@@ -143,8 +149,13 @@ class ManagedLiveProviderUsageBudget:
         return {
             "provider_kind": self.provider_kind,
             "benchmark_max_provider_calls": self.benchmark_max_provider_calls,
+            "benchmark_provider_call_scope": "answer_judge_only",
             "readiness_probe_provider_calls": self.readiness_probe_provider_calls,
             "total_provider_attempt_ceiling": self.total_provider_attempt_ceiling,
+            "total_provider_attempt_ceiling_scope": "answer_judge_and_readiness_only",
+            "backend_internal_provider_calls": "unmeasured",
+            "backend_internal_provider_cost": "unmeasured",
+            "total_provider_calls_claimed": False,
             "benchmark_reserved_token_ceiling": self.benchmark_reserved_token_ceiling,
             "readiness_probe_estimated_tokens": self.readiness_probe_estimated_tokens,
             "readiness_probe_usage_source": self.readiness_probe_usage_source,
