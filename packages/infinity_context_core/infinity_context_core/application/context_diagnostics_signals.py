@@ -9,6 +9,10 @@ from infinity_context_core.application.context_diagnostics_primitives import (
     _safe_optional_text,
     safe_diagnostic_mapping,
 )
+from infinity_context_core.application.context_paired_evidence_roles import (
+    PAIRED_EVIDENCE_ROLE_MEMBERSHIPS_KEY,
+    paired_evidence_role_memberships,
+)
 
 _CONTEXT_REQUIREMENT_SCORE_SIGNAL_KEYS = (
     "context_requirement_boost",
@@ -82,6 +86,8 @@ def safe_score_signals(value: object) -> dict[str, object]:
     signals.update(_safe_deterministic_rerank_score_signals(value))
     signals.update(_safe_source_sibling_score_signals(value))
     raw = _as_dict(value)
+    if memberships := paired_evidence_role_memberships(raw):
+        signals[PAIRED_EVIDENCE_ROLE_MEMBERSHIPS_KEY] = list(memberships)
     raw_same_script_boost = raw.get("same_script_query_boost")
     if isinstance(raw_same_script_boost, int | float) and not isinstance(
         raw_same_script_boost,

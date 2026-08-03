@@ -33,6 +33,10 @@ from infinity_context_core.application.context_diagnostics_sources import (
 from infinity_context_core.application.context_item_evidence import (
     with_context_item_evidence_diagnostics,
 )
+from infinity_context_core.application.context_paired_evidence_roles import (
+    PAIRED_EVIDENCE_ROLE_MEMBERSHIPS_KEY,
+    merge_paired_evidence_role_memberships,
+)
 from infinity_context_core.application.dto import ContextItem
 
 _SAFE_RECALL_DIAGNOSTIC_KEYS = (
@@ -171,7 +175,7 @@ def merge_context_diagnostics(
     merged["ranking_reason"] = ranking_reason_for(prioritized_sources)
     primary_score_signals = safe_score_signals(primary_raw.get("score_signals"))
     secondary_score_signals = safe_score_signals(secondary_raw.get("score_signals"))
-    merged["score_signals"] = {
+    merged_score_signals = {
         "dedupe_primary_score": round(primary_score, 4),
         "dedupe_secondary_score": round(secondary_score, 4),
         "hybrid_source_count": len(prioritized_sources),
@@ -180,6 +184,12 @@ def merge_context_diagnostics(
         **secondary_score_signals,
         **primary_score_signals,
     }
+    if memberships := merge_paired_evidence_role_memberships(
+        primary_score_signals,
+        secondary_score_signals,
+    ):
+        merged_score_signals[PAIRED_EVIDENCE_ROLE_MEMBERSHIPS_KEY] = list(memberships)
+    merged["score_signals"] = merged_score_signals
     _preserve_positive_score_signals(
         merged["score_signals"],
         primary_score_signals,
