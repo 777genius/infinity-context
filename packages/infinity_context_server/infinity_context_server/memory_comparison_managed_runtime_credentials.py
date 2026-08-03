@@ -436,7 +436,7 @@ class ManagedRuntimeCredentialAuthority:
         adapter: SubscriptionRuntimeChatCompletions | None = None
         try:
             with self.__lock:
-                self._require_context_locked(
+                trusted_now = self._require_context_locked(
                     expected_request=expected_request,
                     run_id=run_id,
                     subscription_origin=subscription_origin,
@@ -454,7 +454,11 @@ class ManagedRuntimeCredentialAuthority:
                 adapter = SubscriptionRuntimeChatCompletions(
                     origin=state.subscription_origin,
                     bearer_token=state.subscription_secret,
-                    timeout_seconds=state.request_timeout_seconds,
+                    timeout_seconds=_remaining_execution_timeout_seconds(
+                        configured_timeout_seconds=state.request_timeout_seconds,
+                        deadline=state.deadline,
+                        now=trusted_now,
+                    ),
                     max_retries=0,
                     transport=transport,
                 )
@@ -585,7 +589,7 @@ class ManagedRuntimeCredentialAuthority:
         subscription_origin: str,
         deadline: datetime,
         now: datetime,
-    ) -> None:
+    ) -> datetime:
         self._require_integrity_locked()
         self._require_static_context_locked(
             expected_request=expected_request,
@@ -600,6 +604,7 @@ class ManagedRuntimeCredentialAuthority:
         trusted_now = _aware(now, "managed_credentials_context_mismatch")
         if trusted_now < state.issued_at or trusted_now >= state.deadline:
             _fail("managed_credentials_expired")
+        return trusted_now
 
     def _require_static_context_locked(
         self,
@@ -840,6 +845,18 @@ def _timeout(value: object) -> float:
     ):
         _fail("managed_credentials_configuration_invalid")
     return float(value)
+
+
+def _remaining_execution_timeout_seconds(
+    *,
+    configured_timeout_seconds: float,
+    deadline: datetime,
+    now: datetime,
+) -> float:
+    remaining = (deadline - now).total_seconds()
+    if not math.isfinite(remaining) or remaining <= 0:
+        _fail("managed_credentials_expired")
+    return min(configured_timeout_seconds, remaining)
 
 
 def _aware(value: object, code: str) -> datetime:

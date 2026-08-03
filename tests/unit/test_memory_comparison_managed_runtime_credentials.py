@@ -99,9 +99,11 @@ def _request(authority: ManagedRuntimeCredentialAuthority) -> ManagedPreflightRe
 
 def _bind(
     authority: ManagedRuntimeCredentialAuthority,
+    *,
+    deadline: datetime = _DEADLINE,
 ) -> ManagedPreflightRequest:
     request = _request(authority)
-    authority.bind_preflight_request(request, run_id=_RUN_ID, deadline=_DEADLINE)
+    authority.bind_preflight_request(request, run_id=_RUN_ID, deadline=deadline)
     return request
 
 
@@ -231,6 +233,52 @@ def test_readiness_then_distinct_execution_adapter_preserve_exact_bearer() -> No
             transport=httpx.MockTransport(execution_handler),
         )
     assert replay.value.code == "managed_credentials_terminal"
+
+
+def test_execution_transport_timeout_is_capped_to_remaining_run_deadline() -> None:
+    authority = _authority()
+    request = _bind(authority)
+
+    claim = authority.issue_subscription_readiness_claim(
+        expected_request=request,
+        run_id=_RUN_ID,
+        subscription_origin=_SUBSCRIPTION_ORIGIN,
+        deadline=_DEADLINE,
+        now=_NOW,
+        transport=httpx.MockTransport(lambda _: httpx.Response(200, json=_success_payload())),
+    )
+    claim.run(model=_MODEL, clock=lambda: _NOW)
+
+    observed_timeouts: list[dict[str, float]] = []
+
+    def execution_handler(raw: httpx.Request) -> httpx.Response:
+        observed_timeouts.append(dict(raw.extensions["timeout"]))
+        return httpx.Response(200, json=_success_payload("near deadline"))
+
+    near_deadline = _DEADLINE - timedelta(milliseconds=250)
+    execution = authority.issue_subscription_execution_adapter(
+        readiness_claim=claim,
+        expected_request=request,
+        run_id=_RUN_ID,
+        subscription_origin=_SUBSCRIPTION_ORIGIN,
+        deadline=_DEADLINE,
+        now=near_deadline,
+        transport=httpx.MockTransport(execution_handler),
+    )
+    try:
+        assert execution.request_timeout_seconds == pytest.approx(0.25)
+        execution.complete(
+            model=_MODEL,
+            system_prompt="system",
+            user_prompt="user",
+            max_output_tokens=8,
+        )
+    finally:
+        execution.close()
+
+    assert observed_timeouts == [
+        {"connect": 0.25, "read": 0.25, "write": 0.25, "pool": 0.25}
+    ]
 
 
 def test_completed_readiness_context_inspection_is_stable_and_non_consuming() -> None:
