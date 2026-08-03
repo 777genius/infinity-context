@@ -183,6 +183,20 @@ class ConfigurableCogneeMemory:
         return self._result
 
 
+class ConfigurableProjectionDelete:
+    def __init__(self, result: VectorWriteResult) -> None:
+        self._result = result
+        self.requests: list[tuple[str, object]] = []
+
+    async def delete_chunks(self, chunk_ids: tuple[str, ...]) -> VectorWriteResult:
+        self.requests.append(("vector", chunk_ids))
+        return self._result
+
+    async def delete_fact(self, fact_id: str) -> VectorWriteResult:
+        self.requests.append(("graph", fact_id))
+        return self._result
+
+
 def _chunk(space_id: str = "benchmark-space") -> SimpleNamespace:
     return SimpleNamespace(
         id="chunk-1",
@@ -257,7 +271,12 @@ def _process(
     return ProjectionOutboxProcess(container), adapters
 
 
-def _job(lane: str, *, delete: bool = False) -> ClaimedOutboxJob:
+def _job(
+    lane: str,
+    *,
+    delete: bool = False,
+    cleanup_run_id_sha256: str | None = None,
+) -> ClaimedOutboxJob:
     values = {
         "vector": (
             "vector.delete_chunks" if delete else "vector.upsert_chunk",
@@ -276,6 +295,9 @@ def _job(lane: str, *, delete: bool = False) -> ClaimedOutboxJob:
         ),
     }
     event_type, aggregate_id, payload = values[lane]
+    payload = dict(payload)
+    if cleanup_run_id_sha256 is not None:
+        payload["cleanup_run_id_sha256"] = cleanup_run_id_sha256
     return ClaimedOutboxJob(
         id=1 if not delete else 2,
         event_type=event_type,
@@ -381,6 +403,46 @@ def test_cognee_benchmark_forget_rejects_invalid_cleanup_run_hash_before_delete(
 
     assert caught.value.diagnostic_code == "benchmark.cleanup_run_id_sha256_invalid"
     assert adapter.requests == []
+
+
+@pytest.mark.parametrize(
+    ("lane", "cleanup_run_id_sha256", "expected_diagnostic_code"),
+    [
+        ("vector", None, None),
+        ("graph", None, None),
+        ("vector", "a" * 64, "vector.disabled"),
+        ("graph", "a" * 64, "graph.disabled"),
+    ],
+)
+def test_vector_and_graph_delete_preserve_benchmark_cleanup_semantics(
+    lane: str,
+    cleanup_run_id_sha256: str | None,
+    expected_diagnostic_code: str | None,
+) -> None:
+    async def run() -> tuple[str | None, ConfigurableProjectionDelete]:
+        adapter = ConfigurableProjectionDelete(
+            VectorWriteResult.degraded(f"{lane}.disabled", retryable=False)
+        )
+        process = ProjectionOutboxProcess(
+            SimpleNamespace(vector_index=adapter, graph_index=adapter)
+        )
+        try:
+            await _dispatch(
+                process,
+                _job(
+                    lane,
+                    delete=True,
+                    cleanup_run_id_sha256=cleanup_run_id_sha256,
+                ),
+            )
+        except OutboxProjectionError as error:
+            return error.diagnostic_code, adapter
+        return None, adapter
+
+    diagnostic_code, adapter = asyncio.run(run())
+
+    assert diagnostic_code == expected_diagnostic_code
+    assert adapter.requests == [(lane, ("chunk-1",) if lane == "vector" else "fact-1")]
 
 
 @pytest.mark.parametrize("lane", ["vector", "graph", "cognee"])
