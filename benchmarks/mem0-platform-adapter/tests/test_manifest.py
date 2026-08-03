@@ -19,6 +19,7 @@ def _capabilities() -> dict[str, object]:
         attestation=TimestampAttestation(
             status="passed",
             cleanup_succeeded=True,
+            checked_at="2026-07-29T10:00:00Z",
         ),
         policy=PollingPolicy(),
     )
