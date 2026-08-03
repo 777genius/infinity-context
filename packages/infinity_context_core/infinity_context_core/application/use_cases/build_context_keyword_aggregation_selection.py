@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import Protocol
 
@@ -10,7 +11,14 @@ from infinity_context_core.application.context_distinct_set_evidence import (
 )
 from infinity_context_core.application.context_query_intent import (
     QueryAnchorIntent,
+    build_query_anchor_intent,
     query_anchor_intent_text_conflicts,
+)
+from infinity_context_core.application.context_temporal_intent_policy import (
+    temporal_ordering_intent,
+)
+from infinity_context_core.application.context_temporal_interval_requirements import (
+    temporal_interval_requirements,
 )
 from infinity_context_core.domain.aggregation_admission import (
     AggregationAdmissionCandidate,
@@ -25,6 +33,38 @@ from infinity_context_core.domain.distinct_set_membership import (
 from infinity_context_core.domain.entities import MemoryAnchorKind
 
 _MAX_DISTINCT_MEMBER_RESERVATIONS = 8
+
+
+def temporal_endpoint_anchor_intents(query: str) -> dict[tuple[str, str], QueryAnchorIntent]:
+    """Build local anchor intents only for bounded, question-derived endpoint slots."""
+
+    if not isinstance(query, str):
+        return {}
+    endpoints = (
+        *temporal_interval_requirements(query).endpoints,
+        *temporal_ordering_intent(query).endpoints,
+    )
+    return {
+        (endpoint.slot_id, endpoint.query): build_query_anchor_intent(endpoint.query)
+        for endpoint in endpoints
+    }
+
+
+def keyword_aggregation_candidate_anchor_intent(
+    *,
+    full_query_anchor_intent: QueryAnchorIntent,
+    aggregation_reason: str,
+    aggregation_query: str,
+    temporal_endpoint_intents: Mapping[tuple[str, str], QueryAnchorIntent],
+) -> QueryAnchorIntent:
+    """Keep full-query admission strict except for verified temporal endpoint slots."""
+
+    if not isinstance(aggregation_reason, str) or not isinstance(aggregation_query, str):
+        return full_query_anchor_intent
+    return temporal_endpoint_intents.get(
+        (aggregation_reason, aggregation_query),
+        full_query_anchor_intent,
+    )
 
 
 def distinct_set_anchor_conflict(

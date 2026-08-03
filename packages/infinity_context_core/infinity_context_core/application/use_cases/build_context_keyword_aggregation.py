@@ -690,6 +690,9 @@ def _keyword_aggregation_chunk_items(
     if intent is AggregationIntent.SEQUENCE:
         max_items = min(max_items, 4)
     anchor_intent = build_query_anchor_intent(query.query)
+    temporal_endpoint_intents = aggregation_selection.temporal_endpoint_anchor_intents(
+        query.query
+    )
     candidates: list[_KeywordAggregationCandidate] = []
     skipped = 0
     unique_seed_chunks = _dedupe_chunks_by_id(seed_chunks)
@@ -739,8 +742,16 @@ def _keyword_aggregation_chunk_items(
         member_ids = quantity_evidence.member_ids or member_evidence.member_ids
         member_evidence_text = quantity_evidence.rendered_text or member_evidence.rendered_text
         member_present = bool(member_ids and member_evidence_text)
+        candidate_anchor_intent = (
+            aggregation_selection.keyword_aggregation_candidate_anchor_intent(
+                full_query_anchor_intent=anchor_intent,
+                aggregation_reason=aggregation_reason,
+                aggregation_query=aggregation_query,
+                temporal_endpoint_intents=temporal_endpoint_intents,
+            )
+        )
         anchor_conflict = aggregation_selection.distinct_set_anchor_conflict(
-            anchor_intent,
+            candidate_anchor_intent,
             projection=member_evidence,
             fallback_text=chunk_text,
         )
