@@ -14,6 +14,10 @@ _SDK_VERSION = "2.0.14"
 _SDK_SOURCE_REVISION = "b357a5a1b03c299ec8229c268e63cfac0f7c6566"
 _SDK_ARTIFACT_SHA256 = "9c567df69af794278bc051400829d1a2d4f8aa659cae6cd019d88ec66dbf4f3f"
 _SDK_VERIFICATION_METHOD = "direct_url_archive_info_sha256"
+REVIEWED_MEM0_MANAGED_WRAPPER_SOURCE_REVISION = "45d479fbf854e71347f4fde076eb87f74c89ab9c"
+REVIEWED_MEM0_MANAGED_WRAPPER_SOURCE_SHA256 = (
+    "a5bffdd4b55b8bb8c59d3cdd6c94ec36d652c1c22464b7ef7912c24a3d1c2055"
+)
 _MIN_INSTANT = datetime(1970, 1, 1, tzinfo=UTC)
 _MAX_INSTANT = datetime(2100, 1, 1, tzinfo=UTC)
 _MAX_EPOCH_SECONDS = int(_MAX_INSTANT.timestamp())
@@ -38,7 +42,9 @@ MANAGED_PLATFORM_CAPABILITY_ISSUE_CODES = frozenset(
     {
         "runtime_mode_not_managed_platform",
         "wrapper_source_sha256_invalid",
+        "wrapper_source_sha256_mismatch",
         "wrapper_source_revision_unpinned",
+        "wrapper_source_revision_mismatch",
         "config_fingerprint_sha256_invalid",
         "sdk_distribution_not_mem0ai",
         "sdk_version_mismatch",
@@ -90,8 +96,16 @@ def evaluate_managed_platform_capabilities(
     issues: list[str] = []
     if payload.get("runtime_mode") != "managed_platform":
         issues.append("runtime_mode_not_managed_platform")
-    _require_sha256(payload, "wrapper_source_sha256", issues)
-    _require_revision(payload, "wrapper_source_revision", issues)
+    wrapper_source_sha256 = payload.get("wrapper_source_sha256")
+    if not _SHA256_RE.fullmatch(str(wrapper_source_sha256 or "")):
+        issues.append("wrapper_source_sha256_invalid")
+    elif wrapper_source_sha256 != REVIEWED_MEM0_MANAGED_WRAPPER_SOURCE_SHA256:
+        issues.append("wrapper_source_sha256_mismatch")
+    wrapper_source_revision = payload.get("wrapper_source_revision")
+    if not _REVISION_RE.fullmatch(str(wrapper_source_revision or "")):
+        issues.append("wrapper_source_revision_unpinned")
+    elif wrapper_source_revision != REVIEWED_MEM0_MANAGED_WRAPPER_SOURCE_REVISION:
+        issues.append("wrapper_source_revision_mismatch")
     _require_sha256(payload, "config_fingerprint_sha256", issues)
 
     sdk = _mapping(payload.get("sdk"))
@@ -442,6 +456,8 @@ def _public_finite_number(value: object) -> float | str:
 
 __all__ = (
     "MANAGED_PLATFORM_CAPABILITY_ISSUE_CODES",
+    "REVIEWED_MEM0_MANAGED_WRAPPER_SOURCE_REVISION",
+    "REVIEWED_MEM0_MANAGED_WRAPPER_SOURCE_SHA256",
     "evaluate_managed_platform_capabilities",
     "public_managed_platform_contract",
     "public_managed_persisted_source_identity_contract",

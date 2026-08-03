@@ -342,6 +342,10 @@ def _provider_coverage(
     return {
         "required_call_count": len(required),
         "verified_call_count": len(seen),
+        "provider_call_scope": "answer_judge_only",
+        "backend_internal_provider_calls": "unmeasured",
+        "backend_internal_provider_cost": "unmeasured",
+        "total_provider_calls_claimed": False,
         "coverage_commitment_sha256": _json_sha256(call_commitments),
         "pending_call_count": 0,
         "unique_response_id_count": len(response_ids),

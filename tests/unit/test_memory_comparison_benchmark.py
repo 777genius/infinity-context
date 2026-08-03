@@ -26,6 +26,9 @@ from infinity_context_server.memory_comparison_benchmark import (
     run_memory_comparison_benchmark,
     run_memory_comparison_replay,
 )
+from infinity_context_server.memory_comparison_benchmark_identity import (
+    mem0_benchmark_corpus_user_id,
+)
 from infinity_context_server.memory_comparison_llm import (
     CodexCliAnswerer,
     CodexCliJudge,
@@ -17561,7 +17564,7 @@ def test_mem0_http_ingest_uses_run_isolated_user_and_redacts_errors() -> None:
     finally:
         backend.close()
 
-    expected_user_id = http_module.mem0_benchmark_user_id("Run 42")
+    expected_user_id = mem0_benchmark_corpus_user_id("Run 42", "corpus-a")
     assert f"user_id={expected_user_id}" in seen_requests[0][0]
     assert "run_id=Run+42" in seen_requests[0][0]
     assert result.items_processed == 1
@@ -17660,7 +17663,7 @@ def test_mem0_http_ingest_sends_memory_role_without_timestamp_by_default() -> No
                     "content": "D1:1 Morgan: The checklist is in the blue notebook.",
                 }
             ],
-            "user_id": http_module.mem0_benchmark_user_id("Run 42"),
+            "user_id": mem0_benchmark_corpus_user_id("Run 42", "corpus-a"),
             "run_id": "Run 42",
             "metadata": {
                 "benchmark": "locomo",
@@ -17724,8 +17727,9 @@ def test_mem0_http_search_uses_current_filters_and_top_k_payload() -> None:
     seen_api_keys: list[str | None] = []
 
     def handler(request: httpx.Request) -> httpx.Response:
-        seen_payloads.append(json.loads(request.content))
-        seen_api_keys.append(request.headers.get("X-API-Key"))
+        if request.url.path == "/search":
+            seen_payloads.append(json.loads(request.content))
+            seen_api_keys.append(request.headers.get("X-API-Key"))
         return httpx.Response(
             200,
             json={
@@ -17748,6 +17752,7 @@ def test_mem0_http_search_uses_current_filters_and_top_k_payload() -> None:
     backend = http_module.Mem0HttpComparisonBackend(
         base_url="http://mem0.test",
         api_key="mem0-unit-key",
+        reset_user_on_start=False,
         transport=httpx.MockTransport(handler),
     )
     case = _case(
@@ -17758,6 +17763,7 @@ def test_mem0_http_search_uses_current_filters_and_top_k_payload() -> None:
     )
 
     try:
+        backend.ingest(case, run_id="Run 42", corpus_key="corpus-a")
         result = backend.search(case, run_id="Run 42", top_k=7)
     finally:
         backend.close()
@@ -17766,7 +17772,7 @@ def test_mem0_http_search_uses_current_filters_and_top_k_payload() -> None:
         {
             "query": "Where is the checklist?",
             "filters": {
-                "user_id": http_module.mem0_benchmark_user_id("Run 42"),
+                "user_id": mem0_benchmark_corpus_user_id("Run 42", "corpus-a"),
                 "run_id": "Run 42",
             },
             "limit": 7,

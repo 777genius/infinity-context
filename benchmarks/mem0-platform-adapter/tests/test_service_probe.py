@@ -1,15 +1,22 @@
 from __future__ import annotations
 
+import hashlib
 import json
+from collections.abc import Mapping
 from copy import deepcopy
+from datetime import UTC, datetime, timedelta
+from threading import Event, Lock, Thread
+from typing import Any
 
 import pytest
 from fastapi.testclient import TestClient
 from root_contract_import import import_root_contract
 from test_app import FakePlatform, _sentinel_readback
 
+from mem0_platform_adapter import app as app_module
 from mem0_platform_adapter import manifest as manifest_module
 from mem0_platform_adapter.app import create_app
+from mem0_platform_adapter.models import EventSnapshot
 
 pytestmark = pytest.mark.contract
 runtime_attestation = import_root_contract(
@@ -180,6 +187,155 @@ def test_valid_signed_refresh_yields_typed_target_bound_capability(
     public = str(outcome.details["runtime_attestation"])
     assert TOKEN not in public
     assert "https://mem0.example" not in public
+
+
+def test_concurrent_refreshes_sign_request_local_attestation_snapshots(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("MEM0_BENCHMARK_PROBE_TOKEN", TOKEN)
+    _configure_publishable_manifest(monkeypatch)
+    first_attestation_ready = Event()
+    release_first_response = Event()
+    refresh_count_lock = Lock()
+    refresh_count = 0
+    base_time = datetime.now(UTC).replace(microsecond=0)
+
+    class BarrierAttestationService(app_module.Mem0CompatibilityService):
+        def attest_timestamp(self):
+            nonlocal refresh_count
+            attestation = super().attest_timestamp()
+            with refresh_count_lock:
+                refresh_count += 1
+                refresh_number = refresh_count
+            attestation = attestation.model_copy(
+                update={
+                    "checked_at": (
+                        base_time + timedelta(seconds=refresh_number)
+                    ).isoformat().replace("+00:00", "Z"),
+                }
+            )
+            self.attestation = attestation
+            if refresh_number == 1:
+                first_attestation_ready.set()
+                if not release_first_response.wait(timeout=5):
+                    raise AssertionError("test did not release the first refresh")
+            return attestation
+
+    class RefreshPlatform(FakePlatform):
+        def get_all(
+            self,
+            *,
+            filters: Mapping[str, Any],
+            page: int,
+            page_size: int,
+        ) -> Mapping[str, Any]:
+            self.calls.append(
+                (
+                    "get_all",
+                    {"filters": filters, "page": page, "page_size": page_size},
+                )
+            )
+            children = filters.get("AND", ())
+            is_attestation_readback = any(
+                isinstance(child, Mapping) and "metadata" in child for child in children
+            )
+            return _sentinel_readback() if is_attestation_readback else {"results": []}
+
+        def delete_memories(self, *, user_id: str, run_id: str) -> bool:
+            self.calls.append(("delete", {"user_id": user_id, "run_id": run_id}))
+            return True
+
+    monkeypatch.setattr(app_module, "Mem0CompatibilityService", BarrierAttestationService)
+    platform = RefreshPlatform(
+        events=[EventSnapshot(status="SUCCEEDED") for _ in range(2)],
+    )
+    refreshes = {
+        "first": {
+            "run_id": "concurrent-run-first",
+            "probe_nonce": "a" * 64,
+            "target_identity_sha256": "b" * 64,
+        },
+        "second": {
+            "run_id": "concurrent-run-second",
+            "probe_nonce": "c" * 64,
+            "target_identity_sha256": "d" * 64,
+        },
+    }
+    responses: dict[str, Any] = {}
+    errors: list[Exception] = []
+
+    def post_refresh(label: str) -> None:
+        try:
+            responses[label] = client.post(
+                "/benchmark/attest-timestamp",
+                headers={"X-Benchmark-Probe-Token": TOKEN},
+                json=refreshes[label],
+            )
+        except Exception as exc:
+            errors.append(exc)
+
+    with TestClient(
+        create_app(
+            platform,
+            sleeper=lambda _: None,
+            token_factory=lambda: "fixed",
+            attest_on_startup=False,
+        )
+    ) as client:
+        first = Thread(target=post_refresh, args=("first",))
+        second: Thread | None = None
+        first.start()
+        try:
+            assert first_attestation_ready.wait(timeout=5)
+            second = Thread(target=post_refresh, args=("second",))
+            second.start()
+            second.join(timeout=5)
+            assert not second.is_alive()
+        finally:
+            release_first_response.set()
+            if second is not None:
+                second.join(timeout=5)
+            first.join(timeout=5)
+
+    assert not first.is_alive()
+    assert not errors
+    assert refresh_count == 2
+    assert set(responses) == set(refreshes)
+    for label, request in refreshes.items():
+        response = responses[label]
+        assert response.status_code == 200
+        payload = response.json()
+        binding = payload["refresh_binding"]
+        attestation = payload["timestamp"]["attestation"]
+        assert binding["status"] == "passed"
+        assert binding["run_id_sha256"] == hashlib.sha256(request["run_id"].encode()).hexdigest()
+        assert binding["probe_nonce_sha256"] == hashlib.sha256(
+            request["probe_nonce"].encode()
+        ).hexdigest()
+        assert binding["target_identity_sha256"] == request["target_identity_sha256"]
+        assert binding["refreshed_at"] == attestation["checked_at"]
+
+        verified = runtime_attestation.build_verified_mem0_runtime_attestation(
+            runtime_manifest=payload,
+            benchmark_probe_token=TOKEN,
+            openapi_fingerprint_sha256=hashlib.sha256(b"concurrent-refresh").hexdigest(),
+            openapi_contract_violations=(),
+            probe_passed=True,
+            run_id=request["run_id"],
+            probe_nonce=request["probe_nonce"],
+            target_identity_sha256=request["target_identity_sha256"],
+        )
+        assert isinstance(verified, VerifiedMem0RuntimeAttestation)
+        validation = runtime_attestation.validate_mem0_runtime_attestation(
+            verified.payload,
+            required_runtime_mode=runtime_attestation.MEM0_MANAGED_PLATFORM_RUNTIME_MODE,
+            expected_run_id=request["run_id"],
+            expected_probe_nonce=request["probe_nonce"],
+            expected_target_identity_sha256=request["target_identity_sha256"],
+            validated_at=base_time + timedelta(seconds=3),
+            max_age_seconds=30,
+        )
+        assert validation["eligible"] is True, validation
 
 
 @pytest.mark.parametrize("mode", ("missing_operation", "bad_hmac"))

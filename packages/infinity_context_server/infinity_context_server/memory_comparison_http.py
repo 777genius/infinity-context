@@ -8,7 +8,7 @@ from collections.abc import Mapping, Sequence
 import httpx
 
 from infinity_context_server.memory_comparison_benchmark_identity import (
-    mem0_benchmark_user_id,
+    mem0_benchmark_corpus_user_id,
 )
 from infinity_context_server.memory_comparison_candidate_fusion import (
     fuse_query_results,
@@ -435,17 +435,30 @@ class Mem0HttpComparisonBackend:
         )
         self._reset_user_on_start = reset_user_on_start
         self._send_timestamps = send_timestamps
+        self._corpus_keys: dict[tuple[str, str, str, str], str] = {}
+        self._cleaned_corpus_users: set[tuple[str, str]] = set()
 
     def reset(self, *, run_id: str) -> None:
         self._locomo_observations.reset(run_id=run_id)
+        known_users = tuple(
+            dict.fromkeys(
+                mem0_benchmark_corpus_user_id(run_id, corpus_key)
+                for (bound_run_id, *_scope), corpus_key in self._corpus_keys.items()
+                if bound_run_id == run_id
+            )
+        )
+        self._corpus_keys = {
+            key: corpus_key
+            for key, corpus_key in self._corpus_keys.items()
+            if key[0] != run_id
+        }
+        self._cleaned_corpus_users = {
+            item for item in self._cleaned_corpus_users if item[0] != run_id
+        }
         if not self._reset_user_on_start:
             return
-        response = self._client.delete(
-            "/memories",
-            params={"user_id": self._user_id(run_id), "run_id": run_id},
-        )
-        if response.status_code not in {200, 204, 404}:
-            response.raise_for_status()
+        for user_id in known_users:
+            self._reset_corpus_user(run_id=run_id, user_id=user_id)
 
     def close(self) -> None:
         self._client.close()
@@ -480,6 +493,7 @@ class Mem0HttpComparisonBackend:
         )
         if "public_trigger_case_id" in case.metadata and public_trigger_case_id is None:
             raise ValueError("managed public trigger case_id is invalid")
+        user_id = self._bind_corpus(run_id=run_id, case=case, corpus_key=corpus_key)
         started = time.perf_counter()
         operations: list[IngestionOperation] = []
         observations: list[HttpIngestIdentityObservation] = []
@@ -497,7 +511,7 @@ class Mem0HttpComparisonBackend:
             )
             payload: dict[str, object] = {
                 "messages": messages,
-                "user_id": self._user_id(run_id),
+                "user_id": user_id,
                 "run_id": run_id,
                 "metadata": {
                     "benchmark": case.benchmark,
@@ -580,11 +594,12 @@ class Mem0HttpComparisonBackend:
         top_k: int,
     ) -> BackendSearchResult:
         started = time.perf_counter()
+        user_id = self._bound_corpus_user_id(run_id=run_id, case=case)
         response = self._client.post(
             "/search",
             json={
                 "query": case.question,
-                "filters": {"user_id": self._user_id(run_id), "run_id": run_id},
+                "filters": {"user_id": user_id, "run_id": run_id},
                 "limit": top_k,
                 "top_k": top_k,
             },
@@ -600,8 +615,49 @@ class Mem0HttpComparisonBackend:
             metadata={"transport": "mem0_http"},
         )
 
-    def _user_id(self, run_id: str) -> str:
-        return mem0_benchmark_user_id(run_id)
+    def _bind_corpus(
+        self,
+        *,
+        run_id: str,
+        case: PublicBenchmarkCase,
+        corpus_key: str,
+    ) -> str:
+        key = self._corpus_binding_key(run_id, case)
+        existing = self._corpus_keys.get(key)
+        if existing is not None and existing != corpus_key:
+            raise ValueError("Mem0 corpus binding differs from the admitted corpus")
+        user_id = mem0_benchmark_corpus_user_id(run_id, corpus_key)
+        if self._reset_user_on_start and (run_id, user_id) not in self._cleaned_corpus_users:
+            self._reset_corpus_user(run_id=run_id, user_id=user_id)
+        self._corpus_keys[key] = corpus_key
+        return user_id
+
+    def _bound_corpus_user_id(self, *, run_id: str, case: PublicBenchmarkCase) -> str:
+        corpus_key = self._corpus_keys.get(self._corpus_binding_key(run_id, case))
+        if corpus_key is None:
+            raise ValueError("Mem0 search requires an ingested exact corpus binding")
+        return mem0_benchmark_corpus_user_id(run_id, corpus_key)
+
+    def _reset_corpus_user(self, *, run_id: str, user_id: str) -> None:
+        response = self._client.delete(
+            "/memories",
+            params={"user_id": user_id, "run_id": run_id},
+        )
+        if response.status_code not in {200, 204, 404}:
+            response.raise_for_status()
+        self._cleaned_corpus_users.add((run_id, user_id))
+
+    @staticmethod
+    def _corpus_binding_key(
+        run_id: str,
+        case: PublicBenchmarkCase,
+    ) -> tuple[str, str, str, str]:
+        return (
+            run_id,
+            case.benchmark,
+            case.memory_scope_external_ref or case.case_id,
+            case.thread_external_ref or case.case_id,
+        )
 
 
 def _infinity_context_memories(raw_items: object) -> list[RetrievedMemory]:

@@ -125,11 +125,27 @@ class ProjectionOutboxProcess:
 
     async def handle_vector_delete_chunks(self, job: ClaimedOutboxJob) -> None:
         chunk_ids = tuple(str(value) for value in job.payload_json.get("chunk_ids", []))
-        await self._delete_vector_chunks(chunk_ids)
+        require_delete_completion = _benchmark_cleanup_requires_delete_completion(
+            job.payload_json
+        )
+        await self._delete_vector_chunks(
+            chunk_ids,
+            require_delete_completion=require_delete_completion,
+        )
 
-    async def _delete_vector_chunks(self, chunk_ids: tuple[str, ...]) -> None:
+    async def _delete_vector_chunks(
+        self,
+        chunk_ids: tuple[str, ...],
+        *,
+        require_delete_completion: bool = False,
+    ) -> None:
         result = await self._container.vector_index.delete_chunks(chunk_ids)
-        _raise_if_degraded(result.status, "vector.delete_chunks", result.diagnostics)
+        _raise_if_degraded(
+            result.status,
+            "vector.delete_chunks",
+            result.diagnostics,
+            disabled_is_error=require_delete_completion,
+        )
 
     async def handle_graph_upsert(self, job: ClaimedOutboxJob) -> None:
         async with self._container.uow_factory() as uow:
@@ -163,11 +179,27 @@ class ProjectionOutboxProcess:
 
     async def handle_graph_delete(self, job: ClaimedOutboxJob) -> None:
         fact_id = str(job.payload_json.get("fact_id") or job.aggregate_id)
-        await self._delete_graph_fact(fact_id)
+        require_delete_completion = _benchmark_cleanup_requires_delete_completion(
+            job.payload_json
+        )
+        await self._delete_graph_fact(
+            fact_id,
+            require_delete_completion=require_delete_completion,
+        )
 
-    async def _delete_graph_fact(self, fact_id: str) -> None:
+    async def _delete_graph_fact(
+        self,
+        fact_id: str,
+        *,
+        require_delete_completion: bool = False,
+    ) -> None:
         result = await self._container.graph_index.delete_fact(fact_id)
-        _raise_if_degraded(result.status, "graph.delete_fact", result.diagnostics)
+        _raise_if_degraded(
+            result.status,
+            "graph.delete_fact",
+            result.diagnostics,
+            disabled_is_error=require_delete_completion,
+        )
 
     async def handle_cognee_document_ingest(self, job: ClaimedOutboxJob) -> None:
         document_id = str(job.payload_json.get("document_id") or job.aggregate_id)
@@ -261,8 +293,10 @@ def _raise_if_degraded(
     status: PortStatus,
     operation: str,
     diagnostics: tuple[PortDiagnostic, ...] = (),
+    *,
+    disabled_is_error: bool = False,
 ) -> None:
-    if _is_disabled_projection(diagnostics):
+    if _is_disabled_projection(diagnostics) and not disabled_is_error:
         return
     if status != PortStatus.OK:
         diagnostic_code = diagnostics[0].code if diagnostics else f"{operation}.degraded"

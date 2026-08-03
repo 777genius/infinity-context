@@ -3,6 +3,8 @@
   "version": "2.0.14",
   "source_repository": "https://github.com/mem0ai/mem0",
   "source_revision": "b357a5a1b03c299ec8229c268e63cfac0f7c6566",
+  "wrapper_source_revision": "45d479fbf854e71347f4fde076eb87f74c89ab9c",
+  "wrapper_source_sha256": "a5bffdd4b55b8bb8c59d3cdd6c94ec36d652c1c22464b7ef7912c24a3d1c2055",
   "wheel_filename": "mem0ai-2.0.14-py3-none-any.whl",
   "wheel_sha256": "9c567df69af794278bc051400829d1a2d4f8aa659cae6cd019d88ec66dbf4f3f",
   "runtime_lock_sha256": "10f812a565fce7a9f4a1890871725cf2033e002414ddfa74ee6bb95f5e6cf00e",

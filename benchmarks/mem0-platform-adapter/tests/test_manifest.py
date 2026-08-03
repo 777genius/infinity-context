@@ -19,6 +19,7 @@ def _capabilities() -> dict[str, object]:
         attestation=TimestampAttestation(
             status="passed",
             cleanup_succeeded=True,
+            checked_at="2026-07-29T10:00:00Z",
         ),
         policy=PollingPolicy(),
     )
@@ -171,10 +172,19 @@ def test_generated_passed_manifest_satisfies_main_v2_validator(monkeypatch) -> N
             failure_code=None,
         ),
         policy=PollingPolicy(),
-        wrapper_revision="a" * 40,
     )
 
     assert contract.evaluate_mem0_runtime_capabilities(payload, require_timestamp=True) == ()
+
+
+def test_generated_manifest_binds_exact_tracked_wrapper_profile(monkeypatch) -> None:
+    monkeypatch.setattr(manifest, "installed_distribution", lambda _: _install_evidence())
+
+    payload = _capabilities()
+
+    assert payload["wrapper_source_revision"] == manifest.RUNTIME_PIN.wrapper_source_revision
+    assert payload["wrapper_source_sha256"] == manifest.RUNTIME_PIN.wrapper_source_sha256
+    assert manifest.manifest_is_ready(payload) is True
 
 
 def test_runtime_pin_loader_fails_closed_on_invalid_or_extra_fields(tmp_path: Path) -> None:
@@ -201,13 +211,13 @@ def test_manifest_readiness_requires_every_provenance_invariant(monkeypatch) -> 
             cleanup_succeeded=True,
         ),
         policy=PollingPolicy(),
-        wrapper_revision="a" * 40,
     )
 
     assert manifest.manifest_is_ready(payload) is True
     mutations = (
         ("configured", False),
         ("wrapper_source_revision", None),
+        ("wrapper_source_sha256", "f" * 64),
     )
     for key, value in mutations:
         candidate = deepcopy(payload)

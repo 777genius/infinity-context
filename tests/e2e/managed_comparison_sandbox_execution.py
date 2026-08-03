@@ -8,7 +8,7 @@ from collections.abc import Callable, Mapping
 from dataclasses import replace
 
 from infinity_context_server.memory_comparison_benchmark_identity import (
-    mem0_benchmark_user_id,
+    mem0_benchmark_corpus_user_id,
 )
 from infinity_context_server.memory_comparison_full_execution_validation import (
     FullExecutionCaseManifestEntry,
@@ -744,7 +744,7 @@ def _transport(
             }
             request = LocomoOfficialTurnsTransportRequest.create(
                 messages=[{"role": role, "content": source_text}],
-                user_id=mem0_benchmark_user_id(bindings.run_id),
+                user_id=mem0_benchmark_corpus_user_id(bindings.run_id, item.corpus_id),
                 run_id=bindings.run_id,
                 metadata=metadata,
                 timestamp=timestamp,

@@ -146,7 +146,10 @@ def test_managed_locomo_canary_runs_real_nine_slot_lifecycle_without_skips() -> 
     assert {item.scope_identity_sha256 for item in rig.state.clean_state.scopes} == {expected_scope}
 
     assert rig.trace.events == _expected_adapter_trace(case_alias)
-    assert report["managed_run"]["trace"] == _expected_managed_trace(case_alias)
+    assert report["managed_run"]["trace"] == _expected_managed_trace()
+    rendered_public_report = json.dumps(report, sort_keys=True)
+    assert case_alias not in rendered_public_report
+    assert _managed_corpus_identity(rig.public_case)[0] not in rendered_public_report
     assert rig.trace.events.index("canonical_source.seal") < rig.trace.events.index(
         f"retrieve:{INFINITY_BACKEND}:{case_alias}"
     )
@@ -465,22 +468,21 @@ def _expected_adapter_trace(case_id: str) -> list[str]:
     ]
 
 
-def _expected_managed_trace(case_id: str) -> list[str]:
-    corpus_id = _managed_corpus_identity(_fixture_case())[0]
+def _expected_managed_trace() -> list[str]:
     return [
         "bindings.create",
         "issuer.create",
         "reset.complete",
         "attestation.live",
-        f"ingest:{INFINITY_BACKEND}:{corpus_id}",
-        f"ingest:{MEM0_BACKEND}:{corpus_id}",
+        f"ingest:{INFINITY_BACKEND}",
+        f"ingest:{MEM0_BACKEND}",
         "canonical_source.seal",
-        f"retrieve:{INFINITY_BACKEND}:{case_id}",
-        f"answer:{INFINITY_BACKEND}:{case_id}",
-        f"judge:{INFINITY_BACKEND}:{case_id}",
-        f"retrieve:{MEM0_BACKEND}:{case_id}",
-        f"answer:{MEM0_BACKEND}:{case_id}",
-        f"judge:{MEM0_BACKEND}:{case_id}",
+        f"retrieve:{INFINITY_BACKEND}",
+        f"answer:{INFINITY_BACKEND}",
+        f"judge:{INFINITY_BACKEND}",
+        f"retrieve:{MEM0_BACKEND}",
+        f"answer:{MEM0_BACKEND}",
+        f"judge:{MEM0_BACKEND}",
         "execution.seal",
         f"delete:{INFINITY_BACKEND}:1",
         f"delete:{MEM0_BACKEND}:1",
