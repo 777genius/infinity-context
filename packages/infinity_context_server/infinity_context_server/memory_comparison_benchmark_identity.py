@@ -54,7 +54,7 @@ def mem0_benchmark_corpus_user_id(run_id: str, corpus_key: str) -> str:
         or not any(not character.isspace() for character in corpus_key)
     ):
         raise ValueError("corpus_key must be a non-empty bounded identifier")
-    digest = hashlib.sha256(f"{run_id}\0{corpus_key}".encode("utf-8")).hexdigest()
+    digest = hashlib.sha256(f"{run_id}\0{corpus_key}".encode()).hexdigest()
     return f"memo-stack-comparison-corpus-{digest}"
 
 
