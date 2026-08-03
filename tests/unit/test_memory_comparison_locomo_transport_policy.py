@@ -116,10 +116,7 @@ def _evidence(
     timestamp: int = 1_683_554_160,
 ) -> LocomoTimestampTransportEvidence:
     return key.issue(
-        _request(
-            corpus_key=corpus_key,
-            timestamp=timestamp,
-        ),
+        _request(corpus_key=corpus_key, timestamp=timestamp),
         expected_turn=_expected(corpus_key=corpus_key, timestamp=timestamp),
     )
 
@@ -127,11 +124,7 @@ def _evidence(
 def test_exact_sealed_transport_evidence_authorizes_locomo_timestamp_contract() -> None:
     key = RunScopedLocomoTransportEvidenceKey.generate(run_id=_RUN_ID)
     evidence_a = _evidence(key)
-    evidence_b = _evidence(
-        key,
-        "corpus-b",
-        timestamp=1_683_554_160,
-    )
+    evidence_b = _evidence(key, "corpus-b", timestamp=1_683_554_160)
     contract = locomo_timestamp_transport_contract(
         benchmark="locomo",
         evaluations=(_evaluation(), _evaluation(), _evaluation("corpus-b")),
