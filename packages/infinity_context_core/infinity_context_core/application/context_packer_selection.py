@@ -48,6 +48,9 @@ from infinity_context_core.application.context_packer_source_policy import (
 from infinity_context_core.application.context_packer_source_policy import (
     source_group_cap as _source_group_cap,
 )
+from infinity_context_core.application.context_ranked_evidence_coverage_reservation import (
+    reserve_paired_evidence_head,
+)
 from infinity_context_core.application.dto import ContextBundle, ContextItem
 from infinity_context_core.application.normalize import estimate_tokens
 from infinity_context_core.features.context_building.application.coverage_reservation_selector import (  # noqa: E501
@@ -290,6 +293,50 @@ def _context_render_rank_key(item: ContextItem) -> tuple[object, ...]:
 
 def _rendered_char_count(items: tuple[ContextItem, ...]) -> int:
     return rendered_context_char_count(items, rank_key=_context_render_rank_key)
+
+
+@dataclass(frozen=True, slots=True)
+class PairedEvidencePackingDiagnostics:
+    requirement_kind: str
+    claims_considered: int
+    reservations_planned: int
+    reservations_selected: int
+
+
+def reserve_paired_evidence_items(
+    state: _SelectionState,
+    *,
+    items: list[ContextItem],
+    query: str,
+    budget: int,
+    char_budget: int,
+) -> PairedEvidencePackingDiagnostics:
+    """Adapt shared paired evidence into ordinary, budgeted packer selections."""
+
+    reservation = reserve_paired_evidence_head(
+        tuple(items),
+        query=query,
+        max_items=max(0, len(items) - len(state.selected_keys)),
+        max_tokens=max(0, budget - state.used_tokens),
+        max_chars=max(0, char_budget - _rendered_char_count(tuple(state.selected))),
+    )
+    selected_count = 0
+    for item in reservation.reserved_items:
+        selected_count += _try_select_item(
+            state,
+            item=item,
+            budget=budget,
+            char_budget=char_budget,
+            mark_answer_support_family=False,
+        )
+    return PairedEvidencePackingDiagnostics(
+        requirement_kind=(
+            reservation.requirement_kind.value if reservation.requirement_kind else ""
+        ),
+        claims_considered=reservation.claims_considered,
+        reservations_planned=reservation.reservation_count,
+        reservations_selected=selected_count,
+    )
 
 
 @dataclass(frozen=True, slots=True)

@@ -130,6 +130,7 @@ from infinity_context_core.application.context_packer_selection import (
     _try_select_item,
     replace_selected_item,
     reserve_coverage_items,
+    reserve_paired_evidence_items,
 )
 from infinity_context_core.application.context_packer_source_policy import (
     MAX_ITEMS_PER_SOURCE as _MAX_ITEMS_PER_SOURCE,
@@ -210,13 +211,24 @@ class ContextPacker:
             selected_source_capped_items_by_source={},
             selected_art_style_items_by_source_group={},
         )
+        paired_evidence_reservation = reserve_paired_evidence_items(
+            state,
+            items=selectable_items,
+            query=query,
+            budget=budget,
+            char_budget=char_budget,
+        )
+        paired_evidence_reserved_keys = frozenset(state.selected_keys)
         coverage_reservation = reserve_coverage_items(
             state,
             items=selectable_items,
             budget=budget,
             char_budget=char_budget,
         )
-        coverage_reserved_keys = frozenset(state.selected_keys)
+        coverage_reserved_keys = frozenset(state.selected_keys) - paired_evidence_reserved_keys
+        protected_reservation_keys = (
+            paired_evidence_reserved_keys | coverage_reserved_keys
+        )
         distinct_set_selection = select_distinct_set_member_items(
             items=selectable_items,
             query=query,
@@ -577,7 +589,7 @@ class ContextPacker:
         diversity_families = _diversity_candidates(selectable_items)
         for family in _ordered_diversity_families(diversity_families):
             item = diversity_families[family]
-            if _selection_key(item) in coverage_reserved_keys:
+            if _selection_key(item) in protected_reservation_keys:
                 diversity_items_used += 1
                 continue
             if _try_select_item(
@@ -684,7 +696,7 @@ class ContextPacker:
                         query=query,
                         rejected=item,
                         selected=tuple(state.selected),
-                        protected_keys=coverage_reserved_keys,
+                        protected_keys=protected_reservation_keys,
                     )
                     if reservation is not None:
                         inference_reservation_attempted = True
@@ -714,6 +726,18 @@ class ContextPacker:
                 diagnostics={
                     "items_considered": len(items),
                     "items_used": len(selected),
+                    "paired_evidence_requirement_kind": (
+                        paired_evidence_reservation.requirement_kind
+                    ),
+                    "paired_evidence_claims_considered": (
+                        paired_evidence_reservation.claims_considered
+                    ),
+                    "paired_evidence_reservations_planned": (
+                        paired_evidence_reservation.reservations_planned
+                    ),
+                    "paired_evidence_reservations_selected": (
+                        paired_evidence_reservation.reservations_selected
+                    ),
                     "coverage_obligations_considered": (
                         coverage_reservation.obligations_considered
                     ),

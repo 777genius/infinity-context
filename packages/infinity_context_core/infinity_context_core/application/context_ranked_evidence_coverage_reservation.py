@@ -91,6 +91,7 @@ class PairedEvidenceReservation:
     reservation_count: int = 0
     claims_considered: int = 0
     requirement_kind: PairedEvidenceKind | None = None
+    reserved_items: tuple[ContextItem, ...] = ()
 
 
 TemporalIntervalEvidenceReservation = PairedEvidenceReservation
@@ -154,14 +155,16 @@ def reserve_paired_evidence_head(
             requirement_kind=requirement.kind,
         )
     reserved_index_set = set(reserved_indexes)
+    reserved_items = tuple(items[index] for index in reserved_indexes)
     return PairedEvidenceReservation(
         items=(
-            *(items[index] for index in reserved_indexes),
+            *reserved_items,
             *(item for index, item in enumerate(items) if index not in reserved_index_set),
         ),
         reservation_count=len(reserved_indexes),
         claims_considered=selection.claims_considered,
         requirement_kind=requirement.kind,
+        reserved_items=reserved_items,
     )
 
 
