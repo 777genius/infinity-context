@@ -126,6 +126,8 @@ class EventSnapshot(StrictModel):
 
 
 class TimestampAttestation(StrictModel):
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
     status: Literal["not_run", "passed", "failed"] = "not_run"
     checked_at: str | None = None
     probe_mode: Literal["live_sentinel"] = "live_sentinel"

@@ -9,7 +9,8 @@ import os
 import secrets
 from collections.abc import Callable
 from contextlib import asynccontextmanager
-from typing import Annotated, Any
+from dataclasses import dataclass
+from typing import Annotated, Any, Literal
 
 from fastapi import Depends, FastAPI, Header, HTTPException, Query, Request, Security
 from fastapi.security import APIKeyHeader
@@ -28,6 +29,7 @@ from mem0_platform_adapter.models import (
     SafeIdentifier,
     SearchRequest,
     SearchResponse,
+    TimestampAttestation,
 )
 from mem0_platform_adapter.port import PlatformPort
 from mem0_platform_adapter.sdk_platform import platform_from_environment
@@ -45,6 +47,30 @@ _INGRESS_API_KEY_HEADER = APIKeyHeader(
     description="Dedicated authentication for benchmark data-plane operations.",
     auto_error=False,
 )
+
+
+@dataclass(frozen=True, slots=True)
+class _RefreshBinding:
+    status: Literal["not_run", "passed", "failed"]
+    run_id_sha256: str
+    probe_nonce_sha256: str
+    target_identity_sha256: str
+    refreshed_at: str | None
+
+    def as_dict(self) -> dict[str, str | None]:
+        return {
+            "status": self.status,
+            "run_id_sha256": self.run_id_sha256,
+            "probe_nonce_sha256": self.probe_nonce_sha256,
+            "target_identity_sha256": self.target_identity_sha256,
+            "refreshed_at": self.refreshed_at,
+        }
+
+
+@dataclass(frozen=True, slots=True)
+class _RefreshSnapshot:
+    attestation: TimestampAttestation
+    binding: _RefreshBinding
 
 
 def _configured_ingress_api_key() -> str | None:
@@ -86,7 +112,7 @@ def create_app(
     if token_factory is not None:
         service_kwargs["token_factory"] = token_factory
     service = Mem0CompatibilityService(selected_platform, **service_kwargs)
-    latest_refresh_binding: dict[str, str | None] | None = None
+    latest_refresh_snapshot: _RefreshSnapshot | None = None
 
     @asynccontextmanager
     async def lifespan(_app: FastAPI):
@@ -109,10 +135,12 @@ def create_app(
 
         return JSONResponse(status_code=exc.status_code, content={"detail": exc.code})
 
-    def runtime_manifest() -> dict[str, Any]:
+    def runtime_manifest(
+        snapshot: _RefreshSnapshot | None = None,
+    ) -> dict[str, Any]:
         return capabilities_manifest(
             configured=selected_platform.configured,
-            attestation=service.attestation,
+            attestation=snapshot.attestation if snapshot is not None else service.attestation,
             policy=service.policy,
             wrapper_revision=os.getenv("MEM0_ADAPTER_SOURCE_REVISION"),
         )
@@ -177,9 +205,10 @@ def create_app(
 
     @app.get("/benchmark/capabilities")
     def benchmark_capabilities() -> dict[str, Any]:
-        payload = runtime_manifest()
-        if latest_refresh_binding is not None:
-            payload["refresh_binding"] = dict(latest_refresh_binding)
+        snapshot = latest_refresh_snapshot
+        payload = runtime_manifest(snapshot)
+        if snapshot is not None:
+            payload["refresh_binding"] = snapshot.binding.as_dict()
         return payload
 
     @app.post(
@@ -214,7 +243,7 @@ def create_app(
             Header(alias="X-Benchmark-Probe-Token"),
         ] = None,
     ) -> dict[str, Any]:
-        nonlocal latest_refresh_binding
+        nonlocal latest_refresh_snapshot
         expected_token = os.getenv("MEM0_BENCHMARK_PROBE_TOKEN", "").strip()
         if not expected_token:
             raise HTTPException(status_code=503, detail="missing_benchmark_probe_token")
@@ -223,21 +252,26 @@ def create_app(
         if not selected_platform.configured:
             raise HTTPException(status_code=503, detail="missing_mem0_api_key")
         attestation = service.attest_timestamp()
-        latest_refresh_binding = {
-            "status": attestation.status,
-            "run_id_sha256": hashlib.sha256(request.run_id.encode()).hexdigest(),
-            "probe_nonce_sha256": hashlib.sha256(request.probe_nonce.encode()).hexdigest(),
-            "target_identity_sha256": request.target_identity_sha256,
-            "refreshed_at": attestation.checked_at,
-        }
-        payload = benchmark_capabilities()
+        snapshot = _RefreshSnapshot(
+            attestation=attestation,
+            binding=_RefreshBinding(
+                status=attestation.status,
+                run_id_sha256=hashlib.sha256(request.run_id.encode()).hexdigest(),
+                probe_nonce_sha256=hashlib.sha256(request.probe_nonce.encode()).hexdigest(),
+                target_identity_sha256=request.target_identity_sha256,
+                refreshed_at=attestation.checked_at,
+            ),
+        )
+        latest_refresh_snapshot = snapshot
+        payload = runtime_manifest(snapshot)
+        payload["refresh_binding"] = snapshot.binding.as_dict()
         manifest_fingerprint = _fingerprint(payload)
         payload["refresh_witness"] = {
             "algorithm": "hmac-sha256",
             "manifest_fingerprint_sha256": manifest_fingerprint,
             "signature": _refresh_witness_signature(
                 expected_token,
-                latest_refresh_binding,
+                snapshot.binding.as_dict(),
                 manifest_fingerprint,
             ),
         }
