@@ -279,6 +279,7 @@ class ContextBundleDiagnostics:
     ranked_evidence_unsafe_source_drop_count: int = 0
     ranked_evidence_source_dedupe_drop_count: int = 0
     ranked_evidence_temporal_interval_reservation_count: int = 0
+    ranked_evidence_paired_reservation_count: int = 0
 
 
 def bundle_diagnostics_from_payload(value: object) -> ContextBundleDiagnostics:
@@ -425,6 +426,9 @@ def bundle_diagnostics_from_payload(value: object) -> ContextBundleDiagnostics:
         ),
         ranked_evidence_temporal_interval_reservation_count=_non_negative_int(
             payload.get("ranked_evidence_temporal_interval_reservation_count")
+        ),
+        ranked_evidence_paired_reservation_count=_non_negative_int(
+            payload.get("ranked_evidence_paired_reservation_count")
         ),
         dropped_by_instruction_flag=_non_negative_int(payload.get("dropped_by_instruction_flag")),
         dropped_by_budget=_non_negative_int(payload.get("dropped_by_budget")),
