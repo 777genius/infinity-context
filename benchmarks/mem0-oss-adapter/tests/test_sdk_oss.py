@@ -204,6 +204,12 @@ def test_sdk_uses_wrapper_metadata_and_never_forwards_native_timestamp(tmp_path:
     assert memory.add_kwargs["metadata"]["created_at"] == "2023-01-01T00:00:00Z"
     assert port.last_sdk_timestamp is None
     assert port.usage_ledger.entries[-1].extraction_calls == 0
+    usage = port.usage_for_run(run_id="run-1")
+    assert usage.mode == "raw_passthrough"
+    assert usage.operation_count == 1
+    assert usage.extraction_calls == 0
+    assert usage.request_bytes == 0
+    assert usage.response_bytes == 0
 
 
 def test_sdk_ignores_ambient_openai_and_mem0_keys(tmp_path: Path, monkeypatch) -> None:

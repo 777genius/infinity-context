@@ -661,9 +661,7 @@ class ManagedComparisonHttpPolicyLifecycleAdapter:
             if set(payload) != {"deleted", "verified_absent"} or any(
                 payload.get(key) is not True for key in ("deleted", "verified_absent")
             ):
-                raise ManagedHttpPolicyLifecycleError(
-                    "managed_http_policy_mem0_delete_ack_invalid"
-                )
+                raise ManagedHttpPolicyLifecycleError("managed_http_policy_mem0_delete_ack_invalid")
             acknowledgements.append(
                 {
                     "corpus_id": corpus.bundle.corpus_id,
@@ -704,7 +702,11 @@ class ManagedComparisonHttpPolicyLifecycleAdapter:
         headers = (
             {"Authorization": f"Bearer {config.auth_token}"}
             if type(config) is ManagedInfinityHttpConfig
-            else ({"X-API-Key": config.api_key} if config.api_key else None)
+            else (
+                {"X-API-Key": config.api_key or config.ingress_api_key}
+                if config.api_key or config.ingress_api_key
+                else None
+            )
         )
         return httpx.Client(
             base_url=config.base_url.rstrip("/"),

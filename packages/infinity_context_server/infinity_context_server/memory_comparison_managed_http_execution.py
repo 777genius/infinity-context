@@ -96,6 +96,7 @@ class ManagedMem0HttpConfig:
     target_identity_sha256: str
     base_url: str
     api_key: str | None = field(default=None, repr=False)
+    ingress_api_key: str | None = field(default=None, repr=False)
     data_plane_auth_mode: str = MANAGED_MEM0_DATA_PLANE_AUTH_API_KEY
     timeout_seconds: float = 60.0
     send_timestamps: bool = False
@@ -108,15 +109,25 @@ class ManagedMem0HttpConfig:
             raise ManagedHttpExecutionError(
                 "managed HTTP Mem0 data-plane auth mode is invalid"
             ) from None
-        if auth_mode == MANAGED_MEM0_DATA_PLANE_AUTH_NONE and self.api_key is not None:
+        if auth_mode == MANAGED_MEM0_DATA_PLANE_AUTH_NONE:
+            if self.api_key is not None:
+                raise ManagedHttpExecutionError(
+                    "managed HTTP keyless Mem0 config must not carry a provider API key"
+                )
+        elif self.ingress_api_key is not None:
             raise ManagedHttpExecutionError(
-                "managed HTTP keyless Mem0 config must not carry an API key"
+                "managed HTTP Platform Mem0 config must not carry an OSS ingress key"
             )
+        effective_credential = (
+            self.api_key
+            if auth_mode == MANAGED_MEM0_DATA_PLANE_AUTH_API_KEY
+            else self.ingress_api_key
+        )
         _validate_config(
             backend_role="mem0",
             target_identity_sha256=self.target_identity_sha256,
             base_url=self.base_url,
-            credential=self.api_key,
+            credential=effective_credential,
             timeout_seconds=self.timeout_seconds,
             transport=self.transport,
             credential_optional=auth_mode == MANAGED_MEM0_DATA_PLANE_AUTH_NONE,
@@ -188,10 +199,7 @@ class ManagedComparisonHttpExecutionAdapter:
             memory_comparison_managed_runtime_credentials_capability as credential_capability,
         )
 
-        if (
-            type(credential_material)
-            is not credential_capability.ManagedBackendCredentialMaterial
-        ):
+        if type(credential_material) is not credential_capability.ManagedBackendCredentialMaterial:
             raise ManagedHttpExecutionError(
                 "managed HTTP credential material must use the exact sealed type"
             )
@@ -202,9 +210,7 @@ class ManagedComparisonHttpExecutionAdapter:
                 deadline=trusted_deadline,
             )
         except (TypeError, ValueError):
-            raise ManagedHttpExecutionError(
-                "managed HTTP credential continuity failed"
-            ) from None
+            raise ManagedHttpExecutionError("managed HTTP credential continuity failed") from None
         if (
             type(infinity) is not ManagedInfinityHttpConfig
             or type(mem0) is not ManagedMem0HttpConfig
@@ -255,7 +261,11 @@ class ManagedComparisonHttpExecutionAdapter:
             ),
             "mem0": Mem0HttpComparisonBackend(
                 base_url=mem0.base_url,
-                api_key=mem0.api_key,
+                api_key=(
+                    mem0.api_key
+                    if mem0.data_plane_auth_mode == MANAGED_MEM0_DATA_PLANE_AUTH_API_KEY
+                    else mem0.ingress_api_key
+                ),
                 timeout_seconds=mem0.timeout_seconds,
                 reset_user_on_start=False,
                 send_timestamps=mem0.send_timestamps,

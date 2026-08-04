@@ -1,4 +1,4 @@
-"""Sanitized v3 capability manifest for the pinned OSS runtime."""
+"""Sanitized v4 capability manifest for the pinned OSS runtime."""
 
 from __future__ import annotations
 
@@ -20,6 +20,7 @@ _CAPABILITIES = (
     "offline_fastembed",
     "raw_passthrough",
     "same_run_refresh_witness",
+    "signed_run_scoped_usage_evidence",
     "source_identity_roundtrip",
     "subscription_llm_extraction",
 )
@@ -42,7 +43,7 @@ def capabilities_manifest(
     timestamp_attestation: TimestampAttestation,
     source_identity_attested: bool,
 ) -> dict[str, Any]:
-    """Construct the exact public v3 schema without endpoint or secret material."""
+    """Construct the exact public v4 schema without endpoint or secret material."""
 
     runtime_lock = load_runtime_lock(_RUNTIME_LOCK_PATH, pin=RUNTIME_PIN)
     extraction_enabled = extraction_mode == "subscription_llm"
@@ -70,7 +71,7 @@ def capabilities_manifest(
         "timestamp": {"mode": "wrapper_metadata_created_at", "sdk_native_timestamp": False},
     }
     payload: dict[str, Any] = {
-        "schema_version": "mem0-benchmark-capabilities.v3",
+        "schema_version": "mem0-benchmark-capabilities.v4",
         "runtime_mode": "oss",
         "configured": configured,
         "wrapper_source_revision": RUNTIME_PIN.wrapper_source_revision,
@@ -117,6 +118,13 @@ def capabilities_manifest(
             "response_max_bytes": 65_536,
             "subscription_scope": "isolated_single_add",
             "usage_ledger": {"required": True, "fields": list(_USAGE_LEDGER_FIELDS)},
+            "usage_evidence": {
+                "schema_version": "mem0-benchmark-usage-attestation.v1",
+                "run_scoped": True,
+                "hmac_sha256": True,
+                "ingress_auth_required": True,
+                "probe_token_required": True,
+            },
         },
         "timestamp": {
             "mode": "wrapper_metadata_created_at",
@@ -161,7 +169,7 @@ def capabilities_manifest(
 
 
 def seal_manifest(payload: Mapping[str, Any]) -> dict[str, Any]:
-    """Copy and seal a server-created manifest according to the frozen v3 formula."""
+    """Copy and seal a server-created manifest according to the additive v4 formula."""
 
     sealed = copy.deepcopy(dict(payload))
     integrity = sealed.get("integrity")
@@ -196,7 +204,7 @@ def manifest_is_ready(payload: Mapping[str, Any]) -> bool:
     attestation = timestamp.get("attestation")
     return bool(
         payload.get("configured") is True
-        and payload.get("schema_version") == "mem0-benchmark-capabilities.v3"
+        and payload.get("schema_version") == "mem0-benchmark-capabilities.v4"
         and payload.get("runtime_mode") == "oss"
         and payload.get("wrapper_source_revision") == RUNTIME_PIN.wrapper_source_revision
         and payload.get("wrapper_source_sha256") == RUNTIME_PIN.wrapper_source_sha256

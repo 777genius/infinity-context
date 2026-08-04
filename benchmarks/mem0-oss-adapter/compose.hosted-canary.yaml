@@ -1,0 +1,42 @@
+services:
+  adapter:
+    platform: linux/amd64
+    build:
+      context: .
+    network_mode: host
+    depends_on:
+      qdrant:
+        condition: service_started
+    environment:
+      MEM0_ADAPTER_INGRESS_API_KEY: ${MEM0_ADAPTER_INGRESS_API_KEY:?set a dedicated ingress key}
+      MEM0_BENCHMARK_PROBE_TOKEN: ${MEM0_BENCHMARK_PROBE_TOKEN:?set a dedicated benchmark probe token}
+      MEM0_OSS_COLLECTION: ${MEM0_OSS_COLLECTION:-mem0_oss_hosted_canary}
+      MEM0_OSS_EXTRACTION_MODE: ${MEM0_OSS_EXTRACTION_MODE:-raw_passthrough}
+      MEM0_OSS_QDRANT_HOST: 127.0.0.1
+      MEM0_OSS_QDRANT_PORT: 6333
+      MEM0_OSS_STATE_DIR: /var/lib/mem0-oss
+      MEM0_OSS_SUBSCRIPTION_BEARER_TOKEN: ${MEM0_OSS_SUBSCRIPTION_BEARER_TOKEN:-}
+      MEM0_OSS_SUBSCRIPTION_BRIDGE_URL: ${MEM0_OSS_SUBSCRIPTION_BRIDGE_URL:-http://127.0.0.1:19090/v1}
+    command:
+      - /opt/mem0-oss-venv/bin/uvicorn
+      - mem0_oss_adapter.app:app
+      - --host
+      - 127.0.0.1
+      - --port
+      - "8080"
+    read_only: true
+    tmpfs:
+      - /tmp:size=64m,mode=1777
+      - /var/lib/mem0-oss:size=256m,mode=0700,uid=65532,gid=65532
+
+  qdrant:
+    platform: linux/amd64
+    image: qdrant/qdrant:v1.18.3@sha256:ecc81d662bb9bb734db879b94461eb44be38604fc259491d478ad7e673238a0d
+    network_mode: host
+    environment:
+      QDRANT__SERVICE__HOST: 127.0.0.1
+      QDRANT__SERVICE__HTTP_PORT: 6333
+    read_only: true
+    tmpfs:
+      - /qdrant/storage:size=512m,mode=0700
+      - /tmp:size=64m,mode=1777

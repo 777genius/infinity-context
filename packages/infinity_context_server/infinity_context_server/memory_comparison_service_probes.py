@@ -6,6 +6,7 @@ import asyncio
 import json
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, field
+from datetime import UTC, datetime
 from math import isfinite
 
 from infinity_context_server.memory_comparison_mem0_contract import (
@@ -14,6 +15,12 @@ from infinity_context_server.memory_comparison_mem0_contract import (
     evaluate_mem0_runtime_capabilities,
     mem0_openapi_request_properties,
     public_mem0_runtime_manifest,
+)
+from infinity_context_server.memory_comparison_mem0_oss_usage_attestation import (
+    MEM0_OSS_USAGE_ATTESTATION_PATH,
+    Mem0OssUsageAttestationRequest,
+    VerifiedMem0OssUsageAttestation,
+    verify_mem0_oss_usage_attestation,
 )
 from infinity_context_server.memory_comparison_mem0_runtime_attestation import (
     build_verified_mem0_runtime_attestation,
@@ -153,6 +160,7 @@ def probe_mem0_api(
     allowed_target_hosts: Sequence[str] = (),
     vetted_transport: VettedProbeTransport | None = None,
     target_resolver: Callable[[str], Sequence[str]] | None = None,
+    ingress_api_key: str | None = None,
 ) -> ServiceProbeOutcome:
     path = "/openapi.json"
     timeout = _valid_timeout(timeout_seconds)
@@ -179,6 +187,13 @@ def probe_mem0_api(
             "mem0_runtime_attestation_binding_missing",
             {"path": path},
         )
+    if ingress_api_key is not None and not _nonempty_text(ingress_api_key):
+        return ServiceProbeOutcome(
+            False,
+            "managed mem0 ingress credential is invalid",
+            "mem0_api_ingress_credential_invalid",
+            {"path": path},
+        )
     try:
         return asyncio.run(
             _probe_mem0_api(
@@ -192,6 +207,7 @@ def probe_mem0_api(
                 benchmark_probe_token=benchmark_probe_token,
                 run_id=run_id,
                 probe_nonce=probe_nonce,
+                ingress_api_key=ingress_api_key,
             )
         )
     except Exception as exc:
@@ -201,6 +217,129 @@ def probe_mem0_api(
             "mem0_api_openapi_probe_failed",
             {"path": path, "error_type": _safe_error_type(exc)},
         )
+
+
+def probe_mem0_oss_usage_attestation(
+    base_url: str,
+    *,
+    benchmark_probe_token: str,
+    ingress_api_key: str,
+    run_id: str,
+    probe_nonce: str,
+    timeout_seconds: float,
+    allowed_target_hosts: Sequence[str] = (),
+    vetted_transport: VettedProbeTransport | None = None,
+    validated_at: datetime | None = None,
+) -> ServiceProbeOutcome:
+    """Fetch and verify one signed usage witness with two distinct credentials."""
+
+    timeout = _valid_timeout(timeout_seconds)
+    target = vet_probe_target(
+        base_url,
+        allowed_hosts=allowed_target_hosts,
+        vetted_transport=vetted_transport,
+    )
+    if timeout is None:
+        return _invalid_timeout(
+            "mem0_oss_usage_attestation_timeout_invalid",
+            MEM0_OSS_USAGE_ATTESTATION_PATH,
+        )
+    if target is None:
+        return ServiceProbeOutcome(
+            False,
+            "mem0 usage attestation target did not satisfy the explicit network policy",
+            "mem0_oss_usage_attestation_target_unsafe",
+            {"path": MEM0_OSS_USAGE_ATTESTATION_PATH},
+        )
+    if not _nonempty_text(benchmark_probe_token) or not _nonempty_text(ingress_api_key):
+        return ServiceProbeOutcome(
+            False,
+            "mem0 usage attestation credentials are missing",
+            "mem0_oss_usage_attestation_credentials_missing",
+            {"path": MEM0_OSS_USAGE_ATTESTATION_PATH},
+        )
+    try:
+        request = Mem0OssUsageAttestationRequest(
+            run_id=run_id,
+            probe_nonce=probe_nonce,
+            target_identity_sha256=target.identity_sha256,
+        )
+        return asyncio.run(
+            _probe_mem0_oss_usage_attestation(
+                target.transport,
+                base_url=target.base_url,
+                timeout_seconds=timeout,
+                benchmark_probe_token=benchmark_probe_token,
+                ingress_api_key=ingress_api_key,
+                request=request,
+                validated_at=validated_at or datetime.now(UTC),
+            )
+        )
+    except Exception as exc:
+        return ServiceProbeOutcome(
+            False,
+            "mem0 usage attestation failed strict verification",
+            "mem0_oss_usage_attestation_invalid",
+            {
+                "path": MEM0_OSS_USAGE_ATTESTATION_PATH,
+                "error_type": _safe_error_type(exc),
+            },
+        )
+
+
+async def _probe_mem0_oss_usage_attestation(
+    transport: VettedProbeTransport,
+    *,
+    base_url: str,
+    timeout_seconds: float,
+    benchmark_probe_token: str,
+    ingress_api_key: str,
+    request: Mem0OssUsageAttestationRequest,
+    validated_at: datetime,
+) -> ServiceProbeOutcome:
+    async with asyncio.timeout(timeout_seconds):
+        async with transport.open_client(
+            base_url=base_url,
+            timeout_seconds=timeout_seconds,
+        ) as client:
+            response = await _bounded_request(
+                client,
+                method="POST",
+                path=MEM0_OSS_USAGE_ATTESTATION_PATH,
+                parse_json=True,
+                headers={
+                    "X-Benchmark-Probe-Token": benchmark_probe_token,
+                    "X-API-Key": ingress_api_key,
+                },
+                json_body=request.payload(),
+            )
+    if response.status_code >= 400:
+        return ServiceProbeOutcome(
+            False,
+            "mem0 usage attestation endpoint returned an error",
+            "mem0_oss_usage_attestation_unreachable",
+            {
+                "path": MEM0_OSS_USAGE_ATTESTATION_PATH,
+                "status_code": response.status_code,
+            },
+        )
+    verified = verify_mem0_oss_usage_attestation(
+        response.payload,
+        benchmark_probe_token=benchmark_probe_token,
+        request=request,
+        validated_at=validated_at,
+    )
+    if type(verified) is not VerifiedMem0OssUsageAttestation:
+        raise ValueError("usage verifier returned an invalid capability")
+    return ServiceProbeOutcome(
+        True,
+        details={
+            "path": MEM0_OSS_USAGE_ATTESTATION_PATH,
+            "status_code": response.status_code,
+            "usage_attestation": verified.public_payload(),
+            "verified_usage_attestation": verified,
+        },
+    )
 
 
 async def _probe_mem0_api(
@@ -215,6 +354,7 @@ async def _probe_mem0_api(
     benchmark_probe_token: str | None,
     run_id: str | None,
     probe_nonce: str | None,
+    ingress_api_key: str | None,
 ) -> ServiceProbeOutcome:
     path = "/openapi.json"
     required_paths = frozenset({"/memories", "/search"})
@@ -223,7 +363,16 @@ async def _probe_mem0_api(
             base_url=base_url,
             timeout_seconds=timeout_seconds,
         ) as client:
-            response = await _bounded_request(client, method="GET", path=path, parse_json=True)
+            ingress_headers = (
+                {"X-API-Key": ingress_api_key} if ingress_api_key is not None else None
+            )
+            response = await _bounded_request(
+                client,
+                method="GET",
+                path=path,
+                parse_json=True,
+                headers=ingress_headers,
+            )
             payload = _require_mapping(response.payload, "openapi")
             pre_refresh_contract = evaluate_mem0_openapi_contract(
                 payload, require_timestamp=require_timestamp
@@ -245,7 +394,10 @@ async def _probe_mem0_api(
                     method="POST",
                     path=MEM0_BENCHMARK_ATTESTATION_REFRESH_PATH,
                     parse_json=True,
-                    headers={"X-Benchmark-Probe-Token": str(benchmark_probe_token)},
+                    headers={
+                        "X-Benchmark-Probe-Token": str(benchmark_probe_token),
+                        **({"X-API-Key": ingress_api_key} if ingress_api_key is not None else {}),
+                    },
                     json_body={
                         "run_id": str(run_id),
                         "probe_nonce": str(probe_nonce),
@@ -259,6 +411,7 @@ async def _probe_mem0_api(
                     method="GET",
                     path=MEM0_BENCHMARK_CAPABILITIES_PATH,
                     parse_json=True,
+                    headers=ingress_headers,
                 )
 
             capabilities: Mapping[str, object] = {}
@@ -543,5 +696,6 @@ def _nonempty_text(value: object) -> bool:
 __all__ = (
     "ServiceProbeOutcome",
     "probe_mem0_api",
+    "probe_mem0_oss_usage_attestation",
     "probe_memo_api",
 )

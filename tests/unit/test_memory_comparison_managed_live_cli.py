@@ -129,11 +129,74 @@ def test_runtime_request_timeout_is_bounded_by_attestation_adapter(tmp_path: Pat
         _config(tmp_path, request_timeout_seconds=120.001)
 
 
+def test_oss_ingress_env_requires_explicit_keyless_config_and_never_falls_back(
+    tmp_path: Path,
+) -> None:
+    ambient = {"MEM0_OSS_INGRESS_API_KEY": "private-ingress-key"}
+    legacy_keyless = _config(tmp_path, mem0_oss_ingress_protected=False)
+    with pytest.raises(
+        subject.ManagedLiveCliError,
+        match="mem0_oss_ingress_configuration_invalid",
+    ):
+        subject._mem0_oss_ingress_authority(legacy_keyless, ambient)
+
+    platform = _config(
+        tmp_path,
+        mem0_local_auth_disabled_managed=False,
+        mem0_oss_ingress_protected=True,
+    )
+    with pytest.raises(
+        subject.ManagedLiveCliError,
+        match="mem0_oss_ingress_configuration_invalid",
+    ):
+        subject._mem0_oss_ingress_authority(platform, ambient)
+
+    protected = _config(tmp_path, mem0_oss_ingress_protected=True)
+    with pytest.raises(subject.ManagedLiveCliError, match="credential_missing"):
+        subject._mem0_oss_ingress_authority(protected, {"MEM0_API_KEY": "ambient-platform"})
+
+    authority = subject._mem0_oss_ingress_authority(
+        protected,
+        {
+            "MEM0_OSS_INGRESS_API_KEY": "private-ingress-key",
+            "MEM0_API_KEY": "must-not-be-used-as-ingress",
+        },
+    )
+    assert authority is not None
+    assert "private-ingress-key" not in repr(authority)
+    assert subject._mem0_data_plane_auth(
+        protected,
+        {"MEM0_API_KEY": "must-not-be-used-as-provider-auth"},
+    ) == ("none", None)
+
+
+def test_oss_ingress_protected_target_must_be_vetted_local_or_private(tmp_path: Path) -> None:
+    remote = _config(
+        tmp_path,
+        mem0_api_url="https://93.184.216.34:8888",
+        allowed_mem0_hosts=("93.184.216.34",),
+        mem0_oss_ingress_protected=True,
+    )
+
+    with pytest.raises(
+        subject.ManagedLiveCliError,
+        match="mem0_oss_ingress_configuration_invalid",
+    ):
+        subject._mem0_oss_ingress_authority(
+            remote,
+            {"MEM0_OSS_INGRESS_API_KEY": "private-ingress-key"},
+        )
+
+
 def test_public_composition_wires_every_sealed_stage_without_real_io(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    config = _config(tmp_path, run_timeout_seconds=180)
+    config = _config(
+        tmp_path,
+        run_timeout_seconds=180,
+        mem0_oss_ingress_protected=True,
+    )
     captured: dict[str, object] = {}
     profile = SimpleNamespace(
         profile_id=config.profile_id,
@@ -245,7 +308,11 @@ def test_public_composition_wires_every_sealed_stage_without_real_io(
 
     report = subject.run_managed_live_cli(
         config,
-        env={**_ENV, "MEM0_API_KEY": "ambient-private-key"},
+        env={
+            **_ENV,
+            "MEM0_API_KEY": "ambient-private-key",
+            "MEM0_OSS_INGRESS_API_KEY": "private-ingress-key",
+        },
     )
 
     assert report == {
@@ -263,6 +330,9 @@ def test_public_composition_wires_every_sealed_stage_without_real_io(
     assert "OPENAI_API_KEY" not in captured["authority"]
     assert captured["authority"]["mem0_api_key"] is None
     assert captured["authority"]["mem0_data_plane_auth_mode"] == "none"
+    ingress = captured["authority"]["mem0_oss_ingress_authority"]
+    assert ingress is captured["runtime"]["mem0_oss_ingress_authority"]
+    assert "private-ingress-key" not in repr(ingress)
     assert captured["request_fields"]["mem0_data_plane_auth_mode"] == "none"
     assert captured["readiness_run"]["model"] == subject.MANAGED_LIVE_CLI_MODEL
     assert captured["admission"]["budget"].max_provider_calls == 8

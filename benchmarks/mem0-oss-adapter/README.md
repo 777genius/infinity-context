@@ -1,6 +1,6 @@
 # Mem0 OSS benchmark adapter
 
-This is an isolated, auth-free Mem0 OSS compatibility adapter for benchmark use.
+This is an isolated, ingress-protected Mem0 OSS compatibility adapter for benchmark use.
 It uses canonical Qdrant storage, a pinned offline FastEmbed artifact, and an
 explicit metadata timestamp because Mem0 OSS does not persist the SDK timestamp
 argument. It does not modify the repository's platform adapter.
@@ -30,6 +30,18 @@ usage. Subscription extraction is an `isolated_single_add` smoke path: its
 the model call. Ambient OpenAI and Mem0 provider variables are cleared before
 SDK setup.
 
+The additive v4 contract exposes signed usage evidence only for one exact,
+isolated add. `POST /benchmark/attest-usage` requires both the dedicated ingress
+key and probe token. It returns hashes plus a sanitized aggregate containing only
+the extraction mode, operation/call counts, bounded byte counts, fixed model and
+operation timestamps. Raw run identifiers, prompts, content, token counts,
+bridge URLs and credentials are never returned.
+The response-time `attested_at` value is bound into both the canonical usage
+fingerprint and HMAC witness. Operation timestamps remain historical evidence;
+only `attested_at` is suitable for freshness validation. Raw runs may aggregate
+up to 10,000 adds while proving zero extraction; subscription evidence remains
+one isolated add and one extraction call.
+
 The runtime cache is staged during image build, verifies the actual FastEmbed
 artifact, and forces Hugging Face and Transformers offline at runtime. Telemetry
 is disabled.
@@ -47,6 +59,13 @@ Set dedicated values for `MEM0_ADAPTER_INGRESS_API_KEY` and
 needed. `/benchmark/capabilities` is intentionally static and unbound. Only
 `POST /benchmark/attest-timestamp` runs the isolated write/read/delete witness
 and returns its paired HMAC refresh binding and witness.
+
+For an approved disposable Linux/amd64 hosted canary, use
+`compose.hosted-canary.yaml`. It uses host networking so an optional subscription
+bridge remains loopback-only, binds the adapter to `127.0.0.1:8080`, binds Qdrant
+to `127.0.0.1:6333`, and keeps adapter/Qdrant state in temporary memory-backed
+filesystems. The compose file is a deployment contract only; it is not exercised
+by unit tests.
 
 No Docker build, Qdrant canary, or subscription bridge request was run while this
 adapter was prepared. The hosted checks are static and mocked only.

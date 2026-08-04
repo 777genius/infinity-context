@@ -508,7 +508,11 @@ class ManagedComparisonHttpLifecycleAdapter:
         headers = (
             {"Authorization": f"Bearer {config.auth_token}"}
             if type(config) is ManagedInfinityHttpConfig
-            else ({"X-API-Key": config.api_key} if config.api_key else None)
+            else (
+                {"X-API-Key": config.api_key or config.ingress_api_key}
+                if config.api_key or config.ingress_api_key
+                else None
+            )
         )
         inner = reset_transport or httpx.HTTPTransport(retries=0, trust_env=False)
         return httpx.Client(

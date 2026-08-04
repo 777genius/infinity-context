@@ -61,6 +61,12 @@ from infinity_context_server.memory_comparison_managed_run import public_managed
 from infinity_context_server.memory_comparison_managed_runtime_credentials import (
     issue_managed_runtime_credential_authority,
 )
+from infinity_context_server.memory_comparison_mem0_oss_ingress import (
+    MEM0_OSS_INGRESS_API_KEY_ENV,
+    Mem0OssIngressCredentialAuthority,
+    Mem0OssIngressCredentialError,
+    issue_mem0_oss_ingress_credential_authority,
+)
 from infinity_context_server.public_benchmark_artifacts import (
     validate_artifact_paths_do_not_overwrite_dataset,
     write_json_atomic,
@@ -91,6 +97,7 @@ _SAFE_CODES = frozenset(
         "dataset_too_large",
         "dataset_unreadable",
         "local_mem0_target_required",
+        "mem0_oss_ingress_configuration_invalid",
         "pre_readiness_no_go",
         "profile_invalid",
     }
@@ -123,6 +130,7 @@ class ManagedLiveCliConfig:
     allow_paid_llm: bool
     operator_notified: bool
     mem0_local_auth_disabled_managed: bool = False
+    mem0_oss_ingress_protected: bool = False
     allowed_mem0_hosts: tuple[str, ...] = ()
     report_out: Path | None = None
     connect_timeout_seconds: float = 10.0
@@ -136,6 +144,7 @@ class ManagedLiveCliConfig:
             self.allow_paid_llm,
             self.operator_notified,
             self.mem0_local_auth_disabled_managed,
+            self.mem0_oss_ingress_protected,
         )
         if (
             not isinstance(self.dataset_path, Path)
@@ -247,6 +256,7 @@ def _run_managed_live(
     mem0_probe_token = _required_secret(env, _ENV_MEM0_PROBE_TOKEN)
     subscription_token = _required_secret(env, _ENV_SUBSCRIPTION_TOKEN)
     mem0_data_plane_auth_mode, mem0_api_key = _mem0_data_plane_auth(config, env)
+    mem0_oss_ingress_authority = _mem0_oss_ingress_authority(config, env)
     try:
         expected_mem0_runtime_mode = expected_managed_mem0_runtime_mode(
             data_plane_auth_mode=mem0_data_plane_auth_mode,
@@ -270,6 +280,7 @@ def _run_managed_live(
         issued_at=issued_at,
         deadline=deadline,
         mem0_data_plane_auth_mode=mem0_data_plane_auth_mode,
+        mem0_oss_ingress_authority=mem0_oss_ingress_authority,
     )
     material = authority.preflight_material()
     request = ManagedPreflightRequest(
@@ -315,6 +326,7 @@ def _run_managed_live(
         expected_implementation_sha256=config.mem0_runtime_implementation_sha256,
         allowed_target_hosts=config.allowed_mem0_hosts,
         expected_runtime_mode=expected_mem0_runtime_mode,
+        mem0_oss_ingress_authority=mem0_oss_ingress_authority,
     )
     admission = issue_verified_managed_live_admission(
         request=request,
@@ -402,7 +414,7 @@ def _mem0_data_plane_auth(
     env: Mapping[str, str],
 ) -> tuple[str, str | None]:
     if config.mem0_local_auth_disabled_managed:
-        if not _is_authorized_loopback_mem0_target(
+        if not config.mem0_oss_ingress_protected and not _is_authorized_loopback_mem0_target(
             config.mem0_api_url,
             allowed_hosts=config.allowed_mem0_hosts,
         ):
@@ -412,6 +424,33 @@ def _mem0_data_plane_auth(
     if isinstance(value, str) and value.strip():
         return MANAGED_MEM0_DATA_PLANE_AUTH_API_KEY, value.strip()
     raise ManagedLiveCliError("credential_missing")
+
+
+def _mem0_oss_ingress_authority(
+    config: ManagedLiveCliConfig,
+    env: Mapping[str, str],
+) -> Mem0OssIngressCredentialAuthority | None:
+    value = env.get(MEM0_OSS_INGRESS_API_KEY_ENV)
+    configured = isinstance(value, str) and bool(value.strip())
+    if not config.mem0_local_auth_disabled_managed:
+        if config.mem0_oss_ingress_protected or configured:
+            raise ManagedLiveCliError("mem0_oss_ingress_configuration_invalid")
+        return None
+    if not config.mem0_oss_ingress_protected:
+        if configured:
+            raise ManagedLiveCliError("mem0_oss_ingress_configuration_invalid")
+        return None
+    if not configured:
+        raise ManagedLiveCliError("credential_missing")
+    try:
+        return issue_mem0_oss_ingress_credential_authority(
+            run_id=config.run_id,
+            base_url=config.mem0_api_url,
+            ingress_api_key=value.strip(),
+            allowed_target_hosts=config.allowed_mem0_hosts,
+        )
+    except Mem0OssIngressCredentialError:
+        raise ManagedLiveCliError("mem0_oss_ingress_configuration_invalid") from None
 
 
 def _mem0_api_key(config: ManagedLiveCliConfig, env: Mapping[str, str]) -> str | None:
@@ -480,6 +519,7 @@ def _parser() -> argparse.ArgumentParser:
     parser.add_argument("--allow-paid-llm", action="store_true")
     parser.add_argument("--operator-notified", action="store_true")
     parser.add_argument("--mem0-local-auth-disabled-managed", action="store_true")
+    parser.add_argument("--mem0-oss-ingress-protected", action="store_true")
     parser.add_argument("--allow-mem0-host", action="append", default=[])
     parser.add_argument("--report-out", type=Path, default=None)
     parser.add_argument("--connect-timeout-seconds", type=float, default=10.0)
@@ -505,6 +545,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             allow_paid_llm=args.allow_paid_llm,
             operator_notified=args.operator_notified,
             mem0_local_auth_disabled_managed=args.mem0_local_auth_disabled_managed,
+            mem0_oss_ingress_protected=args.mem0_oss_ingress_protected,
             allowed_mem0_hosts=tuple(args.allow_mem0_host),
             report_out=args.report_out,
             connect_timeout_seconds=args.connect_timeout_seconds,

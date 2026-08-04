@@ -28,6 +28,11 @@ from infinity_context_server.memory_comparison_managed_mem0_runtime_authority im
     ManagedMem0RuntimeAuthorityDescriptor,
     _register_pending_managed_mem0_runtime_authority,
 )
+from infinity_context_server.memory_comparison_mem0_oss_ingress import (
+    Mem0OssIngressCredentialAuthority,
+    _consume_mem0_oss_ingress_probe,
+    inspect_mem0_oss_ingress_authority,
+)
 from infinity_context_server.memory_comparison_mem0_runtime_attestation import (
     MEM0_MANAGED_PLATFORM_RUNTIME_MODE,
     VerifiedMem0RuntimeAttestation,
@@ -99,6 +104,7 @@ class ManagedMem0RuntimeAttestationPort:
         "__implementation_sha256",
         "__lock",
         "__minimum_network_timeout_seconds",
+        "__mem0_oss_ingress_authority",
         "__monotonic_clock",
         "__expected_runtime_mode",
         "__probe_nonce",
@@ -122,6 +128,7 @@ class ManagedMem0RuntimeAttestationPort:
         allowed_target_hosts: Sequence[str] = (),
         vetted_transport: VettedProbeTransport | None = None,
         expected_runtime_mode: str = MEM0_MANAGED_PLATFORM_RUNTIME_MODE,
+        mem0_oss_ingress_authority: Mem0OssIngressCredentialAuthority | None = None,
     ) -> None:
         implementation_sha256 = _trusted_implementation_sha256(expected_implementation_sha256)
         try:
@@ -170,6 +177,22 @@ class ManagedMem0RuntimeAttestationPort:
             _wipe(token_bytes)
             _wipe(nonce_bytes)
             raise ManagedMem0RuntimeHttpError("managed_mem0_runtime_target_unsafe")
+        if mem0_oss_ingress_authority is not None:
+            try:
+                ingress_descriptor = inspect_mem0_oss_ingress_authority(mem0_oss_ingress_authority)
+            except Exception:
+                _wipe(token_bytes)
+                _wipe(nonce_bytes)
+                raise ManagedMem0RuntimeHttpError(
+                    "managed_mem0_runtime_configuration_invalid"
+                ) from None
+            if trusted_expected_runtime_mode != "oss" or not hmac.compare_digest(
+                ingress_descriptor.target_identity_sha256,
+                target.identity_sha256,
+            ):
+                _wipe(token_bytes)
+                _wipe(nonce_bytes)
+                raise ManagedMem0RuntimeHttpError("managed_mem0_runtime_configuration_invalid")
         self.__base_url = target.base_url
         self.__implementation_sha256 = implementation_sha256
         self.__target_identity_sha256 = target.identity_sha256
@@ -181,6 +204,7 @@ class ManagedMem0RuntimeAttestationPort:
         self.__deadline_monotonic = deadline
         self.__minimum_network_timeout_seconds = _MIN_NETWORK_TIMEOUT_SECONDS
         self.__expected_runtime_mode = trusted_expected_runtime_mode
+        self.__mem0_oss_ingress_authority = mem0_oss_ingress_authority
         self.__probe_token = token_bytes
         self.__probe_nonce = nonce_bytes
         self.__lock = threading.Lock()
@@ -245,6 +269,7 @@ class ManagedMem0RuntimeAttestationPort:
         """Refresh and validate one exact same-run managed Mem0 capability."""
 
         token, nonce = self.__claim_private_bindings()
+        ingress_api_key: str | None = None
         try:
             if type(run_id) is not str or not _RUN_ID_RE.fullmatch(run_id):
                 raise ManagedMem0RuntimeHttpError("managed_mem0_runtime_binding_invalid")
@@ -264,6 +289,12 @@ class ManagedMem0RuntimeAttestationPort:
             ):
                 raise ManagedMem0RuntimeHttpError("managed_mem0_runtime_binding_invalid")
             timeout_seconds = self.__remaining_timeout_seconds()
+            if self.__mem0_oss_ingress_authority is not None:
+                ingress_api_key = _consume_mem0_oss_ingress_probe(
+                    self.__mem0_oss_ingress_authority,
+                    run_id=run_id,
+                    target_identity_sha256=self.__target_identity_sha256,
+                )
             outcome = probe_mem0_api(
                 self.__base_url,
                 require_timestamp=True,
@@ -275,6 +306,7 @@ class ManagedMem0RuntimeAttestationPort:
                 probe_nonce=nonce,
                 allowed_target_hosts=self.__allowed_target_hosts,
                 vetted_transport=self.__transport,
+                ingress_api_key=ingress_api_key,
             )
             if outcome.passed is not True:
                 raise ManagedMem0RuntimeHttpError("managed_mem0_runtime_probe_failed")
@@ -310,6 +342,7 @@ class ManagedMem0RuntimeAttestationPort:
         finally:
             token = ""
             nonce = ""
+            ingress_api_key = None
 
     def __claim_private_bindings(self) -> tuple[str, str]:
         with self.__lock:

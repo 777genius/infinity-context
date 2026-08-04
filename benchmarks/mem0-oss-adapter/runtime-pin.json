@@ -22,7 +22,7 @@
   "embedding_onnx_filename": "model_optimized.onnx",
   "embedding_onnx_sha256": "51f1bd0addd6e859e42c2c8021a5e5461385bb676a649f4b269aa445449f2431",
   "wrapper_source_revision": "10a7572007055ac9791b35d571a7844a432fe862",
-  "wrapper_source_sha256": "bc84ec6d608568cceb0aa23f92990018ddfba9e4cb8b575608a55d7dd1f58ba9",
+  "wrapper_source_sha256": "5d7602f6c7c17d03483b5a83ca1c784b2b1273b68df3137bd5d2c75d62596dfb",
   "runtime_lock_sha256": "70a54d810222b68f1f8b76f1fcf9c4332875f3fc242682fee3b5779db122f73d",
   "runtime_lock_artifact_count": 57
 }

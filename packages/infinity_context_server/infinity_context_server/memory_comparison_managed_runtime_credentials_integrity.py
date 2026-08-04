@@ -104,6 +104,7 @@ def validate_mock_transport(transport: object) -> None:
 
 def runtime_authority_integrity(state: object) -> str:
     material = state.material
+    ingress = state.mem0_oss_ingress_descriptor
     payload = {
         "run_id": state.run_id,
         "issued_at": state.issued_at.isoformat(),
@@ -112,6 +113,17 @@ def runtime_authority_integrity(state: object) -> str:
         "origins": [state.infinity_origin, state.mem0_origin, state.subscription_origin],
         "secret_commitments": list(state.secret_commitments),
         "mem0_data_plane_auth_mode": state.mem0_data_plane_auth_mode,
+        "mem0_oss_ingress": (
+            {
+                "authority_identity": id(state.mem0_oss_ingress_authority),
+                "schema_version": ingress.schema_version,
+                "run_id_sha256": ingress.run_id_sha256,
+                "target_identity_sha256": ingress.target_identity_sha256,
+                "credential_binding_id": ingress.credential_binding_id,
+            }
+            if ingress is not None
+            else None
+        ),
         "material_mem0_data_plane_auth_mode": material.mem0_data_plane_auth_mode,
         "provider_credential": _credential_snapshot(material.provider_credential),
         "mem0_probe_credential": _credential_snapshot(material.mem0_probe_credential),
@@ -145,10 +157,7 @@ def managed_preflight_request_snapshot(
 ) -> bytes:
     """Snapshot every admitted request field plus the validated projection."""
 
-    if (
-        type(request) is not ManagedPreflightRequest
-        or type(result) is not ManagedPreflightResult
-    ):
+    if type(request) is not ManagedPreflightRequest or type(result) is not ManagedPreflightResult:
         raise TypeError("managed preflight snapshot types are invalid")
     route = request.provider_route
     dataset = request.dataset

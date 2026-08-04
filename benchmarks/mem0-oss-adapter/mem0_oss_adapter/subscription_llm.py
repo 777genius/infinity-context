@@ -5,6 +5,7 @@ from __future__ import annotations
 import contextvars
 import ipaddress
 import json
+import threading
 from collections.abc import Iterator, Mapping, Sequence
 from contextlib import contextmanager
 from dataclasses import dataclass
@@ -16,7 +17,14 @@ import httpx
 from mem0.configs.llms.base import BaseLlmConfig
 from mem0.llms.base import LLMBase
 
-_MODEL = "gpt-5.6-sol"
+from mem0_oss_adapter.usage import (
+    FIXED_EXTRACTION_MODEL,
+    MAX_USAGE_OPERATIONS,
+    RunUsageAggregate,
+    UsageEvidenceError,
+)
+
+_MODEL = FIXED_EXTRACTION_MODEL
 _MODE = Literal["raw_passthrough", "subscription_llm"]
 
 
@@ -62,6 +70,7 @@ class UsageLedger:
             raise ValueError("subscription model must be gpt-5.6-sol")
         self._model = model
         self._entries: list[UsageLedgerEntry] = []
+        self._entries_lock = threading.RLock()
         self._current: contextvars.ContextVar[_UsageOperation | None] = contextvars.ContextVar(
             "mem0_oss_usage_operation",
             default=None,
@@ -86,6 +95,9 @@ class UsageLedger:
             raise ValueError("usage operation has invalid bounds")
         if self._current.get() is not None:
             raise RuntimeError("nested Mem0 extraction operations are not allowed")
+        with self._entries_lock:
+            if len(self._entries) >= MAX_USAGE_OPERATIONS:
+                raise UsageEvidenceError("usage ledger exceeds the verified operation bound")
         state = _UsageOperation(
             run_id=run_id,
             operation="add",
@@ -99,23 +111,54 @@ class UsageLedger:
         try:
             yield
         finally:
-            self._entries.append(
-                UsageLedgerEntry(
-                    run_id=state.run_id,
-                    operation=state.operation,
-                    mode=state.mode,
-                    extraction_calls=state.extraction_calls,
-                    request_bytes=state.request_bytes,
-                    response_bytes=state.response_bytes,
-                    model=self._model,
-                    created_at=state.created_at,
-                )
-            )
-            self._current.reset(token)
+            try:
+                with self._entries_lock:
+                    if len(self._entries) >= MAX_USAGE_OPERATIONS:
+                        raise UsageEvidenceError(
+                            "usage ledger exceeds the verified operation bound"
+                        )
+                    self._entries.append(
+                        UsageLedgerEntry(
+                            run_id=state.run_id,
+                            operation=state.operation,
+                            mode=state.mode,
+                            extraction_calls=state.extraction_calls,
+                            request_bytes=state.request_bytes,
+                            response_bytes=state.response_bytes,
+                            model=self._model,
+                            created_at=state.created_at,
+                        )
+                    )
+            finally:
+                self._current.reset(token)
 
     @property
     def entries(self) -> tuple[UsageLedgerEntry, ...]:
-        return tuple(self._entries)
+        with self._entries_lock:
+            return tuple(self._entries)
+
+    def aggregate_for_run(self, *, run_id: str) -> RunUsageAggregate:
+        if not isinstance(run_id, str) or not run_id or len(run_id) > 128:
+            raise UsageEvidenceError("usage run identifier is invalid")
+        with self._entries_lock:
+            entries = tuple(entry for entry in self._entries if entry.run_id == run_id)
+        if not entries:
+            raise UsageEvidenceError("usage evidence is unavailable for the exact run")
+        if any(entry.operation != "add" or entry.model != self._model for entry in entries):
+            raise UsageEvidenceError("usage ledger contains an unsupported operation")
+        modes = {entry.mode for entry in entries}
+        if len(modes) != 1:
+            raise UsageEvidenceError("usage ledger contains mixed extraction modes")
+        return RunUsageAggregate(
+            mode=entries[0].mode,
+            operation_count=len(entries),
+            extraction_calls=sum(entry.extraction_calls for entry in entries),
+            request_bytes=sum(entry.request_bytes for entry in entries),
+            response_bytes=sum(entry.response_bytes for entry in entries),
+            model=self._model,
+            first_operation_at=min(entry.created_at for entry in entries),
+            last_operation_at=max(entry.created_at for entry in entries),
+        )
 
     def reserve_call(self, *, request_bytes: int) -> None:
         state = self._require_current()
