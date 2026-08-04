@@ -32,6 +32,7 @@ _RANKED_DIAGNOSTIC_KEYS = (
     "ranked_evidence_unsafe_source_drop_count",
     "ranked_evidence_source_dedupe_drop_count",
     "ranked_evidence_temporal_interval_reservation_count",
+    "ranked_evidence_paired_reservation_count",
 )
 
 
