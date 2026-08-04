@@ -67,6 +67,7 @@ from infinity_context_adapters.postgres.models import (
     MemorySuggestionRow,
 )
 from infinity_context_adapters.postgres.repository_helpers import (
+    _canonical_chunk_visibility_conditions,
     _escape_like,
     _grouped_sql_matches,
     _grouped_sql_score,
@@ -74,6 +75,41 @@ from infinity_context_adapters.postgres.repository_helpers import (
     _score,
     _terms,
 )
+
+
+def _keyword_search_statement(
+    *,
+    space_id: str,
+    memory_scope_ids: tuple[str, ...],
+    thread_id: str | None,
+    query: str,
+    limit: int,
+):
+    terms = _terms(query)
+    conditions = [
+        MemoryChunkRow.space_id == space_id,
+        MemoryChunkRow.memory_scope_id.in_(memory_scope_ids),
+        *_canonical_chunk_visibility_conditions(MemoryChunkRow),
+    ]
+    if thread_id is not None:
+        conditions.append(
+            or_(MemoryChunkRow.thread_id == thread_id, MemoryChunkRow.thread_id.is_(None))
+        )
+    statement = select(MemoryChunkRow).where(*conditions)
+    if terms:
+        term_matches = _grouped_sql_matches(MemoryChunkRow.normalized_text, terms)
+        lexical_score = _grouped_sql_score(term_matches)
+        statement = statement.where(or_(*term_matches)).order_by(
+            lexical_score.desc(),
+            MemoryChunkRow.sequence.asc(),
+            MemoryChunkRow.created_at.asc(),
+            MemoryChunkRow.id.asc(),
+        )
+    else:
+        statement = statement.order_by(
+            MemoryChunkRow.created_at.desc(), MemoryChunkRow.id.desc()
+        )
+    return statement.limit(_retrieval_candidate_limit(limit)), terms
 
 
 class PostgresEpisodeRepository(EpisodeRepositoryPort):
@@ -520,40 +556,15 @@ class PostgresChunkRepository(ChunkRepositoryPort):
         query: str,
         limit: int,
     ) -> list[MemoryChunk]:
-        terms = _terms(query)
-        conditions = [
-            MemoryChunkRow.space_id == space_id,
-            MemoryChunkRow.memory_scope_id.in_(memory_scope_ids),
-            MemoryChunkRow.status == "active",
-            MemoryChunkRow.classification != "restricted",
-        ]
-        if thread_id is not None:
-            conditions.append(
-                or_(MemoryChunkRow.thread_id == thread_id, MemoryChunkRow.thread_id.is_(None))
-            )
-        statement = select(MemoryChunkRow).where(*conditions)
-        if terms:
-            term_matches = _grouped_sql_matches(
-                MemoryChunkRow.normalized_text,
-                terms,
-            )
-            lexical_score = _grouped_sql_score(term_matches)
-            statement = statement.where(or_(*term_matches)).order_by(
-                lexical_score.desc(),
-                MemoryChunkRow.sequence.asc(),
-                MemoryChunkRow.created_at.asc(),
-                MemoryChunkRow.id.asc(),
-            )
-        else:
-            statement = statement.order_by(
-                MemoryChunkRow.created_at.desc(), MemoryChunkRow.id.desc()
-            )
+        statement, terms = _keyword_search_statement(
+            space_id=space_id,
+            memory_scope_ids=memory_scope_ids,
+            thread_id=thread_id,
+            query=query,
+            limit=limit,
+        )
         rows = list(
-            (
-                await self._session.execute(
-                    statement.limit(_retrieval_candidate_limit(limit))
-                )
-            ).scalars()
+            (await self._session.execute(statement)).scalars()
         )
         if terms:
             scored_rows = [
