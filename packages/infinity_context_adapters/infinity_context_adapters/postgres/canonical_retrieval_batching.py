@@ -19,6 +19,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from infinity_context_adapters.postgres.mappers import anchor_row_to_domain, chunk_row_to_domain
 from infinity_context_adapters.postgres.models import MemoryAnchorRow, MemoryChunkRow
 from infinity_context_adapters.postgres.repository_helpers import (
+    _canonical_chunk_visibility_conditions,
     _grouped_sql_matches,
     _grouped_sql_score,
     _retrieval_candidate_limit,
@@ -233,7 +234,7 @@ def _keyword_fragments(
     scope_ids = tuple(dict.fromkeys(request.memory_scope_ids))
     if request.limit <= 0 or not scope_ids:
         return ()
-    fixed_binds = 3 + int(request.thread_id is not None)
+    fixed_binds = 1 + int(request.thread_id is not None)
     slices: tuple[_TermSlice | None, ...] = _term_slices(terms) if terms else (None,)
     fragments: list[_KeywordFragment] = []
     for term_slice in slices:
@@ -333,8 +334,7 @@ def _chunk_conditions(request: ChunkKeywordSearch, scope_ids: tuple[str, ...]):
     conditions = [
         MemoryChunkRow.space_id == request.space_id,
         MemoryChunkRow.memory_scope_id.in_(scope_ids),
-        MemoryChunkRow.status == "active",
-        MemoryChunkRow.classification != "restricted",
+        *_canonical_chunk_visibility_conditions(MemoryChunkRow),
     ]
     if request.thread_id is not None:
         conditions.append(

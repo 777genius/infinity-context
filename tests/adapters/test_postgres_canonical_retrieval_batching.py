@@ -258,7 +258,7 @@ async def _assert_oversized_scope_queries_are_bind_bounded() -> None:
     assert results[1:] == [[] for _ in requests[1:]]
 
     term_binds = 1 + 2 * sum(len(term.variants) + 1 for term in _terms("banana orange"))
-    scopes_per_statement = _MAX_SQL_BINDS - 3 - term_binds
+    scopes_per_statement = _MAX_SQL_BINDS - 1 - term_binds
     assert len(bind_counts) == 8 * ceil(9_000 / scopes_per_statement) == 88
     assert max(bind_counts) == _MAX_SQL_BINDS
     assert all(count <= _MAX_SQL_BINDS for count in bind_counts)
@@ -286,6 +286,10 @@ def test_postgres_and_sqlite_batch_shapes_retain_scalar_predicates() -> None:
         "canonical_keyword_candidates",
     ):
         assert predicate in sql
+    assert "memory_chunks.status = 'active'" in sql
+    assert "memory_chunks.classification != 'restricted'" in sql
+    assert "normalized_text LIKE %(" in sql
+    assert " || " not in sql
 
     key_sql = _postgres_sql(
         select(MemoryAnchorRow).where(

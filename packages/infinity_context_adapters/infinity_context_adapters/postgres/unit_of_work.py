@@ -38,6 +38,9 @@ from infinity_context_adapters.postgres.benchmark_writer_fence import (
 from infinity_context_adapters.postgres.benchmark_writer_fence import (
     BENCHMARK_WRITER_FENCE_STATEMENTS,
 )
+from infinity_context_adapters.postgres.canonical_keyword_trigram import (
+    ensure_canonical_keyword_trigram_access_path,
+)
 from infinity_context_adapters.postgres.fact_repositories import (
     PostgresFactRelationRepository,
     PostgresFactRepository,
@@ -558,6 +561,7 @@ async def create_schema(engine: AsyncEngine) -> None:
         await connection.run_sync(_ensure_outbox_lifecycle_indexes)
         await connection.run_sync(_ensure_capture_indexes)
         await connection.run_sync(_ensure_suggestion_metadata_indexes)
+        await connection.run_sync(ensure_canonical_keyword_trigram_access_path)
         await connection.run_sync(_ensure_managed_benchmark_writer_fence)
 
 

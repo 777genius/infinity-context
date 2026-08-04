@@ -11,7 +11,7 @@ from infinity_context_core.application.context_lexical import (
     query_terms,
     text_variant_counts,
 )
-from sqlalchemy import case, func, or_
+from sqlalchemy import case, func, literal_column, or_
 
 from infinity_context_adapters.postgres.models import MemorySourceRefRow
 
@@ -39,8 +39,24 @@ def _score(text: str, terms: tuple[LexicalQueryTerm, ...]) -> int:
 def _grouped_sql_matches(column, terms: tuple[LexicalQueryTerm, ...]):
     """Return one SQL predicate per raw term, with aliases ORed inside it."""
     return tuple(
-        or_(*(column.contains(variant) for variant in term.variants))
+        or_(
+            *(
+                column.like(
+                    f"%{_escape_like(variant)}%",
+                    escape="\\",
+                )
+                for variant in term.variants
+            )
+        )
         for term in terms
+    )
+
+
+def _canonical_chunk_visibility_conditions(model: type):
+    """Keep the canonical partial-index predicate visible to PostgreSQL's planner."""
+    return (
+        model.status == literal_column("'active'"),
+        model.classification != literal_column("'restricted'"),
     )
 
 
