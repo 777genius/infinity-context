@@ -15,6 +15,11 @@ from dataclasses import dataclass
 from math import isfinite
 from typing import Protocol, final
 
+from infinity_context_server.memory_comparison_managed_mem0_auth import (
+    MANAGED_MEM0_RUNTIME_MODE_PLATFORM,
+    managed_mem0_runtime_mode,
+)
+
 MANAGED_MEM0_RUNTIME_DEADLINE_POLICY = "monotonic-hard-deadline.v1"
 _IDENTIFIER = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:-]{0,199}$")
 _SHA256 = re.compile(r"^[0-9a-f]{64}$")
@@ -52,6 +57,7 @@ class ManagedMem0RuntimeAuthorityDescriptor:
     deadline_budget_seconds: float
     minimum_network_timeout_seconds: float
     max_attempts: int
+    expected_runtime_mode: str = MANAGED_MEM0_RUNTIME_MODE_PLATFORM
 
     def __post_init__(self) -> None:
         if (
@@ -84,6 +90,12 @@ class ManagedMem0RuntimeAuthorityDescriptor:
             raise ManagedMem0RuntimeAuthorityError(
                 "managed Mem0 runtime authority descriptor is invalid"
             )
+        try:
+            managed_mem0_runtime_mode(self.expected_runtime_mode)
+        except ValueError:
+            raise ManagedMem0RuntimeAuthorityError(
+                "managed Mem0 runtime authority descriptor is invalid"
+            ) from None
 
     def __init_subclass__(cls, **kwargs: object) -> None:
         del cls, kwargs
@@ -205,6 +217,7 @@ def _descriptor_fingerprint(
         descriptor.deadline_budget_seconds,
         descriptor.minimum_network_timeout_seconds,
         descriptor.max_attempts,
+        descriptor.expected_runtime_mode,
     )
 
 

@@ -25,6 +25,7 @@ def _descriptor() -> ManagedMem0RuntimeAuthorityDescriptor:
         deadline_budget_seconds=10.0,
         minimum_network_timeout_seconds=0.001,
         max_attempts=1,
+        expected_runtime_mode="managed_platform",
     )
 
 
@@ -92,6 +93,7 @@ def test_registered_descriptor_tamper_is_rejected() -> None:
         ("deadline_budget_seconds", float("nan")),
         ("minimum_network_timeout_seconds", 3.0),
         ("max_attempts", 2),
+        ("expected_runtime_mode", "ambient"),
     ),
 )
 def test_descriptor_validates_its_full_structural_contract(
@@ -109,6 +111,7 @@ def test_descriptor_validates_its_full_structural_contract(
         "deadline_budget_seconds": 10.0,
         "minimum_network_timeout_seconds": 0.001,
         "max_attempts": 1,
+        "expected_runtime_mode": "managed_platform",
     }
     arguments[field] = value
 

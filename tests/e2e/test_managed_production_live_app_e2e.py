@@ -44,6 +44,7 @@ _STDIO_TAIL_LIMIT = 8_000
 def _controlled_cli_env(
     *,
     infinity_token: str,
+    mem0_api_key: str,
     mem0_probe_token: str,
     subscription_token: str,
 ) -> dict[str, str]:
@@ -53,6 +54,7 @@ def _controlled_cli_env(
         "LC_ALL": "C.UTF-8",
         "PYTHONIOENCODING": "utf-8",
         "MEMORY_EVAL_AUTH_TOKEN": infinity_token,
+        "MEM0_API_KEY": mem0_api_key,
         "MEM0_BENCHMARK_PROBE_TOKEN": mem0_probe_token,
         "SUBSCRIPTION_RUNTIME_BRIDGE_BEARER_TOKEN": subscription_token,
     }
@@ -74,10 +76,7 @@ class _BridgeState:
         self.lock = threading.Lock()
 
     def has_valid_mem0_api_key(self, headers: dict[str, str]) -> bool:
-        api_key = headers.get("x-api-key")
-        return api_key == self.mem0_token or (
-            isinstance(api_key, str) and api_key.startswith("local-auth-disabled-")
-        )
+        return headers.get("x-api-key") == self.mem0_token
 
     def dispatch(
         self,
@@ -301,9 +300,6 @@ def test_verified_managed_production_runs_through_live_subprocess_and_postgres16
                 "--allow-live",
                 "--allow-paid-llm",
                 "--operator-notified",
-                "--mem0-local-auth-disabled-managed",
-                "--allow-mem0-host",
-                "127.0.0.1",
                 "--connect-timeout-seconds",
                 "2",
                 "--request-timeout-seconds",
@@ -314,6 +310,7 @@ def test_verified_managed_production_runs_through_live_subprocess_and_postgres16
             cwd=PROJECT_ROOT,
             env=_controlled_cli_env(
                 infinity_token=infinity_token,
+                mem0_api_key=mem0_token,
                 mem0_probe_token=probe_token,
                 subscription_token=subscription_token,
             ),

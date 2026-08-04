@@ -591,6 +591,8 @@ def _runtime_authority_evidence_key(
         or _SHA256.fullmatch(descriptor.probe_nonce_sha256) is None
         or type(descriptor.probe_token_credential_binding_id) is not str
         or _BINDING.fullmatch(descriptor.probe_token_credential_binding_id) is None
+        or type(descriptor.expected_runtime_mode) is not str
+        or descriptor.expected_runtime_mode not in {"oss", "managed_platform"}
         or type(descriptor.request_timeout_seconds) is not float
         or not isfinite(descriptor.request_timeout_seconds)
         or descriptor.request_timeout_seconds <= 0
@@ -619,6 +621,7 @@ def _runtime_authority_evidence_key(
                 repr(descriptor.deadline_budget_seconds),
                 repr(descriptor.minimum_network_timeout_seconds),
                 str(descriptor.max_attempts),
+                descriptor.expected_runtime_mode,
             )
         ).encode()
     ).hexdigest()

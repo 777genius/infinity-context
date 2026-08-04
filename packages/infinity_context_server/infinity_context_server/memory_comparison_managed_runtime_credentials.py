@@ -27,6 +27,11 @@ from infinity_context_server.memory_comparison_managed_http_execution import (
     ManagedInfinityHttpConfig,
     ManagedMem0HttpConfig,
 )
+from infinity_context_server.memory_comparison_managed_mem0_auth import (
+    MANAGED_MEM0_DATA_PLANE_AUTH_API_KEY,
+    MANAGED_MEM0_DATA_PLANE_AUTH_NONE,
+    managed_mem0_data_plane_auth_mode,
+)
 from infinity_context_server.memory_comparison_managed_preflight import (
     MANAGED_PREFLIGHT_PROVIDER_SUBSCRIPTION_RUNTIME,
     ManagedBackendEndpoint,
@@ -87,7 +92,8 @@ class _AuthorityState:
     mem0_origin: str
     subscription_origin: str
     infinity_secret: str = field(repr=False)
-    mem0_secret: str = field(repr=False)
+    mem0_secret: str | None = field(repr=False)
+    mem0_data_plane_auth_mode: str
     probe_secret: str = field(repr=False)
     subscription_secret: str = field(repr=False)
     binding_key: bytes = field(repr=False)
@@ -536,6 +542,7 @@ class ManagedRuntimeCredentialAuthority:
                     target_identity_sha256=mem0_target.target_identity_sha256,
                     base_url=state.mem0_origin,
                     api_key=state.mem0_secret,
+                    data_plane_auth_mode=state.mem0_data_plane_auth_mode,
                     timeout_seconds=state.request_timeout_seconds,
                     send_timestamps=mem0_send_timestamps,
                     transport=mem0_transport,
@@ -627,6 +634,9 @@ class ManagedRuntimeCredentialAuthority:
             or expected_request.provider_route is not material.provider_route
             or expected_request.openai_credential is not material.provider_credential
             or expected_request.backend_endpoints is not material.backend_endpoints
+            or expected_request.mem0_data_plane_auth_mode
+            != state.mem0_data_plane_auth_mode
+            or material.mem0_data_plane_auth_mode != state.mem0_data_plane_auth_mode
             or expected_request.timeouts.request_seconds != state.request_timeout_seconds
             or (state.deadline - state.issued_at).total_seconds()
             > expected_request.timeouts.run_seconds
@@ -677,6 +687,7 @@ class ManagedRuntimeCredentialAuthority:
             mem0_secret=state.mem0_secret,
             probe_secret=state.probe_secret,
             subscription_secret=state.subscription_secret,
+            mem0_data_plane_auth_mode=state.mem0_data_plane_auth_mode,
         )
         if not all(
             hmac.compare_digest(left, right)
@@ -715,13 +726,14 @@ def issue_managed_runtime_credential_authority(
     infinity_origin: str,
     infinity_auth_token: str,
     mem0_origin: str,
-    mem0_api_key: str,
+    mem0_api_key: str | None,
     mem0_probe_token: str | None,
     subscription_origin: str,
     subscription_bearer_token: str,
     request_timeout_seconds: float,
     issued_at: datetime,
     deadline: datetime,
+    mem0_data_plane_auth_mode: str = MANAGED_MEM0_DATA_PLANE_AUTH_API_KEY,
 ) -> ManagedRuntimeCredentialAuthority:
     """Issue an authority before preflight from exact composition-root values."""
 
@@ -733,8 +745,19 @@ def issue_managed_runtime_credential_authority(
             _fail("managed_credentials_configuration_invalid")
         timeout = _timeout(request_timeout_seconds)
         infinity_secret = _secret(infinity_auth_token)
-        mem0_secret = _secret(mem0_api_key)
-        probe_secret = mem0_secret if mem0_probe_token is None else _secret(mem0_probe_token)
+        auth_mode = managed_mem0_data_plane_auth_mode(mem0_data_plane_auth_mode)
+        if auth_mode == MANAGED_MEM0_DATA_PLANE_AUTH_NONE:
+            if mem0_api_key is not None or mem0_probe_token is None:
+                _fail("managed_credentials_configuration_invalid")
+            mem0_secret = None
+            probe_secret = _secret(mem0_probe_token)
+        elif auth_mode == MANAGED_MEM0_DATA_PLANE_AUTH_API_KEY:
+            mem0_secret = _secret(mem0_api_key)
+            probe_secret = (
+                mem0_secret if mem0_probe_token is None else _secret(mem0_probe_token)
+            )
+        else:  # pragma: no cover - sealed validator above
+            _fail("managed_credentials_configuration_invalid")
         subscription_secret = _secret(subscription_bearer_token)
         normalized_infinity, infinity_target = _normalized_backend(
             "infinity-context", infinity_origin
@@ -752,6 +775,7 @@ def issue_managed_runtime_credential_authority(
             mem0_secret=mem0_secret,
             probe_secret=probe_secret,
             subscription_secret=subscription_secret,
+            mem0_data_plane_auth_mode=auth_mode,
         )
         provider_credential = ManagedCredentialBinding(
             "subscription-runtime", True, adapter_credential_binding(subscription_secret)
@@ -759,7 +783,15 @@ def issue_managed_runtime_credential_authority(
         infinity_binding = ManagedCredentialBinding(
             "infinity-context", True, "sha256:" + commitments[0]
         )
-        mem0_binding = ManagedCredentialBinding("mem0", True, "sha256:" + commitments[1])
+        mem0_binding = ManagedCredentialBinding(
+            "mem0",
+            auth_mode == MANAGED_MEM0_DATA_PLANE_AUTH_API_KEY,
+            (
+                "sha256:" + commitments[1]
+                if auth_mode == MANAGED_MEM0_DATA_PLANE_AUTH_API_KEY
+                else None
+            ),
+        )
         probe_credential = ManagedCredentialBinding(
             "mem0-probe", True, adapter_credential_binding(probe_secret)
         )
@@ -783,6 +815,7 @@ def issue_managed_runtime_credential_authority(
             backend_endpoints=endpoints,
             provider_route=route,
             mem0_probe_credential=probe_credential,
+            mem0_data_plane_auth_mode=auth_mode,
         )
         state = _AuthorityState(
             run_id=trusted_run_id,
@@ -794,6 +827,7 @@ def issue_managed_runtime_credential_authority(
             subscription_origin=normalized_subscription,
             infinity_secret=infinity_secret,
             mem0_secret=mem0_secret,
+            mem0_data_plane_auth_mode=auth_mode,
             probe_secret=probe_secret,
             subscription_secret=subscription_secret,
             binding_key=key,

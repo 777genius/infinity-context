@@ -691,6 +691,7 @@ def _runtime_authority_descriptor(
         or type(descriptor.implementation_sha256) is not str
         or _SHA256.fullmatch(descriptor.implementation_sha256) is None
         or descriptor.target_identity_sha256 != mem0_targets[0]
+        or descriptor.expected_runtime_mode != preflight.mem0_expected_runtime_mode
         or type(descriptor.probe_nonce_sha256) is not str
         or _SHA256.fullmatch(descriptor.probe_nonce_sha256) is None
         or descriptor.probe_token_credential_binding_id != probe_credential.binding_id
@@ -737,6 +738,7 @@ def _runtime_authority_payload(
         "deadline_budget_seconds": descriptor.deadline_budget_seconds,
         "minimum_network_timeout_seconds": descriptor.minimum_network_timeout_seconds,
         "post_reset_mem0_probe_attempt_ceiling": descriptor.max_attempts,
+        "expected_runtime_mode": descriptor.expected_runtime_mode,
     }
 
 

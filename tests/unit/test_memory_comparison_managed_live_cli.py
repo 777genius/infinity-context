@@ -63,6 +63,10 @@ def test_no_key_mem0_requires_explicit_loopback_auth_disabled_managed(
     without_flag = _config(tmp_path, mem0_local_auth_disabled_managed=False)
     with pytest.raises(subject.ManagedLiveCliError, match="credential_missing"):
         subject._mem0_api_key(without_flag, {})
+    assert subject._mem0_data_plane_auth(
+        without_flag,
+        {"MEM0_API_KEY": "platform-private-key"},
+    ) == ("api_key", "platform-private-key")
 
     remote = _config(
         tmp_path,
@@ -108,10 +112,16 @@ def test_no_key_mem0_requires_explicit_loopback_auth_disabled_managed(
     with pytest.raises(subject.ManagedLiveCliError, match="local_mem0_target_required"):
         subject._mem0_api_key(ipv6_loopback, {})
 
+    class _NoAmbientMem0Key(dict[str, str]):
+        def get(self, key: object, default: object = None) -> object:
+            if key == "MEM0_API_KEY":
+                pytest.fail("keyless lane must not read an ambient Mem0 API key")
+            return super().get(key, default)  # type: ignore[arg-type]
+
     local = _config(tmp_path, mem0_local_auth_disabled_managed=True)
-    generated = subject._mem0_api_key(local, {"MEM0_API_KEY": "ambient-private-key"})
-    assert generated.startswith("local-auth-disabled-")
-    assert generated != "ambient-private-key"
+    environment = _NoAmbientMem0Key({"MEM0_API_KEY": "ambient-private-key"})
+    assert subject._mem0_data_plane_auth(local, environment) == ("none", None)
+    assert subject._mem0_api_key(local, environment) is None
 
 
 def test_runtime_request_timeout_is_bounded_by_attestation_adapter(tmp_path: Path) -> None:
@@ -125,7 +135,10 @@ def test_public_composition_wires_every_sealed_stage_without_real_io(
 ) -> None:
     config = _config(tmp_path, run_timeout_seconds=180)
     captured: dict[str, object] = {}
-    profile = SimpleNamespace(profile_id=config.profile_id)
+    profile = SimpleNamespace(
+        profile_id=config.profile_id,
+        required_mem0_runtime_mode="managed_platform",
+    )
     dataset = object()
     cases = (object(), object())
     route = object()
@@ -165,6 +178,7 @@ def test_public_composition_wires_every_sealed_stage_without_real_io(
                 provider_credential=provider_credential,
                 backend_endpoints=endpoints,
                 mem0_probe_credential=probe_credential,
+                mem0_data_plane_auth_mode="none",
             )
 
         def bind_preflight_request(self, value: object, **kwargs: object) -> None:
@@ -247,8 +261,9 @@ def test_public_composition_wires_every_sealed_stage_without_real_io(
         "result": {"sealed": True},
     }
     assert "OPENAI_API_KEY" not in captured["authority"]
-    assert captured["authority"]["mem0_api_key"].startswith("local-auth-disabled-")
-    assert captured["authority"]["mem0_api_key"] != "ambient-private-key"
+    assert captured["authority"]["mem0_api_key"] is None
+    assert captured["authority"]["mem0_data_plane_auth_mode"] == "none"
+    assert captured["request_fields"]["mem0_data_plane_auth_mode"] == "none"
     assert captured["readiness_run"]["model"] == subject.MANAGED_LIVE_CLI_MODEL
     assert captured["admission"]["budget"].max_provider_calls == 8
     assert captured["admission"]["budget"].max_total_tokens == 50_000
@@ -258,6 +273,7 @@ def test_public_composition_wires_every_sealed_stage_without_real_io(
     assert captured["admission"]["now"] == _NOW + timedelta(seconds=9)
     assert captured["prepare"][0] is admission
     assert captured["runtime"]["base_url"] == config.mem0_api_url
+    assert captured["runtime"]["expected_runtime_mode"] == "oss"
 
 
 def test_project_registers_live_canary_entrypoint() -> None:

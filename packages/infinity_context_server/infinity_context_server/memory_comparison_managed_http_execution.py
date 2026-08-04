@@ -37,6 +37,11 @@ from infinity_context_server.memory_comparison_locomo_transport import (
 from infinity_context_server.memory_comparison_managed_corpus_projection import (
     _reconstruct_managed_corpus_case,
 )
+from infinity_context_server.memory_comparison_managed_mem0_auth import (
+    MANAGED_MEM0_DATA_PLANE_AUTH_API_KEY,
+    MANAGED_MEM0_DATA_PLANE_AUTH_NONE,
+    managed_mem0_data_plane_auth_mode,
+)
 from infinity_context_server.memory_comparison_managed_preflight import (
     ManagedPreflightRequest,
     managed_backend_target_identity_sha256,
@@ -91,11 +96,22 @@ class ManagedMem0HttpConfig:
     target_identity_sha256: str
     base_url: str
     api_key: str | None = field(default=None, repr=False)
+    data_plane_auth_mode: str = MANAGED_MEM0_DATA_PLANE_AUTH_API_KEY
     timeout_seconds: float = 60.0
     send_timestamps: bool = False
     transport: httpx.BaseTransport | None = field(default=None, repr=False, compare=False)
 
     def __post_init__(self) -> None:
+        try:
+            auth_mode = managed_mem0_data_plane_auth_mode(self.data_plane_auth_mode)
+        except ValueError:
+            raise ManagedHttpExecutionError(
+                "managed HTTP Mem0 data-plane auth mode is invalid"
+            ) from None
+        if auth_mode == MANAGED_MEM0_DATA_PLANE_AUTH_NONE and self.api_key is not None:
+            raise ManagedHttpExecutionError(
+                "managed HTTP keyless Mem0 config must not carry an API key"
+            )
         _validate_config(
             backend_role="mem0",
             target_identity_sha256=self.target_identity_sha256,
@@ -103,7 +119,7 @@ class ManagedMem0HttpConfig:
             credential=self.api_key,
             timeout_seconds=self.timeout_seconds,
             transport=self.transport,
-            credential_optional=True,
+            credential_optional=auth_mode == MANAGED_MEM0_DATA_PLANE_AUTH_NONE,
         )
         if type(self.send_timestamps) is not bool:
             raise ManagedHttpExecutionError("Mem0 timestamp mode must be an exact boolean")
@@ -194,6 +210,10 @@ class ManagedComparisonHttpExecutionAdapter:
             or type(mem0) is not ManagedMem0HttpConfig
         ):
             raise ManagedHttpExecutionError("managed HTTP credential configs are invalid")
+        if mem0.data_plane_auth_mode != preflight.mem0_data_plane_auth_mode:
+            raise ManagedHttpExecutionError(
+                "managed HTTP Mem0 data-plane auth differs from preflight"
+            )
         configured = {
             INFINITY_COMPARISON_BACKEND: infinity.target_identity_sha256,
             "mem0": mem0.target_identity_sha256,

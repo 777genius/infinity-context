@@ -20,6 +20,9 @@ from math import isfinite
 from typing import final
 from urllib.parse import urlsplit
 
+from infinity_context_server.memory_comparison_managed_mem0_auth import (
+    managed_mem0_runtime_mode,
+)
 from infinity_context_server.memory_comparison_managed_mem0_runtime_authority import (
     MANAGED_MEM0_RUNTIME_DEADLINE_POLICY,
     ManagedMem0RuntimeAuthorityDescriptor,
@@ -97,6 +100,7 @@ class ManagedMem0RuntimeAttestationPort:
         "__lock",
         "__minimum_network_timeout_seconds",
         "__monotonic_clock",
+        "__expected_runtime_mode",
         "__probe_nonce",
         "__probe_token",
         "__target_identity_sha256",
@@ -117,8 +121,15 @@ class ManagedMem0RuntimeAttestationPort:
         expected_implementation_sha256: str,
         allowed_target_hosts: Sequence[str] = (),
         vetted_transport: VettedProbeTransport | None = None,
+        expected_runtime_mode: str = MEM0_MANAGED_PLATFORM_RUNTIME_MODE,
     ) -> None:
         implementation_sha256 = _trusted_implementation_sha256(expected_implementation_sha256)
+        try:
+            trusted_expected_runtime_mode = managed_mem0_runtime_mode(expected_runtime_mode)
+        except ValueError:
+            raise ManagedMem0RuntimeHttpError(
+                "managed_mem0_runtime_configuration_invalid"
+            ) from None
         token_bytes, nonce_bytes, timeout, hosts = _private_configuration(
             benchmark_probe_token=benchmark_probe_token,
             probe_nonce=probe_nonce,
@@ -169,6 +180,7 @@ class ManagedMem0RuntimeAttestationPort:
         self.__deadline_budget_seconds = deadline_budget
         self.__deadline_monotonic = deadline
         self.__minimum_network_timeout_seconds = _MIN_NETWORK_TIMEOUT_SECONDS
+        self.__expected_runtime_mode = trusted_expected_runtime_mode
         self.__probe_token = token_bytes
         self.__probe_nonce = nonce_bytes
         self.__lock = threading.Lock()
@@ -186,6 +198,7 @@ class ManagedMem0RuntimeAttestationPort:
             deadline_budget_seconds=deadline_budget,
             minimum_network_timeout_seconds=_MIN_NETWORK_TIMEOUT_SECONDS,
             max_attempts=1,
+            expected_runtime_mode=trusted_expected_runtime_mode,
         )
         _register_pending_managed_mem0_runtime_authority(
             self,
@@ -278,14 +291,14 @@ class ManagedMem0RuntimeAttestationPort:
                 ),
                 run_id,
                 nonce,
-                required_runtime_mode=MEM0_MANAGED_PLATFORM_RUNTIME_MODE,
+                required_runtime_mode=self.__expected_runtime_mode,
                 validated_at=datetime.now(UTC),
             )
             if (
                 type(validation) is not VerifiedMem0RuntimeAttestationValidation
                 or not mem0_runtime_attestation_validation_is_publishable(
                     validation,
-                    required_runtime_mode=MEM0_MANAGED_PLATFORM_RUNTIME_MODE,
+                    required_runtime_mode=self.__expected_runtime_mode,
                 )
             ):
                 raise ManagedMem0RuntimeHttpError("managed_mem0_runtime_capability_invalid")

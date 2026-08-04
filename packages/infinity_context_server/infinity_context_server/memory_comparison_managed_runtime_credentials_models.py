@@ -5,6 +5,10 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import final
 
+from infinity_context_server.memory_comparison_managed_mem0_auth import (
+    MANAGED_MEM0_DATA_PLANE_AUTH_API_KEY,
+    managed_mem0_data_plane_auth_mode,
+)
 from infinity_context_server.memory_comparison_managed_preflight import (
     ManagedBackendEndpoint,
     ManagedCredentialBinding,
@@ -46,6 +50,7 @@ class ManagedCredentialPreflightMaterial:
     backend_endpoints: tuple[ManagedBackendEndpoint, ...]
     provider_route: ProviderRouteAttestation
     mem0_probe_credential: ManagedCredentialBinding
+    mem0_data_plane_auth_mode: str = MANAGED_MEM0_DATA_PLANE_AUTH_API_KEY
 
     def __post_init__(self) -> None:
         if (
@@ -58,6 +63,12 @@ class ManagedCredentialPreflightMaterial:
             raise ManagedRuntimeCredentialError(
                 "managed_credentials_configuration_invalid"
             )
+        try:
+            managed_mem0_data_plane_auth_mode(self.mem0_data_plane_auth_mode)
+        except ValueError:
+            raise ManagedRuntimeCredentialError(
+                "managed_credentials_configuration_invalid"
+            ) from None
 
     def __init_subclass__(cls, **kwargs: object) -> None:
         del cls, kwargs

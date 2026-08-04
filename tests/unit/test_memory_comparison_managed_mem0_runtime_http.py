@@ -18,6 +18,7 @@ from infinity_context_server.memory_comparison_managed_mem0_runtime_http import 
 )
 from infinity_context_server.memory_comparison_mem0_runtime_attestation import (
     MEM0_MANAGED_PLATFORM_RUNTIME_MODE,
+    MEM0_OSS_RUNTIME_MODE,
     VerifiedMem0RuntimeAttestationValidation,
     mem0_runtime_attestation_validation_is_publishable,
     public_mem0_runtime_attestation_validation,
@@ -25,6 +26,7 @@ from infinity_context_server.memory_comparison_mem0_runtime_attestation import (
 from infinity_context_server.memory_comparison_service_probes import (
     MEM0_BENCHMARK_ATTESTATION_REFRESH_PATH,
 )
+from test_memory_comparison_mem0_contract import _valid_capabilities
 from test_memory_comparison_mem0_runtime_attestation import (
     NONCE,
     RUN_ID,
@@ -72,6 +74,27 @@ def test_production_adapter_returns_exact_publishable_same_run_validation() -> N
     assert all(value not in rendered for value in (_PROBE_TOKEN, NONCE, RUN_ID, TARGET_URL))
 
 
+def test_oss_adapter_accepts_only_a_valid_oss_same_run_runtime_attestation() -> None:
+    calls: list[tuple[str, str, object, object]] = []
+    adapter = _adapter(
+        _transport(calls, _oss_witnessed_manifest(datetime.now(UTC))),
+        expected_runtime_mode=MEM0_OSS_RUNTIME_MODE,
+    )
+    assert adapter.authority_descriptor().expected_runtime_mode == MEM0_OSS_RUNTIME_MODE
+
+    validation = adapter.attest(
+        run_id=RUN_ID,
+        probe_nonce_sha256=_NONCE_SHA,
+        target_identity_sha256=TARGET_SHA,
+    )
+
+    assert type(validation) is VerifiedMem0RuntimeAttestationValidation
+    assert mem0_runtime_attestation_validation_is_publishable(
+        validation,
+        required_runtime_mode=MEM0_OSS_RUNTIME_MODE,
+    )
+
+
 def test_authority_descriptor_commits_exact_pending_private_authority() -> None:
     transport = _Transport([], {})
     adapter = _adapter(transport)
@@ -88,6 +111,7 @@ def test_authority_descriptor_commits_exact_pending_private_authority() -> None:
     )
     assert descriptor.request_timeout_seconds == 0.5
     assert descriptor.max_attempts == 1
+    assert descriptor.expected_runtime_mode == MEM0_MANAGED_PLATFORM_RUNTIME_MODE
     assert adapter.authority_descriptor() is descriptor
     assert weakref.ref(adapter)() is adapter
     assert transport.opened is False
@@ -214,6 +238,47 @@ def test_stale_or_wrong_runtime_capability_fails_closed(
         )
 
     assert raised.value.code == expected_code
+
+
+@pytest.mark.parametrize(
+    ("expected_runtime_mode", "manifest"),
+    (
+        (MEM0_OSS_RUNTIME_MODE, lambda: _witnessed_manifest(datetime.now(UTC))),
+        (
+            MEM0_MANAGED_PLATFORM_RUNTIME_MODE,
+            lambda: _oss_witnessed_manifest(datetime.now(UTC)),
+        ),
+    ),
+)
+def test_cross_mode_runtime_attestations_fail_closed(
+    expected_runtime_mode: str,
+    manifest: object,
+) -> None:
+    factory = manifest
+    assert callable(factory)
+    adapter = _adapter(
+        _transport([], factory()),
+        expected_runtime_mode=expected_runtime_mode,
+    )
+
+    with pytest.raises(ManagedMem0RuntimeHttpError) as raised:
+        adapter.attest(
+            run_id=RUN_ID,
+            probe_nonce_sha256=_NONCE_SHA,
+            target_identity_sha256=TARGET_SHA,
+        )
+
+    assert raised.value.code == "managed_mem0_runtime_capability_invalid"
+
+
+def test_invalid_expected_runtime_mode_fails_before_transport_open() -> None:
+    transport = _Transport([], {})
+
+    with pytest.raises(ManagedMem0RuntimeHttpError) as raised:
+        _adapter(transport, expected_runtime_mode="ambient")
+
+    assert raised.value.code == "managed_mem0_runtime_configuration_invalid"
+    assert transport.opened is False
 
 
 def test_unsafe_target_is_rejected_before_transport_open() -> None:
@@ -358,7 +423,11 @@ def test_expected_implementation_mismatch_fails_before_transport_open() -> None:
     assert transport.opened is False
 
 
-def _adapter(transport: object) -> ManagedMem0RuntimeAttestationPort:
+def _adapter(
+    transport: object,
+    *,
+    expected_runtime_mode: str = MEM0_MANAGED_PLATFORM_RUNTIME_MODE,
+) -> ManagedMem0RuntimeAttestationPort:
     return ManagedMem0RuntimeAttestationPort(
         base_url=_TARGET_ORIGIN,
         benchmark_probe_token=_PROBE_TOKEN,
@@ -369,6 +438,7 @@ def _adapter(transport: object) -> ManagedMem0RuntimeAttestationPort:
         expected_implementation_sha256=_IMPLEMENTATION_SHA,
         allowed_target_hosts=("mem0.example.test",),
         vetted_transport=transport,  # type: ignore[arg-type]
+        expected_runtime_mode=expected_runtime_mode,
     )
 
 
@@ -392,6 +462,38 @@ def _witnessed_manifest(
 ) -> dict[str, object]:
     manifest = _runtime_manifest(now)
     manifest["runtime_mode"] = runtime_mode
+    return _signed_manifest(manifest)
+
+
+def _oss_witnessed_manifest(now: datetime) -> dict[str, object]:
+    checked_at = now.isoformat(timespec="milliseconds").replace("+00:00", "Z")
+    manifest = _valid_capabilities()
+    timestamp = manifest["timestamp"]
+    assert isinstance(timestamp, dict)
+    timestamp["attestation"] = {
+        "status": "passed",
+        "checked_at": checked_at,
+        "probe_mode": "live_sentinel",
+        "input_epoch_seconds": 1_672_531_200,
+        "expected_created_at": "2023-01-01T00:00:00Z",
+        "event_terminal_status": "SUCCEEDED",
+        "readback_result_count": 1,
+        "persisted_created_at": "2023-01-01T00:00:00Z",
+        "delta_seconds": 0.0,
+        "cleanup_succeeded": True,
+        "failure_code": None,
+    }
+    manifest["refresh_binding"] = {
+        "status": "passed",
+        "run_id_sha256": hashlib.sha256(RUN_ID.encode()).hexdigest(),
+        "probe_nonce_sha256": hashlib.sha256(NONCE.encode()).hexdigest(),
+        "target_identity_sha256": TARGET_SHA,
+        "refreshed_at": checked_at,
+    }
+    return _signed_manifest(manifest)
+
+
+def _signed_manifest(manifest: dict[str, object]) -> dict[str, object]:
     manifest_fingerprint = hashlib.sha256(
         json.dumps(
             manifest,
