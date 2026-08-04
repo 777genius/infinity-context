@@ -155,6 +155,59 @@ def test_adapter_never_reserves_unsafe_paired_candidates() -> None:
     assert [item.item_id for item in state.selected] == ["safe"]
 
 
+def test_packer_keeps_raw_conflicts_out_of_paired_reservations() -> None:
+    started = _typed_interval_item(
+        "safe-started",
+        "benchmark:session:1:pair:1",
+        slot=_INTERVAL_SLOT_1,
+        text="Morgan started watering herbs.",
+        score=0.90,
+        diagnostics=_rich_safe_diagnostics("started"),
+    )
+    conflicting_duplicate = _typed_interval_item(
+        "harvested-duplicate",
+        "benchmark:session:2:pair:1",
+        slot=_INTERVAL_SLOT_2,
+        text="Morgan harvested fresh herbs.",
+        score=0.99,
+        diagnostics={
+            "provenance": {
+                "audit": {
+                    "details": {
+                        "trace": {"conflicting_fact_id": "fact-current"}
+                    }
+                }
+            }
+        },
+    )
+    safe_duplicate = _typed_interval_item(
+        "harvested-duplicate",
+        "benchmark:session:3:pair:1",
+        slot=_INTERVAL_SLOT_2,
+        text="Morgan harvested fresh herbs.",
+        score=0.98,
+        diagnostics=_rich_safe_diagnostics("duplicate"),
+    )
+    safe_harvested = _typed_interval_item(
+        "safe-harvested",
+        "benchmark:session:4:pair:1",
+        slot=_INTERVAL_SLOT_2,
+        text="Morgan harvested fresh herbs.",
+        score=0.10,
+        diagnostics=_rich_safe_diagnostics("harvested"),
+    )
+
+    result = _pack(
+        (started, conflicting_duplicate, safe_duplicate, safe_harvested),
+        query=_INTERVAL_QUERY,
+        token_budget=64,
+    )
+
+    assert _selected_ids(result) == {"safe-started", "safe-harvested"}
+    assert result.bundle.diagnostics["paired_evidence_reservations_planned"] == 2
+    assert result.bundle.diagnostics["paired_evidence_reservations_selected"] == 2
+
+
 def test_adapter_does_not_force_reservations_past_real_packer_budget() -> None:
     first = _typed_interval_item(
         "first",
@@ -213,11 +266,16 @@ def test_adapter_is_a_noop_for_ordinary_queries() -> None:
     assert diagnostics.reservations_selected == 0
 
 
-def _pack(items: tuple[ContextItem, ...], *, query: str):
+def _pack(
+    items: tuple[ContextItem, ...],
+    *,
+    query: str,
+    token_budget: int = 2_000,
+):
     return ContextPacker().pack(
         bundle_id="ctx-paired-reservation",
         items=items,
-        token_budget=2_000,
+        token_budget=token_budget,
         query=query,
         max_rendered_chars=720,
     )
@@ -231,12 +289,13 @@ def _typed_interval_item(
     text: str = "Direct evidence for one temporal endpoint.",
     is_instruction: bool = False,
     diagnostics: dict[str, object] | None = None,
+    score: float = 0.1,
 ) -> ContextItem:
     return _item(
         item_id,
         text,
         source_id,
-        score=0.1,
+        score=score,
         slot=slot,
         is_instruction=is_instruction,
         diagnostics=diagnostics,
@@ -276,6 +335,10 @@ def _item(
 
 def _selected_ids(result) -> set[str]:
     return {item.item_id for item in result.bundle.items}
+
+
+def _rich_safe_diagnostics(label: str) -> dict[str, object]:
+    return {"provenance": {"audit": {"details": {"trace": {"label": label}}}}}
 
 
 def _empty_state() -> _SelectionState:

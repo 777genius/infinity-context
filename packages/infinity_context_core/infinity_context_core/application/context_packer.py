@@ -24,6 +24,9 @@ from infinity_context_core.application.context_english_activity_displacement_ans
 from infinity_context_core.application.context_english_lifestyle_inference_answer_support import (
     english_lifestyle_inference_turn_candidates,
 )
+from infinity_context_core.application.context_evidence_reservation_safety import (
+    evidence_reservation_candidate_is_eligible,
+)
 from infinity_context_core.application.context_food_inventory_exact_turns import (
     exact_food_inventory_turn_candidates,
 )
@@ -182,6 +185,7 @@ class ContextPacker:
     ) -> PackResult:
         budget = max(64, token_budget)
         char_budget = max(len("\n".join(_HEADER_LINES)), max_rendered_chars)
+        raw_paired_evidence_eligible_keys = _raw_paired_evidence_eligible_keys(items)
         normalized_items = tuple(normalize_context_item_diagnostics(item) for item in items)
         ordered_items = sorted(normalized_items, key=context_rank_key)
         selectable_items: list[ContextItem] = []
@@ -213,7 +217,11 @@ class ContextPacker:
         )
         paired_evidence_reservation = reserve_paired_evidence_items(
             state,
-            items=selectable_items,
+            items=[
+                item
+                for item in selectable_items
+                if _selection_key(item) in raw_paired_evidence_eligible_keys
+            ],
             query=query,
             budget=budget,
             char_budget=char_budget,
@@ -835,3 +843,16 @@ class ContextPacker:
             ),
             dropped_count=dropped_count,
         )
+
+
+def _raw_paired_evidence_eligible_keys(
+    items: tuple[ContextItem, ...],
+) -> frozenset[tuple[str, str]]:
+    """Fail closed by the type/id key retained through projection and redaction."""
+
+    eligible_by_key: dict[tuple[str, str], bool] = {}
+    for item in items:
+        key = _selection_key(item)
+        item_is_eligible = evidence_reservation_candidate_is_eligible(item)
+        eligible_by_key[key] = eligible_by_key.get(key, True) and item_is_eligible
+    return frozenset(key for key, eligible in eligible_by_key.items() if eligible)
