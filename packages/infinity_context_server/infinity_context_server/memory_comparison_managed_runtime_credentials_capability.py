@@ -268,6 +268,7 @@ class ManagedBackendCredentialMaterial:
                 "mem0": {
                     "target_identity_sha256": mem0.target_identity_sha256,
                     "base_url": mem0.base_url,
+                    "data_plane_auth_mode": mem0.data_plane_auth_mode,
                     "timeout_seconds": mem0.timeout_seconds,
                     "send_timestamps": mem0.send_timestamps,
                     "transport_identity": (
@@ -298,6 +299,7 @@ class ManagedBackendCredentialMaterial:
                 target_identity_sha256=mem0.target_identity_sha256,
                 base_url=mem0.base_url,
                 api_key=mem0.api_key,
+                data_plane_auth_mode=mem0.data_plane_auth_mode,
                 timeout_seconds=mem0.timeout_seconds,
                 send_timestamps=mem0.send_timestamps,
                 transport=None,

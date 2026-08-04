@@ -39,6 +39,14 @@ from infinity_context_server.memory_comparison_full_scope import (
 from infinity_context_server.memory_comparison_locomo_cases import (
     LOCOMO_INGEST_OFFICIAL_TURNS,
 )
+from infinity_context_server.memory_comparison_managed_mem0_auth import (
+    MANAGED_MEM0_DATA_PLANE_AUTH_API_KEY,
+    MANAGED_MEM0_DATA_PLANE_AUTH_NONE,
+    MANAGED_MEM0_RUNTIME_MODE_PLATFORM,
+    expected_managed_mem0_runtime_mode,
+    managed_mem0_data_plane_auth_mode,
+    managed_mem0_runtime_mode,
+)
 from infinity_context_server.memory_comparison_provider_provenance import (
     ProviderRouteAttestation,
 )
@@ -89,6 +97,8 @@ _ERROR_MESSAGES = MappingProxyType(
         "credential_invalid": "managed preflight credential binding is invalid",
         "credential_missing": "managed preflight required credential is missing",
         "credential_mismatch": "managed preflight credential binding differs from route",
+        "mem0_auth_mode_invalid": "managed preflight Mem0 data-plane auth mode is invalid",
+        "mem0_keyless_endpoint_invalid": "managed preflight keyless Mem0 endpoint is invalid",
         "endpoint_invalid": "managed preflight backend endpoint is invalid",
         "backend_targets_invalid": "managed preflight backend targets are invalid",
         "backend_targets_not_distinct": "managed preflight backend targets are not distinct",
@@ -303,6 +313,7 @@ class ManagedPreflightRequest:
     timeouts: ManagedPreflightTimeouts
     scope: str = FULL_COMPARISON_SCOPE_FULL
     provider_kind: str = MANAGED_PREFLIGHT_PROVIDER_OPENAI_API_KEY
+    mem0_data_plane_auth_mode: str = MANAGED_MEM0_DATA_PLANE_AUTH_API_KEY
 
     def __post_init__(self) -> None:
         if (
@@ -311,6 +322,7 @@ class ManagedPreflightRequest:
             or type(self.backend_endpoints) is not tuple
             or any(type(item) is not ManagedBackendEndpoint for item in self.backend_endpoints)
             or type(self.timeouts) is not ManagedPreflightTimeouts
+            or type(self.mem0_data_plane_auth_mode) is not str
         ):
             _reject("request_invalid")
 
@@ -362,6 +374,8 @@ class ManagedPreflightResult:
     credentials: tuple[ManagedCredentialBinding, ...]
     backend_endpoints: tuple[ManagedBackendEndpoint, ...]
     timeouts: ManagedPreflightTimeouts
+    mem0_data_plane_auth_mode: str
+    mem0_expected_runtime_mode: str
 
     def __post_init__(self) -> None:
         try:
@@ -384,6 +398,17 @@ class ManagedPreflightResult:
             or self.execution_authority_created is not False
             or self.live_success is not False
         ):
+            _reject("request_invalid")
+        try:
+            auth_mode = managed_mem0_data_plane_auth_mode(self.mem0_data_plane_auth_mode)
+            runtime_mode = managed_mem0_runtime_mode(self.mem0_expected_runtime_mode)
+            expected_mode = expected_managed_mem0_runtime_mode(
+                data_plane_auth_mode=auth_mode,
+                profile_runtime_mode=MANAGED_MEM0_RUNTIME_MODE_PLATFORM,
+            )
+        except ValueError:
+            _reject("request_invalid")
+        if runtime_mode != expected_mode:
             _reject("request_invalid")
 
     def public_payload(self) -> dict[str, object]:
@@ -440,6 +465,10 @@ class ManagedPreflightResult:
                 }
                 for item in self.backend_endpoints
             ],
+            "mem0": {
+                "data_plane_auth_mode": self.mem0_data_plane_auth_mode,
+                "expected_runtime_mode": self.mem0_expected_runtime_mode,
+            },
             "timeouts": {
                 "connect_seconds": self.timeouts.connect_seconds,
                 "request_seconds": self.timeouts.request_seconds,
@@ -463,6 +492,16 @@ def validate_managed_preflight(request: ManagedPreflightRequest) -> ManagedPrefl
     _validate_dataset(profile, request.dataset)
     scope = _trusted_scope(request.scope)
     provider_kind = _trusted_provider_kind(request.provider_kind, scope=scope)
+    mem0_data_plane_auth_mode = _trusted_mem0_data_plane_auth_mode(
+        request.mem0_data_plane_auth_mode
+    )
+    try:
+        mem0_expected_runtime_mode = expected_managed_mem0_runtime_mode(
+            data_plane_auth_mode=mem0_data_plane_auth_mode,
+            profile_runtime_mode=profile.required_mem0_runtime_mode,
+        )
+    except ValueError:
+        _reject("profile_invalid")
     answerer_model = _model(request.answerer_model)
     judge_model = _model(request.judge_model)
     provider_credential = request.openai_credential
@@ -486,14 +525,20 @@ def validate_managed_preflight(request: ManagedPreflightRequest) -> ManagedPrefl
             credential=provider_credential,
         )
         provider_credential_name = "subscription-runtime"
-    endpoints = _trusted_backend_endpoints(request.backend_endpoints)
+    endpoints = _trusted_backend_endpoints(
+        request.backend_endpoints,
+        mem0_data_plane_auth_mode=mem0_data_plane_auth_mode,
+    )
     credentials = (provider_credential, *(item.credential for item in endpoints))
     if tuple(item.credential_name for item in credentials) != (
         provider_credential_name,
         *REQUIRED_FULL_COMPARISON_BACKENDS,
     ):
         _reject("credential_mismatch")
-    if any(not item.configured or item.binding_id is None for item in credentials[1:]):
+    if (
+        mem0_data_plane_auth_mode == MANAGED_MEM0_DATA_PLANE_AUTH_API_KEY
+        and any(not item.configured or item.binding_id is None for item in credentials[1:])
+    ):
         _reject("credential_missing")
     return ManagedPreflightResult(
         schema_version=MANAGED_PREFLIGHT_SCHEMA_VERSION,
@@ -518,6 +563,8 @@ def validate_managed_preflight(request: ManagedPreflightRequest) -> ManagedPrefl
         credentials=credentials,
         backend_endpoints=endpoints,
         timeouts=request.timeouts,
+        mem0_data_plane_auth_mode=mem0_data_plane_auth_mode,
+        mem0_expected_runtime_mode=mem0_expected_runtime_mode,
     )
 
 
@@ -581,6 +628,13 @@ def _trusted_provider_kind(value: object, *, scope: str) -> str:
     ):
         _reject("provider_kind_invalid")
     return value
+
+
+def _trusted_mem0_data_plane_auth_mode(value: object) -> str:
+    try:
+        return managed_mem0_data_plane_auth_mode(value)
+    except ValueError:
+        _reject("mem0_auth_mode_invalid")
 
 
 def _model(value: object) -> str:
@@ -713,6 +767,8 @@ def _trusted_subscription_provider_route(
 
 def _trusted_backend_endpoints(
     endpoints: object,
+    *,
+    mem0_data_plane_auth_mode: str,
 ) -> tuple[ManagedBackendEndpoint, ...]:
     if (
         type(endpoints) is not tuple
@@ -745,6 +801,16 @@ def _trusted_backend_endpoints(
             _reject("backend_targets_invalid")
         if item.credential.credential_name != item.target.backend_role:
             _reject("credential_mismatch")
+        if item.target.backend_role == "mem0" and (
+            mem0_data_plane_auth_mode == MANAGED_MEM0_DATA_PLANE_AUTH_NONE
+        ):
+            if (
+                not item.loopback
+                or item.credential.configured
+                or item.credential.binding_id is not None
+            ):
+                _reject("mem0_keyless_endpoint_invalid")
+            continue
         if not item.credential.configured or item.credential.binding_id is None:
             _reject("credential_missing")
     return endpoints

@@ -45,6 +45,9 @@ from infinity_context_server.memory_comparison_managed_http_lifecycle import (
     consume_managed_http_execution_evidence,
     consume_managed_http_ingest_receipts,
 )
+from infinity_context_server.memory_comparison_managed_mem0_auth import (
+    MANAGED_MEM0_DATA_PLANE_AUTH_NONE,
+)
 from infinity_context_server.memory_comparison_managed_preflight import (
     MANAGED_PREFLIGHT_PROVIDER_SUBSCRIPTION_RUNTIME,
     ManagedDatasetMetadata,
@@ -431,6 +434,95 @@ def test_exact_reset_ingest_order_clean_proofs_and_opaque_receipt_consumption() 
             backend_targets=_targets(),
             cases=(case,),
         )
+
+
+def test_keyless_loopback_mem0_http_omits_api_key_header() -> None:
+    case = _longmem_case()
+    clock = _Clock()
+    deadline = clock.value + timedelta(seconds=10)
+    profile = _profile(PROFILE_LONGMEMEVAL_TOP_50)
+    mem0_headers: list[set[str]] = []
+
+    def infinity_handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path == "/v1/spaces":
+            slug = json.loads(request.content)["slug"]
+            return httpx.Response(201, json={"data": {"slug": slug}})
+        return httpx.Response(201, json={"data": {"id": "document-1"}})
+
+    def mem0_handler(request: httpx.Request) -> httpx.Response:
+        mem0_headers.append({name.casefold() for name in request.headers})
+        if request.method == "DELETE":
+            return httpx.Response(200, json={"deleted": True, "verified_absent": True})
+        return httpx.Response(200, json={"results": [{"id": "memory-1"}]})
+
+    authority = issue_managed_runtime_credential_authority(
+        run_id=_RUN,
+        infinity_origin=_INFINITY_URL,
+        infinity_auth_token=_INFINITY_TOKEN,
+        mem0_origin="http://127.0.0.1:8765",
+        mem0_api_key=None,
+        mem0_probe_token="mem0-private-probe-token",
+        subscription_origin="http://127.0.0.1:8890",
+        subscription_bearer_token="subscription-private-token",
+        request_timeout_seconds=20,
+        issued_at=clock.value,
+        deadline=deadline,
+        mem0_data_plane_auth_mode=MANAGED_MEM0_DATA_PLANE_AUTH_NONE,
+    )
+    material = authority.preflight_material()
+    request = ManagedPreflightRequest(
+        profile=profile,
+        methodology=full_comparison_methodology_contract(profile),
+        dataset=ManagedDatasetMetadata(
+            profile.profile_id,
+            profile.benchmark,
+            profile.expected_dataset_hash,
+            profile.expected_case_count,
+            dict(profile.expected_distribution),
+            profile.expected_corpus_count,
+        ),
+        provider_route=material.provider_route,
+        answerer_model="gpt-5.6-sol",
+        judge_model="gpt-5.6-sol",
+        openai_credential=material.provider_credential,
+        backend_endpoints=material.backend_endpoints,
+        timeouts=ManagedPreflightTimeouts(1, 20, 120),
+        scope="canary",
+        provider_kind=MANAGED_PREFLIGHT_PROVIDER_SUBSCRIPTION_RUNTIME,
+        mem0_data_plane_auth_mode=material.mem0_data_plane_auth_mode,
+    )
+    authority.bind_preflight_request(request, run_id=_RUN, deadline=deadline)
+    credential_material = authority.issue_backend_credential_material(
+        expected_request=request,
+        run_id=_RUN,
+        infinity_origin=_INFINITY_URL,
+        mem0_origin="http://127.0.0.1:8765",
+        deadline=deadline,
+        now=clock.value,
+        infinity_transport=httpx.MockTransport(infinity_handler),
+        mem0_transport=httpx.MockTransport(mem0_handler),
+    )
+    execution = ManagedComparisonHttpExecutionAdapter(
+        preflight_request=request,
+        run_id=_RUN,
+        deadline=deadline,
+        credential_material=credential_material,
+        retrieval_policy=NEUTRAL_COMPARISON_RETRIEVAL_POLICY,
+        clock=clock,
+    )
+    try:
+        mem0_target = request.backend_endpoints[1].target.target_identity_sha256
+        execution.ingest(
+            run_id=_RUN,
+            backend_role="mem0",
+            target_identity_sha256=mem0_target,
+            case=case,
+        )
+    finally:
+        execution.close()
+
+    assert mem0_headers
+    assert all("x-api-key" not in headers for headers in mem0_headers)
 
 
 def test_locomo_receipt_preserves_exact_transport_verifier_and_timestamp_evidence() -> None:

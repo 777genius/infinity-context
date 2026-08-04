@@ -9,6 +9,11 @@ from collections.abc import Mapping
 
 import httpx
 
+from infinity_context_server.memory_comparison_managed_mem0_auth import (
+    MANAGED_MEM0_DATA_PLANE_AUTH_API_KEY,
+    MANAGED_MEM0_DATA_PLANE_AUTH_NONE,
+    managed_mem0_data_plane_auth_mode,
+)
 from infinity_context_server.memory_comparison_managed_preflight import (
     ManagedPreflightRequest,
     ManagedPreflightResult,
@@ -44,15 +49,27 @@ def secret_commitments(
     mem0_origin: str,
     subscription_origin: str,
     infinity_secret: str,
-    mem0_secret: str,
+    mem0_secret: str | None,
     probe_secret: str,
     subscription_secret: str,
+    mem0_data_plane_auth_mode: str,
 ) -> tuple[str, str, str, str]:
     """Commit exact role, run, origin and raw secret without publishing the key."""
 
+    auth_mode = managed_mem0_data_plane_auth_mode(mem0_data_plane_auth_mode)
+    if auth_mode == MANAGED_MEM0_DATA_PLANE_AUTH_NONE:
+        if mem0_secret is not None:
+            raise ValueError("keyless Mem0 data-plane auth must not carry a key")
+        mem0_context = ("mem0-data-plane:none", mem0_origin, "")
+    elif auth_mode == MANAGED_MEM0_DATA_PLANE_AUTH_API_KEY:
+        if type(mem0_secret) is not str:
+            raise ValueError("Mem0 API-key data-plane auth must carry a key")
+        mem0_context = ("mem0", mem0_origin, mem0_secret)
+    else:  # pragma: no cover - sealed validator above
+        raise ValueError("managed Mem0 data-plane auth mode is invalid")
     contexts = (
         ("infinity-context", infinity_origin, infinity_secret),
-        ("mem0", mem0_origin, mem0_secret),
+        mem0_context,
         ("mem0-probe", mem0_origin, probe_secret),
         ("subscription-runtime", subscription_origin, subscription_secret),
     )
@@ -94,6 +111,8 @@ def runtime_authority_integrity(state: object) -> str:
         "request_timeout_seconds": state.request_timeout_seconds,
         "origins": [state.infinity_origin, state.mem0_origin, state.subscription_origin],
         "secret_commitments": list(state.secret_commitments),
+        "mem0_data_plane_auth_mode": state.mem0_data_plane_auth_mode,
+        "material_mem0_data_plane_auth_mode": material.mem0_data_plane_auth_mode,
         "provider_credential": _credential_snapshot(material.provider_credential),
         "mem0_probe_credential": _credential_snapshot(material.mem0_probe_credential),
         "backend_endpoints": [
@@ -170,6 +189,7 @@ def managed_preflight_request_snapshot(
             },
             "scope": request.scope,
             "provider_kind": request.provider_kind,
+            "mem0_data_plane_auth_mode": request.mem0_data_plane_auth_mode,
         }
     )
 

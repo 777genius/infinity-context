@@ -22,6 +22,7 @@ from infinity_context_server.memory_comparison_full_methodology import (
 from infinity_context_server.memory_comparison_full_profiles import (
     FULL_COMPARISON_PROFILES,
     FullComparisonProfile,
+    frozen_full_comparison_profile,
     resolve_full_comparison_profile,
 )
 from infinity_context_server.memory_comparison_full_scope import FULL_COMPARISON_SCOPE_CANARY
@@ -32,6 +33,11 @@ from infinity_context_server.memory_comparison_managed_live_admission import (
 )
 from infinity_context_server.memory_comparison_managed_live_composition import (
     prepare_verified_managed_live_run,
+)
+from infinity_context_server.memory_comparison_managed_mem0_auth import (
+    MANAGED_MEM0_DATA_PLANE_AUTH_API_KEY,
+    MANAGED_MEM0_DATA_PLANE_AUTH_NONE,
+    expected_managed_mem0_runtime_mode,
 )
 from infinity_context_server.memory_comparison_managed_mem0_runtime_http import (
     ManagedMem0RuntimeAttestationPort,
@@ -240,7 +246,14 @@ def _run_managed_live(
     )
     mem0_probe_token = _required_secret(env, _ENV_MEM0_PROBE_TOKEN)
     subscription_token = _required_secret(env, _ENV_SUBSCRIPTION_TOKEN)
-    mem0_api_key = _mem0_api_key(config, env)
+    mem0_data_plane_auth_mode, mem0_api_key = _mem0_data_plane_auth(config, env)
+    try:
+        expected_mem0_runtime_mode = expected_managed_mem0_runtime_mode(
+            data_plane_auth_mode=mem0_data_plane_auth_mode,
+            profile_runtime_mode=profile.required_mem0_runtime_mode,
+        )
+    except ValueError:
+        raise ManagedLiveCliError("profile_invalid") from None
     clock = ManagedUtcClockPort()
     issued_at = clock.now()
     deadline = issued_at + timedelta(seconds=float(config.run_timeout_seconds))
@@ -256,6 +269,7 @@ def _run_managed_live(
         request_timeout_seconds=float(config.request_timeout_seconds),
         issued_at=issued_at,
         deadline=deadline,
+        mem0_data_plane_auth_mode=mem0_data_plane_auth_mode,
     )
     material = authority.preflight_material()
     request = ManagedPreflightRequest(
@@ -274,6 +288,7 @@ def _run_managed_live(
         ),
         scope=FULL_COMPARISON_SCOPE_CANARY,
         provider_kind=MANAGED_PREFLIGHT_PROVIDER_SUBSCRIPTION_RUNTIME,
+        mem0_data_plane_auth_mode=material.mem0_data_plane_auth_mode,
     )
     authority.bind_preflight_request(request, run_id=config.run_id, deadline=deadline)
     readiness_claim = authority.issue_subscription_readiness_claim(
@@ -299,6 +314,7 @@ def _run_managed_live(
         monotonic_clock=time.monotonic,
         expected_implementation_sha256=config.mem0_runtime_implementation_sha256,
         allowed_target_hosts=config.allowed_mem0_hosts,
+        expected_runtime_mode=expected_mem0_runtime_mode,
     )
     admission = issue_verified_managed_live_admission(
         request=request,
@@ -347,11 +363,11 @@ def _run_managed_live(
 def _profile(profile_id: str) -> FullComparisonProfile:
     try:
         profile = resolve_full_comparison_profile(profile_id)
+        if profile is None:
+            raise ValueError("managed profile is absent")
+        return frozen_full_comparison_profile(profile)
     except (TypeError, ValueError):
-        profile = None
-    if profile is None:
-        raise ManagedLiveCliError("profile_invalid")
-    return profile
+        raise ManagedLiveCliError("profile_invalid") from None
 
 
 def _dataset_bytes(path: Path) -> bytes:
@@ -381,18 +397,28 @@ def _required_secret(
     return value.strip()
 
 
-def _mem0_api_key(config: ManagedLiveCliConfig, env: Mapping[str, str]) -> str:
+def _mem0_data_plane_auth(
+    config: ManagedLiveCliConfig,
+    env: Mapping[str, str],
+) -> tuple[str, str | None]:
     if config.mem0_local_auth_disabled_managed:
         if not _is_authorized_loopback_mem0_target(
             config.mem0_api_url,
             allowed_hosts=config.allowed_mem0_hosts,
         ):
             raise ManagedLiveCliError("local_mem0_target_required")
-        return "local-auth-disabled-" + secrets.token_urlsafe(24)
+        return MANAGED_MEM0_DATA_PLANE_AUTH_NONE, None
     value = env.get(_ENV_MEM0_API_KEY)
     if isinstance(value, str) and value.strip():
-        return value.strip()
+        return MANAGED_MEM0_DATA_PLANE_AUTH_API_KEY, value.strip()
     raise ManagedLiveCliError("credential_missing")
+
+
+def _mem0_api_key(config: ManagedLiveCliConfig, env: Mapping[str, str]) -> str | None:
+    """Compatibility helper returning the sealed data-plane key, if any."""
+
+    _, api_key = _mem0_data_plane_auth(config, env)
+    return api_key
 
 
 def _is_authorized_loopback_mem0_target(

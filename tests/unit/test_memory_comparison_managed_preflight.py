@@ -19,6 +19,9 @@ from infinity_context_server.memory_comparison_full_profiles import (
 from infinity_context_server.memory_comparison_full_run_evidence import (
     FullComparisonBackendTarget,
 )
+from infinity_context_server.memory_comparison_managed_mem0_auth import (
+    MANAGED_MEM0_DATA_PLANE_AUTH_NONE,
+)
 from infinity_context_server.memory_comparison_managed_preflight import (
     MANAGED_PREFLIGHT_MAX_CONNECT_SECONDS,
     MANAGED_PREFLIGHT_MAX_REQUEST_SECONDS,
@@ -86,12 +89,17 @@ def _request(
     scope: str = "full",
     infinity_url: str = "https://infinity.example.test/api",
     mem0_url: str = "http://127.0.0.1:8765",
+    mem0_data_plane_auth_mode: str = "api_key",
 ) -> ManagedPreflightRequest:
     profile = resolve_full_comparison_profile(PROFILE_LOCOMO_TOP_50)
     assert profile is not None
     openai = _binding("openai", "a")
     infinity = _binding("infinity-context", "b")
-    mem0 = _binding("mem0", "c")
+    mem0 = (
+        ManagedCredentialBinding("mem0", False, None)
+        if mem0_data_plane_auth_mode == MANAGED_MEM0_DATA_PLANE_AUTH_NONE
+        else _binding("mem0", "c")
+    )
     return ManagedPreflightRequest(
         profile=profile,
         methodology=full_comparison_methodology_contract(profile),
@@ -125,6 +133,7 @@ def _request(
             run_seconds=86_400,
         ),
         scope=scope,
+        mem0_data_plane_auth_mode=mem0_data_plane_auth_mode,
     )
 
 
@@ -148,6 +157,8 @@ def test_full_preflight_returns_deeply_immutable_sanitized_result() -> None:
     assert result.live_success is False
     assert result.scope == "full"
     assert result.schema_version == MANAGED_PREFLIGHT_SCHEMA_VERSION
+    assert result.mem0_data_plane_auth_mode == "api_key"
+    assert result.mem0_expected_runtime_mode == "managed_platform"
     assert result.dataset_case_count == 1540
     assert tuple(item.target.backend_role for item in result.backend_endpoints) == (
         "infinity-context",
@@ -435,6 +446,59 @@ def test_both_backend_credentials_are_required_even_for_loopback(index: int) -> 
     _assert_code(
         "credential_missing",
         lambda: validate_managed_preflight(replace(request, backend_endpoints=tuple(endpoints))),
+    )
+
+
+def test_keyless_mem0_requires_an_unconfigured_loopback_binding_and_oss_runtime() -> None:
+    request = _request(
+        scope="canary",
+        mem0_data_plane_auth_mode=MANAGED_MEM0_DATA_PLANE_AUTH_NONE,
+    )
+    result = validate_managed_preflight(request)
+
+    assert result.mem0_data_plane_auth_mode == MANAGED_MEM0_DATA_PLANE_AUTH_NONE
+    assert result.mem0_expected_runtime_mode == "oss"
+    assert result.backend_endpoints[1].credential.configured is False
+    assert result.public_payload()["mem0"] == {
+        "data_plane_auth_mode": "none",
+        "expected_runtime_mode": "oss",
+    }
+
+    missing_infinity = list(request.backend_endpoints)
+    missing_infinity[0] = replace(
+        missing_infinity[0],
+        credential=ManagedCredentialBinding("infinity-context", False, None),
+    )
+    _assert_code(
+        "credential_missing",
+        lambda: validate_managed_preflight(
+            replace(request, backend_endpoints=tuple(missing_infinity))
+        ),
+    )
+
+    configured_mem0 = list(request.backend_endpoints)
+    configured_mem0[1] = replace(configured_mem0[1], credential=_binding("mem0", "c"))
+    _assert_code(
+        "mem0_keyless_endpoint_invalid",
+        lambda: validate_managed_preflight(
+            replace(request, backend_endpoints=tuple(configured_mem0))
+        ),
+    )
+
+    remote_mem0 = _request(
+        scope="canary",
+        mem0_url="https://mem0.example.test",
+        mem0_data_plane_auth_mode=MANAGED_MEM0_DATA_PLANE_AUTH_NONE,
+    )
+    _assert_code("mem0_keyless_endpoint_invalid", lambda: validate_managed_preflight(remote_mem0))
+
+
+def test_unknown_mem0_data_plane_auth_mode_is_rejected() -> None:
+    _assert_code(
+        "mem0_auth_mode_invalid",
+        lambda: validate_managed_preflight(
+            _request(scope="canary", mem0_data_plane_auth_mode="ambient")
+        ),
     )
 
 

@@ -20,6 +20,10 @@ from infinity_context_server.memory_comparison_full_profiles import (
     PROFILE_LOCOMO_TOP_50,
     resolve_full_comparison_profile,
 )
+from infinity_context_server.memory_comparison_managed_mem0_auth import (
+    MANAGED_MEM0_DATA_PLANE_AUTH_API_KEY,
+    MANAGED_MEM0_DATA_PLANE_AUTH_NONE,
+)
 from infinity_context_server.memory_comparison_managed_preflight import (
     MANAGED_PREFLIGHT_PROVIDER_SUBSCRIPTION_RUNTIME,
     ManagedDatasetMetadata,
@@ -55,19 +59,23 @@ _MODEL = "gpt-5.6-sol"
 def _authority(
     *,
     deadline: datetime = _DEADLINE,
+    mem0_api_key: str | None = _MEM0_SECRET,
+    mem0_probe_token: str | None = _PROBE_SECRET,
+    mem0_data_plane_auth_mode: str = MANAGED_MEM0_DATA_PLANE_AUTH_API_KEY,
 ) -> ManagedRuntimeCredentialAuthority:
     return issue_managed_runtime_credential_authority(
         run_id=_RUN_ID,
         infinity_origin=_INFINITY_ORIGIN,
         infinity_auth_token=_INFINITY_SECRET,
         mem0_origin=_MEM0_ORIGIN,
-        mem0_api_key=_MEM0_SECRET,
-        mem0_probe_token=_PROBE_SECRET,
+        mem0_api_key=mem0_api_key,
+        mem0_probe_token=mem0_probe_token,
         subscription_origin=_SUBSCRIPTION_ORIGIN,
         subscription_bearer_token=_SUBSCRIPTION_SECRET,
         request_timeout_seconds=10.0,
         issued_at=_NOW,
         deadline=deadline,
+        mem0_data_plane_auth_mode=mem0_data_plane_auth_mode,
     )
 
 
@@ -94,6 +102,7 @@ def _request(authority: ManagedRuntimeCredentialAuthority) -> ManagedPreflightRe
         timeouts=ManagedPreflightTimeouts(1.0, 10.0, 120.0),
         scope="canary",
         provider_kind=MANAGED_PREFLIGHT_PROVIDER_SUBSCRIPTION_RUNTIME,
+        mem0_data_plane_auth_mode=material.mem0_data_plane_auth_mode,
     )
 
 
@@ -164,6 +173,7 @@ def test_exact_public_material_normalizes_targets_without_secrets() -> None:
     assert material.mem0_probe_credential.binding_id not in {
         item.credential.binding_id for item in material.backend_endpoints
     }
+    assert material.mem0_data_plane_auth_mode == MANAGED_MEM0_DATA_PLANE_AUTH_API_KEY
     _assert_secret_safe(authority)
     _assert_secret_safe(material)
     with pytest.raises(TypeError, match="noncopyable"):
@@ -413,6 +423,7 @@ def test_backend_configs_preserve_exact_secrets_and_are_single_use() -> None:
     )
     assert infinity.auth_token == _INFINITY_SECRET
     assert mem0.api_key == _MEM0_SECRET
+    assert mem0.data_plane_auth_mode == MANAGED_MEM0_DATA_PLANE_AUTH_API_KEY
     assert infinity.base_url == "https://infinity.example.test/api"
     assert mem0.base_url == "http://127.0.0.1:8765"
     assert infinity.transport is infinity_transport
@@ -479,6 +490,64 @@ def test_backend_configs_preserve_exact_secrets_and_are_single_use() -> None:
             now=_NOW,
         )
     assert replay.value.code == "managed_credentials_terminal"
+
+
+def test_keyless_mem0_authority_seals_no_data_plane_key_and_keeps_probe_credential() -> None:
+    authority = _authority(
+        mem0_api_key=None,
+        mem0_data_plane_auth_mode=MANAGED_MEM0_DATA_PLANE_AUTH_NONE,
+    )
+    material = authority.preflight_material()
+
+    assert material.mem0_data_plane_auth_mode == MANAGED_MEM0_DATA_PLANE_AUTH_NONE
+    assert material.backend_endpoints[1].credential.configured is False
+    assert material.backend_endpoints[1].credential.binding_id is None
+    assert material.mem0_probe_credential.configured is True
+    request = _bind(authority)
+    backend_material = authority.issue_backend_credential_material(
+        expected_request=request,
+        run_id=_RUN_ID,
+        infinity_origin=_INFINITY_ORIGIN,
+        mem0_origin=_MEM0_ORIGIN,
+        deadline=_DEADLINE,
+        now=_NOW,
+    )
+
+    assert backend_material.consume_mem0_probe_token(
+        expected_request=request,
+        run_id=_RUN_ID,
+        deadline=_DEADLINE,
+    ) == _PROBE_SECRET
+    _, mem0 = backend_material.consume_for_http_execution(
+        expected_request=request,
+        run_id=_RUN_ID,
+        deadline=_DEADLINE,
+    )
+    assert mem0.data_plane_auth_mode == MANAGED_MEM0_DATA_PLANE_AUTH_NONE
+    assert mem0.api_key is None
+
+
+@pytest.mark.parametrize(
+    ("mem0_api_key", "mem0_probe_token", "mem0_data_plane_auth_mode"),
+    (
+        (_MEM0_SECRET, _PROBE_SECRET, MANAGED_MEM0_DATA_PLANE_AUTH_NONE),
+        (None, None, MANAGED_MEM0_DATA_PLANE_AUTH_NONE),
+        (None, _PROBE_SECRET, MANAGED_MEM0_DATA_PLANE_AUTH_API_KEY),
+        (_MEM0_SECRET, _PROBE_SECRET, "invalid"),
+    ),
+)
+def test_mem0_data_plane_auth_cross_mode_inputs_fail_closed(
+    mem0_api_key: str | None,
+    mem0_probe_token: str | None,
+    mem0_data_plane_auth_mode: str,
+) -> None:
+    with pytest.raises(ManagedRuntimeCredentialError) as caught:
+        _authority(
+            mem0_api_key=mem0_api_key,
+            mem0_probe_token=mem0_probe_token,
+            mem0_data_plane_auth_mode=mem0_data_plane_auth_mode,
+        )
+    assert caught.value.code == "managed_credentials_configuration_invalid"
 
 
 def test_backend_material_rejects_equal_model_request_tamper_before_io() -> None:

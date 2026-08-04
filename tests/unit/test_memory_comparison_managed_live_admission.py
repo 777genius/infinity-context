@@ -222,6 +222,7 @@ def _runtime_port(
     probe_nonce: str = _PROBE_NONCE,
     timeout_seconds: float = 0.5,
     deadline_budget_seconds: float = 60.0,
+    expected_runtime_mode: str = "managed_platform",
 ) -> ManagedMem0RuntimeAttestationPort:
     host = base_url.removeprefix("https://").split(":", 1)[0]
     return ManagedMem0RuntimeAttestationPort(
@@ -234,6 +235,7 @@ def _runtime_port(
         expected_implementation_sha256=_MEM0_RUNTIME_IMPLEMENTATION_SHA256,
         allowed_target_hosts=(host,),
         vetted_transport=_Transport([], {}),
+        expected_runtime_mode=expected_runtime_mode,
     )
 
 
@@ -554,6 +556,10 @@ def test_runtime_authority_type_target_nonce_implementation_and_budget_are_exact
     now = datetime.now(UTC)
     with pytest.raises(live.ManagedLiveAdmissionError, match="not registered"):
         _issue(request=request, now=now, runtime_port={})
+
+    wrong_runtime_mode = _runtime_port(expected_runtime_mode="oss")
+    with pytest.raises(live.ManagedLiveAdmissionError, match="binding differs"):
+        _issue(request=request, now=now, runtime_port=wrong_runtime_mode)
 
     wrong_target = _runtime_port(base_url="https://other-mem0.example.test")
     with pytest.raises(live.ManagedLiveAdmissionError, match="binding differs"):
