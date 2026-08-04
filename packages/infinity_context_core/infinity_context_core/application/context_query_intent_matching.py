@@ -118,7 +118,7 @@ def query_anchor_intent_conflicts(
         return False
     if anchor.kind == MemoryAnchorKind.EVENT:
         return _event_anchor_conflicts_intent(intent, anchor)
-    query_keys = intent.keys_for_kind(anchor.kind)
+    query_keys = intent.conflict_keys_for_kind(anchor.kind)
     if not query_keys:
         return False
     return not _compatible_identity_matches(_anchor_identity_keys(anchor), query_keys)
@@ -171,6 +171,8 @@ def _match_event_anchor(
     exact_event_keys = intent.keys_for_kind(MemoryAnchorKind.EVENT).intersection(event_keys)
     person_keys = intent.keys_for_kind(MemoryAnchorKind.PERSON)
     project_keys = intent.keys_for_kind(MemoryAnchorKind.PROJECT)
+    person_conflict_keys = intent.conflict_keys_for_kind(MemoryAnchorKind.PERSON)
+    project_conflict_keys = intent.conflict_keys_for_kind(MemoryAnchorKind.PROJECT)
     temporal_keys = intent.temporal_keys()
     event_type_keys = intent.event_type_keys()
 
@@ -184,9 +186,12 @@ def _match_event_anchor(
     anchor_temporal_keys = _temporal_identity_keys(anchor.metadata)
     anchor_event_type_keys = _event_type_identity_keys(anchor.metadata)
 
-    if person_keys and not anchor_person_keys.intersection(person_keys):
+    if person_conflict_keys and not anchor_person_keys.intersection(person_conflict_keys):
         return None
-    if project_keys and not _compatible_identity_matches(anchor_project_keys, project_keys):
+    if project_conflict_keys and not _compatible_identity_matches(
+        anchor_project_keys,
+        project_conflict_keys,
+    ):
         return None
     if _event_type_keys_conflict(
         query_event_type_keys=event_type_keys,
@@ -242,6 +247,8 @@ def _match_observed_event_anchor(
     metadata = anchor.metadata
     person_keys = intent.keys_for_kind(MemoryAnchorKind.PERSON)
     project_keys = intent.keys_for_kind(MemoryAnchorKind.PROJECT)
+    person_conflict_keys = intent.conflict_keys_for_kind(MemoryAnchorKind.PERSON)
+    project_conflict_keys = intent.conflict_keys_for_kind(MemoryAnchorKind.PROJECT)
     temporal_keys = intent.temporal_keys()
     event_type_keys = intent.event_type_keys()
 
@@ -254,12 +261,16 @@ def _match_observed_event_anchor(
     anchor_temporal_keys = _temporal_identity_keys(metadata)
     anchor_event_type_keys = _event_type_identity_keys(metadata)
 
-    if person_keys and anchor_person_keys and not anchor_person_keys.intersection(person_keys):
+    if (
+        person_conflict_keys
+        and anchor_person_keys
+        and not anchor_person_keys.intersection(person_conflict_keys)
+    ):
         return None
     if (
-        project_keys
+        project_conflict_keys
         and anchor_project_keys
-        and not _compatible_identity_matches(anchor_project_keys, project_keys)
+        and not _compatible_identity_matches(anchor_project_keys, project_conflict_keys)
     ):
         return None
     if _event_type_keys_conflict(
@@ -316,7 +327,7 @@ def _observed_anchor_conflicts_intent(
         MemoryAnchorKind.PROJECT,
         MemoryAnchorKind.ORGANIZATION,
     ):
-        query_keys = intent.keys_for_kind(kind)
+        query_keys = intent.conflict_keys_for_kind(kind)
         if not query_keys:
             continue
         observed_keys: set[str] = set()
@@ -367,8 +378,8 @@ def _event_anchor_conflicts_intent(
     intent: QueryAnchorIntent,
     anchor: MemoryAnchor,
 ) -> bool:
-    person_keys = intent.keys_for_kind(MemoryAnchorKind.PERSON)
-    project_keys = intent.keys_for_kind(MemoryAnchorKind.PROJECT)
+    person_keys = intent.conflict_keys_for_kind(MemoryAnchorKind.PERSON)
+    project_keys = intent.conflict_keys_for_kind(MemoryAnchorKind.PROJECT)
     temporal_keys = intent.temporal_keys()
     event_type_keys = intent.event_type_keys()
     anchor_person = _metadata_text(anchor.metadata.get("event_participant_canonical_key"))

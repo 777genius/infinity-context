@@ -119,6 +119,13 @@ _LOWER_PERSON_HINT_RE = re.compile(
     re.IGNORECASE,
 )
 
+_FIRST_PERSON_BENEFICIARY_HINT_RE = re.compile(
+    r"\b(?i:did)\s+I\s+"
+    r"(?i:prepare|make|buy|book|order|arrange|reserve)\b"
+    r"[^.?!\n]{0,80}?\b(?i:for)\s+"
+    r"(?P<label>[A-Z][a-z][A-Za-z]{1,40})\b",
+)
+
 _LOWER_PROJECT_HINT_RE = re.compile(
     r"\b(?P<prep>about|for|in|по|про|для|в)\s+"
     r"(?:(?:project|проект(?:у|е|а|ом)?)\s+)?"
@@ -322,6 +329,7 @@ def build_query_anchor_intent(query: str) -> QueryAnchorIntent:
         ):
             continue
         _append_observed_hint(hints, seen, observed)
+    _append_first_person_beneficiary_hints(hints, seen, query)
     _append_activity_state_event_type_hints(hints, seen, query)
     if _is_eventish_query(query):
         _append_lowercase_event_hints(hints, seen, query)
@@ -392,6 +400,25 @@ def _append_observed_hint(
         reason=observed.reason,
         metadata=observed.metadata,
     )
+
+
+def _append_first_person_beneficiary_hints(
+    hints: list[QueryAnchorHint],
+    seen: set[tuple[str, str]],
+    query: str,
+) -> None:
+    for match in _FIRST_PERSON_BENEFICIARY_HINT_RE.finditer(query):
+        label = match.group("label")
+        if _normalized(label) in _PERSON_HINT_STOP_WORDS:
+            continue
+        _append_label_hint(
+            hints,
+            seen,
+            kind=MemoryAnchorKind.PERSON,
+            label=label,
+            reason="first-person beneficiary hint",
+            conflict_eligible=False,
+        )
 
 
 def _append_lowercase_event_hints(
@@ -524,6 +551,7 @@ def _append_label_hint(
     kind: MemoryAnchorKind,
     label: str,
     reason: str,
+    conflict_eligible: bool = True,
 ) -> None:
     canonical_key = canonical_anchor_key_for_kind(kind, label)
     if not canonical_key:
@@ -540,6 +568,7 @@ def _append_label_hint(
             "extractor": "context-query-intent-v1",
             **structured_anchor_metadata_for_label(kind, label),
         },
+        conflict_eligible=conflict_eligible,
     )
 
 
@@ -552,6 +581,7 @@ def _append_hint(
     label: str,
     reason: str,
     metadata: Mapping[str, object],
+    conflict_eligible: bool = True,
 ) -> None:
     safe_key = _metadata_text(canonical_key)
     if not safe_key:
@@ -567,6 +597,7 @@ def _append_hint(
             label=_metadata_text(label),
             reason=_metadata_text(reason),
             metadata=dict(metadata),
+            conflict_eligible=conflict_eligible,
         )
     )
 

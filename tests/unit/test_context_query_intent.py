@@ -773,6 +773,12 @@ def test_sentence_initial_for_is_not_a_person_anchor_for_ratio_questions() -> No
     assert query_anchor_intent_text_conflicts(intent, current) is False
 
 
+def test_sentence_initial_for_does_not_hide_following_named_person() -> None:
+    intent = build_query_anchor_intent("For the ratio, what did Dana change?")
+
+    assert intent.keys_for_kind(MemoryAnchorKind.PERSON) == {"dana"}
+
+
 def test_person_stop_word_for_does_not_hide_named_people() -> None:
     intent = build_query_anchor_intent("What did I prepare for Dana?")
 
