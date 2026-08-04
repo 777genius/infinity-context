@@ -7,6 +7,7 @@ import weakref
 from dataclasses import FrozenInstanceError
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
+from types import SimpleNamespace
 
 import infinity_context_server.memory_comparison_managed_mem0_runtime_http as mem0_runtime_http
 import pytest
@@ -16,17 +17,28 @@ from infinity_context_server.memory_comparison_managed_mem0_runtime_http import 
     ManagedMem0RuntimeHttpError,
     ManagedUtcClockPort,
 )
+from infinity_context_server.memory_comparison_mem0_contract import (
+    public_mem0_runtime_manifest,
+)
+from infinity_context_server.memory_comparison_mem0_oss_contract import (
+    evaluate_mem0_oss_runtime_capabilities,
+    mem0_oss_runtime_manifest_sha256,
+)
 from infinity_context_server.memory_comparison_mem0_runtime_attestation import (
     MEM0_MANAGED_PLATFORM_RUNTIME_MODE,
     MEM0_OSS_RUNTIME_MODE,
+    VerifiedMem0RuntimeAttestation,
     VerifiedMem0RuntimeAttestationValidation,
     mem0_runtime_attestation_validation_is_publishable,
     public_mem0_runtime_attestation_validation,
+    validate_mem0_runtime_attestation_for_backends,
 )
 from infinity_context_server.memory_comparison_service_probes import (
     MEM0_BENCHMARK_ATTESTATION_REFRESH_PATH,
+    probe_mem0_api,
 )
 from test_memory_comparison_mem0_contract import _valid_capabilities
+from test_memory_comparison_mem0_oss_contract import valid_v3_capabilities
 from test_memory_comparison_mem0_runtime_attestation import (
     NONCE,
     RUN_ID,
@@ -93,6 +105,65 @@ def test_oss_adapter_accepts_only_a_valid_oss_same_run_runtime_attestation() -> 
         validation,
         required_runtime_mode=MEM0_OSS_RUNTIME_MODE,
     )
+
+
+def test_oss_v3_adapter_accepts_only_a_valid_oss_same_run_runtime_attestation() -> None:
+    calls: list[tuple[str, str, object, object]] = []
+    adapter = _adapter(
+        _transport(calls, _oss_v3_witnessed_manifest(datetime.now(UTC))),
+        expected_runtime_mode=MEM0_OSS_RUNTIME_MODE,
+    )
+
+    validation = adapter.attest(
+        run_id=RUN_ID,
+        probe_nonce_sha256=_NONCE_SHA,
+        target_identity_sha256=TARGET_SHA,
+    )
+
+    assert type(validation) is VerifiedMem0RuntimeAttestationValidation
+    assert mem0_runtime_attestation_validation_is_publishable(
+        validation,
+        required_runtime_mode=MEM0_OSS_RUNTIME_MODE,
+    )
+
+
+def test_oss_v3_raw_refresh_without_hmac_witness_is_rejected_at_generic_probe_boundary() -> None:
+    manifest = _oss_v3_witnessed_manifest(datetime.now(UTC))
+    witness = manifest.pop("refresh_witness")
+    assert isinstance(witness, dict)
+    assert evaluate_mem0_oss_runtime_capabilities(manifest, require_timestamp=True) == ()
+
+    outcome = _probe_oss_v3_refresh(manifest)
+
+    assert outcome.passed is False
+    assert outcome.reason_code == "mem0_runtime_attestation_refresh_failed"
+    assert outcome.details["verified_runtime_attestation"] is None
+
+
+def test_oss_v3_binding_only_projection_requires_verified_post_projection_capability() -> None:
+    now = datetime.now(UTC)
+    outcome = _probe_oss_v3_refresh(_oss_v3_witnessed_manifest(now))
+
+    assert outcome.passed is True
+    verified = outcome.details["verified_runtime_attestation"]
+    assert isinstance(verified, VerifiedMem0RuntimeAttestation)
+    projected_manifest = public_mem0_runtime_manifest(verified.payload["runtime_manifest"])
+    assert "refresh_binding" in projected_manifest
+    assert "refresh_witness" not in projected_manifest
+    assert evaluate_mem0_oss_runtime_capabilities(projected_manifest, require_timestamp=True) == ()
+
+    untrusted_validation = validate_mem0_runtime_attestation_for_backends(
+        dict(verified.payload),
+        (SimpleNamespace(name="mem0", runtime_target_identity_sha256=TARGET_SHA),),
+        RUN_ID,
+        NONCE,
+        required_runtime_mode=MEM0_OSS_RUNTIME_MODE,
+        validated_at=now,
+    )
+
+    assert type(untrusted_validation) is dict
+    assert untrusted_validation["eligible"] is False
+    assert "mem0_runtime_witness_capability_missing" in untrusted_validation["issues"]
 
 
 def test_authority_descriptor_commits_exact_pending_private_authority() -> None:
@@ -247,6 +318,10 @@ def test_stale_or_wrong_runtime_capability_fails_closed(
         (
             MEM0_MANAGED_PLATFORM_RUNTIME_MODE,
             lambda: _oss_witnessed_manifest(datetime.now(UTC)),
+        ),
+        (
+            MEM0_MANAGED_PLATFORM_RUNTIME_MODE,
+            lambda: _oss_v3_witnessed_manifest(datetime.now(UTC)),
         ),
     ),
 )
@@ -455,6 +530,21 @@ def _transport(
     )
 
 
+def _probe_oss_v3_refresh(manifest: dict[str, object]):
+    return probe_mem0_api(
+        _TARGET_ORIGIN,
+        require_timestamp=True,
+        require_runtime_contract=True,
+        timeout_seconds=0.5,
+        refresh_runtime_attestation=True,
+        benchmark_probe_token=_PROBE_TOKEN,
+        run_id=RUN_ID,
+        probe_nonce=NONCE,
+        allowed_target_hosts=("mem0.example.test",),
+        vetted_transport=_transport([], manifest),
+    )
+
+
 def _witnessed_manifest(
     now: datetime,
     *,
@@ -490,6 +580,40 @@ def _oss_witnessed_manifest(now: datetime) -> dict[str, object]:
         "target_identity_sha256": TARGET_SHA,
         "refreshed_at": checked_at,
     }
+    return _signed_manifest(manifest)
+
+
+def _oss_v3_witnessed_manifest(now: datetime) -> dict[str, object]:
+    checked_at = now.isoformat(timespec="milliseconds").replace("+00:00", "Z")
+    manifest = valid_v3_capabilities()
+    timestamp = manifest["timestamp"]
+    identity = manifest["persisted_source_identity"]
+    assert isinstance(timestamp, dict)
+    assert isinstance(identity, dict)
+    timestamp["attestation"] = {
+        "status": "passed",
+        "checked_at": checked_at,
+        "metadata_created_at_roundtrip_attested": True,
+        "cleanup_succeeded": True,
+    }
+    identity.update(
+        {
+            "source_id_roundtrip_attested": True,
+            "source_sha256_roundtrip_attested": True,
+        }
+    )
+    manifest["refresh_binding"] = {
+        "status": "passed",
+        "run_id_sha256": hashlib.sha256(RUN_ID.encode()).hexdigest(),
+        "probe_nonce_sha256": hashlib.sha256(NONCE.encode()).hexdigest(),
+        "target_identity_sha256": TARGET_SHA,
+        "refreshed_at": checked_at,
+    }
+    integrity = manifest["integrity"]
+    assert isinstance(integrity, dict)
+    integrity_sha256 = mem0_oss_runtime_manifest_sha256(manifest)
+    assert integrity_sha256 is not None
+    integrity["manifest_sha256"] = integrity_sha256
     return _signed_manifest(manifest)
 
 

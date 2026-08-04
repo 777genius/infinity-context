@@ -7,6 +7,16 @@ import json
 import re
 from collections.abc import Mapping, Sequence
 
+from infinity_context_server.memory_comparison_mem0_oss_contract import (
+    MEM0_BENCHMARK_CAPABILITIES_SCHEMA_VERSION_V3,
+    MEM0_OSS_RUNTIME_CAPABILITY_ISSUE_CODES,
+)
+from infinity_context_server.memory_comparison_mem0_oss_contract import (
+    evaluate_mem0_oss_runtime_capabilities as _evaluate_mem0_oss_runtime_capabilities,
+)
+from infinity_context_server.memory_comparison_mem0_oss_contract import (
+    public_mem0_oss_runtime_manifest as _public_mem0_oss_runtime_manifest,
+)
 from infinity_context_server.memory_comparison_mem0_platform_contract import (
     MANAGED_PLATFORM_CAPABILITY_ISSUE_CODES,
 )
@@ -97,6 +107,7 @@ MEM0_RUNTIME_CAPABILITY_ISSUE_CODES = frozenset(
         "timestamp_request_not_supported",
         "timestamp_sdk_forwarding_not_supported",
         "timestamp_readback_not_supported",
+        *MEM0_OSS_RUNTIME_CAPABILITY_ISSUE_CODES,
         *MANAGED_PLATFORM_CAPABILITY_ISSUE_CODES,
     }
 )
@@ -209,6 +220,11 @@ def evaluate_mem0_runtime_capabilities(
     if not isinstance(payload, Mapping):
         return ("runtime_manifest_missing",)
     schema_version = payload.get("schema_version")
+    if schema_version == MEM0_BENCHMARK_CAPABILITIES_SCHEMA_VERSION_V3:
+        return _evaluate_mem0_oss_runtime_capabilities(
+            payload,
+            require_timestamp=require_timestamp,
+        )
     if schema_version == MEM0_BENCHMARK_CAPABILITIES_SCHEMA_VERSION_V2:
         return _evaluate_managed_platform_capabilities(
             payload,
@@ -260,6 +276,8 @@ def public_mem0_runtime_manifest(payload: object) -> dict[str, object]:
 
     if not isinstance(payload, Mapping):
         return {}
+    if payload.get("schema_version") == MEM0_BENCHMARK_CAPABILITIES_SCHEMA_VERSION_V3:
+        return _public_mem0_oss_runtime_manifest(payload)
     public = _public_runtime_scalars(payload)
     sdk = payload.get("sdk")
     if isinstance(sdk, Mapping):
@@ -466,6 +484,7 @@ __all__ = (
     "mem0_openapi_request_properties",
     "MEM0_BENCHMARK_CAPABILITIES_SCHEMA_VERSION_V1",
     "MEM0_BENCHMARK_CAPABILITIES_SCHEMA_VERSION_V2",
+    "MEM0_BENCHMARK_CAPABILITIES_SCHEMA_VERSION_V3",
     "MEM0_RUNTIME_CAPABILITY_ISSUE_CODES",
     "PUBLIC_MEM0_OPENAPI_VIOLATIONS",
     "public_mem0_runtime_manifest",
