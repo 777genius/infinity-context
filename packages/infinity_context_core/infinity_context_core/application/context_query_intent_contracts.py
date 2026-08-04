@@ -20,6 +20,7 @@ class QueryAnchorHint:
     label: str
     reason: str
     metadata: Mapping[str, object]
+    conflict_eligible: bool = True
 
 @dataclass(frozen=True)
 class QueryAnchorIntent:
@@ -31,6 +32,13 @@ class QueryAnchorIntent:
 
     def keys_for_kind(self, kind: MemoryAnchorKind) -> frozenset[str]:
         return frozenset(hint.canonical_key for hint in self.hints if hint.kind == kind)
+
+    def conflict_keys_for_kind(self, kind: MemoryAnchorKind) -> frozenset[str]:
+        return frozenset(
+            hint.canonical_key
+            for hint in self.hints
+            if hint.kind == kind and hint.conflict_eligible
+        )
 
     def temporal_keys(self) -> frozenset[str]:
         keys: set[str] = set()

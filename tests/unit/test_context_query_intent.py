@@ -760,6 +760,31 @@ def test_lowercase_person_hints_preserve_named_participants() -> None:
     assert with_person.keys_for_kind(MemoryAnchorKind.PERSON) == {"aleks"}
 
 
+def test_sentence_initial_for_is_not_a_person_anchor_for_ratio_questions() -> None:
+    intent = build_query_anchor_intent(
+        "For the coffee-to-water ratio, did I switch to more water per spoon of "
+        "coffee, or less?"
+    )
+    historical = "Previously I used four ounces of water per spoon of coffee."
+    current = "I now use six ounces of water per spoon of coffee."
+
+    assert intent.keys_for_kind(MemoryAnchorKind.PERSON) == frozenset()
+    assert query_anchor_intent_text_conflicts(intent, historical) is False
+    assert query_anchor_intent_text_conflicts(intent, current) is False
+
+
+def test_sentence_initial_for_does_not_hide_following_named_person() -> None:
+    intent = build_query_anchor_intent("For the ratio, what did Dana change?")
+
+    assert intent.keys_for_kind(MemoryAnchorKind.PERSON) == {"dana"}
+
+
+def test_person_stop_word_for_does_not_hide_named_people() -> None:
+    intent = build_query_anchor_intent("What did I prepare for Dana?")
+
+    assert intent.keys_for_kind(MemoryAnchorKind.PERSON) == {"dana"}
+
+
 def test_first_person_role_filter_preserves_named_people_and_possessives() -> None:
     named = build_query_anchor_intent(
         "How did Dana's scope change in my Senior Software Engineer role?"

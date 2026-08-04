@@ -24,6 +24,9 @@ from infinity_context_core.application.context_english_activity_displacement_ans
 from infinity_context_core.application.context_english_lifestyle_inference_answer_support import (
     english_lifestyle_inference_turn_candidates,
 )
+from infinity_context_core.application.context_evidence_reservation_safety import (
+    evidence_reservation_candidate_is_eligible,
+)
 from infinity_context_core.application.context_food_inventory_exact_turns import (
     exact_food_inventory_turn_candidates,
 )
@@ -130,6 +133,7 @@ from infinity_context_core.application.context_packer_selection import (
     _try_select_item,
     replace_selected_item,
     reserve_coverage_items,
+    reserve_paired_evidence_items,
 )
 from infinity_context_core.application.context_packer_source_policy import (
     MAX_ITEMS_PER_SOURCE as _MAX_ITEMS_PER_SOURCE,
@@ -181,6 +185,7 @@ class ContextPacker:
     ) -> PackResult:
         budget = max(64, token_budget)
         char_budget = max(len("\n".join(_HEADER_LINES)), max_rendered_chars)
+        raw_paired_evidence_eligible_keys = _raw_paired_evidence_eligible_keys(items)
         normalized_items = tuple(normalize_context_item_diagnostics(item) for item in items)
         ordered_items = sorted(normalized_items, key=context_rank_key)
         selectable_items: list[ContextItem] = []
@@ -210,13 +215,28 @@ class ContextPacker:
             selected_source_capped_items_by_source={},
             selected_art_style_items_by_source_group={},
         )
+        paired_evidence_reservation = reserve_paired_evidence_items(
+            state,
+            items=[
+                item
+                for item in selectable_items
+                if _selection_key(item) in raw_paired_evidence_eligible_keys
+            ],
+            query=query,
+            budget=budget,
+            char_budget=char_budget,
+        )
+        paired_evidence_reserved_keys = frozenset(state.selected_keys)
         coverage_reservation = reserve_coverage_items(
             state,
             items=selectable_items,
             budget=budget,
             char_budget=char_budget,
         )
-        coverage_reserved_keys = frozenset(state.selected_keys)
+        coverage_reserved_keys = frozenset(state.selected_keys) - paired_evidence_reserved_keys
+        protected_reservation_keys = (
+            paired_evidence_reserved_keys | coverage_reserved_keys
+        )
         distinct_set_selection = select_distinct_set_member_items(
             items=selectable_items,
             query=query,
@@ -577,7 +597,7 @@ class ContextPacker:
         diversity_families = _diversity_candidates(selectable_items)
         for family in _ordered_diversity_families(diversity_families):
             item = diversity_families[family]
-            if _selection_key(item) in coverage_reserved_keys:
+            if _selection_key(item) in protected_reservation_keys:
                 diversity_items_used += 1
                 continue
             if _try_select_item(
@@ -684,7 +704,7 @@ class ContextPacker:
                         query=query,
                         rejected=item,
                         selected=tuple(state.selected),
-                        protected_keys=coverage_reserved_keys,
+                        protected_keys=protected_reservation_keys,
                     )
                     if reservation is not None:
                         inference_reservation_attempted = True
@@ -714,6 +734,18 @@ class ContextPacker:
                 diagnostics={
                     "items_considered": len(items),
                     "items_used": len(selected),
+                    "paired_evidence_requirement_kind": (
+                        paired_evidence_reservation.requirement_kind
+                    ),
+                    "paired_evidence_claims_considered": (
+                        paired_evidence_reservation.claims_considered
+                    ),
+                    "paired_evidence_reservations_planned": (
+                        paired_evidence_reservation.reservations_planned
+                    ),
+                    "paired_evidence_reservations_selected": (
+                        paired_evidence_reservation.reservations_selected
+                    ),
                     "coverage_obligations_considered": (
                         coverage_reservation.obligations_considered
                     ),
@@ -811,3 +843,16 @@ class ContextPacker:
             ),
             dropped_count=dropped_count,
         )
+
+
+def _raw_paired_evidence_eligible_keys(
+    items: tuple[ContextItem, ...],
+) -> frozenset[tuple[str, str]]:
+    """Fail closed by the type/id key retained through projection and redaction."""
+
+    eligible_by_key: dict[tuple[str, str], bool] = {}
+    for item in items:
+        key = _selection_key(item)
+        item_is_eligible = evidence_reservation_candidate_is_eligible(item)
+        eligible_by_key[key] = eligible_by_key.get(key, True) and item_is_eligible
+    return frozenset(key for key, eligible in eligible_by_key.items() if eligible)

@@ -26,6 +26,10 @@ from infinity_context_core.application.context_source_family import (
     canonical_source_family_identity,
 )
 from infinity_context_core.application.context_state_evidence import state_evidence_markers
+from infinity_context_core.application.context_state_transition_pairing import (
+    StateTransitionPairCandidate,
+    infer_state_transition_roles,
+)
 from infinity_context_core.application.dto import ContextItem
 from infinity_context_core.application.normalize import estimate_tokens
 from infinity_context_core.features.context_building.public import (
@@ -91,6 +95,7 @@ class PairedEvidenceReservation:
     reservation_count: int = 0
     claims_considered: int = 0
     requirement_kind: PairedEvidenceKind | None = None
+    reserved_items: tuple[ContextItem, ...] = ()
 
 
 TemporalIntervalEvidenceReservation = PairedEvidenceReservation
@@ -119,6 +124,13 @@ def reserve_paired_evidence_head(
     )
     source_families = tuple(canonical_source_family_identity(item) for item in items)
     ambiguous_source_bases = _mixed_scope_source_bases(source_families)
+    state_transition_roles = _state_transition_policy_roles(
+        items=items,
+        query=query,
+        requirement=requirement,
+        source_families=source_families,
+        ambiguous_source_bases=ambiguous_source_bases,
+    )
     candidates = tuple(
         _reservation_candidate(
             item,
@@ -130,6 +142,7 @@ def reserve_paired_evidence_head(
             ),
             obligations=obligations,
             requirement=requirement,
+            state_transition_role=state_transition_roles.get(index),
         )
         for index, item in enumerate(items)
     )
@@ -154,14 +167,16 @@ def reserve_paired_evidence_head(
             requirement_kind=requirement.kind,
         )
     reserved_index_set = set(reserved_indexes)
+    reserved_items = tuple(items[index] for index in reserved_indexes)
     return PairedEvidenceReservation(
         items=(
-            *(items[index] for index in reserved_indexes),
+            *reserved_items,
             *(item for index, item in enumerate(items) if index not in reserved_index_set),
         ),
         reservation_count=len(reserved_indexes),
         claims_considered=selection.claims_considered,
         requirement_kind=requirement.kind,
+        reserved_items=reserved_items,
     )
 
 
@@ -192,6 +207,7 @@ def _reservation_candidate(
     source_family_ambiguous: bool,
     obligations: tuple[EvidenceObligation, ...],
     requirement: PairedEvidenceRequirement,
+    state_transition_role: str | None,
 ) -> CoverageReservationCandidate:
     source_key = source_family.reservation_key if source_family is not None else ""
     eligible = bool(
@@ -200,7 +216,12 @@ def _reservation_candidate(
         and evidence_reservation_candidate_is_eligible(item)
     )
     claims = (
-        _requirement_claims(item, obligations=obligations, requirement=requirement)
+        _requirement_claims(
+            item,
+            obligations=obligations,
+            requirement=requirement,
+            state_transition_role=state_transition_role,
+        )
         if eligible
         else ()
     )
@@ -232,11 +253,39 @@ def _mixed_scope_source_bases(
     )
 
 
+def _state_transition_policy_roles(
+    *,
+    items: tuple[ContextItem, ...],
+    query: str,
+    requirement: PairedEvidenceRequirement,
+    source_families: tuple[SourceFamilyIdentity | None, ...],
+    ambiguous_source_bases: frozenset[str],
+) -> dict[int, str]:
+    """Infer chronological roles only for candidates already safe to reserve."""
+
+    if requirement.kind is not PairedEvidenceKind.STATE_TRANSITION:
+        return {}
+    candidates = tuple(
+        StateTransitionPairCandidate(
+            item_index=index,
+            item=item,
+            source_identity=source_family.reservation_key,
+        )
+        for index, (item, source_family) in enumerate(zip(items, source_families, strict=True))
+        if source_family is not None
+        and source_family.base_key not in ambiguous_source_bases
+        and evidence_reservation_candidate_is_eligible(item)
+        and _has_direct_measurement_relation(item.text, query=query)
+    )
+    return dict(infer_state_transition_roles(query=query, candidates=candidates))
+
+
 def _requirement_claims(
     item: ContextItem,
     *,
     obligations: tuple[EvidenceObligation, ...],
     requirement: PairedEvidenceRequirement,
+    state_transition_role: str | None,
 ) -> tuple[EvidenceClaim, ...]:
     claims: list[EvidenceClaim] = []
     for obligation, role_id, retrieval_reason, role_query in zip(
@@ -247,7 +296,12 @@ def _requirement_claims(
         strict=True,
     ):
         strength = (
-            _state_claim_strength(item, role_id=role_id, query=role_query)
+            _state_claim_strength(
+                item,
+                role_id=role_id,
+                query=role_query,
+                inferred_role=state_transition_role,
+            )
             if requirement.kind is PairedEvidenceKind.STATE_TRANSITION
             else _typed_endpoint_claim_strength(
                 item,
@@ -298,23 +352,31 @@ def _state_claim_strength(
     *,
     role_id: str,
     query: str,
+    inferred_role: str | None,
 ) -> float | None:
     """Require direct measurement evidence; time only resolves otherwise-safe ties."""
 
     if not _has_direct_measurement_relation(item.text, query=query):
         return None
     markers = state_evidence_markers(item)
+    historical_label = bool(_STATE_HISTORY_RE.search(item.text))
+    current_label = bool(
+        markers.has_active_state or _CURRENT_STATE_LABEL_RE.search(item.text)
+    )
     if role_id == "previous_state":
-        historical_label = bool(_STATE_HISTORY_RE.search(item.text))
-        if not (markers.text_stale or markers.text_transition or historical_label):
-            return None
-        return 0.95 if markers.text_stale or historical_label else 0.85
-    if role_id == "current_state":
-        if markers.metadata_stale or (markers.text_stale and not markers.text_transition):
-            return None
-        if markers.has_active_state or _CURRENT_STATE_LABEL_RE.search(item.text):
+        if markers.metadata_stale or markers.text_stale or historical_label:
             return 0.95
-        return 0.85 if markers.text_transition else 0.7
+        if markers.text_transition and not current_label:
+            return 0.85
+        return 0.8 if inferred_role == "previous_state" and not current_label else None
+    if role_id == "current_state":
+        if markers.metadata_stale or markers.text_stale:
+            return None
+        if current_label:
+            return 0.95
+        if markers.text_transition:
+            return 0.85
+        return 0.8 if inferred_role == "current_state" else None
     return None
 
 
