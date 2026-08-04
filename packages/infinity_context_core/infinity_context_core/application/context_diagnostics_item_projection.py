@@ -137,7 +137,19 @@ def normalize_context_diagnostics(diagnostics: object) -> dict[str, object]:
         normalized.pop("retrieval_source", None)
     ranking_reason = _safe_optional_text(raw.get("ranking_reason"), limit=_MAX_RANKING_REASON_CHARS)
     normalized["ranking_reason"] = ranking_reason or ranking_reason_for(retrieval_sources)
-    normalized["score_signals"] = safe_score_signals(raw.get("score_signals"))
+    raw_score_signals = _as_dict(raw.get("score_signals"))
+    score_signals = safe_score_signals(raw_score_signals)
+    if (
+        "query_expansion_reason" not in raw_score_signals
+        and (
+            memberships := merge_paired_evidence_role_memberships(
+                score_signals,
+                {"query_expansion_reason": raw.get("query_expansion_reason")},
+            )
+        )
+    ):
+        score_signals[PAIRED_EVIDENCE_ROLE_MEMBERSHIPS_KEY] = list(memberships)
+    normalized["score_signals"] = score_signals
     provenance = safe_diagnostic_mapping(raw.get("provenance"))
     provenance.update(_safe_context_requirement_provenance(raw.get("provenance")))
     provenance.update(_safe_deterministic_rerank_provenance(raw.get("provenance")))
