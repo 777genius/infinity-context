@@ -6,6 +6,7 @@ from pathlib import Path
 import pytest
 from infinity_context_adapters.extraction.docling_engine import DoclingDocumentExtractionEngine
 from infinity_context_core.ports.extraction import ExtractionLimits, ExtractionRequest
+from pypdf import PdfReader
 from resource_guards import apply_stable_ml_env, skip_if_low_temp_space
 
 pytest.importorskip("docling")
@@ -13,6 +14,15 @@ pytest.importorskip("docx")
 pytest.importorskip("openpyxl")
 pytest.importorskip("PIL")
 pytest.importorskip("pptx")
+
+
+def test_sample_pdf_fixture_is_strictly_parseable() -> None:
+    expected_text = "PDF Memory Scope Evidence"
+
+    reader = PdfReader(BytesIO(_sample_pdf_bytes(expected_text)), strict=True)
+
+    assert len(reader.pages) == 1
+    assert reader.pages[0].extract_text().strip() == expected_text
 
 
 def test_real_docling_extracts_document_evidence_and_artifacts(tmp_path: Path) -> None:
@@ -135,21 +145,37 @@ def _artifact_types(artifacts: object) -> set[str]:
 
 
 def _sample_pdf_bytes(text: str) -> bytes:
-    stream = f"BT /F1 18 Tf 72 720 Td ({text}) Tj ET".encode("latin-1")
-    return (
-        b"%PDF-1.4\n"
-        b"1 0 obj << /Type /Catalog /Pages 2 0 R >> endobj\n"
-        b"2 0 obj << /Type /Pages /Kids [3 0 R] /Count 1 >> endobj\n"
-        b"3 0 obj << /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] "
-        b"/Resources << /Font << /F1 4 0 R >> >> /Contents 5 0 R >> endobj\n"
-        b"4 0 obj << /Type /Font /Subtype /Type1 /BaseFont /Helvetica >> endobj\n"
-        + f"5 0 obj << /Length {len(stream)} >> stream\n".encode("ascii")
-        + stream
-        + b"\nendstream endobj\nxref\n0 6\n0000000000 65535 f \n"
-        b"0000000009 00000 n \n0000000058 00000 n \n0000000115 00000 n \n"
-        b"0000000241 00000 n \n0000000311 00000 n \n"
-        b"trailer << /Root 1 0 R /Size 6 >>\nstartxref\n449\n%%EOF\n"
+    escaped_text = (
+        text.replace("\\", "\\\\").replace("(", "\\(").replace(")", "\\)").encode("latin-1")
     )
+    stream = b"BT\n/F1 18 Tf\n72 720 Td\n(" + escaped_text + b") Tj\nET\n"
+    objects = (
+        b"<< /Type /Catalog /Pages 2 0 R >>",
+        b"<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
+        b"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] "
+        b"/Resources << /Font << /F1 4 0 R >> >> /Contents 5 0 R >>",
+        b"<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>",
+        b"<< /Length "
+        + str(len(stream)).encode("ascii")
+        + b" >>\nstream\n"
+        + stream
+        + b"endstream",
+    )
+    document = bytearray(b"%PDF-1.4\n%\xe2\xe3\xcf\xd3\n")
+    offsets: list[int] = []
+    for number, content in enumerate(objects, start=1):
+        offsets.append(len(document))
+        document.extend(f"{number} 0 obj\n".encode("ascii"))
+        document.extend(content)
+        document.extend(b"\nendobj\n")
+
+    xref_offset = len(document)
+    document.extend(b"xref\n0 6\n0000000000 65535 f \n")
+    for offset in offsets:
+        document.extend(f"{offset:010d} 00000 n \n".encode("ascii"))
+    document.extend(b"trailer\n<< /Size 6 /Root 1 0 R >>\nstartxref\n")
+    document.extend(f"{xref_offset}\n%%EOF\n".encode("ascii"))
+    return bytes(document)
 
 
 def _sample_docx_bytes() -> bytes:
