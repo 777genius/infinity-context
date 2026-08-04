@@ -1,0 +1,26 @@
+services:
+  adapter:
+    platform: linux/amd64
+    build:
+      context: .
+    environment:
+      MEM0_ADAPTER_INGRESS_API_KEY: ${MEM0_ADAPTER_INGRESS_API_KEY:?set a dedicated ingress key}
+      MEM0_BENCHMARK_PROBE_TOKEN: ${MEM0_BENCHMARK_PROBE_TOKEN:?set a dedicated benchmark probe token}
+      MEM0_OSS_COLLECTION: ${MEM0_OSS_COLLECTION:-mem0_oss_benchmark}
+    depends_on:
+      qdrant:
+        condition: service_started
+    ports:
+      - "127.0.0.1:8080:8080"
+    volumes:
+      - mem0-oss-state:/var/lib/mem0-oss
+
+  qdrant:
+    platform: linux/amd64
+    image: qdrant/qdrant:v1.18.3@sha256:0bd98fa7977f1e75694779359ca4e212822e5a71334e28421182f72f209d5286
+    volumes:
+      - qdrant-storage:/qdrant/storage
+
+volumes:
+  mem0-oss-state:
+  qdrant-storage:
