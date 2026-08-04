@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+from infinity_context_core.application.context_evidence_reservation_safety import (
+    evidence_reservation_candidate_is_eligible,
+)
 from infinity_context_core.application.context_ranked_evidence_coverage_reservation import (
     reserve_temporal_interval_evidence_head,
 )
@@ -161,6 +164,63 @@ def test_ranked_interval_only_claims_typed_producer_evidence() -> None:
     assert [item.item_id for item in reservation.items[:2]] == [
         "typed-start",
         "typed-harvest",
+    ]
+    assert reservation.reservation_count == 2
+
+
+def test_ranked_interval_reserves_typed_endpoints_with_rich_production_telemetry() -> None:
+    telemetry = {
+        f"producer_telemetry_{index}": index
+        for index in range(128)
+    }
+    started = _item(
+        "rich-start",
+        "Morgan started watering a herb garden every morning.",
+        "locomo:conv:1:session_12:D12:4:turn",
+        source_type="locomo_turn",
+        slot=_SLOT_1,
+        diagnostics={
+            "memory_scope_id": "locomo-benchmark-scope",
+            "retrieval_source": "keyword_source_sibling_chunks",
+            "retrieval_sources": ["keyword_source_sibling_chunks"],
+            "provenance": {
+                "candidate_rank": 26,
+                "retrieval_query": "Morgan started watering herb garden",
+            },
+        },
+        score_signals=telemetry,
+    )
+    harvested = _item(
+        "rich-harvest",
+        "Morgan harvested fresh herbs from the garden.",
+        "locomo:conv:1:session_13:D13:2:turn",
+        source_type="locomo_turn",
+        slot=_SLOT_2,
+        diagnostics={
+            "memory_scope_id": "locomo-benchmark-scope",
+            "retrieval_source": "keyword_source_sibling_chunks",
+            "retrieval_sources": ["keyword_source_sibling_chunks"],
+            "provenance": {
+                "candidate_rank": 27,
+                "retrieval_query": "Morgan harvested fresh herbs",
+            },
+        },
+        score_signals=telemetry,
+    )
+
+    reservation = reserve_temporal_interval_evidence_head(
+        (started, harvested),
+        query=_INTERVAL_QUERY,
+        max_items=10,
+        max_tokens=10_000,
+        max_chars=100_000,
+    )
+
+    assert evidence_reservation_candidate_is_eligible(started) is True
+    assert evidence_reservation_candidate_is_eligible(harvested) is True
+    assert [item.item_id for item in reservation.items[:2]] == [
+        "rich-start",
+        "rich-harvest",
     ]
     assert reservation.reservation_count == 2
 
