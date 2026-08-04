@@ -19,6 +19,10 @@ from infinity_context_server.memory_comparison_mem0_oss_manifest import (
     MEM0_OSS_QDRANT_IMAGE_DIGEST,
     MEM0_OSS_REFRESH_FIELDS,
     MEM0_OSS_RUNTIME_MODE,
+    REVIEWED_MEM0_OSS_LOCK_SHA256,
+    REVIEWED_MEM0_OSS_RUNTIME_PIN_SHA256,
+    REVIEWED_MEM0_OSS_WRAPPER_SOURCE_REVISION,
+    REVIEWED_MEM0_OSS_WRAPPER_SOURCE_SHA256,
     exact_mapping,
     exact_mapping_matches,
     is_revision,
@@ -38,7 +42,9 @@ MEM0_OSS_RUNTIME_CAPABILITY_ISSUE_CODES = frozenset(
         "oss_v3_schema_version_mismatch",
         "oss_v3_configured_not_true",
         "oss_v3_wrapper_source_revision_invalid",
+        "oss_v3_wrapper_source_revision_mismatch",
         "oss_v3_wrapper_source_sha256_invalid",
+        "oss_v3_wrapper_source_sha256_mismatch",
         "oss_v3_config_fingerprint_sha256_invalid",
         "oss_v3_adapter_mismatch",
         "oss_v3_runtime_invalid",
@@ -73,6 +79,8 @@ MEM0_OSS_RUNTIME_CAPABILITY_ISSUE_CODES = frozenset(
         "oss_v3_capabilities_invalid",
         "oss_v3_delete_invalid",
         "oss_v3_integrity_invalid",
+        "oss_v3_runtime_pin_sha256_mismatch",
+        "oss_v3_lock_sha256_mismatch",
         "oss_v3_manifest_sha256_mismatch",
         "oss_v3_refresh_witness_without_binding",
         "oss_v3_refresh_binding_invalid",
@@ -137,10 +145,16 @@ def _validate_scalar_provenance(payload: Mapping[str, object], issues: list[str]
         issues.append("oss_v3_runtime_mode_mismatch")
     if payload.get("configured") is not True:
         issues.append("oss_v3_configured_not_true")
-    if not is_revision(payload.get("wrapper_source_revision")):
+    wrapper_revision = payload.get("wrapper_source_revision")
+    if not is_revision(wrapper_revision):
         issues.append("oss_v3_wrapper_source_revision_invalid")
-    if not is_sha256(payload.get("wrapper_source_sha256")):
+    elif wrapper_revision != REVIEWED_MEM0_OSS_WRAPPER_SOURCE_REVISION:
+        issues.append("oss_v3_wrapper_source_revision_mismatch")
+    wrapper_sha256 = payload.get("wrapper_source_sha256")
+    if not is_sha256(wrapper_sha256):
         issues.append("oss_v3_wrapper_source_sha256_invalid")
+    elif wrapper_sha256 != REVIEWED_MEM0_OSS_WRAPPER_SOURCE_SHA256:
+        issues.append("oss_v3_wrapper_source_sha256_mismatch")
     if not is_sha256(payload.get("config_fingerprint_sha256")):
         issues.append("oss_v3_config_fingerprint_sha256_invalid")
     if payload.get("adapter") != MEM0_OSS_ADAPTER:
@@ -326,6 +340,10 @@ def _validate_integrity(payload: Mapping[str, object], issues: list[str]) -> Non
     if integrity is None or not all(is_sha256(integrity.get(key)) for key in integrity):
         issues.append("oss_v3_integrity_invalid")
         return
+    if integrity.get("runtime_pin_sha256") != REVIEWED_MEM0_OSS_RUNTIME_PIN_SHA256:
+        issues.append("oss_v3_runtime_pin_sha256_mismatch")
+    if integrity.get("lock_sha256") != REVIEWED_MEM0_OSS_LOCK_SHA256:
+        issues.append("oss_v3_lock_sha256_mismatch")
     if integrity.get("manifest_sha256") != mem0_oss_runtime_manifest_sha256(payload):
         issues.append("oss_v3_manifest_sha256_mismatch")
 
@@ -427,6 +445,10 @@ __all__ = (
     "MEM0_OSS_ADAPTER",
     "MEM0_OSS_RUNTIME_CAPABILITY_ISSUE_CODES",
     "MEM0_OSS_RUNTIME_MODE",
+    "REVIEWED_MEM0_OSS_LOCK_SHA256",
+    "REVIEWED_MEM0_OSS_RUNTIME_PIN_SHA256",
+    "REVIEWED_MEM0_OSS_WRAPPER_SOURCE_REVISION",
+    "REVIEWED_MEM0_OSS_WRAPPER_SOURCE_SHA256",
     "evaluate_mem0_oss_runtime_capabilities",
     "mem0_oss_refresh_manifest_sha256",
     "mem0_oss_runtime_manifest_sha256",

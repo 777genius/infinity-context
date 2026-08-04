@@ -12,6 +12,16 @@ from typing import Final
 MEM0_BENCHMARK_CAPABILITIES_SCHEMA_VERSION_V3: Final = "mem0-benchmark-capabilities.v3"
 MEM0_OSS_ADAPTER: Final = "mem0_oss"
 MEM0_OSS_RUNTIME_MODE: Final = "oss"
+REVIEWED_MEM0_OSS_WRAPPER_SOURCE_REVISION: Final = "10a7572007055ac9791b35d571a7844a432fe862"
+REVIEWED_MEM0_OSS_WRAPPER_SOURCE_SHA256: Final = (
+    "bc84ec6d608568cceb0aa23f92990018ddfba9e4cb8b575608a55d7dd1f58ba9"
+)
+REVIEWED_MEM0_OSS_RUNTIME_PIN_SHA256: Final = (
+    "efa3a315048f6c117d61295be42af0d9cc36ecb1b627d4456a31da0764754f5a"
+)
+REVIEWED_MEM0_OSS_LOCK_SHA256: Final = (
+    "70a54d810222b68f1f8b76f1fcf9c4332875f3fc242682fee3b5779db122f73d"
+)
 
 MEM0_OSS_SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
 MEM0_OSS_REVISION_RE = re.compile(r"^[0-9a-f]{40}$")
@@ -247,13 +257,17 @@ def _project_scalar_fields(payload: Mapping[str, object], public: dict[str, obje
         )
     if "configured" in payload:
         public["configured"] = payload.get("configured") is True
-    for key, predicate in (
-        ("wrapper_source_revision", is_revision),
-        ("wrapper_source_sha256", is_sha256),
-        ("config_fingerprint_sha256", is_sha256),
+    for key, expected in (
+        ("wrapper_source_revision", REVIEWED_MEM0_OSS_WRAPPER_SOURCE_REVISION),
+        ("wrapper_source_sha256", REVIEWED_MEM0_OSS_WRAPPER_SOURCE_SHA256),
     ):
         if key in payload:
-            public[key] = payload[key] if predicate(payload.get(key)) else "invalid"
+            public[key] = expected if payload.get(key) == expected else "invalid"
+    if "config_fingerprint_sha256" in payload:
+        config_fingerprint = payload.get("config_fingerprint_sha256")
+        public["config_fingerprint_sha256"] = (
+            config_fingerprint if is_sha256(config_fingerprint) else "invalid"
+        )
     if "adapter" in payload:
         public["adapter"] = (
             MEM0_OSS_ADAPTER if payload.get("adapter") == MEM0_OSS_ADAPTER else "invalid"
@@ -450,8 +464,21 @@ def _project_delete(value: object) -> dict[str, bool]:
 def _project_integrity(value: object) -> dict[str, str]:
     integrity = exact_mapping(value, {"manifest_sha256", "runtime_pin_sha256", "lock_sha256"}) or {}
     return {
-        key: integrity[key] if is_sha256(integrity.get(key)) else "invalid"
-        for key in ("manifest_sha256", "runtime_pin_sha256", "lock_sha256")
+        "manifest_sha256": (
+            integrity["manifest_sha256"]
+            if is_sha256(integrity.get("manifest_sha256"))
+            else "invalid"
+        ),
+        "runtime_pin_sha256": (
+            REVIEWED_MEM0_OSS_RUNTIME_PIN_SHA256
+            if integrity.get("runtime_pin_sha256") == REVIEWED_MEM0_OSS_RUNTIME_PIN_SHA256
+            else "invalid"
+        ),
+        "lock_sha256": (
+            REVIEWED_MEM0_OSS_LOCK_SHA256
+            if integrity.get("lock_sha256") == REVIEWED_MEM0_OSS_LOCK_SHA256
+            else "invalid"
+        ),
     }
 
 

@@ -12,6 +12,10 @@ from infinity_context_server.memory_comparison_mem0_contract import (
 )
 from infinity_context_server.memory_comparison_mem0_oss_contract import (
     MEM0_BENCHMARK_CAPABILITIES_SCHEMA_VERSION_V3,
+    REVIEWED_MEM0_OSS_LOCK_SHA256,
+    REVIEWED_MEM0_OSS_RUNTIME_PIN_SHA256,
+    REVIEWED_MEM0_OSS_WRAPPER_SOURCE_REVISION,
+    REVIEWED_MEM0_OSS_WRAPPER_SOURCE_SHA256,
     evaluate_mem0_oss_runtime_capabilities,
     mem0_oss_refresh_manifest_sha256,
     mem0_oss_runtime_manifest_sha256,
@@ -132,6 +136,26 @@ def test_v3_refresh_manifest_requires_passed_source_timestamp_evidence_and_hmac_
         (("extraction", "max_calls_per_add"), 1, "oss_v3_extraction_cap_invalid"),
         (("extraction", "telemetry_enabled"), True, "oss_v3_extraction_telemetry_enabled"),
         (
+            ("wrapper_source_revision",),
+            "0" * 40,
+            "oss_v3_wrapper_source_revision_mismatch",
+        ),
+        (
+            ("wrapper_source_sha256",),
+            "0" * 64,
+            "oss_v3_wrapper_source_sha256_mismatch",
+        ),
+        (
+            ("integrity", "runtime_pin_sha256"),
+            "0" * 64,
+            "oss_v3_runtime_pin_sha256_mismatch",
+        ),
+        (
+            ("integrity", "lock_sha256"),
+            "0" * 64,
+            "oss_v3_lock_sha256_mismatch",
+        ),
+        (
             ("persisted_source_identity", "source_id_roundtrip_attested"),
             True,
             "oss_v3_persisted_source_identity_unbound_invalid",
@@ -176,6 +200,39 @@ def test_v3_rejects_unknown_extra_and_missing_fields_without_reflecting_them() -
     assert secret not in rendered
     assert "quality_score" not in rendered
     assert "api_key" not in rendered
+
+
+@pytest.mark.parametrize(
+    "path",
+    (
+        ("wrapper_source_revision",),
+        ("wrapper_source_sha256",),
+        ("integrity", "runtime_pin_sha256"),
+        ("integrity", "lock_sha256"),
+    ),
+)
+def test_v3_public_projection_rejects_alternative_valid_provenance(path: tuple[str, ...]) -> None:
+    manifest = valid_v3_capabilities()
+    target: dict[str, object] = manifest
+    for key in path[:-1]:
+        child = target[key]
+        assert isinstance(child, dict)
+        target = child
+    original = target[path[-1]]
+    assert isinstance(original, str)
+    alternative = ("0" if original[0] != "0" else "1") + original[1:]
+    target[path[-1]] = alternative
+    _seal_manifest(manifest)
+
+    public = public_mem0_oss_runtime_manifest(manifest)
+    projected: dict[str, object] = public
+    for key in path[:-1]:
+        child = projected[key]
+        assert isinstance(child, dict)
+        projected = child
+
+    assert projected[path[-1]] == "invalid"
+    assert alternative not in json.dumps(public, sort_keys=True)
 
 
 @pytest.mark.parametrize(
@@ -254,8 +311,8 @@ def valid_v3_capabilities(
         "schema_version": MEM0_BENCHMARK_CAPABILITIES_SCHEMA_VERSION_V3,
         "runtime_mode": "oss",
         "configured": True,
-        "wrapper_source_revision": "a" * 40,
-        "wrapper_source_sha256": "b" * 64,
+        "wrapper_source_revision": REVIEWED_MEM0_OSS_WRAPPER_SOURCE_REVISION,
+        "wrapper_source_sha256": REVIEWED_MEM0_OSS_WRAPPER_SOURCE_SHA256,
         "config_fingerprint_sha256": "c" * 64,
         "adapter": "mem0_oss",
         "runtime": {
@@ -332,8 +389,8 @@ def valid_v3_capabilities(
         "delete": {"verified_absent": True},
         "integrity": {
             "manifest_sha256": "0" * 64,
-            "runtime_pin_sha256": "d" * 64,
-            "lock_sha256": "e" * 64,
+            "runtime_pin_sha256": REVIEWED_MEM0_OSS_RUNTIME_PIN_SHA256,
+            "lock_sha256": REVIEWED_MEM0_OSS_LOCK_SHA256,
         },
     }
     if refreshed:
