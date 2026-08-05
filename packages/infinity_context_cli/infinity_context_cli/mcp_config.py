@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import Any
 
 from infinity_context_cli.config import InfinityContextCliConfig
+from infinity_context_cli.onboarding import auto_memory_env
 
 SUPPORTED_AGENTS = {"codex", "claude", "cursor", "gemini", "opencode"}
 _SERVICE_TOKEN_ENV_KEY = "MEMORY_SERVICE_TOKEN"
@@ -17,6 +18,7 @@ def build_mcp_config(
     agent: str,
     config: InfinityContextCliConfig,
     include_token: bool = False,
+    auto_memory_mode: str = "suggest",
 ) -> dict[str, Any]:
     if agent not in SUPPORTED_AGENTS:
         raise ValueError(f"Unsupported agent: {agent}")
@@ -35,6 +37,7 @@ def build_mcp_config(
         env["MEMORY_MCP_AUTH_TOKEN"] = config.service_token
     else:
         env["MEMORY_MCP_AUTH_TOKEN_FILE"] = str(config.env_path)
+    env.update(auto_memory_env(agent=agent, mode=auto_memory_mode))
     if agent in {"codex", "cursor"}:
         return {"infinity-context": {"command": command, "env": env}}
     return {"mcpServers": {"infinity-context": {"command": command, "env": env}}}
@@ -45,9 +48,15 @@ def render_mcp_config(
     agent: str,
     config: InfinityContextCliConfig,
     include_token: bool = False,
+    auto_memory_mode: str = "suggest",
 ) -> str:
     return json.dumps(
-        build_mcp_config(agent=agent, config=config, include_token=include_token),
+        build_mcp_config(
+            agent=agent,
+            config=config,
+            include_token=include_token,
+            auto_memory_mode=auto_memory_mode,
+        ),
         indent=2,
         sort_keys=True,
     )
@@ -58,6 +67,7 @@ def write_mcp_config(
     agent: str,
     config: InfinityContextCliConfig,
     include_token: bool = False,
+    auto_memory_mode: str = "suggest",
 ) -> Path:
     if not include_token:
         sync_token_file(config)
@@ -65,7 +75,13 @@ def write_mcp_config(
     output_dir.mkdir(parents=True, exist_ok=True)
     path = output_dir / f"{agent}-mcp.json"
     path.write_text(
-        render_mcp_config(agent=agent, config=config, include_token=include_token) + "\n",
+        render_mcp_config(
+            agent=agent,
+            config=config,
+            include_token=include_token,
+            auto_memory_mode=auto_memory_mode,
+        )
+        + "\n",
         encoding="utf-8",
     )
     if include_token:
