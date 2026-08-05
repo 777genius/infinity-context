@@ -1,6 +1,9 @@
 from __future__ import annotations
 
+import hashlib
+import json
 from copy import deepcopy
+from pathlib import Path
 
 from infinity_context_server.memory_comparison_mem0_contract import (
     evaluate_mem0_runtime_capabilities,
@@ -9,6 +12,12 @@ from infinity_context_server.memory_comparison_mem0_contract import (
 from infinity_context_server.memory_comparison_mem0_oss_contract import (
     evaluate_mem0_oss_runtime_capabilities,
     public_mem0_oss_runtime_manifest,
+)
+from infinity_context_server.memory_comparison_mem0_oss_manifest import (
+    REVIEWED_MEM0_OSS_LOCK_SHA256,
+    REVIEWED_MEM0_OSS_RUNTIME_PIN_SHA256,
+    REVIEWED_MEM0_OSS_WRAPPER_SOURCE_REVISION,
+    REVIEWED_MEM0_OSS_WRAPPER_SOURCE_SHA256,
 )
 from infinity_context_server.memory_comparison_mem0_oss_v4_manifest import (
     MEM0_BENCHMARK_CAPABILITIES_SCHEMA_VERSION_V4,
@@ -21,6 +30,56 @@ from infinity_context_server.memory_comparison_mem0_oss_v4_manifest import (
     mem0_oss_v4_runtime_manifest_sha256,
 )
 from test_memory_comparison_mem0_oss_contract import deep_copied_v3_capabilities
+
+
+def test_v4_reviewed_exact_binding_constants_are_pinned() -> None:
+    assert REVIEWED_MEM0_OSS_V4_WRAPPER_SOURCE_REVISION == (
+        "2fa3537fde1c830001147b0b7ce010a666ae6eea"
+    )
+    assert REVIEWED_MEM0_OSS_V4_WRAPPER_SOURCE_SHA256 == (
+        "55fce5fb998d0da18c84c94c91547beb0da51410363bbc382a9691b3ea35c03b"
+    )
+    assert REVIEWED_MEM0_OSS_V4_RUNTIME_PIN_SHA256 == (
+        "71085e4c62bb5b0c817222c273b0647342d075c29797489f175a900cc2f492eb"
+    )
+
+
+def test_v3_reviewed_exact_binding_constants_are_unchanged() -> None:
+    assert (
+        REVIEWED_MEM0_OSS_WRAPPER_SOURCE_REVISION,
+        REVIEWED_MEM0_OSS_WRAPPER_SOURCE_SHA256,
+        REVIEWED_MEM0_OSS_RUNTIME_PIN_SHA256,
+        REVIEWED_MEM0_OSS_LOCK_SHA256,
+    ) == (
+        "10a7572007055ac9791b35d571a7844a432fe862",
+        "bc84ec6d608568cceb0aa23f92990018ddfba9e4cb8b575608a55d7dd1f58ba9",
+        "efa3a315048f6c117d61295be42af0d9cc36ecb1b627d4456a31da0764754f5a",
+        "70a54d810222b68f1f8b76f1fcf9c4332875f3fc242682fee3b5779db122f73d",
+    )
+
+
+def test_v4_exact_binding_matches_tracked_adapter_artifacts() -> None:
+    repository_root = Path(__file__).resolve().parents[2]
+    adapter_root = repository_root / "benchmarks" / "mem0-oss-adapter"
+    runtime_pin = json.loads((adapter_root / "runtime-pin.json").read_text(encoding="utf-8"))
+    assert isinstance(runtime_pin, dict)
+
+    assert runtime_pin["wrapper_source_revision"] == REVIEWED_MEM0_OSS_V4_WRAPPER_SOURCE_REVISION
+    assert runtime_pin["wrapper_source_sha256"] == REVIEWED_MEM0_OSS_V4_WRAPPER_SOURCE_SHA256
+    assert runtime_pin["runtime_lock_sha256"] == REVIEWED_MEM0_OSS_V4_LOCK_SHA256
+
+    wrapper_digest = hashlib.sha256()
+    wrapper_sources = sorted((adapter_root / "mem0_oss_adapter").glob("*.py"))
+    assert wrapper_sources
+    for source_path in wrapper_sources:
+        wrapper_digest.update(source_path.name.encode())
+        wrapper_digest.update(source_path.read_bytes())
+    assert wrapper_digest.hexdigest() == REVIEWED_MEM0_OSS_V4_WRAPPER_SOURCE_SHA256
+
+    assert _canonical_json_sha256(runtime_pin) == REVIEWED_MEM0_OSS_V4_RUNTIME_PIN_SHA256
+    runtime_lock = json.loads((adapter_root / "runtime-lock.json").read_text(encoding="utf-8"))
+    assert isinstance(runtime_lock, dict)
+    assert _canonical_json_sha256(runtime_lock) == REVIEWED_MEM0_OSS_V4_LOCK_SHA256
 
 
 def test_v4_profile_is_accepted_by_oss_and_generic_contract_dispatch() -> None:
@@ -88,3 +147,13 @@ def _seal_v4(manifest: dict[str, object]) -> None:
     checksum = mem0_oss_v4_runtime_manifest_sha256(manifest)
     assert checksum is not None
     integrity["manifest_sha256"] = checksum
+
+
+def _canonical_json_sha256(payload: object) -> str:
+    encoded = json.dumps(
+        payload,
+        ensure_ascii=False,
+        sort_keys=True,
+        separators=(",", ":"),
+    ).encode()
+    return hashlib.sha256(encoded).hexdigest()
