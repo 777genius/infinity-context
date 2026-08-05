@@ -35,14 +35,19 @@ MEMORA_DIRECT_SMOKE_REPORT ?= .tmp/memora-direct-smoke.json
 MEMORA_PUBLIC_BENCHMARK_REPORT ?= .e2e-artifacts/public-benchmark-full-600-current.json
 MEMORA_PRODUCTION_AUDIT_REPORT ?= .e2e-artifacts/multimodal-production-goal-audit.json
 OBSIDIAN_PLUGIN_DIR ?= packages/infinity_context_obsidian_plugin
+FILE_SIZE_BASE_REF ?=
 
 .PHONY: infinity-context-format
 infinity-context-format:
 	$(RUFF) format .
 
 .PHONY: infinity-context-lint
-infinity-context-lint:
+infinity-context-lint: infinity-context-file-size-boundaries
 	$(RUFF) check .
+
+.PHONY: infinity-context-file-size-boundaries
+infinity-context-file-size-boundaries:
+	$(PYTHON) scripts/check_file_size_boundaries.py $(if $(FILE_SIZE_BASE_REF),--base-ref $(FILE_SIZE_BASE_REF),)
 
 .PHONY: local-memory
 local-memory:

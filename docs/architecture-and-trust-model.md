@@ -75,6 +75,20 @@ There is no Hindsight adapter today. A future integration would need an explicit
 ownership boundary between Infinity Context canonical state and Hindsight's
 experiential and cognitive representations.
 
+## Current and target cognitive shape
+
+Today, Postgres canonical and keyword retrieval form the `lite` profile. The `full`
+target keeps one broad hybrid retrieval lane (Qdrant dense plus sparse) and an
+optional Graphiti temporal/relationship lane. Cognitive memory adds only a
+provider-neutral candidate derivation boundary: it does not own retrieval,
+lifecycle, visibility, review, or prompt packing. `context_building` continues to
+own fusion, policy, citations, and token budgeting.
+
+The logical Canonical, Cognitive, Retrieval, and Context planes, with cross-cutting
+Governance, are defined in
+[ADR-0009](adr/ADR-0009-provider-neutral-cognitive-foundation.md). They remain
+feature-owned vertical slices rather than new global package layers.
+
 ## Trust invariants
 
 - **Canonical current state lives in Postgres.** Spaces, memory scopes, threads,
@@ -252,3 +266,6 @@ lifecycle correctness does not require Qdrant, Graphiti, or Cognee.
 - [ADR-0003: Canonical fact lifecycle](adr/ADR-0003-canonical-fact-lifecycle.md)
 - [ADR-0004: Derived retrieval adapters](adr/ADR-0004-derived-retrieval-adapters.md)
 - [ADR-0005: Capability ports for Cognee and Graphiti](adr/ADR-0005-capability-ports-cognee-graphiti.md)
+- [ADR-0007: Feature-owned vertical slices](adr/ADR-0007-feature-owned-vertical-slices.md)
+- [ADR-0008: Monotonic file-size budgets](adr/ADR-0008-monotonic-file-size-budgets.md)
+- [ADR-0009: Provider-neutral cognitive foundation](adr/ADR-0009-provider-neutral-cognitive-foundation.md)

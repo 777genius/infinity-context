@@ -119,7 +119,7 @@ infinity_context_obsidian = [
 ]
 
 [tool.pytest.ini_options]
-testpaths = ["tests"]
+testpaths = ["tests", "packages/infinity_context_core/infinity_context_core/features"]
 pythonpath = [
   ".",
   "packages/infinity_context_core",
