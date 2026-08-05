@@ -51,17 +51,22 @@ flowchart LR
     A["Agents and apps"] --> B["HTTP / SDK / MCP / CLI / UI"]
     B --> C["Application use cases"]
     C --> P[("Postgres<br/>canonical current truth")]
-    P --> Q["Qdrant<br/>optional derived retrieval index"]
-    P --> G["Graphiti<br/>optional current-state graph projection"]
-    Q -. "retrieval candidates" .-> C
-    G -. "retrieval candidates" .-> C
+    P -->|"when async work is needed"| O["Transactional outbox"]
+    O --> W["Projection and extraction workers"]
+    W --> Q["Qdrant<br/>optional derived retrieval index"]
+    W --> G["Graphiti<br/>optional current-state graph projection"]
+    Q -. "candidate IDs" .-> C
+    G -. "candidate IDs" .-> C
+    C -. "hydrate and revalidate" .-> P
     C --> E["Final prompt context<br/>cited evidence, not instructions"]
 ~~~
 
-Writes record canonical facts, documents, sources, versions, and scope first.
-Derived projections run separately. During search or context assembly, every
-derived candidate is checked against current canonical state before it can
-appear in a cited evidence block.
+Canonical mutations commit their lifecycle records first. When derived or
+extraction work is required, the same transaction also records an outbox event.
+Workers update enabled projections asynchronously. During search or context
+assembly, candidate IDs are rehydrated from Postgres and revalidated for
+lifecycle, scope, and visibility before they can appear in a cited evidence
+block.
 
 ## Architecture and trust model
 
@@ -91,6 +96,11 @@ curl -fsSLo infinity-context-install.sh \
   https://raw.githubusercontent.com/777genius/infinity-context/v0.1.0/scripts/install.sh
 bash infinity-context-install.sh --agent codex
 ~~~
+
+> **Persistence warning:** v0.1.0 does not declare a named Postgres volume.
+> Back up canonical Postgres data before `docker compose down`, container
+> recreation, reset, or upgrade. The persistence fix currently exists on
+> `main` and will reach installers in the next release.
 
 Replace `codex` with `claude`, `gemini`, `opencode`, or `cursor`. Repeat
 `--agent` to connect several agents, or use `--all-agents`. The installer
@@ -207,6 +217,12 @@ deployment details may evolve.
   cleanup. A stale derived hit is rechecked before rendering.
 - Cognee is disabled by default and currently provides a recall-oriented
   boundary without complete ingest, update, or exact-forget lifecycle support.
+- The current `main` branch contains provider-neutral cognitive candidate types
+  and derivation policy for experiences, observations, lessons, and mental
+  models. The foundation itself is not included in v0.1.0. Main still has no
+  cognitive persistence, public API, runtime composition wiring, deployment
+  dependency, or live adapter; cognitive memory is not part of the active
+  runtime shown above.
 - Retrieval includes deterministic prepasses shaped by the current evaluation
   domains. This is not ground-truth leakage, but broader transfer quality still
   needs independent evidence.

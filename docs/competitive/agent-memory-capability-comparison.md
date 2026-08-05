@@ -166,8 +166,9 @@ category.
 
 Important limits are material:
 
-- It has no native equivalent of Hindsight observations, maintained mental
-  models, or Reflect.
+- It has no wired or persisted cognitive pipeline comparable to Hindsight.
+  Current `main` contains only provider-neutral cognitive candidate types and
+  derivation policy for experiences, observations, lessons, and mental models.
 - The Graphiti adapter is intentionally narrow. It represents current-state
   projection and does not expose Graphiti's complete source-reference,
   ontology, or version-history surface.
@@ -401,9 +402,9 @@ memory architecture alone.
 The audit supports the current trust-first direction and identifies concrete
 roadmap work:
 
-1. Add a review-aware cognitive layer from episodes and experiences to
-   observations, mental models, and lessons, while preserving evidence through
-   every promotion.
+1. Complete and wire the existing provider-neutral cognitive foundation to
+   persistence, public APIs, and review-aware promotion while preserving
+   evidence from experiences through observations, lessons, and mental models.
 2. Make the Graphiti projection version-aware instead of representing only the
    current canonical episode.
 3. Complete or remove the incomplete Cognee ingest, update, and exact-forget

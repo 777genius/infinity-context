@@ -17,6 +17,11 @@ less infinity-context-install.sh
 bash infinity-context-install.sh --agent codex
 ```
 
+> **Persistence warning:** v0.1.0 does not declare a named Postgres volume.
+> Back up canonical Postgres data before `docker compose down`, container
+> recreation, reset, or upgrade. The persistence fix currently exists on
+> `main` and will reach installers in the next release.
+
 Repeat `--agent` to connect more agents, or use `--all-agents`. The normal mode
 creates review-gated memory suggestions and opens the UI after readiness. It does
 not silently apply captured memory.
@@ -70,6 +75,19 @@ docker pull ghcr.io/777genius/infinity-context:0.1.0
 The image contains the Infinity Context server. Postgres remains the canonical
 store and must be configured externally; the versioned Compose stack installed
 by the recommended installer provides the complete local topology.
+
+## Data persistence and v0.1.0 upgrades
+
+The current `main` developer Compose stack stores canonical Postgres data in a
+named volume. A normal `docker compose down` keeps named volumes, while
+`docker compose down -v` and installer `--reset-data` delete them. The
+self-hosted team topology also persists Postgres.
+
+Release v0.1.0 did not declare a named Postgres volume in its local Compose
+stack. Before upgrading or recreating existing v0.1.0 local containers, export
+or back up canonical Postgres data, then restore or migrate it deliberately.
+The exact procedure depends on the existing deployment and backup policy; do
+not recreate the legacy container until its canonical data is safely backed up.
 
 ## Automatic memory policy
 

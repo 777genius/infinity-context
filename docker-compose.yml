@@ -74,6 +74,8 @@ services:
       POSTGRES_DB: infinity_context
     ports:
       - "${MEMORY_POSTGRES_PORT:-54329}:5432"
+    volumes:
+      - infinity_context_postgres_data:/var/lib/postgresql/data
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U infinity_context -d infinity_context"]
       interval: 5s
@@ -243,5 +245,6 @@ services:
 
 volumes:
   infinity_context_assets:
+  infinity_context_postgres_data:
   infinity_context_qdrant_data:
   infinity_context_neo4j_data:

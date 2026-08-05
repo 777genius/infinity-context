@@ -11,6 +11,7 @@ about boundaries and behavior, not a promise of a particular deployment outcome.
 - [Problem and mental model](#problem-and-mental-model)
 - [System shape](#system-shape)
 - [Adapter coverage today](#adapter-coverage-today)
+- [Current and target cognitive shape](#current-and-target-cognitive-shape)
 - [Trust invariants](#trust-invariants)
 - [Canonical write flow](#canonical-write-flow)
 - [Canonical read flow](#canonical-read-flow)
@@ -77,12 +78,22 @@ experiential and cognitive representations.
 
 ## Current and target cognitive shape
 
-Today, Postgres canonical and keyword retrieval form the `lite` profile. The `full`
-target keeps one broad hybrid retrieval lane (Qdrant dense plus sparse) and an
-optional Graphiti temporal/relationship lane. Cognitive memory adds only a
-provider-neutral candidate derivation boundary: it does not own retrieval,
-lifecycle, visibility, review, or prompt packing. `context_building` continues to
-own fusion, policy, citations, and token budgeting.
+Today, Postgres canonical and keyword retrieval form the `lite` profile. The
+shipped developer `full` profile enables Qdrant dense retrieval and Graphiti.
+The self-hosted topology keeps those provider lanes configurable. Sparse Qdrant
+retrieval exists behind `MEMORY_QDRANT_HYBRID_SPARSE_ENABLED`, but the current
+Compose profiles do not enable it. The target keeps one broad Qdrant
+dense-plus-sparse hybrid lane and an optional Graphiti temporal/relationship
+lane.
+
+The current `main` branch also contains provider-neutral cognitive candidate
+types and derivation policy for experiences, observations, lessons, and mental
+models. It does not own retrieval, lifecycle, visibility, review, or prompt
+packing. The foundation itself is not included in v0.1.0. Main still has no
+cognitive persistence, public API, runtime composition wiring, deployment
+dependency, or live adapter.
+`context_building` continues to own fusion, policy, citations, and token
+budgeting.
 
 The logical Canonical, Cognitive, Retrieval, and Context planes, with cross-cutting
 Governance, are defined in
@@ -254,6 +265,13 @@ boundary. It is not part of the primary trust or retrieval claims in this guide.
 
 The full profile has more services and configuration. It is optional: canonical
 lifecycle correctness does not require Qdrant, Graphiti, or Cognee.
+
+The developer Compose stack stores canonical Postgres data in the named
+`infinity_context_postgres_data` volume. A normal `docker compose down` keeps
+named volumes; `docker compose down -v` and installer `--reset-data` remove
+them. Release v0.1.0 did not declare this Postgres volume, so users upgrading an
+existing local deployment must first follow the backup warning in the
+[public installation guide](public-installation.md#data-persistence-and-v010-upgrades).
 
 ## Further reading
 

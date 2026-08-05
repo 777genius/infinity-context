@@ -6,7 +6,7 @@ Public guides:
 
 - [Public installation and first run](public-installation.md)
 - [Architecture and trust model](architecture-and-trust-model.md)
-- [Revised agent memory capability comparison](competitive/agent-memory-capability-comparison.md) - a source-backed capability audit, not a product ranking
+- [Revised agent memory capability comparison](competitive/agent-memory-capability-comparison.md) - a source-backed, project-weighted architecture-fit ranking, not a matched benchmark
 
 This directory contains public guides, architecture decisions, implementation
 plans, research notes, and integration references for Infinity Context.
