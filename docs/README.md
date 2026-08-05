@@ -33,6 +33,9 @@ plans, research notes, and integration references for Infinity Context.
 - [ADR-0004 - Derived Retrieval Adapters](adr/ADR-0004-derived-retrieval-adapters.md)
 - [ADR-0005 - Capability Ports For Cognee And Graphiti](adr/ADR-0005-capability-ports-cognee-graphiti.md)
 - [ADR-0006 - Multimodal Ingestion Provider Policy](adr/ADR-0006-multimodal-ingestion-provider-policy.md)
+- [ADR-0007 - Feature-Owned Vertical Slices](adr/ADR-0007-feature-owned-vertical-slices.md)
+- [ADR-0008 - Monotonic File-Size Budgets](adr/ADR-0008-monotonic-file-size-budgets.md)
+- [ADR-0009 - Provider-Neutral Cognitive Foundation](adr/ADR-0009-provider-neutral-cognitive-foundation.md)
 
 ## Documentation Scope
 
