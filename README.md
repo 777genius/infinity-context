@@ -121,18 +121,31 @@ Retrieved memory is evidence to inspect, not an instruction source.
 
 ## Capability positioning
 
-This is capability positioning, not a quality ranking. There is no matched
-four-way benchmark behind this table. The clearest distinction is between two
-different goals: Hindsight currently offers the deeper cognitive-memory layer,
-while Infinity Context focuses on a governed current-state control plane for
-project memory shared by teams and agents.
+This is a project-weighted architecture audit, not a matched performance
+benchmark. There is no universal winner. Under an explicit trust-weighted
+coding-agent rubric, Infinity Context has the clearest explicit trust contract
+in the audited set and is the strongest fit for governed current-state project
+memory.
 
-| Product | Optimized for | Typical fit |
+| Product | Leads in | Best fit |
 | --- | --- | --- |
-| [Infinity Context](https://github.com/777genius/infinity-context) | Governed current-state project memory | Teams sharing evolving project knowledge across agents and apps |
-| [Hindsight](https://github.com/vectorize-io/hindsight) | Evidence-grounded observations, maintained mental models, multi-strategy recall, and agentic reflection | Agents that learn from accumulated experience |
-| [Mem0 OSS](https://github.com/mem0ai/mem0) | Portable personalization with user, agent, and run scopes | Products that want ADD-only extraction plus application-owned CRUD and policy |
-| [Memora](https://github.com/agentic-box/memora) | Local-first MCP memory with smart absorb, typed lineage, documents, and graph interaction | Individual developers wanting inspectable local memory workflows |
+| [Infinity Context](https://github.com/777genius/infinity-context) | Governed current state: canonical versions, provenance, scoped visibility, review-gated promotion, and revalidated derived hits | Teams sharing changing project knowledge across agents and apps |
+| [Hindsight](https://github.com/vectorize-io/hindsight) | Cognitive memory: evidence-grounded observations, maintained mental models, broad recall, and reflection | Agents that learn from accumulated experience |
+| [OpenViking](https://github.com/volcengine/OpenViking) | Unified coding-agent context across memories, resources, and skills | Agents that need one browsable project-context layer |
+| [MemOS](https://github.com/MemTensor/MemOS) | Broad Memory OS building blocks, MemCubes, routing, and schedulers | Products experimenting with multiple memory forms and providers |
+| [MatrixOrigin Memoria](https://github.com/matrixorigin/Memoria) | Memory branches, snapshots, diffs, merges, and rollback | Workflows that need recoverable alternative memory states |
+| [MemMachine](https://github.com/MemMachine/MemMachine) | Source-linked episodic memory and conversational recall | Assistants that must point back to source conversations |
+| [Honcho](https://github.com/plastic-labs/honcho) | Peer and user modeling with explicit and inferred conclusions | Assistants that reason about a person's evolving model |
+| [EverOS](https://github.com/EverMind-AI/EverOS) | Markdown-first local memory with transparent files and derived indexes | Developers who want readable, Git-friendly local memory |
+| [Memora](https://github.com/agentic-box/memora) | Lightweight local MCP memory with lineage and graph interaction | Individual developers wanting inspectable local workflows |
+| [Mem0 OSS](https://github.com/mem0ai/mem0) | Portable memory SDK and integrations | Products that own their lifecycle policy and need quick integration |
+
+**Where Infinity Context stands out.** Vector and graph search can find a
+candidate. Only current, visible Postgres state can enter the prompt. A
+transactional outbox drives derived projections; every hit is rechecked against
+canonical scope, version, and deletion rules, then rendered as cited evidence
+rather than an instruction. That directly reduces the chance that an agent
+acts on stale, out-of-scope, or silently invented project state.
 
 See the detailed [agent memory capability comparison](docs/competitive/agent-memory-capability-comparison.md)
 for lifecycle, retrieval, temporal behavior, review, isolation, deployment, and
