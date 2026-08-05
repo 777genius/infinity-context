@@ -3,7 +3,7 @@ from __future__ import annotations
 import hashlib
 import hmac
 import json
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from types import SimpleNamespace
 
 import pytest
@@ -50,13 +50,14 @@ def test_usage_http_port_consumes_exact_ingress_lane_once_and_hides_credentials(
         probe_nonce=_NONCE,
         ingress_authority=authority,
         timeout_seconds=10,
+        deadline=_NOW + timedelta(seconds=10),
+        clock=lambda: _NOW,
         allowed_target_hosts=("127.0.0.1",),
     )
 
     result = port.attest(
         run_id=_RUN_ID,
         target_identity_sha256=target,
-        validated_at=_NOW,
     )
 
     assert result is verified
@@ -65,6 +66,8 @@ def test_usage_http_port_consumes_exact_ingress_lane_once_and_hides_credentials(
     assert isinstance(kwargs, dict)
     assert kwargs["benchmark_probe_token"] == _PROBE_TOKEN
     assert kwargs["ingress_api_key"] == _INGRESS_KEY
+    assert kwargs["timeout_seconds"] == 10
+    assert kwargs["validated_at"] == _NOW
     assert _PROBE_TOKEN not in repr(port)
     assert _INGRESS_KEY not in repr(port)
     with pytest.raises(subject.ManagedMem0OssUsageHttpError, match="already_used"):
@@ -81,6 +84,8 @@ def test_usage_http_port_wrong_binding_burns_before_probe(
         probe_nonce=_NONCE,
         ingress_authority=authority,
         timeout_seconds=10,
+        deadline=_NOW + timedelta(seconds=10),
+        clock=lambda: _NOW,
         allowed_target_hosts=("127.0.0.1",),
     )
     monkeypatch.setattr(
@@ -91,6 +96,98 @@ def test_usage_http_port_wrong_binding_burns_before_probe(
 
     with pytest.raises(subject.ManagedMem0OssUsageHttpError, match="binding_invalid"):
         port.attest(run_id=_RUN_ID, target_identity_sha256="0" * 64)
+
+
+def test_usage_http_port_caps_probe_to_the_remaining_absolute_deadline(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    authority = _authority()
+    target = inspect_mem0_oss_ingress_authority(authority).target_identity_sha256
+    captured: dict[str, object] = {}
+
+    def fake_probe(*_args: object, **kwargs: object):
+        captured.update(kwargs)
+        return SimpleNamespace(
+            passed=True,
+            details={"verified_usage_attestation": _verified(target)},
+        )
+
+    monkeypatch.setattr(subject, "probe_mem0_oss_usage_attestation", fake_probe)
+    port = subject.ManagedMem0OssUsageAttestationPort(
+        base_url=_TARGET_URL,
+        benchmark_probe_token=_PROBE_TOKEN,
+        probe_nonce=_NONCE,
+        ingress_authority=authority,
+        timeout_seconds=10,
+        deadline=_NOW + timedelta(seconds=3),
+        clock=lambda: _NOW,
+        allowed_target_hosts=("127.0.0.1",),
+    )
+
+    port.attest(run_id=_RUN_ID, target_identity_sha256=target)
+
+    assert captured["timeout_seconds"] == 3
+    assert captured["validated_at"] == _NOW
+
+
+def test_expired_usage_deadline_burns_the_one_shot_claim_before_probe(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    authority = _authority()
+    target = inspect_mem0_oss_ingress_authority(authority).target_identity_sha256
+    port = subject.ManagedMem0OssUsageAttestationPort(
+        base_url=_TARGET_URL,
+        benchmark_probe_token=_PROBE_TOKEN,
+        probe_nonce=_NONCE,
+        ingress_authority=authority,
+        timeout_seconds=10,
+        deadline=_NOW,
+        clock=lambda: _NOW,
+        allowed_target_hosts=("127.0.0.1",),
+    )
+    monkeypatch.setattr(
+        subject,
+        "probe_mem0_oss_usage_attestation",
+        lambda *_args, **_kwargs: pytest.fail("expired usage proof must not probe"),
+    )
+
+    with pytest.raises(subject.ManagedMem0OssUsageHttpError, match="deadline_exceeded"):
+        port.attest(run_id=_RUN_ID, target_identity_sha256=target)
+    with pytest.raises(subject.ManagedMem0OssUsageHttpError, match="already_used"):
+        port.attest(run_id=_RUN_ID, target_identity_sha256=target)
+
+
+def test_usage_deadline_is_rechecked_after_ingress_claim_before_http(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    authority = _authority()
+    target = inspect_mem0_oss_ingress_authority(authority).target_identity_sha256
+    observed_now = [_NOW]
+    deadline = _NOW + timedelta(seconds=3)
+    port = subject.ManagedMem0OssUsageAttestationPort(
+        base_url=_TARGET_URL,
+        benchmark_probe_token=_PROBE_TOKEN,
+        probe_nonce=_NONCE,
+        ingress_authority=authority,
+        timeout_seconds=10,
+        deadline=deadline,
+        clock=lambda: observed_now[0],
+        allowed_target_hosts=("127.0.0.1",),
+    )
+
+    def delayed_ingress(*_args: object, **_kwargs: object) -> str:
+        observed_now[0] = deadline
+        return _INGRESS_KEY
+
+    monkeypatch.setattr(subject, "_consume_mem0_oss_ingress_usage_probe", delayed_ingress)
+    monkeypatch.setattr(
+        subject,
+        "probe_mem0_oss_usage_attestation",
+        lambda *_args, **_kwargs: pytest.fail("expired usage proof must not probe"),
+    )
+
+    with pytest.raises(subject.ManagedMem0OssUsageHttpError, match="deadline_exceeded"):
+        port.attest(run_id=_RUN_ID, target_identity_sha256=target)
 
 
 def _authority():

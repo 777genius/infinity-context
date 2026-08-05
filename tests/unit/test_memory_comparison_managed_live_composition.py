@@ -54,8 +54,9 @@ def _material() -> SimpleNamespace:
             SimpleNamespace(target=object()),
         ),
         scope="canary",
+        mem0_expected_runtime_mode="oss",
     )
-    runtime_port = _runtime_port()
+    runtime_port = _runtime_port(expected_runtime_mode="oss")
     return SimpleNamespace(
         preflight=preflight,
         run_id="managed-run-1",
@@ -157,6 +158,7 @@ def test_prepare_derives_every_authority_field_from_admission(
         "backend_targets": tuple(item.target for item in material.preflight.backend_endpoints),
         "provider_route": captured["route"],
         "scope": material.preflight.scope,
+        "mem0_expected_runtime_mode": material.preflight.mem0_expected_runtime_mode,
         "selected_case_ids": material.canary_case_ids,
     }
 
@@ -246,6 +248,32 @@ def test_prepare_burns_admission_before_dataset_hash_validation(
         )
 
     assert calls == 1
+
+
+def test_prepare_rejects_runtime_descriptor_mode_that_differs_from_preflight(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    material = _material()
+    material.mem0_runtime_descriptor = replace(
+        material.mem0_runtime_descriptor,
+        expected_runtime_mode="managed_platform",
+    )
+
+    monkeypatch.setattr(
+        subject,
+        "_consume_verified_managed_live_admission",
+        lambda *args, **kwargs: material,
+    )
+
+    with pytest.raises(ManagedRunError, match="runtime mode differs from admitted preflight"):
+        subject.prepare_verified_managed_live_run(
+            object(),
+            expected_request=object(),
+            credential_authority=object(),
+            readiness_claim=object(),
+            dataset_bytes=_DATASET,
+            now=_NOW,
+        )
 
 
 def test_preparation_is_opaque_noncopyable_and_nonserializable(

@@ -39,6 +39,9 @@ from infinity_context_server.memory_comparison_full_scope import (
     FULL_COMPARISON_SCOPE_CANARY,
     FULL_COMPARISON_SCOPE_FULL,
 )
+from infinity_context_server.memory_comparison_managed_mem0_auth import (
+    managed_mem0_runtime_mode,
+)
 
 FULL_COMPARISON_RUN_EVIDENCE_SCHEMA_VERSION = "memory-comparison-full-run-evidence.v1"
 FULL_COMPARISON_COMPONENT_KINDS: Final[tuple[str, ...]] = (
@@ -78,6 +81,7 @@ class FullComparisonRunBindings:
     dataset_sha256: str
     selection_fingerprint_sha256: str
     backend_targets: tuple[FullComparisonBackendTarget, ...]
+    mem0_expected_runtime_mode: str
     scope: str
     binding_commitment_sha256: str
 
@@ -262,6 +266,7 @@ def create_full_comparison_run_bindings(
     selection_fingerprint_sha256: str,
     backend_targets: tuple[FullComparisonBackendTarget, ...],
     scope: str = FULL_COMPARISON_SCOPE_FULL,
+    mem0_expected_runtime_mode: str | None = None,
 ) -> FullComparisonRunBindings:
     """Build bindings after revalidating frozen profile and methodology policy."""
 
@@ -277,6 +282,15 @@ def create_full_comparison_run_bindings(
         and dataset_sha256 != trusted_profile.expected_dataset_hash
     ):
         raise FullComparisonEvidenceError("dataset differs from frozen profile")
+    expected_runtime_mode = _validated_mem0_expected_runtime_mode(
+        (
+            trusted_profile.required_mem0_runtime_mode
+            if mem0_expected_runtime_mode is None
+            else mem0_expected_runtime_mode
+        ),
+        profile=trusted_profile,
+        scope=scope,
+    )
     fields = _binding_fields(
         run_id=run_id,
         run_nonce_commitment_sha256=run_nonce_commitment_sha256,
@@ -286,6 +300,7 @@ def create_full_comparison_run_bindings(
         dataset_sha256=dataset_sha256,
         selection_fingerprint_sha256=selection_fingerprint_sha256,
         backend_targets=backend_targets,
+        mem0_expected_runtime_mode=expected_runtime_mode,
         scope=scope,
     )
     binding = FullComparisonRunBindings(
@@ -297,6 +312,7 @@ def create_full_comparison_run_bindings(
         dataset_sha256=dataset_sha256,
         selection_fingerprint_sha256=selection_fingerprint_sha256,
         backend_targets=backend_targets,
+        mem0_expected_runtime_mode=expected_runtime_mode,
         scope=scope,
         binding_commitment_sha256=_json_sha256(fields),
     )
@@ -620,6 +636,7 @@ def _validate_bindings(bindings: FullComparisonRunBindings) -> FullComparisonRun
         dataset_sha256=bindings.dataset_sha256,
         selection_fingerprint_sha256=bindings.selection_fingerprint_sha256,
         backend_targets=bindings.backend_targets,
+        mem0_expected_runtime_mode=bindings.mem0_expected_runtime_mode,
         scope=bindings.scope,
     )
     if not hmac.compare_digest(_json_sha256(fields), bindings.binding_commitment_sha256):
@@ -630,6 +647,11 @@ def _validate_bindings(bindings: FullComparisonRunBindings) -> FullComparisonRun
         and bindings.dataset_sha256 != profile.expected_dataset_hash
     ):
         raise FullComparisonEvidenceError("run dataset differs from profile")
+    _validated_mem0_expected_runtime_mode(
+        bindings.mem0_expected_runtime_mode,
+        profile=profile,
+        scope=bindings.scope,
+    )
     expected_methodology = _json_sha256(
         public_full_comparison_methodology_contract(full_comparison_methodology_contract(profile))
     )
@@ -655,6 +677,10 @@ def _validate_bindings_shape(bindings: FullComparisonRunBindings) -> None:
         raise FullComparisonEvidenceError("profile_id is invalid")
     if bindings.scope not in {FULL_COMPARISON_SCOPE_FULL, FULL_COMPARISON_SCOPE_CANARY}:
         raise FullComparisonEvidenceError("full comparison scope is invalid")
+    try:
+        managed_mem0_runtime_mode(bindings.mem0_expected_runtime_mode)
+    except ValueError:
+        raise FullComparisonEvidenceError("mem0 expected runtime mode is invalid") from None
     if type(bindings.backend_targets) is not tuple or any(
         type(item) is not FullComparisonBackendTarget for item in bindings.backend_targets
     ):
@@ -679,6 +705,7 @@ def _binding_fields(
     dataset_sha256: str,
     selection_fingerprint_sha256: str,
     backend_targets: tuple[FullComparisonBackendTarget, ...],
+    mem0_expected_runtime_mode: str,
     scope: str,
 ) -> dict[str, object]:
     return {
@@ -696,8 +723,29 @@ def _binding_fields(
             }
             for item in backend_targets
         ],
+        "mem0_expected_runtime_mode": mem0_expected_runtime_mode,
         "scope": scope,
     }
+
+
+def _validated_mem0_expected_runtime_mode(
+    value: object,
+    *,
+    profile: FullComparisonProfile,
+    scope: str,
+) -> str:
+    try:
+        runtime_mode = managed_mem0_runtime_mode(value)
+    except ValueError:
+        raise FullComparisonEvidenceError("mem0 expected runtime mode is invalid") from None
+    if (
+        scope == FULL_COMPARISON_SCOPE_FULL
+        and runtime_mode != profile.required_mem0_runtime_mode
+    ):
+        raise FullComparisonEvidenceError(
+            "full scope mem0 expected runtime mode differs from frozen profile"
+        )
+    return runtime_mode
 
 
 def _profile(profile_id: str) -> FullComparisonProfile:

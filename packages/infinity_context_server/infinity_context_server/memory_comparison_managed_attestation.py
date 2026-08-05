@@ -20,9 +20,6 @@ from datetime import UTC, datetime
 from typing import TYPE_CHECKING, final
 from urllib.parse import urlsplit
 
-from infinity_context_server.memory_comparison_full_profiles import (
-    resolve_full_comparison_profile,
-)
 from infinity_context_server.memory_comparison_full_run_evidence import (
     FullComparisonRunBindings,
     _validate_bindings,
@@ -447,13 +444,10 @@ def _runtime_snapshot(
 ) -> _RuntimeSnapshot:
     if type(validation) is not VerifiedMem0RuntimeAttestationValidation:
         raise ManagedCompositionAttestationError("managed runtime capability type must be exact")
-    profile = resolve_full_comparison_profile(bindings.profile_id)
-    if profile is None:
-        raise ManagedCompositionAttestationError("managed runtime profile is unavailable")
     public = public_mem0_runtime_attestation_validation(validation)
     if not mem0_runtime_attestation_validation_is_publishable(
         validation,
-        required_runtime_mode=profile.required_mem0_runtime_mode,
+        required_runtime_mode=bindings.mem0_expected_runtime_mode,
     ):
         raise ManagedCompositionAttestationError("managed runtime capability is not publishable")
     attestation = public.get("attestation")
@@ -470,7 +464,7 @@ def _runtime_snapshot(
         or attestation.get("run_id_sha256") != expected_run
         or attestation.get("probe_nonce_sha256") != bindings.runtime_probe_nonce_sha256
         or attestation.get("target_identity_sha256") != mem0_targets[0]
-        or attestation.get("runtime_mode") != profile.required_mem0_runtime_mode
+        or attestation.get("runtime_mode") != bindings.mem0_expected_runtime_mode
     ):
         raise ManagedCompositionAttestationError(
             "managed runtime binding differs from full comparison"
@@ -510,7 +504,7 @@ def _runtime_snapshot(
         ):
             raise ManagedCompositionAttestationError(f"managed runtime {field} is stale or invalid")
     return _RuntimeSnapshot(
-        runtime_mode=str(attestation["runtime_mode"]),
+        runtime_mode=bindings.mem0_expected_runtime_mode,
         run_id_sha256=expected_run,
         probe_nonce_sha256=bindings.runtime_probe_nonce_sha256,
         target_identity_sha256=mem0_targets[0],

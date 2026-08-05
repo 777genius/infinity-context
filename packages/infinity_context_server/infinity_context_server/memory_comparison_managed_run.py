@@ -152,6 +152,7 @@ def create_managed_comparison_run_bindings(
         dataset_sha256=plan.dataset_sha256,
         selection_fingerprint_sha256=plan.selection_fingerprint_sha256,
         backend_targets=plan.backend_targets,
+        mem0_expected_runtime_mode=plan.mem0_expected_runtime_mode,
         scope=plan.scope,
     )
 
@@ -826,6 +827,7 @@ def _validated_bindings_for_plan(
         or trusted.dataset_sha256 != plan.dataset_sha256
         or trusted.selection_fingerprint_sha256 != plan.selection_fingerprint_sha256
         or trusted.backend_targets != plan.backend_targets
+        or trusted.mem0_expected_runtime_mode != plan.mem0_expected_runtime_mode
         or trusted.scope != plan.scope
     ):
         raise ManagedRunError("managed run bindings differ from verified plan")

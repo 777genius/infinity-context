@@ -5,7 +5,7 @@ from __future__ import annotations
 import hmac
 import re
 import threading
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from datetime import UTC, datetime
 from math import isfinite
 from typing import final
@@ -30,6 +30,7 @@ _RUN_ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:-]{0,159}$")
 _NONCE = re.compile(r"^[0-9a-f]{64}$")
 _SHA256 = re.compile(r"^[0-9a-f]{64}$")
 _MAX_SECRET_BYTES = 4_096
+_MIN_NETWORK_TIMEOUT_SECONDS = 0.001
 
 
 class ManagedMem0OssUsageHttpError(RuntimeError):
@@ -51,6 +52,8 @@ class ManagedMem0OssUsageAttestationPort:
         "__base_url",
         "__benchmark_probe_token",
         "__consumed",
+        "__clock",
+        "__deadline",
         "__ingress_authority",
         "__lock",
         "__probe_nonce",
@@ -67,6 +70,8 @@ class ManagedMem0OssUsageAttestationPort:
         probe_nonce: str,
         ingress_authority: Mem0OssIngressCredentialAuthority,
         timeout_seconds: float,
+        deadline: datetime,
+        clock: Callable[[], datetime],
         allowed_target_hosts: Sequence[str],
         vetted_transport: VettedProbeTransport | None = None,
     ) -> None:
@@ -75,6 +80,9 @@ class ManagedMem0OssUsageAttestationPort:
             if type(probe_nonce) is not str or _NONCE.fullmatch(probe_nonce) is None:
                 raise ManagedMem0OssUsageHttpError("mem0_oss_usage_configuration_invalid")
             timeout = _timeout(timeout_seconds)
+            trusted_deadline = _instant(deadline)
+            if not callable(clock):
+                raise ManagedMem0OssUsageHttpError("mem0_oss_usage_configuration_invalid")
             hosts = _hosts(allowed_target_hosts)
             target = vet_probe_target(
                 base_url,
@@ -96,6 +104,8 @@ class ManagedMem0OssUsageAttestationPort:
         self.__base_url = target.base_url
         self.__benchmark_probe_token = token
         self.__probe_nonce = probe_nonce
+        self.__deadline = trusted_deadline
+        self.__clock = clock
         self.__ingress_authority = ingress_authority
         self.__target_identity_sha256 = target.identity_sha256
         self.__timeout_seconds = timeout
@@ -119,9 +129,8 @@ class ManagedMem0OssUsageAttestationPort:
         *,
         run_id: str,
         target_identity_sha256: str,
-        validated_at: datetime | None = None,
     ) -> VerifiedMem0OssUsageAttestation:
-        """Bind one exact run/nonce/target and verify the signed single-add witness."""
+        """Bind one exact run/nonce/target within the original run deadline."""
 
         benchmark_probe_token = ""
         ingress_api_key = ""
@@ -142,6 +151,11 @@ class ManagedMem0OssUsageAttestationPort:
                 _wipe(self.__benchmark_probe_token)
                 raise ManagedMem0OssUsageHttpError("mem0_oss_usage_binding_invalid")
             try:
+                self.__remaining_timeout()
+            except Exception:
+                _wipe(self.__benchmark_probe_token)
+                raise
+            try:
                 benchmark_probe_token = bytes(self.__benchmark_probe_token).decode()
             except Exception:
                 _wipe(self.__benchmark_probe_token)
@@ -153,16 +167,17 @@ class ManagedMem0OssUsageAttestationPort:
                 run_id=run_id,
                 target_identity_sha256=target_identity_sha256,
             )
+            validated_at, timeout_seconds = self.__remaining_timeout()
             outcome = probe_mem0_oss_usage_attestation(
                 self.__base_url,
                 benchmark_probe_token=benchmark_probe_token,
                 ingress_api_key=ingress_api_key,
                 run_id=run_id,
                 probe_nonce=self.__probe_nonce,
-                timeout_seconds=self.__timeout_seconds,
+                timeout_seconds=timeout_seconds,
                 allowed_target_hosts=self.__allowed_target_hosts,
                 vetted_transport=self.__transport,
-                validated_at=validated_at or datetime.now(UTC),
+                validated_at=validated_at,
             )
             verified = outcome.details.get("verified_usage_attestation")
             if outcome.passed is not True or type(verified) is not VerifiedMem0OssUsageAttestation:
@@ -175,6 +190,18 @@ class ManagedMem0OssUsageAttestationPort:
         finally:
             benchmark_probe_token = ""
             ingress_api_key = ""
+
+    def __remaining_timeout(self) -> tuple[datetime, float]:
+        try:
+            now = _instant(self.__clock())
+        except ManagedMem0OssUsageHttpError:
+            raise
+        except Exception:
+            raise ManagedMem0OssUsageHttpError("mem0_oss_usage_configuration_invalid") from None
+        remaining = (self.__deadline - now).total_seconds()
+        if remaining < _MIN_NETWORK_TIMEOUT_SECONDS:
+            raise ManagedMem0OssUsageHttpError("mem0_oss_usage_deadline_exceeded")
+        return now, min(self.__timeout_seconds, remaining)
 
 
 def _secret(value: object) -> bytearray:
@@ -196,6 +223,17 @@ def _timeout(value: object) -> float:
     if not isfinite(result) or not 0 < result <= 120:
         raise ManagedMem0OssUsageHttpError("mem0_oss_usage_configuration_invalid")
     return result
+
+
+def _instant(value: object) -> datetime:
+    if type(value) is not datetime or value.tzinfo is None:
+        raise ManagedMem0OssUsageHttpError("mem0_oss_usage_configuration_invalid")
+    try:
+        if value.utcoffset() is None:
+            raise ValueError("timezone offset is absent")
+        return value.astimezone(UTC)
+    except Exception:
+        raise ManagedMem0OssUsageHttpError("mem0_oss_usage_configuration_invalid") from None
 
 
 def _hosts(value: object) -> tuple[str, ...]:

@@ -59,6 +59,7 @@ _KNOWN_PRIVATE_METADATA_KEYS = frozenset(
     {
         EVALUATOR_GROUND_TRUTH_KEY,
         "answer_preview",
+        "answer_terms",
         "answer_session_aliases",
         "reference_date",
         "reference_date_human",

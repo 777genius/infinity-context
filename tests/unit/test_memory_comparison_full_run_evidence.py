@@ -62,6 +62,7 @@ def _bindings(
     scope: str = FULL_COMPARISON_SCOPE_FULL,
     selection: str = "b" * 64,
     dataset_sha256: str | None = None,
+    mem0_expected_runtime_mode: str | None = None,
 ) -> FullComparisonRunBindings:
     profile = resolve_full_comparison_profile(PROFILE_LOCOMO_TOP_50)
     assert profile is not None
@@ -80,6 +81,7 @@ def _bindings(
             FullComparisonBackendTarget("mem0", "d" * 64),
         ),
         scope=scope,
+        mem0_expected_runtime_mode=mem0_expected_runtime_mode,
     )
 
 
@@ -120,6 +122,7 @@ def test_bindings_are_exact_and_commit_every_publication_axis() -> None:
     assert bindings.dataset_sha256
     assert bindings.methodology_commitment_sha256
     assert bindings.selection_fingerprint_sha256 == "b" * 64
+    assert bindings.mem0_expected_runtime_mode == "managed_platform"
     assert tuple(item.backend_role for item in bindings.backend_targets) == (
         "infinity-context",
         "mem0",
@@ -129,6 +132,26 @@ def test_bindings_are_exact_and_commit_every_publication_axis() -> None:
     object.__setattr__(bindings, "selection_fingerprint_sha256", "9" * 64)
     with pytest.raises(FullComparisonEvidenceError, match="commitment differs"):
         create_full_comparison_evidence_issuer(bindings)
+
+
+def test_canary_oss_runtime_mode_is_explicitly_committed() -> None:
+    oss = _bindings(
+        scope=FULL_COMPARISON_SCOPE_CANARY,
+        mem0_expected_runtime_mode="oss",
+    )
+    platform = _bindings(scope=FULL_COMPARISON_SCOPE_CANARY)
+
+    assert oss.mem0_expected_runtime_mode == "oss"
+    assert oss.binding_commitment_sha256 != platform.binding_commitment_sha256
+
+    object.__setattr__(oss, "mem0_expected_runtime_mode", "managed_platform")
+    with pytest.raises(FullComparisonEvidenceError, match="commitment differs"):
+        create_full_comparison_evidence_issuer(oss)
+
+
+def test_full_scope_rejects_oss_runtime_mode_downgrade() -> None:
+    with pytest.raises(FullComparisonEvidenceError, match="differs from frozen profile"):
+        _bindings(mem0_expected_runtime_mode="oss")
 
 
 @pytest.mark.parametrize(

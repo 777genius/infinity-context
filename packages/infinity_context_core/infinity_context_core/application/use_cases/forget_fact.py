@@ -23,21 +23,20 @@ class ForgetFactUseCase:
             current = await uow.facts.get_for_update(command.fact_id)
             if current is None:
                 raise MemoryNotFoundError("Fact not found")
-            was_deleted = current.status == FactStatus.DELETED
+            if current.status == FactStatus.DELETED:
+                await uow.commit()
+                return FactResult(fact=current, indexing_status="already_deleted")
+
             forgotten = current.forget(now=self._clock.now())
             saved = await uow.facts.save(forgotten)
-            if not was_deleted:
-                await uow.outbox.enqueue(
-                    OutboxEvent(
-                        event_type="graph.delete_fact",
-                        aggregate_type="fact",
-                        aggregate_id=str(saved.id),
-                        aggregate_version=saved.version,
-                        payload={"fact_id": str(saved.id), "version": saved.version},
-                    )
+            await uow.outbox.enqueue(
+                OutboxEvent(
+                    event_type="graph.delete_fact",
+                    aggregate_type="fact",
+                    aggregate_id=str(saved.id),
+                    aggregate_version=saved.version,
+                    payload={"fact_id": str(saved.id), "version": saved.version},
                 )
-            await uow.commit()
-            return FactResult(
-                fact=saved,
-                indexing_status="already_deleted" if was_deleted else "pending",
             )
+            await uow.commit()
+            return FactResult(fact=saved, indexing_status="pending")

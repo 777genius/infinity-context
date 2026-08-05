@@ -15,15 +15,20 @@ services:
       MEM0_OSS_QDRANT_HOST: 127.0.0.1
       MEM0_OSS_QDRANT_PORT: 6333
       MEM0_OSS_STATE_DIR: /var/lib/mem0-oss
+      HOME: /var/lib/mem0-oss
+      XDG_STATE_HOME: /var/lib/mem0-oss/state
+      XDG_CACHE_HOME: /var/lib/mem0-oss/cache
+      XDG_DATA_HOME: /var/lib/mem0-oss/data
+      XDG_CONFIG_HOME: /var/lib/mem0-oss/config
       MEM0_OSS_SUBSCRIPTION_BEARER_TOKEN: ${MEM0_OSS_SUBSCRIPTION_BEARER_TOKEN:-}
       MEM0_OSS_SUBSCRIPTION_BRIDGE_URL: ${MEM0_OSS_SUBSCRIPTION_BRIDGE_URL:-http://127.0.0.1:19090/v1}
     command:
-      - /opt/mem0-oss-venv/bin/uvicorn
-      - mem0_oss_adapter.app:app
-      - --host
-      - 127.0.0.1
-      - --port
-      - "8080"
+      - /bin/sh
+      - -ec
+      - |
+        umask 077
+        mkdir -p /var/lib/mem0-oss/.mem0 /var/lib/mem0-oss/state /var/lib/mem0-oss/cache /var/lib/mem0-oss/data /var/lib/mem0-oss/config
+        exec /opt/mem0-oss-venv/bin/uvicorn mem0_oss_adapter.app:app --host 127.0.0.1 --port 8080
     read_only: true
     tmpfs:
       - /tmp:size=64m,mode=1777
@@ -36,6 +41,11 @@ services:
     environment:
       QDRANT__SERVICE__HOST: 127.0.0.1
       QDRANT__SERVICE__HTTP_PORT: 6333
+      QDRANT__STORAGE__STORAGE_PATH: /qdrant/storage
+      QDRANT__STORAGE__SNAPSHOTS_PATH: /qdrant/storage/snapshots
+    entrypoint: []
+    command:
+      - /qdrant/qdrant
     read_only: true
     tmpfs:
       - /qdrant/storage:size=512m,mode=0700

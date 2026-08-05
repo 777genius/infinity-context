@@ -99,12 +99,14 @@ def test_query_utf8_byte_cap_is_exact() -> None:
         query="é" * (MAX_QUERY_BYTES // 2),
         filters=filters,
         limit=1,
+        top_k=1,
     ).query
     with pytest.raises(ValueError):
         SearchRequest(
             query="é" * (MAX_QUERY_BYTES // 2 + 1),
             filters=filters,
             limit=1,
+            top_k=1,
         )
 
 

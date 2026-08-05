@@ -30,12 +30,13 @@ usage. Subscription extraction is an `isolated_single_add` smoke path: its
 the model call. Ambient OpenAI and Mem0 provider variables are cleared before
 SDK setup.
 
-The additive v4 contract exposes signed usage evidence only for one exact,
-isolated add. `POST /benchmark/attest-usage` requires both the dedicated ingress
-key and probe token. It returns hashes plus a sanitized aggregate containing only
-the extraction mode, operation/call counts, bounded byte counts, fixed model and
-operation timestamps. Raw run identifiers, prompts, content, token counts,
-bridge URLs and credentials are never returned.
+The additive v4 contract exposes signed usage evidence for one exact run-scoped
+attestation. The subscription mode is restricted to one isolated add.
+`POST /benchmark/attest-usage` requires both the dedicated ingress key and probe
+token. It returns hashes plus a sanitized aggregate containing only the extraction
+mode, operation/call counts, bounded byte counts, fixed model and operation
+timestamps. Raw run identifiers, prompts, content, token counts, bridge URLs and
+credentials are never returned.
 The response-time `attested_at` value is bound into both the canonical usage
 fingerprint and HMAC witness. Operation timestamps remain historical evidence;
 only `attested_at` is suitable for freshness validation. Raw runs may aggregate

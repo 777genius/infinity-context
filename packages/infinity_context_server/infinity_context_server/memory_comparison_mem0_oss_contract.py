@@ -1,4 +1,4 @@
-"""Strict, provider-free validation policy for the reproducible Mem0 OSS v3 runtime."""
+"""Strict provider-free dispatch for reproducible Mem0 OSS v3 and v4 profiles."""
 
 from __future__ import annotations
 
@@ -29,12 +29,28 @@ from infinity_context_server.memory_comparison_mem0_oss_manifest import (
     is_sha256,
     is_utc_instant,
     mapping,
-    mem0_oss_refresh_manifest_sha256,
-    mem0_oss_runtime_manifest_sha256,
-    public_mem0_oss_runtime_manifest,
+)
+from infinity_context_server.memory_comparison_mem0_oss_manifest import (
+    mem0_oss_refresh_manifest_sha256 as _mem0_oss_v3_refresh_manifest_sha256,
+)
+from infinity_context_server.memory_comparison_mem0_oss_manifest import (
+    mem0_oss_runtime_manifest_sha256 as _mem0_oss_v3_runtime_manifest_sha256,
+)
+from infinity_context_server.memory_comparison_mem0_oss_manifest import (
+    public_mem0_oss_runtime_manifest as _public_mem0_oss_v3_runtime_manifest,
+)
+from infinity_context_server.memory_comparison_mem0_oss_v4_contract import (
+    MEM0_OSS_V4_RUNTIME_CAPABILITY_ISSUE_CODES,
+    evaluate_mem0_oss_v4_runtime_capabilities,
+)
+from infinity_context_server.memory_comparison_mem0_oss_v4_manifest import (
+    MEM0_BENCHMARK_CAPABILITIES_SCHEMA_VERSION_V4,
+    mem0_oss_v4_refresh_manifest_sha256,
+    mem0_oss_v4_runtime_manifest_sha256,
+    public_mem0_oss_v4_runtime_manifest,
 )
 
-MEM0_OSS_RUNTIME_CAPABILITY_ISSUE_CODES = frozenset(
+MEM0_OSS_V3_RUNTIME_CAPABILITY_ISSUE_CODES = frozenset(
     {
         "oss_v3_manifest_not_object",
         "oss_v3_unknown_top_level_fields",
@@ -89,9 +105,12 @@ MEM0_OSS_RUNTIME_CAPABILITY_ISSUE_CODES = frozenset(
         "oss_v3_refresh_timestamp_binding_mismatch",
     }
 )
+MEM0_OSS_RUNTIME_CAPABILITY_ISSUE_CODES = frozenset(
+    {*MEM0_OSS_V3_RUNTIME_CAPABILITY_ISSUE_CODES, *MEM0_OSS_V4_RUNTIME_CAPABILITY_ISSUE_CODES}
+)
 
 
-def evaluate_mem0_oss_runtime_capabilities(
+def _evaluate_mem0_oss_v3_runtime_capabilities(
     payload: object,
     *,
     require_timestamp: bool,
@@ -126,6 +145,60 @@ def evaluate_mem0_oss_runtime_capabilities(
     _validate_integrity(payload, issues)
     _validate_refresh_evidence(payload, issues)
     return tuple(dict.fromkeys(issues))
+
+
+def evaluate_mem0_oss_runtime_capabilities(
+    payload: object,
+    *,
+    require_timestamp: bool,
+) -> tuple[str, ...]:
+    """Dispatch only sealed OSS profile versions while preserving v3 evidence."""
+
+    if (
+        isinstance(payload, Mapping)
+        and payload.get("schema_version") == MEM0_BENCHMARK_CAPABILITIES_SCHEMA_VERSION_V4
+    ):
+        return evaluate_mem0_oss_v4_runtime_capabilities(
+            payload,
+            require_timestamp=require_timestamp,
+        )
+    return _evaluate_mem0_oss_v3_runtime_capabilities(
+        payload,
+        require_timestamp=require_timestamp,
+    )
+
+
+def mem0_oss_runtime_manifest_sha256(payload: object) -> str | None:
+    """Hash v3 or v4 according to the declared, sealed manifest profile."""
+
+    if (
+        isinstance(payload, Mapping)
+        and payload.get("schema_version") == MEM0_BENCHMARK_CAPABILITIES_SCHEMA_VERSION_V4
+    ):
+        return mem0_oss_v4_runtime_manifest_sha256(payload)
+    return _mem0_oss_v3_runtime_manifest_sha256(payload)
+
+
+def mem0_oss_refresh_manifest_sha256(payload: object) -> str | None:
+    """Return the matching v3/v4 refresh-witness fingerprint."""
+
+    if (
+        isinstance(payload, Mapping)
+        and payload.get("schema_version") == MEM0_BENCHMARK_CAPABILITIES_SCHEMA_VERSION_V4
+    ):
+        return mem0_oss_v4_refresh_manifest_sha256(payload)
+    return _mem0_oss_v3_refresh_manifest_sha256(payload)
+
+
+def public_mem0_oss_runtime_manifest(payload: object) -> dict[str, object]:
+    """Project the declared sealed profile without cross-version upgrades."""
+
+    if (
+        isinstance(payload, Mapping)
+        and payload.get("schema_version") == MEM0_BENCHMARK_CAPABILITIES_SCHEMA_VERSION_V4
+    ):
+        return public_mem0_oss_v4_runtime_manifest(payload)
+    return _public_mem0_oss_v3_runtime_manifest(payload)
 
 
 def _validate_top_level(payload: Mapping[str, object], issues: list[str]) -> None:
@@ -442,8 +515,11 @@ def _valid_refreshed_timestamp_attestation(value: object) -> bool:
 
 __all__ = (
     "MEM0_BENCHMARK_CAPABILITIES_SCHEMA_VERSION_V3",
+    "MEM0_BENCHMARK_CAPABILITIES_SCHEMA_VERSION_V4",
     "MEM0_OSS_ADAPTER",
     "MEM0_OSS_RUNTIME_CAPABILITY_ISSUE_CODES",
+    "MEM0_OSS_V3_RUNTIME_CAPABILITY_ISSUE_CODES",
+    "MEM0_OSS_V4_RUNTIME_CAPABILITY_ISSUE_CODES",
     "MEM0_OSS_RUNTIME_MODE",
     "REVIEWED_MEM0_OSS_LOCK_SHA256",
     "REVIEWED_MEM0_OSS_RUNTIME_PIN_SHA256",

@@ -4,6 +4,7 @@ import hashlib
 import hmac
 import json
 
+import pytest
 from fastapi.testclient import TestClient
 
 from mem0_oss_adapter.app import create_app
@@ -27,6 +28,31 @@ def _add_payload() -> dict[str, object]:
         "metadata": {"source_id": "source-1", "source_sha256": "a" * 64},
         "timestamp": 1_672_531_200,
     }
+
+
+def _search_payload() -> dict[str, object]:
+    return {
+        "query": "remembered source",
+        "filters": {"user_id": "user-1", "run_id": "run-1"},
+        "limit": 7,
+        "top_k": 7,
+    }
+
+
+class _SearchRecordingPort(FakeOssPort):
+    def __init__(self) -> None:
+        super().__init__()
+        self.search_calls: list[dict[str, object]] = []
+
+    def search(
+        self,
+        *,
+        query: str,
+        filters: dict[str, object],
+        top_k: int,
+    ) -> dict[str, object]:
+        self.search_calls.append({"query": query, "filters": dict(filters), "top_k": top_k})
+        return super().search(query=query, filters=filters, top_k=top_k)
 
 
 def test_data_plane_requires_dedicated_ingress_key(monkeypatch) -> None:
@@ -60,6 +86,87 @@ def test_add_is_strict_and_returns_sanitized_identity(monkeypatch) -> None:
     ]
     assert unknown.status_code == 422
     assert unknown.json() == {"detail": "invalid_request"}
+
+
+def test_search_accepts_matching_top_k_and_forwards_limit_to_port(monkeypatch) -> None:
+    monkeypatch.setenv("MEM0_ADAPTER_INGRESS_API_KEY", _INGRESS)
+    port = _SearchRecordingPort()
+    client = TestClient(create_app(port))
+
+    response = client.post("/search", headers=_headers(), json=_search_payload())
+
+    assert response.status_code == 200
+    assert response.json() == {"results": []}
+    assert port.search_calls == [
+        {
+            "query": "remembered source",
+            "filters": {"user_id": "user-1", "run_id": "run-1"},
+            "top_k": 7,
+        }
+    ]
+
+
+@pytest.mark.parametrize(
+    "payload",
+    (
+        {
+            "query": "remembered source",
+            "filters": {"user_id": "user-1", "run_id": "run-1"},
+            "limit": 7,
+            "top_k": 6,
+        },
+        {
+            "query": "remembered source",
+            "filters": {"user_id": "user-1", "run_id": "run-1"},
+            "limit": 7,
+        },
+        {
+            "query": "remembered source",
+            "filters": {"user_id": "user-1", "run_id": "run-1"},
+            "limit": 7,
+            "top_k": 0,
+        },
+        {
+            "query": "remembered source",
+            "filters": {"user_id": "user-1", "run_id": "run-1"},
+            "limit": 1,
+            "top_k": True,
+        },
+        {
+            "query": "remembered source",
+            "filters": {"user_id": "user-1", "run_id": "run-1"},
+            "limit": 7,
+            "top_k": 7,
+            "unknown": "must be rejected",
+        },
+    ),
+)
+def test_search_rejects_invalid_top_k_before_port_calls(
+    monkeypatch,
+    payload: dict[str, object],
+) -> None:
+    monkeypatch.setenv("MEM0_ADAPTER_INGRESS_API_KEY", _INGRESS)
+    port = _SearchRecordingPort()
+    client = TestClient(create_app(port))
+
+    response = client.post("/search", headers=_headers(), json=payload)
+
+    assert response.status_code == 422
+    assert response.json() == {"detail": "invalid_request"}
+    assert port.search_calls == []
+
+
+def test_search_request_openapi_contract() -> None:
+    client = TestClient(create_app(FakeOssPort()))
+
+    schema = client.get("/openapi.json").json()["components"]["schemas"]["SearchRequest"]
+
+    assert schema["additionalProperties"] is False
+    assert {"query", "filters", "limit", "top_k"} <= set(schema["required"])
+    top_k_schema = schema["properties"]["top_k"]
+    assert top_k_schema["type"] == "integer"
+    assert top_k_schema["minimum"] == 1
+    assert top_k_schema["maximum"] == 1000
 
 
 def test_capabilities_stay_static_without_refresh_material(monkeypatch) -> None:

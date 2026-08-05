@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from types import SimpleNamespace
@@ -55,6 +56,62 @@ def test_operator_flags_block_before_files_env_or_provider(
     assert report["status"] == "no-go"
     assert report["reason_code"] == "authorization_required"
     assert report["publishable"] is False
+
+
+@pytest.mark.parametrize(
+    "subscription_runtime_url",
+    (
+        "http://127.0.0.1:8890/v1",
+        "http://127.0.0.1:8890?path=query",
+        "http://127.0.0.1:8890#fragment",
+        "http://user:pass@127.0.0.1:8890",
+        "https://192.0.2.1:8890",
+    ),
+)
+def test_subscription_runtime_url_fails_closed_before_credentials_or_authority(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    subscription_runtime_url: str,
+) -> None:
+    config = _config(tmp_path, subscription_runtime_url=subscription_runtime_url)
+    profile = SimpleNamespace(profile_id=config.profile_id)
+    dataset = object()
+    cases = (object(),)
+
+    monkeypatch.setattr(subject, "_profile", lambda _: profile)
+    monkeypatch.setattr(subject, "managed_dataset_metadata_from_bytes", lambda **_: dataset)
+    monkeypatch.setattr(subject, "managed_policy_cases_from_dataset", lambda **_: cases)
+    monkeypatch.setattr(
+        subject,
+        "evaluate_managed_production_pre_readiness",
+        lambda _: SimpleNamespace(decision="go", blockers=()),
+    )
+    monkeypatch.setattr(
+        subject,
+        "issue_managed_runtime_credential_authority",
+        lambda **_: pytest.fail("authority must not be issued for an invalid URL"),
+    )
+
+    class _NoCredentialReads(dict[str, str]):
+        def get(self, key: object, default: object = None) -> object:
+            pytest.fail(f"credentials must not be read for invalid URL: {key!r}")
+
+    report = subject.run_managed_live_cli(config, env=_NoCredentialReads())
+
+    assert report == {
+        "suite": subject.MANAGED_LIVE_CLI_SUITE,
+        "schema_version": subject.MANAGED_LIVE_CLI_SCHEMA_VERSION,
+        "ok": False,
+        "status": "failed",
+        "reason_code": "subscription_runtime_url_invalid",
+        "blockers": [],
+        "provider_kind": "subscription-runtime",
+        "scope": "canary",
+        "publishable": False,
+    }
+    serialized = json.dumps(report, sort_keys=True)
+    assert subscription_runtime_url not in serialized
+    assert "ValueError" not in serialized
 
 
 def test_no_key_mem0_requires_explicit_loopback_auth_disabled_managed(
@@ -188,14 +245,21 @@ def test_oss_ingress_protected_target_must_be_vetted_local_or_private(tmp_path: 
         )
 
 
-def test_public_composition_wires_every_sealed_stage_without_real_io(
+@pytest.mark.parametrize(
+    ("usage_required", "usage_fails"),
+    ((True, False), (False, False), (True, True)),
+)
+def test_public_composition_wires_v4_only_post_sealed_usage_proof_without_real_io(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
+    usage_required: bool,
+    usage_fails: bool,
 ) -> None:
     config = _config(
         tmp_path,
         run_timeout_seconds=180,
         mem0_oss_ingress_protected=True,
+        subscription_runtime_url="http://127.0.0.1:8890/",
     )
     captured: dict[str, object] = {}
     profile = SimpleNamespace(
@@ -210,7 +274,12 @@ def test_public_composition_wires_every_sealed_stage_without_real_io(
     probe_credential = object()
     request = object()
     proof = object()
-    runtime = object()
+
+    class _Runtime:
+        def usage_attestation_required(self) -> bool:
+            return usage_required
+
+    runtime = _Runtime()
     admission = object()
     prepared = object()
     outcome = object()
@@ -221,6 +290,7 @@ def test_public_composition_wires_every_sealed_stage_without_real_io(
                 (
                     _NOW,
                     _NOW + timedelta(seconds=1),
+                    _NOW + timedelta(seconds=9),
                     _NOW + timedelta(seconds=9),
                     _NOW + timedelta(seconds=9),
                 )
@@ -283,6 +353,22 @@ def test_public_composition_wires_every_sealed_stage_without_real_io(
         captured["runtime"] = kwargs
         return runtime
 
+    class _UsagePort:
+        def attest(self, **kwargs: object) -> object:
+            captured["usage_attest"] = kwargs
+            if usage_fails:
+                raise subject.ManagedMem0OssUsageHttpError("mem0_oss_usage_probe_failed")
+            return SimpleNamespace(
+                public_payload=lambda: {
+                    "verified": True,
+                    "usage": {"mode": "raw_passthrough", "operation_count": 2},
+                }
+            )
+
+    def usage_port_factory(**kwargs: object) -> object:
+        captured["usage_port"] = kwargs
+        return _UsagePort()
+
     def admission_factory(**kwargs: object) -> object:
         captured["admission"] = kwargs
         return admission
@@ -292,6 +378,7 @@ def test_public_composition_wires_every_sealed_stage_without_real_io(
         return prepared
 
     monkeypatch.setattr(subject, "ManagedMem0RuntimeAttestationPort", runtime_factory)
+    monkeypatch.setattr(subject, "ManagedMem0OssUsageAttestationPort", usage_port_factory)
     monkeypatch.setattr(subject, "issue_verified_managed_live_admission", admission_factory)
     monkeypatch.setattr(subject, "prepare_verified_managed_live_run", prepare)
     monkeypatch.setattr(
@@ -304,7 +391,18 @@ def test_public_composition_wires_every_sealed_stage_without_real_io(
         "public_managed_run",
         lambda value: {"sealed": value is outcome},
     )
-    monkeypatch.setattr(subject.secrets, "token_urlsafe", lambda _: "n" * 43)
+    token_hex_calls: list[int] = []
+
+    def adapter_compatible_probe_nonce(bytes_count: int) -> str:
+        token_hex_calls.append(bytes_count)
+        return "a" * 64
+
+    monkeypatch.setattr(
+        subject.secrets,
+        "token_urlsafe",
+        lambda _: pytest.fail("runtime probe nonce must use the adapter hex contract"),
+    )
+    monkeypatch.setattr(subject.secrets, "token_hex", adapter_compatible_probe_nonce)
 
     report = subject.run_managed_live_cli(
         config,
@@ -315,19 +413,50 @@ def test_public_composition_wires_every_sealed_stage_without_real_io(
         },
     )
 
-    assert report == {
-        "suite": subject.MANAGED_LIVE_CLI_SUITE,
-        "schema_version": subject.MANAGED_LIVE_CLI_SCHEMA_VERSION,
-        "ok": True,
-        "status": "completed",
-        "provider_kind": "subscription-runtime",
-        "profile_id": config.profile_id,
-        "scope": "canary",
-        "selected_case_count": 2,
-        "publishable": False,
-        "result": {"sealed": True},
-    }
+    if usage_fails:
+        assert report == {
+            "suite": subject.MANAGED_LIVE_CLI_SUITE,
+            "schema_version": subject.MANAGED_LIVE_CLI_SCHEMA_VERSION,
+            "ok": False,
+            "status": "failed",
+            "reason_code": "mem0_oss_usage_attestation_failed",
+            "blockers": [],
+            "provider_kind": "subscription-runtime",
+            "scope": "canary",
+            "publishable": False,
+            "post_sealed_usage_attestation": {
+                "schema_version": "managed-mem0-oss-post-sealed-usage.v1",
+                "status": "failed",
+                "attempts": 1,
+                "retryable": False,
+            },
+            "sealed_outcome": {
+                "status": "retained_not_publishable",
+                "publishable": False,
+                "result": {"sealed": True},
+            },
+        }
+    else:
+        expected_result = {"sealed": True}
+        if usage_required:
+            expected_result["mem0_oss_usage_attestation"] = {
+                "verified": True,
+                "usage": {"mode": "raw_passthrough", "operation_count": 2},
+            }
+        assert report == {
+            "suite": subject.MANAGED_LIVE_CLI_SUITE,
+            "schema_version": subject.MANAGED_LIVE_CLI_SCHEMA_VERSION,
+            "ok": True,
+            "status": "completed",
+            "provider_kind": "subscription-runtime",
+            "profile_id": config.profile_id,
+            "scope": "canary",
+            "selected_case_count": 2,
+            "publishable": False,
+            "result": expected_result,
+        }
     assert "OPENAI_API_KEY" not in captured["authority"]
+    assert captured["authority"]["subscription_origin"] == "http://127.0.0.1:8890"
     assert captured["authority"]["mem0_api_key"] is None
     assert captured["authority"]["mem0_data_plane_auth_mode"] == "none"
     ingress = captured["authority"]["mem0_oss_ingress_authority"]
@@ -335,6 +464,7 @@ def test_public_composition_wires_every_sealed_stage_without_real_io(
     assert "private-ingress-key" not in repr(ingress)
     assert captured["request_fields"]["mem0_data_plane_auth_mode"] == "none"
     assert captured["readiness_run"]["model"] == subject.MANAGED_LIVE_CLI_MODEL
+    assert captured["readiness_claim"]["subscription_origin"] == "http://127.0.0.1:8890"
     assert captured["admission"]["budget"].max_provider_calls == 8
     assert captured["admission"]["budget"].max_total_tokens == 50_000
     assert captured["admission"]["allow_full_run"] is False
@@ -344,6 +474,20 @@ def test_public_composition_wires_every_sealed_stage_without_real_io(
     assert captured["prepare"][0] is admission
     assert captured["runtime"]["base_url"] == config.mem0_api_url
     assert captured["runtime"]["expected_runtime_mode"] == "oss"
+    assert captured["runtime"]["probe_nonce"] == "a" * 64
+    assert token_hex_calls
+    assert all(bytes_count == 32 for bytes_count in token_hex_calls)
+    if usage_required:
+        assert captured["usage_port"]["ingress_authority"] is ingress
+        assert captured["usage_port"]["deadline"] == _NOW + timedelta(seconds=180)
+        assert callable(captured["usage_port"]["clock"])
+        assert captured["usage_attest"]["run_id"] == config.run_id
+        assert captured["usage_attest"]["target_identity_sha256"] == (
+            ingress.descriptor().target_identity_sha256
+        )
+    else:
+        assert "usage_port" not in captured
+        assert "usage_attest" not in captured
 
 
 def test_project_registers_live_canary_entrypoint() -> None:
@@ -353,3 +497,16 @@ def test_project_registers_live_canary_entrypoint() -> None:
         "infinity-context-managed-live-canary = "
         '"infinity_context_server.memory_comparison_managed_live_cli:main"'
     ) in text
+
+
+def test_subscription_runtime_url_help_describes_pathless_origin() -> None:
+    action = next(
+        item
+        for item in subject._parser()._actions
+        if item.dest == "subscription_runtime_url"
+    )
+
+    assert action.metavar == "LOOPBACK_ORIGIN"
+    assert action.help is not None
+    assert "pathless loopback HTTP(S) origin" in action.help
+    assert "/v1/chat/completions" in action.help

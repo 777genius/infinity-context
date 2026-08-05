@@ -24,6 +24,9 @@ from infinity_context_server.memory_comparison_mem0_oss_contract import (
     evaluate_mem0_oss_runtime_capabilities,
     mem0_oss_runtime_manifest_sha256,
 )
+from infinity_context_server.memory_comparison_mem0_oss_v4_manifest import (
+    mem0_oss_v4_runtime_manifest_sha256,
+)
 from infinity_context_server.memory_comparison_mem0_runtime_attestation import (
     MEM0_MANAGED_PLATFORM_RUNTIME_MODE,
     MEM0_OSS_RUNTIME_MODE,
@@ -39,6 +42,7 @@ from infinity_context_server.memory_comparison_service_probes import (
 )
 from test_memory_comparison_mem0_contract import _valid_capabilities
 from test_memory_comparison_mem0_oss_contract import valid_v3_capabilities
+from test_memory_comparison_mem0_oss_v4_contract import valid_v4_capabilities
 from test_memory_comparison_mem0_runtime_attestation import (
     NONCE,
     RUN_ID,
@@ -105,6 +109,7 @@ def test_oss_adapter_accepts_only_a_valid_oss_same_run_runtime_attestation() -> 
         validation,
         required_runtime_mode=MEM0_OSS_RUNTIME_MODE,
     )
+    assert adapter.usage_attestation_required() is False
 
 
 def test_oss_v3_adapter_accepts_only_a_valid_oss_same_run_runtime_attestation() -> None:
@@ -125,6 +130,29 @@ def test_oss_v3_adapter_accepts_only_a_valid_oss_same_run_runtime_attestation() 
         validation,
         required_runtime_mode=MEM0_OSS_RUNTIME_MODE,
     )
+    assert adapter.usage_attestation_required() is False
+
+
+def test_oss_v4_adapter_requires_post_sealed_usage_attestation_only_after_verification() -> None:
+    adapter = _adapter(
+        _transport([], _oss_v4_witnessed_manifest(datetime.now(UTC))),
+        expected_runtime_mode=MEM0_OSS_RUNTIME_MODE,
+    )
+
+    with pytest.raises(ManagedMem0RuntimeHttpError, match="capability_invalid"):
+        adapter.usage_attestation_required()
+
+    validation = adapter.attest(
+        run_id=RUN_ID,
+        probe_nonce_sha256=_NONCE_SHA,
+        target_identity_sha256=TARGET_SHA,
+    )
+
+    assert mem0_runtime_attestation_validation_is_publishable(
+        validation,
+        required_runtime_mode=MEM0_OSS_RUNTIME_MODE,
+    )
+    assert adapter.usage_attestation_required() is True
 
 
 def test_oss_v3_raw_refresh_without_hmac_witness_is_rejected_at_generic_probe_boundary() -> None:
@@ -612,6 +640,40 @@ def _oss_v3_witnessed_manifest(now: datetime) -> dict[str, object]:
     integrity = manifest["integrity"]
     assert isinstance(integrity, dict)
     integrity_sha256 = mem0_oss_runtime_manifest_sha256(manifest)
+    assert integrity_sha256 is not None
+    integrity["manifest_sha256"] = integrity_sha256
+    return _signed_manifest(manifest)
+
+
+def _oss_v4_witnessed_manifest(now: datetime) -> dict[str, object]:
+    checked_at = now.isoformat(timespec="milliseconds").replace("+00:00", "Z")
+    manifest = valid_v4_capabilities()
+    timestamp = manifest["timestamp"]
+    identity = manifest["persisted_source_identity"]
+    assert isinstance(timestamp, dict)
+    assert isinstance(identity, dict)
+    timestamp["attestation"] = {
+        "status": "passed",
+        "checked_at": checked_at,
+        "metadata_created_at_roundtrip_attested": True,
+        "cleanup_succeeded": True,
+    }
+    identity.update(
+        {
+            "source_id_roundtrip_attested": True,
+            "source_sha256_roundtrip_attested": True,
+        }
+    )
+    manifest["refresh_binding"] = {
+        "status": "passed",
+        "run_id_sha256": hashlib.sha256(RUN_ID.encode()).hexdigest(),
+        "probe_nonce_sha256": hashlib.sha256(NONCE.encode()).hexdigest(),
+        "target_identity_sha256": TARGET_SHA,
+        "refreshed_at": checked_at,
+    }
+    integrity = manifest["integrity"]
+    assert isinstance(integrity, dict)
+    integrity_sha256 = mem0_oss_v4_runtime_manifest_sha256(manifest)
     assert integrity_sha256 is not None
     integrity["manifest_sha256"] = integrity_sha256
     return _signed_manifest(manifest)

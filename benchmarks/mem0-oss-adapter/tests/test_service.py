@@ -73,7 +73,12 @@ def test_search_returns_only_bounded_public_fields() -> None:
     port.rows[0]["metadata"]["secret"] = "secret"
 
     result = service.search(
-        SearchRequest(query="source", filters={"user_id": "user-1", "run_id": "run-1"}, limit=10)
+        SearchRequest(
+            query="source",
+            filters={"user_id": "user-1", "run_id": "run-1"},
+            limit=10,
+            top_k=10,
+        )
     )
 
     assert result == [
@@ -131,7 +136,7 @@ def test_search_rejects_any_scope_that_is_not_exactly_bound_to_one_run(
     filters: dict[str, object],
 ) -> None:
     with pytest.raises(ValueError):
-        SearchRequest(query="source", filters=filters, limit=10)
+        SearchRequest(query="source", filters=filters, limit=10, top_k=10)
 
 
 def test_add_rejects_a_reused_source_before_writing_another_memory() -> None:

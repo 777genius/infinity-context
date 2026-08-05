@@ -9,6 +9,7 @@ from collections.abc import Mapping
 from datetime import UTC, datetime, timedelta
 
 import pytest
+from infinity_context_server import memory_comparison_full_run_components as components
 from infinity_context_server import memory_comparison_managed_attestation as managed
 from infinity_context_server.memory_comparison_full_methodology import (
     full_comparison_methodology_contract,
@@ -30,6 +31,7 @@ from infinity_context_server.memory_comparison_mem0_platform_contract import (
     REVIEWED_MEM0_MANAGED_WRAPPER_SOURCE_SHA256,
 )
 from infinity_context_server.memory_comparison_mem0_runtime_attestation import (
+    MEM0_OSS_RUNTIME_MODE,
     VerifiedMem0RuntimeAttestationValidation,
     build_verified_mem0_runtime_attestation,
     mem0_runtime_target_identity_sha256,
@@ -38,6 +40,21 @@ from infinity_context_server.memory_comparison_mem0_runtime_attestation import (
 )
 from infinity_context_server.memory_comparison_provider_provenance import (
     ProviderRouteAttestation,
+)
+from test_memory_comparison_managed_mem0_runtime_http import (
+    _PROBE_TOKEN as _OSS_PROBE_TOKEN,
+)
+from test_memory_comparison_managed_mem0_runtime_http import (
+    _oss_v4_witnessed_manifest,
+)
+from test_memory_comparison_mem0_runtime_attestation import (
+    NONCE as _OSS_NONCE,
+)
+from test_memory_comparison_mem0_runtime_attestation import (
+    RUN_ID as _OSS_RUN_ID,
+)
+from test_memory_comparison_mem0_runtime_attestation import (
+    TARGET_SHA as _OSS_TARGET,
 )
 
 _RUN = "managed-composition-run"
@@ -109,6 +126,7 @@ def _bindings(
     probe_nonce_sha256: str | None = None,
     mem0_target: str = _TARGET,
     scope: str = "full",
+    mem0_expected_runtime_mode: str | None = None,
 ) -> FullComparisonRunBindings:
     profile = resolve_full_comparison_profile(PROFILE_LOCOMO_TOP_50)
     assert profile is not None
@@ -129,6 +147,7 @@ def _bindings(
             FullComparisonBackendTarget("mem0", mem0_target),
         ),
         scope=scope,
+        mem0_expected_runtime_mode=mem0_expected_runtime_mode,
     )
 
 
@@ -305,6 +324,34 @@ def _runtime_validation(
     return validation
 
 
+def _oss_v4_runtime_validation() -> VerifiedMem0RuntimeAttestationValidation:
+    observed_at = datetime.now(UTC)
+    verified = build_verified_mem0_runtime_attestation(
+        runtime_manifest=_oss_v4_witnessed_manifest(observed_at),
+        benchmark_probe_token=_OSS_PROBE_TOKEN,
+        openapi_fingerprint_sha256="d" * 64,
+        openapi_contract_violations=(),
+        probe_passed=True,
+        run_id=_OSS_RUN_ID,
+        probe_nonce=_OSS_NONCE,
+        target_identity_sha256=_OSS_TARGET,
+    )
+    assert verified is not None
+    validation = validate_mem0_runtime_attestation_for_backends(
+        verified,
+        (
+            _RuntimeBackend("infinity-context"),
+            _RuntimeBackend("mem0", target=_OSS_TARGET),
+        ),
+        _OSS_RUN_ID,
+        _OSS_NONCE,
+        required_runtime_mode=MEM0_OSS_RUNTIME_MODE,
+        validated_at=datetime.now(UTC),
+    )
+    assert type(validation) is VerifiedMem0RuntimeAttestationValidation
+    return validation
+
+
 def _validation_clock(
     validation: VerifiedMem0RuntimeAttestationValidation,
 ) -> datetime:
@@ -416,6 +463,32 @@ def test_canary_accepts_exact_credentialless_subscription_bridge_but_full_reject
         match="credential binding",
     ):
         _issue(bindings=_bindings(scope="full"), route=_subscription_route())
+
+
+def test_keyless_canary_oss_v4_runtime_uses_sealed_binding_mode() -> None:
+    validation = _oss_v4_runtime_validation()
+    bindings = _bindings(
+        run_id=_OSS_RUN_ID,
+        probe_nonce_sha256=hashlib.sha256(_OSS_NONCE.encode()).hexdigest(),
+        mem0_target=_OSS_TARGET,
+        scope="canary",
+        mem0_expected_runtime_mode=MEM0_OSS_RUNTIME_MODE,
+    )
+
+    attestation, _, _, _, ports = _issue(
+        bindings=bindings,
+        validation=validation,
+        route=_subscription_route(),
+    )
+    report = _public(attestation, bindings, ports)
+
+    runtime = report["runtime"]
+    assert isinstance(runtime, dict)
+    assert runtime["runtime_mode"] == MEM0_OSS_RUNTIME_MODE
+    assert components.live_component_status("runtime", validation, bindings) == (
+        "verified",
+        None,
+    )
 
 
 def test_no_public_self_issuer_or_raw_sha_wrapper() -> None:

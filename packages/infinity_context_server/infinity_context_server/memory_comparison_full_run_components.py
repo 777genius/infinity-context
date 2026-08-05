@@ -13,11 +13,6 @@ from infinity_context_server.memory_comparison_clean_state import (
     VerifiedCleanStateValidation,
     public_clean_state_validation,
 )
-from infinity_context_server.memory_comparison_full_profiles import (
-    FullComparisonProfile,
-    frozen_full_comparison_profile,
-    resolve_full_comparison_profile,
-)
 from infinity_context_server.memory_comparison_full_run_component_sets import (
     issue_execution_component_evidence_set,
     issue_policy_component_evidence_set,
@@ -226,7 +221,6 @@ def live_component_status(
     if component_kind == "runtime":
         if type(validation) is not VerifiedMem0RuntimeAttestationValidation:
             return "invalid", "runtime_component_invalid"
-        profile = _profile(bindings.profile_id)
         public = public_mem0_runtime_attestation_validation(validation)
         attestation = public.get("attestation")
         run_hash = attestation.get("run_id_sha256") if type(attestation) is dict else None
@@ -237,7 +231,7 @@ def live_component_status(
             and _runtime_validation_is_current(public)
             and mem0_runtime_attestation_validation_is_publishable(
                 validation,
-                required_runtime_mode=profile.required_mem0_runtime_mode,
+                required_runtime_mode=bindings.mem0_expected_runtime_mode,
             )
         )
         return ("verified", None) if valid else ("invalid", "runtime_component_invalid")
@@ -751,13 +745,6 @@ def _parse_utc_instant(value: object) -> datetime | None:
     except ValueError:
         return None
     return parsed if parsed.tzinfo is not None else None
-
-
-def _profile(profile_id: str) -> FullComparisonProfile:
-    profile = resolve_full_comparison_profile(profile_id)
-    if profile is None:
-        raise _evidence_error("full comparison profile is missing")
-    return frozen_full_comparison_profile(profile)
 
 
 def _evidence_error(message: str) -> Exception:

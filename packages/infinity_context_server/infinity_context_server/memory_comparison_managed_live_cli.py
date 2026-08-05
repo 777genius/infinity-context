@@ -39,6 +39,10 @@ from infinity_context_server.memory_comparison_managed_mem0_auth import (
     MANAGED_MEM0_DATA_PLANE_AUTH_NONE,
     expected_managed_mem0_runtime_mode,
 )
+from infinity_context_server.memory_comparison_managed_mem0_oss_usage_http import (
+    ManagedMem0OssUsageAttestationPort,
+    ManagedMem0OssUsageHttpError,
+)
 from infinity_context_server.memory_comparison_managed_mem0_runtime_http import (
     ManagedMem0RuntimeAttestationPort,
     ManagedUtcClockPort,
@@ -65,7 +69,11 @@ from infinity_context_server.memory_comparison_mem0_oss_ingress import (
     MEM0_OSS_INGRESS_API_KEY_ENV,
     Mem0OssIngressCredentialAuthority,
     Mem0OssIngressCredentialError,
+    inspect_mem0_oss_ingress_authority,
     issue_mem0_oss_ingress_credential_authority,
+)
+from infinity_context_server.memory_comparison_subscription_chat import (
+    _validated_loopback_origin,
 )
 from infinity_context_server.public_benchmark_artifacts import (
     validate_artifact_paths_do_not_overwrite_dataset,
@@ -98,8 +106,12 @@ _SAFE_CODES = frozenset(
         "dataset_unreadable",
         "local_mem0_target_required",
         "mem0_oss_ingress_configuration_invalid",
+        "mem0_oss_usage_attestation_configuration_invalid",
+        "mem0_oss_usage_attestation_failed",
+        "mem0_oss_usage_attestation_requirement_invalid",
         "pre_readiness_no_go",
         "profile_invalid",
+        "subscription_runtime_url_invalid",
     }
 )
 
@@ -247,6 +259,10 @@ def _run_managed_live(
     decision = evaluate_managed_production_pre_readiness(cases)
     if decision.decision != "go":
         return _failure("pre_readiness_no_go", blockers=decision.blockers)
+    try:
+        subscription_origin = _validated_loopback_origin(config.subscription_runtime_url)
+    except ValueError:
+        raise ManagedLiveCliError("subscription_runtime_url_invalid") from None
 
     infinity_token = _required_secret(
         env,
@@ -274,7 +290,7 @@ def _run_managed_live(
         mem0_origin=config.mem0_api_url,
         mem0_api_key=mem0_api_key,
         mem0_probe_token=mem0_probe_token,
-        subscription_origin=config.subscription_runtime_url,
+        subscription_origin=subscription_origin,
         subscription_bearer_token=subscription_token,
         request_timeout_seconds=float(config.request_timeout_seconds),
         issued_at=issued_at,
@@ -305,7 +321,7 @@ def _run_managed_live(
     readiness_claim = authority.issue_subscription_readiness_claim(
         expected_request=request,
         run_id=config.run_id,
-        subscription_origin=config.subscription_runtime_url,
+        subscription_origin=subscription_origin,
         deadline=deadline,
         now=clock.now(),
     )
@@ -319,7 +335,7 @@ def _run_managed_live(
     runtime_port = ManagedMem0RuntimeAttestationPort(
         base_url=config.mem0_api_url,
         benchmark_probe_token=mem0_probe_token,
-        probe_nonce=secrets.token_urlsafe(32),
+        probe_nonce=secrets.token_hex(32),
         timeout_seconds=float(config.request_timeout_seconds),
         deadline_budget_seconds=runtime_budget,
         monotonic_clock=time.monotonic,
@@ -358,6 +374,38 @@ def _run_managed_live(
         now=clock.now(),
     )
     outcome = run_verified_managed_production_comparison(prepared)
+    result = public_managed_run(outcome)
+    try:
+        usage_required = runtime_port.usage_attestation_required()
+    except Exception:
+        return _post_sealed_usage_failure(
+            "mem0_oss_usage_attestation_requirement_invalid",
+            sealed_result=result,
+        )
+    if type(usage_required) is not bool:
+        return _post_sealed_usage_failure(
+            "mem0_oss_usage_attestation_requirement_invalid",
+            sealed_result=result,
+        )
+    if usage_required:
+        try:
+            usage_port, target_identity_sha256 = _mem0_oss_usage_port_binding(
+                config,
+                benchmark_probe_token=mem0_probe_token,
+                ingress_authority=mem0_oss_ingress_authority,
+                deadline=deadline,
+                clock=clock.now,
+            )
+            usage = usage_port.attest(
+                run_id=config.run_id,
+                target_identity_sha256=target_identity_sha256,
+            )
+        except (ManagedLiveCliError, ManagedMem0OssUsageHttpError):
+            return _post_sealed_usage_failure(
+                "mem0_oss_usage_attestation_failed",
+                sealed_result=result,
+            )
+        result["mem0_oss_usage_attestation"] = usage.public_payload()
     return {
         "suite": MANAGED_LIVE_CLI_SUITE,
         "schema_version": MANAGED_LIVE_CLI_SCHEMA_VERSION,
@@ -368,7 +416,7 @@ def _run_managed_live(
         "scope": FULL_COMPARISON_SCOPE_CANARY,
         "selected_case_count": len(config.selected_case_ids),
         "publishable": False,
-        "result": public_managed_run(outcome),
+        "result": result,
     }
 
 
@@ -453,6 +501,35 @@ def _mem0_oss_ingress_authority(
         raise ManagedLiveCliError("mem0_oss_ingress_configuration_invalid") from None
 
 
+def _mem0_oss_usage_port_binding(
+    config: ManagedLiveCliConfig,
+    *,
+    benchmark_probe_token: str,
+    ingress_authority: Mem0OssIngressCredentialAuthority | None,
+    deadline: object,
+    clock: object,
+) -> tuple[ManagedMem0OssUsageAttestationPort, str]:
+    """Compose one required v4 proof under the original absolute run deadline."""
+
+    if ingress_authority is None:
+        raise ManagedLiveCliError("mem0_oss_usage_attestation_configuration_invalid")
+    try:
+        descriptor = inspect_mem0_oss_ingress_authority(ingress_authority)
+        port = ManagedMem0OssUsageAttestationPort(
+            base_url=config.mem0_api_url,
+            benchmark_probe_token=benchmark_probe_token,
+            probe_nonce=secrets.token_hex(32),
+            ingress_authority=ingress_authority,
+            timeout_seconds=float(config.request_timeout_seconds),
+            deadline=deadline,
+            clock=clock,
+            allowed_target_hosts=config.allowed_mem0_hosts,
+        )
+    except (Mem0OssIngressCredentialError, ManagedMem0OssUsageHttpError):
+        raise ManagedLiveCliError("mem0_oss_usage_attestation_configuration_invalid") from None
+    return port, descriptor.target_identity_sha256
+
+
 def _mem0_api_key(config: ManagedLiveCliConfig, env: Mapping[str, str]) -> str | None:
     """Compatibility helper returning the sealed data-plane key, if any."""
 
@@ -504,6 +581,28 @@ def _failure(code: str, *, blockers: tuple[str, ...] = ()) -> dict[str, object]:
     }
 
 
+def _post_sealed_usage_failure(
+    code: str,
+    *,
+    sealed_result: Mapping[str, object],
+) -> dict[str, object]:
+    """Retain sealed public evidence while fail-closing a terminal v4 proof error."""
+
+    report = _failure(code)
+    report["post_sealed_usage_attestation"] = {
+        "schema_version": "managed-mem0-oss-post-sealed-usage.v1",
+        "status": "failed",
+        "attempts": 1,
+        "retryable": False,
+    }
+    report["sealed_outcome"] = {
+        "status": "retained_not_publishable",
+        "publishable": False,
+        "result": dict(sealed_result),
+    }
+    return report
+
+
 def _parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="infinity-context-managed-live-canary")
     parser.add_argument("--dataset", type=Path, required=True)
@@ -512,7 +611,15 @@ def _parser() -> argparse.ArgumentParser:
     parser.add_argument("--run-id", required=True)
     parser.add_argument("--infinity-api-url", required=True)
     parser.add_argument("--mem0-api-url", required=True)
-    parser.add_argument("--subscription-runtime-url", required=True)
+    parser.add_argument(
+        "--subscription-runtime-url",
+        required=True,
+        metavar="LOOPBACK_ORIGIN",
+        help=(
+            "pathless loopback HTTP(S) origin, for example http://127.0.0.1:8890; "
+            "the CLI appends /v1/chat/completions"
+        ),
+    )
     parser.add_argument("--max-total-tokens", type=int, required=True)
     parser.add_argument("--mem0-runtime-implementation-sha256", required=True)
     parser.add_argument("--allow-live", action="store_true")

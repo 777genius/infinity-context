@@ -96,6 +96,7 @@ class SearchRequest(StrictModel):
     query: Annotated[str, Field(min_length=1)]
     filters: dict[str, Any]
     limit: Annotated[int, Field(ge=1, le=1000)]
+    top_k: Annotated[int, Field(strict=True, ge=1, le=1000)]
 
     @field_validator("query")
     @classmethod
@@ -109,6 +110,12 @@ class SearchRequest(StrictModel):
     def require_exact_run_scope(cls, value: dict[str, Any]) -> dict[str, Any]:
         _validate_exact_search_scope(value)
         return value
+
+    @model_validator(mode="after")
+    def require_matching_top_k(self) -> SearchRequest:
+        if self.top_k != self.limit:
+            raise ValueError("top_k must match limit")
+        return self
 
 
 class HealthResponse(StrictModel):
