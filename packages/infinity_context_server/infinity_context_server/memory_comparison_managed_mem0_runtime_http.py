@@ -27,6 +27,10 @@ from infinity_context_server.memory_comparison_managed_mem0_runtime_authority im
     MANAGED_MEM0_RUNTIME_DEADLINE_POLICY,
     ManagedMem0RuntimeAuthorityDescriptor,
     _register_pending_managed_mem0_runtime_authority,
+    _reserved_managed_mem0_runtime_deadline_lease_is_available,
+)
+from infinity_context_server.memory_comparison_managed_runtime_validity import (
+    _bind_managed_live_runtime_policy_from_reserved_authority,
 )
 from infinity_context_server.memory_comparison_mem0_oss_ingress import (
     Mem0OssIngressCredentialAuthority,
@@ -234,6 +238,8 @@ class ManagedMem0RuntimeAttestationPort:
         _register_pending_managed_mem0_runtime_authority(
             self,
             self.__authority_descriptor,
+            monotonic_clock=self.__monotonic_clock,
+            deadline_monotonic=self.__deadline_monotonic,
         )
 
     def __init_subclass__(cls, **kwargs: object) -> None:
@@ -320,6 +326,7 @@ class ManagedMem0RuntimeAttestationPort:
             verified = outcome.details.get("verified_runtime_attestation")
             if type(verified) is not VerifiedMem0RuntimeAttestation:
                 raise ManagedMem0RuntimeHttpError("managed_mem0_runtime_capability_invalid")
+            validated_at = datetime.now(UTC)
             validation = validate_mem0_runtime_attestation_for_backends(
                 verified,
                 (
@@ -331,7 +338,7 @@ class ManagedMem0RuntimeAttestationPort:
                 run_id,
                 nonce,
                 required_runtime_mode=self.__expected_runtime_mode,
-                validated_at=datetime.now(UTC),
+                validated_at=validated_at,
             )
             if (
                 type(validation) is not VerifiedMem0RuntimeAttestationValidation
@@ -341,6 +348,12 @@ class ManagedMem0RuntimeAttestationPort:
                 )
             ):
                 raise ManagedMem0RuntimeHttpError("managed_mem0_runtime_capability_invalid")
+            self.__bind_managed_live_freshness_after_probe(
+                validation,
+                run_id=run_id,
+                probe_nonce_sha256=probe_nonce_sha256,
+                target_identity_sha256=target_identity_sha256,
+            )
             self.__usage_attestation_required = _verified_oss_v4_usage_attestation_required(
                 validation,
                 expected_runtime_mode=self.__expected_runtime_mode,
@@ -395,6 +408,29 @@ class ManagedMem0RuntimeAttestationPort:
         if remaining < self.__minimum_network_timeout_seconds:
             raise ManagedMem0RuntimeHttpError("managed_mem0_runtime_deadline_exceeded")
         return min(self.__timeout_seconds, remaining)
+
+    def __bind_managed_live_freshness_after_probe(
+        self,
+        validation: VerifiedMem0RuntimeAttestationValidation,
+        *,
+        run_id: str,
+        probe_nonce_sha256: str,
+        target_identity_sha256: str,
+    ) -> None:
+        """Bind terminal authority only to this exact successful probe payload."""
+
+        if not _reserved_managed_mem0_runtime_deadline_lease_is_available(self):
+            return
+        try:
+            _bind_managed_live_runtime_policy_from_reserved_authority(
+                validation,
+                authority=self,
+                run_id=run_id,
+                probe_nonce_sha256=probe_nonce_sha256,
+                target_identity_sha256=target_identity_sha256,
+            )
+        except Exception:
+            raise ManagedMem0RuntimeHttpError("managed_mem0_runtime_capability_invalid") from None
 
 
 @final

@@ -265,6 +265,7 @@ def _runtime_validation(
     run_id: str = _RUN,
     nonce: str = _NONCE,
     target: str = _TARGET,
+    managed_live_max_age_seconds: int | None = None,
 ) -> VerifiedMem0RuntimeAttestationValidation:
     observed_at = datetime.now(UTC)
     manifest = _runtime_manifest(
@@ -318,9 +319,21 @@ def _runtime_validation(
         ),
         run_id,
         nonce,
-        validated_at=datetime.now(UTC),
+        validated_at=observed_at,
     )
     assert type(validation) is VerifiedMem0RuntimeAttestationValidation
+    if managed_live_max_age_seconds is not None:
+        from test_memory_comparison_managed_runtime_validity import (
+            _bind_terminal_policy,
+        )
+
+        _bind_terminal_policy(
+            validation,
+            run_id=run_id,
+            nonce=nonce,
+            target=target,
+            max_age_seconds=managed_live_max_age_seconds,
+        )
     return validation
 
 

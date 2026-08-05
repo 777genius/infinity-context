@@ -61,6 +61,9 @@ from infinity_context_server.memory_comparison_managed_production_composition im
     evaluate_managed_production_pre_readiness,
     run_verified_managed_production_comparison,
 )
+from infinity_context_server.memory_comparison_managed_production_runner import (
+    ManagedProductionRunnerError,
+)
 from infinity_context_server.memory_comparison_managed_run import public_managed_run
 from infinity_context_server.memory_comparison_managed_runtime_credentials import (
     issue_managed_runtime_credential_authority,
@@ -95,6 +98,7 @@ _ENV_INFINITY_TOKEN = "MEMORY_EVAL_AUTH_TOKEN"
 _ENV_MEM0_API_KEY = "MEM0_API_KEY"
 _ENV_MEM0_PROBE_TOKEN = "MEM0_BENCHMARK_PROBE_TOKEN"
 _ENV_SUBSCRIPTION_TOKEN = "SUBSCRIPTION_RUNTIME_BRIDGE_BEARER_TOKEN"
+_TRUSTED_MANAGED_PRODUCTION_SEAL_FAILURE_CODE = "managed_production_execution_seal_failed"
 _SAFE_CODES = frozenset(
     {
         "artifact_path_invalid",
@@ -228,6 +232,8 @@ def run_managed_live_cli(
         report = _run_managed_live(config, environment)
     except ManagedLiveCliError as exc:
         report = _failure(exc.code)
+    except ManagedProductionRunnerError as exc:
+        report = _failure_from_trusted_managed_production_error(exc)
     except OSError:
         report = _failure("dataset_unreadable")
     except Exception:
@@ -567,6 +573,16 @@ def _bounded_timeout(value: object, maximum: float) -> bool:
 
 def _failure(code: str, *, blockers: tuple[str, ...] = ()) -> dict[str, object]:
     safe_code = code if code in _SAFE_CODES else "managed_live_execution_failed"
+    return _failure_with_safe_code(safe_code, blockers=blockers)
+
+
+def _failure_with_safe_code(
+    safe_code: str,
+    *,
+    blockers: tuple[str, ...] = (),
+) -> dict[str, object]:
+    """Render a code already selected by trusted local control flow."""
+
     no_go = safe_code in {"authorization_required", "pre_readiness_no_go"}
     return {
         "suite": MANAGED_LIVE_CLI_SUITE,
@@ -579,6 +595,20 @@ def _failure(code: str, *, blockers: tuple[str, ...] = ()) -> dict[str, object]:
         "scope": FULL_COMPARISON_SCOPE_CANARY,
         "publishable": False,
     }
+
+
+def _failure_from_trusted_managed_production_error(
+    error: Exception,
+) -> dict[str, object]:
+    """Retain the sole reviewed phase code only with exact runner provenance."""
+
+    if (
+        type(error) is ManagedProductionRunnerError
+        and type(error.code) is str
+        and error.code == _TRUSTED_MANAGED_PRODUCTION_SEAL_FAILURE_CODE
+    ):
+        return _failure_with_safe_code(_TRUSTED_MANAGED_PRODUCTION_SEAL_FAILURE_CODE)
+    return _failure("managed_live_execution_failed")
 
 
 def _post_sealed_usage_failure(

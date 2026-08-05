@@ -135,8 +135,7 @@ def _managed_http_policy_validation(
         ("mem0", 2, cleanup_commitments[1]),
     )
     target_by_role = {
-        target.backend_role: target.target_identity_sha256
-        for target in bindings.backend_targets
+        target.backend_role: target.target_identity_sha256 for target in bindings.backend_targets
     }
     material = ManagedHttpPolicyValidationMaterial(
         run_id=bindings.run_id,
@@ -332,14 +331,26 @@ def test_runtime_consume_is_one_shot_but_public_revalidation_remains_live() -> N
         )
 
 
-def test_runtime_public_revalidation_rejects_stale_consumed_attestation() -> None:
+def test_runtime_consumed_report_stops_decaying_but_keeps_integrity_checks() -> None:
     inputs, managed, ports = _aggregate_inputs()
     bindings = inputs["bindings"]
     issuer = create_full_comparison_evidence_issuer(bindings)
     _, report = _issue_runtime(issuer, managed, bindings, ports)
     ports[3].current += timedelta(seconds=int(report["max_age_seconds"]) + 1)
 
-    with pytest.raises(ManagedCompositionAttestationError, match="stale"):
+    assert (
+        public_managed_composition_attestation(
+            managed,
+            bindings=bindings,
+            reset_port=ports[0],
+            attestation_port=ports[1],
+            ingest_port=ports[2],
+            clock=ports[3],
+        )
+        == report
+    )
+    ports[0].adapter_id = "mutated-reset"
+    with pytest.raises(ManagedCompositionAttestationError, match="live capability changed"):
         public_managed_composition_attestation(
             managed,
             bindings=bindings,

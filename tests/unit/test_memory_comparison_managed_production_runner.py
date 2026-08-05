@@ -11,10 +11,17 @@ from infinity_context_server import memory_comparison_managed_production_runner 
 from infinity_context_server.memory_comparison_managed_live_composition import (
     VerifiedManagedLiveRunPreparation,
 )
+from infinity_context_server.memory_comparison_managed_llm_execution import (
+    ManagedLlmExecutionError,
+)
 from infinity_context_server.memory_comparison_managed_run import ManagedRunOutcome
 
 _NOW = datetime(2026, 8, 1, 12, 0, tzinfo=UTC)
 _PRIVATE = "PRIVATE-SECRET-MUST-NOT-LEAK"
+
+
+class _ManagedLlmExecutionErrorSubclass(ManagedLlmExecutionError):
+    pass
 
 
 @dataclass
@@ -465,12 +472,24 @@ def test_static_blocker_prevents_preparation_consumption(
     assert caught.value.code == "managed_production_runner_blocked"
 
 
-def test_runner_failure_is_sanitized_and_resources_are_closed(
+@pytest.mark.parametrize(
+    "runner_failure",
+    (
+        RuntimeError(_PRIVATE),
+        ManagedLlmExecutionError(_PRIVATE),
+        pytest.param(
+            _ManagedLlmExecutionErrorSubclass("managed_execution_seal_failed"),
+            id="managed-execution-subclass",
+        ),
+    ),
+)
+def test_unknown_runner_failure_is_sanitized_and_resources_are_closed(
     monkeypatch: pytest.MonkeyPatch,
+    runner_failure: BaseException,
 ) -> None:
     prepared, capture, _, subscription, _, http, _ = _install_success_wiring(
         monkeypatch,
-        runner_failure=RuntimeError(_PRIVATE),
+        runner_failure=runner_failure,
     )
 
     with pytest.raises(subject.ManagedProductionRunnerError) as caught:
@@ -483,6 +502,34 @@ def test_runner_failure_is_sanitized_and_resources_are_closed(
 
     assert caught.value.code == "managed_production_runner_failed"
     assert _PRIVATE not in str(caught.value)
+    assert caught.value.__cause__ is None
+    assert subscription.closed is True
+    assert http.closed is True
+    registry = capture.constructors["registry_instance"]["value"]
+    assert isinstance(registry, _Registry)
+    assert registry.begin_cleanup_calls == 1
+    assert registry.finalize_abort_calls == 1
+    assert registry.closed is True
+
+
+def test_allowlisted_execution_seal_failure_survives_after_cleanup(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    prepared, capture, _, subscription, _, http, _ = _install_success_wiring(
+        monkeypatch,
+        runner_failure=ManagedLlmExecutionError("managed_execution_seal_failed"),
+    )
+
+    with pytest.raises(subject.ManagedProductionRunnerError) as caught:
+        subject._run_verified_managed_production_execution(
+            prepared,
+            now=_NOW,
+            wall_clock=lambda: _NOW,
+            monotonic_clock=lambda: 100.0,
+        )
+
+    assert caught.value.code == "managed_production_execution_seal_failed"
+    assert caught.value.__cause__ is None
     assert subscription.closed is True
     assert http.closed is True
     registry = capture.constructors["registry_instance"]["value"]

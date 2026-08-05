@@ -53,7 +53,7 @@ def issue_runtime_component_evidence_from_managed_attestation(
     from infinity_context_server.memory_comparison_managed_attestation import (
         VerifiedManagedCompositionAttestation,
         _consume_verified_managed_composition_attestation_for_composite,
-        public_managed_composition_attestation,
+        _inspect_verified_managed_composition_attestation_for_terminal_composite,
     )
 
     bindings, _ = _reserve_aggregate_set(issuer, "runtime", require_runtime=False)
@@ -61,7 +61,7 @@ def issue_runtime_component_evidence_from_managed_attestation(
     try:
         if type(validation) is not VerifiedManagedCompositionAttestation:
             raise _evidence_error("runtime aggregate validation type must be exact")
-        report = public_managed_composition_attestation(
+        report = _inspect_verified_managed_composition_attestation_for_terminal_composite(
             validation,
             bindings=bindings,
             reset_port=reset_port,
@@ -280,17 +280,13 @@ def _consume_policy_component_validation(
         return consume_full_policy_component_validation(
             validation,
             binding_commitment_sha256=binding_commitment_sha256,
-            managed_attestation_commitment_sha256=(
-                managed_attestation_commitment_sha256
-            ),
+            managed_attestation_commitment_sha256=(managed_attestation_commitment_sha256),
         )
     if type(validation) is VerifiedManagedHttpPolicyValidation:
         return consume_managed_http_policy_validation(
             validation,
             binding_commitment_sha256=binding_commitment_sha256,
-            managed_attestation_commitment_sha256=(
-                managed_attestation_commitment_sha256
-            ),
+            managed_attestation_commitment_sha256=(managed_attestation_commitment_sha256),
         )
     from infinity_context_server.memory_comparison_full_run_components import _evidence_error
 

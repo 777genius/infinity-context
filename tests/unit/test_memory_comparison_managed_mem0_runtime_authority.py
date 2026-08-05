@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+import copy
+import hashlib
+import pickle
 from dataclasses import replace
 
 import pytest
@@ -7,6 +10,8 @@ from infinity_context_server.memory_comparison_managed_mem0_runtime_authority im
     MANAGED_MEM0_RUNTIME_DEADLINE_POLICY,
     ManagedMem0RuntimeAuthorityDescriptor,
     ManagedMem0RuntimeAuthorityError,
+    _consume_reserved_managed_mem0_runtime_deadline_lease,
+    _issue_reserved_managed_mem0_runtime_deadline_lease,
     _register_pending_managed_mem0_runtime_authority,
     inspect_pending_managed_mem0_runtime_authority,
     reserve_pending_managed_mem0_runtime_authority,
@@ -46,6 +51,14 @@ class _RegisteredTestDouble:
         return (run_id, probe_nonce_sha256, target_identity_sha256)
 
 
+class _MonotonicClock:
+    def __init__(self, value: float) -> None:
+        self.value = value
+
+    def __call__(self) -> float:
+        return self.value
+
+
 def test_non_concrete_authority_requires_trusted_registration() -> None:
     descriptor = _descriptor()
     port = _RegisteredTestDouble(descriptor)
@@ -69,6 +82,62 @@ def test_registered_authority_reservation_is_exact_and_single_use() -> None:
         reserve_pending_managed_mem0_runtime_authority(port, descriptor)
     with pytest.raises(ManagedMem0RuntimeAuthorityError, match="changed before"):
         reserve_pending_managed_mem0_runtime_authority(port, replace(descriptor))
+
+
+def test_reserved_authority_issues_one_noncopyable_exact_deadline_lease() -> None:
+    descriptor = _descriptor()
+    port = _RegisteredTestDouble(descriptor)
+    clock = _MonotonicClock(100.0)
+    _register_pending_managed_mem0_runtime_authority(
+        port,
+        descriptor,
+        monotonic_clock=clock,
+        deadline_monotonic=1_000.0,
+    )
+    reserve_pending_managed_mem0_runtime_authority(port, descriptor)
+
+    lease = _issue_reserved_managed_mem0_runtime_deadline_lease(
+        port,
+        run_id="test-run-1",
+        probe_nonce_sha256=descriptor.probe_nonce_sha256,
+        target_identity_sha256=descriptor.target_identity_sha256,
+        validation_payload_fingerprint_sha256="d" * 64,
+    )
+
+    for operation in (copy.copy, copy.deepcopy, pickle.dumps):
+        with pytest.raises(TypeError):
+            operation(lease)
+    with pytest.raises(ManagedMem0RuntimeAuthorityError, match="already issued"):
+        _issue_reserved_managed_mem0_runtime_deadline_lease(
+            port,
+            run_id="test-run-1",
+            probe_nonce_sha256=descriptor.probe_nonce_sha256,
+            target_identity_sha256=descriptor.target_identity_sha256,
+            validation_payload_fingerprint_sha256="d" * 64,
+        )
+
+    material = _consume_reserved_managed_mem0_runtime_deadline_lease(lease)
+    assert material.max_age_seconds == 900
+    assert material.run_id_sha256 == hashlib.sha256(b"test-run-1").hexdigest()
+    assert material.validation_payload_fingerprint_sha256 == "d" * 64
+    with pytest.raises(ManagedMem0RuntimeAuthorityError, match="already consumed"):
+        _consume_reserved_managed_mem0_runtime_deadline_lease(lease)
+
+
+def test_deadline_lease_requires_registered_clock_and_exact_probe_binding() -> None:
+    descriptor = _descriptor()
+    port = _RegisteredTestDouble(descriptor)
+    _register_pending_managed_mem0_runtime_authority(port, descriptor)
+    reserve_pending_managed_mem0_runtime_authority(port, descriptor)
+
+    with pytest.raises(ManagedMem0RuntimeAuthorityError, match="binding"):
+        _issue_reserved_managed_mem0_runtime_deadline_lease(
+            port,
+            run_id="test-run-1",
+            probe_nonce_sha256=descriptor.probe_nonce_sha256,
+            target_identity_sha256=descriptor.target_identity_sha256,
+            validation_payload_fingerprint_sha256="d" * 64,
+        )
 
 
 def test_registered_descriptor_tamper_is_rejected() -> None:

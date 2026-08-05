@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, replace
+from datetime import timedelta
 from typing import Protocol
 
 import memory_comparison_full_policy_component_fixtures as policy_fixtures
@@ -103,7 +104,11 @@ class _Ready:
     ports: tuple[object, ...]
 
 
-def _inputs_for_scope(scope: str):
+def _inputs_for_scope(
+    scope: str,
+    *,
+    managed_live_max_age_seconds: int | None = None,
+):
     inputs = _execution_inputs()
     old = inputs["bindings"]
     base = _managed_bindings(
@@ -131,6 +136,7 @@ def _inputs_for_scope(scope: str):
     runtime = _managed_runtime_validation(
         run_id=bindings.run_id,
         target=bindings.backend_targets[1].target_identity_sha256,
+        managed_live_max_age_seconds=managed_live_max_age_seconds,
     )
     managed, _, _, _, ports = _managed_issue(
         bindings=bindings,
@@ -215,8 +221,12 @@ def _ready(
     monkeypatch: pytest.MonkeyPatch,
     *,
     scope: str = FULL_COMPARISON_SCOPE_FULL,
+    managed_live_max_age_seconds: int | None = None,
 ) -> _Ready:
-    inputs, managed, ports = _inputs_for_scope(scope)
+    inputs, managed, ports = _inputs_for_scope(
+        scope,
+        managed_live_max_age_seconds=managed_live_max_age_seconds,
+    )
     bindings = inputs["bindings"]
     managed_report = public_managed_composition_attestation(
         managed,
@@ -334,6 +344,23 @@ def test_structural_managed_port_and_successful_nine_slot_verdict(
     assert first == second
     assert first["publishable"] is True
     assert {item["status"] for item in first["components"]} == {"verified"}
+
+
+def test_terminal_assembler_accepts_sealed_900_second_runtime_at_121_seconds(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    ready = _ready(monkeypatch, managed_live_max_age_seconds=900)
+    clock = ready.ports[3]
+    clock.current += timedelta(seconds=121)  # type: ignore[attr-defined]
+
+    components = _assemble(ready)
+    verdict = ready.assembler.seal_verdict(
+        bindings=ready.bindings,
+        issuer=ready.issuer,
+        components=components,
+    )
+
+    assert ready.assembler.public_verdict(verdict)["publishable"] is True
 
 
 def test_managed_http_policy_validation_seals_nine_slot_verdict(

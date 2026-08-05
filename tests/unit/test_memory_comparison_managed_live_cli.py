@@ -9,11 +9,16 @@ import pytest
 from infinity_context_server import memory_comparison_managed_live_cli as subject
 
 _NOW = datetime(2026, 8, 2, 12, 0, tzinfo=UTC)
+_PRIVATE = "PRIVATE-SECRET-MUST-NOT-LEAK"
 _ENV = {
     "MEMORY_EVAL_AUTH_TOKEN": "infinity-private-token",
     "MEM0_BENCHMARK_PROBE_TOKEN": "mem0-private-probe-token",
     "SUBSCRIPTION_RUNTIME_BRIDGE_BEARER_TOKEN": "subscription-private-token",
 }
+
+
+class _ManagedProductionRunnerErrorSubclass(subject.ManagedProductionRunnerError):
+    pass
 
 
 def _config(tmp_path: Path, **changes: object) -> subject.ManagedLiveCliConfig:
@@ -56,6 +61,75 @@ def test_operator_flags_block_before_files_env_or_provider(
     assert report["status"] == "no-go"
     assert report["reason_code"] == "authorization_required"
     assert report["publishable"] is False
+
+
+@pytest.mark.parametrize(
+    ("runner_code", "expected_reason_code"),
+    (
+        (
+            "managed_production_execution_seal_failed",
+            "managed_production_execution_seal_failed",
+        ),
+        (_PRIVATE, "managed_live_execution_failed"),
+    ),
+)
+def test_cli_reports_only_allowlisted_production_failure_phase(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    runner_code: str,
+    expected_reason_code: str,
+) -> None:
+    config = _config(tmp_path)
+
+    def fail(*_: object) -> dict[str, object]:
+        raise subject.ManagedProductionRunnerError(runner_code)
+
+    monkeypatch.setattr(subject, "_run_managed_live", fail)
+
+    report = subject.run_managed_live_cli(config, env={})
+
+    assert report["status"] == "failed"
+    assert report["reason_code"] == expected_reason_code
+    serialized = json.dumps(report, sort_keys=True)
+    assert _PRIVATE not in serialized
+    assert "ManagedProductionRunnerError" not in serialized
+
+
+@pytest.mark.parametrize(
+    "failure",
+    (
+        pytest.param(
+            subject.ManagedLiveCliError("managed_production_execution_seal_failed"),
+            id="cli-error-cannot-spoof-phase",
+        ),
+        pytest.param(
+            _ManagedProductionRunnerErrorSubclass("managed_production_execution_seal_failed"),
+            id="runner-subclass-cannot-spoof-phase",
+        ),
+        pytest.param(
+            subject.ManagedProductionRunnerError(_PRIVATE),
+            id="runner-wrong-code-is-generic",
+        ),
+    ),
+)
+def test_cli_requires_exact_trusted_runner_provenance_for_phase_code(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    failure: Exception,
+) -> None:
+    config = _config(tmp_path)
+
+    def fail(*_: object) -> dict[str, object]:
+        raise failure
+
+    monkeypatch.setattr(subject, "_run_managed_live", fail)
+
+    report = subject.run_managed_live_cli(config, env={})
+
+    assert report["reason_code"] == "managed_live_execution_failed"
+    serialized = json.dumps(report, sort_keys=True)
+    assert _PRIVATE not in serialized
+    assert "ManagedProductionRunnerError" not in serialized
 
 
 @pytest.mark.parametrize(
@@ -501,9 +575,7 @@ def test_project_registers_live_canary_entrypoint() -> None:
 
 def test_subscription_runtime_url_help_describes_pathless_origin() -> None:
     action = next(
-        item
-        for item in subject._parser()._actions
-        if item.dest == "subscription_runtime_url"
+        item for item in subject._parser()._actions if item.dest == "subscription_runtime_url"
     )
 
     assert action.metavar == "LOOPBACK_ORIGIN"

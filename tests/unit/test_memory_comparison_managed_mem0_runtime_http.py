@@ -11,11 +11,17 @@ from types import SimpleNamespace
 
 import infinity_context_server.memory_comparison_managed_mem0_runtime_http as mem0_runtime_http
 import pytest
+from infinity_context_server.memory_comparison_managed_mem0_runtime_authority import (
+    reserve_pending_managed_mem0_runtime_authority,
+)
 from infinity_context_server.memory_comparison_managed_mem0_runtime_http import (
     ManagedMem0RuntimeAttestationPort,
     ManagedMem0RuntimeAuthorityDescriptor,
     ManagedMem0RuntimeHttpError,
     ManagedUtcClockPort,
+)
+from infinity_context_server.memory_comparison_managed_runtime_validity import (
+    _managed_live_runtime_validation_terminal_allowance,
 )
 from infinity_context_server.memory_comparison_mem0_contract import (
     public_mem0_runtime_manifest,
@@ -794,6 +800,58 @@ def test_attest_shrinks_transport_timeout_to_exact_monotonic_remaining() -> None
     )
 
     assert transport.timeouts == [3.0]
+
+
+def test_attest_binds_validation_max_age_to_remaining_admitted_deadline() -> None:
+    calls: list[tuple[str, str, object, object]] = []
+    transport = _transport(calls, _witnessed_manifest(datetime.now(UTC)))
+    clock = _FakeMonotonic(100.0)
+    adapter = _deadline_adapter(
+        transport,
+        clock,
+        timeout_seconds=0.5,
+        deadline_budget_seconds=900.0,
+    )
+    reserve_pending_managed_mem0_runtime_authority(
+        adapter,
+        adapter.authority_descriptor(),
+    )
+    clock.value = 101.2
+
+    validation = adapter.attest(
+        run_id=RUN_ID,
+        probe_nonce_sha256=_NONCE_SHA,
+        target_identity_sha256=TARGET_SHA,
+    )
+
+    assert public_mem0_runtime_attestation_validation(validation)["max_age_seconds"] == 120
+    allowance = _managed_live_runtime_validation_terminal_allowance(validation)
+    assert allowance is not None
+    assert allowance.max_age_seconds == 899
+
+
+def test_attest_rejects_remaining_deadline_beyond_managed_live_policy() -> None:
+    transport = _transport([], _witnessed_manifest(datetime.now(UTC)))
+    clock = _FakeMonotonic(100.0)
+    adapter = _deadline_adapter(
+        transport,
+        clock,
+        timeout_seconds=0.5,
+        deadline_budget_seconds=7_200.1,
+    )
+    reserve_pending_managed_mem0_runtime_authority(
+        adapter,
+        adapter.authority_descriptor(),
+    )
+
+    with pytest.raises(ManagedMem0RuntimeHttpError) as raised:
+        adapter.attest(
+            run_id=RUN_ID,
+            probe_nonce_sha256=_NONCE_SHA,
+            target_identity_sha256=TARGET_SHA,
+        )
+
+    assert raised.value.code == "managed_mem0_runtime_capability_invalid"
 
 
 @pytest.mark.parametrize("elapsed", (1.0, 0.9995))
