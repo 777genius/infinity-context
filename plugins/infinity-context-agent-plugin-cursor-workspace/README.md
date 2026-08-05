@@ -2,7 +2,7 @@
 
 MCP-only Cursor workspace plugin for Infinity Context.
 
-This plugin exists because `plugin-kit-ai` 1.2.2 supports portable MCP for the
+This plugin exists because `plugin-kit-ai` 1.2.4 supports portable MCP for the
 `cursor-workspace` target, but does not support portable skills there. The main
 `infinity-context-agent-plugin` keeps skills for package-capable agents. This sibling
 plugin keeps Cursor workspace validation clean.
@@ -37,7 +37,7 @@ From the Infinity Context repository root:
 ```bash
 make infinity-context-up-lite
 MEMORY_MCP_API_URL=http://127.0.0.1:7788 \
-MEMORY_MCP_AUTH_TOKEN=local-dev-token \
+MEMORY_MCP_AUTH_TOKEN_FILE="$HOME/.infinity-context/.env" \
 plugins/infinity-context-agent-plugin-cursor-workspace/bin/infinity-context-mcp-doctor
 ```
 

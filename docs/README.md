@@ -1,6 +1,15 @@
 # Infinity Context Docs
 
-This folder contains the platform planning documents moved out of Client App.
+## Start here
+
+Public guides:
+
+- [Public installation and first run](public-installation.md)
+- [Architecture and trust model](architecture-and-trust-model.md)
+- [Revised agent memory capability comparison](competitive/agent-memory-capability-comparison.md) - a source-backed capability audit, not a product ranking
+
+This directory contains public guides, architecture decisions, implementation
+plans, research notes, and integration references for Infinity Context.
 
 ## Reading Order
 
@@ -25,15 +34,12 @@ This folder contains the platform planning documents moved out of Client App.
 - [ADR-0005 - Capability Ports For Cognee And Graphiti](adr/ADR-0005-capability-ports-cognee-graphiti.md)
 - [ADR-0006 - Multimodal Ingestion Provider Policy](adr/ADR-0006-multimodal-ingestion-provider-policy.md)
 
-## Ownership
+## Documentation Scope
 
-These docs now belong to:
-
-```text
-/Users/belief/dev/projects/ai/infinity-context
-```
-
-Client App should keep only integration notes and pointers to this project.
+These documents belong to the Infinity Context repository. Reusable platform
+behavior and architecture decisions should be documented here. Downstream
+applications should keep only their integration-specific notes and link back to
+the relevant public guide or ADR.
 
 ## Local Docker Runbook
 

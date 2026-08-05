@@ -6,6 +6,24 @@ build-backend = "setuptools.build_meta"
 name = "infinity-context"
 version = "0.1.0"
 description = "Reliable memory and context infrastructure for AI coding agents"
+readme = { file = "README.md", content-type = "text/markdown" }
+license = "Apache-2.0"
+license-files = ["LICENSE"]
+authors = [
+  { name = "Infinity Context contributors" },
+]
+keywords = ["agents", "ai", "coding-agents", "context", "memory", "mcp", "rag"]
+classifiers = [
+  "Development Status :: 3 - Alpha",
+  "Intended Audience :: Developers",
+  "Operating System :: OS Independent",
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3 :: Only",
+  "Programming Language :: Python :: 3.11",
+  "Programming Language :: Python :: 3.12",
+  "Programming Language :: Python :: 3.13",
+  "Topic :: Software Development :: Libraries",
+]
 requires-python = ">=3.11"
 dependencies = [
   "alembic>=1.18.4,<2.0.0",
@@ -65,6 +83,13 @@ infinity-context-mcp = "infinity_context_mcp.server:main"
 infinity-context-mcp-bench = "infinity_context_mcp.bench:main"
 infinity-context-mcp-agent-bench = "infinity_context_mcp.agent_behavior_bench:main"
 infinity-context-obsidian = "infinity_context_obsidian.cli:main"
+
+[project.urls]
+Homepage = "https://github.com/777genius/infinity-context"
+Documentation = "https://github.com/777genius/infinity-context#readme"
+Repository = "https://github.com/777genius/infinity-context.git"
+Issues = "https://github.com/777genius/infinity-context/issues"
+Changelog = "https://github.com/777genius/infinity-context/releases"
 
 [tool.setuptools.packages.find]
 where = [

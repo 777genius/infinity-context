@@ -19,15 +19,17 @@ from infinity_context_core.memory_scope_snapshots import (
 )
 from infinity_context_sdk import InfinityContextClient, InfinityContextError, ReadScope
 
-from infinity_context_cli import __version__
+from infinity_context_cli import __version__, onboarding
 from infinity_context_cli.config import DEFAULT_API_URL, init_local_config, load_config
 from infinity_context_cli.doctor import doctor_payload, run_doctor
-from infinity_context_cli.local_experience import (
-    build_first_capture_surface,
-    build_one_minute_path,
-    local_experience_score,
-)
+from infinity_context_cli.local_experience import build_first_capture_surface
 from infinity_context_cli.mcp_config import SUPPORTED_AGENTS, render_mcp_config, write_mcp_config
+from infinity_context_cli.onboarding import (
+    auto_memory_diagnostics,
+    install_agent_integrations,
+    integrated_agents,
+    manual_agent_integration_reports,
+)
 from infinity_context_cli.runtime import DockerComposeRuntime, docker_compose_published_server_urls
 
 
@@ -85,12 +87,57 @@ def _build_parser() -> argparse.ArgumentParser:
         help="Agent config to write. Repeat for multiple agents. Defaults to codex.",
     )
     quickstart_parser.add_argument("--all-agents", action="store_true")
+    quickstart_install = quickstart_parser.add_mutually_exclusive_group()
+    quickstart_install.add_argument(
+        "--install-agents",
+        dest="install_agents",
+        action="store_true",
+        help="Install the selected agent integrations with plugin-kit-ai.",
+    )
+    quickstart_install.add_argument(
+        "--no-install-agents",
+        dest="install_agents",
+        action="store_false",
+        help="Only write local MCP configs; do not modify agent integrations.",
+    )
+    quickstart_memory = quickstart_parser.add_mutually_exclusive_group()
+    quickstart_memory.add_argument(
+        "--auto-memory",
+        dest="auto_memory_mode",
+        action="store_const",
+        const="suggest",
+        help="Use review-gated capture suggestions (the default).",
+    )
+    quickstart_memory.add_argument(
+        "--manual-memory",
+        dest="auto_memory_mode",
+        action="store_const",
+        const="manual",
+        help="Keep recall and use explicit MCP suggestions only.",
+    )
+    quickstart_memory.add_argument(
+        "--retrieve-only",
+        dest="auto_memory_mode",
+        action="store_const",
+        const="retrieve_only",
+        help="Keep recall while disabling all capture creation.",
+    )
     quickstart_parser.add_argument("--no-start", action="store_true")
     quickstart_parser.add_argument("--no-wait", action="store_true")
-    quickstart_parser.add_argument(
+    quickstart_ui = quickstart_parser.add_mutually_exclusive_group()
+    quickstart_ui.add_argument(
         "--open-ui",
-        action="store_true",
-        help="Open the local memory browser after setup.",
+        dest="open_ui",
+        action="store_const",
+        const=True,
+        help="Open the local memory browser, even when readiness was skipped.",
+    )
+    quickstart_ui.add_argument(
+        "--no-open-ui",
+        dest="open_ui",
+        action="store_const",
+        const=False,
+        help="Do not open the local memory browser automatically.",
     )
     quickstart_parser.add_argument("--wait-seconds", type=float, default=90.0)
     quickstart_parser.add_argument("--force", action="store_true")
@@ -100,7 +147,12 @@ def _build_parser() -> argparse.ArgumentParser:
         help="Write private MCP configs with the local service token.",
     )
     quickstart_parser.add_argument("--json", action="store_true")
-    quickstart_parser.set_defaults(handler=_cmd_quickstart)
+    quickstart_parser.set_defaults(
+        handler=_cmd_quickstart,
+        auto_memory_mode="suggest",
+        install_agents=True,
+        open_ui=None,
+    )
 
     up_parser = subparsers.add_parser("up", help="Start local Infinity Context.")
     compose_profile = up_parser.add_mutually_exclusive_group()
@@ -140,7 +192,29 @@ def _build_parser() -> argparse.ArgumentParser:
     mcp_parser.add_argument("--agent", choices=sorted(SUPPORTED_AGENTS), required=True)
     mcp_parser.add_argument("--write", action="store_true")
     mcp_parser.add_argument("--include-token", action="store_true")
-    mcp_parser.set_defaults(handler=_cmd_mcp_config)
+    mcp_memory = mcp_parser.add_mutually_exclusive_group()
+    mcp_memory.add_argument(
+        "--auto-memory",
+        dest="auto_memory_mode",
+        action="store_const",
+        const="suggest",
+        help="Use review-gated capture suggestions (the default).",
+    )
+    mcp_memory.add_argument(
+        "--manual-memory",
+        dest="auto_memory_mode",
+        action="store_const",
+        const="manual",
+        help="Keep recall and use explicit MCP suggestions only.",
+    )
+    mcp_memory.add_argument(
+        "--retrieve-only",
+        dest="auto_memory_mode",
+        action="store_const",
+        const="retrieve_only",
+        help="Keep recall while disabling all capture creation.",
+    )
+    mcp_parser.set_defaults(handler=_cmd_mcp_config, auto_memory_mode="suggest")
 
     digest_parser = subparsers.add_parser("digest", help="Build a memory digest.")
     digest_parser.add_argument("topic")
@@ -294,17 +368,40 @@ def _cmd_quickstart(args: argparse.Namespace) -> int:
                     agent=agent,
                     config=config,
                     include_token=args.include_token,
+                    auto_memory_mode=args.auto_memory_mode,
                 )
             ),
             "token_included": bool(args.include_token),
+            "auto_memory": auto_memory_diagnostics(
+                agent=agent,
+                mode=args.auto_memory_mode,
+            ),
         }
         for agent in agents
     ]
+    agent_integrations = (
+        install_agent_integrations(
+            config=config,
+            agents=agents,
+            auto_memory_mode=args.auto_memory_mode,
+        )
+        if args.install_agents
+        else manual_agent_integration_reports(agents)
+    )
+    runtime_ready = bool(status and status.get("ok"))
+    should_open_ui = bool(args.open_ui) if args.open_ui is not None else runtime_ready
+    runtime_setup_ok = onboarding.quickstart_ok(
+        runtime_result=runtime_result,
+        status=status,
+        no_start=args.no_start,
+    )
     payload = {
-        "ok": _quickstart_ok(
+        "ok": onboarding.quickstart_ok(
             runtime_result=runtime_result,
             status=status,
             no_start=args.no_start,
+            agent_integrations=agent_integrations,
+            require_agent_integrations=args.install_agents,
         ),
         "home": str(config.home),
         "repo_dir": str(config.repo_dir),
@@ -316,24 +413,45 @@ def _cmd_quickstart(args: argparse.Namespace) -> int:
         "mcp_configs": mcp_configs,
         "token_included": bool(args.include_token),
         "opened_ui": False,
-        "local_experience": _quickstart_local_experience(
+        "ui_open_mode": (
+            "explicit"
+            if args.open_ui is True
+            else "disabled"
+            if args.open_ui is False
+            else "automatic_when_ready"
+        ),
+        "auto_memory": {
+            "mode": args.auto_memory_mode,
+            "review_gated": True,
+            "auto_apply": False,
+            "agents": [
+                auto_memory_diagnostics(agent=agent, mode=args.auto_memory_mode)
+                for agent in agents
+            ],
+        },
+        "agent_integrations": agent_integrations,
+        "integrated_agents": integrated_agents(agent_integrations),
+        "local_experience": onboarding.quickstart_local_experience(
             config=config,
             agents=agents,
             mcp_configs=mcp_configs,
+            agent_integrations=agent_integrations,
             status=status,
             no_start=args.no_start,
-        ),
-        "next_steps": _quickstart_next_steps(
-            agents=agents,
-            home=config.home,
-            include_token=args.include_token,
-            no_start=args.no_start,
-            open_ui=args.open_ui,
+            require_agent_integrations=args.install_agents,
         ),
     }
-    if args.open_ui and payload["ok"]:
+    if should_open_ui and runtime_setup_ok:
         payload["opened_ui"] = bool(webbrowser.open(payload["ui_url"]))
-    _print_quickstart_payload(payload, as_json=args.json)
+    payload["next_steps"] = onboarding.quickstart_next_steps(
+        agents=agents,
+        home=config.home,
+        include_token=args.include_token,
+        no_start=args.no_start,
+        open_ui=bool(payload["opened_ui"]),
+        agent_integrations=agent_integrations,
+    )
+    onboarding.print_quickstart_payload(payload, as_json=args.json)
     return 0 if payload["ok"] else 1
 
 
@@ -420,6 +538,7 @@ def _cmd_mcp_config(args: argparse.Namespace) -> int:
             agent=args.agent,
             config=config,
             include_token=args.include_token,
+            auto_memory_mode=args.auto_memory_mode,
         )
         print(str(path))
     else:
@@ -428,6 +547,7 @@ def _cmd_mcp_config(args: argparse.Namespace) -> int:
                 agent=args.agent,
                 config=config,
                 include_token=args.include_token,
+                auto_memory_mode=args.auto_memory_mode,
             )
         )
     return 0
@@ -709,175 +829,6 @@ def _runtime_payload(result) -> dict[str, Any]:
     }
 
 
-def _quickstart_ok(*, runtime_result, status: dict[str, Any] | None, no_start: bool) -> bool:
-    if no_start:
-        return True
-    return bool(runtime_result is not None and runtime_result.ok and status and status.get("ok"))
-
-
-def _quickstart_next_steps(
-    *,
-    agents: list[str],
-    home: Path,
-    include_token: bool,
-    no_start: bool,
-    open_ui: bool,
-) -> list[str]:
-    steps = []
-    if no_start:
-        steps.append("Start the local runtime with: infinity-context up --lite")
-    steps.append("Check readiness with: infinity-context status")
-    if open_ui:
-        steps.append("Visual memory opened with: infinity-context ui --open")
-    else:
-        steps.append("Open visual memory with: infinity-context ui --open")
-    if include_token:
-        steps.append("Add the generated MCP config path to your agent.")
-    else:
-        steps.append(f"Generated MCP config reads its local token from: {home / '.env'}")
-        steps.append("Add the generated MCP config path to your agent.")
-    if agents:
-        steps.append(f"Generated MCP config for: {', '.join(agents)}")
-    return steps
-
-
-def _quickstart_local_experience(
-    *,
-    config,
-    agents: list[str],
-    mcp_configs: list[dict[str, Any]],
-    status: dict[str, Any] | None,
-    no_start: bool,
-) -> dict[str, Any]:
-    runtime_ready = bool(status and status.get("ok"))
-    mcp_paths = [item["path"] for item in mcp_configs if item.get("path")]
-    capabilities = status.get("capabilities") if isinstance(status, dict) else None
-    first_capture = build_first_capture_surface(capabilities=capabilities)
-    visual_ready = runtime_ready
-    mcp_ready = bool(mcp_paths)
-    return {
-        "status": _quickstart_local_experience_status(
-            no_start=no_start,
-            runtime_ready=runtime_ready,
-            mcp_ready=mcp_ready,
-        ),
-        "api_url": config.api_url,
-        "ui_url": _ui_url(config),
-        "visual_memory_ready": visual_ready,
-        "mcp_ready": mcp_ready,
-        "ready_agents": agents,
-        "mcp_config_paths": mcp_paths,
-        "first_capture": first_capture,
-        "one_minute_path": build_one_minute_path(
-            api_url=config.api_url,
-            agents=agents,
-            runtime_ready=runtime_ready,
-            visual_ready=visual_ready,
-            mcp_ready=mcp_ready,
-            first_capture=first_capture,
-        ),
-        "readiness": local_experience_score(
-            runtime_ready=runtime_ready,
-            visual_ready=visual_ready,
-            mcp_ready=mcp_ready,
-            first_capture=first_capture,
-        ),
-    }
-
-
-def _quickstart_local_experience_status(
-    *,
-    no_start: bool,
-    runtime_ready: bool,
-    mcp_ready: bool,
-) -> str:
-    if no_start and mcp_ready:
-        return "configured_not_started"
-    if runtime_ready and mcp_ready:
-        return "ready"
-    if not runtime_ready:
-        return "runtime_not_ready"
-    return "mcp_config_not_ready"
-
-
-def _print_quickstart_payload(payload: dict[str, Any], *, as_json: bool) -> None:
-    if as_json:
-        print(json.dumps(payload, indent=2, sort_keys=True))
-        return
-    print(f"ok: {payload['ok']}")
-    print(f"home: {payload['home']}")
-    print(f"api_url: {payload['api_url']}")
-    runtime = payload.get("runtime")
-    if isinstance(runtime, dict):
-        print(f"runtime: {'started' if runtime.get('ok') else 'failed'}")
-        if not runtime.get("ok") and runtime.get("stderr"):
-            print(f"runtime_error: {runtime['stderr']}", file=sys.stderr)
-    else:
-        print("runtime: skipped")
-    status = payload.get("status")
-    if isinstance(status, dict):
-        print(f"status: {'ready' if status.get('ok') else 'not_ready'}")
-    experience = payload.get("local_experience")
-    if isinstance(experience, dict):
-        _print_local_experience_summary(experience)
-    if payload.get("opened_ui"):
-        print(f"ui: opened {payload.get('ui_url')}")
-    else:
-        print(f"ui: {payload.get('ui_url')}")
-    for item in payload.get("mcp_configs", []):
-        if isinstance(item, dict):
-            token_note = (
-                "private token included" if item.get("token_included") else "token redacted"
-            )
-            print(f"mcp_config[{item.get('agent')}]: {item.get('path')} ({token_note})")
-    print("next_steps:")
-    for step in payload.get("next_steps", []):
-        print(f"  - {step}")
-
-
-def _print_local_experience_summary(experience: dict[str, Any]) -> None:
-    print(f"experience: {experience.get('status')}")
-    print(
-        "visual_memory: "
-        f"{'ready' if experience.get('visual_memory_ready') else 'not_ready'} "
-        f"({experience.get('ui_url')})"
-    )
-    ready_agents = experience.get("ready_agents") or []
-    if ready_agents:
-        print(f"mcp_ready_for: {', '.join(str(agent) for agent in ready_agents)}")
-    readiness = experience.get("readiness")
-    if isinstance(readiness, dict):
-        print(f"first_use_score: {readiness.get('score')}/{readiness.get('scale')}")
-    first_capture = experience.get("first_capture")
-    if isinstance(first_capture, dict):
-        supports = first_capture.get("supports") or []
-        if supports:
-            print(f"capture_supports: {', '.join(str(item) for item in supports)}")
-        artifact_previews = first_capture.get("artifact_previews") or []
-        if artifact_previews:
-            print(f"visual_previews: {', '.join(str(item) for item in artifact_previews)}")
-    one_minute_path = experience.get("one_minute_path")
-    if not isinstance(one_minute_path, list):
-        return
-    next_item = next(
-        (
-            item
-            for item in one_minute_path
-            if isinstance(item, dict) and item.get("status") in {"todo", "next"}
-        ),
-        None,
-    )
-    if isinstance(next_item, dict):
-        next_label = _local_experience_step_label(next_item)
-        print(f"first_use_next: {next_label}")
-    print("first_use_path:")
-    for item in one_minute_path:
-        if not isinstance(item, dict):
-            continue
-        label = _local_experience_step_label(item)
-        print(f"  - [{item.get('status')}] {item.get('id')}: {label}")
-
-
 def _print_status_payload(payload: dict[str, Any], *, as_json: bool) -> None:
     if as_json:
         print(json.dumps(payload, indent=2, sort_keys=True))
@@ -928,7 +879,7 @@ def _print_doctor_payload(payload: dict[str, Any], *, as_json: bool) -> None:
     print(f"repo_dir: {payload.get('repo_dir')}")
     experience = payload.get("local_experience")
     if isinstance(experience, dict):
-        _print_local_experience_summary(experience)
+        onboarding.print_local_experience_summary(experience)
         next_actions = experience.get("next_actions")
         if isinstance(next_actions, list) and next_actions:
             print("next_actions:")
@@ -942,20 +893,6 @@ def _print_doctor_payload(payload: dict[str, Any], *, as_json: bool) -> None:
                 continue
             status = "ok" if check.get("ok") else "failed"
             print(f"  - [{status}] {check.get('name')}: {check.get('message')}")
-
-
-def _local_experience_step_label(item: dict[str, Any]) -> str:
-    label = str(item.get("command") or item.get("tab") or item.get("label") or item.get("id"))
-    url = item.get("url")
-    if url and url not in label:
-        label = f"{label} ({url})"
-    blocked_by = item.get("blocked_by")
-    if blocked_by:
-        label = f"{label} - blocked_by: {blocked_by}"
-    degraded_reason = item.get("degraded_reason")
-    if degraded_reason:
-        label = f"{label} - degraded: {degraded_reason}"
-    return label
 
 
 def _http_payload_ready(value: object) -> bool:
@@ -999,7 +936,7 @@ def _print_payload(payload: dict[str, Any], *, as_json: bool) -> None:
         return
     for key, value in payload.items():
         if key == "local_experience" and isinstance(value, dict):
-            _print_local_experience_summary(value)
+            onboarding.print_local_experience_summary(value)
             continue
         print(f"{key}: {value}")
 
