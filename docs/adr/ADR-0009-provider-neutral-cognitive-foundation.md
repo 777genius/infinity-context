@@ -53,9 +53,10 @@ does not change the provider-neutral candidate identity formula.
 ## Retrieval and deployment
 
 `lite` is the single default deployment and uses Postgres canonical and keyword retrieval only.
-`full` is an explicit opt-in target that adds one primary broad hybrid lane, currently Qdrant dense
-plus sparse retrieval, and an optional Graphiti temporal/relationship lane. A cognitive engine is a
-replaceable derivation adapter and cannot become retrieval authority. The `context_building` feature
+`full` is an explicit opt-in target that adds one primary broad hybrid lane, currently
+Qdrant dense plus sparse retrieval, and an optional Graphiti temporal/relationship lane.
+A cognitive engine is a replaceable derivation adapter and cannot become retrieval authority. The
+`context_building` feature
 owns fusion, policy, citation rendering, and token packing across lanes.
 
 There is no Hindsight adapter or dependency. Any future Hindsight integration requires a separate ADR
