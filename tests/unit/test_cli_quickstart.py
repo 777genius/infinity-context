@@ -205,6 +205,53 @@ def test_cli_quickstart_can_open_visual_memory(
     )
 
 
+def test_cli_quickstart_does_not_claim_ui_opened_when_runtime_fails(
+    tmp_path: Path,
+    monkeypatch,
+    capsys,
+) -> None:
+    home = tmp_path / "home"
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    opened: list[str] = []
+    monkeypatch.setenv("INFINITY_CONTEXT_HOME", str(home))
+    monkeypatch.setattr(cli.webbrowser, "open", lambda url: opened.append(url) or True)
+
+    class FailingRuntime:
+        def __init__(self, **_kwargs: Any) -> None:
+            pass
+
+        def up(self, _profile: str) -> RuntimeResult:
+            return RuntimeResult(
+                ok=False,
+                command=("docker",),
+                returncode=1,
+                stdout="",
+                stderr="runtime failed",
+            )
+
+    monkeypatch.setattr(cli, "DockerComposeRuntime", FailingRuntime)
+
+    exit_code = cli.main(
+        [
+            "quickstart",
+            "--home",
+            str(home),
+            "--repo-dir",
+            str(repo),
+            "--no-install-agents",
+            "--open-ui",
+            "--json",
+        ]
+    )
+
+    payload = json.loads(capsys.readouterr().out)
+    assert exit_code == 1
+    assert payload["opened_ui"] is False
+    assert opened == []
+    assert not any("Visual memory opened with" in step for step in payload["next_steps"])
+
+
 def test_cli_quickstart_automatically_opens_ready_ui_and_reports_confirmed_agent(
     tmp_path: Path,
     monkeypatch,

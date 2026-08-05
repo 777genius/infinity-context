@@ -64,9 +64,14 @@ class HookSettings:
                 return file_value
             return "" if default is None else default
 
+        auto_memory_mode = setting("MEMORY_AUTO_MEMORY_MODE")
         memory_mode = _hook_memory_mode(
-            setting("MEMORY_AUTO_MEMORY_MODE")
-            or setting("MEMORY_CAPTURE_MODE", "retrieve_only")
+            auto_memory_mode or setting("MEMORY_CAPTURE_MODE", "retrieve_only"),
+            name=(
+                "MEMORY_AUTO_MEMORY_MODE"
+                if auto_memory_mode
+                else "MEMORY_CAPTURE_MODE"
+            ),
         )
         return cls(
             api_url=setting("MEMORY_MCP_API_URL", "http://127.0.0.1:7788").rstrip("/"),
@@ -183,13 +188,17 @@ def _transcript_tail_mode(value: str) -> str:
     return mode
 
 
-def _hook_memory_mode(value: str) -> HookMemoryMode:
+def _hook_memory_mode(
+    value: str,
+    *,
+    name: str = "MEMORY_CAPTURE_MODE",
+) -> HookMemoryMode:
     mode = value.strip().lower() or HookMemoryMode.RETRIEVE_ONLY.value
     try:
         return HookMemoryMode(mode)
     except ValueError as exc:
         raise ValueError(
-            "MEMORY_CAPTURE_MODE must be off, retrieve_only, capture_only, "
+            f"{name} must be off, retrieve_only, capture_only, "
             "suggest, or auto_apply_safe"
         ) from exc
 

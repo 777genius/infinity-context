@@ -6,8 +6,19 @@ from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
 
+import pytest
+
 ROOT = Path(__file__).parents[2]
 SCRIPT_PATH = ROOT / "scripts" / "install_memory_agent_plugin.py"
+
+
+@pytest.fixture(autouse=True)
+def _isolate_plugin_kit_state(tmp_path, monkeypatch) -> None:
+    monkeypatch.setenv("PLUGIN_KIT_AI_STATE_PATH", str(tmp_path / "state.json"))
+    monkeypatch.setenv(
+        "PLUGIN_KIT_AI_MATERIALIZED_ROOT",
+        str(tmp_path / "materialized"),
+    )
 
 
 def test_memory_agent_plugin_install_detects_managed_state(tmp_path, monkeypatch) -> None:

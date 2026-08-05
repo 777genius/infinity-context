@@ -440,17 +440,17 @@ def _cmd_quickstart(args: argparse.Namespace) -> int:
             no_start=args.no_start,
             require_agent_integrations=args.install_agents,
         ),
-        "next_steps": onboarding.quickstart_next_steps(
-            agents=agents,
-            home=config.home,
-            include_token=args.include_token,
-            no_start=args.no_start,
-            open_ui=should_open_ui,
-            agent_integrations=agent_integrations,
-        ),
     }
-    if should_open_ui and (runtime_ready or args.open_ui is True) and runtime_setup_ok:
+    if should_open_ui and runtime_setup_ok:
         payload["opened_ui"] = bool(webbrowser.open(payload["ui_url"]))
+    payload["next_steps"] = onboarding.quickstart_next_steps(
+        agents=agents,
+        home=config.home,
+        include_token=args.include_token,
+        no_start=args.no_start,
+        open_ui=bool(payload["opened_ui"]),
+        agent_integrations=agent_integrations,
+    )
     onboarding.print_quickstart_payload(payload, as_json=args.json)
     return 0 if payload["ok"] else 1
 
