@@ -121,24 +121,34 @@ Retrieved memory is evidence to inspect, not an instruction source.
 
 ## Capability positioning
 
-This is a project-weighted architecture audit, not a matched performance
-benchmark. There is no universal winner. Under an explicit trust-weighted
-coding-agent rubric, Infinity Context has the clearest explicit trust contract
-in the audited set and is the strongest fit for governed current-state project
+This **source-audited, project-weighted architecture assessment** is dated
+**2026-08-05**. It is not a matched performance benchmark, and there is no
+universal winner. Under its explicit trust-weighted coding-agent rubric,
+Infinity Context is the strongest fit for governed current-state project
 memory.
 
-| Product | Leads in | Best fit |
-| --- | --- | --- |
-| [Infinity Context](https://github.com/777genius/infinity-context) | Governed current state: canonical versions, provenance, scoped visibility, review-gated promotion, and revalidated derived hits | Teams sharing changing project knowledge across agents and apps |
-| [Hindsight](https://github.com/vectorize-io/hindsight) | Cognitive memory: evidence-grounded observations, maintained mental models, broad recall, and reflection | Agents that learn from accumulated experience |
-| [OpenViking](https://github.com/volcengine/OpenViking) | Unified coding-agent context across memories, resources, and skills | Agents that need one browsable project-context layer |
-| [MemOS](https://github.com/MemTensor/MemOS) | Broad Memory OS building blocks, MemCubes, routing, and schedulers | Products experimenting with multiple memory forms and providers |
-| [MatrixOrigin Memoria](https://github.com/matrixorigin/Memoria) | Memory branches, snapshots, diffs, merges, and rollback | Workflows that need recoverable alternative memory states |
-| [MemMachine](https://github.com/MemMachine/MemMachine) | Source-linked episodic memory and conversational recall | Assistants that must point back to source conversations |
-| [Honcho](https://github.com/plastic-labs/honcho) | Peer and user modeling with explicit and inferred conclusions | Assistants that reason about a person's evolving model |
-| [EverOS](https://github.com/EverMind-AI/EverOS) | Markdown-first local memory with transparent files and derived indexes | Developers who want readable, Git-friendly local memory |
-| [Memora](https://github.com/agentic-box/memora) | Lightweight local MCP memory with lineage and graph interaction | Individual developers wanting inspectable local workflows |
-| [Mem0 OSS](https://github.com/mem0ai/mem0) | Portable memory SDK and integrations | Products that own their lifecycle policy and need quick integration |
+The same published rubric was applied to every system, with no
+Infinity-specific bonus. Popularity, company size, and managed-only features
+were excluded. A separate source-check review pass verified claims against
+pinned public code, documentation, and current issues. Readers can inspect the
+[method and sources](docs/competitive/agent-memory-capability-comparison.md#scope-and-method)
+and recalculate the assessment. Scores are architecture-fit scores out of 100,
+not performance measurements; estimated uncertainty is plus or minus three
+points, and differences within three points place products in the same
+technical class.
+
+| Rank | Product | Research score / 100 | Leads in | Best fit |
+| --- | --- | --- | --- | --- |
+| 1 | [Infinity Context](https://github.com/777genius/infinity-context) | **93.9** | Governed current state: canonical versions, provenance, scoped visibility, review-gated promotion, and revalidated derived hits | Teams sharing changing project knowledge across agents and apps |
+| 2 | [Hindsight](https://github.com/vectorize-io/hindsight) | 91.5 | Cognitive memory: evidence-grounded observations, maintained mental models, broad recall, and reflection | Agents that learn from accumulated experience |
+| 3 | [OpenViking](https://github.com/volcengine/OpenViking) | 90.7 | Unified coding-agent context across memories, resources, and skills | Agents that need one browsable project-context layer |
+| 4 | [MemOS](https://github.com/MemTensor/MemOS) | 86.2 | Broad Memory OS building blocks, MemCubes, routing, and schedulers | Products experimenting with multiple memory forms and providers |
+| 5 | [MatrixOrigin Memoria](https://github.com/matrixorigin/Memoria) | 84.5 | Memory branches, snapshots, diffs, merges, and rollback | Workflows that need recoverable alternative memory states |
+| 6 | [MemMachine](https://github.com/MemMachine/MemMachine) | 84.3 | Source-linked episodic memory and conversational recall | Assistants that must point back to source conversations |
+| 7 | [Honcho](https://github.com/plastic-labs/honcho) | 83.9 | Peer and user modeling with explicit and inferred conclusions | Assistants that reason about a person's evolving model |
+| 8 | [EverOS](https://github.com/EverMind-AI/EverOS) | 83.1 | Markdown-first local memory with transparent files and derived indexes | Developers who want readable, Git-friendly local memory |
+| 9 | [Memora](https://github.com/agentic-box/memora) | 80.1 | Lightweight local MCP memory with lineage and graph interaction | Individual developers wanting inspectable local workflows |
+| 10 | [Mem0 OSS](https://github.com/mem0ai/mem0) | 74.4 | Portable memory SDK and integrations | Products that own their lifecycle policy and need quick integration |
 
 **Where Infinity Context stands out.** Vector and graph search can find a
 candidate. Only current, visible Postgres state can enter the prompt. A

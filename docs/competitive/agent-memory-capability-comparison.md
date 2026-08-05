@@ -35,9 +35,9 @@ best at every kind of memory or a substitute for a matched benchmark.
 ## Scope and method
 
 This revision audits public documentation and code at pinned repository
-snapshots, alongside local Infinity Context architecture. It is not a
-procurement recommendation, security certification, or measured ten-way
-performance benchmark.
+snapshots, alongside local Infinity Context architecture. Research date:
+**2026-08-05**. It is not a procurement recommendation, security
+certification, or measured ten-way performance benchmark.
 
 The rubric intentionally gives high weight to the risks that matter in
 long-lived coding-agent projects:
@@ -48,10 +48,54 @@ long-lived coding-agent projects:
 - retrieval usefulness without treating a search result as authority;
 - architecture, operability, and open-source completeness.
 
-The result is a project-weighted architecture assessment. The leading group
-fell within the audit's approximately plus or minus three-point uncertainty, so
-this document deliberately does not publish decimal scores or present a rigid
-leaderboard.
+### Score transparency
+
+The research scores below are a source-audited, project-weighted architecture
+assessment out of 100, not measured product performance. The same published
+rubric was applied to every system, with no Infinity-specific bonus. It excludes
+popularity, company size, and managed-only features. A separate source-check
+review pass checked claims against pinned public code, documentation, and
+current issues. This process is designed to reduce bias, not to claim that a
+project-authored comparison is bias-free. Each criterion is rated on a 0-10
+scale; the weighted result is scaled to 100.
+
+| Criterion | Weight |
+| --- | ---: |
+| Memory model | 12% |
+| Write and lifecycle | 20% |
+| Retrieval | 17% |
+| Trust and provenance | 16% |
+| Scope, version, and delete | 10% |
+| Agent usefulness | 10% |
+| Architecture | 10% |
+| OSS completeness | 5% |
+
+<details>
+<summary>Full 0-10 scoring matrix</summary>
+
+| Product | Model | Lifecycle | Retrieval | Trust | Scope | Agent | Architecture | OSS | Total / 100 |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| Infinity Context | 8.8 | 9.8 | 8.8 | 10.0 | 9.8 | 9.3 | 9.4 | 8.5 | **93.9** |
+| Hindsight | 10.0 | 8.8 | 9.8 | 8.6 | 8.8 | 9.3 | 9.0 | 8.8 | 91.5 |
+| OpenViking | 9.8 | 8.6 | 9.3 | 8.6 | 9.3 | 9.8 | 9.1 | 8.0 | 90.7 |
+| MemOS | 10.0 | 7.9 | 9.1 | 7.7 | 8.8 | 9.5 | 8.5 | 7.7 | 86.2 |
+| MatrixOrigin Memoria | 8.5 | 7.3 | 8.5 | 8.4 | 9.9 | 8.6 | 9.3 | 8.0 | 84.5 |
+| MemMachine | 8.8 | 7.4 | 8.6 | 9.0 | 8.4 | 8.7 | 8.8 | 8.0 | 84.3 |
+| Honcho | 9.4 | 7.1 | 9.2 | 7.8 | 8.8 | 9.0 | 9.0 | 7.0 | 83.9 |
+| EverOS | 9.0 | 6.5 | 8.7 | 8.5 | 8.8 | 8.8 | 9.3 | 8.0 | 83.1 |
+| Memora | 8.0 | 8.1 | 8.3 | 7.4 | 8.0 | 9.0 | 7.3 | 8.0 | 80.1 |
+| Mem0 OSS | 7.8 | 5.5 | 8.0 | 6.3 | 8.2 | 9.5 | 8.8 | 7.7 | 74.4 |
+
+The total is the weighted average of the 0-10 criterion scores, scaled to 100.
+These criterion scores are documented audit judgments, not measured product
+performance.
+
+</details>
+
+Readers can inspect the pinned sources below, apply the published weights, and
+recalculate the assessment. Estimated uncertainty is plus or minus three
+points; differences within three points should be read as the same
+technical class rather than a decisive product gap.
 
 Terms used here:
 
@@ -82,18 +126,18 @@ Terms used here:
 
 ## Ten-system comparison
 
-| Product | Memory shape | Strongest advantage | Current-state or adoption caveat |
-| --- | --- | --- | --- |
-| [Infinity Context](https://github.com/777genius/infinity-context) | Postgres-canonical facts, documents, sources, versions, scopes, and review state | Explicit trust contract for changing project knowledge | Cognitive layer and broad scale evidence remain limited |
-| [Hindsight](https://github.com/vectorize-io/hindsight) | Facts, observations, mental models, recall, and reflection | Deepest cognitive-memory pipeline in this set | Strong after-the-fact curation, but no mandatory pre-canonical review gate |
-| [OpenViking](https://github.com/volcengine/OpenViking) | viking:// context filesystem for memories, resources, and skills | L0/L1/L2 context layers, retrieval trajectories, and snapshot history with forward-commit restore | Version history is not by itself a semantic current-state or review contract |
-| [MemOS](https://github.com/MemTensor/MemOS) | MemCubes, multi-cube routing, scheduler, multi-type memory, and providers | Broadest Memory OS surface | Evaluate lifecycle guarantees separately for each memory type and integration |
-| [MatrixOrigin Memoria](https://github.com/matrixorigin/Memoria) | Branchable memory with snapshots, diff, merge, and rollback | Strongest explicit branching workflow | A branch system does not automatically resolve semantic contradictions |
-| [MemMachine](https://github.com/MemMachine/MemMachine) | Episodic, profile, and working memory with source-linked episodes | Source-linked conversational recall | A citation links to an episode, not to truth; retrieval agents use selected stores |
-| [Honcho](https://github.com/plastic-labs/honcho) | Peer and user models with explicit and inferred conclusions | Modeling a person's evolving knowledge and preferences | Operational setup and project-state governance need separate evaluation |
-| [EverOS](https://github.com/EverMind-AI/EverOS) | Markdown memory content, SQLite operational state, and LanceDB derived indexes | Transparent local files and Git-friendly inspection | Derived retrieval is eventually consistent and has no automatic Markdown grep fallback |
-| [Memora](https://github.com/agentic-box/memora) | Local MCP memory with smart absorb, lineage, documents, and graph interaction | Inspectable local workflow | Review-gated distributed project governance is not its main design center |
-| [Mem0 OSS](https://github.com/mem0ai/mem0) | Portable personalization memory and integration layer | Fast SDK-led adoption and provider choice | Application code owns review, current-state policy, and product-specific lifecycle |
+| Rank | Product | Research score / 100 | Memory shape | Strongest advantage | Current-state or adoption caveat |
+| --- | --- | ---: | --- | --- | --- |
+| 1 | [Infinity Context](https://github.com/777genius/infinity-context) | **93.9** | Postgres-canonical facts, documents, sources, versions, scopes, and review state | Explicit trust contract for changing project knowledge | Cognitive layer and broad scale evidence remain limited |
+| 2 | [Hindsight](https://github.com/vectorize-io/hindsight) | 91.5 | Facts, observations, mental models, recall, and reflection | Deepest cognitive-memory pipeline in this set | Strong after-the-fact curation, but no mandatory pre-canonical review gate |
+| 3 | [OpenViking](https://github.com/volcengine/OpenViking) | 90.7 | viking:// context filesystem for memories, resources, and skills | L0/L1/L2 context layers, retrieval trajectories, and snapshot history with forward-commit restore | Version history is not by itself a semantic current-state or review contract |
+| 4 | [MemOS](https://github.com/MemTensor/MemOS) | 86.2 | MemCubes, multi-cube routing, scheduler, multi-type memory, and providers | Broadest Memory OS surface | Evaluate lifecycle guarantees separately for each memory type and integration |
+| 5 | [MatrixOrigin Memoria](https://github.com/matrixorigin/Memoria) | 84.5 | Branchable memory with snapshots, diff, merge, and rollback | Strongest explicit branching workflow | A branch system does not automatically resolve semantic contradictions |
+| 6 | [MemMachine](https://github.com/MemMachine/MemMachine) | 84.3 | Episodic, profile, and working memory with source-linked episodes | Source-linked conversational recall | A citation links to an episode, not to truth; retrieval agents use selected stores |
+| 7 | [Honcho](https://github.com/plastic-labs/honcho) | 83.9 | Peer and user models with explicit and inferred conclusions | Modeling a person's evolving knowledge and preferences | Operational setup and project-state governance need separate evaluation |
+| 8 | [EverOS](https://github.com/EverMind-AI/EverOS) | 83.1 | Markdown memory content, SQLite operational state, and LanceDB derived indexes | Transparent local files and Git-friendly inspection | Derived retrieval is eventually consistent and has no automatic Markdown grep fallback |
+| 9 | [Memora](https://github.com/agentic-box/memora) | 80.1 | Local MCP memory with smart absorb, lineage, documents, and graph interaction | Inspectable local workflow | Review-gated distributed project governance is not its main design center |
+| 10 | [Mem0 OSS](https://github.com/mem0ai/mem0) | 74.4 | Portable personalization memory and integration layer | Fast SDK-led adoption and provider choice | Application code owns review, current-state policy, and product-specific lifecycle |
 
 ## Product strengths and limits
 
