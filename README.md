@@ -81,8 +81,42 @@ limits.
 
 ## Quickstart
 
-You need Git, Python 3.11 or later, and Docker with Compose for the local
-runtime. Install from source:
+The recommended installer sets up the complete local stack, connects your
+coding agent, enables review-gated memory suggestions, and opens the UI.
+
+Requirements: Git, Python 3.11 or later, and Docker with Compose.
+
+~~~bash
+curl -fsSLo infinity-context-install.sh \
+  https://raw.githubusercontent.com/777genius/infinity-context/v0.1.0/scripts/install.sh
+bash infinity-context-install.sh --agent codex
+~~~
+
+Replace `codex` with `claude`, `gemini`, `opencode`, or `cursor`. Repeat
+`--agent` to connect several agents, or use `--all-agents`. The installer
+reports whether every requested integration was confirmed instead of claiming
+success when manual setup is still required.
+
+After a successful start, the browser opens the local memory UI. Automatic
+capture creates suggestions for review; it does not silently promote them to
+durable memory.
+
+### Other installation options
+
+Install only the CLI, SDK, and MCP server for an existing deployment:
+
+~~~bash
+pipx install 'infinity-context[mcp]==0.1.0'
+infinity-context --version
+~~~
+
+Pull the versioned multi-architecture server image:
+
+~~~bash
+docker pull ghcr.io/777genius/infinity-context:0.1.0
+~~~
+
+Contributors can install from source:
 
 ~~~bash
 git clone https://github.com/777genius/infinity-context.git
@@ -92,10 +126,8 @@ python3 -m venv .venv
 .venv/bin/infinity-context quickstart --agent codex --open-ui
 ~~~
 
-Quickstart initializes local configuration, starts the default lite Docker
-profile, installs or updates the chosen agent integration, enables review-gated
-capture suggestions, and opens the local UI. Add `--no-install-agents` if you
-only want the generated MCP configuration.
+Use `--no-install-agents` if you only want generated MCP configuration, or
+`--retrieve-only` to keep recall while disabling automatic capture creation.
 
 | Profile | Intended local setup |
 | --- | --- |
