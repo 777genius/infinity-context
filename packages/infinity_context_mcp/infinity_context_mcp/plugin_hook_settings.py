@@ -52,15 +52,20 @@ class HookSettings:
 
     @classmethod
     def from_env(cls, env: Mapping[str, str] | None = None) -> HookSettings:
-        values = env or os.environ
+        values = os.environ if env is None else env
         file_values = _env_file_values(_get(values, "MEMORY_MCP_AUTH_TOKEN_FILE"))
 
-        def setting(key: str, default: str | None = None) -> str:
+        def setting(
+            key: str,
+            default: str | None = None,
+            *,
+            allow_empty: bool = False,
+        ) -> str:
             direct = _get(values, key)
-            if direct:
+            if direct or (allow_empty and key in values):
                 return direct
             file_value = file_values.get(key, "").strip()
-            if file_value:
+            if file_value or (allow_empty and key in file_values):
                 return file_value
             return "" if default is None else default
 
@@ -117,6 +122,7 @@ class HookSettings:
                     setting(
                         "MEMORY_PLUGIN_HOOK_CONTEXT_EVENTS",
                         "SessionStart,UserPromptSubmit,BeforeAgent",
+                        allow_empty=True,
                     )
                 )
             ),
