@@ -18,6 +18,7 @@ class SealedBenchmarkDeleteScope:
     run_id_sha256: str
     all_chunk_ids: tuple[str, ...]
     all_fact_ids: tuple[str, ...]
+    all_episode_ids: tuple[str, ...] = ()
 
 
 def validate_delete_outbox_ids(value: tuple[int, ...] | None) -> None:

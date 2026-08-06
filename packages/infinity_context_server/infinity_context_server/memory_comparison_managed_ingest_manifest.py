@@ -24,6 +24,7 @@ if TYPE_CHECKING:
     )
 
 _SHA256 = re.compile(r"^[0-9a-f]{64}$")
+_CANONICAL_ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:-]{0,239}$")
 _ROLES = ("infinity-context", "mem0")
 _MANIFEST_KEYS = frozenset(
     {
@@ -91,6 +92,7 @@ class ManagedCorpusIngestIdentity:
     mem0_target_identity_sha256: str
     manifest: ManagedIngestIdentityManifest
     scope: ManagedCanonicalProjectionScope
+    canonical_episode_ids: tuple[str, ...] | None = None
 
     def __post_init__(self) -> None:
         if type(self.manifest) is not ManagedIngestIdentityManifest:
@@ -99,6 +101,16 @@ class ManagedCorpusIngestIdentity:
             raise ManagedIngestManifestParseError("managed_ingest_scope_type_invalid")
         if not self.case_id or self.manifest.corpus_id != self.corpus_id:
             raise ManagedIngestManifestParseError("managed_ingest_corpus_binding_invalid")
+        if self.canonical_episode_ids is not None:
+            episode_ids = self.canonical_episode_ids
+            if (
+                type(episode_ids) is not tuple
+                or list(episode_ids) != sorted(episode_ids)
+                or len(episode_ids) != len(set(episode_ids))
+                or any(_CANONICAL_ID.fullmatch(item) is None for item in episode_ids)
+                or (episode_ids and self.scope.thread_id is None)
+            ):
+                raise ManagedIngestManifestParseError("managed_ingest_episode_inventory_invalid")
         for target in (
             self.infinity_target_identity_sha256,
             self.mem0_target_identity_sha256,
@@ -159,6 +171,9 @@ def parse_managed_ingest_identity_manifests(
             raise ManagedIngestManifestParseError("managed_ingest_cross_corpus_mismatch")
         infinity = _manifest(infinity_view, expected_backend="infinity")
         mem0 = _manifest(mem0_view, expected_backend="mem0")
+        canonical_episode_ids = _canonical_episode_ids(infinity_view)
+        if "canonical_episode_ids" in mem0_view.ingest_result.metadata:
+            raise ManagedIngestManifestParseError("managed_ingest_episode_inventory_invalid")
         scope = _scope(infinity)
         _mem0_scope_absent(mem0)
         infinity_sources = tuple(zip(infinity.source_ids, infinity.source_sha256, strict=True))
@@ -193,9 +208,32 @@ def parse_managed_ingest_identity_manifests(
                 mem0_target_identity_sha256=mem0_view.target_identity_sha256,
                 manifest=manifest,
                 scope=scope,
+                canonical_episode_ids=canonical_episode_ids,
             )
         )
     return tuple(bundles)
+
+
+def _canonical_episode_ids(
+    view: ManagedHttpIngestEvidenceView,
+) -> tuple[str, ...] | None:
+    metadata = view.ingest_result.metadata
+    if "canonical_episode_ids" not in metadata:
+        return None
+    raw = metadata["canonical_episode_ids"]
+    if type(raw) is not list:
+        raise ManagedIngestManifestParseError("managed_ingest_episode_inventory_invalid")
+    try:
+        episode_ids = tuple(_texts(raw))
+    except ManagedIngestManifestParseError:
+        raise ManagedIngestManifestParseError("managed_ingest_episode_inventory_invalid") from None
+    if (
+        list(episode_ids) != sorted(episode_ids)
+        or len(episode_ids) != len(set(episode_ids))
+        or any(_CANONICAL_ID.fullmatch(item) is None for item in episode_ids)
+    ):
+        raise ManagedIngestManifestParseError("managed_ingest_episode_inventory_invalid")
+    return episode_ids
 
 
 def _manifest(

@@ -44,6 +44,8 @@ from infinity_context_server.memory_comparison_managed_ingest_manifest import (
 from infinity_context_server.memory_comparison_managed_projection_manifest import (
     MANAGED_COGNEE_NOT_PROJECTED_POLICY_SHA256,
     MANAGED_PROJECTION_MANIFEST_SCHEMA_VERSION,
+    MANAGED_PROJECTION_MANIFEST_V2_SCHEMA_VERSION,
+    ManagedProjectionEpisodeInventory,
     ManagedProjectionManifestError,
     build_managed_projection_manifest,
 )
@@ -98,6 +100,7 @@ def _corpus(
     suffix: str,
     *,
     memory_scope_id: str | None = None,
+    threadless: bool = False,
     fact_id: str | None = None,
     graph_episode_id: str | None = None,
     qdrant_point_id: str | None = None,
@@ -105,7 +108,7 @@ def _corpus(
     scope = ManagedCanonicalProjectionScope(
         _SPACE_ID,
         memory_scope_id or f"scope-{suffix}",
-        f"thread-{suffix}",
+        None if threadless else f"thread-{suffix}",
     )
     manifest = ManagedIngestIdentityManifest(
         corpus_id=f"corpus-{suffix}",
@@ -242,6 +245,130 @@ def test_builds_exact_sorted_core_manifest_and_defensive_projection() -> None:
 
     first["chunk_ids"].append("tampered")
     assert "tampered" not in result.projection_manifest["scopes"][0]["chunk_ids"]
+
+
+def test_builds_v2_with_exact_per_scope_episode_inventory() -> None:
+    corpus, presence = _corpus("a")
+    bindings = _bindings()
+
+    result = build_managed_projection_manifest(
+        bindings=bindings,
+        registration=_registration(bindings),
+        cases=(ManagedRunCase(corpus.case_id, corpus.corpus_id, {}),),
+        corpora=(corpus,),
+        presence=(presence,),
+        episode_inventory=(
+            ManagedProjectionEpisodeInventory(corpus.scope, ("episode-2", "episode-1")),
+        ),
+    )
+
+    assert result.projection_manifest["schema_version"] == (
+        MANAGED_PROJECTION_MANIFEST_V2_SCHEMA_VERSION
+    )
+    assert result.projection_manifest["scopes"][0]["episode_ids"] == [
+        "episode-1",
+        "episode-2",
+    ]
+
+
+def test_v2_builder_rejects_missing_or_duplicate_episode_inventory() -> None:
+    corpus, presence = _corpus("a")
+    bindings = _bindings()
+
+    with pytest.raises(
+        ManagedProjectionManifestError,
+        match="managed_projection_episode_inventory_invalid",
+    ):
+        build_managed_projection_manifest(
+            bindings=bindings,
+            registration=_registration(bindings),
+            cases=(ManagedRunCase(corpus.case_id, corpus.corpus_id, {}),),
+            corpora=(corpus,),
+            presence=(presence,),
+            episode_inventory=(),
+        )
+    with pytest.raises(
+        ManagedProjectionManifestError,
+        match="managed_projection_episode_inventory_invalid",
+    ):
+        build_managed_projection_manifest(
+            bindings=bindings,
+            registration=_registration(bindings),
+            cases=(ManagedRunCase(corpus.case_id, corpus.corpus_id, {}),),
+            corpora=(corpus,),
+            presence=(presence,),
+            episode_inventory=(
+                ManagedProjectionEpisodeInventory(
+                    corpus.scope,
+                    ("episode-1", "episode-1"),
+                ),
+            ),
+        )
+
+
+def test_v2_builder_accepts_threadless_scope_with_empty_episode_inventory() -> None:
+    corpus, presence = _corpus("a", threadless=True)
+    bindings = _bindings()
+
+    result = build_managed_projection_manifest(
+        bindings=bindings,
+        registration=_registration(bindings),
+        cases=(ManagedRunCase(corpus.case_id, corpus.corpus_id, {}),),
+        corpora=(corpus,),
+        presence=(presence,),
+        episode_inventory=(ManagedProjectionEpisodeInventory(corpus.scope, ()),),
+    )
+
+    scope = result.projection_manifest["scopes"][0]
+    assert scope["thread_id"] is None
+    assert scope["episode_ids"] == []
+
+
+def test_v2_builder_rejects_threadless_scope_with_episode_inventory() -> None:
+    corpus, presence = _corpus("a", threadless=True)
+    bindings = _bindings()
+
+    with pytest.raises(
+        ManagedProjectionManifestError,
+        match="managed_projection_episode_inventory_invalid",
+    ):
+        build_managed_projection_manifest(
+            bindings=bindings,
+            registration=_registration(bindings),
+            cases=(ManagedRunCase(corpus.case_id, corpus.corpus_id, {}),),
+            corpora=(corpus,),
+            presence=(presence,),
+            episode_inventory=(ManagedProjectionEpisodeInventory(corpus.scope, ("episode-1",)),),
+        )
+
+
+@pytest.mark.parametrize(
+    "identity_kind",
+    ["chunk_ids", "fact_ids", "document_ids"],
+)
+def test_v2_builder_rejects_episode_collision_with_other_canonical_kind(
+    identity_kind: str,
+) -> None:
+    corpus, presence = _corpus("a")
+    bindings = _bindings()
+    episode_id = {
+        "chunk_ids": corpus.manifest.infinity_chunk_ids[0],
+        "fact_ids": corpus.manifest.infinity_fact_ids[0],
+        "document_ids": corpus.manifest.infinity_document_ids[0],
+    }[identity_kind]
+
+    with pytest.raises(
+        ManagedProjectionManifestError,
+        match="managed_projection_canonical_ids_ambiguous",
+    ):
+        build_managed_projection_manifest(
+            bindings=bindings,
+            registration=_registration(bindings),
+            cases=(ManagedRunCase(corpus.case_id, corpus.corpus_id, {}),),
+            corpora=(corpus,),
+            presence=(presence,),
+            episode_inventory=(ManagedProjectionEpisodeInventory(corpus.scope, (episode_id,)),),
+        )
 
 
 @pytest.mark.parametrize(

@@ -573,6 +573,11 @@ async def _prove_delete_scope_exists(
         run_id_sha256=benchmark.run_id_sha256,
         all_chunk_ids=projection_manifest_ids(manifest, "chunk_ids"),
         all_fact_ids=projection_manifest_ids(manifest, "fact_ids"),
+        all_episode_ids=(
+            projection_manifest_ids(manifest, "episode_ids")
+            if manifest.get("schema_version") == "memory-comparison-projection-manifest.v2"
+            else ()
+        ),
     )
 
 

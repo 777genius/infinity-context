@@ -77,6 +77,14 @@ async def require_canonical_tombstones(
         ),
         (MemoryChunkRow, "chunks", {item for scope in scopes for item in scope["chunk_ids"]}),
     )
+    if manifest.get("schema_version") == "memory-comparison-projection-manifest.v2":
+        exact_identities += (
+            (
+                MemoryEpisodeRow,
+                "episodes",
+                {item for scope in scopes for item in scope["episode_ids"]},
+            ),
+        )
     for model, count_field, expected_ids in exact_identities:
         rows = set(
             (str(identity), status)
@@ -90,17 +98,20 @@ async def require_canonical_tombstones(
             (identity, "deleted") for identity in expected_ids
         }:
             raise MemoryConflictError("Benchmark canonical tombstones are incomplete")
-    episode_statuses = tuple(
-        (
-            await session.execute(
-                select(MemoryEpisodeRow.status).where(MemoryEpisodeRow.space_id == record.space_id)
-            )
-        ).scalars()
-    )
-    if len(episode_statuses) != receipt.counts.episodes or any(
-        status != "deleted" for status in episode_statuses
-    ):
-        raise MemoryConflictError("Benchmark canonical tombstones are incomplete")
+    if manifest.get("schema_version") != "memory-comparison-projection-manifest.v2":
+        episode_statuses = tuple(
+            (
+                await session.execute(
+                    select(MemoryEpisodeRow.status).where(
+                        MemoryEpisodeRow.space_id == record.space_id
+                    )
+                )
+            ).scalars()
+        )
+        if len(episode_statuses) != receipt.counts.episodes or any(
+            status != "deleted" for status in episode_statuses
+        ):
+            raise MemoryConflictError("Benchmark canonical tombstones are incomplete")
     for model in _UNSUPPORTED_MODELS:
         found = await session.scalar(
             select(model.space_id).where(model.space_id == record.space_id).limit(1)

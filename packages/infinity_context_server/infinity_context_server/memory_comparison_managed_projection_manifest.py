@@ -22,6 +22,7 @@ from infinity_context_server.memory_comparison_managed_benchmark_registry_contra
     ManagedBenchmarkRunRegistration,
 )
 from infinity_context_server.memory_comparison_managed_http_policy_requirements import (
+    ManagedCanonicalProjectionScope,
     ManagedDerivedPresenceObservation,
     ManagedGraphitiIdentitySnapshot,
     managed_ingest_identity_manifest_sha256,
@@ -32,6 +33,7 @@ from infinity_context_server.memory_comparison_managed_ingest_manifest import (
 from infinity_context_server.memory_comparison_managed_run_contract import ManagedRunCase
 
 MANAGED_PROJECTION_MANIFEST_SCHEMA_VERSION = "memory-comparison-projection-manifest.v1"
+MANAGED_PROJECTION_MANIFEST_V2_SCHEMA_VERSION = "memory-comparison-projection-manifest.v2"
 MANAGED_COGNEE_NOT_PROJECTED_POLICY_SCHEMA_VERSION = (
     "memory-comparison-cognee-not-projected-policy.v1"
 )
@@ -57,6 +59,23 @@ class ManagedProjectionManifestError(ValueError):
     def __init__(self, code: str) -> None:
         self.code = code
         super().__init__(code)
+
+
+@final
+@dataclass(frozen=True, slots=True)
+class ManagedProjectionEpisodeInventory:
+    """Exact canonical episode identities owned by one projection scope."""
+
+    scope: ManagedCanonicalProjectionScope
+    episode_ids: tuple[str, ...]
+
+    def __post_init__(self) -> None:
+        if (
+            type(self.scope) is not ManagedCanonicalProjectionScope
+            or type(self.episode_ids) is not tuple
+            or any(type(item) is not str for item in self.episode_ids)
+        ):
+            raise ManagedProjectionManifestError("managed_projection_episode_inventory_invalid")
 
 
 @final
@@ -117,11 +136,13 @@ def build_managed_projection_manifest(
     cases: tuple[ManagedRunCase, ...],
     corpora: tuple[ManagedCorpusIngestIdentity, ...],
     presence: tuple[ManagedDerivedPresenceObservation, ...],
+    episode_inventory: tuple[ManagedProjectionEpisodeInventory, ...] | None = None,
 ) -> ManagedProjectionManifest:
     """Build and core-validate one exact manifest before any terminal cleanup."""
 
     expected_corpora = _validate_inputs(bindings, registration, cases, corpora, presence)
     _validate_expected_coverage(expected_corpora, corpora)
+    episodes_by_scope = _episode_ids_by_scope(corpora, episode_inventory)
     infinity_target = _target(bindings, "infinity-context")
     mem0_target = _target(bindings, "mem0")
     _validate_registration_binding(bindings, registration, infinity_target)
@@ -151,13 +172,18 @@ def build_managed_projection_manifest(
             infinity_target=infinity_target,
             mem0_target=mem0_target,
         )
-        scope = _scope_projection(bundle, observation)
+        scope = _scope_projection(
+            bundle,
+            observation,
+            episode_ids=(episodes_by_scope[scope_key] if episodes_by_scope is not None else None),
+        )
         _require_globally_unique(
             canonical_ids,
             (
                 *bundle.manifest.infinity_fact_ids,
                 *bundle.manifest.infinity_document_ids,
                 *bundle.manifest.infinity_chunk_ids,
+                *(episodes_by_scope[scope_key] if episodes_by_scope is not None else ()),
             ),
             "managed_projection_canonical_ids_ambiguous",
         )
@@ -182,7 +208,11 @@ def build_managed_projection_manifest(
         scopes.append(scope)
 
     manifest: dict[str, object] = {
-        "schema_version": MANAGED_PROJECTION_MANIFEST_SCHEMA_VERSION,
+        "schema_version": (
+            MANAGED_PROJECTION_MANIFEST_V2_SCHEMA_VERSION
+            if episodes_by_scope is not None
+            else MANAGED_PROJECTION_MANIFEST_SCHEMA_VERSION
+        ),
         "run_id_sha256": registration.run_id_sha256,
         "binding_commitment_sha256": registration.binding_commitment_sha256,
         "infinity_target_identity_sha256": registration.infinity_target_identity_sha256,
@@ -264,6 +294,37 @@ def _validate_expected_coverage(
         raise ManagedProjectionManifestError("managed_projection_coverage_invalid")
 
 
+def _episode_ids_by_scope(
+    corpora: tuple[ManagedCorpusIngestIdentity, ...],
+    inventory: tuple[ManagedProjectionEpisodeInventory, ...] | None,
+) -> dict[tuple[str, str | None], tuple[str, ...]] | None:
+    if inventory is None:
+        return None
+    if type(inventory) is not tuple or any(
+        type(item) is not ManagedProjectionEpisodeInventory for item in inventory
+    ):
+        raise ManagedProjectionManifestError("managed_projection_episode_inventory_invalid")
+    expected_scopes = {(item.scope.memory_scope_id, item.scope.thread_id) for item in corpora}
+    by_scope: dict[tuple[str, str | None], tuple[str, ...]] = {}
+    seen_episode_ids: set[str] = set()
+    for item in inventory:
+        scope_key = (item.scope.memory_scope_id, item.scope.thread_id)
+        episode_ids = item.episode_ids
+        if (
+            item.scope.space_id != corpora[0].scope.space_id
+            or scope_key in by_scope
+            or len(episode_ids) != len(set(episode_ids))
+            or seen_episode_ids.intersection(episode_ids)
+            or (episode_ids and item.scope.thread_id is None)
+        ):
+            raise ManagedProjectionManifestError("managed_projection_episode_inventory_invalid")
+        seen_episode_ids.update(episode_ids)
+        by_scope[scope_key] = tuple(sorted(episode_ids))
+    if set(by_scope) != expected_scopes:
+        raise ManagedProjectionManifestError("managed_projection_episode_inventory_invalid")
+    return by_scope
+
+
 def _validate_registration_binding(
     bindings: FullComparisonRunBindings,
     registration: ManagedBenchmarkRunRegistration,
@@ -310,11 +371,13 @@ def _validate_pair(
 def _scope_projection(
     bundle: ManagedCorpusIngestIdentity,
     observation: ManagedDerivedPresenceObservation,
+    *,
+    episode_ids: tuple[str, ...] | None,
 ) -> dict[str, object]:
     manifest = bundle.manifest
     qdrant = observation.qdrant
     graphiti = observation.graphiti
-    return {
+    scope: dict[str, object] = {
         "memory_scope_id": bundle.scope.memory_scope_id,
         "thread_id": bundle.scope.thread_id,
         "chunk_ids": sorted(manifest.infinity_chunk_ids),
@@ -327,6 +390,9 @@ def _scope_projection(
             "policy_sha256": MANAGED_COGNEE_NOT_PROJECTED_POLICY_SHA256,
         },
     }
+    if episode_ids is not None:
+        scope["episode_ids"] = list(episode_ids)
+    return scope
 
 
 def _graphiti_projection(
@@ -432,7 +498,9 @@ __all__ = (
     "MANAGED_COGNEE_NOT_PROJECTED_POLICY_SCHEMA_VERSION",
     "MANAGED_COGNEE_NOT_PROJECTED_POLICY_SHA256",
     "MANAGED_PROJECTION_MANIFEST_SCHEMA_VERSION",
+    "MANAGED_PROJECTION_MANIFEST_V2_SCHEMA_VERSION",
     "ManagedProjectionManifest",
+    "ManagedProjectionEpisodeInventory",
     "ManagedProjectionManifestError",
     "build_managed_projection_manifest",
 )
