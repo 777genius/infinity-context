@@ -24,6 +24,7 @@ from infinity_context_server.memory_comparison_full_methodology import (
     full_comparison_methodology_contract,
 )
 from infinity_context_server.memory_comparison_full_profiles import (
+    PROFILE_LOCOMO_TOP_50,
     PROFILE_LONGMEMEVAL_TOP_50,
     resolve_full_comparison_profile,
 )
@@ -85,6 +86,7 @@ from infinity_context_server.memory_comparison_retrieval_policy import (
 )
 from infinity_context_server.public_benchmark_models import (
     BenchmarkConversationInput,
+    BenchmarkMemoryInput,
     BenchmarkMessageInput,
     PublicBenchmarkCase,
 )
@@ -149,7 +151,15 @@ class _Delegate:
         )
         observed = "wrong-model" if self.mode == "wrong_model" else model
         return ProviderChatCompletion(
-            text="Kyiv" if ordinal % 2 == 0 else "yes",
+            text=(
+                "Kyiv"
+                if ordinal % 2 == 0
+                else (
+                    '{"reasoning":"matches","label":"CORRECT"}'
+                    if response_format is not None
+                    else "yes"
+                )
+            ),
             prompt_tokens=1,
             completion_tokens=1,
             token_usage_source="provider_observed",
@@ -248,13 +258,19 @@ class _Scenario:
         return tuple(executions)
 
 
-def _scenario(*, deadline_monotonic: float | None = None) -> _Scenario:
+def _scenario(
+    *,
+    deadline_monotonic: float | None = None,
+    benchmark: str = "longmemeval",
+) -> _Scenario:
     clock = _Clock()
     deadline = clock.value + timedelta(minutes=5)
-    profile = resolve_full_comparison_profile(PROFILE_LONGMEMEVAL_TOP_50)
+    profile = resolve_full_comparison_profile(
+        PROFILE_LOCOMO_TOP_50 if benchmark == "locomo" else PROFILE_LONGMEMEVAL_TOP_50
+    )
     assert profile is not None
     source = PublicBenchmarkCase(
-        benchmark="longmemeval",
+        benchmark=benchmark,
         case_id="private-source-case",
         question="Where did the user move?",
         expected_terms=("Kyiv",),
@@ -265,21 +281,44 @@ def _scenario(*, deadline_monotonic: float | None = None) -> _Scenario:
             "_evaluator_ground_truth": _PRIVATE_GOLD,
             "question_type": "single-session-user",
             "question_date": "2026/08/01 11:00",
+            **({"locomo_ingest_mode": "official-turns"} if benchmark == "locomo" else {}),
         },
-        conversations=(
-            BenchmarkConversationInput(
-                messages=(
-                    BenchmarkMessageInput(role="user", content="I moved to Kyiv."),
-                    BenchmarkMessageInput(role="assistant", content="Noted."),
+        memories=(
+            (
+                BenchmarkMemoryInput(
+                    text="I moved to Kyiv.",
+                    kind="dialogue_turn",
+                    source_external_id="memory-1",
+                    metadata={
+                        "role": "user",
+                        "speaker": "user",
+                        "session_key": "session-private",
+                        "session_date": "12:00 am on 1 January, 2025",
+                        "timestamp": 1_735_689_600,
+                    },
                 ),
-                source_external_id="conversation-1",
-                session_external_id="session-private",
-            ),
+            )
+            if benchmark == "locomo"
+            else ()
+        ),
+        conversations=(
+            ()
+            if benchmark == "locomo"
+            else (
+                BenchmarkConversationInput(
+                    messages=(
+                        BenchmarkMessageInput(role="user", content="I moved to Kyiv."),
+                        BenchmarkMessageInput(role="assistant", content="Noted."),
+                    ),
+                    source_external_id="conversation-1",
+                    session_external_id="session-private",
+                ),
+            )
         ),
     )
     alias = (
-        "longmemeval-case-"
-        + hashlib.sha256(f"longmemeval\0case\0{source.case_id}".encode()).hexdigest()
+        f"{benchmark}-case-"
+        + hashlib.sha256(f"{benchmark}\0case\0{source.case_id}".encode()).hexdigest()
     )
     corpus_id, thread_id = _managed_corpus_identity(source)
     record = _managed_corpus_record(source)
@@ -401,6 +440,7 @@ def _scenario(*, deadline_monotonic: float | None = None) -> _Scenario:
         now=clock.value,
         infinity_transport=httpx.MockTransport(infinity_handler),
         mem0_transport=httpx.MockTransport(mem0_handler),
+        mem0_send_timestamps=benchmark == "locomo",
     )
     http = ManagedComparisonHttpExecutionAdapter(
         preflight_request=preflight_request,
@@ -513,6 +553,7 @@ def test_exact_two_backend_execution_is_gold_blind_and_seals_full_validation() -
     assert [item["model"] for item in scenario.delegate.calls] == [_MODEL] * 4
     assert all(item["max_output_tokens"] == 4096 for item in scenario.delegate.calls)
     assert all(item["temperature"] == 0 for item in scenario.delegate.calls)
+    assert all(item["response_format"] is None for item in scenario.delegate.calls)
     assert all(_PRIVATE_GOLD not in scenario.delegate.calls[index]["user"] for index in (0, 2))
     assert all(_PRIVATE_GOLD in scenario.delegate.calls[index]["user"] for index in (1, 3))
     assert _PRIVATE_GOLD not in "".join(scenario.http_wire)
@@ -520,6 +561,37 @@ def test_exact_two_backend_execution_is_gold_blind_and_seals_full_validation() -
     assert MANAGED_PRODUCTION_EXECUTION_PUBLISHABLE is False
     assert "nonpublishable" in MANAGED_PRODUCTION_METHODOLOGY_STATUS
     assert "no_full_execution_artifact_slot" in MANAGED_RETRIEVAL_PROOF_STATUS
+
+
+def test_locomo_judge_dispatches_exact_strict_schema_for_both_backends() -> None:
+    scenario = _scenario(benchmark="locomo")
+    material = scenario.bind()
+    scenario.prepare_lifecycle()
+
+    executions = scenario.run_all(material)
+
+    assert len(executions) == 2
+    assert scenario.delegate.calls[0]["response_format"] is None
+    assert scenario.delegate.calls[2]["response_format"] is None
+    assert scenario.delegate.calls[1]["response_format"] == {
+        "type": "json_schema",
+        "json_schema": {
+            "name": "locomo_judge",
+            "strict": True,
+            "schema": {
+                "type": "object",
+                "properties": {
+                    "reasoning": {"type": "string"},
+                    "label": {"type": "string", "enum": ["CORRECT", "WRONG"]},
+                },
+                "required": ["reasoning", "label"],
+                "additionalProperties": False,
+            },
+        },
+    }
+    assert scenario.delegate.calls[3]["response_format"] == scenario.delegate.calls[1][
+        "response_format"
+    ]
 
 
 def test_missing_lifecycle_evidence_fails_before_retrieval_or_provider() -> None:

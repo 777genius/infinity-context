@@ -36,13 +36,14 @@ def test_top_profile_is_contract_only_and_cannot_be_published_or_executed() -> N
     assert public["publishable"] is False
     assert public["claim_scope"] == "same_run_pinned_oss_only"
     assert public["activation_blockers"] == list(PUBLISHABLE_ACTIVATION_BLOCKERS)
+    assert "full_run_extraction_equivalence" in public["activation_blockers"]
 
 
 def test_profile_references_independently_committed_methodology() -> None:
     methodology = _public()["methodology"]
 
-    assert methodology["schema_version"] == "memory-comparison-publishable-methodology.v1"
-    assert methodology["methodology_id"] == "ic-vs-mem0-oss-keyless-methodology-v1"
+    assert methodology["schema_version"] == "memory-comparison-publishable-methodology.v2"
+    assert methodology["methodology_id"] == "ic-vs-mem0-oss-keyless-methodology-v2"
     assert len(methodology["commitment_sha256"]) == 64
     assert methodology["observed"] is False
 

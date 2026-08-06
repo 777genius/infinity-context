@@ -30,7 +30,7 @@ def test_methodology_is_its_own_sealed_schema_with_required_unobserved_facts() -
     assert methodology is not None
     public = public_publishable_methodology(methodology)
 
-    assert public["schema_version"] == "memory-comparison-publishable-methodology.v1"
+    assert public["schema_version"] == "memory-comparison-publishable-methodology.v2"
     assert public["methodology_id"] == PUBLISHABLE_METHODOLOGY_ID
     assert public["required_provider_kind"] == "subscription-runtime"
     assert public["required_provider_trust"] == "codex_subscription_runtime"
@@ -38,10 +38,45 @@ def test_methodology_is_its_own_sealed_schema_with_required_unobserved_facts() -
     assert public["required_reasoning_effort"] == "high"
     assert public["required_service_tier"] == "default"
     assert public["required_transport_contract_id"] == (
-        "subscription-runtime-openai-codex-bridge.v2"
+        "subscription-runtime-openai-codex-bridge.v4"
+    )
+    assert public["required_system_fingerprint_prefix"] == (
+        "subscription-runtime-codex-bridge-v4:"
+    )
+    assert public["required_runtime_receipt_schema"] == (
+        "subscription-runtime-codex-execution-receipt.v2"
+    )
+    assert public["required_execution_profile"] == "stateless-completion"
+    assert public["required_base_instructions_sha256"] == (
+        "5c15d6c502d380282a933d4f20a886a06c9d04d3b5d7c918b95df0b0acf33671"
+    )
+    assert public["required_runtime_source_commit"] == (
+        "e904ec95fda4b04c333e5a7613c7729bf7abb125"
     )
     assert public["required_extraction_scope"] == "shared_full_run"
     assert public["required_extraction_binding"] == "run_attested_loopback_route"
+    normalization = public["required_judge_response_format_normalization"]
+    assert normalization["benchmark"] == "locomo"
+    assert normalization["stage"] == "judge"
+    assert normalization["source_response_format"] == {"type": "json_object"}
+    assert normalization["backend_roles"] == ["infinity-context", "mem0"]
+    assert normalization["backend_application"] == "identical"
+    assert normalization["canonical_schema_sha256"] == (
+        "2461f7a465be82aa67751dc04e0717cde75c69b86e7db54bb306a2e3d1d4d8f0"
+    )
+    assert normalization["canonical_policy_sha256"] == (
+        "9d7bcc89f3e8cc3683a18d83d90d6ffde05cdb02358d1cd055bf273f92a772f1"
+    )
+    equivalence = public["required_full_run_extraction_equivalence"]
+    assert equivalence == {
+        "activation_policy": "fail_closed",
+        "required": True,
+        "required_capacity": "attested_full_run",
+        "required_route": "run_attested_loopback_route",
+        "required_usage_ledger": "attested_full_run_usage_ledger",
+        "current_runtime_capability": "isolated_single_add",
+        "current_capability_satisfies_requirement": False,
+    }
     assert public["single_pass"] is True
     assert not any(key.startswith("observed_") for key in public)
 
