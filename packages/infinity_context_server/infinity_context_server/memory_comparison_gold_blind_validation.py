@@ -235,8 +235,6 @@ def _validate_provider_text(value: object, *, field_name: str) -> None:
         marker in _normalize_key(variant) for variant in variants for marker in _PROMPT_LEAK_MARKERS
     ):
         raise GoldBlindContractError(f"{field_name} contains an evaluator-label prompt injection")
-    if len(variants) > 1:
-        raise GoldBlindContractError(f"{field_name} contains reversible base64-like content")
 
 
 def _provider_text_variants(value: str) -> tuple[str, ...]:

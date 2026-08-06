@@ -4,6 +4,12 @@ from collections.abc import Mapping, Sequence
 from datetime import UTC, datetime
 from typing import Any, Literal
 
+from mem0_oss_adapter.usage import (
+    FIXED_EXTRACTION_MODEL,
+    RunUsageAggregate,
+    UsageEvidenceError,
+)
+
 
 class FakeOssPort:
     def __init__(
@@ -16,6 +22,7 @@ class FakeOssPort:
         self._extraction_mode = extraction_mode
         self.add_calls: list[dict[str, Any]] = []
         self.rows: list[dict[str, Any]] = []
+        self.usage_rows: list[tuple[str, str, str]] = []
 
     @property
     def configured(self) -> bool:
@@ -58,6 +65,9 @@ class FakeOssPort:
                 "row": row,
             }
         )
+        mode = mode_override or self._extraction_mode
+        created_at = datetime.now(UTC).isoformat(timespec="milliseconds").replace("+00:00", "Z")
+        self.usage_rows.append((run_id, mode, created_at))
         return {"id": row["id"], "results": [{"id": row["id"]}]}
 
     def get_all(self, *, filters: Mapping[str, Any], limit: int) -> Mapping[str, Any]:
@@ -111,3 +121,24 @@ class FakeOssPort:
             )
         ]
         return True
+
+    def usage_for_run(self, *, run_id: str) -> RunUsageAggregate:
+        entries = [entry for entry in self.usage_rows if entry[0] == run_id]
+        if not entries:
+            raise UsageEvidenceError("usage evidence is unavailable for the exact run")
+        modes = {entry[1] for entry in entries}
+        if len(modes) != 1:
+            raise UsageEvidenceError("usage evidence contains mixed modes")
+        mode = entries[0][1]
+        timestamps = [entry[2] for entry in entries]
+        extraction_calls = 1 if mode == "subscription_llm" else 0
+        return RunUsageAggregate(
+            mode=mode,
+            operation_count=len(entries),
+            extraction_calls=extraction_calls,
+            request_bytes=128 if extraction_calls else 0,
+            response_bytes=256 if extraction_calls else 0,
+            model=FIXED_EXTRACTION_MODEL,
+            first_operation_at=min(timestamps),
+            last_operation_at=max(timestamps),
+        )

@@ -10,13 +10,23 @@ from datetime import UTC, datetime
 
 import httpx
 import pytest
+from infinity_context_server.memory_comparison_mem0_oss_usage_attestation import (
+    MEM0_OSS_USAGE_ATTESTATION_PATH,
+    MEM0_OSS_USAGE_ATTESTATION_SCHEMA_VERSION,
+    MEM0_OSS_USAGE_WITNESS_CONTEXT,
+    VerifiedMem0OssUsageAttestation,
+)
 from infinity_context_server.memory_comparison_mem0_runtime_attestation import (
     VerifiedMem0RuntimeAttestation,
 )
 from infinity_context_server.memory_comparison_service_probes import (
     MEM0_BENCHMARK_ATTESTATION_REFRESH_PATH,
     probe_mem0_api,
+    probe_mem0_oss_usage_attestation,
     probe_memo_api,
+)
+from infinity_context_server.memory_comparison_target_identity import (
+    mem0_runtime_target_identity_sha256,
 )
 from test_memory_comparison_mem0_contract import _valid_openapi
 from test_memory_comparison_mem0_runtime_attestation import (
@@ -27,6 +37,7 @@ from test_memory_comparison_mem0_runtime_attestation import (
 )
 
 _PROBE_TOKEN = "unit-probe-token"
+_INGRESS_KEY = "unit-ingress-key"
 
 
 def test_managed_probe_refreshes_exact_same_run_contract_without_public_secrets() -> None:
@@ -73,6 +84,91 @@ def test_managed_probe_rejects_invalid_provenance_witness() -> None:
     assert outcome.passed is False
     assert outcome.reason_code == "mem0_runtime_attestation_refresh_failed"
     assert outcome.details["verified_runtime_attestation"] is None
+
+
+def test_ingress_protected_runtime_probe_injects_key_without_reporting_it() -> None:
+    calls: list[tuple[str, str, object, object]] = []
+    transport = _Transport(
+        calls,
+        {
+            ("GET", "/openapi.json"): _Response(200, _refreshable_openapi()),
+            ("POST", MEM0_BENCHMARK_ATTESTATION_REFRESH_PATH): _Response(
+                200, _witnessed_manifest()
+            ),
+        },
+    )
+
+    outcome = probe_mem0_api(
+        TARGET_URL,
+        require_timestamp=True,
+        require_runtime_contract=True,
+        timeout_seconds=0.5,
+        refresh_runtime_attestation=True,
+        benchmark_probe_token=_PROBE_TOKEN,
+        run_id=RUN_ID,
+        probe_nonce=NONCE,
+        allowed_target_hosts=("mem0.example.test",),
+        vetted_transport=transport,
+        ingress_api_key=_INGRESS_KEY,
+    )
+
+    assert outcome.passed is True
+    assert calls[0][2] == {"X-API-Key": _INGRESS_KEY}
+    assert calls[1][2] == {
+        "X-Benchmark-Probe-Token": _PROBE_TOKEN,
+        "X-API-Key": _INGRESS_KEY,
+    }
+    assert _INGRESS_KEY not in json.dumps(
+        {key: value for key, value in outcome.details.items() if not key.startswith("verified_")},
+        sort_keys=True,
+    )
+
+
+def test_usage_probe_sends_two_distinct_credentials_and_returns_verified_evidence() -> None:
+    calls: list[tuple[str, str, object, object]] = []
+    transport = _Transport(
+        calls,
+        {
+            ("POST", MEM0_OSS_USAGE_ATTESTATION_PATH): _Response(
+                200,
+                _signed_usage_payload(),
+            )
+        },
+    )
+
+    outcome = probe_mem0_oss_usage_attestation(
+        TARGET_URL,
+        benchmark_probe_token=_PROBE_TOKEN,
+        ingress_api_key=_INGRESS_KEY,
+        run_id=RUN_ID,
+        probe_nonce=NONCE,
+        timeout_seconds=0.5,
+        allowed_target_hosts=("mem0.example.test",),
+        vetted_transport=transport,
+        validated_at=datetime(2026, 8, 4, 12, 0, 1, tzinfo=UTC),
+    )
+
+    assert outcome.passed is True
+    assert calls == [
+        (
+            "POST",
+            MEM0_OSS_USAGE_ATTESTATION_PATH,
+            {
+                "X-Benchmark-Probe-Token": _PROBE_TOKEN,
+                "X-API-Key": _INGRESS_KEY,
+            },
+            {
+                "run_id": RUN_ID,
+                "probe_nonce": NONCE,
+                "target_identity_sha256": mem0_runtime_target_identity_sha256(TARGET_URL),
+            },
+        )
+    ]
+    verified = outcome.details["verified_usage_attestation"]
+    assert type(verified) is VerifiedMem0OssUsageAttestation
+    rendered = json.dumps(outcome.details["usage_attestation"], sort_keys=True)
+    assert _PROBE_TOKEN not in rendered
+    assert _INGRESS_KEY not in rendered
 
 
 def test_hostname_allowlist_alone_does_not_authorize_dns_routing() -> None:
@@ -291,6 +387,55 @@ def _witnessed_manifest() -> dict[str, object]:
         "signature": hmac.new(_PROBE_TOKEN.encode(), message, hashlib.sha256).hexdigest(),
     }
     return manifest
+
+
+def _signed_usage_payload() -> dict[str, object]:
+    attested_at = "2026-08-04T12:00:00.000Z"
+    usage = {
+        "mode": "raw_passthrough",
+        "operation_count": 1,
+        "extraction_calls": 0,
+        "request_bytes": 0,
+        "response_bytes": 0,
+        "model": "gpt-5.6-sol",
+        "first_operation_at": "2026-08-04T12:00:00.000Z",
+        "last_operation_at": "2026-08-04T12:00:00.000Z",
+    }
+    fingerprint = hashlib.sha256(
+        json.dumps(
+            {"attested_at": attested_at, "usage": usage},
+            separators=(",", ":"),
+            sort_keys=True,
+        ).encode()
+    ).hexdigest()
+    run_id_sha256 = hashlib.sha256(RUN_ID.encode()).hexdigest()
+    nonce_sha256 = hashlib.sha256(NONCE.encode()).hexdigest()
+    target = mem0_runtime_target_identity_sha256(TARGET_URL)
+    signature = hmac.new(
+        _PROBE_TOKEN.encode(),
+        "\n".join(
+            (
+                MEM0_OSS_USAGE_WITNESS_CONTEXT,
+                run_id_sha256,
+                nonce_sha256,
+                target,
+                attested_at,
+                fingerprint,
+            )
+        ).encode(),
+        hashlib.sha256,
+    ).hexdigest()
+    return {
+        "schema_version": MEM0_OSS_USAGE_ATTESTATION_SCHEMA_VERSION,
+        "run_id_sha256": run_id_sha256,
+        "probe_nonce_sha256": nonce_sha256,
+        "target_identity_sha256": target,
+        "attested_at": attested_at,
+        "usage": usage,
+        "usage_fingerprint_sha256": fingerprint,
+        "algorithm": "hmac-sha256",
+        "signature": signature,
+    }
 
 
 class _Response:

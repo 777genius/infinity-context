@@ -1,9 +1,12 @@
 from __future__ import annotations
 
+import copy
 import hashlib
 import hmac
 import json
+import pickle
 from collections.abc import Mapping, Sequence
+from dataclasses import replace
 from datetime import UTC, datetime, timedelta
 from types import MappingProxyType
 
@@ -16,9 +19,12 @@ from infinity_context_server.memory_comparison_mem0_platform_contract import (
     REVIEWED_MEM0_MANAGED_WRAPPER_SOURCE_SHA256,
 )
 from infinity_context_server.memory_comparison_mem0_runtime_attestation import (
+    MEM0_MANAGED_PLATFORM_RUNTIME_MODE,
+    MEM0_RUNTIME_ATTESTATION_MAX_AGE_SECONDS,
     build_mem0_runtime_attestation,
     build_verified_mem0_runtime_attestation,
     mem0_live_probe_target_is_safe,
+    mem0_runtime_attestation_validation_is_publishable,
     mem0_runtime_target_identity_sha256,
     public_mem0_runtime_attestation_validation,
     replay_mem0_runtime_attestation,
@@ -108,8 +114,59 @@ def test_attestation_rejects_stale_outer_and_platform_timestamp() -> None:
     validation = _validate(_attestation(now=now - timedelta(seconds=121)), now=now)
 
     assert validation["eligible"] is False
+    assert validation["max_age_seconds"] == 120
     assert "runtime_attestation_stale" in validation["issues"]
     assert "timestamp_attestation_stale" in validation["issues"]
+
+
+def test_public_generic_validation_stays_at_120_seconds_without_terminal_authority() -> None:
+    observed_at = datetime.now(UTC)
+    verified = _verified_attestation(now=observed_at)
+    backends = (
+        _NoCallBackend("infinity-context"),
+        _NoCallBackend("mem0", target_sha=TARGET_SHA),
+    )
+
+    validation = validate_mem0_runtime_attestation_for_backends(
+        verified,
+        backends,
+        RUN_ID,
+        NONCE,
+        validated_at=observed_at + timedelta(seconds=121),
+    )
+
+    assert validation["eligible"] is False
+    assert validation["max_age_seconds"] == 120
+    assert "runtime_attestation_stale" in validation["issues"]
+
+
+def test_verified_validation_rejects_copy_and_pickle_replay() -> None:
+    validation = _verified_validation()
+
+    for operation in (copy.copy, copy.deepcopy, pickle.dumps, replace):
+        with pytest.raises(TypeError):
+            operation(validation)
+
+
+@pytest.mark.parametrize("requested_max_age", (121, 900, 3_600, 7_200))
+def test_generic_validation_cannot_opt_into_managed_live_budget(
+    requested_max_age: int,
+) -> None:
+    now = datetime.now(UTC)
+
+    validation = validate_mem0_runtime_attestation(
+        _attestation(now=now),
+        required_runtime_mode="managed_platform",
+        expected_run_id=RUN_ID,
+        expected_probe_nonce=NONCE,
+        expected_target_identity_sha256=TARGET_SHA,
+        validated_at=now,
+        max_age_seconds=requested_max_age,
+    )
+
+    assert validation["eligible"] is False
+    assert validation["max_age_seconds"] == 120
+    assert "runtime_attestation_max_age_invalid" in validation["issues"]
 
 
 @pytest.mark.parametrize(
@@ -282,6 +339,34 @@ def test_public_validation_uses_exact_issue_allowlist_not_prefixes() -> None:
         "invalid_validation_issue",
         "runtime_attestation_stale",
     ]
+
+
+@pytest.mark.parametrize("forged_max_age", (121, 900, 3_600))
+def test_public_validation_rejects_forged_extended_max_age(
+    forged_max_age: int,
+) -> None:
+    issued = _verified_validation()
+    forged = dict(issued)
+    forged["max_age_seconds"] = forged_max_age
+
+    public = public_mem0_runtime_attestation_validation(forged)
+
+    assert public["max_age_seconds"] == "invalid"
+    assert not mem0_runtime_attestation_validation_is_publishable(
+        forged,
+        required_runtime_mode=MEM0_MANAGED_PLATFORM_RUNTIME_MODE,
+    )
+
+
+def test_public_validation_accepts_exact_issued_120_second_authority() -> None:
+    issued = _verified_validation()
+    public = public_mem0_runtime_attestation_validation(issued)
+
+    assert public["max_age_seconds"] == MEM0_RUNTIME_ATTESTATION_MAX_AGE_SECONDS
+    assert mem0_runtime_attestation_validation_is_publishable(
+        issued,
+        required_runtime_mode=MEM0_MANAGED_PLATFORM_RUNTIME_MODE,
+    )
 
 
 class _NoCallBackend:

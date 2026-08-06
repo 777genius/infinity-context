@@ -96,6 +96,7 @@ class SearchRequest(StrictModel):
     query: Annotated[str, Field(min_length=1)]
     filters: dict[str, Any]
     limit: Annotated[int, Field(ge=1, le=1000)]
+    top_k: Annotated[int, Field(strict=True, ge=1, le=1000)]
 
     @field_validator("query")
     @classmethod
@@ -109,6 +110,12 @@ class SearchRequest(StrictModel):
     def require_exact_run_scope(cls, value: dict[str, Any]) -> dict[str, Any]:
         _validate_exact_search_scope(value)
         return value
+
+    @model_validator(mode="after")
+    def require_matching_top_k(self) -> SearchRequest:
+        if self.top_k != self.limit:
+            raise ValueError("top_k must match limit")
+        return self
 
 
 class HealthResponse(StrictModel):
@@ -134,6 +141,65 @@ class BenchmarkAuthChallengeResponse(StrictModel):
     schema_version: Literal["mem0-benchmark-auth-challenge.v1"]
     nonce_sha256: Annotated[str, Field(pattern=r"^[0-9a-f]{64}$")]
     signature: Annotated[str, Field(pattern=r"^[0-9a-f]{64}$")]
+
+
+class BenchmarkUsageAttestationRequest(StrictModel):
+    run_id: SafeIdentifier
+    probe_nonce: Annotated[str, Field(pattern=r"^[0-9a-f]{64}$")]
+    target_identity_sha256: Annotated[str, Field(pattern=r"^[0-9a-f]{64}$")]
+
+
+class RunUsageEvidence(StrictModel):
+    mode: Literal["raw_passthrough", "subscription_llm"]
+    operation_count: Annotated[int, Field(strict=True, ge=1, le=10_000)]
+    extraction_calls: Annotated[int, Field(strict=True, ge=0, le=1)]
+    request_bytes: Annotated[int, Field(strict=True, ge=0, le=1_048_576)]
+    response_bytes: Annotated[int, Field(strict=True, ge=0, le=1_048_576)]
+    model: Literal["gpt-5.6-sol"]
+    first_operation_at: Annotated[
+        str,
+        Field(pattern=r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$"),
+    ]
+    last_operation_at: Annotated[
+        str,
+        Field(pattern=r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$"),
+    ]
+
+    @model_validator(mode="after")
+    def require_mode_call_budget(self) -> RunUsageEvidence:
+        expected_calls = 1 if self.mode == "subscription_llm" else 0
+        if self.extraction_calls != expected_calls:
+            raise ValueError("usage evidence extraction count differs from its mode")
+        if self.mode == "raw_passthrough" and (self.request_bytes != 0 or self.response_bytes != 0):
+            raise ValueError("raw passthrough usage evidence must contain zero bytes")
+        if self.mode == "subscription_llm" and self.request_bytes < 1:
+            raise ValueError("subscription usage evidence must contain request bytes")
+        if self.mode == "subscription_llm" and self.operation_count != 1:
+            raise ValueError("subscription usage evidence requires one isolated add")
+        if self.first_operation_at > self.last_operation_at:
+            raise ValueError("usage evidence timestamp interval is invalid")
+        return self
+
+
+class BenchmarkUsageAttestationResponse(StrictModel):
+    schema_version: Literal["mem0-benchmark-usage-attestation.v1"]
+    run_id_sha256: Annotated[str, Field(pattern=r"^[0-9a-f]{64}$")]
+    probe_nonce_sha256: Annotated[str, Field(pattern=r"^[0-9a-f]{64}$")]
+    target_identity_sha256: Annotated[str, Field(pattern=r"^[0-9a-f]{64}$")]
+    attested_at: Annotated[
+        str,
+        Field(pattern=r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$"),
+    ]
+    usage: RunUsageEvidence
+    usage_fingerprint_sha256: Annotated[str, Field(pattern=r"^[0-9a-f]{64}$")]
+    algorithm: Literal["hmac-sha256"]
+    signature: Annotated[str, Field(pattern=r"^[0-9a-f]{64}$")]
+
+    @model_validator(mode="after")
+    def require_historical_usage_interval(self) -> BenchmarkUsageAttestationResponse:
+        if self.usage.last_operation_at > self.attested_at:
+            raise ValueError("usage operation timestamp exceeds attestation time")
+        return self
 
 
 class PersistedSourceMetadata(StrictModel):

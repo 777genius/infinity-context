@@ -128,6 +128,7 @@ def _build(
     dataset_bytes: bytes,
     *,
     scope: str = "canary",
+    mem0_expected_runtime_mode: str | None = None,
     selected_case_ids: tuple[str, ...] = (
         "raw-sample-a:qa:1",
         "raw-sample-a:qa:2",
@@ -142,6 +143,7 @@ def _build(
         backend_targets=_targets(),
         provider_route=_route(),
         scope=scope,
+        mem0_expected_runtime_mode=mem0_expected_runtime_mode,
         selected_case_ids=selected_case_ids,
     )
 
@@ -188,6 +190,17 @@ def test_canary_builder_is_opaque_noncopyable_and_nonserializable() -> None:
         pickle.dumps(admission)
     with pytest.raises(ManagedRunError, match="built authoritatively"):
         VerifiedManagedRunPlan(commitment="0" * 64, _token=object())
+
+
+def test_canary_oss_runtime_mode_is_sealed_in_verified_plan() -> None:
+    admission = _build(_canary_bytes(), mem0_expected_runtime_mode="oss")
+    plan = _inspect_verified_managed_run_plan(admission)
+
+    assert plan.mem0_expected_runtime_mode == "oss"
+
+    object.__setattr__(plan, "mem0_expected_runtime_mode", "managed_platform")
+    with pytest.raises(ManagedRunError, match="integrity failed"):
+        _inspect_verified_managed_run_plan(admission)
 
 
 @pytest.mark.parametrize(

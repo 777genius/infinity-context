@@ -39,6 +39,10 @@ from infinity_context_server.memory_comparison_managed_mem0_auth import (
     MANAGED_MEM0_DATA_PLANE_AUTH_NONE,
     expected_managed_mem0_runtime_mode,
 )
+from infinity_context_server.memory_comparison_managed_mem0_oss_usage_http import (
+    ManagedMem0OssUsageAttestationPort,
+    ManagedMem0OssUsageHttpError,
+)
 from infinity_context_server.memory_comparison_managed_mem0_runtime_http import (
     ManagedMem0RuntimeAttestationPort,
     ManagedUtcClockPort,
@@ -57,9 +61,22 @@ from infinity_context_server.memory_comparison_managed_production_composition im
     evaluate_managed_production_pre_readiness,
     run_verified_managed_production_comparison,
 )
+from infinity_context_server.memory_comparison_managed_production_runner import (
+    ManagedProductionRunnerError,
+)
 from infinity_context_server.memory_comparison_managed_run import public_managed_run
 from infinity_context_server.memory_comparison_managed_runtime_credentials import (
     issue_managed_runtime_credential_authority,
+)
+from infinity_context_server.memory_comparison_mem0_oss_ingress import (
+    MEM0_OSS_INGRESS_API_KEY_ENV,
+    Mem0OssIngressCredentialAuthority,
+    Mem0OssIngressCredentialError,
+    inspect_mem0_oss_ingress_authority,
+    issue_mem0_oss_ingress_credential_authority,
+)
+from infinity_context_server.memory_comparison_subscription_chat import (
+    _validated_loopback_origin,
 )
 from infinity_context_server.public_benchmark_artifacts import (
     validate_artifact_paths_do_not_overwrite_dataset,
@@ -81,6 +98,7 @@ _ENV_INFINITY_TOKEN = "MEMORY_EVAL_AUTH_TOKEN"
 _ENV_MEM0_API_KEY = "MEM0_API_KEY"
 _ENV_MEM0_PROBE_TOKEN = "MEM0_BENCHMARK_PROBE_TOKEN"
 _ENV_SUBSCRIPTION_TOKEN = "SUBSCRIPTION_RUNTIME_BRIDGE_BEARER_TOKEN"
+_TRUSTED_MANAGED_PRODUCTION_SEAL_FAILURE_CODE = "managed_production_execution_seal_failed"
 _SAFE_CODES = frozenset(
     {
         "artifact_path_invalid",
@@ -91,8 +109,13 @@ _SAFE_CODES = frozenset(
         "dataset_too_large",
         "dataset_unreadable",
         "local_mem0_target_required",
+        "mem0_oss_ingress_configuration_invalid",
+        "mem0_oss_usage_attestation_configuration_invalid",
+        "mem0_oss_usage_attestation_failed",
+        "mem0_oss_usage_attestation_requirement_invalid",
         "pre_readiness_no_go",
         "profile_invalid",
+        "subscription_runtime_url_invalid",
     }
 )
 
@@ -123,6 +146,7 @@ class ManagedLiveCliConfig:
     allow_paid_llm: bool
     operator_notified: bool
     mem0_local_auth_disabled_managed: bool = False
+    mem0_oss_ingress_protected: bool = False
     allowed_mem0_hosts: tuple[str, ...] = ()
     report_out: Path | None = None
     connect_timeout_seconds: float = 10.0
@@ -136,6 +160,7 @@ class ManagedLiveCliConfig:
             self.allow_paid_llm,
             self.operator_notified,
             self.mem0_local_auth_disabled_managed,
+            self.mem0_oss_ingress_protected,
         )
         if (
             not isinstance(self.dataset_path, Path)
@@ -207,6 +232,8 @@ def run_managed_live_cli(
         report = _run_managed_live(config, environment)
     except ManagedLiveCliError as exc:
         report = _failure(exc.code)
+    except ManagedProductionRunnerError as exc:
+        report = _failure_from_trusted_managed_production_error(exc)
     except OSError:
         report = _failure("dataset_unreadable")
     except Exception:
@@ -238,6 +265,10 @@ def _run_managed_live(
     decision = evaluate_managed_production_pre_readiness(cases)
     if decision.decision != "go":
         return _failure("pre_readiness_no_go", blockers=decision.blockers)
+    try:
+        subscription_origin = _validated_loopback_origin(config.subscription_runtime_url)
+    except ValueError:
+        raise ManagedLiveCliError("subscription_runtime_url_invalid") from None
 
     infinity_token = _required_secret(
         env,
@@ -247,6 +278,7 @@ def _run_managed_live(
     mem0_probe_token = _required_secret(env, _ENV_MEM0_PROBE_TOKEN)
     subscription_token = _required_secret(env, _ENV_SUBSCRIPTION_TOKEN)
     mem0_data_plane_auth_mode, mem0_api_key = _mem0_data_plane_auth(config, env)
+    mem0_oss_ingress_authority = _mem0_oss_ingress_authority(config, env)
     try:
         expected_mem0_runtime_mode = expected_managed_mem0_runtime_mode(
             data_plane_auth_mode=mem0_data_plane_auth_mode,
@@ -264,12 +296,13 @@ def _run_managed_live(
         mem0_origin=config.mem0_api_url,
         mem0_api_key=mem0_api_key,
         mem0_probe_token=mem0_probe_token,
-        subscription_origin=config.subscription_runtime_url,
+        subscription_origin=subscription_origin,
         subscription_bearer_token=subscription_token,
         request_timeout_seconds=float(config.request_timeout_seconds),
         issued_at=issued_at,
         deadline=deadline,
         mem0_data_plane_auth_mode=mem0_data_plane_auth_mode,
+        mem0_oss_ingress_authority=mem0_oss_ingress_authority,
     )
     material = authority.preflight_material()
     request = ManagedPreflightRequest(
@@ -294,7 +327,7 @@ def _run_managed_live(
     readiness_claim = authority.issue_subscription_readiness_claim(
         expected_request=request,
         run_id=config.run_id,
-        subscription_origin=config.subscription_runtime_url,
+        subscription_origin=subscription_origin,
         deadline=deadline,
         now=clock.now(),
     )
@@ -308,13 +341,14 @@ def _run_managed_live(
     runtime_port = ManagedMem0RuntimeAttestationPort(
         base_url=config.mem0_api_url,
         benchmark_probe_token=mem0_probe_token,
-        probe_nonce=secrets.token_urlsafe(32),
+        probe_nonce=secrets.token_hex(32),
         timeout_seconds=float(config.request_timeout_seconds),
         deadline_budget_seconds=runtime_budget,
         monotonic_clock=time.monotonic,
         expected_implementation_sha256=config.mem0_runtime_implementation_sha256,
         allowed_target_hosts=config.allowed_mem0_hosts,
         expected_runtime_mode=expected_mem0_runtime_mode,
+        mem0_oss_ingress_authority=mem0_oss_ingress_authority,
     )
     admission = issue_verified_managed_live_admission(
         request=request,
@@ -346,6 +380,38 @@ def _run_managed_live(
         now=clock.now(),
     )
     outcome = run_verified_managed_production_comparison(prepared)
+    result = public_managed_run(outcome)
+    try:
+        usage_required = runtime_port.usage_attestation_required()
+    except Exception:
+        return _post_sealed_usage_failure(
+            "mem0_oss_usage_attestation_requirement_invalid",
+            sealed_result=result,
+        )
+    if type(usage_required) is not bool:
+        return _post_sealed_usage_failure(
+            "mem0_oss_usage_attestation_requirement_invalid",
+            sealed_result=result,
+        )
+    if usage_required:
+        try:
+            usage_port, target_identity_sha256 = _mem0_oss_usage_port_binding(
+                config,
+                benchmark_probe_token=mem0_probe_token,
+                ingress_authority=mem0_oss_ingress_authority,
+                deadline=deadline,
+                clock=clock.now,
+            )
+            usage = usage_port.attest(
+                run_id=config.run_id,
+                target_identity_sha256=target_identity_sha256,
+            )
+        except (ManagedLiveCliError, ManagedMem0OssUsageHttpError):
+            return _post_sealed_usage_failure(
+                "mem0_oss_usage_attestation_failed",
+                sealed_result=result,
+            )
+        result["mem0_oss_usage_attestation"] = usage.public_payload()
     return {
         "suite": MANAGED_LIVE_CLI_SUITE,
         "schema_version": MANAGED_LIVE_CLI_SCHEMA_VERSION,
@@ -356,7 +422,7 @@ def _run_managed_live(
         "scope": FULL_COMPARISON_SCOPE_CANARY,
         "selected_case_count": len(config.selected_case_ids),
         "publishable": False,
-        "result": public_managed_run(outcome),
+        "result": result,
     }
 
 
@@ -402,7 +468,7 @@ def _mem0_data_plane_auth(
     env: Mapping[str, str],
 ) -> tuple[str, str | None]:
     if config.mem0_local_auth_disabled_managed:
-        if not _is_authorized_loopback_mem0_target(
+        if not config.mem0_oss_ingress_protected and not _is_authorized_loopback_mem0_target(
             config.mem0_api_url,
             allowed_hosts=config.allowed_mem0_hosts,
         ):
@@ -412,6 +478,62 @@ def _mem0_data_plane_auth(
     if isinstance(value, str) and value.strip():
         return MANAGED_MEM0_DATA_PLANE_AUTH_API_KEY, value.strip()
     raise ManagedLiveCliError("credential_missing")
+
+
+def _mem0_oss_ingress_authority(
+    config: ManagedLiveCliConfig,
+    env: Mapping[str, str],
+) -> Mem0OssIngressCredentialAuthority | None:
+    value = env.get(MEM0_OSS_INGRESS_API_KEY_ENV)
+    configured = isinstance(value, str) and bool(value.strip())
+    if not config.mem0_local_auth_disabled_managed:
+        if config.mem0_oss_ingress_protected or configured:
+            raise ManagedLiveCliError("mem0_oss_ingress_configuration_invalid")
+        return None
+    if not config.mem0_oss_ingress_protected:
+        if configured:
+            raise ManagedLiveCliError("mem0_oss_ingress_configuration_invalid")
+        return None
+    if not configured:
+        raise ManagedLiveCliError("credential_missing")
+    try:
+        return issue_mem0_oss_ingress_credential_authority(
+            run_id=config.run_id,
+            base_url=config.mem0_api_url,
+            ingress_api_key=value.strip(),
+            allowed_target_hosts=config.allowed_mem0_hosts,
+        )
+    except Mem0OssIngressCredentialError:
+        raise ManagedLiveCliError("mem0_oss_ingress_configuration_invalid") from None
+
+
+def _mem0_oss_usage_port_binding(
+    config: ManagedLiveCliConfig,
+    *,
+    benchmark_probe_token: str,
+    ingress_authority: Mem0OssIngressCredentialAuthority | None,
+    deadline: object,
+    clock: object,
+) -> tuple[ManagedMem0OssUsageAttestationPort, str]:
+    """Compose one required v4 proof under the original absolute run deadline."""
+
+    if ingress_authority is None:
+        raise ManagedLiveCliError("mem0_oss_usage_attestation_configuration_invalid")
+    try:
+        descriptor = inspect_mem0_oss_ingress_authority(ingress_authority)
+        port = ManagedMem0OssUsageAttestationPort(
+            base_url=config.mem0_api_url,
+            benchmark_probe_token=benchmark_probe_token,
+            probe_nonce=secrets.token_hex(32),
+            ingress_authority=ingress_authority,
+            timeout_seconds=float(config.request_timeout_seconds),
+            deadline=deadline,
+            clock=clock,
+            allowed_target_hosts=config.allowed_mem0_hosts,
+        )
+    except (Mem0OssIngressCredentialError, ManagedMem0OssUsageHttpError):
+        raise ManagedLiveCliError("mem0_oss_usage_attestation_configuration_invalid") from None
+    return port, descriptor.target_identity_sha256
 
 
 def _mem0_api_key(config: ManagedLiveCliConfig, env: Mapping[str, str]) -> str | None:
@@ -451,6 +573,16 @@ def _bounded_timeout(value: object, maximum: float) -> bool:
 
 def _failure(code: str, *, blockers: tuple[str, ...] = ()) -> dict[str, object]:
     safe_code = code if code in _SAFE_CODES else "managed_live_execution_failed"
+    return _failure_with_safe_code(safe_code, blockers=blockers)
+
+
+def _failure_with_safe_code(
+    safe_code: str,
+    *,
+    blockers: tuple[str, ...] = (),
+) -> dict[str, object]:
+    """Render a code already selected by trusted local control flow."""
+
     no_go = safe_code in {"authorization_required", "pre_readiness_no_go"}
     return {
         "suite": MANAGED_LIVE_CLI_SUITE,
@@ -465,6 +597,42 @@ def _failure(code: str, *, blockers: tuple[str, ...] = ()) -> dict[str, object]:
     }
 
 
+def _failure_from_trusted_managed_production_error(
+    error: Exception,
+) -> dict[str, object]:
+    """Retain the sole reviewed phase code only with exact runner provenance."""
+
+    if (
+        type(error) is ManagedProductionRunnerError
+        and type(error.code) is str
+        and error.code == _TRUSTED_MANAGED_PRODUCTION_SEAL_FAILURE_CODE
+    ):
+        return _failure_with_safe_code(_TRUSTED_MANAGED_PRODUCTION_SEAL_FAILURE_CODE)
+    return _failure("managed_live_execution_failed")
+
+
+def _post_sealed_usage_failure(
+    code: str,
+    *,
+    sealed_result: Mapping[str, object],
+) -> dict[str, object]:
+    """Retain sealed public evidence while fail-closing a terminal v4 proof error."""
+
+    report = _failure(code)
+    report["post_sealed_usage_attestation"] = {
+        "schema_version": "managed-mem0-oss-post-sealed-usage.v1",
+        "status": "failed",
+        "attempts": 1,
+        "retryable": False,
+    }
+    report["sealed_outcome"] = {
+        "status": "retained_not_publishable",
+        "publishable": False,
+        "result": dict(sealed_result),
+    }
+    return report
+
+
 def _parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="infinity-context-managed-live-canary")
     parser.add_argument("--dataset", type=Path, required=True)
@@ -473,13 +641,22 @@ def _parser() -> argparse.ArgumentParser:
     parser.add_argument("--run-id", required=True)
     parser.add_argument("--infinity-api-url", required=True)
     parser.add_argument("--mem0-api-url", required=True)
-    parser.add_argument("--subscription-runtime-url", required=True)
+    parser.add_argument(
+        "--subscription-runtime-url",
+        required=True,
+        metavar="LOOPBACK_ORIGIN",
+        help=(
+            "pathless loopback HTTP(S) origin, for example http://127.0.0.1:8890; "
+            "the CLI appends /v1/chat/completions"
+        ),
+    )
     parser.add_argument("--max-total-tokens", type=int, required=True)
     parser.add_argument("--mem0-runtime-implementation-sha256", required=True)
     parser.add_argument("--allow-live", action="store_true")
     parser.add_argument("--allow-paid-llm", action="store_true")
     parser.add_argument("--operator-notified", action="store_true")
     parser.add_argument("--mem0-local-auth-disabled-managed", action="store_true")
+    parser.add_argument("--mem0-oss-ingress-protected", action="store_true")
     parser.add_argument("--allow-mem0-host", action="append", default=[])
     parser.add_argument("--report-out", type=Path, default=None)
     parser.add_argument("--connect-timeout-seconds", type=float, default=10.0)
@@ -505,6 +682,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             allow_paid_llm=args.allow_paid_llm,
             operator_notified=args.operator_notified,
             mem0_local_auth_disabled_managed=args.mem0_local_auth_disabled_managed,
+            mem0_oss_ingress_protected=args.mem0_oss_ingress_protected,
             allowed_mem0_hosts=tuple(args.allow_mem0_host),
             report_out=args.report_out,
             connect_timeout_seconds=args.connect_timeout_seconds,

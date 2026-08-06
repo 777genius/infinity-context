@@ -33,6 +33,7 @@ from mem0_oss_adapter.subscription_llm import (
     UsageLedger,
     validate_loopback_bridge_url,
 )
+from mem0_oss_adapter.usage import RunUsageAggregate
 
 _Mode = Literal["raw_passthrough", "subscription_llm"]
 _FACTORY_LOCK = threading.RLock()
@@ -257,6 +258,10 @@ class Mem0OssSdkPort:
         if not isinstance(result, Mapping):
             raise RuntimeError("Mem0 OSS search returned an invalid payload")
         return result
+
+    def usage_for_run(self, *, run_id: str) -> RunUsageAggregate:
+        with self._operation_lock:
+            return self._ledger.aggregate_for_run(run_id=run_id)
 
     def delete_memories(self, *, user_id: str, run_id: str) -> bool:
         with self._operation_lock:

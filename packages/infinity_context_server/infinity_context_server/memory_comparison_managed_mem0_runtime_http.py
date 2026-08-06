@@ -13,7 +13,7 @@ import os
 import re
 import stat
 import threading
-from collections.abc import Callable, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from math import isfinite
@@ -27,9 +27,23 @@ from infinity_context_server.memory_comparison_managed_mem0_runtime_authority im
     MANAGED_MEM0_RUNTIME_DEADLINE_POLICY,
     ManagedMem0RuntimeAuthorityDescriptor,
     _register_pending_managed_mem0_runtime_authority,
+    _reserved_managed_mem0_runtime_deadline_lease_is_available,
+)
+from infinity_context_server.memory_comparison_managed_runtime_validity import (
+    _bind_managed_live_runtime_policy_from_reserved_authority,
+)
+from infinity_context_server.memory_comparison_mem0_oss_ingress import (
+    Mem0OssIngressCredentialAuthority,
+    _consume_mem0_oss_ingress_probe,
+    inspect_mem0_oss_ingress_authority,
+)
+from infinity_context_server.memory_comparison_mem0_oss_v4_manifest import (
+    MEM0_BENCHMARK_CAPABILITIES_SCHEMA_VERSION_V4,
+    MEM0_OSS_V4_CAPABILITIES,
 )
 from infinity_context_server.memory_comparison_mem0_runtime_attestation import (
     MEM0_MANAGED_PLATFORM_RUNTIME_MODE,
+    MEM0_OSS_RUNTIME_MODE,
     VerifiedMem0RuntimeAttestation,
     VerifiedMem0RuntimeAttestationValidation,
     mem0_runtime_attestation_validation_is_publishable,
@@ -99,6 +113,7 @@ class ManagedMem0RuntimeAttestationPort:
         "__implementation_sha256",
         "__lock",
         "__minimum_network_timeout_seconds",
+        "__mem0_oss_ingress_authority",
         "__monotonic_clock",
         "__expected_runtime_mode",
         "__probe_nonce",
@@ -106,6 +121,7 @@ class ManagedMem0RuntimeAttestationPort:
         "__target_identity_sha256",
         "__timeout_seconds",
         "__transport",
+        "__usage_attestation_required",
         "__weakref__",
     )
 
@@ -122,6 +138,7 @@ class ManagedMem0RuntimeAttestationPort:
         allowed_target_hosts: Sequence[str] = (),
         vetted_transport: VettedProbeTransport | None = None,
         expected_runtime_mode: str = MEM0_MANAGED_PLATFORM_RUNTIME_MODE,
+        mem0_oss_ingress_authority: Mem0OssIngressCredentialAuthority | None = None,
     ) -> None:
         implementation_sha256 = _trusted_implementation_sha256(expected_implementation_sha256)
         try:
@@ -170,6 +187,22 @@ class ManagedMem0RuntimeAttestationPort:
             _wipe(token_bytes)
             _wipe(nonce_bytes)
             raise ManagedMem0RuntimeHttpError("managed_mem0_runtime_target_unsafe")
+        if mem0_oss_ingress_authority is not None:
+            try:
+                ingress_descriptor = inspect_mem0_oss_ingress_authority(mem0_oss_ingress_authority)
+            except Exception:
+                _wipe(token_bytes)
+                _wipe(nonce_bytes)
+                raise ManagedMem0RuntimeHttpError(
+                    "managed_mem0_runtime_configuration_invalid"
+                ) from None
+            if trusted_expected_runtime_mode != "oss" or not hmac.compare_digest(
+                ingress_descriptor.target_identity_sha256,
+                target.identity_sha256,
+            ):
+                _wipe(token_bytes)
+                _wipe(nonce_bytes)
+                raise ManagedMem0RuntimeHttpError("managed_mem0_runtime_configuration_invalid")
         self.__base_url = target.base_url
         self.__implementation_sha256 = implementation_sha256
         self.__target_identity_sha256 = target.identity_sha256
@@ -181,10 +214,12 @@ class ManagedMem0RuntimeAttestationPort:
         self.__deadline_monotonic = deadline
         self.__minimum_network_timeout_seconds = _MIN_NETWORK_TIMEOUT_SECONDS
         self.__expected_runtime_mode = trusted_expected_runtime_mode
+        self.__mem0_oss_ingress_authority = mem0_oss_ingress_authority
         self.__probe_token = token_bytes
         self.__probe_nonce = nonce_bytes
         self.__lock = threading.Lock()
         self.__consumed = False
+        self.__usage_attestation_required: bool | None = None
         self.__authority_descriptor = ManagedMem0RuntimeAuthorityDescriptor(
             adapter_id=_ADAPTER_ID,
             implementation_sha256=implementation_sha256,
@@ -203,6 +238,8 @@ class ManagedMem0RuntimeAttestationPort:
         _register_pending_managed_mem0_runtime_authority(
             self,
             self.__authority_descriptor,
+            monotonic_clock=self.__monotonic_clock,
+            deadline_monotonic=self.__deadline_monotonic,
         )
 
     def __init_subclass__(cls, **kwargs: object) -> None:
@@ -245,6 +282,7 @@ class ManagedMem0RuntimeAttestationPort:
         """Refresh and validate one exact same-run managed Mem0 capability."""
 
         token, nonce = self.__claim_private_bindings()
+        ingress_api_key: str | None = None
         try:
             if type(run_id) is not str or not _RUN_ID_RE.fullmatch(run_id):
                 raise ManagedMem0RuntimeHttpError("managed_mem0_runtime_binding_invalid")
@@ -264,6 +302,12 @@ class ManagedMem0RuntimeAttestationPort:
             ):
                 raise ManagedMem0RuntimeHttpError("managed_mem0_runtime_binding_invalid")
             timeout_seconds = self.__remaining_timeout_seconds()
+            if self.__mem0_oss_ingress_authority is not None:
+                ingress_api_key = _consume_mem0_oss_ingress_probe(
+                    self.__mem0_oss_ingress_authority,
+                    run_id=run_id,
+                    target_identity_sha256=self.__target_identity_sha256,
+                )
             outcome = probe_mem0_api(
                 self.__base_url,
                 require_timestamp=True,
@@ -275,12 +319,14 @@ class ManagedMem0RuntimeAttestationPort:
                 probe_nonce=nonce,
                 allowed_target_hosts=self.__allowed_target_hosts,
                 vetted_transport=self.__transport,
+                ingress_api_key=ingress_api_key,
             )
             if outcome.passed is not True:
                 raise ManagedMem0RuntimeHttpError("managed_mem0_runtime_probe_failed")
             verified = outcome.details.get("verified_runtime_attestation")
             if type(verified) is not VerifiedMem0RuntimeAttestation:
                 raise ManagedMem0RuntimeHttpError("managed_mem0_runtime_capability_invalid")
+            validated_at = datetime.now(UTC)
             validation = validate_mem0_runtime_attestation_for_backends(
                 verified,
                 (
@@ -292,7 +338,7 @@ class ManagedMem0RuntimeAttestationPort:
                 run_id,
                 nonce,
                 required_runtime_mode=self.__expected_runtime_mode,
-                validated_at=datetime.now(UTC),
+                validated_at=validated_at,
             )
             if (
                 type(validation) is not VerifiedMem0RuntimeAttestationValidation
@@ -302,6 +348,16 @@ class ManagedMem0RuntimeAttestationPort:
                 )
             ):
                 raise ManagedMem0RuntimeHttpError("managed_mem0_runtime_capability_invalid")
+            self.__bind_managed_live_freshness_after_probe(
+                validation,
+                run_id=run_id,
+                probe_nonce_sha256=probe_nonce_sha256,
+                target_identity_sha256=target_identity_sha256,
+            )
+            self.__usage_attestation_required = _verified_oss_v4_usage_attestation_required(
+                validation,
+                expected_runtime_mode=self.__expected_runtime_mode,
+            )
             return validation
         except ManagedMem0RuntimeHttpError:
             raise
@@ -310,6 +366,17 @@ class ManagedMem0RuntimeAttestationPort:
         finally:
             token = ""
             nonce = ""
+            ingress_api_key = None
+
+    def usage_attestation_required(self) -> bool:
+        """Return the verified v4-only requirement after one successful attestation."""
+
+        with self.__lock:
+            if not self.__consumed:
+                raise ManagedMem0RuntimeHttpError("managed_mem0_runtime_capability_invalid")
+            if type(self.__usage_attestation_required) is not bool:
+                raise ManagedMem0RuntimeHttpError("managed_mem0_runtime_capability_invalid")
+            return self.__usage_attestation_required
 
     def __claim_private_bindings(self) -> tuple[str, str]:
         with self.__lock:
@@ -342,6 +409,29 @@ class ManagedMem0RuntimeAttestationPort:
             raise ManagedMem0RuntimeHttpError("managed_mem0_runtime_deadline_exceeded")
         return min(self.__timeout_seconds, remaining)
 
+    def __bind_managed_live_freshness_after_probe(
+        self,
+        validation: VerifiedMem0RuntimeAttestationValidation,
+        *,
+        run_id: str,
+        probe_nonce_sha256: str,
+        target_identity_sha256: str,
+    ) -> None:
+        """Bind terminal authority only to this exact successful probe payload."""
+
+        if not _reserved_managed_mem0_runtime_deadline_lease_is_available(self):
+            return
+        try:
+            _bind_managed_live_runtime_policy_from_reserved_authority(
+                validation,
+                authority=self,
+                run_id=run_id,
+                probe_nonce_sha256=probe_nonce_sha256,
+                target_identity_sha256=target_identity_sha256,
+            )
+        except Exception:
+            raise ManagedMem0RuntimeHttpError("managed_mem0_runtime_capability_invalid") from None
+
 
 @final
 class ManagedUtcClockPort:
@@ -366,6 +456,30 @@ class ManagedUtcClockPort:
 
     def now(self) -> datetime:
         return datetime.now(UTC)
+
+
+def _verified_oss_v4_usage_attestation_required(
+    validation: VerifiedMem0RuntimeAttestationValidation,
+    *,
+    expected_runtime_mode: str,
+) -> bool:
+    """Derive the post-sealed proof requirement from verified runtime evidence only."""
+
+    if expected_runtime_mode != MEM0_OSS_RUNTIME_MODE:
+        return False
+    attestation = validation.payload.get("attestation")
+    if not isinstance(attestation, Mapping):
+        return False
+    manifest = attestation.get("runtime_manifest")
+    if not isinstance(manifest, Mapping):
+        return False
+    capabilities = manifest.get("capabilities")
+    return bool(
+        manifest.get("schema_version") == MEM0_BENCHMARK_CAPABILITIES_SCHEMA_VERSION_V4
+        and isinstance(capabilities, tuple)
+        and capabilities == MEM0_OSS_V4_CAPABILITIES
+        and "signed_run_scoped_usage_evidence" in capabilities
+    )
 
 
 def _trusted_implementation_sha256(expected: object) -> str:

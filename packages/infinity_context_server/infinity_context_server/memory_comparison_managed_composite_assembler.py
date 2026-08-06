@@ -51,7 +51,7 @@ from infinity_context_server.memory_comparison_gold_blind_run_proof import (
 )
 from infinity_context_server.memory_comparison_managed_attestation import (
     VerifiedManagedCompositionAttestation,
-    public_managed_composition_attestation,
+    _inspect_verified_managed_composition_attestation_for_terminal_composite,
 )
 from infinity_context_server.memory_comparison_managed_http_policy_validation import (
     VerifiedManagedHttpPolicyValidation,
@@ -306,7 +306,7 @@ class ManagedFullComparisonAssembler:
         }:
             raise ManagedCompositeAssemblerError("policy validation type must be exact")
         self._require_ports_stable()
-        managed_report = public_managed_composition_attestation(
+        managed_report = _inspect_verified_managed_composition_attestation_for_terminal_composite(
             managed_attestation,
             bindings=bindings,
             reset_port=self.__reset_port,

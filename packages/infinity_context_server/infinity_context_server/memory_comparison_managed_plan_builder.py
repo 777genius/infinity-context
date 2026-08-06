@@ -148,6 +148,7 @@ def build_verified_managed_run_plan(
     backend_targets: tuple[FullComparisonBackendTarget, ...],
     provider_route: ProviderRouteAttestation,
     scope: str = FULL_COMPARISON_SCOPE_FULL,
+    mem0_expected_runtime_mode: str | None = None,
     selected_case_ids: tuple[str, ...] = (),
 ) -> VerifiedManagedRunPlan:
     """Build and seal a plan from exact dataset bytes and frozen profile primitives."""
@@ -183,6 +184,7 @@ def build_verified_managed_run_plan(
         provider_route=provider_route,
         cases=managed_cases,
         scope=trusted_scope,
+        mem0_expected_runtime_mode=mem0_expected_runtime_mode,
     )
     _validate_plan(plan)
     return _seal_verified_plan(plan, selected_cases)
@@ -482,6 +484,7 @@ def _validate_plan(plan: ManagedRunPlan) -> None:
         dataset_sha256=plan.dataset_sha256,
         selection_fingerprint_sha256=plan.selection_fingerprint_sha256,
         backend_targets=plan.backend_targets,
+        mem0_expected_runtime_mode=plan.mem0_expected_runtime_mode,
         scope=plan.scope,
     )
     _unique_corpora(plan.cases)
@@ -501,6 +504,7 @@ def _plan_material(plan: ManagedRunPlan) -> dict[str, object]:
         "methodology": public_full_comparison_methodology_contract(plan.methodology),
         "dataset_sha256": plan.dataset_sha256,
         "selection_fingerprint_sha256": plan.selection_fingerprint_sha256,
+        "mem0_expected_runtime_mode": plan.mem0_expected_runtime_mode,
         "backend_targets": [
             {
                 "backend_role": item.backend_role,

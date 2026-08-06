@@ -828,6 +828,12 @@ infinity-context-managed-live-canary \
   --allow-mem0-host 127.0.0.1
 ```
 
+`--subscription-runtime-url` is a pathless loopback origin such as
+`http://127.0.0.1:8890`. The CLI appends `/v1/chat/completions` itself, so do
+not pass `/v1` or a specific endpoint. This differs from the adapter's
+`MEM0_OSS_SUBSCRIPTION_BRIDGE_URL`, which is an OpenAI-compatible bridge base
+URL and therefore includes `/v1`, for example `http://127.0.0.1:19090/v1`.
+
 Required private environment values are `MEMORY_EVAL_AUTH_TOKEN` (or
 `MEMORY_SERVICE_TOKEN`), `MEM0_BENCHMARK_PROBE_TOKEN`, and
 `SUBSCRIPTION_RUNTIME_BRIDGE_BEARER_TOKEN`. `MEM0_API_KEY` is also required

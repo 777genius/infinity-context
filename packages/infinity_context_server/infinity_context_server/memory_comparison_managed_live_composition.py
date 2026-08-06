@@ -250,6 +250,11 @@ def prepare_verified_managed_live_run(
         material.preflight.dataset_sha256,
     ):
         raise ManagedRunError("managed live dataset differs from admitted preflight")
+    if (
+        material.mem0_runtime_descriptor.expected_runtime_mode
+        != material.preflight.mem0_expected_runtime_mode
+    ):
+        raise ManagedRunError("managed live runtime mode differs from admitted preflight")
 
     profile = resolve_full_comparison_profile(material.preflight.profile_id)
     if profile is None:
@@ -268,6 +273,7 @@ def prepare_verified_managed_live_run(
         backend_targets=tuple(endpoint.target for endpoint in material.preflight.backend_endpoints),
         provider_route=provider_route,
         scope=material.preflight.scope,
+        mem0_expected_runtime_mode=material.preflight.mem0_expected_runtime_mode,
         selected_case_ids=material.canary_case_ids,
     )
     limits = _execution_limits(

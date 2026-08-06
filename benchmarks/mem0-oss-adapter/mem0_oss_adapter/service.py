@@ -12,6 +12,7 @@ from typing import Any, Literal
 
 from mem0_oss_adapter.models import AddRequest, SearchRequest, TimestampAttestation
 from mem0_oss_adapter.port import OssPort
+from mem0_oss_adapter.usage import RunUsageAggregate, UsageEvidenceError
 
 _Mode = Literal["raw_passthrough", "subscription_llm"]
 
@@ -29,6 +30,11 @@ class SourceReadbackError(AdapterError):
 
 class DeleteVerificationError(AdapterError):
     code = "mem0_oss_delete_verification_failed"
+
+
+class UsageEvidenceUnavailableError(AdapterError):
+    status_code = 409
+    code = "mem0_oss_usage_evidence_unavailable"
 
 
 @dataclass(frozen=True, slots=True)
@@ -83,6 +89,18 @@ class OssCompatibilityService:
         except Exception as exc:
             raise AdapterError("Mem0 OSS search failed") from exc
         return _sanitize_search_results(payload)
+
+    def usage_for_run(self, *, run_id: str) -> RunUsageAggregate:
+        self._require_configured()
+        try:
+            aggregate = self._port.usage_for_run(run_id=run_id)
+        except UsageEvidenceError as exc:
+            raise UsageEvidenceUnavailableError("Mem0 OSS usage evidence is unavailable") from exc
+        except Exception as exc:
+            raise UsageEvidenceUnavailableError("Mem0 OSS usage evidence failed") from exc
+        if not isinstance(aggregate, RunUsageAggregate):
+            raise UsageEvidenceUnavailableError("Mem0 OSS usage evidence was invalid")
+        return aggregate
 
     def delete(self, *, user_id: str, run_id: str) -> DeleteVerification:
         self._require_configured()

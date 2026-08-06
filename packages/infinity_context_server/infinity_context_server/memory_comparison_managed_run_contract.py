@@ -23,6 +23,7 @@ from infinity_context_server.memory_comparison_full_run_evidence import (
     FullComparisonRunBindings,
 )
 from infinity_context_server.memory_comparison_full_scope import (
+    FULL_COMPARISON_SCOPE_FULL,
     normalize_full_comparison_scope,
 )
 from infinity_context_server.memory_comparison_managed_attestation import (
@@ -30,6 +31,9 @@ from infinity_context_server.memory_comparison_managed_attestation import (
 )
 from infinity_context_server.memory_comparison_managed_execution_receipts import (
     ManagedSealedJudgeOutcome,
+)
+from infinity_context_server.memory_comparison_managed_mem0_auth import (
+    managed_mem0_runtime_mode,
 )
 from infinity_context_server.memory_comparison_managed_run_ports import ManagedPortIdentity
 from infinity_context_server.memory_comparison_provider_provenance import ProviderRouteAttestation
@@ -81,6 +85,7 @@ class ManagedRunPlan:
     provider_route: ProviderRouteAttestation
     cases: tuple[ManagedRunCase, ...]
     scope: str = "full"
+    mem0_expected_runtime_mode: str | None = None
 
     def __post_init__(self) -> None:
         _identifier(self.run_id, "run_id")
@@ -109,7 +114,24 @@ class ManagedRunPlan:
             benchmark=self.profile.benchmark,
         )
         _unique_corpora(self.cases)
-        object.__setattr__(self, "scope", normalize_full_comparison_scope(self.scope))
+        scope = normalize_full_comparison_scope(self.scope)
+        try:
+            profile_runtime_mode = managed_mem0_runtime_mode(
+                self.profile.required_mem0_runtime_mode
+            )
+            expected_runtime_mode = managed_mem0_runtime_mode(
+                profile_runtime_mode
+                if self.mem0_expected_runtime_mode is None
+                else self.mem0_expected_runtime_mode
+            )
+        except (AttributeError, ValueError):
+            raise ManagedRunError("mem0 expected runtime mode is invalid") from None
+        if scope == FULL_COMPARISON_SCOPE_FULL and expected_runtime_mode != profile_runtime_mode:
+            raise ManagedRunError(
+                "full scope mem0 expected runtime mode differs from frozen profile"
+            )
+        object.__setattr__(self, "scope", scope)
+        object.__setattr__(self, "mem0_expected_runtime_mode", expected_runtime_mode)
 
     def __init_subclass__(cls, **kwargs: object) -> None:
         del cls, kwargs

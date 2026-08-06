@@ -20,9 +20,6 @@ from datetime import UTC, datetime
 from typing import TYPE_CHECKING, final
 from urllib.parse import urlsplit
 
-from infinity_context_server.memory_comparison_full_profiles import (
-    resolve_full_comparison_profile,
-)
 from infinity_context_server.memory_comparison_full_run_evidence import (
     FullComparisonRunBindings,
     _validate_bindings,
@@ -30,7 +27,12 @@ from infinity_context_server.memory_comparison_full_run_evidence import (
 from infinity_context_server.memory_comparison_full_scope import (
     FULL_COMPARISON_SCOPE_CANARY,
 )
+from infinity_context_server.memory_comparison_managed_runtime_validity import (
+    _managed_live_runtime_validation_terminal_allowance,
+    _ManagedLiveRuntimeTerminalAllowance,
+)
 from infinity_context_server.memory_comparison_mem0_runtime_attestation import (
+    MEM0_RUNTIME_ATTESTATION_MAX_AGE_SECONDS,
     VerifiedMem0RuntimeAttestationValidation,
     mem0_runtime_attestation_validation_is_publishable,
     public_mem0_runtime_attestation_validation,
@@ -57,10 +59,35 @@ _SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
 _ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:-]{0,199}$")
 _TOKEN = object()
 _LOCK = threading.RLock()
+_PUBLIC_COMPOSITION_INSPECTION = object()
+_POST_CONSUME_COMPOSITION_INSPECTION = object()
+_TERMINAL_COMPOSITION_INSPECTION_TOKEN = object()
 
 
 class ManagedCompositionAttestationError(ValueError):
     """Raised when managed composition evidence is forged, stale, or replayed."""
+
+
+@final
+class _TerminalManagedCompositionInspection:
+    """Private capability for the terminal composite path only."""
+
+    __slots__ = ()
+
+    def __init__(self, *, _token: object) -> None:
+        if _token is not _TERMINAL_COMPOSITION_INSPECTION_TOKEN:
+            raise ManagedCompositionAttestationError(
+                "terminal managed composition inspection is private"
+            )
+
+    def __init_subclass__(cls, **kwargs: object) -> None:
+        del cls, kwargs
+        raise TypeError("_TerminalManagedCompositionInspection is final")
+
+
+_TERMINAL_COMPOSITION_INSPECTION = _TerminalManagedCompositionInspection(
+    _token=_TERMINAL_COMPOSITION_INSPECTION_TOKEN
+)
 
 
 @final
@@ -121,6 +148,9 @@ class _RuntimeSnapshot:
     validated_at: str
     checked_at: str
     max_age_seconds: int
+    terminal_deadline_at: str | None
+    terminal_max_age_seconds: int | None
+    terminal_binding_commitment_sha256: str | None
 
 
 @dataclass(frozen=True, slots=True)
@@ -189,7 +219,12 @@ def _build_managed_attestation_api():
         _validate_distinct_ports(ports)
         port_snapshots = _port_snapshots(ports)
         now = _clock_now(clock)
-        runtime = _runtime_snapshot(trusted, runtime_validation, now)
+        runtime = _runtime_snapshot(
+            trusted,
+            runtime_validation,
+            now,
+            inspection=_PUBLIC_COMPOSITION_INSPECTION,
+        )
         provider = _provider_snapshot(provider_route, scope=trusted.scope)
         max_age = runtime.max_age_seconds
         checked_at = _instant_text(now)
@@ -252,10 +287,17 @@ def _build_managed_attestation_api():
         ingest_port: ManagedIngestPort,
         clock: ManagedClockPort,
         consume: bool,
+        inspection: object,
     ) -> dict[str, object]:
         if type(attestation) is not VerifiedManagedCompositionAttestation:
             raise ManagedCompositionAttestationError(
                 "managed composition attestation type must be exact"
+            )
+        if inspection is not _PUBLIC_COMPOSITION_INSPECTION and (
+            inspection is not _TERMINAL_COMPOSITION_INSPECTION
+        ):
+            raise ManagedCompositionAttestationError(
+                "managed composition inspection capability is invalid"
             )
         with _LOCK:
             state = states.get(attestation)
@@ -267,6 +309,7 @@ def _build_managed_attestation_api():
                 raise ManagedCompositionAttestationError(
                     "managed composition attestation was already consumed"
                 )
+            already_consumed = state.consumed
 
         trusted = _trusted_bindings(bindings)
         ports: tuple[object, ...] = (
@@ -281,10 +324,14 @@ def _build_managed_attestation_api():
             raise ManagedCompositionAttestationError("managed composition port identity differs")
         current_ports = _port_snapshots(ports)
         now = _clock_now(clock)
+        effective_inspection = (
+            _POST_CONSUME_COMPOSITION_INSPECTION if already_consumed else inspection
+        )
         current_runtime = _runtime_snapshot(
             trusted,
             state.runtime_validation,
             now,
+            inspection=effective_inspection,
         )
         current_provider = _provider_snapshot(state.provider_route, scope=trusted.scope)
         if (
@@ -293,11 +340,10 @@ def _build_managed_attestation_api():
             or current_provider != state.snapshot.provider
         ):
             raise ManagedCompositionAttestationError("managed composition live capability changed")
-        _require_current(
-            state.snapshot.checked_at,
-            max_age_seconds=state.snapshot.max_age_seconds,
+        _require_composition_current(
+            state.snapshot,
             now=now,
-            field_name="managed composition checked_at",
+            inspection=effective_inspection,
         )
         expected = _state_commitment(
             state.secret,
@@ -353,7 +399,31 @@ def public_managed_composition_attestation(
             ingest_port=ingest_port,
             clock=clock,
             consume=False,
+            inspection=_PUBLIC_COMPOSITION_INSPECTION,
         )
+    )
+
+
+def _inspect_verified_managed_composition_attestation_for_terminal_composite(
+    attestation: VerifiedManagedCompositionAttestation,
+    *,
+    bindings: FullComparisonRunBindings,
+    reset_port: ManagedResetPort,
+    attestation_port: ManagedAttestationPort,
+    ingest_port: ManagedIngestPort,
+    clock: ManagedClockPort,
+) -> dict[str, object]:
+    """Return a private terminal preflight report under the sealed deadline policy."""
+
+    return _inspect_verified_managed_composition_attestation(
+        attestation,
+        bindings=bindings,
+        reset_port=reset_port,
+        attestation_port=attestation_port,
+        ingest_port=ingest_port,
+        clock=clock,
+        consume=False,
+        inspection=_TERMINAL_COMPOSITION_INSPECTION,
     )
 
 
@@ -376,6 +446,7 @@ def _consume_verified_managed_composition_attestation_for_composite(
         ingest_port=ingest_port,
         clock=clock,
         consume=True,
+        inspection=_TERMINAL_COMPOSITION_INSPECTION,
     )
 
 
@@ -444,16 +515,15 @@ def _runtime_snapshot(
     bindings: FullComparisonRunBindings,
     validation: VerifiedMem0RuntimeAttestationValidation,
     now: datetime,
+    *,
+    inspection: object,
 ) -> _RuntimeSnapshot:
     if type(validation) is not VerifiedMem0RuntimeAttestationValidation:
         raise ManagedCompositionAttestationError("managed runtime capability type must be exact")
-    profile = resolve_full_comparison_profile(bindings.profile_id)
-    if profile is None:
-        raise ManagedCompositionAttestationError("managed runtime profile is unavailable")
     public = public_mem0_runtime_attestation_validation(validation)
     if not mem0_runtime_attestation_validation_is_publishable(
         validation,
-        required_runtime_mode=profile.required_mem0_runtime_mode,
+        required_runtime_mode=bindings.mem0_expected_runtime_mode,
     ):
         raise ManagedCompositionAttestationError("managed runtime capability is not publishable")
     attestation = public.get("attestation")
@@ -470,7 +540,7 @@ def _runtime_snapshot(
         or attestation.get("run_id_sha256") != expected_run
         or attestation.get("probe_nonce_sha256") != bindings.runtime_probe_nonce_sha256
         or attestation.get("target_identity_sha256") != mem0_targets[0]
-        or attestation.get("runtime_mode") != profile.required_mem0_runtime_mode
+        or attestation.get("runtime_mode") != bindings.mem0_expected_runtime_mode
     ):
         raise ManagedCompositionAttestationError(
             "managed runtime binding differs from full comparison"
@@ -478,20 +548,40 @@ def _runtime_snapshot(
     max_age = public.get("max_age_seconds")
     validated_at = public.get("validated_at")
     checked_at = attestation.get("checked_at")
-    if type(max_age) is not int or not 0 < max_age <= 3_600:
+    if type(max_age) is not int or max_age != MEM0_RUNTIME_ATTESTATION_MAX_AGE_SECONDS:
         raise ManagedCompositionAttestationError("managed runtime max_age_seconds is invalid")
-    _require_current(
-        validated_at,
-        max_age_seconds=max_age,
-        now=now,
-        field_name="managed runtime validated_at",
+    terminal_allowance = _managed_live_runtime_validation_terminal_allowance(validation)
+    terminal_deadline_at = (
+        _terminal_deadline_text(terminal_allowance.deadline_at)
+        if terminal_allowance is not None
+        else None
     )
-    _require_current(
-        checked_at,
+    if terminal_allowance is not None:
+        _digest(
+            terminal_allowance.binding_commitment_sha256,
+            field_name="managed runtime terminal binding commitment",
+        )
+    freshness_max_age = _runtime_freshness_max_age(
         max_age_seconds=max_age,
+        terminal_allowance=terminal_allowance,
         now=now,
-        field_name="managed runtime checked_at",
+        inspection=inspection,
     )
+    validated_instant = _parse_instant(validated_at, field_name="validated_at")
+    _parse_instant(checked_at, field_name="managed runtime checked_at")
+    if freshness_max_age is not None:
+        _require_current(
+            validated_at,
+            max_age_seconds=freshness_max_age,
+            now=now,
+            field_name="managed runtime validated_at",
+        )
+        _require_current(
+            checked_at,
+            max_age_seconds=freshness_max_age,
+            now=now,
+            field_name="managed runtime checked_at",
+        )
     for field in (
         "age_seconds",
         "timestamp_attestation_age_seconds",
@@ -501,16 +591,15 @@ def _runtime_snapshot(
         if (
             type(age) not in {int, float}
             or float(age) < -_MAX_CLOCK_SKEW_SECONDS
-            or max(0.0, float(age))
-            + max(
-                0.0,
-                (now - _parse_instant(validated_at, field_name="validated_at")).total_seconds(),
+            or (
+                freshness_max_age is not None
+                and max(0.0, float(age)) + max(0.0, (now - validated_instant).total_seconds())
+                > freshness_max_age
             )
-            > max_age
         ):
             raise ManagedCompositionAttestationError(f"managed runtime {field} is stale or invalid")
     return _RuntimeSnapshot(
-        runtime_mode=str(attestation["runtime_mode"]),
+        runtime_mode=bindings.mem0_expected_runtime_mode,
         run_id_sha256=expected_run,
         probe_nonce_sha256=bindings.runtime_probe_nonce_sha256,
         target_identity_sha256=mem0_targets[0],
@@ -519,6 +608,67 @@ def _runtime_snapshot(
         validated_at=str(validated_at),
         checked_at=str(checked_at),
         max_age_seconds=max_age,
+        terminal_deadline_at=terminal_deadline_at,
+        terminal_max_age_seconds=(
+            terminal_allowance.max_age_seconds if terminal_allowance is not None else None
+        ),
+        terminal_binding_commitment_sha256=(
+            terminal_allowance.binding_commitment_sha256 if terminal_allowance is not None else None
+        ),
+    )
+
+
+def _runtime_freshness_max_age(
+    *,
+    max_age_seconds: int,
+    terminal_allowance: _ManagedLiveRuntimeTerminalAllowance | None,
+    now: datetime,
+    inspection: object,
+) -> int | None:
+    if inspection is _POST_CONSUME_COMPOSITION_INSPECTION:
+        return None
+    public_max_age = min(max_age_seconds, MEM0_RUNTIME_ATTESTATION_MAX_AGE_SECONDS)
+    if inspection is _PUBLIC_COMPOSITION_INSPECTION:
+        return public_max_age
+    if inspection is not _TERMINAL_COMPOSITION_INSPECTION:
+        raise ManagedCompositionAttestationError(
+            "managed composition inspection capability is invalid"
+        )
+    if terminal_allowance is None:
+        return public_max_age
+    if terminal_allowance.monotonic_current is not True or now >= terminal_allowance.deadline_at:
+        raise ManagedCompositionAttestationError("managed runtime terminal deadline is stale")
+    return terminal_allowance.max_age_seconds
+
+
+def _require_composition_current(
+    snapshot: _CompositionSnapshot,
+    *,
+    now: datetime,
+    inspection: object,
+) -> None:
+    if inspection is _POST_CONSUME_COMPOSITION_INSPECTION:
+        return
+    max_age = min(snapshot.max_age_seconds, MEM0_RUNTIME_ATTESTATION_MAX_AGE_SECONDS)
+    if inspection is _TERMINAL_COMPOSITION_INSPECTION:
+        deadline_at = snapshot.runtime.terminal_deadline_at
+        if deadline_at is not None:
+            deadline = _parse_instant(deadline_at, field_name="managed runtime terminal deadline")
+            terminal_max_age = snapshot.runtime.terminal_max_age_seconds
+            if now >= deadline or type(terminal_max_age) is not int or terminal_max_age <= 0:
+                raise ManagedCompositionAttestationError(
+                    "managed runtime terminal deadline is stale"
+                )
+            max_age = terminal_max_age
+    elif inspection is not _PUBLIC_COMPOSITION_INSPECTION:
+        raise ManagedCompositionAttestationError(
+            "managed composition inspection capability is invalid"
+        )
+    _require_current(
+        snapshot.checked_at,
+        max_age_seconds=max_age,
+        now=now,
+        field_name="managed composition checked_at",
     )
 
 
@@ -674,7 +824,7 @@ def _state_commitment(
     nonce: str,
 ) -> str:
     payload = {
-        "snapshot": _snapshot_payload(snapshot),
+        "snapshot": _commitment_snapshot_payload(snapshot),
         "binding_object_identity": id(bindings),
         "port_object_identities": [id(port) for port in ports],
         "port_operation_identities": [port.operation_identity for port in snapshot.ports],
@@ -712,6 +862,12 @@ def _snapshot_payload(snapshot: _CompositionSnapshot) -> dict[str, object]:
         "runtime": {
             field: getattr(snapshot.runtime, field)
             for field in snapshot.runtime.__dataclass_fields__
+            if field
+            not in {
+                "terminal_deadline_at",
+                "terminal_max_age_seconds",
+                "terminal_binding_commitment_sha256",
+            }
         },
         "provider_route": {
             field: getattr(snapshot.provider, field)
@@ -719,6 +875,19 @@ def _snapshot_payload(snapshot: _CompositionSnapshot) -> dict[str, object]:
         },
         "checked_at": snapshot.checked_at,
         "max_age_seconds": snapshot.max_age_seconds,
+    }
+
+
+def _commitment_snapshot_payload(snapshot: _CompositionSnapshot) -> dict[str, object]:
+    """Bind the private terminal deadline without reflecting it in public evidence."""
+
+    return {
+        **_snapshot_payload(snapshot),
+        "terminal_runtime_deadline_at": snapshot.runtime.terminal_deadline_at,
+        "terminal_runtime_max_age_seconds": snapshot.runtime.terminal_max_age_seconds,
+        "terminal_runtime_binding_commitment_sha256": (
+            snapshot.runtime.terminal_binding_commitment_sha256
+        ),
     }
 
 
@@ -747,6 +916,10 @@ def _digest(value: object, *, field_name: str) -> str:
 
 def _instant_text(value: datetime) -> str:
     return value.astimezone(UTC).isoformat(timespec="milliseconds").replace("+00:00", "Z")
+
+
+def _terminal_deadline_text(value: datetime) -> str:
+    return value.astimezone(UTC).isoformat(timespec="microseconds").replace("+00:00", "Z")
 
 
 def _json_sha256(value: object) -> str:

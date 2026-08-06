@@ -12,6 +12,7 @@ from dataclasses import dataclass
 from typing import Annotated, Any, Literal
 
 from fastapi import Depends, FastAPI, Header, HTTPException, Query, Request, Security
+from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 from fastapi.security import APIKeyHeader
 from starlette.types import ASGIApp, Message, Receive, Scope, Send
@@ -24,10 +25,13 @@ from mem0_oss_adapter.models import (
     BenchmarkAttestationRefreshRequest,
     BenchmarkAuthChallengeRequest,
     BenchmarkAuthChallengeResponse,
+    BenchmarkUsageAttestationRequest,
+    BenchmarkUsageAttestationResponse,
     DeleteResponse,
     HealthResponse,
     PersistedMemoryIdentity,
     PersistedSourceMetadata,
+    RunUsageEvidence,
     SafeIdentifier,
     SearchRequest,
     SearchResponse,
@@ -36,6 +40,11 @@ from mem0_oss_adapter.models import (
 from mem0_oss_adapter.port import OssPort
 from mem0_oss_adapter.sdk_oss import oss_from_environment
 from mem0_oss_adapter.service import AdapterError, OssCompatibilityService
+from mem0_oss_adapter.usage import (
+    usage_attested_at,
+    usage_fingerprint_sha256,
+    usage_witness_signature,
+)
 
 _INGRESS_API_KEY_ENV = "MEM0_ADAPTER_INGRESS_API_KEY"
 _BENCHMARK_PROBE_TOKEN_ENV = "MEM0_BENCHMARK_PROBE_TOKEN"
@@ -222,12 +231,16 @@ def create_app(
     service = service_factory(selected_port)
     static_attestation = TimestampAttestation()
 
-    app = FastAPI(title="Mem0 OSS benchmark adapter", version="3")
+    app = FastAPI(title="Mem0 OSS benchmark adapter", version="4")
     app.add_middleware(_BoundedIngressBodyMiddleware)
 
     @app.exception_handler(AdapterError)
     async def adapter_error_handler(_request: Any, exc: AdapterError):
         return JSONResponse(status_code=exc.status_code, content={"detail": exc.code})
+
+    @app.exception_handler(RequestValidationError)
+    async def request_validation_error_handler(_request: Any, _exc: RequestValidationError):
+        return JSONResponse(status_code=422, content={"detail": "invalid_request"})
 
     def runtime_manifest(
         *,
@@ -344,6 +357,42 @@ def create_app(
             ),
         }
         return payload
+
+    @app.post(
+        "/benchmark/attest-usage",
+        response_model=BenchmarkUsageAttestationResponse,
+    )
+    def attest_benchmark_usage(
+        request: BenchmarkUsageAttestationRequest,
+        raw_request: Request,
+        _ingress_auth: Annotated[None, Depends(_require_ingress_api_key)],
+        probe_token: Annotated[str | None, Header(alias="X-Benchmark-Probe-Token")] = None,
+    ) -> BenchmarkUsageAttestationResponse:
+        expected_token = _require_probe_token(raw_request, probe_token)
+        usage = service.usage_for_run(run_id=request.run_id)
+        attested_at = usage_attested_at()
+        usage_fingerprint = usage_fingerprint_sha256(usage, attested_at=attested_at)
+        run_id_sha256 = hashlib.sha256(request.run_id.encode()).hexdigest()
+        probe_nonce_sha256 = hashlib.sha256(request.probe_nonce.encode()).hexdigest()
+        signature = usage_witness_signature(
+            token=expected_token,
+            run_id_sha256=run_id_sha256,
+            probe_nonce_sha256=probe_nonce_sha256,
+            target_identity_sha256=request.target_identity_sha256,
+            attested_at=attested_at,
+            usage_fingerprint_sha256=usage_fingerprint,
+        )
+        return BenchmarkUsageAttestationResponse(
+            schema_version="mem0-benchmark-usage-attestation.v1",
+            run_id_sha256=run_id_sha256,
+            probe_nonce_sha256=probe_nonce_sha256,
+            target_identity_sha256=request.target_identity_sha256,
+            attested_at=attested_at,
+            usage=RunUsageEvidence.model_validate(usage.as_dict()),
+            usage_fingerprint_sha256=usage_fingerprint,
+            algorithm="hmac-sha256",
+            signature=signature,
+        )
 
     return app
 

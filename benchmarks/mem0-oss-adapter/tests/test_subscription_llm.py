@@ -12,6 +12,7 @@ from mem0_oss_adapter.subscription_llm import (
     UsageLedger,
     validate_loopback_bridge_url,
 )
+from mem0_oss_adapter.usage import UsageEvidenceError
 
 
 def _subscription_llm(
@@ -59,6 +60,20 @@ def test_subscription_bridge_is_narrow_bounded_and_ledgered() -> None:
     assert ledger.entries[-1].extraction_calls == 1
     assert ledger.entries[-1].request_bytes > 0
     assert ledger.entries[-1].response_bytes > 0
+    aggregate = ledger.aggregate_for_run(run_id="run-1")
+    assert aggregate.mode == "subscription_llm"
+    assert aggregate.operation_count == 1
+    assert aggregate.extraction_calls == 1
+    assert set(aggregate.as_dict()) == {
+        "mode",
+        "operation_count",
+        "extraction_calls",
+        "request_bytes",
+        "response_bytes",
+        "model",
+        "first_operation_at",
+        "last_operation_at",
+    }
 
 
 def test_raw_mode_has_no_bridge_or_extraction_budget() -> None:
@@ -85,6 +100,33 @@ def test_raw_mode_has_no_bridge_or_extraction_budget() -> None:
         llm.generate_response([{"role": "user", "content": "never call"}])
     llm.close()
     assert ledger.entries[-1].extraction_calls == 0
+    aggregate = ledger.aggregate_for_run(run_id="run-1")
+    assert aggregate.mode == "raw_passthrough"
+    assert aggregate.extraction_calls == 0
+    assert aggregate.request_bytes == 0
+    assert aggregate.response_bytes == 0
+
+
+def test_usage_evidence_rejects_missing_run_and_aggregates_bounded_raw_adds() -> None:
+    ledger = UsageLedger()
+    with pytest.raises(UsageEvidenceError, match="unavailable"):
+        ledger.aggregate_for_run(run_id="missing-run")
+    for _ in range(2):
+        with ledger.operation(
+            run_id="reused-run",
+            mode="raw_passthrough",
+            max_calls=0,
+            request_max_bytes=1024,
+            response_max_bytes=1024,
+        ):
+            pass
+
+    aggregate = ledger.aggregate_for_run(run_id="reused-run")
+    assert aggregate.mode == "raw_passthrough"
+    assert aggregate.operation_count == 2
+    assert aggregate.extraction_calls == 0
+    assert aggregate.request_bytes == 0
+    assert aggregate.response_bytes == 0
 
 
 @pytest.mark.parametrize(

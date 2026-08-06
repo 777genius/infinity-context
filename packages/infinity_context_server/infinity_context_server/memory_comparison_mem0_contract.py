@@ -17,6 +17,9 @@ from infinity_context_server.memory_comparison_mem0_oss_contract import (
 from infinity_context_server.memory_comparison_mem0_oss_contract import (
     public_mem0_oss_runtime_manifest as _public_mem0_oss_runtime_manifest,
 )
+from infinity_context_server.memory_comparison_mem0_oss_v4_manifest import (
+    MEM0_BENCHMARK_CAPABILITIES_SCHEMA_VERSION_V4,
+)
 from infinity_context_server.memory_comparison_mem0_platform_contract import (
     MANAGED_PLATFORM_CAPABILITY_ISSUE_CODES,
 )
@@ -220,7 +223,10 @@ def evaluate_mem0_runtime_capabilities(
     if not isinstance(payload, Mapping):
         return ("runtime_manifest_missing",)
     schema_version = payload.get("schema_version")
-    if schema_version == MEM0_BENCHMARK_CAPABILITIES_SCHEMA_VERSION_V3:
+    if schema_version in {
+        MEM0_BENCHMARK_CAPABILITIES_SCHEMA_VERSION_V3,
+        MEM0_BENCHMARK_CAPABILITIES_SCHEMA_VERSION_V4,
+    }:
         return _evaluate_mem0_oss_runtime_capabilities(
             payload,
             require_timestamp=require_timestamp,
@@ -276,7 +282,10 @@ def public_mem0_runtime_manifest(payload: object) -> dict[str, object]:
 
     if not isinstance(payload, Mapping):
         return {}
-    if payload.get("schema_version") == MEM0_BENCHMARK_CAPABILITIES_SCHEMA_VERSION_V3:
+    if payload.get("schema_version") in {
+        MEM0_BENCHMARK_CAPABILITIES_SCHEMA_VERSION_V3,
+        MEM0_BENCHMARK_CAPABILITIES_SCHEMA_VERSION_V4,
+    }:
         return _public_mem0_oss_runtime_manifest(payload)
     public = _public_runtime_scalars(payload)
     sdk = payload.get("sdk")

@@ -6,6 +6,8 @@ import hashlib
 import hmac
 import json
 import re
+import threading
+import weakref
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from datetime import UTC, datetime
@@ -99,6 +101,9 @@ _PUBLIC_FIELDS = (
     "witness_signature_sha256",
 )
 _VERIFIED_MARKER = object()
+_VALIDATION_ISSUANCE_LOCK = threading.RLock()
+_PENDING_VALIDATION_ISSUANCE_NONCES: set[object] = set()
+_ISSUED_VALIDATIONS: weakref.WeakValueDictionary[int, object] = weakref.WeakValueDictionary()
 
 
 @dataclass(frozen=True)
@@ -129,14 +134,22 @@ class VerifiedMem0RuntimeAttestationValidation(Mapping[str, object]):
     payload: Mapping[str, object]
     _payload_fingerprint_sha256: str
     _marker: object
+    _issuance_nonce: object
 
     def __post_init__(self) -> None:
+        with _VALIDATION_ISSUANCE_LOCK:
+            issued_here = self._issuance_nonce in _PENDING_VALIDATION_ISSUANCE_NONCES
+            _PENDING_VALIDATION_ISSUANCE_NONCES.discard(self._issuance_nonce)
+        if not issued_here:
+            raise TypeError("runtime attestation validations are noncopyable")
         if (
             self._marker is not _VERIFIED_MARKER
             or not isinstance(self.payload, MappingProxyType)
             or _fingerprint(self.payload) != self._payload_fingerprint_sha256
         ):
             raise ValueError("runtime attestation validation was not runner-produced")
+        with _VALIDATION_ISSUANCE_LOCK:
+            _ISSUED_VALIDATIONS[id(self)] = self
 
     def __getitem__(self, key: str) -> object:
         return self.payload[key]
@@ -146,6 +159,33 @@ class VerifiedMem0RuntimeAttestationValidation(Mapping[str, object]):
 
     def __len__(self) -> int:
         return len(self.payload)
+
+    def __copy__(self) -> object:
+        raise TypeError("runtime attestation validations are noncopyable")
+
+    def __deepcopy__(self, memo: object) -> object:
+        del memo
+        raise TypeError("runtime attestation validations are noncopyable")
+
+    def __reduce__(self) -> object:
+        raise TypeError("runtime attestation validations are nonserializable")
+
+    def __reduce_ex__(self, protocol: int) -> object:
+        del protocol
+        raise TypeError("runtime attestation validations are nonserializable")
+
+    def __getstate__(self) -> object:
+        raise TypeError("runtime attestation validations are nonserializable")
+
+
+def _verified_mem0_runtime_attestation_validation_is_issued(value: object) -> bool:
+    """Prove exact process-local issuance before private policy binding."""
+
+    with _VALIDATION_ISSUANCE_LOCK:
+        return bool(
+            type(value) is VerifiedMem0RuntimeAttestationValidation
+            and _ISSUED_VALIDATIONS.get(id(value)) is value
+        )
 
 
 def build_mem0_runtime_attestation(
@@ -387,11 +427,7 @@ def validate_mem0_runtime_attestation_for_backends(
             remaining=[_MAX_CANONICAL_ITEMS],
         )
         assert isinstance(frozen_validation, MappingProxyType)
-        return VerifiedMem0RuntimeAttestationValidation(
-            payload=frozen_validation,
-            _payload_fingerprint_sha256=_fingerprint(frozen_validation),
-            _marker=_VERIFIED_MARKER,
-        )
+        return _issue_verified_runtime_attestation_validation(frozen_validation)
     issues = list(dict.fromkeys([*extra_issues, *_sequence(validation.get("issues"))]))[
         :_MAX_ISSUES
     ]
@@ -399,12 +435,28 @@ def validate_mem0_runtime_attestation_for_backends(
     if verified_payload is not None:
         frozen_invalid = _deep_freeze(invalid, remaining=[_MAX_CANONICAL_ITEMS])
         assert isinstance(frozen_invalid, MappingProxyType)
-        return VerifiedMem0RuntimeAttestationValidation(
-            payload=frozen_invalid,
-            _payload_fingerprint_sha256=_fingerprint(frozen_invalid),
-            _marker=_VERIFIED_MARKER,
-        )
+        return _issue_verified_runtime_attestation_validation(frozen_invalid)
     return invalid
+
+
+def _issue_verified_runtime_attestation_validation(
+    payload: MappingProxyType,
+) -> VerifiedMem0RuntimeAttestationValidation:
+    """Issue one nominal validation that dataclass replacement cannot replay."""
+
+    nonce = object()
+    with _VALIDATION_ISSUANCE_LOCK:
+        _PENDING_VALIDATION_ISSUANCE_NONCES.add(nonce)
+    try:
+        return VerifiedMem0RuntimeAttestationValidation(
+            payload=payload,
+            _payload_fingerprint_sha256=_fingerprint(payload),
+            _marker=_VERIFIED_MARKER,
+            _issuance_nonce=nonce,
+        )
+    finally:
+        with _VALIDATION_ISSUANCE_LOCK:
+            _PENDING_VALIDATION_ISSUANCE_NONCES.discard(nonce)
 
 
 def public_mem0_runtime_attestation(payload: object) -> dict[str, object]:
@@ -465,7 +517,7 @@ def public_mem0_runtime_attestation_validation(payload: object) -> dict[str, obj
         "required_runtime_mode": _public_runtime_mode(payload.get("required_runtime_mode")),
         "observed_runtime_mode": _public_runtime_mode(payload.get("observed_runtime_mode")),
         "validated_at": _public_instant(payload.get("validated_at")),
-        "max_age_seconds": _public_positive_int(payload.get("max_age_seconds"), maximum=3_600),
+        "max_age_seconds": _public_runtime_max_age(payload.get("max_age_seconds")),
         "age_seconds": _public_age(payload.get("age_seconds")),
         "timestamp_attestation_age_seconds": _public_age(
             payload.get("timestamp_attestation_age_seconds")
@@ -500,6 +552,7 @@ def mem0_runtime_attestation_validation_is_publishable(
         public.get("schema_version") == MEM0_RUNTIME_ATTESTATION_VALIDATION_SCHEMA_VERSION
         and public.get("status") == "valid"
         and public.get("eligible") is True
+        and public.get("max_age_seconds") == MEM0_RUNTIME_ATTESTATION_MAX_AGE_SECONDS
         and public.get("required_runtime_mode") == required_runtime_mode
         and public.get("observed_runtime_mode") == required_runtime_mode
         and isinstance(issues, list)
@@ -682,10 +735,12 @@ def _public_hash(value: object) -> str:
     return value if isinstance(value, str) and _SHA256_RE.fullmatch(value) else "invalid"
 
 
-def _public_positive_int(value: object, *, maximum: int) -> int | str:
-    if isinstance(value, bool) or not isinstance(value, int) or not 0 < value <= maximum:
-        return "invalid"
-    return value
+def _public_runtime_max_age(value: object) -> int | str:
+    return (
+        MEM0_RUNTIME_ATTESTATION_MAX_AGE_SECONDS
+        if type(value) is int and value == MEM0_RUNTIME_ATTESTATION_MAX_AGE_SECONDS
+        else "invalid"
+    )
 
 
 def _public_age(value: object) -> float | None | str:
@@ -698,9 +753,11 @@ def _public_age(value: object) -> float | None | str:
 
 
 def _bounded_max_age(value: object) -> int | None:
-    if isinstance(value, bool) or not isinstance(value, int) or not 1 <= value <= 3_600:
-        return None
-    return value
+    return (
+        MEM0_RUNTIME_ATTESTATION_MAX_AGE_SECONDS
+        if type(value) is int and value == MEM0_RUNTIME_ATTESTATION_MAX_AGE_SECONDS
+        else None
+    )
 
 
 def _safe_contract_violation(value: object) -> str:

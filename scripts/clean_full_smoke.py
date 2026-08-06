@@ -43,6 +43,7 @@ if str(_SCRIPTS_DIR) not in sys.path:
     sys.path.insert(0, str(_SCRIPTS_DIR))
 
 try:
+    from scripts.clean_full_smoke_compose import FULL_PROVIDER_COMPOSE_ARGS
     from scripts.clean_full_smoke_diagnostics import (
         context_diagnostic_int as _context_diagnostic_int,
     )
@@ -110,6 +111,7 @@ try:
         write_report_out as _write_report_out_impl,
     )
 except ModuleNotFoundError:
+    from clean_full_smoke_compose import FULL_PROVIDER_COMPOSE_ARGS
     from clean_full_smoke_diagnostics import (
         context_diagnostic_int as _context_diagnostic_int,
     )
@@ -228,17 +230,7 @@ def main() -> int:
         if _bool(os.getenv("MEMORY_CLEAN_SMOKE_OPENAI_PREFLIGHT", "true")):
             asyncio.run(_run_openai_provider_preflight(server_env))
         _compose(project_name, compose_env, "down", "-v", "--remove-orphans", check=False)
-        _compose(
-            project_name,
-            compose_env,
-            "--memory_scope",
-            "full",
-            "up",
-            "-d",
-            "infinity_context_postgres",
-            "infinity_context_qdrant",
-            "infinity_context_neo4j",
-        )
+        _compose(project_name, compose_env, *FULL_PROVIDER_COMPOSE_ARGS)
         _wait_for_postgres(project_name, compose_env)
         _wait_for_http(f"http://127.0.0.1:{ports['qdrant']}/", env=server_env)
         _wait_for_neo4j(ports["neo4j_bolt"], env=server_env)

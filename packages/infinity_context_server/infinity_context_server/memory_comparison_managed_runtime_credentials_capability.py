@@ -275,6 +275,10 @@ class ManagedBackendCredentialMaterial:
                         id(mem0.transport) if mem0.transport is not None else None
                     ),
                     "credential_commitment": hmac_sha256(self.__key, (mem0.api_key or "").encode()),
+                    "ingress_credential_commitment": hmac_sha256(
+                        self.__key,
+                        (mem0.ingress_api_key or "").encode(),
+                    ),
                     "probe_credential_commitment": hmac_sha256(
                         self.__key, self.__probe_token.encode()
                     ),
@@ -299,6 +303,7 @@ class ManagedBackendCredentialMaterial:
                 target_identity_sha256=mem0.target_identity_sha256,
                 base_url=mem0.base_url,
                 api_key=mem0.api_key,
+                ingress_api_key=mem0.ingress_api_key,
                 data_plane_auth_mode=mem0.data_plane_auth_mode,
                 timeout_seconds=mem0.timeout_seconds,
                 send_timestamps=mem0.send_timestamps,

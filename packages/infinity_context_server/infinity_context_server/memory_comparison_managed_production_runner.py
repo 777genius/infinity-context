@@ -43,6 +43,7 @@ from infinity_context_server.memory_comparison_managed_live_composition import (
     _inspect_managed_live_policy_cases,
 )
 from infinity_context_server.memory_comparison_managed_llm_execution import (
+    ManagedLlmExecutionError,
     create_managed_comparison_execution_ports,
 )
 from infinity_context_server.memory_comparison_managed_plan_builder import (
@@ -323,7 +324,7 @@ def _run_verified_managed_production_execution(
             raise primary
         if not isinstance(primary, Exception):
             raise primary
-        raise ManagedProductionRunnerError("managed_production_runner_failed") from None
+        raise ManagedProductionRunnerError(_primary_failure_code(primary)) from None
     if cleanup_failed:
         raise ManagedProductionRunnerError("managed_production_runner_cleanup_failed")
     if type(outcome) is not ManagedRunOutcome:
@@ -333,6 +334,18 @@ def _run_verified_managed_production_execution(
 
 def _production_wall_clock() -> datetime:
     return datetime.now(UTC)
+
+
+def _primary_failure_code(primary: Exception) -> str:
+    """Expose only the one reviewed, secret-free execution phase failure."""
+
+    if (
+        type(primary) is ManagedLlmExecutionError
+        and type(primary.code) is str
+        and primary.code == "managed_execution_seal_failed"
+    ):
+        return "managed_production_execution_seal_failed"
+    return "managed_production_runner_failed"
 
 
 def _backend_origins(request: object) -> tuple[str, str]:

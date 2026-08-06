@@ -5,6 +5,8 @@ from __future__ import annotations
 from collections.abc import Mapping, Sequence
 from typing import Any, Literal, Protocol
 
+from mem0_oss_adapter.usage import RunUsageAggregate
+
 
 class OssPort(Protocol):
     @property
@@ -51,6 +53,8 @@ class OssPort(Protocol):
         source_sha256: str,
     ) -> bool: ...
 
+    def usage_for_run(self, *, run_id: str) -> RunUsageAggregate: ...
+
 
 class UnconfiguredOssPort:
     @property
@@ -77,4 +81,7 @@ class UnconfiguredOssPort:
         self._raise()
 
     def delete_source_memories(self, **_: Any) -> bool:
+        self._raise()
+
+    def usage_for_run(self, **_: Any) -> RunUsageAggregate:
         self._raise()

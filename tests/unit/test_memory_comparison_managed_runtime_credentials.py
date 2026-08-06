@@ -38,6 +38,10 @@ from infinity_context_server.memory_comparison_managed_runtime_credentials impor
 from infinity_context_server.memory_comparison_managed_runtime_credentials_context import (
     _inspect_completed_managed_runtime_credential_context,
 )
+from infinity_context_server.memory_comparison_mem0_oss_ingress import (
+    Mem0OssIngressCredentialAuthority,
+    issue_mem0_oss_ingress_credential_authority,
+)
 from infinity_context_server.memory_comparison_subscription_chat import (
     SUBSCRIPTION_RUNTIME_ESTIMATED_USAGE_SOURCE,
     SubscriptionRuntimeChatCompletions,
@@ -52,6 +56,7 @@ _SUBSCRIPTION_ORIGIN = "http://127.0.0.1:8890/"
 _INFINITY_SECRET = "infinity-auth-super-secret"
 _MEM0_SECRET = "mem0-api-super-secret"
 _PROBE_SECRET = "mem0-probe-super-secret"
+_INGRESS_SECRET = "mem0-oss-ingress-super-secret"
 _SUBSCRIPTION_SECRET = "subscription-bearer-super-secret"
 _MODEL = "gpt-5.6-sol"
 
@@ -62,6 +67,7 @@ def _authority(
     mem0_api_key: str | None = _MEM0_SECRET,
     mem0_probe_token: str | None = _PROBE_SECRET,
     mem0_data_plane_auth_mode: str = MANAGED_MEM0_DATA_PLANE_AUTH_API_KEY,
+    mem0_oss_ingress_authority: Mem0OssIngressCredentialAuthority | None = None,
 ) -> ManagedRuntimeCredentialAuthority:
     return issue_managed_runtime_credential_authority(
         run_id=_RUN_ID,
@@ -76,6 +82,7 @@ def _authority(
         issued_at=_NOW,
         deadline=deadline,
         mem0_data_plane_auth_mode=mem0_data_plane_auth_mode,
+        mem0_oss_ingress_authority=mem0_oss_ingress_authority,
     )
 
 
@@ -145,6 +152,7 @@ def _assert_secret_safe(value: object) -> None:
         _INFINITY_SECRET,
         _MEM0_SECRET,
         _PROBE_SECRET,
+        _INGRESS_SECRET,
         _SUBSCRIPTION_SECRET,
     ):
         assert secret not in rendered
@@ -286,9 +294,7 @@ def test_execution_transport_timeout_is_capped_to_remaining_run_deadline() -> No
     finally:
         execution.close()
 
-    assert observed_timeouts == [
-        {"connect": 0.25, "read": 0.25, "write": 0.25, "pool": 0.25}
-    ]
+    assert observed_timeouts == [{"connect": 0.25, "read": 0.25, "write": 0.25, "pool": 0.25}]
 
 
 def test_completed_readiness_context_inspection_is_stable_and_non_consuming() -> None:
@@ -513,11 +519,14 @@ def test_keyless_mem0_authority_seals_no_data_plane_key_and_keeps_probe_credenti
         now=_NOW,
     )
 
-    assert backend_material.consume_mem0_probe_token(
-        expected_request=request,
-        run_id=_RUN_ID,
-        deadline=_DEADLINE,
-    ) == _PROBE_SECRET
+    assert (
+        backend_material.consume_mem0_probe_token(
+            expected_request=request,
+            run_id=_RUN_ID,
+            deadline=_DEADLINE,
+        )
+        == _PROBE_SECRET
+    )
     _, mem0 = backend_material.consume_for_http_execution(
         expected_request=request,
         run_id=_RUN_ID,
@@ -525,6 +534,61 @@ def test_keyless_mem0_authority_seals_no_data_plane_key_and_keeps_probe_credenti
     )
     assert mem0.data_plane_auth_mode == MANAGED_MEM0_DATA_PLANE_AUTH_NONE
     assert mem0.api_key is None
+    assert mem0.ingress_api_key is None
+
+
+def test_keyless_mem0_authority_injects_only_separate_oss_ingress_credential() -> None:
+    ingress = issue_mem0_oss_ingress_credential_authority(
+        run_id=_RUN_ID,
+        base_url=_MEM0_ORIGIN,
+        ingress_api_key=_INGRESS_SECRET,
+        allowed_target_hosts=("127.0.0.1",),
+    )
+    authority = _authority(
+        mem0_api_key=None,
+        mem0_data_plane_auth_mode=MANAGED_MEM0_DATA_PLANE_AUTH_NONE,
+        mem0_oss_ingress_authority=ingress,
+    )
+    material = authority.preflight_material()
+
+    assert material.mem0_data_plane_auth_mode == MANAGED_MEM0_DATA_PLANE_AUTH_NONE
+    assert material.backend_endpoints[1].credential.configured is False
+    assert material.backend_endpoints[1].credential.binding_id is None
+    assert _INGRESS_SECRET not in repr(authority)
+    assert _INGRESS_SECRET not in repr(material)
+
+    request = _bind(authority)
+    backend = authority.issue_backend_credential_material(
+        expected_request=request,
+        run_id=_RUN_ID,
+        infinity_origin=_INFINITY_ORIGIN,
+        mem0_origin=_MEM0_ORIGIN,
+        deadline=_DEADLINE,
+        now=_NOW,
+    )
+    _, mem0 = backend.consume_for_http_execution(
+        expected_request=request,
+        run_id=_RUN_ID,
+        deadline=_DEADLINE,
+    )
+    assert mem0.data_plane_auth_mode == MANAGED_MEM0_DATA_PLANE_AUTH_NONE
+    assert mem0.api_key is None
+    assert mem0.ingress_api_key == _INGRESS_SECRET
+    assert _INGRESS_SECRET not in repr(mem0)
+
+
+def test_platform_mode_rejects_oss_ingress_authority_without_fallback() -> None:
+    ingress = issue_mem0_oss_ingress_credential_authority(
+        run_id=_RUN_ID,
+        base_url=_MEM0_ORIGIN,
+        ingress_api_key=_INGRESS_SECRET,
+        allowed_target_hosts=("127.0.0.1",),
+    )
+
+    with pytest.raises(ManagedRuntimeCredentialError) as caught:
+        _authority(mem0_oss_ingress_authority=ingress)
+
+    assert caught.value.code == "managed_credentials_configuration_invalid"
 
 
 @pytest.mark.parametrize(
