@@ -117,9 +117,7 @@ def test_request_projection_is_golden_equal_to_pinned_mem0_2_0_15() -> None:
         {"content": ADDITIVE_EXTRACTION_PROMPT, "role": "system"},
         {"content": expected_user_prompt, "role": "user"},
     ]
-    assert request.allowed_existing_memory_ids == tuple(
-        item["id"] for item in expected_existing
-    )
+    assert request.allowed_existing_memory_ids == tuple(item["id"] for item in expected_existing)
 
 
 def test_context_windows_are_selected_before_normalizing_discarded_items() -> None:
@@ -135,9 +133,7 @@ def test_context_windows_are_selected_before_normalizing_discarded_items() -> No
         last_k_messages=history,
         recently_extracted_memories=recent,
     )
-    assert request.allowed_existing_memory_ids == tuple(
-        f"existing-{index}" for index in range(10)
-    )
+    assert request.allowed_existing_memory_ids == tuple(f"existing-{index}" for index in range(10))
 
 
 def test_oversized_and_bomb_sequence_inputs_fail_without_iteration() -> None:
@@ -271,8 +267,7 @@ def test_malformed_or_schema_drifted_output_is_rejected(raw: str) -> None:
 
 def test_output_size_count_and_text_bounds_are_enforced() -> None:
     too_many = [
-        _memory(str(index), text=f"fact {index}")
-        for index in range(MAX_EXTRACTED_MEMORIES + 1)
+        _memory(str(index), text=f"fact {index}") for index in range(MAX_EXTRACTED_MEMORIES + 1)
     ]
     with pytest.raises(AdapterContractError, match="mem0_v5_extraction_output_invalid"):
         parse_extraction_output(_output(too_many))

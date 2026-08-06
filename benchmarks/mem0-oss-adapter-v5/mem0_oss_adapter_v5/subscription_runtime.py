@@ -315,9 +315,7 @@ class SubscriptionRuntimeClient:
                 receipt=receipt_payload,
                 intent=intent_snapshot,
                 request=request_snapshot,
-                expected_account_binding_hmac_sha256=(
-                    expected_account_binding
-                ),
+                expected_account_binding_hmac_sha256=(expected_account_binding),
                 expected_base_instructions_sha256=expected_base_instructions,
                 reasoning_effort=reasoning_effort,
                 service_tier=service_tier,
@@ -521,8 +519,7 @@ class SubscriptionRuntimeClient:
             or selection["reasoning_effort"] != self._reasoning_effort
             or selection["service_tier"] != self._service_tier
             or selection["execution_profile"] != "stateless-completion"
-            or selection["base_instructions_sha256"]
-            != self._expected_base_instructions_sha256
+            or selection["base_instructions_sha256"] != self._expected_base_instructions_sha256
             or _safe_text(selection["thread_id"]) is None
             or _safe_text(selection["turn_id"]) is None
             or any(

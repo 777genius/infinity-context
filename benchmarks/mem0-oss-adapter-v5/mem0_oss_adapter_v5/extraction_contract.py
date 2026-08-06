@@ -126,8 +126,7 @@ class ExtractionRequest:
             or self.max_tokens != EXTRACTION_MAX_TOKENS
             or type(self.allowed_existing_memory_ids) is not tuple
             or len(self.allowed_existing_memory_ids) > MAX_EXISTING_MEMORIES
-            or len(set(self.allowed_existing_memory_ids))
-            != len(self.allowed_existing_memory_ids)
+            or len(set(self.allowed_existing_memory_ids)) != len(self.allowed_existing_memory_ids)
             or any(
                 type(item) is not str or _SAFE_MEMORY_ID.fullmatch(item) is None
                 for item in self.allowed_existing_memory_ids
@@ -433,10 +432,7 @@ def _select_context_window(
 ) -> list[Mapping[str, str]] | tuple[Mapping[str, str], ...]:
     """Slice a bounded built-in sequence before any element normalization."""
 
-    if (
-        type(values) not in {list, tuple}
-        or not 0 <= len(values) <= MAX_CONTEXT_SEQUENCE_ITEMS
-    ):
+    if type(values) not in {list, tuple} or not 0 <= len(values) <= MAX_CONTEXT_SEQUENCE_ITEMS:
         raise AdapterContractError(code)
     return values[-limit:] if from_end else values[:limit]
 
@@ -444,11 +440,7 @@ def _select_context_window(
 def _bounded_optional_text(value: str | None, code: str) -> str | None:
     if value is None:
         return None
-    if (
-        type(value) is not str
-        or not value
-        or len(value.encode("utf-8")) > MAX_CONTEXT_TEXT_BYTES
-    ):
+    if type(value) is not str or not value or len(value.encode("utf-8")) > MAX_CONTEXT_TEXT_BYTES:
         raise AdapterContractError(code)
     return value
 
@@ -470,10 +462,7 @@ def _valid_existing_ids(values: Sequence[str]) -> set[str]:
         type(values) not in {tuple, list}
         or len(values) > MAX_EXISTING_MEMORIES
         or len(set(values)) != len(values)
-        or any(
-            type(item) is not str or _SAFE_MEMORY_ID.fullmatch(item) is None
-            for item in values
-        )
+        or any(type(item) is not str or _SAFE_MEMORY_ID.fullmatch(item) is None for item in values)
     ):
         raise AdapterContractError("mem0_v5_existing_memory_links_invalid")
     return set(values)

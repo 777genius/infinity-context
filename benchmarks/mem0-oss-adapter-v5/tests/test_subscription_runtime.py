@@ -46,8 +46,7 @@ BASE_INSTRUCTIONS = "5" * 64
 BEARER = "private-bearer-value"
 RECEIPT_SECRET = "provider-free-fixture-secret-at-least-32-bytes"
 RUNTIME_REPO = Path(
-    "/mnt/volume_ams3_1784742570542/infinity-context/runtimes/subscription-runtime/"
-    "e904ec95/repo"
+    "/mnt/volume_ams3_1784742570542/infinity-context/runtimes/subscription-runtime/e904ec95/repo"
 )
 
 
@@ -144,10 +143,9 @@ def _response(request: object, *, output: str | None = None) -> dict[str, object
 def _sign_receipt(receipt: dict[str, object]) -> dict[str, object]:
     signed = copy.deepcopy(receipt)
     canonical_url = (
-        RUNTIME_REPO
-        / "dist/openai-compatible-codex/chat-completions/domain/runtime-attestation.js"
+        RUNTIME_REPO / "dist/openai-compatible-codex/chat-completions/domain/runtime-attestation.js"
     ).as_uri()
-    script = r'''
+    script = r"""
 import {createHmac} from "node:crypto";
 let body = ""; for await (const chunk of process.stdin) body += chunk;
 const {receipt, secret, canonical_url} = JSON.parse(body); const m = receipt.metadata;
@@ -158,7 +156,7 @@ const bytes = openAiBridgeRuntimeAttestationCanonicalBytes({
   requestedOutputTokenLimit:m.output_token_limit.requested_tokens,
 });
 process.stdout.write(createHmac("sha256", secret).update(bytes).digest("hex"));
-'''
+"""
     completed = subprocess.run(
         ["/usr/local/bin/node", "--input-type=module", "-e", script],
         cwd=RUNTIME_REPO,
@@ -333,12 +331,8 @@ def test_redirect_is_not_followed_and_is_outcome_unknown() -> None:
             {"output_text_sha256": "f" * 64}
         ),
         lambda value: value["usage"].update({"total_tokens": 15}),
-        lambda value: value["subscription_runtime"].update(
-            {"receipt_hmac_sha256": "not-a-digest"}
-        ),
-        lambda value: value["subscription_runtime"].update(
-            {"receipt_hmac_sha256": "f" * 64}
-        ),
+        lambda value: value["subscription_runtime"].update({"receipt_hmac_sha256": "not-a-digest"}),
+        lambda value: value["subscription_runtime"].update({"receipt_hmac_sha256": "f" * 64}),
     ],
 )
 def test_receipt_tamper_and_private_schema_drift_fail_closed(mutation: object) -> None:
