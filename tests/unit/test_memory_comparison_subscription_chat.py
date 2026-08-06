@@ -11,6 +11,9 @@ from infinity_context_server.memory_comparison_provider_provenance import (
     ProviderCallProvenance,
     canonical_request_sha256,
 )
+from infinity_context_server.memory_comparison_response_format_policy import (
+    locomo_judge_response_format,
+)
 from infinity_context_server.memory_comparison_subscription_chat import (
     MAX_RESPONSE_BODY_BYTES,
     SUBSCRIPTION_ADAPTER_ESTIMATED_USAGE_SOURCE,
@@ -160,6 +163,69 @@ def test_optional_controls_and_estimated_usage() -> None:
     assert request["response_format"] == {"type": "json_object"}
     assert (completion.prompt_tokens, completion.completion_tokens) == (3, 4)
     assert completion.token_usage_source == SUBSCRIPTION_ADAPTER_ESTIMATED_USAGE_SOURCE
+
+
+def test_strict_json_schema_is_deep_snapshotted_forwarded_and_bound() -> None:
+    requests: list[httpx.Request] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        requests.append(request)
+        payload = _payload()
+        payload.update(
+            {
+                "id": "chatcmpl-strict-1",
+                "model": "gpt-5.6-sol",
+                "system_fingerprint": "subscription-runtime-codex-bridge-v4:" + "a" * 64,
+            }
+        )
+        return httpx.Response(200, json=payload)
+
+    requested = locomo_judge_response_format()
+    adapter = _adapter(handler)
+    try:
+        completion = adapter.complete(
+            model="gpt-5.6-sol",
+            system_prompt="judge",
+            user_prompt="candidate",
+            max_output_tokens=42,
+            response_format=requested,
+        )
+    finally:
+        adapter.close()
+
+    requested["json_schema"]["schema"]["required"].clear()
+    wire = json.loads(requests[0].content)
+    assert wire["response_format"] == locomo_judge_response_format()
+    assert completion.provenance is not None
+    assert completion.provenance.request_sha256 == canonical_request_sha256(
+        endpoint_path=SUBSCRIPTION_CHAT_ENDPOINT_PATH,
+        payload=wire,
+    )
+
+
+def test_strict_json_schema_rejects_tamper_before_transport() -> None:
+    calls = 0
+
+    def handler(_: httpx.Request) -> httpx.Response:
+        nonlocal calls
+        calls += 1
+        return httpx.Response(200, json=_payload())
+
+    tampered = locomo_judge_response_format()
+    tampered["json_schema"]["schema"]["additionalProperties"] = True
+    adapter = _adapter(handler)
+    try:
+        with pytest.raises(ValueError, match="response format"):
+            adapter.complete(
+                model="gpt-5.6-sol",
+                system_prompt="judge",
+                user_prompt="candidate",
+                max_output_tokens=42,
+                response_format=tampered,
+            )
+    finally:
+        adapter.close()
+    assert calls == 0
 
 
 @pytest.mark.parametrize("usage_source", [None, "provider_observed", "unknown"])

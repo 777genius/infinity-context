@@ -130,6 +130,7 @@ def test_widths_reject_bool_float_and_string_values(invalid: object) -> None:
 
 def test_profile_cutoffs_and_case_selection_remain_exact() -> None:
     profile = _profile(PROFILE_LONGMEMEVAL_TOP_50)
+    assert profile.expected_corpus_count == profile.expected_case_count == 500
     assert resolve_retrieval_and_answer_cutoff(
         profile=profile,
         legacy_top_k=17,

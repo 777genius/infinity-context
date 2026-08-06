@@ -32,6 +32,9 @@ from infinity_context_server.memory_comparison_mem0_official_prompt_renderer imp
     render_mem0_official_judge_prompt,
 )
 from infinity_context_server.memory_comparison_models import AnswerResult, RetrievedMemory
+from infinity_context_server.memory_comparison_response_format_policy import (
+    locomo_judge_response_format,
+)
 from infinity_context_server.public_benchmark_models import PublicBenchmarkCase
 
 _MAX_OUTPUT_TOKENS = 4096
@@ -220,7 +223,11 @@ class ManagedStatefulJudge:
             user_prompt=prompt.user,
             max_output_tokens=_MAX_OUTPUT_TOKENS,
             temperature=0,
-            response_format=({"type": "json_object"} if judge_case.benchmark == "locomo" else None),
+            response_format=(
+                locomo_judge_response_format()
+                if judge_case.benchmark == "locomo"
+                else None
+            ),
             retries=0,
         )
         decision = parse_mem0_official_judge_response(judge_case, outcome.completion.text)
