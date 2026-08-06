@@ -79,7 +79,8 @@ class InfinityIngestionReceipt:
             "request_sha256",
             "response_sha256",
         ):
-            if _SHA256.fullmatch(getattr(self, name)) is None:
+            value = getattr(self, name)
+            if type(value) is not str or _SHA256.fullmatch(value) is None:
                 raise InfinityIngestionError(f"receipt {name} is invalid")
         for name in (
             "corpus_id",

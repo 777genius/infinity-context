@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
+import hmac
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
+from threading import RLock
 from typing import Protocol, final
 
 from infinity_context_server.memory_comparison_ingestion_contracts import IngestionUnit
@@ -52,6 +54,12 @@ class PairedLaneReceipt:
     chunk_ids: tuple[str, ...] = ()
 
     def __post_init__(self) -> None:
+        if (
+            type(self.lane) is not PairedIngestionLane
+            or type(self.episode_ids) is not tuple
+            or type(self.chunk_ids) is not tuple
+        ):
+            raise PairedIngestionError("paired target receipt is invalid")
         infinity_inventory_valid = (
             self.lane is PairedIngestionLane.INFINITY
             and len(self.episode_ids) == 1
@@ -61,8 +69,7 @@ class PairedLaneReceipt:
             self.lane is PairedIngestionLane.MEM0 and not self.episode_ids and not self.chunk_ids
         )
         if (
-            type(self.lane) is not PairedIngestionLane
-            or not _safe_id(self.run_id)
+            not _safe_id(self.run_id)
             or type(self.ordinal) is not int
             or self.ordinal < 0
             or any(not _safe_id(value) for value in (self.corpus_id, self.source_id, self.scope_id))
@@ -78,8 +85,6 @@ class PairedLaneReceipt:
                     self.result_commitment_sha256,
                 )
             )
-            or type(self.episode_ids) is not tuple
-            or type(self.chunk_ids) is not tuple
             or len(set(self.episode_ids)) != len(self.episode_ids)
             or len(set(self.chunk_ids)) != len(self.chunk_ids)
             or any(not _safe_id(value) for value in (*self.episode_ids, *self.chunk_ids))
@@ -201,7 +206,8 @@ class HmacPairedOperationReceiptVerifier:
         expected = _journal_receipt_id(self._signer, receipt)
         if (
             receipt.logical_operation_id != identity.logical_operation_id
-            or receipt.receipt_id != expected
+            or type(receipt.receipt_id) is not str
+            or not hmac.compare_digest(receipt.receipt_id, expected)
         ):
             raise OperationJournalError("paired_ingestion_receipt_authentication_failed")
         return VerifiedOperationReceipt(
@@ -257,6 +263,7 @@ class PairedIngestionCoordinator:
             PairedIngestionLane.INFINITY: infinity_journal,
             PairedIngestionLane.MEM0: mem0_journal,
         }
+        self._lane_locks = {lane: RLock() for lane in PairedIngestionLane}
         self._store = receipt_store
         self._signer = signer
         self._workers = max_corpus_workers
@@ -285,8 +292,8 @@ class PairedIngestionCoordinator:
         self._reconciliation_required = reconciliation_required
 
     def execute(self) -> PairedIngestionResult:
-        self._verify_authority()
-        groups = _units_by_corpus(self._authority.units)
+        units = self._execution_units()
+        groups = _units_by_corpus(units)
         receipts: list[PairedLaneReceipt] = []
         workers = 1 if self._reconciliation_required else min(self._workers, len(groups))
         with ThreadPoolExecutor(max_workers=workers) as executor:
@@ -297,8 +304,8 @@ class PairedIngestionCoordinator:
                 except Exception:
                     raise PairedIngestionError("paired corpus execution failed") from None
         ordered = tuple(sorted(receipts, key=lambda item: (item.ordinal, item.lane.value)))
-        _validate_exact_receipt_matrix(ordered, self._authority.units)
-        result = _paired_result(ordered, self._authority.units)
+        _validate_exact_receipt_matrix(ordered, units)
+        result = _paired_result(ordered, units)
         for binding in self._authority.lanes:
             try:
                 self._journals[binding.lane].seal(binding.run_identity.run_id)
@@ -336,6 +343,12 @@ class PairedIngestionCoordinator:
         return tuple(completed)
 
     def _execute_lane(self, unit: IngestionUnit, lane: PairedIngestionLane) -> PairedLaneReceipt:
+        with self._lane_locks[lane]:
+            return self._execute_lane_locked(unit, lane)
+
+    def _execute_lane_locked(
+        self, unit: IngestionUnit, lane: PairedIngestionLane
+    ) -> PairedLaneReceipt:
         binding = self._authority.lane(lane)
         identity = binding.operation_manifest.operations[unit.ordinal]
         adapter = self._lanes[lane]
@@ -439,13 +452,14 @@ class PairedIngestionCoordinator:
         binding: PairedLaneBinding,
         request_sha: str,
     ) -> None:
+        if type(result) is not PairedLaneReceipt:
+            raise PairedIngestionError("paired lane receipt is invalid")
         try:
             result.__post_init__()
         except Exception:
             raise PairedIngestionError("paired lane receipt is invalid") from None
         if (
-            type(result) is not PairedLaneReceipt
-            or result.lane is not binding.lane
+            result.lane is not binding.lane
             or result.run_id != self._authority.run_id
             or result.ingestion_manifest_sha256 != self._authority.ingestion_manifest_sha256
             or result.lane_binding_sha256 != binding.binding_sha256
@@ -461,6 +475,15 @@ class PairedIngestionCoordinator:
     def _verify_authority(self) -> None:
         try:
             self._authority.validate_execution(
+                manifest_verifier=self._manifest_verifier,
+                admission_verifier=self._admission_verifier,
+            )
+        except Exception:
+            raise PairedIngestionError("paired execution authority is invalid") from None
+
+    def _execution_units(self) -> tuple[IngestionUnit, ...]:
+        try:
+            return self._authority.execution_units(
                 manifest_verifier=self._manifest_verifier,
                 admission_verifier=self._admission_verifier,
             )
@@ -627,13 +650,14 @@ def _validate_cleanup_binding(
     binding: PairedLaneBinding,
     authority: PairedIngestionAuthority,
 ) -> None:
+    if type(evidence) is not PairedLaneCleanupEvidence:
+        raise PairedIngestionError("paired cleanup evidence is invalid")
     try:
         evidence.__post_init__()
     except Exception:
         raise PairedIngestionError("paired cleanup evidence is invalid") from None
     if (
-        type(evidence) is not PairedLaneCleanupEvidence
-        or evidence.lane is not binding.lane
+        evidence.lane is not binding.lane
         or evidence.run_id != authority.run_id
         or evidence.ingestion_manifest_sha256 != authority.ingestion_manifest_sha256
         or evidence.lane_binding_sha256 != binding.binding_sha256

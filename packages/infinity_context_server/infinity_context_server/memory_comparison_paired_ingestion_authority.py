@@ -7,8 +7,10 @@ from enum import StrEnum
 from typing import Protocol, final
 
 from infinity_context_server.memory_comparison_ingestion_contracts import (
+    IngestionMessage,
     IngestionUnit,
     IngestionUnitManifest,
+    IngestionUnitMetadata,
 )
 from infinity_context_server.resumable_operation_journal import (
     LogicalOperationIdentity,
@@ -268,6 +270,23 @@ class PairedIngestionAuthority:
         ):
             raise PairedIngestionAuthorityError("paired execution lane authority diverged")
 
+    def execution_units(
+        self,
+        *,
+        manifest_verifier: IngestionManifestVerificationPort,
+        admission_verifier: PairedAdmissionVerificationPort,
+    ) -> tuple[IngestionUnit, ...]:
+        """Return a protected execution snapshot after immediate reverification."""
+
+        self.validate_execution(
+            manifest_verifier=manifest_verifier,
+            admission_verifier=admission_verifier,
+        )
+        units = _clone_units(self.public_manifest.units)
+        if ingestion_unit_root_sha256(units) != self.manifest_verification.unit_root_sha256:
+            raise PairedIngestionAuthorityError("paired execution unit snapshot diverged")
+        return units
+
     def lane(self, lane: PairedIngestionLane) -> PairedLaneBinding:
         for binding in self.lanes:
             if binding.lane is lane:
@@ -323,7 +342,7 @@ def build_paired_ingestion_authority(
             manifest_sha256=manifest.manifest_sha256,
             corpus_projection_sha256=manifest.corpus_projection_sha256,
             unit_root_sha256=ingestion_unit_root_sha256(manifest.units),
-            units=manifest.units,
+            units=_clone_units(manifest.units),
         )
         request = _admission_request(
             public_manifest, run_id=run_id, runtime_route_sha256=runtime_route_sha256
@@ -365,6 +384,28 @@ def ingestion_unit_root_sha256(units: tuple[IngestionUnit, ...]) -> str:
                 for unit in units
             ]
         }
+    )
+
+
+def _clone_units(units: tuple[IngestionUnit, ...]) -> tuple[IngestionUnit, ...]:
+    return tuple(
+        IngestionUnit(
+            ordinal=unit.ordinal,
+            corpus_id=unit.corpus_id,
+            messages=tuple(
+                IngestionMessage(role=message.role, content=message.content)
+                for message in unit.messages
+            ),
+            metadata=IngestionUnitMetadata(
+                source_id=unit.metadata.source_id,
+                timestamp=unit.metadata.timestamp,
+            ),
+            payload_sha256=unit.payload_sha256,
+            metadata_sha256=unit.metadata_sha256,
+            unit_input_sha256=unit.unit_input_sha256,
+            unit_sha256=unit.unit_sha256,
+        )
+        for unit in units
     )
 
 

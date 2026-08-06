@@ -69,7 +69,7 @@ class SQLiteInfinityIngestionResultStore:
         if row is None:
             return None
         result_json, result_sha256, signer_key_id, signature = row
-        expected_sha = hashlib.sha256(result_json.encode("ascii")).hexdigest()
+        expected_sha = hashlib.sha256(result_json.encode("utf-8")).hexdigest()
         if (
             signer_key_id != self._signer.key_id
             or result_sha256 != expected_sha
@@ -89,7 +89,7 @@ class SQLiteInfinityIngestionResultStore:
     def save(self, logical_operation_id: str, receipt: InfinityIngestionReceipt) -> None:
         receipt.validate()
         result_json = canonical_json(receipt.payload())
-        result_sha256 = hashlib.sha256(result_json.encode("ascii")).hexdigest()
+        result_sha256 = hashlib.sha256(result_json.encode("utf-8")).hexdigest()
         signature = self._signer.sign(_signature_message(logical_operation_id, result_sha256))
         try:
             connection = self._connect()

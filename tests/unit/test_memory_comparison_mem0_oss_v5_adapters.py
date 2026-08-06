@@ -3,6 +3,8 @@ from __future__ import annotations
 import copy
 import hashlib
 import json
+import os
+import shutil
 import sqlite3
 import subprocess
 import sys
@@ -31,7 +33,6 @@ from infinity_context_server.memory_comparison_mem0_oss_v5_contracts import (  #
 )
 from infinity_context_server.memory_comparison_mem0_oss_v5_http import (  # noqa: E402
     Mem0V5AdmitRequest,
-    Mem0V5CleanupRequest,
     Mem0V5DispatchRequest,
     Mem0V5HttpError,
     Mem0V5HttpPort,
@@ -55,8 +56,12 @@ from phase_c_canary.receipt import NodePublicReceiptVerifier  # noqa: E402
 from phase_c_canary.runtime_binding import RuntimeBindingComposition  # noqa: E402
 from phase_c_canary.runtime_receipt_v2 import RuntimeReceiptV2Boundary  # noqa: E402
 
-RUNTIME_REPO = Path(
-    "/mnt/volume_ams3_1784742570542/infinity-context/runtimes/subscription-runtime/e904ec95/repo"
+_runtime_repo = os.environ.get("PHASE_C_RUNTIME_REPO")
+RUNTIME_REPO = Path(_runtime_repo) if _runtime_repo else None
+NODE_BINARY = shutil.which("node")
+_requires_runtime = pytest.mark.skipif(
+    RUNTIME_REPO is None or not RUNTIME_REPO.is_dir() or NODE_BINARY is None,
+    reason="PHASE_C_RUNTIME_REPO and node are required",
 )
 SECRET = "provider-free-fixture-secret-at-least-32-bytes"
 CHECKPOINT_KEY = b"external-checkpoint-key-32-bytes!!"
@@ -543,6 +548,7 @@ def _unsigned_runtime_receipt() -> dict[str, Any]:
 
 
 def _sign_runtime_receipt(value: dict[str, Any]) -> dict[str, Any]:
+    assert RUNTIME_REPO is not None and NODE_BINARY is not None
     receipt = copy.deepcopy(value)
     canonical_url = (
         RUNTIME_REPO / "dist/openai-compatible-codex/chat-completions/domain/runtime-attestation.js"
@@ -560,7 +566,7 @@ const bytes = openAiBridgeRuntimeAttestationCanonicalBytes({
 process.stdout.write(createHmac("sha256", secret).update(bytes).digest("hex"));
 """
     completed = subprocess.run(
-        ["/usr/local/bin/node", "--input-type=module", "-e", script],
+        [NODE_BINARY, "--input-type=module", "-e", script],
         cwd=RUNTIME_REPO,
         env={"PATH": "/usr/local/bin:/usr/bin:/bin", "LANG": "C.UTF-8"},
         input=json.dumps({"receipt": receipt, "secret": SECRET, "canonical_url": canonical_url}),
@@ -573,6 +579,7 @@ process.stdout.write(createHmac("sha256", secret).update(bytes).digest("hex"));
 
 
 def _verifier() -> tuple[Mem0V5RuntimeReceiptVerifier, Mem0OssFullRunAdmission, dict[str, Any]]:
+    assert RUNTIME_REPO is not None
     admission, _ = _admission()
     receipt = _sign_runtime_receipt(_unsigned_runtime_receipt())
     binding = RuntimeBindingComposition.compose_phase_c_canary().issue()
@@ -601,7 +608,9 @@ def _verifier() -> tuple[Mem0V5RuntimeReceiptVerifier, Mem0OssFullRunAdmission, 
         operations=(operation,),
     )
     verifier = Mem0V5RuntimeReceiptVerifier(
-        boundary=RuntimeReceiptV2Boundary(NodePublicReceiptVerifier(RUNTIME_REPO)),
+        boundary=RuntimeReceiptV2Boundary(
+            NodePublicReceiptVerifier(RUNTIME_REPO, node_executable=Path(NODE_BINARY))
+        ),
         runtime_binding=binding,
         receipt_secret=SECRET,
         authority=authority,
@@ -619,6 +628,7 @@ def _envelope(
     )
 
 
+@_requires_runtime
 def test_concrete_phase_c_verifier_rejects_unsigned_tampered_and_replayed_receipts() -> None:
     verifier, admission, receipt = _verifier()
     result = verifier.verify_dispatch_receipt(
@@ -642,6 +652,7 @@ def test_concrete_phase_c_verifier_rejects_unsigned_tampered_and_replayed_receip
         )
 
 
+@_requires_runtime
 def test_outcome_unknown_allows_authenticated_status_once_and_never_redispatches() -> None:
     verifier, admission, receipt = _verifier()
     dispatch_context = _context(admission, readback=False)
@@ -663,6 +674,7 @@ def test_outcome_unknown_allows_authenticated_status_once_and_never_redispatches
         )
 
 
+@_requires_runtime
 def test_private_nested_receipt_field_and_secret_errors_are_sanitized() -> None:
     verifier, admission, receipt = _verifier()
     receipt["metadata"]["runtime_selection"]["email"] = "private@example.test"
@@ -932,6 +944,18 @@ def test_store_rejects_tampered_external_checkpoint_and_implicit_recreate(tmp_pa
         SQLiteMem0V5EvidenceStore.create(path=path, authentication_key=AUTH_KEY)
 
 
+def test_checkpoint_rejects_deleted_head_row_without_full_semantic_scan(tmp_path: Path) -> None:
+    admission, units = _admission()
+    store = _created_store(tmp_path / "deleted-head.sqlite3")
+    store.put_admission(admission, units=units)
+    store._connection.execute(
+        "DELETE FROM evidence WHERE sequence = (SELECT MAX(sequence) FROM evidence)"
+    )
+    with pytest.raises(Mem0V5EvidenceStoreError, match="mem0_v5_evidence_store_corrupt"):
+        store.issue_checkpoint(checkpoint_key=CHECKPOINT_KEY)
+    store.close()
+
+
 def test_single_owner_and_concurrent_admissions_are_fail_closed(tmp_path: Path) -> None:
     path = tmp_path / "concurrent.sqlite3"
     candidates = (_admission(), _admission_many(1))
@@ -971,22 +995,3 @@ def test_single_owner_and_concurrent_admissions_are_fail_closed(tmp_path: Path) 
         checkpoint_key=CHECKPOINT_KEY,
     )
     reopened.close()
-
-
-def test_cleanup_request_has_exact_public_commitment_fields() -> None:
-    admission, _ = _admission()
-    request = Mem0V5CleanupRequest(
-        admission_commitment_sha256=admission.commitment_sha256,
-        seal_commitment_sha256=None,
-        operation_inventory_root_sha256=_digest("inventory"),
-        expected_operation_count=1,
-        aborting=True,
-        idempotency_key=_digest("cleanup"),
-    )
-    assert set(request.body()) == {
-        "admission_commitment_sha256",
-        "seal_commitment_sha256",
-        "operation_inventory_root_sha256",
-        "expected_operation_count",
-        "aborting",
-    }

@@ -9,12 +9,11 @@ import hmac
 import json
 import os
 import sqlite3
-import stat
 import threading
 from collections.abc import Callable, Iterator, Mapping
 from contextlib import contextmanager
 from dataclasses import dataclass
-from functools import cache, wraps
+from functools import wraps
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any, Protocol, final
@@ -36,6 +35,15 @@ from infinity_context_server.memory_comparison_mem0_oss_v5_run import (
     Mem0OssRunSeal,
     Mem0OssTerminalCleanupEvidence,
 )
+from infinity_context_server.memory_comparison_mem0_oss_v5_sqlite_schema import (
+    SCHEMA,
+    expected_schema_fingerprint,
+    incremental_head_matches,
+    open_private_owner_lock,
+    prepare_private_database_path,
+    schema_fingerprint,
+    verify_private_database_files,
+)
 
 _STORE_SCHEMA_VERSION = "mem0-v5-evidence-store.v2"
 _CHECKPOINT_SCHEMA_VERSION = "mem0-v5-evidence-checkpoint.v1"
@@ -45,19 +53,6 @@ _MANIFEST_PAGE_SIZE = 64
 _CREATE_TOKEN = object()
 _TERMINAL_QUERY = "SELECT 1 FROM evidence WHERE kind='cleanup' LIMIT 1"
 _EvidenceRow = tuple[str, str, Mapping[str, object]]
-_SCHEMA = (
-    "CREATE TABLE store_meta (key TEXT PRIMARY KEY, value TEXT NOT NULL)",
-    """CREATE TABLE evidence (
-        sequence INTEGER PRIMARY KEY,
-        kind TEXT NOT NULL,
-        subject_sha256 TEXT NOT NULL,
-        payload_json TEXT NOT NULL,
-        predecessor_sha256 TEXT NOT NULL,
-        row_sha256 TEXT NOT NULL UNIQUE,
-        row_mac_sha256 TEXT NOT NULL,
-        UNIQUE(kind, subject_sha256)
-    )""",
-)
 
 
 def _serialized(method: Callable[..., Any]) -> Callable[..., Any]:
@@ -163,14 +158,13 @@ class SQLiteMem0V5EvidenceStore(Mem0V5EvidenceStorePort):
         self._storage: dict[str, dict[str, object]] = {}
         self._lock_file = None
         self._connection = None
-        path.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
         existed = path.exists()
         if (checkpoint is None and existed) or (checkpoint is not None and not existed):
             raise Mem0V5EvidenceStoreError("mem0_v5_evidence_store_corrupt")
         try:
+            prepare_private_database_path(path, existed=existed)
             lock_path = path.with_suffix(path.suffix + ".owner.lock")
-            lock_file = lock_path.open("a+b")
-            os.chmod(lock_path, stat.S_IRUSR | stat.S_IWUSR)
+            lock_file = open_private_owner_lock(lock_path)
             try:
                 fcntl.flock(lock_file.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
             except BlockingIOError:
@@ -182,6 +176,7 @@ class SQLiteMem0V5EvidenceStore(Mem0V5EvidenceStorePort):
             connection.execute("PRAGMA trusted_schema = OFF")
             connection.execute("PRAGMA busy_timeout = 5000")
             connection.execute("PRAGMA journal_mode = WAL")
+            verify_private_database_files(path, require_database=True)
             self._connection = connection
             if checkpoint is None:
                 self._store_id_sha256 = hashlib.sha256(os.urandom(32)).hexdigest()
@@ -191,7 +186,7 @@ class SQLiteMem0V5EvidenceStore(Mem0V5EvidenceStorePort):
                 self._store_id_sha256 = str(checkpoint_payload["store_id_sha256"])
                 self._validate_checkpoint(checkpoint_payload)
                 self.validate()
-            os.chmod(path, stat.S_IRUSR | stat.S_IWUSR)
+            verify_private_database_files(path, require_database=True)
         except Exception as error:
             self._close_resources()
             if isinstance(error, Mem0V5EvidenceStoreError):
@@ -397,7 +392,8 @@ class SQLiteMem0V5EvidenceStore(Mem0V5EvidenceStorePort):
         if not _valid_key(checkpoint_key):
             raise Mem0V5EvidenceStoreError("mem0_v5_evidence_store_configuration_invalid")
         with self._guard():
-            self.validate()
+            # Checkpoints authenticate the incremental head, not full manifest semantics.
+            self._validate_incremental_head()
             meta = self._meta()
             payload: dict[str, object] = {
                 "schema_version": _CHECKPOINT_SCHEMA_VERSION,
@@ -415,7 +411,7 @@ class SQLiteMem0V5EvidenceStore(Mem0V5EvidenceStorePort):
             connection = self._require_connection()
             if connection.execute("PRAGMA integrity_check").fetchone()[0] != "ok":
                 self._fail_corrupt()
-            if _schema_fingerprint(connection) != _expected_schema_fingerprint():
+            if schema_fingerprint(connection) != expected_schema_fingerprint():
                 self._fail_corrupt()
             meta = self._meta()
             if (
@@ -463,14 +459,18 @@ class SQLiteMem0V5EvidenceStore(Mem0V5EvidenceStorePort):
                     "FROM evidence ORDER BY sequence"
                 )
             )
-        for row in rows:
-            yield {
-                "sequence": row["sequence"],
-                "kind": row["kind"],
-                "subject_sha256": row["subject_sha256"],
-                "payload": _parse_payload(row["payload_json"]),
-                "row_sha256": row["row_sha256"],
-            }
+        return iter(
+            tuple(
+                {
+                    "sequence": row["sequence"],
+                    "kind": row["kind"],
+                    "subject_sha256": row["subject_sha256"],
+                    "payload": _parse_payload(row["payload_json"]),
+                    "row_sha256": row["row_sha256"],
+                }
+                for row in rows
+            )
+        )
 
     def _computed_snapshot(self, *, require_complete: bool) -> dict[str, object]:
         admission = self._admission_payload
@@ -577,7 +577,8 @@ class SQLiteMem0V5EvidenceStore(Mem0V5EvidenceStorePort):
             .execute("SELECT subject_sha256 FROM evidence WHERE kind='admission'")
             .fetchone()
         )
-        if admission is None or admission_row is None:
+        admission_keys = {"expected_operation_count", "ingestion_root_sha256", "route_sha256"}
+        if admission is None or admission_row is None or not admission_keys <= admission.keys():
             self._fail_corrupt()
         self._admission_payload = admission
         self._admission_subject = admission_row[0]
@@ -608,8 +609,19 @@ class SQLiteMem0V5EvidenceStore(Mem0V5EvidenceStorePort):
         if len(operations) != admission["expected_operation_count"]:
             self._fail_corrupt()
         units: list[Mem0OssManifestUnit] = []
+        operation_keys = {
+            "operation_id_sha256",
+            "scope_sha256",
+            "unit_identity_sha256",
+            "unit_index",
+            "unit_sha256",
+        }
         for index, operation in enumerate(operations):
-            if type(operation) is not dict or operation.get("unit_index") != index:
+            if (
+                type(operation) is not dict
+                or not operation_keys <= operation.keys()
+                or operation.get("unit_index") != index
+            ):
                 self._fail_corrupt()
             unit = Mem0OssManifestUnit(
                 unit_identity_sha256=operation["unit_identity_sha256"],
@@ -664,7 +676,7 @@ class SQLiteMem0V5EvidenceStore(Mem0V5EvidenceStorePort):
     def _initialize(self) -> None:
         connection = self._require_connection()
         with self._transaction():
-            for statement in _SCHEMA:
+            for statement in SCHEMA:
                 connection.execute(statement)
             head = MEM0_OSS_EMPTY_ROOT_SHA256
             connection.executemany(
@@ -760,6 +772,16 @@ class SQLiteMem0V5EvidenceStore(Mem0V5EvidenceStorePort):
             }
             or meta["schema_version"] != _STORE_SCHEMA_VERSION
             or meta["store_id_sha256"] != self._store_id_sha256
+            or not 0 <= row_count <= _MAX_ROWS
+            or not incremental_head_matches(
+                self._require_connection(),
+                row_count=row_count,
+                head_sha256=meta["head_sha256"],
+                empty_root_sha256=MEM0_OSS_EMPTY_ROOT_SHA256,
+                expected_row_mac=lambda head: _mac(self._key, "row", head),
+            )
+            or not is_sha256(meta.get("head_sha256"))
+            or not is_sha256(meta.get("head_mac_sha256"))
             or not hmac.compare_digest(
                 meta["head_mac_sha256"],
                 self._head_mac(row_count, meta["head_sha256"]),
@@ -967,27 +989,6 @@ def _row_commitment_payload(row: sqlite3.Row) -> dict[str, object]:
         "payload_json": row["payload_json"],
         "predecessor_sha256": row["predecessor_sha256"],
     }
-
-
-def _schema_fingerprint(connection: sqlite3.Connection) -> tuple[tuple[object, ...], ...]:
-    return tuple(
-        tuple(row)
-        for row in connection.execute(
-            "SELECT type, name, tbl_name, sql FROM sqlite_master "
-            "WHERE name NOT LIKE 'sqlite_%' ORDER BY type, name"
-        )
-    )
-
-
-@cache
-def _expected_schema_fingerprint() -> tuple[tuple[object, ...], ...]:
-    connection = sqlite3.connect(":memory:")
-    try:
-        for statement in _SCHEMA:
-            connection.execute(statement)
-        return _schema_fingerprint(connection)
-    finally:
-        connection.close()
 
 
 __all__ = (

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hmac
 from threading import Lock
 
 from infinity_context_server.memory_comparison_infinity_ingestion_contracts import (
@@ -75,7 +76,9 @@ class HmacInfinityOperationReceiptVerifier:
         if receipt.logical_operation_id != identity.logical_operation_id:
             raise OperationJournalError("infinity_receipt_operation_mismatch")
         expected = _signed_receipt_id(self._signer, receipt)
-        if receipt.receipt_id != expected:
+        if type(receipt.receipt_id) is not str or not hmac.compare_digest(
+            receipt.receipt_id, expected
+        ):
             raise OperationJournalError("infinity_receipt_hmac_invalid")
         return VerifiedOperationReceipt(
             receipt=receipt,
@@ -273,7 +276,7 @@ def _signed_receipt_id(signer: OperationJournalSignerPort, receipt: OperationRec
         "result_commitment_sha256": receipt.result_commitment_sha256,
         "run_id": receipt.run_id,
     }
-    return "inf_" + signer.sign(canonical_json(payload).encode("ascii"))
+    return "inf_" + signer.sign(canonical_json(payload).encode("utf-8"))
 
 
 def _validate_result_binding(

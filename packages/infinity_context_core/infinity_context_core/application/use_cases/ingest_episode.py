@@ -414,7 +414,7 @@ def _validate_chunk_projection(
             or chunk.char_end != piece.char_end
             or chunk.token_estimate != estimate_tokens(piece.text)
             or chunk.metadata
-            != {"language": command.language or "", "source": command.source_type}
+            != {"language": command.language or "", "source": command.source_type.strip()}
             or chunk.classification != "unknown"
             or chunk.source_hash
             != scoped_source_hash(

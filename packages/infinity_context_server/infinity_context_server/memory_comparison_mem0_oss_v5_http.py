@@ -169,6 +169,7 @@ class Mem0V5StatusRequest:
 class Mem0V5CleanupRequest:
     admission_commitment_sha256: str
     seal_commitment_sha256: str | None
+    operation_root_sha256: str | None
     operation_inventory_root_sha256: str
     expected_operation_count: int
     aborting: bool
@@ -177,14 +178,24 @@ class Mem0V5CleanupRequest:
     def __post_init__(self) -> None:
         if (
             not is_sha256(self.admission_commitment_sha256)
+            or type(self.aborting) is not bool
             or (
-                self.seal_commitment_sha256 is not None
-                and not is_sha256(self.seal_commitment_sha256)
+                self.aborting
+                and (
+                    self.seal_commitment_sha256 is not None
+                    or self.operation_root_sha256 is not None
+                )
+            )
+            or (
+                not self.aborting
+                and (
+                    not is_sha256(self.seal_commitment_sha256)
+                    or not is_sha256(self.operation_root_sha256)
+                )
             )
             or not is_sha256(self.operation_inventory_root_sha256)
             or type(self.expected_operation_count) is not int
             or not 1 <= self.expected_operation_count <= 10_000
-            or type(self.aborting) is not bool
             or not is_sha256(self.idempotency_key)
         ):
             _fail("mem0_v5_http_request_invalid")
@@ -193,6 +204,7 @@ class Mem0V5CleanupRequest:
         return {
             "admission_commitment_sha256": self.admission_commitment_sha256,
             "seal_commitment_sha256": self.seal_commitment_sha256,
+            "operation_root_sha256": self.operation_root_sha256,
             "operation_inventory_root_sha256": self.operation_inventory_root_sha256,
             "expected_operation_count": self.expected_operation_count,
             "aborting": self.aborting,
@@ -288,14 +300,16 @@ class Mem0V5HttpPort:
             "residual_root_sha256",
         }
         _exact(value, keys)
-        optional = (value["seal_commitment_sha256"], value["operation_root_sha256"])
         if (
-            not is_sha256(value["admission_commitment_sha256"])
-            or any(item is not None and not is_sha256(item) for item in optional)
-            or not is_sha256(value["operation_inventory_root_sha256"])
+            value["admission_commitment_sha256"] != request.admission_commitment_sha256
+            or value["seal_commitment_sha256"] != request.seal_commitment_sha256
+            or value["operation_root_sha256"] != request.operation_root_sha256
+            or value["operation_inventory_root_sha256"] != request.operation_inventory_root_sha256
             or not is_sha256(value["residual_root_sha256"])
             or type(value["deleted_operation_count"]) is not int
+            or not 0 <= value["deleted_operation_count"] <= request.expected_operation_count
             or type(value["residual_record_count"]) is not int
+            or not 0 <= value["residual_record_count"] <= 10_000
         ):
             _fail("mem0_v5_http_response_invalid")
         return Mem0V5CleanupReceipt(**value)
