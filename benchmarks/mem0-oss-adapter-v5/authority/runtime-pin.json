@@ -57,10 +57,10 @@
   "source_a": {
     "closure_algorithm": "sha256(sorted(path + NUL + size + NUL + sha256 + LF))",
     "closure_sha256": "ab50c81fe0073ee8a56697b702899c087bf840bff33b039d88c4f8bc7df2fa7f",
-    "commit_sha1": "849e45857ed35037c01180b4282c49b739acd90e",
+    "commit_sha1": "2705d486f969f5afec71832cbd0176b21dcc9f5f",
     "manifest_file_count": 57,
-    "manifest_sha256": "4428f1be5dbc3f7782af3fdb8ffb7ef7f8aa1d810947a3330b18a2bbb2b79520",
-    "tree_sha1": "664df61195ece0750c83758d7cf52ee34b825691"
+    "manifest_sha256": "9e07db159d6449f23c37c7527cf3a7b6eaf898aa92f1be2d06be6a08f2165094",
+    "tree_sha1": "aedfa0e0793ff78f33390fde3b62d3135ea5d12c"
   },
   "subscription_runtime": {
     "artifact_manifest_sha256": "789018b5b15a1299252895babdc550c3d5322c54a1d9c82656f93d31423a0850",
