@@ -10,7 +10,7 @@ from infinity_context_core.features.memory_facts.public import (
     FactTemporalDecisionType,
     MemoryFactScope,
 )
-from sqlalchemy import select
+from sqlalchemy import Select, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from infinity_context_adapters.features.memory_facts.postgres_fact_mapping import (
@@ -96,7 +96,15 @@ class PostgresFactSupersessionRepository:
     ) -> FactSupersessionRelation:
         row = await self._session.get(MemoryFactRelationRow, relation.relation_id)
         if row is not None:
-            existing = _supersession_from_row(row)
+            decision = (
+                await self._session.get(
+                    MemoryFactTemporalDecisionRow,
+                    row.temporal_decision_id,
+                )
+                if row.temporal_decision_id is not None
+                else None
+            )
+            existing = _audited_supersession_from_rows(row, decision)
             if existing == relation:
                 return relation
             raise ValueError("Supersession relation is append-only")
@@ -112,22 +120,20 @@ class PostgresFactSupersessionRepository:
         rows = tuple(
             (
                 await self._session.execute(
-                    select(MemoryFactRelationRow).where(
+                    _audited_supersession_select().where(
                         *_scope_conditions(scope),
                         MemoryFactRelationRow.target_fact_id == predecessor_fact_id,
                         MemoryFactRelationRow.relation_type == "supersedes",
                         MemoryFactRelationRow.status == "active",
                     )
                 )
-            ).scalars()
+            ).all()
         )
         if not rows:
             return None
-        for row in rows:
-            _require_feature_owned_supersession(row)
         if len(rows) != 1:
             raise ValueError("Multiple feature-owned supersession successors found")
-        return _supersession_from_row(rows[0])
+        return _audited_supersession_from_rows(*rows[0])
 
     async def find_active_predecessor(
         self,
@@ -138,39 +144,40 @@ class PostgresFactSupersessionRepository:
         rows = tuple(
             (
                 await self._session.execute(
-                    select(MemoryFactRelationRow).where(
+                    _audited_supersession_select().where(
                         *_scope_conditions(scope),
                         MemoryFactRelationRow.source_fact_id == successor_fact_id,
                         MemoryFactRelationRow.relation_type == "supersedes",
                         MemoryFactRelationRow.status == "active",
                     )
                 )
-            ).scalars()
+            ).all()
         )
         if not rows:
             return None
-        for row in rows:
-            _require_feature_owned_supersession(row)
         if len(rows) != 1:
             raise ValueError("Supersession successor replaces multiple predecessors")
-        return _supersession_from_row(rows[0])
+        return _audited_supersession_from_rows(*rows[0])
 
     async def find_by_decision(
         self,
         decision_id: str,
     ) -> FactSupersessionRelation | None:
-        row = (
-            await self._session.execute(
-                select(MemoryFactRelationRow).where(
-                    MemoryFactRelationRow.temporal_decision_id == decision_id,
-                    MemoryFactRelationRow.relation_type == "supersedes",
+        rows = tuple(
+            (
+                await self._session.execute(
+                    _audited_supersession_select().where(
+                        MemoryFactRelationRow.temporal_decision_id == decision_id,
+                        MemoryFactRelationRow.relation_type == "supersedes",
+                    )
                 )
-            )
-        ).scalar_one_or_none()
-        if row is None:
+            ).all()
+        )
+        if not rows:
             return None
-        _require_feature_owned_supersession(row)
-        return _supersession_from_row(row)
+        if len(rows) != 1:
+            raise ValueError("Temporal decision has multiple supersession relations")
+        return _audited_supersession_from_rows(*rows[0])
 
     async def list_active(
         self,
@@ -180,7 +187,7 @@ class PostgresFactSupersessionRepository:
         rows = tuple(
             (
                 await self._session.execute(
-                    select(MemoryFactRelationRow)
+                    _audited_supersession_select()
                     .where(
                         *_scope_conditions(scope),
                         MemoryFactRelationRow.relation_type == "supersedes",
@@ -188,11 +195,9 @@ class PostgresFactSupersessionRepository:
                     )
                     .order_by(MemoryFactRelationRow.id)
                 )
-            ).scalars()
+            ).all()
         )
-        for row in rows:
-            _require_feature_owned_supersession(row)
-        return tuple(_supersession_from_row(row) for row in rows)
+        return tuple(_audited_supersession_from_rows(*row) for row in rows)
 
 
 def _decision_to_row(decision: FactTemporalDecision) -> MemoryFactTemporalDecisionRow:
@@ -272,14 +277,29 @@ def _supersession_to_row(relation: FactSupersessionRelation) -> MemoryFactRelati
     )
 
 
-def _supersession_from_row(row: MemoryFactRelationRow) -> FactSupersessionRelation:
+def _audited_supersession_select() -> Select[
+    tuple[MemoryFactRelationRow, MemoryFactTemporalDecisionRow]
+]:
+    return select(MemoryFactRelationRow, MemoryFactTemporalDecisionRow).outerjoin(
+        MemoryFactTemporalDecisionRow,
+        MemoryFactTemporalDecisionRow.id == MemoryFactRelationRow.temporal_decision_id,
+    )
+
+
+def _audited_supersession_from_rows(
+    row: MemoryFactRelationRow,
+    decision: MemoryFactTemporalDecisionRow | None,
+) -> FactSupersessionRelation:
     if (
         row.relation_type != "supersedes"
         or row.source_fact_version is None
         or row.target_fact_version is None
         or row.temporal_decision_id is None
+        or row.valid_from is None
     ):
         raise ValueError("Legacy relation is not a feature-owned supersession")
+    if decision is None or not _relation_matches_temporal_decision(row, decision):
+        raise ValueError("Supersession relation does not match its temporal decision")
     return FactSupersessionRelation(
         relation_id=row.id,
         scope=MemoryFactScope(
@@ -291,21 +311,28 @@ def _supersession_from_row(row: MemoryFactRelationRow) -> FactSupersessionRelati
         successor_fact_version=row.source_fact_version,
         predecessor_fact_id=row.target_fact_id,
         predecessor_fact_version=row.target_fact_version,
-        effective_at=_aware(row.valid_from or row.observed_at),
+        effective_at=_aware(row.valid_from),
         decision_id=row.temporal_decision_id,
         created_at=_aware(row.created_at),
     )
 
 
-def _require_feature_owned_supersession(row: MemoryFactRelationRow) -> None:
-    if (
-        row.source_fact_version is None
-        or row.target_fact_version is None
-        or row.temporal_decision_id is None
-    ):
-        raise ValueError(
-            "Legacy supersession requires explicit review before feature-owned mutation"
-        )
+def _relation_matches_temporal_decision(
+    relation: MemoryFactRelationRow,
+    decision: MemoryFactTemporalDecisionRow,
+) -> bool:
+    return (
+        decision.decision_type == FactTemporalDecisionType.SUPERSEDE.value
+        and decision.id == relation.temporal_decision_id
+        and decision.space_id == relation.space_id
+        and decision.memory_scope_id == relation.memory_scope_id
+        and decision.thread_id == relation.thread_id
+        and decision.source_fact_id == relation.source_fact_id
+        and decision.source_fact_version == relation.source_fact_version
+        and decision.target_fact_id == relation.target_fact_id
+        and decision.target_fact_version == relation.target_fact_version
+        and _aware(decision.effective_at) == _aware(relation.valid_from)
+    )
 
 
 def _scope_conditions(scope: MemoryFactScope) -> tuple[object, ...]:

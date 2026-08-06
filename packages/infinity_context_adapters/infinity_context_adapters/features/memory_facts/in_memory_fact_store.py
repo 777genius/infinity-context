@@ -116,17 +116,23 @@ class InMemoryMemoryFactRepository:
     adapter_name: ClassVar[str] = "in_memory"
     feature_id: ClassVar[str] = FEATURE_ID
 
-    def __init__(self, facts: dict[_FactKey, MemoryFactSnapshot] | None = None) -> None:
+    def __init__(
+        self,
+        facts: dict[_FactKey, MemoryFactSnapshot] | None = None,
+        supersessions: list[FactSupersessionRelation] | None = None,
+    ) -> None:
         self._facts = facts if facts is not None else {}
         self._versions: dict[_FactKey, list[MemoryFactSnapshot]] = {}
+        self._supersessions = supersessions if supersessions is not None else []
 
     @classmethod
     def transactional(
         cls,
         facts: dict[_FactKey, MemoryFactSnapshot],
         versions: dict[_FactKey, list[MemoryFactSnapshot]],
+        supersessions: list[FactSupersessionRelation] | None = None,
     ) -> InMemoryMemoryFactRepository:
-        repository = cls(facts)
+        repository = cls(facts, supersessions)
         repository._versions = versions
         return repository
 
@@ -212,6 +218,62 @@ class InMemoryMemoryFactRepository:
                 key=lambda fact: fact.identity.fact_id,
             )[: query.limit]
         )
+
+    async def find_current_supersessions(
+        self,
+        query: MemoryFactSelectionQuery,
+    ) -> tuple[FactSupersessionRelation, ...]:
+        requested_ids = set(query.fact_ids)
+        return tuple(
+            sorted(
+                (
+                    relation
+                    for relation in self._supersessions
+                    if relation.predecessor_fact_id in requested_ids
+                    and _supersession_predecessor_visible(
+                        relation,
+                        facts=self._facts,
+                        query=query,
+                    )
+                    and relation.scope.space_id == query.space_id
+                    and relation.scope.memory_scope_id in query.memory_scope_ids
+                    and (
+                        relation.scope.thread_id is None
+                        if query.thread_id is None
+                        else relation.scope.thread_id in {None, query.thread_id}
+                    )
+                    and relation.effective_at <= query.reference_time
+                ),
+                key=lambda relation: (relation.predecessor_fact_id, relation.relation_id),
+            )
+        )
+
+
+def _supersession_predecessor_visible(
+    relation: FactSupersessionRelation,
+    *,
+    facts: dict[_FactKey, MemoryFactSnapshot],
+    query: MemoryFactSelectionQuery,
+) -> bool:
+    predecessor = facts.get(
+        _fact_key(
+            MemoryFactIdentity(
+                fact_id=relation.predecessor_fact_id,
+                scope=relation.scope,
+            )
+        )
+    )
+    return bool(
+        predecessor is not None
+        and predecessor.visibility.classification in {"public", "internal"}
+        and (
+            predecessor.code_scope is None
+            or predecessor.code_scope.is_visible_in(
+                repository_id=query.repository_id,
+                code_scope_id=query.code_scope_id,
+            )
+        )
+    )
 
 
 class InMemoryMemoryFactOutbox:
@@ -450,6 +512,7 @@ class InMemoryMemoryFactUnitOfWork:
         self.facts = InMemoryMemoryFactRepository.transactional(
             self._working_facts,
             self._working_versions,
+            self._working_supersessions,
         )
         self.outbox = InMemoryMemoryFactOutbox(self._working_outbox_messages)
         self.temporal_decisions = InMemoryFactTemporalDecisionRepository(

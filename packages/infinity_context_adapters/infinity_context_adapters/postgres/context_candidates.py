@@ -9,6 +9,8 @@ from infinity_context_core.features.context_building.public import (
     ContextClockPort,
 )
 from infinity_context_core.features.memory_facts.public import (
+    FactSupersessionRelation,
+    MemoryFactScope,
     MemoryFactSelectionPort,
     MemoryFactSelectionQuery,
     MemoryFactSnapshot,
@@ -22,7 +24,11 @@ from infinity_context_adapters.features.context_building.postgres_candidate_prov
 from infinity_context_adapters.features.memory_facts.postgres_fact_store import (
     PostgresMemoryFactStore,
 )
+from infinity_context_adapters.features.memory_facts.postgres_temporal_decision_store import (
+    PostgresFactSupersessionRepository,
+)
 from infinity_context_adapters.postgres.fact_selection_conditions import (
+    memory_fact_code_scope_conditions,
     memory_fact_selection_conditions,
 )
 from infinity_context_adapters.postgres.models import MemoryFactRow
@@ -118,6 +124,64 @@ class PostgresMemoryFactSelection:
     ) -> tuple[MemoryFactSnapshot, ...]:
         async with self.sessions() as session:
             return await PostgresMemoryFactStore(session).find_eligible(query)
+
+    async def find_current_supersessions(
+        self,
+        query: MemoryFactSelectionQuery,
+    ) -> tuple[FactSupersessionRelation, ...]:
+        predecessor_ids = tuple(dict.fromkeys(query.fact_ids))
+        if not predecessor_ids:
+            return ()
+        conditions: list[object] = [
+            MemoryFactRow.id.in_(predecessor_ids),
+            MemoryFactRow.space_id == query.space_id,
+            MemoryFactRow.memory_scope_id.in_(query.memory_scope_ids),
+            MemoryFactRow.classification.in_(("public", "internal")),
+        ]
+        if query.thread_id is None:
+            conditions.append(MemoryFactRow.thread_id.is_(None))
+        else:
+            conditions.append(
+                or_(MemoryFactRow.thread_id.is_(None), MemoryFactRow.thread_id == query.thread_id)
+            )
+        conditions.extend(
+            memory_fact_code_scope_conditions(
+                MemoryFactRow,
+                repository_id=query.repository_id,
+                code_scope_id=query.code_scope_id,
+            )
+        )
+        async with self.sessions() as session:
+            rows = tuple(
+                (
+                    await session.execute(
+                        select(
+                            MemoryFactRow.id,
+                            MemoryFactRow.space_id,
+                            MemoryFactRow.memory_scope_id,
+                            MemoryFactRow.thread_id,
+                        ).where(*conditions)
+                    )
+                ).all()
+            )
+            repository = PostgresFactSupersessionRepository(session)
+            relations: list[FactSupersessionRelation] = []
+            for row in rows:
+                try:
+                    relation = await repository.find_active_successor(
+                        scope=MemoryFactScope(
+                            space_id=row.space_id,
+                            memory_scope_id=row.memory_scope_id,
+                            thread_id=row.thread_id,
+                        ),
+                        predecessor_fact_id=row.id,
+                    )
+                except ValueError:
+                    continue
+                if relation is not None and relation.effective_at <= query.reference_time:
+                    relations.append(relation)
+        relations.sort(key=lambda relation: (relation.predecessor_fact_id, relation.relation_id))
+        return tuple(relations)
 
 
 def create_postgres_memory_fact_selection(

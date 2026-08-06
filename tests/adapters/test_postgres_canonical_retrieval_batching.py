@@ -422,7 +422,7 @@ def _chunk_row(
         space_id="space-a",
         memory_scope_id=scope,
         thread_id=thread,
-        document_id=None,
+        document_id=f"document-{item_id}",
         episode_id=None,
         source_type="manual",
         source_external_id=item_id,

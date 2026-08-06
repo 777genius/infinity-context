@@ -41,6 +41,7 @@ from infinity_context_core.features.memory_facts.public import (
     RememberFactResult,
     UpdateFactCommand,
     UpdateFactResult,
+    normalize_fact_taxonomy_fields,
 )
 
 _MISSING = object()
@@ -107,18 +108,25 @@ def remember_fact_request_to_command(
     scope: MemoryFactScope,
     idempotency_key: str | None = None,
 ) -> RememberFactCommand:
+    kind = _required_text(_value(request, "kind", "note"), "kind")
+    taxonomy = normalize_fact_taxonomy_fields(
+        kind=kind,
+        category=_optional_text(_value(request, "category", None)),
+        tags=_string_tuple(_value(request, "tags", ())),
+        ttl_policy=_requested_ttl_policy(request),
+    )
     return RememberFactCommand(
         scope=scope,
         text=_required_content(request, "text"),
         source_refs=tuple(
             source_ref_request_to_public(ref) for ref in _required_sequence(request, "source_refs")
         ),
-        kind=_required_text(_value(request, "kind", "note"), "kind"),
+        kind=kind,
         evidence_refs=tuple(
             evidence_ref_request_to_public(ref) for ref in _value(request, "evidence_refs", ())
         ),
-        category=_optional_text(_value(request, "category", None)),
-        tags=_string_tuple(_value(request, "tags", ())),
+        category=taxonomy.category,
+        tags=taxonomy.tags,
         quality=FactQuality(
             classification=_required_text(
                 _value(request, "classification", "internal"),
@@ -127,7 +135,10 @@ def remember_fact_request_to_command(
         ),
         temporal_extent=_temporal_extent_from_request(request),
         freshness=_freshness_from_request(request),
-        retention=_retention_from_request(request),
+        retention=_retention_from_request(
+            request,
+            normalized_ttl_policy=taxonomy.ttl_policy.name,
+        ),
         epistemic_context=_epistemic_context_from_request(request),
         idempotency_key=idempotency_key,
     )
@@ -267,16 +278,33 @@ def _freshness_from_request(request: object) -> FactFreshness | None:
     raise ValueError("Fact creation cannot set freshness; use the audited confirm fact operation")
 
 
-def _retention_from_request(request: object) -> FactRetention | None:
+def _requested_ttl_policy(request: object) -> str | None:
+    legacy_ttl = _optional_text(_value(request, "ttl_policy", None))
+    retention = _value(request, "retention", None)
+    if retention is None:
+        return legacy_ttl
+    return legacy_ttl or _optional_text(_value(retention, "ttl_policy", None))
+
+
+def _retention_from_request(
+    request: object,
+    *,
+    normalized_ttl_policy: str | None = None,
+) -> FactRetention | None:
     retention = _value(request, "retention", None)
     legacy_ttl = _optional_text(_value(request, "ttl_policy", None))
     if retention is None:
-        return FactRetention(ttl_policy=legacy_ttl) if legacy_ttl is not None else None
+        ttl_policy = normalized_ttl_policy or legacy_ttl
+        return FactRetention(ttl_policy=ttl_policy) if ttl_policy is not None else None
     ttl_policy = _optional_text(_value(retention, "ttl_policy", None))
-    if legacy_ttl is not None and ttl_policy is not None and legacy_ttl != ttl_policy:
+    if (
+        legacy_ttl is not None
+        and ttl_policy is not None
+        and legacy_ttl.strip().lower() != ttl_policy.strip().lower()
+    ):
         raise ValueError("ttl_policy conflicts with retention.ttl_policy")
     return FactRetention(
-        ttl_policy=ttl_policy or legacy_ttl,
+        ttl_policy=normalized_ttl_policy or ttl_policy or legacy_ttl,
         context_expires_at=_optional_datetime(_value(retention, "context_expires_at", None)),
         purge_after=_optional_datetime(_value(retention, "purge_after", None)),
     )

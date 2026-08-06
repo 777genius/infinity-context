@@ -587,21 +587,32 @@ def _sqlite_memory_documents_table_sql_has_legacy_unique(connection: Connection)
 
 
 async def create_schema(engine: AsyncEngine) -> None:
+    if engine.dialect.name == "postgresql":
+        from infinity_context_adapters.postgres.migration_runner import upgrade_schema
+
+        await upgrade_schema(engine)
+        return
     async with engine.begin() as connection:
-        await connection.run_sync(_ensure_legacy_profile_schema)
-        await connection.run_sync(Base.metadata.create_all)
-        await connection.run_sync(ensure_benchmark_projection_manifest_schema)
-        await connection.run_sync(_ensure_additive_schema_columns)
-        await connection.run_sync(_backfill_memory_fact_temporal_columns)
-        await connection.run_sync(_ensure_memory_fact_temporal_indexes)
-        await connection.run_sync(_ensure_memory_fact_code_scope_indexes)
-        await connection.run_sync(_ensure_memory_fact_supersession_indexes)
-        await connection.run_sync(_ensure_document_thread_unique_indexes)
-        await connection.run_sync(_ensure_outbox_lifecycle_indexes)
-        await connection.run_sync(_ensure_capture_indexes)
-        await connection.run_sync(_ensure_suggestion_metadata_indexes)
-        await connection.run_sync(ensure_canonical_keyword_trigram_access_path)
-        await connection.run_sync(_ensure_managed_benchmark_writer_fence)
+        await connection.run_sync(_ensure_runtime_schema)
+
+
+def _ensure_runtime_schema(connection: Connection) -> None:
+    """Bring an unversioned legacy schema to the forward-migration baseline."""
+
+    _ensure_legacy_profile_schema(connection)
+    Base.metadata.create_all(connection)
+    ensure_benchmark_projection_manifest_schema(connection)
+    _ensure_additive_schema_columns(connection)
+    _backfill_memory_fact_temporal_columns(connection)
+    _ensure_memory_fact_temporal_indexes(connection)
+    _ensure_memory_fact_code_scope_indexes(connection)
+    _ensure_memory_fact_supersession_indexes(connection)
+    _ensure_document_thread_unique_indexes(connection)
+    _ensure_outbox_lifecycle_indexes(connection)
+    _ensure_capture_indexes(connection)
+    _ensure_suggestion_metadata_indexes(connection)
+    ensure_canonical_keyword_trigram_access_path(connection)
+    _ensure_managed_benchmark_writer_fence(connection)
 
 
 def _backfill_memory_fact_temporal_columns(connection: Connection) -> None:

@@ -70,6 +70,7 @@ from infinity_context_core.features.memory_facts.domain import (
     FactTemporalExtent,
     FactTemporalKind,
     FactTemporalQueryMode,
+    FactTtlPolicy,
     MemoryFact,
     MemoryFactClassification,
     MemoryFactConfidence,
@@ -84,6 +85,8 @@ from infinity_context_core.features.memory_facts.domain import (
     MemoryFactStatus,
     MemoryFactTrustLevel,
     MemoryFactVisibility,
+    NormalizedFactTaxonomy,
+    normalize_fact_taxonomy_fields,
 )
 from infinity_context_core.features.memory_facts.ports import (
     FactSupersessionRepositoryPort,
@@ -141,6 +144,7 @@ __all__ = (
     "FactTemporalExtent",
     "FactTemporalKind",
     "FactTemporalQueryMode",
+    "FactTtlPolicy",
     "ForgetFactCommand",
     "ForgetFactHandler",
     "ForgetFactResult",
@@ -176,6 +180,8 @@ __all__ = (
     "MemoryFactUnitOfWorkPort",
     "MemoryFactVisibility",
     "MemoryFactsFeature",
+    "NormalizedFactTaxonomy",
+    "normalize_fact_taxonomy_fields",
     "RememberFactCommand",
     "RememberFactHandler",
     "RememberFactResult",

@@ -492,14 +492,14 @@ def _conflict_resolution_options() -> list[dict[str, str]]:
         {
             "id": "replace_existing_fact",
             "review_action": "resolve_conflict",
-            "effect": "update_conflicting_fact_with_candidate",
+            "effect": "create_successor_and_supersede_conflicting_fact",
             "availability": "available",
             "resolution_action": "replace_existing_fact",
         },
         {
             "id": "mark_existing_disputed",
             "review_action": "resolve_conflict",
-            "effect": "mark_existing_fact_disputed_keep_candidate_as_evidence",
+            "effect": "create_challenger_and_dispute_both_facts",
             "availability": "available",
             "resolution_action": "mark_existing_disputed",
         },

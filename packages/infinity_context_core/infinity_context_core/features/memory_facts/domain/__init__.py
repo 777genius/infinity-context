@@ -27,6 +27,11 @@ from infinity_context_core.features.memory_facts.domain.selection import (
 from infinity_context_core.features.memory_facts.domain.supersession import (
     FactSupersessionPolicy,
 )
+from infinity_context_core.features.memory_facts.domain.taxonomy import (
+    FactTtlPolicy,
+    NormalizedFactTaxonomy,
+    normalize_fact_taxonomy_fields,
+)
 from infinity_context_core.features.memory_facts.domain.temporal import (
     FactCurrentness,
     FactCurrentnessAssessment,
@@ -76,6 +81,7 @@ __all__ = (
     "FactTemporalExtent",
     "FactTemporalKind",
     "FactTemporalQueryMode",
+    "FactTtlPolicy",
     "MemoryFact",
     "MemoryFactClassification",
     "MemoryFactConfidence",
@@ -90,4 +96,6 @@ __all__ = (
     "MemoryFactTrustLevel",
     "MemoryFactVisibility",
     "MemoryFactsFeature",
+    "NormalizedFactTaxonomy",
+    "normalize_fact_taxonomy_fields",
 )

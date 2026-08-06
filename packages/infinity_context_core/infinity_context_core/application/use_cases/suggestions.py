@@ -40,7 +40,6 @@ from infinity_context_core.application.suggestion_fact_resolution import (
 from infinity_context_core.application.suggestion_resolution_replay import (
     load_suggestion_resolution_replay,
     new_suggestion_resolution_receipt,
-    review_scope_fingerprint_fields,
     suggestion_resolution_identity,
 )
 from infinity_context_core.domain.entities import (
@@ -273,7 +272,6 @@ class ApproveSuggestionUseCase:
                 "reason": command.reason,
                 "force": command.force,
                 "actor_id": command.actor_id,
-                **review_scope_fingerprint_fields(command.review_scope),
             },
         )
         async with self._uow_factory() as uow:
@@ -438,7 +436,6 @@ class ResolveSuggestionConflictUseCase:
                 "reason": command.reason,
                 "force": command.force,
                 "actor_id": command.actor_id,
-                **review_scope_fingerprint_fields(command.review_scope),
             },
         )
         async with self._uow_factory() as uow:

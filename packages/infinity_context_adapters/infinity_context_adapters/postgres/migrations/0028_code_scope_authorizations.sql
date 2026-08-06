@@ -21,14 +21,9 @@ CREATE TABLE IF NOT EXISTS code_scope_authorizations (
   CONSTRAINT ck_code_scope_authorizations_level
     CHECK (
       scope_level IN (
-        'global',
         'repository',
         'branch',
-        'pull_request',
-        'commit',
-        'package',
-        'file',
-        'symbol'
+        'commit'
       )
     ),
   CONSTRAINT ck_code_scope_authorizations_status
@@ -56,24 +51,11 @@ BEGIN
       CHECK (evidence_digest ~ '^[0-9a-f]{64}$');
   END IF;
 
-  IF NOT EXISTS (
-    SELECT 1 FROM pg_constraint WHERE conname = 'ck_code_scope_authorizations_level'
-  ) THEN
-    ALTER TABLE code_scope_authorizations
-      ADD CONSTRAINT ck_code_scope_authorizations_level
-      CHECK (
-        scope_level IN (
-          'global',
-          'repository',
-          'branch',
-          'pull_request',
-          'commit',
-          'package',
-          'file',
-          'symbol'
-        )
-      );
-  END IF;
+  ALTER TABLE code_scope_authorizations
+    DROP CONSTRAINT IF EXISTS ck_code_scope_authorizations_level;
+  ALTER TABLE code_scope_authorizations
+    ADD CONSTRAINT ck_code_scope_authorizations_level
+    CHECK (scope_level IN ('repository', 'branch', 'commit'));
 
   IF NOT EXISTS (
     SELECT 1 FROM pg_constraint WHERE conname = 'ck_code_scope_authorizations_status'

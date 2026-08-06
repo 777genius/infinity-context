@@ -131,6 +131,9 @@ with repository enrollment; later branch/commit scopes require an explicit stric
 Conflicting normalized-remote evidence requires review even when weaker local evidence matches.
 Existing dynamic repository-token installations must register their current repository, branch or
 commit scope before enabling this policy; static CodeScope-locked tokens remain valid unchanged.
+Binding-grant rotation/revocation and CodeScope-authorization revocation are separate
+credential-lifecycle follow-ups. Until those APIs exist, issued grants and registrations must be
+treated as active credentials and covered by an explicit operational revocation procedure.
 
 Agent capture, direct fact mutation and temporal governance use separate capabilities:
 `memory:capture`, `memory:fact_write` and `memory:govern`. Repository-scoped tokens do not inherit

@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from dataclasses import replace
+from dataclasses import dataclass, replace
 from datetime import UTC, datetime
 
 from infinity_context_core.application.context_media_time import enrich_context_item_with_media_time
@@ -25,10 +25,12 @@ from infinity_context_core.application.context_source_siblings import (
 )
 from infinity_context_core.application.document_text import document_chunk_retrieval_text
 from infinity_context_core.application.dto import BuildContextQuery, ContextItem
+from infinity_context_core.application.sensitive_text import contains_sensitive_text
 from infinity_context_core.application.source_refs import chunk_source_refs
 from infinity_context_core.domain.entities import MemoryChunk, SourceRef
 from infinity_context_core.features.memory_facts.public import (
     FactCurrentnessPolicy,
+    FactSupersessionRelation,
     FactTemporalQueryMode,
     MemoryFactSelectionPort,
     MemoryFactSelectionQuery,
@@ -43,6 +45,13 @@ _PREFOCUSED_CHUNK_EVIDENCE_SOURCES = frozenset(
         "keyword_source_sibling_chunks",
     }
 )
+_MAX_LINKED_SUPERSESSION_HOPS = 16
+
+
+@dataclass(frozen=True, slots=True)
+class LinkedFactHydration:
+    fact: MemoryFactSnapshot
+    supersession_path: tuple[FactSupersessionRelation, ...] = ()
 
 
 class ContextHydrator:
@@ -91,7 +100,7 @@ class ContextHydrator:
                 memory_scope_ids=memory_scope_ids,
             )
             hydrated = tuple(
-                _canonical_fact_item(
+                canonical_fact_context_item(
                     fact,
                     query=query,
                     reference_time=self._reference_time(query),
@@ -161,6 +170,113 @@ class ContextHydrator:
                 else:
                     stale_count += 1
         return tuple(hydrated), stale_count
+
+    async def hydrate_linked_facts(
+        self,
+        *,
+        fact_ids: tuple[str, ...],
+        query: BuildContextQuery,
+        memory_scope_ids: tuple[str, ...],
+    ) -> dict[str, LinkedFactHydration] | None:
+        """Resolve linked ids to eligible facts through audited supersession chains."""
+
+        if self._fact_selection is None:
+            return None
+        requested_ids = tuple(dict.fromkeys(fact_id for fact_id in fact_ids if fact_id))
+        if not requested_ids:
+            return {}
+        direct = await self._select_facts(
+            fact_ids=requested_ids,
+            query=query,
+            memory_scope_ids=memory_scope_ids,
+            temporal_mode=(
+                FactTemporalQueryMode.AS_OF
+                if query.as_of is not None
+                else FactTemporalQueryMode.CURRENT
+            ),
+            reference_time=self._reference_time(query),
+        )
+        resolved = {
+            fact.identity.fact_id: LinkedFactHydration(fact)
+            for fact in direct
+            if _snapshot_matches_query_taxonomy(fact, query)
+        }
+        pending = {
+            fact_id: fact_id for fact_id in requested_ids if fact_id not in resolved
+        }
+        paths: dict[str, tuple[FactSupersessionRelation, ...]] = {
+            fact_id: () for fact_id in pending
+        }
+        seen: dict[str, set[str]] = {fact_id: {fact_id} for fact_id in pending}
+        relation_lookup = getattr(self._fact_selection, "find_current_supersessions", None)
+        if relation_lookup is None:
+            return resolved
+        reference_time = self._reference_time(query)
+        mode = (
+            FactTemporalQueryMode.AS_OF
+            if query.as_of is not None
+            else FactTemporalQueryMode.CURRENT
+        )
+        for _ in range(_MAX_LINKED_SUPERSESSION_HOPS):
+            if not pending:
+                break
+            relations = await relation_lookup(
+                MemoryFactSelectionQuery(
+                    space_id=str(query.space_id),
+                    memory_scope_ids=memory_scope_ids,
+                    thread_id=str(query.thread_id) if query.thread_id else None,
+                    repository_id=query.repository_id,
+                    code_scope_id=query.code_scope_id,
+                    temporal_mode=mode,
+                    reference_time=reference_time,
+                    fact_ids=tuple(dict.fromkeys(pending.values())),
+                    limit=max(1, len(pending)),
+                )
+            )
+            by_predecessor = _unique_supersessions_by_predecessor(relations)
+            advanced: dict[str, str] = {}
+            for origin_id, predecessor_id in pending.items():
+                relation = by_predecessor.get(predecessor_id)
+                path = paths[origin_id]
+                if relation is None or not _valid_supersession_step(
+                    relation,
+                    predecessor_id=predecessor_id,
+                    previous=path[-1] if path else None,
+                    reference_time=reference_time,
+                    query_space_id=str(query.space_id),
+                    memory_scope_ids=memory_scope_ids,
+                    query_thread_id=str(query.thread_id) if query.thread_id else None,
+                ):
+                    continue
+                successor_id = relation.successor_fact_id
+                if successor_id in seen[origin_id]:
+                    continue
+                seen[origin_id].add(successor_id)
+                paths[origin_id] = (*path, relation)
+                advanced[origin_id] = successor_id
+            if not advanced:
+                break
+            eligible = await self._select_facts(
+                fact_ids=tuple(dict.fromkeys(advanced.values())),
+                query=query,
+                memory_scope_ids=memory_scope_ids,
+                temporal_mode=mode,
+                reference_time=reference_time,
+            )
+            eligible_by_id = {
+                fact.identity.fact_id: fact
+                for fact in eligible
+                if _snapshot_matches_query_taxonomy(fact, query)
+            }
+            pending = {}
+            for origin_id, successor_id in advanced.items():
+                fact = eligible_by_id.get(successor_id)
+                path = paths[origin_id]
+                if fact is not None and _valid_terminal_successor(fact, path[-1]):
+                    resolved[origin_id] = LinkedFactHydration(fact, path)
+                else:
+                    pending[origin_id] = successor_id
+        return resolved
 
     async def revalidate_visible_items(
         self,
@@ -241,7 +357,7 @@ class ContextHydrator:
                     continue
                 if isinstance(fact, MemoryFactSnapshot):
                     visible_items.append(
-                        _canonical_fact_item(
+                        canonical_fact_context_item(
                             fact,
                             query=query,
                             reference_time=self._reference_time(query),
@@ -334,6 +450,33 @@ class ContextHydrator:
                 )
         return tuple(visible_items)
 
+    async def revalidate_trusted_enrichment_items(
+        self,
+        *,
+        items: tuple[ContextItem, ...],
+        query: BuildContextQuery,
+        memory_scope_ids: tuple[str, ...],
+    ) -> tuple[ContextItem, ...]:
+        """Revalidate canonicals while preserving trusted application evidence."""
+
+        canonical_items = tuple(
+            item for item in items if item.item_type in {"fact", "chunk", "anchor"}
+        )
+        revalidated_items = (
+            await self.revalidate_visible_items(
+                canonical_items,
+                query=query,
+                memory_scope_ids=memory_scope_ids,
+            )
+            if canonical_items
+            else ()
+        )
+        trusted_evidence_types = {"asset", "extraction_artifact"}
+        return (
+            *revalidated_items,
+            *(item for item in items if item.item_type in trusted_evidence_types),
+        )
+
     async def _canonical_visible_facts(
         self,
         *,
@@ -362,7 +505,11 @@ class ContextHydrator:
                 temporal_mode=mode,
                 reference_time=reference_time,
             )
-            visible.update((fact.identity.fact_id, fact) for fact in facts)
+            visible.update(
+                (fact.identity.fact_id, fact)
+                for fact in facts
+                if _snapshot_matches_query_taxonomy(fact, query)
+            )
         if review_ids:
             review_facts = await self._select_facts(
                 fact_ids=review_ids,
@@ -375,6 +522,7 @@ class ContextHydrator:
                 (fact.identity.fact_id, fact)
                 for fact in review_facts
                 if fact.visibility.status == review_statuses[fact.identity.fact_id]
+                and _snapshot_matches_query_taxonomy(fact, query)
             )
         return visible
 
@@ -407,7 +555,7 @@ class ContextHydrator:
         return query.as_of or (self._clock.now() if self._clock is not None else datetime.now(UTC))
 
 
-def _canonical_fact_item(
+def canonical_fact_context_item(
     fact: MemoryFactSnapshot,
     *,
     query: BuildContextQuery,
@@ -449,6 +597,10 @@ def _canonical_fact_item(
             score=score,
             source_refs=source_refs_with_query_snippet(source_refs, snippet),
             diagnostics={
+                "sensitive_item_text_redacted": (
+                    snippet is not None
+                    and contains_sensitive_text(fact.text[snippet.char_start : snippet.char_end])
+                ),
                 **diagnostics,
                 "fact_status": fact.visibility.status,
                 "fact_version": fact.visibility.version,
@@ -480,6 +632,75 @@ def _canonical_fact_item(
             },
         ),
         query_text=query.query,
+    )
+
+
+def _unique_supersessions_by_predecessor(
+    relations: tuple[FactSupersessionRelation, ...],
+) -> dict[str, FactSupersessionRelation]:
+    unique: dict[str, FactSupersessionRelation] = {}
+    duplicates: set[str] = set()
+    for relation in relations:
+        predecessor_id = relation.predecessor_fact_id
+        if predecessor_id in unique:
+            duplicates.add(predecessor_id)
+        else:
+            unique[predecessor_id] = relation
+    for predecessor_id in duplicates:
+        unique.pop(predecessor_id, None)
+    return unique
+
+
+def _valid_supersession_step(
+    relation: FactSupersessionRelation,
+    *,
+    predecessor_id: str,
+    previous: FactSupersessionRelation | None,
+    reference_time: datetime,
+    query_space_id: str,
+    memory_scope_ids: tuple[str, ...],
+    query_thread_id: str | None,
+) -> bool:
+    scope = relation.scope
+    thread_visible = scope.thread_id is None or scope.thread_id == query_thread_id
+    if (
+        relation.predecessor_fact_id != predecessor_id
+        or relation.effective_at > reference_time
+        or scope.space_id != query_space_id
+        or scope.memory_scope_id not in memory_scope_ids
+        or not thread_visible
+    ):
+        return False
+    if previous is None:
+        return True
+    return (
+        scope == previous.scope
+        and relation.predecessor_fact_version >= previous.successor_fact_version
+        and relation.effective_at >= previous.effective_at
+    )
+
+
+def _valid_terminal_successor(
+    fact: MemoryFactSnapshot,
+    relation: FactSupersessionRelation,
+) -> bool:
+    return (
+        fact.identity.fact_id == relation.successor_fact_id
+        and fact.identity.scope == relation.scope
+        and fact.visibility.version >= relation.successor_fact_version
+    )
+
+
+def _snapshot_matches_query_taxonomy(
+    fact: MemoryFactSnapshot,
+    query: BuildContextQuery,
+) -> bool:
+    fact_tags = set(fact.tags)
+    return (
+        (query.category is None or fact.category == query.category)
+        and (not query.tags_any or bool(fact_tags.intersection(query.tags_any)))
+        and (not query.tags_all or set(query.tags_all).issubset(fact_tags))
+        and (not query.tags_none or not fact_tags.intersection(query.tags_none))
     )
 
 

@@ -6,6 +6,7 @@ from infinity_context_core.features.code_identity.ports.repositories import (
     CodeRepositoryPort,
     CodeScopeAuthorizationIdPort,
     CodeScopeAuthorizationPort,
+    WorkspaceBindingReadPort,
 )
 
 __all__ = (
@@ -14,4 +15,5 @@ __all__ = (
     "CodeRepositoryPort",
     "CodeScopeAuthorizationIdPort",
     "CodeScopeAuthorizationPort",
+    "WorkspaceBindingReadPort",
 )

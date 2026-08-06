@@ -8,5 +8,13 @@ from infinity_context_adapters.features.code_identity.postgres_repository import
 from infinity_context_adapters.features.code_identity.postgres_scope_authorization import (
     PostgresCodeScopeAuthorization,
 )
+from infinity_context_adapters.features.code_identity.postgres_workspace_binding import (
+    PostgresWorkspaceBindingReader,
+)
 
-__all__ = ("FEATURE_ID", "PostgresCodeRepository", "PostgresCodeScopeAuthorization")
+__all__ = (
+    "FEATURE_ID",
+    "PostgresCodeRepository",
+    "PostgresCodeScopeAuthorization",
+    "PostgresWorkspaceBindingReader",
+)

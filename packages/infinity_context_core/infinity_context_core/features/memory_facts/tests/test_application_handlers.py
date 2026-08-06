@@ -4,7 +4,8 @@ from __future__ import annotations
 
 import asyncio
 import importlib
-from datetime import UTC, datetime
+from dataclasses import replace
+from datetime import UTC, datetime, timedelta
 from types import TracebackType
 
 import pytest
@@ -23,6 +24,7 @@ MemoryFactSnapshot = DOMAIN.MemoryFactSnapshot
 MemoryFactSourceRef = DOMAIN.MemoryFactSourceRef
 MemoryFactVisibility = DOMAIN.MemoryFactVisibility
 FactTemporalExtent = DOMAIN.FactTemporalExtent
+FactRetention = DOMAIN.FactRetention
 RememberFactCommand = APPLICATION.RememberFactCommand
 RememberFactHandler = APPLICATION.RememberFactHandler
 RememberFactResult = APPLICATION.RememberFactResult
@@ -33,6 +35,17 @@ UpdateFactResult = APPLICATION.UpdateFactResult
 
 NOW = datetime(2026, 1, 2, 3, 4, 5, tzinfo=UTC)
 EARLIER = datetime(2026, 1, 1, 2, 3, 4, tzinfo=UTC)
+RETENTION_EXPIRY_CASES = (
+    (FactRetention(ttl_policy="task"), NOW + timedelta(days=3)),
+    (FactRetention(ttl_policy="durable"), None),
+    (
+        FactRetention(
+            ttl_policy="task",
+            context_expires_at=NOW + timedelta(hours=5),
+        ),
+        NOW + timedelta(hours=5),
+    ),
+)
 
 
 def test_remember_fact_handler_creates_fact_and_outbox_message() -> None:
@@ -82,6 +95,36 @@ def test_remember_fact_handler_creates_fact_and_outbox_message() -> None:
             occurred_at=NOW,
         )
     ]
+    assert uow.events == ["enter", "commit", "exit:ok"]
+
+
+@pytest.mark.parametrize(
+    ("retention", "expected_expiry"),
+    RETENTION_EXPIRY_CASES,
+)
+def test_remember_fact_handler_materializes_ttl_without_overriding_explicit_expiry(
+    retention,
+    expected_expiry,
+) -> None:
+    handler = RememberFactHandler(
+        uow_factory=FakeUnitOfWorkFactory(uow := FakeUnitOfWork()),
+        clock=FakeClock(NOW),
+        ids=FakeIds(fact_ids=("fact-ttl",), outbox_message_ids=("outbox-ttl",)),
+    )
+
+    result = asyncio.run(
+        handler.execute(
+            RememberFactCommand(
+                scope=_scope(),
+                text="TTL retention is resolved at the application boundary.",
+                source_refs=(_source_ref("ttl-policy"),),
+                retention=retention,
+            )
+        )
+    )
+
+    assert result.fact.visibility.ttl_policy == retention.ttl_policy
+    assert result.fact.visibility.expires_at == expected_expiry
     assert uow.events == ["enter", "commit", "exit:ok"]
 
 
@@ -136,6 +179,70 @@ def test_update_fact_handler_locks_updates_and_enqueues_projection_event() -> No
         )
     ]
     assert uow.events == ["enter", "commit", "exit:ok"]
+
+
+@pytest.mark.parametrize(
+    ("retention", "expected_expiry"),
+    RETENTION_EXPIRY_CASES,
+)
+def test_update_fact_handler_materializes_only_explicit_retention_change(
+    retention,
+    expected_expiry,
+) -> None:
+    current = _fact_snapshot(version=3)
+    handler = UpdateFactHandler(
+        uow_factory=FakeUnitOfWorkFactory(uow := FakeUnitOfWork(current=current)),
+        clock=FakeClock(NOW),
+        ids=FakeIds(outbox_message_ids=("outbox-update-ttl",)),
+    )
+
+    result = asyncio.run(
+        handler.execute(
+            UpdateFactCommand(
+                identity=current.identity,
+                expected_version=3,
+                text=current.text,
+                source_refs=current.source_refs,
+                retention=retention,
+            )
+        )
+    )
+
+    assert result.fact.visibility.ttl_policy == retention.ttl_policy
+    assert result.fact.visibility.expires_at == expected_expiry
+    assert uow.events == ["enter", "commit", "exit:ok"]
+
+
+def test_update_fact_handler_preserves_retention_when_change_is_omitted() -> None:
+    existing_expiry = NOW + timedelta(days=10)
+    current = replace(
+        _fact_snapshot(version=3),
+        visibility=MemoryFactVisibility(
+            status="active",
+            version=3,
+            ttl_policy="short",
+            expires_at=existing_expiry,
+        ),
+    )
+    handler = UpdateFactHandler(
+        uow_factory=FakeUnitOfWorkFactory(FakeUnitOfWork(current=current)),
+        clock=FakeClock(NOW),
+        ids=FakeIds(outbox_message_ids=("outbox-update-preserve-ttl",)),
+    )
+
+    result = asyncio.run(
+        handler.execute(
+            UpdateFactCommand(
+                identity=current.identity,
+                expected_version=3,
+                text=current.text,
+                source_refs=current.source_refs,
+            )
+        )
+    )
+
+    assert result.fact.visibility.ttl_policy == "short"
+    assert result.fact.visibility.expires_at == existing_expiry
 
 
 def test_forget_fact_handler_tombstones_fact_and_returns_tombstone_id() -> None:

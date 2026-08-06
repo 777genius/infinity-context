@@ -456,11 +456,13 @@ class HttpMemoryGateway(HttpMemoryTemporalFactGatewayMixin):
         suggestion_id: str,
         reason: str | None,
         force: bool,
+        idempotency_key: str | None = None,
     ) -> dict[str, Any]:
         return await self._request(
             "POST",
             f"/v1/suggestions/{suggestion_id}/approve",
             json=_without_none({"reason": reason, "force": force}),
+            idempotency_key=idempotency_key,
         )
 
     async def review_suggestions_batch(

@@ -70,7 +70,7 @@
   "tests/unit/test_context_domain_rerank_signals.py": 1408,
   "tests/unit/test_context_packer.py": 9976,
   "tests/unit/test_context_packer_answer_support_ordering.py": 1208,
-  "tests/unit/test_context_provider_consistency.py": 4898,
+  "tests/unit/test_context_provider_consistency.py": 4893,
   "tests/unit/test_context_query_decomposition.py": 2092,
   "tests/unit/test_context_query_expansion.py": 5755,
   "tests/unit/test_context_ranking.py": 11541,

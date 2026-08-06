@@ -20,6 +20,7 @@ class MemoryFactListSpec:
     cursor_id: str | None = None
     category: str | None = None
     tag: str | None = None
+    context_visible_at: datetime | None = None
     repository_id: str | None = None
     code_scope_id: str | None = None
     restrict_to_repository_visibility: bool = False
@@ -33,6 +34,14 @@ class MemoryFactListSpec:
             raise ValueError("Fact list cursor fields must be provided together")
         if self.code_scope_id is not None and self.repository_id is None:
             raise ValueError("Fact list code scope requires repository")
+        if (
+            self.context_visible_at is not None
+            and (
+                self.context_visible_at.tzinfo is None
+                or self.context_visible_at.utcoffset() is None
+            )
+        ):
+            raise ValueError("Fact list context_visible_at must be timezone-aware")
 
 
 class MemoryFactReadModelPort(Protocol):

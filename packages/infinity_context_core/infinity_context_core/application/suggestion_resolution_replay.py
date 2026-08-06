@@ -121,22 +121,8 @@ def new_suggestion_resolution_receipt(
     )
 
 
-def review_scope_fingerprint_fields(scope: SuggestionReviewScope | None) -> dict[str, object]:
-    if scope is None:
-        return {"review_scope": None}
-    return {
-        "review_scope": {
-            "space_id": scope.space_id,
-            "memory_scope_ids": sorted(scope.memory_scope_ids),
-            "repository_id": scope.repository_id,
-            "code_scope_id": scope.code_scope_id,
-        }
-    }
-
-
 __all__ = (
     "load_suggestion_resolution_replay",
     "new_suggestion_resolution_receipt",
-    "review_scope_fingerprint_fields",
     "suggestion_resolution_identity",
 )

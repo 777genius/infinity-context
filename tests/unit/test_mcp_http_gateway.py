@@ -79,6 +79,35 @@ def test_http_gateway_sends_auth_idempotency_and_external_scope() -> None:
     assert seen["body"] == contract_payload
 
 
+def test_http_gateway_sends_suggestion_approval_idempotency_key() -> None:
+    seen: dict[str, str | None] = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen["path"] = request.url.path
+        seen["idempotency_key"] = request.headers.get("idempotency-key")
+        return httpx.Response(200, json={"data": {"suggestion": {"id": "sug-1"}}})
+
+    async def run() -> None:
+        gateway = HttpMemoryGateway(
+            base_url="http://memory.test",
+            auth_token="test-token",
+            timeout_seconds=3,
+            transport=httpx.MockTransport(handler),
+        )
+        await gateway.approve_suggestion(
+            suggestion_id="sug-1",
+            reason="reviewed",
+            force=False,
+            idempotency_key="approve-sug-1",
+        )
+
+    asyncio.run(run())
+    assert seen == {
+        "path": "/v1/suggestions/sug-1/approve",
+        "idempotency_key": "approve-sug-1",
+    }
+
+
 def test_http_gateway_sends_read_scope_memory_scope_external_refs() -> None:
     seen: dict[str, Any] = {}
 

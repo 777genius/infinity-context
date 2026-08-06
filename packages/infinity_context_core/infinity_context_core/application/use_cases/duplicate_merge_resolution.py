@@ -18,7 +18,6 @@ from infinity_context_core.application.suggestion_fact_resolution import (
 from infinity_context_core.application.suggestion_resolution_replay import (
     load_suggestion_resolution_replay,
     new_suggestion_resolution_receipt,
-    review_scope_fingerprint_fields,
     suggestion_resolution_identity,
 )
 from infinity_context_core.domain.entities import (
@@ -75,7 +74,6 @@ class ResolveDuplicateMergeUseCase:
                 "reason": command.reason,
                 "force": command.force,
                 "actor_id": command.actor_id,
-                **review_scope_fingerprint_fields(command.review_scope),
             },
         )
         async with self._uow_factory() as uow:
@@ -184,7 +182,7 @@ class ResolveDuplicateMergeUseCase:
                     uow.reviewed_facts.attach_evidence(decision)
                 )
                 resolution_kind = "attach_evidence"
-                effect = "attach_evidence_to_existing_fact"
+                effect = "merge_source_refs_into_existing_fact"
             else:
                 outcome = await apply_reviewed_fact_mutation(
                     uow.reviewed_facts.remember(replace(decision, target=None))

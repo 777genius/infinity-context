@@ -186,6 +186,7 @@ class Container:
     uow_factory: UnitOfWorkFactoryPort
     code_repository_enrollment: server_processes.CodeRepositoryEnrollmentProcess
     code_scope_authorization: server_processes.CodeScopeAuthorizationProcess
+    workspace_scope_claim_verification: server_processes.WorkspaceScopeClaimVerificationProcess
     projection_fence: ProjectionFencePort
     adapters: tuple[MemoryAdapterPort, ...]
     cognee_memory: DocumentMemoryPort
@@ -261,6 +262,7 @@ class Container:
     process_document: ProcessDocumentUseCase
     delete_document: DeleteDocumentUseCase
     build_context: BuildContextUseCase
+    canonical_fact_selection: memory_facts_feature.MemoryFactSelectionPort
     build_canonical_fact_context: context_building_feature.BuildContextHandler
     memory_fact_lifecycle: memory_facts_feature.MemoryFactLifecycleUseCases
     memory_fact_reads: memory_facts_feature.MemoryFactReadUseCases
@@ -317,16 +319,11 @@ class Container:
 def build_container(settings: Settings | None = None) -> Container:
     resolved_settings = settings or Settings()
     resolved_settings.validate_for_startup()
-
     clock = SystemClock()
     ids = UuidIdGenerator()
     engine = build_async_engine(resolved_settings.database_url)
     session_factory = build_session_factory(engine)
     code_repository_enrollment = server_processes.CodeRepositoryEnrollmentProcess(
-        session_factory=session_factory,
-        clock=clock,
-    )
-    code_scope_authorization = server_processes.CodeScopeAuthorizationProcess(
         session_factory, clock
     )
     memory_fact_ids = create_memory_fact_id_adapter(ids.new_id)
@@ -403,7 +400,6 @@ def build_container(settings: Settings | None = None) -> Container:
             uow_factory=memory_fact_uow_factory, clock=clock, ids=memory_fact_ids
         ),
     )
-
     raw_vector = _build_vector_adapter(resolved_settings)
     raw_graph = _build_graph_adapter(resolved_settings)
     vector_projection_evidence = (
@@ -448,7 +444,6 @@ def build_container(settings: Settings | None = None) -> Container:
     )
     cognee = _build_cognee_adapter(resolved_settings)
     adapters: tuple[MemoryAdapterPort, ...] = (vector, graph, embeddings, cognee)
-
     get_capabilities = GetCapabilitiesUseCase(
         service_name=resolved_settings.service_name,
         deploy_profile=resolved_settings.deploy_profile.value,
@@ -756,7 +751,6 @@ def build_container(settings: Settings | None = None) -> Container:
         clock=clock,
     )
     runtime_metrics = RuntimeMetrics()
-
     return Container(
         settings=resolved_settings,
         engine=engine,
@@ -764,7 +758,12 @@ def build_container(settings: Settings | None = None) -> Container:
         ids=ids,
         uow_factory=uow_factory,
         code_repository_enrollment=code_repository_enrollment,
-        code_scope_authorization=code_scope_authorization,
+        code_scope_authorization=server_processes.CodeScopeAuthorizationProcess(
+            session_factory, clock
+        ),
+        workspace_scope_claim_verification=server_processes.WorkspaceScopeClaimVerificationProcess(
+            session_factory
+        ),
         projection_fence=projection_fence,
         adapters=adapters,
         cognee_memory=cognee,
@@ -840,6 +839,7 @@ def build_container(settings: Settings | None = None) -> Container:
         process_document=process_document,
         delete_document=delete_document,
         build_context=build_context,
+        canonical_fact_selection=canonical_fact_selection,
         build_canonical_fact_context=build_canonical_fact_context,
         memory_fact_lifecycle=memory_fact_lifecycle,
         memory_fact_reads=memory_fact_reads,

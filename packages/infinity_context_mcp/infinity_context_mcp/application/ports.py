@@ -283,6 +283,7 @@ class MemoryGatewayPort(Protocol):
         suggestion_id: str,
         reason: str | None,
         force: bool,
+        idempotency_key: str | None = None,
     ) -> dict[str, Any]: ...
 
     async def review_suggestions_batch(

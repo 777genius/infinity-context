@@ -52,6 +52,17 @@ def test_dynamic_code_scope_migration_uses_server_owned_repository_allowlist() -
     assert "code-scope-v1-[0-9a-f]{64}" in sql
 
 
+def test_schema_parity_migration_binds_relations_to_exact_temporal_decisions() -> None:
+    sql = (_MIGRATIONS / "0029_schema_parity_and_fact_tenant_integrity.sql").read_text(
+        encoding="utf-8"
+    )
+
+    assert "uq_memory_fact_temporal_decision_relation_identity" in sql
+    assert "fk_memory_fact_relation_temporal_decision_identity" in sql
+    assert "decision.thread_id IS DISTINCT FROM relation.thread_id" in sql
+    assert "decision.effective_at IS DISTINCT FROM relation.valid_from" in sql
+
+
 def test_create_schema_adds_classification_to_existing_memory_tables(tmp_path: Path) -> None:
     async def run() -> dict[str, dict[str, object]]:
         engine = build_async_engine(f"sqlite+aiosqlite:///{tmp_path / 'old-schema.db'}")

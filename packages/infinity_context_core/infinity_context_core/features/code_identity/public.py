@@ -24,6 +24,8 @@ from infinity_context_core.features.code_identity.domain import (
     CodeWorktreeState,
     RepositoryEvidenceKind,
     RepositoryIdentityEvidence,
+    WorkspaceBindingSnapshot,
+    WorkspaceBindingStatus,
 )
 from infinity_context_core.features.code_identity.ports import (
     CodeRepositoryClockPort,
@@ -31,6 +33,7 @@ from infinity_context_core.features.code_identity.ports import (
     CodeRepositoryPort,
     CodeScopeAuthorizationIdPort,
     CodeScopeAuthorizationPort,
+    WorkspaceBindingReadPort,
 )
 
 __all__ = (
@@ -54,6 +57,9 @@ __all__ = (
     "CodeWorktreeState",
     "RepositoryEvidenceKind",
     "RepositoryIdentityEvidence",
+    "WorkspaceBindingReadPort",
+    "WorkspaceBindingSnapshot",
+    "WorkspaceBindingStatus",
     "RegisterCodeScopeAuthorizationCommand",
     "RegisterCodeScopeAuthorizationHandler",
     "RegisterCodeScopeAuthorizationResult",

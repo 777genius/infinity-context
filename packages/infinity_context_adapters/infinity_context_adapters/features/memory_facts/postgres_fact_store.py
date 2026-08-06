@@ -390,7 +390,9 @@ class PostgresMemoryFactOperationReceiptRepository:
         if existing is not None:
             if existing == receipt:
                 return existing
-            raise ValueError("Fact operation receipt is append-only")
+            raise MemoryFactIdempotencyConflict(
+                "A concurrent fact operation already committed this idempotency key"
+            )
         self._session.add(
             MemoryFactOperationReceiptRow(
                 id=_operation_receipt_id(receipt),

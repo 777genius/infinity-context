@@ -317,6 +317,7 @@ class MemoryToolSuggestionService(MemoryToolDuplicateMixin, MemoryToolApplicatio
         suggestion_id: str,
         reason: str | None = None,
         force: bool = False,
+        idempotency_key: str | None = None,
     ) -> dict[str, Any]:
         async def action() -> dict[str, Any]:
             ensure_bool("force", force)
@@ -329,6 +330,7 @@ class MemoryToolSuggestionService(MemoryToolDuplicateMixin, MemoryToolApplicatio
                 suggestion_id=suggestion_id,
                 reason=reason,
                 force=force,
+                idempotency_key=idempotency_key,
             )
             return self._ok(
                 "Suggestion approved. The returned fact is now canonical memory.",
@@ -399,6 +401,7 @@ class MemoryToolSuggestionService(MemoryToolDuplicateMixin, MemoryToolApplicatio
         action: str,
         reason: str | None = None,
         force: bool = False,
+        idempotency_key: str | None = None,
     ) -> dict[str, Any]:
         async def run() -> dict[str, Any]:
             ensure_bool("force", force)
@@ -407,6 +410,13 @@ class MemoryToolSuggestionService(MemoryToolDuplicateMixin, MemoryToolApplicatio
                     status_code=400,
                     code="infinity_context_mcp.validation.invalid_input",
                     message=f"Invalid review action: {safe_message(action)}",
+                    retryable=False,
+                )
+            if idempotency_key is not None and action != "approve":
+                raise MemoryGatewayError(
+                    status_code=400,
+                    code="infinity_context_mcp.validation.invalid_input",
+                    message="idempotency_key is valid only for approve",
                     retryable=False,
                 )
             policy = self._decide_policy(
@@ -419,6 +429,7 @@ class MemoryToolSuggestionService(MemoryToolDuplicateMixin, MemoryToolApplicatio
                     suggestion_id=suggestion_id,
                     reason=reason,
                     force=force,
+                    idempotency_key=idempotency_key,
                 )
                 side_effect = "approved_suggestion"
                 message = "Suggestion approved. The returned fact is now canonical memory."

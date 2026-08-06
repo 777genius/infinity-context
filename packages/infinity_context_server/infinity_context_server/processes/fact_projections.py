@@ -49,11 +49,9 @@ class FactProjectionOutboxProcess:
         await self._projections.handle_graph_upsert(job)
 
     async def handle_legacy_upsert(self, job: ClaimedOutboxJob) -> None:
-        await self._cognitive.handle_fact_changed(job)
         await self._projections.handle_graph_upsert(job)
 
     async def handle_legacy_delete(self, job: ClaimedOutboxJob) -> None:
-        await self._cognitive.handle_fact_changed(job)
         await self._projections.handle_graph_delete(job)
 
 

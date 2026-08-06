@@ -61,6 +61,27 @@ def test_repository_token_locks_writes_captures_and_canonical_recall(
             },
             headers=root_headers,
         ).json()["data"]
+        invalid_mixed_scope = client.post(
+            "/v1/code-repositories/resolve",
+            json={
+                "space_id": space["id"],
+                "evidence": [
+                    {
+                        "kind": "local_registry",
+                        "digest": hashlib.sha256(b"mixed-branch-commit").hexdigest(),
+                    }
+                ],
+                "provider": "local",
+                "allow_create": True,
+                "initial_code_scope": {
+                    "scope_level": "branch",
+                    "branch": "main",
+                    "commit_sha": "a" * 40,
+                },
+            },
+            headers=root_headers,
+        )
+        assert invalid_mixed_scope.status_code == 409
         global_fact = client.post(
             "/v1/facts",
             json=_fact_payload(
@@ -230,7 +251,12 @@ def test_repository_token_locks_writes_captures_and_canonical_recall(
             headers={
                 **feature_headers,
                 "X-Infinity-Workspace-Claim": (
-                    feature_headers["X-Infinity-Workspace-Claim"][:-1] + "0"
+                    feature_headers["X-Infinity-Workspace-Claim"][:-1]
+                    + (
+                        "0"
+                        if feature_headers["X-Infinity-Workspace-Claim"][-1] != "0"
+                        else "1"
+                    )
                 ),
             },
         )

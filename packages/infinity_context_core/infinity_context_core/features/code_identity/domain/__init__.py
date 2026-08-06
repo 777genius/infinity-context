@@ -3,6 +3,8 @@
 from infinity_context_core.features.code_identity.domain.authorization import (
     CodeScopeAuthorization,
     CodeScopeAuthorizationStatus,
+    WorkspaceBindingSnapshot,
+    WorkspaceBindingStatus,
 )
 from infinity_context_core.features.code_identity.domain.feature import (
     FEATURE_ID,
@@ -38,4 +40,6 @@ __all__ = (
     "CodeWorktreeState",
     "RepositoryEvidenceKind",
     "RepositoryIdentityEvidence",
+    "WorkspaceBindingSnapshot",
+    "WorkspaceBindingStatus",
 )

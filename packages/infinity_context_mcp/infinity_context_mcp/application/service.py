@@ -509,11 +509,13 @@ class MemoryToolService(MemoryToolApplicationServiceBase):
         suggestion_id: str,
         reason: str | None = None,
         force: bool = False,
+        idempotency_key: str | None = None,
     ) -> dict[str, Any]:
         return await self._suggestion_service.approve_suggestion(
             suggestion_id=suggestion_id,
             reason=reason,
             force=force,
+            idempotency_key=idempotency_key,
         )
 
     async def reject_suggestion(
@@ -545,12 +547,14 @@ class MemoryToolService(MemoryToolApplicationServiceBase):
         action: str,
         reason: str | None = None,
         force: bool = False,
+        idempotency_key: str | None = None,
     ) -> dict[str, Any]:
         return await self._suggestion_service.review_suggestion(
             suggestion_id=suggestion_id,
             action=action,
             reason=reason,
             force=force,
+            idempotency_key=idempotency_key,
         )
 
     async def review_suggestions_batch(

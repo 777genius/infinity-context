@@ -37,4 +37,5 @@ s3 = [
 infinity_context_adapters = [
   "extraction/prompts/*.md",
   "extraction/schemas/*.json",
+  "postgres/migrations/*.sql",
 ]

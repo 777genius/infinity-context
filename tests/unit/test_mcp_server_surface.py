@@ -237,6 +237,15 @@ def test_mcp_tool_annotations_are_closed_domain_and_typed() -> None:
         assert "category" in list_suggestions.inputSchema["properties"]
         assert "tag" in list_suggestions.inputSchema["properties"]
         remember = next(tool for tool in tools if tool.name == "memory_remember_fact")
+        list_facts = next(tool for tool in tools if tool.name == "memory_list_facts")
+        update_fact = next(tool for tool in tools if tool.name == "memory_update_fact")
+        approve_suggestion = next(
+            tool for tool in tools if tool.name == "memory_approve_suggestion"
+        )
+        assert remember.annotations.idempotentHint is True
+        assert list_facts.annotations.idempotentHint is True
+        assert update_fact.annotations.idempotentHint is False
+        assert approve_suggestion.annotations.idempotentHint is True
         kind_schema = remember.inputSchema["properties"]["kind"]
         assert set(kind_schema["enum"]) == {
             "note",

@@ -6,6 +6,7 @@ from dataclasses import dataclass
 
 from infinity_context_core.features.code_identity.domain import (
     CodeRepositoryStatus,
+    CodeScope,
     CodeScopeAuthorization,
     CodeScopeAuthorizationStatus,
     CodeScopeLevel,
@@ -20,11 +21,8 @@ from infinity_context_core.features.code_identity.ports import (
 
 @dataclass(frozen=True, slots=True)
 class RegisterCodeScopeAuthorizationCommand:
-    repository_id: str
     space_id: str
-    code_scope_id: str
-    scope_level: CodeScopeLevel
-    evidence_digest: str
+    scope: CodeScope
 
 
 @dataclass(frozen=True, slots=True)
@@ -44,32 +42,39 @@ class RegisterCodeScopeAuthorizationHandler:
         self,
         command: RegisterCodeScopeAuthorizationCommand,
     ) -> RegisterCodeScopeAuthorizationResult:
-        repository = await self.repositories.get(command.repository_id)
+        scope = command.scope
+        if scope.repository_id is None or scope.scope_level not in {
+            CodeScopeLevel.REPOSITORY,
+            CodeScopeLevel.BRANCH,
+            CodeScopeLevel.COMMIT,
+        }:
+            raise ValueError("Only repository, branch or commit CodeScopes can be authorized")
+        repository = await self.repositories.get(scope.repository_id)
         if repository is None or repository.space_id != command.space_id:
             raise LookupError("CodeRepository not found in requested space")
         if repository.status is not CodeRepositoryStatus.ACTIVE:
             raise ValueError("Only an active CodeRepository can authorize CodeScopes")
         existing = await self.authorizations.get(
-            repository_id=command.repository_id,
+            repository_id=scope.repository_id,
             space_id=command.space_id,
-            code_scope_id=command.code_scope_id,
+            code_scope_id=scope.code_scope_id,
         )
         if existing is not None:
             if existing.status is not CodeScopeAuthorizationStatus.ACTIVE:
                 raise ValueError("CodeScope authorization is revoked")
             if (
-                existing.scope_level is not CodeScopeLevel(command.scope_level)
-                or existing.evidence_digest != command.evidence_digest
+                existing.scope_level is not scope.scope_level
+                or existing.evidence_digest != scope.authorization_evidence_digest
             ):
                 raise ValueError("CodeScope authorization conflicts with existing attestation")
             return RegisterCodeScopeAuthorizationResult(existing, created=False)
         authorization = CodeScopeAuthorization.create(
             authorization_id=self.ids.new_code_scope_authorization_id(),
-            repository_id=command.repository_id,
+            repository_id=scope.repository_id,
             space_id=command.space_id,
-            code_scope_id=command.code_scope_id,
-            scope_level=command.scope_level,
-            evidence_digest=command.evidence_digest,
+            code_scope_id=scope.code_scope_id,
+            scope_level=scope.scope_level,
+            evidence_digest=scope.authorization_evidence_digest,
             now=self.clock.now(),
         )
         saved = await self.authorizations.create(authorization)

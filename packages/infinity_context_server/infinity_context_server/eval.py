@@ -55,6 +55,7 @@ from infinity_context_server.eval_common import (
     _seed_eval_deleted_fact,
     _seed_eval_scope,
     _seed_eval_updated_fact,
+    _seed_kickoff_summary,
     _status_ok,
     _with_idempotency,
     _write_redacted_report,
@@ -112,6 +113,7 @@ from infinity_context_server.eval_semantic_retrieval_api_canary import (
 from infinity_context_server.eval_semantic_retrieval_canary import (
     run_semantic_retrieval_canary,
 )
+from infinity_context_server.eval_temporal import dispute_eval_fact, supersede_eval_fact
 from infinity_context_server.eval_types import (  # noqa: F401
     EvalCase,
     EvalCaseResult,
@@ -1463,29 +1465,23 @@ def _seed_quality_temporal_supersedes(
         idempotency_key="quality-temporal-current-v1",
         classification="internal",
     )
-    old_id = _response_data_id(old_fact)
-    new_id = _response_data_id(new_fact)
-    if not old_id or not new_id:
-        return False
-    relation = client.post(
-        f"/v1/facts/{new_id}/relations",
-        json={
-            "target_fact_id": old_id,
-            "relation_type": "supersedes",
-            "reason": "Quality eval current temporal memory invalidates the legacy owner.",
-            "observed_at": "2026-01-02T12:00:00+00:00",
-            "valid_from": "2026-01-01T00:00:00+00:00",
-        },
-        headers=headers,
+    relation = supersede_eval_fact(
+        client,
+        headers,
+        space_id=space_id,
+        memory_scope_id=memory_scope_id,
+        predecessor_response=old_fact,
+        successor_response=new_fact,
+        idempotency_key="quality-temporal-supersede-v2",
+        evidence_source_id="quality-temporal-supersede-review",
+        reason_code="accepted_replacement",
     )
     relative_old_fact = _remember_eval_fact_response(
         client,
         headers,
         space_id=space_id,
         memory_scope_id=memory_scope_id,
-        text=(
-            "QUALITY_FACT_RELATIVE_TIME_OLD: billing rollout owner was Alex last week."
-        ),
+        text="QUALITY_FACT_RELATIVE_TIME_OLD: billing rollout owner was Alex last week.",
         source_id="quality-relative-time-old",
         idempotency_key="quality-relative-time-old-v1",
         classification="internal",
@@ -1504,16 +1500,16 @@ def _seed_quality_temporal_supersedes(
     relative_current_id = _response_data_id(relative_current_fact)
     if not relative_old_id or not relative_current_id:
         return False
-    relative_relation = client.post(
-        f"/v1/facts/{relative_current_id}/relations",
-        json={
-            "target_fact_id": relative_old_id,
-            "relation_type": "supersedes",
-            "reason": "Current rollout ownership invalidates last week's owner.",
-            "observed_at": "2026-06-18T09:00:00+00:00",
-            "valid_from": "2026-06-18T00:00:00+00:00",
-        },
-        headers=headers,
+    relative_relation = supersede_eval_fact(
+        client,
+        headers,
+        space_id=space_id,
+        memory_scope_id=memory_scope_id,
+        predecessor_response=relative_old_fact,
+        successor_response=relative_current_fact,
+        idempotency_key="quality-relative-time-supersede-v2",
+        evidence_source_id="quality-relative-time-supersede-review",
+        reason_code="accepted_replacement",
     )
     return (
         _status_ok(old_fact.status_code)
@@ -1594,16 +1590,16 @@ def _seed_quality_linked_temporal_supersedes(
         },
         headers=_with_idempotency(headers, "quality-linked-temporal-link-v1"),
     )
-    relation = client.post(
-        f"/v1/facts/{new_id}/relations",
-        json={
-            "target_fact_id": old_id,
-            "relation_type": "supersedes",
-            "reason": "Quality eval current linked owner replaces old linked owner.",
-            "observed_at": "2026-01-04T12:00:00+00:00",
-            "valid_from": "2026-01-04T00:00:00+00:00",
-        },
-        headers=headers,
+    relation = supersede_eval_fact(
+        client,
+        headers,
+        space_id=space_id,
+        memory_scope_id=memory_scope_id,
+        predecessor_response=old_fact,
+        successor_response=new_fact,
+        idempotency_key="quality-linked-temporal-supersede-v2",
+        evidence_source_id="quality-linked-temporal-supersede-review",
+        reason_code="accepted_replacement",
     )
     return (
         _status_ok(old_fact.status_code)
@@ -1645,15 +1641,16 @@ def _seed_quality_contradiction_dispute(
     new_id = _response_data_id(new_fact)
     if not old_id or not new_id:
         return False
-    relation = client.post(
-        f"/v1/facts/{new_id}/relations",
-        json={
-            "target_fact_id": old_id,
-            "relation_type": "contradicts",
-            "reason": "Quality eval new billing owner contradicts the old owner.",
-            "observed_at": "2026-01-03T12:00:00+00:00",
-        },
-        headers=headers,
+    relation = dispute_eval_fact(
+        client,
+        headers,
+        space_id=space_id,
+        memory_scope_id=memory_scope_id,
+        challenged_response=old_fact,
+        challenger_response=new_fact,
+        idempotency_key="quality-contradiction-dispute-v2",
+        evidence_source_id="quality-contradiction-review",
+        reason_code="credible_conflict",
     )
     disputed = client.get(f"/v1/facts/{old_id}", headers=headers)
     return (
@@ -2174,6 +2171,9 @@ def _seed_long_memory_golden(
     )
     checks["kickoff_thread_fact"] = _status_ok(kickoff_response.status_code)
     kickoff_thread_id = _response_data_thread_id(kickoff_response) or fallback_kickoff_thread_id
+    checks["kickoff_durable_fact"] = _seed_kickoff_summary(
+        client, headers, space_id, alpha_memory_scope_id
+    )
 
     current_response = _remember_eval_fact_response(
         client,

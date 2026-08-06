@@ -7,7 +7,6 @@ from typing import Annotated, Any
 from fastapi import APIRouter, Depends, HTTPException, status
 from infinity_context_core.features.code_identity.public import (
     CodeRepositoryProvider,
-    CodeScope,
     CodeScopeDescriptor,
     CodeScopeLevel,
     RegisterCodeScopeAuthorizationCommand,
@@ -41,7 +40,7 @@ class RegisterCodeScopeAuthorizationRequest(BaseModel):
     space_id: str = Field(min_length=1, max_length=80)
     scope_level: CodeScopeLevel
     branch: str | None = Field(default=None, min_length=1, max_length=240)
-    commit_sha: str | None = Field(default=None, pattern=r"^[0-9a-fA-F]{7,64}$")
+    commit_sha: str | None = Field(default=None, pattern=r"^(?:[0-9a-fA-F]{40}|[0-9a-fA-F]{64})$")
 
 
 class InitialCodeScopeAuthorizationRequest(BaseModel):
@@ -49,7 +48,7 @@ class InitialCodeScopeAuthorizationRequest(BaseModel):
 
     scope_level: CodeScopeLevel
     branch: str | None = Field(default=None, min_length=1, max_length=240)
-    commit_sha: str | None = Field(default=None, pattern=r"^[0-9a-fA-F]{7,64}$")
+    commit_sha: str | None = Field(default=None, pattern=r"^(?:[0-9a-fA-F]{40}|[0-9a-fA-F]{64})$")
 
 
 class ResolveCodeRepositoryRequest(BaseModel):
@@ -140,12 +139,11 @@ async def register_code_scope_authorization(
     container: Annotated[Container, Depends(get_container)],
 ) -> dict[str, Any]:
     try:
-        scope = CodeScope(
-            repository_id=repository_id,
+        scope = CodeScopeDescriptor(
             scope_level=request.scope_level,
             branch=request.branch,
             commit_sha=request.commit_sha,
-        )
+        ).resolve(repository_id)
     except ValueError as exc:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)
@@ -153,11 +151,8 @@ async def register_code_scope_authorization(
     try:
         result = await container.code_scope_authorization.execute(
             RegisterCodeScopeAuthorizationCommand(
-                repository_id=repository_id,
                 space_id=request.space_id,
-                code_scope_id=scope.code_scope_id,
-                scope_level=scope.scope_level,
-                evidence_digest=scope.authorization_evidence_digest,
+                scope=scope,
             )
         )
     except LookupError as exc:

@@ -30,6 +30,9 @@ from infinity_context_core.features.memory_facts.domain import (
     MemoryFact,
     MemoryFactIdentity,
 )
+from infinity_context_core.features.memory_facts.domain.taxonomy import (
+    materialize_fact_retention_expiry,
+)
 from infinity_context_core.features.memory_facts.ports import (
     MemoryFactClockPort,
     MemoryFactIdempotencyConflict,
@@ -78,7 +81,10 @@ class RememberFactHandler:
                     quality=command.quality,
                     temporal_extent=command.temporal_extent,
                     freshness=command.freshness,
-                    retention=command.retention,
+                    retention=materialize_fact_retention_expiry(
+                        command.retention,
+                        now=now,
+                    ),
                     epistemic_context=command.epistemic_context,
                     code_scope=command.code_scope,
                 )
@@ -170,11 +176,12 @@ class UpdateFactHandler:
                     raise LookupError(f"Memory fact not found: {command.identity.fact_id}")
                 require_authorized_code_scope(current, command.authorized_code_scope)
                 aggregate = MemoryFact.restore(current)
+                now = self.clock.now()
                 updated = aggregate.update(
                     expected_version=command.expected_version,
                     text=command.text,
                     source_refs=command.source_refs,
-                    now=self.clock.now(),
+                    now=now,
                     kind=command.kind or aggregate.kind,
                     evidence_refs=(
                         command.evidence_refs
@@ -185,7 +192,10 @@ class UpdateFactHandler:
                         command.category if command.category is not None else aggregate.category
                     ),
                     tags=command.tags if command.tags is not None else aggregate.tags,
-                    retention=command.retention,
+                    retention=materialize_fact_retention_expiry(
+                        command.retention,
+                        now=now,
+                    ),
                 )
                 saved = await uow.facts.save(updated.to_snapshot())
                 now = saved.updated_at

@@ -75,11 +75,8 @@ class CodeRepositoryEnrollmentProcess:
                             ids=_RepositoryIds(),
                         ).execute(
                             RegisterCodeScopeAuthorizationCommand(
-                                repository_id=resolution.repository.repository_id,
                                 space_id=resolution.repository.space_id,
-                                code_scope_id=scope.code_scope_id,
-                                scope_level=scope.scope_level,
-                                evidence_digest=scope.authorization_evidence_digest,
+                                scope=scope,
                             )
                         )
                     ).authorization

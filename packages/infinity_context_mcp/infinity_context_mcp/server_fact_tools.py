@@ -788,7 +788,7 @@ def register_memory_fact_tools(mcp: FastMCP, tool_service: MemoryToolService) ->
         annotations=ToolAnnotations(
             readOnlyHint=False,
             destructiveHint=False,
-            idempotentHint=False,
+            idempotentHint=True,
             openWorldHint=False,
         ),
         structured_output=True,
@@ -802,12 +802,22 @@ def register_memory_fact_tools(mcp: FastMCP, tool_service: MemoryToolService) ->
             bool,
             Field(default=False, description="Allow explicit reviewer override."),
         ] = False,
+        idempotency_key: Annotated[
+            str | None,
+            Field(
+                default=None,
+                min_length=1,
+                max_length=160,
+                description="Stable retry key; reuse it after an unknown commit result.",
+            ),
+        ] = None,
     ) -> Annotated[CallToolResult, MemoryReviewSuggestionResponse]:
         return _tool_response(
             await tool_service.approve_suggestion(
                 suggestion_id=suggestion_id,
                 reason=reason,
                 force=force,
+                idempotency_key=idempotency_key,
             ),
             MemoryReviewSuggestionResponse,
         )
@@ -837,6 +847,15 @@ def register_memory_fact_tools(mcp: FastMCP, tool_service: MemoryToolService) ->
             bool,
             Field(default=False, description="Allow explicit reviewer override on approve."),
         ] = False,
+        idempotency_key: Annotated[
+            str | None,
+            Field(
+                default=None,
+                min_length=1,
+                max_length=160,
+                description="Stable retry key; valid only when action=approve.",
+            ),
+        ] = None,
     ) -> Annotated[CallToolResult, MemoryReviewSuggestionResponse]:
         return _tool_response(
             await tool_service.review_suggestion(
@@ -844,6 +863,7 @@ def register_memory_fact_tools(mcp: FastMCP, tool_service: MemoryToolService) ->
                 action=action,
                 reason=reason,
                 force=force,
+                idempotency_key=idempotency_key,
             ),
             MemoryReviewSuggestionResponse,
         )

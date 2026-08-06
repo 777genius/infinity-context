@@ -22,6 +22,9 @@ from infinity_context_server.processes.projections import (
     OutboxProjectionError,
     ProjectionOutboxProcess,
 )
+from infinity_context_server.processes.workspace_scope_claim_verification import (
+    WorkspaceScopeClaimVerificationProcess,
+)
 
 
 def build_outbox_event_dispatcher(container) -> OutboxEventDispatcher:
@@ -50,6 +53,7 @@ __all__ = (
     "OutboxHandlerRegistry",
     "OutboxProjectionError",
     "ProjectionOutboxProcess",
+    "WorkspaceScopeClaimVerificationProcess",
     "build_outbox_event_dispatcher",
     "merge_outbox_handlers",
 )

@@ -19,8 +19,16 @@ from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 from sqlalchemy.types import JSON
 
+from infinity_context_adapters.postgres.fact_audit_constraints import (
+    active_predecessor_index,
+    memory_fact_relation_tenant_constraints,
+    memory_fact_relation_version_constraint,
+)
 from infinity_context_adapters.postgres.fact_storage_constraints import (
     memory_fact_storage_constraints,
+)
+from infinity_context_adapters.postgres.suggestion_constraints import (
+    pending_suggestion_fingerprint_indexes,
 )
 
 
@@ -246,6 +254,12 @@ class MemoryFactRow(Base):
     __tablename__ = "memory_facts"
     __table_args__ = (
         CheckConstraint("version > 0", name="ck_fact_version_positive"),
+        UniqueConstraint(
+            "id",
+            "space_id",
+            "memory_scope_id",
+            name="uq_memory_facts_id_scope",
+        ),
         ForeignKeyConstraint(
             ["repository_id", "space_id"],
             ["code_repositories.id", "code_repositories.space_id"],
@@ -496,6 +510,9 @@ class MemoryChunkRow(Base):
     __tablename__ = "memory_chunks"
     __table_args__ = (
         UniqueConstraint("space_id", "memory_scope_id", "source_hash", name="uq_chunk_source_hash"),
+        CheckConstraint(
+            "(document_id IS NOT NULL) <> (episode_id IS NOT NULL)", name="ck_chunk_owner"
+        ),
         Index("ix_memory_chunks_scope_status", "space_id", "memory_scope_id", "status"),
         Index("ix_memory_chunks_thread_status", "thread_id", "status"),
         Index("ix_memory_chunks_document", "document_id", "status", "sequence"),
@@ -587,12 +604,13 @@ class MemoryFactRelationRow(Base):
     target_fact_version: Mapped[int | None] = mapped_column(Integer, nullable=True)
     temporal_decision_id: Mapped[str | None] = mapped_column(
         String(80),
-        ForeignKey("memory_fact_temporal_decisions.id"),
         nullable=True,
     )
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     __table_args__ = (
+        *memory_fact_relation_tenant_constraints(),
+        memory_fact_relation_version_constraint(),
         Index(
             "uq_memory_fact_relation_active",
             "source_fact_id",
@@ -620,6 +638,7 @@ class MemoryFactRelationRow(Base):
                 temporal_decision_id.is_not(None),
             ),
         ),
+        active_predecessor_index(relation_type, status, temporal_decision_id),
     )
 
 
@@ -631,6 +650,7 @@ class MemorySuggestionRow(Base):
         Index(
             "ix_memory_suggestions_expiry", "space_id", "memory_scope_id", "status", "expires_at"
         ),
+        *pending_suggestion_fingerprint_indexes(),
     )
 
     id: Mapped[str] = mapped_column(String(80), primary_key=True)

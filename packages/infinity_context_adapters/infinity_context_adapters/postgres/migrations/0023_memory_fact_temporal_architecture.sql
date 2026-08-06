@@ -340,6 +340,8 @@ CREATE UNIQUE INDEX uq_memory_fact_single_active_supersession
     AND status = 'active'
     AND temporal_decision_id IS NOT NULL;
 
+DROP INDEX IF EXISTS uq_memory_fact_single_active_predecessor;
+
 CREATE UNIQUE INDEX uq_memory_fact_single_active_predecessor
   ON memory_fact_relations(source_fact_id)
   WHERE relation_type = 'supersedes'

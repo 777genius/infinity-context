@@ -12,6 +12,7 @@ __all__ = [
     "build_async_engine",
     "build_session_factory",
     "create_schema",
+    "upgrade_schema",
 ]
 
 
@@ -27,5 +28,8 @@ def __getattr__(name: str) -> Any:
         "create_schema",
     }:
         module = import_module("infinity_context_adapters.postgres.unit_of_work")
+        return getattr(module, name)
+    if name == "upgrade_schema":
+        module = import_module("infinity_context_adapters.postgres.migration_runner")
         return getattr(module, name)
     raise AttributeError(name)

@@ -74,6 +74,13 @@ class PostgresMemoryFactReadModel:
             conditions.append(MemoryFactRow.status == spec.status)
         if spec.category is not None:
             conditions.append(MemoryFactRow.category == spec.category)
+        if spec.context_visible_at is not None:
+            conditions.append(
+                or_(
+                    MemoryFactRow.expires_at.is_(None),
+                    MemoryFactRow.expires_at > spec.context_visible_at,
+                )
+            )
         if spec.thread_id is not None:
             conditions.append(
                 or_(MemoryFactRow.thread_id == spec.thread_id, MemoryFactRow.thread_id.is_(None))

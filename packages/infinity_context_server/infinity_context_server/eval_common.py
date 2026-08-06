@@ -191,6 +191,27 @@ def _remember_eval_fact_response(
     )
 
 
+def _seed_kickoff_summary(
+    client: TestClient,
+    headers: dict[str, str],
+    space_id: str,
+    memory_scope_id: str,
+) -> bool:
+    return _remember_eval_fact(
+        client,
+        headers,
+        space_id=space_id,
+        memory_scope_id=memory_scope_id,
+        text=(
+            "LONGMEM_SESSION_KICKOFF_SUMMARY: durable project memory records that the "
+            "first interview session enabled Infinity Context active context."
+        ),
+        source_id="longmem-session-kickoff-summary",
+        idempotency_key="longmem-session-kickoff-summary-v1",
+        classification="internal",
+    )
+
+
 def _seed_eval_updated_fact(
     client: TestClient,
     headers: dict[str, str],
@@ -222,6 +243,12 @@ def _seed_eval_updated_fact(
     data = created.json()["data"]
     if data.get("text") == new_text:
         return True
+    current = client.get(f"/v1/facts/{data['id']}", headers=headers)
+    if current.status_code == 200:
+        current_data = current.json()["data"]
+        if current_data.get("text") == new_text:
+            return True
+        data = current_data
     updated = client.patch(
         f"/v1/facts/{data['id']}",
         json={

@@ -174,6 +174,9 @@ async def list_facts(
                 cursor_id=cursor_str(decoded_cursor, "id"),
                 category=category,
                 tag=tag,
+                context_visible_at=(
+                    container.clock.now() if status_filter == "active" else None
+                ),
                 repository_id=authorized.repository_id if authorized is not None else None,
                 code_scope_id=authorized.code_scope_id if authorized is not None else None,
                 restrict_to_repository_visibility=authorized is not None,

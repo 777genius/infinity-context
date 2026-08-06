@@ -6,6 +6,7 @@ from sqlalchemy import (
     CheckConstraint,
     DateTime,
     ForeignKey,
+    ForeignKeyConstraint,
     Index,
     Integer,
     String,
@@ -20,6 +21,52 @@ from infinity_context_adapters.postgres.models import Base, json_type
 class MemoryFactTemporalDecisionRow(Base):
     __tablename__ = "memory_fact_temporal_decisions"
     __table_args__ = (
+        UniqueConstraint(
+            "id",
+            "space_id",
+            "memory_scope_id",
+            name="uq_memory_fact_temporal_decisions_id_scope",
+        ),
+        UniqueConstraint(
+            "id",
+            "space_id",
+            "memory_scope_id",
+            "source_fact_id",
+            "source_fact_version",
+            "target_fact_id",
+            "target_fact_version",
+            "effective_at",
+            name="uq_memory_fact_temporal_decision_relation_identity",
+        ),
+        ForeignKeyConstraint(
+            ["source_fact_id", "space_id", "memory_scope_id"],
+            ["memory_facts.id", "memory_facts.space_id", "memory_facts.memory_scope_id"],
+            name="fk_memory_fact_temporal_decision_source_scope",
+        ),
+        ForeignKeyConstraint(
+            ["target_fact_id", "space_id", "memory_scope_id"],
+            ["memory_facts.id", "memory_facts.space_id", "memory_facts.memory_scope_id"],
+            name="fk_memory_fact_temporal_decision_target_scope",
+        ),
+        ForeignKeyConstraint(
+            ["source_fact_id", "source_fact_version"],
+            ["memory_fact_versions.fact_id", "memory_fact_versions.version"],
+            name="fk_memory_fact_temporal_decision_source_version",
+        ),
+        ForeignKeyConstraint(
+            ["target_fact_id", "target_fact_version"],
+            ["memory_fact_versions.fact_id", "memory_fact_versions.version"],
+            name="fk_memory_fact_temporal_decision_target_version",
+        ),
+        ForeignKeyConstraint(
+            ["compensates_decision_id", "space_id", "memory_scope_id"],
+            [
+                "memory_fact_temporal_decisions.id",
+                "memory_fact_temporal_decisions.space_id",
+                "memory_fact_temporal_decisions.memory_scope_id",
+            ],
+            name="fk_memory_fact_temporal_decision_compensation_scope",
+        ),
         UniqueConstraint(
             "space_id",
             "memory_scope_id",
@@ -87,7 +134,6 @@ class MemoryFactTemporalDecisionRow(Base):
     idempotency_key: Mapped[str] = mapped_column(String(160), nullable=False)
     compensates_decision_id: Mapped[str | None] = mapped_column(
         String(80),
-        ForeignKey("memory_fact_temporal_decisions.id"),
         nullable=True,
     )
     outbox_message_ids_json: Mapped[list[str]] = mapped_column(json_type(), nullable=False)

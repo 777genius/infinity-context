@@ -166,6 +166,25 @@ def test_enrollment_scope_descriptor_rejects_unsupported_or_unsafe_scope() -> No
         CodeScopeDescriptor(scope_level=CodeScopeLevel.FILE)
     with pytest.raises(ValueError, match="branch is invalid"):
         CodeScopeDescriptor(scope_level=CodeScopeLevel.BRANCH, branch="main\nforged")
+    with pytest.raises(ValueError, match="canonical Git branch"):
+        CodeScopeDescriptor(scope_level=CodeScopeLevel.BRANCH, branch="../forged")
+    with pytest.raises(ValueError, match="full 40 or 64"):
+        CodeScopeDescriptor(scope_level=CodeScopeLevel.COMMIT, commit_sha="deadbee")
+    with pytest.raises(ValueError, match="cannot include branch"):
+        CodeScopeDescriptor(
+            scope_level=CodeScopeLevel.COMMIT,
+            branch="main",
+            commit_sha="a" * 40,
+        )
+
+
+def test_enrollment_scope_descriptor_accepts_canonical_unicode_git_branch() -> None:
+    descriptor = CodeScopeDescriptor(
+        scope_level=CodeScopeLevel.BRANCH,
+        branch="feature/память-v2",
+    )
+
+    assert descriptor.resolve("repository-1").branch == "feature/память-v2"
 
 
 def _repository(

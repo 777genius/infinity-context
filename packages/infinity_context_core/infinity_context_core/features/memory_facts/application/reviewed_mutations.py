@@ -39,6 +39,9 @@ from infinity_context_core.features.memory_facts.domain import (
     MemoryFactSnapshot,
     MemoryFactSourceRef,
 )
+from infinity_context_core.features.memory_facts.domain.taxonomy import (
+    materialize_fact_retention_expiry,
+)
 from infinity_context_core.features.memory_facts.ports import (
     MemoryFactClockPort,
     MemoryFactIdPort,
@@ -147,16 +150,20 @@ class ReviewedFactMutationExecutor:
             allow_weaker=decision.allow_weaker_evidence,
         )
         candidate = decision.candidate
+        now = self.clock.now()
         changed = MemoryFact.restore(current).update(
             expected_version=target.expected_version,
             text=candidate.text,
             source_refs=candidate.source_refs,
-            now=self.clock.now(),
+            now=now,
             kind=candidate.kind,
             evidence_refs=candidate.evidence_refs,
             category=candidate.category,
             tags=candidate.tags,
-            retention=candidate.retention,
+            retention=materialize_fact_retention_expiry(
+                candidate.retention,
+                now=now,
+            ),
         )
         saved = await self.transaction.facts.save(changed.to_snapshot())
         return await self._emit_single(saved, FACT_UPDATED_EVENT, now=_updated_at(saved))
@@ -411,7 +418,10 @@ class ReviewedFactMutationExecutor:
                 valid_from=now,
                 basis="asserted",
             ),
-            retention=candidate.retention,
+            retention=materialize_fact_retention_expiry(
+                candidate.retention,
+                now=now,
+            ),
             epistemic_context=candidate.epistemic_context,
             code_scope=candidate.code_scope,
         )

@@ -61,6 +61,8 @@ def test_enrollment_registers_hashed_evidence_and_writes_private_binding(
     assert result["repository_id"] == "repository-1"
     assert str(result["code_scope_id"]).startswith("code-scope-v1-")
     assert requests[0]["initial_code_scope"]["scope_level"] == "branch"
+    assert requests[0]["initial_code_scope"]["branch"] == "main"
+    assert requests[0]["initial_code_scope"]["commit_sha"] is None
     assert bindings_file.stat().st_mode & 0o077 == 0
     payload = json.loads(bindings_file.read_text(encoding="utf-8"))
     serialized = json.dumps((payload, requests), sort_keys=True)

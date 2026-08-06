@@ -56,7 +56,7 @@ def enroll_project(
                     else "repository"
                 ),
                 "branch": probe.branch,
-                "commit_sha": probe.commit_sha,
+                "commit_sha": probe.commit_sha if probe.branch is None else None,
             },
         },
     )

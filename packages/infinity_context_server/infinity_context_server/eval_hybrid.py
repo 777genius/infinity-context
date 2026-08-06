@@ -92,6 +92,7 @@ def install_eval_hybrid_context(client: Any, *, chunk_id: str | None) -> bool:
         rag_recall=container.cognee_memory,
         packer=ContextPacker(),
         blob_storage=container.blob_storage,
+        fact_selection=container.canonical_fact_selection,
     )
     object.__setattr__(container, "vector_index", vector)
     object.__setattr__(container, "embedder", embedder)

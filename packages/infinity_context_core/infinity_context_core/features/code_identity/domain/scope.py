@@ -58,12 +58,14 @@ class CodeScope:
             value = getattr(self, field_name)
             if value is not None:
                 _require_safe_text(field_name, value)
+        if self.branch is not None:
+            _require_git_branch(self.branch)
         if self.commit_sha is not None:
             normalized = self.commit_sha.casefold()
-            if not 7 <= len(normalized) <= 64 or any(
+            if len(normalized) not in {40, 64} or any(
                 character not in "0123456789abcdef" for character in normalized
             ):
-                raise ValueError("commit_sha must be a 7-64 character hex digest")
+                raise ValueError("commit_sha must be a full 40 or 64 character hex digest")
             object.__setattr__(self, "commit_sha", normalized)
         for field_name in ("module_path", "file_path_glob"):
             value = getattr(self, field_name)
@@ -127,6 +129,14 @@ class CodeScopeDescriptor:
             CodeScopeLevel.COMMIT,
         }:
             raise ValueError("Enrollment CodeScope descriptor must be repository, branch or commit")
+        if self.scope_level is CodeScopeLevel.REPOSITORY and (
+            self.branch is not None or self.commit_sha is not None
+        ):
+            raise ValueError("Repository CodeScope descriptor cannot include branch or commit_sha")
+        if self.scope_level is CodeScopeLevel.BRANCH and self.commit_sha is not None:
+            raise ValueError("Branch CodeScope descriptor cannot include commit_sha")
+        if self.scope_level is CodeScopeLevel.COMMIT and self.branch is not None:
+            raise ValueError("Commit CodeScope descriptor cannot include branch")
         self.resolve("descriptor-validation")
 
     def resolve(self, repository_id: str) -> CodeScope:
@@ -164,6 +174,24 @@ def _require_safe_text(field_name: str, value: str) -> None:
         raise ValueError(f"{field_name} cannot be blank")
     if len(value) > 240 or any(character in value for character in ("\x00", "\n", "\r")):
         raise ValueError(f"{field_name} is invalid")
+
+
+def _require_git_branch(branch: str) -> None:
+    invalid_characters = set(" ~^:?*[\\")
+    if (
+        branch == "@"
+        or branch.startswith(("-", "/"))
+        or branch.endswith(("/", "."))
+        or ".." in branch
+        or "@{" in branch
+        or "//" in branch
+        or any(ord(character) < 32 or ord(character) == 127 for character in branch)
+        or any(character in invalid_characters for character in branch)
+    ):
+        raise ValueError("branch is not a canonical Git branch name")
+    components = branch.split("/")
+    if any(component.startswith(".") or component.endswith(".lock") for component in components):
+        raise ValueError("branch is not a canonical Git branch name")
 
 
 __all__ = (

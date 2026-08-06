@@ -1,12 +1,9 @@
 """HTTP auth dependency and Core Lite scope guard."""
 
 import hmac
-from hashlib import sha256
 from typing import Annotated, Any
 
 from fastapi import Depends, Header, Request
-from infinity_context_adapters.features.code_identity import PostgresCodeScopeAuthorization
-from infinity_context_adapters.postgres.feature_models import CodeRepositoryBindingRow
 from infinity_context_core.domain.errors import MemoryForbiddenError, MemoryUnauthorizedError
 from infinity_context_core.features.agent_authorization.public import (
     AgentAccessPolicy,
@@ -16,8 +13,9 @@ from infinity_context_core.features.agent_authorization.public import (
     WorkspaceScopeClaim,
     decode_workspace_scope_claim,
 )
-from infinity_context_core.features.code_identity.public import CodeScopeAuthorizationStatus
-from sqlalchemy.ext.asyncio import AsyncSession
+from infinity_context_core.processes.workspace_scope_claim_verification import (
+    VerifyWorkspaceScopeClaimCommand,
+)
 
 from infinity_context_server.api.dependencies import get_container
 from infinity_context_server.auth_scope import (
@@ -211,62 +209,21 @@ async def _verified_workspace_scope_claim(
         claim = decode_workspace_scope_claim(encoded)
     except (UnicodeError, ValueError) as exc:
         raise MemoryForbiddenError("Invalid workspace scope claim") from exc
-    if (
-        claim.resolution_method is not AgentScopeResolutionMethod.TRUSTED_BINDING
-        or claim.binding_id is None
-        or claim.binding_version is None
-        or claim.drift_status != "stable"
-    ):
-        raise MemoryForbiddenError("Workspace claim requires a stable trusted binding")
-    if claim.repository_id != token.repository_id:
-        raise MemoryForbiddenError("Workspace claim cannot override token repository")
-
     binding_grant = request.headers.get(WORKSPACE_SCOPE_GRANT_HEADER)
     if binding_grant is None or not binding_grant.startswith("wg_") or len(binding_grant) > 160:
         raise MemoryForbiddenError("Workspace scope claim requires a binding grant")
-    async with AsyncSession(container.engine) as session:
-        binding = await session.get(CodeRepositoryBindingRow, claim.binding_id)
-        scope_authorization = await PostgresCodeScopeAuthorization(session).get(
-            repository_id=claim.repository_id,
-            space_id=token.space_id or "",
-            code_scope_id=claim.code_scope_id,
+    return await container.workspace_scope_claim_verification.execute(
+        VerifyWorkspaceScopeClaimCommand(
+            claim=claim,
+            signed_value=f"{scheme}.{encoded}",
+            supplied_signature=supplied_signature,
+            binding_grant=binding_grant,
+            token_space_id=token.space_id or "",
+            token_repository_id=token.repository_id,
+            token_code_scope_id=token.code_scope_id,
+            now_epoch_seconds=int(container.clock.now().timestamp()),
         )
-    if (
-        binding is None
-        or binding.status != "active"
-        or binding.repository_id != token.repository_id
-        or binding.space_id != token.space_id
-        or binding.version != claim.binding_version
-        or not hmac.compare_digest(
-            binding.grant_hash,
-            sha256(binding_grant.encode("utf-8")).hexdigest(),
-        )
-    ):
-        raise MemoryForbiddenError("Workspace binding grant is invalid or inactive")
-    signed_value = f"{scheme}.{encoded}".encode("ascii")
-    expected_signature = hmac.new(
-        binding_grant.encode("utf-8"),
-        signed_value,
-        sha256,
-    ).hexdigest()
-    if not hmac.compare_digest(supplied_signature, expected_signature):
-        raise MemoryForbiddenError("Invalid workspace scope claim signature")
-
-    now_epoch = int(container.clock.now().timestamp())
-    age = now_epoch - claim.issued_at_epoch_seconds
-    if (
-        age > WORKSPACE_SCOPE_CLAIM_MAX_AGE_SECONDS
-        or age < -WORKSPACE_SCOPE_CLAIM_FUTURE_SKEW_SECONDS
-    ):
-        raise MemoryForbiddenError("Workspace scope claim is expired or not yet valid")
-    if token.code_scope_id is not None and claim.code_scope_id != token.code_scope_id:
-        raise MemoryForbiddenError("Workspace claim cannot override token CodeScope")
-    if token.code_scope_id is None and (
-        scope_authorization is None
-        or scope_authorization.status is not CodeScopeAuthorizationStatus.ACTIVE
-    ):
-        raise MemoryForbiddenError("Workspace CodeScope is not authorized by the server")
-    return claim
+    )
 
 
 def _ensure_repository_token_endpoint_isolated(

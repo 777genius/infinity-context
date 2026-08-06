@@ -171,6 +171,9 @@ def test_fact_lifecycle_ports_are_protocol_boundaries() -> None:
     ):
         assert inspect.iscoroutinefunction(getattr(ports.MemoryFactRepositoryPort, method_name))
     assert inspect.iscoroutinefunction(ports.MemoryFactSelectionPort.find_eligible)
+    assert inspect.iscoroutinefunction(
+        ports.MemoryFactSelectionPort.find_current_supersessions
+    )
     for method_name in ("create", "find_active_successor", "list_active"):
         assert inspect.iscoroutinefunction(
             getattr(ports.FactSupersessionRepositoryPort, method_name)
@@ -251,6 +254,7 @@ def test_memory_facts_public_api_exports_exact_feature_boundary() -> None:
         "FactTemporalExtent": domain,
         "FactTemporalKind": domain,
         "FactTemporalQueryMode": domain,
+        "FactTtlPolicy": domain,
         "ForgetFactCommand": application,
         "ForgetFactHandler": application,
         "ForgetFactResult": application,
@@ -286,6 +290,8 @@ def test_memory_facts_public_api_exports_exact_feature_boundary() -> None:
         "MemoryFactUnitOfWorkPort": ports,
         "MemoryFactVisibility": domain,
         "MemoryFactsFeature": domain,
+        "NormalizedFactTaxonomy": domain,
+        "normalize_fact_taxonomy_fields": domain,
         "RememberFactCommand": application,
         "RememberFactHandler": application,
         "RememberFactResult": application,

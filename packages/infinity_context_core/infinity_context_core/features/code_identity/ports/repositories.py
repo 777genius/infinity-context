@@ -9,6 +9,7 @@ from infinity_context_core.features.code_identity.domain import (
     CodeRepository,
     CodeScopeAuthorization,
     RepositoryIdentityEvidence,
+    WorkspaceBindingSnapshot,
 )
 
 
@@ -63,10 +64,16 @@ class CodeScopeAuthorizationIdPort(Protocol):
         """Return a new opaque authorization id."""
 
 
+class WorkspaceBindingReadPort(Protocol):
+    async def get(self, binding_id: str) -> WorkspaceBindingSnapshot | None:
+        """Load the server-owned binding snapshot used to verify one claim."""
+
+
 __all__ = (
     "CodeRepositoryClockPort",
     "CodeRepositoryIdPort",
     "CodeRepositoryPort",
     "CodeScopeAuthorizationIdPort",
     "CodeScopeAuthorizationPort",
+    "WorkspaceBindingReadPort",
 )

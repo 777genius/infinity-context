@@ -18,6 +18,31 @@ class CodeScopeAuthorizationStatus(StrEnum):
     REVOKED = "revoked"
 
 
+class WorkspaceBindingStatus(StrEnum):
+    ACTIVE = "active"
+    REVOKED = "revoked"
+
+
+@dataclass(frozen=True, slots=True)
+class WorkspaceBindingSnapshot:
+    binding_id: str
+    repository_id: str
+    space_id: str
+    version: int
+    grant_hash: str
+    status: WorkspaceBindingStatus
+
+    def __post_init__(self) -> None:
+        object.__setattr__(self, "status", WorkspaceBindingStatus(self.status))
+        for field_name in ("binding_id", "repository_id", "space_id"):
+            if not getattr(self, field_name).strip():
+                raise ValueError(f"Workspace binding {field_name} cannot be blank")
+        if self.version < 1:
+            raise ValueError("Workspace binding version must be positive")
+        if not _SHA256_RE.fullmatch(self.grant_hash):
+            raise ValueError("Workspace binding grant_hash must be lowercase sha256")
+
+
 @dataclass(frozen=True, slots=True)
 class CodeScopeAuthorization:
     """An admin-attested CodeScope accepted for one repository and space."""
@@ -78,4 +103,9 @@ class CodeScopeAuthorization:
         )
 
 
-__all__ = ("CodeScopeAuthorization", "CodeScopeAuthorizationStatus")
+__all__ = (
+    "CodeScopeAuthorization",
+    "CodeScopeAuthorizationStatus",
+    "WorkspaceBindingSnapshot",
+    "WorkspaceBindingStatus",
+)

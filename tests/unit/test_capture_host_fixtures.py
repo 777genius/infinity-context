@@ -19,7 +19,14 @@ class RecordingGateway(MemoryHookGateway):
         super().__init__(settings)
         self.capture_payloads: list[dict[str, Any]] = []
 
-    def _request_json(self, method: str, path: str, payload: dict[str, Any]) -> dict[str, Any]:
+    def _request_json(
+        self,
+        method: str,
+        path: str,
+        payload: dict[str, Any],
+        *,
+        scope=None,
+    ) -> dict[str, Any]:
         if method == "GET" and path == "/v1/capabilities":
             return {
                 "captures": {

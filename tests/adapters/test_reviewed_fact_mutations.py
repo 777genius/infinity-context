@@ -3,11 +3,14 @@
 from __future__ import annotations
 
 import asyncio
+from datetime import timedelta
 
+import pytest
 from infinity_context_adapters.features.memory_facts.in_memory_fact_store import (
     InMemoryMemoryFactUnitOfWorkFactory,
 )
 from infinity_context_core.features.memory_facts.public import (
+    FactRetention,
     FactTemporalDecisionType,
     FactTemporalExtent,
     MemoryFact,
@@ -96,6 +99,58 @@ async def _assert_reviewed_dispute() -> None:
     assert by_id["challenger"].visibility.status == "disputed"
     assert by_id["challenged"].visibility.status == "disputed"
     assert result.outbox_message_ids == ("outbox-challenger", "outbox-challenged")
+
+
+@pytest.mark.parametrize(
+    ("retention", "expected_expiry"),
+    (
+        (FactRetention(ttl_policy="task"), NOW + timedelta(days=3)),
+        (FactRetention(ttl_policy="durable"), None),
+        (
+            FactRetention(
+                ttl_policy="task",
+                context_expires_at=NOW + timedelta(hours=5),
+            ),
+            NOW + timedelta(hours=5),
+        ),
+    ),
+)
+def test_reviewed_approval_materializes_retention_expiry(
+    retention,
+    expected_expiry,
+) -> None:
+    async def assert_approval() -> None:
+        factory = InMemoryMemoryFactUnitOfWorkFactory()
+        source = _source("approved-source")
+        decision = ReviewedFactDecision(
+            candidate=ReviewedFactCandidate(
+                scope=_scope(),
+                text="Approved task memory.",
+                source_refs=(source,),
+                evidence_refs=(MemoryFactEvidenceRef(source_ref=source),),
+                retention=retention,
+            ),
+            target=None,
+            actor_id="reviewer-1",
+            reason_code="manual_review",
+            idempotency_key="review-approved-task-memory",
+            effective_at=NOW,
+        )
+        async with factory() as transaction:
+            result = await ReviewedFactMutationExecutor(
+                transaction=transaction,
+                clock=FakeClock(NOW),
+                ids=FakeIds(
+                    fact_ids=("approved",),
+                    outbox_message_ids=("outbox-approved",),
+                ),
+            ).remember(decision)
+            await transaction.commit()
+
+        assert result.primary_fact.visibility.ttl_policy == retention.ttl_policy
+        assert result.primary_fact.visibility.expires_at == expected_expiry
+
+    asyncio.run(assert_approval())
 
 
 def _fact(fact_id: str, text: str):

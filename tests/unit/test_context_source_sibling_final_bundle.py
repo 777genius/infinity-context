@@ -724,6 +724,14 @@ class _Hydrator:
     ) -> tuple[object, ...]:
         return items
 
+    async def revalidate_trusted_enrichment_items(
+        self,
+        *,
+        items: tuple[object, ...],
+        **_kwargs: object,
+    ) -> tuple[object, ...]:
+        return items
+
 
 class _ArtifactCollector:
     def __init__(self, items: tuple[ContextItem, ...]) -> None:
@@ -735,7 +743,11 @@ class _ArtifactCollector:
 
 class _LinkExpander:
     async def collect(self, *, items: tuple[object, ...], **_kwargs: object) -> SimpleNamespace:
-        return SimpleNamespace(items=(), diagnostics={})
+        return SimpleNamespace(
+            items=(),
+            diagnostics={},
+            temporal_replacements_applied=0,
+        )
 
 
 class _Ids:

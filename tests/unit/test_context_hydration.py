@@ -24,7 +24,9 @@ from infinity_context_core.domain.entities import (
 )
 from infinity_context_core.features.memory_facts.public import (
     FactRetention,
+    FactSupersessionRelation,
     FactTemporalExtent,
+    MemoryFactSelectionQuery,
 )
 from infinity_context_core.features.memory_facts.public import (
     MemoryFact as CanonicalMemoryFact,
@@ -348,6 +350,94 @@ def test_canonical_gate_keeps_review_history_separate_from_current_candidates() 
     assert result[1].diagnostics["fact_status"] == "superseded"
 
 
+def test_linked_fact_hydration_resolves_audited_chain_and_fails_closed_on_version() -> None:
+    first_effective = NOW - timedelta(days=5)
+    second_effective = NOW - timedelta(days=2)
+    old = _canonical_fact("old", valid_from=NOW - timedelta(days=20)).supersede(
+        expected_version=1,
+        effective_at=first_effective,
+        now=NOW,
+    )
+    middle = _canonical_fact("middle", valid_from=first_effective)
+    middle = middle.record_as_supersession_successor(
+        expected_version=1,
+        effective_at=first_effective,
+        now=NOW,
+    ).supersede(expected_version=2, effective_at=second_effective, now=NOW)
+    current = _canonical_fact(
+        "current", valid_from=second_effective
+    ).record_as_supersession_successor(
+        expected_version=1, effective_at=second_effective, now=NOW
+    )
+    valid_path = (
+        replace(
+            _supersession("relation-1", old, middle, effective_at=first_effective),
+            successor_fact_version=2,
+        ),
+        _supersession("relation-2", middle, current, effective_at=second_effective),
+    )
+    selection = _SupersessionSelection(
+        facts=(old.to_snapshot(), middle.to_snapshot(), current.to_snapshot()),
+        relations=valid_path,
+    )
+    hydrator = ContextHydrator(
+        uow_factory=_FakeUowFactory(
+            facts=_BatchOnlyFactRepo(facts={}),
+            chunks=_FailingChunkRepo(),
+        ),
+        clock=_FixedClock(),
+        fact_selection=selection,
+    )
+
+    resolved = asyncio.run(
+        hydrator.hydrate_linked_facts(
+            fact_ids=("old",),
+            query=_query(),
+            memory_scope_ids=("scope_1",),
+        )
+    )
+
+    assert resolved is not None
+    assert resolved["old"].fact.identity.fact_id == "current"
+    assert resolved["old"].supersession_path == valid_path
+
+    invalid_version = replace(valid_path[-1], successor_fact_version=999)
+    selection.relations = (*valid_path[:-1], invalid_version)
+    rejected = asyncio.run(
+        hydrator.hydrate_linked_facts(
+            fact_ids=("old",),
+            query=_query(),
+            memory_scope_ids=("scope_1",),
+        )
+    )
+    assert rejected == {}
+
+
+class _SupersessionSelection:
+    def __init__(
+        self,
+        *,
+        facts: tuple[object, ...],
+        relations: tuple[FactSupersessionRelation, ...],
+    ) -> None:
+        self._facts = create_in_memory_memory_fact_store(facts)
+        self.relations = relations
+
+    async def find_eligible(self, query: MemoryFactSelectionQuery):
+        return await self._facts.find_eligible(query)
+
+    async def find_current_supersessions(
+        self,
+        query: MemoryFactSelectionQuery,
+    ) -> tuple[FactSupersessionRelation, ...]:
+        return tuple(
+            relation
+            for relation in self.relations
+            if relation.predecessor_fact_id in query.fact_ids
+            and relation.effective_at <= query.reference_time
+        )
+
+
 class _BatchOnlyFactRepo:
     def __init__(self, *, facts: dict[str, MemoryFact]) -> None:
         self._facts = facts
@@ -493,6 +583,26 @@ def _canonical_fact(fact_id: str, *, valid_from: datetime) -> CanonicalMemoryFac
             observed_at=NOW,
             valid_from=valid_from,
         ),
+    )
+
+
+def _supersession(
+    relation_id: str,
+    predecessor: CanonicalMemoryFact,
+    successor: CanonicalMemoryFact,
+    *,
+    effective_at: datetime,
+) -> FactSupersessionRelation:
+    return FactSupersessionRelation(
+        relation_id=relation_id,
+        scope=predecessor.identity.scope,
+        successor_fact_id=successor.identity.fact_id,
+        successor_fact_version=successor.revision.value,
+        predecessor_fact_id=predecessor.identity.fact_id,
+        predecessor_fact_version=predecessor.revision.value,
+        effective_at=effective_at,
+        decision_id=f"decision-{relation_id}",
+        created_at=NOW,
     )
 
 

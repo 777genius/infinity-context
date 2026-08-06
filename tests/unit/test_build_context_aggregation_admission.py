@@ -748,6 +748,14 @@ class _Hydrator:
     async def revalidate_visible_items(self, items: tuple[object, ...], **_kwargs: object):
         return items
 
+    async def revalidate_trusted_enrichment_items(
+        self,
+        *,
+        items: tuple[object, ...],
+        **_kwargs: object,
+    ) -> tuple[object, ...]:
+        return items
+
 
 class _ArtifactCollector:
     async def collect(self, **_kwargs: object) -> tuple[object, ...]:
@@ -756,7 +764,11 @@ class _ArtifactCollector:
 
 class _LinkExpander:
     async def collect(self, *, items: tuple[object, ...], **_kwargs: object) -> SimpleNamespace:
-        return SimpleNamespace(items=items, diagnostics={})
+        return SimpleNamespace(
+            items=items,
+            diagnostics={},
+            temporal_replacements_applied=0,
+        )
 
 
 class _Ids:

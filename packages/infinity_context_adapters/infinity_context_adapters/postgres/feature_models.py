@@ -24,6 +24,16 @@ from infinity_context_adapters.postgres.models import Base, json_type
 class MemoryFactOperationReceiptRow(Base):
     __tablename__ = "memory_fact_operation_receipts"
     __table_args__ = (
+        ForeignKeyConstraint(
+            ["result_fact_id", "space_id", "memory_scope_id"],
+            ["memory_facts.id", "memory_facts.space_id", "memory_facts.memory_scope_id"],
+            name="fk_memory_fact_operation_receipt_fact_scope",
+        ),
+        ForeignKeyConstraint(
+            ["result_fact_id", "result_fact_version"],
+            ["memory_fact_versions.fact_id", "memory_fact_versions.version"],
+            name="fk_memory_fact_operation_receipt_fact_version",
+        ),
         UniqueConstraint(
             "space_id",
             "memory_scope_id",
@@ -36,6 +46,10 @@ class MemoryFactOperationReceiptRow(Base):
             "(thread_id IS NULL AND thread_scope_key = 'global') OR "
             "(thread_id IS NOT NULL AND thread_scope_key = 'thread:' || thread_id)",
             name="ck_memory_fact_operation_receipt_thread_scope_key",
+        ),
+        CheckConstraint(
+            "result_fact_version > 0",
+            name="ck_memory_fact_operation_receipt_result_version",
         ),
         Index("ix_memory_fact_operation_receipts_fact", "result_fact_id", "created_at"),
     )
@@ -111,6 +125,7 @@ class CodeRepositoryRow(Base):
     __table_args__ = (
         UniqueConstraint("space_id", "repo_key", name="uq_code_repository_key"),
         UniqueConstraint("id", "space_id", name="uq_code_repository_id_space"),
+        CheckConstraint("version > 0", name="ck_code_repository_version_positive"),
         Index("ix_code_repositories_space_status", "space_id", "status"),
     )
 
@@ -170,6 +185,10 @@ class CodeRepositoryBindingRow(Base):
             name="fk_code_repository_bindings_repository_space",
         ),
         UniqueConstraint("grant_hash", name="uq_code_repository_binding_grant"),
+        CheckConstraint(
+            "version > 0",
+            name="ck_code_repository_binding_version_positive",
+        ),
         Index("ix_code_repository_bindings_repository_status", "repository_id", "status"),
     )
 
@@ -200,6 +219,18 @@ class CodeScopeAuthorizationRow(Base):
             "repository_id",
             "code_scope_id",
             name="uq_code_scope_authorization_repository_scope",
+        ),
+        CheckConstraint(
+            "version > 0",
+            name="ck_code_scope_authorization_version_positive",
+        ),
+        CheckConstraint(
+            "scope_level IN ('repository', 'branch', 'commit')",
+            name="ck_code_scope_authorizations_level",
+        ),
+        CheckConstraint(
+            "status IN ('active', 'revoked')",
+            name="ck_code_scope_authorizations_status",
         ),
         Index(
             "ix_code_scope_authorizations_lookup",

@@ -103,7 +103,11 @@ def test_context_route_stage_boundaries_wrap_only_the_work_they_name(monkeypatch
     )
 
     response = asyncio.run(
-        context_api.build_context(context_api.ContextRequest(query="bounded"), container)
+        context_api.build_context(
+            context_api.ContextRequest(query="bounded"),
+            SimpleNamespace(state=SimpleNamespace()),
+            container,
+        )
     )
 
     assert events == [

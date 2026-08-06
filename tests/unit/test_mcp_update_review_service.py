@@ -569,6 +569,7 @@ def test_service_can_review_suggestions_by_id_only() -> None:
         approved = await service.approve_suggestion(
             suggestion_id="sug_1",
             reason="reviewed",
+            idempotency_key="approve-sug-1",
         )
         rejected = await service.reject_suggestion(
             suggestion_id="sug_2",
@@ -592,6 +593,7 @@ def test_service_can_review_suggestions_by_id_only() -> None:
             "suggestion_id": "sug_1",
             "reason": "reviewed",
             "force": False,
+            "idempotency_key": "approve-sug-1",
         }
 
     asyncio.run(run())
@@ -606,6 +608,7 @@ def test_service_review_suggestion_consolidates_actions() -> None:
             suggestion_id="sug_1",
             action="approve",
             reason="reviewed",
+            idempotency_key="review-approve-sug-1",
         )
         rejected = await service.review_suggestion(
             suggestion_id="sug_2",
@@ -627,6 +630,7 @@ def test_service_review_suggestion_consolidates_actions() -> None:
             "reject_suggestion",
             "expire_suggestion",
         ]
+        assert gateway.calls[0][1]["idempotency_key"] == "review-approve-sug-1"
 
     asyncio.run(run())
 
@@ -637,6 +641,24 @@ def test_service_review_suggestion_rejects_invalid_action() -> None:
         service = MemoryToolService(gateway=gateway, settings=MemoryMcpSettings())
 
         result = await service.review_suggestion(suggestion_id="sug_1", action="merge")
+
+        assert result["ok"] is False
+        assert result["error"]["code"] == "infinity_context_mcp.validation.invalid_input"
+        assert gateway.calls == []
+
+    asyncio.run(run())
+
+
+def test_service_review_suggestion_rejects_approval_key_for_other_actions() -> None:
+    async def run() -> None:
+        gateway = RecordingGateway()
+        service = MemoryToolService(gateway=gateway, settings=MemoryMcpSettings())
+
+        result = await service.review_suggestion(
+            suggestion_id="sug_1",
+            action="reject",
+            idempotency_key="approve-only-key",
+        )
 
         assert result["ok"] is False
         assert result["error"]["code"] == "infinity_context_mcp.validation.invalid_input"

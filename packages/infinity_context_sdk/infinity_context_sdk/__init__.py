@@ -886,11 +886,13 @@ class InfinityContextClient(
         *,
         reason: str | None = None,
         force: bool = False,
+        idempotency_key: str | None = None,
     ) -> dict[str, Any]:
         return self._request(
             "POST",
             f"/v1/suggestions/{suggestion_id}/approve",
             json={"reason": reason, "force": force},
+            idempotency_key=idempotency_key,
         )
 
     def review_suggestions_batch(

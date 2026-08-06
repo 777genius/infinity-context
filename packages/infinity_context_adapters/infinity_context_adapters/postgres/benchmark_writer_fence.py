@@ -87,7 +87,12 @@ BEGIN
         RETURN NEW;
     END IF;
 
-    IF TG_OP = 'UPDATE' THEN
+    IF TG_OP = 'UPDATE'
+        AND TG_TABLE_NAME IN (
+            'memory_spaces', 'memory_scopes', 'memory_threads', 'memory_facts',
+            'memory_episodes', 'memory_documents', 'memory_chunks'
+        )
+    THEN
         IF registry_state = 'cleanup_pending'
             AND registry_projection_cleanup_state IN ('pending', 'blocked')
             AND OLD.status = 'active'
