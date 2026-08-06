@@ -228,17 +228,7 @@ def main() -> int:
         if _bool(os.getenv("MEMORY_CLEAN_SMOKE_OPENAI_PREFLIGHT", "true")):
             asyncio.run(_run_openai_provider_preflight(server_env))
         _compose(project_name, compose_env, "down", "-v", "--remove-orphans", check=False)
-        _compose(
-            project_name,
-            compose_env,
-            "--memory_scope",
-            "full",
-            "up",
-            "-d",
-            "infinity_context_postgres",
-            "infinity_context_qdrant",
-            "infinity_context_neo4j",
-        )
+        _start_full_provider_stack(project_name, compose_env)
         _wait_for_postgres(project_name, compose_env)
         _wait_for_http(f"http://127.0.0.1:{ports['qdrant']}/", env=server_env)
         _wait_for_neo4j(ports["neo4j_bolt"], env=server_env)
@@ -2356,6 +2346,20 @@ def _compose(project_name: str, env: Mapping[str, str], *args: str, check: bool 
         raise CleanSmokeFailure(
             "docker compose failed: " + completed.stdout[-2000:] + completed.stderr[-2000:]
         )
+
+
+def _start_full_provider_stack(project_name: str, env: Mapping[str, str]) -> None:
+    _compose(
+        project_name,
+        env,
+        "--profile",
+        "full",
+        "up",
+        "-d",
+        "infinity_context_postgres",
+        "infinity_context_qdrant",
+        "infinity_context_neo4j",
+    )
 
 
 def _run_python(env: Mapping[str, str], *args: str, timeout: float = 240) -> None:
