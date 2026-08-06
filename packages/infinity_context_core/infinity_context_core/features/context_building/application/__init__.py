@@ -8,6 +8,10 @@ from infinity_context_core.features.context_building.application.candidate_fusio
     protected_candidate_head_keys,
     select_candidate_queries,
 )
+from infinity_context_core.features.context_building.application.canonical_candidate_pipeline import (  # noqa: E501
+    CandidateHitProviderRegistration,
+    CanonicalCandidatePipeline,
+)
 from infinity_context_core.features.context_building.application.handlers import (
     BuildContextHandler,
     LoadContextCandidatesHandler,
@@ -60,6 +64,8 @@ __all__ = (
     "CandidateQuery",
     "CandidateQueryPolicy",
     "CandidateRanking",
+    "CandidateHitProviderRegistration",
+    "CanonicalCandidatePipeline",
     "ContextCandidateProviderPipeline",
     "ContextBuildingUseCases",
     "CoverageReservationBudget",

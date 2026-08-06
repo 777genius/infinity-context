@@ -6,6 +6,10 @@ import json
 from types import TracebackType
 
 from infinity_context_core.domain.errors import MemoryConflictError
+from infinity_context_core.features.memory_facts.public import (
+    MemoryFactIdPort,
+    ReviewedFactMutationExecutor,
+)
 from infinity_context_core.ports.clock import ClockPort
 from sqlalchemy import JSON, bindparam, inspect, text
 from sqlalchemy.engine import Connection
@@ -17,6 +21,10 @@ from sqlalchemy.ext.asyncio import (
     create_async_engine,
 )
 
+import infinity_context_adapters.postgres.feature_models as _feature_models  # noqa: F401
+from infinity_context_adapters.features.memory_facts.postgres_fact_store import (
+    PostgresMemoryFactTransaction,
+)
 from infinity_context_adapters.postgres.asset_repositories import (
     PostgresAssetExtractionRepository,
     PostgresAssetRepository,
@@ -57,6 +65,9 @@ from infinity_context_adapters.postgres.repositories import (
     PostgresSuggestionRepository,
 )
 from infinity_context_adapters.postgres.scope_repositories import PostgresScopeRepository
+from infinity_context_adapters.postgres.suggestion_resolution_receipts import (
+    PostgresSuggestionResolutionReceiptRepository,
+)
 from infinity_context_adapters.postgres.usage_repositories import PostgresUsageRepository
 from infinity_context_adapters.postgres.user_repositories import PostgresUserRepository
 
@@ -110,6 +121,8 @@ def build_session_factory(engine: AsyncEngine) -> async_sessionmaker[AsyncSessio
 _ADDITIVE_SCHEMA_COLUMNS = {
     "memory_service_tokens": (
         ("memory_scope_ids_json", "JSON"),
+        ("repository_id", "VARCHAR(80)"),
+        ("code_scope_id", "VARCHAR(96)"),
         ("permissions_json", "JSON"),
         ("last_used_at", "TIMESTAMPTZ"),
         ("expires_at", "TIMESTAMPTZ"),
@@ -120,10 +133,28 @@ _ADDITIVE_SCHEMA_COLUMNS = {
         ("tags_json", "JSON NOT NULL DEFAULT '[]'"),
         ("ttl_policy", "VARCHAR(80)"),
         ("expires_at", "TIMESTAMPTZ"),
+        ("temporal_kind", "VARCHAR(20) NOT NULL DEFAULT 'state'"),
+        ("observed_at", "TIMESTAMPTZ"),
+        ("valid_from", "TIMESTAMPTZ"),
+        ("valid_to", "TIMESTAMPTZ"),
+        ("occurred_from", "TIMESTAMPTZ"),
+        ("occurred_to", "TIMESTAMPTZ"),
+        ("temporal_basis", "VARCHAR(80) NOT NULL DEFAULT 'migrated_legacy'"),
+        ("temporal_precision", "VARCHAR(40) NOT NULL DEFAULT 'unknown'"),
+        ("last_confirmed_at", "TIMESTAMPTZ"),
+        ("confirmation_basis", "VARCHAR(120)"),
+        ("purge_after", "TIMESTAMPTZ"),
+        ("epistemic_mode", "VARCHAR(40) NOT NULL DEFAULT 'world_claim'"),
+        ("asserted_by", "VARCHAR(160)"),
+        ("perspective_subject", "VARCHAR(160)"),
+        ("repository_id", "VARCHAR(80)"),
+        ("code_scope_id", "VARCHAR(96)"),
     ),
+    "memory_fact_versions": (("snapshot_json", "JSON NOT NULL DEFAULT '{}'"),),
     "memory_documents": (("classification", "VARCHAR(40) NOT NULL DEFAULT 'unknown'"),),
     "memory_chunks": (("classification", "VARCHAR(40) NOT NULL DEFAULT 'unknown'"),),
     "memory_outbox": (
+        ("message_key", "VARCHAR(160)"),
         ("workload_class", "VARCHAR(80) NOT NULL DEFAULT 'projection'"),
         ("fairness_key", "VARCHAR(160)"),
         ("last_safe_diagnostic_code", "VARCHAR(120)"),
@@ -150,9 +181,13 @@ _ADDITIVE_SCHEMA_COLUMNS = {
         ("retry_disposition", "VARCHAR(40)"),
     ),
     "memory_fact_relations": (
+        ("thread_id", "VARCHAR(80)"),
         ("observed_at", "TIMESTAMPTZ"),
         ("valid_from", "TIMESTAMPTZ"),
         ("valid_to", "TIMESTAMPTZ"),
+        ("source_fact_version", "INTEGER"),
+        ("target_fact_version", "INTEGER"),
+        ("temporal_decision_id", "VARCHAR(80)"),
     ),
     "memory_anchors": (
         ("confidence", "VARCHAR(40) NOT NULL DEFAULT 'medium'"),
@@ -557,12 +592,121 @@ async def create_schema(engine: AsyncEngine) -> None:
         await connection.run_sync(Base.metadata.create_all)
         await connection.run_sync(ensure_benchmark_projection_manifest_schema)
         await connection.run_sync(_ensure_additive_schema_columns)
+        await connection.run_sync(_backfill_memory_fact_temporal_columns)
+        await connection.run_sync(_ensure_memory_fact_temporal_indexes)
+        await connection.run_sync(_ensure_memory_fact_code_scope_indexes)
+        await connection.run_sync(_ensure_memory_fact_supersession_indexes)
         await connection.run_sync(_ensure_document_thread_unique_indexes)
         await connection.run_sync(_ensure_outbox_lifecycle_indexes)
         await connection.run_sync(_ensure_capture_indexes)
         await connection.run_sync(_ensure_suggestion_metadata_indexes)
         await connection.run_sync(ensure_canonical_keyword_trigram_access_path)
         await connection.run_sync(_ensure_managed_benchmark_writer_fence)
+
+
+def _backfill_memory_fact_temporal_columns(connection: Connection) -> None:
+    inspector = inspect(connection)
+    if "memory_facts" not in set(inspector.get_table_names()):
+        return
+    columns = _column_names(connection, "memory_facts")
+    if {"observed_at", "created_at"} <= columns:
+        connection.execute(
+            text(
+                """
+                UPDATE memory_facts
+                SET observed_at = created_at
+                WHERE observed_at IS NULL
+                """
+            )
+        )
+    if {"temporal_kind", "temporal_basis", "valid_from", "created_at"} <= columns:
+        connection.execute(
+            text(
+                """
+                UPDATE memory_facts
+                SET valid_from = created_at
+                WHERE temporal_kind = 'state'
+                  AND temporal_basis = 'migrated_legacy'
+                  AND valid_from IS NULL
+                """
+            )
+        )
+
+
+def _ensure_memory_fact_temporal_indexes(connection: Connection) -> None:
+    inspector = inspect(connection)
+    if "memory_facts" not in set(inspector.get_table_names()):
+        return
+    columns = _column_names(connection, "memory_facts")
+    required = {"space_id", "memory_scope_id", "status", "temporal_kind", "valid_from", "valid_to"}
+    if not required <= columns:
+        return
+    connection.execute(
+        text(
+            """
+            CREATE INDEX IF NOT EXISTS ix_memory_facts_temporal_selection
+            ON memory_facts (
+                space_id,
+                memory_scope_id,
+                status,
+                temporal_kind,
+                valid_from,
+                valid_to
+            )
+            """
+        )
+    )
+
+
+def _ensure_memory_fact_supersession_indexes(connection: Connection) -> None:
+    inspector = inspect(connection)
+    if "memory_fact_relations" not in set(inspector.get_table_names()):
+        return
+    columns = _column_names(connection, "memory_fact_relations")
+    required = {"target_fact_id", "relation_type", "status", "temporal_decision_id"}
+    if not required <= columns:
+        return
+    connection.execute(
+        text(
+            """
+            CREATE UNIQUE INDEX IF NOT EXISTS uq_memory_fact_single_active_supersession
+            ON memory_fact_relations(target_fact_id)
+            WHERE relation_type = 'supersedes'
+              AND status = 'active'
+              AND temporal_decision_id IS NOT NULL
+            """
+        )
+    )
+
+
+def _ensure_memory_fact_code_scope_indexes(connection: Connection) -> None:
+    inspector = inspect(connection)
+    if "memory_facts" not in set(inspector.get_table_names()):
+        return
+    columns = _column_names(connection, "memory_facts")
+    required = {
+        "space_id",
+        "memory_scope_id",
+        "repository_id",
+        "code_scope_id",
+        "status",
+    }
+    if not required <= columns:
+        return
+    connection.execute(
+        text(
+            """
+            CREATE INDEX IF NOT EXISTS ix_memory_facts_code_scope
+            ON memory_facts (
+                space_id,
+                memory_scope_id,
+                repository_id,
+                code_scope_id,
+                status
+            )
+            """
+        )
+    )
 
 
 def _ensure_managed_benchmark_writer_fence(connection: Connection) -> None:
@@ -582,6 +726,15 @@ def _ensure_outbox_lifecycle_indexes(connection: Connection) -> None:
             UPDATE memory_outbox
             SET fairness_key = aggregate_type || ':' || aggregate_id
             WHERE fairness_key IS NULL
+            """
+        )
+    )
+    connection.execute(
+        text(
+            """
+            CREATE UNIQUE INDEX IF NOT EXISTS uq_memory_outbox_message_key
+            ON memory_outbox(message_key)
+            WHERE message_key IS NOT NULL
             """
         )
     )
@@ -701,9 +854,11 @@ class PostgresUnitOfWork:
         *,
         session_factory: async_sessionmaker[AsyncSession],
         clock: ClockPort,
+        memory_fact_ids: MemoryFactIdPort | None = None,
     ) -> None:
         self._session_factory = session_factory
         self._clock = clock
+        self._memory_fact_ids = memory_fact_ids
         self._session: AsyncSession | None = None
         self._committed = False
 
@@ -725,9 +880,19 @@ class PostgresUnitOfWork:
         self.chunks = PostgresChunkRepository(self._session)
         self.captures = PostgresCaptureRepository(self._session)
         self.suggestions = PostgresSuggestionRepository(self._session)
+        self.suggestion_resolution_receipts = PostgresSuggestionResolutionReceiptRepository(
+            self._session
+        )
         self.usage = PostgresUsageRepository(self._session)
         self.idempotency = PostgresIdempotencyRepository(self._session, now=now)
         self.outbox = PostgresOutbox(self._session, now=now)
+        if self._memory_fact_ids is not None:
+            memory_fact_transaction = PostgresMemoryFactTransaction(self._session, now=now)
+            self.reviewed_facts = ReviewedFactMutationExecutor(
+                transaction=memory_fact_transaction,
+                clock=self._clock,
+                ids=self._memory_fact_ids,
+            )
         return self
 
     async def __aexit__(
@@ -778,9 +943,15 @@ class PostgresUnitOfWorkFactory:
         *,
         session_factory: async_sessionmaker[AsyncSession],
         clock: ClockPort,
+        memory_fact_ids: MemoryFactIdPort | None = None,
     ) -> None:
         self._session_factory = session_factory
         self._clock = clock
+        self._memory_fact_ids = memory_fact_ids
 
     def __call__(self) -> PostgresUnitOfWork:
-        return PostgresUnitOfWork(session_factory=self._session_factory, clock=self._clock)
+        return PostgresUnitOfWork(
+            session_factory=self._session_factory,
+            clock=self._clock,
+            memory_fact_ids=self._memory_fact_ids,
+        )

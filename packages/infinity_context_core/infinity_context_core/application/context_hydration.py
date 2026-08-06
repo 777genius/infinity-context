@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import replace
+from datetime import UTC, datetime
 
 from infinity_context_core.application.context_media_time import enrich_context_item_with_media_time
 from infinity_context_core.application.context_policy import (
@@ -25,7 +26,14 @@ from infinity_context_core.application.context_source_siblings import (
 from infinity_context_core.application.document_text import document_chunk_retrieval_text
 from infinity_context_core.application.dto import BuildContextQuery, ContextItem
 from infinity_context_core.application.source_refs import chunk_source_refs
-from infinity_context_core.domain.entities import MemoryChunk
+from infinity_context_core.domain.entities import MemoryChunk, SourceRef
+from infinity_context_core.features.memory_facts.public import (
+    FactCurrentnessPolicy,
+    FactTemporalQueryMode,
+    MemoryFactSelectionPort,
+    MemoryFactSelectionQuery,
+    MemoryFactSnapshot,
+)
 from infinity_context_core.ports.clock import ClockPort
 from infinity_context_core.ports.unit_of_work import UnitOfWorkFactoryPort
 
@@ -43,9 +51,11 @@ class ContextHydrator:
         *,
         uow_factory: UnitOfWorkFactoryPort,
         clock: ClockPort | None = None,
+        fact_selection: MemoryFactSelectionPort | None = None,
     ) -> None:
         self._uow_factory = uow_factory
         self._clock = clock
+        self._fact_selection = fact_selection
 
     async def hydrate_visible_chunks(
         self,
@@ -74,6 +84,29 @@ class ContextHydrator:
     ) -> tuple[tuple[ContextItem, ...], int]:
         if not fact_ids:
             return (), 0
+        if self._fact_selection is not None:
+            facts_by_id = await self._canonical_visible_facts(
+                fact_ids=fact_ids,
+                query=query,
+                memory_scope_ids=memory_scope_ids,
+            )
+            hydrated = tuple(
+                _canonical_fact_item(
+                    fact,
+                    query=query,
+                    reference_time=self._reference_time(query),
+                    score=0.78,
+                    diagnostics={
+                        "memory_scope_id": fact.identity.scope.memory_scope_id,
+                        "retrieval_source": "graph_hydrated",
+                        "retrieval_sources": ["graph_hydrated"],
+                        "canonical_hydration": True,
+                    },
+                )
+                for fact_id in fact_ids
+                if (fact := facts_by_id.get(fact_id)) is not None
+            )
+            return hydrated, len(fact_ids) - len(hydrated)
         async with self._uow_factory() as uow:
             hydrated: list[ContextItem] = []
             stale_count = 0
@@ -151,18 +184,31 @@ class ContextHydrator:
             )
         }
         fact_ids = tuple(dict.fromkeys(item.item_id for item in items if item.item_type == "fact"))
+        review_fact_statuses = {
+            item.item_id: status
+            for item in items
+            if item.item_type == "fact" and (status := _review_fact_status(item)) is not None
+        }
         visible_facts = {}
         if fact_ids:
-            async with self._uow_factory() as uow:
-                now = self._clock.now() if self._clock is not None else None
-                for fact in await uow.facts.get_by_ids(fact_ids):
-                    if is_context_fact_visible(
-                        fact,
-                        query=query,
-                        memory_scope_ids=memory_scope_ids,
-                        now=now,
-                    ):
-                        visible_facts[str(fact.id)] = fact
+            if self._fact_selection is not None:
+                visible_facts = await self._canonical_visible_facts(
+                    fact_ids=fact_ids,
+                    query=query,
+                    memory_scope_ids=memory_scope_ids,
+                    review_fact_statuses=review_fact_statuses,
+                )
+            else:
+                async with self._uow_factory() as uow:
+                    now = self._clock.now() if self._clock is not None else None
+                    for fact in await uow.facts.get_by_ids(fact_ids):
+                        if is_context_fact_visible(
+                            fact,
+                            query=query,
+                            memory_scope_ids=memory_scope_ids,
+                            now=now,
+                        ):
+                            visible_facts[str(fact.id)] = fact
         anchor_ids = tuple(
             dict.fromkeys(item.item_id for item in items if item.item_type == "anchor")
         )
@@ -192,6 +238,20 @@ class ContextHydrator:
             if item.item_type == "fact":
                 fact = visible_facts.get(item.item_id)
                 if fact is None:
+                    continue
+                if isinstance(fact, MemoryFactSnapshot):
+                    visible_items.append(
+                        _canonical_fact_item(
+                            fact,
+                            query=query,
+                            reference_time=self._reference_time(query),
+                            score=item.score,
+                            diagnostics={
+                                **(item.diagnostics or {}),
+                                "canonical_hydration": True,
+                            },
+                        )
+                    )
                     continue
                 snippet = query_focused_snippet(query=query.query, text=fact.text)
                 visible_items.append(
@@ -273,6 +333,176 @@ class ContextHydrator:
                     )
                 )
         return tuple(visible_items)
+
+    async def _canonical_visible_facts(
+        self,
+        *,
+        fact_ids: tuple[str, ...],
+        query: BuildContextQuery,
+        memory_scope_ids: tuple[str, ...],
+        review_fact_statuses: dict[str, str] | None = None,
+    ) -> dict[str, MemoryFactSnapshot]:
+        if self._fact_selection is None:
+            return {}
+        reference_time = self._reference_time(query)
+        review_statuses = review_fact_statuses or {}
+        review_ids = tuple(fact_id for fact_id in fact_ids if fact_id in review_statuses)
+        normal_ids = tuple(fact_id for fact_id in fact_ids if fact_id not in review_statuses)
+        visible: dict[str, MemoryFactSnapshot] = {}
+        if normal_ids:
+            mode = (
+                FactTemporalQueryMode.AS_OF
+                if query.as_of is not None
+                else FactTemporalQueryMode.CURRENT
+            )
+            facts = await self._select_facts(
+                fact_ids=normal_ids,
+                query=query,
+                memory_scope_ids=memory_scope_ids,
+                temporal_mode=mode,
+                reference_time=reference_time,
+            )
+            visible.update((fact.identity.fact_id, fact) for fact in facts)
+        if review_ids:
+            review_facts = await self._select_facts(
+                fact_ids=review_ids,
+                query=query,
+                memory_scope_ids=memory_scope_ids,
+                temporal_mode=FactTemporalQueryMode.HISTORY,
+                reference_time=reference_time,
+            )
+            visible.update(
+                (fact.identity.fact_id, fact)
+                for fact in review_facts
+                if fact.visibility.status == review_statuses[fact.identity.fact_id]
+            )
+        return visible
+
+    async def _select_facts(
+        self,
+        *,
+        fact_ids: tuple[str, ...],
+        query: BuildContextQuery,
+        memory_scope_ids: tuple[str, ...],
+        temporal_mode: FactTemporalQueryMode,
+        reference_time: datetime,
+    ) -> tuple[MemoryFactSnapshot, ...]:
+        if self._fact_selection is None:
+            return ()
+        return await self._fact_selection.find_eligible(
+            MemoryFactSelectionQuery(
+                space_id=str(query.space_id),
+                memory_scope_ids=memory_scope_ids,
+                thread_id=str(query.thread_id) if query.thread_id else None,
+                repository_id=query.repository_id,
+                code_scope_id=query.code_scope_id,
+                temporal_mode=temporal_mode,
+                reference_time=reference_time,
+                fact_ids=fact_ids,
+                limit=len(fact_ids),
+            )
+        )
+
+    def _reference_time(self, query: BuildContextQuery) -> datetime:
+        return query.as_of or (self._clock.now() if self._clock is not None else datetime.now(UTC))
+
+
+def _canonical_fact_item(
+    fact: MemoryFactSnapshot,
+    *,
+    query: BuildContextQuery,
+    reference_time: datetime,
+    score: float,
+    diagnostics: dict[str, object],
+) -> ContextItem:
+    source_refs = tuple(
+        SourceRef(
+            source_type=ref.source_type,
+            source_id=ref.source_id,
+            chunk_id=ref.chunk_id,
+            char_start=ref.char_start,
+            char_end=ref.char_end,
+            quote_preview=ref.quote_preview,
+            page_number=ref.page_number,
+            time_start_ms=ref.time_start_ms,
+            time_end_ms=ref.time_end_ms,
+            bbox=ref.bbox,
+        )
+        for ref in fact.source_refs
+    )
+    snippet = query_focused_snippet(query=query.query, text=fact.text)
+    temporal = fact.temporal_extent
+    currentness = (
+        FactCurrentnessPolicy().assess(
+            temporal,
+            reference_time=reference_time,
+            freshness=fact.freshness,
+        )
+        if temporal is not None
+        else None
+    )
+    return enrich_context_item_with_media_time(
+        ContextItem(
+            item_id=fact.identity.fact_id,
+            item_type="fact",
+            text=snippet.text if snippet is not None else fact.text,
+            score=score,
+            source_refs=source_refs_with_query_snippet(source_refs, snippet),
+            diagnostics={
+                **diagnostics,
+                "fact_status": fact.visibility.status,
+                "fact_version": fact.visibility.version,
+                "temporal_currentness": (
+                    currentness.state.value if currentness is not None else "unknown"
+                ),
+                "temporal_assurance": (
+                    currentness.assurance.value if currentness is not None else "unknown"
+                ),
+                "temporal_reason_codes": (
+                    list(currentness.reason_codes) if currentness is not None else ["unknown"]
+                ),
+                "temporal_kind": temporal.kind.value if temporal is not None else None,
+                "observed_at": temporal.observed_at.isoformat() if temporal is not None else None,
+                "valid_from": (
+                    temporal.valid_from.isoformat()
+                    if temporal is not None and temporal.valid_from is not None
+                    else None
+                ),
+                "valid_to": (
+                    temporal.valid_to.isoformat()
+                    if temporal is not None and temporal.valid_to is not None
+                    else None
+                ),
+                "last_confirmed_at": _confirmation_visible_at(
+                    fact.freshness.last_confirmed_at,
+                    reference_time=reference_time,
+                ),
+            },
+        ),
+        query_text=query.query,
+    )
+
+
+def _confirmation_visible_at(
+    confirmed_at: datetime | None,
+    *,
+    reference_time: datetime,
+) -> str | None:
+    if confirmed_at is None or confirmed_at > reference_time:
+        return None
+    return confirmed_at.isoformat()
+
+
+def _review_fact_status(item: ContextItem) -> str | None:
+    diagnostics = item.diagnostics if isinstance(item.diagnostics, dict) else {}
+    if diagnostics.get("review_only") is not True:
+        return None
+    retrieval_source = diagnostics.get("retrieval_source")
+    if retrieval_source == "superseded_review":
+        return "superseded"
+    if retrieval_source == "disputed_review":
+        return "disputed"
+    return None
 
 
 def _should_preserve_chunk_item_evidence(item: ContextItem) -> bool:

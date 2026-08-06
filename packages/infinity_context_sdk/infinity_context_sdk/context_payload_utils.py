@@ -27,6 +27,7 @@ _SENSITIVE_KEY_MARKERS = (
     "bearer",
 )
 
+
 def _int_mapping(value: object) -> dict[str, int]:
     result: dict[str, int] = {}
     for key, item in _bounded_mapping(value).items():

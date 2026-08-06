@@ -13,6 +13,7 @@ from infinity_context_core.application import (
 )
 from infinity_context_core.domain.entities import Confidence, SuggestionStatus, TrustLevel
 from infinity_context_core.domain.errors import MemoryValidationError
+from infinity_context_core.features.review_governance.public import SuggestionReviewScope
 from pydantic import BaseModel, ConfigDict, Field
 
 from infinity_context_server.features.memory_facts.compatibility import (
@@ -50,6 +51,7 @@ class CreateSuggestionRequest(BaseModel):
     created_from_capture_id: str | None = Field(default=None, max_length=80)
     candidate_fingerprint: str | None = Field(default=None, max_length=80)
     review_payload: dict[str, Any] | None = None
+    resolution_kind: str | None = Field(default=None, max_length=24)
     auto_approve: bool = False
 
 
@@ -73,6 +75,7 @@ class CreateSuggestionBatchItemRequest(BaseModel):
     created_from_capture_id: str | None = Field(default=None, max_length=80)
     candidate_fingerprint: str | None = Field(default=None, max_length=80)
     review_payload: dict[str, Any] | None = None
+    resolution_kind: str | None = Field(default=None, max_length=24)
     auto_approve: bool = False
 
 
@@ -96,6 +99,7 @@ class ReviewSuggestionRequest(BaseModel):
 
     reason: str | None = Field(default=None, max_length=320)
     force: bool = False
+    actor_id: str | None = Field(default=None, min_length=1, max_length=160)
 
 
 class ResolveSuggestionConflictRequest(BaseModel):
@@ -104,6 +108,7 @@ class ResolveSuggestionConflictRequest(BaseModel):
     action: str = Field(min_length=1, max_length=40)
     reason: str | None = Field(default=None, max_length=320)
     force: bool = False
+    actor_id: str | None = Field(default=None, min_length=1, max_length=160)
 
 
 class ResolveDuplicateMergeRequest(BaseModel):
@@ -112,6 +117,7 @@ class ResolveDuplicateMergeRequest(BaseModel):
     action: str = Field(min_length=1, max_length=40)
     reason: str | None = Field(default=None, max_length=320)
     force: bool = False
+    actor_id: str | None = Field(default=None, min_length=1, max_length=160)
 
 
 class ReviewSuggestionBatchItemRequest(BaseModel):
@@ -128,6 +134,7 @@ class ReviewSuggestionsBatchRequest(BaseModel):
 
     items: list[ReviewSuggestionBatchItemRequest] = Field(min_length=1, max_length=50)
     continue_on_error: bool = False
+    actor_id: str | None = Field(default=None, min_length=1, max_length=160)
 
 
 def create_suggestion_command_from_v1_request(
@@ -135,17 +142,19 @@ def create_suggestion_command_from_v1_request(
     *,
     space_id: Any,
     memory_scope_id: Any,
+    repository_id: str | None = None,
+    code_scope_id: str | None = None,
 ) -> CreateSuggestionCommand:
     validate_suggestion_confidence_and_trust(request.confidence, request.trust_level)
     validate_suggestion_operation(request.operation)
+    _validate_resolution_kind(request.resolution_kind)
+    _reject_client_owned_code_scope(request.review_payload)
     return CreateSuggestionCommand(
         space_id=space_id,
         memory_scope_id=memory_scope_id,
         candidate_text=request.candidate_text,
         kind=memory_kind_from_v1_request(request.kind),
-        source_refs=tuple(
-            source_ref_from_v1_request(ref) for ref in request.source_refs
-        ),
+        source_refs=tuple(source_ref_from_v1_request(ref) for ref in request.source_refs),
         confidence=request.confidence,
         trust_level=request.trust_level,
         safe_reason=request.safe_reason,
@@ -159,7 +168,12 @@ def create_suggestion_command_from_v1_request(
         expiry_reason=request.expiry_reason,
         created_from_capture_id=request.created_from_capture_id,
         candidate_fingerprint=request.candidate_fingerprint,
-        review_payload=request.review_payload,
+        review_payload=_server_owned_review_payload(
+            request.review_payload,
+            repository_id=repository_id,
+            code_scope_id=code_scope_id,
+            resolution_kind=request.resolution_kind,
+        ),
         auto_approve=request.auto_approve,
     )
 
@@ -169,6 +183,8 @@ def create_suggestions_batch_command_from_v1_request(
     *,
     space_id: Any,
     memory_scope_id: Any,
+    repository_id: str | None = None,
+    code_scope_id: str | None = None,
 ) -> CreateSuggestionsBatchCommand:
     return CreateSuggestionsBatchCommand(
         items=tuple(
@@ -176,6 +192,8 @@ def create_suggestions_batch_command_from_v1_request(
                 item,
                 space_id=space_id,
                 memory_scope_id=memory_scope_id,
+                repository_id=repository_id,
+                code_scope_id=code_scope_id,
             )
             for item in request.items
         ),
@@ -185,13 +203,17 @@ def create_suggestions_batch_command_from_v1_request(
 
 def review_suggestions_batch_command_from_v1_request(
     request: ReviewSuggestionsBatchRequest,
+    *,
+    actor_id: str | None = None,
+    review_scope: SuggestionReviewScope | None = None,
 ) -> ReviewSuggestionsBatchCommand:
     return ReviewSuggestionsBatchCommand(
         items=tuple(
-            _review_suggestion_batch_item_command_from_v1_request(item)
-            for item in request.items
+            _review_suggestion_batch_item_command_from_v1_request(item) for item in request.items
         ),
         continue_on_error=request.continue_on_error,
+        actor_id=actor_id or request.actor_id or "legacy-reviewer",
+        review_scope=review_scope,
     )
 
 
@@ -239,6 +261,36 @@ def _review_suggestion_batch_item_command_from_v1_request(
         reason=request.reason,
         force=request.force,
     )
+
+
+def _reject_client_owned_code_scope(review_payload: dict[str, Any] | None) -> None:
+    if review_payload is None:
+        return
+    if "repository_id" in review_payload or "code_scope_id" in review_payload:
+        raise MemoryValidationError("Suggestion review_payload cannot set repository or code scope")
+
+
+def _server_owned_review_payload(
+    review_payload: dict[str, Any] | None,
+    *,
+    repository_id: str | None,
+    code_scope_id: str | None,
+    resolution_kind: str | None,
+) -> dict[str, Any] | None:
+    if repository_id is None and resolution_kind is None:
+        return review_payload
+    payload = dict(review_payload or {})
+    if repository_id is not None:
+        payload["repository_id"] = repository_id
+        payload["code_scope_id"] = code_scope_id
+    if resolution_kind is not None:
+        payload["resolution_kind"] = resolution_kind
+    return payload
+
+
+def _validate_resolution_kind(value: str | None) -> None:
+    if value is not None and value not in {"correction", "supersede"}:
+        raise MemoryValidationError("Unknown suggestion resolution_kind")
 
 
 def _normalize_tags(tags: list[str]) -> list[str]:

@@ -1,0 +1,301 @@
+"""SQLAlchemy rows owned by feature slices added during the strangler migration."""
+
+from __future__ import annotations
+
+from datetime import datetime
+
+from sqlalchemy import (
+    CheckConstraint,
+    DateTime,
+    Float,
+    ForeignKey,
+    ForeignKeyConstraint,
+    Index,
+    Integer,
+    String,
+    Text,
+    UniqueConstraint,
+)
+from sqlalchemy.orm import Mapped, mapped_column
+
+from infinity_context_adapters.postgres.models import Base, json_type
+
+
+class MemoryFactOperationReceiptRow(Base):
+    __tablename__ = "memory_fact_operation_receipts"
+    __table_args__ = (
+        UniqueConstraint(
+            "space_id",
+            "memory_scope_id",
+            "thread_scope_key",
+            "operation",
+            "idempotency_key",
+            name="uq_memory_fact_operation_receipt_idempotency",
+        ),
+        CheckConstraint(
+            "(thread_id IS NULL AND thread_scope_key = 'global') OR "
+            "(thread_id IS NOT NULL AND thread_scope_key = 'thread:' || thread_id)",
+            name="ck_memory_fact_operation_receipt_thread_scope_key",
+        ),
+        Index("ix_memory_fact_operation_receipts_fact", "result_fact_id", "created_at"),
+    )
+
+    id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    space_id: Mapped[str] = mapped_column(String(80), nullable=False)
+    memory_scope_id: Mapped[str] = mapped_column(String(80), nullable=False)
+    thread_id: Mapped[str | None] = mapped_column(String(80), nullable=True)
+    thread_scope_key: Mapped[str] = mapped_column(String(87), nullable=False)
+    idempotency_key: Mapped[str] = mapped_column(String(160), nullable=False)
+    operation: Mapped[str] = mapped_column(String(40), nullable=False)
+    request_fingerprint: Mapped[str] = mapped_column(String(64), nullable=False)
+    result_fact_id: Mapped[str] = mapped_column(
+        String(80),
+        ForeignKey("memory_facts.id"),
+        nullable=False,
+    )
+    result_fact_version: Mapped[int] = mapped_column(Integer, nullable=False)
+    result_snapshot_json: Mapped[dict[str, object]] = mapped_column(json_type(), nullable=False)
+    outbox_message_ids_json: Mapped[list[str]] = mapped_column(json_type(), nullable=False)
+    tombstone_id: Mapped[str | None] = mapped_column(String(80), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+
+
+class SuggestionResolutionReceiptRow(Base):
+    __tablename__ = "suggestion_resolution_receipts"
+    __table_args__ = (
+        UniqueConstraint(
+            "suggestion_id",
+            "operation",
+            "idempotency_key",
+            name="uq_suggestion_resolution_receipt_idempotency",
+        ),
+        Index("ix_suggestion_resolution_receipts_created", "created_at"),
+    )
+
+    id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    suggestion_id: Mapped[str] = mapped_column(
+        String(80),
+        ForeignKey("memory_suggestions.id"),
+        nullable=False,
+    )
+    operation: Mapped[str] = mapped_column(String(80), nullable=False)
+    idempotency_key: Mapped[str] = mapped_column(String(160), nullable=False)
+    request_fingerprint: Mapped[str] = mapped_column(String(64), nullable=False)
+    result_suggestion_json: Mapped[dict[str, object]] = mapped_column(
+        json_type(),
+        nullable=False,
+    )
+    result_fact_json: Mapped[dict[str, object] | None] = mapped_column(
+        json_type(),
+        nullable=True,
+    )
+    indexing_status: Mapped[str | None] = mapped_column(String(40), nullable=True)
+    affected_fact_ids_json: Mapped[list[str]] = mapped_column(json_type(), nullable=False)
+    affected_fact_versions_json: Mapped[list[int]] = mapped_column(json_type(), nullable=False)
+    temporal_decision_id: Mapped[str | None] = mapped_column(
+        String(80),
+        ForeignKey("memory_fact_temporal_decisions.id"),
+        nullable=True,
+    )
+    relation_id: Mapped[str | None] = mapped_column(
+        String(80),
+        ForeignKey("memory_fact_relations.id"),
+        nullable=True,
+    )
+    outbox_message_ids_json: Mapped[list[str]] = mapped_column(json_type(), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+
+
+class CodeRepositoryRow(Base):
+    __tablename__ = "code_repositories"
+    __table_args__ = (
+        UniqueConstraint("space_id", "repo_key", name="uq_code_repository_key"),
+        UniqueConstraint("id", "space_id", name="uq_code_repository_id_space"),
+        Index("ix_code_repositories_space_status", "space_id", "status"),
+    )
+
+    id: Mapped[str] = mapped_column(String(80), primary_key=True)
+    space_id: Mapped[str] = mapped_column(
+        String(80),
+        ForeignKey("memory_spaces.id"),
+        nullable=False,
+    )
+    provider: Mapped[str] = mapped_column(String(40), nullable=False)
+    repo_key: Mapped[str] = mapped_column(String(160), nullable=False)
+    safe_label: Mapped[str | None] = mapped_column(String(240), nullable=True)
+    remote_url_hash: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    default_branch: Mapped[str | None] = mapped_column(String(240), nullable=True)
+    monorepo_root: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    status: Mapped[str] = mapped_column(String(40), nullable=False)
+    version: Mapped[int] = mapped_column(Integer, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+
+
+class CodeRepositoryAliasRow(Base):
+    __tablename__ = "code_repository_aliases"
+    __table_args__ = (
+        ForeignKeyConstraint(
+            ["repository_id", "space_id"],
+            ["code_repositories.id", "code_repositories.space_id"],
+            name="fk_code_repository_aliases_repository_space",
+        ),
+        UniqueConstraint(
+            "space_id",
+            "evidence_kind",
+            "evidence_digest",
+            name="uq_code_repository_alias_evidence",
+        ),
+        Index("ix_code_repository_aliases_repository", "repository_id"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    repository_id: Mapped[str] = mapped_column(
+        String(80),
+        ForeignKey("code_repositories.id"),
+        nullable=False,
+    )
+    space_id: Mapped[str] = mapped_column(String(80), nullable=False)
+    evidence_kind: Mapped[str] = mapped_column(String(40), nullable=False)
+    evidence_digest: Mapped[str] = mapped_column(String(64), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+
+
+class CodeRepositoryBindingRow(Base):
+    __tablename__ = "code_repository_bindings"
+    __table_args__ = (
+        ForeignKeyConstraint(
+            ["repository_id", "space_id"],
+            ["code_repositories.id", "code_repositories.space_id"],
+            name="fk_code_repository_bindings_repository_space",
+        ),
+        UniqueConstraint("grant_hash", name="uq_code_repository_binding_grant"),
+        Index("ix_code_repository_bindings_repository_status", "repository_id", "status"),
+    )
+
+    id: Mapped[str] = mapped_column(String(80), primary_key=True)
+    repository_id: Mapped[str] = mapped_column(
+        String(80),
+        ForeignKey("code_repositories.id"),
+        nullable=False,
+    )
+    space_id: Mapped[str] = mapped_column(String(80), nullable=False)
+    version: Mapped[int] = mapped_column(Integer, nullable=False)
+    grant_hash: Mapped[str] = mapped_column(String(64), nullable=False)
+    evidence_json: Mapped[list[dict[str, str]]] = mapped_column(json_type(), nullable=False)
+    status: Mapped[str] = mapped_column(String(40), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+
+
+class CodeScopeAuthorizationRow(Base):
+    __tablename__ = "code_scope_authorizations"
+    __table_args__ = (
+        ForeignKeyConstraint(
+            ["repository_id", "space_id"],
+            ["code_repositories.id", "code_repositories.space_id"],
+            name="fk_code_scope_authorizations_repository_space",
+        ),
+        UniqueConstraint(
+            "repository_id",
+            "code_scope_id",
+            name="uq_code_scope_authorization_repository_scope",
+        ),
+        Index(
+            "ix_code_scope_authorizations_lookup",
+            "repository_id",
+            "space_id",
+            "code_scope_id",
+            "status",
+        ),
+    )
+
+    id: Mapped[str] = mapped_column(String(80), primary_key=True)
+    repository_id: Mapped[str] = mapped_column(String(80), nullable=False)
+    space_id: Mapped[str] = mapped_column(String(80), nullable=False)
+    code_scope_id: Mapped[str] = mapped_column(String(96), nullable=False)
+    scope_level: Mapped[str] = mapped_column(String(40), nullable=False)
+    evidence_digest: Mapped[str] = mapped_column(String(64), nullable=False)
+    status: Mapped[str] = mapped_column(String(40), nullable=False)
+    version: Mapped[int] = mapped_column(Integer, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+
+
+class MemoryCognitiveProjectionRow(Base):
+    __tablename__ = "memory_cognitive_projections"
+    __table_args__ = (
+        Index(
+            "ix_memory_cognitive_projections_scope_state",
+            "space_id",
+            "memory_scope_id",
+            "state",
+            "created_at",
+        ),
+    )
+
+    id: Mapped[str] = mapped_column(String(80), primary_key=True)
+    space_id: Mapped[str] = mapped_column(String(80), nullable=False)
+    memory_scope_id: Mapped[str] = mapped_column(String(80), nullable=False)
+    thread_id: Mapped[str | None] = mapped_column(String(80), nullable=True)
+    kind: Mapped[str] = mapped_column(String(40), nullable=False)
+    derivation_origin: Mapped[str] = mapped_column(String(40), nullable=False)
+    content: Mapped[str] = mapped_column(Text, nullable=False)
+    content_hash: Mapped[str] = mapped_column(String(80), nullable=False)
+    projection_version: Mapped[str] = mapped_column(String(80), nullable=False)
+    confidence: Mapped[float] = mapped_column(Float, nullable=False)
+    valid_from: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    valid_to: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    state: Mapped[str] = mapped_column(String(40), nullable=False, default="active")
+    invalidated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    invalidation_reason: Mapped[str | None] = mapped_column(String(120), nullable=True)
+    invalidation_event_id: Mapped[str | None] = mapped_column(String(160), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+
+
+class MemoryCognitiveDependencyRow(Base):
+    __tablename__ = "memory_cognitive_dependencies"
+    __table_args__ = (
+        UniqueConstraint(
+            "projection_id",
+            "evidence_type",
+            "evidence_id",
+            "evidence_version",
+            name="uq_memory_cognitive_dependency",
+        ),
+        Index(
+            "ix_memory_cognitive_dependencies_source",
+            "space_id",
+            "memory_scope_id",
+            "evidence_type",
+            "evidence_id",
+        ),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    projection_id: Mapped[str] = mapped_column(
+        String(80),
+        ForeignKey("memory_cognitive_projections.id"),
+        nullable=False,
+    )
+    space_id: Mapped[str] = mapped_column(String(80), nullable=False)
+    memory_scope_id: Mapped[str] = mapped_column(String(80), nullable=False)
+    thread_id: Mapped[str | None] = mapped_column(String(80), nullable=True)
+    evidence_type: Mapped[str] = mapped_column(String(80), nullable=False)
+    evidence_id: Mapped[str] = mapped_column(String(160), nullable=False)
+    evidence_version: Mapped[int] = mapped_column(Integer, nullable=False)
+    citation: Mapped[str] = mapped_column(String(500), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+
+
+__all__ = (
+    "CodeRepositoryAliasRow",
+    "CodeRepositoryBindingRow",
+    "CodeRepositoryRow",
+    "CodeScopeAuthorizationRow",
+    "MemoryCognitiveDependencyRow",
+    "MemoryCognitiveProjectionRow",
+    "MemoryFactOperationReceiptRow",
+    "SuggestionResolutionReceiptRow",
+)

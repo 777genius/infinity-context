@@ -10,6 +10,7 @@ from dataclasses import dataclass
 from datetime import datetime
 from hashlib import sha256
 
+from infinity_context_adapters.postgres.feature_models import CodeRepositoryRow
 from infinity_context_adapters.postgres.models import (
     MemoryScopeRow,
     MemoryServiceTokenRow,
@@ -25,6 +26,9 @@ MEMORY_PERMISSION_WRITE = "memory:write"
 MEMORY_PERMISSION_DELETE = "memory:delete"
 MEMORY_PERMISSION_DIAGNOSTICS = "memory:diagnostics"
 MEMORY_PERMISSION_ADMIN = "memory:admin"
+MEMORY_PERMISSION_CAPTURE = "memory:capture"
+MEMORY_PERMISSION_FACT_WRITE = "memory:fact_write"
+MEMORY_PERMISSION_GOVERN = "memory:govern"
 ALL_MEMORY_PERMISSIONS = frozenset(
     {
         MEMORY_PERMISSION_READ,
@@ -32,6 +36,9 @@ ALL_MEMORY_PERMISSIONS = frozenset(
         MEMORY_PERMISSION_DELETE,
         MEMORY_PERMISSION_DIAGNOSTICS,
         MEMORY_PERMISSION_ADMIN,
+        MEMORY_PERMISSION_CAPTURE,
+        MEMORY_PERMISSION_FACT_WRITE,
+        MEMORY_PERMISSION_GOVERN,
     }
 )
 
@@ -44,6 +51,8 @@ class CreatedServiceToken:
     memory_scope_ids: tuple[str, ...] | None
     description: str
     permissions: tuple[str, ...]
+    repository_id: str | None = None
+    code_scope_id: str | None = None
 
 
 @dataclass(frozen=True)
@@ -52,6 +61,9 @@ class ActiveServiceToken:
     space_id: str | None
     memory_scope_ids: frozenset[str] | None
     permissions: frozenset[str]
+    repository_id: str | None = None
+    code_scope_id: str | None = None
+    binding_active: bool = True
 
 
 def token_hash(token: str) -> str:
@@ -73,17 +85,49 @@ async def get_active_db_token(container: Container, token: str) -> ActiveService
             return None
         if _is_expired(row.expires_at, now):
             return None
+        space_row = await _load_space(session, row.space_id) if row.space_id else None
+        binding_active = row.space_id is None or (
+            space_row is not None and space_row.status == "active"
+        )
         token_id = row.id
-        space_id = row.space_id
-        memory_scope_ids = _memory_scope_ids_from_row(row.memory_scope_ids_json)
+        space_id = space_row.id if space_row is not None else None
+        stored_memory_scope_ids = _memory_scope_ids_from_row(row.memory_scope_ids_json)
+        memory_scope_ids = await _canonical_memory_scope_ids(
+            session,
+            space_id=space_id,
+            memory_scope_refs=stored_memory_scope_ids,
+            active_only=False,
+        )
+        if stored_memory_scope_ids is not None and memory_scope_ids is None:
+            memory_scope_ids = stored_memory_scope_ids
+            binding_active = False
+        elif memory_scope_ids is not None:
+            binding_active = binding_active and await _memory_scopes_are_active(
+                session,
+                memory_scope_ids,
+            )
+        if row.repository_id is not None:
+            repository = await session.get(CodeRepositoryRow, row.repository_id)
+            if (
+                repository is None
+                or repository.status != "active"
+                or repository.space_id != space_id
+                or memory_scope_ids is None
+            ):
+                binding_active = False
         permissions = _permissions_from_row(row.permissions_json)
+        repository_id = row.repository_id
+        code_scope_id = row.code_scope_id
         row.last_used_at = now
         await session.commit()
         return ActiveServiceToken(
             token_id=token_id,
             space_id=space_id,
             memory_scope_ids=memory_scope_ids,
+            repository_id=repository_id,
+            code_scope_id=code_scope_id,
             permissions=permissions,
+            binding_active=binding_active,
         )
 
 
@@ -99,6 +143,8 @@ async def create_service_token(
     description: str,
     space_id: str | None,
     memory_scope_ids: tuple[str, ...] | None = None,
+    repository_id: str | None = None,
+    code_scope_id: str | None = None,
     expires_at: datetime | None = None,
     permissions: tuple[str, ...] | None = None,
 ) -> CreatedServiceToken:
@@ -107,29 +153,55 @@ async def create_service_token(
     normalized_memory_scope_ids = _normalize_memory_scope_ids(memory_scope_ids)
     if normalized_memory_scope_ids is not None and space_id is None:
         raise ValueError("MemoryScope scoped service token requires a space scope")
+    if repository_id is not None and (space_id is None or normalized_memory_scope_ids is None):
+        raise ValueError("Repository-scoped service token requires Space and MemoryScope scope")
+    if code_scope_id is not None and repository_id is None:
+        raise ValueError("CodeScope-scoped service token requires a repository scope")
+    if code_scope_id is not None and (
+        not code_scope_id.strip()
+        or len(code_scope_id) > 96
+        or any(marker in code_scope_id for marker in ("/", "\\", "://", "@"))
+    ):
+        raise ValueError("Service token code_scope_id must be an opaque identifier")
     async with AsyncSession(engine) as session:
         space_row = await _load_active_space(session, space_id) if space_id else None
         if space_id is not None and space_row is None:
             raise ValueError("Scoped service token space must exist and be active")
-        if normalized_memory_scope_ids is not None:
-            for memory_scope_id in normalized_memory_scope_ids:
-                if not await _memory_scope_ref_exists_in_space(
-                    session,
-                    space_id=space_row.id,
-                    memory_scope_ref=memory_scope_id,
-                ):
-                    raise ValueError(
-                        "MemoryScope scoped service token memory_scopes must exist and be active"
-                    )
+        canonical_memory_scope_ids = await _canonical_memory_scope_ids(
+            session,
+            space_id=space_row.id if space_row is not None else None,
+            memory_scope_refs=(
+                frozenset(normalized_memory_scope_ids)
+                if normalized_memory_scope_ids is not None
+                else None
+            ),
+        )
+        if normalized_memory_scope_ids is not None and canonical_memory_scope_ids is None:
+            raise ValueError(
+                "MemoryScope scoped service token memory_scopes must exist and be active"
+            )
+        if repository_id is not None:
+            repository = await session.get(CodeRepositoryRow, repository_id)
+            if (
+                repository is None
+                or repository.space_id != space_row.id
+                or repository.status != "active"
+            ):
+                raise ValueError(
+                    "Repository-scoped service token repository must be active in its space"
+                )
+        canonical_space_id = space_row.id if space_row is not None else None
         session.add(
             MemoryServiceTokenRow(
                 id=token_id,
-                space_id=space_id,
+                space_id=canonical_space_id,
                 memory_scope_ids_json=(
-                    list(normalized_memory_scope_ids)
-                    if normalized_memory_scope_ids is not None
+                    sorted(canonical_memory_scope_ids)
+                    if canonical_memory_scope_ids is not None
                     else None
                 ),
+                repository_id=repository_id,
+                code_scope_id=code_scope_id,
                 description=description,
                 token_hash=token_hash(raw_token),
                 permissions_json=list(normalized_permissions),
@@ -145,7 +217,11 @@ async def create_service_token(
         token_id=token_id,
         token=raw_token,
         space_id=space_id,
-        memory_scope_ids=normalized_memory_scope_ids,
+        memory_scope_ids=(
+            normalized_memory_scope_ids if normalized_memory_scope_ids is not None else None
+        ),
+        repository_id=repository_id,
+        code_scope_id=code_scope_id,
         description=description,
         permissions=normalized_permissions,
     )
@@ -153,8 +229,10 @@ async def create_service_token(
 
 async def _load_active_space(
     session: AsyncSession,
-    value: str,
+    value: str | None,
 ) -> MemorySpaceRow | None:
+    if value is None:
+        return None
     return (
         await session.execute(
             select(MemorySpaceRow).where(
@@ -165,25 +243,61 @@ async def _load_active_space(
     ).scalar_one_or_none()
 
 
-async def _memory_scope_ref_exists_in_space(
+async def _load_space(
     session: AsyncSession,
-    *,
-    space_id: str,
-    memory_scope_ref: str,
-) -> bool:
-    memory_scope = (
+    value: str | None,
+) -> MemorySpaceRow | None:
+    if value is None:
+        return None
+    return (
         await session.execute(
-            select(MemoryScopeRow.id).where(
-                MemoryScopeRow.space_id == space_id,
-                or_(
-                    MemoryScopeRow.id == memory_scope_ref,
-                    MemoryScopeRow.external_ref == memory_scope_ref,
-                ),
-                MemoryScopeRow.status == "active",
+            select(MemorySpaceRow).where(
+                or_(MemorySpaceRow.id == value, MemorySpaceRow.slug == value),
             )
         )
     ).scalar_one_or_none()
-    return memory_scope is not None
+
+
+async def _canonical_memory_scope_ids(
+    session: AsyncSession,
+    *,
+    space_id: str | None,
+    memory_scope_refs: frozenset[str] | None,
+    active_only: bool = True,
+) -> frozenset[str] | None:
+    if memory_scope_refs is None:
+        return None
+    if space_id is None:
+        return None
+    conditions = [
+        MemoryScopeRow.space_id == space_id,
+        or_(
+            MemoryScopeRow.id.in_(memory_scope_refs),
+            MemoryScopeRow.external_ref.in_(memory_scope_refs),
+        ),
+    ]
+    if active_only:
+        conditions.append(MemoryScopeRow.status == "active")
+    rows = (await session.execute(select(MemoryScopeRow.id).where(*conditions))).scalars()
+    canonical_ids = frozenset(rows)
+    return canonical_ids if len(canonical_ids) == len(memory_scope_refs) else None
+
+
+async def _memory_scopes_are_active(
+    session: AsyncSession,
+    memory_scope_ids: frozenset[str],
+) -> bool:
+    active_ids = frozenset(
+        (
+            await session.execute(
+                select(MemoryScopeRow.id).where(
+                    MemoryScopeRow.id.in_(memory_scope_ids),
+                    MemoryScopeRow.status == "active",
+                )
+            )
+        ).scalars()
+    )
+    return active_ids == memory_scope_ids
 
 
 async def list_service_tokens(
@@ -206,6 +320,8 @@ async def list_service_tokens(
                 is not None
                 else None
             ),
+            "repository_id": row.repository_id,
+            "code_scope_id": row.code_scope_id,
             "description": row.description,
             "permissions": sorted(_permissions_from_row(row.permissions_json)),
             "status": row.status,

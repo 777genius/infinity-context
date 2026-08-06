@@ -62,6 +62,10 @@ class ActiveFactSearch:
     thread_id: str | None
     query: str
     limit: int
+    reference_time: datetime | None = None
+    temporal_mode: str = "current"
+    repository_id: str | None = None
+    code_scope_id: str | None = None
     category: str | None = None
     tags_any: tuple[str, ...] = ()
     tags_all: tuple[str, ...] = ()
@@ -229,6 +233,10 @@ class FactRepositoryPort(Protocol):
         thread_id: str | None,
         query: str,
         limit: int,
+        reference_time: datetime | None = None,
+        temporal_mode: str = "current",
+        repository_id: str | None = None,
+        code_scope_id: str | None = None,
         category: str | None = None,
         tags_any: tuple[str, ...] = (),
         tags_all: tuple[str, ...] = (),
@@ -248,6 +256,9 @@ class FactRepositoryPort(Protocol):
         cursor_id: str | None = None,
         category: str | None = None,
         tag: str | None = None,
+        enforce_code_scope: bool = False,
+        repository_id: str | None = None,
+        code_scope_id: str | None = None,
     ) -> list[MemoryFact]:
         """List facts for a single scope."""
 
@@ -345,6 +356,9 @@ class FactRelationRepositoryPort(Protocol):
         fact_id: str,
         status: str | None,
         limit: int,
+        enforce_code_scope: bool = False,
+        repository_id: str | None = None,
+        code_scope_id: str | None = None,
     ) -> list[MemoryFactRelation]:
         """List incoming and outgoing relations for a fact."""
 

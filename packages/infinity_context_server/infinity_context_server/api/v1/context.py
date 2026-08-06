@@ -5,7 +5,8 @@ from __future__ import annotations
 from time import perf_counter
 from typing import Annotated, Any
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Request
+from infinity_context_core.application import ContextBundle as LegacyContextBundle
 from infinity_context_core.application.context_diagnostics import (
     normalize_context_bundle_diagnostics,
     normalize_context_diagnostics,
@@ -13,8 +14,12 @@ from infinity_context_core.application.context_diagnostics import (
 from infinity_context_core.application.context_stage_diagnostics import (
     record_context_stage_duration,
 )
+from infinity_context_core.domain.errors import MemoryForbiddenError
 
-from infinity_context_server.api.auth import require_service_token
+from infinity_context_server.api.auth import (
+    get_authorized_agent_context,
+    require_service_token,
+)
 from infinity_context_server.api.dependencies import get_container
 from infinity_context_server.api.policy import should_retrieve
 from infinity_context_server.api.public_payload import safe_public_metadata, safe_public_text
@@ -22,7 +27,14 @@ from infinity_context_server.api.v1.scope_resolution import (
     resolve_existing_context_scope,
 )
 from infinity_context_server.api.v1.source_refs import source_ref_to_response
+from infinity_context_server.auth_tokens import (
+    MEMORY_PERMISSION_ADMIN,
+    MEMORY_PERMISSION_READ,
+)
 from infinity_context_server.composition import Container
+from infinity_context_server.context_feature_legacy_bridge import (
+    legacy_bundle_from_canonical_facts,
+)
 from infinity_context_server.features.context_building import public as context_building_server
 
 router = APIRouter(tags=["context"], dependencies=[Depends(require_service_token)])
@@ -110,6 +122,7 @@ def _answer_support_to_response(
 @router.post("/context")
 async def build_context(
     request: context_building_server.ContextRequest,
+    http_request: Request,
     container: Annotated[Container, Depends(get_container)],
 ) -> dict[str, Any]:
     started = perf_counter()
@@ -153,12 +166,12 @@ async def build_context(
             use_case="build_context",
         )
         return response
-    bundle = await container.build_context.execute(
-        context_building_server.build_legacy_context_query_from_request(
-            request,
-            scope=scope,
-            max_rendered_chars=container.settings.max_context_chars,
-        )
+    request = _apply_authorized_agent_scope(request, http_request=http_request, scope=scope)
+    bundle = await _build_context_bundle(
+        request,
+        scope=scope,
+        container=container,
+        bundle_id=request_id,
     )
     record_context_stage_duration(
         bundle.diagnostics,
@@ -194,6 +207,7 @@ async def build_context(
 @router.post("/search")
 async def search_memory(
     request: context_building_server.ContextRequest,
+    http_request: Request,
     container: Annotated[Container, Depends(get_container)],
 ) -> dict[str, Any]:
     started = perf_counter()
@@ -236,12 +250,12 @@ async def search_memory(
             use_case="search_memory",
         )
         return response
-    bundle = await container.build_context.execute(
-        context_building_server.build_legacy_context_query_from_request(
-            request,
-            scope=scope,
-            max_rendered_chars=container.settings.max_context_chars,
-        )
+    request = _apply_authorized_agent_scope(request, http_request=http_request, scope=scope)
+    bundle = await _build_context_bundle(
+        request,
+        scope=scope,
+        container=container,
+        bundle_id=request_id,
     )
     response = _LEGACY_CONTEXT_API_RESPONSES.search_response_from_bundle(
         bundle,
@@ -260,6 +274,7 @@ async def search_memory(
 @router.post("/context/benchmark-search", include_in_schema=False)
 async def benchmark_search_memory(
     request: context_building_server.BenchmarkContextRequest,
+    http_request: Request,
     container: Annotated[Container, Depends(get_container)],
 ) -> dict[str, Any]:
     started = perf_counter()
@@ -302,17 +317,18 @@ async def benchmark_search_memory(
             use_case="benchmark_search_memory",
         )
         return response
-    bundle = await container.build_context.execute(
-        context_building_server.build_legacy_context_query_from_request(
-            request,
-            scope=scope,
-            max_rendered_chars=context_building_server.benchmark_context_char_budget(
-                token_budget=request.token_budget,
-                deployment_max_context_chars=container.settings.max_context_chars,
-            ),
-            selection_mode="ranked_evidence",
-            selection_item_limit=request.max_evidence_items,
-        )
+    request = _apply_authorized_agent_scope(request, http_request=http_request, scope=scope)
+    bundle = await _build_context_bundle(
+        request,
+        scope=scope,
+        container=container,
+        bundle_id=request_id,
+        max_rendered_chars=context_building_server.benchmark_context_char_budget(
+            token_budget=request.token_budget,
+            deployment_max_context_chars=container.settings.max_context_chars,
+        ),
+        selection_mode="ranked_evidence",
+        selection_item_limit=request.max_evidence_items,
     )
     response = _LEGACY_CONTEXT_API_RESPONSES.search_response_from_bundle(
         bundle,
@@ -350,6 +366,100 @@ def _preserve_ranked_evidence_diagnostics(
 
 def _elapsed_ms(started: float) -> float:
     return (perf_counter() - started) * 1000
+
+
+async def _build_context_bundle(
+    request,
+    *,
+    scope,
+    container: Container,
+    bundle_id: str,
+    max_rendered_chars: int | None = None,
+    selection_mode: str = "prompt_context",
+    selection_item_limit: int | None = None,
+):
+    memory_scope_ids = tuple(str(value) for value in scope.memory_scope_ids)
+    if request.repository_id is not None and len(memory_scope_ids) == 1:
+        if request.max_facts <= 0:
+            return LegacyContextBundle(
+                bundle_id=bundle_id,
+                rendered_text="",
+                items=(),
+                token_estimate=0,
+                diagnostics={
+                    "context_owner": context_building_server.FEATURE_ID,
+                    "canonical_hydration": True,
+                    "candidate_count": 0,
+                    "repository_isolation_mode": "canonical_facts_only",
+                    "non_fact_evidence_status": "deferred_until_repository_scoped",
+                },
+            )
+        feature_request = context_building_server.BuildContextHttpRequest(
+            query=request.query,
+            space_id=str(scope.space_id),
+            memory_scope_id=memory_scope_ids[0],
+            thread_id=str(scope.thread_id) if scope.thread_id else None,
+            repository_id=request.repository_id,
+            code_scope_id=request.code_scope_id,
+            as_of=request.as_of,
+            budget=context_building_server.ContextBudgetHttpRequest(
+                max_context_tokens=request.token_budget,
+                max_items=request.max_facts,
+            ),
+            tags=request.tags_any,
+        )
+        result = await container.build_canonical_fact_context.execute(
+            context_building_server.build_context_query_from_contract(feature_request.to_contract())
+        )
+        return legacy_bundle_from_canonical_facts(
+            result,
+            bundle_id=bundle_id,
+            memory_scope_id=memory_scope_ids[0],
+        )
+    return await container.build_context.execute(
+        context_building_server.build_legacy_context_query_from_request(
+            request,
+            scope=scope,
+            max_rendered_chars=(
+                max_rendered_chars
+                if max_rendered_chars is not None
+                else container.settings.max_context_chars
+            ),
+            selection_mode=selection_mode,
+            selection_item_limit=selection_item_limit,
+        )
+    )
+
+
+def _apply_authorized_agent_scope(request, *, http_request: Request, scope):
+    context = get_authorized_agent_context(http_request)
+    if context is None:
+        return request
+    if context.repository_id is not None and len(scope.memory_scope_ids) != 1:
+        raise MemoryForbiddenError("Repository-scoped context requires exactly one MemoryScope")
+    required_permission = (
+        MEMORY_PERMISSION_READ
+        if MEMORY_PERMISSION_READ in context.permissions
+        else MEMORY_PERMISSION_ADMIN
+    )
+    try:
+        authorized = context.authorize(
+            requested_space_id=str(scope.space_id),
+            requested_memory_scope_ids=tuple(
+                str(memory_scope_id) for memory_scope_id in scope.memory_scope_ids
+            ),
+            required_permission=required_permission,
+            requested_repository_id=request.repository_id,
+            requested_code_scope_id=request.code_scope_id,
+        )
+    except PermissionError as exc:
+        raise MemoryForbiddenError(str(exc)) from exc
+    return request.model_copy(
+        update={
+            "repository_id": authorized.repository_id,
+            "code_scope_id": authorized.code_scope_id,
+        }
+    )
 
 
 def _trace_scope(scope) -> dict[str, object]:

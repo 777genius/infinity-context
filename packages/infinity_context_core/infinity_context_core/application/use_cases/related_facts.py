@@ -25,6 +25,9 @@ class RelatedFactsUseCase:
                 thread_id=None,
                 status="active",
                 limit=_candidate_limit(query.limit),
+                enforce_code_scope=query.enforce_code_scope,
+                repository_id=query.repository_id,
+                code_scope_id=query.code_scope_id,
             )
         items = rank_related_facts(
             target=target,

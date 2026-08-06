@@ -22,6 +22,7 @@ MemoryFactScope = DOMAIN.MemoryFactScope
 MemoryFactSnapshot = DOMAIN.MemoryFactSnapshot
 MemoryFactSourceRef = DOMAIN.MemoryFactSourceRef
 MemoryFactVisibility = DOMAIN.MemoryFactVisibility
+FactTemporalExtent = DOMAIN.FactTemporalExtent
 RememberFactCommand = APPLICATION.RememberFactCommand
 RememberFactHandler = APPLICATION.RememberFactHandler
 RememberFactResult = APPLICATION.RememberFactResult
@@ -68,6 +69,7 @@ def test_remember_fact_handler_creates_fact_and_outbox_message() -> None:
         tags=("api", "runbook"),
         created_at=NOW,
         updated_at=NOW,
+        temporal_extent=FactTemporalExtent.ongoing_state(observed_at=NOW),
     )
     assert uow.facts.calls == [("create", result.fact)]
     assert uow.outbox.messages == [
@@ -76,6 +78,7 @@ def test_remember_fact_handler_creates_fact_and_outbox_message() -> None:
             event_type="fact.created",
             aggregate_id="fact-1",
             aggregate_version=1,
+            scope=command.scope,
             occurred_at=NOW,
         )
     ]
@@ -116,6 +119,7 @@ def test_update_fact_handler_locks_updates_and_enqueues_projection_event() -> No
         tags=("api", "public"),
         created_at=EARLIER,
         updated_at=NOW,
+        temporal_extent=current.temporal_extent,
     )
     assert uow.facts.calls == [
         ("get_for_update", current.identity),
@@ -127,6 +131,7 @@ def test_update_fact_handler_locks_updates_and_enqueues_projection_event() -> No
             event_type="fact.updated",
             aggregate_id="fact-1",
             aggregate_version=4,
+            scope=current.identity.scope,
             occurred_at=NOW,
         )
     ]
@@ -166,6 +171,7 @@ def test_forget_fact_handler_tombstones_fact_and_returns_tombstone_id() -> None:
         tags=current.tags,
         created_at=EARLIER,
         updated_at=NOW,
+        temporal_extent=current.temporal_extent,
     )
     assert uow.facts.calls == [
         ("get_for_update", current.identity),
@@ -177,6 +183,7 @@ def test_forget_fact_handler_tombstones_fact_and_returns_tombstone_id() -> None:
             event_type="fact.deleted",
             aggregate_id="fact-1",
             aggregate_version=3,
+            scope=current.identity.scope,
             occurred_at=NOW,
         )
     ]
@@ -225,6 +232,7 @@ def _fact_snapshot(*, version: int) -> MemoryFactSnapshot:
         tags=("api",),
         created_at=EARLIER,
         updated_at=EARLIER,
+        temporal_extent=FactTemporalExtent.ongoing_state(observed_at=EARLIER),
     )
 
 

@@ -20,8 +20,9 @@ MEMORY_USAGE_GUIDE = """Infinity Context MCP usage guide:
 - Use memory_related_facts after memory_search or memory_get_fact when auditing adjacent
   decisions, resolving update/delete targets, or summarizing related project memory.
 - Use memory_link_facts only after both concrete fact ids are known. Use it for durable
-  relationships such as supports, supersedes, contradicts, duplicates, references,
-  depends_on, or related_to. Use memory_list_fact_relations to audit persisted links.
+  non-temporal relationships such as supports, duplicates, references, depends_on, or
+  related_to. Use memory_supersede_fact and memory_dispute_facts for temporal truth changes;
+  those operations atomically update lifecycle, validity, audit, and projections.
 - Use memory_unlink_fact_relation only with a concrete relation_id from
   memory_list_fact_relations; it removes the relation, not the facts.
 - Use memory_status only when readiness, policy, or provider diagnostics are unknown or requested.
@@ -53,11 +54,9 @@ MEMORY_USAGE_GUIDE = """Infinity Context MCP usage guide:
   memory for short durable facts extracted from them.
 - Preserve exact identifiers, project names, file paths, version labels, URLs, and quoted durable
   fact wording when saving or updating memory.
-- Prefer memory_update_fact over memory_propose_updates when the user explicitly confirms that an
-  existing current fact changed and search/get returns a concrete fact_id plus version. Use
-  proposals for update only when the change needs review, is uncertain, batch-oriented, or lacks
-  a concrete current fact_id/version.
-- Prefer update over duplicate remember when a fact changed.
+- Use memory_update_fact only to correct the wording or evidence of the same real-world claim.
+  When reality changed, remember a successor fact and call memory_supersede_fact; do not rewrite
+  the predecessor in place. Use proposals when the change is uncertain or still needs review.
 - Before update or forget, load a concrete fact_id and current version with search/list/get.
 - Forget only with a concrete fact_id; never pass user text as fact_id and never mass-delete.
 - Do not store or transmit secrets, credentials, private keys, raw tokens, or unrelated

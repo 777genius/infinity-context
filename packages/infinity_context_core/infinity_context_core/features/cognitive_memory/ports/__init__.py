@@ -6,10 +6,12 @@ from .contracts import (
     CognitiveDerivationSource,
 )
 from .derivation import CognitiveDerivationPort
+from .projections import CognitiveProjectionRepositoryPort
 
 __all__ = (
     "CognitiveDerivationPort",
     "CognitiveDerivationDraft",
     "CognitiveDerivationRequest",
     "CognitiveDerivationSource",
+    "CognitiveProjectionRepositoryPort",
 )

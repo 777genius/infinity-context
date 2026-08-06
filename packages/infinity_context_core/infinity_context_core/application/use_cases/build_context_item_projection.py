@@ -783,7 +783,9 @@ def _fact_score_signals(
 ) -> tuple[float, dict[str, object]]:
     confidence_boost = _level_boost(fact.confidence.value, low=0.012, medium=0.03, high=0.05)
     trust_boost = _level_boost(fact.trust_level.value, low=0.01, medium=0.03, high=0.045)
-    freshness_boost = _freshness_boost(fact.updated_at, now=now)
+    # Transaction recency is not evidence freshness. Canonical fact hydration
+    # applies revision-bound confirmation data after candidate discovery.
+    freshness_boost = 0.0
     ttl_penalty = -0.015 if fact.expires_at is not None else 0.0
     score = min(
         0.99,

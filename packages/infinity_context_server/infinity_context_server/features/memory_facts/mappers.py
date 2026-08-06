@@ -11,15 +11,25 @@ from typing import Any
 
 from infinity_context_contracts.features.memory_facts import (
     ForgetFactResultDto,
+    MemoryFactCodeScopeDto,
+    MemoryFactEpistemicContextDto,
+    MemoryFactFreshnessDto,
     MemoryFactIdentityDto,
     MemoryFactReadDto,
+    MemoryFactRetentionDto,
     MemoryFactSourceRefDto,
+    MemoryFactTemporalDto,
     MemoryFactVisibilityDto,
     RememberFactRequestDto,
     RememberFactResultDto,
     UpdateFactResultDto,
 )
 from infinity_context_core.features.memory_facts.public import (
+    FactEpistemicContext,
+    FactFreshness,
+    FactQuality,
+    FactRetention,
+    FactTemporalExtent,
     ForgetFactCommand,
     ForgetFactResult,
     MemoryFactEvidenceRef,
@@ -101,16 +111,24 @@ def remember_fact_request_to_command(
         scope=scope,
         text=_required_content(request, "text"),
         source_refs=tuple(
-            source_ref_request_to_public(ref)
-            for ref in _required_sequence(request, "source_refs")
+            source_ref_request_to_public(ref) for ref in _required_sequence(request, "source_refs")
         ),
         kind=_required_text(_value(request, "kind", "note"), "kind"),
         evidence_refs=tuple(
-            evidence_ref_request_to_public(ref)
-            for ref in _value(request, "evidence_refs", ())
+            evidence_ref_request_to_public(ref) for ref in _value(request, "evidence_refs", ())
         ),
         category=_optional_text(_value(request, "category", None)),
         tags=_string_tuple(_value(request, "tags", ())),
+        quality=FactQuality(
+            classification=_required_text(
+                _value(request, "classification", "internal"),
+                "classification",
+            )
+        ),
+        temporal_extent=_temporal_extent_from_request(request),
+        freshness=_freshness_from_request(request),
+        retention=_retention_from_request(request),
+        epistemic_context=_epistemic_context_from_request(request),
         idempotency_key=idempotency_key,
     )
 
@@ -141,16 +159,23 @@ def update_fact_request_to_command(
         expected_version=int(_required_value(request, "expected_version")),
         text=_required_content(request, "text"),
         source_refs=tuple(
-            source_ref_request_to_public(ref)
-            for ref in _required_sequence(request, "source_refs")
+            source_ref_request_to_public(ref) for ref in _required_sequence(request, "source_refs")
         ),
-        kind=_required_text(_value(request, "kind", "note"), "kind"),
-        evidence_refs=tuple(
-            evidence_ref_request_to_public(ref)
-            for ref in _value(request, "evidence_refs", ())
+        kind=_optional_text(_value(request, "kind", None)),
+        evidence_refs=(
+            tuple(
+                evidence_ref_request_to_public(ref) for ref in _value(request, "evidence_refs", ())
+            )
+            if _value(request, "evidence_refs", None) is not None
+            else None
         ),
         category=_optional_text(_value(request, "category", None)),
-        tags=_string_tuple(_value(request, "tags", ())),
+        tags=(
+            _string_tuple(_value(request, "tags", ()))
+            if _value(request, "tags", None) is not None
+            else None
+        ),
+        retention=_retention_from_request(request),
         reason=_optional_text(_value(request, "reason", None)),
         idempotency_key=idempotency_key,
     )
@@ -205,11 +230,92 @@ def source_ref_request_to_public(source_ref: object) -> MemoryFactSourceRef:
 
 def evidence_ref_request_to_public(evidence_ref: object) -> MemoryFactEvidenceRef:
     return MemoryFactEvidenceRef(
-        source_ref=source_ref_request_to_public(
-            _required_value(evidence_ref, "source_ref")
-        ),
+        source_ref=source_ref_request_to_public(_required_value(evidence_ref, "source_ref")),
         evidence_id=_value(evidence_ref, "evidence_id", None),
     )
+
+
+def _temporal_extent_from_request(request: object) -> FactTemporalExtent | None:
+    temporal = _value(request, "temporal", None)
+    if temporal is None:
+        return None
+    basis = _required_text(_value(temporal, "basis", "unknown"), "temporal.basis")
+    if basis not in {"asserted", "inferred", "unknown"}:
+        raise ValueError("Fact creation temporal.basis must be asserted, inferred, or unknown")
+    return FactTemporalExtent(
+        kind=_required_text(_required_value(temporal, "kind"), "temporal.kind"),
+        observed_at=_required_datetime(
+            _required_value(temporal, "observed_at"),
+            "temporal.observed_at",
+        ),
+        valid_from=_optional_datetime(_value(temporal, "valid_from", None)),
+        valid_to=_optional_datetime(_value(temporal, "valid_to", None)),
+        occurred_from=_optional_datetime(_value(temporal, "occurred_from", None)),
+        occurred_to=_optional_datetime(_value(temporal, "occurred_to", None)),
+        basis=basis,
+        precision=_required_text(
+            _value(temporal, "precision", "unknown"),
+            "temporal.precision",
+        ),
+    )
+
+
+def _freshness_from_request(request: object) -> FactFreshness | None:
+    freshness = _value(request, "freshness", None)
+    if freshness is None:
+        return None
+    raise ValueError("Fact creation cannot set freshness; use the audited confirm fact operation")
+
+
+def _retention_from_request(request: object) -> FactRetention | None:
+    retention = _value(request, "retention", None)
+    legacy_ttl = _optional_text(_value(request, "ttl_policy", None))
+    if retention is None:
+        return FactRetention(ttl_policy=legacy_ttl) if legacy_ttl is not None else None
+    ttl_policy = _optional_text(_value(retention, "ttl_policy", None))
+    if legacy_ttl is not None and ttl_policy is not None and legacy_ttl != ttl_policy:
+        raise ValueError("ttl_policy conflicts with retention.ttl_policy")
+    return FactRetention(
+        ttl_policy=ttl_policy or legacy_ttl,
+        context_expires_at=_optional_datetime(_value(retention, "context_expires_at", None)),
+        purge_after=_optional_datetime(_value(retention, "purge_after", None)),
+    )
+
+
+def _epistemic_context_from_request(request: object) -> FactEpistemicContext | None:
+    epistemic = _value(request, "epistemic_context", None)
+    if epistemic is None:
+        return None
+    return FactEpistemicContext(
+        mode=_required_text(
+            _value(epistemic, "mode", "world_claim"),
+            "epistemic_context.mode",
+        ),
+        asserted_by=_optional_text(_value(epistemic, "asserted_by", None)),
+        perspective_subject=_optional_text(_value(epistemic, "perspective_subject", None)),
+    )
+
+
+def _temporal_to_contract(
+    temporal: FactTemporalExtent | None,
+) -> MemoryFactTemporalDto | None:
+    if temporal is None:
+        return None
+    return MemoryFactTemporalDto(
+        kind=temporal.kind.value,
+        observed_at=temporal.observed_at.isoformat(),
+        valid_from=_datetime_to_response(temporal.valid_from),
+        valid_to=_datetime_to_response(temporal.valid_to),
+        occurred_from=_datetime_to_response(temporal.occurred_from),
+        occurred_to=_datetime_to_response(temporal.occurred_to),
+        basis=temporal.basis,
+        precision=temporal.precision,
+    )
+
+
+def _temporal_to_response(temporal: FactTemporalExtent | None) -> dict[str, Any] | None:
+    contract = _temporal_to_contract(temporal)
+    return contract.to_dict() if contract is not None else None
 
 
 def memory_fact_snapshot_to_contract(fact: MemoryFactSnapshot) -> MemoryFactReadDto:
@@ -238,6 +344,29 @@ def memory_fact_snapshot_to_contract(fact: MemoryFactSnapshot) -> MemoryFactRead
         source_refs=tuple(source_ref_to_contract(ref) for ref in fact.source_refs),
         created_at=_datetime_to_response(fact.created_at),
         updated_at=_datetime_to_response(fact.updated_at),
+        temporal=_temporal_to_contract(fact.temporal_extent),
+        freshness=MemoryFactFreshnessDto(
+            last_confirmed_at=_datetime_to_response(fact.freshness.last_confirmed_at),
+            confirmation_basis=fact.freshness.confirmation_basis,
+        ),
+        retention=MemoryFactRetentionDto(
+            ttl_policy=visibility.ttl_policy,
+            context_expires_at=_datetime_to_response(visibility.expires_at),
+            purge_after=_datetime_to_response(fact.purge_after),
+        ),
+        epistemic_context=MemoryFactEpistemicContextDto(
+            mode=fact.epistemic_context.mode.value,
+            asserted_by=fact.epistemic_context.asserted_by,
+            perspective_subject=fact.epistemic_context.perspective_subject,
+        ),
+        code_scope=(
+            MemoryFactCodeScopeDto(
+                repository_id=fact.code_scope.repository_id,
+                code_scope_id=fact.code_scope.code_scope_id,
+            )
+            if fact.code_scope is not None
+            else None
+        ),
     )
 
 
@@ -274,15 +403,35 @@ def memory_fact_snapshot_to_response(fact: MemoryFactSnapshot) -> dict[str, Any]
         "tags": list(fact.tags),
         "ttl_policy": visibility.ttl_policy,
         "expires_at": _datetime_to_response(visibility.expires_at),
-        "source_refs": [
-            source_ref_to_response(source_ref) for source_ref in fact.source_refs
-        ],
+        "source_refs": [source_ref_to_response(source_ref) for source_ref in fact.source_refs],
         "evidence_refs": [
-            evidence_ref_to_response(evidence_ref)
-            for evidence_ref in fact.evidence_refs
+            evidence_ref_to_response(evidence_ref) for evidence_ref in fact.evidence_refs
         ],
         "created_at": _datetime_to_response(fact.created_at),
         "updated_at": _datetime_to_response(fact.updated_at),
+        "temporal": _temporal_to_response(fact.temporal_extent),
+        "freshness": {
+            "last_confirmed_at": _datetime_to_response(fact.freshness.last_confirmed_at),
+            "confirmation_basis": fact.freshness.confirmation_basis,
+        },
+        "retention": {
+            "ttl_policy": visibility.ttl_policy,
+            "context_expires_at": _datetime_to_response(visibility.expires_at),
+            "purge_after": _datetime_to_response(fact.purge_after),
+        },
+        "epistemic_context": {
+            "mode": fact.epistemic_context.mode.value,
+            "asserted_by": fact.epistemic_context.asserted_by,
+            "perspective_subject": fact.epistemic_context.perspective_subject,
+        },
+        "code_scope": (
+            {
+                "repository_id": fact.code_scope.repository_id,
+                "code_scope_id": fact.code_scope.code_scope_id,
+            }
+            if fact.code_scope is not None
+            else None
+        ),
     }
 
 
@@ -318,8 +467,7 @@ def legacy_memory_fact_to_response(
         "ttl_policy": _optional_text(_value(fact, "ttl_policy", None)),
         "expires_at": _datetime_to_response(_value(fact, "expires_at", None)),
         "source_refs": [
-            source_ref_to_response(source_ref)
-            for source_ref in _value(fact, "source_refs", ())
+            source_ref_to_response(source_ref) for source_ref in _value(fact, "source_refs", ())
         ],
         "created_at": _datetime_to_response(_required_value(fact, "created_at")),
         "updated_at": _datetime_to_response(_required_value(fact, "updated_at")),
@@ -369,12 +517,8 @@ def fact_relation_to_response(relation: object) -> dict[str, Any]:
         "observed_at": _relation_datetime_to_response(observed_at),
         "valid_from": _relation_datetime_to_response(_value(relation, "valid_from", None)),
         "valid_to": _relation_datetime_to_response(_value(relation, "valid_to", None)),
-        "created_at": _relation_datetime_to_response(
-            _required_value(relation, "created_at")
-        ),
-        "updated_at": _relation_datetime_to_response(
-            _required_value(relation, "updated_at")
-        ),
+        "created_at": _relation_datetime_to_response(_required_value(relation, "created_at")),
+        "updated_at": _relation_datetime_to_response(_required_value(relation, "updated_at")),
     }
 
 
@@ -521,9 +665,7 @@ def _redact_sensitive_text(value: str, *, marker: str = "[redacted]") -> str:
 def _range_pair(start: object, end: object) -> tuple[int | None, int | None]:
     parsed_start = _non_negative_int(start)
     parsed_end = _non_negative_int(end)
-    if (start is not None and parsed_start is None) or (
-        end is not None and parsed_end is None
-    ):
+    if (start is not None and parsed_start is None) or (end is not None and parsed_end is None):
         return None, None
     if parsed_start is not None and parsed_end is not None and parsed_end < parsed_start:
         return None, None
@@ -580,6 +722,33 @@ def _bbox_or_none(value: object) -> tuple[float, float, float, float] | None:
 
 def _datetime_to_response(value: datetime | None) -> str | None:
     return value.isoformat() if value is not None else None
+
+
+def _required_datetime(value: object, field_name: str) -> datetime:
+    parsed = _optional_datetime(value)
+    if parsed is None:
+        raise ValueError(f"{field_name} is required")
+    return parsed
+
+
+def _optional_datetime(value: object) -> datetime | None:
+    if value is None:
+        return None
+    if isinstance(value, datetime):
+        parsed = value
+    elif isinstance(value, str):
+        normalized = value.strip().replace("Z", "+00:00")
+        if not normalized:
+            return None
+        try:
+            parsed = datetime.fromisoformat(normalized)
+        except ValueError as exc:
+            raise ValueError("Invalid ISO-8601 datetime") from exc
+    else:
+        raise TypeError("Datetime value must be a datetime or ISO-8601 string")
+    if parsed.tzinfo is None or parsed.utcoffset() is None:
+        raise ValueError("Datetime value must be timezone-aware")
+    return parsed
 
 
 def _relation_datetime_to_response(value: datetime | None) -> str | None:

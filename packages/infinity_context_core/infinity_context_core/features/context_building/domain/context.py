@@ -39,6 +39,19 @@ class ContextQuery:
     intent: str = "answer"
     as_of: datetime | None = None
     tags: tuple[str, ...] = ()
+    repository_id: str | None = None
+    code_scope_id: str | None = None
+
+    def __post_init__(self) -> None:
+        if not self.scope.space_id.strip() or not self.scope.memory_scope_id.strip():
+            raise ValueError("Context query requires a non-blank scope")
+        if self.repository_id is not None and not self.repository_id.strip():
+            raise ValueError("Context query repository_id cannot be blank")
+        if self.code_scope_id is not None:
+            if not self.code_scope_id.strip():
+                raise ValueError("Context query code_scope_id cannot be blank")
+            if self.repository_id is None:
+                raise ValueError("Context query code_scope_id requires repository_id")
 
 
 @dataclass(frozen=True, slots=True)
@@ -66,6 +79,16 @@ class ContextEvidence:
     trust_level: ContextTrustLevel = "untrusted"
     confidence: ContextConfidence = "unknown"
     temporal_label: str | None = None
+    temporal_assurance: str | None = None
+    temporal_reason_codes: tuple[str, ...] = ()
+    lifecycle_label: str | None = None
+    temporal_kind: str | None = None
+    observed_at: datetime | None = None
+    valid_from: datetime | None = None
+    valid_to: datetime | None = None
+    last_confirmed_at: datetime | None = None
+    canonical_version: int | None = None
+    retrieval_sources: tuple[str, ...] = ()
     relevance_score: float = 0.0
 
     def __post_init__(self) -> None:
@@ -73,6 +96,12 @@ class ContextEvidence:
             raise ValueError("Context evidence requires text")
         if not self.source_refs:
             raise ValueError("Context evidence requires at least one source ref")
+        if self.canonical_version is not None and self.canonical_version < 1:
+            raise ValueError("Context evidence canonical version must be positive")
+        for field_name in ("observed_at", "valid_from", "valid_to", "last_confirmed_at"):
+            value = getattr(self, field_name)
+            if value is not None and (value.tzinfo is None or value.utcoffset() is None):
+                raise ValueError(f"Context evidence {field_name} must be timezone-aware")
 
 
 @dataclass(frozen=True, slots=True)
@@ -105,7 +134,47 @@ class ContextItem:
 
         if self.estimated_tokens is not None:
             return self.estimated_tokens
-        return estimate_token_count(self.text)
+        labels = [self.text, self.item_id, self.kind, self.role]
+        for evidence in self.evidence:
+            labels.extend(
+                value
+                for value in (
+                    evidence.trust_level,
+                    evidence.confidence,
+                    evidence.temporal_label,
+                    evidence.temporal_assurance,
+                    *(reason for reason in evidence.temporal_reason_codes),
+                    evidence.lifecycle_label,
+                    evidence.temporal_kind,
+                    str(evidence.canonical_version)
+                    if evidence.canonical_version is not None
+                    else None,
+                    *(source for source in evidence.retrieval_sources),
+                    *(
+                        ":".join(
+                            (
+                                ref.source_type,
+                                ref.source_id,
+                                ref.fact_id or "",
+                                ref.chunk_id or "",
+                            )
+                        )
+                        for ref in evidence.source_refs
+                    ),
+                )
+                if value is not None
+            )
+            labels.extend(
+                value.isoformat()
+                for value in (
+                    evidence.observed_at,
+                    evidence.valid_from,
+                    evidence.valid_to,
+                    evidence.last_confirmed_at,
+                )
+                if value is not None
+            )
+        return estimate_token_count(" ".join(labels))
 
 
 @dataclass(frozen=True, slots=True)

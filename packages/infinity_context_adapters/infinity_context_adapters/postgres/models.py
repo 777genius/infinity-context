@@ -1,7 +1,5 @@
 """SQLAlchemy persistence models for canonical Postgres storage."""
 
-from __future__ import annotations
-
 from datetime import datetime
 
 from sqlalchemy import (
@@ -9,15 +7,21 @@ from sqlalchemy import (
     DateTime,
     Float,
     ForeignKey,
+    ForeignKeyConstraint,
     Index,
     Integer,
     String,
     Text,
     UniqueConstraint,
+    and_,
 )
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 from sqlalchemy.types import JSON
+
+from infinity_context_adapters.postgres.fact_storage_constraints import (
+    memory_fact_storage_constraints,
+)
 
 
 class Base(DeclarativeBase):
@@ -30,11 +34,28 @@ def json_type() -> JSON:
 
 class MemoryServiceTokenRow(Base):
     __tablename__ = "memory_service_tokens"
-    __table_args__ = (Index("ix_memory_service_tokens_status", "status", "created_at"),)
+    __table_args__ = (
+        ForeignKeyConstraint(
+            ["repository_id", "space_id"],
+            ["code_repositories.id", "code_repositories.space_id"],
+            name="fk_memory_service_tokens_repository_space",
+        ),
+        CheckConstraint(
+            "repository_id IS NULL OR space_id IS NOT NULL",
+            name="ck_memory_service_tokens_repository_space_pair",
+        ),
+        CheckConstraint(
+            "code_scope_id IS NULL OR repository_id IS NOT NULL",
+            name="ck_memory_service_tokens_code_scope_pair",
+        ),
+        Index("ix_memory_service_tokens_status", "status", "created_at"),
+    )
 
     id: Mapped[str] = mapped_column(String(80), primary_key=True)
     space_id: Mapped[str | None] = mapped_column(String(80), nullable=True)
     memory_scope_ids_json: Mapped[list[str] | None] = mapped_column(json_type(), nullable=True)
+    repository_id: Mapped[str | None] = mapped_column(String(80), nullable=True)
+    code_scope_id: Mapped[str | None] = mapped_column(String(96), nullable=True)
     description: Mapped[str] = mapped_column(String(240), nullable=False)
     token_hash: Mapped[str] = mapped_column(String(80), unique=True, nullable=False)
     permissions_json: Mapped[list[str] | None] = mapped_column(json_type(), nullable=True)
@@ -225,10 +246,33 @@ class MemoryFactRow(Base):
     __tablename__ = "memory_facts"
     __table_args__ = (
         CheckConstraint("version > 0", name="ck_fact_version_positive"),
+        ForeignKeyConstraint(
+            ["repository_id", "space_id"],
+            ["code_repositories.id", "code_repositories.space_id"],
+            name="fk_memory_facts_repository_space",
+        ),
+        *memory_fact_storage_constraints(),
         Index(
             "ix_memory_facts_scope_status", "space_id", "memory_scope_id", "status", "updated_at"
         ),
         Index("ix_memory_facts_taxonomy", "space_id", "memory_scope_id", "category", "status"),
+        Index(
+            "ix_memory_facts_temporal_selection",
+            "space_id",
+            "memory_scope_id",
+            "status",
+            "temporal_kind",
+            "valid_from",
+            "valid_to",
+        ),
+        Index(
+            "ix_memory_facts_code_scope",
+            "space_id",
+            "memory_scope_id",
+            "repository_id",
+            "code_scope_id",
+            "status",
+        ),
     )
 
     id: Mapped[str] = mapped_column(String(80), primary_key=True)
@@ -243,8 +287,31 @@ class MemoryFactRow(Base):
     classification: Mapped[str] = mapped_column(String(40), nullable=False, default="internal")
     category: Mapped[str | None] = mapped_column(String(80), nullable=True)
     tags_json: Mapped[list[str]] = mapped_column(json_type(), nullable=False, default=list)
+    evidence_refs_json: Mapped[list[dict[str, object]]] = mapped_column(
+        json_type(), nullable=False, default=list
+    )
     ttl_policy: Mapped[str | None] = mapped_column(String(80), nullable=True)
     expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    temporal_kind: Mapped[str] = mapped_column(String(20), nullable=False, default="state")
+    observed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    valid_from: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    valid_to: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    occurred_from: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    occurred_to: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    temporal_basis: Mapped[str] = mapped_column(
+        String(80), nullable=False, default="migrated_legacy"
+    )
+    temporal_precision: Mapped[str] = mapped_column(String(40), nullable=False, default="unknown")
+    last_confirmed_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    confirmation_basis: Mapped[str | None] = mapped_column(String(120), nullable=True)
+    purge_after: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    epistemic_mode: Mapped[str] = mapped_column(String(40), nullable=False, default="world_claim")
+    asserted_by: Mapped[str | None] = mapped_column(String(160), nullable=True)
+    perspective_subject: Mapped[str | None] = mapped_column(String(160), nullable=True)
+    repository_id: Mapped[str | None] = mapped_column(String(80), nullable=True)
+    code_scope_id: Mapped[str | None] = mapped_column(String(96), nullable=True)
     version: Mapped[int] = mapped_column(Integer, nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
@@ -486,6 +553,9 @@ class MemoryFactVersionRow(Base):
     text: Mapped[str] = mapped_column(Text, nullable=False)
     status: Mapped[str] = mapped_column(String(40), nullable=False)
     source_refs_json: Mapped[list[dict[str, object]]] = mapped_column(json_type(), nullable=False)
+    snapshot_json: Mapped[dict[str, object]] = mapped_column(
+        json_type(), nullable=False, default=dict
+    )
     reason: Mapped[str | None] = mapped_column(String(240), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
 
@@ -496,6 +566,7 @@ class MemoryFactRelationRow(Base):
     id: Mapped[str] = mapped_column(String(80), primary_key=True)
     space_id: Mapped[str] = mapped_column(String(80), nullable=False)
     memory_scope_id: Mapped[str] = mapped_column(String(80), nullable=False)
+    thread_id: Mapped[str | None] = mapped_column(String(80), nullable=True)
     source_fact_id: Mapped[str] = mapped_column(
         String(80),
         ForeignKey("memory_facts.id"),
@@ -512,6 +583,13 @@ class MemoryFactRelationRow(Base):
     observed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     valid_from: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     valid_to: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    source_fact_version: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    target_fact_version: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    temporal_decision_id: Mapped[str | None] = mapped_column(
+        String(80),
+        ForeignKey("memory_fact_temporal_decisions.id"),
+        nullable=True,
+    )
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     __table_args__ = (
@@ -527,6 +605,21 @@ class MemoryFactRelationRow(Base):
         Index("ix_memory_fact_relations_source", "source_fact_id", "status"),
         Index("ix_memory_fact_relations_target", "target_fact_id", "status"),
         Index("ix_memory_fact_relations_scope", "space_id", "memory_scope_id", "status"),
+        Index(
+            "uq_memory_fact_single_active_supersession",
+            "target_fact_id",
+            unique=True,
+            sqlite_where=and_(
+                relation_type == "supersedes",
+                status == "active",
+                temporal_decision_id.is_not(None),
+            ),
+            postgresql_where=and_(
+                relation_type == "supersedes",
+                status == "active",
+                temporal_decision_id.is_not(None),
+            ),
+        ),
     )
 
 
@@ -756,6 +849,7 @@ class MemoryOutboxRow(Base):
     )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    message_key: Mapped[str | None] = mapped_column(String(160), nullable=True)
     event_type: Mapped[str] = mapped_column(String(120), nullable=False)
     aggregate_type: Mapped[str] = mapped_column(String(80), nullable=False)
     aggregate_id: Mapped[str] = mapped_column(String(80), nullable=False)
@@ -876,3 +970,9 @@ class MemoryComparisonBenchmarkRunRow(Base):
     completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+
+
+# Imported last so the split model can reuse Base without a registry cycle.
+from infinity_context_adapters.postgres.temporal_models import (  # noqa: E402
+    MemoryFactTemporalDecisionRow,  # noqa: F401
+)

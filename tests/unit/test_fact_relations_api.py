@@ -39,11 +39,22 @@ def fact_payload(text: str, *, memory_scope_id: str = "memory_scope_default") ->
 
 
 def create_fact(
-    client: TestClient, text: str, *, memory_scope_id: str = "memory_scope_default"
+    client: TestClient,
+    text: str,
+    *,
+    memory_scope_id: str = "memory_scope_default",
+    valid_from: str | None = None,
 ) -> str:
+    payload = fact_payload(text, memory_scope_id=memory_scope_id)
+    if valid_from is not None:
+        payload["temporal"] = {
+            "kind": "state",
+            "observed_at": "2026-01-01T00:00:00+00:00",
+            "valid_from": valid_from,
+        }
     response = client.post(
         "/v1/facts",
-        json=fact_payload(text, memory_scope_id=memory_scope_id),
+        json=payload,
         headers=auth_headers(),
     )
     assert response.status_code == 201
@@ -195,44 +206,51 @@ def test_fact_relations_reject_duplicate_with_different_temporal_window(
     tmp_path: Path,
 ) -> None:
     with make_client(tmp_path) as client:
-        source_id = create_fact(client, "RELATION_TEMPORAL_DUPLICATE: current fact.")
-        target_id = create_fact(client, "RELATION_TEMPORAL_DUPLICATE: previous fact.")
+        target_id = create_fact(
+            client,
+            "RELATION_TEMPORAL_DUPLICATE: previous fact.",
+            valid_from="2025-01-01T00:00:00+00:00",
+        )
+        source_id = create_fact(
+            client,
+            "RELATION_TEMPORAL_DUPLICATE: current fact.",
+            valid_from="2026-01-01T00:00:00+00:00",
+        )
+        payload = {
+            "space_id": "space_client_app",
+            "memory_scope_id": "memory_scope_default",
+            "successor_fact_id": source_id,
+            "expected_successor_version": 1,
+            "expected_predecessor_version": 1,
+            "effective_at": "2026-01-01T00:00:00+00:00",
+            "reason_code": "accepted_replacement",
+            "actor_id": "test-reviewer",
+            "evidence_refs": [{"source_ref": {"source_type": "manual", "source_id": "review-1"}}],
+        }
         linked = client.post(
-            f"/v1/facts/{source_id}/relations",
-            json={
-                "target_fact_id": target_id,
-                "relation_type": "supersedes",
-                "reason": "Current fact supersedes previous fact in January.",
-                "valid_from": "2026-01-01T00:00:00+00:00",
-            },
-            headers=auth_headers(),
+            f"/v1/facts/{target_id}/supersede",
+            json=payload,
+            headers={**auth_headers(), "Idempotency-Key": "supersede-window"},
         )
         repeated_same_window = client.post(
-            f"/v1/facts/{source_id}/relations",
-            json={
-                "target_fact_id": target_id,
-                "relation_type": "supersedes",
-                "reason": "Duplicate request with the same temporal window.",
-                "valid_from": "2026-01-01T00:00:00+00:00",
-            },
-            headers=auth_headers(),
+            f"/v1/facts/{target_id}/supersede",
+            json=payload,
+            headers={**auth_headers(), "Idempotency-Key": "supersede-window"},
         )
         conflicting_window = client.post(
-            f"/v1/facts/{source_id}/relations",
+            f"/v1/facts/{target_id}/supersede",
             json={
-                "target_fact_id": target_id,
-                "relation_type": "supersedes",
-                "reason": "Duplicate request with a different temporal window.",
-                "valid_from": "2026-02-01T00:00:00+00:00",
+                **payload,
+                "effective_at": "2026-02-01T00:00:00+00:00",
             },
-            headers=auth_headers(),
+            headers={**auth_headers(), "Idempotency-Key": "supersede-window"},
         )
 
-    assert linked.status_code == 201, linked.text
-    assert repeated_same_window.status_code == 201, repeated_same_window.text
-    assert repeated_same_window.json()["data"]["id"] == linked.json()["data"]["id"]
+    assert linked.status_code == 200, linked.text
+    assert repeated_same_window.status_code == 200, repeated_same_window.text
+    assert repeated_same_window.json()["data"]["replayed"] is True
     assert conflicting_window.status_code == 409, conflicting_window.text
-    assert "different temporal fields" in conflicting_window.text
+    assert "idempotency key" in conflicting_window.text.lower()
 
 
 def test_contradicts_relation_marks_target_disputed_and_context_hides_it(
@@ -248,14 +266,20 @@ def test_contradicts_relation_marks_target_disputed_and_context_hides_it(
             "CONTRADICTING_NEW_FACT: billing owner is Dana, not legacy Alex.",
         )
         linked = client.post(
-            f"/v1/facts/{new_id}/relations",
+            f"/v1/facts/{old_id}/dispute",
             json={
-                "target_fact_id": old_id,
-                "relation_type": "contradicts",
-                "reason": "New owner evidence contradicts the old owner fact.",
-                "observed_at": "2026-01-02T12:00:00+00:00",
+                "space_id": "space_client_app",
+                "memory_scope_id": "memory_scope_default",
+                "challenger_fact_id": new_id,
+                "expected_challenger_version": 1,
+                "expected_challenged_version": 1,
+                "reason_code": "credible_conflict",
+                "actor_id": "test-reviewer",
+                "evidence_refs": [
+                    {"source_ref": {"source_type": "manual", "source_id": "review-2"}}
+                ],
             },
-            headers=auth_headers(),
+            headers={**auth_headers(), "Idempotency-Key": "dispute-owner"},
         )
         old_fact = client.get(f"/v1/facts/{old_id}", headers=auth_headers())
         context = client.post(
@@ -271,16 +295,16 @@ def test_contradicts_relation_marks_target_disputed_and_context_hides_it(
             headers=auth_headers(),
         )
 
-    assert linked.status_code == 201
+    assert linked.status_code == 200
     assert old_fact.status_code == 200
     assert old_fact.json()["data"]["status"] == "disputed"
     assert context.status_code == 200
     rendered = context.json()["data"]["rendered_text"]
-    assert "CONTRADICTING_NEW_FACT" in rendered
+    assert "CONTRADICTING_NEW_FACT" not in rendered
     assert "CONTRADICTED_OLD_FACT" not in rendered
 
 
-def test_future_contradicts_relation_does_not_dispute_current_fact_until_valid(
+def test_generic_future_contradiction_cannot_bypass_audited_decision_flow(
     tmp_path: Path,
 ) -> None:
     with make_client(tmp_path) as client:
@@ -303,15 +327,6 @@ def test_future_contradicts_relation_does_not_dispute_current_fact_until_valid(
             },
             headers=auth_headers(),
         )
-        repeated = client.post(
-            f"/v1/facts/{new_id}/relations",
-            json={
-                "target_fact_id": old_id,
-                "relation_type": "contradicts",
-                "reason": "Idempotent repeat must not prematurely dispute the target.",
-            },
-            headers=auth_headers(),
-        )
         old_fact = client.get(f"/v1/facts/{old_id}", headers=auth_headers())
         context = client.post(
             "/v1/context",
@@ -326,15 +341,13 @@ def test_future_contradicts_relation_does_not_dispute_current_fact_until_valid(
             headers=auth_headers(),
         )
 
-    assert linked.status_code == 201, linked.text
-    assert repeated.status_code == 201, repeated.text
-    assert repeated.json()["data"]["id"] == linked.json()["data"]["id"]
+    assert linked.status_code == 400, linked.text
     assert old_fact.status_code == 200, old_fact.text
     assert old_fact.json()["data"]["status"] == "active"
     assert context.status_code == 200, context.text
     data = context.json()["data"]
     assert "FUTURE_CONTRADICTION_OLD_FACT" in data["rendered_text"]
-    assert data["diagnostics"]["temporal_relations_skipped_by_validity"] >= 1
+    assert "FUTURE_CONTRADICTION_NEW_FACT" in data["rendered_text"]
 
 
 def test_context_include_stale_can_show_disputed_review_only_evidence(
@@ -350,14 +363,20 @@ def test_context_include_stale_can_show_disputed_review_only_evidence(
             "DISPUTED_REVIEW_NEW_FACT: incident owner is Dana, not Alex.",
         )
         linked = client.post(
-            f"/v1/facts/{new_id}/relations",
+            f"/v1/facts/{old_id}/dispute",
             json={
-                "target_fact_id": old_id,
-                "relation_type": "contradicts",
-                "reason": "New incident owner evidence contradicts old owner.",
-                "observed_at": "2026-01-02T12:00:00+00:00",
+                "space_id": "space_client_app",
+                "memory_scope_id": "memory_scope_default",
+                "challenger_fact_id": new_id,
+                "expected_challenger_version": 1,
+                "expected_challenged_version": 1,
+                "reason_code": "credible_conflict",
+                "actor_id": "test-reviewer",
+                "evidence_refs": [
+                    {"source_ref": {"source_type": "manual", "source_id": "review-3"}}
+                ],
             },
-            headers=auth_headers(),
+            headers={**auth_headers(), "Idempotency-Key": "dispute-review"},
         )
         default_context = client.post(
             "/v1/context",
@@ -398,7 +417,7 @@ def test_context_include_stale_can_show_disputed_review_only_evidence(
             headers=auth_headers(),
         )
 
-    assert linked.status_code == 201
+    assert linked.status_code == 200
     assert default_context.status_code == 200
     assert superseded_only_context.status_code == 200
     assert stale_context.status_code == 200
@@ -415,7 +434,7 @@ def test_context_include_stale_can_show_disputed_review_only_evidence(
     assert "DISPUTED_REVIEW_OLD_FACT" in stale_data["rendered_text"]
     assert "disputed_review" in stale_data["diagnostics"]["retrieval_sources_used"]
     assert stale_data["diagnostics"]["stale_facts_considered"] >= 1
-    assert stale_data["diagnostics"]["stale_facts_used"] == 1
+    assert stale_data["diagnostics"]["stale_facts_used"] == 2
     assert stale_data["diagnostics"]["superseded_facts_used"] == 0
     review_item = next(item for item in stale_data["items"] if item["item_id"] == old_id)
     assert review_item["diagnostics"]["retrieval_source"] == "disputed_review"

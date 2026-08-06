@@ -1,4 +1,5 @@
 import asyncio
+from datetime import UTC, datetime
 from pathlib import Path
 
 from fastapi.testclient import TestClient
@@ -554,12 +555,18 @@ def test_conflict_resolution_replace_existing_fact_updates_conflicting_fact(
             headers=headers,
             space_slug="capture-conflict-replace",
         )
+        superseded_facts = _list_facts_with_status(
+            client,
+            headers=headers,
+            space_slug="capture-conflict-replace",
+            status_filter="superseded",
+        )
 
     assert existing.status_code == 201
     assert result.created_suggestions == 1
     assert resolved.status_code == 200
     data = resolved.json()["data"]
-    assert data["fact"]["id"] == existing.json()["data"]["id"]
+    assert data["fact"]["id"] != existing.json()["data"]["id"]
     assert data["fact"]["text"] == "Project Atlas keeps billing logs for 30 days."
     assert data["fact"]["version"] == 2
     assert data["fact"]["status"] == "active"
@@ -567,11 +574,17 @@ def test_conflict_resolution_replace_existing_fact_updates_conflicting_fact(
     assert data["suggestion"]["review_payload"]["resolved_conflict_action"] == (
         "replace_existing_fact"
     )
-    assert data["suggestion"]["review_payload"]["resolved_fact_id"] == existing.json()["data"]["id"]
+    assert set(data["suggestion"]["review_payload"]["canonical_fact_ids"]) == {
+        data["fact"]["id"],
+        existing.json()["data"]["id"],
+    }
     assert [item["text"] for item in active_facts.json()["data"]] == [
         "Project Atlas keeps billing logs for 30 days."
     ]
     assert pending.json()["data"] == []
+    assert [item["id"] for item in superseded_facts.json()["data"]] == [
+        existing.json()["data"]["id"]
+    ]
 
 
 def test_conflict_resolution_mark_existing_disputed_removes_default_active_fact(
@@ -634,7 +647,7 @@ def test_conflict_resolution_mark_existing_disputed_removes_default_active_fact(
     assert existing.status_code == 201
     assert resolved.status_code == 200
     data = resolved.json()["data"]
-    assert data["fact"]["id"] == existing.json()["data"]["id"]
+    assert data["fact"]["id"] != existing.json()["data"]["id"]
     assert data["fact"]["status"] == "disputed"
     assert data["fact"]["version"] == 2
     assert data["suggestion"]["status"] == "approved"
@@ -642,7 +655,108 @@ def test_conflict_resolution_mark_existing_disputed_removes_default_active_fact(
         "mark_existing_disputed"
     )
     assert active_facts.json()["data"] == []
-    assert [item["status"] for item in disputed_facts.json()["data"]] == ["disputed"]
+    assert {item["id"] for item in disputed_facts.json()["data"]} == {
+        data["fact"]["id"],
+        existing.json()["data"]["id"],
+    }
+
+
+def test_conflict_approve_candidate_keeps_both_facts_active(tmp_path: Path) -> None:
+    app = _capture_app(tmp_path, "capture-conflict-keep.db", CaptureMode.AUTO_APPLY_SAFE)
+    headers = {"Authorization": "Bearer test-token"}
+    with TestClient(app) as client:
+        existing = _create_fact(
+            client,
+            headers=headers,
+            text="Project Atlas keeps billing logs for 7 days.",
+            space_slug="capture-conflict-keep",
+        )
+        capture = _create_capture(
+            client,
+            headers=headers,
+            text="Remember: Project Atlas keeps billing logs for 30 days.",
+            space_slug="capture-conflict-keep",
+        )
+        _consolidate(
+            client,
+            capture_id=capture.json()["data"]["id"],
+            extractor=StaticExtractor(
+                (
+                    _candidate(
+                        "Project Atlas keeps billing logs for 30 days.",
+                        confidence=Confidence.HIGH,
+                        ttl_policy="durable",
+                    ),
+                )
+            ),
+            auto_apply_safe_enabled=True,
+        )
+        suggestion = _list_suggestions(
+            client, headers=headers, space_slug="capture-conflict-keep"
+        ).json()["data"][0]
+        resolved = client.post(
+            f"/v1/suggestions/{suggestion['id']}/resolve-conflict",
+            json={"action": "approve_candidate", "reason": "retain both reviewed claims"},
+            headers=headers,
+        )
+        active = _list_facts(client, headers=headers, space_slug="capture-conflict-keep").json()[
+            "data"
+        ]
+
+    assert resolved.status_code == 200, resolved.text
+    assert {item["id"] for item in active} == {
+        existing.json()["data"]["id"],
+        resolved.json()["data"]["fact"]["id"],
+    }
+    assert {item["status"] for item in active} == {"active"}
+
+
+def test_temporal_candidate_requires_review_and_preserves_historical_window(
+    tmp_path: Path,
+) -> None:
+    app = _capture_app(tmp_path, "capture-temporal.db", CaptureMode.AUTO_APPLY_SAFE)
+    headers = {"Authorization": "Bearer test-token"}
+    with TestClient(app) as client:
+        capture = _create_capture(
+            client,
+            headers=headers,
+            text="MySQL was used from January through June.",
+            space_slug="capture-temporal",
+        )
+        result = _consolidate(
+            client,
+            capture_id=capture.json()["data"]["id"],
+            extractor=StaticExtractor(
+                (
+                    _candidate(
+                        "MySQL was used from January through June.",
+                        confidence=Confidence.HIGH,
+                        ttl_policy="durable",
+                        valid_from=datetime(2026, 1, 1, tzinfo=UTC),
+                        valid_until=datetime(2026, 7, 1, tzinfo=UTC),
+                    ),
+                )
+            ),
+            auto_apply_safe_enabled=True,
+        )
+        suggestion = _list_suggestions(
+            client, headers=headers, space_slug="capture-temporal"
+        ).json()["data"][0]
+        approved = client.post(
+            f"/v1/suggestions/{suggestion['id']}/approve",
+            json={"reason": "reviewed historical interval"},
+            headers=headers,
+        )
+        fact_id = approved.json()["data"]["fact"]["id"]
+        fact = client.get(f"/v1/facts/{fact_id}", headers=headers).json()["data"]
+
+    assert result.auto_applied_facts == 0
+    assert (
+        "temporal_window_requires_review" in suggestion["review_payload"]["rejected_resolver_codes"]
+    )
+    assert approved.status_code == 200, approved.text
+    assert fact["temporal"]["valid_from"] == "2026-01-01T00:00:00+00:00"
+    assert fact["temporal"]["valid_to"] == "2026-07-01T00:00:00+00:00"
 
 
 def test_conflict_resolution_rejects_stale_conflicting_fact_version(
@@ -781,6 +895,8 @@ def _candidate(
     confidence: Confidence = Confidence.MEDIUM,
     ttl_policy: str = "review",
     source_id: str = "semantic-dedupe-test",
+    valid_from: datetime | None = None,
+    valid_until: datetime | None = None,
 ) -> MemoryCandidate:
     return MemoryCandidate(
         text=text,
@@ -797,6 +913,8 @@ def _candidate(
         operation_hint=CandidateOperation.ADD,
         tags=("test",),
         ttl_policy=ttl_policy,
+        valid_from=valid_from,
+        valid_until=valid_until,
     )
 
 

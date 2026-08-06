@@ -50,8 +50,9 @@ def register_memory_fact_tools(mcp: FastMCP, tool_service: MemoryToolService) ->
         title="Remember Fact",
         description=(
             "Persist a stable fact, preference, constraint, or architecture decision. Do not "
-            "store secrets. Use only for explicit confirmed durable facts. Prefer "
-            "memory_update_fact when replacing an existing fact, and use suggestions/proposals "
+            "store secrets. Use only for explicit confirmed durable facts. If reality changed, "
+            "create the successor and call memory_supersede_fact; use memory_update_fact only "
+            "for a correction to the same claim. Use suggestions/proposals "
             "for uncertain or agent-inferred memory. Preserve exact identifiers, project names, "
             "file paths, version labels, URLs, and quoted durable fact wording."
         ),
@@ -264,8 +265,9 @@ def register_memory_fact_tools(mcp: FastMCP, tool_service: MemoryToolService) ->
         title="Link Facts",
         description=(
             "Create a durable typed relation between two canonical facts. Use this when the "
-            "relationship itself should be remembered, for example supports, supersedes, "
-            "contradicts, duplicates, references, depends_on, or related_to. First load both "
+            "non-temporal relationship itself should be remembered, for example supports, "
+            "duplicates, references, depends_on, or related_to. Use memory_supersede_fact or "
+            "memory_dispute_facts for truth changes. First load both "
             "facts with memory_search or memory_get_fact and pass exact fact ids, not raw text."
         ),
         annotations=ToolAnnotations(
@@ -384,9 +386,9 @@ def register_memory_fact_tools(mcp: FastMCP, tool_service: MemoryToolService) ->
         description=(
             "Update a known fact by fact_id using optimistic locking. You must pass the "
             "current expected_version from memory_get_fact, memory_list_facts, or a prior "
-            "memory_search result. Prefer this over memory_propose_updates when the user "
-            "explicitly confirms that an existing current fact changed, so the old active fact "
-            "is superseded immediately. Do not use this for a new fact."
+            "memory_search result. Use only to correct wording or evidence for the same "
+            "real-world claim. If reality changed, create a successor and call "
+            "memory_supersede_fact. Do not use this for a new fact."
         ),
         annotations=ToolAnnotations(
             readOnlyHint=False,

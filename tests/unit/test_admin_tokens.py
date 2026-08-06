@@ -23,7 +23,7 @@ from infinity_context_server.admin import (
     token_list,
     token_revoke,
 )
-from infinity_context_server.auth_tokens import token_hash
+from infinity_context_server.auth_tokens import ALL_MEMORY_PERMISSIONS, token_hash
 from infinity_context_server.config import CaptureMode, DeployProfile, Settings
 from infinity_context_server.db import upgrade
 from infinity_context_server.main import create_app
@@ -126,20 +126,13 @@ def test_admin_token_lifecycle_and_auth_without_raw_token_in_list(
     assert created["status"] == "created"
     assert str(created["token"]).startswith("mp_")
     assert created["memory_scope_ids"] is None
-    assert set(created["permissions"]) == {
-        "memory:admin",
-        "memory:delete",
-        "memory:diagnostics",
-        "memory:read",
-        "memory:write",
-    }
+    assert set(created["permissions"]) == ALL_MEMORY_PERMISSIONS
     listed_ids = {item["id"] for item in listed["tokens"]}
     assert {created["token_id"], rotated["token_id"]}.issubset(listed_ids)
     assert all("token" not in item for item in listed["tokens"])
     assert all("memory_scope_ids" in item for item in listed["tokens"])
     assert all("permissions" in item for item in listed["tokens"])
-    assert authorized.status_code == 200
-    assert rotated_authorized.status_code == 200
+    assert authorized.status_code == rotated_authorized.status_code == 200
     listed_after_use = asyncio.run(token_list(space_id=None))
     used_tokens = {item["id"]: item for item in listed_after_use["tokens"]}
     assert used_tokens[created["token_id"]]["last_used_at"] is not None

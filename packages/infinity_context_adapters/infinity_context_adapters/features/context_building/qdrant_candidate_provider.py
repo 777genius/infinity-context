@@ -6,9 +6,9 @@ from typing import NoReturn
 
 from infinity_context_core.features.context_building.public import (
     FEATURE_ID,
-    ContextCandidateProviderPort,
+    CandidateHit,
+    ContextCandidateHitProviderPort,
     ContextCandidateRequest,
-    ContextItem,
 )
 
 
@@ -18,14 +18,14 @@ class QdrantContextCandidateProvider:
     adapter_name = "qdrant"
     feature_id = FEATURE_ID
 
-    async def find_candidates(
+    async def find_candidate_hits(
         self,
         _request: ContextCandidateRequest,
-    ) -> tuple[ContextItem, ...]:
-        _raise_not_implemented("find_candidates")
+    ) -> tuple[CandidateHit, ...]:
+        _raise_not_implemented("find_candidate_hits")
 
 
-def create_qdrant_context_candidate_provider() -> ContextCandidateProviderPort:
+def create_qdrant_context_candidate_provider() -> ContextCandidateHitProviderPort:
     """Create the feature-owned Qdrant candidate provider placeholder."""
 
     return QdrantContextCandidateProvider()

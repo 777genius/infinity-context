@@ -6,6 +6,11 @@ from .candidate import (
     CognitiveEvidenceRef,
     CognitiveKind,
 )
+from .dependencies import (
+    CognitiveProjectionDependencySet,
+    CognitiveProjectionInvalidation,
+    CognitiveProjectionState,
+)
 from .errors import CognitiveMemoryInvariantError
 from .feature import FEATURE_ID, CognitiveMemoryFeature
 from .identity import (
@@ -35,6 +40,9 @@ __all__ = (
     "CognitiveMemoryFeature",
     "CognitiveMemoryInvariantError",
     "CognitiveProjectionVersion",
+    "CognitiveProjectionDependencySet",
+    "CognitiveProjectionInvalidation",
+    "CognitiveProjectionState",
     "CognitiveScope",
     "InvalidationAssessment",
     "InvalidationDecision",

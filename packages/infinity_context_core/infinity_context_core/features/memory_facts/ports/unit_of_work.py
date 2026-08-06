@@ -5,18 +5,34 @@ from __future__ import annotations
 from types import TracebackType
 from typing import Protocol
 
+from infinity_context_core.features.memory_facts.domain import MemoryFactScope
+from infinity_context_core.features.memory_facts.ports.idempotency import (
+    MemoryFactOperationReceiptPort,
+)
 from infinity_context_core.features.memory_facts.ports.outbox import (
     MemoryFactOutboxPort,
 )
 from infinity_context_core.features.memory_facts.ports.repositories import (
     MemoryFactRepositoryPort,
 )
+from infinity_context_core.features.memory_facts.ports.temporal_decisions import (
+    FactSupersessionRepositoryPort,
+    FactTemporalDecisionRepositoryPort,
+)
 
 
-class MemoryFactUnitOfWorkPort(Protocol):
+class MemoryFactTransactionPort(Protocol):
     facts: MemoryFactRepositoryPort
+    supersessions: FactSupersessionRepositoryPort
+    temporal_decisions: FactTemporalDecisionRepositoryPort
+    operation_receipts: MemoryFactOperationReceiptPort
     outbox: MemoryFactOutboxPort
 
+    async def lock_scope(self, scope: MemoryFactScope) -> None:
+        """Serialize graph-wide invariants inside one canonical fact scope."""
+
+
+class MemoryFactUnitOfWorkPort(MemoryFactTransactionPort, Protocol):
     async def __aenter__(self) -> MemoryFactUnitOfWorkPort:
         """Open one canonical fact transaction."""
 
@@ -40,4 +56,8 @@ class MemoryFactUnitOfWorkFactoryPort(Protocol):
         """Create a fresh unit of work for one fact lifecycle command."""
 
 
-__all__ = ("MemoryFactUnitOfWorkFactoryPort", "MemoryFactUnitOfWorkPort")
+__all__ = (
+    "MemoryFactTransactionPort",
+    "MemoryFactUnitOfWorkFactoryPort",
+    "MemoryFactUnitOfWorkPort",
+)

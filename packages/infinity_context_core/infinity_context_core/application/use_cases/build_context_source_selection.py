@@ -745,7 +745,7 @@ async def _apply_temporal_relation_signals(
             "temporal_relations_skipped_by_validity": 0,
         }
 
-    now = clock.now() if clock is not None else None
+    now = query.as_of or (clock.now() if clock is not None else None)
     by_fact_id = {item.item_id: item for item in items}
     invalidated_fact_ids: set[str] = set()
     replacement_items: dict[str, ContextItem] = {}

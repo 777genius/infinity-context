@@ -76,6 +76,13 @@ def test_outbox_event_dispatcher_registry_is_owned_by_process_boundary() -> None
         "cognee.forget_document",
         "capture.consolidate",
         "asset.extract",
+        "fact.created",
+        "fact.updated",
+        "fact.deleted",
+        "fact.disputed",
+        "fact.superseded",
+        "fact.confirmed",
+        "fact.temporal_ended",
     )
 
 
@@ -372,9 +379,7 @@ def test_consolidation_provider_outage_leaves_capture_retryable(tmp_path: Path) 
             external_ai_enabled=container.settings.capture_external_ai_enabled,
         )
         result = asyncio.run(
-            use_case.execute(
-                ConsolidateCaptureCommand(capture_id=created.json()["data"]["id"])
-            )
+            use_case.execute(ConsolidateCaptureCommand(capture_id=created.json()["data"]["id"]))
         )
         suggestions = _list_suggestions(
             client,
@@ -422,9 +427,7 @@ def test_consolidation_rejects_over_limit_extractor_output(tmp_path: Path) -> No
             extractor=extractor,
         )
         result = asyncio.run(
-            use_case.execute(
-                ConsolidateCaptureCommand(capture_id=created.json()["data"]["id"])
-            )
+            use_case.execute(ConsolidateCaptureCommand(capture_id=created.json()["data"]["id"]))
         )
         suggestions = _list_suggestions(client, headers=headers, space_slug="capture-over-limit")
 
@@ -471,9 +474,7 @@ def test_consolidation_rejects_hallucinated_evidence_quote(tmp_path: Path) -> No
             extractor=extractor,
         )
         result = asyncio.run(
-            use_case.execute(
-                ConsolidateCaptureCommand(capture_id=created.json()["data"]["id"])
-            )
+            use_case.execute(ConsolidateCaptureCommand(capture_id=created.json()["data"]["id"]))
         )
         suggestions = _list_suggestions(client, headers=headers, space_slug="capture-bad-evidence")
 
@@ -522,9 +523,7 @@ def test_consolidation_rejects_candidate_without_source_refs(tmp_path: Path) -> 
             extractor=extractor,
         )
         result = asyncio.run(
-            use_case.execute(
-                ConsolidateCaptureCommand(capture_id=created.json()["data"]["id"])
-            )
+            use_case.execute(ConsolidateCaptureCommand(capture_id=created.json()["data"]["id"]))
         )
         suggestions = _list_suggestions(
             client,
@@ -596,9 +595,7 @@ def test_resolver_coalesces_conflicting_update_delete_candidates(tmp_path: Path)
             extractor=extractor,
         )
         result = asyncio.run(
-            use_case.execute(
-                ConsolidateCaptureCommand(capture_id=created.json()["data"]["id"])
-            )
+            use_case.execute(ConsolidateCaptureCommand(capture_id=created.json()["data"]["id"]))
         )
         suggestions = _list_suggestions(client, headers=headers, space_slug="capture-resolver")
 

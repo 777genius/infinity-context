@@ -51,6 +51,8 @@ class AutoApplySafePolicy:
             return AutoApplyDecision(False, "auto_apply_blocks_classification")
         if capture.metadata.get("admission_reason") != "accepted":
             return AutoApplyDecision(False, "auto_apply_requires_unredacted_capture")
+        if capture.metadata.get("repository_id") is not None:
+            return AutoApplyDecision(False, "auto_apply_requires_attested_workspace")
         if candidate.operation_hint != CandidateOperation.ADD:
             return AutoApplyDecision(False, "auto_apply_add_only")
         if candidate.target_fact_id or candidate.target_fact_version is not None:

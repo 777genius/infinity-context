@@ -6,7 +6,18 @@ import inspect
 from dataclasses import dataclass
 from typing import cast
 
+import infinity_context_core.features.context_building.public as context_building_feature
+import infinity_context_core.features.memory_facts.public as memory_facts_feature
 from infinity_context_adapters.features import document_ingestion as document_ingestion_adapters
+from infinity_context_adapters.features.context_building import (
+    create_memory_fact_context_hydrator,
+    create_postgres_context_candidate_provider,
+)
+from infinity_context_adapters.features.memory_facts import (
+    create_memory_fact_id_adapter,
+    create_postgres_memory_fact_read_model,
+    create_postgres_memory_fact_unit_of_work_factory,
+)
 from infinity_context_adapters.local_blob import LocalBlobStorage
 from infinity_context_adapters.noop import (
     NoopEmbeddingAdapter,
@@ -20,6 +31,10 @@ from infinity_context_adapters.postgres import (
     PostgresUnitOfWorkFactory,
     build_async_engine,
     build_session_factory,
+)
+from infinity_context_adapters.postgres.context_candidates import (
+    PostgresMemoryFactCandidateLookup,
+    create_postgres_memory_fact_selection,
 )
 from infinity_context_adapters.s3_blob import S3BlobStorage
 from infinity_context_core.application import (
@@ -139,6 +154,7 @@ from infinity_context_core.ports.unit_of_work import UnitOfWorkFactoryPort
 from infinity_context_core.ports.vector_projection_evidence import VectorProjectionEvidencePort
 from sqlalchemy.ext.asyncio import AsyncEngine
 
+from infinity_context_server import processes as server_processes
 from infinity_context_server.benchmark_projection_absence import (
     ServerBenchmarkProjectionAbsence,
 )
@@ -158,12 +174,7 @@ from infinity_context_server.provider_circuit import (
     ProviderCircuitBreaker,
 )
 
-SUPPORTED_POLICY_MODES = (
-    "disabled",
-    "manual_only",
-    "suggestions",
-    "active_context",
-)
+SUPPORTED_POLICY_MODES = ("disabled", "manual_only", "suggestions", "active_context")
 
 
 @dataclass(frozen=True)
@@ -173,6 +184,8 @@ class Container:
     clock: ClockPort
     ids: IdGeneratorPort
     uow_factory: UnitOfWorkFactoryPort
+    code_repository_enrollment: server_processes.CodeRepositoryEnrollmentProcess
+    code_scope_authorization: server_processes.CodeScopeAuthorizationProcess
     projection_fence: ProjectionFencePort
     adapters: tuple[MemoryAdapterPort, ...]
     cognee_memory: DocumentMemoryPort
@@ -248,6 +261,10 @@ class Container:
     process_document: ProcessDocumentUseCase
     delete_document: DeleteDocumentUseCase
     build_context: BuildContextUseCase
+    build_canonical_fact_context: context_building_feature.BuildContextHandler
+    memory_fact_lifecycle: memory_facts_feature.MemoryFactLifecycleUseCases
+    memory_fact_reads: memory_facts_feature.MemoryFactReadUseCases
+    memory_fact_temporal: memory_facts_feature.MemoryFactTemporalUseCases
     build_memory_digest: BuildMemoryDigestUseCase
     build_memory_insights: BuildMemoryInsightsUseCase
     build_memory_browser: BuildMemoryBrowserUseCase
@@ -305,8 +322,87 @@ def build_container(settings: Settings | None = None) -> Container:
     ids = UuidIdGenerator()
     engine = build_async_engine(resolved_settings.database_url)
     session_factory = build_session_factory(engine)
-    uow_factory = PostgresUnitOfWorkFactory(session_factory=session_factory, clock=clock)
+    code_repository_enrollment = server_processes.CodeRepositoryEnrollmentProcess(
+        session_factory=session_factory,
+        clock=clock,
+    )
+    code_scope_authorization = server_processes.CodeScopeAuthorizationProcess(
+        session_factory, clock
+    )
+    memory_fact_ids = create_memory_fact_id_adapter(ids.new_id)
+    uow_factory = PostgresUnitOfWorkFactory(
+        session_factory=session_factory,
+        clock=clock,
+        memory_fact_ids=memory_fact_ids,
+    )
     projection_fence = PostgresProjectionFence(session_factory)
+    canonical_fact_selection = create_postgres_memory_fact_selection(session_factory)
+    canonical_fact_candidates = create_postgres_context_candidate_provider(
+        lookup=PostgresMemoryFactCandidateLookup(
+            sessions=session_factory,
+            clock=clock,
+        )
+    )
+    canonical_fact_pipeline = context_building_feature.CanonicalCandidatePipeline(
+        providers=(
+            context_building_feature.CandidateHitProviderRegistration(
+                provider_id="postgres",
+                provider=canonical_fact_candidates,
+                required=True,
+            ),
+        ),
+        hydrator=create_memory_fact_context_hydrator(
+            facts=canonical_fact_selection,
+            clock=clock,
+        ),
+    )
+    build_canonical_fact_context = context_building_feature.BuildContextHandler(
+        candidate_provider=canonical_fact_pipeline,
+    )
+    memory_fact_uow_factory = create_postgres_memory_fact_unit_of_work_factory(
+        session_factory=session_factory,
+        clock=clock,
+    )
+    memory_fact_read_model = create_postgres_memory_fact_read_model(session_factory)
+    memory_fact_reads = memory_facts_feature.MemoryFactReadUseCases(
+        get_fact=memory_facts_feature.GetMemoryFactHandler(memory_fact_read_model),
+        list_facts=memory_facts_feature.ListMemoryFactsHandler(memory_fact_read_model),
+        list_versions=memory_facts_feature.ListMemoryFactVersionsHandler(memory_fact_read_model),
+    )
+    memory_fact_lifecycle = memory_facts_feature.MemoryFactLifecycleUseCases(
+        remember_fact=memory_facts_feature.RememberFactHandler(
+            uow_factory=memory_fact_uow_factory,
+            clock=clock,
+            ids=memory_fact_ids,
+        ),
+        update_fact=memory_facts_feature.UpdateFactHandler(
+            uow_factory=memory_fact_uow_factory,
+            clock=clock,
+            ids=memory_fact_ids,
+        ),
+        forget_fact=memory_facts_feature.ForgetFactHandler(
+            uow_factory=memory_fact_uow_factory,
+            clock=clock,
+            ids=memory_fact_ids,
+        ),
+    )
+    memory_fact_temporal = memory_facts_feature.MemoryFactTemporalUseCases(
+        confirm_fact=memory_facts_feature.ConfirmFactHandler(
+            uow_factory=memory_fact_uow_factory, clock=clock, ids=memory_fact_ids
+        ),
+        end_validity=memory_facts_feature.EndFactValidityHandler(
+            uow_factory=memory_fact_uow_factory, clock=clock, ids=memory_fact_ids
+        ),
+        supersede_fact=memory_facts_feature.SupersedeFactHandler(
+            uow_factory=memory_fact_uow_factory, clock=clock, ids=memory_fact_ids
+        ),
+        dispute_facts=memory_facts_feature.DisputeFactsHandler(
+            uow_factory=memory_fact_uow_factory, clock=clock, ids=memory_fact_ids
+        ),
+        reinstate_supersession=memory_facts_feature.ReinstateSupersededFactHandler(
+            uow_factory=memory_fact_uow_factory, clock=clock, ids=memory_fact_ids
+        ),
+    )
 
     raw_vector = _build_vector_adapter(resolved_settings)
     raw_graph = _build_graph_adapter(resolved_settings)
@@ -568,6 +664,7 @@ def build_container(settings: Settings | None = None) -> Container:
         rag_recall=cognee,
         packer=ContextPacker(),
         blob_storage=blob_storage,
+        fact_selection=canonical_fact_selection,
     )
     build_memory_digest = BuildMemoryDigestUseCase(
         uow_factory=uow_factory,
@@ -666,6 +763,8 @@ def build_container(settings: Settings | None = None) -> Container:
         clock=clock,
         ids=ids,
         uow_factory=uow_factory,
+        code_repository_enrollment=code_repository_enrollment,
+        code_scope_authorization=code_scope_authorization,
         projection_fence=projection_fence,
         adapters=adapters,
         cognee_memory=cognee,
@@ -741,6 +840,10 @@ def build_container(settings: Settings | None = None) -> Container:
         process_document=process_document,
         delete_document=delete_document,
         build_context=build_context,
+        build_canonical_fact_context=build_canonical_fact_context,
+        memory_fact_lifecycle=memory_fact_lifecycle,
+        memory_fact_reads=memory_fact_reads,
+        memory_fact_temporal=memory_fact_temporal,
         build_memory_digest=build_memory_digest,
         build_memory_insights=build_memory_insights,
         build_memory_browser=build_memory_browser,

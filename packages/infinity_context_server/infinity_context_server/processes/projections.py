@@ -46,6 +46,27 @@ class ProjectionOutboxProcess:
             "cognee.forget_document": self.handle_cognee_document_forget,
         }
 
+    def non_fact_handlers(self) -> OutboxHandlerRegistry:
+        return {
+            event_type: handler
+            for event_type, handler in self.handlers().items()
+            if event_type not in {"graph.upsert_fact", "graph.delete_fact"}
+        }
+
+    def vector_handlers(self) -> OutboxHandlerRegistry:
+        return {
+            event_type: handler
+            for event_type, handler in self.handlers().items()
+            if event_type.startswith("vector.")
+        }
+
+    def document_handlers(self) -> OutboxHandlerRegistry:
+        return {
+            event_type: handler
+            for event_type, handler in self.handlers().items()
+            if event_type.startswith("cognee.")
+        }
+
     async def handle_vector_upsert(self, job: ClaimedOutboxJob) -> None:
         chunk_id = str(job.payload_json.get("chunk_id") or job.aggregate_id)
         async with self._container.uow_factory() as uow:
@@ -125,9 +146,7 @@ class ProjectionOutboxProcess:
 
     async def handle_vector_delete_chunks(self, job: ClaimedOutboxJob) -> None:
         chunk_ids = tuple(str(value) for value in job.payload_json.get("chunk_ids", []))
-        require_delete_completion = _benchmark_cleanup_requires_delete_completion(
-            job.payload_json
-        )
+        require_delete_completion = _benchmark_cleanup_requires_delete_completion(job.payload_json)
         await self._delete_vector_chunks(
             chunk_ids,
             require_delete_completion=require_delete_completion,
@@ -179,9 +198,7 @@ class ProjectionOutboxProcess:
 
     async def handle_graph_delete(self, job: ClaimedOutboxJob) -> None:
         fact_id = str(job.payload_json.get("fact_id") or job.aggregate_id)
-        require_delete_completion = _benchmark_cleanup_requires_delete_completion(
-            job.payload_json
-        )
+        require_delete_completion = _benchmark_cleanup_requires_delete_completion(job.payload_json)
         await self._delete_graph_fact(
             fact_id,
             require_delete_completion=require_delete_completion,

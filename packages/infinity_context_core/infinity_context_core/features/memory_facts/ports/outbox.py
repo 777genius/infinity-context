@@ -6,6 +6,8 @@ from dataclasses import dataclass
 from datetime import datetime
 from typing import Protocol
 
+from infinity_context_core.features.memory_facts.domain.fact import MemoryFactScope
+
 
 @dataclass(frozen=True, slots=True)
 class MemoryFactOutboxMessage:
@@ -15,6 +17,7 @@ class MemoryFactOutboxMessage:
     event_type: str
     aggregate_id: str
     aggregate_version: int
+    scope: MemoryFactScope
     occurred_at: datetime | None = None
 
 

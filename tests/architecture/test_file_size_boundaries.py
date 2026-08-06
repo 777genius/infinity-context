@@ -33,7 +33,7 @@ def _reasons(root: Path, baseline: dict[str, int], paths: tuple[str, ...]) -> li
 def test_repository_respects_exact_legacy_line_budgets() -> None:
     baseline = load_baseline(BASELINE_PATH)
 
-    assert len(baseline) == 111
+    assert len(baseline) == 108
     assert check_file_size_boundaries(REPO_ROOT, baseline) == ()
 
 

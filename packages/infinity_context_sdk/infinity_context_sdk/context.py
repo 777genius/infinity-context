@@ -161,8 +161,7 @@ class ContextBundle:
                 continue
             if item.citations:
                 candidates.extend(
-                    _evidence_selection(item=item, citation=citation)
-                    for citation in item.citations
+                    _evidence_selection(item=item, citation=citation) for citation in item.citations
                 )
             elif include_uncited:
                 candidates.append(_evidence_selection(item=item, citation=None))

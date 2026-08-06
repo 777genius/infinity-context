@@ -8,7 +8,7 @@ from infinity_context_contracts.features.context_building import (
     BuildContextRequestDto,
     ContextBudgetDto,
 )
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import AwareDatetime, BaseModel, ConfigDict, Field
 
 
 class ContextBudgetHttpRequest(BaseModel):
@@ -42,6 +42,9 @@ class BuildContextHttpRequest(BaseModel):
     space_slug: str | None = Field(default=None, min_length=1, max_length=160)
     memory_scope_external_ref: str | None = Field(default=None, min_length=1, max_length=200)
     thread_external_ref: str | None = Field(default=None, min_length=1, max_length=200)
+    repository_id: str | None = Field(default=None, min_length=1, max_length=80)
+    code_scope_id: str | None = Field(default=None, min_length=1, max_length=96)
+    as_of: AwareDatetime | None = None
     budget: ContextBudgetHttpRequest | None = None
     include_kinds: list[str] = Field(default_factory=list, max_length=20)
     tags: list[str] = Field(default_factory=list, max_length=20)
@@ -57,6 +60,9 @@ class BuildContextHttpRequest(BaseModel):
             space_slug=self.space_slug,
             memory_scope_external_ref=self.memory_scope_external_ref,
             thread_external_ref=self.thread_external_ref,
+            repository_id=self.repository_id,
+            code_scope_id=self.code_scope_id,
+            as_of=self.as_of.isoformat() if self.as_of is not None else None,
             budget=self.budget.to_contract() if self.budget is not None else None,
             include_kinds=tuple(self.include_kinds),
             tags=tuple(self.tags),

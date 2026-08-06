@@ -117,6 +117,14 @@ def test_hook_settings_direct_env_overrides_auth_file(tmp_path: Path) -> None:
     assert loaded.capture_mode.value == "off"
 
 
+def test_auto_locked_scope_rejects_non_repository_aware_episode_capture() -> None:
+    with pytest.raises(ValueError, match="repository-aware captures"):
+        settings(
+            MEMORY_PLUGIN_PROJECT_SCOPE_MODE="auto_locked",
+            MEMORY_PLUGIN_HOOK_CAPTURE_MODE="episodes",
+        )
+
+
 def test_hook_capture_writes_to_gateway_but_not_stdout() -> None:
     gateway = FakeGateway()
     app = MemoryPluginHookApp(settings=settings(), gateway=gateway)

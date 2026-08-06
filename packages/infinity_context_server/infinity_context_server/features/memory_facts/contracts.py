@@ -5,11 +5,15 @@ from __future__ import annotations
 from datetime import datetime
 
 from infinity_context_contracts.features.memory_facts import (
+    MemoryFactEpistemicContextDto,
+    MemoryFactFreshnessDto,
+    MemoryFactRetentionDto,
     MemoryFactSourceRefDto,
+    MemoryFactTemporalDto,
     RememberFactRequestDto,
     UpdateFactRequestDto,
 )
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import AwareDatetime, BaseModel, ConfigDict, Field
 
 
 class MemoryFactSourceRefHttpRequest(BaseModel):
@@ -43,6 +47,82 @@ class MemoryFactSourceRefHttpRequest(BaseModel):
         )
 
 
+class MemoryFactTemporalHttpRequest(BaseModel):
+    """Typed state, event or timeless temporal extent."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    kind: str = Field(pattern="^(state|event|timeless)$")
+    observed_at: AwareDatetime
+    valid_from: AwareDatetime | None = None
+    valid_to: AwareDatetime | None = None
+    occurred_from: AwareDatetime | None = None
+    occurred_to: AwareDatetime | None = None
+    basis: str = Field(default="asserted", pattern="^(asserted|inferred|unknown)$")
+    precision: str = Field(default="exact", min_length=1, max_length=40)
+
+    def to_contract(self) -> MemoryFactTemporalDto:
+        return MemoryFactTemporalDto(
+            kind=self.kind,
+            observed_at=self.observed_at.isoformat(),
+            valid_from=_isoformat(self.valid_from),
+            valid_to=_isoformat(self.valid_to),
+            occurred_from=_isoformat(self.occurred_from),
+            occurred_to=_isoformat(self.occurred_to),
+            basis=self.basis,
+            precision=self.precision,
+        )
+
+
+class MemoryFactFreshnessHttpRequest(BaseModel):
+    """Read-compatible shape; creation rejects confirmation without governance."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    last_confirmed_at: AwareDatetime | None = None
+    confirmation_basis: str | None = Field(default=None, min_length=1, max_length=120)
+
+    def to_contract(self) -> MemoryFactFreshnessDto:
+        return MemoryFactFreshnessDto(
+            last_confirmed_at=_isoformat(self.last_confirmed_at),
+            confirmation_basis=self.confirmation_basis,
+        )
+
+
+class MemoryFactRetentionHttpRequest(BaseModel):
+    """Retention policy independent from real-world validity."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    ttl_policy: str | None = Field(default=None, min_length=1, max_length=80)
+    context_expires_at: AwareDatetime | None = None
+    purge_after: AwareDatetime | None = None
+
+    def to_contract(self) -> MemoryFactRetentionDto:
+        return MemoryFactRetentionDto(
+            ttl_policy=self.ttl_policy,
+            context_expires_at=_isoformat(self.context_expires_at),
+            purge_after=_isoformat(self.purge_after),
+        )
+
+
+class MemoryFactEpistemicContextHttpRequest(BaseModel):
+    """Claim ownership and perspective semantics."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    mode: str = Field(default="world_claim", pattern="^(world_claim|perspective|hypothesis)$")
+    asserted_by: str | None = Field(default=None, min_length=1, max_length=160)
+    perspective_subject: str | None = Field(default=None, min_length=1, max_length=160)
+
+    def to_contract(self) -> MemoryFactEpistemicContextDto:
+        return MemoryFactEpistemicContextDto(
+            mode=self.mode,
+            asserted_by=self.asserted_by,
+            perspective_subject=self.perspective_subject,
+        )
+
+
 class SourceRefRequest(BaseModel):
     """Legacy /v1 source reference request shape owned by the facts seam."""
 
@@ -71,6 +151,8 @@ class RememberFactRequest(BaseModel):
     space_slug: str | None = Field(default=None, min_length=1, max_length=160)
     memory_scope_external_ref: str | None = Field(default=None, min_length=1, max_length=200)
     thread_external_ref: str | None = Field(default=None, min_length=1, max_length=200)
+    repository_id: str | None = Field(default=None, min_length=1, max_length=80)
+    code_scope_id: str | None = Field(default=None, min_length=1, max_length=96)
     text: str = Field(min_length=1, max_length=4000)
     kind: str = "note"
     source_refs: list[SourceRefRequest] = Field(min_length=1)
@@ -78,6 +160,10 @@ class RememberFactRequest(BaseModel):
     category: str | None = Field(default=None, max_length=80)
     tags: list[str] = Field(default_factory=list, max_length=10)
     ttl_policy: str | None = Field(default=None, max_length=80)
+    temporal: MemoryFactTemporalHttpRequest | None = None
+    freshness: MemoryFactFreshnessHttpRequest | None = None
+    retention: MemoryFactRetentionHttpRequest | None = None
+    epistemic_context: MemoryFactEpistemicContextHttpRequest | None = None
 
 
 class UpdateFactRequest(BaseModel):
@@ -99,9 +185,9 @@ class LinkFactRequest(BaseModel):
     target_fact_id: str = Field(min_length=1, max_length=160)
     relation_type: str = Field(default="related_to", max_length=80)
     reason: str = Field(min_length=1, max_length=320)
-    observed_at: datetime | None = None
-    valid_from: datetime | None = None
-    valid_to: datetime | None = None
+    observed_at: AwareDatetime | None = None
+    valid_from: AwareDatetime | None = None
+    valid_to: AwareDatetime | None = None
 
 
 class RememberFactHttpRequest(BaseModel):
@@ -122,6 +208,10 @@ class RememberFactHttpRequest(BaseModel):
     category: str | None = Field(default=None, max_length=80)
     tags: list[str] = Field(default_factory=list, max_length=20)
     ttl_policy: str | None = Field(default=None, max_length=80)
+    temporal: MemoryFactTemporalHttpRequest | None = None
+    freshness: MemoryFactFreshnessHttpRequest | None = None
+    retention: MemoryFactRetentionHttpRequest | None = None
+    epistemic_context: MemoryFactEpistemicContextHttpRequest | None = None
 
     def to_contract(self) -> RememberFactRequestDto:
         return RememberFactRequestDto(
@@ -138,6 +228,12 @@ class RememberFactHttpRequest(BaseModel):
             category=self.category,
             tags=tuple(self.tags),
             ttl_policy=self.ttl_policy,
+            temporal=self.temporal.to_contract() if self.temporal is not None else None,
+            freshness=self.freshness.to_contract() if self.freshness is not None else None,
+            retention=self.retention.to_contract() if self.retention is not None else None,
+            epistemic_context=(
+                self.epistemic_context.to_contract() if self.epistemic_context is not None else None
+            ),
         )
 
 
@@ -153,6 +249,7 @@ class UpdateFactHttpRequest(BaseModel):
     text: str = Field(min_length=1, max_length=4000)
     reason: str = Field(min_length=1, max_length=240)
     source_refs: list[MemoryFactSourceRefHttpRequest] = Field(min_length=1)
+    retention: MemoryFactRetentionHttpRequest | None = None
 
     def to_contract(self) -> UpdateFactRequestDto:
         return UpdateFactRequestDto(
@@ -160,6 +257,7 @@ class UpdateFactHttpRequest(BaseModel):
             text=self.text,
             reason=self.reason,
             source_refs=tuple(ref.to_contract() for ref in self.source_refs),
+            retention=self.retention.to_contract() if self.retention is not None else None,
         )
 
 
@@ -175,10 +273,18 @@ class ForgetFactHttpRequest(BaseModel):
     reason: str | None = Field(default=None, max_length=240)
 
 
+def _isoformat(value: datetime | None) -> str | None:
+    return value.isoformat() if value is not None else None
+
+
 __all__ = (
     "ForgetFactHttpRequest",
     "LinkFactRequest",
     "MemoryFactSourceRefHttpRequest",
+    "MemoryFactEpistemicContextHttpRequest",
+    "MemoryFactFreshnessHttpRequest",
+    "MemoryFactRetentionHttpRequest",
+    "MemoryFactTemporalHttpRequest",
     "RememberFactRequest",
     "RememberFactHttpRequest",
     "SourceRefRequest",

@@ -83,6 +83,92 @@ class MemoryFactVisibilityDto:
 
 
 @dataclass(frozen=True, slots=True)
+class MemoryFactTemporalDto:
+    """Real-world time semantics, separate from transaction timestamps."""
+
+    kind: str
+    observed_at: str
+    valid_from: str | None = None
+    valid_to: str | None = None
+    occurred_from: str | None = None
+    occurred_to: str | None = None
+    basis: str = "unknown"
+    precision: str = "unknown"
+
+    def to_dict(self) -> JsonObject:
+        return {
+            "kind": self.kind,
+            "observed_at": self.observed_at,
+            "valid_from": self.valid_from,
+            "valid_to": self.valid_to,
+            "occurred_from": self.occurred_from,
+            "occurred_to": self.occurred_to,
+            "basis": self.basis,
+            "precision": self.precision,
+        }
+
+
+@dataclass(frozen=True, slots=True)
+class MemoryFactFreshnessDto:
+    """Explicit evidence confirmation; never inferred from updated_at."""
+
+    last_confirmed_at: str | None = None
+    confirmation_basis: str | None = None
+
+    def to_dict(self) -> JsonObject:
+        return {
+            "last_confirmed_at": self.last_confirmed_at,
+            "confirmation_basis": self.confirmation_basis,
+        }
+
+
+@dataclass(frozen=True, slots=True)
+class MemoryFactRetentionDto:
+    """Prompt visibility and physical-retention boundaries."""
+
+    ttl_policy: str | None = None
+    context_expires_at: str | None = None
+    purge_after: str | None = None
+
+    def to_dict(self) -> JsonObject:
+        return {
+            "ttl_policy": self.ttl_policy,
+            "context_expires_at": self.context_expires_at,
+            "purge_after": self.purge_after,
+        }
+
+
+@dataclass(frozen=True, slots=True)
+class MemoryFactEpistemicContextDto:
+    """Claim mode and perspective ownership."""
+
+    mode: str = "world_claim"
+    asserted_by: str | None = None
+    perspective_subject: str | None = None
+
+    def to_dict(self) -> JsonObject:
+        return {
+            "mode": self.mode,
+            "asserted_by": self.asserted_by,
+            "perspective_subject": self.perspective_subject,
+        }
+
+
+@dataclass(frozen=True, slots=True)
+class MemoryFactCodeScopeDto:
+    """Opaque repository binding exposed without raw paths or remote URLs."""
+
+    repository_id: str
+    code_scope_id: str | None = None
+
+    def to_dict(self) -> JsonObject:
+        return {
+            "repository_id": self.repository_id,
+            "code_scope_id": self.code_scope_id,
+        }
+
+
+@dataclass(frozen=True, slots=True)
 class MemoryFactReadDto:
     """Stable read model for a memory fact response item."""
 
@@ -98,6 +184,11 @@ class MemoryFactReadDto:
     created_at: str | None = None
     updated_at: str | None = None
     indexing_status: str | None = None
+    temporal: MemoryFactTemporalDto | None = None
+    freshness: MemoryFactFreshnessDto | None = None
+    retention: MemoryFactRetentionDto | None = None
+    epistemic_context: MemoryFactEpistemicContextDto | None = None
+    code_scope: MemoryFactCodeScopeDto | None = None
 
     def to_dict(self) -> JsonObject:
         payload: JsonObject = {
@@ -113,6 +204,16 @@ class MemoryFactReadDto:
         }
         if self.indexing_status is not None:
             payload["indexing_status"] = self.indexing_status
+        if self.temporal is not None:
+            payload["temporal"] = self.temporal.to_dict()
+        if self.freshness is not None:
+            payload["freshness"] = self.freshness.to_dict()
+        if self.retention is not None:
+            payload["retention"] = self.retention.to_dict()
+        if self.epistemic_context is not None:
+            payload["epistemic_context"] = self.epistemic_context.to_dict()
+        if self.code_scope is not None:
+            payload["code_scope"] = self.code_scope.to_dict()
         return payload
 
 
@@ -133,9 +234,13 @@ class RememberFactRequestDto:
     category: str | None = None
     tags: Sequence[str] = field(default_factory=tuple)
     ttl_policy: str | None = None
+    temporal: MemoryFactTemporalDto | None = None
+    freshness: MemoryFactFreshnessDto | None = None
+    retention: MemoryFactRetentionDto | None = None
+    epistemic_context: MemoryFactEpistemicContextDto | None = None
 
     def to_dict(self) -> JsonObject:
-        return {
+        payload: JsonObject = {
             "space_id": self.space_id,
             "memory_scope_id": self.memory_scope_id,
             "thread_id": self.thread_id,
@@ -150,6 +255,15 @@ class RememberFactRequestDto:
             "tags": json_compatible(self.tags),
             "ttl_policy": self.ttl_policy,
         }
+        if self.temporal is not None:
+            payload["temporal"] = self.temporal.to_dict()
+        if self.freshness is not None:
+            payload["freshness"] = self.freshness.to_dict()
+        if self.retention is not None:
+            payload["retention"] = self.retention.to_dict()
+        if self.epistemic_context is not None:
+            payload["epistemic_context"] = self.epistemic_context.to_dict()
+        return payload
 
 
 @dataclass(frozen=True, slots=True)
@@ -160,14 +274,18 @@ class UpdateFactRequestDto:
     text: str
     reason: str
     source_refs: Sequence[MemoryFactSourceRefDto | Mapping[str, JsonValue]]
+    retention: MemoryFactRetentionDto | None = None
 
     def to_dict(self) -> JsonObject:
-        return {
+        payload: JsonObject = {
             "expected_version": self.expected_version,
             "text": self.text,
             "reason": self.reason,
             "source_refs": _source_refs_to_dicts(self.source_refs),
         }
+        if self.retention is not None:
+            payload["retention"] = self.retention.to_dict()
+        return payload
 
 
 @dataclass(frozen=True, slots=True)
@@ -226,8 +344,13 @@ __all__ = [
     "ForgetFactPathParamsDto",
     "ForgetFactResultDto",
     "MemoryFactIdentityDto",
+    "MemoryFactCodeScopeDto",
+    "MemoryFactEpistemicContextDto",
+    "MemoryFactFreshnessDto",
     "MemoryFactReadDto",
+    "MemoryFactRetentionDto",
     "MemoryFactSourceRefDto",
+    "MemoryFactTemporalDto",
     "MemoryFactVisibilityDto",
     "RememberFactRequestDto",
     "RememberFactResultDto",

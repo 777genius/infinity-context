@@ -5,6 +5,12 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 from infinity_context_core.features.memory_facts.domain import (
+    FactCodeScopeReference,
+    FactEpistemicContext,
+    FactFreshness,
+    FactQuality,
+    FactRetention,
+    FactTemporalExtent,
     MemoryFactEvidenceRef,
     MemoryFactIdentity,
     MemoryFactKind,
@@ -25,6 +31,12 @@ class RememberFactCommand:
     evidence_refs: tuple[MemoryFactEvidenceRef, ...] = ()
     category: str | None = None
     tags: tuple[str, ...] = ()
+    quality: FactQuality | None = None
+    temporal_extent: FactTemporalExtent | None = None
+    freshness: FactFreshness | None = None
+    retention: FactRetention | None = None
+    epistemic_context: FactEpistemicContext | None = None
+    code_scope: FactCodeScopeReference | None = None
     idempotency_key: str | None = None
 
 
@@ -34,6 +46,7 @@ class RememberFactResult:
 
     fact: MemoryFactSnapshot
     outbox_message_ids: tuple[str, ...] = ()
+    replayed: bool = False
 
 
 @dataclass(frozen=True, slots=True)
@@ -44,12 +57,14 @@ class UpdateFactCommand:
     expected_version: int
     text: str
     source_refs: tuple[MemoryFactSourceRef, ...]
-    kind: MemoryFactKind = "note"
-    evidence_refs: tuple[MemoryFactEvidenceRef, ...] = ()
+    kind: MemoryFactKind | None = None
+    evidence_refs: tuple[MemoryFactEvidenceRef, ...] | None = None
     category: str | None = None
-    tags: tuple[str, ...] = ()
+    tags: tuple[str, ...] | None = None
+    retention: FactRetention | None = None
     reason: str | None = None
     idempotency_key: str | None = None
+    authorized_code_scope: FactCodeScopeReference | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -58,6 +73,7 @@ class UpdateFactResult:
 
     fact: MemoryFactSnapshot
     outbox_message_ids: tuple[str, ...] = ()
+    replayed: bool = False
 
 
 @dataclass(frozen=True, slots=True)
@@ -68,6 +84,7 @@ class ForgetFactCommand:
     expected_version: int | None = None
     reason: str | None = None
     idempotency_key: str | None = None
+    authorized_code_scope: FactCodeScopeReference | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -77,6 +94,8 @@ class ForgetFactResult:
     fact: MemoryFactSnapshot
     tombstone_id: str | None = None
     outbox_message_ids: tuple[str, ...] = ()
+    replayed: bool = False
+    already_deleted: bool = False
 
 
 __all__ = (

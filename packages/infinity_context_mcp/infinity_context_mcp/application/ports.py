@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from datetime import datetime
 from typing import Any, Protocol
 
 from infinity_context_mcp.domain.models import MemoryReadScope, MemoryScope, SourceRef
@@ -159,6 +160,69 @@ class MemoryGatewayPort(Protocol):
     ) -> dict[str, Any]: ...
 
     async def forget_fact(self, *, fact_id: str) -> dict[str, Any]: ...
+
+    async def confirm_fact(
+        self,
+        *,
+        scope: MemoryScope,
+        fact_id: str,
+        expected_version: int,
+        confirmed_at: datetime,
+        confirmation_basis: str,
+        evidence_refs: list[SourceRef],
+        idempotency_key: str,
+    ) -> dict[str, Any]: ...
+
+    async def end_fact_validity(
+        self,
+        *,
+        scope: MemoryScope,
+        fact_id: str,
+        expected_version: int,
+        effective_at: datetime,
+        reason_code: str,
+        evidence_refs: list[SourceRef],
+        idempotency_key: str,
+    ) -> dict[str, Any]: ...
+
+    async def supersede_fact(
+        self,
+        *,
+        scope: MemoryScope,
+        predecessor_fact_id: str,
+        successor_fact_id: str,
+        expected_predecessor_version: int,
+        expected_successor_version: int,
+        effective_at: datetime,
+        reason_code: str,
+        evidence_refs: list[SourceRef],
+        idempotency_key: str,
+    ) -> dict[str, Any]: ...
+
+    async def dispute_facts(
+        self,
+        *,
+        scope: MemoryScope,
+        challenged_fact_id: str,
+        challenger_fact_id: str,
+        expected_challenged_version: int,
+        expected_challenger_version: int,
+        reason_code: str,
+        evidence_refs: list[SourceRef],
+        idempotency_key: str,
+    ) -> dict[str, Any]: ...
+
+    async def reinstate_supersession(
+        self,
+        *,
+        scope: MemoryScope,
+        supersession_decision_id: str,
+        expected_rejected_successor_version: int,
+        expected_original_predecessor_version: int,
+        reason_code: str,
+        evidence_refs: list[SourceRef],
+        idempotency_key: str,
+    ) -> dict[str, Any]: ...
 
     async def create_suggestion(
         self,

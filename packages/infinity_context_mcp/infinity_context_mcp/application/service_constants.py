@@ -7,8 +7,6 @@ CLASSIFICATIONS = {"public", "internal", "restricted", "unknown"}
 FACT_STATUSES = {"active", "superseded", "disputed", "deleted"}
 FACT_RELATION_TYPES = {
     "supports",
-    "supersedes",
-    "contradicts",
     "duplicates",
     "references",
     "depends_on",

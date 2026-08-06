@@ -1,13 +1,9 @@
-"""Postgres adapter package."""
+"""Postgres adapter package with cycle-safe lazy public exports."""
 
-from infinity_context_adapters.postgres.projection_fence import PostgresProjectionFence
-from infinity_context_adapters.postgres.unit_of_work import (
-    PostgresUnitOfWork,
-    PostgresUnitOfWorkFactory,
-    build_async_engine,
-    build_session_factory,
-    create_schema,
-)
+from __future__ import annotations
+
+from importlib import import_module
+from typing import Any
 
 __all__ = [
     "PostgresProjectionFence",
@@ -17,3 +13,19 @@ __all__ = [
     "build_session_factory",
     "create_schema",
 ]
+
+
+def __getattr__(name: str) -> Any:
+    if name == "PostgresProjectionFence":
+        module = import_module("infinity_context_adapters.postgres.projection_fence")
+        return getattr(module, name)
+    if name in {
+        "PostgresUnitOfWork",
+        "PostgresUnitOfWorkFactory",
+        "build_async_engine",
+        "build_session_factory",
+        "create_schema",
+    }:
+        module = import_module("infinity_context_adapters.postgres.unit_of_work")
+        return getattr(module, name)
+    raise AttributeError(name)

@@ -47,6 +47,10 @@ class LinkFactsUseCase:
             relation_type = FactRelationType(command.relation_type)
         except ValueError as exc:
             raise MemoryValidationError("Unknown fact relation type") from exc
+        if relation_type in {FactRelationType.SUPERSEDES, FactRelationType.CONTRADICTS}:
+            raise MemoryValidationError(
+                "Temporal relations require the audited supersede or dispute use case"
+            )
         now = self._clock.now()
         async with self._uow_factory() as uow:
             source = await uow.facts.get_by_id(command.source_fact_id)
@@ -108,6 +112,9 @@ class ListFactRelationsUseCase:
                 fact_id=query.fact_id,
                 status=query.status,
                 limit=query.limit,
+                enforce_code_scope=query.enforce_code_scope,
+                repository_id=query.repository_id,
+                code_scope_id=query.code_scope_id,
             )
             items: list[FactRelationItem] = []
             for relation in relations:
@@ -148,6 +155,10 @@ class UnlinkFactRelationUseCase:
             relation = await uow.fact_relations.get_by_id(command.relation_id)
             if relation is None:
                 raise MemoryNotFoundError("Fact relation not found")
+            if relation.relation_type == FactRelationType.SUPERSEDES:
+                raise MemoryValidationError(
+                    "Supersession relations are immutable; use a compensating decision"
+                )
             deleted = relation.delete(now=self._clock.now())
             saved = await uow.fact_relations.save(deleted)
             await uow.commit()

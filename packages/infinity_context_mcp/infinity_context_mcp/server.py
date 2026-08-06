@@ -48,6 +48,9 @@ from infinity_context_mcp.server_request_mapping import (
     SuggestionStatus,
 )
 from infinity_context_mcp.server_resources import register_memory_resources_and_prompts
+from infinity_context_mcp.server_temporal_fact_tools import (
+    register_memory_temporal_fact_tools,
+)
 
 __all__ = [
     "CaptureConsolidationStatus",
@@ -109,6 +112,7 @@ def create_mcp_server(
     register_obsidian_tools(mcp, obsidian_service, obsidian_prepare_service)
     register_memory_query_tools(mcp, tool_service)
     register_memory_fact_tools(mcp, tool_service)
+    register_memory_temporal_fact_tools(mcp, tool_service)
     register_memory_context_tools(mcp, tool_service)
     register_memory_resources_and_prompts(mcp, tool_service)
 

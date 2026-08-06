@@ -93,7 +93,9 @@ from infinity_context_core.application.context_source_siblings import (
 )
 from infinity_context_core.application.context_stage_diagnostics import (
     record_context_stage_interval,
-    record_context_stage_timing,
+)
+from infinity_context_core.application.context_stage_diagnostics import (
+    record_context_stage_timing as _record_stage_timing,
 )
 from infinity_context_core.application.context_temporal_query import (
     apply_temporal_query_intent_boosts,
@@ -148,6 +150,7 @@ from infinity_context_core.application.use_cases.build_context_source_selection 
     _stale_review_items,
 )
 from infinity_context_core.domain.entities import MemoryAnchor, MemoryChunk
+from infinity_context_core.features.memory_facts.public import MemoryFactSelectionPort
 from infinity_context_core.ports.adapters import EmbeddingPort, GraphMemoryPort, VectorMemoryPort
 from infinity_context_core.ports.assets import BlobStoragePort
 from infinity_context_core.ports.capabilities import RagRecallPort
@@ -172,6 +175,7 @@ class BuildContextUseCase:
         packer: ContextPacker | None = None,
         blob_storage: BlobStoragePort | None = None,
         retrieval_deadlines: ContextRetrievalDeadlines | None = None,
+        fact_selection: MemoryFactSelectionPort | None = None,
     ) -> None:
         self._uow_factory = uow_factory
         self._ids = ids
@@ -180,7 +184,11 @@ class BuildContextUseCase:
         self._embedder = embedder
         self._clock = clock
         self._packer = packer or ContextPacker()
-        self._hydrator = ContextHydrator(uow_factory=uow_factory, clock=clock)
+        self._hydrator = ContextHydrator(
+            uow_factory=uow_factory,
+            clock=clock,
+            fact_selection=fact_selection,
+        )
         self._retrieval_deadlines = retrieval_deadlines or ContextRetrievalDeadlines()
         self._canonical_collector = CanonicalContextCollector(uow_factory=uow_factory)
         self._vector_collector = VectorContextCollector(
@@ -763,6 +771,11 @@ class BuildContextUseCase:
             *stale_review_items,
             *pending_review_items,
         )
+        final_source_items = await self._hydrator.revalidate_visible_items(
+            tuple(final_source_items),
+            query=query,
+            memory_scope_ids=memory_scope_ids,
+        )
         final_source_items, pre_rerank_distinct_restoration = (
             prepare_distinct_set_evidence_for_rerank(
                 final_source_items,
@@ -940,14 +953,6 @@ class BuildContextUseCase:
             token_estimate=result.bundle.token_estimate,
             diagnostics=bundle_diagnostics,
         )
-
-
-def _record_stage_timing(
-    diagnostics: dict[str, object],
-    stage: str,
-    started_at: float,
-) -> None:
-    record_context_stage_timing(diagnostics, stage, started_at)
 
 
 def _trim_primary_fact_items(
