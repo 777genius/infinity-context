@@ -79,6 +79,10 @@ async def ingest_episode(
                 "duplicate_chunks": 0,
                 "created_suggestions": 0,
                 "suggestion_ids": [],
+                "chunk_ids": [],
+                "space_id": None,
+                "memory_scope_id": None,
+                "thread_id": None,
             }
         }
 
@@ -117,6 +121,10 @@ async def ingest_episode(
             "duplicate_chunks": result.duplicate_chunks,
             "created_suggestions": result.created_suggestions,
             "suggestion_ids": list(result.suggestion_ids),
+            "chunk_ids": list(result.chunk_ids),
+            "space_id": str(scope.space_id),
+            "memory_scope_id": str(scope.memory_scope_id),
+            "thread_id": str(scope.thread_id),
         }
     }
 

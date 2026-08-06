@@ -172,6 +172,7 @@ class IngestEpisodeResult:
     durability: str
     created_suggestions: int = 0
     suggestion_ids: tuple[str, ...] = ()
+    chunk_ids: tuple[str, ...] = ()
 
 @dataclass(frozen=True)
 class IngestDocumentCommand:

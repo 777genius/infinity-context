@@ -227,6 +227,26 @@ def test_episode_fingerprint_has_no_delimiter_ambiguity() -> None:
     assert episode_fingerprint(left) != episode_fingerprint(right)
 
 
+def test_replay_rejects_missing_or_divergent_chunk_projection() -> None:
+    async def run() -> None:
+        missing_store = _Store()
+        missing_use_case = _use_case(missing_store)
+        await missing_use_case.execute(_command())
+        missing_store.chunks.clear()
+        with pytest.raises(MemoryInvariantError, match="projection is incomplete"):
+            await missing_use_case.execute(_command())
+
+        divergent_store = _Store()
+        divergent_use_case = _use_case(divergent_store)
+        await divergent_use_case.execute(_command())
+        chunk_id, chunk = next(iter(divergent_store.chunks.items()))
+        divergent_store.chunks[chunk_id] = replace(chunk, normalized_text="tampered")
+        with pytest.raises(MemoryInvariantError, match="projection is divergent"):
+            await divergent_use_case.execute(_command())
+
+    asyncio.run(run())
+
+
 def test_legacy_fingerprint_replays_only_the_same_semantic_request() -> None:
     async def run() -> None:
         store = _Store()
@@ -357,6 +377,7 @@ class _Classifier:
 class _Store:
     def __init__(self, *, concurrent_initial_reads: int = 0) -> None:
         self.episodes: dict[str, MemoryEpisode] = {}
+        self.chunks: dict[str, object] = {}
         self.record: IdempotencyRecord | None = None
         self.outbox: list[object] = []
         self.open_count = 0
@@ -401,6 +422,7 @@ class _Uow:
         self._staged_episode: MemoryEpisode | None = None
         self._staged_record: IdempotencyRecord | None = None
         self._staged_outbox: list[object] = []
+        self._staged_chunks: list[object] = []
         self._committed = False
 
     async def __aenter__(self) -> "_Uow":
@@ -414,6 +436,7 @@ class _Uow:
             self._staged_episode = None
             self._staged_record = None
             self._staged_outbox.clear()
+            self._staged_chunks.clear()
 
     async def commit(self) -> None:
         async with self._store._commit_lock:
@@ -425,6 +448,7 @@ class _Uow:
             assert self._staged_episode is not None
             assert self._staged_record is not None
             self._store.episodes[str(self._staged_episode.id)] = self._staged_episode
+            self._store.chunks.update({str(chunk.id): chunk for chunk in self._staged_chunks})
             self._store.record = self._staged_record
             self._store.outbox.extend(self._staged_outbox)
             self._committed = True
@@ -434,6 +458,7 @@ class _Uow:
         self._staged_episode = None
         self._staged_record = None
         self._staged_outbox.clear()
+        self._staged_chunks.clear()
 
 
 class _Episodes:
@@ -459,7 +484,12 @@ class _Chunks:
         if self._uow._store.conflict_stage == "upsert":
             self._uow._store.conflict_stage = None
             raise MemoryConflictError("Injected upsert conflict")
+        self._uow._staged_chunks.append(chunk)
         return UpsertChunkResult(chunk_id=str(chunk.id), duplicate=False)
+
+    async def list_for_episode(self, episode_id: str, *, limit: int = 10000):
+        chunks = (*self._uow._store.chunks.values(), *self._uow._staged_chunks)
+        return [chunk for chunk in chunks if str(chunk.episode_id) == episode_id][:limit]
 
 
 class _Idempotency:
