@@ -72,6 +72,26 @@ def test_dockerfile_is_pinned_non_root_and_loopback_only() -> None:
     assert "TOKEN=" not in dockerfile
 
 
+def test_adapter_builds_exclude_python_bytecode_from_the_exact_context() -> None:
+    expected_patterns = ["**/__pycache__", "**/*.pyc", "**/*.pyo"]
+
+    for compose_name in (
+        "compose.hosted-canary.yaml",
+        "compose.provider-free-e2e.yaml",
+    ):
+        compose_path = ROOT / compose_name
+        compose = yaml.safe_load(compose_path.read_text())
+        build = compose["services"]["mem0-oss-adapter-v5"]["build"]
+        context = (compose_path.parent / build["context"]).resolve()
+        dockerfile = (context / build["dockerfile"]).resolve()
+        dockerfile_ignore = dockerfile.with_name(f"{dockerfile.name}.dockerignore")
+
+        assert context == REPOSITORY / "benchmarks"
+        assert dockerfile == ROOT / "Dockerfile"
+        assert dockerfile_ignore == ROOT / "Dockerfile.dockerignore"
+        assert dockerfile_ignore.read_text().splitlines() == expected_patterns
+
+
 def test_frozen_v4_runtime_pin_import_and_model_stage_preflight(tmp_path: Path) -> None:
     app = tmp_path / "app"
     app.mkdir()
