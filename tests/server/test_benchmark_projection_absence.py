@@ -72,6 +72,20 @@ def test_server_absence_reconstructs_exact_manifest_lanes() -> None:
     assert proof.cognee_absent is True
 
 
+def test_server_absence_accepts_v2_canonical_episode_inventory() -> None:
+    evidence = FakeEvidence()
+    manifest = _manifest()
+    manifest["schema_version"] = "memory-comparison-projection-manifest.v2"
+    manifest["scopes"][0]["episode_ids"] = ["canonical-episode-1"]
+
+    proof = asyncio.run(
+        ServerBenchmarkProjectionAbsence(evidence).prove_absence(record=_record(manifest))
+    )
+
+    assert proof.qdrant_absent is True
+    assert [lane for lane, _ in evidence.calls] == ["qdrant", "graphiti"]
+
+
 def test_server_absence_rejects_non_server_cognee_policy_before_provider_calls() -> None:
     evidence = FakeEvidence()
     manifest = _manifest()

@@ -32,6 +32,9 @@ from infinity_context_server.memory_comparison_managed_http_policy_lifecycle imp
 from infinity_context_server.memory_comparison_managed_http_policy_material_projection import (
     binding_snapshot,
 )
+from infinity_context_server.memory_comparison_managed_http_policy_registry_evidence import (
+    ManagedHttpPolicyExactProjectionEvidence,
+)
 from infinity_context_server.memory_comparison_managed_http_policy_validation import (
     ManagedHttpPolicyRegistryMaterial,
     managed_http_policy_registry_material_sha256,
@@ -202,13 +205,19 @@ class ManagedComparisonRegistryPolicyLifecycleAdapter:
             self._set_phase("source-delegating", "source-delegate-failed")
             raise
         try:
-            evidence = self._trusted_delegate().exact_projection_evidence
+            captured = self._trusted_delegate().exact_projection_evidence
+            evidence = ManagedHttpPolicyExactProjectionEvidence(
+                corpora=captured.corpora,
+                presence=captured.presence,
+                episode_inventory=captured.episode_inventory,
+            )
             projection = build_managed_projection_manifest(
                 bindings=bindings,
                 registration=self._registration,
                 cases=cases,
                 corpora=evidence.corpora,
                 presence=evidence.presence,
+                episode_inventory=evidence.episode_inventory,
             )
         except BaseException:
             self._set_phase("source-delegating", "source-build-failed")

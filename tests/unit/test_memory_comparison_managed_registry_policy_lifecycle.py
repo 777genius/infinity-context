@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import json
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import UTC, datetime, timedelta
 
 import httpx
@@ -21,6 +21,9 @@ from infinity_context_server.memory_comparison_managed_http_policy_support impor
 )
 from infinity_context_server.memory_comparison_managed_http_policy_validation import (
     public_managed_http_policy_validation,
+)
+from infinity_context_server.memory_comparison_managed_projection_manifest import (
+    ManagedProjectionEpisodeInventory,
 )
 from infinity_context_server.memory_comparison_managed_registry_policy_lifecycle import (
     MANAGED_REGISTRY_POLICY_LIFECYCLE_ADAPTER_ID,
@@ -68,6 +71,7 @@ class _RegistryBackend:
 
     def __post_init__(self) -> None:
         self.manifest_sha256: str | None = None
+        self.manifest_json: dict[str, object] | None = None
         self.cleanup_receipt_sha256: str | None = None
         self.seal_attempts = 0
         self.begin_attempts = 0
@@ -87,6 +91,7 @@ class _RegistryBackend:
                 raise RuntimeError("sealed response unavailable")
             payload = json.loads(request.content)
             self.manifest_sha256 = payload["projection_manifest_sha256"]
+            self.manifest_json = payload["projection_manifest"]
             return httpx.Response(200, json={"data": self._seal()})
         if request.method == "DELETE" and path.endswith(self.run_id_sha256):
             self.events.append("registry.begin")
@@ -257,6 +262,7 @@ def _wrapper(
     fail_begin_once: bool = False,
     fail_finalize_once: bool = False,
     fail_mem0_once: bool = False,
+    canonical_episode_ids: tuple[str, ...] | None = None,
 ):
     events: list[str] = []
     cases = (_locomo_case(),)
@@ -293,6 +299,22 @@ def _wrapper(
     )
     monkeypatch.setattr(policy, "_attestation", lambda *args: None)
     views = _views(cases[0])
+    if canonical_episode_ids is not None:
+        views = tuple(
+            replace(
+                view,
+                ingest_result=replace(
+                    view.ingest_result,
+                    metadata={
+                        **view.ingest_result.metadata,
+                        "canonical_episode_ids": list(canonical_episode_ids),
+                    },
+                ),
+            )
+            if view.backend_role == "infinity-context"
+            else view
+            for view in views
+        )
     monkeypatch.setattr(
         policy,
         "consume_managed_http_ingest_receipts",
@@ -361,6 +383,12 @@ def test_happy_path_seals_before_retrieval_and_finalizes_after_exact_cleanup(
     assert events.index("registry.begin") < events.index("delegate.canonical-delete")
     assert events[-1] == "registry.finalize"
     assert backend.seal_attempts == backend.begin_attempts == backend.finalize_attempts == 1
+    assert backend.manifest_json is not None
+    assert backend.manifest_json["schema_version"] == ("memory-comparison-projection-manifest.v1")
+    assert "episode_ids" not in backend.manifest_json["scopes"][0]
+    assert backend.manifest_sha256 == (
+        "b98f702b8f8ad897289f89a5e9342bc74c4744661baa52cd18ea8060d64e4cdb"
+    )
 
     validation = wrapper.aggregate_policy(
         bindings=bindings,
@@ -393,6 +421,62 @@ def test_happy_path_seals_before_retrieval_and_finalizes_after_exact_cleanup(
             canonical_source=canonical,
             terminal_delete=terminal,
         )
+
+
+def test_production_wrapper_seals_v2_from_authenticated_episode_evidence(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    wrapper, bindings, cases, backend, _ = _wrapper(
+        monkeypatch,
+        canonical_episode_ids=("episode-1",),
+    )
+
+    _seal_source(wrapper, bindings, cases)
+
+    assert backend.seal_attempts == 1
+    assert backend.manifest_json is not None
+    assert backend.manifest_json["schema_version"] == ("memory-comparison-projection-manifest.v2")
+    assert backend.manifest_json["scopes"][0]["episode_ids"] == ["episode-1"]
+
+
+def test_substituted_episode_inventory_is_rejected_before_registry_seal(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    wrapper, bindings, cases, backend, _ = _wrapper(
+        monkeypatch,
+        canonical_episode_ids=("episode-1",),
+    )
+    delegate_type = policy.ManagedComparisonHttpPolicyLifecycleAdapter
+    original_getter = delegate_type.exact_projection_evidence.fget
+    assert original_getter is not None
+
+    def substituted(delegate):
+        evidence = original_getter(delegate)
+        object.__setattr__(
+            evidence,
+            "episode_inventory",
+            (
+                ManagedProjectionEpisodeInventory(
+                    evidence.corpora[0].scope,
+                    ("episode-substituted",),
+                ),
+            ),
+        )
+        return evidence
+
+    monkeypatch.setattr(
+        delegate_type,
+        "exact_projection_evidence",
+        property(substituted),
+    )
+
+    with pytest.raises(
+        ManagedHttpPolicyLifecycleError,
+        match="^managed_http_policy_episode_inventory_binding_invalid$",
+    ):
+        _seal_source(wrapper, bindings, cases)
+
+    assert backend.seal_attempts == 0
 
 
 def test_registry_evidence_tamper_fails_closed_and_cannot_be_replayed(

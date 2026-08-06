@@ -42,7 +42,8 @@ from infinity_context_core.ports.unit_of_work import UnitOfWorkFactoryPort
 
 _SHA256 = re.compile(r"^[0-9a-f]{64}$")
 _SPACE_SLUG = re.compile(r"^memory-comparison-[a-z0-9-]{1,80}$")
-_MANIFEST_SCHEMA = "memory-comparison-projection-manifest.v1"
+_MANIFEST_SCHEMA_V1 = "memory-comparison-projection-manifest.v1"
+_MANIFEST_SCHEMA_V2 = "memory-comparison-projection-manifest.v2"
 _COGNEE_NOT_PROJECTED_POLICY_SCHEMA = "memory-comparison-cognee-not-projected-policy.v1"
 BENCHMARK_COGNEE_NOT_PROJECTED_POLICY_SHA256 = hashlib.sha256(
     json.dumps(
@@ -706,7 +707,8 @@ def _validated_projection_manifest(value: object) -> dict[str, object]:
         "scopes",
     }:
         raise MemoryValidationError("Projection manifest envelope is invalid")
-    if value["schema_version"] != _MANIFEST_SCHEMA:
+    schema_version = value["schema_version"]
+    if schema_version not in {_MANIFEST_SCHEMA_V1, _MANIFEST_SCHEMA_V2}:
         raise MemoryValidationError("Projection manifest schema is invalid")
     for key in (
         "run_id_sha256",
@@ -719,15 +721,23 @@ def _validated_projection_manifest(value: object) -> dict[str, object]:
     if type(scopes) is not list or len(scopes) > _MAX_SCOPES:
         raise MemoryValidationError("Projection manifest scopes are invalid")
     scope_identities: list[tuple[str, str]] = []
-    canonical_identities: dict[str, set[str]] = {
-        "chunk_ids": set(),
-        "fact_ids": set(),
-        "document_ids": set(),
-    }
+    canonical_identity_fields = ("chunk_ids", "fact_ids", "document_ids")
+    canonical_identities_by_kind = {field_name: set() for field_name in canonical_identity_fields}
+    canonical_identities_v2: set[str] = set()
     for scope in scopes:
-        scope_identities.append(_validate_manifest_scope(scope))
-        for field_name, seen in canonical_identities.items():
+        scope_identities.append(_validate_manifest_scope(scope, schema_version=schema_version))
+        identity_fields = (
+            (*canonical_identity_fields, "episode_ids")
+            if schema_version == _MANIFEST_SCHEMA_V2
+            else canonical_identity_fields
+        )
+        for field_name in identity_fields:
             identities = set(scope[field_name])
+            seen = (
+                canonical_identities_v2
+                if schema_version == _MANIFEST_SCHEMA_V2
+                else canonical_identities_by_kind[field_name]
+            )
             if seen.intersection(identities):
                 raise MemoryValidationError(
                     "Projection manifest canonical identities are not globally unique"
@@ -743,8 +753,8 @@ def _validated_projection_manifest(value: object) -> dict[str, object]:
     return canonical
 
 
-def _validate_manifest_scope(value: object) -> tuple[str, str]:
-    if type(value) is not dict or set(value) != {
+def _validate_manifest_scope(value: object, *, schema_version: str) -> tuple[str, str]:
+    expected_fields = {
         "memory_scope_id",
         "thread_id",
         "chunk_ids",
@@ -753,13 +763,20 @@ def _validate_manifest_scope(value: object) -> tuple[str, str]:
         "qdrant",
         "graphiti",
         "cognee",
-    }:
+    }
+    if schema_version == _MANIFEST_SCHEMA_V2:
+        expected_fields.add("episode_ids")
+    if type(value) is not dict or set(value) != expected_fields:
         raise MemoryValidationError("Projection manifest scope is invalid")
     memory_scope_id = _canonical_id(value["memory_scope_id"])
     thread_id = ""
     if value["thread_id"] is not None:
         thread_id = _canonical_id(value["thread_id"])
     chunk_ids = _sorted_unique_ids(value["chunk_ids"], limit=_MAX_CANONICAL_IDS)
+    if schema_version == _MANIFEST_SCHEMA_V2:
+        episode_ids = _sorted_unique_ids(value["episode_ids"], limit=_MAX_CANONICAL_IDS)
+        if episode_ids and not thread_id:
+            raise MemoryValidationError("Projection manifest episode scope is invalid")
     fact_ids = _sorted_unique_ids(value["fact_ids"], limit=_MAX_CANONICAL_IDS)
     _sorted_unique_ids(value["document_ids"], limit=_MAX_CANONICAL_IDS)
     qdrant = value["qdrant"]

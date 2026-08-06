@@ -160,6 +160,23 @@ def _mutate_manifest(
     return _replace_result(view, result)
 
 
+def _with_episode_ids(
+    view: ManagedHttpIngestEvidenceView,
+    episode_ids: object,
+) -> ManagedHttpIngestEvidenceView:
+    metadata = deepcopy(dict(view.ingest_result.metadata))
+    metadata["canonical_episode_ids"] = episode_ids
+    return _replace_result(
+        view,
+        BackendIngestResult(
+            items_processed=view.ingest_result.items_processed,
+            items_failed=view.ingest_result.items_failed,
+            operations=view.ingest_result.operations,
+            metadata=metadata,
+        ),
+    )
+
+
 def test_parses_fact_only_locomo_pair_into_exact_bundle() -> None:
     (bundle,) = parse_managed_ingest_identity_manifests(_pair(_infinity_fact()))
 
@@ -186,6 +203,30 @@ def test_parses_longmemeval_document_and_chunks() -> None:
     assert bundle.manifest.infinity_fact_ids == ()
     assert bundle.manifest.infinity_document_ids == ("document-1",)
     assert bundle.manifest.infinity_chunk_ids == ("chunk-1-1", "chunk-1-2")
+
+
+def test_captures_exact_episode_inventory_from_authenticated_result_metadata() -> None:
+    infinity, mem0 = _pair(_infinity_document())
+
+    (bundle,) = parse_managed_ingest_identity_manifests(
+        (_with_episode_ids(infinity, ["episode-1", "episode-2"]), mem0)
+    )
+
+    assert bundle.canonical_episode_ids == ("episode-1", "episode-2")
+
+
+@pytest.mark.parametrize(
+    "episode_ids",
+    (["episode-2", "episode-1"], ["episode-1", "episode-1"], ["bad id"], "episode-1"),
+)
+def test_rejects_noncanonical_authenticated_episode_inventory(episode_ids: object) -> None:
+    infinity, mem0 = _pair(_infinity_document())
+
+    with pytest.raises(
+        ManagedIngestManifestParseError,
+        match="^managed_ingest_episode_inventory_invalid$",
+    ):
+        parse_managed_ingest_identity_manifests((_with_episode_ids(infinity, episode_ids), mem0))
 
 
 def test_pairs_each_unique_corpus_while_preserving_first_seen_order() -> None:

@@ -23,6 +23,9 @@ from infinity_context_server.memory_comparison_managed_http_policy_validation im
 from infinity_context_server.memory_comparison_managed_ingest_manifest import (
     ManagedCorpusIngestIdentity,
 )
+from infinity_context_server.memory_comparison_managed_projection_manifest import (
+    ManagedProjectionEpisodeInventory,
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -38,6 +41,7 @@ class ManagedHttpPolicyExactProjectionEvidence:
 
     corpora: tuple[ManagedCorpusIngestIdentity, ...]
     presence: tuple[ManagedDerivedPresenceObservation, ...]
+    episode_inventory: tuple[ManagedProjectionEpisodeInventory, ...] | None = None
 
     def __post_init__(self) -> None:
         if (
@@ -49,6 +53,11 @@ class ManagedHttpPolicyExactProjectionEvidence:
             or any(type(item) is not ManagedDerivedPresenceObservation for item in self.presence)
         ):
             raise ManagedHttpPolicyLifecycleError("managed_http_policy_projection_evidence_invalid")
+        expected_inventory = _episode_inventory(self.corpora)
+        if self.episode_inventory != expected_inventory:
+            raise ManagedHttpPolicyLifecycleError(
+                "managed_http_policy_episode_inventory_binding_invalid"
+            )
 
 
 @final
@@ -70,9 +79,11 @@ class ManagedHttpPolicyRegistryEvidenceBinding:
             raise ManagedHttpPolicyLifecycleError(
                 "managed_http_policy_projection_evidence_unavailable"
             )
+        corpora = tuple(item.bundle for item in evidence)
         return ManagedHttpPolicyExactProjectionEvidence(
-            corpora=tuple(item.bundle for item in evidence),
+            corpora=corpora,
             presence=tuple(item.presence for item in evidence),
+            episode_inventory=_episode_inventory(corpora),
         )
 
     def observe_corpora(
@@ -168,6 +179,26 @@ class ManagedHttpPolicyRegistryEvidenceBinding:
             implementation_sha256=registry.wrapper_implementation_sha256,
             registry=registry,
         )
+
+
+def _episode_inventory(
+    corpora: tuple[ManagedCorpusIngestIdentity, ...],
+) -> tuple[ManagedProjectionEpisodeInventory, ...] | None:
+    episode_lanes = tuple(item.canonical_episode_ids for item in corpora)
+    if all(item is None for item in episode_lanes):
+        return None
+    if any(item is None for item in episode_lanes):
+        raise ManagedHttpPolicyLifecycleError(
+            "managed_http_policy_episode_inventory_coverage_invalid"
+        )
+    return tuple(
+        ManagedProjectionEpisodeInventory(
+            scope=corpus.scope,
+            episode_ids=episode_ids,
+        )
+        for corpus, episode_ids in zip(corpora, episode_lanes, strict=True)
+        if episode_ids is not None
+    )
 
 
 __all__ = (

@@ -476,6 +476,8 @@ async def _require_projection_manifest_inventory(
     space_id: str,
     manifest: dict[str, object],
 ) -> None:
+    schema_version = manifest.get("schema_version")
+    supports_episodes = schema_version == "memory-comparison-projection-manifest.v2"
     scopes = manifest.get("scopes")
     if type(scopes) is not list:
         raise MemoryConflictError("Projection manifest canonical inventory differs")
@@ -491,6 +493,7 @@ async def _require_projection_manifest_inventory(
         MemoryDocumentRow: "document_ids",
     }
     manifest_scopes: set[tuple[str, str | None]] = set()
+    expected_episodes: set[tuple[str, str, str]] = set()
     for scope in scopes:
         if type(scope) is not dict:
             raise MemoryConflictError("Projection manifest canonical inventory differs")
@@ -498,6 +501,16 @@ async def _require_projection_manifest_inventory(
         raw_thread_id = scope.get("thread_id")
         thread_id = str(raw_thread_id) if raw_thread_id is not None else None
         manifest_scopes.add((memory_scope_id, thread_id))
+        if supports_episodes:
+            episode_ids = scope.get("episode_ids")
+            if type(episode_ids) is not list:
+                raise MemoryConflictError("Projection manifest canonical inventory differs")
+            if episode_ids:
+                if thread_id is None:
+                    raise MemoryConflictError("Projection manifest canonical inventory differs")
+                expected_episodes.update(
+                    (str(identity), memory_scope_id, thread_id) for identity in episode_ids
+                )
         for model, field_name in field_by_model.items():
             identities = scope.get(field_name)
             if type(identities) is not list:
@@ -536,16 +549,35 @@ async def _require_projection_manifest_inventory(
     }
     if manifest_scope_ids != active_scope_ids or manifest_threads != active_threads:
         raise MemoryConflictError("Projection manifest canonical inventory differs")
-    active_episode = await session.scalar(
-        select(MemoryEpisodeRow.id)
-        .where(
-            MemoryEpisodeRow.space_id == space_id,
-            MemoryEpisodeRow.status == "active",
+    if supports_episodes:
+        actual_episodes = set(
+            (str(identity), str(memory_scope_id), str(thread_id))
+            for identity, memory_scope_id, thread_id in (
+                await session.execute(
+                    select(
+                        MemoryEpisodeRow.id,
+                        MemoryEpisodeRow.memory_scope_id,
+                        MemoryEpisodeRow.thread_id,
+                    ).where(
+                        MemoryEpisodeRow.space_id == space_id,
+                        MemoryEpisodeRow.status == "active",
+                    )
+                )
+            ).all()
         )
-        .limit(1)
-    )
-    if active_episode is not None:
-        raise MemoryConflictError("Projection manifest cannot bind active episodes")
+        if actual_episodes != expected_episodes:
+            raise MemoryConflictError("Projection manifest canonical inventory differs")
+    else:
+        active_episode = await session.scalar(
+            select(MemoryEpisodeRow.id)
+            .where(
+                MemoryEpisodeRow.space_id == space_id,
+                MemoryEpisodeRow.status == "active",
+            )
+            .limit(1)
+        )
+        if active_episode is not None:
+            raise MemoryConflictError("Projection manifest cannot bind active episodes")
 
     for model, expected_rows in expected.items():
         actual_rows = set(
@@ -565,6 +597,53 @@ async def _require_projection_manifest_inventory(
         )
         if actual_rows != expected_rows:
             raise MemoryConflictError("Projection manifest canonical inventory differs")
+    if supports_episodes:
+        await _require_v2_chunk_ownership(
+            session,
+            space_id=space_id,
+            expected_episodes=expected_episodes,
+            expected_documents=expected[MemoryDocumentRow],
+        )
+
+
+async def _require_v2_chunk_ownership(
+    session: AsyncSession,
+    *,
+    space_id: str,
+    expected_episodes: set[tuple[str, str, str]],
+    expected_documents: set[tuple[str, str, str | None]],
+) -> None:
+    owned_episode_ids: set[tuple[str, str, str]] = set()
+    rows = (
+        await session.execute(
+            select(
+                MemoryChunkRow.memory_scope_id,
+                MemoryChunkRow.thread_id,
+                MemoryChunkRow.document_id,
+                MemoryChunkRow.episode_id,
+            ).where(
+                MemoryChunkRow.space_id == space_id,
+                MemoryChunkRow.status == "active",
+            )
+        )
+    ).all()
+    for memory_scope_id, thread_id, document_id, episode_id in rows:
+        scope_id = str(memory_scope_id)
+        canonical_thread_id = str(thread_id) if thread_id is not None else None
+        owners = int(document_id is not None) + int(episode_id is not None)
+        if owners != 1:
+            raise MemoryConflictError("Projection manifest chunk ownership differs")
+        if episode_id is not None:
+            if canonical_thread_id is None:
+                raise MemoryConflictError("Projection manifest chunk ownership differs")
+            owner = (str(episode_id), scope_id, canonical_thread_id)
+            if owner not in expected_episodes:
+                raise MemoryConflictError("Projection manifest chunk ownership differs")
+            owned_episode_ids.add(owner)
+        elif (str(document_id), scope_id, canonical_thread_id) not in expected_documents:
+            raise MemoryConflictError("Projection manifest chunk ownership differs")
+    if owned_episode_ids != expected_episodes:
+        raise MemoryConflictError("Projection manifest chunk ownership differs")
 
 
 _UNEXPECTED_BENCHMARK_MODELS = (
