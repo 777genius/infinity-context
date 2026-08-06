@@ -28,6 +28,7 @@ def test_cli_quickstart_initializes_and_writes_redacted_mcp_config(
             "--repo-dir",
             str(repo),
             "--no-start",
+            "--no-install-agents",
             "--agent",
             "codex",
             "--json",
@@ -77,6 +78,35 @@ def test_cli_quickstart_initializes_and_writes_redacted_mcp_config(
     )
     assert payload["mcp_configs"][0]["agent"] == "codex"
     assert payload["mcp_configs"][0]["token_included"] is False
+    assert payload["agent_integrations"] == [
+        {
+            "agent": "codex",
+            "status": "manual",
+            "installed": False,
+            "configured": False,
+            "reason": "Agent installation was skipped by --no-install-agents.",
+        }
+    ]
+    assert payload["auto_memory"] == {
+        "mode": "suggest",
+        "review_gated": True,
+        "auto_apply": False,
+        "agents": [
+            {
+                "mode": "suggest",
+                "capture_mode": "suggest",
+                "mcp_write_mode": "suggest",
+                "mcp_ingest_mode": "small_docs",
+                "review_gated": True,
+                "auto_apply": False,
+                "ingest_events": ["UserPromptSubmit", "Stop"],
+                "capture_status": "review_gated_capture",
+                "raw_tool_capture": False,
+                "transcript_tail": "off",
+                "description": "Redacted captures become pending suggestions for review.",
+            }
+        ],
+    }
     assert config.service_token not in captured.out
     mcp_text = mcp_path.read_text(encoding="utf-8")
     mcp_payload = json.loads(mcp_text)
@@ -85,6 +115,8 @@ def test_cli_quickstart_initializes_and_writes_redacted_mcp_config(
     assert "${MEMORY_MCP_AUTH_TOKEN}" not in mcp_text
     assert "MEMORY_MCP_AUTH_TOKEN_FILE" in mcp_text
     assert mcp_env["MEMORY_MCP_AUTH_TOKEN_FILE"] == str(home / ".env")
+    assert mcp_env["MEMORY_CAPTURE_MODE"] == "suggest"
+    assert mcp_env["MEMORY_PLUGIN_HOOK_INGEST_EVENTS"] == "UserPromptSubmit,Stop"
     assert str(home / ".env") in "\n".join(payload["next_steps"])
     assert "Add the generated MCP config path to your agent." in "\n".join(
         payload["next_steps"]
@@ -110,6 +142,7 @@ def test_cli_quickstart_human_output_shows_first_use_path(
             "--repo-dir",
             str(repo),
             "--no-start",
+            "--no-install-agents",
             "--agent",
             "codex",
         ]
@@ -155,6 +188,7 @@ def test_cli_quickstart_can_open_visual_memory(
             "--repo-dir",
             str(repo),
             "--no-start",
+            "--no-install-agents",
             "--open-ui",
             "--json",
         ]
@@ -169,6 +203,195 @@ def test_cli_quickstart_can_open_visual_memory(
     assert "Visual memory opened with: infinity-context ui --open" in "\n".join(
         payload["next_steps"]
     )
+
+
+def test_cli_quickstart_does_not_claim_ui_opened_when_runtime_fails(
+    tmp_path: Path,
+    monkeypatch,
+    capsys,
+) -> None:
+    home = tmp_path / "home"
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    opened: list[str] = []
+    monkeypatch.setenv("INFINITY_CONTEXT_HOME", str(home))
+    monkeypatch.setattr(cli.webbrowser, "open", lambda url: opened.append(url) or True)
+
+    class FailingRuntime:
+        def __init__(self, **_kwargs: Any) -> None:
+            pass
+
+        def up(self, _profile: str) -> RuntimeResult:
+            return RuntimeResult(
+                ok=False,
+                command=("docker",),
+                returncode=1,
+                stdout="",
+                stderr="runtime failed",
+            )
+
+    monkeypatch.setattr(cli, "DockerComposeRuntime", FailingRuntime)
+
+    exit_code = cli.main(
+        [
+            "quickstart",
+            "--home",
+            str(home),
+            "--repo-dir",
+            str(repo),
+            "--no-install-agents",
+            "--open-ui",
+            "--json",
+        ]
+    )
+
+    payload = json.loads(capsys.readouterr().out)
+    assert exit_code == 1
+    assert payload["opened_ui"] is False
+    assert opened == []
+    assert not any("Visual memory opened with" in step for step in payload["next_steps"])
+
+
+def test_cli_quickstart_automatically_opens_ready_ui_and_reports_confirmed_agent(
+    tmp_path: Path,
+    monkeypatch,
+    capsys,
+) -> None:
+    home = tmp_path / "home"
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    opened: list[str] = []
+    monkeypatch.setenv("INFINITY_CONTEXT_HOME", str(home))
+    monkeypatch.setattr(cli.webbrowser, "open", lambda url: opened.append(url) or True)
+
+    class FakeRuntime:
+        def __init__(self, **_kwargs: Any) -> None:
+            pass
+
+        def up(self, _profile: str) -> RuntimeResult:
+            return RuntimeResult(ok=True, command=("docker",), returncode=0, stdout="", stderr="")
+
+    monkeypatch.setattr(cli, "DockerComposeRuntime", FakeRuntime)
+    monkeypatch.setattr(
+        cli,
+        "_status_payload",
+        lambda _config: {"ok": True, "api_url": "http://127.0.0.1:7788"},
+    )
+    monkeypatch.setattr(
+        cli,
+        "install_agent_integrations",
+        lambda **_kwargs: [
+            {
+                "agent": "codex",
+                "status": "installed",
+                "installed": True,
+                "configured": True,
+                "reason": "Sandbox-confirmed integration.",
+            }
+        ],
+    )
+
+    exit_code = cli.main(["quickstart", "--home", str(home), "--repo-dir", str(repo), "--json"])
+
+    payload = json.loads(capsys.readouterr().out)
+    assert exit_code == 0
+    assert payload["opened_ui"] is True
+    assert payload["ui_open_mode"] == "automatic_when_ready"
+    assert opened == ["http://127.0.0.1:7788/ui/"]
+    assert payload["integrated_agents"] == ["codex"]
+    assert payload["agent_integrations"][0]["status"] == "installed"
+
+
+def test_cli_quickstart_all_agents_supports_manual_and_retrieve_only_profiles(
+    tmp_path: Path,
+    monkeypatch,
+    capsys,
+) -> None:
+    home = tmp_path / "home"
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    monkeypatch.setenv("INFINITY_CONTEXT_HOME", str(home))
+
+    exit_code = cli.main(
+        [
+            "quickstart",
+            "--home",
+            str(home),
+            "--repo-dir",
+            str(repo),
+            "--no-start",
+            "--no-install-agents",
+            "--all-agents",
+            "--manual-memory",
+            "--json",
+        ]
+    )
+
+    payload = json.loads(capsys.readouterr().out)
+    assert exit_code == 0
+    assert payload["auto_memory"]["mode"] == "manual"
+    assert payload["auto_memory"]["auto_apply"] is False
+    assert payload["integrated_agents"] == []
+    assert [item["agent"] for item in payload["mcp_configs"]] == [
+        "claude",
+        "codex",
+        "cursor",
+        "gemini",
+        "opencode",
+    ]
+    for item in payload["mcp_configs"]:
+        env = json.loads(Path(item["path"]).read_text(encoding="utf-8"))
+        server = env.get("infinity-context") or env["mcpServers"]["infinity-context"]
+        assert server["env"]["MEMORY_CAPTURE_MODE"] == "off"
+        assert server["env"]["MEMORY_PLUGIN_HOOK_INGEST_EVENTS"] == ""
+
+    exit_code = cli.main(
+        [
+            "mcp-config",
+            "--agent",
+            "gemini",
+            "--retrieve-only",
+        ]
+    )
+    rendered = json.loads(capsys.readouterr().out)
+    env = rendered["mcpServers"]["infinity-context"]["env"]
+    assert exit_code == 0
+    assert env["MEMORY_CAPTURE_MODE"] == "retrieve_only"
+    assert env["MEMORY_PLUGIN_HOOK_INGEST_EVENTS"] == ""
+    assert env["MEMORY_MCP_WRITE_MODE"] == "off"
+    assert env["MEMORY_MCP_INGEST_MODE"] == "off"
+
+
+def test_cli_quickstart_fails_truthfully_when_selected_agent_is_not_connected(
+    tmp_path: Path,
+    monkeypatch,
+    capsys,
+) -> None:
+    home = tmp_path / "home"
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    monkeypatch.setenv("INFINITY_CONTEXT_HOME", str(home))
+
+    exit_code = cli.main(
+        [
+            "quickstart",
+            "--home",
+            str(home),
+            "--repo-dir",
+            str(repo),
+            "--no-start",
+            "--agent",
+            "codex",
+            "--json",
+        ]
+    )
+
+    payload = json.loads(capsys.readouterr().out)
+    assert exit_code == 1
+    assert payload["ok"] is False
+    assert payload["agent_integrations"][0]["status"] == "unavailable"
+    assert payload["local_experience"]["status"] == "agent_integration_not_ready"
+    assert payload["local_experience"]["agent_connect_ok"] is False
 
 
 def test_cli_mcp_config_write_initializes_missing_token_file(
@@ -277,6 +500,8 @@ def test_cli_quickstart_starts_runtime_waits_for_status_and_redacts_output(
             str(repo),
             "--wait-seconds",
             "1",
+            "--no-install-agents",
+            "--no-open-ui",
             "--agent",
             "codex",
             "--json",

@@ -7,7 +7,7 @@ and Cursor through `plugin-kit-ai` generated artifacts.
 Cursor workspace MCP uses the sibling MCP-only plugin at
 `plugins/infinity-context-agent-plugin-cursor-workspace`. Gemini lifecycle hooks use
 the sibling hook-enabled extension at `plugins/infinity-context-agent-plugin-gemini-hooks`.
-`plugin-kit-ai` 1.2.2 validates Cursor workspace as an MCP-only lane and rejects
+`plugin-kit-ai` 1.2.4 validates Cursor workspace as an MCP-only lane and rejects
 portable skills for that target. The Cursor sibling `.cursor/mcp.json` expects
 `workspaceFolder` to be the Infinity Context repository root, so its command points
 back into `plugins/infinity-context-agent-plugin-cursor-workspace/bin/infinity-context-mcp`.
@@ -30,7 +30,7 @@ From the Infinity Context repository root:
 ```bash
 make infinity-context-up-lite
 MEMORY_MCP_API_URL=http://127.0.0.1:7788 \
-MEMORY_MCP_AUTH_TOKEN=local-dev-token \
+MEMORY_MCP_AUTH_TOKEN_FILE="$HOME/.infinity-context/.env" \
 plugins/infinity-context-agent-plugin/bin/infinity-context-mcp-doctor
 ```
 
@@ -38,14 +38,14 @@ The generated MCP config defaults to:
 
 ```bash
 MEMORY_MCP_API_URL=http://127.0.0.1:7788
-MEMORY_MCP_AUTH_TOKEN=local-dev-token
+MEMORY_MCP_AUTH_TOKEN_FILE=~/.infinity-context/.env
 MEMORY_MCP_DEFAULT_SPACE_SLUG=default
 MEMORY_MCP_DEFAULT_MEMORY_SCOPE_EXTERNAL_REF=default
 MEMORY_MCP_DEFAULT_THREAD_EXTERNAL_REF=__INFINITY_CONTEXT_NO_DEFAULT_THREAD__
 MEMORY_MCP_AGENT_NAME=agent
-MEMORY_MCP_WRITE_MODE=suggest
+MEMORY_MCP_WRITE_MODE=off
 MEMORY_MCP_DELETE_MODE=off
-MEMORY_MCP_INGEST_MODE=small_docs
+MEMORY_MCP_INGEST_MODE=off
 ```
 
 `__INFINITY_CONTEXT_NO_DEFAULT_THREAD__` is a packaging sentinel. The wrapper
@@ -89,8 +89,11 @@ wires `SessionStart`, `BeforeAgent`, `AfterAgent`, and `SessionEnd`; the runner
 returns Gemini-native JSON and only injects context on `SessionStart` and
 `BeforeAgent`.
 
-Auto-ingest is disabled by default. To experiment with the new review-gated
-auto-memory path, set `MEMORY_CAPTURE_MODE=suggest` or
+The checked-in portable template keeps auto-ingest disabled until onboarding
+materializes a selected agent. Public quickstart uses the review-gated
+`suggest` mode by default. To configure that mode manually, set
+`MEMORY_MCP_WRITE_MODE=suggest`, `MEMORY_MCP_INGEST_MODE=small_docs`, and
+`MEMORY_CAPTURE_MODE=suggest` or
 `MEMORY_CAPTURE_MODE=capture_only` and explicitly choose events through
 `MEMORY_PLUGIN_HOOK_INGEST_EVENTS`, for example:
 

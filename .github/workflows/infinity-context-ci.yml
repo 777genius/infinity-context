@@ -41,6 +41,12 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Fetch pull request base
+        if: github.event_name == 'pull_request'
+        run: git fetch --no-tags origin "${{ github.base_ref }}:refs/remotes/origin/${{ github.base_ref }}"
 
       - name: Set up Python
         uses: actions/setup-python@v6
@@ -53,4 +59,6 @@ jobs:
           uv sync --all-extras --frozen
 
       - name: Run memory quality gate
+        env:
+          FILE_SIZE_BASE_REF: ${{ github.event_name == 'pull_request' && format('origin/{0}', github.base_ref) || github.event_name == 'push' && github.event.before || '' }}
         run: make infinity-context-test-quality

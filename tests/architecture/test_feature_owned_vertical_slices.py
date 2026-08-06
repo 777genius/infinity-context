@@ -20,6 +20,7 @@ CORE_FEATURE_LAYERS = ("domain", "application", "ports")
 
 FEATURE_IDS = frozenset(
     {
+        "cognitive_memory",
         "memory_facts",
         "context_building",
         "document_ingestion",

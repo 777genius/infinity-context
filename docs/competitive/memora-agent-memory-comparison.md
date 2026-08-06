@@ -1,88 +1,62 @@
-# Infinity Context vs agentic-box/memora for coding-agent memory
+# Historical Infinity Context and Memora engineering experiment
 
-Status: source-backed comparison plus direct disposable Memora MCP smoke.
+> **Historical internal note.** The former numeric scorecard in this document
+> was a project-weighted opinion, not a benchmark, and has been removed. Use the
+> [living agent-memory capability comparison](agent-memory-capability-comparison.md)
+> for current public positioning.
 
-Scope: compare agent memory for coding agents and teams: remember facts, update
-facts, delete/forget, retrieve facts, ingest documents, graph relations, scopes,
-agent plugin ergonomics and production evidence.
+This report preserves one useful artifact: a direct, disposable local MCP smoke
+of [`agentic-box/memora`](https://github.com/agentic-box/memora). It does not
+rank overall retrieval quality, production readiness, scale, or security.
 
-This report compares Infinity Context with `agentic-box/memora`, not the unrelated
-`memora-ai/memora` marketing site/package.
+## Contents
 
-## Evidence used
+- [Scope](#scope)
+- [Direct Memora smoke](#direct-memora-smoke)
+- [What the smoke proves](#what-the-smoke-proves)
+- [Capability notes](#capability-notes)
+- [Evidence limits](#evidence-limits)
+- [Practical conclusion](#practical-conclusion)
+- [Sources](#sources)
 
-Memora public sources:
+## Scope
 
-- https://github.com/agentic-box/memora
-- https://mcpservers.org/servers/agentic-mcp-tools/memora
-- https://protodex.io/servers/agentic-box-memora.html
+The experiment compared a narrow coding-agent workflow: remember, update,
+retrieve, document ingest, digest, delete, and export. It used Memora's local MCP
+server with TF-IDF embeddings, SQLite, graph disabled, and no LLM or cloud sync.
 
-Infinity Context local evidence:
+This is specifically about `agentic-box/memora`, not the unrelated
+`memora-ai/memora` product.
 
-- `tests/architecture/test_memory_boundaries.py`
-- `tests/architecture/test_file_size_boundaries.py`
-- `tests/unit/test_import_boundaries.py`
-- `tests/unit/test_document_fragments.py`
-- `tests/unit/test_document_fragment_api.py`
-- `tests/unit/test_semantic_dedupe.py`
-- `tests/unit/test_capture_semantic_dedupe.py`
-- `tests/unit/test_fact_taxonomy_api.py`
-- `tests/unit/test_cli_memory_commands.py`
-- `tests/unit/test_memory_insights_api.py`
-- `tests/unit/test_graph_export_api.py`
-- `tests/unit/test_graph_export_mcp.py`
-- `tests/unit/test_mcp_fact_relations.py`
-- `tests/unit/test_mcp_suggestion_batch_review.py`
-- `tests/unit/test_suggestions_api.py`
-- `tests/unit/test_memory_scope_snapshot_api.py`
-- `tests/e2e/test_memory_quality_e2e.py`
-- `tests/e2e/test_infinity_context_agent_behavior_bench_e2e.py`
-- `tests/e2e/test_infinity_context_agent_plugin_e2e.py`
-- `scripts/clean_full_smoke.py`
-- `scripts/local_experience_proof.py`
-- `scripts/local_mcp_visual_memory_smoke.py`
-- `.e2e-artifacts/local-experience-proof.json`
-- `.e2e-artifacts/public-benchmark-full-600-current.json`
-- `.e2e-artifacts/multimodal-production-goal-audit.json`
+## Direct Memora smoke
 
-Direct Memora smoke command:
+The repository target is:
 
-```bash
+~~~bash
 make infinity-context-memora-direct-smoke
-```
+~~~
 
-The target writes a reusable JSON report to
-`.tmp/memora-direct-smoke.json` by default. `make infinity-context-compare-memora`
-automatically includes that report when it exists, or use
-`MEMORA_DIRECT_SMOKE_REPORT=/path/to/report.json` for an explicit report path.
-The report includes safe provenance metadata: generator, suite, git commit,
-dirty state and Python/platform runtime, but no Memora database contents or
-tokens.
+It writes `.tmp/memora-direct-smoke.json` by default. The report contains safe
+provenance metadata such as suite version, git state, and runtime, but no Memora
+database contents or tokens.
 
-The direct smoke uses:
+The disposable runtime used:
 
-- `uvx --from git+https://github.com/agentic-box/memora.git memora-server --no-graph`
-- temp SQLite database
-- `MEMORA_EMBEDDING_MODEL=tfidf`
-- `MEMORA_LLM_ENABLED=false`
-- no cloud sync
-- no OpenAI paid LLM/dedup mode
+~~~bash
+uvx --from git+https://github.com/agentic-box/memora.git memora-server --no-graph
+~~~
 
-Scenario set: `prod_realistic_coding_agent_memory_v1`
+Configuration:
 
-Covered scenarios:
+- temporary SQLite database;
+- `MEMORA_EMBEDDING_MODEL=tfidf`;
+- `MEMORA_LLM_ENABLED=false`;
+- no cloud sync;
+- no paid OpenAI or LLM deduplication path.
 
-- remember a durable architecture decision with project metadata
-- update the decision and ensure retrieval prefers the current version
-- keep another project's API fact out of Atlas-scoped recall
-- store an ADR-style markdown document and recall risk/plan fragments
-- build a source-backed digest
-- delete the mutable fact and verify it disappears from search
-- export memory state for backup/sync workflows
+The observed report was:
 
-Latest observed direct smoke result:
-
-```json
+~~~json
 {
   "system": "agentic-box/memora",
   "mode": "direct_mcp_stdio",
@@ -94,160 +68,103 @@ Latest observed direct smoke result:
   "document_fragment_count": 4,
   "ok": true
 }
-```
+~~~
 
-Checks passed:
+## What the smoke proves
 
-- core tools available
-- create durable fact
-- filtered search by metadata
-- update fact and retrieve new version text
-- old text not primary after update
-- exclude another project through metadata filter
-- store structured document and recall fragments
-- `memory_digest` returns source-backed context
-- delete removes fact from search
-- export works
+For that exact local configuration, the smoke verified:
 
-Important limitation: this is not a paid OpenAI/LLM/cloud Memora benchmark.
-Do not claim Memora fails those modes. This only proves its local MCP contract is
-strong.
+- core tools were available;
+- a durable fact could be created and found through filtered search;
+- an updated fact was returned while the old text was no longer primary;
+- metadata filtering excluded another project's fact;
+- an ADR-style Markdown document could be stored and recalled as fragments;
+- `memory_digest` returned source-backed context;
+- deletion removed the mutable fact from search;
+- export completed successfully.
 
-## Current production proof status
+It proves a strong local MCP contract for this scenario. It does not measure
+Memora's LLM, graph, cloud, or large-corpus behavior.
 
-Fresh Infinity Context evidence from the latest local run:
+## Capability notes
 
-- local multimodal Docker proof, frontend Marionette proof and quality scorecard
-  are green on the current commit;
-- local experience proof is green: install script syntax, quickstart without
-  runtime start, live quickstart, doctor, MCP tool availability and visual memory
-  capture are verified together through a sandbox home;
-- internal deterministic retrieval, linking, multimodal and safety gates are
-  strong, but they are not a substitute for a fresh large public benchmark;
-- the current public benchmark artifact in the workspace is canary-sized, so
-  retrieval quality must be treated as provisional rather than top-tier proven;
-- production goal audit is still blocked by stale live-provider proof because the
-  OpenAI/vision/transcription provider canary has not been regenerated for the
-  current commit with a safely configured credential.
+### Memora
 
-Current comparison artifact accepts those reports explicitly:
+Memora's public code offers more than the narrow smoke exercised:
 
-```bash
-python -m infinity_context_server.memora_comparison \
-  --public-benchmark-report .e2e-artifacts/public-benchmark-full-600-current.json \
-  --production-goal-audit .e2e-artifacts/multimodal-production-goal-audit.json
-```
+- smart `absorb` decisions for duplicate, update, contradiction, and related
+  memories;
+- typed lineage, documents, action history, graph interaction, and direct MCP
+  actions;
+- full-text, semantic, hybrid, tag, date, cross-reference, and multi-query
+  retrieval with reciprocal-rank fusion;
+- local-first storage plus D1, S3, and R2 options. Object-storage paths include
+  local locking, ETag conflict detection, and retry/backoff behavior.
 
-This keeps the competitive claim honest: Infinity Context is stronger on
-governed multimodal evidence, scope isolation, review policy and verified
-architecture. Memora is still stronger as a ready-to-use personal MCP graph UI
-with action history and graph-first polish, but the quick local MCP and visual
-memory gap is now much narrower.
+The current architecture also has limits relevant to large shared deployments:
 
-## Scorecard
+- semantic retrieval scans stored embeddings, so its vector path grows linearly
+  with the corpus;
+- full cross-reference rebuild compares all pairs and approaches quadratic work;
+- related cross-references can remain stale after an update until rebuilt;
+- D1 does not provide the SQLite FTS5 path;
+- team isolation and governance depend on storage and application conventions,
+  rather than a native review-gated canonical project lifecycle.
 
-Generated by:
+These tradeoffs do not diminish Memora's fit as an inspectable personal MCP
+memory tool; they narrow what this experiment can infer about distributed use.
 
-```bash
-make infinity-context-compare-memora
-```
+### Infinity Context
 
-| Dimension | Infinity Context | Memora | Winner |
-| --- | ---: | ---: | --- |
-| Remember durable coding facts | 9.2 | 9.0 | Tie |
-| Update facts without stale answers | 9.2 | 8.1 | Infinity Context |
-| Forget/delete and review-gated control | 9.5 | 7.8 | Infinity Context |
-| Retrieve the right facts for a coding agent | 7.8 | 8.4 | Memora |
-| Large documents and architecture notes | 9.4 | 9.1 | Infinity Context |
-| Graph relationships and temporal context | 9.5 | 8.4 | Infinity Context |
-| Agent hooks, plugins and real agent ergonomics | 8.8 | 8.4 | Infinity Context |
-| Local MCP setup and visual memory UX | 8.6 | 9.3 | Memora |
-| Project/team/memory scope isolation | 9.2 | 7.5 | Infinity Context |
-| Operational confidence and benchmark evidence | 8.6 | 7.7 | Infinity Context |
-| Clean Architecture and extensibility | 9.1 | 6.8 | Infinity Context |
+Infinity Context is shaped around a different contract: Postgres owns canonical
+facts, versions, source references, scopes, visibility, review state, and
+outbox-driven projections. This is useful when several agents and applications
+must share an explicit current project state.
 
-Weighted total:
+Provider boundaries should not be overstated:
 
-- Infinity Context: 8.97
-- Memora: 8.26
+- Qdrant is the primary derived vector projection;
+- Graphiti has a real but narrower current-state write, search, and delete path;
+  updates remove the previous episode before adding the current one, and the
+  adapter does not expose the provider's full source-reference, ontology, or
+  temporal-history model;
+- Cognee is disabled by default and currently recall-oriented, without a
+  complete ingest, update, or exact-forget lifecycle.
 
-## Honest conclusion
+Infinity Context also lacks Memora's mature local graph-first exploration and
+does not yet have large public evidence for retrieval or many-agent scale.
 
-Memora is stronger today for a single developer who wants a rich, local MCP
-memory quickly. It has a polished tool surface: create/update/delete/search,
-hybrid search, digest, document fragments, typed links, clusters, export/import,
-image upload, action history, graph UI and cloud sync options.
+## Evidence limits
 
-Infinity Context is stronger for the product we are building: governed project/team
-memory for coding agents and multimodal quick capture. The big differences are first-class
-space/memory scope/thread isolation, canonical fact lifecycle, expected-version
-updates, review-gated suggestions, bounded batch suggestion create/review with
-per-item failures, DB-enforced race-safe pending suggestion dedupe, conservative
-semantic-equivalent duplicate suppression in core consolidation and MCP
-preflight, conflict-aware auto-apply gating for competing decisions, safer delete policy,
-Cognee/Qdrant/Graphiti as replaceable adapters,
-plugin-kit-ai generated agent plugins, hook capture tests and architecture
-boundary tests. For documents/ADR/notes, Infinity Context now
-has the missing typed fragment contract: markdown documents are persisted as
-claim, risk, plan_item, reference or section_chunk nodes and the API/MCP ingest
-response returns a fragment summary. Cognee/Qdrant remain the stronger
-replaceable RAG path. Infinity Context also exposes portable canonical graph export
-for facts, documents, typed fragments and evidence links. Canonical facts now
-carry category/tags/TTL and expired active facts are hidden from active
-list/context/export surfaces while staying auditable by direct id. Context/search
-now support category plus tags_any/tags_all/tags_none filters for canonical facts. Memory Scope
-snapshot export/import is available through HTTP API, SDK, MCP and CLI with
-dry-run, explicit confirmation gates and manifest hash verification for backup
-or git-sync integrity. Snapshot import also has a dedicated read-only preview
-surface through HTTP API, SDK, MCP and CLI, returning deterministic conflicts,
-skipped records, would-import counts and superseded facts before a destructive
-restore. Read-only memory insights are available through HTTP API, SDK, MCP and
-CLI for pending review load, expired facts, document indexing coverage,
-taxonomy hotspots, recent activity, duplicate/similar fact review, a safe
-consolidation plan and cleanup action items.
-Memora still has more polished local graph UI, action history and chat-first
-memory exploration. Infinity Context now narrows the zero-to-first-memory gap
-with structured `local_experience` readiness, a first-use score, a one-minute
-path, capability-derived Capture modalities in `quickstart` and `doctor`, and a
-dedicated `local_experience_proof` gate that verifies install syntax,
-quickstart/no-start, quickstart/live, doctor, MCP tools and visual-memory capture
-in one report.
-Infinity Context now also has `memory_related_facts` and
-`GET /v1/facts/{fact_id}/related`, giving agents read-only related fact
-traversal with explainable relation reasons before update/delete or summary
-work.
-Infinity Context now also has durable typed fact relations through API, SDK and MCP:
-`supports`, `supersedes`, `contradicts`, `duplicates`, `references`,
-`depends_on`, and `related_to`. Those links are exported through canonical
-`graph.json`, so graph visualization and git-syncable evidence do not depend on
-Graphiti/Cognee runtime state. MemoryScope snapshot export/import also preserves
-those typed fact links, remapping relation endpoints when importing into a new
-memory scope. That closes the previous portability gap where facts could be restored
-without their durable semantic links.
+The former scorecard assigned 9.x values and a weighted winner from a direct
+TF-IDF/SQLite smoke plus Infinity Context's internal tests. Those inputs cannot
+support product-wide scores, so the table and winner language were removed.
 
-The main honest caveats after the latest proof run:
+In particular:
 
-- Retrieval quality is currently an honest `7.5-8/10`: strong smoke and internal
-  evals, but not enough fresh large public benchmark evidence to claim top-tier;
-- live provider proof must be rerun on the current commit before calling the
-  OpenAI vision/audio provider slice production-ready;
-- Memora's local graph/action-history UX is more immediately polished.
+- the smoke is not a matched retrieval benchmark;
+- internal architecture and safety tests are not evidence of competitor quality;
+- benchmark-shaped retrieval rules reduce confidence in transfer to unseen
+  workloads;
+- neither project's security or large-scale production behavior follows from
+  these scenarios.
 
-## Practical recommendation
+## Practical conclusion
 
-Use Memora as a competitive benchmark and inspiration for UX features:
+The experiment supports a qualitative distinction, not a winner:
 
-- ready ADR/notes views on top of the structured fragment contract
-- graph visualization on top of the portable graph export
-- simple import UI on top of memory scope snapshots
-- easy local install
+- Memora provides a strong, inspectable local MCP memory workflow with smart
+  absorb, documents, lineage, action history, and graph-oriented UX.
+- Infinity Context provides a more explicit governed project-memory contract
+  with canonical versions, provenance, scopes, review, and derived-index
+  revalidation.
 
-Do not replace Infinity Context with Memora if the goal is a reusable platform behind
-multiple apps and agents. Our domain and boundaries are more suitable for that.
+Choose and test against the actual deployment scenario. A combined design is
+possible only if canonical ownership and synchronization behavior are explicit.
 
-Best near-term product direction:
+## Sources
 
-1. Keep Infinity Context as the canonical governed platform.
-2. Add a Memora-style graph/document UX where it improves agent usability.
-3. Optionally add a `MemoraCompetitorRunner` later for direct side-by-side MCP
-   benchmarks, but keep it outside `infinity_context_core`.
+- [Memora repository at audited commit](https://github.com/agentic-box/memora/tree/bc64ff745a9b2c0e6245e0137654f041fba0c155)
+- [Infinity Context living capability comparison](agent-memory-capability-comparison.md)
+- [Infinity Context architecture and trust model](../architecture-and-trust-model.md)
+- Local experiment implementation: `scripts/memora_direct_mcp_smoke.py`

@@ -38,6 +38,26 @@ else
   export PYTHONPATH="${memory_pythonpath}"
 fi
 
+# plugin-kit-ai materializes this marker per selected agent. Parse only the
+# explicit Infinity Context keys; never source an arbitrary user file.
+runtime_env_file="${INFINITY_CONTEXT_RUNTIME_ENV_FILE:-${plugin_root}/.infinity-context-runtime.env}"
+if [ -f "${runtime_env_file}" ]; then
+  while IFS= read -r runtime_line || [ -n "${runtime_line}" ]; do
+    case "${runtime_line}" in
+      ""|\#*) continue ;;
+      *=*)
+        runtime_key="${runtime_line%%=*}"
+        runtime_value="${runtime_line#*=}"
+        case "${runtime_key}" in
+          MEMORY_MCP_AGENT_NAME|MEMORY_MCP_API_URL|MEMORY_MCP_AUTH_TOKEN_FILE|MEMORY_MCP_DEFAULT_SPACE_SLUG|MEMORY_MCP_DEFAULT_MEMORY_SCOPE_EXTERNAL_REF|MEMORY_MCP_DEFAULT_THREAD_EXTERNAL_REF|MEMORY_MCP_WRITE_MODE|MEMORY_MCP_DELETE_MODE|MEMORY_MCP_INGEST_MODE|MEMORY_CAPTURE_MODE|MEMORY_PLUGIN_HOOKS_ENABLED|MEMORY_PLUGIN_HOOK_INGEST_EVENTS|MEMORY_PLUGIN_HOOK_TRANSCRIPT_TAIL_MODE)
+            export "${runtime_key}=${runtime_value}"
+            ;;
+        esac
+        ;;
+    esac
+  done < "${runtime_env_file}"
+fi
+
 case "${MEMORY_MCP_DEFAULT_THREAD_EXTERNAL_REF:-}" in
   "__INFINITY_CONTEXT_NO_DEFAULT_THREAD__")
     unset MEMORY_MCP_DEFAULT_THREAD_EXTERNAL_REF

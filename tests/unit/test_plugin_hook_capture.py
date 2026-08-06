@@ -73,6 +73,50 @@ def settings(**overrides: Any) -> HookSettings:
     return HookSettings.from_env(values)
 
 
+def test_hook_settings_read_auth_and_review_gated_capture_from_env_file(
+    tmp_path: Path,
+) -> None:
+    env_file = tmp_path / ".env"
+    env_file.write_text(
+        "\n".join(
+            [
+                "MEMORY_SERVICE_TOKEN=file-token",
+                "MEMORY_CAPTURE_MODE=suggest",
+                "MEMORY_PLUGIN_HOOK_INGEST_EVENTS=UserPromptSubmit,Stop",
+                "MEMORY_MCP_DEFAULT_SPACE_SLUG=file-space",
+                "",
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    loaded = HookSettings.from_env({"MEMORY_MCP_AUTH_TOKEN_FILE": str(env_file)})
+
+    assert loaded.auth_token == "file-token"
+    assert loaded.capture_mode.value == "captures"
+    assert loaded.ingest_events == frozenset({"UserPromptSubmit", "Stop"})
+    assert loaded.default_space_slug == "file-space"
+
+
+def test_hook_settings_direct_env_overrides_auth_file(tmp_path: Path) -> None:
+    env_file = tmp_path / ".env"
+    env_file.write_text(
+        "MEMORY_SERVICE_TOKEN=file-token\nMEMORY_CAPTURE_MODE=suggest\n",
+        encoding="utf-8",
+    )
+
+    loaded = HookSettings.from_env(
+        {
+            "MEMORY_MCP_AUTH_TOKEN_FILE": str(env_file),
+            "MEMORY_MCP_AUTH_TOKEN": "direct-token",
+            "MEMORY_CAPTURE_MODE": "retrieve_only",
+        }
+    )
+
+    assert loaded.auth_token == "direct-token"
+    assert loaded.capture_mode.value == "off"
+
+
 def test_hook_capture_writes_to_gateway_but_not_stdout() -> None:
     gateway = FakeGateway()
     app = MemoryPluginHookApp(settings=settings(), gateway=gateway)

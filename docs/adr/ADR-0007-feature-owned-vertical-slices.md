@@ -27,6 +27,7 @@ Target feature ids:
 - `context_building`
 - `document_ingestion`
 - `memory_scopes`
+- `cognitive_memory`
 
 Core feature capsules use Clean Architecture internally:
 
@@ -51,6 +52,7 @@ infinity_context_adapters/
     context_building/
     document_ingestion/
     memory_scopes/
+    cognitive_memory/
 ```
 
 Server mirrors feature ids:
@@ -62,6 +64,7 @@ infinity_context_server/
     context_building/
     document_ingestion/
     memory_scopes/
+    cognitive_memory/
 ```
 
 Contracts mirror feature ids:
@@ -73,6 +76,7 @@ infinity_context_contracts/
     context_building.py
     document_ingestion.py
     memory_scopes.py
+    cognitive_memory.py
 ```
 
 ## Rules
@@ -85,6 +89,8 @@ infinity_context_contracts/
 - Server owns routes, mappers, and composition only.
 - Cross-feature workflows belong in a process/orchestration layer and must use feature public APIs.
 - Postgres remains canonical truth. Qdrant and Graphiti are derived projections.
+- Cognitive memory is a feature-owned candidate derivation slice; its logical plane does not create
+  a new global layer tree. See ADR-0009.
 
 ## Consequences
 
