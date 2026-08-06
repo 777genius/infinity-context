@@ -101,6 +101,7 @@ services:
       QDRANT__SERVICE__HOST: 127.0.0.1
       QDRANT__SERVICE__HTTP_PORT: 6334
       QDRANT__STORAGE__STORAGE_PATH: /qdrant/storage
+      QDRANT__STORAGE__SNAPSHOTS_PATH: /qdrant/storage/snapshots
       QDRANT__TELEMETRY_DISABLED: "true"
     tmpfs:
       - /qdrant/storage:size=1g,mode=0700,uid=65532,gid=65532

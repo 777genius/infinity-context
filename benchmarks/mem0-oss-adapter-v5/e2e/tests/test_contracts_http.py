@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import json
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 
 import pytest
 import yaml
@@ -113,6 +113,25 @@ def test_compose_binds_only_pinned_container_identity_not_host_mapping() -> None
         "mem0-oss-v5-qdrant": "65532:65532",
         "mem0-oss-adapter-v5": "65532:65532",
     }
+
+
+def test_qdrant_snapshots_stay_on_writable_storage_tmpfs() -> None:
+    compose_path = Path(__file__).resolve().parents[2] / "compose.provider-free-e2e.yaml"
+    compose = yaml.safe_load(compose_path.read_text())
+    service = compose["services"]["mem0-oss-v5-qdrant"]
+    environment = service["environment"]
+    storage_path = PurePosixPath(environment["QDRANT__STORAGE__STORAGE_PATH"])
+    snapshots_path = PurePosixPath(environment["QDRANT__STORAGE__SNAPSHOTS_PATH"])
+    tmpfs_mounts = {
+        PurePosixPath(str(entry).split(":", maxsplit=1)[0]) for entry in service["tmpfs"]
+    }
+
+    assert service["read_only"] is True
+    assert storage_path.is_absolute()
+    assert snapshots_path.is_absolute()
+    assert snapshots_path == storage_path / "snapshots"
+    assert ".." not in snapshots_path.parts
+    assert storage_path in tmpfs_mounts
 
 
 def test_http_client_matches_pr34_request_commitment_and_exact_response() -> None:
