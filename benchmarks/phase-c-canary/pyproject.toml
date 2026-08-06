@@ -1,0 +1,28 @@
+[build-system]
+requires = ["setuptools>=80", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "infinity-context-phase-c-canary"
+version = "0.1.0"
+requires-python = ">=3.11"
+
+[project.optional-dependencies]
+dev = ["pytest>=9.0.3,<10.0.0", "ruff>=0.15.14,<1.0.0"]
+
+[project.scripts]
+phase-c-canary = "phase_c_canary.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["phase_c_canary*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "SIM"]
