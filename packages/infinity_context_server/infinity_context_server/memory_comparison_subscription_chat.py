@@ -27,6 +27,9 @@ from infinity_context_server.memory_comparison_provider_provenance import (
     ProviderRouteAttestation,
     canonical_request_sha256,
 )
+from infinity_context_server.memory_comparison_response_format_policy import (
+    normalized_supported_response_format,
+)
 
 DEFAULT_SUBSCRIPTION_RUNTIME_ORIGIN = "http://127.0.0.1:8890"
 SUBSCRIPTION_CHAT_ENDPOINT_PATH = "/v1/chat/completions"
@@ -508,8 +511,11 @@ def _request_payload(
         normalized_temperature = float(temperature)
         if not isfinite(normalized_temperature) or normalized_temperature != 0:
             raise ValueError("subscription chat temperature must be zero or omitted")
-    if response_format is not None and dict(response_format) != {"type": "json_object"}:
-        raise ValueError("subscription chat response format is unsupported")
+    normalized_response_format = (
+        None
+        if response_format is None
+        else normalized_supported_response_format(response_format)
+    )
 
     payload: dict[str, object] = {
         "model": normalized_model,
@@ -521,8 +527,8 @@ def _request_payload(
     }
     if temperature is not None:
         payload["temperature"] = 0
-    if response_format is not None:
-        payload["response_format"] = {"type": "json_object"}
+    if normalized_response_format is not None:
+        payload["response_format"] = normalized_response_format
     return payload
 
 

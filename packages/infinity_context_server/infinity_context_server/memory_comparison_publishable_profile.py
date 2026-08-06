@@ -22,8 +22,8 @@ from infinity_context_server.memory_comparison_publishable_methodology import (
 )
 from infinity_context_server.public_benchmark_models import BenchmarkValidationError
 
-PUBLISHABLE_PROFILE_SCHEMA_VERSION = "memory-comparison-publishable-profile.v1"
-PUBLISHABLE_PROFILE_ID = "ic-vs-mem0-oss-keyless-v1"
+PUBLISHABLE_PROFILE_SCHEMA_VERSION = "memory-comparison-publishable-profile.v2"
+PUBLISHABLE_PROFILE_ID = "ic-vs-mem0-oss-keyless-v2"
 PUBLISHABLE_COMPARISON_BACKENDS = ("infinity-context", "mem0")
 PUBLISHABLE_COMPARABLE_METRICS = ("paired_answer_accuracy",)
 PUBLISHABLE_NON_COMPARABLE_METRICS = ("latency", "provider_cost", "mem0_platform_score")
@@ -33,6 +33,7 @@ PUBLISHABLE_ACTIVATION_BLOCKERS = (
     "checkpoint_resume",
     "cleanup_verifier",
     "one_plus_eight_gate",
+    "full_run_extraction_equivalence",
 )
 
 
