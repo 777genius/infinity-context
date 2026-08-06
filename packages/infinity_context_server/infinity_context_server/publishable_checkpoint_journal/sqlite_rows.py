@@ -323,11 +323,13 @@ def call_from_row(row: sqlite3.Row) -> ProviderCallState:
         identity = identity_from_manifest_row(row)
         phase = CallPhase(str(row["phase"]))
         request_commitment_sha256 = optional_string(row["request_commitment_sha256"])
+        if phase is CallPhase.COMMITTED and request_commitment_sha256 is None:
+            raise CheckpointJournalError("checkpoint_journal_call_row_invalid")
         receipt = (
             RuntimeReceipt(
                 run_id=identity.run_id,
                 logical_call_id=identity.logical_call_id,
-                request_commitment_sha256=str(request_commitment_sha256),
+                request_commitment_sha256=request_commitment_sha256,
                 provider_receipt_id=str(row["provider_receipt_id"]),
                 result_commitment_sha256=str(row["result_commitment_sha256"]),
             )

@@ -11,10 +11,12 @@ from infinity_context_server.publishable_checkpoint_journal.crypto import (
     HmacSha256JournalSigner,
 )
 from infinity_context_server.publishable_checkpoint_journal.domain import (
+    CHECKPOINT_JOURNAL_SCHEMA_VERSION,
     PUBLISHABLE_ANSWER_CALL_COUNT,
     PUBLISHABLE_ANSWER_JUDGE_CALL_COUNT,
     PUBLISHABLE_CASE_COUNT,
     PUBLISHABLE_EXTRACTION_CALL_COUNT,
+    PUBLISHABLE_JUDGE_CALL_COUNT,
     PUBLISHABLE_MESSAGE_COUNT,
     PUBLISHABLE_TOTAL_CALL_COUNT,
     BackendTargetAuthority,
@@ -32,6 +34,9 @@ from infinity_context_server.publishable_checkpoint_journal.domain import (
     canonical_json,
     create_journal_event,
     sha256_commitment,
+)
+from infinity_context_server.publishable_checkpoint_journal.manifest_persistence import (
+    verify_manifest_authority_stream,
 )
 from infinity_context_server.publishable_checkpoint_journal.replay import (
     verify_journal_event_chain,
@@ -138,27 +143,56 @@ def test_chain_verification_rejects_tamper_gap_reorder_cross_run_and_wrong_key()
         _verify(events, wrong_secret)
 
 
+def test_hmac_verifier_rejects_non_ascii_signature_without_raising() -> None:
+    signer = HmacSha256JournalSigner(key_id="journal-key-1", secret=b"journal-secret")
+
+    assert signer.verify(b"message", "é" * 64) is False
+
+
+def test_persisted_manifest_authority_digest_matches_in_memory_authority() -> None:
+    authority = _authority()
+
+    persisted = verify_manifest_authority_stream(
+        enumerate(authority.ordered_cases),
+        enumerate(authority.backend_targets),
+    )
+
+    assert persisted.case_manifest_sha256 == authority.case_manifest_sha256
+    assert persisted.manifest_authority_commitment_sha256 == authority.commitment_sha256
+
+
 def test_exact_evaluation_manifest_rejects_out_of_range_and_dependency_drift() -> None:
     manifest = _manifest()
 
-    assert len(manifest.calls) == 6160
+    assert len(manifest.calls) == PUBLISHABLE_ANSWER_JUDGE_CALL_COUNT
     assert manifest.commitment_sha256 == sha256_commitment(
         {
             "calls": tuple(call.identity_payload() for call in manifest.calls),
             "case_manifest_sha256": manifest.case_manifest_sha256,
             "manifest_authority_commitment_sha256": (manifest.manifest_authority_commitment_sha256),
-            "schema_version": "3",
+            "schema_version": CHECKPOINT_JOURNAL_SCHEMA_VERSION,
         }
     )
-    assert tuple(call.ordinal for call in manifest.calls) == tuple(range(6160))
-    assert sum(call.stage is CallStage.ANSWER for call in manifest.calls) == 3080
-    assert sum(call.stage is CallStage.JUDGE for call in manifest.calls) == 3080
+    assert tuple(call.ordinal for call in manifest.calls) == tuple(
+        range(PUBLISHABLE_ANSWER_JUDGE_CALL_COUNT)
+    )
+    assert (
+        sum(call.stage is CallStage.ANSWER for call in manifest.calls)
+        == PUBLISHABLE_ANSWER_CALL_COUNT
+    )
+    assert (
+        sum(call.stage is CallStage.JUDGE for call in manifest.calls)
+        == PUBLISHABLE_JUDGE_CALL_COUNT
+    )
     assert "EXTRACTION" not in CallStage.__members__
     with pytest.raises(
         CheckpointJournalError,
         match="checkpoint_journal_call_ordinal_out_of_range",
     ):
-        _identity(stage=CallStage.ANSWER, ordinal=6160)
+        _identity(
+            stage=CallStage.ANSWER,
+            ordinal=PUBLISHABLE_ANSWER_JUDGE_CALL_COUNT,
+        )
     with pytest.raises(
         CheckpointJournalError,
         match="checkpoint_journal_call_stage_ordinal_invalid",
@@ -253,6 +287,18 @@ def test_live_request_binding_is_write_once_and_required_before_dispatch(
     assert service.mark_dispatched(answer).request_commitment_sha256 == request_commitment
 
 
+def test_commit_rejects_receipt_identity_before_external_verification(tmp_path: Path) -> None:
+    _, service, _ = _service(tmp_path)
+    call = _manifest().calls[0]
+    mismatched = replace(_receipt(call), run_id="other-run")
+
+    with pytest.raises(
+        CheckpointJournalError,
+        match="checkpoint_journal_receipt_identity_mismatch",
+    ):
+        service.commit(call, mismatched)
+
+
 def test_manifest_rejects_per_case_backend_role_drift() -> None:
     manifest = _manifest()
     changed = list(manifest.calls)
@@ -316,7 +362,8 @@ def test_resume_turns_durable_dispatched_work_into_unknown_and_blocks_retry(
     assert resumed.run.phase is RunPhase.RECONCILIATION_REQUIRED
     assert resumed.outcome_unknown_count == 1
     assert resumed.newly_outcome_unknown_count == 1
-    assert tuple(journal.iter_calls(run_id=run.run_id))[0].phase is CallPhase.OUTCOME_UNKNOWN
+    calls = tuple(journal.iter_calls(run_id=run.run_id))  # Exhaustion closes SQLite.
+    assert calls[0].phase is CallPhase.OUTCOME_UNKNOWN
     with pytest.raises(
         CheckpointJournalError,
         match="checkpoint_journal_outcome_unknown_retry_blocked",
@@ -324,7 +371,9 @@ def test_resume_turns_durable_dispatched_work_into_unknown_and_blocks_retry(
         service.mark_dispatched(call)
 
     assert service.commit(call, _receipt(call)).phase is CallPhase.COMMITTED
-    assert journal.load_run(run.run_id).phase is RunPhase.ACTIVE
+    durable_run = journal.load_run(run.run_id)
+    assert durable_run is not None
+    assert durable_run.phase is RunPhase.ACTIVE
     assert service.resume(run.run_id).outcome_unknown_count == 0
 
 

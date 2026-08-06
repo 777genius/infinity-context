@@ -350,6 +350,8 @@ class SQLiteCheckpointJournal:
         phases: tuple[CallPhase, ...] | None = None,
         batch_size: int = 256,
     ) -> Iterator[ProviderCallState]:
+        """Yield calls while owning a connection; exhaust or close the iterator."""
+
         connection = self._connect()
         try:
             yield from iter_calls(
@@ -363,6 +365,8 @@ class SQLiteCheckpointJournal:
             connection.close()
 
     def iter_events(self, *, run_id: str, batch_size: int = 256) -> Iterator[JournalEvent]:
+        """Yield events while owning a connection; exhaust or close the iterator."""
+
         connection = self._connect()
         try:
             yield from iter_events(connection, run_id=run_id, batch_size=batch_size)
@@ -376,6 +380,8 @@ class SQLiteCheckpointJournal:
         run_id: str,
         batch_size: int = 64,
     ) -> Iterator[JournalEvent]:
+        """Yield pending events; exhaust or close the iterator to release its connection."""
+
         connection = self._connect()
         try:
             yield from iter_pending_lifecycle_events(

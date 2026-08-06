@@ -33,6 +33,8 @@ class HmacSha256JournalSigner:
     def verify(self, message: bytes, signature: str) -> bool:
         if not isinstance(message, bytes) or not isinstance(signature, str):
             return False
+        if not signature.isascii():
+            return False
         return hmac.compare_digest(self.sign(message), signature)
 
     def __init_subclass__(cls, **kwargs: object) -> None:

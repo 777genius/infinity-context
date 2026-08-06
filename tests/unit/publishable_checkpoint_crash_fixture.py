@@ -18,6 +18,8 @@ def crash_script(database_path: Path, fault_point: str) -> str:
         )
         from infinity_context_server.publishable_checkpoint_journal.domain import (
             BackendTargetAuthority,
+            PUBLISHABLE_ANSWER_CALL_COUNT,
+            PUBLISHABLE_CASE_COUNT,
             CallStage,
             LogicalCallIdentity,
             ManifestAuthority,
@@ -55,7 +57,7 @@ def crash_script(database_path: Path, fault_point: str) -> str:
                     case_id=f"case-{{ordinal}}",
                     case_alias=f"alias-{{ordinal}}",
                 )
-                for ordinal in range(1540)
+                for ordinal in range(PUBLISHABLE_CASE_COUNT)
             ),
             backend_targets=(
                 BackendTargetAuthority(
@@ -81,7 +83,7 @@ def crash_script(database_path: Path, fault_point: str) -> str:
                 stage=CallStage.ANSWER,
                 ordinal=ordinal,
             )
-            for ordinal in range(3080)
+            for ordinal in range(PUBLISHABLE_ANSWER_CALL_COUNT)
         )
         judges = tuple(
             LogicalCallIdentity(
@@ -94,7 +96,7 @@ def crash_script(database_path: Path, fault_point: str) -> str:
                     answer.backend_target_commitment_sha256
                 ),
                 stage=CallStage.JUDGE,
-                ordinal=3080 + answer.ordinal,
+                ordinal=PUBLISHABLE_ANSWER_CALL_COUNT + answer.ordinal,
                 depends_on_logical_call_id=answer.logical_call_id,
             )
             for answer in answers

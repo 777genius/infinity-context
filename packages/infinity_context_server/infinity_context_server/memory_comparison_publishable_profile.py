@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from infinity_context_server.memory_comparison_full_profiles import (
+    MEM0_OFFICIAL_PROMPT_FILE_SHA256,
     PROFILE_LOCOMO_TOP_50,
     PROFILE_LONGMEMEVAL_TOP_50,
     FullComparisonProfile,
@@ -34,6 +35,25 @@ PUBLISHABLE_ACTIVATION_BLOCKERS = (
     "cleanup_verifier",
     "one_plus_eight_gate",
     "full_run_extraction_equivalence",
+)
+
+# The pinned source has 246,750 messages across sessions, 1,940 of which have
+# odd length. Pairing that source produces 124,345 slots. Normalization removes
+# 12 invalid messages (leaving 246,738 and 1,944 odd sessions), but only one
+# original slot is fully invalid and skipped by ingestion.
+LONGMEMEVAL_RAW_MESSAGE_COUNT = 246_750
+LONGMEMEVAL_INVALID_MESSAGE_COUNT = 12
+LONGMEMEVAL_EXPECTED_MESSAGE_COUNT = (
+    LONGMEMEVAL_RAW_MESSAGE_COUNT - LONGMEMEVAL_INVALID_MESSAGE_COUNT
+)
+LONGMEMEVAL_RAW_ODD_SESSION_COUNT = 1_940
+LONGMEMEVAL_NORMALIZED_ODD_SESSION_COUNT = 1_944
+LONGMEMEVAL_ORIGINAL_PAIR_SLOT_COUNT = (
+    LONGMEMEVAL_RAW_MESSAGE_COUNT + LONGMEMEVAL_RAW_ODD_SESSION_COUNT
+) // 2
+LONGMEMEVAL_FULLY_INVALID_PAIR_COUNT = 1
+LONGMEMEVAL_EXTRACTION_CALL_BUDGET = (
+    LONGMEMEVAL_ORIGINAL_PAIR_SLOT_COUNT - LONGMEMEVAL_FULLY_INVALID_PAIR_COUNT
 )
 
 
@@ -131,14 +151,14 @@ def _benchmark_specs() -> tuple[BenchmarkSpec, BenchmarkSpec]:
             dataset_sha256=longmemeval.expected_dataset_hash,
             prompt_file_sha256=_prompt_hash("longmemeval"),
             expected_case_count=longmemeval.expected_case_count,
-            expected_corpus_count=500,
-            expected_message_count=246738,
+            expected_corpus_count=_required_count(longmemeval.expected_corpus_count),
+            expected_message_count=LONGMEMEVAL_EXPECTED_MESSAGE_COUNT,
             grouping_field=longmemeval.distribution_field,
             expected_grouping=tuple(longmemeval.expected_distribution.items()),
             ingestion_contract="official_user_assistant_pairs",
-            extraction_call_budget=124344,
+            extraction_call_budget=LONGMEMEVAL_EXTRACTION_CALL_BUDGET,
             answer_judge_call_budget=2000,
-            total_call_budget=126344,
+            total_call_budget=LONGMEMEVAL_EXTRACTION_CALL_BUDGET + 2000,
         ),
     )
 
@@ -151,10 +171,6 @@ def _legacy_profile(profile_id: str) -> FullComparisonProfile:
 
 
 def _prompt_hash(benchmark: str) -> str:
-    from infinity_context_server.memory_comparison_full_profiles import (
-        MEM0_OFFICIAL_PROMPT_FILE_SHA256,
-    )
-
     return MEM0_OFFICIAL_PROMPT_FILE_SHA256[benchmark]
 
 

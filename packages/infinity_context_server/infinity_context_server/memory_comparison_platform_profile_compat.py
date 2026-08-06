@@ -65,8 +65,8 @@ def _compatibility_payload(profile_id: str) -> dict[str, object]:
 
 __all__ = (
     "PLATFORM_COMPAT_CLAIM_SCOPE",
-    "PLATFORM_COMPAT_SCHEMA_VERSION",
     "PLATFORM_COMPAT_REFERENCE_BLOCKERS",
+    "PLATFORM_COMPAT_SCHEMA_VERSION",
     "platform_profile_compatibility_contract",
     "public_platform_profile_compatibility_contract",
 )

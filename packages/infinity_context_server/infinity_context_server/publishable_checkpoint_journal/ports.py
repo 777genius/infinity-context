@@ -119,10 +119,10 @@ class CheckpointJournalTransactionPort(Protocol):
         phases: tuple[CallPhase, ...] | None = None,
         batch_size: int = 256,
     ) -> Iterator[ProviderCallState]:
-        """Yield calls in bounded batches."""
+        """Yield calls in batches; callers must exhaust or explicitly close."""
 
     def iter_events(self, *, run_id: str, batch_size: int = 256) -> Iterator[JournalEvent]:
-        """Yield ordered events in bounded batches."""
+        """Yield events in batches; callers must exhaust or explicitly close."""
 
     def mark_lifecycle_event_delivered(self, *, run_id: str, event_sha256: str) -> None:
         """Mark an event delivered after an idempotent external acknowledgement."""
@@ -150,10 +150,10 @@ class CheckpointJournalPort(Protocol):
         phases: tuple[CallPhase, ...] | None = None,
         batch_size: int = 256,
     ) -> Iterator[ProviderCallState]:
-        """Yield durable calls in bounded batches."""
+        """Yield durable calls in batches; callers must exhaust or explicitly close."""
 
     def iter_events(self, *, run_id: str, batch_size: int = 256) -> Iterator[JournalEvent]:
-        """Yield durable chain entries in bounded batches."""
+        """Yield chain entries in batches; callers must exhaust or explicitly close."""
 
     def iter_pending_lifecycle_events(
         self,
@@ -161,7 +161,7 @@ class CheckpointJournalPort(Protocol):
         run_id: str,
         batch_size: int = 64,
     ) -> Iterator[JournalEvent]:
-        """Yield pending authority events in bounded batches."""
+        """Yield pending events in batches; callers must exhaust or explicitly close."""
 
 
 __all__ = (

@@ -299,7 +299,8 @@ def test_subprocess_crash_reopen_preserves_safe_evaluation_state(
     journal, service = _service(private_directory)
     resumed = service.resume("run-1")
     call = _manifest().calls[0]
-    state = next(journal.iter_calls(run_id="run-1"))
+    states = tuple(journal.iter_calls(run_id="run-1"))  # Exhaustion closes SQLite.
+    state = states[0]
 
     assert state.identity == call
     assert state.phase is expected_phase
@@ -566,6 +567,86 @@ def test_committed_result_stores_only_compact_receipt_identity(tmp_path: Path) -
     assert "provider_body" not in row[0]
     assert "result_commitment_sha256" in row[0]
     assert row[1] == _receipt(call).result_commitment_sha256
+
+
+def test_committed_call_row_without_request_commitment_fails_closed(tmp_path: Path) -> None:
+    private_directory = tmp_path / "private"
+    journal, service = _service(private_directory)
+    run = _run()
+    call = _manifest().calls[0]
+    service.initialize(run, _manifest())
+    service.reserve(
+        call,
+        request_commitment_sha256=_digest(f"request-{call.ordinal}"),
+    )
+    service.mark_dispatched(call)
+    service.commit(call, _receipt(call))
+
+    connection = sqlite3.connect(journal.database_path)
+    try:
+        connection.execute(
+            """
+            UPDATE provider_calls
+            SET request_commitment_sha256 = NULL
+            WHERE run_id = ? AND logical_call_id = ?
+            """,
+            (run.run_id, call.logical_call_id),
+        )
+        connection.commit()
+    finally:
+        connection.close()
+
+    with pytest.raises(
+        CheckpointJournalError,
+        match="checkpoint_journal_call_row_invalid",
+    ):
+        tuple(journal.iter_calls(run_id=run.run_id))
+
+
+def test_private_result_idempotency_rejects_receipt_commitment_divergence(
+    tmp_path: Path,
+) -> None:
+    private_directory = tmp_path / "private"
+    journal, service = _service(private_directory)
+    run = _run()
+    call = _manifest().calls[0]
+    receipt = _receipt(call)
+    service.initialize(run, _manifest())
+    service.reserve(
+        call,
+        request_commitment_sha256=receipt.request_commitment_sha256,
+    )
+    service.mark_dispatched(call)
+    service.commit(call, receipt)
+    states = tuple(journal.iter_calls(run_id=run.run_id))
+    state = states[0]
+    verified = _ReceiptVerifier().verify(identity=call, receipt=receipt)
+
+    connection = sqlite3.connect(journal.database_path)
+    try:
+        connection.execute(
+            """
+            UPDATE private_provider_results
+            SET receipt_commitment_sha256 = ?
+            WHERE run_id = ? AND logical_call_id = ?
+            """,
+            (_digest("divergent-result"), run.run_id, call.logical_call_id),
+        )
+        connection.commit()
+    finally:
+        connection.close()
+
+    with (
+        pytest.raises(
+            CheckpointJournalError,
+            match="checkpoint_journal_private_result_divergent",
+        ),
+        journal.write_transaction() as transaction,
+    ):
+        transaction.put_private_provider_result(
+            state=state,
+            verified_receipt=verified,
+        )
 
 
 def _service(

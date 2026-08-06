@@ -7,6 +7,7 @@ from collections.abc import Iterator
 from typing import final
 
 from infinity_context_server.publishable_checkpoint_journal.domain import (
+    PUBLISHABLE_ANSWER_CALL_COUNT,
     CallPhase,
     CallStage,
     CheckpointJournalError,
@@ -285,7 +286,8 @@ class SQLiteCheckpointJournalTransaction:
         existing = self._connection.execute(
             """
             SELECT receipt_identity_json, request_commitment_sha256,
-                   verifier_key_id, verification_commitment_sha256
+                   receipt_commitment_sha256, verifier_key_id,
+                   verification_commitment_sha256
             FROM private_provider_results
             WHERE run_id = ? AND logical_call_id = ?
             """,
@@ -294,6 +296,7 @@ class SQLiteCheckpointJournalTransaction:
         expected = (
             payload,
             receipt.request_commitment_sha256,
+            receipt.result_commitment_sha256,
             verified_receipt.verifier_key_id,
             verified_receipt.verification_commitment_sha256,
         )
@@ -301,6 +304,7 @@ class SQLiteCheckpointJournalTransaction:
             actual = (
                 str(existing["receipt_identity_json"]),
                 str(existing["request_commitment_sha256"]),
+                str(existing["receipt_commitment_sha256"]),
                 str(existing["verifier_key_id"]),
                 str(existing["verification_commitment_sha256"]),
             )
@@ -429,12 +433,12 @@ class SQLiteCheckpointJournalTransaction:
             WITH slots AS (
                 SELECT manifest.*,
                        CASE
-                           WHEN manifest.ordinal >= 3080
-                           THEN manifest.ordinal - 3080
+                           WHEN manifest.ordinal >= :answer_call_count
+                           THEN manifest.ordinal - :answer_call_count
                            ELSE manifest.ordinal
                        END AS base_ordinal
                 FROM evaluation_manifest AS manifest
-                WHERE manifest.run_id = ?
+                WHERE manifest.run_id = :run_id
             )
             SELECT COALESCE(SUM(
                 cases.case_id IS NULL
@@ -454,7 +458,10 @@ class SQLiteCheckpointJournalTransaction:
               ON targets.run_id = slots.run_id
              AND targets.backend_ordinal = slots.base_ordinal % 2
             """,
-            (run_id,),
+            {
+                "answer_call_count": PUBLISHABLE_ANSWER_CALL_COUNT,
+                "run_id": run_id,
+            },
         ).fetchone()
         calls = self._connection.execute(
             """

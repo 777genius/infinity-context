@@ -99,7 +99,7 @@ _PROFILE_SPECS = (
         "longmemeval_question_type",
         200,
         6787,
-        None,
+        500,
         None,
     ),
     _ProfileSpec(
@@ -118,7 +118,7 @@ _PROFILE_SPECS = (
         "longmemeval_question_type",
         50,
         6787,
-        None,
+        500,
         None,
     ),
 )

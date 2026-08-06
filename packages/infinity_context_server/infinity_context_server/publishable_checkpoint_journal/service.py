@@ -248,11 +248,11 @@ class PublishableCheckpointJournalService:
 
         if type(identity) is not LogicalCallIdentity or type(receipt) is not RuntimeReceipt:
             raise CheckpointJournalError("checkpoint_journal_commit_input_invalid")
+        if receipt.run_id != identity.run_id or receipt.logical_call_id != identity.logical_call_id:
+            raise CheckpointJournalError("checkpoint_journal_receipt_identity_mismatch")
         verified = self._receipt_verifier.verify(identity=identity, receipt=receipt)
         if type(verified) is not VerifiedRuntimeReceipt or verified.receipt != receipt:
             raise CheckpointJournalError("checkpoint_journal_receipt_verification_invalid")
-        if receipt.run_id != identity.run_id or receipt.logical_call_id != identity.logical_call_id:
-            raise CheckpointJournalError("checkpoint_journal_receipt_identity_mismatch")
 
         with self._journal.write_transaction() as transaction:
             run = self._require_run(transaction, identity.run_id)

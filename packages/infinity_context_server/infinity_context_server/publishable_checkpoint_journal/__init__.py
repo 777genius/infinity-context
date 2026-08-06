@@ -30,10 +30,10 @@ from infinity_context_server.publishable_checkpoint_journal.service import (
 )
 
 __all__ = (
-    "CallPhase",
-    "CallStage",
     "CHECKPOINT_JOURNAL_SCHEMA_VERSION",
     "BackendTargetAuthority",
+    "CallPhase",
+    "CallStage",
     "CheckpointJournalError",
     "EvaluationCoverage",
     "EvaluationManifestVerification",

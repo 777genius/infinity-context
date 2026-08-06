@@ -13,6 +13,14 @@ from infinity_context_server.memory_comparison_publishable_contracts import (
     freeze_publishable_payload,
 )
 from infinity_context_server.memory_comparison_publishable_profile import (
+    LONGMEMEVAL_EXPECTED_MESSAGE_COUNT,
+    LONGMEMEVAL_EXTRACTION_CALL_BUDGET,
+    LONGMEMEVAL_FULLY_INVALID_PAIR_COUNT,
+    LONGMEMEVAL_INVALID_MESSAGE_COUNT,
+    LONGMEMEVAL_NORMALIZED_ODD_SESSION_COUNT,
+    LONGMEMEVAL_ORIGINAL_PAIR_SLOT_COUNT,
+    LONGMEMEVAL_RAW_MESSAGE_COUNT,
+    LONGMEMEVAL_RAW_ODD_SESSION_COUNT,
     PUBLISHABLE_ACTIVATION_BLOCKERS,
     PUBLISHABLE_PROFILE_ID,
     public_publishable_comparison_profile,
@@ -72,14 +80,41 @@ def test_locomo_spec_has_exact_authoritative_counts_and_arithmetic() -> None:
 
 def test_longmemeval_spec_has_exact_authoritative_counts_and_arithmetic() -> None:
     spec = _public()["benchmarks"]["longmemeval"]
+    raw_message_count = 246_750
+    invalid_message_count = 12
+    raw_odd_session_count = 1_940
+    normalized_odd_session_count = 1_944
+    fully_invalid_pair_count = 1
+    paired_raw_messages = raw_message_count - raw_odd_session_count
+    original_pair_slots = paired_raw_messages // 2 + raw_odd_session_count
+    authoritative_extraction_calls = original_pair_slots - fully_invalid_pair_count
 
     assert spec["dataset_sha256"] == LONGMEMEVAL_OFFICIAL_DATASET_SHA256
     assert spec["expected_case_count"] == 500
     assert spec["expected_corpus_count"] == 500
-    assert spec["expected_message_count"] == 246738
+    assert paired_raw_messages % 2 == 0
+    assert original_pair_slots == 124345
+    assert authoritative_extraction_calls == 124344
+    assert raw_message_count == LONGMEMEVAL_RAW_MESSAGE_COUNT
+    assert invalid_message_count == LONGMEMEVAL_INVALID_MESSAGE_COUNT
+    assert raw_odd_session_count == LONGMEMEVAL_RAW_ODD_SESSION_COUNT
+    assert normalized_odd_session_count == LONGMEMEVAL_NORMALIZED_ODD_SESSION_COUNT
+    assert original_pair_slots == LONGMEMEVAL_ORIGINAL_PAIR_SLOT_COUNT
+    assert fully_invalid_pair_count == LONGMEMEVAL_FULLY_INVALID_PAIR_COUNT
+    assert (
+        spec["expected_message_count"]
+        == LONGMEMEVAL_EXPECTED_MESSAGE_COUNT
+        == raw_message_count - invalid_message_count
+        == 246738
+    )
     assert spec["ingestion_contract"] == "official_user_assistant_pairs"
+    assert (
+        spec["extraction_call_budget"]
+        == LONGMEMEVAL_EXTRACTION_CALL_BUDGET
+        == authoritative_extraction_calls
+    )
     assert spec["answer_judge_call_budget"] == 500 * 2 * 2
-    assert spec["total_call_budget"] == 124344 + 2000
+    assert spec["total_call_budget"] == LONGMEMEVAL_EXTRACTION_CALL_BUDGET + 2000
     assert spec["readiness_probe_calls"] == 1
     assert spec["readiness_probe_in_total"] is False
     assert spec["execution_enabled"] is False

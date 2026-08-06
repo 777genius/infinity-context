@@ -268,10 +268,6 @@ def _digest(value: object, name: str) -> None:
 
 __all__ = (
     "CHECKPOINT_JOURNAL_SCHEMA_VERSION",
-    "CallPhase",
-    "CallStage",
-    "CheckpointJournalError",
-    "LogicalCallIdentity",
     "PUBLISHABLE_ANSWER_CALL_COUNT",
     "PUBLISHABLE_ANSWER_JUDGE_CALL_COUNT",
     "PUBLISHABLE_ANSWER_ORDINAL_START",
@@ -281,6 +277,10 @@ __all__ = (
     "PUBLISHABLE_JUDGE_ORDINAL_START",
     "PUBLISHABLE_MESSAGE_COUNT",
     "PUBLISHABLE_TOTAL_CALL_COUNT",
+    "CallPhase",
+    "CallStage",
+    "CheckpointJournalError",
+    "LogicalCallIdentity",
     "PublishableRunIdentity",
     "RunPhase",
     "canonical_json",
