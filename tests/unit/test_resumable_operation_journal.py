@@ -28,6 +28,7 @@ from infinity_context_server.resumable_operation_journal.service import (
 )
 from infinity_context_server.resumable_operation_journal.sqlite import (
     SQLiteOperationJournal,
+    SQLiteOperationJournalTransaction,
 )
 
 _A = "a" * 64
@@ -534,3 +535,137 @@ def test_notification_batches_are_bounded_and_materialized_before_delivery(tmp_p
     first = tuple(pending)
     assert len(first) == 1
     assert len(tuple(journal.iter_pending_notifications(run_id=identity.run_id, batch_size=1))) == 1
+
+
+def test_hmac_verifier_rejects_non_ascii_signature_without_raising() -> None:
+    signer = HmacSha256OperationJournalSigner(key_id="signer-v1", secret=_SECRET)
+
+    assert signer.verify(b"message", "snowman-\u2603") is False
+
+
+def test_resume_of_sealed_run_still_drains_pending_notification(tmp_path) -> None:
+    sink = _Notifications()
+    service, _, identity, manifest, operations, _, _ = _fixture(tmp_path, notifications=sink)
+    service.initialize(identity, manifest)
+    for operation, request_hash in zip(operations, (_A, _B), strict=True):
+        service.prepare_dispatch(operation, request_hash)
+        service.commit(
+            operation,
+            _receipt(operation, request_hash, f"receipt-{operation.ordinal}"),
+        )
+    sink.fail = True
+    with pytest.raises(RuntimeError, match="offline"):
+        service.seal(identity.run_id)
+
+    sink.fail = False
+    resumed = service.resume(identity.run_id)
+    assert resumed.run.phase is OperationRunPhase.SEALED
+    assert service.retry_pending_notifications(identity.run_id) == 0
+    assert len(sink.events) == 2
+
+
+def test_invalid_notification_batch_is_rejected_before_connection(tmp_path, monkeypatch) -> None:
+    _, journal, _, _, _, _, _ = _fixture(tmp_path)
+
+    def unexpected_connect():
+        raise AssertionError("invalid batch must not open SQLite")
+
+    monkeypatch.setattr(journal, "_connect", unexpected_connect)
+    with pytest.raises(ValueError, match="batch_size"):
+        journal.iter_pending_notifications(run_id="run-1", batch_size=0)
+
+
+@pytest.mark.parametrize(
+    "method_name",
+    ("iter_manifest", "iter_operations", "iter_events", "iter_verified_receipts"),
+)
+def test_invalid_transaction_batch_is_rejected_before_query(method_name) -> None:
+    class _QueryTrap:
+        def execute(self, *args, **kwargs):
+            del args, kwargs
+            raise AssertionError("invalid batch must not query SQLite")
+
+    transaction = SQLiteOperationJournalTransaction(_QueryTrap())
+    iterator = getattr(transaction, method_name)(run_id="run-1", batch_size=0)
+    with pytest.raises(ValueError, match="batch_size"):
+        next(iterator)
+
+
+class _ConnectionProbe:
+    def __init__(self, connection) -> None:
+        self._connection = connection
+        self.closed = False
+
+    def close(self) -> None:
+        self.closed = True
+        self._connection.close()
+
+    def __getattr__(self, name):
+        return getattr(self._connection, name)
+
+
+def test_connect_closes_handle_when_file_security_check_fails(tmp_path, monkeypatch) -> None:
+    _, journal, _, _, _, _, _ = _fixture(tmp_path)
+    probe = _ConnectionProbe(journal._open_connection())
+    monkeypatch.setattr(journal, "_open_connection", lambda: probe)
+
+    def fail_security() -> None:
+        raise OperationJournalError("injected_file_security_failure")
+
+    monkeypatch.setattr(journal, "_secure_files", fail_security)
+    with pytest.raises(OperationJournalError, match="injected_file_security_failure"):
+        journal._connect()
+    assert probe.closed
+
+
+@pytest.mark.parametrize("flow", ("write", "notifications", "initialize"))
+def test_connection_is_closed_before_post_operation_security_check(
+    tmp_path, monkeypatch, flow
+) -> None:
+    _, journal, _, _, _, _, _ = _fixture(tmp_path)
+    probe = _ConnectionProbe(journal._open_connection())
+    if flow == "initialize":
+        monkeypatch.setattr(journal, "_open_connection", lambda: probe)
+    else:
+        monkeypatch.setattr(journal, "_connect", lambda: probe)
+
+    def assert_closed_then_fail() -> None:
+        assert probe.closed
+        raise OperationJournalError("injected_post_close_security_failure")
+
+    monkeypatch.setattr(journal, "_secure_files", assert_closed_then_fail)
+    with pytest.raises(OperationJournalError, match="injected_post_close_security_failure"):
+        if flow == "write":
+            with journal.write_transaction():
+                pass
+        elif flow == "notifications":
+            journal.iter_pending_notifications(run_id="run-1")
+        else:
+            journal._initialize_schema()
+
+
+@pytest.mark.parametrize(
+    "column",
+    (
+        "request_commitment_sha256",
+        "receipt_id",
+        "result_commitment_sha256",
+        "verifier_key_id",
+        "verification_commitment_sha256",
+    ),
+)
+def test_committed_state_with_null_receipt_column_fails_closed(tmp_path, column) -> None:
+    service, journal, identity, manifest, operations, _, _ = _fixture(tmp_path)
+    service.initialize(identity, manifest)
+    service.prepare_dispatch(operations[0], _A)
+    service.commit(operations[0], _receipt(operations[0], _A, "receipt-1"))
+    connection = sqlite3.connect(journal.database_path)
+    connection.execute(
+        f"UPDATE operation_states SET {column} = NULL WHERE run_id = ?",
+        (identity.run_id,),
+    )
+    connection.commit()
+    connection.close()
+
+    with pytest.raises(OperationJournalError, match="state_row_tampered"):
+        service.snapshot(identity.run_id)

@@ -49,10 +49,10 @@ def test_full_replay_is_confined_to_safe_control_plane_methods() -> None:
     tree = ast.parse((JOURNAL / "service.py").read_text())
     callers = {
         method.name
-        for node in tree.body
+        for node in ast.walk(tree)
         if isinstance(node, ast.ClassDef)
         for method in node.body
-        if isinstance(method, ast.FunctionDef)
+        if isinstance(method, (ast.FunctionDef, ast.AsyncFunctionDef))
         for child in ast.walk(method)
         if isinstance(child, ast.Attribute) and child.attr == "_verify_replay"
     }
@@ -65,6 +65,23 @@ def _imports(path: Path) -> set[str]:
     for node in ast.walk(tree):
         if isinstance(node, ast.Import):
             imported.update(alias.name for alias in node.names)
-        elif isinstance(node, ast.ImportFrom) and node.module:
-            imported.add(node.module)
+        elif isinstance(node, ast.ImportFrom):
+            prefix = "." * node.level
+            if node.module:
+                imported.add(f"{prefix}{node.module}")
+            else:
+                imported.update(f"{prefix}{alias.name}" for alias in node.names)
     return imported
+
+
+def test_relative_import_normalizer_preserves_levels_and_moduleless_aliases(
+    tmp_path: Path,
+) -> None:
+    module = tmp_path / "facade.py"
+    module.write_text(
+        "from . import sqlite as backend\n"
+        "from .. import adapters\n"
+        "from .domain import OperationEvent\n"
+    )
+
+    assert _imports(module) == {".sqlite", "..adapters", ".domain"}

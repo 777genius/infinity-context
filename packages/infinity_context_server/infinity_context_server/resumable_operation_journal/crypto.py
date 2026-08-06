@@ -29,7 +29,11 @@ class HmacSha256OperationJournalSigner:
         return hmac.new(self._secret, message, hashlib.sha256).hexdigest()
 
     def verify(self, message: bytes, signature: str) -> bool:
-        return hmac.compare_digest(self.sign(message), signature)
+        try:
+            signature_bytes = signature.encode("ascii")
+        except (AttributeError, UnicodeEncodeError):
+            return False
+        return hmac.compare_digest(self.sign(message).encode("ascii"), signature_bytes)
 
 
 __all__ = ("HmacSha256OperationJournalSigner",)

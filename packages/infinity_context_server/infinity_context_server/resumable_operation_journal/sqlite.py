@@ -234,6 +234,7 @@ class SQLiteOperationJournalTransaction:
     def iter_manifest(
         self, *, run_id: str, batch_size: int = 256
     ) -> Iterator[LogicalOperationIdentity]:
+        _validate_batch_size(batch_size)
         cursor = self._connection.execute(
             "SELECT * FROM operation_manifest WHERE run_id = ? ORDER BY ordinal", (run_id,)
         )
@@ -323,6 +324,7 @@ class SQLiteOperationJournalTransaction:
             raise OperationJournalError("operation_journal_notification_missing")
 
     def iter_operations(self, *, run_id: str, batch_size: int = 256) -> Iterator[OperationState]:
+        _validate_batch_size(batch_size)
         cursor = self._connection.execute(
             """
             SELECT m.*, s.phase, s.request_commitment_sha256, s.receipt_id,
@@ -337,6 +339,7 @@ class SQLiteOperationJournalTransaction:
         yield from _batched(cursor, _state_from_row, batch_size)
 
     def iter_events(self, *, run_id: str, batch_size: int = 256) -> Iterator[OperationEvent]:
+        _validate_batch_size(batch_size)
         cursor = self._connection.execute(
             "SELECT * FROM operation_events WHERE run_id = ? ORDER BY sequence", (run_id,)
         )
@@ -345,6 +348,7 @@ class SQLiteOperationJournalTransaction:
     def iter_verified_receipts(
         self, *, run_id: str, batch_size: int = 256
     ) -> Iterator[VerifiedOperationReceipt]:
+        _validate_batch_size(batch_size)
         cursor = self._connection.execute(
             """
             SELECT m.*, r.receipt_identity_json, r.receipt_commitment_sha256,
@@ -417,12 +421,15 @@ class SQLiteOperationJournal:
         else:
             connection.commit()
         finally:
-            self._secure_files()
-            connection.close()
+            try:
+                connection.close()
+            finally:
+                self._secure_files()
 
     def iter_pending_notifications(
         self, *, run_id: str, batch_size: int = 64
     ) -> Iterator[OperationEvent]:
+        _validate_batch_size(batch_size)
         connection = self._connect()
         try:
             cursor = connection.execute(
@@ -433,13 +440,15 @@ class SQLiteOperationJournal:
                 """,
                 (run_id,),
             )
-            if not 1 <= batch_size <= 4096 or isinstance(batch_size, bool):
-                raise ValueError("batch_size must be from 1 to 4096")
-            events = tuple(_event_from_row(row) for row in cursor.fetchmany(batch_size))
-            cursor.close()
+            try:
+                events = tuple(_event_from_row(row) for row in cursor.fetchmany(batch_size))
+            finally:
+                cursor.close()
         finally:
-            self._secure_files()
-            connection.close()
+            try:
+                connection.close()
+            finally:
+                self._secure_files()
         return iter(events)
 
     def _initialize_schema(self) -> None:
@@ -465,8 +474,10 @@ class SQLiteOperationJournal:
         else:
             connection.commit()
         finally:
-            self._secure_files()
-            connection.close()
+            try:
+                connection.close()
+            finally:
+                self._secure_files()
 
     @staticmethod
     def _validate_schema(connection: sqlite3.Connection, tables: set[str]) -> None:
@@ -488,10 +499,10 @@ class SQLiteOperationJournal:
             connection.execute("PRAGMA synchronous = FULL")
             connection.execute("PRAGMA foreign_keys = ON")
             connection.execute(f"PRAGMA busy_timeout = {self._busy_timeout_ms}")
+            self._secure_files()
         except BaseException:
             connection.close()
             raise
-        self._secure_files()
         return connection
 
     def _open_connection(self) -> sqlite3.Connection:
@@ -551,11 +562,15 @@ class SQLiteOperationJournal:
 
 
 def _batched(cursor: sqlite3.Cursor, factory: object, batch_size: int) -> Iterator[object]:
-    if not 1 <= batch_size <= 4096 or isinstance(batch_size, bool):
-        raise ValueError("batch_size must be from 1 to 4096")
+    _validate_batch_size(batch_size)
     while rows := cursor.fetchmany(batch_size):
         for row in rows:
             yield factory(row)  # type: ignore[operator]
+
+
+def _validate_batch_size(batch_size: int) -> None:
+    if not 1 <= batch_size <= 4096 or isinstance(batch_size, bool):
+        raise ValueError("batch_size must be from 1 to 4096")
 
 
 def _identity_from_row(row: sqlite3.Row) -> LogicalOperationIdentity:
@@ -579,6 +594,17 @@ def _state_from_row(row: sqlite3.Row) -> OperationState:
     phase = OperationPhase(str(row["phase"]))
     receipt = None
     if phase is OperationPhase.COMMITTED:
+        if any(
+            row[column] is None
+            for column in (
+                "request_commitment_sha256",
+                "receipt_id",
+                "result_commitment_sha256",
+                "verifier_key_id",
+                "verification_commitment_sha256",
+            )
+        ):
+            raise OperationJournalError("operation_journal_state_row_tampered")
         receipt = OperationReceipt(
             run_id=identity.run_id,
             logical_operation_id=identity.logical_operation_id,

@@ -253,54 +253,55 @@ class ResumableOperationJournalService:
             run = self._require_run(transaction, run_id)
             self._verify_replay(transaction, run)
             if run.phase is OperationRunPhase.SEALED:
-                return OperationResumeResult(run=run, replayable_count=0, outcome_unknown_count=0)
-            updated = run
-            replayable_count = 0
-            for current in transaction.iter_operations(run_id=run_id):
-                if current.phase is not OperationPhase.DISPATCHED:
-                    continue
-                if current.identity.retry_disposition is RetryDisposition.IDEMPOTENT_REPLAY:
-                    replacement = OperationState(
-                        identity=current.identity,
-                        request_commitment_sha256=current.request_commitment_sha256,
+                result = OperationResumeResult(run=run, replayable_count=0, outcome_unknown_count=0)
+            else:
+                updated = run
+                replayable_count = 0
+                for current in transaction.iter_operations(run_id=run_id):
+                    if current.phase is not OperationPhase.DISPATCHED:
+                        continue
+                    if current.identity.retry_disposition is RetryDisposition.IDEMPOTENT_REPLAY:
+                        replacement = OperationState(
+                            identity=current.identity,
+                            request_commitment_sha256=current.request_commitment_sha256,
+                        )
+                        event_type = "operation_replay_scheduled"
+                        replayable_count += 1
+                    else:
+                        replacement = OperationState(
+                            identity=current.identity,
+                            phase=OperationPhase.OUTCOME_UNKNOWN,
+                            request_commitment_sha256=current.request_commitment_sha256,
+                        )
+                        event_type = "operation_outcome_unknown"
+                    transaction.put_operation(replacement)
+                    updated = self._append_event(
+                        transaction,
+                        updated,
+                        event_type=event_type,
+                        logical_operation_id=current.identity.logical_operation_id,
+                        payload={
+                            "ordinal": current.identity.ordinal,
+                            "reason": "restart_without_verified_receipt",
+                        },
+                        notify=False,
                     )
-                    event_type = "operation_replay_scheduled"
-                    replayable_count += 1
-                else:
-                    replacement = OperationState(
-                        identity=current.identity,
-                        phase=OperationPhase.OUTCOME_UNKNOWN,
-                        request_commitment_sha256=current.request_commitment_sha256,
+                counts = transaction.phase_counts(run_id=run_id)
+                unknown_count = counts.get(OperationPhase.OUTCOME_UNKNOWN.value, 0)
+                if unknown_count and updated.phase is not OperationRunPhase.RECONCILIATION_REQUIRED:
+                    updated = self._append_event(
+                        transaction,
+                        replace(updated, phase=OperationRunPhase.RECONCILIATION_REQUIRED),
+                        event_type="reconciliation_required",
+                        logical_operation_id=None,
+                        payload={"outcome_unknown_count": unknown_count},
+                        notify=True,
                     )
-                    event_type = "operation_outcome_unknown"
-                transaction.put_operation(replacement)
-                updated = self._append_event(
-                    transaction,
-                    updated,
-                    event_type=event_type,
-                    logical_operation_id=current.identity.logical_operation_id,
-                    payload={
-                        "ordinal": current.identity.ordinal,
-                        "reason": "restart_without_verified_receipt",
-                    },
-                    notify=False,
+                result = OperationResumeResult(
+                    run=updated,
+                    replayable_count=replayable_count,
+                    outcome_unknown_count=unknown_count,
                 )
-            counts = transaction.phase_counts(run_id=run_id)
-            unknown_count = counts.get(OperationPhase.OUTCOME_UNKNOWN.value, 0)
-            if unknown_count and updated.phase is not OperationRunPhase.RECONCILIATION_REQUIRED:
-                updated = self._append_event(
-                    transaction,
-                    replace(updated, phase=OperationRunPhase.RECONCILIATION_REQUIRED),
-                    event_type="reconciliation_required",
-                    logical_operation_id=None,
-                    payload={"outcome_unknown_count": unknown_count},
-                    notify=True,
-                )
-            result = OperationResumeResult(
-                run=updated,
-                replayable_count=replayable_count,
-                outcome_unknown_count=unknown_count,
-            )
         self.retry_pending_notifications(run_id)
         return result
 
