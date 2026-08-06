@@ -51,7 +51,7 @@ def _cleanup_payload(request: Mem0V5CleanupRequest) -> dict[str, object]:
 def _client(payload: dict[str, object]) -> Mem0V5HttpPort:
     return Mem0V5HttpPort(
         origin="http://127.0.0.1:8888",
-        bearer_token="fixture-bearer-token",
+        bearer_token="fixture-bearer-token-at-least-32-bytes",
         timeout_seconds=1,
         transport=_Transport(payload),
     )
@@ -63,6 +63,31 @@ def test_cleanup_request_binds_operation_root_for_sealed_delete() -> None:
     assert _client(_cleanup_payload(request)).cleanup(request).operation_root_sha256 == _digest(
         "operations"
     )
+
+
+@pytest.mark.parametrize(
+    ("length", "accepted"), [(31, False), (32, True), (4096, True), (4097, False)]
+)
+def test_bearer_token_exact_byte_boundaries_are_sanitized(length: int, accepted: bool) -> None:
+    token = "x" * length
+    if accepted:
+        Mem0V5HttpPort(
+            origin="http://127.0.0.1:8888",
+            bearer_token=token,
+            timeout_seconds=1,
+            transport=_Transport({}),
+        )
+        return
+    with pytest.raises(Mem0V5HttpError) as caught:
+        Mem0V5HttpPort(
+            origin="http://127.0.0.1:8888",
+            bearer_token=token,
+            timeout_seconds=1,
+            transport=_Transport({}),
+        )
+    assert caught.value.code == "mem0_v5_http_configuration_invalid"
+    assert str(caught.value) == "mem0_v5_http_configuration_invalid"
+    assert token not in str(caught.value)
 
 
 @pytest.mark.parametrize("field", ["operation_root_sha256", "deleted_operation_count"])

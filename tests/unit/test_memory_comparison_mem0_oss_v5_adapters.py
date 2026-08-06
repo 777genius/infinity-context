@@ -398,7 +398,7 @@ class _Transport:
 def _http(transport: _Transport) -> Mem0V5HttpPort:
     return Mem0V5HttpPort(
         origin="http://127.0.0.1:8888",
-        bearer_token="private-bearer-value",
+        bearer_token="private-bearer-value-at-least-32-bytes",
         timeout_seconds=3,
         transport=transport,
     )
@@ -467,7 +467,7 @@ def test_http_adapter_rejects_nonexact_loopback_origin(origin: str) -> None:
     with pytest.raises(Mem0V5HttpError, match="mem0_v5_http_configuration_invalid"):
         Mem0V5HttpPort(
             origin=origin,
-            bearer_token="private-bearer-value",
+            bearer_token="private-bearer-value-at-least-32-bytes",
             timeout_seconds=1,
             transport=_Transport(_Response(200, b"{}")),
         )

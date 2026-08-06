@@ -251,7 +251,7 @@ class Mem0V5HttpPort:
         self._origin = _loopback_origin(origin)
         if (
             type(bearer_token) is not str
-            or not 16 <= len(bearer_token.encode()) <= 4_096
+            or not 32 <= len(bearer_token.encode()) <= 4_096
             or type(timeout_seconds) not in (int, float)
             or isinstance(timeout_seconds, bool)
             or not 0.01 <= float(timeout_seconds) <= 120.0
