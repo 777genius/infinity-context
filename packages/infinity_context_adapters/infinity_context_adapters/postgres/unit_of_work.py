@@ -738,18 +738,19 @@ class PostgresUnitOfWork:
     ) -> None:
         if self._session is None:
             return
-        writer_fence_error = (
-            exc
-            if isinstance(exc, IntegrityError) and _is_benchmark_writer_fence_error(exc)
-            else None
-        )
+        integrity_error = exc if isinstance(exc, IntegrityError) else None
         if exc_type is not None or not self._committed:
             await self._session.rollback()
         await self._session.close()
         self._session = None
         self._committed = False
-        if writer_fence_error is not None:
-            raise MemoryConflictError(_BENCHMARK_WRITER_FENCE_MESSAGE) from writer_fence_error
+        if integrity_error is not None:
+            message = (
+                _BENCHMARK_WRITER_FENCE_MESSAGE
+                if _is_benchmark_writer_fence_error(integrity_error)
+                else "Canonical write conflicted with existing data"
+            )
+            raise MemoryConflictError(message) from integrity_error
 
     async def commit(self) -> None:
         if self._session is None:

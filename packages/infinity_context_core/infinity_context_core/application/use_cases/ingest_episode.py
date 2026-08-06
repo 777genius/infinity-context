@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from datetime import UTC, datetime
 from hashlib import sha256
 
@@ -33,10 +34,41 @@ from infinity_context_core.domain.idempotency import IdempotencyRecord
 from infinity_context_core.ports.auto_memory import MemoryClassifierPort, SourceProvenance
 from infinity_context_core.ports.clock import ClockPort
 from infinity_context_core.ports.ids import IdGeneratorPort
-from infinity_context_core.ports.unit_of_work import UnitOfWorkFactoryPort
+from infinity_context_core.ports.unit_of_work import (
+    UnitOfWorkFactoryPort,
+    UnitOfWorkPort,
+)
 
 
 def episode_fingerprint(command: IngestEpisodeCommand) -> str:
+    payload = {
+        "fingerprint_version": 1,
+        "kind_hint": command.kind_hint.value if command.kind_hint else None,
+        "language": command.language or "",
+        "memory_scope_id": str(command.memory_scope_id),
+        "metadata": command.metadata or {},
+        "occurred_at": _canonical_datetime(command.occurred_at),
+        "source_external_id": command.source_external_id,
+        "source_type": command.source_type,
+        "space_id": str(command.space_id),
+        "speaker": command.speaker.value,
+        "text": command.text,
+        "thread_id": str(command.thread_id),
+        "trust_level": command.trust_level.value,
+    }
+    canonical = json.dumps(
+        payload,
+        allow_nan=False,
+        ensure_ascii=False,
+        separators=(",", ":"),
+        sort_keys=True,
+    )
+
+    return sha256(canonical.encode("utf-8")).hexdigest()
+
+
+def legacy_episode_fingerprint(command: IngestEpisodeCommand) -> str:
+    """Reproduce the unversioned digest persisted before canonical fingerprints."""
     raw = (
         f"{command.space_id}:{command.memory_scope_id}:{command.thread_id}:"
         f"{command.source_type}:{command.source_external_id}:{command.text}:"
@@ -81,15 +113,25 @@ class IngestEpisodeUseCase:
         self._auto_suggestions_enabled = auto_suggestions_enabled
 
     async def execute(self, command: IngestEpisodeCommand) -> IngestEpisodeResult:
-        durability = durability_for_episode(command)
-        if durability != "durable":
-            return IngestEpisodeResult(
-                episode=None,
-                stored_chunks=0,
-                duplicate_chunks=0,
-                durability=durability,
+        try:
+            return await self._execute_once(command)
+        except MemoryConflictError as exc:
+            raw_key = command.idempotency_key or command.source_external_id
+            key = scoped_idempotency_key(
+                "ingest_episode",
+                command.memory_scope_id,
+                command.thread_id,
+                raw_key,
+            )
+            return await self._recover_write_conflict(
+                command=command,
+                key=key,
+                fingerprint=episode_fingerprint(command),
+                conflict=exc,
             )
 
+    async def _execute_once(self, command: IngestEpisodeCommand) -> IngestEpisodeResult:
+        durability = durability_for_episode(command)
         fingerprint = episode_fingerprint(command)
         raw_key = command.idempotency_key or command.source_external_id
         key = scoped_idempotency_key(
@@ -101,12 +143,18 @@ class IngestEpisodeUseCase:
         async with self._uow_factory() as uow:
             existing = await uow.idempotency.find(space_id=str(command.space_id), key=key)
             if existing:
-                if existing.fingerprint != fingerprint:
-                    raise MemoryConflictError("Idempotency key was used with different episode")
+                return await self._replay_result(
+                    uow=uow,
+                    record=existing,
+                    command=command,
+                    fingerprint=fingerprint,
+                    durability=durability,
+                )
+            if durability != "durable":
                 return IngestEpisodeResult(
                     episode=None,
                     stored_chunks=0,
-                    duplicate_chunks=1,
+                    duplicate_chunks=0,
                     durability=durability,
                 )
 
@@ -231,6 +279,99 @@ class IngestEpisodeUseCase:
             created_suggestions=len(suggestion_ids),
             suggestion_ids=tuple(suggestion_ids),
         )
+
+    async def _recover_write_conflict(
+        self,
+        *,
+        command: IngestEpisodeCommand,
+        key: str,
+        fingerprint: str,
+        conflict: MemoryConflictError,
+    ) -> IngestEpisodeResult:
+        async with self._uow_factory() as recovery_uow:
+            existing = await recovery_uow.idempotency.find(
+                space_id=str(command.space_id),
+                key=key,
+            )
+            if existing is None:
+                raise conflict
+            try:
+                return await self._replay_result(
+                    uow=recovery_uow,
+                    record=existing,
+                    command=command,
+                    fingerprint=fingerprint,
+                    durability=durability_for_episode(command),
+                )
+            except (MemoryConflictError, MemoryInvariantError) as exc:
+                raise exc from conflict
+
+    @staticmethod
+    async def _replay_result(
+        *,
+        uow: UnitOfWorkPort,
+        record: IdempotencyRecord,
+        command: IngestEpisodeCommand,
+        fingerprint: str,
+        durability: str,
+    ) -> IngestEpisodeResult:
+        canonical_match = record.fingerprint == fingerprint
+        legacy_match = record.fingerprint == legacy_episode_fingerprint(command)
+        if not canonical_match and not legacy_match:
+            raise MemoryConflictError("Idempotency key was used with different episode")
+        if record.result_type != "episode":
+            raise MemoryInvariantError("Idempotency result has unexpected type for episode")
+        episode = await uow.episodes.get_by_id(record.result_id)
+        if episode is None:
+            raise MemoryInvariantError("Idempotency result points to missing episode")
+        if not _episode_identity_matches_command(episode, command):
+            raise MemoryInvariantError("Idempotency result points to unrelated episode")
+        if not _episode_semantics_match_command(episode, command):
+            if legacy_match:
+                raise MemoryConflictError("Legacy idempotency request differs from stored episode")
+            raise MemoryInvariantError("Idempotency result episode semantics are corrupted")
+        return IngestEpisodeResult(
+            episode=episode,
+            stored_chunks=0,
+            duplicate_chunks=1,
+            durability=durability,
+        )
+
+
+def _episode_identity_matches_command(
+    episode: MemoryEpisode,
+    command: IngestEpisodeCommand,
+) -> bool:
+    return (
+        episode.space_id == command.space_id
+        and episode.memory_scope_id == command.memory_scope_id
+        and episode.thread_id == command.thread_id
+        and episode.source_type == command.source_type.strip()
+        and episode.source_external_id == command.source_external_id.strip()
+    )
+
+
+def _episode_semantics_match_command(
+    episode: MemoryEpisode,
+    command: IngestEpisodeCommand,
+) -> bool:
+    historically_normalized_occurred_at = _safe_occurred_at(
+        command.occurred_at,
+        episode.created_at,
+    )
+    return (
+        episode.text == command.text.strip()
+        and episode.speaker == command.speaker
+        and episode.trust_level == _trust_for_source(command.source_type, command.trust_level)
+        and episode.metadata == (command.metadata or {})
+        and _as_utc(episode.occurred_at) == _as_utc(historically_normalized_occurred_at)
+    )
+
+
+def _canonical_datetime(value: object | None) -> str | None:
+    if not isinstance(value, datetime):
+        return None
+    return _as_utc(value).isoformat(timespec="microseconds").replace("+00:00", "Z")
 
 
 def _trust_for_source(source_type: str, default: TrustLevel) -> TrustLevel:

@@ -129,8 +129,8 @@ def test_uow_exit_replaces_exact_fence_error_after_rollback_and_close() -> None:
     asyncio.run(_assert_uow_exit_mapping())
 
 
-def test_uow_exit_does_not_replace_unrelated_integrity_error() -> None:
-    asyncio.run(_assert_uow_exit_preserves_unrelated_error())
+def test_uow_exit_translates_unrelated_integrity_error_after_rollback() -> None:
+    asyncio.run(_assert_uow_exit_translates_unrelated_error())
 
 
 @pytest.mark.parametrize(
@@ -262,16 +262,16 @@ async def _assert_uow_exit_mapping() -> None:
     assert session.close_count == 1
 
 
-async def _assert_uow_exit_preserves_unrelated_error() -> None:
+async def _assert_uow_exit_translates_unrelated_error() -> None:
     session = _FakeSession()
     uow = PostgresUnitOfWork(session_factory=lambda: session, clock=SystemClock())
     error = _integrity_error(sqlstate="23505", constraint="uq_existing_caller")
 
-    with pytest.raises(IntegrityError) as raised:
+    with pytest.raises(MemoryConflictError, match="Canonical write conflicted") as raised:
         async with uow:
             raise error
 
-    assert raised.value is error
+    assert raised.value.__cause__ is error
     assert session.rollback_count == 1
     assert session.close_count == 1
 
