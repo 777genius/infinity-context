@@ -8,7 +8,10 @@ each committed unit from the sealed read-only input manifest.
 ## Security boundary
 
 - binds only to numeric loopback on the host;
-- reads bearer tokens, HMAC keys, and runtime origin from private mounted files;
+- sends HTTP only to the dedicated immutable e904 transport origin
+  `http://127.0.0.1:8891`, read from `MEM0_V5_RUNTIME_TRANSPORT_ORIGIN_FILE`;
+- keeps the Phase C logical receipt route `http://127.0.0.1:8890/v1` unchanged and binds both
+  route and transport digests into admission evidence;
 - rejects unknown fields, type coercion, oversized bodies, redirects, and request hash mismatch;
 - performs exactly one provider attempt during dispatch and none during status;
 - stores only sanitized receipts and commitments;
@@ -26,3 +29,6 @@ explicitly gated operations and are not part of the focused unit-test command.
 The sealed input manifest file must be an absolute regular file with mode `0400`. Secret files
 must be absolute regular files with mode `0600` or stricter and contain exactly one trimmed value.
 The input directory is mounted read-only; the private state directory is the only writable bind.
+The host must run the dedicated receipt-v2-capable immutable e904 runtime on port `8891`. Port
+`8890` remains the canonical logical authority route and is never used as this adapter's HTTP
+transport endpoint.

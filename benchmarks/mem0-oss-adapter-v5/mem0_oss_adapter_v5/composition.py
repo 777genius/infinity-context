@@ -107,6 +107,7 @@ class V5AdapterService:
         runtime_binding_commitment_sha256: str,
         runtime_source_sha256: str,
         runtime_route_binding_sha256: str,
+        runtime_transport_origin_sha256: str,
     ) -> None:
         self._manifest = manifest
         self._state = state
@@ -126,6 +127,7 @@ class V5AdapterService:
             runtime_binding_commitment_sha256=_digest(runtime_binding_commitment_sha256),
             runtime_source_sha256=_digest(runtime_source_sha256),
             runtime_route_binding_sha256=_digest(runtime_route_binding_sha256),
+            runtime_transport_origin_sha256=_digest(runtime_transport_origin_sha256),
         )
         self._admission: str | None = None
         self._lock = threading.RLock()

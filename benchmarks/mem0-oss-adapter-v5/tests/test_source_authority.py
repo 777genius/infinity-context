@@ -72,6 +72,26 @@ def test_external_manifest_issues_immutable_verified_capability(tmp_path: Path) 
     assert result.source_commit_sha1 == "3" * 40
 
 
+def test_transport_reroute_changes_admission_runtime_binding(tmp_path: Path) -> None:
+    manifest, installed, phase = _authority(tmp_path)
+    authority = _verify(manifest, installed, phase)
+    common = {
+        "route_sha256": "1" * 64,
+        "runtime_binding_commitment_sha256": "2" * 64,
+        "runtime_source_sha256": "3" * 64,
+        "runtime_route_binding_sha256": "4" * 64,
+    }
+    first = authority.binding_commitment(
+        **common,
+        runtime_transport_origin_sha256="5" * 64,
+    )
+    rerouted = authority.binding_commitment(
+        **common,
+        runtime_transport_origin_sha256="6" * 64,
+    )
+    assert first != rerouted
+
+
 def test_verified_capability_rejects_public_construction() -> None:
     with pytest.raises(TypeError, match="verified issuance"):
         VerifiedSourceAuthority(

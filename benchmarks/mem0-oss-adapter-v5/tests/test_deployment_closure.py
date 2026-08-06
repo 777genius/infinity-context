@@ -138,6 +138,10 @@ def test_hosted_compose_has_no_secret_values_or_external_listener() -> None:
     assert environment["MEM0_V5_SOURCE_AUTHORITY_MANIFEST_SHA256_FILE"].endswith(
         "/source-authority-pin/manifest.sha256"
     )
+    assert environment["MEM0_V5_RUNTIME_TRANSPORT_ORIGIN_FILE"] == (
+        "/run/secrets/runtime-transport-origin"
+    )
+    assert "MEM0_V5_RUNTIME_ORIGIN_FILE" not in environment
     build_pin_source = compose["secrets"]["source-authority-manifest-sha256"]["file"]
     runtime_pin = next(
         volume

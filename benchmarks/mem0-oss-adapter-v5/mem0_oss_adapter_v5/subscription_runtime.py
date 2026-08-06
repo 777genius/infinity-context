@@ -32,8 +32,11 @@ from .extraction_contract import (
     snapshot_authentic_extraction_request,
 )
 
-SUBSCRIPTION_RUNTIME_ORIGIN = "http://127.0.0.1:8890"
-SUBSCRIPTION_RUNTIME_ENDPOINT = f"{SUBSCRIPTION_RUNTIME_ORIGIN}/v1/chat/completions"
+SUBSCRIPTION_RUNTIME_TRANSPORT_ORIGIN = "http://127.0.0.1:8891"
+SUBSCRIPTION_RUNTIME_TRANSPORT_ORIGIN_SHA256 = hashlib.sha256(
+    SUBSCRIPTION_RUNTIME_TRANSPORT_ORIGIN.encode("utf-8")
+).hexdigest()
+SUBSCRIPTION_RUNTIME_ENDPOINT = f"{SUBSCRIPTION_RUNTIME_TRANSPORT_ORIGIN}/v1/chat/completions"
 SUBSCRIPTION_RUNTIME_ROUTE_BINDING = "http://127.0.0.1:8890/v1"
 SUBSCRIPTION_RUNTIME_ROUTE_SHA256 = hashlib.sha256(
     SUBSCRIPTION_RUNTIME_ROUTE_BINDING.encode("utf-8")
@@ -190,7 +193,7 @@ class SubscriptionRuntimeClient:
     def __init__(
         self,
         *,
-        origin: str,
+        transport_origin: str,
         bearer_token: str,
         expected_account_binding_hmac_sha256: str,
         expected_base_instructions_sha256: str,
@@ -200,8 +203,8 @@ class SubscriptionRuntimeClient:
         timeout_seconds: float = 120.0,
         transport: httpx.BaseTransport | None = None,
     ) -> None:
-        if origin != SUBSCRIPTION_RUNTIME_ORIGIN:
-            raise AdapterContractError("mem0_v5_subscription_route_invalid")
+        if transport_origin != SUBSCRIPTION_RUNTIME_TRANSPORT_ORIGIN:
+            raise AdapterContractError("mem0_v5_subscription_transport_invalid")
         if (
             type(bearer_token) is not str
             or not bearer_token
@@ -248,7 +251,8 @@ class SubscriptionRuntimeClient:
 
     def __repr__(self) -> str:
         return (
-            f"{type(self).__name__}(origin={SUBSCRIPTION_RUNTIME_ORIGIN!r}, "
+            f"{type(self).__name__}(transport_origin="
+            f"{SUBSCRIPTION_RUNTIME_TRANSPORT_ORIGIN!r}, "
             f"credential_bound=True, timeout_seconds={self._timeout_seconds!r})"
         )
 
@@ -688,8 +692,10 @@ def _require_authority(value: object) -> EstablishedReceiptV2Authority:
 __all__ = [
     "MAX_RUNTIME_RESPONSE_BYTES",
     "SUBSCRIPTION_RUNTIME_ENDPOINT",
-    "SUBSCRIPTION_RUNTIME_ORIGIN",
+    "SUBSCRIPTION_RUNTIME_ROUTE_BINDING",
     "SUBSCRIPTION_RUNTIME_ROUTE_SHA256",
+    "SUBSCRIPTION_RUNTIME_TRANSPORT_ORIGIN",
+    "SUBSCRIPTION_RUNTIME_TRANSPORT_ORIGIN_SHA256",
     "EstablishedReceiptV2Authority",
     "SubscriptionRuntimeClient",
     "SubscriptionRuntimeError",

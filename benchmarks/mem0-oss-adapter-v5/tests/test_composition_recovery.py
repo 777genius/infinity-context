@@ -184,6 +184,7 @@ def _service(tmp_path, manifest, state, runtime, storage) -> V5AdapterService:
         runtime_binding_commitment_sha256=_sha("runtime-binding"),
         runtime_source_sha256=_sha("runtime-source"),
         runtime_route_binding_sha256=_sha("runtime-route"),
+        runtime_transport_origin_sha256=_sha("runtime-transport-origin"),
     )
 
 

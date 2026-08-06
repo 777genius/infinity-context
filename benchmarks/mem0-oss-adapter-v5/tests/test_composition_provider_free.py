@@ -21,7 +21,10 @@ from mem0_oss_adapter_v5.extraction_contract import build_extraction_request
 from mem0_oss_adapter_v5.http_models import AdmitRequest, DispatchRequest, StatusRequest
 from mem0_oss_adapter_v5.source_authority import _issue_verified_source_authority
 from mem0_oss_adapter_v5.state_sqlite import SqliteOperationState
-from mem0_oss_adapter_v5.subscription_runtime import SUBSCRIPTION_RUNTIME_ROUTE_SHA256
+from mem0_oss_adapter_v5.subscription_runtime import (
+    SUBSCRIPTION_RUNTIME_ROUTE_SHA256,
+    SUBSCRIPTION_RUNTIME_TRANSPORT_ORIGIN_SHA256,
+)
 
 
 def _sha(value: str) -> str:
@@ -111,6 +114,18 @@ def test_provider_free_dispatch_persists_once_and_status_only_reads_durable_resu
     manifest = SealedInputManifest(path)
     state = SqliteOperationState(tmp_path / "state.sqlite3", hmac_key=b"h" * 32)
     runtime = _Runtime()
+    source_authority = _issue_verified_source_authority(
+        source_commit_sha1="1" * 40,
+        source_tree_sha1="2" * 40,
+        manifest_sha256=_sha("source-manifest"),
+        closure_sha256=_sha("source-closure"),
+        phase_c_infinity_commit_sha1="3" * 40,
+        phase_c_infinity_tree_sha1="4" * 40,
+        phase_c_release_manifest_sha256=_sha("phase-release"),
+    )
+    runtime_binding = _sha("runtime-binding")
+    runtime_source = _sha("runtime-source")
+    runtime_route = _sha("runtime-route")
     service = V5AdapterService(
         manifest=manifest,
         state=state,
@@ -121,18 +136,11 @@ def test_provider_free_dispatch_persists_once_and_status_only_reads_durable_resu
         storage=_Storage(),
         receipt_directory=tmp_path / "receipts",
         result_hmac_key=b"r" * 32,
-        source_authority=_issue_verified_source_authority(
-            source_commit_sha1="1" * 40,
-            source_tree_sha1="2" * 40,
-            manifest_sha256=_sha("source-manifest"),
-            closure_sha256=_sha("source-closure"),
-            phase_c_infinity_commit_sha1="3" * 40,
-            phase_c_infinity_tree_sha1="4" * 40,
-            phase_c_release_manifest_sha256=_sha("phase-release"),
-        ),
-        runtime_binding_commitment_sha256=_sha("runtime-binding"),
-        runtime_source_sha256=_sha("runtime-source"),
-        runtime_route_binding_sha256=_sha("runtime-route"),
+        source_authority=source_authority,
+        runtime_binding_commitment_sha256=runtime_binding,
+        runtime_source_sha256=runtime_source,
+        runtime_route_binding_sha256=runtime_route,
+        runtime_transport_origin_sha256=SUBSCRIPTION_RUNTIME_TRANSPORT_ORIGIN_SHA256,
     )
     admission_sha = _sha("admission")
     admission = AdmitRequest(
@@ -142,7 +150,18 @@ def test_provider_free_dispatch_persists_once_and_status_only_reads_durable_resu
         expected_operation_count=1,
         route_sha256=SUBSCRIPTION_RUNTIME_ROUTE_SHA256,
     )
-    assert service.admit(admission, idempotency_key=_sha("admit")).accepted is True
+    admission_receipt = service.admit(admission, idempotency_key=_sha("admit"))
+    assert admission_receipt.accepted is True
+    assert (
+        admission_receipt.runtime_binding_commitment_sha256
+        == source_authority.binding_commitment(
+            route_sha256=SUBSCRIPTION_RUNTIME_ROUTE_SHA256,
+            runtime_binding_commitment_sha256=runtime_binding,
+            runtime_source_sha256=runtime_source,
+            runtime_route_binding_sha256=runtime_route,
+            runtime_transport_origin_sha256=SUBSCRIPTION_RUNTIME_TRANSPORT_ORIGIN_SHA256,
+        )
+    )
     extraction = build_extraction_request(
         source_messages=tuple(unit["source_messages"]),
         current_date="2026-08-06",

@@ -35,7 +35,10 @@ from mem0_oss_adapter_v5.extraction_contract import (  # noqa: E402
 from mem0_oss_adapter_v5.subscription_runtime import (  # noqa: E402
     MAX_RUNTIME_RESPONSE_BYTES,
     SUBSCRIPTION_RUNTIME_ENDPOINT,
-    SUBSCRIPTION_RUNTIME_ORIGIN,
+    SUBSCRIPTION_RUNTIME_ROUTE_BINDING,
+    SUBSCRIPTION_RUNTIME_ROUTE_SHA256,
+    SUBSCRIPTION_RUNTIME_TRANSPORT_ORIGIN,
+    SUBSCRIPTION_RUNTIME_TRANSPORT_ORIGIN_SHA256,
     EstablishedReceiptV2Authority,
     SubscriptionRuntimeClient,
     SubscriptionRuntimeError,
@@ -192,7 +195,7 @@ def _client(
     authority: EstablishedReceiptV2Authority | None = None,
 ) -> SubscriptionRuntimeClient:
     return SubscriptionRuntimeClient(
-        origin=SUBSCRIPTION_RUNTIME_ORIGIN,
+        transport_origin=SUBSCRIPTION_RUNTIME_TRANSPORT_ORIGIN,
         bearer_token=BEARER,
         expected_account_binding_hmac_sha256=ACCOUNT_BINDING,
         expected_base_instructions_sha256=BASE_INSTRUCTIONS,
@@ -235,20 +238,36 @@ def test_exact_request_returns_only_parsed_memories_and_sanitized_receipt() -> N
     assert result.outcome.redispatch_allowed is False
 
 
+def test_transport_and_logical_authority_route_are_distinct_and_exact() -> None:
+    assert SUBSCRIPTION_RUNTIME_TRANSPORT_ORIGIN == "http://127.0.0.1:8891"
+    assert SUBSCRIPTION_RUNTIME_ENDPOINT == "http://127.0.0.1:8891/v1/chat/completions"
+    assert SUBSCRIPTION_RUNTIME_ROUTE_BINDING == "http://127.0.0.1:8890/v1"
+    assert (
+        hashlib.sha256(SUBSCRIPTION_RUNTIME_TRANSPORT_ORIGIN.encode()).hexdigest()
+        == SUBSCRIPTION_RUNTIME_TRANSPORT_ORIGIN_SHA256
+    )
+    assert (
+        hashlib.sha256(SUBSCRIPTION_RUNTIME_ROUTE_BINDING.encode()).hexdigest()
+        == SUBSCRIPTION_RUNTIME_ROUTE_SHA256
+    )
+    assert SUBSCRIPTION_RUNTIME_TRANSPORT_ORIGIN_SHA256 != SUBSCRIPTION_RUNTIME_ROUTE_SHA256
+
+
 @pytest.mark.parametrize(
-    "origin",
+    "transport_origin",
     [
-        "http://localhost:8890",
-        "http://127.0.0.1:8891",
-        "https://127.0.0.1:8890",
-        "http://127.0.0.1:8890/path",
-        "http://user@127.0.0.1:8890",
+        "http://localhost:8891",
+        "http://127.0.0.1:8890",
+        "http://127.0.0.1:8892",
+        "https://127.0.0.1:8891",
+        "http://127.0.0.1:8891/path",
+        "http://user@127.0.0.1:8891",
     ],
 )
-def test_route_is_exact_not_merely_loopback(origin: str) -> None:
-    with pytest.raises(AdapterContractError, match="mem0_v5_subscription_route_invalid"):
+def test_transport_origin_is_exact_not_merely_loopback(transport_origin: str) -> None:
+    with pytest.raises(AdapterContractError, match="mem0_v5_subscription_transport_invalid"):
         SubscriptionRuntimeClient(
-            origin=origin,
+            transport_origin=transport_origin,
             bearer_token=BEARER,
             expected_account_binding_hmac_sha256=ACCOUNT_BINDING,
             expected_base_instructions_sha256=BASE_INSTRUCTIONS,

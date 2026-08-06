@@ -53,6 +53,7 @@ class VerifiedSourceAuthority:
         runtime_binding_commitment_sha256: str,
         runtime_source_sha256: str,
         runtime_route_binding_sha256: str,
+        runtime_transport_origin_sha256: str,
     ) -> str:
         return canonical_sha256(
             {
@@ -67,6 +68,7 @@ class VerifiedSourceAuthority:
                 "runtime_binding_commitment_sha256": runtime_binding_commitment_sha256,
                 "runtime_source_sha256": runtime_source_sha256,
                 "runtime_route_binding_sha256": runtime_route_binding_sha256,
+                "runtime_transport_origin_sha256": runtime_transport_origin_sha256,
             }
         )
 

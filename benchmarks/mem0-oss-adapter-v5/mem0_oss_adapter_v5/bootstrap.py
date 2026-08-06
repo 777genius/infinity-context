@@ -14,7 +14,11 @@ from .mem0_storage import Mem0StorageAdapter, PinnedMem0Backend
 from .sealed_manifest import SealedInputManifest
 from .source_authority import verify_source_authority
 from .state_sqlite import SqliteOperationState
-from .subscription_runtime import EstablishedReceiptV2Authority, SubscriptionRuntimeClient
+from .subscription_runtime import (
+    SUBSCRIPTION_RUNTIME_TRANSPORT_ORIGIN_SHA256,
+    EstablishedReceiptV2Authority,
+    SubscriptionRuntimeClient,
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -32,7 +36,7 @@ def build_app_from_environment():
     ingress = _read_secret_file("MEM0_V5_INGRESS_BEARER_FILE")
     runtime_bearer = _read_secret_file("MEM0_V5_RUNTIME_BEARER_FILE")
     receipt_secret = _read_secret_file("MEM0_V5_RECEIPT_SECRET_FILE")
-    origin = _read_secret_file("MEM0_V5_RUNTIME_ORIGIN_FILE")
+    transport_origin = _read_secret_file("MEM0_V5_RUNTIME_TRANSPORT_ORIGIN_FILE")
     account_binding = _read_secret_file("MEM0_V5_ACCOUNT_BINDING_HMAC_FILE")
     base_instructions = _read_secret_file("MEM0_V5_BASE_INSTRUCTIONS_SHA256_FILE")
     source_authority = verify_source_authority(
@@ -43,7 +47,7 @@ def build_app_from_environment():
     )
     receipt_bundle = _receipt_authority(receipt_secret)
     runtime = SubscriptionRuntimeClient(
-        origin=origin,
+        transport_origin=transport_origin,
         bearer_token=runtime_bearer,
         expected_account_binding_hmac_sha256=account_binding,
         expected_base_instructions_sha256=base_instructions,
@@ -65,6 +69,7 @@ def build_app_from_environment():
         runtime_binding_commitment_sha256=receipt_bundle.binding_commitment_sha256,
         runtime_source_sha256=receipt_bundle.runtime_source_sha256,
         runtime_route_binding_sha256=receipt_bundle.route_binding_sha256,
+        runtime_transport_origin_sha256=SUBSCRIPTION_RUNTIME_TRANSPORT_ORIGIN_SHA256,
     )
     return create_app(service=service, bearer_token=ingress)
 
