@@ -6,10 +6,11 @@ import pytest
 from scripts.clean_full_smoke import (
     PROJECT_ROOT,
     CleanSmokeFailure,
+    _compose,
     _emit_report,
-    _start_full_provider_stack,
     _write_report_out,
 )
+from scripts.clean_full_smoke_compose import FULL_PROVIDER_COMPOSE_ARGS
 
 
 def test_clean_full_smoke_starts_full_compose_profile(monkeypatch) -> None:
@@ -22,7 +23,7 @@ def test_clean_full_smoke_starts_full_compose_profile(monkeypatch) -> None:
     monkeypatch.setattr(subprocess, "run", run_spy)
     compose_env = {"PATH": "/test/bin"}
 
-    _start_full_provider_stack("clean-smoke-test", compose_env)
+    _compose("clean-smoke-test", compose_env, *FULL_PROVIDER_COMPOSE_ARGS)
 
     assert calls == [
         (
