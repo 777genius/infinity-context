@@ -49,7 +49,7 @@
   "packages/infinity_context_server/infinity_context_server/public_benchmark.py": 2532,
   "packages/infinity_context_server/infinity_context_server/web/assets/memory-browser.js": 3299,
   "packages/infinity_context_ts_sdk/tests/sdk.test.ts": 4448,
-  "scripts/clean_full_smoke.py": 2530,
+  "scripts/clean_full_smoke.py": 2522,
   "scripts/locomo_failure_analysis.py": 1360,
   "scripts/multimodal_docker_live_proof.py": 2196,
   "scripts/multimodal_live_provider_canary.py": 2854,
