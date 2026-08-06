@@ -129,6 +129,8 @@ canonical `CodeRepository`, and a local command writes a private trusted-binding
 remote URLs and credentials are never persisted. The initial CodeScope is registered atomically
 with repository enrollment; later branch/commit scopes require an explicit strict-admin call.
 Conflicting normalized-remote evidence requires review even when weaker local evidence matches.
+Existing dynamic repository-token installations must register their current repository, branch or
+commit scope before enabling this policy; static CodeScope-locked tokens remain valid unchanged.
 
 Agent capture, direct fact mutation and temporal governance use separate capabilities:
 `memory:capture`, `memory:fact_write` and `memory:govern`. Repository-scoped tokens do not inherit

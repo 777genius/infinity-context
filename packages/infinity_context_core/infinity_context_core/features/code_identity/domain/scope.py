@@ -56,8 +56,8 @@ class CodeScope:
             raise ValueError("repository_id cannot be blank")
         for field_name in ("branch", "pull_request_id", "package_name"):
             value = getattr(self, field_name)
-            if value is not None and not value.strip():
-                raise ValueError(f"{field_name} cannot be blank")
+            if value is not None:
+                _require_safe_text(field_name, value)
         if self.commit_sha is not None:
             normalized = self.commit_sha.casefold()
             if not 7 <= len(normalized) <= 64 or any(
@@ -121,6 +121,12 @@ class CodeScopeDescriptor:
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "scope_level", CodeScopeLevel(self.scope_level))
+        if self.scope_level not in {
+            CodeScopeLevel.REPOSITORY,
+            CodeScopeLevel.BRANCH,
+            CodeScopeLevel.COMMIT,
+        }:
+            raise ValueError("Enrollment CodeScope descriptor must be repository, branch or commit")
         self.resolve("descriptor-validation")
 
     def resolve(self, repository_id: str) -> CodeScope:
@@ -151,6 +157,13 @@ def _require_relative_path(field_name: str, value: str) -> None:
     normalized = value.replace("\\", "/")
     if normalized.startswith("/") or ".." in normalized.split("/"):
         raise ValueError(f"{field_name} must be repository-relative")
+
+
+def _require_safe_text(field_name: str, value: str) -> None:
+    if not value.strip():
+        raise ValueError(f"{field_name} cannot be blank")
+    if len(value) > 240 or any(character in value for character in ("\x00", "\n", "\r")):
+        raise ValueError(f"{field_name} is invalid")
 
 
 __all__ = (

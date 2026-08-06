@@ -13,6 +13,7 @@ from infinity_context_core.features.code_identity.public import (
     CodeRepositoryProvider,
     CodeRepositoryResolutionMethod,
     CodeScope,
+    CodeScopeDescriptor,
     CodeScopeLevel,
     CodeWorktreeState,
     RepositoryEvidenceKind,
@@ -158,6 +159,13 @@ def test_code_scope_rejects_absolute_or_parent_paths_and_tracks_dirty_state() ->
             scope_level=CodeScopeLevel.FILE,
             file_path_glob="../secret.py",
         )
+
+
+def test_enrollment_scope_descriptor_rejects_unsupported_or_unsafe_scope() -> None:
+    with pytest.raises(ValueError, match="repository, branch or commit"):
+        CodeScopeDescriptor(scope_level=CodeScopeLevel.FILE)
+    with pytest.raises(ValueError, match="branch is invalid"):
+        CodeScopeDescriptor(scope_level=CodeScopeLevel.BRANCH, branch="main\nforged")
 
 
 def _repository(
