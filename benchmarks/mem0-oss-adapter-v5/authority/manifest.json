@@ -1,0 +1,299 @@
+{
+  "closure_algorithm": "sha256(sorted(path + NUL + size + NUL + sha256 + LF))",
+  "closure_sha256": "747fc8fc554dac15685f1236cc021bcc296b4ba3f9472414860a0e140e92afd0",
+  "files": [
+    {
+      "path": "README.md",
+      "sha256": "e750baeb6d714ced63ab36ae7416f18e790988c0986e1ab5f210d8f7ad41bdc3",
+      "size": 2170
+    },
+    {
+      "path": "deploy/Dockerfile",
+      "sha256": "8f39c57cec92d63c97c9960854a4bfc84ad8ab7d809e5f97251ad92541581305",
+      "size": 3089
+    },
+    {
+      "path": "deploy/compose.hosted-canary.yaml",
+      "sha256": "2f07177913da74d3a0fe7a41f0a0428832470712faccb43cc6e07461c7ed57a9",
+      "size": 4776
+    },
+    {
+      "path": "mem0_oss_adapter/__init__.py",
+      "sha256": "e93201fbec739223b25a0f0bed49731784c86673c39742edee21d6371f1149a5",
+      "size": 293
+    },
+    {
+      "path": "mem0_oss_adapter/app.py",
+      "sha256": "df42140dc0c8b7cd5f8632b8b091088ff52b39026a0488f7cc8ca8c35dbfad50",
+      "size": 16081
+    },
+    {
+      "path": "mem0_oss_adapter/embedding.py",
+      "sha256": "302cd31eb9927b70596751110f0513fc7bc2cb84a8ffb959f9a22379e0af993b",
+      "size": 3849
+    },
+    {
+      "path": "mem0_oss_adapter/manifest.py",
+      "sha256": "0ba135d6352a98c0b4a3b6a74ab40be8951b0dd110e92fb3e38c66aa6c23167e",
+      "size": 9145
+    },
+    {
+      "path": "mem0_oss_adapter/models.py",
+      "sha256": "2e725e8b70b2718a7330ce2ccf38c718948f638f543ea7d677205530ad999a0f",
+      "size": 10497
+    },
+    {
+      "path": "mem0_oss_adapter/port.py",
+      "sha256": "ced46bb118f6580f79a4f473881a6350e29123fe203fa939287729d48482a42d",
+      "size": 2122
+    },
+    {
+      "path": "mem0_oss_adapter/residue.py",
+      "sha256": "28139b9108103f920f5307501a18af70a768963729c551bd70ffb7c47d8e37ae",
+      "size": 23626
+    },
+    {
+      "path": "mem0_oss_adapter/runtime_lock.py",
+      "sha256": "98cb3858b5aa115eaf8282faf0c1aa8b3a0b9a9d051f1ac0031a4861ce6e2fb6",
+      "size": 8019
+    },
+    {
+      "path": "mem0_oss_adapter/runtime_pin.py",
+      "sha256": "15a39632bdfb9f9ee16efcb37f634cde31798e298d30af12fc3ac654e2d403f7",
+      "size": 4670
+    },
+    {
+      "path": "mem0_oss_adapter/sdk_oss.py",
+      "sha256": "c9e20637664ab405553151b804b0b03df62ac900cf5733ae174c20751b71eac5",
+      "size": 19286
+    },
+    {
+      "path": "mem0_oss_adapter/service.py",
+      "sha256": "55e5813b479f4d628cf765ac4edbbc0a6b77aa5821034c505a19e578e0dc4995",
+      "size": 15915
+    },
+    {
+      "path": "mem0_oss_adapter/subscription_llm.py",
+      "sha256": "a0bfb5ef04b702b309522278a6af961f114f3adae10f057840429590e71f0ddd",
+      "size": 14676
+    },
+    {
+      "path": "mem0_oss_adapter/usage.py",
+      "sha256": "d77d9418eb8d509a6b87215351df503a1eed4512ebdceb19b75f7f754389f3ac",
+      "size": 4704
+    },
+    {
+      "path": "mem0_oss_adapter_v5/__init__.py",
+      "sha256": "631cd3d4ad64c074abfdfeff47686beae79a092716bef4b722c8ad01df31acc8",
+      "size": 120
+    },
+    {
+      "path": "mem0_oss_adapter_v5/admission_evidence.py",
+      "sha256": "18af8679f8b0c99a255114e16e7b025cf1468ea4369bc2dabfe0da8774e06829",
+      "size": 6933
+    },
+    {
+      "path": "mem0_oss_adapter_v5/app.py",
+      "sha256": "9fbb1450065bd4818a56ffc60442cf4d2e8d0ba307374f7b1fb4d419e367dccb",
+      "size": 9580
+    },
+    {
+      "path": "mem0_oss_adapter_v5/bootstrap.py",
+      "sha256": "3765717eb5e965603559779677ac033ca49de552f7f9aace2c5709a7a1309e0c",
+      "size": 6820
+    },
+    {
+      "path": "mem0_oss_adapter_v5/cleanup.py",
+      "sha256": "e3993e6fbae399f10089e9bdd26f8fe2a27575a65fae475117150643738bd69e",
+      "size": 12195
+    },
+    {
+      "path": "mem0_oss_adapter_v5/cleanup_evidence.py",
+      "sha256": "d16637ac8e2b255cd64e189149e6ceb6a498614fc2714c143689972ae9987f0b",
+      "size": 5608
+    },
+    {
+      "path": "mem0_oss_adapter_v5/composition.py",
+      "sha256": "3837def77a4cc2618fb353b616437a0383bb665f195b3ccf6eef8ef2c14f9545",
+      "size": 34947
+    },
+    {
+      "path": "mem0_oss_adapter_v5/domain.py",
+      "sha256": "a00312bbd86db15402404d361f4f60e1a9b53453678c766a41b725ec539eea23",
+      "size": 16432
+    },
+    {
+      "path": "mem0_oss_adapter_v5/extraction_contract.py",
+      "sha256": "6d53b369f05415bafccee4aefc17b5f356753050bd336fddc891393cf4ea2a98",
+      "size": 20995
+    },
+    {
+      "path": "mem0_oss_adapter_v5/http_models.py",
+      "sha256": "a749c98376f77135b4915bee3019eebc42cb220d7abd861c0698fa0fbe6ec21d",
+      "size": 5482
+    },
+    {
+      "path": "mem0_oss_adapter_v5/mem0_storage.py",
+      "sha256": "2103b1ab1faa540d5a8bf82aeecf8cbca41650a675308055b9e7abd1ce46fa09",
+      "size": 21367
+    },
+    {
+      "path": "mem0_oss_adapter_v5/private_io.py",
+      "sha256": "1d68f7724bad90702534e363ddff9bb7d62c73ec5fc8f36df7876faa094345f5",
+      "size": 2124
+    },
+    {
+      "path": "mem0_oss_adapter_v5/run_commitments.py",
+      "sha256": "0c5fc23213d31b6b71b63fcd9fd87de1eb6e7475b33f9667e9aa95cbd80b2a29",
+      "size": 3818
+    },
+    {
+      "path": "mem0_oss_adapter_v5/sealed_manifest.py",
+      "sha256": "621e0c8c92e5cb61e0909ec101b5e3d7638ad1aeb350b4f8589f2d086bf01333",
+      "size": 5493
+    },
+    {
+      "path": "mem0_oss_adapter_v5/source_authority.py",
+      "sha256": "0cebce0d617ca0928737bf0a80623365e55c9f84eb88eca884e01478ace0253e",
+      "size": 10505
+    },
+    {
+      "path": "mem0_oss_adapter_v5/state_sqlite.py",
+      "sha256": "1e771dee93f4e94a75007f85ab745ac0286c85c6048eee4869ed5bfa1b7953d2",
+      "size": 25863
+    },
+    {
+      "path": "mem0_oss_adapter_v5/subscription_runtime.py",
+      "sha256": "3a4d94a51366446e26e7834fdf4c1fcafbe21b7cefb2925ae7a7e17f56a74933",
+      "size": 27443
+    },
+    {
+      "path": "phase_c_canary/__init__.py",
+      "sha256": "efbde36910ac6e64f630ce91401b723ac966949ca380ba6b0275a3fb0a81e53b",
+      "size": 259
+    },
+    {
+      "path": "phase_c_canary/attestation.py",
+      "sha256": "dcf4b326a637f227a1fb52e8cd724009827d28021f17258d2d053c589578fcb3",
+      "size": 4977
+    },
+    {
+      "path": "phase_c_canary/authority.py",
+      "sha256": "2b86b4735e4abe23c3ee32c645de233ec097bac3ac3cd0df5298c3365d32c571",
+      "size": 2651
+    },
+    {
+      "path": "phase_c_canary/bundle.py",
+      "sha256": "27c2fc7075c5b2b8f48eadd2d9d3576c3d1592a2f3988baafb3e59ce7d391411",
+      "size": 3848
+    },
+    {
+      "path": "phase_c_canary/cli.py",
+      "sha256": "a1b880005a2f516c51871c6fe1ec337afbc601a9119cc42a273e68b9ac4de595",
+      "size": 1191
+    },
+    {
+      "path": "phase_c_canary/environment.py",
+      "sha256": "a5e67c287b4eaf3b2df680a6da3be35880413fc6458f2564805328322a8af8d8",
+      "size": 1750
+    },
+    {
+      "path": "phase_c_canary/hashing.py",
+      "sha256": "38c85ad1b21d65f038b902db9253b20200e4ce7a14a03a8d089df9ae63e696d4",
+      "size": 615
+    },
+    {
+      "path": "phase_c_canary/http_adapter.py",
+      "sha256": "1a9111db1d0c66a768142c64b1858c8eb07f26431d61f7182643504975a26b9e",
+      "size": 1333
+    },
+    {
+      "path": "phase_c_canary/journal.py",
+      "sha256": "8fb95eb0740caf2f86604ec6e6aaafd758ce982fded1d858f5465db7659ca281",
+      "size": 7725
+    },
+    {
+      "path": "phase_c_canary/orchestrator.py",
+      "sha256": "25fc601401b6347560c8d36d6ac0fcaef51c805e044fc6694918328bb206b27f",
+      "size": 5753
+    },
+    {
+      "path": "phase_c_canary/processes.py",
+      "sha256": "6d58dbdea7e7d6967efecfbc94097e2b15293b708be144c3fc88921074fe0746",
+      "size": 4392
+    },
+    {
+      "path": "phase_c_canary/publication.py",
+      "sha256": "2695381860eb9f3de105b4b550c4c2d77dbae89efbb2ff341b995893b3eae409",
+      "size": 4797
+    },
+    {
+      "path": "phase_c_canary/python_closure.py",
+      "sha256": "68ba328791479885c96951ed48003b11ac1172c0dfe687ed73f8a539c3455913",
+      "size": 9828
+    },
+    {
+      "path": "phase_c_canary/readiness.py",
+      "sha256": "7ac29fa558a7dde984275035cce804b9d0190086a51b308631ac2e312d04815c",
+      "size": 856
+    },
+    {
+      "path": "phase_c_canary/receipt.py",
+      "sha256": "bdaeb7f1323d9cd1c38a46954ee325063f301b7f58d5cf726744b90e4374dd6f",
+      "size": 8309
+    },
+    {
+      "path": "phase_c_canary/receipt_aggregation.py",
+      "sha256": "b5119397a008a9f48b66b51b2723b88087b72703d73fa40250e960136abb926c",
+      "size": 9679
+    },
+    {
+      "path": "phase_c_canary/runtime_binding.py",
+      "sha256": "62174e6d4b35095656fd6e39a01b5e3dd9f2b4573729f106f27c6704ca657797",
+      "size": 14766
+    },
+    {
+      "path": "phase_c_canary/runtime_receipt_v2.py",
+      "sha256": "86965013777d4f2e50699ffd7f5393ce09a70ec87f82afe2da8a034d329dca10",
+      "size": 17863
+    },
+    {
+      "path": "phase_c_canary/strict_schema.py",
+      "sha256": "d630a26047861bedeea7643eb3b3265260233a6414792cf79e6871b4fb26bceb",
+      "size": 3857
+    },
+    {
+      "path": "pyproject.toml",
+      "sha256": "ad40a803ba310785a5fcfa2be65e7e6fc558f3026d2f4846eda5a4406435abd2",
+      "size": 797
+    },
+    {
+      "path": "runtime-lock.json",
+      "sha256": "10f09fda792c410bd15f048e33d02b2d411447d042d57fd42b91cafd5617a511",
+      "size": 22972
+    },
+    {
+      "path": "runtime-pin.json",
+      "sha256": "ae90790753549d621ba4f521a2d64026b4d2de7286fd9e683ad195cf1c85c525",
+      "size": 1745
+    },
+    {
+      "path": "scripts/stage_fastembed_model.py",
+      "sha256": "33c6ca8762e84a4f68001bbc62396d56a581961e4372f778197951428121c257",
+      "size": 1082
+    },
+    {
+      "path": "uv.lock",
+      "sha256": "5f66b30e600cc547f3e50ce20e2e9b862712c1fc68aa553df12f2e2bc64a2011",
+      "size": 109590
+    }
+  ],
+  "phase_c_authority": {
+    "infinity_commit_sha1": "9499b9c2cf3842c4fe3bbe78a601b278cf00ba43",
+    "infinity_tree_sha1": "4c3bdda2d8af70f3e3f94cac0925d03d380875be",
+    "release_manifest_sha256": "10b73e189ab23867b3cf368dd0f961faa19aad7baa94e6c3df48471adf4abe93"
+  },
+  "schema_version": "mem0-oss-adapter-v5.source-authority.v1",
+  "source_commit_sha1": "bbf18c5e4eacdcd89df0225ee793ba03e7c3a063",
+  "source_tree_sha1": "27e9f84b2e3250eb034c03a8420e9c78f77819a5"
+}
