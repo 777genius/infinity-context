@@ -19,6 +19,7 @@ from infinity_context_core.application.normalize import (
     scoped_source_hash,
 )
 from infinity_context_core.domain.entities import (
+    LifecycleStatus,
     MemoryChunk,
     MemoryChunkId,
     MemoryChunkKind,
@@ -178,6 +179,7 @@ class IngestEpisodeUseCase:
 
             stored = 0
             duplicates = 0
+            written_chunk_ids: list[str] = []
             source_chunk_id: str | None = None
             for piece in chunk_text(command.text):
                 kind = command.kind_hint or _kind_for_source(command.source_type)
@@ -209,6 +211,7 @@ class IngestEpisodeUseCase:
                     metadata={"language": command.language or "", "source": command.source_type},
                 )
                 result = await uow.chunks.upsert(chunk)
+                written_chunk_ids.append(result.chunk_id)
                 if result.duplicate:
                     duplicates += 1
                 else:
@@ -222,6 +225,15 @@ class IngestEpisodeUseCase:
                             payload={"chunk_id": result.chunk_id},
                         )
                     )
+
+            canonical_chunks = sorted(
+                await uow.chunks.list_for_episode(str(saved_episode.id)),
+                key=lambda item: (item.sequence, str(item.id)),
+            )
+            _validate_chunk_projection(command, saved_episode, canonical_chunks)
+            canonical_chunk_ids = tuple(str(chunk.id) for chunk in canonical_chunks)
+            if canonical_chunk_ids != tuple(written_chunk_ids):
+                raise MemoryInvariantError("Episode ingest chunk identities are divergent")
 
             suggestion_ids: list[str] = []
             if self._auto_suggestions_enabled and source_chunk_id is not None:
@@ -278,6 +290,7 @@ class IngestEpisodeUseCase:
             durability=durability,
             created_suggestions=len(suggestion_ids),
             suggestion_ids=tuple(suggestion_ids),
+            chunk_ids=canonical_chunk_ids,
         )
 
     async def _recover_write_conflict(
@@ -330,11 +343,17 @@ class IngestEpisodeUseCase:
             if legacy_match:
                 raise MemoryConflictError("Legacy idempotency request differs from stored episode")
             raise MemoryInvariantError("Idempotency result episode semantics are corrupted")
+        chunks = sorted(
+            await uow.chunks.list_for_episode(str(episode.id)),
+            key=lambda item: (item.sequence, str(item.id)),
+        )
+        _validate_chunk_projection(command, episode, chunks)
         return IngestEpisodeResult(
             episode=episode,
             stored_chunks=0,
-            duplicate_chunks=1,
+            duplicate_chunks=len(chunks),
             durability=durability,
+            chunk_ids=tuple(str(chunk.id) for chunk in chunks),
         )
 
 
@@ -366,6 +385,48 @@ def _episode_semantics_match_command(
         and episode.metadata == (command.metadata or {})
         and _as_utc(episode.occurred_at) == _as_utc(historically_normalized_occurred_at)
     )
+
+
+def _validate_chunk_projection(
+    command: IngestEpisodeCommand,
+    episode: MemoryEpisode,
+    chunks: list[MemoryChunk],
+) -> None:
+    pieces = chunk_text(command.text)
+    if not chunks or len(chunks) != len(pieces):
+        raise MemoryInvariantError("Episode chunk projection is incomplete")
+    expected_kind = command.kind_hint or _kind_for_source(command.source_type)
+    for chunk, piece in zip(chunks, pieces, strict=True):
+        if (
+            chunk.episode_id != episode.id
+            or chunk.document_id is not None
+            or chunk.status != LifecycleStatus.ACTIVE
+            or chunk.space_id != command.space_id
+            or chunk.memory_scope_id != command.memory_scope_id
+            or chunk.thread_id != command.thread_id
+            or chunk.source_type != command.source_type.strip()
+            or chunk.source_external_id != command.source_external_id.strip()
+            or chunk.kind != expected_kind
+            or chunk.text != piece.text
+            or chunk.normalized_text != normalize_text(piece.text)
+            or chunk.sequence != piece.sequence
+            or chunk.char_start != piece.char_start
+            or chunk.char_end != piece.char_end
+            or chunk.token_estimate != estimate_tokens(piece.text)
+            or chunk.metadata
+            != {"language": command.language or "", "source": command.source_type}
+            or chunk.classification != "unknown"
+            or chunk.source_hash
+            != scoped_source_hash(
+                command.space_id,
+                command.memory_scope_id,
+                command.thread_id,
+                command.source_external_id,
+                piece.sequence,
+                normalize_text(piece.text),
+            )
+        ):
+            raise MemoryInvariantError("Episode chunk projection is divergent")
 
 
 def _canonical_datetime(value: object | None) -> str | None:
