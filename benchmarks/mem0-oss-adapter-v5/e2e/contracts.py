@@ -254,6 +254,7 @@ class RunFixture:
         generated = {
             "ingress-bearer": secrets.token_hex(32),
             "state-hmac": secrets.token_hex(32),
+            "result-hmac": secrets.token_hex(32),
             "runtime-bearer": secrets.token_hex(32),
             "runtime-receipt-secret": secrets.token_hex(32),
             "runtime-transport-origin": TRANSPORT_ORIGIN,

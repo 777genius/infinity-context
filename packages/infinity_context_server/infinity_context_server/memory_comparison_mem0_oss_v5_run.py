@@ -3,8 +3,10 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import final
 
+from infinity_context_server.memory_comparison_mem0_oss_v5_cleanup import (
+    verify_cleanup_result,
+)
 from infinity_context_server.memory_comparison_mem0_oss_v5_contracts import (
     MEM0_OSS_EMPTY_ROOT_SHA256,
     MEM0_OSS_FULL_RUN_MAX_EVIDENCE_PAGE,
@@ -27,8 +29,24 @@ from infinity_context_server.memory_comparison_mem0_oss_v5_contracts import (
     StorageVerificationPort,
     StorageVerificationResult,
     canonical_sha256,
-    is_sha256,
     manifest_root_sha256,
+)
+from infinity_context_server.memory_comparison_mem0_oss_v5_evidence import (
+    Mem0OssEvidencePage,
+    Mem0OssFailedReceiptEvidence,
+    Mem0OssOperationEvidence,
+    Mem0OssRunSeal,
+    Mem0OssTerminalCleanupEvidence,
+    operation_root,
+    verify_mem0_oss_sealed_evidence_pages,
+)
+from infinity_context_server.memory_comparison_mem0_oss_v5_recovery import (
+    Mem0OssOperationRecoveryState,
+    operation_recovery_states,
+)
+from infinity_context_server.memory_comparison_mem0_oss_v5_terminal import (
+    Mem0OssTerminalBasis,
+    build_terminal_evidence,
 )
 
 _WITNESS_TOKEN = object()
@@ -104,295 +122,6 @@ class _CleanupWitness:
             or type(self.context) is not CleanupVerificationContext
         ):
             raise Mem0OssFullRunError("mem0_v5_cleanup_witness_invalid")
-
-
-@final
-@dataclass(frozen=True, slots=True)
-class Mem0OssOperationEvidence:
-    operation_id_sha256: str
-    unit_index: int
-    unit_identity_sha256: str
-    unit_sha256: str
-    scope_sha256: str
-    state: str
-    provider_receipt_sha256: str
-    disposition: str
-    extraction_calls: int
-    retry_count: int
-    request_tokens: int
-    response_tokens: int
-    stored_identity_sha256: str
-    stored_record_count: int
-    commitment_sha256: str
-
-    def __post_init__(self) -> None:
-        digests = (
-            self.operation_id_sha256,
-            self.unit_identity_sha256,
-            self.unit_sha256,
-            self.scope_sha256,
-            self.provider_receipt_sha256,
-            self.stored_identity_sha256,
-            self.commitment_sha256,
-        )
-        if (
-            any(not is_sha256(value) for value in digests)
-            or type(self.unit_index) is not int
-            or self.unit_index < 0
-            or self.state != Mem0OssOperationState.COMMITTED.value
-            or self.disposition != Mem0OssReceiptDisposition.COMPLETED.value
-            or type(self.extraction_calls) is not int
-            or self.extraction_calls != 1
-            or type(self.retry_count) is not int
-            or self.retry_count != 0
-            or type(self.request_tokens) is not int
-            or self.request_tokens < 0
-            or type(self.response_tokens) is not int
-            or self.response_tokens < 0
-            or type(self.stored_record_count) is not int
-            or self.stored_record_count < 0
-        ):
-            raise Mem0OssFullRunError("mem0_v5_operation_evidence_invalid")
-
-    def commitment_payload(self) -> dict[str, object]:
-        return {
-            key: value
-            for key, value in self.payload().items()
-            if key not in {"state", "commitment_sha256"}
-        }
-
-    def payload(self) -> dict[str, object]:
-        return {
-            "operation_id_sha256": self.operation_id_sha256,
-            "unit_index": self.unit_index,
-            "unit_identity_sha256": self.unit_identity_sha256,
-            "unit_sha256": self.unit_sha256,
-            "scope_sha256": self.scope_sha256,
-            "state": self.state,
-            "provider_receipt_sha256": self.provider_receipt_sha256,
-            "disposition": self.disposition,
-            "extraction_calls": self.extraction_calls,
-            "retry_count": self.retry_count,
-            "request_tokens": self.request_tokens,
-            "response_tokens": self.response_tokens,
-            "stored_identity_sha256": self.stored_identity_sha256,
-            "stored_record_count": self.stored_record_count,
-            "commitment_sha256": self.commitment_sha256,
-        }
-
-
-@final
-@dataclass(frozen=True, slots=True)
-class Mem0OssRunSeal:
-    admission_commitment_sha256: str
-    operation_count: int
-    ingestion_root_sha256: str
-    operation_root_sha256: str
-    provider_observed_extraction_calls: int
-    provider_observed_request_tokens: int
-    provider_observed_response_tokens: int
-
-    def __post_init__(self) -> None:
-        if (
-            any(
-                not is_sha256(value)
-                for value in (
-                    self.admission_commitment_sha256,
-                    self.ingestion_root_sha256,
-                    self.operation_root_sha256,
-                )
-            )
-            or type(self.operation_count) is not int
-            or self.operation_count < 1
-            or type(self.provider_observed_extraction_calls) is not int
-            or self.provider_observed_extraction_calls != self.operation_count
-            or type(self.provider_observed_request_tokens) is not int
-            or self.provider_observed_request_tokens < 0
-            or type(self.provider_observed_response_tokens) is not int
-            or self.provider_observed_response_tokens < 0
-        ):
-            raise Mem0OssFullRunError("mem0_v5_seal_invalid")
-
-    @property
-    def commitment_sha256(self) -> str:
-        return canonical_sha256(self.payload())
-
-    def payload(self) -> dict[str, object]:
-        return {
-            "admission_commitment_sha256": self.admission_commitment_sha256,
-            "operation_count": self.operation_count,
-            "ingestion_root_sha256": self.ingestion_root_sha256,
-            "operation_root_sha256": self.operation_root_sha256,
-            "provider_observed_extraction_calls": self.provider_observed_extraction_calls,
-            "provider_observed_request_tokens": self.provider_observed_request_tokens,
-            "provider_observed_response_tokens": self.provider_observed_response_tokens,
-        }
-
-
-@final
-@dataclass(frozen=True, slots=True)
-class Mem0OssFailedReceiptEvidence:
-    operation_id_sha256: str
-    unit_index: int
-    disposition: str
-    provider_receipt_sha256: str
-    extraction_calls: int
-    request_tokens: int
-    response_tokens: int
-
-    def __post_init__(self) -> None:
-        if (
-            not is_sha256(self.operation_id_sha256)
-            or type(self.unit_index) is not int
-            or self.unit_index < 0
-            or self.disposition
-            not in {
-                Mem0OssReceiptDisposition.PROVIDER_FAILED.value,
-                Mem0OssReceiptDisposition.REJECTED.value,
-            }
-            or not is_sha256(self.provider_receipt_sha256)
-            or type(self.extraction_calls) is not int
-            or self.extraction_calls != 1
-            or type(self.request_tokens) is not int
-            or self.request_tokens < 0
-            or type(self.response_tokens) is not int
-            or self.response_tokens < 0
-        ):
-            raise Mem0OssFullRunError("mem0_v5_failed_receipt_evidence_invalid")
-
-    def public_payload(self) -> dict[str, object]:
-        return {
-            "operation_id_sha256": self.operation_id_sha256,
-            "unit_index": self.unit_index,
-            "disposition": self.disposition,
-            "provider_receipt_sha256": self.provider_receipt_sha256,
-            "extraction_calls": self.extraction_calls,
-            "request_tokens": self.request_tokens,
-            "response_tokens": self.response_tokens,
-        }
-
-
-@final
-@dataclass(frozen=True, slots=True)
-class Mem0OssTerminalCleanupEvidence:
-    terminal_state: str
-    admission_commitment_sha256: str
-    seal_commitment_sha256: str | None
-    operation_root_sha256: str | None
-    operation_inventory_root_sha256: str
-    deleted_operation_count: int
-    residual_record_count: int
-    residual_root_sha256: str
-    provider_observed_extraction_calls: int
-    provider_observed_request_tokens: int
-    provider_observed_response_tokens: int
-    failed_receipts: tuple[Mem0OssFailedReceiptEvidence, ...]
-
-    def __post_init__(self) -> None:
-        if (
-            self.terminal_state
-            not in {Mem0OssFullRunState.DELETED.value, Mem0OssFullRunState.ABORTED.value}
-            or not is_sha256(self.admission_commitment_sha256)
-            or (
-                self.seal_commitment_sha256 is not None
-                and not is_sha256(self.seal_commitment_sha256)
-            )
-            or (
-                self.operation_root_sha256 is not None and not is_sha256(self.operation_root_sha256)
-            )
-            or not is_sha256(self.operation_inventory_root_sha256)
-            or type(self.deleted_operation_count) is not int
-            or self.deleted_operation_count < 0
-            or type(self.residual_record_count) is not int
-            or self.residual_record_count != 0
-            or self.residual_root_sha256 != MEM0_OSS_EMPTY_ROOT_SHA256
-            or type(self.provider_observed_extraction_calls) is not int
-            or self.provider_observed_extraction_calls < 0
-            or type(self.provider_observed_request_tokens) is not int
-            or self.provider_observed_request_tokens < 0
-            or type(self.provider_observed_response_tokens) is not int
-            or self.provider_observed_response_tokens < 0
-            or type(self.failed_receipts) is not tuple
-            or any(type(item) is not Mem0OssFailedReceiptEvidence for item in self.failed_receipts)
-        ):
-            raise Mem0OssFullRunError("mem0_v5_terminal_cleanup_evidence_invalid")
-
-    @property
-    def commitment_sha256(self) -> str:
-        return canonical_sha256(self.public_payload())
-
-    def public_payload(self) -> dict[str, object]:
-        return {
-            "terminal_state": self.terminal_state,
-            "admission_commitment_sha256": self.admission_commitment_sha256,
-            "seal_commitment_sha256": self.seal_commitment_sha256,
-            "operation_root_sha256": self.operation_root_sha256,
-            "operation_inventory_root_sha256": self.operation_inventory_root_sha256,
-            "deleted_operation_count": self.deleted_operation_count,
-            "residual_record_count": self.residual_record_count,
-            "residual_root_sha256": self.residual_root_sha256,
-            "provider_observed_extraction_calls": self.provider_observed_extraction_calls,
-            "provider_observed_request_tokens": self.provider_observed_request_tokens,
-            "provider_observed_response_tokens": self.provider_observed_response_tokens,
-            "failed_receipts": [item.public_payload() for item in self.failed_receipts],
-        }
-
-
-@final
-@dataclass(frozen=True, slots=True)
-class Mem0OssEvidencePage:
-    seal_commitment_sha256: str
-    operation_root_sha256: str
-    page_index: int
-    total_pages: int
-    start_unit_index: int
-    end_unit_index_exclusive: int
-    previous_page_commitment_sha256: str
-    items: tuple[Mem0OssOperationEvidence, ...]
-    page_commitment_sha256: str
-
-    def __post_init__(self) -> None:
-        if (
-            any(
-                not is_sha256(value)
-                for value in (
-                    self.seal_commitment_sha256,
-                    self.operation_root_sha256,
-                    self.previous_page_commitment_sha256,
-                    self.page_commitment_sha256,
-                )
-            )
-            or type(self.page_index) is not int
-            or self.page_index < 0
-            or type(self.total_pages) is not int
-            or self.total_pages < 1
-            or type(self.start_unit_index) is not int
-            or self.start_unit_index < 0
-            or type(self.end_unit_index_exclusive) is not int
-            or self.end_unit_index_exclusive <= self.start_unit_index
-            or type(self.items) is not tuple
-            or not 1 <= len(self.items) <= MEM0_OSS_FULL_RUN_MAX_EVIDENCE_PAGE
-            or any(type(item) is not Mem0OssOperationEvidence for item in self.items)
-        ):
-            raise Mem0OssFullRunError("mem0_v5_evidence_page_invalid")
-
-    def payload_without_commitment(self) -> dict[str, object]:
-        return {
-            "seal_commitment_sha256": self.seal_commitment_sha256,
-            "operation_root_sha256": self.operation_root_sha256,
-            "page_index": self.page_index,
-            "total_pages": self.total_pages,
-            "start_unit_index": self.start_unit_index,
-            "end_unit_index_exclusive": self.end_unit_index_exclusive,
-            "previous_page_commitment_sha256": self.previous_page_commitment_sha256,
-            "items": [item.payload() for item in self.items],
-        }
-
-    def public_payload(self) -> dict[str, object]:
-        return {
-            **self.payload_without_commitment(),
-            "page_commitment_sha256": self.page_commitment_sha256,
-        }
 
 
 class Mem0OssFullRunService:
@@ -518,13 +247,27 @@ class Mem0OssFullRunService:
         self._verify_and_apply_receipt(operation, receipt_payload, readback_only=False)
 
     def recover_after_crash(self) -> tuple[int, ...]:
-        if self._state is not Mem0OssFullRunState.ACTIVE:
+        if self._state not in {
+            Mem0OssFullRunState.ACTIVE,
+            Mem0OssFullRunState.RECONCILIATION_REQUIRED,
+        }:
             raise Mem0OssFullRunError("mem0_v5_recovery_state_invalid")
         resumable: list[int] = []
+        dispatched: list[_Operation] = []
         for unit_index, operation in sorted(self._operations.items()):
             if operation.state is Mem0OssOperationState.RESERVED:
                 resumable.append(unit_index)
             elif operation.state is Mem0OssOperationState.DISPATCHED:
+                dispatched.append(operation)
+        if dispatched:
+            self._state = Mem0OssFullRunState.RECONCILIATION_REQUIRED
+            for operation in dispatched:
+                context = self._receipt_context(operation, readback_only=False)
+                try:
+                    self._receipt_port.mark_outcome_unknown(context=context)
+                except Exception:
+                    raise Mem0OssFullRunError("mem0_v5_receipt_unknown_mark_failed") from None
+            for operation in dispatched:
                 operation.state = Mem0OssOperationState.RECONCILIATION_REQUIRED
         if any(
             operation.state is Mem0OssOperationState.RECONCILIATION_REQUIRED
@@ -532,6 +275,11 @@ class Mem0OssFullRunService:
         ):
             self._state = Mem0OssFullRunState.RECONCILIATION_REQUIRED
         return tuple(resumable)
+
+    def operation_recovery_states(self) -> tuple[Mem0OssOperationRecoveryState, ...]:
+        """Expose stage and trusted storage identity, never private unit content."""
+
+        return operation_recovery_states(self._state, self._operations)
 
     def reconcile_receipt_readback(self, *, unit_index: int, receipt_payload: object) -> None:
         if self._state is not Mem0OssFullRunState.RECONCILIATION_REQUIRED:
@@ -587,12 +335,12 @@ class Mem0OssFullRunService:
         items = tuple(
             self._operation_evidence(self._operations[index]) for index in range(expected)
         )
-        operation_root = _operation_root(items)
+        operation_root_sha256 = operation_root(items)
         self._seal = Mem0OssRunSeal(
             admission_commitment_sha256=self.admission.commitment_sha256,
             operation_count=expected,
             ingestion_root_sha256=self.admission.ingestion_root_sha256,
-            operation_root_sha256=operation_root,
+            operation_root_sha256=operation_root_sha256,
             provider_observed_extraction_calls=sum(item.extraction_calls for item in items),
             provider_observed_request_tokens=sum(item.request_tokens for item in items),
             provider_observed_response_tokens=sum(item.response_tokens for item in items),
@@ -686,6 +434,57 @@ class Mem0OssFullRunService:
         )
         self._state = Mem0OssFullRunState.ABORTED
 
+    def cleanup_verification_context(self, *, aborting: bool) -> CleanupVerificationContext:
+        """Return the sole server-owned cleanup tuple used by request and verifier."""
+
+        expected_state = Mem0OssFullRunState.ABORTING if aborting else Mem0OssFullRunState.DELETING
+        if type(aborting) is not bool or self._state is not expected_state:
+            raise Mem0OssFullRunError("mem0_v5_cleanup_context_state_invalid")
+        seal = self._seal
+        return CleanupVerificationContext(
+            admission_commitment_sha256=self.admission.commitment_sha256,
+            seal_commitment_sha256=seal.commitment_sha256 if seal is not None else None,
+            operation_root_sha256=seal.operation_root_sha256 if seal is not None else None,
+            operation_inventory_root_sha256=self._operation_inventory_root(),
+            expected_operation_count=self.admission.request.expected_operation_count,
+            aborting=aborting,
+        )
+
+    def terminal_basis(self, *, aborting: bool) -> Mem0OssTerminalBasis:
+        context = self.cleanup_verification_context(aborting=aborting)
+        return Mem0OssTerminalBasis(
+            terminal_state=(
+                Mem0OssFullRunState.ABORTED.value if aborting else Mem0OssFullRunState.DELETED.value
+            ),
+            cleanup_context=context,
+            provider_observed_extraction_calls=sum(
+                operation.extraction_calls for operation in self._operations.values()
+            ),
+            provider_observed_request_tokens=sum(
+                operation.request_tokens for operation in self._operations.values()
+            ),
+            provider_observed_response_tokens=sum(
+                operation.response_tokens for operation in self._operations.values()
+            ),
+            failed_receipts=tuple(
+                self._failed_receipt_evidence(self._operations[index])
+                for index in sorted(self._operations)
+                if self._operations[index].state is Mem0OssOperationState.FAILED
+            ),
+        )
+
+    def verify_cleanup_payload(
+        self, *, payload: object, context: CleanupVerificationContext
+    ) -> CleanupVerificationResult:
+        """Verify a replayed cleanup receipt against a durable server-owned context."""
+
+        if (
+            type(context) is not CleanupVerificationContext
+            or context.admission_commitment_sha256 != self.admission.commitment_sha256
+        ):
+            raise Mem0OssFullRunError("mem0_v5_cleanup_binding_mismatch")
+        return verify_cleanup_result(port=self._cleanup_port, payload=payload, context=context)
+
     def _manifest_witness(self, result: object) -> _ManifestWitness:
         if type(result) is not ManifestAuthorityResult:
             raise Mem0OssFullRunError("mem0_v5_manifest_authority_result_invalid")
@@ -693,23 +492,16 @@ class Mem0OssFullRunService:
         if result.ingestion_root_sha256 != manifest_root_sha256(units):
             raise Mem0OssFullRunError("mem0_v5_manifest_root_mismatch")
         identities = [unit.unit_identity_sha256 for unit in units]
-        unit_hashes = [unit.unit_sha256 for unit in units]
-        if len(set(identities)) != len(identities) or len(set(unit_hashes)) != len(unit_hashes):
-            raise Mem0OssFullRunError("mem0_v5_manifest_duplicate_unit")
+        # Exact source content may legitimately repeat in different official turns.
+        # Scope-bound unit identities, not content hashes, define operation uniqueness.
+        if len(set(identities)) != len(identities):
+            raise Mem0OssFullRunError("mem0_v5_manifest_duplicate_unit_identity")
         return _ManifestWitness(result, _WITNESS_TOKEN)
 
     def _verify_and_apply_receipt(
         self, operation: _Operation, payload: object, *, readback_only: bool
     ) -> None:
-        context = RuntimeReceiptVerificationContext(
-            admission_commitment_sha256=self.admission.commitment_sha256,
-            operation_id_sha256=operation.operation_id_sha256,
-            unit_identity_sha256=operation.unit.unit_identity_sha256,
-            unit_sha256=operation.unit.unit_sha256,
-            route_sha256=self.admission.request.route_sha256,
-            scope_sha256=operation.unit.scope_sha256,
-            readback_only=readback_only,
-        )
+        context = self._receipt_context(operation, readback_only=readback_only)
         if readback_only:
             try:
                 result = self._receipt_port.verify_status_readback(
@@ -738,6 +530,22 @@ class Mem0OssFullRunService:
             self._state = Mem0OssFullRunState.FAILED
             raise Mem0OssFullRunError("mem0_v5_receipt_disposition_not_successful")
         operation.state = Mem0OssOperationState.RECEIPT_VERIFIED
+
+    def _receipt_context(
+        self,
+        operation: _Operation,
+        *,
+        readback_only: bool,
+    ) -> RuntimeReceiptVerificationContext:
+        return RuntimeReceiptVerificationContext(
+            admission_commitment_sha256=self.admission.commitment_sha256,
+            operation_id_sha256=operation.operation_id_sha256,
+            unit_identity_sha256=operation.unit.unit_identity_sha256,
+            unit_sha256=operation.unit.unit_sha256,
+            route_sha256=self.admission.request.route_sha256,
+            scope_sha256=operation.unit.scope_sha256,
+            readback_only=readback_only,
+        )
 
     @staticmethod
     def _receipt_witness(
@@ -775,34 +583,8 @@ class Mem0OssFullRunService:
         return _StorageWitness(result, context, _WITNESS_TOKEN)
 
     def _verified_cleanup(self, payload: object, *, aborting: bool) -> _CleanupWitness:
-        seal = self._seal
-        context = CleanupVerificationContext(
-            admission_commitment_sha256=self.admission.commitment_sha256,
-            seal_commitment_sha256=seal.commitment_sha256 if seal is not None else None,
-            operation_root_sha256=seal.operation_root_sha256 if seal is not None else None,
-            operation_inventory_root_sha256=self._operation_inventory_root(),
-            expected_operation_count=self.admission.request.expected_operation_count,
-            aborting=aborting,
-        )
-        try:
-            result = self._cleanup_port.verify(payload=payload, context=context)
-        except Exception:
-            raise Mem0OssFullRunError("mem0_v5_cleanup_verification_failed") from None
-        if type(result) is not CleanupVerificationResult:
-            raise Mem0OssFullRunError("mem0_v5_cleanup_result_invalid")
-        for field in (
-            "admission_commitment_sha256",
-            "seal_commitment_sha256",
-            "operation_root_sha256",
-            "operation_inventory_root_sha256",
-        ):
-            if getattr(result, field) != getattr(context, field):
-                raise Mem0OssFullRunError("mem0_v5_cleanup_binding_mismatch")
-        if (
-            result.residual_record_count != 0
-            or result.residual_root_sha256 != MEM0_OSS_EMPTY_ROOT_SHA256
-        ):
-            raise Mem0OssFullRunError("mem0_v5_cleanup_residue_detected")
+        context = self.cleanup_verification_context(aborting=aborting)
+        result = verify_cleanup_result(port=self._cleanup_port, payload=payload, context=context)
         return _CleanupWitness(result, context, _WITNESS_TOKEN)
 
     def _operation_inventory_root(self) -> str:
@@ -825,30 +607,11 @@ class Mem0OssFullRunService:
         *,
         terminal_state: Mem0OssFullRunState,
     ) -> Mem0OssTerminalCleanupEvidence:
-        result = witness.result
-        return Mem0OssTerminalCleanupEvidence(
-            terminal_state=terminal_state.value,
-            admission_commitment_sha256=result.admission_commitment_sha256,
-            seal_commitment_sha256=result.seal_commitment_sha256,
-            operation_root_sha256=result.operation_root_sha256,
-            operation_inventory_root_sha256=result.operation_inventory_root_sha256,
-            deleted_operation_count=result.deleted_operation_count,
-            residual_record_count=result.residual_record_count,
-            residual_root_sha256=result.residual_root_sha256,
-            provider_observed_extraction_calls=sum(
-                operation.extraction_calls for operation in self._operations.values()
+        return build_terminal_evidence(
+            basis=self.terminal_basis(
+                aborting=terminal_state is Mem0OssFullRunState.ABORTED,
             ),
-            provider_observed_request_tokens=sum(
-                operation.request_tokens for operation in self._operations.values()
-            ),
-            provider_observed_response_tokens=sum(
-                operation.response_tokens for operation in self._operations.values()
-            ),
-            failed_receipts=tuple(
-                self._failed_receipt_evidence(self._operations[index])
-                for index in sorted(self._operations)
-                if self._operations[index].state is Mem0OssOperationState.FAILED
-            ),
+            result=witness.result,
         )
 
     @staticmethod
@@ -912,70 +675,12 @@ class Mem0OssFullRunService:
         )
 
 
-def verify_mem0_oss_sealed_evidence_pages(
-    pages: tuple[Mem0OssEvidencePage, ...], *, seal: Mem0OssRunSeal
-) -> None:
-    """Verify page commitments, chain order and exact whole-run coverage."""
-
-    if type(pages) is not tuple or not pages or type(seal) is not Mem0OssRunSeal:
-        raise Mem0OssFullRunError("mem0_v5_evidence_sequence_invalid")
-    items: list[Mem0OssOperationEvidence] = []
-    previous = MEM0_OSS_EMPTY_ROOT_SHA256
-    for page_index, page in enumerate(pages):
-        if type(page) is not Mem0OssEvidencePage:
-            raise Mem0OssFullRunError("mem0_v5_evidence_page_invalid")
-        if (
-            page.page_index != page_index
-            or page.total_pages != len(pages)
-            or page.previous_page_commitment_sha256 != previous
-            or page.seal_commitment_sha256 != seal.commitment_sha256
-            or page.operation_root_sha256 != seal.operation_root_sha256
-            or not 1 <= len(page.items) <= MEM0_OSS_FULL_RUN_MAX_EVIDENCE_PAGE
-            or page.start_unit_index != len(items)
-            or page.end_unit_index_exclusive != len(items) + len(page.items)
-            or canonical_sha256(page.payload_without_commitment()) != page.page_commitment_sha256
-        ):
-            raise Mem0OssFullRunError("mem0_v5_evidence_page_chain_invalid")
-        items.extend(page.items)
-        previous = page.page_commitment_sha256
-    if (
-        len(items) != seal.operation_count
-        or [item.unit_index for item in items] != list(range(seal.operation_count))
-        or len({item.unit_identity_sha256 for item in items}) != len(items)
-        or len({item.unit_sha256 for item in items}) != len(items)
-        or manifest_root_sha256(
-            tuple(
-                Mem0OssManifestUnit(
-                    unit_identity_sha256=item.unit_identity_sha256,
-                    unit_sha256=item.unit_sha256,
-                    scope_sha256=item.scope_sha256,
-                )
-                for item in items
-            )
-        )
-        != seal.ingestion_root_sha256
-        or sum(item.extraction_calls for item in items) != seal.provider_observed_extraction_calls
-        or sum(item.request_tokens for item in items) != seal.provider_observed_request_tokens
-        or sum(item.response_tokens for item in items) != seal.provider_observed_response_tokens
-        or any(
-            item.state != Mem0OssOperationState.COMMITTED.value
-            or canonical_sha256(item.commitment_payload()) != item.commitment_sha256
-            for item in items
-        )
-        or _operation_root(tuple(items)) != seal.operation_root_sha256
-    ):
-        raise Mem0OssFullRunError("mem0_v5_evidence_coverage_invalid")
-
-
-def _operation_root(items: tuple[Mem0OssOperationEvidence, ...]) -> str:
-    return canonical_sha256({"operation_commitments": [item.commitment_sha256 for item in items]})
-
-
 __all__ = [
     "Mem0OssEvidencePage",
     "Mem0OssFailedReceiptEvidence",
     "Mem0OssFullRunService",
     "Mem0OssOperationEvidence",
+    "Mem0OssOperationRecoveryState",
     "Mem0OssRunSeal",
     "Mem0OssTerminalCleanupEvidence",
     "verify_mem0_oss_sealed_evidence_pages",

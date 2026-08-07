@@ -5,12 +5,20 @@ from __future__ import annotations
 import _thread
 import hashlib
 import json
+import math
 import re
 import sqlite3
 import threading
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import asdict, dataclass
 from typing import Protocol, runtime_checkable
+
+from mem0_oss_adapter_v5.evidence_contracts import (
+    EvidenceOperation,
+    ObservedRecord,
+    ObservedStorage,
+    SearchRecord,
+)
 
 _SHA256 = re.compile(r"^[0-9a-f]{64}$")
 _MAX_RECORDS = 10_000
@@ -40,6 +48,20 @@ class StorageScope:
             "source_id": self.source_id,
             "source_sha256": self.source_sha256,
         }
+
+
+@dataclass(frozen=True, slots=True)
+class SearchScope:
+    user_id: str
+    run_id: str
+
+    def __post_init__(self) -> None:
+        _opaque(self.user_id, "user_id")
+        _opaque(self.run_id, "run_id")
+
+    @property
+    def filters(self) -> dict[str, str]:
+        return {"user_id": self.user_id, "run_id": self.run_id}
 
 
 @dataclass(frozen=True, slots=True)
@@ -129,6 +151,19 @@ class Mem0StorageBackend(Protocol):
     def delete_entity_links(self, *, scope: StorageScope) -> None: ...
 
 
+@runtime_checkable
+class Mem0SearchBackend(Protocol):
+    """Segregated provider port used only by authenticated retrieval evidence."""
+
+    def search_vectors(
+        self,
+        *,
+        query: str,
+        filters: Mapping[str, str],
+        limit: int,
+    ) -> Sequence[object]: ...
+
+
 class Mem0StorageAdapter:
     """Persist sanitized extraction memories, then prove exact derived state."""
 
@@ -183,6 +218,108 @@ class Mem0StorageAdapter:
             snapshot=snapshot,
             commitment_sha256=snapshot.commitment_sha256,
         )
+
+
+class Mem0EvidenceStorage:
+    """Independent exact-state observation plus run/corpus scoped retrieval."""
+
+    def __init__(self, backend: Mem0StorageBackend) -> None:
+        if not isinstance(backend, Mem0StorageBackend) or not isinstance(
+            backend, Mem0SearchBackend
+        ):
+            raise TypeError("backend does not implement the Mem0 evidence ports")
+        self._backend = backend
+
+    def observe(self, operation: EvidenceOperation) -> ObservedStorage:
+        scope = StorageScope(
+            user_id=operation.corpus_id,
+            run_id=operation.admission_commitment_sha256,
+            source_id=operation.source_id,
+            source_sha256=operation.source_sha256,
+        )
+        snapshot = independent_snapshot(self._backend, scope=scope)
+        records = tuple(
+            ObservedRecord(
+                record_id=item.provider_memory_id,
+                extraction_memory_id=item.extraction_memory_id,
+                source_id=operation.source_id,
+                source_sha256=operation.source_sha256,
+                memory_sha256=hashlib.sha256(item.text.encode()).hexdigest(),
+            )
+            for item in snapshot.vectors
+        )
+        actual = {item.extraction_memory_id: item.memory_sha256 for item in records}
+        if (
+            len(actual) != len(records)
+            or actual != operation.expected_memory_sha256_by_id
+            or snapshot.commitment_sha256 != operation.storage_commitment_sha256
+        ):
+            raise StorageError("Mem0 storage differs from trusted durable state")
+        return ObservedStorage(
+            records=records,
+            storage_commitment_sha256=snapshot.commitment_sha256,
+        )
+
+    def observe_corpus(
+        self,
+        operations: tuple[EvidenceOperation, ...],
+    ) -> tuple[ObservedRecord, ...]:
+        if not operations:
+            raise StorageError("Mem0 corpus observation requires committed operations")
+        admission = operations[0].admission_commitment_sha256
+        corpus_id = operations[0].corpus_id
+        if any(
+            item.admission_commitment_sha256 != admission or item.corpus_id != corpus_id
+            for item in operations
+        ):
+            raise StorageError("Mem0 corpus observation scope is inconsistent")
+        expected = {(item.source_id, item.source_sha256): item for item in operations}
+        if len(expected) != len(operations):
+            raise StorageError("Mem0 corpus observation source inventory is ambiguous")
+        scope = SearchScope(user_id=corpus_id, run_id=admission)
+        rows = self._backend.list_vectors(filters=scope.filters, limit=_MAX_RECORDS)
+        if len(rows) >= _MAX_RECORDS:
+            raise StorageError("storage corpus reached the exact-verification bound")
+        records = tuple(
+            _corpus_observed_record(row, scope=scope, expected=expected) for row in rows
+        )
+        if len({item.record_id for item in records}) != len(records):
+            raise StorageError("Mem0 corpus observation has duplicate provider identities")
+        actual_by_source: dict[tuple[str, str], set[str]] = {key: set() for key in expected}
+        for record in records:
+            values = actual_by_source[(record.source_id, record.source_sha256)]
+            if record.extraction_memory_id in values:
+                raise StorageError("Mem0 corpus observation has duplicate extraction identities")
+            values.add(record.extraction_memory_id)
+        actual_commitments: dict[tuple[str, str], dict[str, str]] = {key: {} for key in expected}
+        for record in records:
+            values = actual_commitments[(record.source_id, record.source_sha256)]
+            if record.extraction_memory_id in values:
+                raise StorageError("Mem0 corpus observation has duplicate extraction identities")
+            values[record.extraction_memory_id] = record.memory_sha256
+        if any(
+            actual_commitments[key] != operation.expected_memory_sha256_by_id
+            for key, operation in expected.items()
+        ):
+            raise StorageError("Mem0 corpus observation differs from trusted durable content")
+        return tuple(sorted(records, key=lambda item: item.record_id))
+
+    def search(
+        self,
+        *,
+        admission_commitment_sha256: str,
+        corpus_id: str,
+        query: str,
+        limit: int,
+    ) -> tuple[SearchRecord, ...]:
+        scope = SearchScope(user_id=corpus_id, run_id=admission_commitment_sha256)
+        rows = self._backend.search_vectors(query=query, filters=scope.filters, limit=limit)
+        if isinstance(rows, str | bytes) or not isinstance(rows, Sequence) or len(rows) > limit:
+            raise StorageError("Mem0 scoped search result is invalid")
+        results = tuple(_search_record(row, scope) for row in rows)
+        if len({item.record_id for item in results}) != len(results):
+            raise StorageError("Mem0 scoped search returned duplicate identities")
+        return results
 
 
 def _verify_snapshot_subset(
@@ -259,6 +396,31 @@ class PinnedMem0Backend:
         if not isinstance(result[0], list):
             raise StorageError("Qdrant exact-scope listing is invalid")
         return result[0]
+
+    def search_vectors(
+        self,
+        *,
+        query: str,
+        filters: Mapping[str, str],
+        limit: int,
+    ) -> Sequence[object]:
+        if set(filters) != {"user_id", "run_id"}:
+            raise StorageError("Mem0 scoped search filters are invalid")
+        with self._lock:
+            result = self._memory.search(  # type: ignore[attr-defined]
+                query,
+                top_k=limit,
+                filters=dict(filters),
+                threshold=0.0,
+                rerank=False,
+                explain=False,
+            )
+        if not isinstance(result, Mapping) or set(result) != {"results"}:
+            raise StorageError("Mem0 scoped search returned an invalid envelope")
+        rows = result["results"]
+        if not isinstance(rows, list):
+            raise StorageError("Mem0 scoped search returned an invalid result list")
+        return rows
 
     def history_memory_ids(self, *, provider_memory_ids: Sequence[str]) -> Sequence[str]:
         ids = tuple(sorted({_opaque(value, "provider_memory_id") for value in provider_memory_ids}))
@@ -439,6 +601,66 @@ def _vector_projection(row: object, scope: StorageScope) -> VectorProjection:
     )
 
 
+def _search_record(row: object, scope: SearchScope) -> SearchRecord:
+    if not isinstance(row, Mapping):
+        raise StorageError("Mem0 scoped search record is invalid")
+    if any(row.get(key) != value for key, value in scope.filters.items()):
+        raise StorageError("Mem0 scoped search escaped its run or corpus scope")
+    metadata = row.get("metadata")
+    if not isinstance(metadata, Mapping):
+        raise StorageError("Mem0 scoped search metadata is invalid")
+    if any(key in metadata and metadata[key] != value for key, value in scope.filters.items()):
+        raise StorageError("Mem0 scoped search metadata conflicts with its exact scope")
+    source_id = _opaque(metadata.get("source_id"), "source_id")
+    source_sha256 = _digest(metadata.get("source_sha256"), "source_sha256")
+    memory = row.get("memory")
+    if (
+        not isinstance(memory, str)
+        or not memory
+        or memory != memory.strip()
+        or len(memory) > 16_384
+    ):
+        raise StorageError("Mem0 scoped search memory is invalid")
+    score = row.get("score")
+    if type(score) not in {int, float} or not math.isfinite(float(score)):
+        raise StorageError("Mem0 scoped search score is invalid")
+    normalized_score = float(score)
+    if not 0.0 <= normalized_score <= 1.0:
+        raise StorageError("Mem0 scoped search score is not normalized")
+    return SearchRecord(
+        record_id=_record_id(row),
+        memory=memory,
+        source_id=source_id,
+        source_sha256=source_sha256,
+        score=normalized_score,
+    )
+
+
+def _corpus_observed_record(
+    row: object,
+    *,
+    scope: SearchScope,
+    expected: Mapping[tuple[str, str], EvidenceOperation],
+) -> ObservedRecord:
+    payload = _payload(row)
+    if any(payload.get(key) != value for key, value in scope.filters.items()):
+        raise StorageError("vector projection escaped its corpus or run scope")
+    source_id = _opaque(payload.get("source_id"), "source_id")
+    source_sha256 = _digest(payload.get("source_sha256"), "source_sha256")
+    if (source_id, source_sha256) not in expected:
+        raise StorageError("vector projection has unknown canonical source provenance")
+    text = payload.get("memory", payload.get("data"))
+    if not isinstance(text, str) or not text or text != text.strip() or len(text) > 16_384:
+        raise StorageError("vector projection has invalid memory text")
+    return ObservedRecord(
+        record_id=_record_id(row),
+        extraction_memory_id=_opaque(payload.get("extraction_memory_id"), "extraction_memory_id"),
+        source_id=source_id,
+        source_sha256=source_sha256,
+        memory_sha256=hashlib.sha256(text.encode()).hexdigest(),
+    )
+
+
 def _payload(row: object) -> Mapping[str, object]:
     value = row.get("payload") if isinstance(row, Mapping) else getattr(row, "payload", None)
     if not isinstance(value, Mapping):
@@ -516,9 +738,12 @@ def _batches(values: Sequence[str], size: int = 400) -> tuple[tuple[str, ...], .
 
 __all__ = (
     "EntityLinkProjection",
+    "Mem0EvidenceStorage",
+    "Mem0SearchBackend",
     "Mem0StorageAdapter",
     "Mem0StorageBackend",
     "PinnedMem0Backend",
+    "SearchScope",
     "StorageError",
     "StorageMemory",
     "StorageScope",

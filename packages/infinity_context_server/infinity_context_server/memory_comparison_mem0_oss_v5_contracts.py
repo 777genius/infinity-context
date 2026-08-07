@@ -279,6 +279,14 @@ class RuntimeReceiptVerificationResult:
 
 
 class RuntimeReceiptVerificationPort(Protocol):
+    def mark_outcome_unknown(
+        self,
+        *,
+        context: RuntimeReceiptVerificationContext,
+    ) -> None:
+        """Idempotently mark one exact dispatch as outcome-unknown."""
+        ...
+
     def verify_dispatch_receipt(
         self,
         *,

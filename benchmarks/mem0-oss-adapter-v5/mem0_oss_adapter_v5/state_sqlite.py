@@ -260,6 +260,21 @@ class SqliteOperationState:
             self._verify_schema()
             return self._get_in_transaction(identity)
 
+    def get_many(self, unit_identity_sha256: Iterable[str]) -> tuple[OperationRecord, ...]:
+        """Authenticate one exact identity inventory with one locked state query."""
+
+        identities = tuple(_digest(value, "unit identity") for value in unit_identity_sha256)
+        if not identities or len(set(identities)) != len(identities):
+            raise ValueError("unit identity inventory must be nonempty and unique")
+        with self._lock:
+            self._verify_schema()
+            by_identity = {
+                record.unit_identity_sha256: record for record in self._all_in_transaction()
+            }
+        if any(identity not in by_identity for identity in identities):
+            raise StateError("unknown operation identity")
+        return tuple(by_identity[identity] for identity in identities)
+
     def recover(self) -> RecoveryReport:
         """Quarantine dispatched operations; never make a provider call retryable."""
 

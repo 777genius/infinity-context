@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import shutil
@@ -8,11 +9,23 @@ import sys
 import tomllib
 from pathlib import Path
 
+import pytest
 import yaml
+
+from mem0_oss_adapter_v5.source_authority import (
+    SourceAuthorityError,
+    verify_source_authority,
+)
+from tools.generate_source_authority import (
+    PhaseCAuthority,
+    encoded_manifest,
+    source_manifest,
+)
 
 ROOT = Path(__file__).resolve().parents[1]
 REPOSITORY = ROOT.parents[1]
 FROZEN_V4_TREE = "5d640f4ea0164f18a5e8cff2bd5469b1e7eea201"
+LIVE_SOURCE_COMMIT = "d5648af2a579cabedb5f64d9cbecc24fffac4e01"
 
 
 def test_complete_v4_tree_and_working_bytes_remain_exact() -> None:
@@ -133,6 +146,95 @@ def test_frozen_v4_runtime_pin_import_and_model_stage_preflight(tmp_path: Path) 
         check=False,
     )
     assert staged.returncode == 0, staged.stderr
+
+
+def test_pin_b_reproduces_live_v2_archive_and_verifies_exact_staged_closure(
+    tmp_path: Path,
+) -> None:
+    committed = json.loads((ROOT / "authority/manifest.json").read_bytes())
+    phase = committed["phase_c_authority"]
+    generated, staged = source_manifest(
+        REPOSITORY,
+        committed["source_commit_sha1"],
+        PhaseCAuthority(**phase),
+    )
+    assert committed == generated
+    assert committed["source_commit_sha1"] == LIVE_SOURCE_COMMIT
+    manifest_sha256 = hashlib.sha256(encoded_manifest(committed)).hexdigest()
+    manifest_digest = (ROOT / "authority/manifest.sha256").read_bytes()
+    assert manifest_digest == manifest_sha256.encode("ascii") and len(manifest_digest) == 64
+    runtime_source = json.loads((ROOT / "authority/runtime-pin.json").read_bytes())["source_a"]
+    assert runtime_source == {
+        "closure_algorithm": committed["closure_algorithm"],
+        "closure_sha256": committed["closure_sha256"],
+        "commit_sha1": committed["source_commit_sha1"],
+        "manifest_file_count": len(committed["files"]),
+        "manifest_sha256": manifest_sha256,
+        "tree_sha1": committed["source_tree_sha1"],
+    }
+    assert {item["path"] for item in committed["files"]}.issuperset(
+        {
+            "mem0_oss_adapter_v5/evidence_contracts.py",
+            "mem0_oss_adapter_v5/evidence_service.py",
+            "mem0_oss_adapter_v5/request_binding.py",
+        }
+    )
+
+    installed = tmp_path / "installed"
+    for relative, content in staged.items():
+        target = installed / relative
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_bytes(content)
+
+    phase_root = tmp_path / "phase-c"
+    attestation = phase_root / "attestation"
+    attestation.mkdir(parents=True)
+    release = b"provider-free-phase-c-release-fixture\n"
+    fixture_phase = PhaseCAuthority(
+        infinity_commit_sha1=phase["infinity_commit_sha1"],
+        infinity_tree_sha1=phase["infinity_tree_sha1"],
+        release_manifest_sha256=hashlib.sha256(release).hexdigest(),
+    )
+    (attestation / "commit.txt").write_text(f"{fixture_phase.infinity_commit_sha1}\n")
+    (attestation / "tree.txt").write_text(f"{fixture_phase.infinity_tree_sha1}\n")
+    (attestation / "release-files.sha256").write_bytes(release)
+    fixture_manifest, _ = source_manifest(REPOSITORY, LIVE_SOURCE_COMMIT, fixture_phase)
+    manifest_path = tmp_path / "manifest.json"
+    manifest_bytes = encoded_manifest(fixture_manifest)
+    manifest_path.write_bytes(manifest_bytes)
+    manifest_sha256 = hashlib.sha256(manifest_bytes).hexdigest()
+    verified = verify_source_authority(
+        manifest_path=manifest_path,
+        expected_manifest_sha256=manifest_sha256,
+        installed_root=installed,
+        phase_c_authority_root=phase_root,
+    )
+    assert verified.source_commit_sha1 == LIVE_SOURCE_COMMIT
+    assert verified.closure_sha256 == committed["closure_sha256"]
+
+    (installed / "mem0_oss_adapter_v5/evidence_service.py").unlink()
+    with pytest.raises(SourceAuthorityError, match="source_authority_inventory_invalid"):
+        verify_source_authority(
+            manifest_path=manifest_path,
+            expected_manifest_sha256=manifest_sha256,
+            installed_root=installed,
+            phase_c_authority_root=phase_root,
+        )
+
+
+def test_live_micro_canary_qdrant_snapshots_use_writable_state_path() -> None:
+    compose = yaml.safe_load((ROOT / "compose.live-micro-canary.override.yaml").read_text())
+    qdrant = compose["services"]["mem0-oss-v5-qdrant"]
+    assert qdrant["read_only"] is True
+    assert qdrant["environment"]["QDRANT__STORAGE__STORAGE_PATH"] == "/qdrant/storage"
+    assert qdrant["environment"]["QDRANT__STORAGE__SNAPSHOTS_PATH"] == (
+        "/qdrant/storage/snapshots"
+    )
+    state_mount = next(
+        volume for volume in qdrant["volumes"] if volume["target"] == "/qdrant/storage"
+    )
+    assert state_mount.get("read_only") is not True
+    assert state_mount["source"].startswith("${MEM0_V5_QDRANT_STATE_DIR:")
 
 
 def test_hosted_compose_has_no_secret_values_or_external_listener() -> None:

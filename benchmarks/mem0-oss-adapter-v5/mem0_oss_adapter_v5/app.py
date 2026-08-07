@@ -19,8 +19,13 @@ from mem0_oss_adapter_v5.http_models import (
     ErrorResponse,
     HealthResponse,
     RuntimeReceiptEnvelope,
+    ScopedSearchRequest,
+    ScopedSearchResponse,
     StatusRequest,
+    StorageObservationRequest,
+    StorageObservationResponse,
 )
+from mem0_oss_adapter_v5.request_binding import RequestBindingRequest, RequestBindingResponse
 
 MAX_REQUEST_BODY_BYTES = 64_000
 MAX_BODY_FRAGMENTS = 256
@@ -30,6 +35,7 @@ _SAFE_SERVICE_ERRORS = frozenset(
         "admission_invalid",
         "cleanup_conflict",
         "cleanup_failed",
+        "corpus_not_found",
         "dispatch_conflict",
         "dispatch_failed",
         "manifest_invalid",
@@ -63,6 +69,27 @@ class V5ApplicationService(Protocol):
     def status(self, request: StatusRequest, *, idempotency_key: str) -> RuntimeReceiptEnvelope: ...
 
     def cleanup(self, request: CleanupRequest, *, idempotency_key: str) -> CleanupReceipt: ...
+
+    def storage_observation(
+        self,
+        request: StorageObservationRequest,
+        *,
+        idempotency_key: str,
+    ) -> StorageObservationResponse: ...
+
+    def request_binding(
+        self,
+        request: RequestBindingRequest,
+        *,
+        idempotency_key: str,
+    ) -> RequestBindingResponse: ...
+
+    def scoped_search(
+        self,
+        request: ScopedSearchRequest,
+        *,
+        idempotency_key: str,
+    ) -> ScopedSearchResponse: ...
 
 
 class _BoundedBodyMiddleware:
@@ -174,6 +201,36 @@ def create_app(*, service: V5ApplicationService, bearer_token: str) -> FastAPI:
     ) -> CleanupReceipt:
         _verify_request_commitment(payload, headers.request_commitment_sha256)
         return service.cleanup(payload, idempotency_key=headers.idempotency_key)
+
+    @app.post(
+        "/v5/operations/request-binding",
+        response_model=RequestBindingResponse,
+    )
+    def request_binding(
+        payload: RequestBindingRequest,
+        headers: Annotated[_AuthenticatedHeaders, Depends(authenticate)],
+    ) -> RequestBindingResponse:
+        _verify_request_commitment(payload, headers.request_commitment_sha256)
+        return service.request_binding(payload, idempotency_key=headers.idempotency_key)
+
+    @app.post(
+        "/v5/operations/storage-observation",
+        response_model=StorageObservationResponse,
+    )
+    def storage_observation(
+        payload: StorageObservationRequest,
+        headers: Annotated[_AuthenticatedHeaders, Depends(authenticate)],
+    ) -> StorageObservationResponse:
+        _verify_request_commitment(payload, headers.request_commitment_sha256)
+        return service.storage_observation(payload, idempotency_key=headers.idempotency_key)
+
+    @app.post("/v5/runs/search", response_model=ScopedSearchResponse)
+    def scoped_search(
+        payload: ScopedSearchRequest,
+        headers: Annotated[_AuthenticatedHeaders, Depends(authenticate)],
+    ) -> ScopedSearchResponse:
+        _verify_request_commitment(payload, headers.request_commitment_sha256)
+        return service.scoped_search(payload, idempotency_key=headers.idempotency_key)
 
     return app
 

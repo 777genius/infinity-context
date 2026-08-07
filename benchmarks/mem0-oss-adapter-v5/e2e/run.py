@@ -39,6 +39,7 @@ def main() -> None:
     secrets_dir = args.run_root / "secrets"
     ingress = read_private_text(secrets_dir / "ingress-bearer")
     state_hmac = read_private_text(secrets_dir / "state-hmac").encode()
+    result_hmac = read_private_text(secrets_dir / "result-hmac").encode()
     receipt_secret = read_private_text(secrets_dir / "runtime-receipt-secret").encode()
     runtime_repo = args.runtime_authority_mirror / "repo"
     canonicalizer = NodeReceiptCanonicalizer(
@@ -84,6 +85,7 @@ def main() -> None:
         forbidden_artifact_bytes=(
             ingress.encode(),
             state_hmac,
+            result_hmac,
             receipt_secret,
             read_private_text(secrets_dir / "runtime-bearer").encode(),
         ),

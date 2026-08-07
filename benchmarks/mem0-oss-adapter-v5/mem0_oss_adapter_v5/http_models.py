@@ -5,7 +5,17 @@ from __future__ import annotations
 import re
 from typing import Annotated, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, StrictBool, StrictInt, StrictStr, model_validator
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    Field,
+    StrictBool,
+    StrictFloat,
+    StrictInt,
+    StrictStr,
+    field_validator,
+    model_validator,
+)
 
 SHA256_PATTERN = re.compile(r"^[0-9a-f]{64}$")
 Sha256 = Annotated[StrictStr, Field(pattern=SHA256_PATTERN.pattern)]
@@ -14,7 +24,12 @@ OperationSequence = Annotated[StrictInt, Field(ge=0, lt=10_000)]
 
 
 class _ExactModel(BaseModel):
-    model_config = ConfigDict(extra="forbid", strict=True, frozen=True)
+    model_config = ConfigDict(
+        extra="forbid",
+        strict=True,
+        frozen=True,
+        allow_inf_nan=False,
+    )
 
 
 class AdmitRequest(_ExactModel):
@@ -156,6 +171,106 @@ class CleanupReceipt(_ExactModel):
     deleted_operation_count: Annotated[StrictInt, Field(ge=0, le=10_000)]
     residual_record_count: Annotated[StrictInt, Field(ge=0, le=10_000)]
     residual_root_sha256: Sha256
+
+
+EvidenceText = Annotated[StrictStr, Field(min_length=1, max_length=512)]
+SearchMemory = Annotated[StrictStr, Field(min_length=1, max_length=16_384)]
+SearchLimit = Annotated[StrictInt, Field(ge=1, le=200)]
+EvidenceCount = Annotated[StrictInt, Field(ge=0, le=10_000)]
+
+
+class StorageObservationRequest(_ExactModel):
+    admission_commitment_sha256: Sha256
+    operation_id_sha256: Sha256
+
+
+class StorageObservationRecord(_ExactModel):
+    record_id: EvidenceText
+    extraction_memory_id: EvidenceText
+    source_id: EvidenceText
+    source_sha256: Sha256
+    memory_sha256: Sha256
+
+    @field_validator("record_id", "extraction_memory_id", "source_id")
+    @classmethod
+    def evidence_text_is_trimmed(cls, value: str) -> str:
+        if value != value.strip():
+            raise ValueError("storage_observation_invalid")
+        return value
+
+
+class StorageObservationResponse(_ExactModel):
+    schema_version: Literal["mem0-oss-adapter-v5.storage-observation.v1"]
+    admission_commitment_sha256: Sha256
+    operation_id_sha256: Sha256
+    scope_sha256: Sha256
+    source_id: EvidenceText
+    source_sha256: Sha256
+    storage_commitment_sha256: Sha256
+    record_count: EvidenceCount
+    record_root_sha256: Sha256
+    records: tuple[StorageObservationRecord, ...]
+    observation_hmac_sha256: Sha256
+
+    @model_validator(mode="after")
+    def record_count_is_exact(self) -> StorageObservationResponse:
+        if self.source_id != self.source_id.strip() or self.record_count != len(self.records):
+            raise ValueError("storage_observation_invalid")
+        return self
+
+
+class ScopedSearchRequest(_ExactModel):
+    admission_commitment_sha256: Sha256
+    corpus_id: EvidenceText
+    query: SearchMemory
+    limit: SearchLimit
+
+    @field_validator("corpus_id", "query")
+    @classmethod
+    def search_text_is_trimmed(cls, value: str) -> str:
+        if value != value.strip():
+            raise ValueError("search_request_invalid")
+        return value
+
+
+class ScopedSearchResult(_ExactModel):
+    rank: Annotated[StrictInt, Field(ge=0, le=199)]
+    record_id: EvidenceText
+    memory: SearchMemory
+    memory_sha256: Sha256
+    source_id: EvidenceText
+    source_sha256: Sha256
+    score: Annotated[StrictFloat, Field(ge=0.0, le=1.0)]
+
+    @field_validator("record_id", "memory", "source_id")
+    @classmethod
+    def result_text_is_trimmed(cls, value: str) -> str:
+        if value != value.strip():
+            raise ValueError("search_result_invalid")
+        return value
+
+
+class ScopedSearchResponse(_ExactModel):
+    schema_version: Literal["mem0-oss-adapter-v5.scoped-search.v1"]
+    admission_commitment_sha256: Sha256
+    corpus_id: EvidenceText
+    query_commitment_sha256: Sha256
+    limit: SearchLimit
+    result_count: Annotated[StrictInt, Field(ge=0, le=200)]
+    result_root_sha256: Sha256
+    results: tuple[ScopedSearchResult, ...]
+    search_hmac_sha256: Sha256
+
+    @model_validator(mode="after")
+    def ranking_is_exact(self) -> ScopedSearchResponse:
+        if (
+            self.corpus_id != self.corpus_id.strip()
+            or self.result_count != len(self.results)
+            or self.result_count > self.limit
+            or tuple(item.rank for item in self.results) != tuple(range(len(self.results)))
+        ):
+            raise ValueError("search_result_invalid")
+        return self
 
 
 class HealthResponse(_ExactModel):
