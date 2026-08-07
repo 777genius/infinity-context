@@ -692,7 +692,7 @@ def test_search_evidence_requires_seal_and_binds_authenticated_corpus_sources() 
     )
     assert type(witness) is ManagedMem0V5AuthenticatedSearchWitness
     assert witness.receipt.records == (record,)
-    object.__setattr__(receipt, "result_root_sha256", _sha("mutated-root"))
+    object.__setattr__(receipt, "records", receipt.records * 6)
     with pytest.raises(ManagedRunError, match="witness differs"):
         _ = witness.receipt
     with pytest.raises(ManagedRunError, match="witness is invalid"):

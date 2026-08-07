@@ -98,6 +98,7 @@ class ManagedMem0V5PairedEvidenceProjector:
             or receipt.corpus_id != corpus_id
             or receipt.query_commitment_sha256 != canonical_sha256({"query": query})
             or receipt.limit != top_k
+            or len(receipt.records) > receipt.limit
             or receipt.result_root_sha256 != expected_root
         ):
             raise ManagedRunError("managed Mem0 v5 paired search binding differs")
@@ -331,6 +332,8 @@ class ManagedMem0V5PairedRun:
             if self._state is _RunState.TERMINAL:
                 if self._terminal is None:
                     raise ManagedRunError("managed Mem0 v5 paired terminal evidence is missing")
+                if self._terminal.terminal_state != Mem0OssFullRunState.DELETED.value:
+                    raise ManagedRunError("managed Mem0 v5 paired cleanup terminal is not deleted")
                 return self._terminal
             if self._state not in {_RunState.SEALED, _RunState.CLEANUP_RETRY}:
                 raise ManagedRunError("managed Mem0 v5 paired cleanup requires sealed state")

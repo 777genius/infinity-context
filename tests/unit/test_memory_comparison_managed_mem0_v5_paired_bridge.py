@@ -594,6 +594,8 @@ def test_restore_accepts_exact_aborted_terminal_phases(
     assert result.seal_commitment_sha256 is None
     assert result.operation_root_sha256 is None
     assert coordinator.dispatch_calls == coordinator.seal_restored_calls == 0
+    with pytest.raises(ManagedRunError, match="cleanup terminal is not deleted"):
+        run.cleanup()
 
 
 def test_projector_rejects_raw_self_consistent_receipt() -> None:
@@ -606,6 +608,32 @@ def test_projector_rejects_raw_self_consistent_receipt() -> None:
     with pytest.raises(ManagedRunError, match="unauthenticated"):
         projector.project(  # type: ignore[arg-type]
             authenticated_receipt=receipt,
+            corpus_id=authority.units[0].corpus_id,
+            query="query",
+            top_k=1,
+            cutoff=1,
+        )
+
+
+def test_projector_rejects_mutated_witness_records_over_limit() -> None:
+    authority, coordinator, _run_value = _run()
+    witness = _verified_witness(
+        authority,
+        coordinator.request,
+        query="query",
+        limit=1,
+        receipt_admission=coordinator.admission,
+    )
+    receipt = witness.receipt
+    object.__setattr__(receipt, "records", receipt.records * 2)
+    projector = ManagedMem0V5PairedEvidenceProjector(
+        authority=authority,
+        expected_admission_commitment_sha256=coordinator.admission,
+    )
+
+    with pytest.raises(ManagedRunError, match="witness differs"):
+        projector.project(
+            authenticated_receipt=witness,
             corpus_id=authority.units[0].corpus_id,
             query="query",
             top_k=1,
@@ -688,6 +716,19 @@ def test_abort_failure_has_explicit_retry_without_redispatch() -> None:
 
     assert terminal.terminal_state == Mem0OssFullRunState.ABORTED.value
     assert coordinator.abort_calls == 2
+    assert coordinator.admit_calls == coordinator.dispatch_calls == 1
+
+
+def test_successful_start_abort_is_not_cached_as_deleted_cleanup() -> None:
+    _authority_value, coordinator, run = _run()
+    coordinator.dispatch_failures = 1
+
+    with pytest.raises(RuntimeError, match="dispatch failed"):
+        run.start()
+    with pytest.raises(ManagedRunError, match="cleanup terminal is not deleted"):
+        run.cleanup()
+
+    assert coordinator.abort_calls == 1
     assert coordinator.admit_calls == coordinator.dispatch_calls == 1
 
 
