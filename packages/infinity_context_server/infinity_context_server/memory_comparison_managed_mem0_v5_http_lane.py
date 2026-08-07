@@ -17,6 +17,9 @@ import httpx
 from infinity_context_server.memory_comparison_managed_mem0_v5_cleanup_binding import (
     ManagedMem0V5CleanupBindingPort,
 )
+from infinity_context_server.memory_comparison_managed_mem0_v5_dispatch_guard import (
+    ManagedMem0V5SingleDispatchGuardPort,
+)
 from infinity_context_server.memory_comparison_managed_mem0_v5_projector import (
     ManagedMem0V5ManifestAuthority,
     ManagedMem0V5SourceUnit,
@@ -415,6 +418,7 @@ class ManagedMem0V5HttpLane:
         "_binding",
         "_cleanup_binding",
         "_control",
+        "_dispatch_guard",
         "_origin",
         "_timeout",
         "_transport",
@@ -430,6 +434,7 @@ class ManagedMem0V5HttpLane:
         evidence_verifier: ManagedMem0V5EvidenceVerifierPort,
         dispatch_binding: ManagedMem0V5DispatchBindingPort,
         cleanup_binding: ManagedMem0V5CleanupBindingPort,
+        dispatch_guard: ManagedMem0V5SingleDispatchGuardPort | None = None,
         transport: Mem0V5TransportPort | None = None,
     ) -> None:
         consume = _configuration_callable(bearer_capability, "consume")
@@ -438,6 +443,7 @@ class ManagedMem0V5HttpLane:
         verified_evidence = _evidence_verifier(evidence_verifier)
         verified_dispatch = _dispatch_binding(dispatch_binding)
         verified_cleanup = _cleanup_binding(cleanup_binding)
+        verified_guard = _dispatch_guard(dispatch_guard)
         verified_transport = _transport_port(transport)
         try:
             bearer = consume()
@@ -453,6 +459,7 @@ class ManagedMem0V5HttpLane:
             self._verifier = verified_evidence
             self._binding = verified_dispatch
             self._cleanup_binding = verified_cleanup
+            self._dispatch_guard = verified_guard
             self._control = Mem0V5HttpPort(
                 origin=canonical_origin,
                 bearer_token=bearer,
@@ -509,6 +516,12 @@ class ManagedMem0V5HttpLane:
         request_sha = binding.request_body_sha256
         if not is_sha256(request_sha):
             _fail("mem0_v5_managed_dispatch_binding_invalid")
+        if self._dispatch_guard is not None:
+            self._dispatch_guard.claim(
+                admission_commitment_sha256=admission.commitment_sha256,
+                operation_id_sha256=operation_id_sha256,
+                request_body_sha256=request_sha,
+            )
         return self._control.dispatch(
             Mem0V5DispatchRequest(
                 admission.commitment_sha256,
@@ -758,6 +771,15 @@ def _cleanup_binding(value: object) -> ManagedMem0V5CleanupBindingPort:
     return value
 
 
+def _dispatch_guard(
+    value: object,
+) -> ManagedMem0V5SingleDispatchGuardPort | None:
+    if value is None:
+        return None
+    _configuration_callable(value, "claim")
+    return value
+
+
 def _transport_port(value: object) -> Mem0V5TransportPort:
     try:
         selected = _HttpxTransport() if value is None else value
@@ -820,6 +842,7 @@ __all__ = (
     "ManagedMem0V5HttpLane",
     "ManagedMem0V5SearchReceipt",
     "ManagedMem0V5SearchRecord",
+    "ManagedMem0V5SingleDispatchGuardPort",
     "ManagedMem0V5SearchVerificationContext",
     "ManagedMem0V5StorageVerificationContext",
 )

@@ -16,6 +16,10 @@ from infinity_context_server.memory_comparison_managed_corpus_projection import 
     _managed_corpus_record,
     _reconstruct_managed_corpus_case,
 )
+from infinity_context_server.memory_comparison_managed_mem0_v5_http_lane import (
+    ManagedMem0V5SearchReceipt,
+    ManagedMem0V5SearchRecord,
+)
 from infinity_context_server.memory_comparison_managed_mem0_v5_lane import (
     ManagedMem0V5Budget,
     ManagedMem0V5BudgetPolicy,
@@ -42,6 +46,7 @@ from infinity_context_server.memory_comparison_mem0_oss_v5_contracts import (
     CleanupVerificationContext,
     CleanupVerificationResult,
     Mem0OssAdmissionRequest,
+    Mem0OssFullRunAdmission,
     Mem0OssFullRunError,
     Mem0OssReceiptDisposition,
     RuntimeReceiptVerificationContext,
@@ -223,6 +228,7 @@ class _Lane:
         self.crash_dispatch = crash_dispatch
         self.crash_cleanup = crash_cleanup
         self.storage_issuer, _ = create_managed_mem0_v5_storage_witness_authority()
+        self.search_result: ManagedMem0V5SearchReceipt | None = None
 
     def admit(self, **kwargs: object) -> None:
         del kwargs
@@ -255,6 +261,12 @@ class _Lane:
             created_record_ids=("memory-opaque-1",),
             source_pairs=((unit.source_id, unit.source_sha256),),
         )
+
+    def search(self, **kwargs: object) -> ManagedMem0V5SearchReceipt:
+        self.calls.append("search")
+        if self.search_result is None:
+            raise AssertionError(kwargs)
+        return self.search_result
 
     def cleanup(self, **kwargs: object) -> object:
         self.calls.append("cleanup")
@@ -625,6 +637,99 @@ def test_terminal_cleanup_is_required_and_public_storage_observations_is_private
     assert terminal.terminal_state == "deleted"
     assert terminal.residual_record_count == 0
     assert lane.calls[-1] == "cleanup"
+
+
+def test_search_evidence_requires_seal_and_binds_authenticated_corpus_sources() -> None:
+    projector = ManagedMem0V5ManifestProjector()
+    authority = projector.project(_cases(), current_date="2026-08-07")
+    request = _request(1)
+    admission = Mem0OssFullRunAdmission(
+        request=request,
+        ingestion_manifest_sha256=authority.ingestion_manifest_sha256,
+        ingestion_root_sha256=authority.ingestion_root_sha256,
+        ingestion_unit_count=authority.operation_count,
+    )
+    lane = _Lane()
+    coordinator = _coordinator(lane, projector)
+    coordinator.admit(
+        authority=authority,
+        request=request,
+        budget_policy=ManagedMem0V5BudgetPolicy(9),
+    )
+    with pytest.raises(ManagedRunError, match="requires sealed"):
+        coordinator.search_evidence(corpus_id=authority.units[0].corpus_id, query="tea", limit=5)
+
+    coordinator.dispatch_pending()
+    unit = authority.units[0]
+    memory = "Alice likes tea."
+    record = ManagedMem0V5SearchRecord(
+        "memory-opaque-1",
+        memory,
+        _sha(memory),
+        unit.source_id,
+        unit.source_sha256,
+        0.9,
+    )
+    lane.search_result = ManagedMem0V5SearchReceipt(
+        admission.commitment_sha256,
+        unit.corpus_id,
+        canonical_sha256({"query": "tea"}),
+        5,
+        (record,),
+        _sha("result-root"),
+        _sha("search-evidence"),
+    )
+    budget_before = coordinator.budget
+    receipt = coordinator.search_evidence(corpus_id=unit.corpus_id, query="tea", limit=5)
+    assert receipt.records == (record,)
+    assert coordinator.budget == budget_before
+    assert lane.calls.count("dispatch") == 1
+    assert lane.calls.count("search") == 1
+
+    with pytest.raises(ManagedRunError, match="corpus binding differs"):
+        coordinator.search_evidence(corpus_id="wrong-corpus", query="tea", limit=5)
+    assert lane.calls.count("search") == 1
+
+
+def test_search_evidence_rejects_cross_corpus_source_and_terminal_state() -> None:
+    projector = ManagedMem0V5ManifestProjector()
+    authority = projector.project(_cases(), current_date="2026-08-07")
+    request = _request(1)
+    admission = Mem0OssFullRunAdmission(
+        request=request,
+        ingestion_manifest_sha256=authority.ingestion_manifest_sha256,
+        ingestion_root_sha256=authority.ingestion_root_sha256,
+        ingestion_unit_count=authority.operation_count,
+    )
+    lane = _Lane()
+    coordinator = _coordinator(lane, projector)
+    coordinator.admit(
+        authority=authority,
+        request=request,
+        budget_policy=ManagedMem0V5BudgetPolicy(9),
+    )
+    coordinator.dispatch_pending()
+    unit = authority.units[0]
+    memory = "forged"
+    lane.search_result = ManagedMem0V5SearchReceipt(
+        admission.commitment_sha256,
+        unit.corpus_id,
+        canonical_sha256({"query": "tea"}),
+        5,
+        (
+            ManagedMem0V5SearchRecord(
+                "foreign-record", memory, _sha(memory), "foreign-source", _sha("foreign"), 0.5
+            ),
+        ),
+        _sha("result-root"),
+        _sha("search-evidence"),
+    )
+    with pytest.raises(ManagedRunError, match="evidence binding differs"):
+        coordinator.search_evidence(corpus_id=unit.corpus_id, query="tea", limit=5)
+
+    coordinator.cleanup()
+    with pytest.raises(ManagedRunError, match="lane is terminal"):
+        coordinator.search_evidence(corpus_id=unit.corpus_id, query="tea", limit=5)
 
 
 def test_admission_failure_still_attempts_terminal_abort_cleanup() -> None:

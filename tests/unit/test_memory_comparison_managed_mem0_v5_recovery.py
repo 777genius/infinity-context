@@ -422,7 +422,11 @@ def test_fresh_service_restores_attempted_dispatch_without_redispatch(tmp_path: 
     )
 
     assert loaded.units[0].phase is ManagedMem0V5CheckpointPhase.DISPATCH_ATTEMPTED
-    _seal_and_cleanup(restored)
+    dispatch_calls = lane.calls.count("dispatch")
+    seal = restored.seal_restored_completed()
+    assert seal.operation_count == 1
+    assert lane.calls.count("dispatch") == dispatch_calls
+    restored.cleanup()
     assert lane.calls.count("dispatch") == 1
     assert lane.calls.count("status") == 1
     assert lane.calls.count("storage") == 1

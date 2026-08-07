@@ -14,12 +14,17 @@ ROOT = Path(__file__).resolve().parents[2]
 PHASE_C_ROOT = ROOT / "benchmarks" / "phase-c-canary"
 sys.path.insert(0, str(PHASE_C_ROOT))
 
+import phase_c_canary.runtime_binding as runtime_binding_module
 from infinity_context_server import memory_comparison_managed_mem0_v5_composition as subject
 from infinity_context_server.memory_comparison_managed_mem0_v5_checkpoint import (
     ManagedMem0V5RunPhase,
 )
 from infinity_context_server.memory_comparison_managed_mem0_v5_credentials import (
     ManagedMem0V5CredentialPaths,
+)
+from infinity_context_server.memory_comparison_managed_mem0_v5_dispatch_guard import (
+    AtomicJournalManagedMem0V5SingleDispatchGuard,
+    create_managed_mem0_v5_single_dispatch_guard,
 )
 from infinity_context_server.memory_comparison_managed_mem0_v5_lane import (
     ManagedMem0V5BudgetPolicy,
@@ -38,10 +43,13 @@ from infinity_context_server.memory_comparison_mem0_oss_v5_contracts import (
     canonical_sha256,
 )
 from infinity_context_server.memory_comparison_mem0_oss_v5_http import (
+    Mem0V5HttpError,
     Mem0V5OperationReceiptAuthority,
     Mem0V5ReceiptAuthority,
 )
-from phase_c_canary.runtime_binding import RuntimeBindingComposition
+from infinity_context_server.memory_comparison_mem0_oss_v5_observed_receipt import (
+    Mem0V5ObservedExtractionReceiptAuthority,
+)
 from phase_c_canary.runtime_receipt_v2 import RuntimeReceiptV2Boundary
 
 
@@ -128,6 +136,31 @@ def _credential_paths(root: Path) -> tuple[ManagedMem0V5CredentialPaths, dict[st
     return paths, values
 
 
+def _trusted_runtime_binding(root: Path):
+    artifact = root / "runtime-artifact.json"
+    artifact.write_bytes(b'{"runtime":"hermetic-composition-test"}')
+    os.chmod(artifact, 0o600)
+    artifact_sha256 = hashlib.sha256(artifact.read_bytes()).hexdigest()
+    route = "http://127.0.0.1:8890/v1"
+    authority = runtime_binding_module._PinnedRuntimeBindingAuthority(
+        runtime_artifact=artifact,
+        runtime_artifact_sha256=artifact_sha256,
+        runtime_source_sha256=_sha("hermetic-runtime-source"),
+        transport_route=route,
+        _seal=runtime_binding_module._AUTHORITY_SEAL,
+    )
+    observer = runtime_binding_module._ConfiguredTransportObserver(
+        runtime_artifact=artifact,
+        transport_route=route,
+        _seal=runtime_binding_module._OBSERVER_SEAL,
+    )
+    return runtime_binding_module.PinnedRuntimeBindingService(
+        authority=authority,
+        observer=observer,
+        _seal=runtime_binding_module._COMPOSITION_SEAL,
+    ).issue()
+
+
 def _inputs(
     tmp_path: Path,
     *,
@@ -139,7 +172,7 @@ def _inputs(
     cases = _cases()
     current_date = "2026-08-07"
     authority = ManagedMem0V5ManifestProjector().project(cases, current_date=current_date)
-    binding = RuntimeBindingComposition.compose_phase_c_canary().issue()
+    binding = _trusted_runtime_binding(tmp_path)
     route = binding.route_binding_sha256
     source = binding.runtime_source_sha256
     request = Mem0OssAdmissionRequest(
@@ -209,6 +242,137 @@ def _inputs(
     }, values
 
 
+def _observed_authority(
+    inputs: dict[str, object],
+) -> Mem0V5ObservedExtractionReceiptAuthority:
+    old = inputs["receipt_authority"]
+    assert type(old) is Mem0V5ReceiptAuthority
+    cases = inputs["cases"]
+    current_date = inputs["current_date"]
+    request = inputs["request"]
+    assert type(cases) is tuple
+    assert type(current_date) is str
+    assert type(request) is Mem0OssAdmissionRequest
+    authority = ManagedMem0V5ManifestProjector().project(cases, current_date=current_date)
+    admission = Mem0OssFullRunAdmission(
+        request=request,
+        ingestion_manifest_sha256=authority.ingestion_manifest_sha256,
+        ingestion_root_sha256=authority.ingestion_root_sha256,
+        ingestion_unit_count=authority.operation_count,
+    )
+    operation = old.operations[0]
+    unit = authority.units[0]
+    return Mem0V5ObservedExtractionReceiptAuthority(
+        admission_commitment_sha256=admission.commitment_sha256,
+        operation_id_sha256=operation.operation_id_sha256,
+        unit_identity_sha256=unit.unit_identity_sha256,
+        unit_sha256=unit.unit_sha256,
+        scope_sha256=unit.scope_sha256,
+        sequence=0,
+        request_body_sha256=operation.request_body_sha256,
+        model=old.model,
+        reasoning_effort=old.reasoning_effort,
+        service_tier=old.service_tier,
+        base_instructions_sha256=old.base_instructions_sha256,
+        runtime_source_sha256=old.runtime_source_sha256,
+        route_binding_sha256=old.route_binding_sha256,
+        account_binding_hmac_sha256=old.account_binding_hmac_sha256,
+        response_format_type=old.response_format_type,
+        response_format_sha256=old.response_format_sha256,
+        response_schema_sha256=old.response_schema_sha256,
+        node_executable_path="/usr/local/bin/node",
+        node_executable_sha256=("b2959781cc5a74c357ffa02367efa8a0330cbb1c9cb347732fdfaaaca381cbcd"),
+        requested_output_tokens=old.requested_output_tokens,
+    )
+
+
+def test_exported_preflight_is_no_secret_no_write_no_network_and_compose_has_parity(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    def unavailable_reviewed_authority() -> object:
+        raise FileNotFoundError("hosting reviewed authority is unavailable")
+
+    monkeypatch.setattr(
+        runtime_binding_module,
+        "immutable_authority",
+        unavailable_reviewed_authority,
+    )
+    inputs, _ = _inputs(tmp_path)
+    state = inputs["state_paths"]
+    transport = inputs["transport"]
+    assert type(state) is subject.ManagedMem0V5StatePaths
+    assert type(transport) is _Transport
+
+    preflight = subject.preflight_managed_mem0_v5(**inputs)
+
+    assert type(preflight) is subject.ManagedMem0V5Preflight
+    assert preflight.admission.request == inputs["request"]
+    assert preflight.authority.operation_count == 1
+    assert repr(preflight) == "ManagedMem0V5Preflight(<opaque>)"
+    assert not state.checkpoint.exists()
+    assert not state.local_checkpoint_head.exists()
+    assert transport.calls == []
+
+    composed = subject.compose_managed_mem0_v5(**inputs)
+    assert composed.authority == preflight.authority
+    assert composed.request == preflight.admission.request
+    assert transport.calls == []
+
+
+def test_invalid_authentic_binding_snapshot_fails_before_credentials_are_loaded(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    inputs, _ = _inputs(tmp_path)
+    binding = inputs["trusted_runtime_binding"]
+    object.__setattr__(binding, "_runtime_source_sha256", "0" * 64)
+    loads = 0
+
+    def record_load(_paths: object) -> None:
+        nonlocal loads
+        loads += 1
+        raise AssertionError("credentials loaded before runtime binding preflight")
+
+    monkeypatch.setattr(subject, "load_managed_mem0_v5_credentials", record_load)
+    with pytest.raises(ManagedRunError, match="runtime authority is invalid"):
+        subject.compose_managed_mem0_v5(**inputs)
+    assert loads == 0
+
+
+def test_observed_public_binding_mismatch_fails_before_trust_helper_and_credentials(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    inputs, _ = _inputs(tmp_path)
+    inputs["receipt_authority"] = replace(
+        _observed_authority(inputs),
+        operation_id_sha256="0" * 64,
+    )
+    helper_calls = 0
+    loads = 0
+
+    def record_helper(**_kwargs: object) -> None:
+        nonlocal helper_calls
+        helper_calls += 1
+
+    def record_load(_paths: object) -> None:
+        nonlocal loads
+        loads += 1
+        raise AssertionError("credentials loaded before observed public binding preflight")
+
+    monkeypatch.setattr(
+        subject,
+        "require_mem0_v5_observed_extraction_receipt_boundary",
+        record_helper,
+    )
+    monkeypatch.setattr(subject, "load_managed_mem0_v5_credentials", record_load)
+    with pytest.raises(ManagedRunError, match="observed receipt binding differs"):
+        subject.compose_managed_mem0_v5(**inputs)
+    assert helper_calls == 0
+    assert loads == 0
+
+
 def test_public_preflight_rejects_receipt_drift_before_credentials_are_loaded(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -264,6 +428,115 @@ def test_evidence_credential_binding_mismatch_fails_closed(tmp_path: Path) -> No
     assert type(state) is subject.ManagedMem0V5StatePaths
     assert not state.checkpoint.exists()
     assert not state.local_checkpoint_head.exists()
+
+
+def test_observed_receipt_noop_boundary_rejected_before_credentials(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    inputs, _ = _inputs(tmp_path)
+    inputs["receipt_authority"] = _observed_authority(inputs)
+    loads = 0
+
+    def record_load(_paths: object) -> None:
+        nonlocal loads
+        loads += 1
+        raise AssertionError("credentials loaded before observed trust preflight")
+
+    monkeypatch.setattr(subject, "load_managed_mem0_v5_credentials", record_load)
+    with pytest.raises(Mem0V5HttpError, match="configuration_invalid"):
+        subject.compose_managed_mem0_v5(**inputs)
+    assert loads == 0
+
+
+def test_observed_receipt_union_selects_public_verifier_after_no_secret_preflight(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    inputs, _ = _inputs(tmp_path)
+    observed = _observed_authority(inputs)
+    inputs["receipt_authority"] = observed
+    events: list[str] = []
+    real_load = subject.load_managed_mem0_v5_credentials
+
+    def preflight(**kwargs: object) -> None:
+        assert kwargs["authority"] is observed
+        events.append("preflight")
+
+    def load(paths: object) -> object:
+        events.append("load")
+        return real_load(paths)
+
+    class _ObservedVerifier:
+        def __init__(self, **kwargs: object) -> None:
+            assert kwargs["authority"] is observed
+            assert type(kwargs["receipt_secret"]) is str
+            events.append("verifier")
+
+        def mark_outcome_unknown(self, **_kwargs: object) -> None:
+            return None
+
+        def verify_dispatch_receipt(self, **_kwargs: object) -> None:
+            return None
+
+        def verify_status_readback(self, **_kwargs: object) -> None:
+            return None
+
+    monkeypatch.setattr(
+        subject,
+        "require_mem0_v5_observed_extraction_receipt_boundary",
+        preflight,
+    )
+    monkeypatch.setattr(subject, "load_managed_mem0_v5_credentials", load)
+    monkeypatch.setattr(subject, "Mem0V5ObservedExtractionReceiptVerifier", _ObservedVerifier)
+    result = subject.compose_managed_mem0_v5(**inputs)
+    assert type(result.coordinator) is ManagedMem0V5LaneCoordinator
+    assert events == ["preflight", "load", "verifier"]
+
+
+def test_composition_accepts_only_exact_optional_guard_and_distinct_guard_path(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    inputs, _ = _inputs(tmp_path)
+    state = inputs["state_paths"]
+    assert type(state) is subject.ManagedMem0V5StatePaths
+    guard = create_managed_mem0_v5_single_dispatch_guard(
+        state.checkpoint.parent / "single-dispatch.json"
+    )
+    assert type(guard) is AtomicJournalManagedMem0V5SingleDispatchGuard
+    inputs["dispatch_guard"] = guard
+    result = subject.compose_managed_mem0_v5(**inputs)
+    assert type(result.coordinator) is ManagedMem0V5LaneCoordinator
+    assert not guard.path.exists()
+
+    bad_root = tmp_path / "bad-guard"
+    bad_root.mkdir()
+    bad_inputs, _ = _inputs(bad_root)
+    bad_inputs["dispatch_guard"] = object()
+    loads = 0
+
+    def record_load(_paths: object) -> None:
+        nonlocal loads
+        loads += 1
+        raise AssertionError("credentials loaded for invalid guard")
+
+    monkeypatch.setattr(subject, "load_managed_mem0_v5_credentials", record_load)
+    with pytest.raises(ManagedRunError, match="composition input is invalid"):
+        subject.compose_managed_mem0_v5(**bad_inputs)
+    assert loads == 0
+
+    collision_root = tmp_path / "collision"
+    collision_root.mkdir()
+    collision_inputs, _ = _inputs(collision_root)
+    collision_state = collision_inputs["state_paths"]
+    assert type(collision_state) is subject.ManagedMem0V5StatePaths
+    collision_inputs["dispatch_guard"] = create_managed_mem0_v5_single_dispatch_guard(
+        collision_state.checkpoint
+    )
+    with pytest.raises(ManagedRunError, match="paths are not distinct"):
+        subject.compose_managed_mem0_v5(**collision_inputs)
+    assert loads == 0
 
 
 class _Capability:

@@ -11,6 +11,9 @@ from infinity_context_server.memory_comparison_managed_mem0_v5_checkpoint import
     ManagedMem0V5CheckpointPhase,
     ManagedMem0V5RunPhase,
 )
+from infinity_context_server.memory_comparison_managed_mem0_v5_http_lane import (
+    ManagedMem0V5SearchReceipt,
+)
 from infinity_context_server.memory_comparison_managed_mem0_v5_progress import (
     ManagedMem0V5ProgressPort,
 )
@@ -228,6 +231,15 @@ class ManagedMem0V5LanePort(Protocol):
         operation_id_sha256: str,
         admission: Mem0OssFullRunAdmission,
     ) -> ManagedMem0V5AuthenticatedStorageWitness: ...
+
+    def search(
+        self,
+        *,
+        admission: Mem0OssFullRunAdmission,
+        corpus_id: str,
+        query: str,
+        limit: int,
+    ) -> ManagedMem0V5SearchReceipt: ...
 
     def cleanup(
         self,
@@ -537,6 +549,86 @@ class ManagedMem0V5LaneCoordinator:
                 raise ManagedRunError("managed Mem0 v5 restore seal differs")
         return checkpoint
 
+    def seal_restored_completed(self) -> Mem0OssRunSeal:
+        """Seal only fully restored committed operations, without dispatching."""
+
+        if self._terminal is not None or self._pending_terminal is not None:
+            raise ManagedRunError("managed Mem0 v5 lane is terminal")
+        authority = self._required_authority()
+        if self._service.state is Mem0OssFullRunState.SEALED:
+            return self._service.seal_evidence
+        expected = set(range(authority.operation_count))
+        if (
+            self._service.state is not Mem0OssFullRunState.ACTIVE
+            or self._completed != expected
+            or self._dispatched != expected
+            or set(self._storage_observations) != expected
+        ):
+            raise ManagedRunError("managed Mem0 v5 restored completion coverage differs")
+        seal = self._service.seal()
+        if self._progress is not None:
+            self._progress.record_seal(
+                authority=authority,
+                admission=self._service.admission,
+                seal=seal,
+            )
+        return seal
+
+    def search_evidence(
+        self,
+        *,
+        corpus_id: str,
+        query: str,
+        limit: int,
+    ) -> ManagedMem0V5SearchReceipt:
+        if self._terminal is not None or self._pending_terminal is not None:
+            raise ManagedRunError("managed Mem0 v5 lane is terminal")
+        authority = self._required_authority()
+        if self._service.state is not Mem0OssFullRunState.SEALED:
+            raise ManagedRunError("managed Mem0 v5 search requires sealed state")
+        corpus_units = tuple(
+            (index, unit)
+            for index, unit in enumerate(authority.units)
+            if unit.corpus_id == corpus_id
+        )
+        if not corpus_units:
+            raise ManagedRunError("managed Mem0 v5 search corpus binding differs")
+        allowed_records: set[tuple[str, str, str]] = set()
+        for index, unit in corpus_units:
+            evidence = self._storage_observations.get(index)
+            if (
+                evidence is None
+                or evidence.source_pairs != ((unit.source_id, unit.source_sha256),)
+            ):
+                raise ManagedRunError("managed Mem0 v5 search source coverage differs")
+            allowed_records.update(
+                (record_id, unit.source_id, unit.source_sha256)
+                for record_id in evidence.created_record_ids
+            )
+        search = getattr(self._lane, "search", None)
+        if not callable(search):
+            raise ManagedRunError("managed Mem0 v5 authenticated search port is unavailable")
+        receipt = search(
+            admission=self._service.admission,
+            corpus_id=corpus_id,
+            query=query,
+            limit=limit,
+        )
+        if (
+            type(receipt) is not ManagedMem0V5SearchReceipt
+            or receipt.admission_commitment_sha256 != self._service.admission.commitment_sha256
+            or receipt.corpus_id != corpus_id
+            or receipt.query_commitment_sha256 != canonical_sha256({"query": query})
+            or receipt.limit != limit
+            or any(
+                (record.record_id, record.source_id, record.source_sha256)
+                not in allowed_records
+                for record in receipt.records
+            )
+        ):
+            raise ManagedRunError("managed Mem0 v5 search evidence binding differs")
+        return receipt
+
     def cleanup(self) -> Mem0OssTerminalCleanupEvidence:
         if self._pending_terminal is not None:
             pending = self._pending_terminal
@@ -770,6 +862,7 @@ __all__ = (
     "ManagedMem0V5BudgetPolicy",
     "ManagedMem0V5LaneCoordinator",
     "ManagedMem0V5LanePort",
+    "ManagedMem0V5SearchReceipt",
     "ManagedMem0V5SourcePair",
     "ManagedMem0V5StorageObservation",
 )

@@ -21,6 +21,10 @@ from infinity_context_server.memory_comparison_managed_mem0_v5_credentials impor
     ManagedMem0V5CredentialPaths,
     load_managed_mem0_v5_credentials,
 )
+from infinity_context_server.memory_comparison_managed_mem0_v5_dispatch_guard import (
+    AtomicJournalManagedMem0V5SingleDispatchGuard,
+    ManagedMem0V5SingleDispatchGuardPort,
+)
 from infinity_context_server.memory_comparison_managed_mem0_v5_head_sqlite import (
     SQLiteManagedMem0V5CheckpointHead,
 )
@@ -58,6 +62,11 @@ from infinity_context_server.memory_comparison_mem0_oss_v5_http import (
     Mem0V5ReceiptAuthority,
     Mem0V5RuntimeReceiptVerifier,
     Mem0V5TransportPort,
+)
+from infinity_context_server.memory_comparison_mem0_oss_v5_observed_receipt import (
+    Mem0V5ObservedExtractionReceiptAuthority,
+    Mem0V5ObservedExtractionReceiptVerifier,
+    require_mem0_v5_observed_extraction_receipt_boundary,
 )
 from infinity_context_server.memory_comparison_mem0_oss_v5_run import Mem0OssFullRunService
 
@@ -105,6 +114,71 @@ class ManagedMem0V5Composition:
         return "ManagedMem0V5Composition(<opaque>)"
 
 
+@final
+@dataclass(frozen=True, slots=True, repr=False)
+class ManagedMem0V5Preflight:
+    """Secret-free authority derived by the exact production public preflight."""
+
+    authority: ManagedMem0V5ManifestAuthority
+    admission: Mem0OssFullRunAdmission
+
+    def __post_init__(self) -> None:
+        if (
+            type(self.authority) is not ManagedMem0V5ManifestAuthority
+            or type(self.admission) is not Mem0OssFullRunAdmission
+            or self.admission.ingestion_manifest_sha256 != self.authority.ingestion_manifest_sha256
+            or self.admission.ingestion_root_sha256 != self.authority.ingestion_root_sha256
+            or self.admission.ingestion_unit_count != self.authority.operation_count
+        ):
+            raise ManagedRunError("managed Mem0 v5 preflight result is invalid")
+
+    def __repr__(self) -> str:
+        return "ManagedMem0V5Preflight(<opaque>)"
+
+
+def preflight_managed_mem0_v5(
+    *,
+    cases: tuple[ManagedRunCase, ...],
+    current_date: str,
+    request: Mem0OssAdmissionRequest,
+    origin: str,
+    timeout_seconds: float,
+    state_paths: ManagedMem0V5StatePaths,
+    credential_paths: ManagedMem0V5CredentialPaths,
+    runtime_receipt_boundary: object,
+    trusted_runtime_binding: object,
+    receipt_authority: Mem0V5ReceiptAuthority | Mem0V5ObservedExtractionReceiptAuthority,
+    dispatch_guard: ManagedMem0V5SingleDispatchGuardPort | None = None,
+    transport: Mem0V5TransportPort | None = None,
+) -> ManagedMem0V5Preflight:
+    """Validate all public production authority without secrets, writes, or network."""
+
+    authority = ManagedMem0V5ManifestProjector().project(cases, current_date=current_date)
+    _require_endpoint(origin=origin, timeout_seconds=timeout_seconds)
+    _require_state_storage(state_paths)
+    _require_trusted_runtime_inputs(
+        runtime_receipt_boundary=runtime_receipt_boundary,
+        trusted_runtime_binding=trusted_runtime_binding,
+        transport=transport,
+    )
+    admission = _require_public_binding(
+        authority=authority,
+        request=request,
+        state_paths=state_paths,
+        credential_paths=credential_paths,
+        trusted_runtime_binding=trusted_runtime_binding,
+        receipt_authority=receipt_authority,
+        dispatch_guard=dispatch_guard,
+    )
+    if type(receipt_authority) is Mem0V5ObservedExtractionReceiptAuthority:
+        require_mem0_v5_observed_extraction_receipt_boundary(
+            boundary=runtime_receipt_boundary,
+            runtime_binding=trusted_runtime_binding,
+            authority=receipt_authority,
+        )
+    return ManagedMem0V5Preflight(authority, admission)
+
+
 def compose_managed_mem0_v5(
     *,
     cases: tuple[ManagedRunCase, ...],
@@ -116,7 +190,8 @@ def compose_managed_mem0_v5(
     credential_paths: ManagedMem0V5CredentialPaths,
     runtime_receipt_boundary: object,
     trusted_runtime_binding: object,
-    receipt_authority: Mem0V5ReceiptAuthority,
+    receipt_authority: Mem0V5ReceiptAuthority | Mem0V5ObservedExtractionReceiptAuthority,
+    dispatch_guard: ManagedMem0V5SingleDispatchGuardPort | None = None,
     transport: Mem0V5TransportPort | None = None,
 ) -> ManagedMem0V5Composition:
     """Build a fresh process-local coordinator over shared authenticated state.
@@ -126,23 +201,22 @@ def compose_managed_mem0_v5(
     admission metadata; this composition root makes no provenance claim for either field.
     """
 
-    projector = ManagedMem0V5ManifestProjector()
-    authority = projector.project(cases, current_date=current_date)
-    _require_endpoint(origin=origin, timeout_seconds=timeout_seconds)
-    _require_state_storage(state_paths)
-    _require_trusted_runtime_inputs(
-        runtime_receipt_boundary=runtime_receipt_boundary,
-        trusted_runtime_binding=trusted_runtime_binding,
-        transport=transport,
-    )
-    _require_public_binding(
-        authority=authority,
+    preflight = preflight_managed_mem0_v5(
+        cases=cases,
+        current_date=current_date,
         request=request,
+        origin=origin,
+        timeout_seconds=timeout_seconds,
         state_paths=state_paths,
         credential_paths=credential_paths,
+        runtime_receipt_boundary=runtime_receipt_boundary,
         trusted_runtime_binding=trusted_runtime_binding,
         receipt_authority=receipt_authority,
+        dispatch_guard=dispatch_guard,
+        transport=transport,
     )
+    authority = preflight.authority
+    projector = ManagedMem0V5ManifestProjector()
 
     with load_managed_mem0_v5_credentials(credential_paths) as credentials:
         witness_issuer, witness_verifier = create_managed_mem0_v5_storage_witness_authority()
@@ -153,12 +227,21 @@ def compose_managed_mem0_v5(
         if request.credential_binding_sha256 != evidence_verifier.key_commitment_sha256:
             raise ManagedRunError("managed Mem0 v5 composition credential binding differs")
 
-        receipt_verifier = Mem0V5RuntimeReceiptVerifier(
-            boundary=runtime_receipt_boundary,
-            runtime_binding=trusted_runtime_binding,
-            receipt_secret=credentials.receipt_secret.consume(),
-            authority=receipt_authority,
-        )
+        receipt_secret = credentials.receipt_secret.consume()
+        if type(receipt_authority) is Mem0V5ReceiptAuthority:
+            receipt_verifier = Mem0V5RuntimeReceiptVerifier(
+                boundary=runtime_receipt_boundary,
+                runtime_binding=trusted_runtime_binding,
+                receipt_secret=receipt_secret,
+                authority=receipt_authority,
+            )
+        else:
+            receipt_verifier = Mem0V5ObservedExtractionReceiptVerifier(
+                boundary=runtime_receipt_boundary,
+                runtime_binding=trusted_runtime_binding,
+                receipt_secret=receipt_secret,
+                authority=receipt_authority,
+            )
         if not callable(getattr(receipt_verifier, "mark_outcome_unknown", None)):
             raise ManagedRunError("managed Mem0 v5 receipt recovery marker is unavailable")
         service = Mem0OssFullRunService(
@@ -177,6 +260,7 @@ def compose_managed_mem0_v5(
             evidence_verifier=evidence_verifier,
             dispatch_binding=evidence_verifier,
             cleanup_binding=ManagedMem0V5ServiceCleanupBinding(service=service),
+            dispatch_guard=dispatch_guard,
             transport=transport,
         )
         signer = HmacSha256ManagedMem0V5CheckpointSigner(
@@ -209,23 +293,34 @@ def _require_public_binding(
     state_paths: ManagedMem0V5StatePaths,
     credential_paths: ManagedMem0V5CredentialPaths,
     trusted_runtime_binding: object,
-    receipt_authority: Mem0V5ReceiptAuthority,
+    receipt_authority: Mem0V5ReceiptAuthority | Mem0V5ObservedExtractionReceiptAuthority,
+    dispatch_guard: ManagedMem0V5SingleDispatchGuardPort | None,
 ) -> Mem0OssFullRunAdmission:
     if (
         type(state_paths) is not ManagedMem0V5StatePaths
         or type(credential_paths) is not ManagedMem0V5CredentialPaths
         or type(request) is not Mem0OssAdmissionRequest
-        or type(receipt_authority) is not Mem0V5ReceiptAuthority
+        or type(receipt_authority)
+        not in (Mem0V5ReceiptAuthority, Mem0V5ObservedExtractionReceiptAuthority)
+        or (
+            dispatch_guard is not None
+            and (
+                type(dispatch_guard) is not AtomicJournalManagedMem0V5SingleDispatchGuard
+                or authority.operation_count != 1
+            )
+        )
     ):
         raise ManagedRunError("managed Mem0 v5 composition input is invalid")
     state_values = (state_paths.checkpoint, state_paths.local_checkpoint_head)
+    guard_values = () if dispatch_guard is None else (dispatch_guard.path,)
     try:
         normalized_paths = tuple(
-            path.resolve(strict=False) for path in (*state_values, *credential_paths.values())
+            path.resolve(strict=False)
+            for path in (*state_values, *guard_values, *credential_paths.values())
         )
     except OSError:
         raise ManagedRunError("managed Mem0 v5 composition paths are not distinct") from None
-    if len(set(normalized_paths)) != 7:
+    if len(set(normalized_paths)) != 7 + len(guard_values):
         raise ManagedRunError("managed Mem0 v5 composition paths are not distinct")
     try:
         binding_source = trusted_runtime_binding.runtime_source_sha256
@@ -262,12 +357,25 @@ def _require_public_binding(
         )
         for index, unit in enumerate(authority.units)
     )
-    actual_operations = tuple(
-        (operation.sequence, operation.operation_id_sha256)
-        for operation in receipt_authority.operations
-    )
-    if actual_operations != expected_operations:
-        raise ManagedRunError("managed Mem0 v5 composition receipt operations differ")
+    if type(receipt_authority) is Mem0V5ReceiptAuthority:
+        actual_operations = tuple(
+            (operation.sequence, operation.operation_id_sha256)
+            for operation in receipt_authority.operations
+        )
+        if actual_operations != expected_operations:
+            raise ManagedRunError("managed Mem0 v5 composition receipt operations differ")
+    else:
+        unit = authority.units[0] if authority.operation_count == 1 else None
+        if (
+            unit is None
+            or receipt_authority.admission_commitment_sha256 != admission.commitment_sha256
+            or receipt_authority.sequence != 0
+            or receipt_authority.operation_id_sha256 != expected_operations[0][1]
+            or receipt_authority.unit_identity_sha256 != unit.unit_identity_sha256
+            or receipt_authority.unit_sha256 != unit.unit_sha256
+            or receipt_authority.scope_sha256 != unit.scope_sha256
+        ):
+            raise ManagedRunError("managed Mem0 v5 composition observed receipt binding differs")
     return admission
 
 
@@ -338,6 +446,8 @@ def _require_trusted_runtime_inputs(
 
 __all__ = (
     "ManagedMem0V5Composition",
+    "ManagedMem0V5Preflight",
     "ManagedMem0V5StatePaths",
     "compose_managed_mem0_v5",
+    "preflight_managed_mem0_v5",
 )
