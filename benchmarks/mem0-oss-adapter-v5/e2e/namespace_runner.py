@@ -662,14 +662,14 @@ def run(arguments: E2ERunArguments) -> Mapping[str, Any]:
     return NamespaceRunOrchestrator(
         locator=locator,
         process_attestor=support.ProcessNamespaceAttestor(error_type=NamespaceRunnerError),
-        executor=support.SourcePinAttestingExecutor(
-            delegate=support.NodeAttestingExecutor(
-                delegate=PinnedNetnsExecutor(support.validate_public_result),
-                node_path=arguments.node,
-                error_type=NamespaceRunnerError,
-            ),
+        executor=support.build_e2e_attesting_executor(
+            delegate=PinnedNetnsExecutor(support.validate_public_result),
+            node_path=arguments.node,
             manifest_path=Path(environment["MEM0_V5_SOURCE_AUTHORITY_PIN_DIR"]) / "manifest.json",
             digest_path=Path(environment["MEM0_V5_SOURCE_AUTHORITY_PIN_SHA256_FILE"]),
+            run_root=arguments.run_root,
+            expected_uid=MAPPED_RUNTIME_UID,
+            expected_gid=MAPPED_RUNTIME_GID,
             error_type=NamespaceRunnerError,
         ),
         lifecycle_helper_type=lambda **values: support.RootDockerLifecycleHelper(
@@ -684,6 +684,7 @@ def _child_environment(source: Mapping[str, str], arguments: E2ERunArguments) ->
         "PATH": "/usr/bin:/bin",
         "LANG": "C.UTF-8",
         "PYTHONDONTWRITEBYTECODE": "1",
+        "MEM0_DIR": str(arguments.run_root / "state" / "e2e-mem0-config"),
     }
     for name in COMPOSE_PATH_ENVIRONMENT:
         value = source.get(name)

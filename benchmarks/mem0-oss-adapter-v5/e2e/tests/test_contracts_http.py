@@ -44,6 +44,8 @@ def test_fixture_materializes_exact_sealed_input(tmp_path) -> None:
     assert manifest["ingestion_root_sha256"] == fixture.ingestion_root_sha256
     assert fixture.dispatch_body()["request_body_sha256"] == "1" * 64
     assert set(directories) == {"input", "state", "secrets", "fake-runtime"}
+    memory_config = root / "state" / "e2e-mem0-config"
+    assert memory_config.is_dir() and memory_config.stat().st_mode & 0o777 == 0o700
     assert manifest_path.stat().st_mode & 0o777 == 0o400
     assert all(path.stat().st_mode & 0o777 == 0o600 for path in (root / "secrets").iterdir())
 

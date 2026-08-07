@@ -249,6 +249,7 @@ class RunFixture:
         }
         for path in directories.values():
             path.mkdir(mode=0o700)
+        (directories["state"] / "e2e-mem0-config").mkdir(mode=0o700)
         generated = {
             "ingress-bearer": secrets.token_hex(32),
             "state-hmac": secrets.token_hex(32),

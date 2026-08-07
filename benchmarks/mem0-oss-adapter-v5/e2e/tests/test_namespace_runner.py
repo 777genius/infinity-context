@@ -570,6 +570,7 @@ def test_child_environment_is_exact_allowlist_and_rejects_values(monkeypatch) ->
         "PYTHONPATH": "/attacker",
         "LD_PRELOAD": "/attacker.so",
         "RUNTIME_BEARER": "secret",
+        "MEM0_DIR": "/attacker-controlled",
     }
     value = runner._child_environment(source, arguments)
     assert set(value) == {
@@ -578,7 +579,9 @@ def test_child_environment_is_exact_allowlist_and_rejects_values(monkeypatch) ->
         "PATH",
         "LANG",
         "PYTHONDONTWRITEBYTECODE",
+        "MEM0_DIR",
     }
+    assert value["MEM0_DIR"] == str(arguments.run_root / "state" / "e2e-mem0-config")
     assert "PYTHONPATH" not in value and "LD_PRELOAD" not in value
     source[runner.COMPOSE_PATH_ENVIRONMENT[0]] = "secret-not-a-path"
     with pytest.raises(runner.NamespaceRunnerError, match="e2e_child_environment_invalid"):

@@ -28,8 +28,9 @@ and GID maps instead of copying these identities to another lane.
 
 ## Exact hosting flow
 
-Prepare a fresh private run root as the mapped host identity. Use a task-specific
-`MEM0_DIR`; do not change `HOME`. Increment `RUN_SEQUENCE` for every attempt and
+Prepare a fresh private run root as the mapped host identity. The external
+`MEM0_DIR` below is used only by the separate prepare process; do not change
+`HOME`. Increment `RUN_SEQUENCE` for every attempt and
 keep `SOURCE_PIN_HEX` equal to the basename of the reviewed final authority.
 
 ```bash
@@ -104,6 +105,9 @@ CLI call it revalidates the socket, pidfile, dockerd process, UID/GID maps, and
 data/exec roots. The child runs only after dropping to mapped UID/GID
 `296603:296603` with supplementary groups cleared, all capability sets cleared,
 and `no_new_privs`. The child cannot traverse or open the Docker socket. Its one
+`MEM0_DIR` is not accepted from the caller: prepare creates the private
+`$RUN_ROOT/state/e2e-mem0-config` as `296603:296603` mode `0700`; the runner
+derives that exact path and holds its identities across the complete child lifecycle. Its one
 fixed restart request crosses a private inherited socketpair to the root wrapper,
 which alone runs the two exact Docker lifecycle commands. Its environment is an explicit path-only
 allowlist. The public result contains only the exact canonical PASS verdict;

@@ -502,6 +502,135 @@ class SourcePinAttestingExecutor:
                 os.close(descriptor)
 
 
+class PrivateDirectoryAttestor:
+    """Bind one prepare-owned mutable directory without trusting environment input."""
+
+    def __init__(
+        self,
+        *,
+        run_root: Path,
+        path: Path,
+        expected_uid: int,
+        expected_gid: int,
+        error_type: type[Exception],
+    ) -> None:
+        parent = run_root / "state"
+        if path != parent / "e2e-mem0-config":
+            raise error_type("e2e_child_mem0_dir_invalid")
+        self._parent = parent
+        self._path = path
+        self._owner = (expected_uid, expected_gid)
+        self._error = error_type
+
+    def open(self) -> tuple[tuple[int, int], tuple[tuple[int, ...], tuple[int, ...]]]:
+        descriptors: list[int] = []
+        try:
+            parent_fd = os.open(
+                self._parent,
+                os.O_RDONLY | os.O_CLOEXEC | os.O_NOFOLLOW | os.O_DIRECTORY,
+            )
+            descriptors.append(parent_fd)
+            parent_identity = _private_directory_identity(os.fstat(parent_fd), self._owner)
+            child_fd = os.open(
+                "e2e-mem0-config",
+                os.O_RDONLY | os.O_CLOEXEC | os.O_NOFOLLOW | os.O_DIRECTORY,
+                dir_fd=parent_fd,
+            )
+            descriptors.append(child_fd)
+            child_identity = _private_directory_identity(os.fstat(child_fd), self._owner)
+            self.reattest((parent_fd, child_fd), (parent_identity, child_identity))
+            return (parent_fd, child_fd), (parent_identity, child_identity)
+        except Exception as error:
+            for descriptor in descriptors:
+                os.close(descriptor)
+            if isinstance(error, self._error):
+                raise
+            raise self._error("e2e_child_mem0_dir_invalid") from None
+
+    def reattest(
+        self,
+        descriptors: tuple[int, int],
+        identities: tuple[tuple[int, ...], tuple[int, ...]],
+    ) -> None:
+        parent_fd, child_fd = descriptors
+        parent_identity, child_identity = identities
+        try:
+            live_parent = os.lstat(self._parent)
+            live_child = os.stat("e2e-mem0-config", dir_fd=parent_fd, follow_symlinks=False)
+            if (
+                _private_directory_identity(live_parent, self._owner) != parent_identity
+                or _private_directory_identity(os.fstat(parent_fd), self._owner) != parent_identity
+                or _private_directory_identity(live_child, self._owner) != child_identity
+                or _private_directory_identity(os.fstat(child_fd), self._owner) != child_identity
+            ):
+                raise self._error("e2e_child_mem0_dir_changed")
+        except Exception as error:
+            if isinstance(error, self._error):
+                raise
+            raise self._error("e2e_child_mem0_dir_changed") from None
+
+
+class PrivateDirectoryAttestingExecutor:
+    def __init__(self, *, delegate: Any, attestor: PrivateDirectoryAttestor) -> None:
+        self._delegate = delegate
+        self._attestor = attestor
+
+    def execute(self, *arguments: Any) -> Mapping[str, Any]:
+        descriptors, identities = self._attestor.open()
+        try:
+            self._attestor.reattest(descriptors, identities)
+            try:
+                return self._delegate.execute(*arguments)
+            finally:
+                self._attestor.reattest(descriptors, identities)
+        finally:
+            for descriptor in descriptors:
+                os.close(descriptor)
+
+
+def build_e2e_attesting_executor(
+    *,
+    delegate: Any,
+    node_path: Path,
+    manifest_path: Path,
+    digest_path: Path,
+    run_root: Path,
+    expected_uid: int,
+    expected_gid: int,
+    error_type: type[Exception],
+) -> PrivateDirectoryAttestingExecutor:
+    immutable = SourcePinAttestingExecutor(
+        delegate=NodeAttestingExecutor(
+            delegate=delegate, node_path=node_path, error_type=error_type
+        ),
+        manifest_path=manifest_path,
+        digest_path=digest_path,
+        error_type=error_type,
+    )
+    return PrivateDirectoryAttestingExecutor(
+        delegate=immutable,
+        attestor=PrivateDirectoryAttestor(
+            run_root=run_root,
+            path=run_root / "state" / "e2e-mem0-config",
+            expected_uid=expected_uid,
+            expected_gid=expected_gid,
+            error_type=error_type,
+        ),
+    )
+
+
+def _private_directory_identity(
+    metadata: os.stat_result, owner: tuple[int, int]
+) -> tuple[int, ...]:
+    if (
+        not stat.S_ISDIR(metadata.st_mode)
+        or (metadata.st_uid, metadata.st_gid) != owner
+        or stat.S_IMODE(metadata.st_mode) != 0o700
+    ):
+        raise ValueError("private_directory_invalid")
+    return metadata.st_dev, metadata.st_ino, metadata.st_uid, metadata.st_gid, 0o700
+
+
 def _immutable_file_identity(
     metadata: os.stat_result, *, maximum: int, owner: tuple[int, int] = (0, 0)
 ) -> tuple[int, ...]:
