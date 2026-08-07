@@ -493,6 +493,31 @@ def test_reviewed_node_uses_exact_reviewed_binary_size_bound(
     }
 
 
+@pytest.mark.parametrize(
+    ("name", "raw", "accepted"),
+    (
+        ("runtime-transport-origin", b"http://127.0.0.1:8891", True),
+        ("runtime-transport-origin", b"http://127.0.0.1:8892", False),
+        ("ingress-bearer", b"x" * 32, True),
+        ("ingress-bearer", b"x" * 31, False),
+    ),
+)
+def test_private_file_uses_semantic_transport_origin_policy(
+    tmp_path: Path, name: str, raw: bytes, accepted: bool
+) -> None:
+    root = tmp_path / "secrets"
+    root.mkdir(mode=0o700)
+    path = root / name
+    path.write_bytes(raw)
+    path.chmod(0o600)
+
+    if accepted:
+        assert subject._read_private_file(path, parent=root) == raw
+    else:
+        with pytest.raises(ValueError, match="private_file_invalid"):
+            subject._read_private_file(path, parent=root)
+
+
 def test_production_factory_composes_observed_authority_and_durable_guard(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,

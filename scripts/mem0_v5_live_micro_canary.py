@@ -50,6 +50,7 @@ _MAX_AUTHORITY_BYTES = 64 * 1024
 _REVIEWED_NODE_SHA256 = "b2959781cc5a74c357ffa02367efa8a0330cbb1c9cb347732fdfaaaca381cbcd"
 _MAX_PUBLIC_IMMUTABLE_BYTES = 32 * 1024 * 1024
 _REVIEWED_NODE_SIZE_BYTES = 123_438_592
+_RUNTIME_TRANSPORT_ORIGIN = b"http://127.0.0.1:8891"
 
 
 class SealView(Protocol):
@@ -850,7 +851,10 @@ def _read_private_file(path: Path, *, parent: Path) -> bytes:
         allowed_owners={os.geteuid()},
         code="mem0_v5_live_private_file_invalid",
     )
-    if len(raw) < 32:
+    if path.name == "runtime-transport-origin":
+        if raw != _RUNTIME_TRANSPORT_ORIGIN:
+            raise ValueError("mem0_v5_live_private_file_invalid")
+    elif len(raw) < 32:
         raise ValueError("mem0_v5_live_private_file_invalid")
     return raw
 
