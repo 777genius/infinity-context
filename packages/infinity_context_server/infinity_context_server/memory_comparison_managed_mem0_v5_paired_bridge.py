@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import hmac
 import threading
 from enum import Enum
@@ -12,15 +13,38 @@ from infinity_context_server.memory_comparison_managed_mem0_v5_checkpoint import
     ManagedMem0V5Checkpoint,
     ManagedMem0V5RunPhase,
 )
+from infinity_context_server.memory_comparison_managed_mem0_v5_cleanup_readback import (
+    ManagedMem0V5CleanupReadbackWitness,
+)
 from infinity_context_server.memory_comparison_managed_mem0_v5_http_lane import (
     ManagedMem0V5SearchRecord,
 )
-from infinity_context_server.memory_comparison_managed_mem0_v5_lane import (
-    ManagedMem0V5AuthenticatedSearchWitness,
-    ManagedMem0V5BudgetPolicy,
-)
+from infinity_context_server.memory_comparison_managed_mem0_v5_lane import ManagedMem0V5BudgetPolicy
 from infinity_context_server.memory_comparison_managed_mem0_v5_projector import (
     ManagedMem0V5ManifestAuthority,
+    ManagedMem0V5SourceUnit,
+)
+from infinity_context_server.memory_comparison_managed_mem0_v5_run_evidence import (
+    ManagedMem0V5AuthenticatedCleanStateWitness,
+    ManagedMem0V5CleanCorpusScope,
+    ManagedMem0V5CleanStateSnapshotPort,
+    ManagedMem0V5CleanStateWitnessVerifierPort,
+    ManagedMem0V5CorpusEvidenceProjector,
+    ManagedMem0V5CorpusIngestEvidence,
+    ManagedMem0V5DurableCleanStatePort,
+    managed_mem0_v5_clean_evidence_commitment_sha256,
+)
+from infinity_context_server.memory_comparison_managed_mem0_v5_search_witness import (
+    ManagedMem0V5AuthenticatedSearchWitness,
+)
+from infinity_context_server.memory_comparison_managed_mem0_v5_storage_witness import (
+    ManagedMem0V5AuthenticatedStorageWitness,
+    ManagedMem0V5StorageWitnessVerifierPort,
+)
+from infinity_context_server.memory_comparison_managed_mem0_v5_transport_evidence import (
+    ManagedTransportCoverageCapabilityPort,
+    VerifiedManagedTransportCoverage,
+    authenticate_managed_transport_coverage,
 )
 from infinity_context_server.memory_comparison_managed_run_contract import ManagedRunError
 from infinity_context_server.memory_comparison_mem0_oss_v5_contracts import (
@@ -130,8 +154,6 @@ class ManagedMem0V5PairedEvidenceProjector:
 
 
 class ManagedMem0V5PairedCoordinatorPort(Protocol):
-    """Run-level seam matching v5 semantics, intentionally not a per-unit lane."""
-
     def admit(
         self,
         *,
@@ -163,10 +185,21 @@ class ManagedMem0V5PairedCoordinatorPort(Protocol):
     @property
     def terminal_evidence(self) -> Mem0OssTerminalCleanupEvidence: ...
 
+    @property
+    def storage_observations(self) -> tuple[ManagedMem0V5AuthenticatedStorageWitness, ...]: ...
+
+
+class ManagedMem0V5CleanupReadbackCapabilityPort(Protocol):
+    def readback(
+        self, *, pass_index: int, request: object, terminal: Mem0OssTerminalCleanupEvidence
+    ) -> ManagedMem0V5CleanupReadbackWitness: ...
+
 
 class _RunState(Enum):
     NEW = "new"
-    STARTING = "starting"
+    ADMITTING = "admitting"
+    ADMITTED = "admitted"
+    DISPATCHING = "dispatching"
     RESTORING = "restoring"
     SEALED = "sealed"
     SEARCHING = "searching"
@@ -179,19 +212,26 @@ class _RunState(Enum):
 
 @final
 class ManagedMem0V5PairedRun:
-    """Locked one-start, many-search, one-cleanup lifecycle facade."""
-
     __slots__ = (
         "_authority",
         "_accepted_seal",
+        "_accepted_seal_commitment_sha256",
         "_budget_policy",
+        "_clean_state",
+        "_clean_state_snapshot",
+        "_clean_state_verifier",
+        "_cleanup_readback_consumed",
         "_coordinator",
+        "_corpus_projector",
+        "_durable_clean_state",
         "_expected_admission_commitment_sha256",
+        "_expected_clean_scopes",
         "_lock",
         "_projector",
         "_request",
         "_state",
         "_terminal",
+        "_transport_coverage_consumed",
     )
 
     def __init__(
@@ -201,12 +241,19 @@ class ManagedMem0V5PairedRun:
         request: Mem0OssAdmissionRequest,
         budget_policy: ManagedMem0V5BudgetPolicy,
         coordinator: ManagedMem0V5PairedCoordinatorPort,
+        clean_state_snapshot_port: ManagedMem0V5CleanStateSnapshotPort,
+        clean_state_verifier: ManagedMem0V5CleanStateWitnessVerifierPort,
+        durable_clean_state_port: ManagedMem0V5DurableCleanStatePort,
+        storage_witness_verifier: ManagedMem0V5StorageWitnessVerifierPort,
     ) -> None:
         if (
             type(authority) is not ManagedMem0V5ManifestAuthority
             or type(request) is not Mem0OssAdmissionRequest
             or type(budget_policy) is not ManagedMem0V5BudgetPolicy
             or not _coordinator_port(coordinator)
+            or not _clean_state_snapshot_port(clean_state_snapshot_port)
+            or not _clean_state_verifier_port(clean_state_verifier)
+            or not _durable_clean_state_port(durable_clean_state_port)
         ):
             raise ManagedRunError("managed Mem0 v5 paired run composition is invalid")
         authority.__post_init__()
@@ -218,35 +265,80 @@ class ManagedMem0V5PairedRun:
         )
         self._authority = authority
         self._accepted_seal: Mem0OssRunSeal | None = None
+        self._accepted_seal_commitment_sha256: str | None = None
         self._request = request
         self._budget_policy = budget_policy
         self._coordinator = coordinator
+        self._clean_state_snapshot = clean_state_snapshot_port
+        self._clean_state_verifier = clean_state_verifier
+        self._durable_clean_state = durable_clean_state_port
+        self._corpus_projector = ManagedMem0V5CorpusEvidenceProjector(
+            authority=authority,
+            admission_commitment_sha256=admission.commitment_sha256,
+            storage_verifier=storage_witness_verifier,
+        )
         self._expected_admission_commitment_sha256 = admission.commitment_sha256
+        self._expected_clean_scopes = _expected_clean_scopes(
+            authority=authority,
+            admission_commitment_sha256=admission.commitment_sha256,
+        )
         self._projector = ManagedMem0V5PairedEvidenceProjector(
             authority=authority,
             expected_admission_commitment_sha256=admission.commitment_sha256,
         )
         self._lock = threading.RLock()
         self._state = _RunState.NEW
+        self._clean_state: ManagedMem0V5AuthenticatedCleanStateWitness | None = None
         self._terminal: Mem0OssTerminalCleanupEvidence | None = None
+        self._transport_coverage_consumed = False
+        self._cleanup_readback_consumed = False
 
     def start(self) -> Mem0OssRunSeal:
+        self.admit()
+        return self.dispatch()
+
+    def admit(self) -> ManagedMem0V5AuthenticatedCleanStateWitness:
         with self._lock:
             self._require_new()
-            self._state = _RunState.STARTING
+            self._state = _RunState.ADMITTING
             try:
                 self._coordinator.admit(
                     authority=self._authority,
                     request=self._request,
                     budget_policy=self._budget_policy,
                 )
+                witness = self._clean_state_snapshot.prove_empty_scopes(
+                    expected_admission_commitment_sha256=(
+                        self._expected_admission_commitment_sha256
+                    ),
+                    expected_run_id_sha256=_run_id_sha256(self._request.run_id),
+                    expected_authority_commitment_sha256=(
+                        self._authority.authority_commitment_sha256
+                    ),
+                    expected_scopes=self._expected_clean_scopes,
+                )
+                authenticated = self._authenticate_clean_state(witness)
+                self._durable_clean_state.save_original(authenticated)
+            except Exception as primary:
+                self._abort_after_failure(primary)
+                raise
+            self._clean_state = authenticated
+            self._state = _RunState.ADMITTED
+            return authenticated
+
+    def dispatch(self) -> Mem0OssRunSeal:
+        with self._lock:
+            if self._state is not _RunState.ADMITTED:
+                raise ManagedRunError("managed Mem0 v5 paired dispatch requires admission")
+            self._state = _RunState.DISPATCHING
+            try:
                 seal = self._coordinator.dispatch_pending()
                 self._require_seal_binding(seal)
             except Exception as primary:
                 self._abort_after_failure(primary)
                 raise
+            self._accept_seal(seal)
             self._state = _RunState.SEALED
-            self._accepted_seal = seal
             return seal
 
     def restore(self) -> Mem0OssRunSeal | Mem0OssTerminalCleanupEvidence:
@@ -254,6 +346,28 @@ class ManagedMem0V5PairedRun:
             self._require_new()
             self._state = _RunState.RESTORING
             try:
+                replayed = self._durable_clean_state.load_original(
+                    expected_admission_commitment_sha256=(
+                        self._expected_admission_commitment_sha256
+                    ),
+                    expected_run_id_sha256=_run_id_sha256(self._request.run_id),
+                    expected_authority_commitment_sha256=(
+                        self._authority.authority_commitment_sha256
+                    ),
+                    expected_evidence_commitment_sha256=(
+                        managed_mem0_v5_clean_evidence_commitment_sha256(
+                            admission_commitment_sha256=(
+                                self._expected_admission_commitment_sha256
+                            ),
+                            run_id_sha256=_run_id_sha256(self._request.run_id),
+                            authority_commitment_sha256=(
+                                self._authority.authority_commitment_sha256
+                            ),
+                            scopes=self._expected_clean_scopes,
+                        )
+                    ),
+                )
+                self._clean_state = self._authenticate_clean_state(replayed)
                 checkpoint = self._coordinator.restore(
                     authority=self._authority,
                     request=self._request,
@@ -268,13 +382,13 @@ class ManagedMem0V5PairedRun:
                         self._abort_after_failure(primary)
                         raise
                     self._state = _RunState.SEALED
-                    self._accepted_seal = seal
+                    self._accept_seal(seal)
                     return seal
                 if checkpoint.run_phase is ManagedMem0V5RunPhase.SEALED:
                     seal = self._coordinator.seal_restored_completed()
                     self._require_seal_binding(seal)
                     self._state = _RunState.SEALED
-                    self._accepted_seal = seal
+                    self._accept_seal(seal)
                     return seal
                 if checkpoint.run_phase in {
                     ManagedMem0V5RunPhase.CLEANUP_ATTEMPTED,
@@ -287,7 +401,7 @@ class ManagedMem0V5PairedRun:
                     )
                     if checkpoint.seal is not None:
                         self._require_seal_binding(checkpoint.seal)
-                        self._accepted_seal = checkpoint.seal
+                        self._accept_seal(checkpoint.seal)
                     self._terminal = terminal
                     self._state = _RunState.TERMINAL
                     return terminal
@@ -327,6 +441,66 @@ class ManagedMem0V5PairedRun:
             finally:
                 self._state = _RunState.SEALED
 
+    @property
+    def clean_state_evidence(self) -> ManagedMem0V5AuthenticatedCleanStateWitness:
+        with self._lock:
+            if self._clean_state is None:
+                raise ManagedRunError("managed Mem0 v5 paired clean-state evidence is missing")
+            return self._authenticate_clean_state(self._clean_state)
+
+    def corpus_ingest_evidence(self, *, corpus_id: str) -> ManagedMem0V5CorpusIngestEvidence:
+        with self._lock:
+            if (
+                self._state is not _RunState.SEALED
+                or self._accepted_seal is None
+                or self._accepted_seal_commitment_sha256 is None
+            ):
+                raise ManagedRunError("managed Mem0 v5 corpus evidence requires sealed state")
+            observations = self._coordinator.storage_observations
+            return self._corpus_projector.project(
+                run_id=self._request.run_id,
+                corpus_id=corpus_id,
+                seal=self._accepted_seal,
+                expected_seal_commitment_sha256=self._accepted_seal_commitment_sha256,
+                observations=observations,
+            )
+
+    def consume_transport_coverage(
+        self, capability: ManagedTransportCoverageCapabilityPort
+    ) -> VerifiedManagedTransportCoverage:
+        with self._lock:
+            if self._state is not _RunState.SEALED:
+                raise ManagedRunError("managed Mem0 v5 transport coverage requires sealed state")
+            if self._transport_coverage_consumed:
+                raise ManagedRunError("managed Mem0 v5 transport coverage is already consumed")
+            consume = getattr(capability, "consume_complete_transport_coverage", None)
+            if not callable(consume):
+                raise ManagedRunError("managed Mem0 v5 transport capability is invalid")
+            observations = self._coordinator.storage_observations
+            if len(observations) != self._authority.operation_count:
+                raise ManagedRunError("managed Mem0 v5 transport coverage differs")
+            self._transport_coverage_consumed = True
+            coverage = consume(
+                expected_admission_commitment_sha256=(self._expected_admission_commitment_sha256),
+                expected_operation_ids=tuple(item.operation_id_sha256 for item in observations),
+            )
+            try:
+                authenticated_coverage = authenticate_managed_transport_coverage(coverage)
+            except ManagedRunError:
+                raise ManagedRunError(
+                    "managed Mem0 v5 transport coverage witness differs"
+                ) from None
+            if (
+                authenticated_coverage.run_id_sha256 != _run_id_sha256(self._request.run_id)
+                or authenticated_coverage.operation_count != len(observations)
+                or authenticated_coverage.admission_commitment_sha256
+                != self._expected_admission_commitment_sha256
+                or authenticated_coverage.authority_commitment_sha256
+                != self._authority.authority_commitment_sha256
+            ):
+                raise ManagedRunError("managed Mem0 v5 transport coverage witness differs")
+            return authenticated_coverage
+
     def cleanup(self) -> Mem0OssTerminalCleanupEvidence:
         with self._lock:
             if self._state is _RunState.TERMINAL:
@@ -349,6 +523,35 @@ class ManagedMem0V5PairedRun:
             self._state = _RunState.TERMINAL
             return terminal
 
+    def cleanup_readback(
+        self,
+        *,
+        pass_index: int,
+        capability: ManagedMem0V5CleanupReadbackCapabilityPort,
+        request: object,
+    ) -> ManagedMem0V5CleanupReadbackWitness:
+        with self._lock:
+            terminal = self._terminal
+            if (
+                self._state is not _RunState.TERMINAL
+                or terminal is None
+                or terminal.terminal_state != Mem0OssFullRunState.DELETED.value
+            ):
+                raise ManagedRunError("managed Mem0 v5 cleanup readback requires deleted terminal")
+            if self._cleanup_readback_consumed:
+                raise ManagedRunError("managed Mem0 v5 cleanup readback is already consumed")
+            readback = getattr(capability, "readback", None)
+            if not callable(readback):
+                raise ManagedRunError("managed Mem0 v5 cleanup readback capability is invalid")
+            self._cleanup_readback_consumed = True
+            witness = readback(pass_index=pass_index, request=request, terminal=terminal)
+            if type(witness) is not ManagedMem0V5CleanupReadbackWitness:
+                raise ManagedRunError("managed Mem0 v5 cleanup readback witness differs")
+            witness.public_payload()
+            if witness.terminal_commitment_sha256 != terminal.commitment_sha256:
+                raise ManagedRunError("managed Mem0 v5 cleanup readback terminal differs")
+            return witness
+
     def retry_abort(self) -> Mem0OssTerminalCleanupEvidence:
         """Retry only terminal abort cleanup; never re-admit or redispatch."""
 
@@ -364,6 +567,22 @@ class ManagedMem0V5PairedRun:
             self._terminal = terminal
             self._state = _RunState.TERMINAL
             return terminal
+
+    def _authenticate_clean_state(
+        self, witness: object
+    ) -> ManagedMem0V5AuthenticatedCleanStateWitness:
+        authenticated = self._clean_state_verifier.authenticate_clean_state(witness)
+        if (
+            type(authenticated) is not ManagedMem0V5AuthenticatedCleanStateWitness
+            or authenticated.admission_commitment_sha256
+            != self._expected_admission_commitment_sha256
+            or authenticated.run_id_sha256 != _run_id_sha256(self._request.run_id)
+            or authenticated.authority_commitment_sha256
+            != self._authority.authority_commitment_sha256
+            or authenticated.scopes != self._expected_clean_scopes
+        ):
+            raise ManagedRunError("managed Mem0 v5 paired clean-state binding differs")
+        return authenticated
 
     def _abort_after_failure(self, primary: Exception) -> None:
         self._state = _RunState.CLEANING
@@ -406,6 +625,10 @@ class ManagedMem0V5PairedRun:
             or seal.ingestion_root_sha256 != self._authority.ingestion_root_sha256
         ):
             raise ManagedRunError("managed Mem0 v5 paired seal binding differs")
+
+    def _accept_seal(self, seal: Mem0OssRunSeal) -> None:
+        self._accepted_seal = seal
+        self._accepted_seal_commitment_sha256 = seal.commitment_sha256
 
     def _require_terminal_binding(self, terminal: object) -> None:
         seal = self._accepted_seal
@@ -518,11 +741,67 @@ def _coordinator_port(value: object) -> bool:
             "cleanup",
             "abort",
         )
-    ) and isinstance(getattr(type(value), "terminal_evidence", None), property)
+    ) and all(
+        isinstance(getattr(type(value), name, None), property)
+        for name in ("terminal_evidence", "storage_observations")
+    )
+
+
+def _expected_clean_scopes(
+    *,
+    authority: ManagedMem0V5ManifestAuthority,
+    admission_commitment_sha256: str,
+) -> tuple[ManagedMem0V5CleanCorpusScope, ...]:
+    grouped: dict[str, list[ManagedMem0V5SourceUnit]] = {}
+    for unit in authority.units:
+        grouped.setdefault(unit.corpus_id, []).append(unit)
+    scopes = []
+    for corpus_id, units in grouped.items():
+        source_scope_root = canonical_sha256(
+            {
+                "source_scopes": [
+                    {"source_id": item.source_id, "source_sha256": item.source_sha256}
+                    for item in units
+                ]
+            }
+        )
+        scopes.append(
+            ManagedMem0V5CleanCorpusScope(
+                corpus_identity_sha256=canonical_sha256({"corpus_id": corpus_id}),
+                scope_identity_sha256=canonical_sha256(
+                    {
+                        "admission_commitment_sha256": admission_commitment_sha256,
+                        "corpus_id": corpus_id,
+                        "source_scope_root_sha256": source_scope_root,
+                    }
+                ),
+                source_scope_count=len(units),
+                residual_record_count=0,
+                residual_root_sha256=MEM0_OSS_EMPTY_ROOT_SHA256,
+            )
+        )
+    return tuple(scopes)
+
+
+def _run_id_sha256(run_id: str) -> str:
+    return hashlib.sha256(run_id.encode()).hexdigest()
+
+
+def _clean_state_snapshot_port(value: object) -> bool:
+    return callable(getattr(value, "prove_empty_scopes", None))
+
+
+def _clean_state_verifier_port(value: object) -> bool:
+    return callable(getattr(value, "authenticate_clean_state", None))
+
+
+def _durable_clean_state_port(value: object) -> bool:
+    return all(callable(getattr(value, name, None)) for name in ("save_original", "load_original"))
 
 
 __all__ = (
     "ManagedMem0V5PairedCoordinatorPort",
+    "ManagedMem0V5CleanupReadbackCapabilityPort",
     "ManagedMem0V5PairedEvidenceProjector",
     "ManagedMem0V5PairedRun",
 )
