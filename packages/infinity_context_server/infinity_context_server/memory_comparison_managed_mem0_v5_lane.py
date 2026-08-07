@@ -2,7 +2,10 @@
 
 from __future__ import annotations
 
+import hashlib
+import hmac
 import re
+import secrets
 from dataclasses import dataclass
 from typing import Protocol, final
 
@@ -46,6 +49,55 @@ from infinity_context_server.memory_comparison_mem0_oss_v5_terminal import (
 )
 
 _SAFE_RECORD_ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:-]{0,511}$")
+_AUTHENTICATED_SEARCH_TOKEN = object()
+_AUTHENTICATED_SEARCH_KEY = secrets.token_bytes(32)
+
+
+@final
+class ManagedMem0V5AuthenticatedSearchWitness:
+    """Opaque proof issued only after coordinator search verification succeeds."""
+
+    __slots__ = ("_commitment", "_receipt")
+
+    def __init__(self, *, receipt: ManagedMem0V5SearchReceipt, _token: object) -> None:
+        if (
+            _token is not _AUTHENTICATED_SEARCH_TOKEN
+            or type(receipt) is not ManagedMem0V5SearchReceipt
+        ):
+            raise ManagedRunError("managed Mem0 v5 authenticated search witness is invalid")
+        self._receipt = receipt
+        self._commitment = _authenticated_search_commitment(receipt)
+
+    @property
+    def receipt(self) -> ManagedMem0V5SearchReceipt:
+        if not hmac.compare_digest(
+            self._commitment, _authenticated_search_commitment(self._receipt)
+        ):
+            raise ManagedRunError("managed Mem0 v5 authenticated search witness differs")
+        return self._receipt
+
+    def __repr__(self) -> str:
+        return "ManagedMem0V5AuthenticatedSearchWitness(<opaque>)"
+
+    def __reduce__(self) -> object:
+        raise TypeError("managed Mem0 v5 authenticated search witnesses are nonserializable")
+
+
+def _authenticated_search_commitment(receipt: ManagedMem0V5SearchReceipt) -> str:
+    payload = {
+        "admission_commitment_sha256": receipt.admission_commitment_sha256,
+        "corpus_id": receipt.corpus_id,
+        "query_commitment_sha256": receipt.query_commitment_sha256,
+        "limit": receipt.limit,
+        "records": [item.public_payload(rank) for rank, item in enumerate(receipt.records)],
+        "result_root_sha256": receipt.result_root_sha256,
+        "evidence_commitment_sha256": receipt.evidence_commitment_sha256,
+    }
+    return hmac.new(
+        _AUTHENTICATED_SEARCH_KEY,
+        canonical_sha256(payload).encode(),
+        hashlib.sha256,
+    ).hexdigest()
 
 
 @final
@@ -596,10 +648,7 @@ class ManagedMem0V5LaneCoordinator:
         allowed_records: set[tuple[str, str, str]] = set()
         for index, unit in corpus_units:
             evidence = self._storage_observations.get(index)
-            if (
-                evidence is None
-                or evidence.source_pairs != ((unit.source_id, unit.source_sha256),)
-            ):
+            if evidence is None or evidence.source_pairs != ((unit.source_id, unit.source_sha256),):
                 raise ManagedRunError("managed Mem0 v5 search source coverage differs")
             allowed_records.update(
                 (record_id, unit.source_id, unit.source_sha256)
@@ -621,13 +670,27 @@ class ManagedMem0V5LaneCoordinator:
             or receipt.query_commitment_sha256 != canonical_sha256({"query": query})
             or receipt.limit != limit
             or any(
-                (record.record_id, record.source_id, record.source_sha256)
-                not in allowed_records
+                (record.record_id, record.source_id, record.source_sha256) not in allowed_records
                 for record in receipt.records
             )
         ):
             raise ManagedRunError("managed Mem0 v5 search evidence binding differs")
         return receipt
+
+    def search_authenticated_evidence(
+        self,
+        *,
+        corpus_id: str,
+        query: str,
+        limit: int,
+    ) -> ManagedMem0V5AuthenticatedSearchWitness:
+        """Issue an opaque witness only after the full authenticated search path."""
+
+        receipt = self.search_evidence(corpus_id=corpus_id, query=query, limit=limit)
+        return ManagedMem0V5AuthenticatedSearchWitness(
+            receipt=receipt,
+            _token=_AUTHENTICATED_SEARCH_TOKEN,
+        )
 
     def cleanup(self) -> Mem0OssTerminalCleanupEvidence:
         if self._pending_terminal is not None:
@@ -860,6 +923,7 @@ def _lane_port(value: object) -> bool:
 __all__ = (
     "ManagedMem0V5Budget",
     "ManagedMem0V5BudgetPolicy",
+    "ManagedMem0V5AuthenticatedSearchWitness",
     "ManagedMem0V5LaneCoordinator",
     "ManagedMem0V5LanePort",
     "ManagedMem0V5SearchReceipt",

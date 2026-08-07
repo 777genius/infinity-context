@@ -21,6 +21,7 @@ from infinity_context_server.memory_comparison_managed_mem0_v5_http_lane import 
     ManagedMem0V5SearchRecord,
 )
 from infinity_context_server.memory_comparison_managed_mem0_v5_lane import (
+    ManagedMem0V5AuthenticatedSearchWitness,
     ManagedMem0V5Budget,
     ManagedMem0V5BudgetPolicy,
     ManagedMem0V5LaneCoordinator,
@@ -686,9 +687,20 @@ def test_search_evidence_requires_seal_and_binds_authenticated_corpus_sources() 
     assert lane.calls.count("dispatch") == 1
     assert lane.calls.count("search") == 1
 
+    witness = coordinator.search_authenticated_evidence(
+        corpus_id=unit.corpus_id, query="tea", limit=5
+    )
+    assert type(witness) is ManagedMem0V5AuthenticatedSearchWitness
+    assert witness.receipt.records == (record,)
+    object.__setattr__(receipt, "result_root_sha256", _sha("mutated-root"))
+    with pytest.raises(ManagedRunError, match="witness differs"):
+        _ = witness.receipt
+    with pytest.raises(ManagedRunError, match="witness is invalid"):
+        ManagedMem0V5AuthenticatedSearchWitness(receipt=receipt, _token=object())
+
     with pytest.raises(ManagedRunError, match="corpus binding differs"):
         coordinator.search_evidence(corpus_id="wrong-corpus", query="tea", limit=5)
-    assert lane.calls.count("search") == 1
+    assert lane.calls.count("search") == 2
 
 
 def test_search_evidence_rejects_cross_corpus_source_and_terminal_state() -> None:
