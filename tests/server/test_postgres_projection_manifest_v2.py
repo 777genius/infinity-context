@@ -17,6 +17,7 @@ from infinity_context_adapters.postgres.models import (
 )
 from infinity_context_adapters.postgres.unit_of_work import build_async_engine, create_schema
 from infinity_context_core.domain.errors import MemoryConflictError
+from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 NOW = datetime(2026, 1, 1, tzinfo=UTC)
@@ -130,6 +131,8 @@ async def _threadless_empty_inventory_contract(
 async def _seed(session: AsyncSession, *, mode: str) -> None:
     episode_scope = "scope-other" if mode == "cross_scope" else "scope-1"
     episode_thread = "thread-other" if mode == "cross_scope" else "thread-1"
+    if mode == "unbound_chunk":
+        await session.execute(text("PRAGMA ignore_check_constraints = ON"))
     session.add_all(
         [
             MemorySpaceRow(
@@ -198,7 +201,11 @@ async def _seed(session: AsyncSession, *, mode: str) -> None:
             ),
         ]
     )
-    await session.flush()
+    try:
+        await session.flush()
+    finally:
+        if mode == "unbound_chunk":
+            await session.execute(text("PRAGMA ignore_check_constraints = OFF"))
 
 
 def _manifest() -> dict[str, object]:
