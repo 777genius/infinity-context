@@ -133,7 +133,7 @@ def write_authority(
     encoded = encoded_manifest(manifest)
     digest = hashlib.sha256(encoded).hexdigest()
     _atomic_write(authority_directory / "manifest.json", encoded)
-    _atomic_write(authority_directory / "manifest.sha256", f"{digest}\n".encode())
+    _atomic_write(authority_directory / "manifest.sha256", digest.encode("ascii"))
 
     runtime_pin = json.loads(runtime_pin_file.read_bytes())
     source_a = runtime_pin.get("source_a")

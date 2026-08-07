@@ -161,9 +161,8 @@ def test_pin_b_reproduces_live_v2_archive_and_verifies_exact_staged_closure(
     assert committed == generated
     assert committed["source_commit_sha1"] == LIVE_SOURCE_COMMIT
     manifest_sha256 = hashlib.sha256(encoded_manifest(committed)).hexdigest()
-    assert (ROOT / "authority/manifest.sha256").read_text() == (
-        f"{manifest_sha256}\n"
-    )
+    manifest_digest = (ROOT / "authority/manifest.sha256").read_bytes()
+    assert manifest_digest == manifest_sha256.encode("ascii") and len(manifest_digest) == 64
     runtime_source = json.loads((ROOT / "authority/runtime-pin.json").read_bytes())["source_a"]
     assert runtime_source == {
         "closure_algorithm": committed["closure_algorithm"],
