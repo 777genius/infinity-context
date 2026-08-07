@@ -101,6 +101,20 @@ def test_request_binding_rejects_wrong_authority_and_tampering(tmp_path) -> None
     context.state.close()
 
 
+def test_v2_request_binding_rejects_legacy_sealed_input_without_source_authority(
+    tmp_path,
+) -> None:
+    context = _context(tmp_path)
+    request = _request(context).model_copy(
+        update={"schema_version": "mem0-oss-adapter-v5.request-binding.v2"}
+    )
+    with pytest.raises(AdapterServiceError, match="request_binding_invalid") as failure:
+        context.service.request_binding(request, idempotency_key=_sha("v2-on-v1"))
+    assert failure.value.status_code == 400
+    assert context.runtime.calls == 0
+    context.state.close()
+
+
 def test_request_binding_is_unavailable_after_cleanup(tmp_path) -> None:
     context = _context(tmp_path)
     request = _request(context)

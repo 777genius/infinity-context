@@ -2,6 +2,7 @@ from __future__ import annotations
 
 # ruff: noqa: E402 - the external Phase C package is an explicit test-only path.
 import hashlib
+import hmac
 import json
 import os
 import sys
@@ -33,6 +34,11 @@ from infinity_context_server.memory_comparison_managed_mem0_v5_lane import (
 from infinity_context_server.memory_comparison_managed_mem0_v5_projector import (
     ManagedMem0V5ManifestProjector,
 )
+from infinity_context_server.memory_comparison_managed_mem0_v5_request_binding import (
+    REQUEST_BINDING_V2_DOMAIN,
+    ManagedMem0V5RequestBindingV2Context,
+    verify_request_binding_v2_payload,
+)
 from infinity_context_server.memory_comparison_managed_run_contract import (
     ManagedRunCase,
     ManagedRunError,
@@ -50,7 +56,13 @@ from infinity_context_server.memory_comparison_mem0_oss_v5_http import (
 from infinity_context_server.memory_comparison_mem0_oss_v5_observed_receipt import (
     Mem0V5ObservedExtractionReceiptAuthority,
 )
+from infinity_context_server.memory_comparison_mem0_oss_v5_run import Mem0OssFullRunService
 from phase_c_canary.runtime_receipt_v2 import RuntimeReceiptV2Boundary
+from test_memory_comparison_managed_mem0_v5_recovery import (
+    _CleanupPort,
+    _ReceiptPort,
+    _StoragePort,
+)
 
 
 def _sha(value: str | bytes) -> str:
@@ -318,6 +330,8 @@ def test_exported_preflight_is_no_secret_no_write_no_network_and_compose_has_par
     assert composed.authority == preflight.authority
     assert composed.request == preflight.admission.request
     assert transport.calls == []
+    with pytest.raises(ManagedRunError, match="authority differs"):
+        composed.issue_transport_coverage(benchmark="locomo")
 
 
 def test_invalid_authentic_binding_snapshot_fails_before_credentials_are_loaded(
@@ -645,6 +659,133 @@ def test_fresh_process_composition_rebuilds_equivalent_public_bundle_without_sec
     boundary = inputs["runtime_receipt_boundary"]
     assert type(boundary) is RuntimeReceiptV2Boundary
     assert boundary.hmac_verifier.calls == 0
+
+
+class _CoverageRecoveryLane:
+    def __init__(self, *, collector: object, evidence_key: bytes) -> None:
+        self._collector = collector
+        root = hmac.new(
+            evidence_key,
+            b"mem0-oss-adapter-v5/evidence-key/v1",
+            hashlib.sha256,
+        ).digest()
+        self._binding_key = hmac.new(root, REQUEST_BINDING_V2_DOMAIN, hashlib.sha256).digest()
+        self._storage_issuer = subject.create_managed_mem0_v5_storage_witness_authority()[0]
+        self.dispatch_calls = 0
+        self.status_calls = 0
+
+    def admit(self, **_values: object) -> None:
+        return None
+
+    def _binding(self, **values: object):
+        context = ManagedMem0V5RequestBindingV2Context.from_authority(
+            authority=values["authority"],
+            unit=values["unit"],
+            operation_id_sha256=values["operation_id_sha256"],
+            admission=values["admission"],
+        )
+        evidence = {**context.evidence_payload(), "request_body_sha256": _sha("request-0")}
+        unsigned = {
+            **evidence,
+            "request_binding_evidence_sha256": canonical_sha256(evidence),
+        }
+        signature = hmac.new(
+            self._binding_key,
+            json.dumps(
+                unsigned,
+                sort_keys=True,
+                separators=(",", ":"),
+                ensure_ascii=True,
+            ).encode(),
+            hashlib.sha256,
+        ).hexdigest()
+        return verify_request_binding_v2_payload(
+            payload={**unsigned, "request_binding_hmac_sha256": signature},
+            context=context,
+            hmac_key=self._binding_key,
+        )
+
+    def dispatch(self, **values: object) -> object:
+        self.dispatch_calls += 1
+        self._collector.record(self._binding(**values))
+        return {"receipt": "dispatch"}
+
+    def status(self, **values: object) -> object:
+        self.status_calls += 1
+        self._collector.record_idempotent(self._binding(**values))
+        return {"receipt": "status"}
+
+    def inspect_storage(self, **values: object):
+        unit = values["unit"]
+        return self._storage_issuer.issue_authenticated_storage(
+            operation_id_sha256=values["operation_id_sha256"],
+            unit_identity_sha256=unit.unit_identity_sha256,
+            storage_commitment_sha256=_sha("storage"),
+            created_record_ids=("record-1",),
+            source_pairs=((unit.source_id, unit.source_sha256),),
+        )
+
+
+def _replace_composed_runtime_for_recovery(
+    composed: subject.ManagedMem0V5Composition,
+    *,
+    evidence_key: bytes,
+) -> _CoverageRecoveryLane:
+    _admission_value, http_lane = subject._composition_runtime(composed)
+    lane = _CoverageRecoveryLane(
+        collector=http_lane._transport_collector,
+        evidence_key=evidence_key,
+    )
+    service = Mem0OssFullRunService(
+        manifest_port=ManagedMem0V5ManifestProjector(),
+        receipt_port=_ReceiptPort(),
+        storage_port=_StoragePort(),
+        cleanup_port=_CleanupPort(),
+    )
+    object.__setattr__(composed.coordinator, "_service", service)
+    object.__setattr__(composed.coordinator, "_lane", lane)
+    return lane
+
+
+def test_fresh_composition_restore_rebuilds_exact_transport_coverage_without_dispatch(
+    tmp_path: Path,
+) -> None:
+    inputs, values = _inputs(tmp_path)
+    first = subject.compose_managed_mem0_v5(**inputs)
+    first_lane = _replace_composed_runtime_for_recovery(
+        first,
+        evidence_key=values["evidence"],
+    )
+    first.coordinator.admit(
+        authority=first.authority,
+        request=first.request,
+        budget_policy=ManagedMem0V5BudgetPolicy(5),
+    )
+    first.coordinator.dispatch_pending()
+    assert first_lane.dispatch_calls == 1
+
+    restored = subject.compose_managed_mem0_v5(**inputs)
+    restored_lane = _replace_composed_runtime_for_recovery(
+        restored,
+        evidence_key=values["evidence"],
+    )
+    checkpoint = restored.coordinator.restore(
+        authority=restored.authority,
+        request=restored.request,
+        budget_policy=ManagedMem0V5BudgetPolicy(5),
+    )
+    capability = restored.issue_transport_coverage(benchmark="locomo")
+    storage = restored.coordinator.storage_observations
+    coverage = capability.consume_complete_transport_coverage(
+        expected_admission_commitment_sha256=checkpoint.admission_commitment_sha256,
+        expected_operation_ids=tuple(item.operation_id_sha256 for item in storage),
+    )
+
+    assert restored_lane.dispatch_calls == 0
+    assert restored_lane.status_calls == restored.authority.operation_count
+    assert coverage.operation_count == restored.authority.operation_count
+    assert coverage.admission_commitment_sha256 == checkpoint.admission_commitment_sha256
+    assert coverage.authority_commitment_sha256 == restored.authority.authority_commitment_sha256
 
 
 def test_state_paths_are_absolute_and_distinct(tmp_path: Path) -> None:

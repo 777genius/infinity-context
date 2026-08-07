@@ -5,8 +5,10 @@ import json
 import os
 from types import SimpleNamespace
 
-from test_app import _receipt
+from fastapi.testclient import TestClient
+from test_app import _TOKEN, _headers, _receipt
 
+from mem0_oss_adapter_v5.app import create_app
 from mem0_oss_adapter_v5.composition import SealedInputManifest, V5AdapterService
 from mem0_oss_adapter_v5.domain import (
     ExtractionMemory,
@@ -19,6 +21,10 @@ from mem0_oss_adapter_v5.domain import (
 )
 from mem0_oss_adapter_v5.extraction_contract import build_extraction_request
 from mem0_oss_adapter_v5.http_models import AdmitRequest, DispatchRequest, StatusRequest
+from mem0_oss_adapter_v5.request_binding import (
+    RequestBindingRequest,
+    verify_request_binding,
+)
 from mem0_oss_adapter_v5.source_authority import _issue_verified_source_authority
 from mem0_oss_adapter_v5.state_sqlite import SqliteOperationState
 from mem0_oss_adapter_v5.subscription_runtime import (
@@ -208,6 +214,31 @@ def test_provider_free_dispatch_persists_once_and_status_only_reads_durable_resu
     assert first.operation_id_sha256 == operation_id
     assert runtime.calls == 1
     assert storage.last_scope.source_sha256 == source_sha256
+    binding_request = RequestBindingRequest(
+        schema_version="mem0-oss-adapter-v5.request-binding.v2",
+        admission_commitment_sha256=admission_sha,
+        operation_id_sha256=operation_id,
+    )
+    binding = service.request_binding(
+        binding_request,
+        idempotency_key=_sha("request-binding-v2"),
+    )
+    assert binding.schema_version == "mem0-oss-adapter-v5.request-binding.v2"
+    assert binding.corpus_id == unit["corpus_id"]
+    assert binding.source_sha256 == source_sha256
+    assert binding.observation_date == unit["observation_date"]
+    assert verify_request_binding(binding, result_hmac_key=b"r" * 32)
+    body = binding_request.model_dump(mode="json")
+    response = TestClient(create_app(service=service, bearer_token=_TOKEN)).post(
+        "/v5/operations/request-binding",
+        json=body,
+        headers=_headers(body),
+    )
+    assert response.status_code == 200
+    assert response.json()["request_binding_evidence_sha256"] == (
+        binding.request_binding_evidence_sha256
+    )
+    assert runtime.calls == 1
     status = service.status(
         StatusRequest(
             admission_commitment_sha256=admission_sha,

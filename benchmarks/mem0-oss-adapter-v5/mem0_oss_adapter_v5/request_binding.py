@@ -15,8 +15,10 @@ from mem0_oss_adapter_v5.sealed_manifest import InputUnit, SealedInputManifest
 from mem0_oss_adapter_v5.state_sqlite import OperationState, SqliteOperationState
 
 _SCHEMA = "mem0-oss-adapter-v5.request-binding.v1"
+_SCHEMA_V2 = "mem0-oss-adapter-v5.request-binding.v2"
 _KEY_DOMAIN = b"mem0-oss-adapter-v5/evidence-key/v1"
 _SIGNATURE_DOMAIN = b"request-binding/v1"
+_SIGNATURE_DOMAIN_V2 = b"request-binding/v2"
 _SHA256_PATTERN = r"^[0-9a-f]{64}$"
 Sha256 = Annotated[StrictStr, Field(pattern=_SHA256_PATTERN)]
 
@@ -26,6 +28,10 @@ class _ExactModel(BaseModel):
 
 
 class RequestBindingRequest(_ExactModel):
+    schema_version: Literal[
+        "mem0-oss-adapter-v5.request-binding.v1",
+        "mem0-oss-adapter-v5.request-binding.v2",
+    ] = _SCHEMA
     admission_commitment_sha256: Sha256
     operation_id_sha256: Sha256
 
@@ -50,6 +56,29 @@ class RequestBindingResponse(_ExactModel):
     @field_validator("source_id")
     @classmethod
     def source_id_is_trimmed(cls, value: str) -> str:
+        if value != value.strip():
+            raise ValueError("request_binding_invalid")
+        return value
+
+
+class RequestBindingV2Response(_ExactModel):
+    schema_version: Literal["mem0-oss-adapter-v5.request-binding.v2"]
+    admission_commitment_sha256: Sha256
+    operation_id_sha256: Sha256
+    unit_identity_sha256: Sha256
+    unit_sha256: Sha256
+    corpus_id: Annotated[StrictStr, Field(min_length=1, max_length=512)]
+    source_id: Annotated[StrictStr, Field(min_length=1, max_length=512)]
+    source_sha256: Sha256
+    observation_date: StrictStr
+    observation_date_commitment_sha256: Sha256
+    request_body_sha256: Sha256
+    request_binding_evidence_sha256: Sha256
+    request_binding_hmac_sha256: Sha256
+
+    @field_validator("corpus_id", "source_id")
+    @classmethod
+    def identity_is_trimmed(cls, value: str) -> str:
         if value != value.strip():
             raise ValueError("request_binding_invalid")
         return value
@@ -82,6 +111,7 @@ class RequestBindingService:
         self._operation_id = operation_id
         root = hmac.new(result_hmac_key, _KEY_DOMAIN, hashlib.sha256).digest()
         self._signing_key = hmac.new(root, _SIGNATURE_DOMAIN, hashlib.sha256).digest()
+        self._signing_key_v2 = hmac.new(root, _SIGNATURE_DOMAIN_V2, hashlib.sha256).digest()
 
     def bind(
         self,
@@ -89,7 +119,7 @@ class RequestBindingService:
         *,
         current_admission_commitment_sha256: str | None,
         idempotency_key: str,
-    ) -> RequestBindingResponse:
+    ) -> RequestBindingResponse | RequestBindingV2Response:
         del idempotency_key
         if current_admission_commitment_sha256 != request.admission_commitment_sha256:
             raise RequestBindingError("run_not_found", status_code=404)
@@ -106,6 +136,34 @@ class RequestBindingService:
             raise RequestBindingError("run_state_invalid", status_code=503) from None
         if not hmac.compare_digest(record.request_sha256, extraction.request_body_sha256):
             raise RequestBindingError("run_state_invalid", status_code=503)
+        if request.schema_version == _SCHEMA_V2:
+            if self._manifest.schema_version != "mem0-oss-adapter-v5.sealed-input.v2":
+                raise RequestBindingError("request_binding_invalid", status_code=400)
+            evidence = {
+                "schema_version": _SCHEMA_V2,
+                "admission_commitment_sha256": request.admission_commitment_sha256,
+                "operation_id_sha256": request.operation_id_sha256,
+                "unit_identity_sha256": unit.unit_identity_sha256,
+                "unit_sha256": unit.unit_sha256,
+                "corpus_id": unit.corpus_id,
+                "source_id": unit.source_id,
+                "source_sha256": unit.source_sha256,
+                "observation_date": unit.observation_date,
+                "observation_date_commitment_sha256": canonical_sha256(
+                    {"observation_date": unit.observation_date}
+                ),
+                "request_body_sha256": extraction.request_body_sha256,
+            }
+            unsigned_v2 = {
+                **evidence,
+                "request_binding_evidence_sha256": canonical_sha256(evidence),
+            }
+            return RequestBindingV2Response.model_validate(
+                {
+                    **unsigned_v2,
+                    "request_binding_hmac_sha256": _signature(self._signing_key_v2, unsigned_v2),
+                }
+            )
         unsigned = {
             "schema_version": _SCHEMA,
             "admission_commitment_sha256": request.admission_commitment_sha256,
@@ -137,7 +195,11 @@ class RequestBindingService:
         raise RequestBindingError("operation_not_found", status_code=404)
 
 
-def verify_request_binding(response: RequestBindingResponse, *, result_hmac_key: bytes) -> bool:
+def verify_request_binding(
+    response: RequestBindingResponse | RequestBindingV2Response,
+    *,
+    result_hmac_key: bytes,
+) -> bool:
     """Verify a response in tests and standalone adapter-side consumers."""
 
     if type(result_hmac_key) is not bytes or len(result_hmac_key) < 32:
@@ -145,7 +207,8 @@ def verify_request_binding(response: RequestBindingResponse, *, result_hmac_key:
     payload = response.model_dump(mode="json")
     presented = payload.pop("request_binding_hmac_sha256")
     root = hmac.new(result_hmac_key, _KEY_DOMAIN, hashlib.sha256).digest()
-    key = hmac.new(root, _SIGNATURE_DOMAIN, hashlib.sha256).digest()
+    domain = _SIGNATURE_DOMAIN_V2 if response.schema_version == _SCHEMA_V2 else _SIGNATURE_DOMAIN
+    key = hmac.new(root, domain, hashlib.sha256).digest()
     return hmac.compare_digest(_signature(key, payload), presented)
 
 
@@ -158,5 +221,6 @@ __all__ = (
     "RequestBindingRequest",
     "RequestBindingResponse",
     "RequestBindingService",
+    "RequestBindingV2Response",
     "verify_request_binding",
 )
