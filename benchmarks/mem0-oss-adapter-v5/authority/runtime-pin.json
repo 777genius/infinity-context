@@ -1,0 +1,74 @@
+{
+  "dependency_closure": {
+    "artifact_count": 57,
+    "artifact_inventory_algorithm": "sha256(canonical-json(runtime-lock.artifacts))",
+    "artifact_inventory_sha256": "7059745fec2821964b79c91e5616a78ee6ffe6d5dfe0a97c34497dea2eea55a1",
+    "runtime_lock_sha256": "10f09fda792c410bd15f048e33d02b2d411447d042d57fd42b91cafd5617a511",
+    "uv_lock_sha256": "5f66b30e600cc547f3e50ce20e2e9b862712c1fc68aa553df12f2e2bc64a2011"
+  },
+  "mem0": {
+    "source_revision": "50bdaaea0c02744720ed374d88584fd01494eeb7",
+    "version": "2.0.15",
+    "wheel_filename": "mem0ai-2.0.15-py3-none-any.whl",
+    "wheel_sha256": "d5c0565ea385cecc8643aa4f4ed61dab56d4f60273499fa2b4e43fc0e5e9c273"
+  },
+  "node": {
+    "executable_sha256": "b2959781cc5a74c357ffa02367efa8a0330cbb1c9cb347732fdfaaaca381cbcd",
+    "version": "v24.16.0"
+  },
+  "phase_c": {
+    "copied_package_closure_algorithm": "sha256(sorted(path + NUL + size + NUL + sha256 + LF))",
+    "copied_package_closure_sha256": "e2d9ea9e631e6db028e9c1a7794200394877ecc7ad5838562b7a5387c488507a",
+    "copied_package_file_count": 19,
+    "infinity_source_commit_sha1": "9499b9c2cf3842c4fe3bbe78a601b278cf00ba43",
+    "infinity_source_tree_sha1": "4c3bdda2d8af70f3e3f94cac0925d03d380875be",
+    "release_manifest_sha256": "10b73e189ab23867b3cf368dd0f961faa19aad7baa94e6c3df48471adf4abe93",
+    "source_manifest_sha256": "c74b36d8ab0b5d2015c415c11317127eea680723bec1951d002b0e2d25df8c7a"
+  },
+  "python": {
+    "image": "python:3.11-slim",
+    "image_digest": "sha256:db3ff2e1800a8581e2c48a27c3995339d47bdf046da21c7627accd3d51053a93",
+    "version": "3.11"
+  },
+  "qdrant": {
+    "image": "qdrant/qdrant",
+    "linux_amd64_digest": "sha256:ecc81d662bb9bb734db879b94461eb44be38604fc259491d478ad7e673238a0d",
+    "manifest_digest": "sha256:0bd98fa7977f1e75694779359ca4e212822e5a71334e28421182f72f209d5286",
+    "tag": "v1.18.3"
+  },
+  "runtime_contract": {
+    "adapter_extraction_response_format_sha256": "f45055c9f24f763294c0c96c3d71cd3ae494d96376596f34a6203cf171f9a516",
+    "adapter_extraction_schema_sha256": "17c002c4bc8c4aa9d9131253ef0763fd5769c039985c65885e5877fda443120b",
+    "adapter_extraction_system_prompt_sha256": "ad19187a37813ef77ee156e714c0650e6ec749e0264bdc07d499bc9b24115155",
+    "adapter_schema_version": "mem0-benchmark-full-run.v5",
+    "phase_c_provider_usage_schema": 3,
+    "phase_c_response_format_policy_sha256": "9d7bcc89f3e8cc3683a18d83d90d6ffde05cdb02358d1cd055bf273f92a772f1",
+    "phase_c_response_format_sha256": "812938567c7a81bac6ed3266608adf470dedc57706102e039422f695495322bf",
+    "phase_c_response_schema_sha256": "2461f7a465be82aa67751dc04e0717cde75c69b86e7db54bb306a2e3d1d4d8f0",
+    "phase_c_runtime_receipt_schema": 2,
+    "provider_attempts_per_dispatch": 1,
+    "route_binding": "http://127.0.0.1:8890/v1",
+    "route_binding_sha256": "aaff3d27c7ca1b964a86355622e87b2bbd7841722dbcff782292ea02e1fa0935",
+    "status_provider_attempts": 0,
+    "transport_origin": "http://127.0.0.1:8891",
+    "transport_origin_sha256": "10fec4272832f69b61d9b883d16d911394b632dd7fc56f78603f90c5a19b4290"
+  },
+  "schema_version": "mem0-oss-adapter-v5.runtime-pin.v1",
+  "source_a": {
+    "closure_algorithm": "sha256(sorted(path + NUL + size + NUL + sha256 + LF))",
+    "closure_sha256": "cfc92fd533aaa9fee7a6c6a3c33ff3b4e1cdae139eba973b3e9796f5012c5d9a",
+    "commit_sha1": "33a3208c58955c5e159c7ce124ff6cd2c0acf9a0",
+    "manifest_file_count": 57,
+    "manifest_sha256": "c905dd3b55196f5e9489d607e8ffc75321d21278f58dd2f3ee99f91885897619",
+    "tree_sha1": "f5f2b9ade61da8d2858cd22046ae91a583a7b74c"
+  },
+  "subscription_runtime": {
+    "artifact_manifest_sha256": "789018b5b15a1299252895babdc550c3d5322c54a1d9c82656f93d31423a0850",
+    "commit_sha1": "e904ec95fda4b04c333e5a7613c7729bf7abb125",
+    "manifest_sha256s_sha256": "ec94ab801f944c78b16febaa040c5d63bcaac64bbadada2ec952ab9a27ec9483",
+    "package_lock_sha256": "a4719e5dffbbedcc1125fb3b42608f0b7995ecfcfa28ad858000a43a0b1811b3",
+    "release_sha256": "8854ae10ea450fc615af251cdd5eef8812f928b458f710bb84b0cdbdde92fceb",
+    "source_archive_sha256": "69d08257d410479ca91c43364aef908404c1a89408b68c5af2e8a956aca72bbf",
+    "tree_sha1": "ff1816d2a2317bff0244a5594f4d9a3c034c6b37"
+  }
+}

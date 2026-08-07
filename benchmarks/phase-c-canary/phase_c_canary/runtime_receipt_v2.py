@@ -333,7 +333,7 @@ def _parse_receipt(receipt: dict[str, Any]) -> _ParsedReceipt:
 def _parse_usage(value: dict[str, Any]) -> ProviderObservedUsage:
     prompt = _nonnegative_int(value["prompt_tokens"], "prompt_tokens")
     completion = _nonnegative_int(value["completion_tokens"], "completion_tokens")
-    total = _positive_int(value["total_tokens"], "total_tokens")
+    total = _nonnegative_int(value["total_tokens"], "total_tokens")
     if total != prompt + completion:
         raise ReceiptVerificationError("total_tokens does not equal prompt plus completion")
     prompt_details = value.get("prompt_tokens_details")

@@ -136,6 +136,7 @@ def test_every_authority_binding_fails_closed(
         (("metadata", "output_token_limit", "requested_tokens"), True),
         (("metadata", "output_token_limit", "enforced"), 0),
         (("usage", "prompt_tokens"), True),
+        (("usage", "total_tokens"), True),
         (("usage", "completion_tokens_details", "reasoning_tokens"), False),
         (("metadata", "runtime_selection", "thread_id"), 7),
     ],
@@ -215,6 +216,34 @@ def test_semantically_invalid_but_resigned_usage_is_rejected(
     signed = sign_receipt(raw)
     with pytest.raises(ReceiptVerificationError, match=message):
         verify(signed)
+
+
+def test_authenticated_zero_usage_issues_safe_receipt() -> None:
+    raw = unsigned_receipt()
+    raw["usage"] = {
+        "prompt_tokens": 0,
+        "prompt_tokens_details": {"cached_tokens": 0},
+        "completion_tokens": 0,
+        "completion_tokens_details": {"reasoning_tokens": 0},
+        "total_tokens": 0,
+    }
+
+    safe = verify(sign_receipt(raw), expected=expectation(raw))
+
+    assert isinstance(safe, SafeRuntimeReceipt)
+    assert safe.usage == ProviderObservedUsage(0, 0, 0, 0, None, 0)
+
+
+@pytest.mark.parametrize(
+    "field",
+    ("prompt_tokens", "completion_tokens", "total_tokens"),
+)
+def test_authenticated_negative_usage_is_rejected(field: str) -> None:
+    raw = unsigned_receipt()
+    raw["usage"][field] = -1
+
+    with pytest.raises(ReceiptVerificationError, match="non-negative"):
+        verify(sign_receipt(raw))
 
 
 def test_same_boundary_handles_extraction_answer_and_judge(receipt: dict[str, Any]) -> None:
