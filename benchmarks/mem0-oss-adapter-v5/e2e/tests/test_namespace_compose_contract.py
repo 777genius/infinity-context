@@ -83,7 +83,8 @@ def test_readme_hosting_flow_matches_exact_runner_path_correlation() -> None:
         'infinity-context/sources/9499b9c2"',
         'export MEM0_V5_SOURCE_AUTHORITY_PIN_DIR="/mnt/volume_ams3_1784742570542/'
         'infinity-locomo-benchmark/e2e-source-authorities/$SOURCE_PIN_HEX"',
-        'export MEM0_V5_NODE_EXECUTABLE_SOURCE="/usr/local/bin/node"',
+        'export MEM0_V5_NODE_EXECUTABLE_SOURCE="/mnt/volume_ams3_1784742570542/'
+        'infinity-locomo-benchmark/e2e-runtime-authorities/node-b2959781/node"',
     )
     assert all(line in readme for line in expected)
     assert "/absolute/path" not in readme

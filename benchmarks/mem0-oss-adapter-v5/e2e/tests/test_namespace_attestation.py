@@ -5,6 +5,7 @@ import os
 import socket
 import subprocess
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
@@ -16,6 +17,9 @@ from e2e.namespace_attestation import (
     SUCCESS,
     PinnedExecutableAttestor,
     RootDockerLifecycleHelper,
+    SourcePinAttestingExecutor,
+    SourcePinAttestor,
+    _immutable_file_identity,
     attest_tmpfs,
 )
 
@@ -215,13 +219,34 @@ def _node_attestor(path: Path, expected: str = PINNED_NODE_SHA256):
         path=path,
         expected_sha256=expected,
         error_type=RuntimeError,
+        expected_uid=os.getuid(),
+        expected_gid=os.getgid(),
+        allowed_chain_owners=_chain_owners(path.parent),
+        chain_anchor=path.parent,
     )
 
 
-def test_node_attestor_binds_digest_and_rechecks_same_inode(tmp_path: Path) -> None:
+def _chain_owners(path: Path) -> frozenset[tuple[int, int]]:
+    owners = set()
+    current = Path(path.anchor)
+    for part in path.parts[1:]:
+        current /= part
+        metadata = current.lstat()
+        owners.add((metadata.st_uid, metadata.st_gid))
+    return frozenset(owners)
+
+
+def _immutable_node(tmp_path: Path, content: bytes) -> Path:
     node = tmp_path / "node"
-    content = b"reviewed-node"
     node.write_bytes(content)
+    node.chmod(0o555)
+    tmp_path.chmod(0o555)
+    return node
+
+
+def test_node_attestor_binds_digest_and_rechecks_same_inode(tmp_path: Path) -> None:
+    content = b"reviewed-node"
+    node = _immutable_node(tmp_path, content)
     attestor = _node_attestor(node, hashlib.sha256(content).hexdigest())
     descriptor, identity = attestor.open()
     try:
@@ -231,27 +256,157 @@ def test_node_attestor_binds_digest_and_rechecks_same_inode(tmp_path: Path) -> N
 
 
 def test_node_attestor_rejects_digest_mismatch_and_symlink(tmp_path: Path) -> None:
-    node = tmp_path / "node"
-    node.write_bytes(b"wrong-node")
+    node = _immutable_node(tmp_path, b"wrong-node")
     with pytest.raises(RuntimeError, match="e2e_node_executable_invalid"):
         _node_attestor(node).open()
+    tmp_path.chmod(0o755)
     link = tmp_path / "node-link"
     link.symlink_to(node)
+    tmp_path.chmod(0o555)
     with pytest.raises(RuntimeError, match="e2e_node_executable_invalid"):
         _node_attestor(link).open()
 
 
 def test_node_attestor_rejects_path_replacement(tmp_path: Path) -> None:
-    node = tmp_path / "node"
     content = b"reviewed-node"
-    node.write_bytes(content)
+    node = _immutable_node(tmp_path, content)
     attestor = _node_attestor(node, hashlib.sha256(content).hexdigest())
     descriptor, identity = attestor.open()
+    tmp_path.chmod(0o755)
     replacement = tmp_path / "replacement"
     replacement.write_bytes(content)
+    replacement.chmod(0o555)
     os.replace(replacement, node)
+    tmp_path.chmod(0o555)
     try:
         with pytest.raises(RuntimeError, match="e2e_node_executable_changed"):
             attestor.reattest(descriptor, identity)
     finally:
         os.close(descriptor)
+
+
+@pytest.mark.parametrize("mode", [0o755, 0o544])
+def test_node_attestor_rejects_nonexact_leaf_mode(tmp_path: Path, mode: int) -> None:
+    node = _immutable_node(tmp_path, b"reviewed-node")
+    tmp_path.chmod(0o755)
+    node.chmod(mode)
+    tmp_path.chmod(0o555)
+    with pytest.raises(RuntimeError, match="e2e_node_executable_invalid"):
+        _node_attestor(node, hashlib.sha256(b"reviewed-node").hexdigest()).open()
+
+
+def _source_pin(tmp_path: Path, content: bytes = b'{"reviewed":true}') -> tuple[Path, Path]:
+    pin = tmp_path / "deadbeef"
+    pin.mkdir(mode=0o755)
+    manifest = pin / "manifest.json"
+    digest = pin / "manifest.sha256"
+    manifest.write_bytes(content)
+    digest.write_bytes(hashlib.sha256(content).hexdigest().encode())
+    manifest.chmod(0o444)
+    digest.chmod(0o444)
+    pin.chmod(0o555)
+    return manifest, digest
+
+
+def test_source_pin_attestor_binds_and_reattests_manifest_and_digest(tmp_path: Path) -> None:
+    manifest, digest = _source_pin(tmp_path)
+    attestor = SourcePinAttestor(
+        manifest_path=manifest,
+        digest_path=digest,
+        error_type=RuntimeError,
+        expected_uid=os.getuid(),
+        expected_gid=os.getgid(),
+        allowed_chain_owners=_chain_owners(manifest.parent),
+        chain_anchor=manifest.parent,
+    )
+    descriptors, identities, expected = attestor.open()
+    try:
+        attestor.reattest(descriptors, identities, expected)
+    finally:
+        for descriptor in descriptors:
+            os.close(descriptor)
+
+
+def test_source_pin_identity_rejects_nonroot_owner() -> None:
+    metadata = SimpleNamespace(
+        st_mode=0o100444,
+        st_uid=1001,
+        st_gid=1001,
+        st_nlink=1,
+        st_size=64,
+        st_dev=1,
+        st_ino=2,
+        st_mtime_ns=3,
+    )
+    with pytest.raises(ValueError, match="immutable_file_invalid"):
+        _immutable_file_identity(metadata, maximum=64)
+
+
+@pytest.mark.parametrize("raw", [b"a" * 64 + b"\n", b"A" * 64, b"a" * 63])
+def test_source_pin_rejects_noncanonical_digest(tmp_path: Path, raw: bytes) -> None:
+    manifest, digest = _source_pin(tmp_path)
+    manifest.parent.chmod(0o755)
+    digest.chmod(0o644)
+    digest.write_bytes(raw)
+    digest.chmod(0o444)
+    manifest.parent.chmod(0o555)
+    with pytest.raises(RuntimeError, match="e2e_source_pin_digest_invalid"):
+        SourcePinAttestor(
+            manifest_path=manifest,
+            digest_path=digest,
+            error_type=RuntimeError,
+            expected_uid=os.getuid(),
+            expected_gid=os.getgid(),
+            allowed_chain_owners=_chain_owners(manifest.parent),
+            chain_anchor=manifest.parent,
+        ).open()
+
+
+@pytest.mark.parametrize(
+    ("target", "mode"), [("dir", 0o755), ("manifest", 0o400), ("digest", 0o644)]
+)
+def test_source_pin_rejects_mutable_or_nonexact_modes(
+    tmp_path: Path, target: str, mode: int
+) -> None:
+    manifest, digest = _source_pin(tmp_path)
+    manifest.parent.chmod(0o755)
+    {"dir": manifest.parent, "manifest": manifest, "digest": digest}[target].chmod(mode)
+    if target != "dir":
+        manifest.parent.chmod(0o555)
+    with pytest.raises(RuntimeError, match="e2e_source_pin_invalid"):
+        SourcePinAttestor(
+            manifest_path=manifest,
+            digest_path=digest,
+            error_type=RuntimeError,
+            expected_uid=os.getuid(),
+            expected_gid=os.getgid(),
+            allowed_chain_owners=_chain_owners(manifest.parent),
+            chain_anchor=manifest.parent,
+        ).open()
+
+
+def test_source_pin_executor_rejects_replacement_during_delegate(tmp_path: Path) -> None:
+    manifest, digest = _source_pin(tmp_path)
+
+    class ReplacingDelegate:
+        def execute(self, *_arguments):
+            manifest.parent.chmod(0o755)
+            replacement = manifest.parent / "replacement"
+            replacement.write_bytes(manifest.read_bytes())
+            replacement.chmod(0o444)
+            os.replace(replacement, manifest)
+            manifest.parent.chmod(0o555)
+            return {"verdict": "must-not-escape"}
+
+    executor = SourcePinAttestingExecutor(
+        delegate=ReplacingDelegate(),
+        manifest_path=manifest,
+        digest_path=digest,
+        error_type=RuntimeError,
+        expected_uid=os.getuid(),
+        expected_gid=os.getgid(),
+        allowed_chain_owners=_chain_owners(manifest.parent),
+        chain_anchor=manifest.parent,
+    )
+    with pytest.raises(RuntimeError, match="e2e_source_pin_changed"):
+        executor.execute()

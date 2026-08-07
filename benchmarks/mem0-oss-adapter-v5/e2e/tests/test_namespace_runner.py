@@ -16,7 +16,6 @@ from e2e.namespace_attestation import (
     attest_service_process,
     attest_tmpfs,
     build_mount_policy,
-    validate_pinned_digest_file,
     validate_public_result,
 )
 
@@ -554,44 +553,6 @@ def _correlated_environment(arguments: runner.E2ERunArguments) -> dict[str, str]
         "MEM0_V5_SOURCE_AUTHORITY_PIN_SHA256_FILE": f"{pin}/manifest.sha256",
         "MEM0_V5_NODE_EXECUTABLE_SOURCE": str(runner.PINNED_NODE),
     }
-
-
-def test_source_pin_digest_requires_exact_private_canonical_file(tmp_path: Path) -> None:
-    pin = tmp_path / "deadbeef"
-    pin.mkdir(mode=0o500)
-    digest = pin / "manifest.sha256"
-    pin.chmod(0o700)
-    digest.write_bytes(b"a" * 64)
-    digest.chmod(0o400)
-    pin.chmod(0o500)
-
-    validate_pinned_digest_file(
-        digest,
-        expected_uid=os.getuid(),
-        expected_gid=os.getgid(),
-        error_type=runner.NamespaceRunnerError,
-    )
-
-
-@pytest.mark.parametrize(
-    "content",
-    [b"a" * 64 + b"\n", b"A" * 64, b"a" * 63, b"a" * 63 + b" "],
-)
-def test_source_pin_digest_rejects_noncanonical_bytes(tmp_path: Path, content: bytes) -> None:
-    pin = tmp_path / "deadbeef"
-    pin.mkdir(mode=0o700)
-    digest = pin / "manifest.sha256"
-    digest.write_bytes(content)
-    digest.chmod(0o400)
-    pin.chmod(0o500)
-
-    with pytest.raises(runner.NamespaceRunnerError, match="e2e_source_pin_digest_invalid"):
-        validate_pinned_digest_file(
-            digest,
-            expected_uid=os.getuid(),
-            expected_gid=os.getgid(),
-            error_type=runner.NamespaceRunnerError,
-        )
 
 
 def test_child_environment_is_exact_allowlist_and_rejects_values(monkeypatch) -> None:

@@ -41,7 +41,9 @@ def build_app_from_environment():
     base_instructions = _read_secret_file("MEM0_V5_BASE_INSTRUCTIONS_SHA256_FILE")
     source_authority = verify_source_authority(
         manifest_path=Path(_required_environment("MEM0_V5_SOURCE_AUTHORITY_MANIFEST_FILE")),
-        expected_manifest_sha256=_read_secret_file("MEM0_V5_SOURCE_AUTHORITY_MANIFEST_SHA256_FILE"),
+        expected_manifest_sha256=_read_pinned_digest_file(
+            "MEM0_V5_SOURCE_AUTHORITY_MANIFEST_SHA256_FILE"
+        ),
         installed_root=Path(__file__).resolve().parents[1],
         phase_c_authority_root=Path(_required_environment("MEM0_V5_PHASE_C_AUTHORITY_DIR")),
     )
@@ -141,6 +143,37 @@ def _read_secret_file(environment_name: str) -> str:
     if not value or value != value.strip():
         raise ValueError("adapter_configuration_invalid")
     return value
+
+
+def _read_pinned_digest_file(environment_name: str) -> str:
+    """Read a public root-owned immutable SHA-256 pin, not a private secret."""
+
+    path = Path(_required_environment(environment_name))
+    descriptor = None
+    try:
+        if not path.is_absolute():
+            raise ValueError
+        descriptor = os.open(path, os.O_RDONLY | os.O_CLOEXEC | os.O_NOFOLLOW)
+        opened = os.fstat(descriptor)
+        current = os.lstat(path)
+        identity = (opened.st_dev, opened.st_ino, opened.st_size, opened.st_mtime_ns)
+        if (
+            not stat.S_ISREG(opened.st_mode)
+            or stat.S_IMODE(opened.st_mode) != 0o444
+            or (opened.st_uid, opened.st_gid) not in {(0, 0), (65534, 65534)}
+            or opened.st_nlink != 1
+            or identity != (current.st_dev, current.st_ino, current.st_size, current.st_mtime_ns)
+        ):
+            raise ValueError
+        raw = os.read(descriptor, 65)
+    except (OSError, ValueError):
+        raise ValueError("adapter_configuration_invalid") from None
+    finally:
+        if descriptor is not None:
+            os.close(descriptor)
+    if len(raw) != 64 or any(byte not in b"0123456789abcdef" for byte in raw):
+        raise ValueError("adapter_configuration_invalid")
+    return raw.decode("ascii")
 
 
 def _required_environment(name: str) -> str:

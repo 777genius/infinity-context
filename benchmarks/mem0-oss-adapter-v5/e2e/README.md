@@ -15,7 +15,11 @@ the fixed `e2e.run` module through pinned `/usr/bin/nsenter`.
 
 Provision these outside the harness:
 
-- final source-authority directory and its separately pinned SHA file;
+- final source-authority directory owned by `root:root`, mode `0555`, with
+  `manifest.json` and canonical 64-byte `manifest.sha256` owned by `root:root`,
+  mode `0444` and link count one;
+- fixed Node authority directory and executable owned by `root:root`, mode
+  `0555`, on a root-owned path chain with no group/other write access;
 - byte-verified runtime-authority mirror owned by mapped host UID/GID
   `296603:296603` and readable as container UID/GID `65532:65532`.
 
@@ -63,7 +67,7 @@ export MEM0_V5_RUNTIME_AUTHORITY_DIR="/mnt/volume_ams3_1784742570542/infinity-lo
 export MEM0_V5_SOURCE_AUTHORITY_DIR="/mnt/volume_ams3_1784742570542/infinity-context/sources/9499b9c2"
 export MEM0_V5_SOURCE_AUTHORITY_PIN_DIR="/mnt/volume_ams3_1784742570542/infinity-locomo-benchmark/e2e-source-authorities/$SOURCE_PIN_HEX"
 export MEM0_V5_SOURCE_AUTHORITY_PIN_SHA256_FILE="$MEM0_V5_SOURCE_AUTHORITY_PIN_DIR/manifest.sha256"
-export MEM0_V5_NODE_EXECUTABLE_SOURCE="/usr/local/bin/node"
+export MEM0_V5_NODE_EXECUTABLE_SOURCE="/mnt/volume_ams3_1784742570542/infinity-locomo-benchmark/e2e-runtime-authorities/node-b2959781/node"
 export DOCKER_HOST="unix:///run/infinity-locomo-docker/docker.sock"
 export COMPOSE_FILE="$PWD/compose.provider-free-e2e.yaml"
 ```
@@ -87,7 +91,7 @@ DOCKER_HOST="$DOCKER_HOST" /usr/bin/docker compose \
 DOCKER_HOST="$DOCKER_HOST" /usr/bin/python3.12 -I -S "$PWD/e2e/namespace_runner.py" \
   --run-root "$RUN_ROOT" \
   --runtime-authority-mirror "$MEM0_V5_RUNTIME_AUTHORITY_DIR" \
-  --node /usr/local/bin/node \
+  --node "$MEM0_V5_NODE_EXECUTABLE_SOURCE" \
   --compose-file "$COMPOSE_FILE" \
   --project-name "$PROJECT_NAME" \
   --host-python "$HOST_PYTHON"

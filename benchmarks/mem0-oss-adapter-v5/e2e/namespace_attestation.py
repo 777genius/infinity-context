@@ -16,7 +16,10 @@ from typing import Any
 
 PINNED_DOCKER_HOST = "unix:///run/infinity-locomo-docker/docker.sock"
 PINNED_DOCKER = "/usr/bin/docker"
-PINNED_NODE = Path("/usr/local/bin/node")
+PINNED_NODE = Path(
+    "/mnt/volume_ams3_1784742570542/infinity-locomo-benchmark/"
+    "e2e-runtime-authorities/node-b2959781/node"
+)
 PINNED_NODE_SHA256 = "b2959781cc5a74c357ffa02367efa8a0330cbb1c9cb347732fdfaaaca381cbcd"
 REQUEST = b"restart-v1\n"
 SUCCESS = b"ok-v1\n"
@@ -47,41 +50,6 @@ _PATH_ENVIRONMENT = (
     "MEM0_V5_SOURCE_AUTHORITY_PIN_SHA256_FILE",
     "MEM0_V5_NODE_EXECUTABLE_SOURCE",
 )
-
-
-def validate_pinned_digest_file(
-    path: Path,
-    *,
-    expected_uid: int,
-    expected_gid: int,
-    error_type: type[Exception],
-) -> None:
-    try:
-        directory = os.lstat(path.parent)
-        descriptor = os.open(path, os.O_RDONLY | os.O_CLOEXEC | os.O_NOFOLLOW)
-        metadata = os.fstat(descriptor)
-        raw = os.read(descriptor, 65)
-    except Exception:
-        raise error_type("e2e_source_pin_digest_invalid") from None
-    finally:
-        if "descriptor" in locals():
-            os.close(descriptor)
-    if (
-        not stat.S_ISDIR(directory.st_mode)
-        or (directory.st_uid, directory.st_gid) != (expected_uid, expected_gid)
-        or stat.S_IMODE(directory.st_mode) != 0o500
-        or not stat.S_ISREG(metadata.st_mode)
-        or (metadata.st_uid, metadata.st_gid) != (expected_uid, expected_gid)
-        or stat.S_IMODE(metadata.st_mode) != 0o400
-        or len(raw) != 64
-    ):
-        raise error_type("e2e_source_pin_digest_invalid")
-    try:
-        digest = raw.decode("ascii")
-    except UnicodeDecodeError:
-        raise error_type("e2e_source_pin_digest_invalid") from None
-    if _SHA256.fullmatch(digest) is None:
-        raise error_type("e2e_source_pin_digest_invalid")
 
 
 def build_mount_policy(
@@ -323,17 +291,30 @@ class PinnedExecutableAttestor:
         path: Path,
         expected_sha256: str,
         error_type: type[Exception],
+        expected_uid: int = 0,
+        expected_gid: int = 0,
+        allowed_chain_owners: frozenset[tuple[int, int]] = frozenset({(0, 0)}),
+        chain_anchor: Path = Path("/"),
     ) -> None:
         self._path = path
         self._expected_sha256 = expected_sha256
         self._error = error_type
+        self._owner = (expected_uid, expected_gid)
+        self._chain_owners = allowed_chain_owners
+        self._chain_anchor = chain_anchor
 
-    def open(self) -> tuple[int, tuple[int, int, int, int]]:
+    def open(self) -> tuple[int, tuple[int, ...]]:
         descriptor = None
         try:
             descriptor = os.open(self._path, os.O_RDONLY | os.O_CLOEXEC | os.O_NOFOLLOW)
+            _attest_immutable_chain(
+                self._path.parent,
+                leaf_mode=0o555,
+                owners=self._chain_owners,
+                anchor=self._chain_anchor,
+            )
             metadata = os.fstat(descriptor)
-            identity = _executable_identity(metadata, self._error)
+            identity = _executable_identity(metadata, self._error, owner=self._owner)
             if _sha256_descriptor(descriptor) != self._expected_sha256:
                 raise self._error("e2e_node_executable_invalid")
             return descriptor, identity
@@ -344,13 +325,19 @@ class PinnedExecutableAttestor:
                 raise
             raise self._error("e2e_node_executable_invalid") from None
 
-    def reattest(self, descriptor: int, identity: tuple[int, int, int, int]) -> None:
+    def reattest(self, descriptor: int, identity: tuple[int, ...]) -> None:
         try:
+            _attest_immutable_chain(
+                self._path.parent,
+                leaf_mode=0o555,
+                owners=self._chain_owners,
+                anchor=self._chain_anchor,
+            )
             path_metadata = os.lstat(self._path)
             held_metadata = os.fstat(descriptor)
             if (
-                _executable_identity(path_metadata, self._error) != identity
-                or _executable_identity(held_metadata, self._error) != identity
+                _executable_identity(path_metadata, self._error, owner=self._owner) != identity
+                or _executable_identity(held_metadata, self._error, owner=self._owner) != identity
                 or _sha256_descriptor(descriptor) != self._expected_sha256
             ):
                 raise self._error("e2e_node_executable_changed")
@@ -383,12 +370,226 @@ class NodeAttestingExecutor:
             os.close(descriptor)
 
 
+class SourcePinAttestor:
+    """Hold and re-attest the immutable external source manifest binding."""
+
+    def __init__(
+        self,
+        *,
+        manifest_path: Path,
+        digest_path: Path,
+        error_type: type[Exception],
+        expected_uid: int = 0,
+        expected_gid: int = 0,
+        allowed_chain_owners: frozenset[tuple[int, int]] = frozenset({(0, 0)}),
+        chain_anchor: Path = Path("/"),
+    ) -> None:
+        if (
+            manifest_path.name != "manifest.json"
+            or digest_path.name != "manifest.sha256"
+            or manifest_path.parent != digest_path.parent
+        ):
+            raise error_type("e2e_source_pin_path_invalid")
+        self._manifest = manifest_path
+        self._digest = digest_path
+        self._error = error_type
+        self._owner = (expected_uid, expected_gid)
+        self._chain_owners = allowed_chain_owners
+        self._chain_anchor = chain_anchor
+
+    def open(self) -> tuple[tuple[int, int], tuple[tuple[int, ...], tuple[int, ...]], str]:
+        descriptors: list[int] = []
+        try:
+            _attest_immutable_chain(
+                self._manifest.parent,
+                leaf_mode=0o555,
+                owners=self._chain_owners,
+                anchor=self._chain_anchor,
+            )
+            for path in (self._manifest, self._digest):
+                descriptors.append(os.open(path, os.O_RDONLY | os.O_CLOEXEC | os.O_NOFOLLOW))
+            manifest_fd, digest_fd = descriptors
+            manifest_identity = _immutable_file_identity(
+                os.fstat(manifest_fd), maximum=8 << 20, owner=self._owner
+            )
+            digest_identity = _immutable_file_identity(
+                os.fstat(digest_fd), maximum=65, owner=self._owner
+            )
+            digest = _canonical_digest(digest_fd, self._error)
+            if _sha256_descriptor(manifest_fd) != digest:
+                raise self._error("e2e_source_pin_binding_invalid")
+            return (manifest_fd, digest_fd), (manifest_identity, digest_identity), digest
+        except Exception as error:
+            for descriptor in descriptors:
+                os.close(descriptor)
+            if isinstance(error, self._error):
+                raise
+            raise self._error("e2e_source_pin_invalid") from None
+
+    def reattest(
+        self,
+        descriptors: tuple[int, int],
+        identities: tuple[tuple[int, ...], tuple[int, ...]],
+        digest: str,
+    ) -> None:
+        try:
+            _attest_immutable_chain(
+                self._manifest.parent,
+                leaf_mode=0o555,
+                owners=self._chain_owners,
+                anchor=self._chain_anchor,
+            )
+            for path, descriptor, identity, maximum in zip(
+                (self._manifest, self._digest),
+                descriptors,
+                identities,
+                (8 << 20, 65),
+                strict=True,
+            ):
+                if (
+                    _immutable_file_identity(os.lstat(path), maximum=maximum, owner=self._owner)
+                    != identity
+                    or _immutable_file_identity(
+                        os.fstat(descriptor), maximum=maximum, owner=self._owner
+                    )
+                    != identity
+                ):
+                    raise self._error("e2e_source_pin_changed")
+            if _canonical_digest(descriptors[1], self._error) != digest:
+                raise self._error("e2e_source_pin_changed")
+            if _sha256_descriptor(descriptors[0]) != digest:
+                raise self._error("e2e_source_pin_changed")
+        except Exception as error:
+            if isinstance(error, self._error):
+                raise
+            raise self._error("e2e_source_pin_changed") from None
+
+
+class SourcePinAttestingExecutor:
+    def __init__(
+        self,
+        *,
+        delegate: Any,
+        manifest_path: Path,
+        digest_path: Path,
+        error_type: type[Exception],
+        expected_uid: int = 0,
+        expected_gid: int = 0,
+        allowed_chain_owners: frozenset[tuple[int, int]] = frozenset({(0, 0)}),
+        chain_anchor: Path = Path("/"),
+    ) -> None:
+        self._delegate = delegate
+        self._attestor = SourcePinAttestor(
+            manifest_path=manifest_path,
+            digest_path=digest_path,
+            error_type=error_type,
+            expected_uid=expected_uid,
+            expected_gid=expected_gid,
+            allowed_chain_owners=allowed_chain_owners,
+            chain_anchor=chain_anchor,
+        )
+
+    def execute(self, *arguments: Any) -> Mapping[str, Any]:
+        descriptors, identities, digest = self._attestor.open()
+        try:
+            self._attestor.reattest(descriptors, identities, digest)
+            try:
+                return self._delegate.execute(*arguments)
+            finally:
+                self._attestor.reattest(descriptors, identities, digest)
+        finally:
+            for descriptor in descriptors:
+                os.close(descriptor)
+
+
+def _immutable_file_identity(
+    metadata: os.stat_result, *, maximum: int, owner: tuple[int, int] = (0, 0)
+) -> tuple[int, ...]:
+    if (
+        not stat.S_ISREG(metadata.st_mode)
+        or (metadata.st_uid, metadata.st_gid) != owner
+        or stat.S_IMODE(metadata.st_mode) != 0o444
+        or metadata.st_nlink != 1
+        or not 1 <= metadata.st_size <= maximum
+    ):
+        raise ValueError("immutable_file_invalid")
+    return (
+        metadata.st_dev,
+        metadata.st_ino,
+        metadata.st_size,
+        metadata.st_mtime_ns,
+        metadata.st_ctime_ns,
+        metadata.st_uid,
+        metadata.st_gid,
+        stat.S_IMODE(metadata.st_mode),
+        metadata.st_nlink,
+    )
+
+
+def _canonical_digest(descriptor: int, error_type: type[Exception]) -> str:
+    os.lseek(descriptor, 0, os.SEEK_SET)
+    raw = os.read(descriptor, 65)
+    try:
+        value = raw.decode("ascii")
+    except UnicodeDecodeError:
+        raise error_type("e2e_source_pin_digest_invalid") from None
+    if len(raw) != 64 or _SHA256.fullmatch(value) is None:
+        raise error_type("e2e_source_pin_digest_invalid")
+    return value
+
+
+def _attest_immutable_chain(
+    path: Path,
+    *,
+    leaf_mode: int,
+    owners: frozenset[tuple[int, int]],
+    anchor: Path,
+) -> None:
+    if not path.is_absolute() or not anchor.is_absolute():
+        raise ValueError("immutable_path_invalid")
+    try:
+        relative = path.relative_to(anchor)
+    except ValueError:
+        raise ValueError("immutable_path_invalid") from None
+    current = anchor
+    for part in ("", *relative.parts):
+        if part:
+            current /= part
+        metadata = os.lstat(current)
+        if (
+            not stat.S_ISDIR(metadata.st_mode)
+            or (metadata.st_uid, metadata.st_gid) not in owners
+            or stat.S_IMODE(metadata.st_mode) & 0o022
+        ):
+            raise ValueError("immutable_path_invalid")
+    if stat.S_IMODE(os.lstat(path).st_mode) != leaf_mode:
+        raise ValueError("immutable_path_invalid")
+
+
 def _executable_identity(
-    metadata: os.stat_result, error_type: type[Exception]
-) -> tuple[int, int, int, int]:
-    if not stat.S_ISREG(metadata.st_mode):
+    metadata: os.stat_result,
+    error_type: type[Exception],
+    *,
+    owner: tuple[int, int] = (0, 0),
+) -> tuple[int, ...]:
+    if (
+        not stat.S_ISREG(metadata.st_mode)
+        or (metadata.st_uid, metadata.st_gid) != owner
+        or stat.S_IMODE(metadata.st_mode) != 0o555
+        or metadata.st_nlink != 1
+    ):
         raise error_type("e2e_node_executable_invalid")
-    return metadata.st_dev, metadata.st_ino, metadata.st_size, metadata.st_mtime_ns
+    return (
+        metadata.st_dev,
+        metadata.st_ino,
+        metadata.st_size,
+        metadata.st_mtime_ns,
+        metadata.st_ctime_ns,
+        metadata.st_uid,
+        metadata.st_gid,
+        stat.S_IMODE(metadata.st_mode),
+        metadata.st_nlink,
+    )
 
 
 def _sha256_descriptor(descriptor: int) -> str:

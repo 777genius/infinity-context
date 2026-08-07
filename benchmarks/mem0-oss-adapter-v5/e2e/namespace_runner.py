@@ -32,21 +32,15 @@ PINNED_BENCHMARK_ROOT = Path(
     "/mnt/volume_ams3_1784742570542/infinity-context/worktrees/"
     "mem0-oss-adapter-v5-r1/benchmarks/mem0-oss-adapter-v5"
 )
-PINNED_RUN_PARENT = Path(
-    "/mnt/volume_ams3_1784742570542/infinity-locomo-benchmark/e2e-runs/host296603"
-)
+PINNED_HOSTING_ROOT = Path("/mnt/volume_ams3_1784742570542/infinity-locomo-benchmark")
+PINNED_RUN_PARENT = PINNED_HOSTING_ROOT / "e2e-runs/host296603"
 PINNED_HOST_PYTHON = PINNED_RUN_PARENT / "e2e-venv/bin/python"
-PINNED_RUNTIME_MIRROR = Path(
-    "/mnt/volume_ams3_1784742570542/infinity-locomo-benchmark/"
-    "e2e-runtime-authorities/e904ec95-uid65532-host296603"
-)
+PINNED_RUNTIME_MIRROR = PINNED_HOSTING_ROOT / "e2e-runtime-authorities/e904ec95-uid65532-host296603"
 PINNED_PHASE_C = Path("/mnt/volume_ams3_1784742570542/infinity-context/sources/9499b9c2")
-PINNED_NODE = Path("/usr/local/bin/node")
-PINNED_DOCKER_DATA_ROOT = Path("/mnt/volume_ams3_1784742570542/infinity-locomo-benchmark/docker")
-PINNED_DOCKER_EXEC_ROOT = Path("/mnt/volume_ams3_1784742570542/infinity-locomo-benchmark/exec")
-PINNED_DOCKER_PIDFILE = Path(
-    "/mnt/volume_ams3_1784742570542/infinity-locomo-benchmark/state/dockerd.pid"
-)
+PINNED_NODE = PINNED_HOSTING_ROOT / "e2e-runtime-authorities/node-b2959781/node"
+PINNED_DOCKER_DATA_ROOT = PINNED_HOSTING_ROOT / "docker"
+PINNED_DOCKER_EXEC_ROOT = PINNED_HOSTING_ROOT / "exec"
+PINNED_DOCKER_PIDFILE = PINNED_HOSTING_ROOT / "state/dockerd.pid"
 EXPECTED_DAEMON_UID = 994
 EXPECTED_DAEMON_GID = 985
 TRUSTED_SOCKET_GID = 232058
@@ -656,12 +650,6 @@ def run(arguments: E2ERunArguments) -> Mapping[str, Any]:
     arguments.validate()
     environment = _child_environment(os.environ, arguments)
     support = _load_privileged_support()
-    support.validate_pinned_digest_file(
-        Path(environment["MEM0_V5_SOURCE_AUTHORITY_PIN_SHA256_FILE"]),
-        expected_uid=MAPPED_RUNTIME_UID,
-        expected_gid=MAPPED_RUNTIME_GID,
-        error_type=NamespaceRunnerError,
-    )
     trust = PinnedHostTrust()
     trust.attest()
     locator = PinnedDockerAnchorLocator(
@@ -674,9 +662,14 @@ def run(arguments: E2ERunArguments) -> Mapping[str, Any]:
     return NamespaceRunOrchestrator(
         locator=locator,
         process_attestor=support.ProcessNamespaceAttestor(error_type=NamespaceRunnerError),
-        executor=support.NodeAttestingExecutor(
-            delegate=PinnedNetnsExecutor(support.validate_public_result),
-            node_path=arguments.node,
+        executor=support.SourcePinAttestingExecutor(
+            delegate=support.NodeAttestingExecutor(
+                delegate=PinnedNetnsExecutor(support.validate_public_result),
+                node_path=arguments.node,
+                error_type=NamespaceRunnerError,
+            ),
+            manifest_path=Path(environment["MEM0_V5_SOURCE_AUTHORITY_PIN_DIR"]) / "manifest.json",
+            digest_path=Path(environment["MEM0_V5_SOURCE_AUTHORITY_PIN_SHA256_FILE"]),
             error_type=NamespaceRunnerError,
         ),
         lifecycle_helper_type=lambda **values: support.RootDockerLifecycleHelper(

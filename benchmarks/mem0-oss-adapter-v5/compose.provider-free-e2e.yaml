@@ -74,7 +74,7 @@ services:
         target: /mnt/volume_ams3_1784742570542/infinity-context/runtimes/subscription-runtime/e904ec95
         read_only: true
       - type: bind
-        source: ${MEM0_V5_NODE_EXECUTABLE_SOURCE:-/usr/local/bin/node}
+        source: ${MEM0_V5_NODE_EXECUTABLE_SOURCE:?set immutable root-owned Node authority}
         target: /usr/local/bin/node
         read_only: true
     tmpfs:
@@ -177,7 +177,7 @@ services:
         target: /run/source-authority-pin/manifest.sha256
         read_only: true
       - type: bind
-        source: ${MEM0_V5_NODE_EXECUTABLE_SOURCE:-/usr/local/bin/node}
+        source: ${MEM0_V5_NODE_EXECUTABLE_SOURCE:?set immutable root-owned Node authority}
         target: /usr/local/bin/node
         read_only: true
     tmpfs:
