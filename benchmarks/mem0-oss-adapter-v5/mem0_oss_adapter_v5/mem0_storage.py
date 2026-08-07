@@ -123,6 +123,23 @@ class StorageSnapshot:
 
 
 @dataclass(frozen=True, slots=True)
+class CleanStateStorageSnapshot:
+    storage: StorageSnapshot
+    isolated_history_record_count: int
+
+    def __post_init__(self) -> None:
+        if type(self.storage) is not StorageSnapshot or (
+            type(self.isolated_history_record_count) is not int
+            or self.isolated_history_record_count < 0
+        ):
+            raise StorageError("clean-state storage snapshot is invalid")
+
+    @property
+    def empty(self) -> bool:
+        return self.storage.empty and self.isolated_history_record_count == 0
+
+
+@dataclass(frozen=True, slots=True)
 class StorageVerification:
     snapshot: StorageSnapshot
     commitment_sha256: str
@@ -149,6 +166,13 @@ class Mem0StorageBackend(Protocol):
     def delete_messages(self, *, scope: StorageScope) -> None: ...
 
     def delete_entity_links(self, *, scope: StorageScope) -> None: ...
+
+
+@runtime_checkable
+class Mem0CleanStateBackend(Protocol):
+    """Isolated storage surface required only by pre-dispatch clean-state proof."""
+
+    def isolated_history_record_count(self) -> int: ...
 
 
 @runtime_checkable
@@ -435,6 +459,14 @@ class PinnedMem0Backend:
                 rows.extend(connection.execute(query, batch).fetchall())
         return tuple(sorted(_opaque(row[0], "history memory_id") for row in rows))
 
+    def isolated_history_record_count(self) -> int:
+        connection, lock = _db_handles(self._memory.db)  # type: ignore[attr-defined]
+        with lock:
+            row = connection.execute("SELECT COUNT(*) FROM history").fetchone()
+        if type(row) is not tuple or len(row) != 1 or type(row[0]) is not int or row[0] < 0:
+            raise StorageError("Mem0 isolated history count is invalid")
+        return row[0]
+
     def message_ids(self, *, scope: StorageScope) -> Sequence[str]:
         connection, lock = _db_handles(self._memory.db)  # type: ignore[attr-defined]
         with lock:
@@ -499,6 +531,21 @@ def independent_snapshot(backend: Mem0StorageBackend, *, scope: StorageScope) ->
         raise StorageError("storage scope reached the exact-verification bound")
     vectors = tuple(sorted((_vector_projection(row, scope) for row in rows), key=_vector_key))
     return _snapshot_for_vectors(backend, scope=scope, vectors=vectors)
+
+
+def independent_clean_state_snapshot(
+    backend: Mem0StorageBackend, *, scope: StorageScope
+) -> CleanStateStorageSnapshot:
+    """Read exact scope state plus the whole isolated SQLite history surface."""
+
+    if not isinstance(backend, Mem0CleanStateBackend):
+        raise StorageError("Mem0 clean-state history audit capability is unavailable")
+    snapshot = independent_snapshot(backend, scope=scope)
+    count = backend.isolated_history_record_count()
+    return CleanStateStorageSnapshot(
+        storage=snapshot,
+        isolated_history_record_count=count,
+    )
 
 
 def independent_cleanup_snapshot(
@@ -737,7 +784,9 @@ def _batches(values: Sequence[str], size: int = 400) -> tuple[tuple[str, ...], .
 
 
 __all__ = (
+    "CleanStateStorageSnapshot",
     "EntityLinkProjection",
+    "Mem0CleanStateBackend",
     "Mem0EvidenceStorage",
     "Mem0SearchBackend",
     "Mem0StorageAdapter",
@@ -751,6 +800,7 @@ __all__ = (
     "StorageVerification",
     "VectorProjection",
     "canonical_sha256",
+    "independent_clean_state_snapshot",
     "independent_cleanup_snapshot",
     "independent_snapshot",
 )

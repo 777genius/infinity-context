@@ -13,6 +13,8 @@ from starlette.types import ASGIApp, Message, Receive, Scope, Send
 from mem0_oss_adapter_v5.http_models import (
     AdmissionReceipt,
     AdmitRequest,
+    CleanStateRequest,
+    CleanStateResponse,
     CleanupReceipt,
     CleanupRequest,
     DispatchRequest,
@@ -39,6 +41,10 @@ _SAFE_SERVICE_ERRORS = frozenset(
         "admission_invalid",
         "cleanup_conflict",
         "cleanup_failed",
+        "clean_state_binding_invalid",
+        "clean_state_conflict",
+        "clean_state_failed",
+        "clean_state_not_empty",
         "corpus_not_found",
         "dispatch_conflict",
         "dispatch_failed",
@@ -73,6 +79,14 @@ class V5ApplicationService(Protocol):
     def status(self, request: StatusRequest, *, idempotency_key: str) -> RuntimeReceiptEnvelope: ...
 
     def cleanup(self, request: CleanupRequest, *, idempotency_key: str) -> CleanupReceipt: ...
+
+    def clean_state(
+        self,
+        request: CleanStateRequest,
+        *,
+        idempotency_key: str,
+        request_commitment_sha256: str,
+    ) -> CleanStateResponse: ...
 
     def storage_observation(
         self,
@@ -205,6 +219,18 @@ def create_app(*, service: V5ApplicationService, bearer_token: str) -> FastAPI:
     ) -> CleanupReceipt:
         _verify_request_commitment(payload, headers.request_commitment_sha256)
         return service.cleanup(payload, idempotency_key=headers.idempotency_key)
+
+    @app.post("/v5/runs/clean-state", response_model=CleanStateResponse)
+    def clean_state(
+        payload: CleanStateRequest,
+        headers: Annotated[_AuthenticatedHeaders, Depends(authenticate)],
+    ) -> CleanStateResponse:
+        _verify_request_commitment(payload, headers.request_commitment_sha256)
+        return service.clean_state(
+            payload,
+            idempotency_key=headers.idempotency_key,
+            request_commitment_sha256=headers.request_commitment_sha256,
+        )
 
     @app.post(
         "/v5/operations/request-binding",

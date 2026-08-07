@@ -173,6 +173,72 @@ class CleanupReceipt(_ExactModel):
     residual_root_sha256: Sha256
 
 
+EmptySha256 = Literal["e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"]
+
+
+class CleanStateCorpusScope(_ExactModel):
+    corpus_identity_sha256: Sha256
+    scope_identity_sha256: Sha256
+    source_scope_count: Annotated[StrictInt, Field(ge=1, le=10_000)]
+    residual_record_count: Literal[0]
+    residual_root_sha256: EmptySha256
+
+
+class CleanStateRequest(_ExactModel):
+    schema_version: Literal["mem0-oss-adapter-v5.clean-state-request.v1"]
+    admission_commitment_sha256: Sha256
+    run_id_sha256: Sha256
+    authority_commitment_sha256: Sha256
+    manifest_case_count: Annotated[StrictInt, Field(ge=1, le=10_000)]
+    credential_binding_sha256: Sha256
+    runtime_source_revision: SafeRuntimeText
+    runtime_source_sha256: Sha256
+    runtime_base_sha256: Sha256
+    runtime_binding_commitment_sha256: Sha256
+    scopes: Annotated[tuple[CleanStateCorpusScope, ...], Field(min_length=1, max_length=10_000)]
+
+    @field_validator("scopes", mode="before")
+    @classmethod
+    def scopes_are_a_json_array(cls, value: object) -> object:
+        return tuple(value) if type(value) is list else value
+
+    @model_validator(mode="after")
+    def corpus_inventory_is_unique(self) -> CleanStateRequest:
+        identities = tuple(item.corpus_identity_sha256 for item in self.scopes)
+        if len(set(identities)) != len(identities):
+            raise ValueError("clean_state_request_invalid")
+        return self
+
+
+class CleanStateResponse(_ExactModel):
+    schema_version: Literal["mem0-oss-adapter-v5.clean-state.v1"]
+    admission_commitment_sha256: Sha256
+    run_id_sha256: Sha256
+    authority_commitment_sha256: Sha256
+    ingestion_manifest_sha256: Sha256
+    ingestion_root_sha256: Sha256
+    runtime_binding_commitment_sha256: Sha256
+    request_commitment_sha256: Sha256
+    request_id_sha256: Sha256
+    scope_count: Annotated[StrictInt, Field(ge=1, le=10_000)]
+    scope_inventory_root_sha256: Sha256
+    scopes: Annotated[tuple[CleanStateCorpusScope, ...], Field(min_length=1, max_length=10_000)]
+    evidence_commitment_sha256: Sha256
+    clean_state_hmac_sha256: Sha256
+
+    @field_validator("scopes", mode="before")
+    @classmethod
+    def scopes_are_a_json_array(cls, value: object) -> object:
+        return tuple(value) if type(value) is list else value
+
+    @model_validator(mode="after")
+    def scope_count_is_exact(self) -> CleanStateResponse:
+        identities = tuple(item.corpus_identity_sha256 for item in self.scopes)
+        if self.scope_count != len(self.scopes) or len(set(identities)) != len(identities):
+            raise ValueError("clean_state_response_invalid")
+        return self
+
+
 EvidenceText = Annotated[StrictStr, Field(min_length=1, max_length=512)]
 SearchMemory = Annotated[StrictStr, Field(min_length=1, max_length=16_384)]
 SearchLimit = Annotated[StrictInt, Field(ge=1, le=200)]
