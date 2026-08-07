@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+from contextlib import contextmanager
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -66,6 +67,45 @@ def test_tampered_phase_c_authority_blocks_runtime_binding_issue(monkeypatch) ->
     with pytest.raises(attestation.AuthorityError, match="tampered"):
         bootstrap._receipt_authority("receipt-secret")
     assert events == ["attestation"]
+
+
+def test_build_pinned_memory_cold_start_uses_subscription_usage_ledger(
+    tmp_path: Path, monkeypatch
+) -> None:
+    adapter_package = Path(__file__).resolve().parents[2] / "mem0-oss-adapter"
+    monkeypatch.syspath_prepend(str(adapter_package))
+    from mem0 import Memory
+    from mem0_oss_adapter import sdk_oss
+    from mem0_oss_adapter.subscription_llm import UsageLedger
+
+    events = []
+    expected_config = {"reviewed": True}
+    expected_memory = object()
+
+    def pinned_config(settings, *, usage_ledger):
+        assert type(usage_ledger) is UsageLedger
+        assert settings.state_dir == tmp_path / "mem0"
+        events.append("configured")
+        return expected_config
+
+    @contextmanager
+    def patched_factories():
+        events.append("entered")
+        yield
+        events.append("exited")
+
+    def from_config(config):
+        assert config is expected_config
+        events.append("constructed")
+        return expected_memory
+
+    monkeypatch.setenv("MEM0_V5_QDRANT_ORIGIN", "http://127.0.0.1:6334")
+    monkeypatch.setattr(sdk_oss, "pinned_memory_config", pinned_config)
+    monkeypatch.setattr(sdk_oss, "_patched_mem0_factories", patched_factories)
+    monkeypatch.setattr(Memory, "from_config", staticmethod(from_config))
+
+    assert bootstrap._build_pinned_memory(tmp_path) is expected_memory
+    assert events == ["configured", "entered", "constructed", "exited"]
 
 
 def _public_digest(tmp_path: Path, raw: bytes = b"a" * 64) -> Path:

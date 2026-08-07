@@ -110,7 +110,7 @@ def _build_pinned_memory(state_directory: Path):
         _patched_mem0_factories,
         pinned_memory_config,
     )
-    from mem0_oss_adapter.usage import UsageLedger
+    from mem0_oss_adapter.subscription_llm import UsageLedger
 
     if _required_environment("MEM0_V5_QDRANT_ORIGIN") != "http://127.0.0.1:6334":
         raise ValueError("adapter_configuration_invalid")
