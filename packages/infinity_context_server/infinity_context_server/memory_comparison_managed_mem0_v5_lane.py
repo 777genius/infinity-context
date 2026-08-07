@@ -111,6 +111,7 @@ class ManagedMem0V5StorageObservation:
 
     operation_id_sha256: str
     unit_identity_sha256: str
+    storage_commitment_sha256: str
     created_record_ids: tuple[str, ...]
     source_pairs: tuple[ManagedMem0V5SourcePair, ...]
     evidence_commitment_sha256: str
@@ -119,6 +120,7 @@ class ManagedMem0V5StorageObservation:
         if (
             not is_sha256(self.operation_id_sha256)
             or not is_sha256(self.unit_identity_sha256)
+            or not is_sha256(self.storage_commitment_sha256)
             or type(self.created_record_ids) is not tuple
             or any(
                 type(item) is not str or _SAFE_RECORD_ID.fullmatch(item) is None
@@ -141,18 +143,21 @@ class ManagedMem0V5StorageObservation:
         *,
         operation_id_sha256: str,
         unit_identity_sha256: str,
+        storage_commitment_sha256: str,
         created_record_ids: tuple[str, ...],
         source_pairs: tuple[ManagedMem0V5SourcePair, ...],
     ) -> ManagedMem0V5StorageObservation:
         payload = {
             "operation_id_sha256": operation_id_sha256,
             "unit_identity_sha256": unit_identity_sha256,
+            "storage_commitment_sha256": storage_commitment_sha256,
             "created_record_ids": list(created_record_ids),
             "source_pairs": [item.payload() for item in source_pairs],
         }
         return cls(
             operation_id_sha256=operation_id_sha256,
             unit_identity_sha256=unit_identity_sha256,
+            storage_commitment_sha256=storage_commitment_sha256,
             created_record_ids=created_record_ids,
             source_pairs=source_pairs,
             evidence_commitment_sha256=canonical_sha256(payload),
@@ -162,6 +167,7 @@ class ManagedMem0V5StorageObservation:
         return {
             "operation_id_sha256": self.operation_id_sha256,
             "unit_identity_sha256": self.unit_identity_sha256,
+            "storage_commitment_sha256": self.storage_commitment_sha256,
             "created_record_ids": list(self.created_record_ids),
             "source_pairs": [item.payload() for item in self.source_pairs],
         }
@@ -472,7 +478,7 @@ class ManagedMem0V5LaneCoordinator:
         recovery: Mem0OssOperationRecoveryState,
     ) -> None:
         if (
-            evidence.evidence_commitment_sha256 != recovery.stored_identity_sha256
+            evidence.storage_commitment_sha256 != recovery.stored_identity_sha256
             or len(evidence.created_record_ids) != recovery.stored_record_count
         ):
             raise ManagedRunError("managed Mem0 v5 verified storage binding differs")

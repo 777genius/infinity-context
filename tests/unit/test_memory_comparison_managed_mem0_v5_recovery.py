@@ -101,7 +101,7 @@ class _StoragePort:
             route_sha256=context.route_sha256,
             scope_sha256=context.scope_sha256,
             provider_receipt_sha256=context.provider_receipt_sha256,
-            stored_identity_sha256=payload.evidence_commitment_sha256,
+            stored_identity_sha256=payload.storage_commitment_sha256,
             stored_record_count=len(payload.created_record_ids),
         )
 
@@ -151,6 +151,7 @@ class _Lane:
         return ManagedMem0V5StorageObservation.create(
             operation_id_sha256=kwargs["operation_id_sha256"],
             unit_identity_sha256=unit.unit_identity_sha256,
+            storage_commitment_sha256=_sha("storage"),
             created_record_ids=("opaque-record-1",),
             source_pairs=(ManagedMem0V5SourcePair(unit.source_id, unit.source_sha256),),
         )
