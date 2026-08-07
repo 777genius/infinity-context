@@ -441,6 +441,16 @@ class PostgresMemoryFactOperationReceiptRepository:
         ).scalar_one_or_none()
         if row is None:
             return None
+        result_fact = memory_fact_snapshot_from_json(row.result_snapshot_json)
+        result_scope = result_fact.identity.scope
+        if (
+            result_fact.identity.fact_id != row.result_fact_id
+            or result_fact.visibility.version != row.result_fact_version
+            or result_scope.space_id != row.space_id
+            or result_scope.memory_scope_id != row.memory_scope_id
+            or result_scope.thread_id != row.thread_id
+        ):
+            raise ValueError("Fact operation receipt snapshot identity mismatch")
         return MemoryFactOperationReceipt(
             space_id=row.space_id,
             memory_scope_id=row.memory_scope_id,
@@ -448,7 +458,7 @@ class PostgresMemoryFactOperationReceiptRepository:
             idempotency_key=row.idempotency_key,
             operation=row.operation,
             request_fingerprint=row.request_fingerprint,
-            result_fact=memory_fact_snapshot_from_json(row.result_snapshot_json),
+            result_fact=result_fact,
             outbox_message_ids=tuple(row.outbox_message_ids_json),
             tombstone_id=row.tombstone_id,
             created_at=_aware(row.created_at),

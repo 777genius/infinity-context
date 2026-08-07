@@ -104,6 +104,7 @@ class RejectSuggestionCommand:
     reason: str | None = None
     actor_id: str = "legacy-reviewer"
     review_scope: SuggestionReviewScope | None = None
+    idempotency_key: str | None = None
 
 
 @dataclass(frozen=True)
@@ -112,6 +113,7 @@ class ExpireSuggestionCommand:
     reason: str | None = None
     actor_id: str = "legacy-reviewer"
     review_scope: SuggestionReviewScope | None = None
+    idempotency_key: str | None = None
 
 
 @dataclass(frozen=True)
@@ -142,6 +144,7 @@ class ReviewSuggestionBatchItemCommand:
     action: str
     reason: str | None = None
     force: bool = False
+    idempotency_key: str | None = None
 
 
 @dataclass(frozen=True)

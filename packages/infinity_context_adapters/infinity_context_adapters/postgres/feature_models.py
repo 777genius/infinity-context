@@ -156,7 +156,7 @@ class SuggestionResolutionReceiptRow(Base):
         nullable=False,
     )
     result_fact_json: Mapped[dict[str, object] | None] = mapped_column(
-        json_type(),
+        json_type(none_as_null=True),
         nullable=True,
     )
     result_fact_id: Mapped[str | None] = mapped_column(String(80), nullable=True)

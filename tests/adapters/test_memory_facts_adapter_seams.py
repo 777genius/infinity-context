@@ -460,6 +460,22 @@ def test_postgres_lifecycle_receipt_replays_without_duplicate_fact(tmp_path: Pat
             assert receipt.result_fact_id == "fact-1"
             assert receipt.result_fact_version == 1
             assert receipt.result_snapshot_json["temporal_extent"]["kind"] == "state"
+
+            async with session_factory() as session:
+                receipt = (
+                    await session.execute(select(MemoryFactOperationReceiptRow))
+                ).scalar_one()
+                receipt.result_snapshot_json = {
+                    **receipt.result_snapshot_json,
+                    "identity": {
+                        **receipt.result_snapshot_json["identity"],
+                        "fact_id": "fact-corrupt",
+                    },
+                }
+                await session.commit()
+
+            with pytest.raises(ValueError, match="snapshot identity mismatch"):
+                await handler.execute(command)
         finally:
             await engine.dispose()
 

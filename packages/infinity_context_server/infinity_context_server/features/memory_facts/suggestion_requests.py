@@ -127,6 +127,7 @@ class ReviewSuggestionBatchItemRequest(BaseModel):
     action: str = Field(max_length=16)
     reason: str | None = Field(default=None, max_length=320)
     force: bool = False
+    idempotency_key: str | None = Field(default=None, min_length=1, max_length=160)
 
 
 class ReviewSuggestionsBatchRequest(BaseModel):
@@ -260,6 +261,7 @@ def _review_suggestion_batch_item_command_from_v1_request(
         action=request.action,
         reason=request.reason,
         force=request.force,
+        idempotency_key=request.idempotency_key,
     )
 
 

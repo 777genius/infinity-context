@@ -9,8 +9,11 @@ class Base(DeclarativeBase):
     pass
 
 
-def json_type() -> JSON:
-    return JSON().with_variant(JSONB(), "postgresql")
+def json_type(*, none_as_null: bool = False) -> JSON:
+    return JSON(none_as_null=none_as_null).with_variant(
+        JSONB(none_as_null=none_as_null),
+        "postgresql",
+    )
 
 
 __all__ = ("Base", "json_type")

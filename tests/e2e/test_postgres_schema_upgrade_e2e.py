@@ -9,6 +9,10 @@ from pathlib import Path
 
 import pytest
 from infinity_context_adapters.postgres import build_async_engine, upgrade_schema
+from postgres_schema_upgrade_receipt_fixtures import (
+    seed_mismatched_operation_receipt_snapshot,
+    seed_mismatched_suggestion_receipt_snapshot,
+)
 from postgres_test_database import PostgresTestDatabase
 from sqlalchemy import text
 from sqlalchemy.exc import IntegrityError
@@ -65,9 +69,9 @@ async def _assert_clean_and_legacy_upgrade(database_url: str) -> None:
             clean_results = await asyncio.gather(upgrade_schema(engine), upgrade_schema(engine))
             clean = next(result for result in clean_results if result.applied)
             assert clean.legacy_baseline is False
-            assert clean.current == "0030_suggestion_receipt_tenant_integrity"
+            assert clean.current == "0031_receipt_snapshot_identity"
             assert clean.applied[0] == "0001_core_facts"
-            assert sorted(len(result.applied) for result in clean_results) == [0, 31]
+            assert sorted(len(result.applied) for result in clean_results) == [0, 32]
             assert (await upgrade_schema(engine)).applied == ()
             await _assert_head_schema(engine)
         finally:
@@ -92,7 +96,7 @@ async def _assert_clean_and_legacy_upgrade(database_url: str) -> None:
             legacy = await upgrade_schema(engine)
             assert legacy.legacy_baseline is True
             assert legacy.applied[0].startswith("0023_")
-            assert legacy.current == "0030_suggestion_receipt_tenant_integrity"
+            assert legacy.current == "0031_receipt_snapshot_identity"
             await _assert_head_schema(engine)
             await _assert_cross_scope_audit_reference_rejected(engine)
         finally:
@@ -113,6 +117,26 @@ async def _assert_clean_and_legacy_upgrade(database_url: str) -> None:
                 current_migration="0028_code_scope_authorizations",
                 absent_constraint="fk_memory_fact_operation_receipt_fact_scope",
                 absent_columns=(("memory_suggestions", "operation"),),
+            )
+        finally:
+            await engine.dispose()
+
+        await database.recreate()
+        await _install_versioned_schema_through(database, "0030_")
+        await seed_mismatched_operation_receipt_snapshot(database)
+        engine = build_async_engine(database.app_url)
+        try:
+            with pytest.raises(
+                asyncpg.CheckViolationError,
+                match="fact operation receipt snapshot identity preflight failed",
+            ):
+                await upgrade_schema(engine)
+            await _assert_failed_upgrade_rolled_back(
+                engine,
+                current_migration="0030_suggestion_receipt_tenant_integrity",
+                absent_constraint=None,
+                absent_columns=(),
+                absent_trigger="trg_memory_fact_operation_receipt_snapshot_identity",
             )
         finally:
             await engine.dispose()
@@ -139,6 +163,25 @@ async def _assert_clean_and_legacy_upgrade(database_url: str) -> None:
                 ),
             )
             await _assert_legacy_suggestion_receipt_unchanged(engine)
+        finally:
+            await engine.dispose()
+
+        await database.recreate()
+        await _install_versioned_schema_through(database, "0030_")
+        await seed_mismatched_suggestion_receipt_snapshot(database)
+        engine = build_async_engine(database.app_url)
+        try:
+            with pytest.raises(
+                asyncpg.CheckViolationError,
+                match="suggestion receipt snapshot identity preflight failed",
+            ):
+                await upgrade_schema(engine)
+            await _assert_failed_upgrade_rolled_back(
+                engine,
+                current_migration="0030_suggestion_receipt_tenant_integrity",
+                absent_constraint=None,
+                absent_columns=(),
+            )
         finally:
             await engine.dispose()
 
@@ -247,7 +290,16 @@ async def _seed_cross_scope_operation_receipt(database: PostgresTestDatabase) ->
               result_snapshot_json, outbox_message_ids_json, created_at
             ) VALUES (
               'receipt-cross-scope', 'space-b', 'scope-b', 'global', 'key',
-              'remember', repeat('a', 64), 'fact-a', 1, '{}', '[]', now()
+              'remember', repeat('a', 64), 'fact-a', 1, jsonb_build_object(
+                'schema_version', 1,
+                'identity', jsonb_build_object(
+                  'fact_id', 'fact-a',
+                  'space_id', 'space-b',
+                  'memory_scope_id', 'scope-b',
+                  'thread_id', NULL
+                ),
+                'visibility', jsonb_build_object('version', 1)
+              ), '[]', now()
             );
             """
         )
@@ -292,8 +344,19 @@ async def _seed_cross_scope_suggestion_receipt(database: PostgresTestDatabase) -
               affected_fact_versions_json, outbox_message_ids_json, created_at
             ) VALUES (
               'receipt-cross-scope', 'suggestion-a', 'approve', 'approve-key',
-              repeat('b', 64), '{}', jsonb_build_object(
-                'identity', jsonb_build_object('fact_id', 'fact-b'),
+              repeat('b', 64), jsonb_build_object(
+                'schema_version', 1,
+                'id', 'suggestion-a',
+                'space_id', 'space-a',
+                'memory_scope_id', 'scope-a'
+              ), jsonb_build_object(
+                'schema_version', 1,
+                'identity', jsonb_build_object(
+                  'fact_id', 'fact-b',
+                  'space_id', 'space-a',
+                  'memory_scope_id', 'scope-a',
+                  'thread_id', NULL
+                ),
                 'visibility', jsonb_build_object('version', 1)
               ), '[]', '[]', '[]', now()
             );
@@ -307,8 +370,9 @@ async def _assert_failed_upgrade_rolled_back(
     engine,
     *,
     current_migration: str,
-    absent_constraint: str,
+    absent_constraint: str | None,
     absent_columns: tuple[tuple[str, str], ...],
+    absent_trigger: str | None = None,
 ) -> None:
     async with engine.connect() as connection:
         latest = await connection.scalar(
@@ -319,9 +383,27 @@ async def _assert_failed_upgrade_rolled_back(
                 """
             )
         )
-        constraint_count = await connection.scalar(
-            text("SELECT count(*) FROM pg_constraint WHERE conname = :constraint_name"),
-            {"constraint_name": absent_constraint},
+        constraint_count = (
+            await connection.scalar(
+                text("SELECT count(*) FROM pg_constraint WHERE conname = :constraint_name"),
+                {"constraint_name": absent_constraint},
+            )
+            if absent_constraint is not None
+            else 0
+        )
+        trigger_count = (
+            await connection.scalar(
+                text(
+                    """
+                    SELECT count(*) FROM information_schema.triggers
+                    WHERE trigger_schema = current_schema()
+                      AND trigger_name = :trigger_name
+                    """
+                ),
+                {"trigger_name": absent_trigger},
+            )
+            if absent_trigger is not None
+            else 0
         )
         column_count = 0
         for table_name, column_name in absent_columns:
@@ -341,6 +423,7 @@ async def _assert_failed_upgrade_rolled_back(
             )
     assert latest == current_migration
     assert constraint_count == 0
+    assert trigger_count == 0
     assert column_count == 0
 
 
@@ -367,9 +450,20 @@ async def _assert_legacy_suggestion_receipt_unchanged(engine) -> None:
         "suggestion_id": "suggestion-a",
         "operation": "approve",
         "idempotency_key": "approve-key",
-        "result_suggestion_json": {},
+        "result_suggestion_json": {
+            "schema_version": 1,
+            "id": "suggestion-a",
+            "space_id": "space-a",
+            "memory_scope_id": "scope-a",
+        },
         "result_fact_json": {
-            "identity": {"fact_id": "fact-b"},
+            "schema_version": 1,
+            "identity": {
+                "fact_id": "fact-b",
+                "space_id": "space-a",
+                "memory_scope_id": "scope-a",
+                "thread_id": None,
+            },
             "visibility": {"version": 1},
         },
         "temporal_decision_id": None,
@@ -548,6 +642,27 @@ async def _assert_head_schema(engine) -> None:
             "trg_memory_context_links_benchmark_writer_fence",
             "trg_memory_suggestions_benchmark_writer_fence",
         } <= triggers
+        receipt_triggers = set(
+            (
+                await connection.execute(
+                    text(
+                        """
+                        SELECT DISTINCT trigger_name
+                        FROM information_schema.triggers
+                        WHERE trigger_schema = current_schema()
+                          AND trigger_name IN (
+                            'trg_memory_fact_operation_receipt_snapshot_identity',
+                            'trg_suggestion_resolution_receipt_compatibility_fields'
+                          )
+                        """
+                    )
+                )
+            ).scalars()
+        )
+        assert receipt_triggers == {
+            "trg_memory_fact_operation_receipt_snapshot_identity",
+            "trg_suggestion_resolution_receipt_compatibility_fields",
+        }
         suggestion_indexes = set(
             (
                 await connection.execute(
@@ -657,7 +772,12 @@ async def _assert_cross_scope_audit_reference_rejected(engine) -> None:
                       temporal_decision_id, outbox_message_ids_json, created_at
                     ) VALUES (
                       'suggestion-receipt-cross-scope', 'suggestion-b', 'space-b', 'scope-b',
-                      'approve', 'approve-key', repeat('c', 64), '{}', '[]', '[]',
+                      'approve', 'approve-key', repeat('c', 64), jsonb_build_object(
+                        'schema_version', 1,
+                        'id', 'suggestion-b',
+                        'space_id', 'space-b',
+                        'memory_scope_id', 'scope-b'
+                      ), '[]', '[]',
                       'decision-a', '[]', now()
                     )
                     """
@@ -680,8 +800,19 @@ async def _assert_cross_scope_audit_reference_rejected(engine) -> None:
                     ) VALUES (
                       'suggestion-receipt-cross-scope-fact', 'suggestion-b',
                       'space-b', 'scope-b', 'approve', 'approve-fact-key', repeat('d', 64),
-                      '{}', jsonb_build_object(
-                        'identity', jsonb_build_object('fact_id', 'fact-a'),
+                      jsonb_build_object(
+                        'schema_version', 1,
+                        'id', 'suggestion-b',
+                        'space_id', 'space-b',
+                        'memory_scope_id', 'scope-b'
+                      ), jsonb_build_object(
+                        'schema_version', 1,
+                        'identity', jsonb_build_object(
+                          'fact_id', 'fact-a',
+                          'space_id', 'space-b',
+                          'memory_scope_id', 'scope-b',
+                          'thread_id', NULL
+                        ),
                         'visibility', jsonb_build_object('version', 1)
                       ), 'fact-b', 1, '[]', '[]', '[]', now()
                     )
@@ -699,7 +830,16 @@ async def _assert_cross_scope_audit_reference_rejected(engine) -> None:
                       result_snapshot_json, outbox_message_ids_json, created_at
                     ) VALUES (
                       'receipt-cross-scope', 'space-b', 'scope-b', 'global', 'key',
-                      'remember', repeat('a', 64), 'fact-a', 1, '{}', '[]', now()
+                      'remember', repeat('a', 64), 'fact-a', 1, jsonb_build_object(
+                        'schema_version', 1,
+                        'identity', jsonb_build_object(
+                          'fact_id', 'fact-a',
+                          'space_id', 'space-b',
+                          'memory_scope_id', 'scope-b',
+                          'thread_id', NULL
+                        ),
+                        'visibility', jsonb_build_object('version', 1)
+                      ), '[]', now()
                     )
                     """
                 )
@@ -751,10 +891,40 @@ async def _assert_cross_scope_audit_reference_rejected(engine) -> None:
                   affected_fact_versions_json, outbox_message_ids_json, created_at
                 ) VALUES (
                   'legacy-writer-compatible', 'suggestion-b', 'approve',
-                  'legacy-writer-key', repeat('e', 64), '{}', jsonb_build_object(
-                    'identity', jsonb_build_object('fact_id', 'fact-b'),
+                  'legacy-writer-key', repeat('e', 64), jsonb_build_object(
+                    'schema_version', 1,
+                    'id', 'suggestion-b',
+                    'space_id', 'space-b',
+                    'memory_scope_id', 'scope-b'
+                  ), jsonb_build_object(
+                    'schema_version', 1,
+                    'identity', jsonb_build_object(
+                      'fact_id', 'fact-b',
+                      'space_id', 'space-b',
+                      'memory_scope_id', 'scope-b',
+                      'thread_id', NULL
+                    ),
                     'visibility', jsonb_build_object('version', 1)
                   ), '[]', '[]', '[]', now()
+                )
+                """
+            )
+        )
+        await connection.execute(
+            text(
+                """
+                INSERT INTO suggestion_resolution_receipts (
+                  id, suggestion_id, operation, idempotency_key, request_fingerprint,
+                  result_suggestion_json, result_fact_json, affected_fact_ids_json,
+                  affected_fact_versions_json, outbox_message_ids_json, created_at
+                ) VALUES (
+                  'legacy-json-null-compatible', 'suggestion-b', 'reject',
+                  'legacy-json-null-key', repeat('f', 64), jsonb_build_object(
+                    'schema_version', 1,
+                    'id', 'suggestion-b',
+                    'space_id', 'space-b',
+                    'memory_scope_id', 'scope-b'
+                  ), 'null'::jsonb, '[]', '[]', '[]', now()
                 )
                 """
             )
@@ -772,3 +942,14 @@ async def _assert_cross_scope_audit_reference_rejected(engine) -> None:
             )
         ).one()
     assert tuple(compatibility_fields) == ("space-b", "scope-b", "fact-b", 1)
+    async with engine.connect() as connection:
+        normalized_json_null = await connection.scalar(
+            text(
+                """
+                SELECT result_fact_json IS NULL
+                FROM suggestion_resolution_receipts
+                WHERE id = 'legacy-json-null-compatible'
+                """
+            )
+        )
+    assert normalized_json_null is True

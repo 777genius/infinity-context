@@ -919,18 +919,32 @@ class InfinityContextClient(
             json={"items": items, "continue_on_error": continue_on_error},
         )
 
-    def reject_suggestion(self, suggestion_id: str, *, reason: str | None = None) -> dict[str, Any]:
+    def reject_suggestion(
+        self,
+        suggestion_id: str,
+        *,
+        reason: str | None = None,
+        idempotency_key: str | None = None,
+    ) -> dict[str, Any]:
         return self._request(
             "POST",
             f"/v1/suggestions/{suggestion_id}/reject",
             json={"reason": reason},
+            idempotency_key=idempotency_key,
         )
 
-    def expire_suggestion(self, suggestion_id: str, *, reason: str | None = None) -> dict[str, Any]:
+    def expire_suggestion(
+        self,
+        suggestion_id: str,
+        *,
+        reason: str | None = None,
+        idempotency_key: str | None = None,
+    ) -> dict[str, Any]:
         return self._request(
             "POST",
             f"/v1/suggestions/{suggestion_id}/expire",
             json={"reason": reason},
+            idempotency_key=idempotency_key,
         )
 
 

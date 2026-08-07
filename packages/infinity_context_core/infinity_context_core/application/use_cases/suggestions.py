@@ -367,49 +367,105 @@ class ApproveSuggestionUseCase:
 
 
 class RejectSuggestionUseCase:
-    def __init__(self, *, uow_factory: UnitOfWorkFactoryPort, clock: ClockPort) -> None:
+    def __init__(
+        self,
+        *,
+        uow_factory: SuggestionResolutionUnitOfWorkFactoryPort,
+        clock: ClockPort,
+    ) -> None:
         self._uow_factory = uow_factory
         self._clock = clock
 
     async def execute(self, command: RejectSuggestionCommand) -> SuggestionResult:
-        async with self._uow_factory() as uow:
-            suggestion = await uow.suggestions.get_for_update(command.suggestion_id)
-            if suggestion is None:
-                raise MemoryNotFoundError("Suggestion not found")
-            authorize_suggestion_review(suggestion, command.review_scope)
-            now = self._clock.now()
-            saved = await uow.suggestions.save(
-                annotate_suggestion_reviewer(
-                    suggestion,
-                    actor_id=command.actor_id,
-                    now=now,
-                ).reject(now=now, reason=command.reason)
-            )
-            await uow.commit()
-        return SuggestionResult(suggestion=saved)
+        return await _resolve_terminal_suggestion(
+            uow_factory=self._uow_factory,
+            clock=self._clock,
+            command=command,
+            operation="reject",
+        )
 
 
 class ExpireSuggestionUseCase:
-    def __init__(self, *, uow_factory: UnitOfWorkFactoryPort, clock: ClockPort) -> None:
+    def __init__(
+        self,
+        *,
+        uow_factory: SuggestionResolutionUnitOfWorkFactoryPort,
+        clock: ClockPort,
+    ) -> None:
         self._uow_factory = uow_factory
         self._clock = clock
 
     async def execute(self, command: ExpireSuggestionCommand) -> SuggestionResult:
-        async with self._uow_factory() as uow:
-            suggestion = await uow.suggestions.get_for_update(command.suggestion_id)
-            if suggestion is None:
-                raise MemoryNotFoundError("Suggestion not found")
-            authorize_suggestion_review(suggestion, command.review_scope)
-            now = self._clock.now()
-            saved = await uow.suggestions.save(
-                annotate_suggestion_reviewer(
-                    suggestion,
-                    actor_id=command.actor_id,
-                    now=now,
-                ).expire(now=now, reason=command.reason)
+        return await _resolve_terminal_suggestion(
+            uow_factory=self._uow_factory,
+            clock=self._clock,
+            command=command,
+            operation="expire",
+        )
+
+
+async def _resolve_terminal_suggestion(
+    *,
+    uow_factory: SuggestionResolutionUnitOfWorkFactoryPort,
+    clock: ClockPort,
+    command: RejectSuggestionCommand | ExpireSuggestionCommand,
+    operation: str,
+) -> SuggestionResult:
+    idempotency_key, request_fingerprint = suggestion_resolution_identity(
+        suggestion_id=command.suggestion_id,
+        operation=operation,
+        idempotency_key=command.idempotency_key,
+        request={"reason": command.reason, "actor_id": command.actor_id},
+    )
+    async with uow_factory() as uow:
+        replay = await load_suggestion_resolution_replay(
+            uow.suggestion_resolution_receipts,
+            suggestion_id=command.suggestion_id,
+            operation=operation,
+            idempotency_key=idempotency_key,
+            request_fingerprint=request_fingerprint,
+            review_scope=command.review_scope,
+        )
+        if replay is not None:
+            return replay
+        suggestion = await uow.suggestions.get_for_update(command.suggestion_id)
+        if suggestion is None:
+            raise MemoryNotFoundError("Suggestion not found")
+        replay = await load_suggestion_resolution_replay(
+            uow.suggestion_resolution_receipts,
+            suggestion_id=command.suggestion_id,
+            operation=operation,
+            idempotency_key=idempotency_key,
+            request_fingerprint=request_fingerprint,
+            review_scope=command.review_scope,
+        )
+        if replay is not None:
+            return replay
+        authorize_suggestion_review(suggestion, command.review_scope)
+        now = clock.now()
+        reviewed = annotate_suggestion_reviewer(
+            suggestion,
+            actor_id=command.actor_id,
+            now=now,
+        )
+        resolved = (
+            reviewed.reject(now=now, reason=command.reason)
+            if operation == "reject"
+            else reviewed.expire(now=now, reason=command.reason)
+        )
+        result = SuggestionResult(suggestion=await uow.suggestions.save(resolved))
+        await uow.suggestion_resolution_receipts.create(
+            new_suggestion_resolution_receipt(
+                result=result,
+                operation=operation,
+                idempotency_key=idempotency_key,
+                request_fingerprint=request_fingerprint,
+                outcome=None,
+                created_at=now,
             )
-            await uow.commit()
-        return SuggestionResult(suggestion=saved)
+        )
+        await uow.commit()
+        return result
 
 
 class ResolveSuggestionConflictUseCase:
@@ -678,6 +734,7 @@ class ReviewSuggestionsBatchUseCase:
                     force=item.force,
                     actor_id=actor_id,
                     review_scope=review_scope,
+                    idempotency_key=item.idempotency_key,
                 )
             )
         if item.action == "reject":
@@ -687,6 +744,7 @@ class ReviewSuggestionsBatchUseCase:
                     reason=item.reason,
                     actor_id=actor_id,
                     review_scope=review_scope,
+                    idempotency_key=item.idempotency_key,
                 )
             )
         return await self._expire_suggestion.execute(
@@ -695,6 +753,7 @@ class ReviewSuggestionsBatchUseCase:
                 reason=item.reason,
                 actor_id=actor_id,
                 review_scope=review_scope,
+                idempotency_key=item.idempotency_key,
             )
         )
 

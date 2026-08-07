@@ -143,6 +143,13 @@ these from the legacy broad `memory:write` permission.
 
 Postgres remains canonical. Qdrant, Graphiti, summaries and observations are derived.
 
+### Migration checkpoints
+
+`upgrade_schema()` applies every pending migration in one transaction. Only a fully applied
+packaged head is a supported checkpoint: manually stopped intermediate PR schemas are disposable.
+An applied migration ID has exactly one checksum and must never be edited in place. Later
+validation, normalization and trigger hardening therefore use a new append-only migration.
+
 - derived items depend on canonical fact ID and source fact version;
 - cognitive projections validate and lock exact canonical fact versions in the same transaction
   that persists their dependencies;

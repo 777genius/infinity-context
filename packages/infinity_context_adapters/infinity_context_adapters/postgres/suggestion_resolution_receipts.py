@@ -94,6 +94,20 @@ class PostgresSuggestionResolutionReceiptRepository:
 
 
 def _receipt_from_row(row: SuggestionResolutionReceiptRow) -> SuggestionResolutionReceipt:
+    result_suggestion = suggestion_from_json(row.result_suggestion_json)
+    result_fact = (
+        memory_fact_snapshot_from_json(row.result_fact_json)
+        if row.result_fact_json is not None
+        else None
+    )
+    if result_fact is None:
+        if row.result_fact_id is not None or row.result_fact_version is not None:
+            raise ValueError("Suggestion resolution receipt fact snapshot identity mismatch")
+    elif (
+        result_fact.identity.fact_id != row.result_fact_id
+        or result_fact.visibility.version != row.result_fact_version
+    ):
+        raise ValueError("Suggestion resolution receipt fact snapshot identity mismatch")
     return SuggestionResolutionReceipt(
         suggestion_id=row.suggestion_id,
         space_id=row.space_id,
@@ -101,12 +115,8 @@ def _receipt_from_row(row: SuggestionResolutionReceiptRow) -> SuggestionResoluti
         operation=row.operation,
         idempotency_key=row.idempotency_key,
         request_fingerprint=row.request_fingerprint,
-        result_suggestion=suggestion_from_json(row.result_suggestion_json),
-        result_fact=(
-            memory_fact_snapshot_from_json(row.result_fact_json)
-            if row.result_fact_json is not None
-            else None
-        ),
+        result_suggestion=result_suggestion,
+        result_fact=result_fact,
         indexing_status=row.indexing_status,
         affected_fact_ids=tuple(row.affected_fact_ids_json),
         affected_fact_versions=tuple(row.affected_fact_versions_json),

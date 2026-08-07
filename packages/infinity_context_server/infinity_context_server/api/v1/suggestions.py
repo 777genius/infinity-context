@@ -277,6 +277,10 @@ async def reject_suggestion(
     request: memory_facts_feature.ReviewSuggestionRequest,
     http_request: Request,
     container: Annotated[Container, Depends(get_container)],
+    idempotency_key: Annotated[
+        str | None,
+        Header(alias="Idempotency-Key", max_length=160),
+    ] = None,
 ) -> dict[str, Any]:
     ensure_server_writes_enabled(container)
     actor_id, review_scope = _reviewer(
@@ -290,6 +294,7 @@ async def reject_suggestion(
             reason=request.reason,
             actor_id=actor_id,
             review_scope=review_scope,
+            idempotency_key=idempotency_key,
         )
     )
     return {"data": memory_facts_feature.suggestion_to_response(result.suggestion)}
@@ -301,6 +306,10 @@ async def expire_suggestion(
     request: memory_facts_feature.ReviewSuggestionRequest,
     http_request: Request,
     container: Annotated[Container, Depends(get_container)],
+    idempotency_key: Annotated[
+        str | None,
+        Header(alias="Idempotency-Key", max_length=160),
+    ] = None,
 ) -> dict[str, Any]:
     ensure_server_writes_enabled(container)
     actor_id, review_scope = _reviewer(
@@ -314,6 +323,7 @@ async def expire_suggestion(
             reason=request.reason,
             actor_id=actor_id,
             review_scope=review_scope,
+            idempotency_key=idempotency_key,
         )
     )
     return {"data": memory_facts_feature.suggestion_to_response(result.suggestion)}
