@@ -294,6 +294,6 @@
     "release_manifest_sha256": "10b73e189ab23867b3cf368dd0f961faa19aad7baa94e6c3df48471adf4abe93"
   },
   "schema_version": "mem0-oss-adapter-v5.source-authority.v1",
-  "source_commit_sha1": "f86346c77ddb86dbcbebfaf9c1d829207c7ddf61",
-  "source_tree_sha1": "0d72125885b21ffdcd867d39aaecec3f6b6c3f31"
+  "source_commit_sha1": "33a3208c58955c5e159c7ce124ff6cd2c0acf9a0",
+  "source_tree_sha1": "f5f2b9ade61da8d2858cd22046ae91a583a7b74c"
 }
