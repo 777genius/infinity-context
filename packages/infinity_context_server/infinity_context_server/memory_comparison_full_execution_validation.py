@@ -14,6 +14,21 @@ from types import MappingProxyType
 from typing import final
 
 from infinity_context_server.memory_comparison_clean_state import VerifiedCleanStateValidation
+from infinity_context_server.memory_comparison_full_execution_evidence_slots import (
+    FULL_EXECUTION_VALIDATION_EVIDENCE_SCHEMA_VERSION,
+    validate_full_execution_evidence_slots,
+)
+from infinity_context_server.memory_comparison_full_execution_evidence_variants import (
+    FULL_EXECUTION_EVIDENCE_REPLAY,
+    FullExecutionCleanStateEvidence,
+    FullExecutionTransportEvidence,
+    _inspect_full_execution_clean_state_evidence_for_validation,
+    _inspect_full_execution_transport_evidence_for_validation,
+    inspect_full_execution_clean_state_evidence,
+    inspect_full_execution_transport_evidence,
+    issue_legacy_full_execution_clean_state_evidence,
+    issue_legacy_full_execution_transport_evidence,
+)
 from infinity_context_server.memory_comparison_full_execution_validation_slots import (
     FULL_EXECUTION_VALIDATION_SCHEMA_VERSION,
     FullExecutionCaseManifestEntry,
@@ -92,6 +107,8 @@ class _Identity:
 
 @dataclass(frozen=True, slots=True)
 class _LiveInputs:
+    """Private v1 compatibility shape retained for existing internal callers."""
+
     bindings: FullComparisonRunBindings
     benchmark: str
     case_manifest: tuple[FullExecutionCaseManifestEntry, ...]
@@ -105,6 +122,22 @@ class _LiveInputs:
     clean_validation: VerifiedCleanStateValidation
     clean_scopes: tuple[FullExecutionCleanScope, ...]
     clean_attestation_key: bytes
+
+
+@dataclass(frozen=True, slots=True)
+class _EvidenceLiveInputs:
+    """Neutral live inputs stored by newly issued sessions and proofs."""
+
+    bindings: FullComparisonRunBindings
+    benchmark: str
+    case_manifest: tuple[FullExecutionCaseManifestEntry, ...]
+    required_model: str
+    required_route: ProviderRouteAttestation
+    provider_calls: tuple[FullExecutionProviderCall, ...]
+    session_verifier: RunScopedSessionHmacKey
+    session_evidence: tuple[SessionIdentityEvidence, ...]
+    transport_evidence: FullExecutionTransportEvidence
+    clean_state_evidence: tuple[FullExecutionCleanStateEvidence, ...]
 
 
 @dataclass(frozen=True, slots=True)
@@ -128,7 +161,7 @@ class _BundleReservationRecord:
 @dataclass(slots=True)
 class _SessionState:
     identity: _Identity
-    inputs: _LiveInputs
+    inputs: _EvidenceLiveInputs
     reservation: _BundleReservationLease
     report: MappingProxyType[str, object]
     commitment: str
@@ -139,7 +172,7 @@ class _SessionState:
 @dataclass(slots=True)
 class _ProofState:
     identity: _Identity
-    inputs: _LiveInputs
+    inputs: _EvidenceLiveInputs
     reservation: _BundleReservationLease
     report: MappingProxyType[str, object]
     commitment: str
@@ -147,12 +180,12 @@ class _ProofState:
     consumed: bool
 
 
-_SESSIONS: weakref.WeakKeyDictionary[FullExecutionValidationSession, _SessionState] = (
-    weakref.WeakKeyDictionary()
-)
-_PROOFS: weakref.WeakKeyDictionary[VerifiedFullExecutionValidation, _ProofState] = (
-    weakref.WeakKeyDictionary()
-)
+_SESSIONS: weakref.WeakKeyDictionary[
+    FullExecutionValidationSession, _SessionState
+] = weakref.WeakKeyDictionary()
+_PROOFS: weakref.WeakKeyDictionary[
+    VerifiedFullExecutionValidation, _ProofState
+] = weakref.WeakKeyDictionary()
 
 
 def _build_bundle_reservation_api():
@@ -279,9 +312,64 @@ def issue_full_execution_validation_session(
     clean_scopes: tuple[FullExecutionCleanScope, ...],
     clean_attestation_key: bytes,
 ) -> FullExecutionValidationSession:
-    """Reserve exact typed live inputs and bind their issue-time projection."""
+    """Legacy v1 facade preserving the exact public input contract."""
 
-    inputs = _LiveInputs(
+    # Preserve legacy validation order and errors before constructing neutral wrappers.
+    validate_full_execution_slots(
+        bindings=bindings,
+        benchmark=benchmark,
+        case_manifest=case_manifest,
+        required_model=required_model,
+        required_route=required_route,
+        provider_calls=provider_calls,
+        session_verifier=session_verifier,
+        session_evidence=session_evidence,
+        transport_verifier=transport_verifier,
+        transport_evidence=transport_evidence,
+        clean_validation=clean_validation,
+        clean_scopes=clean_scopes,
+        clean_attestation_key=clean_attestation_key,
+    )
+    transport = issue_legacy_full_execution_transport_evidence(
+        benchmark=benchmark,
+        verifier=transport_verifier,
+        evidence=transport_evidence,
+    )
+    clean = issue_legacy_full_execution_clean_state_evidence(
+        validation=clean_validation,
+        scopes=clean_scopes,
+        attestation_key=clean_attestation_key,
+    )
+    return issue_full_execution_validation_session_from_evidence(
+        bindings=bindings,
+        benchmark=benchmark,
+        case_manifest=case_manifest,
+        required_model=required_model,
+        required_route=required_route,
+        provider_calls=provider_calls,
+        session_verifier=session_verifier,
+        session_evidence=session_evidence,
+        transport_evidence=transport,
+        clean_state_evidence=(clean,),
+    )
+
+
+def issue_full_execution_validation_session_from_evidence(
+    *,
+    bindings: FullComparisonRunBindings,
+    benchmark: str,
+    case_manifest: tuple[FullExecutionCaseManifestEntry, ...],
+    required_model: str,
+    required_route: ProviderRouteAttestation,
+    provider_calls: tuple[FullExecutionProviderCall, ...],
+    session_verifier: RunScopedSessionHmacKey,
+    session_evidence: tuple[SessionIdentityEvidence, ...],
+    transport_evidence: FullExecutionTransportEvidence,
+    clean_state_evidence: tuple[FullExecutionCleanStateEvidence, ...],
+) -> FullExecutionValidationSession:
+    """Reserve authenticated neutral evidence and bind its issue-time report."""
+
+    inputs = _EvidenceLiveInputs(
         bindings,
         benchmark,
         case_manifest,
@@ -290,20 +378,22 @@ def issue_full_execution_validation_session(
         provider_calls,
         session_verifier,
         session_evidence,
-        transport_verifier,
         transport_evidence,
-        clean_validation,
-        clean_scopes,
-        clean_attestation_key,
+        clean_state_evidence,
     )
     initial_report = _validate_live(inputs)
     reservation_key = _bundle_reservation_key(inputs, initial_report)
     resource_tokens, resource_objects = _bundle_resources(inputs)
-    reservation = _reserve_bundle(
-        reservation_key,
-        resource_tokens,
-        resource_objects,
-    )
+    try:
+        reservation = _reserve_bundle(
+            reservation_key,
+            resource_tokens,
+            resource_objects,
+        )
+    except FullExecutionValidationError as error:
+        if _uses_managed_v5(inputs) and "already reserved" in str(error):
+            raise FullExecutionValidationError(FULL_EXECUTION_EVIDENCE_REPLAY) from None
+        raise
     session: FullExecutionValidationSession | None = None
     try:
         report = _validate_live(inputs)
@@ -427,8 +517,24 @@ def _verified_proof(proof: object) -> _ProofState:
     return state
 
 
-def _validate_live(inputs: _LiveInputs) -> dict[str, object]:
-    return validate_full_execution_slots(
+def _validate_live(inputs: _LiveInputs | _EvidenceLiveInputs) -> dict[str, object]:
+    if type(inputs) is _LiveInputs:
+        return validate_full_execution_slots(
+            bindings=inputs.bindings,
+            benchmark=inputs.benchmark,
+            case_manifest=inputs.case_manifest,
+            required_model=inputs.required_model,
+            required_route=inputs.required_route,
+            provider_calls=inputs.provider_calls,
+            session_verifier=inputs.session_verifier,
+            session_evidence=inputs.session_evidence,
+            transport_verifier=inputs.transport_verifier,
+            transport_evidence=inputs.transport_evidence,
+            clean_validation=inputs.clean_validation,
+            clean_scopes=inputs.clean_scopes,
+            clean_attestation_key=inputs.clean_attestation_key,
+        )
+    return validate_full_execution_evidence_slots(
         bindings=inputs.bindings,
         benchmark=inputs.benchmark,
         case_manifest=inputs.case_manifest,
@@ -437,30 +543,28 @@ def _validate_live(inputs: _LiveInputs) -> dict[str, object]:
         provider_calls=inputs.provider_calls,
         session_verifier=inputs.session_verifier,
         session_evidence=inputs.session_evidence,
-        transport_verifier=inputs.transport_verifier,
         transport_evidence=inputs.transport_evidence,
-        clean_validation=inputs.clean_validation,
-        clean_scopes=inputs.clean_scopes,
-        clean_attestation_key=inputs.clean_attestation_key,
+        clean_state_evidence=inputs.clean_state_evidence,
     )
 
 
 def _bundle_resources(
-    inputs: _LiveInputs,
+    inputs: _LiveInputs | _EvidenceLiveInputs,
 ) -> tuple[tuple[str, ...], tuple[object, ...]]:
+    inputs = _as_evidence_inputs(inputs)
+    transport = _inspect_full_execution_transport_evidence_for_validation(inputs.transport_evidence)
+    clean = tuple(
+        _inspect_full_execution_clean_state_evidence_for_validation(item)
+        for item in inputs.clean_state_evidence
+    )
     values = [
         *(f"provider-call:{id(item)}" for item in inputs.provider_calls),
         f"session-verifier:{id(inputs.session_verifier)}",
         *(f"session-evidence:{id(item)}" for item in inputs.session_evidence),
-        *(
-            (f"transport-verifier:{id(inputs.transport_verifier)}",)
-            if inputs.transport_verifier is not None
-            else ()
-        ),
-        *(f"transport-evidence:{id(item)}" for item in inputs.transport_evidence),
-        f"clean-validation:{id(inputs.clean_validation)}",
-        *(f"clean-scope:{id(item)}" for item in inputs.clean_scopes),
-        "clean-key:" + hashlib.sha256(inputs.clean_attestation_key).hexdigest(),
+        f"transport-wrapper:{id(inputs.transport_evidence)}",
+        *transport.resource_tokens,
+        *(f"clean-wrapper:{id(item)}" for item in inputs.clean_state_evidence),
+        *(token for inspection in clean for token in inspection.resource_tokens),
     ]
     if len(set(values)) != len(values):
         raise FullExecutionValidationError("execution input bundle repeats a live capability")
@@ -468,11 +572,10 @@ def _bundle_resources(
         *inputs.provider_calls,
         inputs.session_verifier,
         *inputs.session_evidence,
-        *((inputs.transport_verifier,) if inputs.transport_verifier is not None else ()),
-        *inputs.transport_evidence,
-        inputs.clean_validation,
-        *inputs.clean_scopes,
-        inputs.clean_attestation_key,
+        inputs.transport_evidence,
+        *transport.resources,
+        *inputs.clean_state_evidence,
+        *(item for inspection in clean for item in inspection.resources),
     )
     if len(objects) != len(values):
         raise FullExecutionValidationError("execution input bundle resource shape is invalid")
@@ -480,9 +583,18 @@ def _bundle_resources(
 
 
 def _bundle_reservation_key(
-    inputs: _LiveInputs,
+    inputs: _LiveInputs | _EvidenceLiveInputs,
     report: dict[str, object],
 ) -> str:
+    inputs = _as_evidence_inputs(inputs)
+    transport_inspection = _inspect_full_execution_transport_evidence_for_validation(
+        inputs.transport_evidence
+    )
+    transport = transport_inspection.descriptor
+    clean = tuple(
+        _inspect_full_execution_clean_state_evidence_for_validation(item)
+        for item in inputs.clean_state_evidence
+    )
     provider_calls = [
         {
             "identity": id(call),
@@ -519,27 +631,6 @@ def _bundle_reservation_key(
         }
         for item in inputs.session_evidence
     ]
-    transport_evidence = [
-        {
-            "identity": id(item),
-            "commitment": item._commitment_sha256,
-            "proof_sha256": hashlib.sha256(item._proof).hexdigest(),
-        }
-        for item in inputs.transport_evidence
-    ]
-    clean_scopes = [
-        {
-            "identity": id(item),
-            "commitment": _json_commitment(
-                {
-                    "backend_role": item.backend_role,
-                    "corpus_identity_sha256": item.corpus_identity_sha256,
-                    "scope_identity_sha256": item.scope_identity_sha256,
-                }
-            ),
-        }
-        for item in inputs.clean_scopes
-    ]
     return _json_commitment(
         {
             "comparison_commitment_sha256": report["comparison_commitment_sha256"],
@@ -556,23 +647,64 @@ def _bundle_reservation_key(
             "session_mapping_commitment_sha256": report["session_identity_coverage"][
                 "mapping_commitment_sha256"
             ],
-            "transport_verifier_identity": (
-                id(inputs.transport_verifier) if inputs.transport_verifier is not None else None
-            ),
-            "transport_evidence": transport_evidence,
+            "transport_evidence_identity": id(inputs.transport_evidence),
+            "transport_evidence_variant": transport.variant,
+            "transport_live_resource_tokens": list(transport_inspection.resource_tokens),
             "transport_commitment_sha256": report["official_transport_coverage"][
                 "evidence_commitment_sha256"
             ],
-            "clean_validation_identity": id(inputs.clean_validation),
-            "clean_validation_commitment_sha256": report["clean_state_coverage"][
-                "validation_commitment_sha256"
+            "clean_evidence": [
+                {
+                    "identity": id(item),
+                    "variant": inspection.descriptor.variant,
+                    "backend_roles": list(inspection.descriptor.backend_roles),
+                    "evidence_commitment_sha256": (
+                        inspection.descriptor.evidence_commitment_sha256
+                    ),
+                    "live_resource_tokens": list(inspection.resource_tokens),
+                }
+                for item, inspection in zip(inputs.clean_state_evidence, clean, strict=True)
             ],
-            "clean_scopes": clean_scopes,
-            "clean_scope_commitment_sha256": report["clean_state_coverage"][
-                "scope_commitment_sha256"
-            ],
-            "clean_key_commitment_sha256": hashlib.sha256(inputs.clean_attestation_key).hexdigest(),
         }
+    )
+
+
+def _uses_managed_v5(inputs: _EvidenceLiveInputs) -> bool:
+    transport = inspect_full_execution_transport_evidence(inputs.transport_evidence)
+    if transport.variant == "managed_mem0_v5":
+        return True
+    return any(
+        inspect_full_execution_clean_state_evidence(item).variant == "managed_mem0_v5"
+        for item in inputs.clean_state_evidence
+    )
+
+
+def _as_evidence_inputs(
+    inputs: _LiveInputs | _EvidenceLiveInputs,
+) -> _EvidenceLiveInputs:
+    if type(inputs) is _EvidenceLiveInputs:
+        return inputs
+    transport = issue_legacy_full_execution_transport_evidence(
+        benchmark=inputs.benchmark,
+        verifier=inputs.transport_verifier,
+        evidence=inputs.transport_evidence,
+    )
+    clean = issue_legacy_full_execution_clean_state_evidence(
+        validation=inputs.clean_validation,
+        scopes=inputs.clean_scopes,
+        attestation_key=inputs.clean_attestation_key,
+    )
+    return _EvidenceLiveInputs(
+        inputs.bindings,
+        inputs.benchmark,
+        inputs.case_manifest,
+        inputs.required_model,
+        inputs.required_route,
+        inputs.provider_calls,
+        inputs.session_verifier,
+        inputs.session_evidence,
+        transport,
+        (clean,),
     )
 
 
@@ -682,6 +814,7 @@ def _digest(value: object, name: str) -> str:
 
 
 __all__ = (
+    "FULL_EXECUTION_VALIDATION_EVIDENCE_SCHEMA_VERSION",
     "FULL_EXECUTION_VALIDATION_SCHEMA_VERSION",
     "FullExecutionCaseManifestEntry",
     "FullExecutionCleanScope",
@@ -692,6 +825,7 @@ __all__ = (
     "consume_full_execution_validation",
     "execution_case_manifest_sha256",
     "issue_full_execution_validation_session",
+    "issue_full_execution_validation_session_from_evidence",
     "public_full_execution_validation_report",
     "seal_full_execution_validation",
 )

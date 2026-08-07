@@ -26,6 +26,8 @@ from infinity_context_server.memory_comparison_mem0_oss_v5_contracts import (
 )
 from infinity_context_server.memory_comparison_mem0_oss_v5_evidence import Mem0OssRunSeal
 
+_CLEAN_AUTHORITY_INVALID = "managed Mem0 v5 clean-state witness authority is invalid"
+
 
 @final
 @dataclass(frozen=True, slots=True)
@@ -98,13 +100,15 @@ class ManagedMem0V5CleanStateWitnessIssuerPort(Protocol):
         run_id_sha256: str,
         authority_commitment_sha256: str,
         scopes: tuple[ManagedMem0V5CleanCorpusScope, ...],
-    ) -> ManagedMem0V5AuthenticatedCleanStateWitness: ...
+    ) -> ManagedMem0V5AuthenticatedCleanStateWitness:
+        ...
 
 
 class ManagedMem0V5CleanStateWitnessVerifierPort(Protocol):
     def authenticate_clean_state(
         self, witness: object
-    ) -> ManagedMem0V5AuthenticatedCleanStateWitness: ...
+    ) -> ManagedMem0V5AuthenticatedCleanStateWitness:
+        ...
 
 
 class ManagedMem0V5CleanStateSnapshotPort(Protocol):
@@ -115,11 +119,13 @@ class ManagedMem0V5CleanStateSnapshotPort(Protocol):
         expected_run_id_sha256: str,
         expected_authority_commitment_sha256: str,
         expected_scopes: tuple[ManagedMem0V5CleanCorpusScope, ...],
-    ) -> ManagedMem0V5AuthenticatedCleanStateWitness: ...
+    ) -> ManagedMem0V5AuthenticatedCleanStateWitness:
+        ...
 
 
 class ManagedMem0V5DurableCleanStatePort(Protocol):
-    def save_original(self, witness: ManagedMem0V5AuthenticatedCleanStateWitness) -> None: ...
+    def save_original(self, witness: ManagedMem0V5AuthenticatedCleanStateWitness) -> None:
+        ...
 
     def load_original(
         self,
@@ -128,7 +134,8 @@ class ManagedMem0V5DurableCleanStatePort(Protocol):
         expected_run_id_sha256: str,
         expected_authority_commitment_sha256: str,
         expected_evidence_commitment_sha256: str,
-    ) -> ManagedMem0V5AuthenticatedCleanStateWitness: ...
+    ) -> ManagedMem0V5AuthenticatedCleanStateWitness:
+        ...
 
 
 class _CleanWitnessState:
@@ -235,6 +242,16 @@ def create_managed_mem0_v5_clean_state_witness_authority(
         raise ManagedRunError("managed Mem0 v5 clean-state HMAC key is invalid")
     state = _CleanWitnessState(hmac_key if hmac_key is not None else secrets.token_bytes(32))
     return _CleanWitnessIssuer(state), _CleanWitnessVerifier(state)
+
+
+def require_managed_mem0_v5_clean_state_witness_verifier(
+    value: object,
+) -> ManagedMem0V5CleanStateWitnessVerifierPort:
+    """Require the nominal process-local verifier, never a structural substitute."""
+
+    if type(value) is not _CleanWitnessVerifier:  # noqa: E721 - nominal authority required
+        raise ManagedRunError(_CLEAN_AUTHORITY_INVALID)
+    return value
 
 
 def managed_mem0_v5_clean_evidence_commitment_sha256(
@@ -494,4 +511,5 @@ __all__ = (
     "ManagedMem0V5DurableCleanStatePort",
     "create_managed_mem0_v5_clean_state_witness_authority",
     "managed_mem0_v5_clean_evidence_commitment_sha256",
+    "require_managed_mem0_v5_clean_state_witness_verifier",
 )

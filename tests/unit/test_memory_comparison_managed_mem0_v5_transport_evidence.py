@@ -1,10 +1,15 @@
 from __future__ import annotations
 
+import copy
+import gc
 import hashlib
 import hmac
 import json
 
 import pytest
+from infinity_context_server import (
+    memory_comparison_managed_mem0_v5_transport_evidence as _evidence,
+)
 from infinity_context_server.memory_comparison_managed_mem0_v5_projector import (
     ManagedMem0V5ManifestAuthority,
     ManagedMem0V5ManifestProjector,
@@ -15,6 +20,8 @@ from infinity_context_server.memory_comparison_managed_mem0_v5_request_binding i
     verify_request_binding_v2_payload,
 )
 from infinity_context_server.memory_comparison_managed_mem0_v5_transport_evidence import (
+    VerifiedManagedTransportCoverage,
+    authenticate_managed_transport_coverage,
     issue_managed_transport_coverage_capability,
 )
 from infinity_context_server.memory_comparison_managed_run_contract import (
@@ -157,6 +164,67 @@ def test_complete_coverage_is_exact_and_longmemeval_claims_zero_locomo(
             expected_admission_commitment_sha256=admission.commitment_sha256,
             expected_operation_ids=tuple(item.operation_id_sha256 for item in observations),
         )
+
+
+def _coverage() -> VerifiedManagedTransportCoverage:
+    authority = _authority()
+    admission = _admission(authority)
+    observations = _observations(authority, admission)
+    capability = issue_managed_transport_coverage_capability(
+        benchmark="locomo",
+        run_id_sha256=_sha(admission.request.run_id),
+        backend_role="mem0",
+        authority=authority,
+        admission=admission,
+        observations=observations,
+    )
+    return capability.consume_complete_transport_coverage(
+        expected_admission_commitment_sha256=admission.commitment_sha256,
+        expected_operation_ids=tuple(item.operation_id_sha256 for item in observations),
+    )
+
+
+def test_transport_coverage_authentication_requires_factory_identity() -> None:
+    coverage = _coverage()
+    values = {
+        "benchmark": coverage.benchmark,
+        "run_id_sha256": coverage.run_id_sha256,
+        "backend_role": coverage.backend_role,
+        "admission_commitment_sha256": coverage.admission_commitment_sha256,
+        "authority_commitment_sha256": coverage.authority_commitment_sha256,
+        "per_corpus_operation_counts": coverage.per_corpus_operation_counts,
+        "operation_count": coverage.operation_count,
+        "request_binding_evidence_root_sha256": (coverage.request_binding_evidence_root_sha256),
+        "evidence_commitment_sha256": coverage.evidence_commitment_sha256,
+        "_authentication_sha256": coverage._authentication_sha256,
+        "_token": _evidence._VERIFIED_TOKEN,
+    }
+
+    class CopiedCoverage(VerifiedManagedTransportCoverage):
+        pass
+
+    candidates = (
+        copy.copy(coverage),
+        copy.deepcopy(coverage),
+        VerifiedManagedTransportCoverage(**values),
+        CopiedCoverage(**values),
+    )
+    for candidate in candidates:
+        with pytest.raises(ManagedRunError, match="unauthenticated"):
+            authenticate_managed_transport_coverage(candidate)
+    assert authenticate_managed_transport_coverage(coverage) is coverage
+
+
+def test_transport_coverage_registry_returns_to_gc_baseline() -> None:
+    gc.collect()
+    baseline = len(_evidence._VERIFIED_REGISTRY)
+    for _ in range(20):
+        coverage = _coverage()
+        assert authenticate_managed_transport_coverage(coverage) is coverage
+        del coverage
+    gc.collect()
+
+    assert len(_evidence._VERIFIED_REGISTRY) == baseline
 
 
 def test_raw_receipts_reissue_and_post_issue_mutation_are_rejected() -> None:
