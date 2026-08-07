@@ -23,7 +23,12 @@ from infinity_context_server.memory_comparison_managed_mem0_v5_http_lane import 
     ManagedMem0V5SearchVerificationContext,
     ManagedMem0V5StorageVerificationContext,
 )
+from infinity_context_server.memory_comparison_managed_mem0_v5_request_binding import (
+    ManagedMem0V5RequestBindingContext,
+    ManagedMem0V5RequestBindingReceipt,
+)
 from infinity_context_server.memory_comparison_mem0_oss_v5_contracts import (
+    CleanupVerificationContext,
     Mem0OssAdmissionRequest,
     Mem0OssFullRunAdmission,
     canonical_sha256,
@@ -198,11 +203,21 @@ class _Bearer:
 
 
 class _Binding:
-    def request_body_sha256(self, **_kwargs: object) -> str:
-        return "9" * 64
+    def verify_request_binding(self, **_kwargs: object) -> ManagedMem0V5RequestBindingReceipt:
+        return ManagedMem0V5RequestBindingReceipt("9" * 64, "8" * 64, "7" * 64)
 
-    def operation_inventory_root_sha256(self, **_kwargs: object) -> str:
-        return "0" * 64
+    def cleanup_context(self, **kwargs: object) -> CleanupVerificationContext:
+        admission = kwargs["admission"]
+        seal = kwargs["seal"]
+        aborting = kwargs["aborting"]
+        return CleanupVerificationContext(
+            admission.commitment_sha256,
+            None if seal is None else seal.commitment_sha256,
+            None if seal is None else seal.operation_root_sha256,
+            "0" * 64,
+            admission.request.expected_operation_count,
+            aborting,
+        )
 
 
 class _Response:
@@ -258,6 +273,53 @@ def test_http_search_consumes_bearer_once_and_binds_request_commitment() -> None
         == hashlib.sha256(kwargs["content"]).hexdigest()
     )
     assert "s" * 32 not in repr(lane)
+
+
+def _request_binding(context: ManagedMem0V5RequestBindingContext) -> dict[str, object]:
+    unsigned = {
+        "schema_version": "mem0-oss-adapter-v5.request-binding.v1",
+        "admission_commitment_sha256": context.admission_commitment_sha256,
+        "ingestion_manifest_sha256": context.ingestion_manifest_sha256,
+        "ingestion_root_sha256": context.ingestion_root_sha256,
+        "current_date_commitment_sha256": context.current_date_commitment_sha256,
+        "operation_id_sha256": context.operation_id_sha256,
+        "unit_identity_sha256": context.unit_identity_sha256,
+        "unit_sha256": context.unit_sha256,
+        "scope_sha256": context.scope_sha256,
+        "source_id": context.source_id,
+        "source_sha256": context.source_sha256,
+        "sequence": context.sequence,
+        "request_body_sha256": "9" * 64,
+        "response_format_sha256": "8" * 64,
+    }
+    return _signed(unsigned, b"request-binding/v1", "request_binding_hmac_sha256")
+
+
+def test_request_binding_hmac_binds_exact_local_authority_tuple() -> None:
+    context = ManagedMem0V5RequestBindingContext(
+        ADMISSION,
+        "7" * 64,
+        "8" * 64,
+        "9" * 64,
+        OPERATION,
+        UNIT,
+        "3" * 64,
+        SCOPE,
+        "source-1",
+        SOURCE_SHA,
+        0,
+    )
+    receipt = _verifier().verify_request_binding(
+        payload=_request_binding(context),
+        context=context,
+    )
+    assert receipt.request_body_sha256 == "9" * 64
+    assert receipt.response_format_sha256 == "8" * 64
+
+    tampered = _request_binding(context)
+    tampered["unit_sha256"] = "0" * 64
+    with pytest.raises(Mem0V5HttpError):
+        _verifier().verify_request_binding(payload=tampered, context=context)
 
 
 def _unit(phase: ManagedMem0V5CheckpointPhase) -> ManagedMem0V5CheckpointUnit:

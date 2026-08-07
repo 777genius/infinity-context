@@ -5,6 +5,9 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import final
 
+from infinity_context_server.memory_comparison_mem0_oss_v5_cleanup import (
+    verify_cleanup_result,
+)
 from infinity_context_server.memory_comparison_mem0_oss_v5_contracts import (
     MEM0_OSS_EMPTY_ROOT_SHA256,
     MEM0_OSS_FULL_RUN_MAX_EVIDENCE_PAGE,
@@ -695,6 +698,22 @@ class Mem0OssFullRunService:
         )
         self._state = Mem0OssFullRunState.ABORTED
 
+    def cleanup_verification_context(self, *, aborting: bool) -> CleanupVerificationContext:
+        """Return the sole server-owned cleanup tuple used by request and verifier."""
+
+        expected_state = Mem0OssFullRunState.ABORTING if aborting else Mem0OssFullRunState.DELETING
+        if type(aborting) is not bool or self._state is not expected_state:
+            raise Mem0OssFullRunError("mem0_v5_cleanup_context_state_invalid")
+        seal = self._seal
+        return CleanupVerificationContext(
+            admission_commitment_sha256=self.admission.commitment_sha256,
+            seal_commitment_sha256=seal.commitment_sha256 if seal is not None else None,
+            operation_root_sha256=seal.operation_root_sha256 if seal is not None else None,
+            operation_inventory_root_sha256=self._operation_inventory_root(),
+            expected_operation_count=self.admission.request.expected_operation_count,
+            aborting=aborting,
+        )
+
     def _manifest_witness(self, result: object) -> _ManifestWitness:
         if type(result) is not ManifestAuthorityResult:
             raise Mem0OssFullRunError("mem0_v5_manifest_authority_result_invalid")
@@ -785,34 +804,8 @@ class Mem0OssFullRunService:
         return _StorageWitness(result, context, _WITNESS_TOKEN)
 
     def _verified_cleanup(self, payload: object, *, aborting: bool) -> _CleanupWitness:
-        seal = self._seal
-        context = CleanupVerificationContext(
-            admission_commitment_sha256=self.admission.commitment_sha256,
-            seal_commitment_sha256=seal.commitment_sha256 if seal is not None else None,
-            operation_root_sha256=seal.operation_root_sha256 if seal is not None else None,
-            operation_inventory_root_sha256=self._operation_inventory_root(),
-            expected_operation_count=self.admission.request.expected_operation_count,
-            aborting=aborting,
-        )
-        try:
-            result = self._cleanup_port.verify(payload=payload, context=context)
-        except Exception:
-            raise Mem0OssFullRunError("mem0_v5_cleanup_verification_failed") from None
-        if type(result) is not CleanupVerificationResult:
-            raise Mem0OssFullRunError("mem0_v5_cleanup_result_invalid")
-        for field in (
-            "admission_commitment_sha256",
-            "seal_commitment_sha256",
-            "operation_root_sha256",
-            "operation_inventory_root_sha256",
-        ):
-            if getattr(result, field) != getattr(context, field):
-                raise Mem0OssFullRunError("mem0_v5_cleanup_binding_mismatch")
-        if (
-            result.residual_record_count != 0
-            or result.residual_root_sha256 != MEM0_OSS_EMPTY_ROOT_SHA256
-        ):
-            raise Mem0OssFullRunError("mem0_v5_cleanup_residue_detected")
+        context = self.cleanup_verification_context(aborting=aborting)
+        result = verify_cleanup_result(port=self._cleanup_port, payload=payload, context=context)
         return _CleanupWitness(result, context, _WITNESS_TOKEN)
 
     def _operation_inventory_root(self) -> str:

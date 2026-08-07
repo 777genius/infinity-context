@@ -22,10 +22,16 @@ class Mem0OssOperationRecoveryState:
     unit_index: int
     operation_id_sha256: str
     state: Mem0OssOperationState
+    provider_receipt_sha256: str | None
     stored_identity_sha256: str | None
     stored_record_count: int
 
     def __post_init__(self) -> None:
+        has_verified_receipt = self.state in {
+            Mem0OssOperationState.RECEIPT_VERIFIED,
+            Mem0OssOperationState.STORAGE_VERIFIED,
+            Mem0OssOperationState.COMMITTED,
+        }
         has_verified_storage = self.state in {
             Mem0OssOperationState.STORAGE_VERIFIED,
             Mem0OssOperationState.COMMITTED,
@@ -35,6 +41,8 @@ class Mem0OssOperationRecoveryState:
             or self.unit_index < 0
             or not is_sha256(self.operation_id_sha256)
             or type(self.state) is not Mem0OssOperationState
+            or (has_verified_receipt and not is_sha256(self.provider_receipt_sha256))
+            or (not has_verified_receipt and self.provider_receipt_sha256 is not None)
             or type(self.stored_record_count) is not int
             or self.stored_record_count < 0
             or (has_verified_storage and not is_sha256(self.stored_identity_sha256))
@@ -46,6 +54,7 @@ class Mem0OssOperationRecoveryState:
 class _RecoveryOperation(Protocol):
     operation_id_sha256: str
     state: Mem0OssOperationState
+    provider_receipt_sha256: str | None
     stored_identity_sha256: str | None
     stored_record_count: int
 
@@ -64,6 +73,7 @@ def operation_recovery_states(
             unit_index=index,
             operation_id_sha256=operation.operation_id_sha256,
             state=operation.state,
+            provider_receipt_sha256=operation.provider_receipt_sha256,
             stored_identity_sha256=operation.stored_identity_sha256,
             stored_record_count=operation.stored_record_count,
         )

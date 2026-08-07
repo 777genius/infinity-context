@@ -1,18 +1,31 @@
 from __future__ import annotations
 
 import hashlib
+import os
+from pathlib import Path
 
 import pytest
+from infinity_context_server.memory_comparison_managed_mem0_v5_checkpoint import (
+    AtomicJsonManagedMem0V5CheckpointStore,
+    HmacSha256ManagedMem0V5CheckpointSigner,
+    ManagedMem0V5CheckpointPhase,
+)
 from infinity_context_server.memory_comparison_managed_mem0_v5_lane import (
     ManagedMem0V5BudgetPolicy,
     ManagedMem0V5LaneCoordinator,
     ManagedMem0V5SourcePair,
     ManagedMem0V5StorageObservation,
 )
+from infinity_context_server.memory_comparison_managed_mem0_v5_progress import (
+    ManagedMem0V5CheckpointProgress,
+)
 from infinity_context_server.memory_comparison_managed_mem0_v5_projector import (
     ManagedMem0V5ManifestProjector,
 )
-from infinity_context_server.memory_comparison_managed_run_contract import ManagedRunCase
+from infinity_context_server.memory_comparison_managed_run_contract import (
+    ManagedRunCase,
+    ManagedRunError,
+)
 from infinity_context_server.memory_comparison_mem0_oss_v5_contracts import (
     MEM0_OSS_EMPTY_ROOT_SHA256,
     CleanupVerificationContext,
@@ -32,7 +45,7 @@ def _sha(value: str) -> str:
     return hashlib.sha256(value.encode()).hexdigest()
 
 
-def _authority():
+def _authority(*, unit_count: int = 1):
     corpus_id = f"locomo-corpus-{'a' * 64}"
     record = {
         "schema_version": "memory-comparison-managed-corpus.v2",
@@ -44,12 +57,13 @@ def _authority():
                 "kind": "fact",
                 "role": "user",
                 "session_alias": "session-0001",
-                "source_alias": "memory-000001",
+                "source_alias": f"memory-{index + 1:06d}",
                 "speaker": "Alice",
                 "session_date": "2024-03-10",
-                "text": "Alice likes tea.",
-                "timestamp": 1,
+                "text": f"Alice fact {index + 1}.",
+                "timestamp": index + 1,
             }
+            for index in range(unit_count)
         ],
         "documents": [],
         "conversations": [],
@@ -121,9 +135,16 @@ class _CleanupPort:
 
 
 class _Lane:
-    def __init__(self, *, dispatch_fail_once=False, inspect_fail_once=False) -> None:
+    def __init__(
+        self,
+        *,
+        dispatch_fail_once=False,
+        inspect_fail_once=False,
+        zero_record_sequences: tuple[int, ...] = (),
+    ) -> None:
         self.dispatch_fail_once = dispatch_fail_once
         self.inspect_fail_once = inspect_fail_once
+        self.zero_record_sequences = zero_record_sequences
         self.calls: list[str] = []
 
     def admit(self, **kwargs) -> None:
@@ -148,11 +169,12 @@ class _Lane:
             self.inspect_fail_once = False
             raise RuntimeError("storage inspection crash")
         unit = kwargs["unit"]
+        record_ids = () if unit.sequence in self.zero_record_sequences else ("opaque-record-1",)
         return ManagedMem0V5StorageObservation.create(
             operation_id_sha256=kwargs["operation_id_sha256"],
             unit_identity_sha256=unit.unit_identity_sha256,
             storage_commitment_sha256=_sha("storage"),
-            created_record_ids=("opaque-record-1",),
+            created_record_ids=record_ids,
             source_pairs=(ManagedMem0V5SourcePair(unit.source_id, unit.source_sha256),),
         )
 
@@ -161,16 +183,31 @@ class _Lane:
         return {"cleanup": kwargs["aborting"]}
 
 
-def _coordinator(lane: _Lane, storage: _StoragePort):
-    authority = _authority()
-    service = Mem0OssFullRunService(
-        manifest_port=ManagedMem0V5ManifestProjector(),
-        receipt_port=_ReceiptPort(),
-        storage_port=storage,
-        cleanup_port=_CleanupPort(),
-    )
-    coordinator = ManagedMem0V5LaneCoordinator(service=service, lane_port=lane)
-    request = Mem0OssAdmissionRequest(
+class _Head:
+    def __init__(self) -> None:
+        self.value: str | None = None
+        self.fail_next_cas = False
+
+    def load_head(self, **_kwargs) -> str | None:
+        return self.value
+
+    def compare_and_swap_head(
+        self,
+        *,
+        expected_commitment_sha256: str | None,
+        next_commitment_sha256: str,
+        **_kwargs,
+    ) -> None:
+        if self.value != expected_commitment_sha256:
+            raise RuntimeError("simulated checkpoint head conflict")
+        if self.fail_next_cas:
+            self.fail_next_cas = False
+            raise RuntimeError("simulated checkpoint head crash")
+        self.value = next_commitment_sha256
+
+
+def _request(expected_operation_count: int = 1) -> Mem0OssAdmissionRequest:
+    return Mem0OssAdmissionRequest(
         run_id="managed-v5-recovery",
         route_sha256=_sha("route"),
         credential_binding_sha256=_sha("credential"),
@@ -180,11 +217,55 @@ def _coordinator(lane: _Lane, storage: _StoragePort):
         runtime_source_revision="source-r1",
         runtime_source_sha256=_sha("source"),
         runtime_base_sha256=_sha("base"),
-        expected_operation_count=1,
+        expected_operation_count=expected_operation_count,
+    )
+
+
+def _service(storage: _StoragePort) -> Mem0OssFullRunService:
+    return Mem0OssFullRunService(
+        manifest_port=ManagedMem0V5ManifestProjector(),
+        receipt_port=_ReceiptPort(),
+        storage_port=storage,
+        cleanup_port=_CleanupPort(),
+    )
+
+
+def _admitted_service(authority) -> Mem0OssFullRunService:
+    service = _service(_StoragePort())
+    service.admit(
+        _request(authority.operation_count),
+        manifest_authority_payload=authority,
+    )
+    service.activate(admission_commitment_sha256=service.admission.commitment_sha256)
+    return service
+
+
+def _progress(path: Path, head: _Head) -> ManagedMem0V5CheckpointProgress:
+    os.chmod(path.parent, 0o700)
+    signer = HmacSha256ManagedMem0V5CheckpointSigner(key=b"checkpoint-test-key" * 2)
+    return ManagedMem0V5CheckpointProgress(
+        store=AtomicJsonManagedMem0V5CheckpointStore(path=path, signer=signer),
+        signer=signer,
+        head=head,
+    )
+
+
+def _coordinator(
+    lane: _Lane,
+    storage: _StoragePort,
+    *,
+    progress: ManagedMem0V5CheckpointProgress | None = None,
+):
+    authority = _authority()
+    service = _service(storage)
+    coordinator = ManagedMem0V5LaneCoordinator(
+        service=service,
+        lane_port=lane,
+        progress_port=progress,
     )
     coordinator.admit(
         authority=authority,
-        request=request,
+        request=_request(),
         budget_policy=ManagedMem0V5BudgetPolicy(5),
     )
     return authority, service, coordinator
@@ -252,3 +333,159 @@ def test_receipt_unknown_uses_status_exactly_once_and_never_redispatches() -> No
     _seal_and_cleanup(coordinator)
     assert lane.calls.count("dispatch") == 1
     assert lane.calls.count("status") == 1
+
+
+def test_fresh_service_restores_attempted_dispatch_without_redispatch(tmp_path: Path) -> None:
+    checkpoint_path = tmp_path / "managed-v5-checkpoint.json"
+    head = _Head()
+    lane = _Lane(dispatch_fail_once=True)
+    first_progress = _progress(checkpoint_path, head)
+    authority, first_service, first = _coordinator(
+        lane,
+        _StoragePort(),
+        progress=first_progress,
+    )
+
+    with pytest.raises(RuntimeError, match="lost dispatch"):
+        first.dispatch_pending()
+    persisted = first_progress.load(authority=authority, admission=first_service.admission)
+    assert persisted.units[0].phase is ManagedMem0V5CheckpointPhase.DISPATCH_ATTEMPTED
+
+    restored_service = _service(_StoragePort())
+    restored_progress = _progress(checkpoint_path, head)
+    restored = ManagedMem0V5LaneCoordinator(
+        service=restored_service,
+        lane_port=lane,
+        progress_port=restored_progress,
+    )
+    loaded = restored.restore(
+        authority=authority,
+        request=_request(),
+        budget_policy=ManagedMem0V5BudgetPolicy(5),
+    )
+
+    assert loaded.units[0].phase is ManagedMem0V5CheckpointPhase.DISPATCH_ATTEMPTED
+    _seal_and_cleanup(restored)
+    assert lane.calls.count("dispatch") == 1
+    assert lane.calls.count("status") == 1
+    assert lane.calls.count("storage") == 1
+    final = restored_progress.load(authority=authority, admission=restored_service.admission)
+    assert final.units[0].phase is ManagedMem0V5CheckpointPhase.COMMITTED
+
+
+def test_progress_adopts_generation_zero_after_head_cas_crash(tmp_path: Path) -> None:
+    checkpoint_path = tmp_path / "managed-v5-checkpoint.json"
+    authority = _authority()
+    service = _admitted_service(authority)
+    head = _Head()
+    head.fail_next_cas = True
+
+    with pytest.raises(RuntimeError, match="head crash"):
+        _progress(checkpoint_path, head).initialize(
+            authority=authority,
+            admission=service.admission,
+        )
+
+    recovered = _progress(checkpoint_path, head).initialize(
+        authority=authority,
+        admission=service.admission,
+    )
+    assert recovered.generation == 0
+    assert head.value == recovered.checkpoint_commitment_sha256
+
+
+def test_progress_adopts_single_successor_after_head_cas_crash(tmp_path: Path) -> None:
+    checkpoint_path = tmp_path / "managed-v5-checkpoint.json"
+    authority = _authority()
+    service = _admitted_service(authority)
+    head = _Head()
+    progress = _progress(checkpoint_path, head)
+    initial = progress.initialize(authority=authority, admission=service.admission)
+    head.fail_next_cas = True
+
+    with pytest.raises(RuntimeError, match="head crash"):
+        progress.advance(
+            authority=authority,
+            admission=service.admission,
+            unit_index=0,
+            phase=ManagedMem0V5CheckpointPhase.DISPATCH_ATTEMPTED,
+        )
+
+    recovered = _progress(checkpoint_path, head).load(
+        authority=authority,
+        admission=service.admission,
+    )
+    assert recovered.generation == initial.generation + 1
+    assert recovered.previous_checkpoint_commitment_sha256 == initial.checkpoint_commitment_sha256
+    assert head.value == recovered.checkpoint_commitment_sha256
+
+
+def test_progress_rejects_head_that_is_not_current_or_direct_parent(tmp_path: Path) -> None:
+    checkpoint_path = tmp_path / "managed-v5-checkpoint.json"
+    authority = _authority()
+    service = _admitted_service(authority)
+    head = _Head()
+    progress = _progress(checkpoint_path, head)
+    progress.initialize(authority=authority, admission=service.admission)
+    head.value = _sha("unrelated-checkpoint-head")
+
+    with pytest.raises(ManagedRunError, match="progress head differs"):
+        progress.load(authority=authority, admission=service.admission)
+
+
+def test_fresh_restore_keeps_reserved_unit_dispatchable_in_mixed_checkpoint(
+    tmp_path: Path,
+) -> None:
+    checkpoint_path = tmp_path / "managed-v5-checkpoint.json"
+    authority = _authority(unit_count=2)
+    head = _Head()
+    lane = _Lane(zero_record_sequences=(0,))
+    service = _service(_StoragePort())
+    progress = _progress(checkpoint_path, head)
+    coordinator = ManagedMem0V5LaneCoordinator(
+        service=service,
+        lane_port=lane,
+        progress_port=progress,
+    )
+    coordinator.admit(
+        authority=authority,
+        request=_request(2),
+        budget_policy=ManagedMem0V5BudgetPolicy(6),
+    )
+
+    operation_id = service.reserve(unit_index=0)
+    coordinator._operation_ids[0] = operation_id
+    coordinator._advance(0, ManagedMem0V5CheckpointPhase.DISPATCH_ATTEMPTED)
+    service.record_dispatched(unit_index=0)
+    coordinator._dispatched.add(0)
+    receipt = lane.dispatch(
+        authority=authority,
+        unit=authority.units[0],
+        operation_id_sha256=operation_id,
+        admission=service.admission,
+    )
+    service.verify_dispatch_receipt(unit_index=0, receipt_payload=receipt)
+    coordinator._advance_receipt(0)
+    coordinator._finish_storage(0, authority.units[0], operation_id)
+
+    fresh_service = _service(_StoragePort())
+    fresh_progress = _progress(checkpoint_path, head)
+    restored = ManagedMem0V5LaneCoordinator(
+        service=fresh_service,
+        lane_port=lane,
+        progress_port=fresh_progress,
+    )
+    restored.restore(
+        authority=authority,
+        request=_request(2),
+        budget_policy=ManagedMem0V5BudgetPolicy(6),
+    )
+    seal = restored.dispatch_pending()
+
+    assert seal.operation_count == 2
+    assert lane.calls.count("dispatch") == 2
+    assert lane.calls.count("status") == 1
+    assert restored.storage_observations[0].created_record_ids == ()
+    assert restored.cleanup().residual_record_count == 0
+    final = fresh_progress.load(authority=authority, admission=fresh_service.admission)
+    assert all(unit.phase is ManagedMem0V5CheckpointPhase.COMMITTED for unit in final.units)

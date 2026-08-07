@@ -12,6 +12,9 @@ from urllib.parse import urlsplit
 
 import httpx
 
+from infinity_context_server.memory_comparison_managed_mem0_v5_cleanup_binding import (
+    ManagedMem0V5CleanupBindingPort,
+)
 from infinity_context_server.memory_comparison_managed_mem0_v5_lane import (
     ManagedMem0V5SourcePair,
     ManagedMem0V5StorageObservation,
@@ -19,6 +22,13 @@ from infinity_context_server.memory_comparison_managed_mem0_v5_lane import (
 from infinity_context_server.memory_comparison_managed_mem0_v5_projector import (
     ManagedMem0V5ManifestAuthority,
     ManagedMem0V5SourceUnit,
+)
+from infinity_context_server.memory_comparison_managed_mem0_v5_request_binding import (
+    REQUEST_BINDING_DOMAIN,
+    ManagedMem0V5DispatchBindingPort,
+    ManagedMem0V5RequestBindingContext,
+    ManagedMem0V5RequestBindingReceipt,
+    verify_request_binding_payload,
 )
 from infinity_context_server.memory_comparison_mem0_oss_v5_contracts import (
     Mem0OssFullRunAdmission,
@@ -46,26 +56,6 @@ _MAX_RESPONSE_BYTES = 256_000
 
 class ManagedMem0V5BearerCapability(Protocol):
     def consume(self) -> str: ...
-
-
-class ManagedMem0V5DispatchBindingPort(Protocol):
-    def request_body_sha256(
-        self,
-        *,
-        authority: ManagedMem0V5ManifestAuthority,
-        unit: ManagedMem0V5SourceUnit,
-        operation_id_sha256: str,
-    ) -> str: ...
-
-
-class ManagedMem0V5CleanupBindingPort(Protocol):
-    def operation_inventory_root_sha256(
-        self,
-        *,
-        admission: Mem0OssFullRunAdmission,
-        seal: Mem0OssRunSeal | None,
-        aborting: bool,
-    ) -> str: ...
 
 
 @dataclass(frozen=True, slots=True)
@@ -205,7 +195,12 @@ class ManagedMem0V5EvidenceVerifierPort(Protocol):
 
 @final
 class HmacSha256ManagedMem0V5EvidenceVerifier:
-    __slots__ = ("_key_commitment_sha256", "_observation_key", "_search_key")
+    __slots__ = (
+        "_key_commitment_sha256",
+        "_observation_key",
+        "_request_binding_key",
+        "_search_key",
+    )
 
     def __init__(self, *, key_capability: ManagedMem0V5EvidenceKeyCapability) -> None:
         if not callable(getattr(key_capability, "consume", None)):
@@ -219,6 +214,7 @@ class HmacSha256ManagedMem0V5EvidenceVerifier:
         self._key_commitment_sha256 = hashlib.sha256(master_key).hexdigest()
         root = hmac.new(master_key, _KEY_DOMAIN, hashlib.sha256).digest()
         self._observation_key = hmac.new(root, _OBSERVATION_DOMAIN, hashlib.sha256).digest()
+        self._request_binding_key = hmac.new(root, REQUEST_BINDING_DOMAIN, hashlib.sha256).digest()
         self._search_key = hmac.new(root, _SEARCH_DOMAIN, hashlib.sha256).digest()
 
     @property
@@ -300,6 +296,18 @@ class HmacSha256ManagedMem0V5EvidenceVerifier:
             storage_commitment_sha256=value["storage_commitment_sha256"],
             created_record_ids=tuple(record_ids),
             source_pairs=(ManagedMem0V5SourcePair(context.source_id, context.source_sha256),),
+        )
+
+    def verify_request_binding(
+        self,
+        *,
+        payload: object,
+        context: ManagedMem0V5RequestBindingContext,
+    ) -> ManagedMem0V5RequestBindingReceipt:
+        return verify_request_binding_payload(
+            payload=payload,
+            context=context,
+            hmac_key=self._request_binding_key,
         )
 
     def verify_search(
@@ -408,8 +416,8 @@ class ManagedMem0V5HttpLane:
                 callable(getattr(evidence_verifier, name, None))
                 for name in ("verify_storage", "verify_search")
             )
-            or not callable(getattr(dispatch_binding, "request_body_sha256", None))
-            or not callable(getattr(cleanup_binding, "operation_inventory_root_sha256", None))
+            or not callable(getattr(dispatch_binding, "verify_request_binding", None))
+            or not callable(getattr(cleanup_binding, "cleanup_context", None))
         ):
             _fail("mem0_v5_managed_http_configuration_invalid")
         self._origin = _origin(origin)
@@ -450,11 +458,26 @@ class ManagedMem0V5HttpLane:
         operation_id_sha256: str,
         admission: Mem0OssFullRunAdmission,
     ) -> object:
-        request_sha = self._binding.request_body_sha256(
+        context = ManagedMem0V5RequestBindingContext.from_authority(
             authority=authority,
             unit=unit,
             operation_id_sha256=operation_id_sha256,
+            admission=admission,
         )
+        body = {
+            "admission_commitment_sha256": admission.commitment_sha256,
+            "operation_id_sha256": operation_id_sha256,
+        }
+        payload = self._post(
+            "/v5/operations/request-binding",
+            body,
+            _key("request-binding", operation_id_sha256),
+        )
+        binding = self._binding.verify_request_binding(
+            payload=payload,
+            context=context,
+        )
+        request_sha = binding.request_body_sha256
         if not is_sha256(request_sha):
             _fail("mem0_v5_managed_dispatch_binding_invalid")
         return self._control.dispatch(
@@ -537,20 +560,27 @@ class ManagedMem0V5HttpLane:
         seal: Mem0OssRunSeal | None,
         aborting: bool,
     ) -> object:
-        inventory = self._cleanup_binding.operation_inventory_root_sha256(
+        context = self._cleanup_binding.cleanup_context(
             admission=admission,
             seal=seal,
             aborting=aborting,
         )
-        if not is_sha256(inventory):
+        if (
+            context.admission_commitment_sha256 != admission.commitment_sha256
+            or context.seal_commitment_sha256 != (None if seal is None else seal.commitment_sha256)
+            or context.operation_root_sha256
+            != (None if seal is None else seal.operation_root_sha256)
+            or context.expected_operation_count != admission.request.expected_operation_count
+            or context.aborting is not aborting
+        ):
             _fail("mem0_v5_managed_cleanup_binding_invalid")
         body = {
-            "admission_commitment_sha256": admission.commitment_sha256,
-            "seal_commitment_sha256": None if seal is None else seal.commitment_sha256,
-            "operation_root_sha256": None if seal is None else seal.operation_root_sha256,
-            "operation_inventory_root_sha256": inventory,
-            "expected_operation_count": admission.ingestion_unit_count,
-            "aborting": aborting,
+            "admission_commitment_sha256": context.admission_commitment_sha256,
+            "seal_commitment_sha256": context.seal_commitment_sha256,
+            "operation_root_sha256": context.operation_root_sha256,
+            "operation_inventory_root_sha256": context.operation_inventory_root_sha256,
+            "expected_operation_count": context.expected_operation_count,
+            "aborting": context.aborting,
         }
         return self._control.cleanup(
             Mem0V5CleanupRequest(

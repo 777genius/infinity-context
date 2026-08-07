@@ -6,6 +6,13 @@ import re
 from dataclasses import dataclass
 from typing import Protocol, final
 
+from infinity_context_server.memory_comparison_managed_mem0_v5_checkpoint import (
+    ManagedMem0V5Checkpoint,
+    ManagedMem0V5CheckpointPhase,
+)
+from infinity_context_server.memory_comparison_managed_mem0_v5_progress import (
+    ManagedMem0V5ProgressPort,
+)
 from infinity_context_server.memory_comparison_managed_mem0_v5_projector import (
     ManagedMem0V5ManifestAuthority,
     ManagedMem0V5SourceUnit,
@@ -233,6 +240,7 @@ class ManagedMem0V5LaneCoordinator:
         "_dispatched",
         "_lane",
         "_operation_ids",
+        "_progress",
         "_service",
         "_storage_observations",
     )
@@ -242,11 +250,18 @@ class ManagedMem0V5LaneCoordinator:
         *,
         service: Mem0OssFullRunService,
         lane_port: ManagedMem0V5LanePort,
+        progress_port: ManagedMem0V5ProgressPort | None = None,
     ) -> None:
         if type(service) is not Mem0OssFullRunService or not _lane_port(lane_port):
             raise ManagedRunError("managed Mem0 v5 lane composition is invalid")
         self._service = service
         self._lane = lane_port
+        if progress_port is not None and not all(
+            callable(getattr(progress_port, name, None))
+            for name in ("initialize", "load", "advance")
+        ):
+            raise ManagedRunError("managed Mem0 v5 progress port is invalid")
+        self._progress = progress_port
         self._authority: ManagedMem0V5ManifestAuthority | None = None
         self._budget: ManagedMem0V5Budget | None = None
         self._operation_ids: dict[int, str] = {}
@@ -296,6 +311,8 @@ class ManagedMem0V5LaneCoordinator:
         )
         self._authority = authority
         self._budget = budget
+        if self._progress is not None:
+            self._progress.initialize(authority=authority, admission=self._service.admission)
         try:
             self._lane.admit(authority=authority, admission=self._service.admission)
         except Exception as primary:
@@ -316,6 +333,10 @@ class ManagedMem0V5LaneCoordinator:
                 continue
             operation_id = self._service.reserve(unit_index=index)
             self._operation_ids[index] = operation_id
+            self._advance(
+                index,
+                ManagedMem0V5CheckpointPhase.DISPATCH_ATTEMPTED,
+            )
             self._service.record_dispatched(unit_index=index)
             self._dispatched.add(index)
             receipt = self._lane.dispatch(
@@ -325,6 +346,7 @@ class ManagedMem0V5LaneCoordinator:
                 admission=self._service.admission,
             )
             self._service.verify_dispatch_receipt(unit_index=index, receipt_payload=receipt)
+            self._advance_receipt(index)
             self._finish_storage(index, unit, operation_id)
         return self._service.seal()
 
@@ -351,6 +373,7 @@ class ManagedMem0V5LaneCoordinator:
         for index, recovery in sorted(states.items()):
             unit = authority.units[index]
             if recovery.state is Mem0OssOperationState.RESERVED:
+                self._advance(index, ManagedMem0V5CheckpointPhase.DISPATCH_ATTEMPTED)
                 self._service.record_dispatched(unit_index=index)
                 self._dispatched.add(index)
                 receipt = self._lane.dispatch(
@@ -363,6 +386,7 @@ class ManagedMem0V5LaneCoordinator:
                     unit_index=index,
                     receipt_payload=receipt,
                 )
+                self._advance_receipt(index)
                 self._finish_storage(index, unit, recovery.operation_id_sha256)
             elif recovery.state is Mem0OssOperationState.RECEIPT_VERIFIED:
                 self._finish_storage(index, unit, recovery.operation_id_sha256)
@@ -370,12 +394,107 @@ class ManagedMem0V5LaneCoordinator:
                 self._restore_verified_storage(index, unit, recovery)
                 self._service.commit(unit_index=index)
                 self._completed.add(index)
+                evidence = self._storage_observations[index]
+                self._advance(
+                    index,
+                    ManagedMem0V5CheckpointPhase.COMMITTED,
+                    provider_receipt_commitment_sha256=recovery.provider_receipt_sha256,
+                    observation_commitment_sha256=evidence.evidence_commitment_sha256,
+                    record_ids=evidence.created_record_ids,
+                )
             elif recovery.state is Mem0OssOperationState.COMMITTED:
                 self._restore_verified_storage(index, unit, recovery)
                 self._completed.add(index)
             else:
                 raise ManagedRunError("managed Mem0 v5 recovery stage is invalid")
         return safe_reserved
+
+    def restore(
+        self,
+        *,
+        authority: ManagedMem0V5ManifestAuthority,
+        request: Mem0OssAdmissionRequest,
+        budget_policy: ManagedMem0V5BudgetPolicy,
+    ) -> ManagedMem0V5Checkpoint:
+        """Rebuild a fresh RAM service from authenticated progress without redispatch."""
+
+        if self._progress is None:
+            raise ManagedRunError("managed Mem0 v5 durable progress is required")
+        if self._service.state is not Mem0OssFullRunState.UNBOUND:
+            raise ManagedRunError("managed Mem0 v5 restore requires a fresh service")
+        budget = ManagedMem0V5Budget.for_authority(authority)
+        budget_policy.require(budget)
+        self._service.admit(request, manifest_authority_payload=authority)
+        self._service.activate(
+            admission_commitment_sha256=self._service.admission.commitment_sha256
+        )
+        checkpoint = self._progress.load(authority=authority, admission=self._service.admission)
+        self._authority = authority
+        self._budget = budget
+        self._lane.admit(authority=authority, admission=self._service.admission)
+        attempted: list[int] = []
+        for index, unit_progress in enumerate(checkpoint.units):
+            unit = authority.units[index]
+            expected_operation_id = canonical_sha256(
+                {
+                    "admission_commitment_sha256": self._service.admission.commitment_sha256,
+                    "unit_index": index,
+                    "unit_identity_sha256": unit.unit_identity_sha256,
+                }
+            )
+            if unit_progress.operation_id_sha256 != expected_operation_id:
+                raise ManagedRunError("managed Mem0 v5 restore operation binding differs")
+            if unit_progress.phase is ManagedMem0V5CheckpointPhase.RESERVED:
+                continue
+            operation_id = self._service.reserve(unit_index=index)
+            if operation_id != expected_operation_id:
+                raise ManagedRunError("managed Mem0 v5 restore operation binding differs")
+            self._operation_ids[index] = operation_id
+            self._service.record_dispatched(unit_index=index)
+            self._dispatched.add(index)
+            attempted.append(index)
+        if attempted:
+            self._service.recover_after_crash()
+            for index in attempted:
+                progress = checkpoint.units[index]
+                receipt = self._lane.status(
+                    operation_id_sha256=progress.operation_id_sha256,
+                    admission=self._service.admission,
+                )
+                self._service.reconcile_receipt_readback(
+                    unit_index=index,
+                    receipt_payload=receipt,
+                )
+                recovery = self._recovery_state(index)
+                if (
+                    progress.provider_receipt_commitment_sha256 is not None
+                    and progress.provider_receipt_commitment_sha256
+                    != recovery.provider_receipt_sha256
+                ):
+                    raise ManagedRunError("managed Mem0 v5 restore receipt binding differs")
+            for index in attempted:
+                progress = checkpoint.units[index]
+                unit = authority.units[index]
+                evidence = self._inspect_storage(unit, progress.operation_id_sha256)
+                self._service.verify_storage(unit_index=index, storage_payload=evidence)
+                recovery = self._recovery_state(index)
+                self._require_verified_storage_binding(evidence, recovery)
+                if progress.observation_commitment_sha256 is not None and (
+                    progress.observation_commitment_sha256 != evidence.evidence_commitment_sha256
+                    or progress.record_ids != evidence.created_record_ids
+                ):
+                    raise ManagedRunError("managed Mem0 v5 restore storage binding differs")
+                self._storage_observations[index] = evidence
+                self._service.commit(unit_index=index)
+                self._completed.add(index)
+                self._advance(
+                    index,
+                    ManagedMem0V5CheckpointPhase.COMMITTED,
+                    provider_receipt_commitment_sha256=recovery.provider_receipt_sha256,
+                    observation_commitment_sha256=evidence.evidence_commitment_sha256,
+                    record_ids=evidence.created_record_ids,
+                )
+        return checkpoint
 
     def cleanup(self) -> Mem0OssTerminalCleanupEvidence:
         if self._service.state is Mem0OssFullRunState.SEALED:
@@ -418,8 +537,51 @@ class ManagedMem0V5LaneCoordinator:
         recovery = self._recovery_state(index)
         self._require_verified_storage_binding(evidence, recovery)
         self._storage_observations[index] = evidence
+        self._advance(
+            index,
+            ManagedMem0V5CheckpointPhase.STORAGE_VERIFIED,
+            provider_receipt_commitment_sha256=recovery.provider_receipt_sha256,
+            observation_commitment_sha256=evidence.evidence_commitment_sha256,
+            record_ids=evidence.created_record_ids,
+        )
         self._service.commit(unit_index=index)
         self._completed.add(index)
+        self._advance(
+            index,
+            ManagedMem0V5CheckpointPhase.COMMITTED,
+            provider_receipt_commitment_sha256=recovery.provider_receipt_sha256,
+            observation_commitment_sha256=evidence.evidence_commitment_sha256,
+            record_ids=evidence.created_record_ids,
+        )
+
+    def _advance_receipt(self, index: int) -> None:
+        recovery = self._recovery_state(index)
+        self._advance(
+            index,
+            ManagedMem0V5CheckpointPhase.RECEIPT_VERIFIED,
+            provider_receipt_commitment_sha256=recovery.provider_receipt_sha256,
+        )
+
+    def _advance(
+        self,
+        index: int,
+        phase: ManagedMem0V5CheckpointPhase,
+        *,
+        provider_receipt_commitment_sha256: str | None = None,
+        observation_commitment_sha256: str | None = None,
+        record_ids: tuple[str, ...] = (),
+    ) -> None:
+        if self._progress is None:
+            return
+        self._progress.advance(
+            authority=self._required_authority(),
+            admission=self._service.admission,
+            unit_index=index,
+            phase=phase,
+            provider_receipt_commitment_sha256=provider_receipt_commitment_sha256,
+            observation_commitment_sha256=observation_commitment_sha256,
+            record_ids=record_ids,
+        )
 
     def _inspect_storage(
         self,
