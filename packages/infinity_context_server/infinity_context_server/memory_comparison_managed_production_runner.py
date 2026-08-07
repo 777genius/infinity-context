@@ -27,7 +27,9 @@ from infinity_context_server.memory_comparison_managed_composite_assembler impor
     ManagedFullComparisonAssembler,
 )
 from infinity_context_server.memory_comparison_managed_http_execution import (
+    MANAGED_HTTP_EXECUTION_ADAPTER_ID,
     ManagedComparisonHttpExecutionAdapter,
+    managed_http_execution_implementation_sha256,
 )
 from infinity_context_server.memory_comparison_managed_http_lifecycle import (
     ManagedComparisonHttpLifecycleAdapter,
@@ -36,6 +38,9 @@ from infinity_context_server.memory_comparison_managed_http_lifecycle import (
 from infinity_context_server.memory_comparison_managed_http_policy_lifecycle import (
     ManagedComparisonHttpPolicyLifecycleAdapter,
     managed_http_policy_production_blockers,
+)
+from infinity_context_server.memory_comparison_managed_http_runner_adapter import (
+    ManagedHttpRunnerAdapter,
 )
 from infinity_context_server.memory_comparison_managed_live_composition import (
     VerifiedManagedLiveRunPreparation,
@@ -59,6 +64,9 @@ from infinity_context_server.memory_comparison_managed_run import (
     ManagedRunOutcome,
     create_managed_comparison_run_bindings,
     run_managed_comparison_with_bindings,
+)
+from infinity_context_server.memory_comparison_managed_runner_binding import (
+    ManagedRunnerCompositionBinding,
 )
 from infinity_context_server.memory_comparison_retrieval_policy import (
     NEUTRAL_COMPARISON_RETRIEVAL_POLICY,
@@ -249,6 +257,20 @@ def _run_verified_managed_production_execution(
             benchmark_registration=registration,
             clock=clock_port.now,
         )
+        runner_binding = ManagedRunnerCompositionBinding(
+            run_id=plan.run_id,
+            profile=plan.profile,
+            binding_commitment_sha256=bindings.binding_commitment_sha256,
+            deadline=material.limits.deadline,
+            backend_targets=plan.backend_targets,
+            retrieval_top_k=plan.profile.retrieval_top_k,
+            answer_cutoff=plan.profile.answer_cutoff,
+        )
+        managed_runner = ManagedHttpRunnerAdapter(
+            composition_binding=runner_binding,
+            http=http,
+            lifecycle=lifecycle,
+        )
         runtime_ports = create_managed_production_lifecycle_ports(lifecycle)
         policy = ManagedComparisonHttpPolicyLifecycleAdapter(
             bindings=bindings,
@@ -266,11 +288,14 @@ def _run_verified_managed_production_execution(
             registration=registration,
         )
         execution_ports = create_managed_comparison_execution_ports(
-            http=http,
+            composition_binding=runner_binding,
+            retrieval=managed_runner,
+            execution_evidence=managed_runner,
+            retrieval_adapter_id=MANAGED_HTTP_EXECUTION_ADAPTER_ID,
+            retrieval_implementation_sha256=managed_http_execution_implementation_sha256(),
             provider=provider,
             limits=material.limits,
             provider_route=plan.provider_route,
-            lifecycle=lifecycle,
         )
         assembler = ManagedFullComparisonAssembler(
             adapter_id=MANAGED_PRODUCTION_ASSEMBLER_ADAPTER_ID,

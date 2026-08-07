@@ -41,10 +41,15 @@ from infinity_context_server.memory_comparison_managed_corpus_projection import 
     _managed_official_turn_count,
 )
 from infinity_context_server.memory_comparison_managed_http_execution import (
+    MANAGED_HTTP_EXECUTION_ADAPTER_ID,
     ManagedComparisonHttpExecutionAdapter,
+    managed_http_execution_implementation_sha256,
 )
 from infinity_context_server.memory_comparison_managed_http_lifecycle import (
     ManagedComparisonHttpLifecycleAdapter,
+)
+from infinity_context_server.memory_comparison_managed_http_runner_adapter import (
+    ManagedHttpRunnerAdapter,
 )
 from infinity_context_server.memory_comparison_managed_live_admission import (
     MANAGED_PROVIDER_SUBSCRIPTION_RUNTIME,
@@ -72,6 +77,9 @@ from infinity_context_server.memory_comparison_managed_run_contract import (
     ManagedCaseExecution,
     ManagedRunCase,
     _thaw_json,
+)
+from infinity_context_server.memory_comparison_managed_runner_binding import (
+    ManagedRunnerCompositionBinding,
 )
 from infinity_context_server.memory_comparison_managed_runtime_credentials import (
     issue_managed_runtime_credential_authority,
@@ -188,6 +196,8 @@ class _Scenario:
     bindings: object
     route: ProviderRouteAttestation
     limits: ManagedLiveExecutionLimits
+    runner_binding: ManagedRunnerCompositionBinding
+    runner: ManagedHttpRunnerAdapter
     lifecycle: ManagedComparisonHttpLifecycleAdapter
     http: ManagedComparisonHttpExecutionAdapter
     delegate: _Delegate
@@ -493,12 +503,29 @@ def _scenario(
         ),
         input_token_estimator=lambda _text: 1,
     )
-    ports = create_managed_comparison_execution_ports(
+    runner_binding = ManagedRunnerCompositionBinding(
+        run_id=_RUN,
+        profile=profile,
+        binding_commitment_sha256=bindings.binding_commitment_sha256,
+        deadline=deadline,
+        backend_targets=targets,
+        retrieval_top_k=profile.retrieval_top_k,
+        answer_cutoff=profile.answer_cutoff,
+    )
+    runner = ManagedHttpRunnerAdapter(
+        composition_binding=runner_binding,
         http=http,
+        lifecycle=lifecycle,
+    )
+    ports = create_managed_comparison_execution_ports(
+        composition_binding=runner_binding,
+        retrieval=runner,
+        execution_evidence=runner,
+        retrieval_adapter_id=MANAGED_HTTP_EXECUTION_ADAPTER_ID,
+        retrieval_implementation_sha256=managed_http_execution_implementation_sha256(),
         provider=provider,
         limits=limits,
         provider_route=route,
-        lifecycle=lifecycle,
     )
     query = ManagedAnswerCase(
         alias,
@@ -516,6 +543,8 @@ def _scenario(
         bindings,
         route,
         limits,
+        runner_binding,
+        runner,
         lifecycle,
         http,
         delegate,
@@ -787,9 +816,12 @@ def test_non_admitted_model_is_rejected_at_composition() -> None:
     )
     with pytest.raises(ManagedLlmExecutionError, match="composition_invalid"):
         create_managed_comparison_execution_ports(
-            http=scenario.http,
+            composition_binding=scenario.runner_binding,
+            retrieval=scenario.runner,
+            execution_evidence=scenario.runner,
+            retrieval_adapter_id=MANAGED_HTTP_EXECUTION_ADAPTER_ID,
+            retrieval_implementation_sha256=managed_http_execution_implementation_sha256(),
             provider=scenario.provider,
             limits=wrong_limits,
             provider_route=scenario.route,
-            lifecycle=scenario.lifecycle,
         )

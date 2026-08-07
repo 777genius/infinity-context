@@ -16,13 +16,6 @@ from typing import final
 from infinity_context_server.memory_comparison_bounded_provider import (
     BoundedProviderChatCompletions,
 )
-from infinity_context_server.memory_comparison_clean_state import (
-    public_clean_state_validation,
-)
-from infinity_context_server.memory_comparison_full_execution_validation import (
-    issue_full_execution_validation_session,
-    seal_full_execution_validation,
-)
 from infinity_context_server.memory_comparison_full_execution_validation_slots import (
     FullExecutionCaseManifestEntry,
     execution_case_manifest_sha256,
@@ -59,6 +52,9 @@ from infinity_context_server.memory_comparison_managed_corpus_projection import 
     _managed_corpus_identity,
     _managed_corpus_record,
 )
+from infinity_context_server.memory_comparison_managed_execution_evidence_port import (
+    ManagedExecutionEvidencePort,
+)
 from infinity_context_server.memory_comparison_managed_execution_receipts import (
     ManagedExecutionReceipt,
     ManagedExecutionReceiptIssuer,
@@ -70,17 +66,6 @@ from infinity_context_server.memory_comparison_managed_execution_receipts import
     issue_managed_judge_receipt,
     issue_managed_retrieval_receipt,
     seal_managed_execution_receipt,
-)
-from infinity_context_server.memory_comparison_managed_http_execution import (
-    MANAGED_HTTP_EXECUTION_ADAPTER_ID,
-    ManagedComparisonHttpExecutionAdapter,
-    ManagedHttpRetrievalResult,
-    managed_http_execution_implementation_sha256,
-)
-from infinity_context_server.memory_comparison_managed_http_lifecycle import (
-    ManagedComparisonHttpLifecycleAdapter,
-    ManagedHttpExecutionEvidenceView,
-    consume_managed_http_execution_evidence,
 )
 from infinity_context_server.memory_comparison_managed_live_composition import (
     ManagedLiveExecutionLimits,
@@ -109,12 +94,19 @@ from infinity_context_server.memory_comparison_managed_provider_calls import (
     create_managed_provider_call_collector,
     managed_provider_lane_bindings,
 )
+from infinity_context_server.memory_comparison_managed_retrieval_port import (
+    ManagedRetrievalPort,
+    ManagedRetrievalResult,
+)
 from infinity_context_server.memory_comparison_managed_run_contract import (
     ManagedAnswerCase,
     ManagedCaseExecution,
     ManagedExecutionArtifacts,
     ManagedRunCase,
     _thaw_json,
+)
+from infinity_context_server.memory_comparison_managed_runner_binding import (
+    ManagedRunnerCompositionBinding,
 )
 from infinity_context_server.memory_comparison_provider_provenance import (
     ProviderRouteAttestation,
@@ -149,11 +141,11 @@ class _Lane:
     answer_binding: ManagedProviderLaneBinding
     judge_binding: ManagedProviderLaneBinding
     receipt_issuer: ManagedExecutionReceiptIssuer
-    http_implementation_sha256: str
+    retrieval_implementation_sha256: str
     retrieval_receipt: ManagedExecutionReceipt | None = None
     answer_receipt: ManagedExecutionReceipt | None = None
     judge_receipt: ManagedExecutionReceipt | None = None
-    retrieval_result: ManagedHttpRetrievalResult | None = None
+    retrieval_result: ManagedRetrievalResult | None = None
     retrieval_metadata_sha256: str | None = None
 
 
@@ -162,23 +154,36 @@ class _ManagedExecutionCoordinator:
     def __init__(
         self,
         *,
-        http: ManagedComparisonHttpExecutionAdapter,
+        composition_binding: ManagedRunnerCompositionBinding,
+        retrieval: ManagedRetrievalPort,
+        execution_evidence: ManagedExecutionEvidencePort,
+        retrieval_adapter_id: str,
+        retrieval_implementation_sha256: str,
         provider: BoundedProviderChatCompletions,
         limits: ManagedLiveExecutionLimits,
         provider_route: ProviderRouteAttestation,
-        lifecycle: ManagedComparisonHttpLifecycleAdapter,
     ) -> None:
+        try:
+            neutral_composition_valid = (
+                type(composition_binding) is ManagedRunnerCompositionBinding
+                and retrieval.composition_binding is composition_binding
+                and execution_evidence.composition_binding is composition_binding
+            )
+        except Exception:
+            neutral_composition_valid = False
         if (
-            type(http) is not ManagedComparisonHttpExecutionAdapter
+            not neutral_composition_valid
             or type(provider) is not BoundedProviderChatCompletions
             or type(limits) is not ManagedLiveExecutionLimits
             or type(provider_route) is not ProviderRouteAttestation
-            or type(lifecycle) is not ManagedComparisonHttpLifecycleAdapter
-            or getattr(lifecycle, "_execution", None) is not http
-            or getattr(lifecycle, "_deadline", None) != limits.deadline
+            or type(retrieval_adapter_id) is not str
+            or not retrieval_adapter_id
+            or type(retrieval_implementation_sha256) is not str
+            or len(retrieval_implementation_sha256) != 64
+            or any(item not in "0123456789abcdef" for item in retrieval_implementation_sha256)
             or limits.answerer_model != MANAGED_SUBSCRIPTION_EXECUTION_MODEL
             or limits.judge_model != MANAGED_SUBSCRIPTION_EXECUTION_MODEL
-            or getattr(http, "_deadline", None) != limits.deadline
+            or composition_binding.deadline is not limits.deadline
         ):
             raise ManagedLlmExecutionError("managed_execution_composition_invalid")
         budget = getattr(provider, "_budget", None)
@@ -190,13 +195,15 @@ class _ManagedExecutionCoordinator:
             or deadline <= 0
         ):
             raise ManagedLlmExecutionError("managed_execution_deadline_invalid")
-        self._http = http
+        self._binding = composition_binding
+        self._retrieval = retrieval
+        self._execution_evidence = execution_evidence
+        self._retrieval_adapter_id = retrieval_adapter_id
+        self._retrieval_implementation_sha256 = retrieval_implementation_sha256
         self._provider = provider
         self._limits = limits
         self._route = provider_route
-        self._lifecycle = lifecycle
-        self._lifecycle_evidence: ManagedHttpExecutionEvidenceView | None = None
-        self._lifecycle_evidence_snapshot: str | None = None
+        self._execution_evidence_ready = False
         self._bound_managed_cases: tuple[ManagedRunCase, ...] = ()
         self._deadline_monotonic = float(deadline)
         self._lock = threading.RLock()
@@ -237,12 +244,19 @@ class _ManagedExecutionCoordinator:
             profile = resolve_full_comparison_profile(trusted.profile_id)
             if (
                 profile is None
-                or getattr(self._http, "_profile", None) != profile
-                or getattr(self._http, "_run_id", None) != trusted.run_id
+                or self._binding.profile_id != trusted.profile_id
+                or self._binding.run_id != trusted.run_id
+                or self._binding.binding_commitment_sha256
+                != trusted.binding_commitment_sha256
+                or self._binding.retrieval_top_k != profile.retrieval_top_k
+                or self._binding.answer_cutoff != profile.answer_cutoff
             ):
                 raise ManagedLlmExecutionError("managed_execution_profile_invalid")
             backend_roles = tuple(item.backend_role for item in trusted.backend_targets)
-            if backend_roles != REQUIRED_FULL_COMPARISON_BACKENDS:
+            if (
+                backend_roles != REQUIRED_FULL_COMPARISON_BACKENDS
+                or self._binding.backend_targets != trusted.backend_targets
+            ):
                 raise ManagedLlmExecutionError("managed_execution_backends_invalid")
             provider_plan = managed_provider_lane_bindings(
                 comparison_commitment_sha256=trusted.binding_commitment_sha256,
@@ -320,7 +334,7 @@ class _ManagedExecutionCoordinator:
                         answer_binding,
                         judge_binding,
                         issuer,
-                        managed_http_execution_implementation_sha256(),
+                        self._retrieval_implementation_sha256,
                     )
             with self._lock:
                 self._bindings = bindings
@@ -355,12 +369,17 @@ class _ManagedExecutionCoordinator:
     ) -> ManagedExecutionReceipt:
         lane = self._begin_operation("retrieve", bindings, backend_role, target, case, query)
         try:
-            self._ensure_lifecycle_evidence(bindings)
+            self._ensure_execution_evidence(bindings)
+            authority = self._retrieval.authority_for(
+                backend_role=backend_role,
+                target_identity_sha256=target,
+            )
             retrieval_port = ManagedRetrievalDispatchPort(
-                http=self._http,
+                composition_binding=self._binding,
+                retrieval=self._retrieval,
+                authority=authority,
                 run_id=bindings.run_id,
                 backend_role=backend_role,
-                target=target,
                 case=case,
                 query=query,
                 expected_case_id=lane.lane_id,
@@ -371,7 +390,7 @@ class _ManagedExecutionCoordinator:
                 backend_id=f"{backend_role}-retrieval",
                 dispatch_ledger=self._ledger,
                 run_id=bindings.run_id,
-                top_k=self._http.retrieval_top_k,
+                top_k=self._binding.retrieval_top_k,
             )
             if type(evidence) is not tuple:
                 raise ManagedLlmExecutionError("managed_retrieval_result_invalid")
@@ -379,7 +398,12 @@ class _ManagedExecutionCoordinator:
             if result.evidence is not evidence:
                 raise ManagedLlmExecutionError("managed_retrieval_result_invalid")
             lane.retrieval_result = result
-            lane.retrieval_metadata_sha256 = _retrieval_semantic_identity(result, lane)
+            lane.retrieval_metadata_sha256 = _retrieval_semantic_identity(
+                result,
+                lane,
+                adapter_id=self._retrieval_adapter_id,
+                implementation_sha256=self._retrieval_implementation_sha256,
+            )
             receipt = issue_managed_retrieval_receipt(
                 lane.receipt_issuer,
                 evidence=evidence,
@@ -547,7 +571,12 @@ class _ManagedExecutionCoordinator:
                     or execution.judge_receipt is not lane.judge_receipt
                     or lane.retrieval_result is None
                     or lane.retrieval_metadata_sha256
-                    != _retrieval_semantic_identity(lane.retrieval_result, lane)
+                    != _retrieval_semantic_identity(
+                        lane.retrieval_result,
+                        lane,
+                        adapter_id=self._retrieval_adapter_id,
+                        implementation_sha256=self._retrieval_implementation_sha256,
+                    )
                 ):
                     raise ManagedLlmExecutionError("managed_execution_lane_coverage_invalid")
                 sealed = seal_managed_execution_receipt(
@@ -567,12 +596,7 @@ class _ManagedExecutionCoordinator:
             ):
                 raise ManagedLlmExecutionError("managed_execution_provider_coverage_invalid")
             gold = verify_gold_blind_execution(self._ledger)
-            lifecycle_evidence = self._lifecycle_evidence
-            if (
-                type(lifecycle_evidence) is not ManagedHttpExecutionEvidenceView
-                or self._lifecycle_evidence_snapshot
-                != _lifecycle_evidence_identity(lifecycle_evidence)
-            ):
+            if not self._execution_evidence_ready:
                 raise ManagedLlmExecutionError("managed_execution_evidence_invalid")
             session_key = RunScopedSessionHmacKey.generate(run_id=bindings.run_id)
             mappings = tuple(
@@ -590,7 +614,8 @@ class _ManagedExecutionCoordinator:
                     strict=True,
                 )
             )
-            session = issue_full_execution_validation_session(
+            full_validation = self._execution_evidence.seal_execution_validation(
+                composition_binding=self._binding,
                 bindings=bindings,
                 benchmark=self._cases[self._aliases[0]].public_case.benchmark,
                 case_manifest=manifest,
@@ -599,15 +624,10 @@ class _ManagedExecutionCoordinator:
                 provider_calls=collected,
                 session_verifier=session_key,
                 session_evidence=tuple(session_key.issue(item) for item in mappings),
-                transport_verifier=lifecycle_evidence.locomo_timestamp_verifier,
-                transport_evidence=lifecycle_evidence.locomo_timestamp_evidence,
-                clean_validation=lifecycle_evidence.validation,
-                clean_scopes=lifecycle_evidence.scopes,
-                clean_attestation_key=lifecycle_evidence.attestation_key,
             )
             artifacts = ManagedExecutionArtifacts(
                 gold,
-                seal_full_execution_validation(session),
+                full_validation,
                 manifest_sha256,
                 material,
                 tuple(quality_outcomes),
@@ -680,24 +700,18 @@ class _ManagedExecutionCoordinator:
         if trusted is not self._bindings:
             raise ManagedLlmExecutionError("managed_execution_bindings_invalid")
 
-    def _ensure_lifecycle_evidence(
+    def _ensure_execution_evidence(
         self,
         bindings: FullComparisonRunBindings,
     ) -> None:
-        if self._lifecycle_evidence is not None:
+        if self._execution_evidence_ready:
             return
-        capability = self._lifecycle.execution_evidence_capability()
-        view = consume_managed_http_execution_evidence(
-            capability,
-            run_id=bindings.run_id,
-            binding_commitment_sha256=bindings.binding_commitment_sha256,
-            backend_targets=bindings.backend_targets,
+        self._execution_evidence.consume_ready_evidence(
+            composition_binding=self._binding,
+            bindings=bindings,
             cases=self._bound_managed_cases,
         )
-        if type(view) is not ManagedHttpExecutionEvidenceView:
-            raise ManagedLlmExecutionError("managed_execution_evidence_invalid")
-        self._lifecycle_evidence = view
-        self._lifecycle_evidence_snapshot = _lifecycle_evidence_identity(view)
+        self._execution_evidence_ready = True
 
     def _collector_required(self) -> ManagedProviderCallCollector:
         collector = self._collector
@@ -713,20 +727,26 @@ class _ManagedExecutionCoordinator:
 
 def create_managed_comparison_execution_ports(
     *,
-    http: ManagedComparisonHttpExecutionAdapter,
+    composition_binding: ManagedRunnerCompositionBinding,
+    retrieval: ManagedRetrievalPort,
+    execution_evidence: ManagedExecutionEvidencePort,
+    retrieval_adapter_id: str,
+    retrieval_implementation_sha256: str,
     provider: BoundedProviderChatCompletions,
     limits: ManagedLiveExecutionLimits,
     provider_route: ProviderRouteAttestation,
-    lifecycle: ManagedComparisonHttpLifecycleAdapter,
 ) -> ManagedComparisonExecutionPorts:
     """Create distinct runner ports backed by one exact serial authority."""
 
     coordinator = _ManagedExecutionCoordinator(
-        http=http,
+        composition_binding=composition_binding,
+        retrieval=retrieval,
+        execution_evidence=execution_evidence,
+        retrieval_adapter_id=retrieval_adapter_id,
+        retrieval_implementation_sha256=retrieval_implementation_sha256,
         provider=provider,
         limits=limits,
         provider_route=provider_route,
-        lifecycle=lifecycle,
     )
     return ManagedComparisonExecutionPorts(
         ManagedComparisonCandidateExecutionPort(coordinator),
@@ -770,41 +790,14 @@ def _lane_id(alias: str, backend_role: str) -> str:
     return f"{alias}:{backend_role}"
 
 
-def _lifecycle_evidence_identity(
-    view: ManagedHttpExecutionEvidenceView,
-) -> str:
-    if type(view) is not ManagedHttpExecutionEvidenceView:
-        raise ManagedLlmExecutionError("managed_execution_evidence_invalid")
-    return hashlib.sha256(
-        canonical_dispatch_json(
-            {
-                "validation": public_clean_state_validation(view.validation),
-                "scopes": [
-                    [
-                        item.backend_role,
-                        item.corpus_identity_sha256,
-                        item.scope_identity_sha256,
-                    ]
-                    for item in view.scopes
-                ],
-                "attestation_key_sha256": hashlib.sha256(view.attestation_key).hexdigest(),
-                "locomo_verifier_identity": (
-                    id(view.locomo_timestamp_verifier)
-                    if view.locomo_timestamp_verifier is not None
-                    else None
-                ),
-                "locomo_evidence_identities": [id(item) for item in view.locomo_timestamp_evidence],
-                "provenance": _thaw_json(view.provenance),
-            }
-        )
-    ).hexdigest()
-
-
 def _retrieval_semantic_identity(
-    result: ManagedHttpRetrievalResult,
+    result: ManagedRetrievalResult,
     lane: _Lane,
+    *,
+    adapter_id: str,
+    implementation_sha256: str,
 ) -> str:
-    if type(result) is not ManagedHttpRetrievalResult:
+    if type(result) is not ManagedRetrievalResult:
         raise ManagedLlmExecutionError("managed_retrieval_semantics_invalid")
     evidence_identity = gold_blind_evidence_identity(result.evidence)
     if result.retrieval_identity != evidence_identity:
@@ -812,19 +805,19 @@ def _retrieval_semantic_identity(
     metadata = _thaw_json(result.metadata)
     if (
         type(metadata) is not dict
-        or metadata.get("adapter_id") != MANAGED_HTTP_EXECUTION_ADAPTER_ID
+        or metadata.get("adapter_id") != adapter_id
         or metadata.get("backend_role") != lane.backend_role
         or metadata.get("target_identity_sha256") != lane.target_identity_sha256
         or metadata.get("retrieval_policy") != NEUTRAL_COMPARISON_RETRIEVAL_POLICY.telemetry()
         or metadata.get("gold_fields_forwarded") is not False
         or metadata.get("retries") != 0
-        or lane.http_implementation_sha256 != managed_http_execution_implementation_sha256()
+        or lane.retrieval_implementation_sha256 != implementation_sha256
     ):
         raise ManagedLlmExecutionError("managed_retrieval_semantics_invalid")
     return hashlib.sha256(
         canonical_dispatch_json(
             {
-                "adapter_implementation_sha256": lane.http_implementation_sha256,
+                "adapter_implementation_sha256": lane.retrieval_implementation_sha256,
                 "metadata": metadata,
             }
         )
