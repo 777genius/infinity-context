@@ -26,15 +26,24 @@ from infinity_context_server.memory_comparison_managed_mem0_v5_projector import 
 )
 from infinity_context_server.memory_comparison_managed_mem0_v5_request_binding import (
     REQUEST_BINDING_DOMAIN,
+    REQUEST_BINDING_V2_DOMAIN,
+    REQUEST_BINDING_V2_SCHEMA,
+    ManagedMem0V5AuthenticatedRequestBindingV2Witness,
     ManagedMem0V5DispatchBindingPort,
+    ManagedMem0V5DispatchBindingV2Port,
     ManagedMem0V5RequestBindingContext,
     ManagedMem0V5RequestBindingReceipt,
+    ManagedMem0V5RequestBindingV2Context,
     verify_request_binding_payload,
+    verify_request_binding_v2_payload,
 )
 from infinity_context_server.memory_comparison_managed_mem0_v5_storage_witness import (
     ManagedMem0V5AuthenticatedStorageWitness,
     ManagedMem0V5StorageWitnessIssuerPort,
     require_managed_mem0_v5_storage_witness_issuer,
+)
+from infinity_context_server.memory_comparison_managed_mem0_v5_transport_collector import (
+    ManagedMem0V5TransportObservationCollector,
 )
 from infinity_context_server.memory_comparison_mem0_oss_v5_contracts import (
     CleanupVerificationContext,
@@ -209,6 +218,7 @@ class HmacSha256ManagedMem0V5EvidenceVerifier:
         "_key_commitment_sha256",
         "_observation_key",
         "_request_binding_key",
+        "_request_binding_v2_key",
         "_search_key",
         "_storage_witness_issuer",
     )
@@ -235,6 +245,9 @@ class HmacSha256ManagedMem0V5EvidenceVerifier:
             self._observation_key = hmac.new(root, _OBSERVATION_DOMAIN, hashlib.sha256).digest()
             self._request_binding_key = hmac.new(
                 root, REQUEST_BINDING_DOMAIN, hashlib.sha256
+            ).digest()
+            self._request_binding_v2_key = hmac.new(
+                root, REQUEST_BINDING_V2_DOMAIN, hashlib.sha256
             ).digest()
             self._search_key = hmac.new(root, _SEARCH_DOMAIN, hashlib.sha256).digest()
             self._storage_witness_issuer = issuer
@@ -341,6 +354,18 @@ class HmacSha256ManagedMem0V5EvidenceVerifier:
             hmac_key=self._request_binding_key,
         )
 
+    def verify_request_binding_v2(
+        self,
+        *,
+        payload: object,
+        context: ManagedMem0V5RequestBindingV2Context,
+    ) -> ManagedMem0V5AuthenticatedRequestBindingV2Witness:
+        return verify_request_binding_v2_payload(
+            payload=payload,
+            context=context,
+            hmac_key=self._request_binding_v2_key,
+        )
+
     def verify_search(
         self, *, payload: object, context: ManagedMem0V5SearchVerificationContext
     ) -> ManagedMem0V5SearchReceipt:
@@ -422,6 +447,7 @@ class ManagedMem0V5HttpLane:
         "_origin",
         "_timeout",
         "_transport",
+        "_transport_collector",
         "_verifier",
     )
 
@@ -432,7 +458,7 @@ class ManagedMem0V5HttpLane:
         bearer_capability: ManagedMem0V5BearerCapability,
         timeout_seconds: float,
         evidence_verifier: ManagedMem0V5EvidenceVerifierPort,
-        dispatch_binding: ManagedMem0V5DispatchBindingPort,
+        dispatch_binding: ManagedMem0V5DispatchBindingV2Port,
         cleanup_binding: ManagedMem0V5CleanupBindingPort,
         dispatch_guard: ManagedMem0V5SingleDispatchGuardPort | None = None,
         transport: Mem0V5TransportPort | None = None,
@@ -460,6 +486,7 @@ class ManagedMem0V5HttpLane:
             self._binding = verified_dispatch
             self._cleanup_binding = verified_cleanup
             self._dispatch_guard = verified_guard
+            self._transport_collector = ManagedMem0V5TransportObservationCollector()
             self._control = Mem0V5HttpPort(
                 origin=canonical_origin,
                 bearer_token=bearer,
@@ -469,6 +496,12 @@ class ManagedMem0V5HttpLane:
         except Exception:
             _close_capability(bearer_capability)
             raise
+
+    @property
+    def transport_observations(
+        self,
+    ) -> tuple[ManagedMem0V5AuthenticatedRequestBindingV2Witness, ...]:
+        return self._transport_collector.snapshot()
 
     def admit(
         self, *, authority: ManagedMem0V5ManifestAuthority, admission: Mem0OssFullRunAdmission
@@ -494,24 +527,11 @@ class ManagedMem0V5HttpLane:
         operation_id_sha256: str,
         admission: Mem0OssFullRunAdmission,
     ) -> object:
-        context = ManagedMem0V5RequestBindingContext.from_authority(
+        binding = self._read_transport_observation(
             authority=authority,
             unit=unit,
             operation_id_sha256=operation_id_sha256,
             admission=admission,
-        )
-        body = {
-            "admission_commitment_sha256": admission.commitment_sha256,
-            "operation_id_sha256": operation_id_sha256,
-        }
-        payload = self._post(
-            "/v5/operations/request-binding",
-            body,
-            _key("request-binding", operation_id_sha256),
-        )
-        binding = self._binding.verify_request_binding(
-            payload=payload,
-            context=context,
         )
         request_sha = binding.request_body_sha256
         if not is_sha256(request_sha):
@@ -522,7 +542,7 @@ class ManagedMem0V5HttpLane:
                 operation_id_sha256=operation_id_sha256,
                 request_body_sha256=request_sha,
             )
-        return self._control.dispatch(
+        result = self._control.dispatch(
             Mem0V5DispatchRequest(
                 admission.commitment_sha256,
                 operation_id_sha256,
@@ -534,15 +554,62 @@ class ManagedMem0V5HttpLane:
                 _key("dispatch", operation_id_sha256),
             )
         )
+        self._transport_collector.record(binding)
+        return result
 
-    def status(self, *, operation_id_sha256: str, admission: Mem0OssFullRunAdmission) -> object:
-        return self._control.status(
+    def _read_transport_observation(
+        self,
+        *,
+        authority: ManagedMem0V5ManifestAuthority,
+        unit: ManagedMem0V5SourceUnit,
+        operation_id_sha256: str,
+        admission: Mem0OssFullRunAdmission,
+    ) -> ManagedMem0V5AuthenticatedRequestBindingV2Witness:
+        context = ManagedMem0V5RequestBindingV2Context.from_authority(
+            authority=authority,
+            unit=unit,
+            operation_id_sha256=operation_id_sha256,
+            admission=admission,
+        )
+        body = {
+            "schema_version": REQUEST_BINDING_V2_SCHEMA,
+            "admission_commitment_sha256": admission.commitment_sha256,
+            "operation_id_sha256": operation_id_sha256,
+        }
+        payload = self._post(
+            "/v5/operations/request-binding",
+            body,
+            _key("request-binding", operation_id_sha256),
+        )
+        binding = self._binding.verify_request_binding_v2(
+            payload=payload,
+            context=context,
+        )
+        return binding
+
+    def status(
+        self,
+        *,
+        authority: ManagedMem0V5ManifestAuthority,
+        unit: ManagedMem0V5SourceUnit,
+        operation_id_sha256: str,
+        admission: Mem0OssFullRunAdmission,
+    ) -> object:
+        result = self._control.status(
             Mem0V5StatusRequest(
                 admission.commitment_sha256,
                 operation_id_sha256,
                 _key("status", operation_id_sha256),
             )
         )
+        binding = self._read_transport_observation(
+            authority=authority,
+            unit=unit,
+            operation_id_sha256=operation_id_sha256,
+            admission=admission,
+        )
+        self._transport_collector.record_idempotent(binding)
+        return result
 
     def inspect_storage(
         self,
@@ -761,8 +828,8 @@ def _evidence_verifier(value: object) -> ManagedMem0V5EvidenceVerifierPort:
     return value
 
 
-def _dispatch_binding(value: object) -> ManagedMem0V5DispatchBindingPort:
-    _configuration_callable(value, "verify_request_binding")
+def _dispatch_binding(value: object) -> ManagedMem0V5DispatchBindingV2Port:
+    _configuration_callable(value, "verify_request_binding_v2")
     return value
 
 
@@ -837,6 +904,7 @@ __all__ = (
     "ManagedMem0V5BearerCapability",
     "ManagedMem0V5CleanupBindingPort",
     "ManagedMem0V5DispatchBindingPort",
+    "ManagedMem0V5DispatchBindingV2Port",
     "ManagedMem0V5EvidenceKeyCapability",
     "ManagedMem0V5EvidenceVerifierPort",
     "ManagedMem0V5HttpLane",

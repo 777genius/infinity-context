@@ -69,6 +69,7 @@ from mem0_oss_adapter_v5.request_binding import (
     RequestBindingRequest,
     RequestBindingResponse,
     RequestBindingService,
+    RequestBindingV2Response,
 )
 from mem0_oss_adapter_v5.run_commitments import OperationEvidence, reconstruct, runner_state
 from mem0_oss_adapter_v5.sealed_manifest import InputUnit as _InputUnit
@@ -286,7 +287,7 @@ class V5AdapterService:
         request: RequestBindingRequest,
         *,
         idempotency_key: str,
-    ) -> RequestBindingResponse:
+    ) -> RequestBindingResponse | RequestBindingV2Response:
         with self._lock:
             try:
                 return self._request_binding_service().bind(

@@ -46,6 +46,7 @@ class SealedInputManifest:
         schema_version = root["schema_version"]
         if type(schema_version) is not str or schema_version not in {_SCHEMA_V1, _SCHEMA_V2}:
             raise ValueError("sealed_input_invalid")
+        self.schema_version = schema_version
         self.ingestion_manifest_sha256 = _digest(root["ingestion_manifest_sha256"])
         self.ingestion_root_sha256 = _digest(root["ingestion_root_sha256"])
         self.current_date = _date(root["current_date"])

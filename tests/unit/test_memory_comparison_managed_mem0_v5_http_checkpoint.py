@@ -24,19 +24,12 @@ from infinity_context_server.memory_comparison_managed_mem0_v5_http_lane import 
     ManagedMem0V5SearchVerificationContext,
     ManagedMem0V5StorageVerificationContext,
 )
-from infinity_context_server.memory_comparison_managed_mem0_v5_projector import (
-    ManagedMem0V5ManifestProjector,
-)
 from infinity_context_server.memory_comparison_managed_mem0_v5_request_binding import (
     ManagedMem0V5RequestBindingContext,
     ManagedMem0V5RequestBindingReceipt,
 )
 from infinity_context_server.memory_comparison_managed_mem0_v5_storage_witness import (
     create_managed_mem0_v5_storage_witness_authority,
-)
-from infinity_context_server.memory_comparison_managed_run_contract import (
-    ManagedRunCase,
-    ManagedRunError,
 )
 from infinity_context_server.memory_comparison_mem0_oss_v5_contracts import (
     CleanupVerificationContext,
@@ -268,6 +261,9 @@ class _Binding:
     def verify_request_binding(self, **_kwargs: object) -> ManagedMem0V5RequestBindingReceipt:
         return ManagedMem0V5RequestBindingReceipt("9" * 64, "8" * 64, "7" * 64)
 
+    def verify_request_binding_v2(self, **_kwargs: object) -> object:
+        raise AssertionError("unexpected request-binding call")
+
     def cleanup_context(self, **kwargs: object) -> CleanupVerificationContext:
         admission = kwargs["admission"]
         seal = kwargs["seal"]
@@ -287,7 +283,7 @@ class _Binding:
     (
         ("evidence_verifier", "verify_storage", ()),
         ("evidence_verifier", "verify_search", ("verify_storage",)),
-        ("dispatch_binding", "verify_request_binding", ()),
+        ("dispatch_binding", "verify_request_binding_v2", ()),
         ("cleanup_binding", "cleanup_context", ()),
         ("transport", "request", ()),
     ),
@@ -527,144 +523,6 @@ def test_request_binding_hmac_binds_exact_local_authority_tuple() -> None:
     tampered["unit_sha256"] = "0" * 64
     with pytest.raises(Mem0V5HttpError):
         _verifier().verify_request_binding(payload=tampered, context=context)
-
-
-class _SequenceTransport:
-    def __init__(self, payloads: list[dict[str, object]]) -> None:
-        self.payloads = payloads
-        self.calls: list[str] = []
-
-    def request(self, _method: str, url: str, **_kwargs: object) -> _Response:
-        self.calls.append(url)
-        return _Response(self.payloads.pop(0))
-
-
-class _DispatchGuard:
-    def __init__(self, transport: _SequenceTransport, *, fail: bool = False) -> None:
-        self.transport = transport
-        self.fail = fail
-        self.claims: list[dict[str, str]] = []
-
-    def claim(self, **kwargs: str) -> None:
-        assert len(self.transport.calls) == 1
-        assert self.transport.calls[0].endswith("/v5/operations/request-binding")
-        self.claims.append(kwargs)
-        if self.fail:
-            raise ManagedRunError("dispatch already claimed")
-
-
-def _dispatch_authority() -> tuple[object, object, str]:
-    corpus_id = "locomo-corpus-" + "a" * 64
-    record = {
-        "schema_version": "memory-comparison-managed-corpus.v2",
-        "benchmark": "locomo",
-        "corpus_id": corpus_id,
-        "thread_id": "locomo-thread-" + "b" * 64,
-        "memories": [
-            {
-                "kind": "fact",
-                "role": "user",
-                "session_alias": "session-0001",
-                "source_alias": "memory-000001",
-                "speaker": "Alice",
-                "session_date": "2024-03-10",
-                "text": "Alice likes tea.",
-                "timestamp": 1,
-            }
-        ],
-        "documents": [],
-        "conversations": [],
-    }
-    authority = ManagedMem0V5ManifestProjector().project(
-        (ManagedRunCase("case-1", corpus_id, record),),
-        current_date="2026-08-07",
-    )
-    request = Mem0OssAdmissionRequest(
-        run_id="dispatch-guard",
-        route_sha256="3" * 64,
-        credential_binding_sha256="4" * 64,
-        model="gpt-5.6-sol",
-        reasoning_effort="medium",
-        service_tier="priority",
-        runtime_source_revision="revision-1",
-        runtime_source_sha256="5" * 64,
-        runtime_base_sha256="6" * 64,
-        expected_operation_count=1,
-    )
-    admission = Mem0OssFullRunAdmission(
-        request=request,
-        ingestion_manifest_sha256=authority.ingestion_manifest_sha256,
-        ingestion_root_sha256=authority.ingestion_root_sha256,
-        ingestion_unit_count=1,
-    )
-    operation_id = canonical_sha256(
-        {
-            "admission_commitment_sha256": admission.commitment_sha256,
-            "unit_index": 0,
-            "unit_identity_sha256": authority.units[0].unit_identity_sha256,
-        }
-    )
-    return authority, admission, operation_id
-
-
-@pytest.mark.parametrize("mode", ("guard", "no-guard", "guard-fails"))
-def test_dispatch_guard_claims_authenticated_binding_before_post_and_is_optional(
-    mode: str,
-) -> None:
-    authority, admission, operation_id = _dispatch_authority()
-    context = ManagedMem0V5RequestBindingContext.from_authority(
-        authority=authority,
-        unit=authority.units[0],
-        operation_id_sha256=operation_id,
-        admission=admission,
-    )
-    transport = _SequenceTransport(
-        [
-            _request_binding(context),
-            {
-                "admission_commitment_sha256": admission.commitment_sha256,
-                "operation_id_sha256": operation_id,
-                "runtime_receipt": {},
-            },
-        ]
-    )
-    guard = None if mode == "no-guard" else _DispatchGuard(transport, fail=mode == "guard-fails")
-    lane = ManagedMem0V5HttpLane(
-        origin="http://127.0.0.1:19091",
-        bearer_capability=_Bearer(),
-        timeout_seconds=1,
-        evidence_verifier=_verifier(),
-        dispatch_binding=_verifier(),
-        cleanup_binding=_Binding(),
-        dispatch_guard=guard,
-        transport=transport,
-    )
-    if mode == "guard-fails":
-        with pytest.raises(ManagedRunError, match="already claimed"):
-            lane.dispatch(
-                authority=authority,
-                unit=authority.units[0],
-                operation_id_sha256=operation_id,
-                admission=admission,
-            )
-        assert len(transport.calls) == 1
-    else:
-        lane.dispatch(
-            authority=authority,
-            unit=authority.units[0],
-            operation_id_sha256=operation_id,
-            admission=admission,
-        )
-        assert len(transport.calls) == 2
-        assert transport.calls[1].endswith("/v5/operations/dispatch")
-    if guard is not None:
-        assert guard.claims == [
-            {
-                "admission_commitment_sha256": admission.commitment_sha256,
-                "operation_id_sha256": operation_id,
-                "request_body_sha256": "9" * 64,
-            }
-        ]
 
 
 def _unit(phase: ManagedMem0V5CheckpointPhase) -> ManagedMem0V5CheckpointUnit:

@@ -25,7 +25,11 @@ from mem0_oss_adapter_v5.http_models import (
     StorageObservationRequest,
     StorageObservationResponse,
 )
-from mem0_oss_adapter_v5.request_binding import RequestBindingRequest, RequestBindingResponse
+from mem0_oss_adapter_v5.request_binding import (
+    RequestBindingRequest,
+    RequestBindingResponse,
+    RequestBindingV2Response,
+)
 
 MAX_REQUEST_BODY_BYTES = 64_000
 MAX_BODY_FRAGMENTS = 256
@@ -82,7 +86,7 @@ class V5ApplicationService(Protocol):
         request: RequestBindingRequest,
         *,
         idempotency_key: str,
-    ) -> RequestBindingResponse: ...
+    ) -> RequestBindingResponse | RequestBindingV2Response: ...
 
     def scoped_search(
         self,
@@ -204,12 +208,12 @@ def create_app(*, service: V5ApplicationService, bearer_token: str) -> FastAPI:
 
     @app.post(
         "/v5/operations/request-binding",
-        response_model=RequestBindingResponse,
+        response_model=RequestBindingResponse | RequestBindingV2Response,
     )
     def request_binding(
         payload: RequestBindingRequest,
         headers: Annotated[_AuthenticatedHeaders, Depends(authenticate)],
-    ) -> RequestBindingResponse:
+    ) -> RequestBindingResponse | RequestBindingV2Response:
         _verify_request_commitment(payload, headers.request_commitment_sha256)
         return service.request_binding(payload, idempotency_key=headers.idempotency_key)
 
@@ -269,7 +273,10 @@ def _authenticate(expected_bearer: str):
 
 
 def _verify_request_commitment(payload: object, presented: str) -> None:
-    dumped = payload.model_dump(mode="json")
+    dumped = payload.model_dump(
+        mode="json",
+        exclude_unset=type(payload) is RequestBindingRequest,
+    )
     encoded = json.dumps(dumped, sort_keys=True, separators=(",", ":"), ensure_ascii=True).encode()
     expected = hashlib.sha256(encoded).hexdigest()
     if not hmac.compare_digest(expected, presented):

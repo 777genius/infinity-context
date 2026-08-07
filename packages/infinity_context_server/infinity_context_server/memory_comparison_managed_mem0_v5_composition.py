@@ -2,9 +2,12 @@
 
 from __future__ import annotations
 
+import hashlib
 import importlib
 import os
 import stat
+import threading
+import weakref
 from dataclasses import dataclass
 from pathlib import Path
 from typing import final
@@ -45,6 +48,10 @@ from infinity_context_server.memory_comparison_managed_mem0_v5_projector import 
 from infinity_context_server.memory_comparison_managed_mem0_v5_storage_witness import (
     create_managed_mem0_v5_storage_witness_authority,
 )
+from infinity_context_server.memory_comparison_managed_mem0_v5_transport_evidence import (
+    ManagedTransportCoverageCapability,
+    issue_managed_transport_coverage_capability,
+)
 from infinity_context_server.memory_comparison_managed_mem0_v5_verifiers import (
     ManagedMem0V5CleanupBridgeVerifier,
     ManagedMem0V5StorageBridgeVerifier,
@@ -70,6 +77,16 @@ from infinity_context_server.memory_comparison_mem0_oss_v5_observed_receipt impo
 )
 from infinity_context_server.memory_comparison_mem0_oss_v5_run import Mem0OssFullRunService
 
+_COMPOSITION_RUNTIME_LOCK = threading.Lock()
+_COMPOSITION_RUNTIMES: dict[
+    int,
+    tuple[
+        weakref.ReferenceType[object],
+        Mem0OssFullRunAdmission,
+        ManagedMem0V5HttpLane,
+    ],
+] = {}
+
 
 @final
 @dataclass(frozen=True, slots=True)
@@ -94,7 +111,7 @@ class ManagedMem0V5StatePaths:
 
 
 @final
-@dataclass(frozen=True, slots=True, repr=False)
+@dataclass(frozen=True, slots=True, repr=False, weakref_slot=True)
 class ManagedMem0V5Composition:
     """Public run authority and coordinator, without secret-bearing helpers."""
 
@@ -109,6 +126,22 @@ class ManagedMem0V5Composition:
             or type(self.coordinator) is not ManagedMem0V5LaneCoordinator
         ):
             raise ManagedRunError("managed Mem0 v5 composition result is invalid")
+
+    def issue_transport_coverage(
+        self,
+        *,
+        benchmark: str,
+        backend_role: str = "mem0",
+    ) -> ManagedTransportCoverageCapability:
+        admission, lane = _composition_runtime(self)
+        return issue_managed_transport_coverage_capability(
+            benchmark=benchmark,
+            run_id_sha256=hashlib.sha256(self.request.run_id.encode()).hexdigest(),
+            backend_role=backend_role,
+            authority=self.authority,
+            admission=admission,
+            observations=lane.transport_observations,
+        )
 
     def __repr__(self) -> str:
         return "ManagedMem0V5Composition(<opaque>)"
@@ -283,7 +316,42 @@ def compose_managed_mem0_v5(
             progress_port=progress,
         )
 
-    return ManagedMem0V5Composition(authority, request, coordinator)
+    composition = ManagedMem0V5Composition(authority, request, coordinator)
+    _register_composition_runtime(
+        composition,
+        admission=preflight.admission,
+        lane=lane,
+    )
+    return composition
+
+
+def _register_composition_runtime(
+    composition: ManagedMem0V5Composition,
+    *,
+    admission: Mem0OssFullRunAdmission,
+    lane: ManagedMem0V5HttpLane,
+) -> None:
+    identity = id(composition)
+
+    def remove(reference: weakref.ReferenceType[object]) -> None:
+        with _COMPOSITION_RUNTIME_LOCK:
+            current = _COMPOSITION_RUNTIMES.get(identity)
+            if current is not None and current[0] is reference:
+                _COMPOSITION_RUNTIMES.pop(identity, None)
+
+    reference = weakref.ref(composition, remove)
+    with _COMPOSITION_RUNTIME_LOCK:
+        _COMPOSITION_RUNTIMES[identity] = (reference, admission, lane)
+
+
+def _composition_runtime(
+    composition: ManagedMem0V5Composition,
+) -> tuple[Mem0OssFullRunAdmission, ManagedMem0V5HttpLane]:
+    with _COMPOSITION_RUNTIME_LOCK:
+        runtime = _COMPOSITION_RUNTIMES.get(id(composition))
+        if runtime is None or runtime[0]() is not composition:
+            raise ManagedRunError("managed Mem0 v5 composition runtime is unavailable")
+        return runtime[1], runtime[2]
 
 
 def _require_public_binding(
