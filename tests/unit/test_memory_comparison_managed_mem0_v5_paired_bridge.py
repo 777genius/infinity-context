@@ -705,6 +705,16 @@ def test_cleanup_failure_retries_without_reopening_run() -> None:
     assert coordinator.admit_calls == coordinator.dispatch_calls == 1
 
 
+def test_cached_deleted_cleanup_revalidates_mutated_terminal() -> None:
+    _authority_value, _coordinator, run = _run()
+    run.start()
+    terminal = run.cleanup()
+    object.__setattr__(terminal, "operation_root_sha256", _sha("mutated-root"))
+
+    with pytest.raises(ManagedRunError, match="terminal binding differs"):
+        run.cleanup()
+
+
 def test_abort_failure_has_explicit_retry_without_redispatch() -> None:
     _authority_value, coordinator, run = _run()
     coordinator.dispatch_failures = 1
@@ -730,6 +740,20 @@ def test_successful_start_abort_is_not_cached_as_deleted_cleanup() -> None:
 
     assert coordinator.abort_calls == 1
     assert coordinator.admit_calls == coordinator.dispatch_calls == 1
+
+
+def test_cached_aborted_cleanup_cannot_be_mutated_into_deleted() -> None:
+    _authority_value, coordinator, run = _run()
+    coordinator.dispatch_failures = 1
+
+    with pytest.raises(RuntimeError, match="dispatch failed"):
+        run.start()
+    terminal = coordinator.terminal_evidence
+    object.__setattr__(terminal, "terminal_state", Mem0OssFullRunState.DELETED.value)
+    object.__setattr__(run, "_terminal", terminal)
+
+    with pytest.raises(ManagedRunError, match="terminal binding differs"):
+        run.cleanup()
 
 
 def test_active_restore_dispatch_failure_retries_only_abort() -> None:

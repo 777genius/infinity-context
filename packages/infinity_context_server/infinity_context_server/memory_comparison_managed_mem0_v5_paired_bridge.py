@@ -334,6 +334,7 @@ class ManagedMem0V5PairedRun:
                     raise ManagedRunError("managed Mem0 v5 paired terminal evidence is missing")
                 if self._terminal.terminal_state != Mem0OssFullRunState.DELETED.value:
                     raise ManagedRunError("managed Mem0 v5 paired cleanup terminal is not deleted")
+                self._require_terminal_binding(self._terminal)
                 return self._terminal
             if self._state not in {_RunState.SEALED, _RunState.CLEANUP_RETRY}:
                 raise ManagedRunError("managed Mem0 v5 paired cleanup requires sealed state")
