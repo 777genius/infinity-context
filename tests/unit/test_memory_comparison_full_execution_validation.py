@@ -7,6 +7,7 @@ import secrets
 import threading
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import replace
+from types import MappingProxyType
 
 import pytest
 from infinity_context_server import memory_comparison_full_execution_validation as _validation
@@ -15,10 +16,15 @@ from infinity_context_server.memory_comparison_benchmark_identity import (
     mem0_benchmark_corpus_user_id,
 )
 from infinity_context_server.memory_comparison_clean_state import (
+    VerifiedCleanStateValidation,
     clean_state_identity_sha256,
     fresh_namespace_clean_state_proof,
     mem0_delete_clean_state_proof,
     validate_typed_clean_state_proofs,
+)
+from infinity_context_server.memory_comparison_full_execution_evidence_variants import (
+    issue_legacy_full_execution_clean_state_evidence,
+    issue_legacy_full_execution_transport_evidence,
 )
 from infinity_context_server.memory_comparison_full_execution_validation import (
     FullExecutionCaseManifestEntry,
@@ -30,6 +36,7 @@ from infinity_context_server.memory_comparison_full_execution_validation import 
     consume_full_execution_validation,
     execution_case_manifest_sha256,
     issue_full_execution_validation_session,
+    issue_full_execution_validation_session_from_evidence,
     public_full_execution_validation_report,
     seal_full_execution_validation,
 )
@@ -243,6 +250,62 @@ def _identity(inputs):
 def _proof(inputs):
     session = issue_full_execution_validation_session(**inputs)
     return session, seal_full_execution_validation(session)
+
+
+def test_neutral_legacy_facade_preserves_exact_v1_report() -> None:
+    inputs = _inputs()
+    expected = _slots.validate_full_execution_slots(**inputs)
+    transport = issue_legacy_full_execution_transport_evidence(
+        benchmark=inputs["benchmark"],
+        verifier=inputs["transport_verifier"],
+        evidence=inputs["transport_evidence"],
+    )
+    clean = issue_legacy_full_execution_clean_state_evidence(
+        validation=inputs["clean_validation"],
+        scopes=inputs["clean_scopes"],
+        attestation_key=inputs["clean_attestation_key"],
+    )
+    session = issue_full_execution_validation_session_from_evidence(
+        **{
+            key: value
+            for key, value in inputs.items()
+            if key
+            not in {
+                "transport_verifier",
+                "transport_evidence",
+                "clean_validation",
+                "clean_scopes",
+                "clean_attestation_key",
+            }
+        },
+        transport_evidence=transport,
+        clean_state_evidence=(clean,),
+    )
+
+    proof = seal_full_execution_validation(session)
+
+    assert public_full_execution_validation_report(proof) == expected
+
+
+def test_neutral_legacy_facade_accepts_nested_mapping_proxy_payload() -> None:
+    def freeze_mapping(value):
+        if type(value) is dict:
+            return MappingProxyType({key: freeze_mapping(item) for key, item in value.items()})
+        if type(value) is tuple:
+            return tuple(freeze_mapping(item) for item in value)
+        if type(value) is list:
+            return [freeze_mapping(item) for item in value]
+        return value
+
+    inputs = _inputs()
+    payload = freeze_mapping(dict(inputs["clean_validation"].payload))
+    inputs["clean_validation"] = VerifiedCleanStateValidation(payload)
+    expected = _slots.validate_full_execution_slots(**inputs)
+
+    session = issue_full_execution_validation_session(**inputs)
+    report = public_full_execution_validation_report(seal_full_execution_validation(session))
+
+    assert report == expected
 
 
 def test_exact_complete_run_report_and_one_shot_consume():

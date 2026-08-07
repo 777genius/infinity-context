@@ -6,6 +6,8 @@ import hashlib
 import hmac
 import re
 import secrets
+import threading
+import weakref
 from dataclasses import InitVar, dataclass
 from typing import Protocol, final
 
@@ -32,10 +34,18 @@ _VERIFIED_TOKEN = object()
 _VERIFIED_KEY = secrets.token_bytes(32)
 _SNAPSHOT_TOKEN = object()
 _SNAPSHOT_KEY = secrets.token_bytes(32)
+_VERIFIED_REGISTRY_LOCK = threading.Lock()
+_VERIFIED_REGISTRY: dict[
+    int,
+    tuple[
+        weakref.ReferenceType[VerifiedManagedTransportCoverage],
+        tuple[object, ...],
+    ],
+] = {}
 
 
 @final
-@dataclass(frozen=True, slots=True, repr=False)
+@dataclass(frozen=True, slots=True, repr=False, weakref_slot=True)
 class VerifiedManagedTransportCoverage:
     """Gold-free proof that every admitted extraction crossed the transport."""
 
@@ -125,8 +135,55 @@ def authenticate_managed_transport_coverage(
 
     if type(value) is not VerifiedManagedTransportCoverage:
         raise ManagedRunError("managed transport coverage is unauthenticated")
+    # Preserve the existing field/HMAC error before enforcing origin identity.
     value.__post_init__(_VERIFIED_TOKEN)
+    with _VERIFIED_REGISTRY_LOCK:
+        registered = _VERIFIED_REGISTRY.get(id(value))
+        if (
+            registered is None
+            or registered[0]() is not value
+            or registered[1] != _verified_fingerprint(value)
+        ):
+            raise ManagedRunError("managed transport coverage is unauthenticated")
     return value
+
+
+def _register_managed_transport_coverage(
+    value: VerifiedManagedTransportCoverage,
+) -> VerifiedManagedTransportCoverage:
+    identity = id(value)
+
+    def remove(
+        reference: weakref.ReferenceType[VerifiedManagedTransportCoverage],
+    ) -> None:
+        with _VERIFIED_REGISTRY_LOCK:
+            current = _VERIFIED_REGISTRY.get(identity)
+            if current is not None and current[0] is reference:
+                _VERIFIED_REGISTRY.pop(identity, None)
+
+    reference = weakref.ref(value, remove)
+    with _VERIFIED_REGISTRY_LOCK:
+        if identity in _VERIFIED_REGISTRY:
+            raise ManagedRunError("managed transport coverage is unauthenticated")
+        _VERIFIED_REGISTRY[identity] = (reference, _verified_fingerprint(value))
+    return value
+
+
+def _verified_fingerprint(
+    value: VerifiedManagedTransportCoverage,
+) -> tuple[object, ...]:
+    return (
+        value.benchmark,
+        value.run_id_sha256,
+        value.backend_role,
+        value.admission_commitment_sha256,
+        value.authority_commitment_sha256,
+        value.per_corpus_operation_counts,
+        value.operation_count,
+        value.request_binding_evidence_root_sha256,
+        value.evidence_commitment_sha256,
+        value._authentication_sha256,
+    )
 
 
 @final
@@ -178,7 +235,8 @@ class ManagedTransportCoverageCapabilityPort(Protocol):
         *,
         expected_admission_commitment_sha256: str,
         expected_operation_ids: tuple[str, ...],
-    ) -> VerifiedManagedTransportCoverage: ...
+    ) -> VerifiedManagedTransportCoverage:
+        ...
 
 
 @final
@@ -274,7 +332,7 @@ class ManagedTransportCoverageCapability:
             "request_binding_evidence_root_sha256": evidence_root,
         }
         evidence_commitment = canonical_sha256(payload)
-        return VerifiedManagedTransportCoverage(
+        coverage = VerifiedManagedTransportCoverage(
             benchmark=self._benchmark,
             run_id_sha256=self._run_id_sha256,
             backend_role=self._backend_role,
@@ -287,6 +345,7 @@ class ManagedTransportCoverageCapability:
             _authentication_sha256=_verified_authentication(evidence_commitment),
             _token=_VERIFIED_TOKEN,
         )
+        return _register_managed_transport_coverage(coverage)
 
     def __repr__(self) -> str:
         return "ManagedTransportCoverageCapability(<opaque>)"
