@@ -33,6 +33,63 @@ class CleanupReceipt:
     runtime_receipt_removed: bool
 
 
+@dataclass(frozen=True, slots=True)
+class ProjectionSeal:
+    identity: str
+    projection_sha256: str
+
+
+@dataclass(frozen=True, slots=True)
+class EntityProjectionSeal:
+    entity_id: str
+    linked_provider_memory_ids: tuple[str, ...]
+
+
+@dataclass(frozen=True, slots=True)
+class CleanupSeal:
+    """Content-free authority for resumable cleanup of one exact snapshot."""
+
+    before_commitment_sha256: str
+    provider_memory_ids: tuple[str, ...]
+    vector_projections: tuple[ProjectionSeal, ...]
+    history_memory_ids: tuple[str, ...]
+    message_ids: tuple[str, ...]
+    entity_link_projections: tuple[EntityProjectionSeal, ...]
+
+
+def seal_cleanup_snapshot(snapshot: StorageSnapshot) -> CleanupSeal:
+    return CleanupSeal(
+        before_commitment_sha256=snapshot.commitment_sha256,
+        provider_memory_ids=tuple(sorted(snapshot.provider_memory_ids)),
+        vector_projections=tuple(
+            sorted(
+                (
+                    ProjectionSeal(
+                        identity=value.provider_memory_id,
+                        projection_sha256=canonical_sha256(asdict(value)),
+                    )
+                    for value in snapshot.vectors
+                ),
+                key=lambda value: value.identity,
+            )
+        ),
+        history_memory_ids=tuple(sorted(snapshot.history_memory_ids)),
+        message_ids=tuple(sorted(snapshot.message_ids)),
+        entity_link_projections=tuple(
+            sorted(
+                (
+                    EntityProjectionSeal(
+                        entity_id=value.entity_id,
+                        linked_provider_memory_ids=tuple(sorted(value.linked_provider_memory_ids)),
+                    )
+                    for value in snapshot.entity_links
+                ),
+                key=lambda value: value.entity_id,
+            )
+        ),
+    )
+
+
 class CleanupPhase(StrEnum):
     VECTORS = "vectors"
     HISTORY = "history"
@@ -55,7 +112,7 @@ def cleanup_scope(
     return _cleanup_scope_resumable(
         backend,
         scope=scope,
-        sealed_before=expected_before,
+        sealed_before=seal_cleanup_snapshot(expected_before),
         prior_receipt=None,
         runtime_receipt_path=runtime_receipt_path,
         runtime_receipt_sha256=runtime_receipt_sha256,
@@ -67,7 +124,7 @@ def cleanup_scope_idempotent(
     backend: Mem0StorageBackend,
     *,
     scope: StorageScope,
-    sealed_before: StorageSnapshot,
+    sealed_before: CleanupSeal | StorageSnapshot,
     prior_receipt: CleanupReceipt | None = None,
     runtime_receipt_path: Path | None = None,
     runtime_receipt_sha256: str | None = None,
@@ -78,7 +135,11 @@ def cleanup_scope_idempotent(
     return _cleanup_scope_resumable(
         backend,
         scope=scope,
-        sealed_before=sealed_before,
+        sealed_before=(
+            seal_cleanup_snapshot(sealed_before)
+            if isinstance(sealed_before, StorageSnapshot)
+            else sealed_before
+        ),
         prior_receipt=prior_receipt,
         runtime_receipt_path=runtime_receipt_path,
         runtime_receipt_sha256=runtime_receipt_sha256,
@@ -90,13 +151,13 @@ def _cleanup_scope_resumable(
     backend: Mem0StorageBackend,
     *,
     scope: StorageScope,
-    sealed_before: StorageSnapshot,
+    sealed_before: CleanupSeal,
     prior_receipt: CleanupReceipt | None,
     runtime_receipt_path: Path | None,
     runtime_receipt_sha256: str | None,
     after_phase_durable: Callable[[CleanupPhase], None] | None,
 ) -> CleanupReceipt:
-    provider_ids = tuple(sorted(sealed_before.provider_memory_ids))
+    provider_ids = sealed_before.provider_memory_ids
     current = _cleanup_snapshot(backend, scope=scope, provider_ids=provider_ids)
     _require_exact_subset(current, sealed_before)
     if prior_receipt is not None:
@@ -179,7 +240,7 @@ def _cleanup_scope_resumable(
         runtime_receipt_removed=receipt_removed,
     )
     return CleanupReceipt(
-        before_commitment_sha256=sealed_before.commitment_sha256,
+        before_commitment_sha256=sealed_before.before_commitment_sha256,
         after_commitment_sha256=current.commitment_sha256,
         tombstone_commitment_sha256=tombstone,
         provider_memory_ids=provider_ids,
@@ -190,7 +251,7 @@ def _cleanup_scope_resumable(
 def tombstone_commitment(
     *,
     scope: StorageScope,
-    before: StorageSnapshot,
+    before: CleanupSeal | StorageSnapshot,
     after: StorageSnapshot,
     runtime_receipt_removed: bool,
 ) -> str:
@@ -200,7 +261,11 @@ def tombstone_commitment(
         {
             "schema": "mem0-oss-adapter-v5.cleanup-tombstone.v2",
             "scope": asdict(scope),
-            "before_commitment_sha256": before.commitment_sha256,
+            "before_commitment_sha256": (
+                before.commitment_sha256
+                if isinstance(before, StorageSnapshot)
+                else before.before_commitment_sha256
+            ),
             "after_commitment_sha256": after.commitment_sha256,
             "runtime_receipt_removed": runtime_receipt_removed,
             "zero_residue": after.empty,
@@ -226,7 +291,7 @@ def _verified_phase_snapshot(
     *,
     scope: StorageScope,
     provider_ids: tuple[str, ...],
-    sealed_before: StorageSnapshot,
+    sealed_before: CleanupSeal,
     phase: CleanupPhase,
 ) -> StorageSnapshot:
     current = _cleanup_snapshot(backend, scope=scope, provider_ids=provider_ids)
@@ -244,21 +309,32 @@ def _verified_phase_snapshot(
     return current
 
 
-def _require_exact_subset(current: StorageSnapshot, sealed: StorageSnapshot) -> None:
-    if not set(current.vectors).issubset(sealed.vectors):
+def _require_exact_subset(current: StorageSnapshot, sealed: CleanupSeal) -> None:
+    current_vectors = {
+        value.provider_memory_id: canonical_sha256(asdict(value)) for value in current.vectors
+    }
+    sealed_vectors = {
+        value.identity: value.projection_sha256 for value in sealed.vector_projections
+    }
+    if len(current_vectors) != len(current.vectors) or any(
+        sealed_vectors.get(identity) != digest for identity, digest in current_vectors.items()
+    ):
         raise CleanupError("vector cleanup state is not an exact sealed subset")
     if not set(current.history_memory_ids).issubset(sealed.history_memory_ids):
         raise CleanupError("history cleanup state is not an exact sealed subset")
     if not set(current.message_ids).issubset(sealed.message_ids):
         raise CleanupError("message cleanup state is not an exact sealed subset")
-    sealed_entities = {value.entity_id: value for value in sealed.entity_links}
+    sealed_entities = {value.entity_id: value for value in sealed.entity_link_projections}
     current_entities = {value.entity_id: value for value in current.entity_links}
     if len(current_entities) != len(current.entity_links):
         raise CleanupError("entity cleanup state contains duplicate identities")
     for entity_id, value in current_entities.items():
         sealed_value = sealed_entities.get(entity_id)
-        if sealed_value is None or not set(value.linked_provider_memory_ids).issubset(
-            sealed_value.linked_provider_memory_ids
+        current_links = value.linked_provider_memory_ids
+        if (
+            sealed_value is None
+            or len(set(current_links)) != len(current_links)
+            or not set(current_links).issubset(sealed_value.linked_provider_memory_ids)
         ):
             raise CleanupError("entity cleanup state is not an exact sealed subset")
 
@@ -275,7 +351,7 @@ def _verified_prior_receipt(
     prior: CleanupReceipt,
     *,
     scope: StorageScope,
-    sealed_before: StorageSnapshot,
+    sealed_before: CleanupSeal,
     current: StorageSnapshot,
     receipt_removed: bool,
 ) -> CleanupReceipt:
@@ -287,10 +363,10 @@ def _verified_prior_receipt(
     )
     if (
         not current.empty
-        or prior.before_commitment_sha256 != sealed_before.commitment_sha256
+        or prior.before_commitment_sha256 != sealed_before.before_commitment_sha256
         or prior.after_commitment_sha256 != current.commitment_sha256
         or prior.tombstone_commitment_sha256 != expected
-        or prior.provider_memory_ids != tuple(sorted(sealed_before.provider_memory_ids))
+        or prior.provider_memory_ids != sealed_before.provider_memory_ids
         or prior.runtime_receipt_removed != receipt_removed
     ):
         raise CleanupError("prior cleanup receipt differs from independent snapshots")
@@ -352,7 +428,11 @@ __all__ = (
     "CleanupError",
     "CleanupPhase",
     "CleanupReceipt",
+    "CleanupSeal",
+    "EntityProjectionSeal",
+    "ProjectionSeal",
     "cleanup_scope",
     "cleanup_scope_idempotent",
+    "seal_cleanup_snapshot",
     "tombstone_commitment",
 )

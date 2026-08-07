@@ -1,9 +1,10 @@
 from __future__ import annotations
 
 import hashlib
+import hmac
 import json
 import os
-from dataclasses import dataclass
+from dataclasses import asdict, dataclass
 from types import SimpleNamespace
 
 import pytest
@@ -21,6 +22,7 @@ from mem0_oss_adapter_v5.domain import (
     ExtractionMemory,
     RuntimeExtractionResult,
     _issue_sanitized_runtime_receipt,
+    canonical_json_bytes,
     canonical_sha256,
 )
 from mem0_oss_adapter_v5.http_models import (
@@ -30,7 +32,7 @@ from mem0_oss_adapter_v5.http_models import (
     RuntimeReceiptEnvelope,
     StatusRequest,
 )
-from mem0_oss_adapter_v5.mem0_storage import Mem0StorageAdapter
+from mem0_oss_adapter_v5.mem0_storage import Mem0StorageAdapter, independent_snapshot
 from mem0_oss_adapter_v5.source_authority import _issue_verified_source_authority
 from mem0_oss_adapter_v5.state_sqlite import OperationState, SqliteOperationState
 from mem0_oss_adapter_v5.subscription_runtime import SUBSCRIPTION_RUNTIME_ROUTE_SHA256
@@ -296,9 +298,32 @@ def test_committed_cleanup_and_terminal_replay_use_sealed_evidence(tmp_path) -> 
     backend = FakeMem0Backend()
     context.service._storage = Mem0StorageAdapter(backend)
     context.service.dispatch(context.dispatch, idempotency_key=_sha("dispatch"))
+    unit = context.service._manifest.units[0]
+    before = independent_snapshot(backend, scope=context.service._scope(unit))
     request = _cleanup_request(context, aborting=False)
     first = context.service.cleanup(request, idempotency_key=_sha("cleanup-1"))
+    evidence_path = context.service._cleanup_evidence_path(unit)
+    v2_payload = json.loads(evidence_path.read_bytes())
+    assert v2_payload["schema_version"] == "mem0-oss-adapter-v5.cleanup-evidence.v2"
+    assert b"Alice likes tea." not in evidence_path.read_bytes()
+
+    # Authenticated v1 evidence remains readable, but terminal replay must scrub it to v2.
+    legacy = {
+        "schema_version": "mem0-oss-adapter-v5.cleanup-evidence.v1",
+        "unit_identity_sha256": unit.unit_identity_sha256,
+        "sealed_before": asdict(before),
+        "runtime_receipt_sha256": v2_payload["runtime_receipt_sha256"],
+        "cleanup_receipt": v2_payload["cleanup_receipt"],
+    }
+    legacy["evidence_hmac_sha256"] = hmac.new(
+        b"r" * 32, canonical_json_bytes(legacy), hashlib.sha256
+    ).hexdigest()
+    _atomic_private_write(evidence_path, canonical_json_bytes(legacy))
+    assert b"Alice likes tea." in evidence_path.read_bytes()
     second = context.service.cleanup(request, idempotency_key=_sha("cleanup-2"))
+    migrated = evidence_path.read_bytes()
+    assert b"cleanup-evidence.v2" in migrated
+    assert b"Alice likes tea." not in migrated
     assert first == second
     assert first.deleted_operation_count == 1
     assert first.residual_record_count == 0

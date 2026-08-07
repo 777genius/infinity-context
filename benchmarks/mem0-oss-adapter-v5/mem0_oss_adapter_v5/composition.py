@@ -13,7 +13,9 @@ from mem0_oss_adapter_v5.cleanup import (
     CleanupReceipt as StorageCleanupReceipt,
 )
 from mem0_oss_adapter_v5.cleanup import (
+    CleanupSeal,
     cleanup_scope_idempotent,
+    seal_cleanup_snapshot,
 )
 from mem0_oss_adapter_v5.cleanup_evidence import (
     decode as decode_cleanup_evidence,
@@ -372,8 +374,9 @@ class V5AdapterService:
         scope = self._scope(unit)
         evidence = self._read_cleanup_evidence(unit, required=False)
         if evidence is None:
-            before = independent_snapshot(self._storage.backend, scope=scope)
-            result_path, result_sha = self._cleanup_result_identity(unit, record, before)
+            snapshot = independent_snapshot(self._storage.backend, scope=scope)
+            result_path, result_sha = self._cleanup_result_identity(unit, record, snapshot)
+            before = seal_cleanup_snapshot(snapshot)
             self._write_cleanup_evidence(
                 unit,
                 before=before,
@@ -465,7 +468,7 @@ class V5AdapterService:
             record.abort_result_sha256 != canonical_sha256(asdict(prior))
         ):
             raise AdapterServiceError("cleanup_failed")
-        cleanup_scope_idempotent(
+        receipt = cleanup_scope_idempotent(
             self._storage.backend,
             scope=self._scope(unit),
             sealed_before=before,
@@ -475,6 +478,12 @@ class V5AdapterService:
             ),
             runtime_receipt_sha256=result_sha,
         )
+        self._write_cleanup_evidence(
+            unit,
+            before=before,
+            runtime_receipt_sha256=result_sha,
+            receipt=receipt,
+        )
 
     def _cleanup_evidence_path(self, unit: _InputUnit) -> Path:
         return cleanup_evidence_path(self._receipt_directory, self._operation_id(unit))
@@ -483,7 +492,7 @@ class V5AdapterService:
         self,
         unit: _InputUnit,
         *,
-        before: StorageSnapshot,
+        before: CleanupSeal,
         runtime_receipt_sha256: str | None,
         receipt: StorageCleanupReceipt | None,
     ) -> None:
@@ -503,7 +512,7 @@ class V5AdapterService:
         unit: _InputUnit,
         *,
         required: bool,
-    ) -> tuple[StorageSnapshot, str | None, StorageCleanupReceipt | None] | None:
+    ) -> tuple[CleanupSeal, str | None, StorageCleanupReceipt | None] | None:
         path = self._cleanup_evidence_path(unit)
         if not path.exists():
             if required:

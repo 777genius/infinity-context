@@ -106,6 +106,29 @@ class FakeMem0Backend:
         self.entities = {key: value for key, value in self.entities.items() if value[0] != scope}
 
 
+class CascadingEntityCrashBackend(FakeMem0Backend):
+    """Matches pinned Mem0 link shrink and injects one cut before vector two."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.delete_calls = 0
+        self.crashed = False
+
+    def delete_memory(self, provider_memory_id: str) -> None:
+        self.delete_calls += 1
+        if self.delete_calls == 2 and not self.crashed:
+            self.crashed = True
+            raise RuntimeError("crash between vector deletes")
+        super().delete_memory(provider_memory_id)
+        self.entities = {
+            entity_id: (
+                identity,
+                tuple(link for link in links if link != provider_memory_id),
+            )
+            for entity_id, (identity, links) in self.entities.items()
+        }
+
+
 @pytest.fixture
 def scope() -> StorageScope:
     return StorageScope(
@@ -455,6 +478,52 @@ def test_cleanup_resumes_after_crash_at_every_durable_delete_phase(
     assert not backend.history
     assert not backend.messages
     assert not backend.entities
+
+
+def test_cleanup_resumes_after_cascading_entity_shrink_between_vector_deletes(
+    scope: StorageScope,
+    memories: tuple[StorageMemory, ...],
+) -> None:
+    backend = CascadingEntityCrashBackend()
+    Mem0StorageAdapter(backend).persist(scope=scope, memories=memories)
+    backend.entities["entity-1"] = (
+        scope,
+        ("provider-memory-1", "provider-memory-2"),
+    )
+    sealed_before = independent_snapshot(backend, scope=scope)
+
+    with pytest.raises(RuntimeError, match="crash between vector deletes"):
+        cleanup_scope(backend, scope=scope, expected_before=sealed_before)
+    assert backend.entities["entity-1"][1] == ("provider-memory-2",)
+
+    receipt = cleanup_scope(backend, scope=scope, expected_before=sealed_before)
+    assert receipt.before_commitment_sha256 == sealed_before.commitment_sha256
+    assert independent_snapshot(backend, scope=scope).empty
+
+
+@pytest.mark.parametrize(
+    "hostile_links",
+    [
+        ("provider-memory-1", "provider-hostile"),
+        ("provider-memory-1", "provider-memory-1"),
+    ],
+)
+def test_cleanup_rejects_unknown_or_duplicate_entity_links(
+    scope: StorageScope,
+    memories: tuple[StorageMemory, ...],
+    hostile_links: tuple[str, ...],
+) -> None:
+    backend = FakeMem0Backend()
+    Mem0StorageAdapter(backend).persist(scope=scope, memories=memories)
+    backend.entities["entity-1"] = (
+        scope,
+        ("provider-memory-1", "provider-memory-2"),
+    )
+    sealed_before = independent_snapshot(backend, scope=scope)
+    backend.entities["entity-1"] = (scope, hostile_links)
+
+    with pytest.raises(StorageError, match=r"entity cleanup state|duplicate identities"):
+        cleanup_scope(backend, scope=scope, expected_before=sealed_before)
 
 
 def test_cleanup_rejects_mutated_subset_after_crash(
