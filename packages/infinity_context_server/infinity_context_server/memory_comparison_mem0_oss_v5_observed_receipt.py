@@ -6,6 +6,8 @@ observed from the receipt before the immutable Phase-C boundary authenticates
 the complete envelope.
 """
 
+# ruff: noqa: E721 - exact provider DTO types are security contracts throughout
+
 from __future__ import annotations
 
 import hashlib
@@ -29,6 +31,9 @@ from infinity_context_server.memory_comparison_mem0_oss_v5_contracts import (
 from infinity_context_server.memory_comparison_mem0_oss_v5_http import (
     Mem0V5HttpError,
     Mem0V5RuntimeReceiptEnvelope,
+)
+from infinity_context_server.memory_comparison_secret_validation import (
+    is_bounded_text_secret,
 )
 
 _SAFE_TEXT = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:-]{0,511}$")
@@ -191,7 +196,7 @@ class Mem0V5ObservedExtractionReceiptVerifier(RuntimeReceiptVerificationPort):
                 authority=authority,
             )
             module = importlib.import_module("phase_c_canary.runtime_receipt_v2")
-        if type(receipt_secret) is not str or not 32 <= len(receipt_secret.encode()) <= 4_096:
+        if not is_bounded_text_secret(receipt_secret):
             _fail("mem0_v5_http_configuration_invalid")
         self._module = module
         self._boundary = boundary

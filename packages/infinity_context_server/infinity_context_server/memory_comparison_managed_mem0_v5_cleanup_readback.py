@@ -5,6 +5,7 @@ from __future__ import annotations
 import hashlib
 import hmac
 import secrets
+import threading
 from dataclasses import InitVar, dataclass
 from typing import Protocol, final
 
@@ -76,7 +77,7 @@ class ManagedMem0V5CleanupReadbackWitness:
                     self.evidence_commitment_sha256,
                 )
             )
-            or type(self.deleted_operation_count) is not int
+            or type(self.deleted_operation_count) is not int  # noqa: E721
             or self.deleted_operation_count < 1
             or self.residual_record_count != 0
             or self.residual_root_sha256 != MEM0_OSS_EMPTY_ROOT_SHA256
@@ -123,7 +124,7 @@ class ManagedMem0V5CleanupReadbackWitness:
 class ManagedMem0V5CleanupPassTwoAdapter:
     """Issue one witness only after a fresh idempotent cleanup readback."""
 
-    __slots__ = ("_cleanup", "_consumed", "_verifier")
+    __slots__ = ("_cleanup", "_consumed", "_lock", "_verifier")
 
     def __init__(
         self,
@@ -142,6 +143,7 @@ class ManagedMem0V5CleanupPassTwoAdapter:
         self._cleanup = cleanup_port
         self._verifier = verification_port
         self._consumed = False
+        self._lock = threading.Lock()
 
     def readback(
         self,
@@ -150,23 +152,26 @@ class ManagedMem0V5CleanupPassTwoAdapter:
         request: Mem0V5CleanupRequest,
         terminal: Mem0OssTerminalCleanupEvidence,
     ) -> ManagedMem0V5CleanupReadbackWitness:
-        if self._consumed:
-            raise ManagedRunError("managed Mem0 v5 cleanup readback was replayed")
         if pass_index != 2:
             raise ManagedRunError("managed Mem0 v5 cleanup readback pass differs")
-        self._consumed = True
         context = _validate_authority(request=request, terminal=terminal)
+        with self._lock:
+            if self._consumed:
+                raise ManagedRunError("managed Mem0 v5 cleanup readback was replayed")
+            self._consumed = True
         try:
             receipt = self._cleanup.cleanup(request)
         except Exception:
             raise ManagedRunError("managed Mem0 v5 cleanup readback call failed") from None
-        if type(receipt) is not Mem0V5CleanupReceipt:
-            raise ManagedRunError("managed Mem0 v5 cleanup readback DTO differs")
         try:
+            if type(receipt) is not Mem0V5CleanupReceipt:
+                raise ManagedRunError("managed Mem0 v5 cleanup readback DTO differs")
             result = self._verifier.verify(payload=receipt, context=context)
+            _validate_result(result=result, context=context, terminal=terminal)
+        except ManagedRunError:
+            raise
         except Exception:
             raise ManagedRunError("managed Mem0 v5 cleanup readback verification failed") from None
-        _validate_result(result=result, context=context, terminal=terminal)
         result_commitment = canonical_sha256(_result_payload(result))
         payload = {
             "schema_version": CLEANUP_READBACK_SCHEMA,
@@ -229,6 +234,14 @@ def _validate_authority(*, request: object, terminal: object) -> CleanupVerifica
     return context
 
 
+def validate_managed_mem0_v5_cleanup_readback_authority(
+    *, request: object, terminal: object
+) -> None:
+    """Validate the complete pass-two authority without consuming or doing I/O."""
+
+    _validate_authority(request=request, terminal=terminal)
+
+
 def _validate_result(
     *,
     result: object,
@@ -268,4 +281,5 @@ __all__ = (
     "ManagedMem0V5CleanupPassTwoAdapter",
     "ManagedMem0V5CleanupReadbackWitness",
     "ManagedMem0V5IdempotentCleanupReadbackPort",
+    "validate_managed_mem0_v5_cleanup_readback_authority",
 )

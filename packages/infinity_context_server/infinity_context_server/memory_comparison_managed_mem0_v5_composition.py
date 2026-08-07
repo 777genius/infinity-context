@@ -3,8 +3,11 @@
 from __future__ import annotations
 
 import hashlib
+import hmac
 import importlib
+import json
 import os
+import secrets
 import stat
 import threading
 import weakref
@@ -16,6 +19,9 @@ from urllib.parse import urlsplit
 from infinity_context_server.memory_comparison_managed_mem0_v5_checkpoint import (
     AtomicJsonManagedMem0V5CheckpointStore,
     HmacSha256ManagedMem0V5CheckpointSigner,
+)
+from infinity_context_server.memory_comparison_managed_mem0_v5_clean_state_http import (
+    preflight_managed_mem0_v5_clean_state_request,
 )
 from infinity_context_server.memory_comparison_managed_mem0_v5_cleanup_binding import (
     ManagedMem0V5ServiceCleanupBinding,
@@ -44,6 +50,7 @@ from infinity_context_server.memory_comparison_managed_mem0_v5_lane import (
 )
 from infinity_context_server.memory_comparison_managed_mem0_v5_paired_bridge import (
     ManagedMem0V5PairedRun,
+    managed_mem0_v5_paired_run_fingerprint,
 )
 from infinity_context_server.memory_comparison_managed_mem0_v5_progress import (
     ManagedMem0V5CheckpointProgress,
@@ -107,6 +114,7 @@ class _CompositionRuntime:
 
 _COMPOSITION_RUNTIMES: dict[int, _CompositionRuntime] = {}
 _PAIRED_RUNTIME_LOCK = threading.RLock()
+_PAIRED_RUNTIME_SECRET = secrets.token_bytes(32)
 _PAIRED_RUNTIMES: weakref.WeakKeyDictionary[ManagedMem0V5PairedRuntimeBundle, _PairedRuntimeState]
 
 
@@ -117,6 +125,7 @@ class ManagedMem0V5CleanStateSnapshotFactoryPort(Protocol):
         authority: ManagedMem0V5ManifestAuthority,
         admission: Mem0OssFullRunAdmission,
         witness_issuer: ManagedMem0V5CleanStateWitnessIssuerPort,
+        runtime_binding_port: object,
     ) -> ManagedMem0V5CleanStateSnapshotPort: ...
 
 
@@ -135,6 +144,8 @@ class _PairedRuntimeState:
     paired_run: ManagedMem0V5PairedRun
     storage_verifier: ManagedMem0V5StorageWitnessVerifierPort
     cleanup_readback: ManagedMem0V5CleanupPassTwoAdapter
+    paired_run_fingerprint_sha256: str
+    signature: bytes
 
 
 @final
@@ -162,6 +173,16 @@ class ManagedMem0V5PairedRuntimeBundle:
             benchmark=benchmark,
             backend_role=backend_role,
         )
+
+    def issue_ready_clean_state_evidence(self) -> object:
+        """Consume the paired run's one-shot opaque clean-state capability."""
+
+        from infinity_context_server.memory_comparison_full_execution_evidence_variants import (
+            issue_managed_mem0_v5_ready_full_execution_clean_state_evidence,
+        )
+
+        claim = _paired_runtime(self).paired_run.issue_ready_clean_state_claim()
+        return issue_managed_mem0_v5_ready_full_execution_clean_state_evidence(claim=claim)
 
     def __repr__(self) -> str:
         return "ManagedMem0V5PairedRuntimeBundle(<opaque>)"
@@ -253,6 +274,7 @@ class ManagedMem0V5Composition:
                 authority=self.authority,
                 admission=runtime.admission,
                 witness_issuer=issuer,
+                runtime_binding_port=runtime.lane,
             )
             durable = durable_create(
                 witness_issuer=issuer,
@@ -271,13 +293,24 @@ class ManagedMem0V5Composition:
         except Exception:
             raise ManagedRunError("managed Mem0 v5 paired runtime composition failed") from None
         bundle = ManagedMem0V5PairedRuntimeBundle()
+        state = _PairedRuntimeState(
+            self,
+            paired_run,
+            runtime.storage_verifier,
+            runtime.cleanup_readback,
+            managed_mem0_v5_paired_run_fingerprint(paired_run),
+            b"",
+        )
+        state = _PairedRuntimeState(
+            state.composition,
+            state.paired_run,
+            state.storage_verifier,
+            state.cleanup_readback,
+            state.paired_run_fingerprint_sha256,
+            _paired_runtime_signature(bundle, state),
+        )
         with _PAIRED_RUNTIME_LOCK:
-            _PAIRED_RUNTIMES[bundle] = _PairedRuntimeState(
-                self,
-                paired_run,
-                runtime.storage_verifier,
-                runtime.cleanup_readback,
-            )
+            _PAIRED_RUNTIMES[bundle] = state
         return bundle
 
     def __repr__(self) -> str:
@@ -387,6 +420,10 @@ def compose_managed_mem0_v5(
     )
     authority = preflight.authority
     projector = ManagedMem0V5ManifestProjector()
+    preflight_managed_mem0_v5_clean_state_request(
+        authority=authority,
+        admission=preflight.admission,
+    )
 
     with load_managed_mem0_v5_credentials(credential_paths) as credentials:
         witness_issuer, witness_verifier = create_managed_mem0_v5_storage_witness_authority()
@@ -519,7 +556,33 @@ def _paired_runtime(bundle: object) -> _PairedRuntimeState:
     if state is None:
         raise ManagedRunError("managed Mem0 v5 paired runtime is unavailable")
     _composition_runtime(state.composition)
+    if not hmac.compare_digest(
+        state.signature, _paired_runtime_signature(bundle, state)
+    ) or not hmac.compare_digest(
+        state.paired_run_fingerprint_sha256,
+        managed_mem0_v5_paired_run_fingerprint(state.paired_run),
+    ):
+        raise ManagedRunError("managed Mem0 v5 paired runtime is unavailable")
     return state
+
+
+def _paired_runtime_signature(
+    bundle: ManagedMem0V5PairedRuntimeBundle,
+    state: _PairedRuntimeState,
+) -> bytes:
+    payload = {
+        "bundle_identity": id(bundle),
+        "composition_identity": id(state.composition),
+        "paired_run_identity": id(state.paired_run),
+        "storage_verifier_identity": id(state.storage_verifier),
+        "cleanup_readback_identity": id(state.cleanup_readback),
+        "paired_run_fingerprint_sha256": state.paired_run_fingerprint_sha256,
+    }
+    return hmac.digest(
+        _PAIRED_RUNTIME_SECRET,
+        json.dumps(payload, sort_keys=True, separators=(",", ":")).encode(),
+        "sha256",
+    )
 
 
 def _require_public_binding(
@@ -616,7 +679,7 @@ def _require_public_binding(
 
 
 def _require_endpoint(*, origin: str, timeout_seconds: float) -> None:
-    if type(origin) is not str or not 1 <= len(origin) <= 2_048:
+    if type(origin) is not str or not 1 <= len(origin) <= 2_048:  # noqa: E721
         raise ManagedRunError("managed Mem0 v5 composition endpoint is invalid")
     try:
         parsed = urlsplit(origin)

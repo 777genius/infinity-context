@@ -251,6 +251,24 @@ def _variant_clean_coverage(
     total_scopes = 0
     for inspection in inspections:
         claim = inspection.descriptor
+        if claim.variant == "infinity_di":
+            if claim.backend_roles != ("infinity-context",) or claim.run_id_sha256 != run_id_sha256:
+                raise FullExecutionValidationError("full_execution_evidence_cross_variant_mismatch")
+            scopes = claim.corpus_scopes
+            if tuple(item[0] for item in scopes) != corpus_hashes or any(
+                item[2] != 0 for item in scopes
+            ):
+                raise FullExecutionValidationError("full_execution_evidence_coverage_missing")
+            total_scopes += len(scopes)
+            public_claims.append(
+                {
+                    "variant": "infinity_di",
+                    "backend_roles": ["infinity-context"],
+                    "verified_scope_count": len(scopes),
+                    "evidence_commitment_sha256": claim.evidence_commitment_sha256,
+                }
+            )
+            continue
         if claim.variant == "legacy_v1":
             validation, scopes, key = _legacy_clean_resources(inspection.resources)
             legacy = _clean_coverage(

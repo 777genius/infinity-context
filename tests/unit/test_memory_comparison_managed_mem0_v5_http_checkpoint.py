@@ -18,6 +18,10 @@ from infinity_context_server.memory_comparison_managed_mem0_v5_checkpoint import
     ManagedMem0V5CheckpointUnit,
     ManagedMem0V5RecoveryAction,
 )
+from infinity_context_server.memory_comparison_managed_mem0_v5_credentials import (
+    ReadOnceManagedMem0V5BearerToken,
+    ReadOnceManagedMem0V5EvidenceKey,
+)
 from infinity_context_server.memory_comparison_managed_mem0_v5_http_lane import (
     HmacSha256ManagedMem0V5EvidenceVerifier,
     ManagedMem0V5HttpLane,
@@ -37,7 +41,10 @@ from infinity_context_server.memory_comparison_mem0_oss_v5_contracts import (
     Mem0OssFullRunAdmission,
     canonical_sha256,
 )
-from infinity_context_server.memory_comparison_mem0_oss_v5_http import Mem0V5HttpError
+from infinity_context_server.memory_comparison_mem0_oss_v5_http import (
+    Mem0V5HttpError,
+    Mem0V5HttpPort,
+)
 
 KEY = b"k" * 32
 AUTHORITY = "a" * 64
@@ -76,6 +83,9 @@ class _EvidenceKey:
             raise AssertionError("evidence key consumed more than once")
         return KEY
 
+    def validate(self) -> None:
+        assert self.calls == 0
+
 
 _DESCRIPTOR_SECRET = "descriptor-secret-must-not-leak"
 
@@ -90,6 +100,9 @@ class _RaisingConsumeCapability:
 
     def __init__(self) -> None:
         self.calls = 0
+
+    def validate(self) -> None:
+        assert self.calls == 0
 
 
 def _noop(*_args: object, **_kwargs: object) -> None:
@@ -123,6 +136,22 @@ def test_invalid_storage_witness_issuer_does_not_consume_evidence_key() -> None:
             storage_witness_issuer=object(),
         )
     assert capability.calls == 0
+
+
+@pytest.mark.parametrize("key_size", (31, 4_097))
+def test_invalid_evidence_key_size_fails_before_capability_consumption(key_size: int) -> None:
+    capability = ReadOnceManagedMem0V5EvidenceKey(bytearray(b"k" * key_size))
+    issuer, _verifier_value = create_managed_mem0_v5_storage_witness_authority()
+
+    with pytest.raises(Mem0V5HttpError, match="configuration_invalid"):
+        HmacSha256ManagedMem0V5EvidenceVerifier(
+            key_capability=capability,
+            storage_witness_issuer=issuer,
+        )
+
+    assert "consumed=False" in repr(capability)
+    capability.close()
+    assert "consumed=True" in repr(capability)
 
 
 def _verifier() -> HmacSha256ManagedMem0V5EvidenceVerifier:
@@ -256,6 +285,9 @@ class _Bearer:
             raise AssertionError("bearer consumed twice")
         return "s" * 32
 
+    def validate(self) -> None:
+        assert self.calls == 0
+
 
 class _Binding:
     def verify_request_binding(self, **_kwargs: object) -> ManagedMem0V5RequestBindingReceipt:
@@ -278,11 +310,52 @@ class _Binding:
         )
 
 
+def test_oversized_bearer_fails_before_consumption_and_valid_retry_composes() -> None:
+    oversized = ReadOnceManagedMem0V5BearerToken(bytearray(b"b" * 4_097))
+    common = {
+        "origin": "http://127.0.0.1:19091",
+        "timeout_seconds": 1,
+        "evidence_verifier": _verifier(),
+        "dispatch_binding": _Binding(),
+        "cleanup_binding": _Binding(),
+        "transport": _Transport({}),
+    }
+
+    with pytest.raises(Mem0V5HttpError, match="configuration_invalid"):
+        ManagedMem0V5HttpLane(bearer_capability=oversized, **common)
+    assert "consumed=False" in repr(oversized)
+
+    valid = ReadOnceManagedMem0V5BearerToken(bytearray(b"v" * 32))
+    lane = ManagedMem0V5HttpLane(bearer_capability=valid, **common)
+    assert type(lane) is ManagedMem0V5HttpLane
+    assert "consumed=True" in repr(valid)
+
+
+@pytest.mark.parametrize("unsafe", ("\n", "\x7f", "\u200b", "\u202e"))
+def test_common_http_port_rejects_unsafe_bearer_before_io(unsafe: str) -> None:
+    transport = _Transport({})
+
+    with pytest.raises(Mem0V5HttpError, match="configuration_invalid"):
+        Mem0V5HttpPort(
+            origin="http://127.0.0.1:19091",
+            bearer_token="b" * 31 + unsafe,
+            timeout_seconds=1,
+            transport=transport,
+        )
+
+    assert transport.calls == []
+
+
 @pytest.mark.parametrize(
     ("argument", "attribute", "before"),
     (
         ("evidence_verifier", "verify_storage", ()),
         ("evidence_verifier", "verify_search", ("verify_storage",)),
+        (
+            "evidence_verifier",
+            "verify_clean_state",
+            ("verify_storage", "verify_search"),
+        ),
         ("dispatch_binding", "verify_request_binding_v2", ()),
         ("cleanup_binding", "cleanup_context", ()),
         ("transport", "request", ()),
@@ -355,6 +428,9 @@ class _InvalidBearerWithRaisingClose:
 
     def __init__(self) -> None:
         self.calls = 0
+
+    def validate(self) -> None:
+        assert self.calls == 0
 
     def consume(self) -> str:
         self.calls += 1

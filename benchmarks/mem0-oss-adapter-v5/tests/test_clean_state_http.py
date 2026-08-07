@@ -420,6 +420,93 @@ def test_clean_state_is_one_shot_and_never_replays_cached_pass1_evidence(tmp_pat
     state.close()
 
 
+def test_managed_runner_client_crosses_real_fastapi_service_and_sqlite_boundary(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    repository_root = Path(__file__).resolve().parents[3]
+    monkeypatch.syspath_prepend(str(repository_root / "packages" / "infinity_context_core"))
+    monkeypatch.syspath_prepend(str(repository_root / "packages" / "infinity_context_server"))
+    from infinity_context_server.memory_comparison_managed_mem0_v5_http_lane import (
+        HmacSha256ManagedMem0V5EvidenceVerifier,
+    )
+    from infinity_context_server.memory_comparison_managed_mem0_v5_storage_witness import (
+        create_managed_mem0_v5_storage_witness_authority,
+    )
+    from infinity_context_server.memory_comparison_mem0_oss_v5_http import (
+        Mem0V5CleanStateRequest,
+        Mem0V5CleanStateScope,
+        Mem0V5HttpError,
+        Mem0V5HttpPort,
+    )
+
+    client, service, state, backend, runtime, body, units = _rig(tmp_path)
+    scopes = tuple(Mem0V5CleanStateScope(**item) for item in body["scopes"])
+    request = Mem0V5CleanStateRequest(
+        body["admission_commitment_sha256"],
+        body["run_id_sha256"],
+        body["authority_commitment_sha256"],
+        body["manifest_case_count"],
+        body["credential_binding_sha256"],
+        body["runtime_source_revision"],
+        body["runtime_source_sha256"],
+        body["runtime_base_sha256"],
+        body["runtime_binding_commitment_sha256"],
+        scopes,
+        canonical_sha256({"kind": "clean-state", "binding": body["admission_commitment_sha256"]}),
+    )
+
+    class Transport:
+        def request(self, method: str, url: str, **values: object):
+            assert method == "POST"
+            response = client.post(
+                url.removeprefix("http://127.0.0.1:19091"),
+                content=values["content"],
+                headers=values["headers"],
+            )
+            return type(
+                "Response",
+                (),
+                {"status_code": response.status_code, "content": response.content},
+            )()
+
+    class EvidenceKey:
+        def validate(self) -> None:
+            return None
+
+        def consume(self) -> bytes:
+            return _KEY
+
+    storage_issuer, _storage_verifier = create_managed_mem0_v5_storage_witness_authority()
+    evidence_verifier = HmacSha256ManagedMem0V5EvidenceVerifier(
+        key_capability=EvidenceKey(),
+        storage_witness_issuer=storage_issuer,
+    )
+    port = Mem0V5HttpPort(
+        origin="http://127.0.0.1:19091",
+        bearer_token=_TOKEN,
+        timeout_seconds=1,
+        transport=Transport(),
+    )
+    receipt = port.clean_state(request)
+    verified = evidence_verifier.verify_clean_state(
+        receipt=receipt,
+        request=request,
+        ingestion_manifest_sha256=service._manifest.ingestion_manifest_sha256,
+        ingestion_root_sha256=service._manifest.ingestion_root_sha256,
+    )
+
+    assert verified == scopes
+    first_readbacks = len(backend.list_calls)
+
+    with pytest.raises(Mem0V5HttpError, match="remote_failed"):
+        port.clean_state(request)
+
+    assert first_readbacks == len(units) == len(backend.list_calls)
+    assert runtime.calls == 0
+    state.close()
+
+
 def test_clean_state_rejects_post_dispatch_state_without_readback(tmp_path: Path) -> None:
     client, _service, state, backend, runtime, body, units = _rig(tmp_path)
     state.reserve(str(units[0]["unit_identity_sha256"]))

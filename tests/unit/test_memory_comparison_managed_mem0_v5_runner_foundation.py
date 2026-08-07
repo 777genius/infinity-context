@@ -159,12 +159,10 @@ def _request(operation_count: int) -> Mem0OssAdmissionRequest:
 def test_retrieval_adapter_delegates_exact_profile_and_rejects_swap(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    authority, case = _authority_and_case()
-    request = _request(authority.operation_count)
+    authority, coordinator, paired_run = _paired_run()
+    _case_authority, case = _authority_and_case()
+    request = coordinator.request
     binding = _binding(run_id=request.run_id)
-    paired_run = object.__new__(ManagedMem0V5PairedRun)
-    object.__setattr__(paired_run, "_authority", authority)
-    object.__setattr__(paired_run, "_request", request)
     calls: list[dict[str, object]] = []
     evidence = (GoldBlindEvidence("record-1", "Alice likes tea.", 1, "2024-03-10"),)
 
@@ -199,9 +197,9 @@ def test_retrieval_adapter_delegates_exact_profile_and_rejects_swap(
         }
     ]
     assert "Alice likes tea." not in repr(dict(result.metadata))
-    replacement = object.__new__(ManagedMem0V5PairedRun)
-    object.__setattr__(replacement, "_authority", authority)
-    object.__setattr__(replacement, "_request", request)
+    _replacement_authority, _replacement_coordinator, replacement = _paired_run(
+        identity_seed="retrieval-replacement"
+    )
     object.__setattr__(adapter, "_paired_run", replacement)
     with pytest.raises(ManagedMem0V5RetrievalAdapterError, match="composition_invalid"):
         adapter.retrieve(
@@ -215,12 +213,9 @@ def test_retrieval_adapter_delegates_exact_profile_and_rejects_swap(
 def test_lifecycle_delegate_swap_fails_before_admit_delegate(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    authority, _case = _authority_and_case()
-    request = _request(authority.operation_count)
+    authority, coordinator, paired_run = _paired_run()
+    request = coordinator.request
     binding = _binding(run_id=request.run_id)
-    paired_run = object.__new__(ManagedMem0V5PairedRun)
-    object.__setattr__(paired_run, "_authority", authority)
-    object.__setattr__(paired_run, "_request", request)
     calls: list[str] = []
     monkeypatch.setattr(
         ManagedMem0V5PairedRun,
@@ -239,9 +234,9 @@ def test_lifecycle_delegate_swap_fails_before_admit_delegate(
         request=request,
         cleanup_readback_capability=CleanupReadback(),
     )
-    replacement = object.__new__(ManagedMem0V5PairedRun)
-    object.__setattr__(replacement, "_authority", authority)
-    object.__setattr__(replacement, "_request", request)
+    _replacement_authority, _replacement_coordinator, replacement = _paired_run(
+        identity_seed="lifecycle-replacement"
+    )
     state = lifecycle_module._STATES[lifecycle]
     object.__setattr__(state, "paired_run", replacement)
 
@@ -264,11 +259,8 @@ def test_lifecycle_mutable_state_tamper_fails_before_io(
     value: object,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    authority, _case = _authority_and_case()
-    request = _request(authority.operation_count)
-    paired_run = object.__new__(ManagedMem0V5PairedRun)
-    object.__setattr__(paired_run, "_authority", authority)
-    object.__setattr__(paired_run, "_request", request)
+    authority, coordinator, paired_run = _paired_run()
+    request = coordinator.request
     calls: list[str] = []
     monkeypatch.setattr(
         ManagedMem0V5PairedRun,
@@ -433,6 +425,25 @@ def test_lifecycle_retries_transient_cleanup_without_redispatch() -> None:
     assert coordinator.dispatch_calls == dispatch_calls
 
 
+def test_terminalize_retries_cleanup_pass_one_then_attempts_pass_two() -> None:
+    authority, coordinator, _run, lifecycle = _seal_lifecycle_with_coverage()
+    receipt = lifecycle.issue_corpus_receipt(corpus_id=authority.units[0].corpus_id)
+    lifecycle.consume_corpus_receipts((receipt,))
+    coordinator.cleanup_failures = 1
+    dispatch_calls = coordinator.dispatch_calls
+
+    with pytest.raises(ManagedMem0V5LifecycleAdapterError, match="cleanup_failed"):
+        lifecycle.terminalize(pass_two_request=object())
+    with pytest.raises(
+        ManagedMem0V5LifecycleAdapterError,
+        match="cleanup_pass_two_invalid",
+    ):
+        lifecycle.terminalize(pass_two_request=object())
+
+    assert coordinator.cleanup_calls == 2
+    assert coordinator.dispatch_calls == dispatch_calls
+
+
 def test_lifecycle_retries_failed_abort_without_readmit_or_redispatch() -> None:
     _authority, coordinator, _run, lifecycle = _real_lifecycle()
     lifecycle.admit()
@@ -449,6 +460,93 @@ def test_lifecycle_retries_failed_abort_without_readmit_or_redispatch() -> None:
     assert coordinator.abort_calls == 2
     assert coordinator.admit_calls == admit_calls
     assert coordinator.dispatch_calls == dispatch_calls
+
+
+def test_terminalize_aborts_from_admitted_without_dispatch() -> None:
+    _authority, coordinator, _run, lifecycle = _real_lifecycle()
+    lifecycle.admit()
+
+    terminal = lifecycle.terminalize()
+
+    assert terminal is lifecycle.terminal_evidence
+    assert terminal.terminal_state == "aborted"
+    assert coordinator.admit_calls == 1
+    assert coordinator.dispatch_calls == 0
+    assert coordinator.abort_calls == 1
+
+
+def test_terminalize_aborts_from_sealed_and_covered_without_redispatch() -> None:
+    _authority, coordinator, _run, lifecycle = _real_lifecycle()
+    lifecycle.admit()
+    lifecycle.dispatch_once()
+    dispatch_calls = coordinator.dispatch_calls
+
+    terminal = lifecycle.terminalize()
+
+    assert terminal.terminal_state == "aborted"
+    assert coordinator.dispatch_calls == dispatch_calls
+    assert coordinator.abort_calls == 1
+
+    _authority, coordinator, _run, lifecycle = _seal_lifecycle_with_coverage()
+    dispatch_calls = coordinator.dispatch_calls
+    terminal = lifecycle.terminalize()
+    assert terminal.terminal_state == "aborted"
+    assert coordinator.dispatch_calls == dispatch_calls
+    assert coordinator.abort_calls == 1
+
+
+def test_terminalize_aborts_partial_receipts_and_retries_only_abort() -> None:
+    authority, coordinator, _run, lifecycle = _seal_lifecycle_with_coverage()
+    lifecycle.issue_corpus_receipt(corpus_id=authority.units[0].corpus_id)
+    coordinator.abort_failures = 1
+    admit_calls = coordinator.admit_calls
+    dispatch_calls = coordinator.dispatch_calls
+
+    with pytest.raises(ManagedMem0V5LifecycleAdapterError, match="abort_failed"):
+        lifecycle.terminalize()
+    terminal = lifecycle.terminalize()
+
+    assert terminal.terminal_state == "aborted"
+    assert coordinator.abort_calls == 2
+    assert coordinator.admit_calls == admit_calls
+    assert coordinator.dispatch_calls == dispatch_calls
+
+
+@pytest.mark.parametrize("phase", ("admitted", "sealed", "covered", "receipts"))
+def test_explicit_abort_retries_from_every_started_phase(phase: str) -> None:
+    if phase in {"covered", "receipts"}:
+        authority, coordinator, _run, lifecycle = _seal_lifecycle_with_coverage()
+        if phase == "receipts":
+            lifecycle.issue_corpus_receipt(corpus_id=authority.units[0].corpus_id)
+    else:
+        _authority, coordinator, _run, lifecycle = _real_lifecycle()
+        lifecycle.admit()
+        if phase == "sealed":
+            lifecycle.dispatch_once()
+    coordinator.abort_failures = 1
+    admit_calls = coordinator.admit_calls
+    dispatch_calls = coordinator.dispatch_calls
+
+    with pytest.raises(ManagedMem0V5LifecycleAdapterError, match="abort_failed"):
+        lifecycle.abort()
+    terminal = lifecycle.retry_abort()
+
+    assert terminal.terminal_state == "aborted"
+    assert coordinator.abort_calls == 2
+    assert coordinator.admit_calls == admit_calls
+    assert coordinator.dispatch_calls == dispatch_calls
+
+
+def test_ready_clean_state_evidence_is_opaque_and_one_shot() -> None:
+    _authority, _coordinator, run, lifecycle = _real_lifecycle()
+    lifecycle.admit()
+
+    evidence = lifecycle.issue_ready_clean_state_claim()
+
+    assert repr(evidence) == "ManagedMem0V5ReadyCleanStateClaim(<opaque>)"
+    assert "verifier" not in repr(evidence)
+    with pytest.raises(ManagedRunError, match="ready clean-state evidence is unavailable"):
+        run.issue_ready_clean_state_claim()
 
 
 @pytest.mark.parametrize(

@@ -18,7 +18,10 @@ from dataclasses import dataclass
 from typing import final
 
 from infinity_context_server.memory_comparison_clean_state import (
+    BackendCleanStateProof,
     VerifiedCleanStateValidation,
+    clean_state_identity_sha256,
+    reset_proof_is_valid,
 )
 from infinity_context_server.memory_comparison_full_execution_validation_slots import (
     FullExecutionCleanScope,
@@ -31,12 +34,15 @@ from infinity_context_server.memory_comparison_locomo_transport import (
 from infinity_context_server.memory_comparison_managed_mem0_v5_run_evidence import (
     ManagedMem0V5AuthenticatedCleanStateWitness,
     ManagedMem0V5CleanStateWitnessVerifierPort,
+    ManagedMem0V5ReadyCleanStateClaim,
+    _consume_managed_mem0_v5_ready_clean_state_claim_for_evidence_adapter,
     require_managed_mem0_v5_clean_state_witness_verifier,
 )
 from infinity_context_server.memory_comparison_managed_mem0_v5_transport_evidence import (
     VerifiedManagedTransportCoverage,
     authenticate_managed_transport_coverage,
 )
+from infinity_context_server.memory_comparison_mem0_oss_v5_contracts import canonical_sha256
 
 FULL_EXECUTION_EVIDENCE_VARIANT_INVALID = "full_execution_evidence_variant_invalid"
 FULL_EXECUTION_EVIDENCE_BINDING_INVALID = "full_execution_evidence_binding_invalid"
@@ -47,6 +53,7 @@ FULL_EXECUTION_EVIDENCE_REPLAY = "full_execution_evidence_replay"
 FULL_EXECUTION_EVIDENCE_CHANGED = "full_execution_evidence_changed"
 
 _VARIANT_LEGACY = "legacy_v1"
+_VARIANT_INFINITY_DI = "infinity_di"
 _VARIANT_MANAGED_MEM0_V5 = "managed_mem0_v5"
 _BENCHMARKS = frozenset(("locomo", "longmemeval"))
 _TOKEN = object()
@@ -183,12 +190,12 @@ class _CleanState:
     signature: bytes
 
 
-_TRANSPORT: weakref.WeakKeyDictionary[
-    FullExecutionTransportEvidence, _TransportState
-] = weakref.WeakKeyDictionary()
-_CLEAN: weakref.WeakKeyDictionary[
-    FullExecutionCleanStateEvidence, _CleanState
-] = weakref.WeakKeyDictionary()
+_TRANSPORT: weakref.WeakKeyDictionary[FullExecutionTransportEvidence, _TransportState] = (
+    weakref.WeakKeyDictionary()
+)
+_CLEAN: weakref.WeakKeyDictionary[FullExecutionCleanStateEvidence, _CleanState] = (
+    weakref.WeakKeyDictionary()
+)
 
 
 def issue_legacy_full_execution_transport_evidence(
@@ -348,6 +355,64 @@ def issue_managed_mem0_v5_full_execution_clean_state_evidence(
     )
 
 
+def issue_managed_mem0_v5_ready_full_execution_clean_state_evidence(
+    *, claim: ManagedMem0V5ReadyCleanStateClaim
+) -> FullExecutionCleanStateEvidence:
+    """Consume low-level opaque claim material in the high-level evidence adapter."""
+
+    try:
+        witness, verifier = _consume_managed_mem0_v5_ready_clean_state_claim_for_evidence_adapter(
+            claim
+        )
+    except Exception:
+        raise FullExecutionValidationError(FULL_EXECUTION_EVIDENCE_BINDING_INVALID) from None
+    return issue_managed_mem0_v5_full_execution_clean_state_evidence(
+        backend_role="mem0",
+        witness=witness,
+        verifier=verifier,
+    )
+
+
+def issue_infinity_di_full_execution_clean_state_evidence(
+    *,
+    corpus_ids: tuple[str, ...],
+    proofs: tuple[BackendCleanStateProof, ...],
+    scopes: tuple[FullExecutionCleanScope, ...],
+    attestation_key: bytes,
+) -> FullExecutionCleanStateEvidence:
+    """Issue an exact Infinity-only claim without constructing legacy Mem0 evidence."""
+
+    if (
+        type(proofs) is not tuple
+        or not proofs
+        or any(type(item) is not BackendCleanStateProof for item in proofs)
+        or type(scopes) is not tuple
+        or not scopes
+        or any(type(item) is not FullExecutionCleanScope for item in scopes)
+        or type(corpus_ids) is not tuple
+        or len(corpus_ids) != len(proofs)
+        or any(
+            type(item) is not str or not item or item != item.strip()  # noqa: E721
+            for item in corpus_ids
+        )
+        or len(set(corpus_ids)) != len(corpus_ids)
+        or type(attestation_key) is not bytes  # noqa: E721
+        or len(attestation_key) < 32
+    ):
+        raise FullExecutionValidationError(FULL_EXECUTION_EVIDENCE_BINDING_INVALID)
+    for scope in scopes:
+        scope.__post_init__()
+    if any(scope.backend_role != "infinity-context" for scope in scopes):
+        raise FullExecutionValidationError(FULL_EXECUTION_EVIDENCE_BINDING_INVALID)
+    payload = _infinity_clean_payload(corpus_ids, proofs, scopes, attestation_key)
+    return _register_clean(
+        _VARIANT_INFINITY_DI,
+        ("infinity-context",),
+        (proofs, scopes, corpus_ids, attestation_key),
+        payload,
+    )
+
+
 def inspect_full_execution_clean_state_evidence(
     value: object,
 ) -> FullExecutionCleanStateEvidenceDescriptor:
@@ -382,6 +447,10 @@ def _inspect_full_execution_clean_state_evidence_for_validation(
                 raise ValueError
             payload = _managed_clean_payload(state.backend_roles[0], trusted)
             descriptor = _managed_clean_descriptor(state.backend_roles[0], trusted)
+        elif state.variant == _VARIANT_INFINITY_DI:
+            corpus_ids, proofs, scopes, key = _infinity_clean_resources(state.resources)
+            payload = _infinity_clean_payload(corpus_ids, proofs, scopes, key)
+            descriptor = _infinity_clean_descriptor(corpus_ids, proofs, scopes, payload)
         else:
             raise ValueError
     except FullExecutionValidationError:
@@ -395,10 +464,24 @@ def _inspect_full_execution_clean_state_evidence_for_validation(
             *(f"legacy-clean-scope:{id(item)}" for item in state.resources[1:-1]),
             "legacy-clean-key:" + hashlib.sha256(state.resources[-1]).hexdigest(),
         )
-    else:
+    elif state.variant == _VARIANT_MANAGED_MEM0_V5:
         tokens = (
             f"managed-v5-clean-witness:{id(state.resources[0])}",
             f"managed-v5-clean-verifier:{id(state.resources[1])}",
+        )
+    else:
+        corpus_ids, proofs, scopes, key = _infinity_clean_resources(state.resources)
+        tokens = (
+            *(f"infinity-clean-proof:{id(item)}" for item in proofs),
+            *(f"infinity-clean-scope:{id(item)}" for item in scopes),
+            *(
+                "infinity-clean-corpus:"
+                f"{proofs[index].run_id_sha256}:"
+                f"{canonical_sha256({'corpus_id': item})}:"
+                f"{proofs[index].scope_identity_sha256}"
+                for index, item in enumerate(corpus_ids)
+            ),
+            "infinity-clean-key:" + hashlib.sha256(key).hexdigest(),
         )
     return _CleanInspection(descriptor, tokens, state.resources)
 
@@ -462,6 +545,34 @@ def _legacy_clean_resources(
     ):
         raise ValueError
     return resources[0], scopes, key
+
+
+def _infinity_clean_resources(
+    resources: tuple[object, ...],
+) -> tuple[
+    tuple[str, ...],
+    tuple[BackendCleanStateProof, ...],
+    tuple[FullExecutionCleanScope, ...],
+    bytes,
+]:
+    if len(resources) != 4:
+        raise ValueError
+    proofs, scopes, corpus_ids, key = resources
+    if (
+        type(proofs) is not tuple
+        or type(scopes) is not tuple
+        or type(corpus_ids) is not tuple
+        or type(key) is not bytes  # noqa: E721
+        or len(key) < 32
+        or not proofs
+        or len(proofs) != len(scopes)
+        or len(proofs) != len(corpus_ids)
+        or any(type(item) is not BackendCleanStateProof for item in proofs)
+        or any(type(item) is not FullExecutionCleanScope for item in scopes)
+        or any(type(item) is not str for item in corpus_ids)  # noqa: E721
+    ):
+        raise ValueError
+    return corpus_ids, proofs, scopes, key
 
 
 def _legacy_transport_payload(
@@ -532,6 +643,56 @@ def _managed_clean_payload(
         "resource_identity": id(witness),
         **witness.commitment_payload(),
         "evidence_commitment_sha256": witness.evidence_commitment_sha256,
+    }
+
+
+def _infinity_clean_payload(
+    corpus_ids: tuple[str, ...],
+    proofs: tuple[BackendCleanStateProof, ...],
+    scopes: tuple[FullExecutionCleanScope, ...],
+    key: bytes,
+) -> dict[str, object]:
+    expected_run = proofs[0].run_id_sha256
+    proof_scopes = tuple(
+        (scope.corpus_identity_sha256, scope.scope_identity_sha256) for scope in scopes
+    )
+    observed = tuple(
+        (proof.corpus_identity_sha256, proof.scope_identity_sha256) for proof in proofs
+    )
+    expected_proof_corpora = tuple(clean_state_identity_sha256(item) for item in corpus_ids)
+    canonical_corpora = tuple(canonical_sha256({"corpus_id": item}) for item in corpus_ids)
+    if (
+        observed != proof_scopes
+        or tuple(item[0] for item in proof_scopes) != expected_proof_corpora
+        or len(set(observed)) != len(observed)
+        or len(set(canonical_corpora)) != len(canonical_corpora)
+    ):
+        raise FullExecutionValidationError(FULL_EXECUTION_EVIDENCE_BINDING_INVALID)
+    if any(
+        proof.expected_scope_count != len(scopes)
+        or not reset_proof_is_valid(
+            proof,
+            expected_backend="infinity-context",
+            expected_run_id_sha256=expected_run,
+            attestation_key=key,
+            require_verified=True,
+        )
+        for proof in proofs
+    ):
+        raise FullExecutionValidationError(FULL_EXECUTION_EVIDENCE_BINDING_INVALID)
+    return {
+        "variant": _VARIANT_INFINITY_DI,
+        "run_id_sha256": expected_run,
+        "proofs": [proof.attestation_hmac_sha256 for proof in proofs],
+        "scopes": [
+            {
+                "canonical_corpus_identity_sha256": canonical_corpus,
+                "proof_corpus_identity_sha256": proof_scope[0],
+                "scope_identity_sha256": proof_scope[1],
+            }
+            for canonical_corpus, proof_scope in zip(canonical_corpora, proof_scopes, strict=True)
+        ],
+        "attestation_key_sha256": hashlib.sha256(key).hexdigest(),
     }
 
 
@@ -614,6 +775,30 @@ def _managed_clean_descriptor(
     )
 
 
+def _infinity_clean_descriptor(
+    corpus_ids: tuple[str, ...],
+    proofs: tuple[BackendCleanStateProof, ...],
+    scopes: tuple[FullExecutionCleanScope, ...],
+    payload: dict[str, object],
+) -> FullExecutionCleanStateEvidenceDescriptor:
+    return FullExecutionCleanStateEvidenceDescriptor(
+        _VARIANT_INFINITY_DI,
+        ("infinity-context",),
+        proofs[0].run_id_sha256,
+        None,
+        None,
+        tuple(
+            (
+                canonical_sha256({"corpus_id": corpus_id}),
+                scope.scope_identity_sha256,
+                0,
+            )
+            for corpus_id, scope in zip(corpus_ids, scopes, strict=True)
+        ),
+        _json_sha256(payload),
+    )
+
+
 def _signature(payload: dict[str, object]) -> bytes:
     return hmac.digest(_HMAC_KEY, _json_bytes(payload), "sha256")
 
@@ -672,8 +857,10 @@ __all__ = (
     "FullExecutionTransportEvidenceDescriptor",
     "inspect_full_execution_clean_state_evidence",
     "inspect_full_execution_transport_evidence",
+    "issue_infinity_di_full_execution_clean_state_evidence",
     "issue_legacy_full_execution_clean_state_evidence",
     "issue_legacy_full_execution_transport_evidence",
     "issue_managed_mem0_v5_full_execution_clean_state_evidence",
+    "issue_managed_mem0_v5_ready_full_execution_clean_state_evidence",
     "issue_managed_mem0_v5_full_execution_transport_evidence",
 )
