@@ -21,14 +21,15 @@ from infinity_context_server.memory_comparison_managed_mem0_v5_checkpoint import
 from infinity_context_server.memory_comparison_managed_mem0_v5_lane import (
     ManagedMem0V5BudgetPolicy,
     ManagedMem0V5LaneCoordinator,
-    ManagedMem0V5SourcePair,
-    ManagedMem0V5StorageObservation,
 )
 from infinity_context_server.memory_comparison_managed_mem0_v5_progress import (
     ManagedMem0V5CheckpointProgress,
 )
 from infinity_context_server.memory_comparison_managed_mem0_v5_projector import (
     ManagedMem0V5ManifestProjector,
+)
+from infinity_context_server.memory_comparison_managed_mem0_v5_storage_witness import (
+    create_managed_mem0_v5_storage_witness_authority,
 )
 from infinity_context_server.memory_comparison_managed_run_contract import (
     ManagedRunCase,
@@ -85,6 +86,9 @@ def _authority(*, unit_count: int = 1):
 
 
 class _ReceiptPort:
+    def mark_outcome_unknown(self, *, context) -> None:
+        assert context.readback_only is False
+
     @staticmethod
     def _result(context: RuntimeReceiptVerificationContext) -> RuntimeReceiptVerificationResult:
         return RuntimeReceiptVerificationResult(
@@ -165,6 +169,7 @@ class _Lane:
         self.cleanup_hook = cleanup_hook
         self.cleanup_commits = 0
         self.calls: list[str] = []
+        self.storage_issuer, _ = create_managed_mem0_v5_storage_witness_authority()
 
     def admit(self, **kwargs) -> None:
         del kwargs
@@ -189,12 +194,12 @@ class _Lane:
             raise RuntimeError("storage inspection crash")
         unit = kwargs["unit"]
         record_ids = () if unit.sequence in self.zero_record_sequences else ("opaque-record-1",)
-        return ManagedMem0V5StorageObservation.create(
+        return self.storage_issuer.issue_authenticated_storage(
             operation_id_sha256=kwargs["operation_id_sha256"],
             unit_identity_sha256=unit.unit_identity_sha256,
             storage_commitment_sha256=_sha("storage"),
             created_record_ids=record_ids,
-            source_pairs=(ManagedMem0V5SourcePair(unit.source_id, unit.source_sha256),),
+            source_pairs=((unit.source_id, unit.source_sha256),),
         )
 
     def cleanup(self, **kwargs):

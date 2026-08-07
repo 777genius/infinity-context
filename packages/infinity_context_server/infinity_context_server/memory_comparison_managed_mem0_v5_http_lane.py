@@ -6,6 +6,8 @@ import hashlib
 import hmac
 import json
 import math
+from collections.abc import Callable
+from contextlib import suppress
 from dataclasses import dataclass
 from typing import Protocol, final
 from urllib.parse import urlsplit
@@ -14,10 +16,6 @@ import httpx
 
 from infinity_context_server.memory_comparison_managed_mem0_v5_cleanup_binding import (
     ManagedMem0V5CleanupBindingPort,
-)
-from infinity_context_server.memory_comparison_managed_mem0_v5_lane import (
-    ManagedMem0V5SourcePair,
-    ManagedMem0V5StorageObservation,
 )
 from infinity_context_server.memory_comparison_managed_mem0_v5_projector import (
     ManagedMem0V5ManifestAuthority,
@@ -29,6 +27,11 @@ from infinity_context_server.memory_comparison_managed_mem0_v5_request_binding i
     ManagedMem0V5RequestBindingContext,
     ManagedMem0V5RequestBindingReceipt,
     verify_request_binding_payload,
+)
+from infinity_context_server.memory_comparison_managed_mem0_v5_storage_witness import (
+    ManagedMem0V5AuthenticatedStorageWitness,
+    ManagedMem0V5StorageWitnessIssuerPort,
+    require_managed_mem0_v5_storage_witness_issuer,
 )
 from infinity_context_server.memory_comparison_mem0_oss_v5_contracts import (
     CleanupVerificationContext,
@@ -191,7 +194,7 @@ class ManagedMem0V5EvidenceKeyCapability(Protocol):
 class ManagedMem0V5EvidenceVerifierPort(Protocol):
     def verify_storage(
         self, *, payload: object, context: ManagedMem0V5StorageVerificationContext
-    ) -> ManagedMem0V5StorageObservation: ...
+    ) -> ManagedMem0V5AuthenticatedStorageWitness: ...
     def verify_search(
         self, *, payload: object, context: ManagedMem0V5SearchVerificationContext
     ) -> ManagedMem0V5SearchReceipt: ...
@@ -204,22 +207,43 @@ class HmacSha256ManagedMem0V5EvidenceVerifier:
         "_observation_key",
         "_request_binding_key",
         "_search_key",
+        "_storage_witness_issuer",
     )
 
-    def __init__(self, *, key_capability: ManagedMem0V5EvidenceKeyCapability) -> None:
-        if not callable(getattr(key_capability, "consume", None)):
-            _fail("mem0_v5_managed_evidence_key_invalid")
+    def __init__(
+        self,
+        *,
+        key_capability: ManagedMem0V5EvidenceKeyCapability,
+        storage_witness_issuer: ManagedMem0V5StorageWitnessIssuerPort,
+    ) -> None:
+        consume = _configuration_callable(key_capability, "consume")
         try:
-            master_key = key_capability.consume()
+            issuer = require_managed_mem0_v5_storage_witness_issuer(storage_witness_issuer)
         except Exception:
+            _fail("mem0_v5_managed_storage_witness_authority_invalid")
+        material: bytearray | None = None
+        try:
+            master_key = consume()
+            if type(master_key) is not bytes or len(master_key) < 32:
+                _fail("mem0_v5_managed_evidence_key_invalid")
+            material = bytearray(master_key)
+            self._key_commitment_sha256 = hashlib.sha256(material).hexdigest()
+            root = hmac.new(material, _KEY_DOMAIN, hashlib.sha256).digest()
+            self._observation_key = hmac.new(root, _OBSERVATION_DOMAIN, hashlib.sha256).digest()
+            self._request_binding_key = hmac.new(
+                root, REQUEST_BINDING_DOMAIN, hashlib.sha256
+            ).digest()
+            self._search_key = hmac.new(root, _SEARCH_DOMAIN, hashlib.sha256).digest()
+            self._storage_witness_issuer = issuer
+        except Mem0V5HttpError:
+            _close_capability(key_capability)
+            raise
+        except Exception:
+            _close_capability(key_capability)
             raise Mem0V5HttpError("mem0_v5_http_configuration_invalid") from None
-        if type(master_key) is not bytes or len(master_key) < 32:
-            _fail("mem0_v5_managed_evidence_key_invalid")
-        self._key_commitment_sha256 = hashlib.sha256(master_key).hexdigest()
-        root = hmac.new(master_key, _KEY_DOMAIN, hashlib.sha256).digest()
-        self._observation_key = hmac.new(root, _OBSERVATION_DOMAIN, hashlib.sha256).digest()
-        self._request_binding_key = hmac.new(root, REQUEST_BINDING_DOMAIN, hashlib.sha256).digest()
-        self._search_key = hmac.new(root, _SEARCH_DOMAIN, hashlib.sha256).digest()
+        finally:
+            if material is not None:
+                _wipe_mutable(material)
 
     @property
     def key_commitment_sha256(self) -> str:
@@ -227,7 +251,7 @@ class HmacSha256ManagedMem0V5EvidenceVerifier:
 
     def verify_storage(
         self, *, payload: object, context: ManagedMem0V5StorageVerificationContext
-    ) -> ManagedMem0V5StorageObservation:
+    ) -> ManagedMem0V5AuthenticatedStorageWitness:
         if type(context) is not ManagedMem0V5StorageVerificationContext:
             _fail("mem0_v5_managed_storage_context_invalid")
         value = _dict(payload)
@@ -294,12 +318,12 @@ class HmacSha256ManagedMem0V5EvidenceVerifier:
             extraction_ids
         ):
             _fail("mem0_v5_managed_storage_evidence_invalid")
-        return ManagedMem0V5StorageObservation.create(
+        return self._storage_witness_issuer.issue_authenticated_storage(
             operation_id_sha256=context.operation_id_sha256,
             unit_identity_sha256=context.unit_identity_sha256,
             storage_commitment_sha256=value["storage_commitment_sha256"],
             created_record_ids=tuple(record_ids),
-            source_pairs=(ManagedMem0V5SourcePair(context.source_id, context.source_sha256),),
+            source_pairs=((context.source_id, context.source_sha256),),
         )
 
     def verify_request_binding(
@@ -408,35 +432,36 @@ class ManagedMem0V5HttpLane:
         cleanup_binding: ManagedMem0V5CleanupBindingPort,
         transport: Mem0V5TransportPort | None = None,
     ) -> None:
-        if not callable(getattr(bearer_capability, "consume", None)):
-            _fail("mem0_v5_managed_http_configuration_invalid")
+        consume = _configuration_callable(bearer_capability, "consume")
+        canonical_origin = _origin(origin)
+        canonical_timeout = _timeout(timeout_seconds)
+        verified_evidence = _evidence_verifier(evidence_verifier)
+        verified_dispatch = _dispatch_binding(dispatch_binding)
+        verified_cleanup = _cleanup_binding(cleanup_binding)
+        verified_transport = _transport_port(transport)
         try:
-            bearer = bearer_capability.consume()
+            bearer = consume()
         except Exception:
             raise Mem0V5HttpError("mem0_v5_http_configuration_invalid") from None
-        if (
-            not _secret(bearer)
-            or not all(
-                callable(getattr(evidence_verifier, name, None))
-                for name in ("verify_storage", "verify_search")
+        try:
+            if not _secret(bearer):
+                _fail("mem0_v5_managed_http_configuration_invalid")
+            self._origin = canonical_origin
+            self._timeout = canonical_timeout
+            self._bearer = bearer
+            self._transport = verified_transport
+            self._verifier = verified_evidence
+            self._binding = verified_dispatch
+            self._cleanup_binding = verified_cleanup
+            self._control = Mem0V5HttpPort(
+                origin=canonical_origin,
+                bearer_token=bearer,
+                timeout_seconds=canonical_timeout,
+                transport=verified_transport,
             )
-            or not callable(getattr(dispatch_binding, "verify_request_binding", None))
-            or not callable(getattr(cleanup_binding, "cleanup_context", None))
-        ):
-            _fail("mem0_v5_managed_http_configuration_invalid")
-        self._origin = _origin(origin)
-        self._timeout = _timeout(timeout_seconds)
-        self._bearer = bearer
-        self._transport = transport or _HttpxTransport()
-        self._verifier = evidence_verifier
-        self._binding = dispatch_binding
-        self._cleanup_binding = cleanup_binding
-        self._control = Mem0V5HttpPort(
-            origin=origin,
-            bearer_token=bearer,
-            timeout_seconds=self._timeout,
-            transport=self._transport,
-        )
+        except Exception:
+            _close_capability(bearer_capability)
+            raise
 
     def admit(
         self, *, authority: ManagedMem0V5ManifestAuthority, admission: Mem0OssFullRunAdmission
@@ -512,7 +537,7 @@ class ManagedMem0V5HttpLane:
         unit: ManagedMem0V5SourceUnit,
         operation_id_sha256: str,
         admission: Mem0OssFullRunAdmission,
-    ) -> ManagedMem0V5StorageObservation:
+    ) -> ManagedMem0V5AuthenticatedStorageWitness:
         body = {
             "admission_commitment_sha256": admission.commitment_sha256,
             "operation_id_sha256": operation_id_sha256,
@@ -717,6 +742,53 @@ def _timeout(value: object) -> float:
     return float(value)
 
 
+def _evidence_verifier(value: object) -> ManagedMem0V5EvidenceVerifierPort:
+    _configuration_callable(value, "verify_storage")
+    _configuration_callable(value, "verify_search")
+    return value
+
+
+def _dispatch_binding(value: object) -> ManagedMem0V5DispatchBindingPort:
+    _configuration_callable(value, "verify_request_binding")
+    return value
+
+
+def _cleanup_binding(value: object) -> ManagedMem0V5CleanupBindingPort:
+    _configuration_callable(value, "cleanup_context")
+    return value
+
+
+def _transport_port(value: object) -> Mem0V5TransportPort:
+    try:
+        selected = _HttpxTransport() if value is None else value
+    except Exception:
+        raise Mem0V5HttpError("mem0_v5_http_configuration_invalid") from None
+    _configuration_callable(selected, "request")
+    return selected
+
+
+def _configuration_callable(value: object, name: str) -> Callable[..., object]:
+    try:
+        candidate = getattr(value, name, None)
+    except Exception:
+        raise Mem0V5HttpError("mem0_v5_http_configuration_invalid") from None
+    if not callable(candidate):
+        raise Mem0V5HttpError("mem0_v5_http_configuration_invalid")
+    return candidate
+
+
+def _close_capability(value: object) -> None:
+    with suppress(Exception):
+        close = getattr(value, "close", None)
+        if callable(close):
+            close()
+
+
+def _wipe_mutable(value: bytearray) -> None:
+    value[:] = b"\x00" * len(value)
+    value.clear()
+
+
 def _key(kind: str, binding: str) -> str:
     return canonical_sha256({"kind": kind, "binding": binding})
 
@@ -730,6 +802,11 @@ def _secret(value: object) -> bool:
 
 
 def _fail(code: str) -> None:
+    if code in {
+        "mem0_v5_managed_http_configuration_invalid",
+        "mem0_v5_managed_storage_witness_authority_invalid",
+    }:
+        code = "mem0_v5_http_configuration_invalid"
     raise Mem0V5HttpError(code)
 
 

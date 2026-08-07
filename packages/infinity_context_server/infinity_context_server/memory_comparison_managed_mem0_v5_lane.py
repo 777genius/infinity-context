@@ -18,6 +18,9 @@ from infinity_context_server.memory_comparison_managed_mem0_v5_projector import 
     ManagedMem0V5ManifestAuthority,
     ManagedMem0V5SourceUnit,
 )
+from infinity_context_server.memory_comparison_managed_mem0_v5_storage_witness import (
+    ManagedMem0V5AuthenticatedStorageWitness,
+)
 from infinity_context_server.memory_comparison_managed_run_contract import ManagedRunError
 from infinity_context_server.memory_comparison_mem0_oss_v5_contracts import (
     CleanupVerificationContext,
@@ -224,7 +227,7 @@ class ManagedMem0V5LanePort(Protocol):
         unit: ManagedMem0V5SourceUnit,
         operation_id_sha256: str,
         admission: Mem0OssFullRunAdmission,
-    ) -> ManagedMem0V5StorageObservation: ...
+    ) -> ManagedMem0V5AuthenticatedStorageWitness: ...
 
     def cleanup(
         self,
@@ -284,7 +287,7 @@ class ManagedMem0V5LaneCoordinator:
         self._pending_terminal: Mem0OssTerminalCleanupEvidence | None = None
         self._dispatched: set[int] = set()
         self._completed: set[int] = set()
-        self._storage_observations: dict[int, ManagedMem0V5StorageObservation] = {}
+        self._storage_observations: dict[int, ManagedMem0V5AuthenticatedStorageWitness] = {}
         self._terminal: Mem0OssTerminalCleanupEvidence | None = None
 
     @property
@@ -294,7 +297,7 @@ class ManagedMem0V5LaneCoordinator:
         return self._budget
 
     @property
-    def storage_observations(self) -> tuple[ManagedMem0V5StorageObservation, ...]:
+    def storage_observations(self) -> tuple[ManagedMem0V5AuthenticatedStorageWitness, ...]:
         """Return only observations accepted by the configured storage verifier."""
 
         if len(self._storage_observations) != len(self._completed):
@@ -692,18 +695,17 @@ class ManagedMem0V5LaneCoordinator:
         self,
         unit: ManagedMem0V5SourceUnit,
         operation_id: str,
-    ) -> ManagedMem0V5StorageObservation:
+    ) -> ManagedMem0V5AuthenticatedStorageWitness:
         evidence = self._lane.inspect_storage(
             unit=unit,
             operation_id_sha256=operation_id,
             admission=self._service.admission,
         )
         if (
-            type(evidence) is not ManagedMem0V5StorageObservation
+            type(evidence) is not ManagedMem0V5AuthenticatedStorageWitness
             or evidence.operation_id_sha256 != operation_id
             or evidence.unit_identity_sha256 != unit.unit_identity_sha256
-            or evidence.source_pairs
-            != (ManagedMem0V5SourcePair(unit.source_id, unit.source_sha256),)
+            or evidence.source_pairs != ((unit.source_id, unit.source_sha256),)
         ):
             raise ManagedRunError("managed Mem0 v5 storage observation binding differs")
         return evidence
@@ -741,7 +743,7 @@ class ManagedMem0V5LaneCoordinator:
 
     @staticmethod
     def _require_verified_storage_binding(
-        evidence: ManagedMem0V5StorageObservation,
+        evidence: ManagedMem0V5AuthenticatedStorageWitness,
         recovery: Mem0OssOperationRecoveryState,
     ) -> None:
         if (

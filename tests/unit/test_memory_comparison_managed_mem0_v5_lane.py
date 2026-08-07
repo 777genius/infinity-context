@@ -26,6 +26,10 @@ from infinity_context_server.memory_comparison_managed_mem0_v5_lane import (
 from infinity_context_server.memory_comparison_managed_mem0_v5_projector import (
     ManagedMem0V5ManifestProjector,
 )
+from infinity_context_server.memory_comparison_managed_mem0_v5_storage_witness import (
+    ManagedMem0V5AuthenticatedStorageWitness,
+    create_managed_mem0_v5_storage_witness_authority,
+)
 from infinity_context_server.memory_comparison_managed_plan_builder import (
     managed_policy_cases_from_dataset,
 )
@@ -138,6 +142,9 @@ def _canonical_groups(case: ManagedRunCase):
 
 
 class _ReceiptPort:
+    def mark_outcome_unknown(self, *, context: RuntimeReceiptVerificationContext) -> None:
+        assert context.readback_only is False
+
     def _result(
         self, context: RuntimeReceiptVerificationContext
     ) -> RuntimeReceiptVerificationResult:
@@ -173,7 +180,7 @@ class _StoragePort:
     def verify(
         self, *, payload: object, context: StorageVerificationContext
     ) -> StorageVerificationResult:
-        assert type(payload) is ManagedMem0V5StorageObservation
+        assert type(payload) is ManagedMem0V5AuthenticatedStorageWitness
         return StorageVerificationResult(
             admission_commitment_sha256=context.admission_commitment_sha256,
             operation_id_sha256=context.operation_id_sha256,
@@ -215,6 +222,7 @@ class _Lane:
         self.crash_admit = crash_admit
         self.crash_dispatch = crash_dispatch
         self.crash_cleanup = crash_cleanup
+        self.storage_issuer, _ = create_managed_mem0_v5_storage_witness_authority()
 
     def admit(self, **kwargs: object) -> None:
         del kwargs
@@ -236,16 +244,16 @@ class _Lane:
         self.calls.append("status")
         return {"receipt": "status"}
 
-    def inspect_storage(self, **kwargs: object) -> ManagedMem0V5StorageObservation:
+    def inspect_storage(self, **kwargs: object) -> ManagedMem0V5AuthenticatedStorageWitness:
         self.calls.append("storage")
         unit = kwargs["unit"]
         operation_id = kwargs["operation_id_sha256"]
-        return ManagedMem0V5StorageObservation.create(
+        return self.storage_issuer.issue_authenticated_storage(
             operation_id_sha256=operation_id,
             unit_identity_sha256=unit.unit_identity_sha256,
             storage_commitment_sha256=_sha("storage"),
             created_record_ids=("memory-opaque-1",),
-            source_pairs=(ManagedMem0V5SourcePair(unit.source_id, unit.source_sha256),),
+            source_pairs=((unit.source_id, unit.source_sha256),),
         )
 
     def cleanup(self, **kwargs: object) -> object:

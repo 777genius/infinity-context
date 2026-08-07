@@ -15,6 +15,7 @@ from infinity_context_server.memory_comparison_mem0_oss_v5_contracts import (
     Mem0OssFullRunError,
     Mem0OssFullRunState,
     Mem0OssManifestUnit,
+    Mem0OssOperationState,
     Mem0OssReceiptDisposition,
     RuntimeReceiptVerificationContext,
     RuntimeReceiptVerificationResult,
@@ -68,21 +69,45 @@ class _ManifestPort:
 class _ReceiptPort:
     def __init__(self) -> None:
         self.contexts: list[RuntimeReceiptVerificationContext] = []
+        self.mark_contexts: list[RuntimeReceiptVerificationContext] = []
         self.tamper_field: str | None = None
         self.disposition = Mem0OssReceiptDisposition.COMPLETED
         self.raise_secret = False
+        self.fail_mark_calls: set[int] = set()
+        self._unknown: set[str] = set()
+        self._consumed: set[str] = set()
+
+    def mark_outcome_unknown(self, *, context: RuntimeReceiptVerificationContext) -> None:
+        self.mark_contexts.append(context)
+        if len(self.mark_contexts) in self.fail_mark_calls:
+            raise RuntimeError("secret-runtime-marker-message")
+        operation_id = context.operation_id_sha256
+        if context.readback_only or operation_id in self._consumed:
+            raise RuntimeError("receipt state invalid")
+        self._unknown.add(operation_id)
 
     def verify_dispatch_receipt(
         self, *, payload: object, context: RuntimeReceiptVerificationContext
     ) -> RuntimeReceiptVerificationResult:
         assert context.readback_only is False
-        return self._result(payload, context)
+        operation_id = context.operation_id_sha256
+        if operation_id in self._unknown or operation_id in self._consumed:
+            raise RuntimeError("receipt state invalid")
+        result = self._result(payload, context)
+        self._consumed.add(operation_id)
+        return result
 
     def verify_status_readback(
         self, *, payload: object, context: RuntimeReceiptVerificationContext
     ) -> RuntimeReceiptVerificationResult:
         assert context.readback_only is True
-        return self._result(payload, context)
+        operation_id = context.operation_id_sha256
+        if operation_id not in self._unknown or operation_id in self._consumed:
+            raise RuntimeError("receipt state invalid")
+        result = self._result(payload, context)
+        self._unknown.remove(operation_id)
+        self._consumed.add(operation_id)
+        return result
 
     def _result(
         self, payload: object, context: RuntimeReceiptVerificationContext
@@ -450,6 +475,114 @@ def test_crash_after_dispatch_requires_readback_and_never_redispatches() -> None
     service.verify_storage(unit_index=0, storage_payload={"storage": "safe"})
     service.commit(unit_index=0)
     service.record_dispatched(unit_index=1)
+
+
+def test_fresh_service_marks_unknown_before_authenticated_status_readback() -> None:
+    before, manifest, receipt, storage, cleanup = _active(1)
+    before.reserve(unit_index=0)
+    before.record_dispatched(unit_index=0)
+
+    after = Mem0OssFullRunService(
+        manifest_port=manifest,
+        receipt_port=receipt,
+        storage_port=storage,
+        cleanup_port=cleanup,
+    )
+    after.admit(_request(1), manifest_authority_payload={"authority": "verified"})
+    after.activate(admission_commitment_sha256=after.admission.commitment_sha256)
+    after.reserve(unit_index=0)
+    after.record_dispatched(unit_index=0)
+
+    assert after.recover_after_crash() == ()
+    assert len(receipt.mark_contexts) == 1
+    marked = receipt.mark_contexts[0]
+    assert marked.readback_only is False
+    assert marked.admission_commitment_sha256 == after.admission.commitment_sha256
+    assert marked.operation_id_sha256 == after.operation_recovery_states()[0].operation_id_sha256
+    after.reconcile_receipt_readback(unit_index=0, receipt_payload={"receipt": "safe"})
+    assert receipt.contexts[-1] == replace(marked, readback_only=True)
+    assert after.state is Mem0OssFullRunState.ACTIVE
+
+
+@pytest.mark.parametrize("marker_mode", ["missing", "noncallable", "failing"])
+def test_recovery_marker_failure_precedes_service_state_mutation(marker_mode: str) -> None:
+    service, manifest, receipt, storage, cleanup = _active(1)
+    service.reserve(unit_index=0)
+    service.record_dispatched(unit_index=0)
+    if marker_mode == "missing":
+        replacement: object = object()
+    else:
+        replacement = receipt
+        if marker_mode == "noncallable":
+            receipt.mark_outcome_unknown = None  # type: ignore[method-assign,assignment]
+        else:
+            receipt.fail_mark_calls.add(1)
+    if replacement is not receipt:
+        service = Mem0OssFullRunService(
+            manifest_port=manifest,
+            receipt_port=replacement,  # type: ignore[arg-type]
+            storage_port=storage,
+            cleanup_port=cleanup,
+        )
+        service.admit(_request(1), manifest_authority_payload={"authority": "verified"})
+        service.activate(admission_commitment_sha256=service.admission.commitment_sha256)
+        service.reserve(unit_index=0)
+        service.record_dispatched(unit_index=0)
+
+    with pytest.raises(
+        Mem0OssFullRunError,
+        match="mem0_v5_receipt_unknown_mark_failed",
+    ):
+        service.recover_after_crash()
+    assert service.state is Mem0OssFullRunState.RECONCILIATION_REQUIRED
+    assert service.operation_recovery_states()[0].state is Mem0OssOperationState.DISPATCHED
+    with pytest.raises(
+        Mem0OssFullRunError,
+        match="mem0_v5_reconciliation_operation_invalid",
+    ):
+        service.reconcile_receipt_readback(
+            unit_index=0,
+            receipt_payload={"receipt": "safe"},
+        )
+
+
+def test_multiple_dispatched_marker_partial_failure_is_retry_safe() -> None:
+    service, _, receipt, _, _ = _active(3)
+    for index in range(3):
+        service.reserve(unit_index=index)
+        service.record_dispatched(unit_index=index)
+    receipt.fail_mark_calls.add(2)
+
+    with pytest.raises(Mem0OssFullRunError, match="mem0_v5_receipt_unknown_mark_failed"):
+        service.recover_after_crash()
+    assert service.state is Mem0OssFullRunState.RECONCILIATION_REQUIRED
+    assert all(
+        item.state is Mem0OssOperationState.DISPATCHED
+        for item in service.operation_recovery_states()
+    )
+    with pytest.raises(
+        Mem0OssFullRunError,
+        match="mem0_v5_reconciliation_operation_invalid",
+    ):
+        service.reconcile_receipt_readback(
+            unit_index=0,
+            receipt_payload={"receipt": "safe"},
+        )
+
+    assert service.recover_after_crash() == ()
+    assert [context.operation_id_sha256 for context in receipt.mark_contexts] == [
+        service.operation_recovery_states()[0].operation_id_sha256,
+        service.operation_recovery_states()[1].operation_id_sha256,
+        service.operation_recovery_states()[0].operation_id_sha256,
+        service.operation_recovery_states()[1].operation_id_sha256,
+        service.operation_recovery_states()[2].operation_id_sha256,
+    ]
+    for index in range(3):
+        service.reconcile_receipt_readback(
+            unit_index=index,
+            receipt_payload={"receipt": "safe"},
+        )
+    assert service.state is Mem0OssFullRunState.ACTIVE
 
 
 def test_crash_unknown_can_abort_with_exact_zero_residue_cleanup() -> None:

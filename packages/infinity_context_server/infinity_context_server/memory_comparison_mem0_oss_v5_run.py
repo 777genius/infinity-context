@@ -247,13 +247,27 @@ class Mem0OssFullRunService:
         self._verify_and_apply_receipt(operation, receipt_payload, readback_only=False)
 
     def recover_after_crash(self) -> tuple[int, ...]:
-        if self._state is not Mem0OssFullRunState.ACTIVE:
+        if self._state not in {
+            Mem0OssFullRunState.ACTIVE,
+            Mem0OssFullRunState.RECONCILIATION_REQUIRED,
+        }:
             raise Mem0OssFullRunError("mem0_v5_recovery_state_invalid")
         resumable: list[int] = []
+        dispatched: list[_Operation] = []
         for unit_index, operation in sorted(self._operations.items()):
             if operation.state is Mem0OssOperationState.RESERVED:
                 resumable.append(unit_index)
             elif operation.state is Mem0OssOperationState.DISPATCHED:
+                dispatched.append(operation)
+        if dispatched:
+            self._state = Mem0OssFullRunState.RECONCILIATION_REQUIRED
+            for operation in dispatched:
+                context = self._receipt_context(operation, readback_only=False)
+                try:
+                    self._receipt_port.mark_outcome_unknown(context=context)
+                except Exception:
+                    raise Mem0OssFullRunError("mem0_v5_receipt_unknown_mark_failed") from None
+            for operation in dispatched:
                 operation.state = Mem0OssOperationState.RECONCILIATION_REQUIRED
         if any(
             operation.state is Mem0OssOperationState.RECONCILIATION_REQUIRED
@@ -487,15 +501,7 @@ class Mem0OssFullRunService:
     def _verify_and_apply_receipt(
         self, operation: _Operation, payload: object, *, readback_only: bool
     ) -> None:
-        context = RuntimeReceiptVerificationContext(
-            admission_commitment_sha256=self.admission.commitment_sha256,
-            operation_id_sha256=operation.operation_id_sha256,
-            unit_identity_sha256=operation.unit.unit_identity_sha256,
-            unit_sha256=operation.unit.unit_sha256,
-            route_sha256=self.admission.request.route_sha256,
-            scope_sha256=operation.unit.scope_sha256,
-            readback_only=readback_only,
-        )
+        context = self._receipt_context(operation, readback_only=readback_only)
         if readback_only:
             try:
                 result = self._receipt_port.verify_status_readback(
@@ -524,6 +530,22 @@ class Mem0OssFullRunService:
             self._state = Mem0OssFullRunState.FAILED
             raise Mem0OssFullRunError("mem0_v5_receipt_disposition_not_successful")
         operation.state = Mem0OssOperationState.RECEIPT_VERIFIED
+
+    def _receipt_context(
+        self,
+        operation: _Operation,
+        *,
+        readback_only: bool,
+    ) -> RuntimeReceiptVerificationContext:
+        return RuntimeReceiptVerificationContext(
+            admission_commitment_sha256=self.admission.commitment_sha256,
+            operation_id_sha256=operation.operation_id_sha256,
+            unit_identity_sha256=operation.unit.unit_identity_sha256,
+            unit_sha256=operation.unit.unit_sha256,
+            route_sha256=self.admission.request.route_sha256,
+            scope_sha256=operation.unit.scope_sha256,
+            readback_only=readback_only,
+        )
 
     @staticmethod
     def _receipt_witness(

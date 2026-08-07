@@ -7,6 +7,7 @@ import os
 from dataclasses import replace
 from pathlib import Path
 
+import infinity_context_server.memory_comparison_managed_mem0_v5_http_lane as http_lane_module
 import pytest
 from infinity_context_server.memory_comparison_managed_mem0_v5_checkpoint import (
     AtomicJsonManagedMem0V5CheckpointStore,
@@ -26,6 +27,9 @@ from infinity_context_server.memory_comparison_managed_mem0_v5_http_lane import 
 from infinity_context_server.memory_comparison_managed_mem0_v5_request_binding import (
     ManagedMem0V5RequestBindingContext,
     ManagedMem0V5RequestBindingReceipt,
+)
+from infinity_context_server.memory_comparison_managed_mem0_v5_storage_witness import (
+    create_managed_mem0_v5_storage_witness_authority,
 )
 from infinity_context_server.memory_comparison_mem0_oss_v5_contracts import (
     CleanupVerificationContext,
@@ -73,8 +77,59 @@ class _EvidenceKey:
         return KEY
 
 
+_DESCRIPTOR_SECRET = "descriptor-secret-must-not-leak"
+
+
+class _RaisingDescriptor:
+    def __get__(self, instance: object, owner: type[object]) -> object:
+        raise RuntimeError(_DESCRIPTOR_SECRET)
+
+
+class _RaisingConsumeCapability:
+    consume = _RaisingDescriptor()
+
+    def __init__(self) -> None:
+        self.calls = 0
+
+
+def _noop(*_args: object, **_kwargs: object) -> None:
+    return None
+
+
+def _raising_collaborator(attribute: str, *, before: tuple[str, ...] = ()) -> object:
+    attributes: dict[str, object] = {name: _noop for name in before}
+    attributes[attribute] = _RaisingDescriptor()
+    return type("_RaisingCollaborator", (), attributes)()
+
+
+def test_evidence_key_raising_consume_descriptor_is_safe() -> None:
+    capability = _RaisingConsumeCapability()
+    issuer, _ = create_managed_mem0_v5_storage_witness_authority()
+    with pytest.raises(Mem0V5HttpError) as raised:
+        HmacSha256ManagedMem0V5EvidenceVerifier(
+            key_capability=capability,
+            storage_witness_issuer=issuer,
+        )
+    assert raised.value.code == "mem0_v5_http_configuration_invalid"
+    assert str(raised.value) == "mem0_v5_http_configuration_invalid"
+    assert capability.calls == 0
+
+
+def test_invalid_storage_witness_issuer_does_not_consume_evidence_key() -> None:
+    capability = _EvidenceKey()
+    with pytest.raises(Mem0V5HttpError, match="configuration_invalid"):
+        HmacSha256ManagedMem0V5EvidenceVerifier(
+            key_capability=capability,
+            storage_witness_issuer=object(),
+        )
+    assert capability.calls == 0
+
+
 def _verifier() -> HmacSha256ManagedMem0V5EvidenceVerifier:
-    return HmacSha256ManagedMem0V5EvidenceVerifier(key_capability=_EvidenceKey())
+    issuer, _ = create_managed_mem0_v5_storage_witness_authority()
+    return HmacSha256ManagedMem0V5EvidenceVerifier(
+        key_capability=_EvidenceKey(), storage_witness_issuer=issuer
+    )
 
 
 def _observation(records: list[dict[str, object]]) -> dict[str, object]:
@@ -140,7 +195,7 @@ def test_storage_hmac_accepts_zero_records_and_binds_trusted_unit() -> None:
     )
     assert result.created_record_ids == ()
     assert result.unit_identity_sha256 == UNIT
-    assert result.source_pairs[0].source_id == "source-1"
+    assert result.source_pairs[0][0] == "source-1"
 
 
 @pytest.mark.parametrize("field", ["scope_sha256", "record_count", "observation_hmac_sha256"])
@@ -218,6 +273,151 @@ class _Binding:
             admission.request.expected_operation_count,
             aborting,
         )
+
+
+@pytest.mark.parametrize(
+    ("argument", "attribute", "before"),
+    (
+        ("evidence_verifier", "verify_storage", ()),
+        ("evidence_verifier", "verify_search", ("verify_storage",)),
+        ("dispatch_binding", "verify_request_binding", ()),
+        ("cleanup_binding", "cleanup_context", ()),
+        ("transport", "request", ()),
+    ),
+)
+def test_http_lane_raising_collaborator_descriptor_is_safe_before_consume(
+    argument: str, attribute: str, before: tuple[str, ...]
+) -> None:
+    bearer = _Bearer()
+    kwargs = {
+        "origin": "http://127.0.0.1:19091",
+        "bearer_capability": bearer,
+        "timeout_seconds": 1,
+        "evidence_verifier": _verifier(),
+        "dispatch_binding": _Binding(),
+        "cleanup_binding": _Binding(),
+        "transport": _Transport({}),
+    }
+    kwargs[argument] = _raising_collaborator(attribute, before=before)
+    with pytest.raises(Mem0V5HttpError) as raised:
+        ManagedMem0V5HttpLane(**kwargs)
+    assert raised.value.code == "mem0_v5_http_configuration_invalid"
+    assert str(raised.value) == "mem0_v5_http_configuration_invalid"
+    assert _DESCRIPTOR_SECRET not in str(raised.value)
+    assert bearer.calls == 0
+
+
+def test_http_lane_raising_bearer_consume_descriptor_is_safe() -> None:
+    bearer = _RaisingConsumeCapability()
+    with pytest.raises(Mem0V5HttpError) as raised:
+        ManagedMem0V5HttpLane(
+            origin="http://127.0.0.1:19091",
+            bearer_capability=bearer,
+            timeout_seconds=1,
+            evidence_verifier=_verifier(),
+            dispatch_binding=_Binding(),
+            cleanup_binding=_Binding(),
+            transport=_Transport({}),
+        )
+    assert raised.value.code == "mem0_v5_http_configuration_invalid"
+    assert _DESCRIPTOR_SECRET not in str(raised.value)
+    assert bearer.calls == 0
+
+
+def test_http_lane_raising_default_transport_constructor_is_safe(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class _RaisingDefaultTransport:
+        def __init__(self) -> None:
+            raise RuntimeError(_DESCRIPTOR_SECRET)
+
+    bearer = _Bearer()
+    monkeypatch.setattr(http_lane_module, "_HttpxTransport", _RaisingDefaultTransport)
+    with pytest.raises(Mem0V5HttpError) as raised:
+        ManagedMem0V5HttpLane(
+            origin="http://127.0.0.1:19091",
+            bearer_capability=bearer,
+            timeout_seconds=1,
+            evidence_verifier=_verifier(),
+            dispatch_binding=_Binding(),
+            cleanup_binding=_Binding(),
+        )
+    assert raised.value.code == "mem0_v5_http_configuration_invalid"
+    assert _DESCRIPTOR_SECRET not in str(raised.value)
+    assert bearer.calls == 0
+
+
+class _InvalidBearerWithRaisingClose:
+    close = _RaisingDescriptor()
+
+    def __init__(self) -> None:
+        self.calls = 0
+
+    def consume(self) -> str:
+        self.calls += 1
+        return "short"
+
+
+def test_http_lane_raising_close_does_not_mask_post_consume_primary_error() -> None:
+    bearer = _InvalidBearerWithRaisingClose()
+    with pytest.raises(Mem0V5HttpError) as raised:
+        ManagedMem0V5HttpLane(
+            origin="http://127.0.0.1:19091",
+            bearer_capability=bearer,
+            timeout_seconds=1,
+            evidence_verifier=_verifier(),
+            dispatch_binding=_Binding(),
+            cleanup_binding=_Binding(),
+            transport=_Transport({}),
+        )
+    assert raised.value.code == "mem0_v5_http_configuration_invalid"
+    assert _DESCRIPTOR_SECRET not in str(raised.value)
+    assert bearer.calls == 1
+
+
+@pytest.mark.parametrize(
+    "invalid",
+    ("origin", "timeout", "evidence", "dispatch", "cleanup", "transport"),
+)
+def test_http_lane_invalid_non_secret_configuration_does_not_consume_bearer(
+    invalid: str,
+) -> None:
+    bearer = _Bearer()
+    kwargs = {
+        "origin": "http://127.0.0.1:19091",
+        "bearer_capability": bearer,
+        "timeout_seconds": 1,
+        "evidence_verifier": _verifier(),
+        "dispatch_binding": _Binding(),
+        "cleanup_binding": _Binding(),
+        "transport": _Transport({}),
+    }
+    replacements = {
+        "origin": ("origin", "https://example.test"),
+        "timeout": ("timeout_seconds", 0),
+        "evidence": ("evidence_verifier", object()),
+        "dispatch": ("dispatch_binding", object()),
+        "cleanup": ("cleanup_binding", object()),
+        "transport": ("transport", object()),
+    }
+    name, value = replacements[invalid]
+    kwargs[name] = value
+    with pytest.raises(Mem0V5HttpError, match="configuration_invalid"):
+        ManagedMem0V5HttpLane(**kwargs)
+    assert bearer.calls == 0
+
+
+def test_http_lane_default_transport_prevalidates_and_consumes_bearer_once() -> None:
+    bearer = _Bearer()
+    ManagedMem0V5HttpLane(
+        origin="http://127.0.0.1:19091",
+        bearer_capability=bearer,
+        timeout_seconds=1,
+        evidence_verifier=_verifier(),
+        dispatch_binding=_Binding(),
+        cleanup_binding=_Binding(),
+    )
+    assert bearer.calls == 1
 
 
 class _Response:
@@ -542,7 +742,10 @@ def test_server_storage_verifier_binds_memory_and_storage_commitments() -> None:
 
 def test_evidence_key_capability_is_consumed_once_and_exposes_only_commitment() -> None:
     capability = _EvidenceKey()
-    verifier = HmacSha256ManagedMem0V5EvidenceVerifier(key_capability=capability)
+    issuer, _ = create_managed_mem0_v5_storage_witness_authority()
+    verifier = HmacSha256ManagedMem0V5EvidenceVerifier(
+        key_capability=capability, storage_witness_issuer=issuer
+    )
     assert capability.calls == 1
     assert verifier.key_commitment_sha256 == hashlib.sha256(KEY).hexdigest()
     assert KEY.hex() not in repr(verifier)
