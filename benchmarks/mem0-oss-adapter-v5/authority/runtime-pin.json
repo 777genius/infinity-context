@@ -18,7 +18,7 @@
   },
   "phase_c": {
     "copied_package_closure_algorithm": "sha256(sorted(path + NUL + size + NUL + sha256 + LF))",
-    "copied_package_closure_sha256": "8a86d12bff21c9ceea729b789e7d1fdd1aefba4297fac9ad3940360a00983dd2",
+    "copied_package_closure_sha256": "e2d9ea9e631e6db028e9c1a7794200394877ecc7ad5838562b7a5387c488507a",
     "copied_package_file_count": 19,
     "infinity_source_commit_sha1": "9499b9c2cf3842c4fe3bbe78a601b278cf00ba43",
     "infinity_source_tree_sha1": "4c3bdda2d8af70f3e3f94cac0925d03d380875be",
@@ -56,11 +56,11 @@
   "schema_version": "mem0-oss-adapter-v5.runtime-pin.v1",
   "source_a": {
     "closure_algorithm": "sha256(sorted(path + NUL + size + NUL + sha256 + LF))",
-    "closure_sha256": "e07cf53eb260620c4b6ddf5c52c4d7fac50064df14db5c25a079fba2f2cecad6",
-    "commit_sha1": "4b02da3f03346de21387cd09e4bbda7fa4a84fcc",
+    "closure_sha256": "4bfcd6fe9a82621275f0dd217757729179869d9f1f4de459dbd61935f66ac582",
+    "commit_sha1": "2175fde46226e5612ea193640af3044d9f4c1229",
     "manifest_file_count": 57,
-    "manifest_sha256": "29b789c94c2741b31782233585b25b4674cdebebc46929143b81de25f9a3cae4",
-    "tree_sha1": "c0623f283f596acf3877e8218753e102416d4b20"
+    "manifest_sha256": "1aba274f43f095c84b94d1564b928ca213f1b013d5cb12426a627f6da214df03",
+    "tree_sha1": "6417b29927677574d1e72db2a7d7f6d6f4535a89"
   },
   "subscription_runtime": {
     "artifact_manifest_sha256": "789018b5b15a1299252895babdc550c3d5322c54a1d9c82656f93d31423a0850",
