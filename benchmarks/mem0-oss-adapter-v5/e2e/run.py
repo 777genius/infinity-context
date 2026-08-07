@@ -27,6 +27,7 @@ def main() -> None:
     parser.add_argument("--node", type=Path, required=True)
     parser.add_argument("--compose-file", type=Path, required=True)
     parser.add_argument("--project-name", required=True)
+    parser.add_argument("--lifecycle-fd", type=int, required=True)
     parser.add_argument("--adapter-port", type=int, default=19091)
     parser.add_argument("--qdrant-port", type=int, default=6334)
     args = parser.parse_args()
@@ -75,8 +76,7 @@ def main() -> None:
             args.run_root / "fake-runtime" / "counter.json", key=receipt_secret
         ),
         lifecycle=DockerAdapterLifecycle(
-            compose_file=args.compose_file,
-            project_name=args.project_name,
+            lifecycle_fd=args.lifecycle_fd,
             host_port=args.adapter_port,
         ),
         operation_state_path=state_root / "operations.sqlite3",

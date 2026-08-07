@@ -12,9 +12,6 @@ services:
     pids_limit: 64
     mem_limit: 128m
     cpus: 0.25
-    ports:
-      - "127.0.0.1:${MEM0_V5_E2E_ADAPTER_HOST_PORT:-19091}:29091"
-      - "127.0.0.1:${MEM0_V5_E2E_QDRANT_HOST_PORT:-6334}:26334"
     tmpfs:
       - /tmp:size=8m,mode=1770,uid=65532,gid=65532
     networks:

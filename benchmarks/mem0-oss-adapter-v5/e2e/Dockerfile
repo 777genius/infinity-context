@@ -7,4 +7,4 @@ COPY . ./e2e
 RUN python -m compileall -q /app/e2e \
     && find /app -type d -name __pycache__ -prune -exec rm -rf '{}' +
 USER 65532:65532
-CMD ["python", "-m", "e2e.gateway"]
+CMD ["python", "-m", "e2e.anchor"]
