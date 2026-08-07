@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import os
 import sqlite3
 import stat
@@ -74,6 +75,31 @@ def test_exact_state_machine_and_reopen(tmp_path: Path) -> None:
         reopened.verify_inventory([_sha("a")])
     finally:
         reopened.close()
+
+
+def test_bulk_authenticated_state_snapshot_uses_one_operation_query(tmp_path: Path) -> None:
+    state = SqliteOperationState(_path(tmp_path), hmac_key=_KEY)
+    identities = tuple(
+        hashlib.sha256(f"identity-{index}".encode()).hexdigest() for index in range(64)
+    )
+    for index, identity in enumerate(identities):
+        request = hashlib.sha256(f"request-{index}".encode()).hexdigest()
+        state.admit(identity, request)
+    statements: list[str] = []
+    state._connection.set_trace_callback(statements.append)
+
+    records = state.get_many(reversed(identities))
+
+    state._connection.set_trace_callback(None)
+    operation_selects = [
+        statement
+        for statement in statements
+        if statement.lstrip().upper().startswith("SELECT")
+        and "FROM OPERATIONS_V2" in statement.upper()
+    ]
+    assert tuple(item.unit_identity_sha256 for item in records) == tuple(reversed(identities))
+    assert len(operation_selects) == 1
+    state.close()
 
 
 def test_crash_after_dispatch_is_quarantined_and_never_redispatched(tmp_path: Path) -> None:

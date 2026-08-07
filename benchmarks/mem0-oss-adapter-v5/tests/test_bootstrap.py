@@ -31,7 +31,11 @@ def test_invalid_source_pin_fails_before_runtime_state_or_provider_initializatio
 
     monkeypatch.setattr(bootstrap, "SealedInputManifest", lambda _path: object())
     monkeypatch.setattr(bootstrap, "_required_environment", lambda _name: "/tmp/value")
-    monkeypatch.setattr(bootstrap, "_read_secret_file", lambda _name: "a" * 64)
+    monkeypatch.setattr(
+        bootstrap,
+        "_read_secret_file",
+        lambda name: ("b" if name == "MEM0_V5_RESULT_HMAC_FILE" else "a") * 64,
+    )
     monkeypatch.setattr(bootstrap, "_read_pinned_digest_file", lambda _name: "a" * 64)
     monkeypatch.setattr(bootstrap, "verify_source_authority", reject_authority)
     monkeypatch.setattr(bootstrap, "_receipt_authority", forbidden("receipt-runtime"))
@@ -41,6 +45,14 @@ def test_invalid_source_pin_fails_before_runtime_state_or_provider_initializatio
     with pytest.raises(InvalidPin):
         bootstrap.build_app_from_environment()
     assert events == ["source-authority"]
+
+
+def test_state_and_result_hmac_keys_must_be_distinct(monkeypatch) -> None:
+    monkeypatch.setattr(bootstrap, "SealedInputManifest", lambda _path: object())
+    monkeypatch.setattr(bootstrap, "_required_environment", lambda _name: "/tmp/value")
+    monkeypatch.setattr(bootstrap, "_read_secret_file", lambda _name: "a" * 64)
+    with pytest.raises(ValueError, match="adapter_configuration_invalid"):
+        bootstrap.build_app_from_environment()
 
 
 def test_tampered_phase_c_authority_blocks_runtime_binding_issue(monkeypatch) -> None:

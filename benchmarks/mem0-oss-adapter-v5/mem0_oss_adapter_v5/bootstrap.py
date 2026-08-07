@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import hashlib
+import hmac
 import os
 import stat
 from contextlib import suppress
@@ -34,6 +35,9 @@ def build_app_from_environment():
     manifest = SealedInputManifest(Path(_required_environment("MEM0_V5_INPUT_MANIFEST_FILE")))
     state_path = Path(_required_environment("MEM0_V5_STATE_DB_FILE"))
     state_key = _read_secret_file("MEM0_V5_STATE_HMAC_FILE").encode()
+    result_hmac_key = _read_secret_file("MEM0_V5_RESULT_HMAC_FILE").encode()
+    if hmac.compare_digest(state_key, result_hmac_key):
+        raise ValueError("adapter_configuration_invalid")
     ingress = _read_secret_file("MEM0_V5_INGRESS_BEARER_FILE")
     runtime_bearer = _read_secret_file("MEM0_V5_RUNTIME_BEARER_FILE")
     receipt_secret = _read_secret_file("MEM0_V5_RECEIPT_SECRET_FILE")
@@ -67,7 +71,7 @@ def build_app_from_environment():
         expected_base_instructions_sha256=base_instructions,
         storage=storage,
         receipt_directory=state_path.parent / "receipts",
-        result_hmac_key=state_key,
+        result_hmac_key=result_hmac_key,
         source_authority=source_authority,
         runtime_binding_commitment_sha256=receipt_bundle.binding_commitment_sha256,
         runtime_source_sha256=receipt_bundle.runtime_source_sha256,

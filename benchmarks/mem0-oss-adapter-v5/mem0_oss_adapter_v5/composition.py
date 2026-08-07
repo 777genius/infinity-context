@@ -33,6 +33,11 @@ from mem0_oss_adapter_v5.domain import (
     canonical_json_bytes,
     canonical_sha256,
 )
+from mem0_oss_adapter_v5.evidence_contracts import ExpectedMemoryCommitment
+from mem0_oss_adapter_v5.evidence_service import (
+    AuthenticatedEvidenceService,
+    ManifestEvidenceContext,
+)
 from mem0_oss_adapter_v5.extraction_contract import build_extraction_request
 from mem0_oss_adapter_v5.http_models import (
     AdmissionReceipt,
@@ -42,9 +47,14 @@ from mem0_oss_adapter_v5.http_models import (
     DispatchRequest,
     RuntimeReceiptEnvelope,
     RuntimeReceiptV2,
+    ScopedSearchRequest,
+    ScopedSearchResponse,
     StatusRequest,
+    StorageObservationRequest,
+    StorageObservationResponse,
 )
 from mem0_oss_adapter_v5.mem0_storage import (
+    Mem0EvidenceStorage,
     Mem0StorageAdapter,
     StorageMemory,
     StorageScope,
@@ -132,6 +142,8 @@ class V5AdapterService:
             runtime_transport_origin_sha256=_digest(runtime_transport_origin_sha256),
         )
         self._admission: str | None = None
+        self._committed_memory_ids: dict[str, tuple[str, ...]] = {}
+        self._evidence_service_instance: AuthenticatedEvidenceService | None = None
         self._lock = threading.RLock()
 
     def admit(self, request: AdmitRequest, *, idempotency_key: str) -> AdmissionReceipt:
@@ -250,6 +262,30 @@ class V5AdapterService:
                 )
             )
 
+    def storage_observation(
+        self,
+        request: StorageObservationRequest,
+        *,
+        idempotency_key: str,
+    ) -> StorageObservationResponse:
+        with self._lock:
+            return self._evidence_service().storage_observation(
+                request,
+                idempotency_key=idempotency_key,
+            )
+
+    def scoped_search(
+        self,
+        request: ScopedSearchRequest,
+        *,
+        idempotency_key: str,
+    ) -> ScopedSearchResponse:
+        with self._lock:
+            return self._evidence_service().scoped_search(
+                request,
+                idempotency_key=idempotency_key,
+            )
+
     def cleanup(self, request: CleanupRequest, *, idempotency_key: str) -> CleanupReceipt:
         del idempotency_key
         with self._lock:
@@ -363,6 +399,44 @@ class V5AdapterService:
             operations=tuple(operations),
             aborting=aborting,
         )
+
+    def _evidence_service(self) -> AuthenticatedEvidenceService:
+        if self._evidence_service_instance is None:
+            context = ManifestEvidenceContext(
+                manifest=self._manifest,
+                state=self._state,
+                admission=lambda: self._admission,
+                operation_id=self._operation_id,
+                storage_authority=self._evidence_storage_authority,
+            )
+            self._evidence_service_instance = AuthenticatedEvidenceService(
+                context=context,
+                storage=Mem0EvidenceStorage(self._storage.backend),
+                hmac_key=self._result_hmac_key,
+            )
+        return self._evidence_service_instance
+
+    def _evidence_storage_authority(
+        self,
+        unit: _InputUnit,
+        record: OperationRecord,
+    ) -> tuple[tuple[ExpectedMemoryCommitment, ...], str]:
+        if record.state is not OperationState.COMMITTED or record.storage_commitment_sha256 is None:
+            raise AdapterServiceError("run_state_invalid", status_code=503)
+        try:
+            result = self._read_result(self._operation_id(unit), expected=unit, record=record)
+            expected = tuple(
+                ExpectedMemoryCommitment(
+                    extraction_memory_id=item.id,
+                    memory_sha256=hashlib.sha256(item.text.encode()).hexdigest(),
+                )
+                for item in result.memories
+            )
+            if len({item.extraction_memory_id for item in expected}) != len(expected):
+                raise ValueError("duplicate durable extraction identity")
+            return expected, record.storage_commitment_sha256
+        except Exception:
+            raise AdapterServiceError("run_state_invalid", status_code=503) from None
 
     def _clean_unit(
         self,
@@ -677,7 +751,10 @@ class V5AdapterService:
             self._state.commit(unit.unit_identity_sha256)
             record = self._state.get(unit.unit_identity_sha256)
         if record.state is OperationState.COMMITTED:
-            self._read_result(operation_id, expected=unit, record=record)
+            result = self._read_result(operation_id, expected=unit, record=record)
+            self._committed_memory_ids[unit.unit_identity_sha256] = tuple(
+                item.id for item in result.memories
+            )
 
     def _verify_storage_exact(
         self,

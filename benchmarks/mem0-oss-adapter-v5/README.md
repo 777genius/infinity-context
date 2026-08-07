@@ -32,3 +32,8 @@ The input directory is mounted read-only; the private state directory is the onl
 The host must run the dedicated receipt-v2-capable immutable e904 runtime on port `8891`. Port
 `8890` remains the canonical logical authority route and is never used as this adapter's HTTP
 transport endpoint.
+
+## Authentication key isolation
+
+State authentication and durable-result/evidence authentication use distinct mandatory keys.
+MEM0_V5_STATE_HMAC_FILE authenticates SQLite state only. MEM0_V5_RESULT_HMAC_FILE authenticates durable result artifacts and domain-separated storage/search evidence receipts. Startup fails closed when the two secret values are equal.

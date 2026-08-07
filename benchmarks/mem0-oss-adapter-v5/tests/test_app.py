@@ -10,6 +10,8 @@ from mem0_oss_adapter_v5.http_models import (
     AdmissionReceipt,
     CleanupReceipt,
     RuntimeReceiptEnvelope,
+    ScopedSearchResponse,
+    StorageObservationResponse,
 )
 
 _TOKEN = "t" * 32
@@ -106,6 +108,60 @@ class _FakeService:
             deleted_operation_count=request.expected_operation_count,
             residual_record_count=0,
             residual_root_sha256=hashlib.sha256(b"").hexdigest(),
+        )
+
+    def storage_observation(self, request, *, idempotency_key: str) -> StorageObservationResponse:
+        self.calls.append("storage_observation")
+        records = (
+            {
+                "record_id": "provider-1",
+                "extraction_memory_id": "0",
+                "source_id": "source-1",
+                "source_sha256": _sha("source"),
+                "memory_sha256": _sha("memory"),
+            },
+        )
+        return StorageObservationResponse.model_validate(
+            {
+                "schema_version": "mem0-oss-adapter-v5.storage-observation.v1",
+                "admission_commitment_sha256": request.admission_commitment_sha256,
+                "operation_id_sha256": request.operation_id_sha256,
+                "scope_sha256": _sha("scope"),
+                "source_id": "source-1",
+                "source_sha256": _sha("source"),
+                "storage_commitment_sha256": _sha("storage"),
+                "record_count": 1,
+                "record_root_sha256": _sha("record-root"),
+                "records": records,
+                "observation_hmac_sha256": _sha("observation-hmac"),
+            }
+        )
+
+    def scoped_search(self, request, *, idempotency_key: str) -> ScopedSearchResponse:
+        self.calls.append("scoped_search")
+        results = (
+            {
+                "rank": 0,
+                "record_id": "provider-1",
+                "memory": "sanitized memory",
+                "memory_sha256": _sha("sanitized memory"),
+                "source_id": "source-1",
+                "source_sha256": _sha("source"),
+                "score": 0.75,
+            },
+        )
+        return ScopedSearchResponse.model_validate(
+            {
+                "schema_version": "mem0-oss-adapter-v5.scoped-search.v1",
+                "admission_commitment_sha256": request.admission_commitment_sha256,
+                "corpus_id": request.corpus_id,
+                "query_commitment_sha256": _sha(request.query),
+                "limit": request.limit,
+                "result_count": 1,
+                "result_root_sha256": _sha("result-root"),
+                "results": results,
+                "search_hmac_sha256": _sha("search-hmac"),
+            }
         )
 
 
@@ -239,3 +295,35 @@ def test_oversized_body_is_rejected_before_parsing() -> None:
     assert response.status_code == 413
     assert response.json() == {"detail": "request_body_too_large"}
     assert service.calls == []
+
+
+def test_authenticated_evidence_routes_are_strict_and_never_echo_query() -> None:
+    service = _FakeService()
+    client = TestClient(create_app(service=service, bearer_token=_TOKEN))
+    observation = {
+        "admission_commitment_sha256": _sha("admission"),
+        "operation_id_sha256": _sha("operation"),
+    }
+    response = client.post(
+        "/v5/operations/storage-observation",
+        json=observation,
+        headers=_headers(observation),
+    )
+    assert response.status_code == 200
+    assert response.json()["records"][0]["record_id"] == "provider-1"
+
+    search = {
+        "admission_commitment_sha256": _sha("admission"),
+        "corpus_id": "corpus-1",
+        "query": "private benchmark question",
+        "limit": 10,
+    }
+    response = client.post("/v5/runs/search", json=search, headers=_headers(search))
+    assert response.status_code == 200
+    assert search["query"] not in response.text
+    assert service.calls == ["storage_observation", "scoped_search"]
+
+    invalid = {**search, "limit": 201}
+    response = client.post("/v5/runs/search", json=invalid, headers=_headers(invalid))
+    assert response.status_code == 422
+    assert service.calls == ["storage_observation", "scoped_search"]
