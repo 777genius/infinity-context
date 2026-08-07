@@ -48,6 +48,8 @@ _AUTHORITY_SCHEMA = "managed-mem0-v5-live-runtime-authority.v1"
 _SHA256_CHARS = frozenset("0123456789abcdef")
 _MAX_AUTHORITY_BYTES = 64 * 1024
 _REVIEWED_NODE_SHA256 = "b2959781cc5a74c357ffa02367efa8a0330cbb1c9cb347732fdfaaaca381cbcd"
+_MAX_PUBLIC_IMMUTABLE_BYTES = 32 * 1024 * 1024
+_REVIEWED_NODE_SIZE_BYTES = 123_438_592
 
 
 class SealView(Protocol):
@@ -889,13 +891,19 @@ def _image_id(value: str) -> None:
         raise ValueError("mem0_v5_live_image_id_invalid")
 
 
-def _verify_public_immutable(path: Path, expected: str, *, executable: bool) -> None:
+def _verify_public_immutable(
+    path: Path,
+    expected: str,
+    *,
+    executable: bool,
+    maximum_bytes: int = _MAX_PUBLIC_IMMUTABLE_BYTES,
+) -> None:
     if not path.is_absolute() or not _is_sha256(expected):
         raise ValueError("mem0_v5_live_public_immutable_invalid")
     allowed = {0o500, 0o550, 0o555, 0o700, 0o750, 0o755} if executable else {0o400, 0o440, 0o444}
     raw = _read_snapshot(
         path,
-        maximum_bytes=32 * 1024 * 1024,
+        maximum_bytes=maximum_bytes,
         allowed_modes=allowed,
         allowed_owners={0, os.geteuid()},
         code="mem0_v5_live_public_immutable_invalid",
@@ -912,7 +920,12 @@ def _verify_reviewed_node(path: Path, expected: str) -> None:
     if expected != _REVIEWED_NODE_SHA256 or canonical != path:
         raise ValueError("mem0_v5_live_node_authority_invalid")
     try:
-        _verify_public_immutable(path, expected, executable=True)
+        _verify_public_immutable(
+            path,
+            expected,
+            executable=True,
+            maximum_bytes=_REVIEWED_NODE_SIZE_BYTES,
+        )
     except ValueError:
         raise ValueError("mem0_v5_live_node_authority_invalid") from None
 

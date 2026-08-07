@@ -459,6 +459,40 @@ def test_attacker_node_fails_before_private_credentials_are_opened(
         subject._preflight(args)
 
 
+def test_reviewed_node_uses_exact_reviewed_binary_size_bound(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    node = tmp_path / "reviewed-node"
+    node.write_text("reviewed")
+    node.chmod(0o555)
+    observed: dict[str, object] = {}
+
+    def capture_public_authority(
+        path: Path,
+        expected: str,
+        *,
+        executable: bool,
+        maximum_bytes: int,
+    ) -> None:
+        observed.update(
+            path=path,
+            expected=expected,
+            executable=executable,
+            maximum_bytes=maximum_bytes,
+        )
+
+    monkeypatch.setattr(subject, "_verify_public_immutable", capture_public_authority)
+
+    subject._verify_reviewed_node(node, subject._REVIEWED_NODE_SHA256)
+
+    assert observed == {
+        "path": node,
+        "expected": subject._REVIEWED_NODE_SHA256,
+        "executable": True,
+        "maximum_bytes": 123_438_592,
+    }
+
+
 def test_production_factory_composes_observed_authority_and_durable_guard(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
