@@ -448,6 +448,23 @@ class ManagedMem0V5PairedRun:
                 raise ManagedRunError("managed Mem0 v5 paired clean-state evidence is missing")
             return self._authenticate_clean_state(self._clean_state)
 
+    @property
+    def abort_retry_required(self) -> bool:
+        """Expose only the safe recovery decision, never mutable internal state."""
+
+        with self._lock:
+            return self._state is _RunState.ABORT_RETRY
+
+    @property
+    def completed_terminal_evidence(self) -> Mem0OssTerminalCleanupEvidence:
+        """Return exact terminal evidence after an implicit abort completed."""
+
+        with self._lock:
+            if self._state is not _RunState.TERMINAL or self._terminal is None:
+                raise ManagedRunError("managed Mem0 v5 paired terminal evidence is missing")
+            self._terminal.__post_init__()
+            return self._terminal
+
     def corpus_ingest_evidence(self, *, corpus_id: str) -> ManagedMem0V5CorpusIngestEvidence:
         with self._lock:
             if (

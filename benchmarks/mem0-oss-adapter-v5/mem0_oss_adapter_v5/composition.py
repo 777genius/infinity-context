@@ -33,15 +33,14 @@ from mem0_oss_adapter_v5.domain import (
     canonical_json_bytes,
     canonical_sha256,
 )
+from mem0_oss_adapter_v5.evidence_composition import V5EvidenceComposition
 from mem0_oss_adapter_v5.evidence_contracts import ExpectedMemoryCommitment
-from mem0_oss_adapter_v5.evidence_service import (
-    AuthenticatedEvidenceService,
-    ManifestEvidenceContext,
-)
 from mem0_oss_adapter_v5.extraction_contract import build_extraction_request
 from mem0_oss_adapter_v5.http_models import (
     AdmissionReceipt,
     AdmitRequest,
+    CleanStateRequest,
+    CleanStateResponse,
     CleanupReceipt,
     CleanupRequest,
     DispatchRequest,
@@ -54,7 +53,6 @@ from mem0_oss_adapter_v5.http_models import (
     StorageObservationResponse,
 )
 from mem0_oss_adapter_v5.mem0_storage import (
-    Mem0EvidenceStorage,
     Mem0StorageAdapter,
     StorageMemory,
     StorageScope,
@@ -148,10 +146,22 @@ class V5AdapterService:
             runtime_route_binding_sha256=_digest(runtime_route_binding_sha256),
             runtime_transport_origin_sha256=_digest(runtime_transport_origin_sha256),
         )
+        self._runtime_source_sha256 = _digest(runtime_source_sha256)
         self._admission: str | None = None
         self._committed_memory_ids: dict[str, tuple[str, ...]] = {}
-        self._evidence_service_instance: AuthenticatedEvidenceService | None = None
-        self._request_binding_service_instance: RequestBindingService | None = None
+        self._evidence = V5EvidenceComposition(
+            manifest=manifest,
+            state=state,
+            backend=lambda: self._storage.backend,
+            current_admission=lambda: self._admission,
+            operation_id=self._operation_id,
+            extraction_request=self._extraction_request,
+            storage_authority=self._evidence_storage_authority,
+            runtime_binding_commitment_sha256=self._runtime_binding,
+            runtime_source_sha256=self._runtime_source_sha256,
+            evidence_directory=self._receipt_directory,
+            hmac_key=self._result_hmac_key,
+        )
         self._lock = threading.RLock()
 
     def admit(self, request: AdmitRequest, *, idempotency_key: str) -> AdmissionReceipt:
@@ -277,7 +287,7 @@ class V5AdapterService:
         idempotency_key: str,
     ) -> StorageObservationResponse:
         with self._lock:
-            return self._evidence_service().storage_observation(
+            return self._evidence.storage.storage_observation(
                 request,
                 idempotency_key=idempotency_key,
             )
@@ -290,13 +300,27 @@ class V5AdapterService:
     ) -> RequestBindingResponse | RequestBindingV2Response:
         with self._lock:
             try:
-                return self._request_binding_service().bind(
+                return self._evidence.request.bind(
                     request,
                     current_admission_commitment_sha256=self._admission,
                     idempotency_key=idempotency_key,
                 )
             except RequestBindingError as exc:
                 raise AdapterServiceError(exc.code, status_code=exc.status_code) from None
+
+    def clean_state(
+        self,
+        request: CleanStateRequest,
+        *,
+        idempotency_key: str,
+        request_commitment_sha256: str,
+    ) -> CleanStateResponse:
+        with self._lock:
+            return self._evidence.clean.prove_empty(
+                request,
+                idempotency_key=idempotency_key,
+                request_commitment_sha256=request_commitment_sha256,
+            )
 
     def scoped_search(
         self,
@@ -305,7 +329,7 @@ class V5AdapterService:
         idempotency_key: str,
     ) -> ScopedSearchResponse:
         with self._lock:
-            return self._evidence_service().scoped_search(
+            return self._evidence.storage.scoped_search(
                 request,
                 idempotency_key=idempotency_key,
             )
@@ -424,33 +448,6 @@ class V5AdapterService:
             aborting=aborting,
         )
 
-    def _evidence_service(self) -> AuthenticatedEvidenceService:
-        if self._evidence_service_instance is None:
-            context = ManifestEvidenceContext(
-                manifest=self._manifest,
-                state=self._state,
-                admission=lambda: self._admission,
-                operation_id=self._operation_id,
-                storage_authority=self._evidence_storage_authority,
-            )
-            self._evidence_service_instance = AuthenticatedEvidenceService(
-                context=context,
-                storage=Mem0EvidenceStorage(self._storage.backend),
-                hmac_key=self._result_hmac_key,
-            )
-        return self._evidence_service_instance
-
-    def _request_binding_service(self) -> RequestBindingService:
-        if self._request_binding_service_instance is None:
-            self._request_binding_service_instance = RequestBindingService(
-                manifest=self._manifest,
-                state=self._state,
-                extraction_request=self._extraction_request,
-                operation_id=self._operation_id,
-                result_hmac_key=self._result_hmac_key,
-            )
-        return self._request_binding_service_instance
-
     def _evidence_storage_authority(
         self,
         unit: _InputUnit,
@@ -472,6 +469,9 @@ class V5AdapterService:
             return expected, record.storage_commitment_sha256
         except Exception:
             raise AdapterServiceError("run_state_invalid", status_code=503) from None
+
+    def _request_binding_service(self) -> RequestBindingService:
+        return self._evidence.request
 
     def _clean_unit(
         self,

@@ -10,7 +10,7 @@ import threading
 import weakref
 from dataclasses import dataclass
 from pathlib import Path
-from typing import final
+from typing import Protocol, final
 from urllib.parse import urlsplit
 
 from infinity_context_server.memory_comparison_managed_mem0_v5_checkpoint import (
@@ -19,6 +19,9 @@ from infinity_context_server.memory_comparison_managed_mem0_v5_checkpoint import
 )
 from infinity_context_server.memory_comparison_managed_mem0_v5_cleanup_binding import (
     ManagedMem0V5ServiceCleanupBinding,
+)
+from infinity_context_server.memory_comparison_managed_mem0_v5_cleanup_readback import (
+    ManagedMem0V5CleanupPassTwoAdapter,
 )
 from infinity_context_server.memory_comparison_managed_mem0_v5_credentials import (
     ManagedMem0V5CredentialPaths,
@@ -36,7 +39,11 @@ from infinity_context_server.memory_comparison_managed_mem0_v5_http_lane import 
     ManagedMem0V5HttpLane,
 )
 from infinity_context_server.memory_comparison_managed_mem0_v5_lane import (
+    ManagedMem0V5BudgetPolicy,
     ManagedMem0V5LaneCoordinator,
+)
+from infinity_context_server.memory_comparison_managed_mem0_v5_paired_bridge import (
+    ManagedMem0V5PairedRun,
 )
 from infinity_context_server.memory_comparison_managed_mem0_v5_progress import (
     ManagedMem0V5CheckpointProgress,
@@ -45,7 +52,15 @@ from infinity_context_server.memory_comparison_managed_mem0_v5_projector import 
     ManagedMem0V5ManifestAuthority,
     ManagedMem0V5ManifestProjector,
 )
+from infinity_context_server.memory_comparison_managed_mem0_v5_run_evidence import (
+    ManagedMem0V5CleanStateSnapshotPort,
+    ManagedMem0V5CleanStateWitnessIssuerPort,
+    ManagedMem0V5CleanStateWitnessVerifierPort,
+    ManagedMem0V5DurableCleanStatePort,
+    create_managed_mem0_v5_clean_state_witness_authority,
+)
 from infinity_context_server.memory_comparison_managed_mem0_v5_storage_witness import (
+    ManagedMem0V5StorageWitnessVerifierPort,
     create_managed_mem0_v5_storage_witness_authority,
 )
 from infinity_context_server.memory_comparison_managed_mem0_v5_transport_evidence import (
@@ -78,14 +93,81 @@ from infinity_context_server.memory_comparison_mem0_oss_v5_observed_receipt impo
 from infinity_context_server.memory_comparison_mem0_oss_v5_run import Mem0OssFullRunService
 
 _COMPOSITION_RUNTIME_LOCK = threading.Lock()
-_COMPOSITION_RUNTIMES: dict[
-    int,
-    tuple[
-        weakref.ReferenceType[object],
-        Mem0OssFullRunAdmission,
-        ManagedMem0V5HttpLane,
-    ],
-] = {}
+
+
+@dataclass(slots=True)
+class _CompositionRuntime:
+    reference: weakref.ReferenceType[object]
+    admission: Mem0OssFullRunAdmission
+    lane: ManagedMem0V5HttpLane
+    storage_verifier: ManagedMem0V5StorageWitnessVerifierPort
+    cleanup_readback: ManagedMem0V5CleanupPassTwoAdapter
+    paired_runtime_issued: bool = False
+
+
+_COMPOSITION_RUNTIMES: dict[int, _CompositionRuntime] = {}
+_PAIRED_RUNTIME_LOCK = threading.RLock()
+_PAIRED_RUNTIMES: weakref.WeakKeyDictionary[ManagedMem0V5PairedRuntimeBundle, _PairedRuntimeState]
+
+
+class ManagedMem0V5CleanStateSnapshotFactoryPort(Protocol):
+    def create_snapshot_port(
+        self,
+        *,
+        authority: ManagedMem0V5ManifestAuthority,
+        admission: Mem0OssFullRunAdmission,
+        witness_issuer: ManagedMem0V5CleanStateWitnessIssuerPort,
+    ) -> ManagedMem0V5CleanStateSnapshotPort: ...
+
+
+class ManagedMem0V5DurableCleanStateFactoryPort(Protocol):
+    def create_durable_port(
+        self,
+        *,
+        witness_issuer: ManagedMem0V5CleanStateWitnessIssuerPort,
+        witness_verifier: ManagedMem0V5CleanStateWitnessVerifierPort,
+    ) -> ManagedMem0V5DurableCleanStatePort: ...
+
+
+@dataclass(frozen=True, slots=True)
+class _PairedRuntimeState:
+    composition: ManagedMem0V5Composition
+    paired_run: ManagedMem0V5PairedRun
+    storage_verifier: ManagedMem0V5StorageWitnessVerifierPort
+    cleanup_readback: ManagedMem0V5CleanupPassTwoAdapter
+
+
+@final
+class ManagedMem0V5PairedRuntimeBundle:
+    """Opaque, one-shot composition product with no lane or credential access."""
+
+    __slots__ = ("__weakref__",)
+
+    @property
+    def paired_run(self) -> ManagedMem0V5PairedRun:
+        return _paired_runtime(self).paired_run
+
+    @property
+    def storage_witness_verifier(self) -> ManagedMem0V5StorageWitnessVerifierPort:
+        return _paired_runtime(self).storage_verifier
+
+    @property
+    def cleanup_readback_capability(self) -> ManagedMem0V5CleanupPassTwoAdapter:
+        return _paired_runtime(self).cleanup_readback
+
+    def issue_transport_coverage(
+        self, *, benchmark: str, backend_role: str = "mem0"
+    ) -> ManagedTransportCoverageCapability:
+        return _paired_runtime(self).composition.issue_transport_coverage(
+            benchmark=benchmark,
+            backend_role=backend_role,
+        )
+
+    def __repr__(self) -> str:
+        return "ManagedMem0V5PairedRuntimeBundle(<opaque>)"
+
+    def __reduce__(self) -> object:
+        raise TypeError("ManagedMem0V5PairedRuntimeBundle is nonserializable")
 
 
 @final
@@ -142,6 +224,61 @@ class ManagedMem0V5Composition:
             admission=admission,
             observations=lane.transport_observations,
         )
+
+    def issue_paired_runtime(
+        self,
+        *,
+        budget_policy: ManagedMem0V5BudgetPolicy,
+        clean_state_snapshot_factory: ManagedMem0V5CleanStateSnapshotFactoryPort,
+        durable_clean_state_factory: ManagedMem0V5DurableCleanStateFactoryPort,
+    ) -> ManagedMem0V5PairedRuntimeBundle:
+        """Issue the sole paired runtime after factories provide real clean-state proof."""
+
+        if type(budget_policy) is not ManagedMem0V5BudgetPolicy:
+            raise ManagedRunError("managed Mem0 v5 paired runtime input is invalid")
+        snapshot_create = getattr(clean_state_snapshot_factory, "create_snapshot_port", None)
+        durable_create = getattr(durable_clean_state_factory, "create_durable_port", None)
+        if not callable(snapshot_create) or not callable(durable_create):
+            raise ManagedRunError("managed Mem0 v5 paired runtime input is invalid")
+        with _COMPOSITION_RUNTIME_LOCK:
+            runtime = _composition_runtime_locked(self)
+            if runtime.paired_runtime_issued:
+                raise ManagedRunError("managed Mem0 v5 paired runtime is already issued")
+            # Claim before invoking injected factories so retries cannot manufacture a
+            # second runtime after an indeterminate factory side effect.
+            runtime.paired_runtime_issued = True
+        issuer, verifier = create_managed_mem0_v5_clean_state_witness_authority()
+        try:
+            snapshot = snapshot_create(
+                authority=self.authority,
+                admission=runtime.admission,
+                witness_issuer=issuer,
+            )
+            durable = durable_create(
+                witness_issuer=issuer,
+                witness_verifier=verifier,
+            )
+            paired_run = ManagedMem0V5PairedRun(
+                authority=self.authority,
+                request=self.request,
+                budget_policy=budget_policy,
+                coordinator=self.coordinator,
+                clean_state_snapshot_port=snapshot,
+                clean_state_verifier=verifier,
+                durable_clean_state_port=durable,
+                storage_witness_verifier=runtime.storage_verifier,
+            )
+        except Exception:
+            raise ManagedRunError("managed Mem0 v5 paired runtime composition failed") from None
+        bundle = ManagedMem0V5PairedRuntimeBundle()
+        with _PAIRED_RUNTIME_LOCK:
+            _PAIRED_RUNTIMES[bundle] = _PairedRuntimeState(
+                self,
+                paired_run,
+                runtime.storage_verifier,
+                runtime.cleanup_readback,
+            )
+        return bundle
 
     def __repr__(self) -> str:
         return "ManagedMem0V5Composition(<opaque>)"
@@ -321,6 +458,11 @@ def compose_managed_mem0_v5(
         composition,
         admission=preflight.admission,
         lane=lane,
+        storage_verifier=witness_verifier,
+        cleanup_readback=ManagedMem0V5CleanupPassTwoAdapter(
+            cleanup_port=lane._control,
+            verification_port=ManagedMem0V5CleanupBridgeVerifier(),
+        ),
     )
     return composition
 
@@ -330,28 +472,54 @@ def _register_composition_runtime(
     *,
     admission: Mem0OssFullRunAdmission,
     lane: ManagedMem0V5HttpLane,
+    storage_verifier: ManagedMem0V5StorageWitnessVerifierPort,
+    cleanup_readback: ManagedMem0V5CleanupPassTwoAdapter,
 ) -> None:
     identity = id(composition)
 
     def remove(reference: weakref.ReferenceType[object]) -> None:
         with _COMPOSITION_RUNTIME_LOCK:
             current = _COMPOSITION_RUNTIMES.get(identity)
-            if current is not None and current[0] is reference:
+            if current is not None and current.reference is reference:
                 _COMPOSITION_RUNTIMES.pop(identity, None)
 
     reference = weakref.ref(composition, remove)
     with _COMPOSITION_RUNTIME_LOCK:
-        _COMPOSITION_RUNTIMES[identity] = (reference, admission, lane)
+        _COMPOSITION_RUNTIMES[identity] = _CompositionRuntime(
+            reference,
+            admission,
+            lane,
+            storage_verifier,
+            cleanup_readback,
+        )
 
 
 def _composition_runtime(
     composition: ManagedMem0V5Composition,
 ) -> tuple[Mem0OssFullRunAdmission, ManagedMem0V5HttpLane]:
     with _COMPOSITION_RUNTIME_LOCK:
-        runtime = _COMPOSITION_RUNTIMES.get(id(composition))
-        if runtime is None or runtime[0]() is not composition:
-            raise ManagedRunError("managed Mem0 v5 composition runtime is unavailable")
-        return runtime[1], runtime[2]
+        runtime = _composition_runtime_locked(composition)
+        return runtime.admission, runtime.lane
+
+
+def _composition_runtime_locked(composition: object) -> _CompositionRuntime:
+    if type(composition) is not ManagedMem0V5Composition:
+        raise ManagedRunError("managed Mem0 v5 composition runtime is unavailable")
+    runtime = _COMPOSITION_RUNTIMES.get(id(composition))
+    if runtime is None or runtime.reference() is not composition:
+        raise ManagedRunError("managed Mem0 v5 composition runtime is unavailable")
+    return runtime
+
+
+def _paired_runtime(bundle: object) -> _PairedRuntimeState:
+    if type(bundle) is not ManagedMem0V5PairedRuntimeBundle:
+        raise ManagedRunError("managed Mem0 v5 paired runtime is unavailable")
+    with _PAIRED_RUNTIME_LOCK:
+        state = _PAIRED_RUNTIMES.get(bundle)
+    if state is None:
+        raise ManagedRunError("managed Mem0 v5 paired runtime is unavailable")
+    _composition_runtime(state.composition)
+    return state
 
 
 def _require_public_binding(
@@ -512,8 +680,14 @@ def _require_trusted_runtime_inputs(
         raise ManagedRunError("managed Mem0 v5 composition runtime authority is invalid") from None
 
 
+_PAIRED_RUNTIMES = weakref.WeakKeyDictionary()
+
+
 __all__ = (
+    "ManagedMem0V5CleanStateSnapshotFactoryPort",
     "ManagedMem0V5Composition",
+    "ManagedMem0V5DurableCleanStateFactoryPort",
+    "ManagedMem0V5PairedRuntimeBundle",
     "ManagedMem0V5Preflight",
     "ManagedMem0V5StatePaths",
     "compose_managed_mem0_v5",
