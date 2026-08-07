@@ -569,7 +569,7 @@ class V5AdapterService:
             user_id=unit.corpus_id,
             run_id=self._admission,
             source_id=unit.source_id,
-            source_sha256=unit.unit_sha256,
+            source_sha256=unit.source_sha256,
         )
 
     def _extraction_request(self, unit: _InputUnit):

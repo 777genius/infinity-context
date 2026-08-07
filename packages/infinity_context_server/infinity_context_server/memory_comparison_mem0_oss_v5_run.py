@@ -30,6 +30,10 @@ from infinity_context_server.memory_comparison_mem0_oss_v5_contracts import (
     is_sha256,
     manifest_root_sha256,
 )
+from infinity_context_server.memory_comparison_mem0_oss_v5_recovery import (
+    Mem0OssOperationRecoveryState,
+    operation_recovery_states,
+)
 
 _WITNESS_TOKEN = object()
 
@@ -533,6 +537,11 @@ class Mem0OssFullRunService:
             self._state = Mem0OssFullRunState.RECONCILIATION_REQUIRED
         return tuple(resumable)
 
+    def operation_recovery_states(self) -> tuple[Mem0OssOperationRecoveryState, ...]:
+        """Expose stage and trusted storage identity, never private unit content."""
+
+        return operation_recovery_states(self._state, self._operations)
+
     def reconcile_receipt_readback(self, *, unit_index: int, receipt_payload: object) -> None:
         if self._state is not Mem0OssFullRunState.RECONCILIATION_REQUIRED:
             raise Mem0OssFullRunError("mem0_v5_reconciliation_state_invalid")
@@ -693,9 +702,10 @@ class Mem0OssFullRunService:
         if result.ingestion_root_sha256 != manifest_root_sha256(units):
             raise Mem0OssFullRunError("mem0_v5_manifest_root_mismatch")
         identities = [unit.unit_identity_sha256 for unit in units]
-        unit_hashes = [unit.unit_sha256 for unit in units]
-        if len(set(identities)) != len(identities) or len(set(unit_hashes)) != len(unit_hashes):
-            raise Mem0OssFullRunError("mem0_v5_manifest_duplicate_unit")
+        # Exact source content may legitimately repeat in different official turns.
+        # Scope-bound unit identities, not content hashes, define operation uniqueness.
+        if len(set(identities)) != len(identities):
+            raise Mem0OssFullRunError("mem0_v5_manifest_duplicate_unit_identity")
         return _ManifestWitness(result, _WITNESS_TOKEN)
 
     def _verify_and_apply_receipt(
@@ -942,7 +952,6 @@ def verify_mem0_oss_sealed_evidence_pages(
         len(items) != seal.operation_count
         or [item.unit_index for item in items] != list(range(seal.operation_count))
         or len({item.unit_identity_sha256 for item in items}) != len(items)
-        or len({item.unit_sha256 for item in items}) != len(items)
         or manifest_root_sha256(
             tuple(
                 Mem0OssManifestUnit(
@@ -976,6 +985,7 @@ __all__ = [
     "Mem0OssFailedReceiptEvidence",
     "Mem0OssFullRunService",
     "Mem0OssOperationEvidence",
+    "Mem0OssOperationRecoveryState",
     "Mem0OssRunSeal",
     "Mem0OssTerminalCleanupEvidence",
     "verify_mem0_oss_sealed_evidence_pages",

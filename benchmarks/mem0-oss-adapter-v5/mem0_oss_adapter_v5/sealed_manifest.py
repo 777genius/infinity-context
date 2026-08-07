@@ -10,7 +10,8 @@ from pathlib import Path
 
 from .domain import canonical_sha256
 
-_SCHEMA = "mem0-oss-adapter-v5.sealed-input.v1"
+_SCHEMA_V1 = "mem0-oss-adapter-v5.sealed-input.v1"
+_SCHEMA_V2 = "mem0-oss-adapter-v5.sealed-input.v2"
 
 
 @dataclass(frozen=True, slots=True)
@@ -18,6 +19,7 @@ class InputUnit:
     sequence: int
     unit_identity_sha256: str
     unit_sha256: str
+    source_sha256: str
     scope_sha256: str
     corpus_id: str
     source_id: str
@@ -41,7 +43,8 @@ class SealedInputManifest:
                 "sealed_payload_sha256",
             },
         )
-        if root["schema_version"] != _SCHEMA:
+        schema_version = root["schema_version"]
+        if type(schema_version) is not str or schema_version not in {_SCHEMA_V1, _SCHEMA_V2}:
             raise ValueError("sealed_input_invalid")
         self.ingestion_manifest_sha256 = _digest(root["ingestion_manifest_sha256"])
         self.ingestion_root_sha256 = _digest(root["ingestion_root_sha256"])
@@ -52,7 +55,10 @@ class SealedInputManifest:
         raw_units = root["units"]
         if type(raw_units) is not list or not 1 <= len(raw_units) <= 10_000:
             raise ValueError("sealed_input_invalid")
-        self.units = tuple(_unit(value, index) for index, value in enumerate(raw_units))
+        self.units = tuple(
+            _unit(value, index, schema_version=schema_version)
+            for index, value in enumerate(raw_units)
+        )
         if len({unit.unit_identity_sha256 for unit in self.units}) != len(self.units):
             raise ValueError("sealed_input_invalid")
         public = [
@@ -74,19 +80,22 @@ class SealedInputManifest:
             raise KeyError("operation_not_found") from None
 
 
-def _unit(value: object, sequence: int) -> InputUnit:
+def _unit(value: object, sequence: int, *, schema_version: object) -> InputUnit:
+    unit_keys = {
+        "sequence",
+        "unit_identity_sha256",
+        "unit_sha256",
+        "scope_sha256",
+        "corpus_id",
+        "source_id",
+        "observation_date",
+        "source_messages",
+    }
+    if schema_version == _SCHEMA_V2:
+        unit_keys.add("source_sha256")
     raw = _exact(
         value,
-        {
-            "sequence",
-            "unit_identity_sha256",
-            "unit_sha256",
-            "scope_sha256",
-            "corpus_id",
-            "source_id",
-            "observation_date",
-            "source_messages",
-        },
+        unit_keys,
     )
     messages = raw["source_messages"]
     if raw["sequence"] != sequence or type(messages) is not list or not messages:
@@ -96,14 +105,48 @@ def _unit(value: object, sequence: int) -> InputUnit:
         item = _exact(message, {"role", "content"})
         if item["role"] not in {"user", "assistant"} or type(item["content"]) is not str:
             raise ValueError("sealed_input_invalid")
+        if schema_version == _SCHEMA_V2 and (
+            not item["content"] or item["content"] != item["content"].strip()
+        ):
+            raise ValueError("sealed_input_invalid")
         normalized.append({"role": item["role"], "content": item["content"]})
+    unit_sha256 = _digest(raw["unit_sha256"])
+    source_sha256 = unit_sha256 if schema_version == _SCHEMA_V1 else _digest(raw["source_sha256"])
+    scope_sha256 = _digest(raw["scope_sha256"])
+    unit_identity_sha256 = _digest(raw["unit_identity_sha256"])
+    corpus_id = _text(raw["corpus_id"])
+    source_id = _text(raw["source_id"])
+    if schema_version == _SCHEMA_V2:
+        expected_unit = canonical_sha256({"source_messages": normalized})
+        expected_scope = canonical_sha256(
+            {
+                "corpus_id": corpus_id,
+                "source_id": source_id,
+                "source_sha256": source_sha256,
+                "unit_sha256": expected_unit,
+            }
+        )
+        expected_identity = canonical_sha256(
+            {
+                "sequence": sequence,
+                "scope_sha256": expected_scope,
+                "unit_sha256": expected_unit,
+            }
+        )
+        if (
+            unit_sha256 != expected_unit
+            or scope_sha256 != expected_scope
+            or unit_identity_sha256 != expected_identity
+        ):
+            raise ValueError("sealed_input_invalid")
     return InputUnit(
         sequence=sequence,
-        unit_identity_sha256=_digest(raw["unit_identity_sha256"]),
-        unit_sha256=_digest(raw["unit_sha256"]),
-        scope_sha256=_digest(raw["scope_sha256"]),
-        corpus_id=_text(raw["corpus_id"]),
-        source_id=_text(raw["source_id"]),
+        unit_identity_sha256=unit_identity_sha256,
+        unit_sha256=unit_sha256,
+        source_sha256=source_sha256,
+        scope_sha256=scope_sha256,
+        corpus_id=corpus_id,
+        source_id=source_id,
         observation_date=_date(raw["observation_date"]),
         source_messages=tuple(normalized),
     )

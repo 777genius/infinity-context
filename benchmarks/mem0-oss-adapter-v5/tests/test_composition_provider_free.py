@@ -67,32 +67,52 @@ class _Authority:
 class _Storage:
     def __init__(self) -> None:
         self.persisted = False
+        self.last_scope = None
 
     def verify_exact(self, **_kwargs):
         if not self.persisted:
             raise RuntimeError
         return SimpleNamespace(commitment_sha256=_sha("storage"))
 
-    def persist(self, **_kwargs):
+    def persist(self, **kwargs):
         self.persisted = True
+        self.last_scope = kwargs["scope"]
         return SimpleNamespace(commitment_sha256=_sha("storage"))
 
 
 def test_provider_free_dispatch_persists_once_and_status_only_reads_durable_result(
     tmp_path,
 ) -> None:
+    source_messages = [{"role": "user", "content": "Alice likes tea."}]
+    unit_sha256 = canonical_sha256({"source_messages": source_messages})
+    source_sha256 = _sha("canonical-source-content")
+    scope_sha256 = canonical_sha256(
+        {
+            "corpus_id": "corpus-1",
+            "source_id": "source-1",
+            "source_sha256": source_sha256,
+            "unit_sha256": unit_sha256,
+        }
+    )
     unit = {
         "sequence": 0,
-        "unit_identity_sha256": _sha("identity"),
-        "unit_sha256": _sha("unit"),
-        "scope_sha256": _sha("scope"),
+        "unit_identity_sha256": canonical_sha256(
+            {
+                "sequence": 0,
+                "scope_sha256": scope_sha256,
+                "unit_sha256": unit_sha256,
+            }
+        ),
+        "unit_sha256": unit_sha256,
+        "source_sha256": source_sha256,
+        "scope_sha256": scope_sha256,
         "corpus_id": "corpus-1",
         "source_id": "source-1",
         "observation_date": "2024-03-10",
-        "source_messages": [{"role": "user", "content": "Alice likes tea."}],
+        "source_messages": source_messages,
     }
     unsigned = {
-        "schema_version": "mem0-oss-adapter-v5.sealed-input.v1",
+        "schema_version": "mem0-oss-adapter-v5.sealed-input.v2",
         "ingestion_manifest_sha256": _sha("manifest"),
         "ingestion_root_sha256": canonical_sha256(
             {
@@ -126,6 +146,7 @@ def test_provider_free_dispatch_persists_once_and_status_only_reads_durable_resu
     runtime_binding = _sha("runtime-binding")
     runtime_source = _sha("runtime-source")
     runtime_route = _sha("runtime-route")
+    storage = _Storage()
     service = V5AdapterService(
         manifest=manifest,
         state=state,
@@ -133,7 +154,7 @@ def test_provider_free_dispatch_persists_once_and_status_only_reads_durable_resu
         receipt_authority=_Authority(),
         expected_account_binding_hmac_sha256=_sha("account"),
         expected_base_instructions_sha256=_sha("base"),
-        storage=_Storage(),
+        storage=storage,
         receipt_directory=tmp_path / "receipts",
         result_hmac_key=b"r" * 32,
         source_authority=source_authority,
@@ -186,6 +207,7 @@ def test_provider_free_dispatch_persists_once_and_status_only_reads_durable_resu
     first = service.dispatch(dispatch, idempotency_key=_sha("dispatch"))
     assert first.operation_id_sha256 == operation_id
     assert runtime.calls == 1
+    assert storage.last_scope.source_sha256 == source_sha256
     status = service.status(
         StatusRequest(
             admission_commitment_sha256=admission_sha,

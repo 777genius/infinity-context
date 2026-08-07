@@ -362,20 +362,21 @@ def test_failed_receipt_disposition_cannot_reach_storage_or_seal() -> None:
     assert failed.response_tokens == 20
 
 
-def test_manifest_authority_is_required_and_duplicate_hash_or_identity_is_rejected() -> None:
+def test_manifest_authority_rejects_duplicate_identity_but_allows_repeated_content() -> None:
     service, manifest, _, _, _ = _service(2)
     duplicate_identity = replace(
         manifest.units[1], unit_identity_sha256=manifest.units[0].unit_identity_sha256
     )
     manifest.units = (manifest.units[0], duplicate_identity)
-    with pytest.raises(Mem0OssFullRunError, match="mem0_v5_manifest_duplicate_unit"):
+    with pytest.raises(Mem0OssFullRunError, match="mem0_v5_manifest_duplicate_unit_identity"):
         service.admit(_request(2), manifest_authority_payload={"authority": "verified"})
 
     service, manifest, _, _, _ = _service(2)
     duplicate_hash = replace(manifest.units[1], unit_sha256=manifest.units[0].unit_sha256)
     manifest.units = (manifest.units[0], duplicate_hash)
-    with pytest.raises(Mem0OssFullRunError, match="mem0_v5_manifest_duplicate_unit"):
-        service.admit(_request(2), manifest_authority_payload={"authority": "verified"})
+    manifest.root_override = manifest_root_sha256(manifest.units)
+    service.admit(_request(2), manifest_authority_payload={"authority": "verified"})
+    assert service.admission.ingestion_unit_count == 2
 
 
 def test_manifest_root_count_and_type_impostor_fail_closed() -> None:
