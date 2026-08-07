@@ -13,17 +13,21 @@ from infinity_context_server.memory_comparison_gold_blind_answer_contract import
 from infinity_context_server.memory_comparison_gold_blind_contract import (
     GoldBlindJudgeResult,
 )
-from infinity_context_server.memory_comparison_managed_http_execution import (
-    ManagedComparisonHttpExecutionAdapter,
-    ManagedHttpRetrievalResult,
-)
 from infinity_context_server.memory_comparison_managed_provider_calls import (
     ManagedProviderCallOutcome,
     ManagedProviderLaneTransport,
 )
+from infinity_context_server.memory_comparison_managed_retrieval_port import (
+    ManagedRetrievalAuthority,
+    ManagedRetrievalPort,
+    ManagedRetrievalResult,
+)
 from infinity_context_server.memory_comparison_managed_run_contract import (
     ManagedAnswerCase,
     ManagedRunCase,
+)
+from infinity_context_server.memory_comparison_managed_runner_binding import (
+    ManagedRunnerCompositionBinding,
 )
 from infinity_context_server.memory_comparison_mem0_official_prompt_renderer import (
     normalize_mem0_official_answer,
@@ -52,34 +56,48 @@ class ManagedLlmExecutionError(RuntimeError):
 class ManagedRetrievalDispatchPort:
     __slots__ = (
         "_backend_role",
+        "_binding",
         "_case",
         "_expected_case_id",
-        "_http",
+        "_authority",
         "_query",
+        "_retrieval",
         "_result",
         "_run_id",
-        "_target",
     )
 
     def __init__(
         self,
         *,
-        http: ManagedComparisonHttpExecutionAdapter,
+        composition_binding: ManagedRunnerCompositionBinding,
+        retrieval: ManagedRetrievalPort,
+        authority: ManagedRetrievalAuthority,
         run_id: str,
         backend_role: str,
-        target: str,
         case: ManagedRunCase,
         query: ManagedAnswerCase,
         expected_case_id: str,
     ) -> None:
-        self._http = http
+        try:
+            valid_composition = (
+                type(composition_binding) is ManagedRunnerCompositionBinding
+                and retrieval.composition_binding is composition_binding
+                and authority.composition_binding is composition_binding
+                and authority.backend_role == backend_role
+            )
+        except Exception:
+            valid_composition = False
+        if not valid_composition:
+            raise ManagedLlmExecutionError("managed_retrieval_dispatch_invalid")
+        self._binding = composition_binding
+        self._retrieval = retrieval
+        self._authority = authority
         self._run_id = run_id
         self._backend_role = backend_role
-        self._target = target
         self._case = case
         self._query = query
         self._expected_case_id = expected_case_id
-        self._result: ManagedHttpRetrievalResult | None = None
+        self._result: ManagedRetrievalResult | None = None
 
     def search(
         self,
@@ -93,26 +111,34 @@ class ManagedRetrievalDispatchPort:
             or request.get("case_id") != self._expected_case_id
             or request.get("question") != self._query.question
             or run_id != self._run_id
-            or top_k != self._http.retrieval_top_k
+            or run_id != self._binding.run_id
+            or top_k != self._binding.retrieval_top_k
             or self._result is not None
         ):
             raise ManagedLlmExecutionError("managed_retrieval_dispatch_invalid")
-        result = self._http.retrieve(
-            run_id=run_id,
-            backend_role=self._backend_role,
-            target_identity_sha256=self._target,
+        try:
+            if (
+                self._retrieval.composition_binding is not self._binding
+                or self._authority.composition_binding is not self._binding
+                or self._authority.backend_role != self._backend_role
+            ):
+                raise ManagedLlmExecutionError("managed_retrieval_dispatch_invalid")
+        except Exception:
+            raise ManagedLlmExecutionError("managed_retrieval_dispatch_invalid") from None
+        result = self._retrieval.retrieve(
+            authority=self._authority,
             case=self._case,
             query=self._query,
         )
-        if type(result) is not ManagedHttpRetrievalResult:
+        if type(result) is not ManagedRetrievalResult:
             raise ManagedLlmExecutionError("managed_retrieval_result_invalid")
         self._result = result
         return result.evidence
 
-    def take_result(self) -> ManagedHttpRetrievalResult:
+    def take_result(self) -> ManagedRetrievalResult:
         result = self._result
         self._result = None
-        if type(result) is not ManagedHttpRetrievalResult:
+        if type(result) is not ManagedRetrievalResult:
             raise ManagedLlmExecutionError("managed_retrieval_result_missing")
         return result
 

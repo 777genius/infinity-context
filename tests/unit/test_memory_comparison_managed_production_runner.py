@@ -189,7 +189,11 @@ def _install_success_wiring(
         cases=cases,
         backend_targets=targets,
         provider_route=route,
-        profile=SimpleNamespace(benchmark=benchmark),
+        profile=SimpleNamespace(
+            benchmark=benchmark,
+            retrieval_top_k=50,
+            answer_cutoff=40,
+        ),
     )
     request = SimpleNamespace(
         provider_route=SimpleNamespace(origin="http://127.0.0.1:8890"),
@@ -271,6 +275,21 @@ def _install_success_wiring(
         capture.constructors["lifecycle"] = kwargs
         return SimpleNamespace(name="lifecycle")
 
+    def runner_binding_factory(**kwargs: object) -> object:
+        capture.constructors["runner_binding"] = kwargs
+        binding = SimpleNamespace(name="runner-binding")
+        capture.constructors["runner_binding_instance"] = {"value": binding}
+        return binding
+
+    def managed_runner_factory(**kwargs: object) -> object:
+        capture.constructors["managed_runner"] = kwargs
+        runner = SimpleNamespace(
+            name="managed-runner",
+            composition_binding=kwargs["composition_binding"],
+        )
+        capture.constructors["managed_runner_instance"] = {"value": runner}
+        return runner
+
     def policy_factory(**kwargs: object) -> object:
         capture.constructors["policy"] = kwargs
         policy = SimpleNamespace(name="policy")
@@ -296,6 +315,8 @@ def _install_success_wiring(
     monkeypatch.setattr(subject, "ManagedBenchmarkRegistryHttpAdapter", registry_factory)
     monkeypatch.setattr(subject, "ManagedComparisonHttpExecutionAdapter", http_factory)
     monkeypatch.setattr(subject, "ManagedComparisonHttpLifecycleAdapter", lifecycle_factory)
+    monkeypatch.setattr(subject, "ManagedRunnerCompositionBinding", runner_binding_factory)
+    monkeypatch.setattr(subject, "ManagedHttpRunnerAdapter", managed_runner_factory)
     monkeypatch.setattr(
         subject,
         "create_managed_production_lifecycle_ports",
@@ -406,6 +427,13 @@ def test_composes_exact_shared_bindings_and_closes_owned_resources(
     )
     assert capture.constructors["lifecycle"]["benchmark_registration"] is (registry.registration)
     assert capture.constructors["execution"]["provider_route"] is not None
+    runner_binding = capture.constructors["runner_binding_instance"]["value"]
+    managed_runner = capture.constructors["managed_runner_instance"]["value"]
+    assert capture.constructors["managed_runner"]["composition_binding"] is runner_binding
+    assert capture.constructors["managed_runner"]["http"] is http
+    assert capture.constructors["execution"]["composition_binding"] is runner_binding
+    assert capture.constructors["execution"]["retrieval"] is managed_runner
+    assert capture.constructors["execution"]["execution_evidence"] is managed_runner
     assert capture.constructors["assembler"]["reset_port"] is capture.runner["reset_port"]
     assert capture.constructors["assembler"]["ingest_port"] is capture.runner["ingest_port"]
     assert capture.constructors["assembler"]["clock"] is capture.runner["clock"]
