@@ -77,6 +77,61 @@ class MemoryFactOperationReceiptRow(Base):
 class SuggestionResolutionReceiptRow(Base):
     __tablename__ = "suggestion_resolution_receipts"
     __table_args__ = (
+        ForeignKeyConstraint(
+            ["suggestion_id", "space_id", "memory_scope_id"],
+            [
+                "memory_suggestions.id",
+                "memory_suggestions.space_id",
+                "memory_suggestions.memory_scope_id",
+            ],
+            name="fk_suggestion_resolution_receipt_suggestion_scope",
+        ),
+        ForeignKeyConstraint(
+            ["temporal_decision_id", "space_id", "memory_scope_id"],
+            [
+                "memory_fact_temporal_decisions.id",
+                "memory_fact_temporal_decisions.space_id",
+                "memory_fact_temporal_decisions.memory_scope_id",
+            ],
+            name="fk_suggestion_resolution_receipt_decision_scope",
+        ),
+        ForeignKeyConstraint(
+            ["result_fact_id", "space_id", "memory_scope_id"],
+            ["memory_facts.id", "memory_facts.space_id", "memory_facts.memory_scope_id"],
+            name="fk_suggestion_resolution_receipt_fact_scope",
+        ),
+        ForeignKeyConstraint(
+            ["result_fact_id", "result_fact_version"],
+            ["memory_fact_versions.fact_id", "memory_fact_versions.version"],
+            name="fk_suggestion_resolution_receipt_fact_version",
+        ),
+        ForeignKeyConstraint(
+            [
+                "relation_id",
+                "space_id",
+                "memory_scope_id",
+                "temporal_decision_id",
+            ],
+            [
+                "memory_fact_relations.id",
+                "memory_fact_relations.space_id",
+                "memory_fact_relations.memory_scope_id",
+                "memory_fact_relations.temporal_decision_id",
+            ],
+            name="fk_suggestion_resolution_receipt_relation_decision",
+        ),
+        CheckConstraint(
+            "relation_id IS NULL OR temporal_decision_id IS NOT NULL",
+            name="ck_suggestion_resolution_receipt_relation_decision",
+        ),
+        CheckConstraint(
+            "(result_fact_id IS NULL) = (result_fact_version IS NULL)",
+            name="ck_suggestion_resolution_receipt_fact_pair",
+        ),
+        CheckConstraint(
+            "(result_fact_id IS NULL) = (result_fact_json IS NULL)",
+            name="ck_suggestion_resolution_receipt_fact_snapshot",
+        ),
         UniqueConstraint(
             "suggestion_id",
             "operation",
@@ -89,9 +144,10 @@ class SuggestionResolutionReceiptRow(Base):
     id: Mapped[str] = mapped_column(String(64), primary_key=True)
     suggestion_id: Mapped[str] = mapped_column(
         String(80),
-        ForeignKey("memory_suggestions.id"),
         nullable=False,
     )
+    space_id: Mapped[str] = mapped_column(String(80), nullable=False)
+    memory_scope_id: Mapped[str] = mapped_column(String(80), nullable=False)
     operation: Mapped[str] = mapped_column(String(80), nullable=False)
     idempotency_key: Mapped[str] = mapped_column(String(160), nullable=False)
     request_fingerprint: Mapped[str] = mapped_column(String(64), nullable=False)
@@ -103,17 +159,17 @@ class SuggestionResolutionReceiptRow(Base):
         json_type(),
         nullable=True,
     )
+    result_fact_id: Mapped[str | None] = mapped_column(String(80), nullable=True)
+    result_fact_version: Mapped[int | None] = mapped_column(Integer, nullable=True)
     indexing_status: Mapped[str | None] = mapped_column(String(40), nullable=True)
     affected_fact_ids_json: Mapped[list[str]] = mapped_column(json_type(), nullable=False)
     affected_fact_versions_json: Mapped[list[int]] = mapped_column(json_type(), nullable=False)
     temporal_decision_id: Mapped[str | None] = mapped_column(
         String(80),
-        ForeignKey("memory_fact_temporal_decisions.id"),
         nullable=True,
     )
     relation_id: Mapped[str | None] = mapped_column(
         String(80),
-        ForeignKey("memory_fact_relations.id"),
         nullable=True,
     )
     outbox_message_ids_json: Mapped[list[str]] = mapped_column(json_type(), nullable=False)

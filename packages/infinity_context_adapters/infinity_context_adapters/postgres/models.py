@@ -16,7 +16,7 @@ from sqlalchemy import (
     and_,
 )
 from sqlalchemy.dialects.postgresql import JSONB
-from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
+from sqlalchemy.orm import Mapped, mapped_column
 from sqlalchemy.types import JSON
 
 from infinity_context_adapters.postgres.fact_audit_constraints import (
@@ -27,17 +27,10 @@ from infinity_context_adapters.postgres.fact_audit_constraints import (
 from infinity_context_adapters.postgres.fact_storage_constraints import (
     memory_fact_storage_constraints,
 )
+from infinity_context_adapters.postgres.orm import Base, json_type
 from infinity_context_adapters.postgres.suggestion_constraints import (
     pending_suggestion_fingerprint_indexes,
 )
-
-
-class Base(DeclarativeBase):
-    pass
-
-
-def json_type() -> JSON:
-    return JSON().with_variant(JSONB(), "postgresql")
 
 
 class MemoryServiceTokenRow(Base):
@@ -609,6 +602,13 @@ class MemoryFactRelationRow(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     __table_args__ = (
+        UniqueConstraint(
+            "id",
+            "space_id",
+            "memory_scope_id",
+            "temporal_decision_id",
+            name="uq_memory_fact_relations_receipt_identity",
+        ),
         *memory_fact_relation_tenant_constraints(),
         memory_fact_relation_version_constraint(),
         Index(
@@ -645,6 +645,12 @@ class MemoryFactRelationRow(Base):
 class MemorySuggestionRow(Base):
     __tablename__ = "memory_suggestions"
     __table_args__ = (
+        UniqueConstraint(
+            "id",
+            "space_id",
+            "memory_scope_id",
+            name="uq_memory_suggestions_id_scope",
+        ),
         Index("ix_memory_suggestions_scope_status", "space_id", "memory_scope_id", "status"),
         Index("ix_memory_suggestions_target", "target_fact_id", "status"),
         Index(
@@ -855,37 +861,6 @@ class MemoryContextLinkSuggestionRow(Base):
     )
 
 
-class MemoryOutboxRow(Base):
-    __tablename__ = "memory_outbox"
-    __table_args__ = (
-        Index("ix_memory_outbox_status_next", "status", "next_attempt_at"),
-        Index(
-            "ix_memory_outbox_workload_fairness",
-            "status",
-            "workload_class",
-            "fairness_key",
-            "next_attempt_at",
-        ),
-    )
-
-    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
-    message_key: Mapped[str | None] = mapped_column(String(160), nullable=True)
-    event_type: Mapped[str] = mapped_column(String(120), nullable=False)
-    aggregate_type: Mapped[str] = mapped_column(String(80), nullable=False)
-    aggregate_id: Mapped[str] = mapped_column(String(80), nullable=False)
-    aggregate_version: Mapped[int | None] = mapped_column(Integer, nullable=True)
-    workload_class: Mapped[str] = mapped_column(String(80), nullable=False, default="projection")
-    fairness_key: Mapped[str | None] = mapped_column(String(160), nullable=True)
-    payload_json: Mapped[dict[str, object]] = mapped_column(json_type(), nullable=False)
-    status: Mapped[str] = mapped_column(String(40), nullable=False, default="pending")
-    attempt_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
-    next_attempt_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
-    last_safe_error: Mapped[str | None] = mapped_column(String(400), nullable=True)
-    last_safe_diagnostic_code: Mapped[str | None] = mapped_column(String(120), nullable=True)
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
-    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
-
-
 class MemoryIdempotencyRecordRow(Base):
     __tablename__ = "memory_idempotency_records"
     __table_args__ = (UniqueConstraint("space_id", "key", name="uq_idempotency_space_key"),)
@@ -992,7 +967,10 @@ class MemoryComparisonBenchmarkRunRow(Base):
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
 
 
-# Imported last so the split model can reuse Base without a registry cycle.
+# Imported last to preserve the legacy public model surface.
+from infinity_context_adapters.postgres.outbox_models import (  # noqa: E402
+    MemoryOutboxRow,  # noqa: F401
+)
 from infinity_context_adapters.postgres.temporal_models import (  # noqa: E402
     MemoryFactTemporalDecisionRow,  # noqa: F401
 )

@@ -90,6 +90,8 @@ def new_suggestion_resolution_receipt(
 ) -> SuggestionResolutionReceipt:
     return SuggestionResolutionReceipt(
         suggestion_id=str(result.suggestion.id),
+        space_id=str(result.suggestion.space_id),
+        memory_scope_id=str(result.suggestion.memory_scope_id),
         operation=operation,
         idempotency_key=idempotency_key,
         request_fingerprint=request_fingerprint,

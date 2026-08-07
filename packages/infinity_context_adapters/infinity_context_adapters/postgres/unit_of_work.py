@@ -21,7 +21,6 @@ from sqlalchemy.ext.asyncio import (
     create_async_engine,
 )
 
-import infinity_context_adapters.postgres.feature_models as _feature_models  # noqa: F401
 from infinity_context_adapters.features.memory_facts.postgres_fact_store import (
     PostgresMemoryFactTransaction,
 )
@@ -53,7 +52,6 @@ from infinity_context_adapters.postgres.fact_repositories import (
     PostgresFactRelationRepository,
     PostgresFactRepository,
 )
-from infinity_context_adapters.postgres.models import Base
 from infinity_context_adapters.postgres.repositories import (
     PostgresAnchorRepository,
     PostgresCaptureRepository,
@@ -64,6 +62,7 @@ from infinity_context_adapters.postgres.repositories import (
     PostgresOutbox,
     PostgresSuggestionRepository,
 )
+from infinity_context_adapters.postgres.schema_registry import load_schema_metadata
 from infinity_context_adapters.postgres.scope_repositories import PostgresScopeRepository
 from infinity_context_adapters.postgres.suggestion_resolution_receipts import (
     PostgresSuggestionResolutionReceiptRepository,
@@ -600,7 +599,7 @@ def _ensure_runtime_schema(connection: Connection) -> None:
     """Bring an unversioned legacy schema to the forward-migration baseline."""
 
     _ensure_legacy_profile_schema(connection)
-    Base.metadata.create_all(connection)
+    load_schema_metadata().create_all(connection)
     ensure_benchmark_projection_manifest_schema(connection)
     _ensure_additive_schema_columns(connection)
     _backfill_memory_fact_temporal_columns(connection)

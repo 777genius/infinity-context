@@ -60,12 +60,24 @@ class PostgresSuggestionResolutionReceiptRepository:
             SuggestionResolutionReceiptRow(
                 id=_receipt_id(receipt),
                 suggestion_id=receipt.suggestion_id,
+                space_id=receipt.space_id,
+                memory_scope_id=receipt.memory_scope_id,
                 operation=receipt.operation,
                 idempotency_key=receipt.idempotency_key,
                 request_fingerprint=receipt.request_fingerprint,
                 result_suggestion_json=suggestion_to_json(receipt.result_suggestion),
                 result_fact_json=(
                     memory_fact_snapshot_to_json(receipt.result_fact)
+                    if receipt.result_fact is not None
+                    else None
+                ),
+                result_fact_id=(
+                    receipt.result_fact.identity.fact_id
+                    if receipt.result_fact is not None
+                    else None
+                ),
+                result_fact_version=(
+                    receipt.result_fact.visibility.version
                     if receipt.result_fact is not None
                     else None
                 ),
@@ -84,6 +96,8 @@ class PostgresSuggestionResolutionReceiptRepository:
 def _receipt_from_row(row: SuggestionResolutionReceiptRow) -> SuggestionResolutionReceipt:
     return SuggestionResolutionReceipt(
         suggestion_id=row.suggestion_id,
+        space_id=row.space_id,
+        memory_scope_id=row.memory_scope_id,
         operation=row.operation,
         idempotency_key=row.idempotency_key,
         request_fingerprint=row.request_fingerprint,
@@ -104,9 +118,9 @@ def _receipt_from_row(row: SuggestionResolutionReceiptRow) -> SuggestionResoluti
 
 
 def _receipt_id(receipt: SuggestionResolutionReceipt) -> str:
-    raw = "\x1f".join(
-        (receipt.suggestion_id, receipt.operation, receipt.idempotency_key)
-    ).encode("utf-8")
+    raw = "\x1f".join((receipt.suggestion_id, receipt.operation, receipt.idempotency_key)).encode(
+        "utf-8"
+    )
     return sha256(raw).hexdigest()
 
 

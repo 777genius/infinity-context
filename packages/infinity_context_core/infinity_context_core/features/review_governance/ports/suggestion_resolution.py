@@ -18,6 +18,8 @@ class SuggestionResolutionReceipt:
     """Immutable exact result of one externally retryable review decision."""
 
     suggestion_id: str
+    space_id: str
+    memory_scope_id: str
     operation: str
     idempotency_key: str
     request_fingerprint: str
@@ -34,6 +36,8 @@ class SuggestionResolutionReceipt:
     def __post_init__(self) -> None:
         for field_name in (
             "suggestion_id",
+            "space_id",
+            "memory_scope_id",
             "operation",
             "idempotency_key",
             "request_fingerprint",
@@ -42,8 +46,21 @@ class SuggestionResolutionReceipt:
                 raise ValueError(f"Suggestion resolution receipt {field_name} cannot be blank")
         if str(getattr(self.result_suggestion, "id", "")) != self.suggestion_id:
             raise ValueError("Suggestion resolution receipt must match its suggestion")
+        if str(getattr(self.result_suggestion, "space_id", "")) != self.space_id:
+            raise ValueError("Suggestion resolution receipt must match its suggestion space")
+        if str(getattr(self.result_suggestion, "memory_scope_id", "")) != self.memory_scope_id:
+            raise ValueError("Suggestion resolution receipt must match its suggestion memory scope")
+        if self.result_fact is not None:
+            result_scope = self.result_fact.identity.scope
+            if (
+                result_scope.space_id != self.space_id
+                or result_scope.memory_scope_id != self.memory_scope_id
+            ):
+                raise ValueError("Suggestion resolution receipt fact must match its scope")
         if len(self.affected_fact_ids) != len(self.affected_fact_versions):
             raise ValueError("Suggestion resolution receipt fact ids and versions must align")
+        if self.relation_id is not None and self.temporal_decision_id is None:
+            raise ValueError("Suggestion resolution receipt relation requires its decision")
         if self.created_at.tzinfo is None or self.created_at.utcoffset() is None:
             raise ValueError("Suggestion resolution receipt created_at must be timezone-aware")
 

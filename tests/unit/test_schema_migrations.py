@@ -63,6 +63,19 @@ def test_schema_parity_migration_binds_relations_to_exact_temporal_decisions() -
     assert "decision.effective_at IS DISTINCT FROM relation.valid_from" in sql
 
 
+def test_suggestion_receipt_migration_binds_exact_result_to_tenant_and_decision() -> None:
+    sql = (_MIGRATIONS / "0030_suggestion_receipt_tenant_integrity.sql").read_text(encoding="utf-8")
+
+    assert "suggestion receipt tenant integrity preflight failed" in sql
+    assert "fk_suggestion_resolution_receipt_suggestion_scope" in sql
+    assert "fk_suggestion_resolution_receipt_fact_scope" in sql
+    assert "fk_suggestion_resolution_receipt_fact_version" in sql
+    assert "fk_suggestion_resolution_receipt_decision_scope" in sql
+    assert "fk_suggestion_resolution_receipt_relation_decision" in sql
+    assert "relation_id IS NULL OR temporal_decision_id IS NOT NULL" in sql
+    assert "trg_suggestion_resolution_receipt_compatibility_fields" in sql
+
+
 def test_create_schema_adds_classification_to_existing_memory_tables(tmp_path: Path) -> None:
     async def run() -> dict[str, dict[str, object]]:
         engine = build_async_engine(f"sqlite+aiosqlite:///{tmp_path / 'old-schema.db'}")

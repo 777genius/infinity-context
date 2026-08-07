@@ -56,6 +56,8 @@ def test_scoped_reviewer_can_replay_after_grant_shape_changes() -> None:
         ).approve(now=NOW, reason="confirmed")
         receipt = SuggestionResolutionReceipt(
             suggestion_id="suggestion-1",
+            space_id="space-1",
+            memory_scope_id="scope-1",
             operation="approve",
             idempotency_key=idempotency_key,
             request_fingerprint=fingerprint,
@@ -105,6 +107,38 @@ def test_scoped_reviewer_can_replay_after_grant_shape_changes() -> None:
             )
 
     asyncio.run(run())
+
+
+def test_receipt_rejects_scope_drift_from_exact_suggestion_snapshot() -> None:
+    suggestion = MemorySuggestion.create(
+        suggestion_id=MemorySuggestionId("suggestion-1"),
+        space_id=SpaceId("space-1"),
+        memory_scope_id=MemoryScopeId("scope-1"),
+        candidate_text="Keep audit receipts tenant-bound.",
+        kind=MemoryKind.ARCHITECTURE_DECISION,
+        source_refs=(SourceRef(source_type="manual", source_id="review-1"),),
+        safe_reason="manual review",
+        now=NOW,
+    ).approve(now=NOW, reason="confirmed")
+
+    with pytest.raises(ValueError, match="suggestion memory scope"):
+        SuggestionResolutionReceipt(
+            suggestion_id="suggestion-1",
+            space_id="space-1",
+            memory_scope_id="scope-other",
+            operation="approve",
+            idempotency_key="approve-1",
+            request_fingerprint="a" * 64,
+            result_suggestion=suggestion,
+            result_fact=None,
+            indexing_status="pending",
+            affected_fact_ids=(),
+            affected_fact_versions=(),
+            temporal_decision_id=None,
+            relation_id=None,
+            outbox_message_ids=(),
+            created_at=NOW,
+        )
 
 
 class _ReceiptRepository:

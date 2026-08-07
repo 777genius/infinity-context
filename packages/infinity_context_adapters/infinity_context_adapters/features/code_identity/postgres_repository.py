@@ -71,7 +71,9 @@ class PostgresCodeRepository:
     async def create(self, repository: CodeRepository) -> CodeRepository:
         if await self.get(repository.repository_id) is not None:
             raise ValueError("CodeRepository already exists")
-        self._session.add(_domain_to_row(repository))
+        row = _domain_to_row(repository)
+        self._session.add(row)
+        await self._session.flush((row,))
         await self._append_aliases(repository, existing=())
         return repository
 

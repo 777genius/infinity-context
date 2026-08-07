@@ -4,13 +4,13 @@ from __future__ import annotations
 
 import asyncio
 import os
-import uuid
+from hashlib import sha256
 from pathlib import Path
 
 import pytest
 from infinity_context_adapters.postgres import build_async_engine, upgrade_schema
+from postgres_test_database import PostgresTestDatabase
 from sqlalchemy import text
-from sqlalchemy.engine import make_url
 from sqlalchemy.exc import IntegrityError
 
 _MIGRATIONS = (
@@ -31,47 +31,17 @@ def test_clean_and_unversioned_legacy_postgres_upgrades_when_configured() -> Non
 
 async def _assert_clean_and_legacy_upgrade(database_url: str) -> None:
     asyncpg = pytest.importorskip("asyncpg")
-    parsed = make_url(database_url)
-    if not parsed.drivername.startswith("postgresql"):
+    try:
+        database = PostgresTestDatabase.from_url(
+            database_url,
+            prefix="schema_upgrade",
+            asyncpg=asyncpg,
+        )
+    except ValueError:
         pytest.skip("INFINITY_CONTEXT_TEST_POSTGRES_URL is not PostgreSQL")
-    database_name = f"schema_upgrade_{uuid.uuid4().hex}"
-    admin_dsn = parsed.set(drivername="postgresql").render_as_string(hide_password=False)
-    app_url = parsed.set(
-        drivername="postgresql+asyncpg",
-        database=database_name,
-    ).render_as_string(hide_password=False)
-
-    async def recreate_database() -> None:
-        admin = await asyncpg.connect(admin_dsn)
-        try:
-            await admin.execute(
-                "SELECT pg_terminate_backend(pid) FROM pg_stat_activity "
-                "WHERE datname = $1 AND pid <> pg_backend_pid()",
-                database_name,
-            )
-            await admin.execute(f'DROP DATABASE IF EXISTS "{database_name}"')
-            await admin.execute(f'CREATE DATABASE "{database_name}"')
-        finally:
-            await admin.close()
-
-    async def drop_database() -> None:
-        admin = await asyncpg.connect(admin_dsn)
-        try:
-            await admin.execute(
-                "SELECT pg_terminate_backend(pid) FROM pg_stat_activity "
-                "WHERE datname = $1 AND pid <> pg_backend_pid()",
-                database_name,
-            )
-            await admin.execute(f'DROP DATABASE IF EXISTS "{database_name}"')
-        finally:
-            await admin.close()
 
     async def install_legacy_schema() -> None:
-        raw = await asyncpg.connect(
-            parsed.set(drivername="postgresql", database=database_name).render_as_string(
-                hide_password=False
-            )
-        )
+        raw = await database.connect()
         try:
             for path in sorted(_MIGRATIONS.glob("*.sql")):
                 if path.name.startswith("0023_"):
@@ -82,34 +52,30 @@ async def _assert_clean_and_legacy_upgrade(database_url: str) -> None:
 
     async def install_metadata_legacy_schema() -> None:
         await install_legacy_schema()
-        raw = await asyncpg.connect(
-            parsed.set(drivername="postgresql", database=database_name).render_as_string(
-                hide_password=False
-            )
-        )
+        raw = await database.connect()
         try:
             await raw.execute(_METADATA_BASELINE_DELTA.read_text(encoding="utf-8"))
         finally:
             await raw.close()
 
     try:
-        await recreate_database()
-        engine = build_async_engine(app_url)
+        await database.recreate()
+        engine = build_async_engine(database.app_url)
         try:
             clean_results = await asyncio.gather(upgrade_schema(engine), upgrade_schema(engine))
             clean = next(result for result in clean_results if result.applied)
             assert clean.legacy_baseline is False
-            assert clean.current == "0029_schema_parity_and_fact_tenant_integrity"
+            assert clean.current == "0030_suggestion_receipt_tenant_integrity"
             assert clean.applied[0] == "0001_core_facts"
-            assert sorted(len(result.applied) for result in clean_results) == [0, 30]
+            assert sorted(len(result.applied) for result in clean_results) == [0, 31]
             assert (await upgrade_schema(engine)).applied == ()
             await _assert_head_schema(engine)
         finally:
             await engine.dispose()
 
-        await recreate_database()
+        await database.recreate()
         await install_metadata_legacy_schema()
-        engine = build_async_engine(app_url)
+        engine = build_async_engine(database.app_url)
         try:
             metadata_legacy = await upgrade_schema(engine)
             assert metadata_legacy.legacy_baseline is True
@@ -118,32 +84,72 @@ async def _assert_clean_and_legacy_upgrade(database_url: str) -> None:
         finally:
             await engine.dispose()
 
-        await recreate_database()
+        await database.recreate()
         await install_legacy_schema()
 
-        engine = build_async_engine(app_url)
+        engine = build_async_engine(database.app_url)
         try:
             legacy = await upgrade_schema(engine)
             assert legacy.legacy_baseline is True
             assert legacy.applied[0].startswith("0023_")
-            assert legacy.current == "0029_schema_parity_and_fact_tenant_integrity"
+            assert legacy.current == "0030_suggestion_receipt_tenant_integrity"
             await _assert_head_schema(engine)
             await _assert_cross_scope_audit_reference_rejected(engine)
         finally:
             await engine.dispose()
 
-        await recreate_database()
-        await install_legacy_schema()
-        raw = await asyncpg.connect(
-            parsed.set(drivername="postgresql", database=database_name).render_as_string(
-                hide_password=False
+        await database.recreate()
+        await _install_versioned_schema_through(database, "0028_")
+        await _seed_cross_scope_operation_receipt(database)
+        engine = build_async_engine(database.app_url)
+        try:
+            with pytest.raises(
+                asyncpg.ForeignKeyViolationError,
+                match="fact tenant integrity preflight failed",
+            ):
+                await upgrade_schema(engine)
+            await _assert_failed_upgrade_rolled_back(
+                engine,
+                current_migration="0028_code_scope_authorizations",
+                absent_constraint="fk_memory_fact_operation_receipt_fact_scope",
+                absent_columns=(("memory_suggestions", "operation"),),
             )
-        )
+        finally:
+            await engine.dispose()
+
+        await database.recreate()
+        await _install_versioned_schema_through(database, "0029_")
+        await _seed_cross_scope_suggestion_receipt(database)
+        engine = build_async_engine(database.app_url)
+        try:
+            with pytest.raises(
+                asyncpg.ForeignKeyViolationError,
+                match="suggestion receipt tenant integrity preflight failed",
+            ):
+                await upgrade_schema(engine)
+            await _assert_failed_upgrade_rolled_back(
+                engine,
+                current_migration="0029_schema_parity_and_fact_tenant_integrity",
+                absent_constraint="fk_suggestion_resolution_receipt_suggestion_scope",
+                absent_columns=(
+                    ("suggestion_resolution_receipts", "space_id"),
+                    ("suggestion_resolution_receipts", "memory_scope_id"),
+                    ("suggestion_resolution_receipts", "result_fact_id"),
+                    ("suggestion_resolution_receipts", "result_fact_version"),
+                ),
+            )
+            await _assert_legacy_suggestion_receipt_unchanged(engine)
+        finally:
+            await engine.dispose()
+
+        await database.recreate()
+        await install_legacy_schema()
+        raw = await database.connect()
         try:
             await raw.execute("DROP TABLE memory_threads CASCADE")
         finally:
             await raw.close()
-        engine = build_async_engine(app_url)
+        engine = build_async_engine(database.app_url)
         try:
             with pytest.raises(RuntimeError, match="memory_threads"):
                 await upgrade_schema(engine)
@@ -155,17 +161,13 @@ async def _assert_clean_and_legacy_upgrade(database_url: str) -> None:
         finally:
             await engine.dispose()
 
-        await recreate_database()
-        raw = await asyncpg.connect(
-            parsed.set(drivername="postgresql", database=database_name).render_as_string(
-                hide_password=False
-            )
-        )
+        await database.recreate()
+        raw = await database.connect()
         try:
             await raw.execute("CREATE TABLE memory_spaces (id VARCHAR(80) PRIMARY KEY)")
         finally:
             await raw.close()
-        engine = build_async_engine(app_url)
+        engine = build_async_engine(database.app_url)
         try:
             with pytest.raises(RuntimeError, match="Unrecognized legacy PostgreSQL"):
                 await upgrade_schema(engine)
@@ -177,7 +179,202 @@ async def _assert_clean_and_legacy_upgrade(database_url: str) -> None:
         finally:
             await engine.dispose()
     finally:
-        await drop_database()
+        await database.drop()
+
+
+async def _install_versioned_schema_through(
+    database: PostgresTestDatabase,
+    migration_prefix: str,
+) -> None:
+    paths = tuple(
+        path for path in sorted(_MIGRATIONS.glob("*.sql")) if path.name[:5] <= migration_prefix
+    )
+    raw = await database.connect()
+    try:
+        for path in paths:
+            await raw.execute(path.read_text(encoding="utf-8"))
+        await raw.execute(
+            """
+            CREATE TABLE infinity_context_schema_migrations (
+              migration_id VARCHAR(160) PRIMARY KEY,
+              checksum VARCHAR(64) NOT NULL,
+              execution_kind VARCHAR(32) NOT NULL,
+              applied_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+              CONSTRAINT ck_infinity_context_schema_migration_kind
+                CHECK (execution_kind IN ('applied', 'legacy_baseline'))
+            )
+            """
+        )
+        await raw.executemany(
+            """
+            INSERT INTO infinity_context_schema_migrations (
+              migration_id, checksum, execution_kind
+            ) VALUES ($1, $2, 'applied')
+            """,
+            [(path.stem, sha256(path.read_bytes()).hexdigest()) for path in paths],
+        )
+    finally:
+        await raw.close()
+
+
+async def _seed_cross_scope_operation_receipt(database: PostgresTestDatabase) -> None:
+    raw = await database.connect()
+    try:
+        await raw.execute(
+            """
+            INSERT INTO memory_spaces (id, slug, name, status, created_at, updated_at)
+            VALUES
+              ('space-a', 'space-a', 'Space A', 'active', now(), now()),
+              ('space-b', 'space-b', 'Space B', 'active', now(), now());
+            INSERT INTO memory_scopes (
+              id, space_id, external_ref, name, status, created_at, updated_at
+            ) VALUES
+              ('scope-a', 'space-a', 'a', 'A', 'active', now(), now()),
+              ('scope-b', 'space-b', 'b', 'B', 'active', now(), now());
+            INSERT INTO memory_facts (
+              id, space_id, memory_scope_id, kind, text, status, confidence,
+              trust_level, classification, version, created_at, updated_at
+            ) VALUES (
+              'fact-a', 'space-a', 'scope-a', 'note', 'A', 'active', 'medium',
+              'medium', 'internal', 1, now(), now()
+            );
+            INSERT INTO memory_fact_versions (
+              fact_id, version, text, status, source_refs_json, snapshot_json, created_at
+            ) VALUES ('fact-a', 1, 'A', 'active', '[]', '{}', now());
+            INSERT INTO memory_fact_operation_receipts (
+              id, space_id, memory_scope_id, thread_scope_key, idempotency_key,
+              operation, request_fingerprint, result_fact_id, result_fact_version,
+              result_snapshot_json, outbox_message_ids_json, created_at
+            ) VALUES (
+              'receipt-cross-scope', 'space-b', 'scope-b', 'global', 'key',
+              'remember', repeat('a', 64), 'fact-a', 1, '{}', '[]', now()
+            );
+            """
+        )
+    finally:
+        await raw.close()
+
+
+async def _seed_cross_scope_suggestion_receipt(database: PostgresTestDatabase) -> None:
+    raw = await database.connect()
+    try:
+        await raw.execute(
+            """
+            INSERT INTO memory_spaces (id, slug, name, status, created_at, updated_at)
+            VALUES
+              ('space-a', 'space-a', 'Space A', 'active', now(), now()),
+              ('space-b', 'space-b', 'Space B', 'active', now(), now());
+            INSERT INTO memory_scopes (
+              id, space_id, external_ref, name, status, created_at, updated_at
+            ) VALUES
+              ('scope-a', 'space-a', 'a', 'A', 'active', now(), now()),
+              ('scope-b', 'space-b', 'b', 'B', 'active', now(), now());
+            INSERT INTO memory_facts (
+              id, space_id, memory_scope_id, kind, text, status, confidence,
+              trust_level, classification, version, created_at, updated_at
+            ) VALUES (
+              'fact-b', 'space-b', 'scope-b', 'note', 'B', 'active', 'medium',
+              'medium', 'internal', 1, now(), now()
+            );
+            INSERT INTO memory_fact_versions (
+              fact_id, version, text, status, source_refs_json, snapshot_json, created_at
+            ) VALUES ('fact-b', 1, 'B', 'active', '[]', '{}', now());
+            INSERT INTO memory_suggestions (
+              id, space_id, memory_scope_id, candidate_text, kind, status,
+              source_refs_json, confidence, trust_level, safe_reason, created_at, updated_at
+            ) VALUES (
+              'suggestion-a', 'space-a', 'scope-a', 'A', 'note', 'approved',
+              '[]', 'medium', 'medium', 'test', now(), now()
+            );
+            INSERT INTO suggestion_resolution_receipts (
+              id, suggestion_id, operation, idempotency_key, request_fingerprint,
+              result_suggestion_json, result_fact_json, affected_fact_ids_json,
+              affected_fact_versions_json, outbox_message_ids_json, created_at
+            ) VALUES (
+              'receipt-cross-scope', 'suggestion-a', 'approve', 'approve-key',
+              repeat('b', 64), '{}', jsonb_build_object(
+                'identity', jsonb_build_object('fact_id', 'fact-b'),
+                'visibility', jsonb_build_object('version', 1)
+              ), '[]', '[]', '[]', now()
+            );
+            """
+        )
+    finally:
+        await raw.close()
+
+
+async def _assert_failed_upgrade_rolled_back(
+    engine,
+    *,
+    current_migration: str,
+    absent_constraint: str,
+    absent_columns: tuple[tuple[str, str], ...],
+) -> None:
+    async with engine.connect() as connection:
+        latest = await connection.scalar(
+            text(
+                """
+                SELECT migration_id FROM infinity_context_schema_migrations
+                ORDER BY migration_id DESC LIMIT 1
+                """
+            )
+        )
+        constraint_count = await connection.scalar(
+            text("SELECT count(*) FROM pg_constraint WHERE conname = :constraint_name"),
+            {"constraint_name": absent_constraint},
+        )
+        column_count = 0
+        for table_name, column_name in absent_columns:
+            column_count += int(
+                await connection.scalar(
+                    text(
+                        """
+                        SELECT count(*) FROM information_schema.columns
+                        WHERE table_schema = current_schema()
+                          AND table_name = :table_name
+                          AND column_name = :column_name
+                        """
+                    ),
+                    {"table_name": table_name, "column_name": column_name},
+                )
+                or 0
+            )
+    assert latest == current_migration
+    assert constraint_count == 0
+    assert column_count == 0
+
+
+async def _assert_legacy_suggestion_receipt_unchanged(engine) -> None:
+    async with engine.connect() as connection:
+        receipt = (
+            (
+                await connection.execute(
+                    text(
+                        """
+                        SELECT suggestion_id, operation, idempotency_key,
+                               result_suggestion_json, result_fact_json,
+                               temporal_decision_id, relation_id
+                        FROM suggestion_resolution_receipts
+                        WHERE id = 'receipt-cross-scope'
+                        """
+                    )
+                )
+            )
+            .mappings()
+            .one()
+        )
+    assert dict(receipt) == {
+        "suggestion_id": "suggestion-a",
+        "operation": "approve",
+        "idempotency_key": "approve-key",
+        "result_suggestion_json": {},
+        "result_fact_json": {
+            "identity": {"fact_id": "fact-b"},
+            "visibility": {"version": 1},
+        },
+        "temporal_decision_id": None,
+        "relation_id": None,
+    }
 
 
 async def _assert_head_schema(engine) -> None:
@@ -209,6 +406,25 @@ async def _assert_head_schema(engine) -> None:
             ).scalars()
         )
         assert "evidence_refs_json" in fact_columns
+        receipt_columns = set(
+            (
+                await connection.execute(
+                    text(
+                        """
+                        SELECT column_name FROM information_schema.columns
+                        WHERE table_schema = current_schema()
+                          AND table_name = 'suggestion_resolution_receipts'
+                        """
+                    )
+                )
+            ).scalars()
+        )
+        assert {
+            "space_id",
+            "memory_scope_id",
+            "result_fact_id",
+            "result_fact_version",
+        } <= receipt_columns
         jsonb_columns = set(
             (
                 await connection.execute(
@@ -286,6 +502,9 @@ async def _assert_head_schema(engine) -> None:
                            OR conname LIKE 'fk_memory_fact_%_version'
                            OR conname = 'fk_memory_fact_relation_temporal_decision_identity'
                            OR conname = 'ck_memory_fact_relation_decision_versions'
+                           OR conname LIKE 'fk_suggestion_resolution_receipt_%'
+                           OR conname = 'ck_suggestion_resolution_receipt_relation_decision'
+                           OR conname LIKE 'ck_suggestion_resolution_receipt_fact_%'
                            OR conname = 'ck_chunk_owner'
                         """
                     )
@@ -297,6 +516,14 @@ async def _assert_head_schema(engine) -> None:
         assert "fk_memory_fact_temporal_decision_compensation_scope" in constraints
         assert "fk_memory_fact_relation_temporal_decision_identity" in constraints
         assert "ck_memory_fact_relation_decision_versions" in constraints
+        assert "fk_suggestion_resolution_receipt_suggestion_scope" in constraints
+        assert "fk_suggestion_resolution_receipt_fact_scope" in constraints
+        assert "fk_suggestion_resolution_receipt_fact_version" in constraints
+        assert "fk_suggestion_resolution_receipt_decision_scope" in constraints
+        assert "fk_suggestion_resolution_receipt_relation_decision" in constraints
+        assert "ck_suggestion_resolution_receipt_relation_decision" in constraints
+        assert "ck_suggestion_resolution_receipt_fact_pair" in constraints
+        assert "ck_suggestion_resolution_receipt_fact_snapshot" in constraints
         assert "ck_chunk_owner" in constraints
         triggers = set(
             (
@@ -392,6 +619,15 @@ async def _assert_cross_scope_audit_reference_rejected(engine) -> None:
                   ('fact-b', 1, 'B', 'active', '[]', '{}', now())
             """,
             """
+                INSERT INTO memory_suggestions (
+                  id, space_id, memory_scope_id, candidate_text, kind, status,
+                  source_refs_json, confidence, trust_level, safe_reason, created_at, updated_at
+                ) VALUES (
+                  'suggestion-b', 'space-b', 'scope-b', 'B suggestion', 'note', 'approved',
+                  '[]', 'medium', 'medium', 'test', now(), now()
+                )
+            """,
+            """
                 INSERT INTO memory_fact_temporal_decisions (
                   id, decision_type, space_id, memory_scope_id, thread_scope_key,
                   source_fact_id, source_fact_version, target_fact_id, target_fact_version,
@@ -406,6 +642,52 @@ async def _assert_cross_scope_audit_reference_rejected(engine) -> None:
         )
         for statement in statements:
             await connection.execute(text(statement))
+    async with engine.begin() as connection:
+        with pytest.raises(
+            IntegrityError,
+            match="fk_suggestion_resolution_receipt_decision_scope",
+        ):
+            await connection.execute(
+                text(
+                    """
+                    INSERT INTO suggestion_resolution_receipts (
+                      id, suggestion_id, space_id, memory_scope_id, operation,
+                      idempotency_key, request_fingerprint, result_suggestion_json,
+                      affected_fact_ids_json, affected_fact_versions_json,
+                      temporal_decision_id, outbox_message_ids_json, created_at
+                    ) VALUES (
+                      'suggestion-receipt-cross-scope', 'suggestion-b', 'space-b', 'scope-b',
+                      'approve', 'approve-key', repeat('c', 64), '{}', '[]', '[]',
+                      'decision-a', '[]', now()
+                    )
+                    """
+                )
+            )
+    async with engine.begin() as connection:
+        with pytest.raises(
+            IntegrityError,
+            match="fk_suggestion_resolution_receipt_fact_scope",
+        ):
+            await connection.execute(
+                text(
+                    """
+                    INSERT INTO suggestion_resolution_receipts (
+                      id, suggestion_id, space_id, memory_scope_id, operation,
+                      idempotency_key, request_fingerprint, result_suggestion_json,
+                      result_fact_json, result_fact_id, result_fact_version,
+                      affected_fact_ids_json, affected_fact_versions_json,
+                      outbox_message_ids_json, created_at
+                    ) VALUES (
+                      'suggestion-receipt-cross-scope-fact', 'suggestion-b',
+                      'space-b', 'scope-b', 'approve', 'approve-fact-key', repeat('d', 64),
+                      '{}', jsonb_build_object(
+                        'identity', jsonb_build_object('fact_id', 'fact-a'),
+                        'visibility', jsonb_build_object('version', 1)
+                      ), 'fact-b', 1, '[]', '[]', '[]', now()
+                    )
+                    """
+                )
+            )
     async with engine.begin() as connection:
         with pytest.raises(IntegrityError, match="fk_memory_fact_operation_receipt_fact_scope"):
             await connection.execute(
@@ -459,3 +741,34 @@ async def _assert_cross_scope_audit_reference_rejected(engine) -> None:
                     """
                 )
             )
+    async with engine.begin() as connection:
+        await connection.execute(
+            text(
+                """
+                INSERT INTO suggestion_resolution_receipts (
+                  id, suggestion_id, operation, idempotency_key, request_fingerprint,
+                  result_suggestion_json, result_fact_json, affected_fact_ids_json,
+                  affected_fact_versions_json, outbox_message_ids_json, created_at
+                ) VALUES (
+                  'legacy-writer-compatible', 'suggestion-b', 'approve',
+                  'legacy-writer-key', repeat('e', 64), '{}', jsonb_build_object(
+                    'identity', jsonb_build_object('fact_id', 'fact-b'),
+                    'visibility', jsonb_build_object('version', 1)
+                  ), '[]', '[]', '[]', now()
+                )
+                """
+            )
+        )
+    async with engine.connect() as connection:
+        compatibility_fields = (
+            await connection.execute(
+                text(
+                    """
+                    SELECT space_id, memory_scope_id, result_fact_id, result_fact_version
+                    FROM suggestion_resolution_receipts
+                    WHERE id = 'legacy-writer-compatible'
+                    """
+                )
+            )
+        ).one()
+    assert tuple(compatibility_fields) == ("space-b", "scope-b", "fact-b", 1)

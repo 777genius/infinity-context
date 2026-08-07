@@ -15,7 +15,7 @@ from sqlalchemy import (
 )
 from sqlalchemy.orm import Mapped, mapped_column
 
-from infinity_context_adapters.postgres.models import Base, json_type
+from infinity_context_adapters.postgres.orm import Base, json_type
 
 
 class MemoryFactTemporalDecisionRow(Base):
