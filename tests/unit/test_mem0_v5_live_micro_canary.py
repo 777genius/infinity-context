@@ -33,7 +33,38 @@ from scripts.mem0_v5_live_project_one_unit import (
 )
 
 ROOT = Path(__file__).resolve().parents[2]
+UNIT_TEST_ROOT = Path(__file__).resolve().parent
+if str(UNIT_TEST_ROOT) not in sys.path:
+    sys.path.insert(0, str(UNIT_TEST_ROOT))
+
+from _phase_c_hermetic import install_hermetic_phase_c_authority  # noqa: E402
+
 SHA = "a" * 64
+
+
+@pytest.fixture(autouse=True)
+def _hermetic_phase_c_authority(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> tuple[object, Path]:
+    return install_hermetic_phase_c_authority(
+        monkeypatch=monkeypatch,
+        tmp_path=tmp_path,
+        phase_c_root=ROOT / "benchmarks" / "phase-c-canary",
+    )
+
+
+def test_live_unit_binding_uses_exact_class_without_hosting_composition(
+    _hermetic_phase_c_authority: tuple[object, Path],
+) -> None:
+    reference, artifact = _hermetic_phase_c_authority
+    from phase_c_canary.runtime_binding import RuntimeBindingComposition
+
+    binding = RuntimeBindingComposition.compose_phase_c_canary().issue()
+    assert type(binding) is type(reference)
+    assert binding.commitment_sha256 == reference.commitment_sha256
+    assert artifact.parent.name == "hermetic-phase-c"
+    assert "/mnt/volume_ams3_" not in str(artifact)
 
 
 @dataclass(frozen=True)

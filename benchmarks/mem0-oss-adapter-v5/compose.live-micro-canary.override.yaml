@@ -177,6 +177,7 @@ services:
       QDRANT__SERVICE__HOST: 127.0.0.1
       QDRANT__SERVICE__HTTP_PORT: ${MEM0_V5_QDRANT_PORT:?set explicit qdrant port}
       QDRANT__STORAGE__STORAGE_PATH: /qdrant/storage
+      QDRANT__STORAGE__SNAPSHOTS_PATH: /qdrant/storage/snapshots
       QDRANT__TELEMETRY_DISABLED: "true"
     volumes:
       - type: bind

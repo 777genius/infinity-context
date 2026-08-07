@@ -4,6 +4,7 @@ import copy
 import hashlib
 import hmac
 import json
+import os
 import subprocess
 import sys
 from dataclasses import replace
@@ -14,8 +15,11 @@ import pytest
 
 ROOT = Path(__file__).resolve().parents[2]
 PHASE_C_ROOT = ROOT / "benchmarks" / "phase-c-canary"
+UNIT_TEST_ROOT = Path(__file__).resolve().parent
 sys.path.insert(0, str(PHASE_C_ROOT))
+sys.path.insert(0, str(UNIT_TEST_ROOT))
 
+from _phase_c_hermetic import install_hermetic_phase_c_authority  # noqa: E402
 from infinity_context_server.memory_comparison_mem0_oss_v5_contracts import (  # noqa: E402
     Mem0OssFullRunError,
     RuntimeReceiptVerificationContext,
@@ -35,15 +39,56 @@ from phase_c_canary.runtime_binding import RuntimeBindingComposition  # noqa: E4
 from phase_c_canary.runtime_receipt_v2 import RuntimeReceiptV2Boundary  # noqa: E402
 
 SECRET = "deterministic-receipt-secret-at-least-32-bytes"
-RUNTIME_REPO = Path(
-    "/mnt/volume_ams3_1784742570542/infinity-context/runtimes/subscription-runtime/e904ec95/repo"
-)
-NODE_EXECUTABLE = Path("/usr/local/bin/node")
+_RUNTIME_REPO_ENV = os.environ.get("INFINITY_CONTEXT_PHASE_C_RUNTIME_REPO")
+_NODE_EXECUTABLE_ENV = os.environ.get("INFINITY_CONTEXT_PHASE_C_NODE_EXECUTABLE")
+RUNTIME_REPO = Path(_RUNTIME_REPO_ENV or "/explicit-hosting-runtime-unavailable")
+NODE_EXECUTABLE = Path(_NODE_EXECUTABLE_ENV or "/usr/local/bin/node")
 NODE_EXECUTABLE_SHA256 = "b2959781cc5a74c357ffa02367efa8a0330cbb1c9cb347732fdfaaaca381cbcd"
-_requires_pinned_runtime = pytest.mark.skipif(
-    not RUNTIME_REPO.is_dir() or not NODE_EXECUTABLE.is_file(),
-    reason="pinned Phase-C runtime and Node executable are required",
+E904_RUNTIME_SOURCE_SHA256 = "6c0bfa587ea52cea8b3cfff75980836ffa157efcc3f074ce97faa55d9bed4695"
+E904_ARTIFACT_MANIFEST_SHA256 = "789018b5b15a1299252895babdc550c3d5322c54a1d9c82656f93d31423a0850"
+HERMETIC_RUNTIME_SOURCE_SHA256 = "841d8d3dc7c815975d7b5cfd5fc0f811db7d9160a1cf66230bc43e5d72322d43"
+_hosting_runtime_available = bool(_RUNTIME_REPO_ENV and _NODE_EXECUTABLE_ENV) and (
+    RUNTIME_REPO.is_dir() and NODE_EXECUTABLE.is_file()
 )
+_requires_pinned_runtime = pytest.mark.skipif(
+    not _hosting_runtime_available,
+    reason="explicit pinned Phase-C runtime integration is unavailable",
+)
+
+
+@pytest.fixture(autouse=True)
+def _hermetic_phase_c_authority(
+    request: pytest.FixtureRequest,
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> tuple[object, Path] | None:
+    if "_real_phase_c_authority" in request.fixturenames:
+        return None
+    return install_hermetic_phase_c_authority(
+        monkeypatch=monkeypatch,
+        tmp_path=tmp_path,
+        phase_c_root=PHASE_C_ROOT,
+    )
+
+
+@pytest.fixture
+def _real_phase_c_authority() -> None:
+    """Explicit opt-out: integration tests must consume the reviewed authority."""
+
+
+def _assert_e904_binding(binding: object) -> None:
+    from phase_c_canary.authority import immutable_authority
+
+    reviewed = immutable_authority()
+    artifact = reviewed.runtime_artifact_manifest.path
+    assert _RUNTIME_REPO_ENV is not None
+    assert _NODE_EXECUTABLE_ENV is not None
+    assert reviewed.runtime_root / "repo" == RUNTIME_REPO
+    assert artifact == RUNTIME_REPO.parent / "artifact-manifest.json"
+    assert reviewed.runtime_artifact_manifest.sha256 == E904_ARTIFACT_MANIFEST_SHA256
+    assert hashlib.sha256(artifact.read_bytes()).hexdigest() == E904_ARTIFACT_MANIFEST_SHA256
+    assert binding.runtime_source_sha256 == E904_RUNTIME_SOURCE_SHA256
+    assert binding.runtime_source_sha256 != HERMETIC_RUNTIME_SOURCE_SHA256
 
 
 def _sha(value: str) -> str:
@@ -82,6 +127,18 @@ def _sign(receipt: dict[str, Any]) -> dict[str, Any]:
 
 def _binding() -> object:
     return RuntimeBindingComposition.compose_phase_c_canary().issue()
+
+
+def test_ordinary_binding_is_exact_class_and_never_uses_hosting_authority(
+    _hermetic_phase_c_authority: tuple[object, Path],
+) -> None:
+    reference, artifact = _hermetic_phase_c_authority
+    binding = _binding()
+    assert type(binding) is type(reference)
+    assert binding.runtime_source_sha256 == reference.runtime_source_sha256
+    assert binding.route_binding_sha256 == reference.route_binding_sha256
+    assert artifact.name == "artifact-manifest.json"
+    assert "/mnt/volume_ams3_" not in str(artifact)
 
 
 def _authority(binding: object) -> Mem0V5ObservedExtractionReceiptAuthority:
@@ -254,8 +311,11 @@ def test_actual_phase_c_boundary_accepts_observed_provider_identity_once() -> No
 
 
 @_requires_pinned_runtime
-def test_public_live_constructor_requires_and_uses_pinned_node_verifier() -> None:
+def test_public_live_constructor_requires_and_uses_pinned_node_verifier(
+    _real_phase_c_authority: None,
+) -> None:
     binding = _binding()
+    _assert_e904_binding(binding)
     authority = _authority(binding)
     boundary = RuntimeReceiptV2Boundary(
         NodePublicReceiptVerifier(RUNTIME_REPO, node_executable=NODE_EXECUTABLE)
@@ -420,8 +480,11 @@ def test_attacker_executable_is_rejected_before_secret_consumption(tmp_path: Pat
 
 
 @_requires_pinned_runtime
-def test_node_hash_drift_is_rejected_before_secret_consumption() -> None:
+def test_node_hash_drift_is_rejected_before_secret_consumption(
+    _real_phase_c_authority: None,
+) -> None:
     binding = _binding()
+    _assert_e904_binding(binding)
     authority = replace(_authority(binding), node_executable_sha256=_sha("wrong-node"))
     secret = _SecretConsumptionProbe()
     boundary = RuntimeReceiptV2Boundary(
