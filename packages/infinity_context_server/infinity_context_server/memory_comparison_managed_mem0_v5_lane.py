@@ -272,6 +272,8 @@ class ManagedMem0V5LanePort(Protocol):
     def status(
         self,
         *,
+        authority: ManagedMem0V5ManifestAuthority,
+        unit: ManagedMem0V5SourceUnit,
         operation_id_sha256: str,
         admission: Mem0OssFullRunAdmission,
     ) -> object: ...
@@ -455,6 +457,8 @@ class ManagedMem0V5LaneCoordinator:
             if recovery.state is not Mem0OssOperationState.RECONCILIATION_REQUIRED:
                 continue
             receipt = self._lane.status(
+                authority=authority,
+                unit=authority.units[index],
                 operation_id_sha256=recovery.operation_id_sha256,
                 admission=self._service.admission,
             )
@@ -558,6 +562,8 @@ class ManagedMem0V5LaneCoordinator:
             for index in attempted:
                 progress = checkpoint.units[index]
                 receipt = self._lane.status(
+                    authority=authority,
+                    unit=authority.units[index],
                     operation_id_sha256=progress.operation_id_sha256,
                     admission=self._service.admission,
                 )
