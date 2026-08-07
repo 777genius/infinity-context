@@ -31,6 +31,7 @@ from infinity_context_server.memory_comparison_managed_mem0_v5_request_binding i
     verify_request_binding_payload,
 )
 from infinity_context_server.memory_comparison_mem0_oss_v5_contracts import (
+    CleanupVerificationContext,
     Mem0OssFullRunAdmission,
     canonical_sha256,
     is_sha256,
@@ -45,6 +46,9 @@ from infinity_context_server.memory_comparison_mem0_oss_v5_http import (
     Mem0V5TransportPort,
 )
 from infinity_context_server.memory_comparison_mem0_oss_v5_run import Mem0OssRunSeal
+from infinity_context_server.memory_comparison_mem0_oss_v5_terminal import (
+    cleanup_request_payload,
+)
 
 _OBSERVATION_SCHEMA = "mem0-oss-adapter-v5.storage-observation.v1"
 _SEARCH_SCHEMA = "mem0-oss-adapter-v5.scoped-search.v1"
@@ -559,12 +563,14 @@ class ManagedMem0V5HttpLane:
         admission: Mem0OssFullRunAdmission,
         seal: Mem0OssRunSeal | None,
         aborting: bool,
+        context: CleanupVerificationContext | None = None,
     ) -> object:
-        context = self._cleanup_binding.cleanup_context(
-            admission=admission,
-            seal=seal,
-            aborting=aborting,
-        )
+        if context is None:
+            context = self._cleanup_binding.cleanup_context(
+                admission=admission,
+                seal=seal,
+                aborting=aborting,
+            )
         if (
             context.admission_commitment_sha256 != admission.commitment_sha256
             or context.seal_commitment_sha256 != (None if seal is None else seal.commitment_sha256)
@@ -574,14 +580,7 @@ class ManagedMem0V5HttpLane:
             or context.aborting is not aborting
         ):
             _fail("mem0_v5_managed_cleanup_binding_invalid")
-        body = {
-            "admission_commitment_sha256": context.admission_commitment_sha256,
-            "seal_commitment_sha256": context.seal_commitment_sha256,
-            "operation_root_sha256": context.operation_root_sha256,
-            "operation_inventory_root_sha256": context.operation_inventory_root_sha256,
-            "expected_operation_count": context.expected_operation_count,
-            "aborting": context.aborting,
-        }
+        body = cleanup_request_payload(context)
         return self._control.cleanup(
             Mem0V5CleanupRequest(
                 body["admission_commitment_sha256"],

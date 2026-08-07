@@ -17,12 +17,23 @@ from pathlib import Path
 from typing import Protocol, final
 
 from infinity_context_server.memory_comparison_mem0_oss_v5_contracts import (
+    CleanupVerificationContext,
+    Mem0OssFullRunError,
     canonical_sha256,
     is_sha256,
 )
+from infinity_context_server.memory_comparison_mem0_oss_v5_evidence import (
+    Mem0OssFailedReceiptEvidence,
+    Mem0OssRunSeal,
+    Mem0OssTerminalCleanupEvidence,
+)
+from infinity_context_server.memory_comparison_mem0_oss_v5_terminal import (
+    Mem0OssTerminalBasis,
+    cleanup_request_commitment,
+)
 
-_SCHEMA = "managed-mem0-v5-checkpoint.v1"
-_DOMAIN = b"managed-mem0-v5-checkpoint/v1\0"
+_SCHEMA = "managed-mem0-v5-checkpoint.v2"
+_DOMAIN = b"managed-mem0-v5-checkpoint/v2\0"
 _MAX_BYTES = 8_000_000
 
 
@@ -37,6 +48,13 @@ class ManagedMem0V5CheckpointPhase(StrEnum):
     RECEIPT_VERIFIED = "receipt_verified"
     STORAGE_VERIFIED = "storage_verified"
     COMMITTED = "committed"
+
+
+class ManagedMem0V5RunPhase(StrEnum):
+    ACTIVE = "active"
+    SEALED = "sealed"
+    CLEANUP_ATTEMPTED = "cleanup_attempted"
+    TERMINAL = "terminal"
 
 
 class ManagedMem0V5RecoveryAction(StrEnum):
@@ -149,8 +167,12 @@ class ManagedMem0V5Checkpoint:
     generation: int
     previous_checkpoint_commitment_sha256: str | None
     units: tuple[ManagedMem0V5CheckpointUnit, ...]
-    seal_commitment_sha256: str | None
-    cleanup_commitment_sha256: str | None
+    run_phase: ManagedMem0V5RunPhase
+    seal: Mem0OssRunSeal | None
+    cleanup_context: CleanupVerificationContext | None
+    cleanup_request_commitment_sha256: str | None
+    terminal_basis: Mem0OssTerminalBasis | None
+    terminal_evidence: Mem0OssTerminalCleanupEvidence | None
     checkpoint_commitment_sha256: str
     checkpoint_hmac_sha256: str
     schema_version: str = _SCHEMA
@@ -172,23 +194,21 @@ class ManagedMem0V5Checkpoint:
             or any(type(item) is not ManagedMem0V5CheckpointUnit for item in self.units)
             or tuple(item.unit_index for item in self.units) != tuple(range(len(self.units)))
             or len({item.operation_id_sha256 for item in self.units}) != len(self.units)
-            or (
-                self.seal_commitment_sha256 is not None
-                and not is_sha256(self.seal_commitment_sha256)
-            )
-            or (
-                self.cleanup_commitment_sha256 is not None
-                and not is_sha256(self.cleanup_commitment_sha256)
-            )
+            or type(self.run_phase) is not ManagedMem0V5RunPhase
             or not is_sha256(self.checkpoint_commitment_sha256)
             or not is_sha256(self.checkpoint_hmac_sha256)
             or self.checkpoint_commitment_sha256 != canonical_sha256(self.commitment_payload())
         ):
             _fail("managed_mem0_v5_checkpoint_invalid")
-        if self.seal_commitment_sha256 is not None and any(
+        requires_committed = self.run_phase is ManagedMem0V5RunPhase.SEALED or (
+            self.cleanup_context is not None and not self.cleanup_context.aborting
+        )
+        if requires_committed and any(
             item.phase is not ManagedMem0V5CheckpointPhase.COMMITTED for item in self.units
         ):
             _fail("managed_mem0_v5_checkpoint_seal_invalid")
+        if not _valid_run_payload(self):
+            _fail("managed_mem0_v5_checkpoint_run_invalid")
 
     @classmethod
     def create(
@@ -199,8 +219,12 @@ class ManagedMem0V5Checkpoint:
         generation: int,
         previous_checkpoint_commitment_sha256: str | None,
         units: tuple[ManagedMem0V5CheckpointUnit, ...],
-        seal_commitment_sha256: str | None = None,
-        cleanup_commitment_sha256: str | None = None,
+        run_phase: ManagedMem0V5RunPhase = ManagedMem0V5RunPhase.ACTIVE,
+        seal: Mem0OssRunSeal | None = None,
+        cleanup_context: CleanupVerificationContext | None = None,
+        cleanup_request_commitment_sha256: str | None = None,
+        terminal_basis: Mem0OssTerminalBasis | None = None,
+        terminal_evidence: Mem0OssTerminalCleanupEvidence | None = None,
         signer: ManagedMem0V5CheckpointSignerPort,
     ) -> ManagedMem0V5Checkpoint:
         base = {
@@ -210,8 +234,14 @@ class ManagedMem0V5Checkpoint:
             "generation": generation,
             "previous_checkpoint_commitment_sha256": previous_checkpoint_commitment_sha256,
             "units": [item.payload() for item in units],
-            "seal_commitment_sha256": seal_commitment_sha256,
-            "cleanup_commitment_sha256": cleanup_commitment_sha256,
+            "run_phase": run_phase.value,
+            "seal": None if seal is None else seal.payload(),
+            "cleanup_context": _cleanup_context_payload(cleanup_context),
+            "cleanup_request_commitment_sha256": cleanup_request_commitment_sha256,
+            "terminal_basis": None if terminal_basis is None else terminal_basis.public_payload(),
+            "terminal_evidence": (
+                None if terminal_evidence is None else terminal_evidence.public_payload()
+            ),
         }
         commitment = canonical_sha256(base)
         signature = signer.sign(_signed_bytes({**base, "checkpoint_commitment_sha256": commitment}))
@@ -221,8 +251,12 @@ class ManagedMem0V5Checkpoint:
             generation,
             previous_checkpoint_commitment_sha256,
             units,
-            seal_commitment_sha256,
-            cleanup_commitment_sha256,
+            run_phase,
+            seal,
+            cleanup_context,
+            cleanup_request_commitment_sha256,
+            terminal_basis,
+            terminal_evidence,
             commitment,
             signature,
         )
@@ -235,8 +269,16 @@ class ManagedMem0V5Checkpoint:
             "generation": self.generation,
             "previous_checkpoint_commitment_sha256": self.previous_checkpoint_commitment_sha256,
             "units": [item.payload() for item in self.units],
-            "seal_commitment_sha256": self.seal_commitment_sha256,
-            "cleanup_commitment_sha256": self.cleanup_commitment_sha256,
+            "run_phase": self.run_phase.value,
+            "seal": None if self.seal is None else self.seal.payload(),
+            "cleanup_context": _cleanup_context_payload(self.cleanup_context),
+            "cleanup_request_commitment_sha256": self.cleanup_request_commitment_sha256,
+            "terminal_basis": (
+                None if self.terminal_basis is None else self.terminal_basis.public_payload()
+            ),
+            "terminal_evidence": (
+                None if self.terminal_evidence is None else self.terminal_evidence.public_payload()
+            ),
         }
 
     def signed_payload(self) -> dict[str, object]:
@@ -501,6 +543,197 @@ class AtomicJsonManagedMem0V5CheckpointStore:
                 os.close(descriptor)
 
 
+def _cleanup_context_payload(value: CleanupVerificationContext | None) -> dict[str, object] | None:
+    if value is None:
+        return None
+    return {
+        "admission_commitment_sha256": value.admission_commitment_sha256,
+        "seal_commitment_sha256": value.seal_commitment_sha256,
+        "operation_root_sha256": value.operation_root_sha256,
+        "operation_inventory_root_sha256": value.operation_inventory_root_sha256,
+        "expected_operation_count": value.expected_operation_count,
+        "aborting": value.aborting,
+    }
+
+
+def _exact(value: object, keys: set[str]) -> dict[str, object]:
+    if type(value) is not dict or set(value) != keys:
+        _fail("managed_mem0_v5_checkpoint_corrupt")
+    return value
+
+
+def _seal_from_payload(value: object) -> Mem0OssRunSeal | None:
+    if value is None:
+        return None
+    raw = _exact(
+        value,
+        {
+            "admission_commitment_sha256",
+            "operation_count",
+            "ingestion_root_sha256",
+            "operation_root_sha256",
+            "provider_observed_extraction_calls",
+            "provider_observed_request_tokens",
+            "provider_observed_response_tokens",
+        },
+    )
+    return Mem0OssRunSeal(**raw)
+
+
+def _cleanup_context_from_payload(value: object) -> CleanupVerificationContext | None:
+    if value is None:
+        return None
+    raw = _exact(
+        value,
+        {
+            "admission_commitment_sha256",
+            "seal_commitment_sha256",
+            "operation_root_sha256",
+            "operation_inventory_root_sha256",
+            "expected_operation_count",
+            "aborting",
+        },
+    )
+    return CleanupVerificationContext(**raw)
+
+
+def _failed_receipts(value: object) -> tuple[Mem0OssFailedReceiptEvidence, ...]:
+    if type(value) is not list:
+        _fail("managed_mem0_v5_checkpoint_corrupt")
+    keys = {
+        "operation_id_sha256",
+        "unit_index",
+        "disposition",
+        "provider_receipt_sha256",
+        "extraction_calls",
+        "request_tokens",
+        "response_tokens",
+    }
+    return tuple(Mem0OssFailedReceiptEvidence(**_exact(item, keys)) for item in value)
+
+
+def _terminal_basis_from_payload(value: object) -> Mem0OssTerminalBasis | None:
+    if value is None:
+        return None
+    raw = _exact(
+        value,
+        {
+            "terminal_state",
+            "cleanup_context",
+            "provider_observed_extraction_calls",
+            "provider_observed_request_tokens",
+            "provider_observed_response_tokens",
+            "failed_receipts",
+        },
+    )
+    return Mem0OssTerminalBasis(
+        terminal_state=raw["terminal_state"],
+        cleanup_context=_cleanup_context_from_payload(raw["cleanup_context"]),
+        provider_observed_extraction_calls=raw["provider_observed_extraction_calls"],
+        provider_observed_request_tokens=raw["provider_observed_request_tokens"],
+        provider_observed_response_tokens=raw["provider_observed_response_tokens"],
+        failed_receipts=_failed_receipts(raw["failed_receipts"]),
+    )
+
+
+def _terminal_evidence_from_payload(value: object) -> Mem0OssTerminalCleanupEvidence | None:
+    if value is None:
+        return None
+    raw = _exact(
+        value,
+        {
+            "terminal_state",
+            "admission_commitment_sha256",
+            "seal_commitment_sha256",
+            "operation_root_sha256",
+            "operation_inventory_root_sha256",
+            "deleted_operation_count",
+            "residual_record_count",
+            "residual_root_sha256",
+            "provider_observed_extraction_calls",
+            "provider_observed_request_tokens",
+            "provider_observed_response_tokens",
+            "failed_receipts",
+        },
+    )
+    failed = _failed_receipts(raw.pop("failed_receipts"))
+    return Mem0OssTerminalCleanupEvidence(**raw, failed_receipts=failed)
+
+
+def _valid_run_payload(value: ManagedMem0V5Checkpoint) -> bool:
+    fields = (
+        value.seal,
+        value.cleanup_context,
+        value.cleanup_request_commitment_sha256,
+        value.terminal_basis,
+        value.terminal_evidence,
+    )
+    if value.run_phase is ManagedMem0V5RunPhase.ACTIVE:
+        return all(item is None for item in fields)
+    if type(value.seal) is not Mem0OssRunSeal and (
+        value.run_phase is ManagedMem0V5RunPhase.SEALED
+        or not (value.cleanup_context is not None and value.cleanup_context.aborting)
+    ):
+        return False
+    if value.seal is not None and (
+        value.seal.admission_commitment_sha256 != value.admission_commitment_sha256
+        or value.seal.operation_count != len(value.units)
+    ):
+        return False
+    if value.run_phase is ManagedMem0V5RunPhase.SEALED:
+        return fields[1:] == (None, None, None, None)
+    if (
+        type(value.cleanup_context) is not CleanupVerificationContext
+        or not is_sha256(value.cleanup_request_commitment_sha256)
+        or type(value.terminal_basis) is not Mem0OssTerminalBasis
+        or value.terminal_basis.cleanup_context != value.cleanup_context
+        or cleanup_request_commitment(value.cleanup_context)
+        != value.cleanup_request_commitment_sha256
+        or value.cleanup_context.admission_commitment_sha256 != value.admission_commitment_sha256
+        or value.cleanup_context.expected_operation_count != len(value.units)
+        or (value.seal is None) != value.cleanup_context.aborting
+        or (
+            value.seal is not None
+            and (
+                value.seal.commitment_sha256 != value.cleanup_context.seal_commitment_sha256
+                or value.seal.operation_root_sha256 != value.cleanup_context.operation_root_sha256
+            )
+        )
+    ):
+        return False
+    if not value.cleanup_context.aborting and (
+        value.terminal_basis.provider_observed_extraction_calls
+        != value.seal.provider_observed_extraction_calls
+        or value.terminal_basis.provider_observed_request_tokens
+        != value.seal.provider_observed_request_tokens
+        or value.terminal_basis.provider_observed_response_tokens
+        != value.seal.provider_observed_response_tokens
+        or value.terminal_basis.failed_receipts
+    ):
+        return False
+    if value.run_phase is ManagedMem0V5RunPhase.CLEANUP_ATTEMPTED:
+        return value.terminal_evidence is None
+    terminal = value.terminal_evidence
+    context = value.cleanup_context
+    basis = value.terminal_basis
+    return type(terminal) is Mem0OssTerminalCleanupEvidence and (
+        terminal.terminal_state == basis.terminal_state
+        and terminal.admission_commitment_sha256 == context.admission_commitment_sha256
+        and terminal.seal_commitment_sha256 == context.seal_commitment_sha256
+        and terminal.operation_root_sha256 == context.operation_root_sha256
+        and terminal.operation_inventory_root_sha256 == context.operation_inventory_root_sha256
+        and terminal.provider_observed_extraction_calls == basis.provider_observed_extraction_calls
+        and terminal.provider_observed_request_tokens == basis.provider_observed_request_tokens
+        and terminal.provider_observed_response_tokens == basis.provider_observed_response_tokens
+        and terminal.failed_receipts == basis.failed_receipts
+        and (
+            terminal.deleted_operation_count <= context.expected_operation_count
+            if context.aborting
+            else terminal.deleted_operation_count == context.expected_operation_count
+        )
+    )
+
+
 def _from_payload(value: object) -> ManagedMem0V5Checkpoint:
     keys = {
         "schema_version",
@@ -509,8 +742,12 @@ def _from_payload(value: object) -> ManagedMem0V5Checkpoint:
         "generation",
         "previous_checkpoint_commitment_sha256",
         "units",
-        "seal_commitment_sha256",
-        "cleanup_commitment_sha256",
+        "run_phase",
+        "seal",
+        "cleanup_context",
+        "cleanup_request_commitment_sha256",
+        "terminal_basis",
+        "terminal_evidence",
         "checkpoint_commitment_sha256",
         "checkpoint_hmac_sha256",
     }
@@ -542,14 +779,26 @@ def _from_payload(value: object) -> ManagedMem0V5Checkpoint:
                 tuple(raw["record_ids"]),
             )
         )
+    try:
+        run_phase = ManagedMem0V5RunPhase(value["run_phase"])
+        seal = _seal_from_payload(value["seal"])
+        cleanup_context = _cleanup_context_from_payload(value["cleanup_context"])
+        terminal_basis = _terminal_basis_from_payload(value["terminal_basis"])
+        terminal_evidence = _terminal_evidence_from_payload(value["terminal_evidence"])
+    except (KeyError, TypeError, ValueError, Mem0OssFullRunError):
+        _fail("managed_mem0_v5_checkpoint_corrupt")
     return ManagedMem0V5Checkpoint(
         value["authority_commitment_sha256"],
         value["admission_commitment_sha256"],
         value["generation"],
         value["previous_checkpoint_commitment_sha256"],
         tuple(units),
-        value["seal_commitment_sha256"],
-        value["cleanup_commitment_sha256"],
+        run_phase,
+        seal,
+        cleanup_context,
+        value["cleanup_request_commitment_sha256"],
+        terminal_basis,
+        terminal_evidence,
         value["checkpoint_commitment_sha256"],
         value["checkpoint_hmac_sha256"],
         value["schema_version"],
@@ -557,6 +806,13 @@ def _from_payload(value: object) -> ManagedMem0V5Checkpoint:
 
 
 def _forward_only(before: ManagedMem0V5Checkpoint, after: ManagedMem0V5Checkpoint) -> None:
+    if (
+        before.run_phase is not ManagedMem0V5RunPhase.ACTIVE
+        or after.run_phase is not ManagedMem0V5RunPhase.ACTIVE
+    ) and before.units != after.units:
+        _fail("managed_mem0_v5_checkpoint_regression")
+    if before.run_phase is not ManagedMem0V5RunPhase.ACTIVE and before.run_phase is after.run_phase:
+        _fail("managed_mem0_v5_checkpoint_regression")
     if len(before.units) != len(after.units):
         _fail("managed_mem0_v5_checkpoint_regression")
     for old, new in zip(before.units, after.units, strict=True):
@@ -579,13 +835,27 @@ def _forward_only(before: ManagedMem0V5Checkpoint, after: ManagedMem0V5Checkpoin
             or (old.observation_commitment_sha256 is not None and old.record_ids != new.record_ids)
         ):
             _fail("managed_mem0_v5_checkpoint_regression")
-    if (
-        before.seal_commitment_sha256 is not None
-        and before.seal_commitment_sha256 != after.seal_commitment_sha256
-    ) or (
-        before.cleanup_commitment_sha256 is not None
-        and before.cleanup_commitment_sha256 != after.cleanup_commitment_sha256
-    ):
+    allowed_run_phases = {
+        ManagedMem0V5RunPhase.ACTIVE: {
+            ManagedMem0V5RunPhase.ACTIVE,
+            ManagedMem0V5RunPhase.SEALED,
+            ManagedMem0V5RunPhase.CLEANUP_ATTEMPTED,
+        },
+        ManagedMem0V5RunPhase.SEALED: {
+            ManagedMem0V5RunPhase.CLEANUP_ATTEMPTED,
+        },
+        ManagedMem0V5RunPhase.CLEANUP_ATTEMPTED: {
+            ManagedMem0V5RunPhase.TERMINAL,
+        },
+        ManagedMem0V5RunPhase.TERMINAL: set(),
+    }
+    if after.run_phase not in allowed_run_phases[before.run_phase]:
+        _fail("managed_mem0_v5_checkpoint_regression")
+    for field in ("seal", "cleanup_context", "cleanup_request_commitment_sha256", "terminal_basis"):
+        old = getattr(before, field)
+        if old is not None and old != getattr(after, field):
+            _fail("managed_mem0_v5_checkpoint_regression")
+    if before.terminal_evidence is not None and before.terminal_evidence != after.terminal_evidence:
         _fail("managed_mem0_v5_checkpoint_regression")
 
 
@@ -621,6 +891,7 @@ __all__ = (
     "ManagedMem0V5Checkpoint",
     "ManagedMem0V5CheckpointError",
     "ManagedMem0V5CheckpointPhase",
+    "ManagedMem0V5RunPhase",
     "ManagedMem0V5CheckpointSignerPort",
     "ManagedMem0V5CheckpointStorePort",
     "ManagedMem0V5CheckpointUnit",

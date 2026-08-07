@@ -9,6 +9,7 @@ from typing import Protocol, final
 from infinity_context_server.memory_comparison_managed_mem0_v5_checkpoint import (
     ManagedMem0V5Checkpoint,
     ManagedMem0V5CheckpointPhase,
+    ManagedMem0V5RunPhase,
 )
 from infinity_context_server.memory_comparison_managed_mem0_v5_progress import (
     ManagedMem0V5ProgressPort,
@@ -19,6 +20,7 @@ from infinity_context_server.memory_comparison_managed_mem0_v5_projector import 
 )
 from infinity_context_server.memory_comparison_managed_run_contract import ManagedRunError
 from infinity_context_server.memory_comparison_mem0_oss_v5_contracts import (
+    CleanupVerificationContext,
     Mem0OssAdmissionRequest,
     Mem0OssFullRunAdmission,
     Mem0OssFullRunState,
@@ -31,6 +33,10 @@ from infinity_context_server.memory_comparison_mem0_oss_v5_run import (
     Mem0OssOperationRecoveryState,
     Mem0OssRunSeal,
     Mem0OssTerminalCleanupEvidence,
+)
+from infinity_context_server.memory_comparison_mem0_oss_v5_terminal import (
+    build_terminal_evidence,
+    cleanup_request_commitment,
 )
 
 _SAFE_RECORD_ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:-]{0,511}$")
@@ -226,6 +232,7 @@ class ManagedMem0V5LanePort(Protocol):
         admission: Mem0OssFullRunAdmission,
         seal: Mem0OssRunSeal | None,
         aborting: bool,
+        context: CleanupVerificationContext | None = None,
     ) -> object: ...
 
 
@@ -240,9 +247,11 @@ class ManagedMem0V5LaneCoordinator:
         "_dispatched",
         "_lane",
         "_operation_ids",
+        "_pending_terminal",
         "_progress",
         "_service",
         "_storage_observations",
+        "_terminal",
     )
 
     def __init__(
@@ -258,16 +267,25 @@ class ManagedMem0V5LaneCoordinator:
         self._lane = lane_port
         if progress_port is not None and not all(
             callable(getattr(progress_port, name, None))
-            for name in ("initialize", "load", "advance")
+            for name in (
+                "initialize",
+                "load",
+                "advance",
+                "record_seal",
+                "record_cleanup_attempt",
+                "record_terminal",
+            )
         ):
             raise ManagedRunError("managed Mem0 v5 progress port is invalid")
         self._progress = progress_port
         self._authority: ManagedMem0V5ManifestAuthority | None = None
         self._budget: ManagedMem0V5Budget | None = None
         self._operation_ids: dict[int, str] = {}
+        self._pending_terminal: Mem0OssTerminalCleanupEvidence | None = None
         self._dispatched: set[int] = set()
         self._completed: set[int] = set()
         self._storage_observations: dict[int, ManagedMem0V5StorageObservation] = {}
+        self._terminal: Mem0OssTerminalCleanupEvidence | None = None
 
     @property
     def budget(self) -> ManagedMem0V5Budget:
@@ -287,7 +305,7 @@ class ManagedMem0V5LaneCoordinator:
 
     @property
     def terminal_evidence(self) -> Mem0OssTerminalCleanupEvidence:
-        return self._service.terminal_cleanup_evidence
+        return self._terminal or self._service.terminal_cleanup_evidence
 
     def admit(
         self,
@@ -325,6 +343,8 @@ class ManagedMem0V5LaneCoordinator:
             raise
 
     def dispatch_pending(self) -> Mem0OssRunSeal:
+        if self._terminal is not None:
+            raise ManagedRunError("managed Mem0 v5 lane is terminal")
         authority = self._required_authority()
         if self._service.state is Mem0OssFullRunState.RECONCILIATION_REQUIRED:
             raise ManagedRunError("managed Mem0 v5 status reconciliation is required")
@@ -348,7 +368,14 @@ class ManagedMem0V5LaneCoordinator:
             self._service.verify_dispatch_receipt(unit_index=index, receipt_payload=receipt)
             self._advance_receipt(index)
             self._finish_storage(index, unit, operation_id)
-        return self._service.seal()
+        seal = self._service.seal()
+        if self._progress is not None:
+            self._progress.record_seal(
+                authority=authority,
+                admission=self._service.admission,
+                seal=seal,
+            )
+        return seal
 
     def reconcile_after_crash(self) -> tuple[int, ...]:
         authority = self._required_authority()
@@ -431,6 +458,12 @@ class ManagedMem0V5LaneCoordinator:
         checkpoint = self._progress.load(authority=authority, admission=self._service.admission)
         self._authority = authority
         self._budget = budget
+        if checkpoint.run_phase is ManagedMem0V5RunPhase.TERMINAL:
+            self._terminal = checkpoint.terminal_evidence
+            return checkpoint
+        if checkpoint.run_phase is ManagedMem0V5RunPhase.CLEANUP_ATTEMPTED:
+            self._resume_cleanup(checkpoint)
+            return checkpoint
         self._lane.admit(authority=authority, admission=self._service.admission)
         attempted: list[int] = []
         for index, unit_progress in enumerate(checkpoint.units):
@@ -487,29 +520,44 @@ class ManagedMem0V5LaneCoordinator:
                 self._storage_observations[index] = evidence
                 self._service.commit(unit_index=index)
                 self._completed.add(index)
-                self._advance(
-                    index,
-                    ManagedMem0V5CheckpointPhase.COMMITTED,
-                    provider_receipt_commitment_sha256=recovery.provider_receipt_sha256,
-                    observation_commitment_sha256=evidence.evidence_commitment_sha256,
-                    record_ids=evidence.created_record_ids,
-                )
+                if checkpoint.run_phase is ManagedMem0V5RunPhase.ACTIVE:
+                    self._advance(
+                        index,
+                        ManagedMem0V5CheckpointPhase.COMMITTED,
+                        provider_receipt_commitment_sha256=recovery.provider_receipt_sha256,
+                        observation_commitment_sha256=evidence.evidence_commitment_sha256,
+                        record_ids=evidence.created_record_ids,
+                    )
+        if checkpoint.run_phase is ManagedMem0V5RunPhase.SEALED:
+            seal = self._service.seal()
+            if seal != checkpoint.seal:
+                raise ManagedRunError("managed Mem0 v5 restore seal differs")
         return checkpoint
 
     def cleanup(self) -> Mem0OssTerminalCleanupEvidence:
+        if self._pending_terminal is not None:
+            pending = self._pending_terminal
+            self._record_terminal(pending)
+            return pending
+        if self._terminal is not None:
+            if self._terminal.terminal_state != Mem0OssFullRunState.DELETED.value:
+                raise ManagedRunError("managed Mem0 v5 cleanup terminal state differs")
+            return self._terminal
         if self._service.state is Mem0OssFullRunState.SEALED:
             self._service.begin_delete()
         elif self._service.state is not Mem0OssFullRunState.DELETING:
             raise ManagedRunError("managed Mem0 v5 cleanup state is invalid")
-        payload = self._lane.cleanup(
-            admission=self._service.admission,
-            seal=self._service.seal_evidence,
-            aborting=False,
-        )
-        self._service.finish_delete(cleanup_payload=payload)
-        return self._service.terminal_cleanup_evidence
+        return self._execute_cleanup(aborting=False)
 
     def abort(self) -> Mem0OssTerminalCleanupEvidence:
+        if self._pending_terminal is not None:
+            pending = self._pending_terminal
+            self._record_terminal(pending)
+            return pending
+        if self._terminal is not None:
+            if self._terminal.terminal_state != Mem0OssFullRunState.ABORTED.value:
+                raise ManagedRunError("managed Mem0 v5 abort terminal state differs")
+            return self._terminal
         if self._service.state in {
             Mem0OssFullRunState.ACTIVE,
             Mem0OssFullRunState.RECONCILIATION_REQUIRED,
@@ -518,13 +566,70 @@ class ManagedMem0V5LaneCoordinator:
             self._service.begin_abort()
         elif self._service.state is not Mem0OssFullRunState.ABORTING:
             raise ManagedRunError("managed Mem0 v5 abort state is invalid")
+        return self._execute_cleanup(aborting=True)
+
+    def _execute_cleanup(self, *, aborting: bool) -> Mem0OssTerminalCleanupEvidence:
+        context = self._service.cleanup_verification_context(aborting=aborting)
+        basis = self._service.terminal_basis(aborting=aborting)
+        if self._progress is not None:
+            self._progress.record_cleanup_attempt(
+                authority=self._required_authority(),
+                admission=self._service.admission,
+                cleanup_context=context,
+                cleanup_request_commitment_sha256=cleanup_request_commitment(context),
+                terminal_basis=basis,
+            )
         payload = self._lane.cleanup(
             admission=self._service.admission,
-            seal=None,
-            aborting=True,
+            seal=None if aborting else self._service.seal_evidence,
+            aborting=aborting,
+            context=context,
         )
-        self._service.finish_abort(cleanup_payload=payload)
-        return self._service.terminal_cleanup_evidence
+        if aborting:
+            self._service.finish_abort(cleanup_payload=payload)
+        else:
+            self._service.finish_delete(cleanup_payload=payload)
+        terminal = self._service.terminal_cleanup_evidence
+        self._record_terminal(terminal)
+        return terminal
+
+    def _resume_cleanup(self, checkpoint: ManagedMem0V5Checkpoint) -> None:
+        context = checkpoint.cleanup_context
+        basis = checkpoint.terminal_basis
+        if context is None or basis is None:
+            raise ManagedRunError("managed Mem0 v5 cleanup checkpoint is incomplete")
+        if cleanup_request_commitment(context) != checkpoint.cleanup_request_commitment_sha256:
+            raise ManagedRunError("managed Mem0 v5 cleanup request binding differs")
+        payload = self._lane.cleanup(
+            admission=self._service.admission,
+            seal=checkpoint.seal,
+            aborting=context.aborting,
+            context=context,
+        )
+        result = self._service.verify_cleanup_payload(payload=payload, context=context)
+        terminal = build_terminal_evidence(basis=basis, result=result)
+        self._record_terminal(terminal)
+
+    def _record_terminal(self, terminal: Mem0OssTerminalCleanupEvidence) -> None:
+        self._pending_terminal = terminal
+        if self._progress is not None:
+            current = self._progress.load(
+                authority=self._required_authority(),
+                admission=self._service.admission,
+            )
+            if current.run_phase is ManagedMem0V5RunPhase.TERMINAL:
+                if current.terminal_evidence != terminal:
+                    raise ManagedRunError("managed Mem0 v5 terminal evidence differs")
+                self._terminal = terminal
+                self._pending_terminal = None
+                return
+            self._progress.record_terminal(
+                authority=self._required_authority(),
+                admission=self._service.admission,
+                terminal_evidence=terminal,
+            )
+        self._terminal = terminal
+        self._pending_terminal = None
 
     def _finish_storage(
         self,

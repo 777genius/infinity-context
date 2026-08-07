@@ -1,14 +1,22 @@
 from __future__ import annotations
 
 import hashlib
+import json
 import os
+from dataclasses import replace
 from pathlib import Path
 
 import pytest
+from infinity_context_server import (
+    memory_comparison_managed_mem0_v5_checkpoint as checkpoint_module,
+)
 from infinity_context_server.memory_comparison_managed_mem0_v5_checkpoint import (
     AtomicJsonManagedMem0V5CheckpointStore,
     HmacSha256ManagedMem0V5CheckpointSigner,
+    ManagedMem0V5Checkpoint,
+    ManagedMem0V5CheckpointError,
     ManagedMem0V5CheckpointPhase,
+    ManagedMem0V5RunPhase,
 )
 from infinity_context_server.memory_comparison_managed_mem0_v5_lane import (
     ManagedMem0V5BudgetPolicy,
@@ -37,8 +45,12 @@ from infinity_context_server.memory_comparison_mem0_oss_v5_contracts import (
     RuntimeReceiptVerificationResult,
     StorageVerificationContext,
     StorageVerificationResult,
+    canonical_sha256,
 )
 from infinity_context_server.memory_comparison_mem0_oss_v5_run import Mem0OssFullRunService
+from infinity_context_server.memory_comparison_mem0_oss_v5_terminal import (
+    cleanup_request_commitment,
+)
 
 
 def _sha(value: str) -> str:
@@ -141,10 +153,17 @@ class _Lane:
         dispatch_fail_once=False,
         inspect_fail_once=False,
         zero_record_sequences: tuple[int, ...] = (),
+        cleanup_fail_once: bool = False,
+        cleanup_fail_before_commit_once: bool = False,
+        cleanup_hook=None,
     ) -> None:
         self.dispatch_fail_once = dispatch_fail_once
         self.inspect_fail_once = inspect_fail_once
         self.zero_record_sequences = zero_record_sequences
+        self.cleanup_fail_once = cleanup_fail_once
+        self.cleanup_fail_before_commit_once = cleanup_fail_before_commit_once
+        self.cleanup_hook = cleanup_hook
+        self.cleanup_commits = 0
         self.calls: list[str] = []
 
     def admit(self, **kwargs) -> None:
@@ -180,6 +199,16 @@ class _Lane:
 
     def cleanup(self, **kwargs):
         self.calls.append("cleanup")
+        if self.cleanup_fail_before_commit_once:
+            self.cleanup_fail_before_commit_once = False
+            raise RuntimeError("crash before cleanup request")
+        if self.cleanup_commits == 0:
+            self.cleanup_commits = 1
+        if self.cleanup_hook is not None:
+            self.cleanup_hook()
+        if self.cleanup_fail_once:
+            self.cleanup_fail_once = False
+            raise RuntimeError("lost cleanup response")
         return {"cleanup": kwargs["aborting"]}
 
 
@@ -204,6 +233,29 @@ class _Head:
             self.fail_next_cas = False
             raise RuntimeError("simulated checkpoint head crash")
         self.value = next_commitment_sha256
+
+
+class _FailBeforeTerminalSave:
+    def __init__(self, inner: ManagedMem0V5CheckpointProgress) -> None:
+        self.inner = inner
+
+    def initialize(self, **kwargs):
+        return self.inner.initialize(**kwargs)
+
+    def load(self, **kwargs):
+        return self.inner.load(**kwargs)
+
+    def advance(self, **kwargs):
+        return self.inner.advance(**kwargs)
+
+    def record_seal(self, **kwargs):
+        return self.inner.record_seal(**kwargs)
+
+    def record_cleanup_attempt(self, **kwargs):
+        return self.inner.record_cleanup_attempt(**kwargs)
+
+    def record_terminal(self, **_kwargs):
+        raise RuntimeError("crash before terminal save")
 
 
 def _request(expected_operation_count: int = 1) -> Mem0OssAdmissionRequest:
@@ -489,3 +541,324 @@ def test_fresh_restore_keeps_reserved_unit_dispatchable_in_mixed_checkpoint(
     assert restored.cleanup().residual_record_count == 0
     final = fresh_progress.load(authority=authority, admission=fresh_service.admission)
     assert all(unit.phase is ManagedMem0V5CheckpointPhase.COMMITTED for unit in final.units)
+
+
+def test_cleanup_response_loss_retries_cleanup_without_status_and_terminal_restart_is_http_free(
+    tmp_path: Path,
+) -> None:
+    checkpoint_path = tmp_path / "managed-v5-checkpoint.json"
+    head = _Head()
+    lane = _Lane(cleanup_fail_once=True, zero_record_sequences=(0,))
+    progress = _progress(checkpoint_path, head)
+    authority, service, first = _coordinator(lane, _StoragePort(), progress=progress)
+    first.dispatch_pending()
+
+    with pytest.raises(RuntimeError, match="lost cleanup response"):
+        first.cleanup()
+    attempted = progress.load(authority=authority, admission=service.admission)
+    assert attempted.run_phase is ManagedMem0V5RunPhase.CLEANUP_ATTEMPTED
+    assert (
+        progress.record_cleanup_attempt(
+            authority=authority,
+            admission=service.admission,
+            cleanup_context=attempted.cleanup_context,
+            cleanup_request_commitment_sha256=attempted.cleanup_request_commitment_sha256,
+            terminal_basis=attempted.terminal_basis,
+        )
+        == attempted
+    )
+
+    signer = HmacSha256ManagedMem0V5CheckpointSigner(key=b"checkpoint-test-key" * 2)
+    mutated = ManagedMem0V5Checkpoint.create(
+        authority_commitment_sha256=attempted.authority_commitment_sha256,
+        admission_commitment_sha256=attempted.admission_commitment_sha256,
+        generation=attempted.generation + 1,
+        previous_checkpoint_commitment_sha256=attempted.checkpoint_commitment_sha256,
+        units=(replace(attempted.units[0], record_ids=("late-record",)),),
+        run_phase=ManagedMem0V5RunPhase.CLEANUP_ATTEMPTED,
+        seal=attempted.seal,
+        cleanup_context=attempted.cleanup_context,
+        cleanup_request_commitment_sha256=attempted.cleanup_request_commitment_sha256,
+        terminal_basis=attempted.terminal_basis,
+        signer=signer,
+    )
+    with pytest.raises(ManagedMem0V5CheckpointError, match="regression"):
+        AtomicJsonManagedMem0V5CheckpointStore(path=checkpoint_path, signer=signer).save(
+            mutated,
+            expected_previous_commitment_sha256=attempted.checkpoint_commitment_sha256,
+        )
+
+    fresh_service = _service(_StoragePort())
+    fresh_progress = _progress(checkpoint_path, head)
+    fresh = ManagedMem0V5LaneCoordinator(
+        service=fresh_service, lane_port=lane, progress_port=fresh_progress
+    )
+    fresh.restore(
+        authority=authority,
+        request=_request(),
+        budget_policy=ManagedMem0V5BudgetPolicy(5),
+    )
+    terminal = fresh.terminal_evidence
+    assert terminal.residual_record_count == 0
+    assert lane.cleanup_commits == 1
+    assert lane.calls.count("cleanup") == 2
+    assert lane.calls.count("status") == 0
+
+    calls = tuple(lane.calls)
+    terminal_service = _service(_StoragePort())
+    terminal_restart = ManagedMem0V5LaneCoordinator(
+        service=terminal_service,
+        lane_port=lane,
+        progress_port=_progress(checkpoint_path, head),
+    )
+    terminal_restart.restore(
+        authority=authority,
+        request=_request(),
+        budget_policy=ManagedMem0V5BudgetPolicy(5),
+    )
+    assert terminal_restart.terminal_evidence == terminal
+    assert terminal_restart.cleanup() == terminal
+    with pytest.raises(ManagedRunError, match="lane is terminal"):
+        terminal_restart.dispatch_pending()
+    assert tuple(lane.calls) == calls
+
+
+def test_terminal_checkpoint_saved_before_head_cas_is_adopted_without_cleanup_replay(
+    tmp_path: Path,
+) -> None:
+    checkpoint_path = tmp_path / "managed-v5-checkpoint.json"
+    head = _Head()
+
+    def fail_terminal_head() -> None:
+        head.fail_next_cas = True
+
+    lane = _Lane(cleanup_hook=fail_terminal_head)
+    progress = _progress(checkpoint_path, head)
+    authority, service, first = _coordinator(lane, _StoragePort(), progress=progress)
+    first.dispatch_pending()
+    with pytest.raises(RuntimeError, match="head crash"):
+        first.cleanup()
+
+    fresh_service = _service(_StoragePort())
+    fresh = ManagedMem0V5LaneCoordinator(
+        service=fresh_service,
+        lane_port=lane,
+        progress_port=_progress(checkpoint_path, head),
+    )
+    cleanup_calls = lane.calls.count("cleanup")
+    fresh.restore(
+        authority=authority,
+        request=_request(),
+        budget_policy=ManagedMem0V5BudgetPolicy(5),
+    )
+    assert fresh.terminal_evidence.residual_record_count == 0
+    assert lane.calls.count("cleanup") == cleanup_calls
+    assert lane.calls.count("status") == 0
+
+
+def test_abort_cleanup_response_loss_restarts_without_operation_status(tmp_path: Path) -> None:
+    checkpoint_path = tmp_path / "managed-v5-checkpoint.json"
+    head = _Head()
+    lane = _Lane(cleanup_fail_once=True)
+    progress = _progress(checkpoint_path, head)
+    authority, _, first = _coordinator(lane, _StoragePort(), progress=progress)
+    with pytest.raises(RuntimeError, match="lost cleanup response"):
+        first.abort()
+
+    fresh_service = _service(_StoragePort())
+    fresh = ManagedMem0V5LaneCoordinator(
+        service=fresh_service,
+        lane_port=lane,
+        progress_port=_progress(checkpoint_path, head),
+    )
+    fresh.restore(
+        authority=authority,
+        request=_request(),
+        budget_policy=ManagedMem0V5BudgetPolicy(5),
+    )
+    assert fresh.terminal_evidence.terminal_state == "aborted"
+    assert lane.calls.count("cleanup") == 2
+    assert lane.calls.count("status") == 0
+
+
+def test_cleanup_response_verified_before_terminal_save_replays_cleanup_on_restart(
+    tmp_path: Path,
+) -> None:
+    checkpoint_path = tmp_path / "managed-v5-checkpoint.json"
+    head = _Head()
+    lane = _Lane()
+    durable = _progress(checkpoint_path, head)
+    authority = _authority()
+    service = _service(_StoragePort())
+    first = ManagedMem0V5LaneCoordinator(
+        service=service,
+        lane_port=lane,
+        progress_port=_FailBeforeTerminalSave(durable),
+    )
+    first.admit(
+        authority=authority,
+        request=_request(),
+        budget_policy=ManagedMem0V5BudgetPolicy(5),
+    )
+    first.dispatch_pending()
+    with pytest.raises(RuntimeError, match="before terminal save"):
+        first.cleanup()
+    assert durable.load(authority=authority, admission=service.admission).run_phase is (
+        ManagedMem0V5RunPhase.CLEANUP_ATTEMPTED
+    )
+
+    fresh_service = _service(_StoragePort())
+    fresh = ManagedMem0V5LaneCoordinator(
+        service=fresh_service,
+        lane_port=lane,
+        progress_port=_progress(checkpoint_path, head),
+    )
+    fresh.restore(
+        authority=authority,
+        request=_request(),
+        budget_policy=ManagedMem0V5BudgetPolicy(5),
+    )
+    assert fresh.terminal_evidence.residual_record_count == 0
+    assert lane.calls.count("cleanup") == 2
+    assert lane.cleanup_commits == 1
+    assert lane.calls.count("status") == 0
+
+
+def test_cleanup_attempt_checkpoint_precedes_remote_call(tmp_path: Path) -> None:
+    checkpoint_path = tmp_path / "managed-v5-checkpoint.json"
+    head = _Head()
+    lane = _Lane(cleanup_fail_before_commit_once=True)
+    progress = _progress(checkpoint_path, head)
+    authority, service, first = _coordinator(lane, _StoragePort(), progress=progress)
+    first.dispatch_pending()
+    with pytest.raises(RuntimeError, match="before cleanup request"):
+        first.cleanup()
+    assert lane.cleanup_commits == 0
+    assert progress.load(authority=authority, admission=service.admission).run_phase is (
+        ManagedMem0V5RunPhase.CLEANUP_ATTEMPTED
+    )
+
+    fresh_service = _service(_StoragePort())
+    fresh = ManagedMem0V5LaneCoordinator(
+        service=fresh_service,
+        lane_port=lane,
+        progress_port=_progress(checkpoint_path, head),
+    )
+    fresh.restore(
+        authority=authority,
+        request=_request(),
+        budget_policy=ManagedMem0V5BudgetPolicy(5),
+    )
+    assert fresh.terminal_evidence.residual_record_count == 0
+    assert lane.cleanup_commits == 1
+    assert lane.calls.count("cleanup") == 2
+    assert lane.calls.count("status") == 0
+
+
+def test_sealed_progress_freezes_units_and_exact_record_seal_is_idempotent(
+    tmp_path: Path,
+) -> None:
+    checkpoint_path = tmp_path / "managed-v5-checkpoint.json"
+    head = _Head()
+    progress = _progress(checkpoint_path, head)
+    authority, service, coordinator = _coordinator(
+        _Lane(zero_record_sequences=(0,)),
+        _StoragePort(),
+        progress=progress,
+    )
+    seal = coordinator.dispatch_pending()
+    sealed = progress.load(authority=authority, admission=service.admission)
+
+    assert (
+        progress.record_seal(authority=authority, admission=service.admission, seal=seal) == sealed
+    )
+    with pytest.raises(ManagedRunError, match="units are sealed"):
+        progress.advance(
+            authority=authority,
+            admission=service.admission,
+            unit_index=0,
+            phase=ManagedMem0V5CheckpointPhase.COMMITTED,
+            provider_receipt_commitment_sha256=sealed.units[0].provider_receipt_commitment_sha256,
+            observation_commitment_sha256=sealed.units[0].observation_commitment_sha256,
+            record_ids=sealed.units[0].record_ids,
+        )
+    assert progress.load(authority=authority, admission=service.admission) == sealed
+
+
+def test_cleanup_attempt_rejects_count_mismatch_before_checkpoint_write(tmp_path: Path) -> None:
+    checkpoint_path = tmp_path / "managed-v5-checkpoint.json"
+    head = _Head()
+    progress = _progress(checkpoint_path, head)
+    authority, service, coordinator = _coordinator(_Lane(), _StoragePort(), progress=progress)
+    coordinator.dispatch_pending()
+    service.begin_delete()
+    context = service.cleanup_verification_context(aborting=False)
+    wrong_context = replace(context, expected_operation_count=2)
+    wrong_basis = replace(service.terminal_basis(aborting=False), cleanup_context=wrong_context)
+    before = progress.load(authority=authority, admission=service.admission)
+
+    with pytest.raises(ManagedRunError, match="cleanup binding differs"):
+        progress.record_cleanup_attempt(
+            authority=authority,
+            admission=service.admission,
+            cleanup_context=wrong_context,
+            cleanup_request_commitment_sha256=cleanup_request_commitment(wrong_context),
+            terminal_basis=wrong_basis,
+        )
+    wrong_totals = replace(
+        service.terminal_basis(aborting=False),
+        provider_observed_request_tokens=(
+            service.terminal_basis(aborting=False).provider_observed_request_tokens + 1
+        ),
+    )
+    with pytest.raises(ManagedRunError, match="cleanup binding differs"):
+        progress.record_cleanup_attempt(
+            authority=authority,
+            admission=service.admission,
+            cleanup_context=context,
+            cleanup_request_commitment_sha256=cleanup_request_commitment(context),
+            terminal_basis=wrong_totals,
+        )
+    assert progress.load(authority=authority, admission=service.admission) == before
+
+
+def test_strict_checkpoint_parser_rejects_signed_cleanup_count_mismatch(tmp_path: Path) -> None:
+    checkpoint_path = tmp_path / "managed-v5-checkpoint.json"
+    head = _Head()
+    progress = _progress(checkpoint_path, head)
+    authority, service, coordinator = _coordinator(_Lane(), _StoragePort(), progress=progress)
+    coordinator.dispatch_pending()
+    service.begin_delete()
+    context = service.cleanup_verification_context(aborting=False)
+    progress.record_cleanup_attempt(
+        authority=authority,
+        admission=service.admission,
+        cleanup_context=context,
+        cleanup_request_commitment_sha256=cleanup_request_commitment(context),
+        terminal_basis=service.terminal_basis(aborting=False),
+    )
+    payload = json.loads(checkpoint_path.read_text(encoding="utf-8"))
+    wrong_context = replace(context, expected_operation_count=2)
+    payload["cleanup_context"]["expected_operation_count"] = 2
+    payload["terminal_basis"]["cleanup_context"]["expected_operation_count"] = 2
+    payload["cleanup_request_commitment_sha256"] = cleanup_request_commitment(wrong_context)
+    base = {
+        key: value
+        for key, value in payload.items()
+        if key not in {"checkpoint_commitment_sha256", "checkpoint_hmac_sha256"}
+    }
+    payload["checkpoint_commitment_sha256"] = canonical_sha256(base)
+    signer = HmacSha256ManagedMem0V5CheckpointSigner(key=b"checkpoint-test-key" * 2)
+    payload["checkpoint_hmac_sha256"] = signer.sign(
+        checkpoint_module._signed_bytes(
+            {**base, "checkpoint_commitment_sha256": payload["checkpoint_commitment_sha256"]}
+        )
+    )
+    checkpoint_path.write_text(json.dumps(payload), encoding="utf-8")
+
+    store = AtomicJsonManagedMem0V5CheckpointStore(path=checkpoint_path, signer=signer)
+    with pytest.raises(ManagedMem0V5CheckpointError, match="run_invalid"):
+        store.load(
+            expected_authority_commitment_sha256=authority.authority_commitment_sha256,
+            expected_admission_commitment_sha256=service.admission.commitment_sha256,
+        )
