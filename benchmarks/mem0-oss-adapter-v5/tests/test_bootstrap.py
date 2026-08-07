@@ -69,11 +69,15 @@ def test_tampered_phase_c_authority_blocks_runtime_binding_issue(monkeypatch) ->
     assert events == ["attestation"]
 
 
+def _enable_adapter_imports(monkeypatch) -> None:
+    adapter_package = Path(__file__).resolve().parents[2] / "mem0-oss-adapter"
+    monkeypatch.syspath_prepend(str(adapter_package))
+
+
 def test_build_pinned_memory_cold_start_uses_subscription_usage_ledger(
     tmp_path: Path, monkeypatch
 ) -> None:
-    adapter_package = Path(__file__).resolve().parents[2] / "mem0-oss-adapter"
-    monkeypatch.syspath_prepend(str(adapter_package))
+    _enable_adapter_imports(monkeypatch)
     from mem0 import Memory
     from mem0_oss_adapter import sdk_oss
     from mem0_oss_adapter.subscription_llm import UsageLedger
@@ -105,7 +109,41 @@ def test_build_pinned_memory_cold_start_uses_subscription_usage_ledger(
     monkeypatch.setattr(Memory, "from_config", staticmethod(from_config))
 
     assert bootstrap._build_pinned_memory(tmp_path) is expected_memory
-    assert events == ["configured", "entered", "constructed", "exited"]
+    assert (tmp_path / "mem0").stat().st_mode & 0o777 == 0o700
+    assert bootstrap._build_pinned_memory(tmp_path) is expected_memory
+    assert events == [
+        "configured",
+        "entered",
+        "constructed",
+        "exited",
+        "configured",
+        "entered",
+        "constructed",
+        "exited",
+    ]
+
+
+def test_build_pinned_memory_rejects_symlinked_state_directory(tmp_path: Path, monkeypatch) -> None:
+    _enable_adapter_imports(monkeypatch)
+    state = tmp_path / "state"
+    state.mkdir(mode=0o700)
+    (state / "mem0").symlink_to(tmp_path)
+    monkeypatch.setenv("MEM0_V5_QDRANT_ORIGIN", "http://127.0.0.1:6334")
+    with pytest.raises(ValueError, match="adapter_configuration_invalid"):
+        bootstrap._build_pinned_memory(state)
+
+
+def test_build_pinned_memory_rejects_unsafe_existing_state_directory(
+    tmp_path: Path, monkeypatch
+) -> None:
+    _enable_adapter_imports(monkeypatch)
+    state = tmp_path / "state"
+    state.mkdir(mode=0o700)
+    memory_state = state / "mem0"
+    memory_state.mkdir(mode=0o755)
+    monkeypatch.setenv("MEM0_V5_QDRANT_ORIGIN", "http://127.0.0.1:6334")
+    with pytest.raises(ValueError, match="adapter_configuration_invalid"):
+        bootstrap._build_pinned_memory(state)
 
 
 def _public_digest(tmp_path: Path, raw: bytes = b"a" * 64) -> Path:

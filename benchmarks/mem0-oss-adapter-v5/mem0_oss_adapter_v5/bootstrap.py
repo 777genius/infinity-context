@@ -5,6 +5,7 @@ from __future__ import annotations
 import hashlib
 import os
 import stat
+from contextlib import suppress
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -114,11 +115,12 @@ def _build_pinned_memory(state_directory: Path):
 
     if _required_environment("MEM0_V5_QDRANT_ORIGIN") != "http://127.0.0.1:6334":
         raise ValueError("adapter_configuration_invalid")
+    memory_state_directory = _prepare_memory_state_directory(state_directory)
     settings = OssRuntimeSettings(
         qdrant_host="127.0.0.1",
         qdrant_port=6334,
         collection_name="mem0_oss_v5",
-        state_dir=state_directory / "mem0",
+        state_dir=memory_state_directory,
         model_dir=Path("/opt/models/bge-small-en-v1.5"),
         extraction_mode="raw_passthrough",
         bridge_url=None,
@@ -127,6 +129,43 @@ def _build_pinned_memory(state_directory: Path):
     config = pinned_memory_config(settings, usage_ledger=UsageLedger())
     with _patched_mem0_factories():
         return Memory.from_config(config)
+
+
+def _prepare_memory_state_directory(state_directory: Path) -> Path:
+    """Create or revalidate the private restart-persistent Mem0 state root."""
+
+    memory_state_directory = state_directory / "mem0"
+    descriptor = None
+    try:
+        parent = os.lstat(state_directory)
+        if (
+            not state_directory.is_absolute()
+            or not stat.S_ISDIR(parent.st_mode)
+            or (parent.st_uid, parent.st_gid) != (os.geteuid(), os.getegid())
+            or stat.S_IMODE(parent.st_mode) != 0o700
+        ):
+            raise ValueError
+        with suppress(FileExistsError):
+            os.mkdir(memory_state_directory, mode=0o700)
+        descriptor = os.open(
+            memory_state_directory,
+            os.O_RDONLY | os.O_CLOEXEC | os.O_NOFOLLOW | getattr(os, "O_DIRECTORY", 0),
+        )
+        opened = os.fstat(descriptor)
+        current = os.lstat(memory_state_directory)
+        if (
+            not stat.S_ISDIR(opened.st_mode)
+            or (opened.st_uid, opened.st_gid) != (os.geteuid(), os.getegid())
+            or stat.S_IMODE(opened.st_mode) != 0o700
+            or (opened.st_dev, opened.st_ino) != (current.st_dev, current.st_ino)
+        ):
+            raise ValueError
+    except (OSError, ValueError):
+        raise ValueError("adapter_configuration_invalid") from None
+    finally:
+        if descriptor is not None:
+            os.close(descriptor)
+    return memory_state_directory
 
 
 def _read_secret_file(environment_name: str) -> str:
