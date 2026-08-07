@@ -15,6 +15,7 @@ from .canonical import atomic_private_write, canonical_bytes, canonical_sha256, 
 LOGICAL_RUNTIME_ROUTE = "http://127.0.0.1:8890/v1"
 ROUTE_SHA256 = hashlib.sha256(LOGICAL_RUNTIME_ROUTE.encode("utf-8")).hexdigest()
 TRANSPORT_ORIGIN = "http://127.0.0.1:8891"
+PINNED_STATELESS_BASE_SHA256 = "5c15d6c502d380282a933d4f20a886a06c9d04d3b5d7c918b95df0b0acf33671"
 SYNTHETIC_OUTPUT = (
     '{"memory":[{"id":"0","text":"Alice likes tea.",'
     '"attributed_to":"user","linked_memory_ids":[]}]}'
@@ -197,7 +198,7 @@ class RunFixture:
             response_format_sha256=projection.response_format_sha256,
             response_schema_sha256=projection.response_schema_sha256,
             account_binding_hmac_sha256=canonical_sha256("provider-free-e2e-account"),
-            base_instructions_sha256=canonical_sha256("provider-free-e2e-base-instructions"),
+            base_instructions_sha256=PINNED_STATELESS_BASE_SHA256,
         )
 
     def manifest(self) -> dict[str, object]:

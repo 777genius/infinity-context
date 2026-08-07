@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import hashlib
 import os
-import shutil
 import sqlite3
 import stat
 import tempfile
@@ -260,13 +259,8 @@ class ProviderFreeE2EScenario:
         )
         with tempfile.TemporaryDirectory(prefix="mem0-v5-e2e-state-tamper-") as directory:
             copied = Path(directory) / "operations.sqlite3"
-            shutil.copy2(self._operation_state_path, copied)
-            connection = sqlite3.connect(copied)
-            try:
-                connection.execute("UPDATE operations_v2 SET row_hmac = ?", ("0" * 64,))
-                connection.commit()
-            finally:
-                connection.close()
+            _backup_sqlite(self._operation_state_path, copied)
+            _tamper_state_row(copied, self._fixture.unit.unit_identity_sha256)
             auditor = self._state.for_path(copied)
             try:
                 auditor.audit(
@@ -362,6 +356,41 @@ def scan_durable_artifacts(roots: tuple[Path, ...], patterns: tuple[bytes, ...])
                 raise E2EVerificationError("e2e_durable_artifact_invalid")
             if stat.S_ISREG(mode) and _contains_any(path, patterns):
                 raise E2EVerificationError("e2e_private_artifact_residue")
+
+
+def _backup_sqlite(source_path: Path, target_path: Path) -> None:
+    """Take a consistent snapshot, including committed WAL state, with private mode."""
+
+    target_path.touch(mode=0o600, exist_ok=False)
+    os.chmod(target_path, 0o600)
+    source = sqlite3.connect(f"file:{source_path}?mode=ro", uri=True, timeout=10)
+    target = sqlite3.connect(target_path, timeout=10)
+    try:
+        source.backup(target)
+    except sqlite3.Error:
+        raise E2EVerificationError("e2e_state_snapshot_failed") from None
+    finally:
+        target.close()
+        source.close()
+    if stat.S_IMODE(target_path.stat().st_mode) != 0o600:
+        raise E2EVerificationError("e2e_state_snapshot_invalid")
+
+
+def _tamper_state_row(path: Path, expected_identity: str) -> None:
+    connection = sqlite3.connect(path, timeout=10)
+    try:
+        cursor = connection.execute(
+            "UPDATE operations_v2 SET row_hmac = ? WHERE unit_identity_sha256 = ?",
+            ("0" * 64, expected_identity),
+        )
+        if cursor.rowcount != 1:
+            connection.rollback()
+            raise E2EVerificationError("e2e_state_tamper_target_invalid")
+        connection.commit()
+    except sqlite3.Error:
+        raise E2EVerificationError("e2e_state_tamper_failed") from None
+    finally:
+        connection.close()
 
 
 def _contains_any(path: Path, patterns: tuple[bytes, ...]) -> bool:

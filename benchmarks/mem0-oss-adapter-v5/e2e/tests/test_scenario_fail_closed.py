@@ -1,11 +1,14 @@
 from __future__ import annotations
 
+import os
+import sqlite3
 from types import SimpleNamespace
 
 import pytest
 
 from e2e.canonical import E2EVerificationError
-from e2e.scenario import ProviderFreeE2EScenario
+from e2e.scenario import ProviderFreeE2EScenario, _backup_sqlite, _tamper_state_row
+from e2e.state_audit import _CREATE_OPERATIONS
 from e2e.storage_audit import StorageScope
 
 
@@ -34,6 +37,53 @@ def test_state_tamper_probe_requires_cleaned_baseline_first() -> None:
     scenario = SimpleNamespace(_state=_InvalidBaselineStateAuditor(), _fixture=fixture)
     with pytest.raises(E2EVerificationError, match="e2e_state_binding_invalid"):
         ProviderFreeE2EScenario._assert_state_tamper_rejected(scenario)
+
+
+def test_sqlite_backup_contains_committed_row_while_source_connection_is_open(tmp_path) -> None:
+    source_path = tmp_path / "source.sqlite3"
+    copied_path = tmp_path / "copied.sqlite3"
+    source = sqlite3.connect(source_path)
+    try:
+        source.execute("PRAGMA journal_mode=WAL")
+        source.execute(_CREATE_OPERATIONS)
+        source.execute(
+            """INSERT INTO operations_v2 VALUES
+               (?, ?, 'COMMITTED', ?, ?, NULL, NULL, NULL, 0, ?)""",
+            ("1" * 64, "2" * 64, "3" * 64, "4" * 64, "5" * 64),
+        )
+        source.commit()
+
+        _backup_sqlite(source_path, copied_path)
+    finally:
+        source.close()
+
+    copied = sqlite3.connect(copied_path)
+    try:
+        assert copied.execute("SELECT unit_identity_sha256 FROM operations_v2").fetchall() == [
+            ("1" * 64,)
+        ]
+    finally:
+        copied.close()
+    assert os.stat(copied_path).st_mode & 0o777 == 0o600
+
+
+def test_state_tamper_rejects_zero_row_target_before_commit(tmp_path) -> None:
+    path = tmp_path / "operations.sqlite3"
+    connection = sqlite3.connect(path)
+    try:
+        connection.execute(_CREATE_OPERATIONS)
+        connection.commit()
+    finally:
+        connection.close()
+
+    with pytest.raises(E2EVerificationError, match="e2e_state_tamper_target_invalid"):
+        _tamper_state_row(path, "1" * 64)
+
+    connection = sqlite3.connect(path)
+    try:
+        assert connection.execute("SELECT COUNT(*) FROM operations_v2").fetchone() == (0,)
+    finally:
+        connection.close()
 
 
 class _ResidueBaselineStorageAuditor:

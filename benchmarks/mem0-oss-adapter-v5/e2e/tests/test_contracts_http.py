@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import runpy
 from pathlib import Path, PurePosixPath
 
 import pytest
@@ -9,6 +10,7 @@ import yaml
 from e2e.canonical import canonical_sha256
 from e2e.contracts import (
     LOGICAL_RUNTIME_ROUTE,
+    PINNED_STATELESS_BASE_SHA256,
     ROUTE_SHA256,
     RequestProjection,
     RunFixture,
@@ -48,6 +50,22 @@ def test_fixture_materializes_exact_sealed_input(tmp_path) -> None:
     assert memory_config.is_dir() and memory_config.stat().st_mode & 0o777 == 0o700
     assert manifest_path.stat().st_mode & 0o777 == 0o400
     assert all(path.stat().st_mode & 0o777 == 0o600 for path in (root / "secrets").iterdir())
+    assert fixture.base_instructions_sha256 == PINNED_STATELESS_BASE_SHA256
+    assert (
+        root / "secrets" / "base-instructions-sha256"
+    ).read_text() == PINNED_STATELESS_BASE_SHA256
+
+
+def test_pinned_stateless_base_matches_independent_phase_c_authority() -> None:
+    authority_path = (
+        Path(__file__).resolve().parents[3] / "phase-c-canary" / "phase_c_canary" / "authority.py"
+    )
+    authority = runpy.run_path(str(authority_path))["immutable_authority"]()
+
+    assert authority.stateless_base_sha256 == PINNED_STATELESS_BASE_SHA256
+    assert PINNED_STATELESS_BASE_SHA256 == (
+        "5c15d6c502d380282a933d4f20a886a06c9d04d3b5d7c918b95df0b0acf33671"
+    )
 
 
 def test_route_digest_matches_actual_adapter_raw_utf8_contract() -> None:
