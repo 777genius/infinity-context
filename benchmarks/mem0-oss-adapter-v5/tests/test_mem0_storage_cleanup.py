@@ -1,10 +1,14 @@
 from __future__ import annotations
 
 import hashlib
+import sqlite3
+import threading
 from collections.abc import Mapping, Sequence
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
+from mem0.memory.storage import SQLiteManager
 
 from mem0_oss_adapter_v5.cleanup import (
     CleanupError,
@@ -15,11 +19,25 @@ from mem0_oss_adapter_v5.cleanup import (
 )
 from mem0_oss_adapter_v5.mem0_storage import (
     Mem0StorageAdapter,
+    PinnedMem0Backend,
     StorageError,
     StorageMemory,
     StorageScope,
     independent_snapshot,
 )
+
+
+class _PinnedMemorySurface:
+    def __init__(self, db: object) -> None:
+        self.db = db
+        self.vector_store = object()
+        self.entity_store = object()
+
+    def add(self) -> None:
+        raise AssertionError("not used")
+
+    def delete(self) -> None:
+        raise AssertionError("not used")
 
 
 class FakeMem0Backend:
@@ -109,6 +127,101 @@ def memories() -> tuple[StorageMemory, ...]:
             linked_memory_ids=("memory-1",),
         ),
     )
+
+
+def test_real_pinned_sqlite_manager_supports_exact_reads_and_deletes(
+    tmp_path: Path,
+    scope: StorageScope,
+) -> None:
+    manager = SQLiteManager(str(tmp_path / "mem0-history.sqlite"))
+    backend = PinnedMem0Backend(_PinnedMemorySurface(manager))
+    session_scope = f"user_id={scope.user_id}&run_id={scope.run_id}"
+    try:
+        manager.add_history("provider-1", None, "Alice likes tea", "ADD")
+        manager.save_messages(
+            [{"role": "user", "content": "Alice likes tea"}],
+            session_scope,
+        )
+
+        assert backend.history_memory_ids(provider_memory_ids=("provider-1", "missing")) == (
+            "provider-1",
+        )
+        assert len(backend.message_ids(scope=scope)) == 1
+
+        backend.delete_history(("provider-1",))
+        backend.delete_messages(scope=scope)
+
+        assert backend.history_memory_ids(provider_memory_ids=("provider-1",)) == ()
+        assert backend.message_ids(scope=scope) == ()
+    finally:
+        manager.close()
+
+
+def test_pinned_sqlite_handles_reject_legacy_missing_and_wrong_surfaces() -> None:
+    connection = sqlite3.connect(":memory:", check_same_thread=False)
+    databases = (
+        SimpleNamespace(conn=connection, lock=threading.Lock()),
+        SimpleNamespace(),
+        SimpleNamespace(connection=connection, _lock=threading.Lock()),
+    )
+    try:
+        for db in databases:
+            backend = PinnedMem0Backend(_PinnedMemorySurface(db))
+            with pytest.raises(StorageError, match="handles differ from the pinned runtime"):
+                backend.history_memory_ids(provider_memory_ids=())
+    finally:
+        connection.close()
+
+
+def test_exact_pinned_manager_rejects_missing_wrong_and_subclassed_handles(
+    tmp_path: Path,
+) -> None:
+    class ConnectionSubclass(sqlite3.Connection):
+        pass
+
+    class SQLiteManagerSubclass(SQLiteManager):
+        pass
+
+    manager = SQLiteManager(str(tmp_path / "mutated.sqlite"))
+    subclassed_connection = sqlite3.connect(
+        ":memory:",
+        check_same_thread=False,
+        factory=ConnectionSubclass,
+    )
+    subclassed_manager = SQLiteManagerSubclass(str(tmp_path / "subclassed.sqlite"))
+    original_connection = manager.connection
+    original_lock = manager._lock
+    try:
+        for attribute, invalid in (
+            ("connection", object()),
+            ("connection", subclassed_connection),
+            ("_lock", threading.RLock()),
+        ):
+            setattr(manager, attribute, invalid)
+            with pytest.raises(StorageError, match="handles differ from the pinned runtime"):
+                PinnedMem0Backend(_PinnedMemorySurface(manager)).history_memory_ids(
+                    provider_memory_ids=()
+                )
+            manager.connection = original_connection
+            manager._lock = original_lock
+
+        del manager.connection
+        with pytest.raises(StorageError, match="handles differ from the pinned runtime"):
+            PinnedMem0Backend(_PinnedMemorySurface(manager)).history_memory_ids(
+                provider_memory_ids=()
+            )
+        manager.connection = original_connection
+
+        with pytest.raises(StorageError, match="handles differ from the pinned runtime"):
+            PinnedMem0Backend(_PinnedMemorySurface(subclassed_manager)).history_memory_ids(
+                provider_memory_ids=()
+            )
+    finally:
+        manager.connection = original_connection
+        manager._lock = original_lock
+        manager.close()
+        subclassed_connection.close()
+        subclassed_manager.close()
 
 
 def test_persist_and_independently_verify_exact_vector_history_and_entity_links(

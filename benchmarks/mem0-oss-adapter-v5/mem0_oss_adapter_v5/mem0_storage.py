@@ -2,13 +2,15 @@
 
 from __future__ import annotations
 
+import _thread
 import hashlib
 import json
 import re
+import sqlite3
 import threading
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import asdict, dataclass
-from typing import Any, Protocol, runtime_checkable
+from typing import Protocol, runtime_checkable
 
 _SHA256 = re.compile(r"^[0-9a-f]{64}$")
 _MAX_RECORDS = 10_000
@@ -481,10 +483,14 @@ def _list_store(store: object, filters: Mapping[str, str]) -> list[object]:
     return result[0]
 
 
-def _db_handles(db: object) -> tuple[Any, Any]:
-    connection = getattr(db, "conn", None)
-    lock = getattr(db, "lock", None)
-    if connection is None or lock is None:
+def _db_handles(db: object) -> tuple[sqlite3.Connection, _thread.LockType]:
+    from mem0.memory.storage import SQLiteManager
+
+    if type(db) is not SQLiteManager:
+        raise StorageError("Mem0 SQLite handles differ from the pinned runtime")
+    connection = getattr(db, "connection", None)
+    lock = getattr(db, "_lock", None)
+    if type(connection) is not sqlite3.Connection or type(lock) is not _thread.LockType:
         raise StorageError("Mem0 SQLite handles differ from the pinned runtime")
     return connection, lock
 
