@@ -1,9 +1,10 @@
 # Mem0 OSS adapter v5
 
-Provider-isolated adapter for the attested shared full-run benchmark lane. It exposes only four
-authenticated mutation endpoints: admission, one-attempt dispatch, durable status readback, and
-terminal cleanup. The adapter never accepts private source messages over HTTP. Dispatch resolves
-each committed unit from the sealed read-only input manifest.
+Provider-isolated adapter for the attested shared full-run benchmark lane. Its authenticated
+lifecycle is admission, signed provider-free request binding, one-attempt dispatch, durable status
+readback, evidence observation/search, and terminal cleanup. The adapter never accepts private
+source messages over HTTP. Request binding and dispatch resolve each admitted unit from the sealed
+read-only input manifest; extraction policy remains inside the adapter.
 
 ## Security boundary
 
@@ -13,7 +14,10 @@ each committed unit from the sealed read-only input manifest.
 - keeps the Phase C logical receipt route `http://127.0.0.1:8890/v1` unchanged and binds both
   route and transport digests into admission evidence;
 - rejects unknown fields, type coercion, oversized bodies, redirects, and request hash mismatch;
-- performs exactly one provider attempt during dispatch and none during status;
+- performs exactly one provider attempt during dispatch and none during request binding, status,
+  evidence reads, or cleanup;
+- returns only a commitment to the sealed `current_date` in request-binding evidence, never the
+  raw date or source messages;
 - stores only sanitized receipts and commitments;
 - keeps the complete v4 adapter tree byte-exact.
 

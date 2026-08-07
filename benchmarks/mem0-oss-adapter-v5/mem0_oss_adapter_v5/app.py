@@ -25,6 +25,7 @@ from mem0_oss_adapter_v5.http_models import (
     StorageObservationRequest,
     StorageObservationResponse,
 )
+from mem0_oss_adapter_v5.request_binding import RequestBindingRequest, RequestBindingResponse
 
 MAX_REQUEST_BODY_BYTES = 64_000
 MAX_BODY_FRAGMENTS = 256
@@ -75,6 +76,13 @@ class V5ApplicationService(Protocol):
         *,
         idempotency_key: str,
     ) -> StorageObservationResponse: ...
+
+    def request_binding(
+        self,
+        request: RequestBindingRequest,
+        *,
+        idempotency_key: str,
+    ) -> RequestBindingResponse: ...
 
     def scoped_search(
         self,
@@ -193,6 +201,17 @@ def create_app(*, service: V5ApplicationService, bearer_token: str) -> FastAPI:
     ) -> CleanupReceipt:
         _verify_request_commitment(payload, headers.request_commitment_sha256)
         return service.cleanup(payload, idempotency_key=headers.idempotency_key)
+
+    @app.post(
+        "/v5/operations/request-binding",
+        response_model=RequestBindingResponse,
+    )
+    def request_binding(
+        payload: RequestBindingRequest,
+        headers: Annotated[_AuthenticatedHeaders, Depends(authenticate)],
+    ) -> RequestBindingResponse:
+        _verify_request_commitment(payload, headers.request_commitment_sha256)
+        return service.request_binding(payload, idempotency_key=headers.idempotency_key)
 
     @app.post(
         "/v5/operations/storage-observation",

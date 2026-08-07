@@ -13,6 +13,7 @@ from mem0_oss_adapter_v5.http_models import (
     ScopedSearchResponse,
     StorageObservationResponse,
 )
+from mem0_oss_adapter_v5.request_binding import RequestBindingResponse
 
 _TOKEN = "t" * 32
 
@@ -137,6 +138,27 @@ class _FakeService:
             }
         )
 
+    def request_binding(self, request, *, idempotency_key: str) -> RequestBindingResponse:
+        self.calls.append("request_binding")
+        return RequestBindingResponse.model_validate(
+            {
+                "schema_version": "mem0-oss-adapter-v5.request-binding.v1",
+                "admission_commitment_sha256": request.admission_commitment_sha256,
+                "ingestion_manifest_sha256": _sha("manifest"),
+                "ingestion_root_sha256": _sha("root"),
+                "current_date_commitment_sha256": _sha("current-date"),
+                "operation_id_sha256": request.operation_id_sha256,
+                "unit_identity_sha256": _sha("identity"),
+                "unit_sha256": _sha("unit"),
+                "scope_sha256": _sha("scope"),
+                "source_id": "source-1",
+                "source_sha256": _sha("source"),
+                "sequence": 0,
+                "request_body_sha256": _sha("body"),
+                "response_format_sha256": _sha("format"),
+                "request_binding_hmac_sha256": _sha("binding-hmac"),
+            }
+        )
     def scoped_search(self, request, *, idempotency_key: str) -> ScopedSearchResponse:
         self.calls.append("scoped_search")
         results = (
@@ -223,6 +245,44 @@ def test_status_is_durable_readback_and_never_dispatches_provider() -> None:
     assert response.json()["runtime_receipt"] == _receipt()
     assert service.calls == ["status"]
     assert service.provider_calls == 0
+
+
+def test_request_binding_is_authenticated_exact_and_provider_free() -> None:
+    service = _FakeService()
+    client = TestClient(create_app(service=service, bearer_token=_TOKEN))
+    body = {
+        "admission_commitment_sha256": _sha("admission"),
+        "operation_id_sha256": _sha("operation"),
+    }
+    response = client.post(
+        "/v5/operations/request-binding",
+        json=body,
+        headers=_headers(body),
+    )
+    assert response.status_code == 200
+    assert response.json()["request_body_sha256"] == _sha("body")
+    assert service.calls == ["request_binding"]
+    assert service.provider_calls == 0
+
+    extra = {**body, "source_messages": ["private"]}
+    rejected = client.post(
+        "/v5/operations/request-binding",
+        json=extra,
+        headers=_headers(extra),
+    )
+    assert rejected.status_code == 422
+    assert service.calls == ["request_binding"]
+
+    wrong_commitment_headers = _headers(body)
+    wrong_commitment_headers["X-Request-Commitment-SHA256"] = _sha("wrong")
+    rejected = client.post(
+        "/v5/operations/request-binding",
+        json=body,
+        headers=wrong_commitment_headers,
+    )
+    assert rejected.status_code == 400
+    assert rejected.json() == {"detail": "request_commitment_invalid"}
+    assert service.calls == ["request_binding"]
 
 
 def test_dispatch_is_one_service_invocation_and_strict_types() -> None:

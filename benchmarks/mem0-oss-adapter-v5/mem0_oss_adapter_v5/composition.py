@@ -64,6 +64,12 @@ from mem0_oss_adapter_v5.mem0_storage import (
 from mem0_oss_adapter_v5.private_io import atomic_private_write as _atomic_private_write
 from mem0_oss_adapter_v5.private_io import private_directory as _private_directory
 from mem0_oss_adapter_v5.private_io import read_private_json as _read_private_json
+from mem0_oss_adapter_v5.request_binding import (
+    RequestBindingError,
+    RequestBindingRequest,
+    RequestBindingResponse,
+    RequestBindingService,
+)
 from mem0_oss_adapter_v5.run_commitments import OperationEvidence, reconstruct, runner_state
 from mem0_oss_adapter_v5.sealed_manifest import InputUnit as _InputUnit
 from mem0_oss_adapter_v5.sealed_manifest import SealedInputManifest
@@ -144,6 +150,7 @@ class V5AdapterService:
         self._admission: str | None = None
         self._committed_memory_ids: dict[str, tuple[str, ...]] = {}
         self._evidence_service_instance: AuthenticatedEvidenceService | None = None
+        self._request_binding_service_instance: RequestBindingService | None = None
         self._lock = threading.RLock()
 
     def admit(self, request: AdmitRequest, *, idempotency_key: str) -> AdmissionReceipt:
@@ -273,6 +280,22 @@ class V5AdapterService:
                 request,
                 idempotency_key=idempotency_key,
             )
+
+    def request_binding(
+        self,
+        request: RequestBindingRequest,
+        *,
+        idempotency_key: str,
+    ) -> RequestBindingResponse:
+        with self._lock:
+            try:
+                return self._request_binding_service().bind(
+                    request,
+                    current_admission_commitment_sha256=self._admission,
+                    idempotency_key=idempotency_key,
+                )
+            except RequestBindingError as exc:
+                raise AdapterServiceError(exc.code, status_code=exc.status_code) from None
 
     def scoped_search(
         self,
@@ -415,6 +438,17 @@ class V5AdapterService:
                 hmac_key=self._result_hmac_key,
             )
         return self._evidence_service_instance
+
+    def _request_binding_service(self) -> RequestBindingService:
+        if self._request_binding_service_instance is None:
+            self._request_binding_service_instance = RequestBindingService(
+                manifest=self._manifest,
+                state=self._state,
+                extraction_request=self._extraction_request,
+                operation_id=self._operation_id,
+                result_hmac_key=self._result_hmac_key,
+            )
+        return self._request_binding_service_instance
 
     def _evidence_storage_authority(
         self,
