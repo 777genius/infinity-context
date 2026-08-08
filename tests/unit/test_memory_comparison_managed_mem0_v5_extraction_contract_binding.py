@@ -24,7 +24,6 @@ from infinity_context_server.memory_comparison_managed_mem0_v5_extraction_projec
     MEM0_V5_EXTRACTION_SCHEMA_SHA256,
     MEM0_V5_EXTRACTION_SYSTEM_PROMPT_SHA256,
 )
-from mem0_oss_adapter_v5 import extraction_contract
 
 
 def _readonly_contract(tmp_path: Path) -> Path:
@@ -47,15 +46,28 @@ def test_reviewed_deployed_contract_binds_exact_native_projection_authority(
     assert binding.implementation_domain == MEM0_V5_EXTRACTION_IMPLEMENTATION_DOMAIN
     assert binding.implementation_sha256 == MEM0_V5_EXTRACTION_IMPLEMENTATION_SHA256
     assert binding.system_prompt_sha256 == MEM0_V5_EXTRACTION_SYSTEM_PROMPT_SHA256
-    assert binding.system_prompt_sha256 == extraction_contract.EXTRACTION_SYSTEM_PROMPT_SHA256
     assert binding.response_format_sha256 == MEM0_V5_EXTRACTION_RESPONSE_FORMAT_SHA256
-    assert binding.response_format_sha256 == extraction_contract.EXTRACTION_RESPONSE_FORMAT_SHA256
     assert binding.response_schema_sha256 == MEM0_V5_EXTRACTION_SCHEMA_SHA256
-    assert binding.response_schema_sha256 == extraction_contract.EXTRACTION_SCHEMA_SHA256
     assert binding.model == MEM0_V5_EXTRACTION_MODEL
     assert binding.requested_output_tokens == MEM0_V5_EXTRACTION_MAX_TOKENS
     subject.require_managed_mem0_v5_extraction_contract_binding(binding)
     assert not hasattr(binding, "contract_file")
+
+
+def test_reviewed_binding_hashes_match_pinned_upstream_mem0() -> None:
+    pytest.importorskip(
+        "mem0",
+        reason="pinned mem0ai is required only for exact upstream parity",
+    )
+    from mem0_oss_adapter_v5 import extraction_contract
+
+    assert MEM0_V5_EXTRACTION_SYSTEM_PROMPT_SHA256 == (
+        extraction_contract.EXTRACTION_SYSTEM_PROMPT_SHA256
+    )
+    assert MEM0_V5_EXTRACTION_RESPONSE_FORMAT_SHA256 == (
+        extraction_contract.EXTRACTION_RESPONSE_FORMAT_SHA256
+    )
+    assert MEM0_V5_EXTRACTION_SCHEMA_SHA256 == extraction_contract.EXTRACTION_SCHEMA_SHA256
 
 
 def test_wrong_caller_hash_is_not_a_dead_field_and_file_is_read(

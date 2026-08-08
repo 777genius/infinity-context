@@ -38,6 +38,11 @@ from infinity_context_server.memory_comparison_managed_mem0_v5_extraction_contra
     REVIEWED_MEM0_V5_EXTRACTION_CONTRACT_SHA256,
     ManagedMem0V5ExtractionContractBinding,
 )
+from infinity_context_server.memory_comparison_managed_mem0_v5_extraction_projection import (
+    MEM0_V5_EXTRACTION_RESPONSE_FORMAT_SHA256,
+    MEM0_V5_EXTRACTION_SCHEMA_SHA256,
+    MEM0_V5_EXTRACTION_SYSTEM_PROMPT_SHA256,
+)
 from infinity_context_server.memory_comparison_managed_mem0_v5_projector import (
     ManagedMem0V5ManifestProjector,
 )
@@ -61,7 +66,6 @@ from infinity_context_server.memory_comparison_mem0_oss_v5_contracts import (
 from infinity_context_server.memory_comparison_mem0_oss_v5_observed_receipt import (
     Mem0V5ObservedExtractionReceiptAuthority,
 )
-from mem0_oss_adapter_v5.extraction_contract import build_extraction_request
 
 
 def _sha(value: object) -> str:
@@ -135,8 +139,6 @@ def _projection():
 
 
 def _runtime_authority() -> ManagedV5LiveRuntimeAuthority:
-    from mem0_oss_adapter_v5 import extraction_contract
-
     return ManagedV5LiveRuntimeAuthority(
         model="gpt-5.6-sol",
         reasoning_effort="medium",
@@ -145,11 +147,11 @@ def _runtime_authority() -> ManagedV5LiveRuntimeAuthority:
         runtime_source_sha256=_sha("reviewed-runtime-r1"),
         runtime_base_sha256=_sha("runtime-base"),
         route_binding_sha256=_sha("http://127.0.0.1:8890/v1"),
-        base_instructions_sha256=extraction_contract.EXTRACTION_SYSTEM_PROMPT_SHA256,
+        base_instructions_sha256=MEM0_V5_EXTRACTION_SYSTEM_PROMPT_SHA256,
         account_binding_hmac_sha256=_sha("account"),
         response_format_type="json_schema",
-        response_format_sha256=extraction_contract.EXTRACTION_RESPONSE_FORMAT_SHA256,
-        response_schema_sha256=extraction_contract.EXTRACTION_SCHEMA_SHA256,
+        response_format_sha256=MEM0_V5_EXTRACTION_RESPONSE_FORMAT_SHA256,
+        response_schema_sha256=MEM0_V5_EXTRACTION_SCHEMA_SHA256,
         requested_output_tokens=4096,
     )
 
@@ -242,6 +244,12 @@ def _compose(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
 def test_multi_unit_order_and_request_hashes_match_pinned_adapter(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    pytest.importorskip(
+        "mem0",
+        reason="pinned mem0ai is required only for exact upstream parity",
+    )
+    from mem0_oss_adapter_v5.extraction_contract import build_extraction_request
+
     result = _compose(tmp_path, monkeypatch)
     assert result.extraction_token_budget.operation_count == len(result.manifest_authority.units)
     assert result.extraction_token_budget.aggregate_request_body_bytes > 0

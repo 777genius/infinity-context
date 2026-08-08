@@ -26,11 +26,19 @@ from infinity_context_server.memory_comparison_managed_mem0_v5_projector import 
     ManagedMem0V5SourceUnit,
 )
 from infinity_context_server.memory_comparison_mem0_oss_v5_contracts import canonical_sha256
-from mem0_oss_adapter_v5.domain import AdapterContractError
-from mem0_oss_adapter_v5.extraction_contract import build_extraction_request
 
 _PREVIOUS_SOURCE_CONTENT_CAP_BYTES = 16_384
 _SOURCE_CONTENT_CAP_BYTES = 131_072
+
+
+def _upstream_extraction_contract():
+    pytest.importorskip(
+        "mem0",
+        reason="pinned mem0ai is required only for exact upstream parity",
+    )
+    from mem0_oss_adapter_v5 import extraction_contract
+
+    return extraction_contract
 
 
 def _unit(
@@ -124,12 +132,13 @@ def test_server_native_request_hash_matches_mem0_2_0_15(
     current_date: str,
     observation_date: str,
 ) -> None:
+    upstream_contract = _upstream_extraction_contract()
     unit = _unit(messages, observation_date=observation_date)
     native = PinnedMem0V5ExtractionRequestProjector().project(
         unit,
         current_date=current_date,
     )
-    upstream = build_extraction_request(
+    upstream = upstream_contract.build_extraction_request(
         source_messages=tuple(item.payload() for item in unit.source_messages),
         current_date=current_date,
         timestamp=observation_date,
@@ -141,22 +150,15 @@ def test_server_native_request_hash_matches_mem0_2_0_15(
     assert native.requested_output_tokens == upstream.max_tokens
 
 
-def test_native_and_upstream_accept_exact_128_kib_and_reject_one_byte_more() -> None:
+def test_native_accepts_exact_128_kib_and_rejects_one_byte_more() -> None:
     exact_content = "é" * (_SOURCE_CONTENT_CAP_BYTES // 2)
     exact = _unit((("user", exact_content),), observation_date="2024-03-10")
     native = PinnedMem0V5ExtractionRequestProjector().project(
         exact,
         current_date="2026-08-08",
     )
-    upstream = build_extraction_request(
-        source_messages=tuple(item.payload() for item in exact.source_messages),
-        current_date="2026-08-08",
-        timestamp=exact.observation_date,
-    )
-
     assert len(exact_content.encode("utf-8")) == _SOURCE_CONTENT_CAP_BYTES
-    assert native.request_body_sha256 == upstream.request_body_sha256
-    assert native.request_body_bytes == len(upstream.body) <= 1_048_576
+    assert native.request_body_bytes <= 1_048_576
 
     oversized = _unit(
         (("user", exact_content + "x"),),
@@ -167,8 +169,28 @@ def test_native_and_upstream_accept_exact_128_kib_and_reject_one_byte_more() -> 
             oversized,
             current_date="2026-08-08",
         )
-    with pytest.raises(AdapterContractError, match="mem0_v5_source_messages_invalid"):
-        build_extraction_request(
+
+
+def test_upstream_accepts_exact_128_kib_and_rejects_one_byte_more() -> None:
+    upstream_contract = _upstream_extraction_contract()
+    exact_content = "é" * (_SOURCE_CONTENT_CAP_BYTES // 2)
+    exact = _unit((("user", exact_content),), observation_date="2024-03-10")
+    request = upstream_contract.build_extraction_request(
+        source_messages=tuple(item.payload() for item in exact.source_messages),
+        current_date="2026-08-08",
+        timestamp=exact.observation_date,
+    )
+    assert len(request.body) <= 1_048_576
+
+    oversized = _unit(
+        (("user", exact_content + "x"),),
+        observation_date="2024-03-10",
+    )
+    with pytest.raises(
+        upstream_contract.AdapterContractError,
+        match="mem0_v5_source_messages_invalid",
+    ):
+        upstream_contract.build_extraction_request(
             source_messages=tuple(item.payload() for item in oversized.source_messages),
             current_date="2026-08-08",
             timestamp=oversized.observation_date,
@@ -176,6 +198,7 @@ def test_native_and_upstream_accept_exact_128_kib_and_reject_one_byte_more() -> 
 
 
 def test_all_12_official_oversized_cases_match_native_and_upstream_request_bytes() -> None:
+    upstream_contract = _upstream_extraction_contract()
     pairs = _official_longmemeval_pairs()
     oversized_pairs = tuple(
         item
@@ -193,7 +216,7 @@ def test_all_12_official_oversized_cases_match_native_and_upstream_request_bytes
             unit,
             current_date="2026-08-08",
         )
-        upstream = build_extraction_request(
+        upstream = upstream_contract.build_extraction_request(
             source_messages=tuple(item.payload() for item in unit.source_messages),
             current_date="2026-08-08",
             timestamp=observation_date,
