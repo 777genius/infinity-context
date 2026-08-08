@@ -129,6 +129,12 @@ class ManagedV5CutoverIngestPort:
         return MANAGED_V5_CUTOVER_INGEST_ADAPTER_ID
 
     @property
+    def composition_binding(self) -> ManagedRunnerCompositionBinding:
+        """Expose only the exact immutable owner binding for composition checks."""
+
+        return self._state.binding
+
+    @property
     def implementation_sha256(self) -> str:
         return _implementation(self.adapter_id)
 

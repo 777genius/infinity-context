@@ -7,13 +7,19 @@ production runner after the same policy gate remains GO.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from collections.abc import Callable
+from dataclasses import dataclass, field
+from datetime import datetime
 from typing import final
 
+from infinity_context_server.memory_comparison_bounded_provider import (
+    BoundedProviderChatCompletions,
+)
 from infinity_context_server.memory_comparison_managed_http_policy_lifecycle import (
     managed_http_policy_production_blockers,
 )
 from infinity_context_server.memory_comparison_managed_live_composition import (
+    ManagedLiveExecutionLimits,
     VerifiedManagedLiveRunPreparation,
     _inspect_managed_live_policy_cases,
 )
@@ -22,10 +28,21 @@ from infinity_context_server.memory_comparison_managed_production_runner import 
 )
 from infinity_context_server.memory_comparison_managed_run import ManagedRunOutcome
 from infinity_context_server.memory_comparison_managed_run_contract import ManagedRunCase
+from infinity_context_server.memory_comparison_managed_v5_production_runner import (
+    run_verified_managed_v5_production_execution,
+)
+from infinity_context_server.memory_comparison_managed_v5_runtime_factory import (
+    ManagedV5ProductionRuntime,
+)
+from infinity_context_server.memory_comparison_provider_provenance import (
+    ProviderRouteAttestation,
+)
 
 MANAGED_PRODUCTION_COMPOSITION_SCHEMA_VERSION = (
     "memory-comparison-managed-production-composition.v1"
 )
+MANAGED_PRODUCTION_EXECUTION_LEGACY_HTTP = "managed-http-v1"
+MANAGED_PRODUCTION_EXECUTION_V5 = "managed-v5"
 
 
 class ManagedProductionCompositionError(RuntimeError):
@@ -88,6 +105,30 @@ class ManagedProductionCompositionDecision:
         raise TypeError("ManagedProductionCompositionDecision is final")
 
 
+@final
+@dataclass(frozen=True, slots=True)
+class ManagedV5ProductionExecutionSelection:
+    """Exact v5 execution inputs for the explicit public cutover selector."""
+
+    runtime: ManagedV5ProductionRuntime = field(repr=False)
+    provider: BoundedProviderChatCompletions = field(repr=False)
+    limits: ManagedLiveExecutionLimits
+    provider_route: ProviderRouteAttestation
+    attestation_port: object = field(repr=False)
+    clock: Callable[[], datetime] = field(repr=False)
+
+    def __post_init__(self) -> None:
+        if (
+            type(self.runtime) is not ManagedV5ProductionRuntime
+            or type(self.provider) is not BoundedProviderChatCompletions
+            or type(self.limits) is not ManagedLiveExecutionLimits
+            or type(self.provider_route) is not ProviderRouteAttestation
+            or self.attestation_port is None
+            or not callable(self.clock)
+        ):
+            raise ManagedProductionCompositionError("managed_production_v5_selection_invalid")
+
+
 def run_verified_managed_production_comparison(
     prepared: VerifiedManagedLiveRunPreparation,
 ) -> ManagedRunOutcome:
@@ -105,6 +146,38 @@ def run_verified_managed_production_comparison(
     if blockers:
         raise ManagedProductionCompositionError("managed_production_blocked")
     return run_verified_managed_production_execution(prepared)
+
+
+def run_selected_managed_production_comparison(
+    *,
+    execution_mode: str,
+    legacy_prepared: VerifiedManagedLiveRunPreparation | None = None,
+    v5_execution: ManagedV5ProductionExecutionSelection | None = None,
+) -> ManagedRunOutcome:
+    """Route one explicit production mode; never fall back across implementations."""
+
+    if execution_mode == MANAGED_PRODUCTION_EXECUTION_V5:
+        if (
+            legacy_prepared is not None
+            or type(v5_execution) is not ManagedV5ProductionExecutionSelection
+        ):
+            raise ManagedProductionCompositionError("managed_production_v5_selection_invalid")
+        return run_verified_managed_v5_production_execution(
+            v5_execution.runtime,
+            provider=v5_execution.provider,
+            limits=v5_execution.limits,
+            provider_route=v5_execution.provider_route,
+            attestation_port=v5_execution.attestation_port,
+            clock=v5_execution.clock,
+        )
+    if execution_mode == MANAGED_PRODUCTION_EXECUTION_LEGACY_HTTP:
+        if (
+            type(legacy_prepared) is not VerifiedManagedLiveRunPreparation
+            or v5_execution is not None
+        ):
+            raise ManagedProductionCompositionError("managed_production_legacy_selection_invalid")
+        return run_verified_managed_production_comparison(legacy_prepared)
+    raise ManagedProductionCompositionError("managed_production_execution_mode_invalid")
 
 
 def evaluate_managed_production_pre_readiness(
@@ -133,8 +206,12 @@ def _production_blockers(cases: tuple[ManagedRunCase, ...]) -> tuple[str, ...]:
 
 __all__ = (
     "MANAGED_PRODUCTION_COMPOSITION_SCHEMA_VERSION",
+    "MANAGED_PRODUCTION_EXECUTION_LEGACY_HTTP",
+    "MANAGED_PRODUCTION_EXECUTION_V5",
     "ManagedProductionCompositionDecision",
     "ManagedProductionCompositionError",
+    "ManagedV5ProductionExecutionSelection",
     "evaluate_managed_production_pre_readiness",
     "run_verified_managed_production_comparison",
+    "run_selected_managed_production_comparison",
 )

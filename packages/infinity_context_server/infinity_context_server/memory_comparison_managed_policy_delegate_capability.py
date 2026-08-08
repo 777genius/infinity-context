@@ -130,7 +130,7 @@ class ManagedPolicyDelegatePort:
 
 @dataclass(frozen=True, slots=True)
 class _CapabilityState:
-    delegate: ManagedComparisonHttpPolicyLifecycleAdapter
+    delegate: object
     bindings: FullComparisonRunBindings
     binding_snapshot: tuple[object, ...]
     target_pairs: tuple[tuple[str, str], ...]
@@ -146,7 +146,7 @@ _CAPABILITIES: weakref.WeakKeyDictionary[ManagedPolicyDelegateCapability, _Capab
 
 @dataclass(frozen=True, slots=True)
 class _PortState:
-    delegate: ManagedComparisonHttpPolicyLifecycleAdapter
+    delegate: object
     implementation_sha256: str
     integrity_mac: bytes
 
@@ -163,6 +163,38 @@ def _issue_legacy_managed_policy_delegate_capability(
     """Explicitly admit the exact legacy delegate into the trusted port."""
 
     implementation = authenticate_trusted_managed_policy_delegate(delegate)
+    return _issue_exact_capability(
+        delegate=delegate,
+        bindings=bindings,
+        cases=cases,
+        implementation=implementation,
+    )
+
+
+def _issue_managed_v5_policy_delegate_capability(
+    *,
+    delegate: object,
+    bindings: FullComparisonRunBindings,
+    cases: tuple[ManagedRunCase, ...],
+) -> ManagedPolicyDelegateCapability:
+    """Explicitly admit only the exact nominal Infinity+v5 delegate."""
+
+    implementation = _authenticate_trusted_managed_v5_policy_delegate(delegate)
+    return _issue_exact_capability(
+        delegate=delegate,
+        bindings=bindings,
+        cases=cases,
+        implementation=implementation,
+    )
+
+
+def _issue_exact_capability(
+    *,
+    delegate: object,
+    bindings: FullComparisonRunBindings,
+    cases: tuple[ManagedRunCase, ...],
+    implementation: str,
+) -> ManagedPolicyDelegateCapability:
     snapshot, targets = _binding_material(bindings)
     corpus_ids = _corpus_ids(cases)
     try:
@@ -217,7 +249,7 @@ def consume_managed_policy_delegate_capability(
         try:
             snapshot, targets = _binding_material(bindings)
             corpora = _corpus_ids(cases)
-            current = authenticate_trusted_managed_policy_delegate(state.delegate)
+            current = _authenticate_exact_delegate(state.delegate)
             valid = (
                 state.phase == "issued"
                 and bindings is state.bindings
@@ -267,6 +299,30 @@ def authenticate_trusted_managed_policy_delegate(delegate: object) -> str:
     return implementation
 
 
+def _authenticate_trusted_managed_v5_policy_delegate(delegate: object) -> str:
+    from infinity_context_server.memory_comparison_managed_v5_policy_lifecycle import (
+        MANAGED_V5_POLICY_ADAPTER_ID,
+        ManagedInfinityV5PolicyLifecycleAdapter,
+        managed_v5_policy_lifecycle_implementation_sha256,
+    )
+
+    if type(delegate) is not ManagedInfinityV5PolicyLifecycleAdapter:
+        _fail("managed_policy_delegate_capability_delegate_invalid")
+    implementation = managed_v5_policy_lifecycle_implementation_sha256()
+    if delegate.adapter_id != MANAGED_V5_POLICY_ADAPTER_ID or not hmac.compare_digest(
+        delegate.implementation_sha256,
+        implementation,
+    ):
+        _fail("managed_policy_delegate_capability_delegate_changed")
+    return implementation
+
+
+def _authenticate_exact_delegate(delegate: object) -> str:
+    if type(delegate) is ManagedComparisonHttpPolicyLifecycleAdapter:
+        return authenticate_trusted_managed_policy_delegate(delegate)
+    return _authenticate_trusted_managed_v5_policy_delegate(delegate)
+
+
 def authenticate_managed_policy_delegate_port(port: object) -> str:
     """Authenticate a live exact forwarding port without exposing its delegate."""
 
@@ -276,10 +332,10 @@ def authenticate_managed_policy_delegate_port(port: object) -> str:
 
 def _trusted_port_delegate(
     port: ManagedPolicyDelegatePort,
-) -> ManagedComparisonHttpPolicyLifecycleAdapter:
+) -> object:
     with _LOCK:
         state = _port_state_locked(port)
-        current = authenticate_trusted_managed_policy_delegate(state.delegate)
+        current = _authenticate_exact_delegate(state.delegate)
         if not hmac.compare_digest(current, state.implementation_sha256):
             _fail("managed_policy_delegate_port_changed")
         return state.delegate

@@ -124,7 +124,7 @@ class ManagedMem0V5CleanupReadbackWitness:
 class ManagedMem0V5CleanupPassTwoAdapter:
     """Issue one witness only after a fresh idempotent cleanup readback."""
 
-    __slots__ = ("_cleanup", "_consumed", "_lock", "_verifier")
+    __slots__ = ("_cleanup", "_consumed", "_in_flight", "_lock", "_verifier")
 
     def __init__(
         self,
@@ -143,6 +143,7 @@ class ManagedMem0V5CleanupPassTwoAdapter:
         self._cleanup = cleanup_port
         self._verifier = verification_port
         self._consumed = False
+        self._in_flight = False
         self._lock = threading.Lock()
 
     def readback(
@@ -158,10 +159,14 @@ class ManagedMem0V5CleanupPassTwoAdapter:
         with self._lock:
             if self._consumed:
                 raise ManagedRunError("managed Mem0 v5 cleanup readback was replayed")
-            self._consumed = True
+            if self._in_flight:
+                raise ManagedRunError("managed Mem0 v5 cleanup readback is in progress")
+            self._in_flight = True
         try:
             receipt = self._cleanup.cleanup(request)
         except Exception:
+            with self._lock:
+                self._in_flight = False
             raise ManagedRunError("managed Mem0 v5 cleanup readback call failed") from None
         try:
             if type(receipt) is not Mem0V5CleanupReceipt:
@@ -169,8 +174,12 @@ class ManagedMem0V5CleanupPassTwoAdapter:
             result = self._verifier.verify(payload=receipt, context=context)
             _validate_result(result=result, context=context, terminal=terminal)
         except ManagedRunError:
+            with self._lock:
+                self._in_flight = False
             raise
         except Exception:
+            with self._lock:
+                self._in_flight = False
             raise ManagedRunError("managed Mem0 v5 cleanup readback verification failed") from None
         result_commitment = canonical_sha256(_result_payload(result))
         payload = {
@@ -187,7 +196,7 @@ class ManagedMem0V5CleanupPassTwoAdapter:
             "residual_record_count": result.residual_record_count,
             "residual_root_sha256": result.residual_root_sha256,
         }
-        return ManagedMem0V5CleanupReadbackWitness(
+        witness = ManagedMem0V5CleanupReadbackWitness(
             **{key: value for key, value in payload.items() if key != "schema_version"},
             evidence_commitment_sha256=canonical_sha256(payload),
             _authentication_sha256=hmac.new(
@@ -197,6 +206,12 @@ class ManagedMem0V5CleanupPassTwoAdapter:
             ).hexdigest(),
             _token=_WITNESS_TOKEN,
         )
+        with self._lock:
+            if not self._in_flight or self._consumed:
+                raise ManagedRunError("managed Mem0 v5 cleanup readback state differs")
+            self._in_flight = False
+            self._consumed = True
+        return witness
 
 
 def _validate_authority(*, request: object, terminal: object) -> CleanupVerificationContext:

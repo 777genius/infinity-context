@@ -138,7 +138,7 @@ def test_pass_two_performs_fresh_bound_call_and_issues_exact_witness() -> None:
     assert cleanup.calls == [request]
 
 
-def test_pass_two_io_failure_is_one_shot() -> None:
+def test_pass_two_io_failure_retains_exact_retry_authority() -> None:
     request = _request()
     terminal = _terminal(request)
     cleanup = _TransientCleanup(_receipt(request))
@@ -146,10 +146,12 @@ def test_pass_two_io_failure_is_one_shot() -> None:
 
     with pytest.raises(ManagedRunError, match="call failed"):
         adapter.readback(pass_index=2, request=request, terminal=terminal)
+    witness = adapter.readback(pass_index=2, request=request, terminal=terminal)
+
+    assert witness.terminal_commitment_sha256 == terminal.commitment_sha256
+    assert cleanup.calls == [request, request]
     with pytest.raises(ManagedRunError, match="replayed"):
         adapter.readback(pass_index=2, request=request, terminal=terminal)
-
-    assert cleanup.calls == [request]
 
 
 def test_invalid_authority_does_not_consume_and_corrected_request_succeeds() -> None:

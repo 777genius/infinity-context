@@ -7,6 +7,7 @@ import json
 import secrets
 import threading
 from collections.abc import Callable, Mapping
+from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import final
 
@@ -41,6 +42,8 @@ from infinity_context_server.memory_comparison_managed_run_contract import Manag
 from infinity_context_server.memory_comparison_managed_runner_binding import (
     ManagedRunnerCompositionBinding,
 )
+from infinity_context_server.memory_comparison_mem0_oss_v5_contracts import is_sha256
+from infinity_context_server.memory_comparison_models import BackendIngestResult
 
 MANAGED_INFINITY_HTTP_LIFECYCLE_ADAPTER_ID = "managed-infinity-http-lifecycle-v1"
 _TOKEN = object()
@@ -70,6 +73,28 @@ class ManagedInfinityHttpIngestReceipt:
 
 
 @final
+@dataclass(frozen=True, slots=True)
+class ManagedInfinityHttpIngestEvidence:
+    """Owner-authenticated Infinity ingest result for one unique corpus."""
+
+    case_id: str
+    corpus_id: str
+    target_identity_sha256: str
+    ingest_result: BackendIngestResult
+
+    def __post_init__(self) -> None:
+        if (
+            type(self.case_id) is not str
+            or not self.case_id
+            or type(self.corpus_id) is not str
+            or not self.corpus_id
+            or not is_sha256(self.target_identity_sha256)
+            or type(self.ingest_result) is not BackendIngestResult
+        ):
+            _fail("managed_infinity_ingest_evidence_invalid")
+
+
+@final
 class ManagedInfinityHttpLifecycleAdapter:
     """Publish Infinity clean evidence only after real reset and ordered ingest."""
 
@@ -79,10 +104,13 @@ class ManagedInfinityHttpLifecycleAdapter:
         "_clock",
         "_config",
         "_execution",
+        "_evidence",
+        "_evidence_consumed",
         "_lock",
         "_next",
         "_phase",
         "_publisher",
+        "_receipts",
         "_registration",
     )
 
@@ -138,6 +166,9 @@ class ManagedInfinityHttpLifecycleAdapter:
         self._lock = threading.RLock()
         self._phase = "new"
         self._next = 0
+        self._receipts: tuple[ManagedInfinityHttpIngestReceipt, ...] = ()
+        self._evidence: tuple[ManagedInfinityHttpIngestEvidence, ...] = ()
+        self._evidence_consumed = False
 
     @property
     def adapter_id(self) -> str:
@@ -261,8 +292,49 @@ class ManagedInfinityHttpLifecycleAdapter:
                 self._phase = "terminal"
                 _fail("managed_infinity_lifecycle_ingest_concurrent")
             self._next += 1
+            self._receipts = (*self._receipts, receipt)
+            self._evidence = (
+                *self._evidence,
+                ManagedInfinityHttpIngestEvidence(
+                    case.case_id,
+                    case.corpus_id,
+                    target_identity_sha256,
+                    result,
+                ),
+            )
             self._phase = "complete" if self._next == len(self._cases) else "ready"
         return receipt
+
+    def consume_exact_ingest_receipts(
+        self,
+        *,
+        receipts: tuple[ManagedInfinityHttpIngestReceipt, ...],
+        cases: tuple[ManagedRunCase, ...],
+    ) -> tuple[ManagedInfinityHttpIngestEvidence, ...]:
+        """Atomically authenticate and consume the exact lifecycle-owned tuple."""
+
+        with self._lock:
+            exact_cases = (
+                type(cases) is tuple
+                and len(cases) == len(self._cases)
+                and all(
+                    candidate is expected
+                    for candidate, expected in zip(cases, self._cases, strict=True)
+                )
+            )
+            if (
+                self._phase != "complete"
+                or self._evidence_consumed
+                or type(receipts) is not tuple
+                or receipts != self._receipts
+                or not exact_cases
+                or len(self._evidence) != len(self._cases)
+            ):
+                self._phase = "terminal"
+                _fail("managed_infinity_ingest_evidence_consume_invalid")
+            self._evidence_consumed = True
+            self._phase = "evidence"
+            return self._evidence
 
     def _reset_client(self) -> httpx.Client:
         return httpx.Client(
@@ -331,6 +403,7 @@ def _fail(code: str) -> None:
 
 __all__ = (
     "MANAGED_INFINITY_HTTP_LIFECYCLE_ADAPTER_ID",
+    "ManagedInfinityHttpIngestEvidence",
     "ManagedInfinityHttpIngestReceipt",
     "ManagedInfinityHttpLifecycleAdapter",
     "ManagedInfinityHttpLifecycleError",

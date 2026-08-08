@@ -103,6 +103,7 @@ class _AuthorityState:
     readiness_phase: str = "pending"
     execution_phase: str = "pending"
     backend_phase: str = "pending"
+    infinity_phase: str = "pending"
     readiness_claim: ManagedSubscriptionReadinessClaim | None = field(default=None, repr=False)
 
 
@@ -567,6 +568,60 @@ class ManagedRuntimeCredentialAuthority:
                 "managed_credentials_configuration_invalid"
             ) from None
 
+    def issue_managed_v5_infinity_credentials(
+        self,
+        *,
+        expected_request: ManagedPreflightRequest,
+        public_preparation: object,
+        run_id: str,
+        infinity_origin: str,
+        deadline: datetime,
+        now: datetime,
+        execution_transport: httpx.BaseTransport | None = None,
+        lifecycle_transport: httpx.BaseTransport | None = None,
+        registry_policy_transport: httpx.BaseTransport | None = None,
+    ) -> object:
+        """Issue dedicated Infinity-only lanes without constructing Mem0 config."""
+
+        self._reserve_lane("infinity")
+        try:
+            from infinity_context_server.memory_comparison_managed_v5_infinity_credentials import (  # noqa: PLC0415
+                _issue_managed_v5_infinity_credential_bundle,
+            )
+
+            with self.__lock:
+                state = self.__state
+                self._require_context_locked(
+                    expected_request=expected_request,
+                    run_id=run_id,
+                    subscription_origin=state.subscription_origin,
+                    deadline=deadline,
+                    now=now,
+                )
+                bundle = _issue_managed_v5_infinity_credential_bundle(
+                    authority_state=state,
+                    expected_request=expected_request,
+                    public_preparation=public_preparation,
+                    run_id=run_id,
+                    infinity_origin=infinity_origin,
+                    deadline=deadline,
+                    now=now,
+                    execution_transport=execution_transport,
+                    lifecycle_transport=lifecycle_transport,
+                    registry_policy_transport=registry_policy_transport,
+                )
+                if state.infinity_phase != "active":
+                    _fail("managed_credentials_terminal")
+                state.infinity_phase = "issued"
+                return bundle
+        except BaseException as exc:
+            self._terminal_lane("infinity")
+            if isinstance(exc, ManagedRuntimeCredentialError):
+                raise
+            raise ManagedRuntimeCredentialError(
+                "managed_credentials_configuration_invalid"
+            ) from None
+
     def _reserve_lane(self, name: str) -> None:
         with self.__lock:
             self._require_integrity_locked()
@@ -697,6 +752,7 @@ class ManagedRuntimeCredentialAuthority:
         state.readiness_phase = "terminal"
         state.execution_phase = "terminal"
         state.backend_phase = "terminal"
+        state.infinity_phase = "terminal"
 
     def __copy__(self) -> object:
         raise TypeError("managed runtime credential authority is noncopyable")

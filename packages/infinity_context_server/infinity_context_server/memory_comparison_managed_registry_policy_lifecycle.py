@@ -253,13 +253,7 @@ class ManagedComparisonRegistryPolicyLifecycleAdapter:
         target_identity_sha256: str,
         pass_index: int,
     ) -> object:
-        """Run one exact delete or freeze after an unrecoverable delegate failure.
-
-        The exact delegate consumes its reserved operation even when provider I/O
-        fails. Retrying it would therefore target a different lifecycle position.
-        After such a failure every continuation is rejected with
-        ``managed_registry_policy_delete_delegate_unrecoverable``.
-        """
+        """Run one exact delete, retaining v5's same-operation retry authority."""
 
         self._validate_binding(bindings)
         operation = (backend_role, target_identity_sha256, pass_index)
@@ -291,7 +285,11 @@ class ManagedComparisonRegistryPolicyLifecycleAdapter:
                     self._phase = "terminal"
                     _fail("managed_registry_policy_state_invalid")
                 self._delete_in_flight = None
-                self._phase = "delete-delegate-failed"
+                self._phase = (
+                    "cleanup-active"
+                    if self._delegate_supports_delete_retry()
+                    else "delete-delegate-failed"
+                )
             raise
         with self._lock:
             if self._delete_in_flight != operation:
@@ -301,6 +299,18 @@ class ManagedComparisonRegistryPolicyLifecycleAdapter:
             self._next_delete += 1
             self._phase = "cleanup-active"
         return receipt
+
+    def _delegate_supports_delete_retry(self) -> bool:
+        """Admit retry only for the exact nominal v5 lifecycle implementation."""
+
+        from infinity_context_server.memory_comparison_managed_v5_policy_lifecycle import (
+            managed_v5_policy_lifecycle_implementation_sha256,
+        )
+
+        return hmac.compare_digest(
+            self._delegate_adapter_implementation,
+            managed_v5_policy_lifecycle_implementation_sha256(),
+        )
 
     def seal_terminal_delete(
         self,
@@ -458,6 +468,7 @@ class ManagedComparisonRegistryPolicyLifecycleAdapter:
                     "source-build-failed",
                     "source-delegate-failed",
                     "cleanup-begin-failed",
+                    "cleanup-active",
                 }
                 if first
                 else {"cleanup-active"}
