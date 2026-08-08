@@ -21,8 +21,8 @@
   "embedding_model_revision": "52398278842ec682c6f32300af41344b1c0b0bb2",
   "embedding_onnx_filename": "model_optimized.onnx",
   "embedding_onnx_sha256": "51f1bd0addd6e859e42c2c8021a5e5461385bb676a649f4b269aa445449f2431",
-  "wrapper_source_revision": "bdfa97cc30ce3459fd8d3ab21f8368a0781de155",
-  "wrapper_source_sha256": "5ccfc7836202095e4314eee54a14c0518be73e8400e6c554bad4b621a9585ec4",
+  "wrapper_source_revision": "2fa3537fde1c830001147b0b7ce010a666ae6eea",
+  "wrapper_source_sha256": "55fce5fb998d0da18c84c94c91547beb0da51410363bbc382a9691b3ea35c03b",
   "runtime_lock_sha256": "70a54d810222b68f1f8b76f1fcf9c4332875f3fc242682fee3b5779db122f73d",
   "runtime_lock_artifact_count": 57
 }

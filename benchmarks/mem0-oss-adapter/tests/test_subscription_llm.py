@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import asyncio
 import json
 
 import httpx
@@ -9,7 +8,6 @@ import pytest
 from mem0_oss_adapter.subscription_llm import (
     ExtractionCallLimitError,
     SubscriptionBridgeConfig,
-    SubscriptionBridgeError,
     SubscriptionOpenAICompatibleLlm,
     UsageLedger,
     validate_loopback_bridge_url,
@@ -30,55 +28,9 @@ def _subscription_llm(
         response_max_bytes=1024,
     )
     llm = SubscriptionOpenAICompatibleLlm(config)
-    llm._transport = handler
+    llm._client.close()
+    llm._client = httpx.Client(transport=handler, trust_env=False)
     return llm, ledger
-
-
-class _PeriodicAsyncStream(httpx.AsyncByteStream):
-    def __init__(self) -> None:
-        self.closed = False
-
-    async def __aiter__(self):
-        while True:
-            await asyncio.sleep(0.005)
-            yield b"x"
-
-    async def aclose(self) -> None:
-        self.closed = True
-
-
-def test_subscription_bridge_enforces_wall_clock_deadline(monkeypatch) -> None:
-    monkeypatch.setattr(
-        "mem0_oss_adapter.subscription_llm._SUBSCRIPTION_BRIDGE_TIMEOUT_SECONDS",
-        0.025,
-    )
-    ledger = UsageLedger()
-    config = SubscriptionBridgeConfig(
-        bridge_url="http://127.0.0.1:19090/v1",
-        bearer_token="explicit-token",
-        mode="subscription_llm",
-        usage_ledger=ledger,
-        request_max_bytes=1024,
-        response_max_bytes=1024,
-    )
-    llm = SubscriptionOpenAICompatibleLlm(config)
-    stream = _PeriodicAsyncStream()
-    llm._transport = httpx.MockTransport(lambda _: httpx.Response(200, stream=stream))
-
-    with (
-        ledger.operation(
-            run_id="run-deadline",
-            mode="subscription_llm",
-            max_calls=1,
-            request_max_bytes=1024,
-            response_max_bytes=1024,
-        ),
-        pytest.raises(SubscriptionBridgeError, match="deadline exceeded"),
-    ):
-        llm.generate_response([{"role": "user", "content": "extract"}])
-
-    assert stream.closed is True
-    assert ledger.entries[-1].extraction_calls == 1
 
 
 def test_subscription_bridge_is_narrow_bounded_and_ledgered() -> None:
@@ -96,13 +48,7 @@ def test_subscription_bridge_is_narrow_bounded_and_ledgered() -> None:
         request_max_bytes=1024,
         response_max_bytes=1024,
     ):
-        assert (
-            llm.generate_response(
-                [{"role": "user", "content": "extract"}],
-                response_format={"type": "json_object"},
-            )
-            == "{}"
-        )
+        assert llm.generate_response([{"role": "user", "content": "extract"}]) == "{}"
         with pytest.raises(ExtractionCallLimitError):
             llm.generate_response([{"role": "user", "content": "extract again"}])
     llm.close()
@@ -110,34 +56,7 @@ def test_subscription_bridge_is_narrow_bounded_and_ledgered() -> None:
     assert len(requests) == 1
     assert requests[0].url == "http://127.0.0.1:19090/v1/chat/completions"
     assert requests[0].headers["authorization"] == "Bearer explicit-token"
-    request_payload = json.loads(requests[0].content)
-    assert request_payload["model"] == "gpt-5.6-sol"
-    assert request_payload["response_format"] == {
-        "type": "json_schema",
-        "json_schema": {
-            "name": "mem0_isolated_add_extraction",
-            "strict": True,
-            "schema": {
-                "type": "object",
-                "properties": {
-                    "memory": {
-                        "type": "array",
-                        "items": {
-                            "type": "object",
-                            "properties": {
-                                "id": {"type": "string"},
-                                "text": {"type": "string"},
-                            },
-                            "required": ["id", "text"],
-                            "additionalProperties": False,
-                        },
-                    }
-                },
-                "required": ["memory"],
-                "additionalProperties": False,
-            },
-        },
-    }
+    assert json.loads(requests[0].content)["model"] == "gpt-5.6-sol"
     assert ledger.entries[-1].extraction_calls == 1
     assert ledger.entries[-1].request_bytes > 0
     assert ledger.entries[-1].response_bytes > 0
