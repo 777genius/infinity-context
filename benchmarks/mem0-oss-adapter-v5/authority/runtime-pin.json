@@ -41,26 +41,32 @@
     "adapter_extraction_schema_sha256": "17c002c4bc8c4aa9d9131253ef0763fd5769c039985c65885e5877fda443120b",
     "adapter_extraction_system_prompt_sha256": "ad19187a37813ef77ee156e714c0650e6ec749e0264bdc07d499bc9b24115155",
     "adapter_schema_version": "mem0-benchmark-full-run.v5",
+    "output_limit_enforced": false,
     "phase_c_provider_usage_schema": 3,
     "phase_c_response_format_policy_sha256": "9d7bcc89f3e8cc3683a18d83d90d6ffde05cdb02358d1cd055bf273f92a772f1",
     "phase_c_response_format_sha256": "812938567c7a81bac6ed3266608adf470dedc57706102e039422f695495322bf",
     "phase_c_response_schema_sha256": "2461f7a465be82aa67751dc04e0717cde75c69b86e7db54bb306a2e3d1d4d8f0",
     "phase_c_runtime_receipt_schema": 2,
     "provider_attempts_per_dispatch": 1,
+    "requested_output_tokens": 4096,
     "route_binding": "http://127.0.0.1:8890/v1",
     "route_binding_sha256": "aaff3d27c7ca1b964a86355622e87b2bbd7841722dbcff782292ea02e1fa0935",
+    "runtime_attestation_request_schema": "mem0-oss-adapter-v5.runtime-attestation-request.v1",
+    "runtime_attestation_response_schema": "mem0-oss-adapter-v5.runtime-attestation.v1",
+    "runtime_attestation_route_contract_sha256": "7ed6947e7694feebff43e5b33e1c99b462462c437be808d078442c4aaac0bf49",
     "status_provider_attempts": 0,
     "transport_origin": "http://127.0.0.1:8891",
-    "transport_origin_sha256": "10fec4272832f69b61d9b883d16d911394b632dd7fc56f78603f90c5a19b4290"
+    "transport_origin_sha256": "10fec4272832f69b61d9b883d16d911394b632dd7fc56f78603f90c5a19b4290",
+    "usage_attestation_required": false
   },
   "schema_version": "mem0-oss-adapter-v5.runtime-pin.v1",
   "source_a": {
     "closure_algorithm": "sha256(sorted(path + NUL + size + NUL + sha256 + LF))",
-    "closure_sha256": "d78fb229294f83851d8c2265105569856d3acb73b0b4b274202dbfba5107a723",
-    "commit_sha1": "67fbadc44ccef4aed935cfb9512b5bd1464045bf",
-    "manifest_file_count": 62,
-    "manifest_sha256": "9274cb2be307ae3b0590021c2db412f3eea1e2d2945316b584e81441dc3f602e",
-    "tree_sha1": "e19e400f4d799fabb5ddb0f1a3ec6756a28f7487"
+    "closure_sha256": "c6ed98fb5f1f86e1d4d762448cefa94c962a37750e786b535a8c6421034d886e",
+    "commit_sha1": "14ed225c12710d6a9dff5633967a9dee4f9b76a6",
+    "manifest_file_count": 63,
+    "manifest_sha256": "bb027a9910c0abdaecde3175d3e4da616bac524f455ae9b8451297e253b9ef12",
+    "tree_sha1": "21e810344f9794c91676d850173ae61e50c1142c"
   },
   "subscription_runtime": {
     "artifact_manifest_sha256": "789018b5b15a1299252895babdc550c3d5322c54a1d9c82656f93d31423a0850",

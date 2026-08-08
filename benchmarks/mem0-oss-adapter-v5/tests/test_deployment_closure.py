@@ -27,7 +27,7 @@ from tools.generate_source_authority import (
 ROOT = Path(__file__).resolve().parents[1]
 REPOSITORY = ROOT.parents[1]
 FROZEN_V4_TREE = "5d640f4ea0164f18a5e8cff2bd5469b1e7eea201"
-LIVE_SOURCE_COMMIT = "67fbadc44ccef4aed935cfb9512b5bd1464045bf"
+LIVE_SOURCE_COMMIT = "14ed225c12710d6a9dff5633967a9dee4f9b76a6"
 
 
 def test_complete_v4_tree_and_working_bytes_remain_exact() -> None:
@@ -179,6 +179,7 @@ def test_pin_b_reproduces_live_v2_archive_and_verifies_exact_staged_closure(
             "mem0_oss_adapter_v5/evidence_contracts.py",
             "mem0_oss_adapter_v5/evidence_service.py",
             "mem0_oss_adapter_v5/request_binding.py",
+            "mem0_oss_adapter_v5/runtime_attestation.py",
         }
     )
 
