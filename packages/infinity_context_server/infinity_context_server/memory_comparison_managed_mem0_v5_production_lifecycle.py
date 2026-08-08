@@ -11,6 +11,13 @@ import weakref
 from dataclasses import dataclass, replace
 from typing import NoReturn, final
 
+from infinity_context_server.memory_comparison_full_execution_validation import (
+    VerifiedFullExecutionValidation,
+)
+from infinity_context_server.memory_comparison_full_execution_validation_slots import (
+    FullExecutionCaseManifestEntry,
+    FullExecutionProviderCall,
+)
 from infinity_context_server.memory_comparison_full_run_evidence import FullComparisonRunBindings
 from infinity_context_server.memory_comparison_managed_mem0_v5_cleanup_readback import (
     ManagedMem0V5CleanupReadbackWitness,
@@ -54,6 +61,13 @@ from infinity_context_server.memory_comparison_mem0_oss_v5_evidence import (
 )
 from infinity_context_server.memory_comparison_mem0_oss_v5_observed_receipt import (
     Mem0V5ObservedExtractionReceiptAuthority,
+)
+from infinity_context_server.memory_comparison_provider_provenance import (
+    ProviderRouteAttestation,
+)
+from infinity_context_server.memory_comparison_session_identity_contract import (
+    RunScopedSessionHmacKey,
+    SessionIdentityEvidence,
 )
 from infinity_context_server.resumable_operation_journal.domain import (
     OperationManifest,
@@ -372,6 +386,27 @@ class ManagedMem0V5ProductionLifecycleAdapter:
             )
             return snapshot
 
+    def authenticate_exact_receipts(
+        self, receipts: tuple[ManagedMem0V5CorpusIngestReceipt, ...]
+    ) -> ManagedMem0V5IngestSnapshot:
+        """Authenticate this lifecycle's exact ordered receipts without consuming them."""
+
+        with _instance_lock(self):
+            state = _require_phase(self, {"receipts"}, "receipt_authenticate_invalid")
+            if receipts != state.receipts:
+                _fail("receipt_authenticate_invalid")
+            try:
+                evidence = state.lifecycle._authenticate_corpus_receipts_for_production(
+                    composition_binding=state.binding,
+                    receipts=receipts,
+                )
+                snapshot = _ingest_snapshot(evidence)
+            except ManagedMem0V5ProductionLifecycleError:
+                raise
+            except Exception:
+                _fail("receipt_authenticate_failed")
+            return snapshot
+
     def consume_ready_execution_evidence(
         self,
         *,
@@ -393,6 +428,44 @@ class ManagedMem0V5ProductionLifecycleAdapter:
                 _fail("execution_evidence_failed")
             _store(self, replace(state, phase="evidence", integrity_mac=b""))
 
+    def seal_execution_validation(
+        self,
+        *,
+        composition_binding: ManagedRunnerCompositionBinding,
+        bindings: FullComparisonRunBindings,
+        benchmark: str,
+        case_manifest: tuple[FullExecutionCaseManifestEntry, ...],
+        required_model: str,
+        required_route: ProviderRouteAttestation,
+        provider_calls: tuple[FullExecutionProviderCall, ...],
+        session_verifier: RunScopedSessionHmacKey,
+        session_evidence: tuple[SessionIdentityEvidence, ...],
+    ) -> VerifiedFullExecutionValidation:
+        """Seal only after this facade admitted, dispatched and consumed evidence."""
+
+        with _instance_lock(self):
+            state = _require_phase(self, {"evidence"}, "execution_validation_invalid")
+            if composition_binding is not state.binding or state.snapshot is None:
+                _fail("execution_validation_invalid")
+            try:
+                result = state.evidence.seal_execution_validation(
+                    composition_binding=composition_binding,
+                    bindings=bindings,
+                    benchmark=benchmark,
+                    case_manifest=case_manifest,
+                    required_model=required_model,
+                    required_route=required_route,
+                    provider_calls=provider_calls,
+                    session_verifier=session_verifier,
+                    session_evidence=session_evidence,
+                )
+            except Exception:
+                _fail("execution_validation_failed")
+            if type(result) is not VerifiedFullExecutionValidation:
+                _fail("execution_validation_result_invalid")
+            _store(self, replace(state, phase="validated", integrity_mac=b""))
+            return result
+
     def terminalize(
         self, *, pass_two_request: object | None = None
     ) -> Mem0OssTerminalCleanupEvidence | ManagedMem0V5CleanupReadbackWitness:
@@ -410,6 +483,7 @@ class ManagedMem0V5ProductionLifecycleAdapter:
                     "receipts",
                     "ready",
                     "evidence",
+                    "validated",
                 },
                 "terminalize_invalid",
             )
@@ -446,7 +520,7 @@ def _validated_terminal_journal_snapshot(state: _LifecycleState) -> object:
         _fail("terminalize_journal_invalid")
     if snapshot.run.phase is OperationRunPhase.SEALED:
         valid = (
-            state.phase in {"sealed", "ready", "evidence"}
+            state.phase in {"sealed", "ready", "evidence", "validated"}
             and snapshot.pending_count == 0
             and snapshot.dispatched_count == 0
             and snapshot.committed_count == expected
