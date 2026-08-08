@@ -462,7 +462,7 @@ def test_seal_before_ready_manifest_mismatch_and_replay_fail_closed() -> None:
     replay = _scenario()
     _consume(replay)
     replay.adapter.seal_execution_validation(**replay.seal_values)
-    with pytest.raises(ManagedMem0V5ExecutionEvidenceAdapterError):
+    with pytest.raises(ManagedMem0V5ExecutionEvidenceAdapterError, match="not_ready"):
         replay.adapter.seal_execution_validation(**replay.seal_values)
 
 
