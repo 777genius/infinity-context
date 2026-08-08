@@ -7,6 +7,7 @@ from datetime import timedelta
 import pytest
 from infinity_context_server import memory_comparison_managed_http_execution as legacy_execution
 from infinity_context_server import memory_comparison_managed_policy_delegate_capability as cap
+from infinity_context_server import memory_comparison_managed_v5_policy_lifecycle as v5_policy
 from infinity_context_server.memory_comparison_managed_http_policy_material_projection import (
     binding_snapshot,
 )
@@ -31,6 +32,9 @@ from infinity_context_server.memory_comparison_managed_mem0_v5_production_ports 
 from infinity_context_server.memory_comparison_managed_mem0_v5_run_evidence import (
     ManagedMem0V5CorpusIngestEvidence,
     ManagedMem0V5CorpusUnitEvidence,
+)
+from infinity_context_server.memory_comparison_managed_runner_binding import (
+    ManagedRunnerCompositionBinding,
 )
 from infinity_context_server.memory_comparison_managed_v5_ingest_identity_projector import (
     ManagedV5IngestIdentityProjectionError,
@@ -235,6 +239,68 @@ def test_v5_policy_constructor_binds_exact_component_owners(
     assert cap.authenticate_managed_policy_delegate_port(port) == adapter.implementation_sha256
 
 
+def test_v5_policy_constructor_rejects_missing_mem0_target_with_stable_code(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    scenario = _scenario()
+    targets = tuple(
+        item
+        for item in scenario.bindings.backend_targets
+        if item.backend_role == "infinity-context"
+    )
+    object.__setattr__(scenario.bindings, "backend_targets", targets)
+    monkeypatch.setattr(
+        ManagedRunnerCompositionBinding,
+        "backend_targets",
+        property(lambda _self: targets),
+    )
+    infinity = object.__new__(ManagedInfinityHttpLifecycleAdapter)
+    mem0 = object.__new__(ManagedMem0V5ProductionLifecycleAdapter)
+    ingest = object.__new__(ManagedV5CutoverIngestPort)
+    monkeypatch.setattr(
+        ManagedInfinityHttpLifecycleAdapter,
+        "composition_binding",
+        property(lambda _self: scenario.binding),
+    )
+    monkeypatch.setattr(
+        ManagedMem0V5ProductionLifecycleAdapter,
+        "composition_binding",
+        property(lambda _self: scenario.binding),
+    )
+    monkeypatch.setattr(
+        ManagedV5CutoverIngestPort,
+        "composition_binding",
+        property(lambda _self: scenario.binding),
+    )
+    config = object.__new__(ManagedInfinityHttpRuntimeConfig)
+    monkeypatch.setattr(
+        ManagedInfinityHttpRuntimeConfig,
+        "target_identity_sha256",
+        property(lambda _self: targets[0].target_identity_sha256),
+    )
+    monkeypatch.setattr(
+        ManagedInfinityHttpRuntimeConfig,
+        "transport",
+        property(lambda _self: None),
+    )
+
+    with pytest.raises(
+        ManagedHttpPolicyLifecycleError,
+        match=r"^managed_http_policy_target_binding_invalid$",
+    ):
+        ManagedInfinityV5PolicyLifecycleAdapter(
+            bindings=scenario.bindings,
+            cases=scenario.cases,
+            composition_binding=scenario.binding,
+            infinity_lifecycle=infinity,
+            mem0_lifecycle=mem0,
+            ingest_port=ingest,
+            infinity_config=config,
+            deadline=scenario.binding.deadline,
+            clock=lambda: scenario.binding.deadline - timedelta(seconds=1),
+        )
+
+
 def _retry_adapter(scenario) -> ManagedInfinityV5PolicyLifecycleAdapter:
     adapter = object.__new__(ManagedInfinityV5PolicyLifecycleAdapter)
     adapter._bindings = scenario.bindings
@@ -290,7 +356,7 @@ def test_v5_policy_exhaustion_retains_operation_and_blocks_later_delegate() -> N
     adapter._delete_infinity = fail
     with pytest.raises(
         ManagedHttpPolicyLifecycleError,
-        match="^managed_http_policy_infinity_context_delete_failed$",
+        match=r"^managed_http_policy_infinity_context_delete_failed$",
     ):
         adapter.terminal_delete(
             bindings=scenario.bindings,
@@ -310,3 +376,10 @@ def test_v5_policy_exhaustion_retains_operation_and_blocks_later_delegate() -> N
             pass_index=1,
         )
     assert calls == 2
+
+
+def test_v5_policy_retry_predicate_uses_stable_error_code() -> None:
+    error = ManagedHttpPolicyLifecycleError("managed_http_policy_infinity_context_delete_failed")
+    error.args = ("rendered-text-changed",)
+
+    assert v5_policy._retryable_delete_failure(error)

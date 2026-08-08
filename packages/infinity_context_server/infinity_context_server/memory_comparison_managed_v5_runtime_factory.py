@@ -393,12 +393,20 @@ def _tracked_factory(
     factory: Callable[[], httpx.BaseTransport] | None,
 ) -> Callable[[], httpx.BaseTransport]:
     def create() -> httpx.BaseTransport:
-        transport = (
-            httpx.HTTPTransport(retries=0, trust_env=False) if factory is None else factory()
-        )
+        try:
+            transport = (
+                httpx.HTTPTransport(retries=0, trust_env=False) if factory is None else factory()
+            )
+        except Exception:
+            _fail("managed_v5_runtime_transport_invalid")
         if not isinstance(transport, httpx.BaseTransport):
             _fail("managed_v5_runtime_transport_invalid")
-        owner._register(transport)
+        try:
+            owner._register(transport)
+        except Exception:
+            with suppress(Exception):
+                transport.close()
+            _fail("managed_v5_runtime_transport_invalid")
         return transport
 
     return create

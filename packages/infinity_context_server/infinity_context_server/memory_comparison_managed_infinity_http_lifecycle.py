@@ -9,7 +9,7 @@ import threading
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from datetime import UTC, datetime
-from typing import final
+from typing import NoReturn, final
 
 import httpx
 
@@ -264,7 +264,7 @@ class ManagedInfinityHttpLifecycleAdapter:
                 run_id != self._binding.run_id
                 or backend_role != INFINITY_COMPARISON_BACKEND
                 or target_identity_sha256 != self._config.target_identity_sha256
-                or type(record) is not dict
+                or not isinstance(record, Mapping)
                 or _canonical(record) != _canonical(case.record)
             ):
                 self._phase = "terminal"
@@ -397,7 +397,7 @@ def managed_infinity_http_lifecycle_implementation_sha256() -> str:
     ).hexdigest()
 
 
-def _fail(code: str) -> None:
+def _fail(code: str) -> NoReturn:
     raise ManagedInfinityHttpLifecycleError(code)
 
 

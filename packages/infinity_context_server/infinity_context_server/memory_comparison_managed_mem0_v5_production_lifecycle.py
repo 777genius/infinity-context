@@ -427,6 +427,19 @@ class ManagedMem0V5ProductionLifecycleAdapter:
                     receipts=receipts,
                 )
                 snapshot = _ingest_snapshot(evidence)
+                admission = Mem0OssFullRunAdmission(
+                    request=state.composition.request,
+                    ingestion_manifest_sha256=(
+                        state.composition.authority.ingestion_manifest_sha256
+                    ),
+                    ingestion_root_sha256=(state.composition.authority.ingestion_root_sha256),
+                    ingestion_unit_count=state.composition.authority.operation_count,
+                )
+                projection = ManagedMem0V5IngestProjection(
+                    snapshot,
+                    evidence,
+                    admission.commitment_sha256,
+                )
                 _commit_operation_evidence(state, evidence)
                 state.journal.seal(state.journal_identity.run_id)
                 accepted = state.lifecycle.consume_corpus_receipts(receipts)
@@ -442,17 +455,7 @@ class ManagedMem0V5ProductionLifecycleAdapter:
                 self,
                 replace(state, phase="ready", snapshot=snapshot, integrity_mac=b""),
             )
-            admission = Mem0OssFullRunAdmission(
-                request=state.composition.request,
-                ingestion_manifest_sha256=(state.composition.authority.ingestion_manifest_sha256),
-                ingestion_root_sha256=state.composition.authority.ingestion_root_sha256,
-                ingestion_unit_count=state.composition.authority.operation_count,
-            )
-            return ManagedMem0V5IngestProjection(
-                snapshot,
-                evidence,
-                admission.commitment_sha256,
-            )
+            return projection
 
     def authenticate_exact_receipts(
         self, receipts: tuple[ManagedMem0V5CorpusIngestReceipt, ...]
@@ -598,6 +601,19 @@ class ManagedMem0V5ProductionLifecycleAdapter:
             after = _validated_cleanup_journal_snapshot(state)
             if after != before:
                 _fail("cleanup_pass_one_journal_changed")
+        except ManagedMem0V5ProductionLifecycleError:
+            with lock:
+                current = _state(self)
+                if current.phase == "cleanup_pass_one_inflight":
+                    _store(
+                        self,
+                        replace(
+                            current,
+                            phase="cleanup_integrity_failed",
+                            integrity_mac=b"",
+                        ),
+                    )
+            raise
         except Exception:
             with lock:
                 current = _state(self)
@@ -650,6 +666,19 @@ class ManagedMem0V5ProductionLifecycleAdapter:
             after = _validated_cleanup_journal_snapshot(state)
             if after != before:
                 _fail("cleanup_pass_two_journal_changed")
+        except ManagedMem0V5ProductionLifecycleError:
+            with lock:
+                current = _state(self)
+                if current.phase == "cleanup_pass_two_inflight":
+                    _store(
+                        self,
+                        replace(
+                            current,
+                            phase="cleanup_integrity_failed",
+                            integrity_mac=b"",
+                        ),
+                    )
+            raise
         except Exception:
             with lock:
                 current = _state(self)

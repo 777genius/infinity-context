@@ -33,6 +33,9 @@ from infinity_context_server.memory_comparison_managed_run_contract import Manag
 from infinity_context_server.memory_comparison_managed_runner_binding import (
     ManagedRunnerCompositionBinding,
 )
+from infinity_context_server.memory_comparison_managed_runtime_credentials_models import (
+    ManagedRuntimeCredentialError,
+)
 from infinity_context_server.memory_comparison_managed_v5_live_preparation import (
     ManagedV5PublicRunPreparation,
     _activate_managed_v5_public_run,
@@ -42,6 +45,7 @@ from infinity_context_server.memory_comparison_managed_v5_owned_resources import
 )
 from infinity_context_server.memory_comparison_managed_v5_runtime_factory import (
     ManagedV5ProductionRuntime,
+    ManagedV5ProductionRuntimeFactoryError,
     create_managed_v5_production_runtime,
 )
 from infinity_context_server.memory_comparison_mem0_oss_v5_contracts import (
@@ -131,7 +135,11 @@ def activate_managed_v5_production_runtime(
             activated_preparation=activated,
             **runtime_dependencies,
         )
-    except ManagedV5ProductionRunnerError:
+    except (
+        ManagedV5ProductionRunnerError,
+        ManagedV5ProductionRuntimeFactoryError,
+        ManagedRuntimeCredentialError,
+    ):
         raise
     except Exception:
         _fail("managed_v5_production_activation_failed")

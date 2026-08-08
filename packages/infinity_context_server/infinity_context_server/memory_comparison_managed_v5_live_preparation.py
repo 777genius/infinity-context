@@ -263,20 +263,19 @@ def _activate_managed_v5_public_run(
         return replace(activated, integrity_mac=_activated_mac(activated))
 
 
-_consume_managed_v5_public_run_preparation = _activate_managed_v5_public_run
-
-
 def _authenticate_activated_managed_v5_public_run(
     value: object,
 ) -> _ActivatedManagedV5PublicRun:
     """Authenticate the exact post-readiness capability without consuming it."""
 
-    if type(value) is not _ActivatedManagedV5PublicRun or not hmac.compare_digest(
-        value.integrity_mac,
-        _activated_mac(replace(value, integrity_mac=b"")),
-    ):
+    if type(value) is not _ActivatedManagedV5PublicRun:
         raise ManagedRunError("managed v5 public preparation activation invalid")
     try:
+        if not hmac.compare_digest(
+            value.integrity_mac,
+            _activated_mac(replace(value, integrity_mac=b"")),
+        ):
+            raise TypeError
         plan = _inspect_verified_managed_run_plan(value.plan)
         descriptor = inspect_managed_mem0_v5_production_authority(value.production_authority)
         if (

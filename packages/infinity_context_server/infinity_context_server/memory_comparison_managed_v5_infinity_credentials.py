@@ -60,6 +60,10 @@ class ManagedV5InfinityCredentialBundle:
 
     __slots__ = ("__lock", "__state")
 
+    def __init_subclass__(cls, **kwargs: object) -> None:
+        del cls, kwargs
+        raise TypeError("managed v5 Infinity credentials are sealed")
+
     def __init__(self, *, state: _InfinityCredentialState, _token: object) -> None:
         if _token is not _ISSUER_TOKEN or type(state) is not _InfinityCredentialState:
             _fail("configuration_invalid")
@@ -160,6 +164,13 @@ class ManagedV5InfinityCredentialBundle:
 
     def __reduce__(self) -> object:
         raise TypeError("managed v5 Infinity credentials are nonserializable")
+
+    def __reduce_ex__(self, protocol: int) -> object:
+        del protocol
+        raise TypeError("managed v5 Infinity credentials are nonserializable")
+
+    def __getstate__(self) -> object:
+        raise TypeError("managed v5 Infinity credential state is inaccessible")
 
 
 def _issue_managed_v5_infinity_credential_bundle(

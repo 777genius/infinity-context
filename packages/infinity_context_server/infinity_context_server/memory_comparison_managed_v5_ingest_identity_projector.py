@@ -46,13 +46,14 @@ def project_managed_infinity_v5_ingest_identities(
     """Pair exact authenticated lanes without HTTP or legacy Mem0 metadata."""
 
     corpora = _unique_corpora(cases)
+    if type(composition_binding) is not ManagedRunnerCompositionBinding:
+        _fail("managed_v5_ingest_projection_composition_invalid")
     targets = tuple(
         (item.backend_role, item.target_identity_sha256)
         for item in composition_binding.backend_targets
     )
     if (
-        type(composition_binding) is not ManagedRunnerCompositionBinding
-        or len(targets) != 2
+        len(targets) != 2
         or targets[0][0] != "infinity-context"
         or targets[1][0] != "mem0"
         or type(infinity_evidence) is not tuple

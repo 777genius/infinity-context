@@ -93,6 +93,12 @@ from infinity_context_server.memory_comparison_managed_v5_ingest_identity_projec
 )
 
 MANAGED_V5_POLICY_ADAPTER_ID = "managed-infinity-v5-policy-fail-closed-v1"
+_RETRYABLE_DELETE_FAILURE_CODES = frozenset(
+    {
+        "managed_http_policy_infinity_context_delete_failed",
+        "managed_v5_policy_mem0_cleanup_failed",
+    }
+)
 
 
 @final
@@ -159,6 +165,7 @@ class ManagedInfinityV5PolicyLifecycleAdapter:
                 for item in composition_binding.backend_targets
             }
             or targets.get("infinity-context") != infinity_config.target_identity_sha256
+            or "mem0" not in targets
         ):
             raise ManagedHttpPolicyLifecycleError("managed_http_policy_target_binding_invalid")
         infinity = ManagedInfinityHttpConfig(
@@ -936,10 +943,7 @@ def managed_v5_policy_lifecycle_implementation_sha256() -> str:
 
 
 def _retryable_delete_failure(error: ManagedHttpPolicyLifecycleError) -> bool:
-    return str(error) in {
-        "managed_http_policy_infinity_context_delete_failed",
-        "managed_v5_policy_mem0_cleanup_failed",
-    }
+    return error.code in _RETRYABLE_DELETE_FAILURE_CODES
 
 
 __all__ = (

@@ -223,12 +223,13 @@ class ManagedInfinityHttpExecutionAdapter:
         )
 
     def close(self) -> None:
-        self._ensure_live()
-        self._closed = True
+        if self._closed:
+            return
         try:
             self._backend.close()
         except Exception:
             _fail("managed_infinity_http_close_failed")
+        self._closed = True
 
     def _require_target(self, backend_role: object, target: object) -> None:
         if backend_role != INFINITY_COMPARISON_BACKEND or target != self._target:

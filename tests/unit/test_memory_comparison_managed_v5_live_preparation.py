@@ -129,10 +129,14 @@ def test_public_preparation_finishes_before_any_private_or_live_call(
     assert calls == {"secret": 0, "compose": 0, "readiness": 0, "registry": 0}
 
 
-def test_activation_rejects_hmac_tamper_and_burns_authority(tmp_path) -> None:
+def test_activation_rejects_hmac_tamper_without_activating(tmp_path) -> None:
     _values, preparation = _prepare(tmp_path)
     state = subject._STATES[preparation]
     subject._STATES[preparation] = replace(state, integrity_mac=b"tampered")
+
+    with pytest.raises(ManagedRunError, match="unavailable"):
+        _activate(preparation, state)
+    assert preparation in subject._STATES
 
     with pytest.raises(ManagedRunError, match="unavailable"):
         _activate(preparation, state)

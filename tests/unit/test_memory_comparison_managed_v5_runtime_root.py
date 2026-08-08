@@ -12,10 +12,18 @@ from infinity_context_server.memory_comparison_managed_v5_owned_resources import
 
 
 class _Resource:
-    def __init__(self, name: str, calls: list[str], *, fail: bool = False) -> None:
+    def __init__(
+        self,
+        name: str,
+        calls: list[str],
+        *,
+        fail: bool = False,
+        warning: str | None = None,
+    ) -> None:
         self._name = name
         self._calls = calls
         self._fail = fail
+        self.close_warning_code = warning
 
     def close(self) -> None:
         self._calls.append(self._name)
@@ -46,6 +54,24 @@ def test_owned_resources_continue_closing_and_redact_failure() -> None:
     assert caught.value.code == "managed_v5_owned_resources_close_failed"
     assert "private provider detail" not in str(caught.value)
     assert calls == ["second", "first"]
+    owner.close()
+
+
+def test_owned_resources_treat_close_warning_as_redacted_failure() -> None:
+    calls: list[str] = []
+    owner = ManagedV5OwnedResources(
+        (
+            _Resource("first", calls),
+            _Resource("warning", calls, warning="private provider detail"),
+        )
+    )
+
+    with pytest.raises(ManagedV5OwnedResourcesError) as caught:
+        owner.close()
+
+    assert caught.value.code == "managed_v5_owned_resources_close_failed"
+    assert "private provider detail" not in str(caught.value)
+    assert calls == ["warning", "first"]
     owner.close()
 
 

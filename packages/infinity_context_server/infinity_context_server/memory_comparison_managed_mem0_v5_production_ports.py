@@ -158,7 +158,7 @@ class ManagedV5CutoverIngestPort:
                 or backend_role != role
                 or target_identity_sha256 != target
                 or type(record) is not dict
-                or _canonical(record) != _canonical(case.record)
+                or not _records_match(record, case.record)
             ):
                 state.phase = "cleanup_only"
                 _fail("managed_v5_cutover_ingest_binding_invalid")
@@ -291,9 +291,16 @@ def _unique_corpora(cases: object) -> tuple[ManagedRunCase, ...]:
         previous = seen.get(case.corpus_id)
         if previous is None:
             seen[case.corpus_id] = case
-        elif _canonical(previous.record) != _canonical(case.record):
+        elif not _records_match(previous.record, case.record):
             _fail("managed_v5_cutover_cases_invalid")
     return tuple(seen.values())
+
+
+def _records_match(left: object, right: object) -> bool:
+    try:
+        return _canonical(left) == _canonical(right)
+    except Exception:
+        return False
 
 
 def _canonical(value: object) -> bytes:

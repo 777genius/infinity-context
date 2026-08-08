@@ -633,7 +633,7 @@ def managed_registry_policy_lifecycle_implementation_sha256(
         "canonical_cleanup": "before-first-infinity-delete",
         "completion": "after-terminal-delete-seal-before-aggregate",
         "validation_evidence": "exact-registry-completion-bound-before-delegate-aggregate",
-        "delegate_delete_failure": "fail-closed-after-exact-delegate-consumption",
+        "delegate_delete_failure": "v5-same-operation-retry-authority-else-fail-closed",
         "recovery": "exact-call-registry-default-idempotency",
     }
     return hashlib.sha256(

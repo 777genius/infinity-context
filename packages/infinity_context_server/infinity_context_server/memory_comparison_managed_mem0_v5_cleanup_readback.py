@@ -181,31 +181,38 @@ class ManagedMem0V5CleanupPassTwoAdapter:
             with self._lock:
                 self._in_flight = False
             raise ManagedRunError("managed Mem0 v5 cleanup readback verification failed") from None
-        result_commitment = canonical_sha256(_result_payload(result))
-        payload = {
-            "schema_version": CLEANUP_READBACK_SCHEMA,
-            "pass_index": 2,
-            "admission_commitment_sha256": context.admission_commitment_sha256,
-            "cleanup_request_commitment_sha256": cleanup_request_commitment(context),
-            "cleanup_result_commitment_sha256": result_commitment,
-            "terminal_commitment_sha256": terminal.commitment_sha256,
-            "seal_commitment_sha256": context.seal_commitment_sha256,
-            "operation_root_sha256": context.operation_root_sha256,
-            "operation_inventory_root_sha256": context.operation_inventory_root_sha256,
-            "deleted_operation_count": result.deleted_operation_count,
-            "residual_record_count": result.residual_record_count,
-            "residual_root_sha256": result.residual_root_sha256,
-        }
-        witness = ManagedMem0V5CleanupReadbackWitness(
-            **{key: value for key, value in payload.items() if key != "schema_version"},
-            evidence_commitment_sha256=canonical_sha256(payload),
-            _authentication_sha256=hmac.new(
-                _WITNESS_KEY,
-                canonical_sha256(payload).encode(),
-                hashlib.sha256,
-            ).hexdigest(),
-            _token=_WITNESS_TOKEN,
-        )
+        try:
+            result_commitment = canonical_sha256(_result_payload(result))
+            payload = {
+                "schema_version": CLEANUP_READBACK_SCHEMA,
+                "pass_index": 2,
+                "admission_commitment_sha256": context.admission_commitment_sha256,
+                "cleanup_request_commitment_sha256": cleanup_request_commitment(context),
+                "cleanup_result_commitment_sha256": result_commitment,
+                "terminal_commitment_sha256": terminal.commitment_sha256,
+                "seal_commitment_sha256": context.seal_commitment_sha256,
+                "operation_root_sha256": context.operation_root_sha256,
+                "operation_inventory_root_sha256": context.operation_inventory_root_sha256,
+                "deleted_operation_count": result.deleted_operation_count,
+                "residual_record_count": result.residual_record_count,
+                "residual_root_sha256": result.residual_root_sha256,
+            }
+            witness = ManagedMem0V5CleanupReadbackWitness(
+                **{key: value for key, value in payload.items() if key != "schema_version"},
+                evidence_commitment_sha256=canonical_sha256(payload),
+                _authentication_sha256=hmac.new(
+                    _WITNESS_KEY,
+                    canonical_sha256(payload).encode(),
+                    hashlib.sha256,
+                ).hexdigest(),
+                _token=_WITNESS_TOKEN,
+            )
+        except Exception:
+            with self._lock:
+                self._in_flight = False
+            raise ManagedRunError(
+                "managed Mem0 v5 cleanup readback witness construction failed"
+            ) from None
         with self._lock:
             if not self._in_flight or self._consumed:
                 raise ManagedRunError("managed Mem0 v5 cleanup readback state differs")

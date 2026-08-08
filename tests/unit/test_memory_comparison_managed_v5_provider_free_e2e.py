@@ -22,6 +22,9 @@ import test_memory_comparison_managed_registry_policy_lifecycle as registry_supp
 from infinity_context_server import (
     memory_comparison_managed_mem0_v5_composition as composition_subject,
 )
+from infinity_context_server import (
+    memory_comparison_managed_v5_live_preparation as preparation_subject,
+)
 from infinity_context_server import memory_comparison_managed_v5_production_runner as runner_subject
 from infinity_context_server.memory_comparison_bounded_httpx_transport import (
     BoundedHttpResponse,
@@ -374,6 +377,7 @@ def _receipt_authorities(cases, current_date, request, template):
 def _infinity_handler(authority, events: list[str]):
     units = iter(authority.units)
     facts: dict[str, object] = {}
+    delete_counts: dict[str, int] = {}
 
     def handle(request: httpx.Request) -> httpx.Response:
         events.append(request.url.path)
@@ -455,8 +459,9 @@ def _infinity_handler(authority, events: list[str]):
                 "status": "deleted",
             }
             if request.method == "DELETE":
+                delete_counts[fact_id] = delete_counts.get(fact_id, 0) + 1
                 data["indexing_status"] = (
-                    "pending" if events.count(request.url.path) == 1 else "already_deleted"
+                    "pending" if delete_counts[fact_id] == 1 else "already_deleted"
                 )
             return httpx.Response(200, json={"data": data})
         if request.url.path == "/v1/context/benchmark-search":
@@ -561,10 +566,7 @@ def _fixture(monkeypatch: pytest.MonkeyPatch, tmp_path):
         receipt_authority=observed,
         transport=mem0_transport,
     )
-    prep_state = __import__(
-        "infinity_context_server.memory_comparison_managed_v5_live_preparation",
-        fromlist=["_STATES"],
-    )._STATES[preparation]
+    prep_state = preparation_subject._STATES[preparation]
     journal_values = _journal_inputs(
         tmp_path,
         values={

@@ -286,6 +286,49 @@ def test_second_mem0_record_mismatch_dispatches_zero(monkeypatch: pytest.MonkeyP
     assert calls == {"dispatch": 0, "coverage": 0}
 
 
+def test_non_json_ingest_record_fails_closed(monkeypatch: pytest.MonkeyPatch) -> None:
+    binding, cases, ports, calls = _hollow_components(monkeypatch)
+    record = dict(cases[0].record)
+    record["non_json"] = {"value"}
+    target = next(
+        item.target_identity_sha256
+        for item in binding.backend_targets
+        if item.backend_role == "infinity-context"
+    )
+
+    with pytest.raises(
+        ManagedV5CutoverProductionPortError,
+        match="managed_v5_cutover_ingest_binding_invalid",
+    ):
+        ports.ingest.ingest(
+            run_id=binding.run_id,
+            backend_role="infinity-context",
+            target_identity_sha256=target,
+            record=record,
+        )
+
+    assert calls == {"dispatch": 0, "coverage": 0}
+
+
+def test_non_json_duplicate_corpus_fails_closed_during_composition() -> None:
+    binding = _binding()
+    first = _cases()[0]
+    duplicate = ManagedRunCase("case-duplicate", first.corpus_id, dict(first.record))
+    object.__setattr__(duplicate, "record", {"non_json": {"value"}})
+
+    with pytest.raises(
+        ManagedV5CutoverProductionPortError,
+        match="managed_v5_cutover_cases_invalid",
+    ):
+        create_managed_v5_cutover_lifecycle_ports(
+            composition_binding=binding,
+            cases=(first, duplicate),
+            infinity_lifecycle=object(),  # type: ignore[arg-type]
+            mem0_lifecycle=object(),  # type: ignore[arg-type]
+            paired_runtime_bundle=object(),  # type: ignore[arg-type]
+        )
+
+
 def test_final_record_dispatches_once_and_ambiguous_path_never_redispatches(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
