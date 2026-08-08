@@ -10,9 +10,6 @@ from typing import final
 
 import httpx
 
-from infinity_context_server.memory_comparison_benchmark_identity import (
-    mem0_benchmark_corpus_user_id,
-)
 from infinity_context_server.memory_comparison_full_run_evidence import (
     FullComparisonRunBindings,
 )
@@ -28,10 +25,6 @@ from infinity_context_server.memory_comparison_managed_http_exact_cleanup import
 )
 from infinity_context_server.memory_comparison_managed_http_execution import (
     ManagedInfinityHttpConfig,
-    ManagedMem0HttpConfig,
-)
-from infinity_context_server.memory_comparison_managed_http_lifecycle import (
-    consume_managed_http_ingest_receipts,
 )
 from infinity_context_server.memory_comparison_managed_http_policy_material_projection import (
     ManagedHttpPolicyExactCorpusBindings,
@@ -43,7 +36,6 @@ from infinity_context_server.memory_comparison_managed_http_policy_material_proj
     project_infinity_cleanup_commitments,
     project_mem0_cleanup_commitments,
     project_validation_material,
-    validate_ingest_evidence,
 )
 from infinity_context_server.memory_comparison_managed_http_policy_receipts import (
     ManagedHttpPolicyCanonicalReceiptState,
@@ -69,9 +61,7 @@ from infinity_context_server.memory_comparison_managed_http_policy_support impor
     ManagedHttpPolicyLifecycleError,
     _attestation,
     _aware,
-    _DeadlineTransport,
     _digest,
-    _object_response,
     _receipt,
 )
 from infinity_context_server.memory_comparison_managed_http_policy_validation import (
@@ -80,21 +70,39 @@ from infinity_context_server.memory_comparison_managed_http_policy_validation im
     VerifiedManagedHttpPolicyValidation,
     seal_managed_http_policy_validation,
 )
-from infinity_context_server.memory_comparison_managed_ingest_manifest import (
-    parse_managed_ingest_identity_manifests,
+from infinity_context_server.memory_comparison_managed_infinity_http_execution import (
+    ManagedInfinityHttpRuntimeConfig,
 )
-from infinity_context_server.memory_comparison_managed_preflight import (
-    ManagedPreflightRequest,
+from infinity_context_server.memory_comparison_managed_infinity_http_lifecycle import (
+    ManagedInfinityHttpLifecycleAdapter,
+)
+from infinity_context_server.memory_comparison_managed_mem0_v5_production_lifecycle import (
+    ManagedMem0V5ProductionLifecycleAdapter,
+)
+from infinity_context_server.memory_comparison_managed_mem0_v5_production_ports import (
+    ManagedV5CutoverIngestPort,
 )
 from infinity_context_server.memory_comparison_managed_run_contract import (
     ManagedRunCase,
 )
+from infinity_context_server.memory_comparison_managed_runner_binding import (
+    ManagedRunnerCompositionBinding,
+)
+from infinity_context_server.memory_comparison_managed_v5_ingest_identity_projector import (
+    project_managed_infinity_v5_ingest_identities,
+)
 
-MANAGED_HTTP_POLICY_ADAPTER_ID = "managed-comparison-http-policy-fail-closed-v1"
+MANAGED_V5_POLICY_ADAPTER_ID = "managed-infinity-v5-policy-fail-closed-v1"
+_RETRYABLE_DELETE_FAILURE_CODES = frozenset(
+    {
+        "managed_http_policy_infinity_context_delete_failed",
+        "managed_v5_policy_mem0_cleanup_failed",
+    }
+)
 
 
 @final
-class ManagedComparisonHttpPolicyLifecycleAdapter:
+class ManagedInfinityV5PolicyLifecycleAdapter:
     """Own transport, evidence sequencing, and one-shot aggregate issuance."""
 
     def __init__(
@@ -102,12 +110,14 @@ class ManagedComparisonHttpPolicyLifecycleAdapter:
         *,
         bindings: FullComparisonRunBindings,
         cases: tuple[ManagedRunCase, ...],
-        preflight_request: ManagedPreflightRequest,
-        credential_material: object,
+        composition_binding: ManagedRunnerCompositionBinding,
+        infinity_lifecycle: ManagedInfinityHttpLifecycleAdapter,
+        mem0_lifecycle: ManagedMem0V5ProductionLifecycleAdapter,
+        ingest_port: ManagedV5CutoverIngestPort,
+        infinity_config: ManagedInfinityHttpRuntimeConfig,
         deadline: datetime,
         infinity_derived_transport_factory: Callable[[], httpx.BaseTransport] | None = None,
         infinity_cleanup_transport_factory: Callable[[], httpx.BaseTransport] | None = None,
-        mem0_delete_transport_factory: Callable[[], httpx.BaseTransport] | None = None,
         clock: Callable[[], datetime] = lambda: datetime.now(UTC),
     ) -> None:
         if type(bindings) is not FullComparisonRunBindings:
@@ -118,12 +128,9 @@ class ManagedComparisonHttpPolicyLifecycleAdapter:
             or any(type(case) is not ManagedRunCase for case in cases)
         ):
             raise ManagedHttpPolicyLifecycleError("managed_http_policy_cases_invalid")
-        if type(preflight_request) is not ManagedPreflightRequest:
-            raise ManagedHttpPolicyLifecycleError("managed_http_policy_preflight_request_invalid")
         transport_factories = {
             "infinity-derived": infinity_derived_transport_factory,
             "infinity-cleanup": infinity_cleanup_transport_factory,
-            "mem0-delete": mem0_delete_transport_factory,
         }
         if any(
             factory is not None and not callable(factory)
@@ -135,51 +142,48 @@ class ManagedComparisonHttpPolicyLifecycleAdapter:
         checked_deadline = _aware(deadline, "managed_http_policy_deadline_invalid")
         if _aware(clock(), "managed_http_policy_clock_invalid") >= checked_deadline:
             raise ManagedHttpPolicyLifecycleError("managed_http_policy_deadline_expired")
-        try:
-            from infinity_context_server import (
-                memory_comparison_managed_runtime_credentials_capability as credential_capability,
-            )
-
-            if (
-                type(credential_material)
-                is not credential_capability.ManagedBackendCredentialMaterial
-            ):
-                raise ManagedHttpPolicyLifecycleError(
-                    "managed_http_policy_credential_material_invalid"
-                )
-            infinity, mem0 = credential_material.consume_for_http_policy(
-                expected_request=preflight_request,
-                run_id=bindings.run_id,
-                deadline=checked_deadline,
-            )
-        except ManagedHttpPolicyLifecycleError:
-            raise
-        except BaseException:
-            raise ManagedHttpPolicyLifecycleError(
-                "managed_http_policy_credential_continuity_failed"
-            ) from None
         if (
-            type(infinity) is not ManagedInfinityHttpConfig
-            or type(mem0) is not ManagedMem0HttpConfig
-            or infinity.transport is not None
-            or mem0.transport is not None
+            type(composition_binding) is not ManagedRunnerCompositionBinding
+            or type(infinity_lifecycle) is not ManagedInfinityHttpLifecycleAdapter
+            or infinity_lifecycle.composition_binding is not composition_binding
+            or type(mem0_lifecycle) is not ManagedMem0V5ProductionLifecycleAdapter
+            or mem0_lifecycle.composition_binding is not composition_binding
+            or type(ingest_port) is not ManagedV5CutoverIngestPort
+            or ingest_port.composition_binding is not composition_binding
+            or type(infinity_config) is not ManagedInfinityHttpRuntimeConfig
+            or infinity_config.transport is not None
+            or bindings.run_id != composition_binding.run_id
         ):
-            raise ManagedHttpPolicyLifecycleError("managed_http_policy_credential_material_invalid")
+            raise ManagedHttpPolicyLifecycleError("managed_v5_policy_composition_invalid")
         targets = {
             item.backend_role: item.target_identity_sha256 for item in bindings.backend_targets
         }
-        if targets != {
-            "infinity-context": infinity.target_identity_sha256,
-            "mem0": mem0.target_identity_sha256,
-        }:
+        if (
+            targets
+            != {
+                item.backend_role: item.target_identity_sha256
+                for item in composition_binding.backend_targets
+            }
+            or targets.get("infinity-context") != infinity_config.target_identity_sha256
+            or "mem0" not in targets
+        ):
             raise ManagedHttpPolicyLifecycleError("managed_http_policy_target_binding_invalid")
+        infinity = ManagedInfinityHttpConfig(
+            target_identity_sha256=infinity_config.target_identity_sha256,
+            base_url=infinity_config.base_url,
+            auth_token=infinity_config.auth_token,
+            timeout_seconds=infinity_config.timeout_seconds,
+        )
         self._bindings = bindings
         self._binding_snapshot = binding_snapshot(bindings)
         self._cases = cases
-        self._preflight_request = preflight_request
+        self._composition_binding = composition_binding
+        self._infinity_lifecycle = infinity_lifecycle
+        self._mem0_lifecycle = mem0_lifecycle
+        self._ingest_port = ingest_port
         self._deadline = checked_deadline
         self._infinity = infinity
-        self._mem0 = mem0
+        self._mem0_target = targets["mem0"]
         self._transport_factories = transport_factories
         self._owned_transports: list[httpx.BaseTransport] = []
         self._clock = clock
@@ -200,17 +204,18 @@ class ManagedComparisonHttpPolicyLifecycleAdapter:
         self._registry_evidence = ManagedHttpPolicyRegistryEvidenceBinding()
         self._registry_delegate_capability_issued = False
         self._phase = "open"
+        self._closed = False
         self._next_delete = 0
         self._delete_in_flight: tuple[str, str, int] | None = None
         self._lock = threading.RLock()
 
     @property
     def adapter_id(self) -> str:
-        return MANAGED_HTTP_POLICY_ADAPTER_ID
+        return MANAGED_V5_POLICY_ADAPTER_ID
 
     @property
     def implementation_sha256(self) -> str:
-        return managed_http_policy_lifecycle_implementation_sha256()
+        return managed_v5_policy_lifecycle_implementation_sha256()
 
     @property
     def exact_projection_evidence(self) -> ManagedHttpPolicyExactProjectionEvidence:
@@ -237,7 +242,7 @@ class ManagedComparisonHttpPolicyLifecycleAdapter:
                 memory_comparison_managed_policy_delegate_capability as delegate_capability,
             )
 
-            return delegate_capability._issue_legacy_managed_policy_delegate_capability(
+            return delegate_capability._issue_managed_v5_policy_delegate_capability(
                 delegate=self,
                 bindings=self._bindings,
                 cases=self._cases,
@@ -291,19 +296,35 @@ class ManagedComparisonHttpPolicyLifecycleAdapter:
             self._phase = "consuming-ingest-evidence"
         cleanup_ready = False
         try:
-            views = consume_managed_http_ingest_receipts(
-                ingest_receipts,
-                run_id=bindings.run_id,
-                binding_commitment_sha256=bindings.binding_commitment_sha256,
-                backend_targets=bindings.backend_targets,
-                cases=cases,
+            corpora = tuple(
+                case
+                for index, case in enumerate(cases)
+                if case.corpus_id not in {prior.corpus_id for prior in cases[:index]}
             )
-            validate_ingest_evidence(views)
-            bundles = parse_managed_ingest_identity_manifests(views)
+            if type(ingest_receipts) is not tuple or len(ingest_receipts) != 2 * len(corpora):
+                raise ManagedHttpPolicyLifecycleError(
+                    "managed_v5_policy_ingest_receipt_coverage_invalid"
+                )
+            infinity_receipts = ingest_receipts[: len(corpora)]
+            pending_receipts = ingest_receipts[len(corpora) :]
+            infinity_evidence = self._infinity_lifecycle.consume_exact_ingest_receipts(
+                receipts=infinity_receipts,
+                cases=corpora,
+            )
+            mem0_receipts = self._ingest_port.consume_exact_mem0_receipts(pending_receipts)
+            mem0_projection = self._mem0_lifecycle.consume_exact_receipts_for_projection(
+                mem0_receipts
+            )
+            bundles = project_managed_infinity_v5_ingest_identities(
+                composition_binding=self._composition_binding,
+                cases=cases,
+                infinity_evidence=infinity_evidence,
+                mem0_projection=mem0_projection,
+            )
             evidence = self._registry_evidence.observe_corpora(
                 bundles=bundles,
                 infinity_target_identity_sha256=self._infinity.target_identity_sha256,
-                mem0_target_identity_sha256=self._mem0.target_identity_sha256,
+                mem0_target_identity_sha256=self._mem0_target,
                 observe_presence=self._derived_evidence.observe_presence,
             )
             self._bind_cleanup_evidence(evidence, execution_manifest)
@@ -382,31 +403,31 @@ class ManagedComparisonHttpPolicyLifecycleAdapter:
                 raise ManagedHttpPolicyLifecycleError("managed_http_policy_delete_order_invalid")
             self._delete_in_flight = operation
 
-        client = None
         receipt = None
         failure: ManagedHttpPolicyLifecycleError | None = None
-        try:
-            if backend_role == "infinity-context":
-                state = self._delete_infinity(target_identity_sha256, pass_index)
-            else:
-                client = self._client(backend_role)
-                state = self._delete_mem0(client, target_identity_sha256, pass_index)
-            receipt = self._issue_delete_receipt(state)
-        except ManagedHttpPolicyLifecycleError as exc:
-            failure = exc
-        except BaseException:
-            failure = ManagedHttpPolicyLifecycleError(
-                f"managed_http_policy_{backend_role.replace('-', '_')}_delete_failed"
-            )
-        finally:
-            if client is not None:
-                try:
-                    client.close()
-                except BaseException:
-                    if failure is None:
-                        failure = ManagedHttpPolicyLifecycleError(
-                            f"managed_http_policy_{backend_role.replace('-', '_')}_delete_failed"
-                        )
+        for attempt in range(2):
+            try:
+                if backend_role == "infinity-context":
+                    state = self._delete_infinity(target_identity_sha256, pass_index)
+                else:
+                    state = self._delete_mem0_v5(target_identity_sha256, pass_index)
+                receipt = self._issue_delete_receipt(state)
+                failure = None
+                break
+            except ManagedHttpPolicyLifecycleError as exc:
+                current = exc
+            except BaseException:
+                current = ManagedHttpPolicyLifecycleError(
+                    f"managed_http_policy_{backend_role.replace('-', '_')}_delete_failed"
+                )
+            if failure is None:
+                failure = current
+            if attempt != 0 or not _retryable_delete_failure(current):
+                break
+            try:
+                self._ensure_deadline()
+            except ManagedHttpPolicyLifecycleError:
+                break
 
         with self._lock:
             if self._delete_in_flight != operation:
@@ -414,8 +435,11 @@ class ManagedComparisonHttpPolicyLifecycleAdapter:
                 self._phase = "terminal"
                 raise ManagedHttpPolicyLifecycleError("managed_http_policy_delete_state_invalid")
             self._delete_in_flight = None
-            self._next_delete += 1
-            self._phase = "terminal-cleanup"
+            if failure is None:
+                self._next_delete += 1
+                self._phase = "terminal-cleanup"
+            else:
+                self._phase = "cleanup-only"
         if failure is not None:
             raise failure from None
         return receipt
@@ -680,44 +704,33 @@ class ManagedComparisonHttpPolicyLifecycleAdapter:
             "live",
         )
 
-    def _delete_mem0(
-        self,
-        client: httpx.Client,
-        target: str,
-        pass_index: int,
-    ) -> ManagedHttpPolicyDeleteReceiptState:
+    def _delete_mem0_v5(self, target: str, pass_index: int) -> ManagedHttpPolicyDeleteReceiptState:
         if not self._corpora:
             raise ManagedHttpPolicyLifecycleError(
                 "managed_http_policy_exact_cleanup_state_unavailable"
             )
-        acknowledgements: list[dict[str, object]] = []
-        for corpus in self._corpora:
-            user_id = mem0_benchmark_corpus_user_id(
-                self._bindings.run_id,
-                corpus.bundle.corpus_id,
+        try:
+            result = (
+                self._mem0_lifecycle.cleanup_pass_one()
+                if pass_index == 1
+                else self._mem0_lifecycle.cleanup_pass_two()
             )
-            response = client.delete(
-                "/memories",
-                params={"user_id": user_id, "run_id": self._bindings.run_id},
+            payload = result.public_payload()
+            verified = (
+                payload.get("residual_record_count") == 0
+                and isinstance(payload.get("residual_root_sha256"), str)
+                and (pass_index != 1 or payload.get("terminal_state") == "deleted")
             )
-            payload = _object_response(response, "managed_http_policy_mem0_delete_ack_invalid")
-            if set(payload) != {"deleted", "verified_absent"} or any(
-                payload.get(key) is not True for key in ("deleted", "verified_absent")
-            ):
-                raise ManagedHttpPolicyLifecycleError("managed_http_policy_mem0_delete_ack_invalid")
-            acknowledgements.append(
-                {
-                    "corpus_id": corpus.bundle.corpus_id,
-                    "user_id_sha256": hashlib.sha256(user_id.encode()).hexdigest(),
-                    "ack": payload,
-                }
-            )
+        except Exception:
+            raise ManagedHttpPolicyLifecycleError("managed_v5_policy_mem0_cleanup_failed") from None
+        if not verified:
+            raise ManagedHttpPolicyLifecycleError("managed_v5_policy_mem0_cleanup_invalid")
         commitments = project_mem0_cleanup_commitments(
             tuple(corpus.bundle for corpus in self._corpora),
             run_id=self._bindings.run_id,
             target_identity_sha256=target,
             pass_index=pass_index,
-            acknowledgement={"scopes": tuple(acknowledgements)},
+            acknowledgement={"managed_v5_cleanup": payload},
         )
         return ManagedHttpPolicyDeleteReceiptState(
             self,
@@ -737,30 +750,6 @@ class ManagedComparisonHttpPolicyLifecycleAdapter:
             commitments.corpus_absence_commitments,
             commitments.exact_absence_commitment_sha256,
             "live",
-        )
-
-    def _client(self, role: str) -> httpx.Client:
-        self._ensure_deadline()
-        config = self._infinity if role == "infinity-context" else self._mem0
-        headers = (
-            {"Authorization": f"Bearer {config.auth_token}"}
-            if type(config) is ManagedInfinityHttpConfig
-            else (
-                {"X-API-Key": config.api_key or config.ingress_api_key}
-                if config.api_key or config.ingress_api_key
-                else None
-            )
-        )
-        return httpx.Client(
-            base_url=config.base_url.rstrip("/"),
-            headers=headers,
-            timeout=float(config.timeout_seconds),
-            transport=_DeadlineTransport(
-                self._new_transport("mem0-delete"),
-                configured_timeout=float(config.timeout_seconds),
-                deadline=self._deadline,
-                clock=self._clock,
-            ),
         )
 
     def _bind_attestation(
@@ -856,6 +845,9 @@ class ManagedComparisonHttpPolicyLifecycleAdapter:
             raise ManagedHttpPolicyLifecycleError(str(exc)) from None
 
     def _new_transport(self, role: str) -> httpx.BaseTransport:
+        with self._lock:
+            if self._closed:
+                raise ManagedHttpPolicyLifecycleError("managed_v5_policy_closed")
         factory = self._transport_factories[role]
         try:
             transport = (
@@ -874,6 +866,24 @@ class ManagedComparisonHttpPolicyLifecycleAdapter:
                 )
             self._owned_transports.append(transport)
         return transport
+
+    def close(self) -> None:
+        """Release owned Infinity clients only; backend cleanup remains explicit."""
+
+        with self._lock:
+            if self._closed:
+                return
+            self._closed = True
+            transports = tuple(reversed(self._owned_transports))
+            self._owned_transports.clear()
+        failed = False
+        for transport in transports:
+            try:
+                transport.close()
+            except BaseException:
+                failed = True
+        if failed:
+            raise ManagedHttpPolicyLifecycleError("managed_v5_policy_close_failed")
 
     def _validate_call(
         self,
@@ -922,18 +932,28 @@ def managed_http_policy_production_blockers(
     return ()
 
 
-def managed_http_policy_lifecycle_implementation_sha256() -> str:
-    return lifecycle_implementation_sha256()
+def managed_v5_policy_lifecycle_implementation_sha256() -> str:
+    return hashlib.sha256(
+        (
+            "managed-infinity-v5-policy-v1\0"
+            + lifecycle_implementation_sha256()
+            + "\0exact-owner-bound-ingest\0split-v5-cleanup"
+        ).encode()
+    ).hexdigest()
+
+
+def _retryable_delete_failure(error: ManagedHttpPolicyLifecycleError) -> bool:
+    return error.code in _RETRYABLE_DELETE_FAILURE_CODES
 
 
 __all__ = (
-    "MANAGED_HTTP_POLICY_ADAPTER_ID",
-    "ManagedComparisonHttpPolicyLifecycleAdapter",
+    "MANAGED_V5_POLICY_ADAPTER_ID",
+    "ManagedInfinityV5PolicyLifecycleAdapter",
     "ManagedHttpPolicyExactProjectionEvidence",
     "ManagedHttpPolicyCanonicalSourceReceipt",
     "ManagedHttpPolicyDeleteReceipt",
     "ManagedHttpPolicyLifecycleError",
     "ManagedHttpPolicyTerminalDeleteReceipt",
     "managed_http_policy_production_blockers",
-    "managed_http_policy_lifecycle_implementation_sha256",
+    "managed_v5_policy_lifecycle_implementation_sha256",
 )

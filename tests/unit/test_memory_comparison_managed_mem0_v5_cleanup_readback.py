@@ -5,6 +5,9 @@ from concurrent.futures import ThreadPoolExecutor
 from dataclasses import replace
 
 import pytest
+from infinity_context_server import (
+    memory_comparison_managed_mem0_v5_cleanup_readback as subject,
+)
 from infinity_context_server.memory_comparison_managed_mem0_v5_cleanup_readback import (
     ManagedMem0V5CleanupPassTwoAdapter,
 )
@@ -138,7 +141,7 @@ def test_pass_two_performs_fresh_bound_call_and_issues_exact_witness() -> None:
     assert cleanup.calls == [request]
 
 
-def test_pass_two_io_failure_is_one_shot() -> None:
+def test_pass_two_io_failure_retains_exact_retry_authority() -> None:
     request = _request()
     terminal = _terminal(request)
     cleanup = _TransientCleanup(_receipt(request))
@@ -146,10 +149,39 @@ def test_pass_two_io_failure_is_one_shot() -> None:
 
     with pytest.raises(ManagedRunError, match="call failed"):
         adapter.readback(pass_index=2, request=request, terminal=terminal)
+    witness = adapter.readback(pass_index=2, request=request, terminal=terminal)
+
+    assert witness.terminal_commitment_sha256 == terminal.commitment_sha256
+    assert cleanup.calls == [request, request]
     with pytest.raises(ManagedRunError, match="replayed"):
         adapter.readback(pass_index=2, request=request, terminal=terminal)
 
-    assert cleanup.calls == [request]
+
+def test_witness_construction_failure_clears_in_flight_and_retries(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    request = _request()
+    terminal = _terminal(request)
+    cleanup = _Cleanup(_receipt(request))
+    adapter = _adapter(cleanup)
+    original = subject.ManagedMem0V5CleanupReadbackWitness
+    attempts = 0
+
+    def flaky_witness(**values: object) -> object:
+        nonlocal attempts
+        attempts += 1
+        if attempts == 1:
+            raise ValueError("constructor fault")
+        return original(**values)
+
+    monkeypatch.setattr(subject, "ManagedMem0V5CleanupReadbackWitness", flaky_witness)
+
+    with pytest.raises(ManagedRunError, match="witness construction failed"):
+        adapter.readback(pass_index=2, request=request, terminal=terminal)
+    witness = adapter.readback(pass_index=2, request=request, terminal=terminal)
+
+    assert witness.terminal_commitment_sha256 == terminal.commitment_sha256
+    assert cleanup.calls == [request, request]
 
 
 def test_invalid_authority_does_not_consume_and_corrected_request_succeeds() -> None:

@@ -280,8 +280,9 @@ def _run_verified_managed_production_execution(
             deadline=material.limits.deadline,
             clock=clock_port.now,
         )
+        delegate_capability = policy.issue_registry_delegate_capability()
         registry_policy = ManagedComparisonRegistryPolicyLifecycleAdapter(
-            delegate=policy,
+            delegate_capability=delegate_capability,
             registry=registry,
             bindings=bindings,
             cases=plan.cases,

@@ -119,6 +119,37 @@ class ManagedCorpusIngestIdentity:
                 raise ManagedIngestManifestParseError("managed_ingest_target_invalid")
 
 
+@final
+@dataclass(frozen=True, slots=True)
+class ManagedInfinityIngestIdentity:
+    """Pure parsed Infinity identity lanes, before pairing with Mem0 v5."""
+
+    corpus_id: str
+    manifest: HttpIngestIdentityManifest
+    scope: ManagedCanonicalProjectionScope
+    canonical_episode_ids: tuple[str, ...] | None
+
+
+def parse_managed_infinity_ingest_result(
+    result: BackendIngestResult,
+    *,
+    corpus_id: str,
+) -> ManagedInfinityIngestIdentity:
+    """Parse an authenticated Infinity result without a legacy mixed view."""
+
+    manifest = _manifest_result(
+        result,
+        corpus_id=corpus_id,
+        expected_backend="infinity",
+    )
+    return ManagedInfinityIngestIdentity(
+        corpus_id,
+        manifest,
+        _scope(manifest),
+        _canonical_episode_ids_result(result),
+    )
+
+
 def parse_managed_ingest_identity_manifests(
     views: tuple[ManagedHttpIngestEvidenceView, ...],
 ) -> tuple[ManagedCorpusIngestIdentity, ...]:
@@ -217,7 +248,13 @@ def parse_managed_ingest_identity_manifests(
 def _canonical_episode_ids(
     view: ManagedHttpIngestEvidenceView,
 ) -> tuple[str, ...] | None:
-    metadata = view.ingest_result.metadata
+    return _canonical_episode_ids_result(view.ingest_result)
+
+
+def _canonical_episode_ids_result(
+    result: BackendIngestResult,
+) -> tuple[str, ...] | None:
+    metadata = result.metadata
     if "canonical_episode_ids" not in metadata:
         return None
     raw = metadata["canonical_episode_ids"]
@@ -241,10 +278,22 @@ def _manifest(
     *,
     expected_backend: str,
 ) -> HttpIngestIdentityManifest:
-    result = view.ingest_result
+    return _manifest_result(
+        view.ingest_result,
+        corpus_id=view.corpus_id,
+        expected_backend=expected_backend,
+    )
+
+
+def _manifest_result(
+    result: BackendIngestResult,
+    *,
+    corpus_id: str,
+    expected_backend: str,
+) -> HttpIngestIdentityManifest:
     if type(result) is not BackendIngestResult or not isinstance(result.metadata, Mapping):
         raise ManagedIngestManifestParseError("managed_ingest_result_invalid")
-    if result.metadata.get("corpus_key") != view.corpus_id:
+    if result.metadata.get("corpus_key") != corpus_id:
         raise ManagedIngestManifestParseError("managed_ingest_cross_corpus_mismatch")
     raw = result.metadata.get("ingest_identity_manifest")
     manifest_map = _exact_mapping(raw, _MANIFEST_KEYS, "managed_ingest_manifest_shape_invalid")
@@ -482,6 +531,8 @@ def _digest(value: object, code: str) -> None:
 
 __all__ = [
     "ManagedCorpusIngestIdentity",
+    "ManagedInfinityIngestIdentity",
     "ManagedIngestManifestParseError",
+    "parse_managed_infinity_ingest_result",
     "parse_managed_ingest_identity_manifests",
 ]

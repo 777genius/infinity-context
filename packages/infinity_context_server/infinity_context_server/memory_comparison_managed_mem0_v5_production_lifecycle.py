@@ -11,6 +11,13 @@ import weakref
 from dataclasses import dataclass, replace
 from typing import NoReturn, final
 
+from infinity_context_server.memory_comparison_full_execution_validation import (
+    VerifiedFullExecutionValidation,
+)
+from infinity_context_server.memory_comparison_full_execution_validation_slots import (
+    FullExecutionCaseManifestEntry,
+    FullExecutionProviderCall,
+)
 from infinity_context_server.memory_comparison_full_run_evidence import FullComparisonRunBindings
 from infinity_context_server.memory_comparison_managed_mem0_v5_cleanup_readback import (
     ManagedMem0V5CleanupReadbackWitness,
@@ -47,13 +54,29 @@ from infinity_context_server.memory_comparison_managed_run_contract import Manag
 from infinity_context_server.memory_comparison_managed_runner_binding import (
     ManagedRunnerCompositionBinding,
 )
-from infinity_context_server.memory_comparison_mem0_oss_v5_contracts import canonical_sha256
+from infinity_context_server.memory_comparison_mem0_oss_v5_contracts import (
+    CleanupVerificationContext,
+    Mem0OssFullRunAdmission,
+    canonical_sha256,
+    is_sha256,
+)
 from infinity_context_server.memory_comparison_mem0_oss_v5_evidence import (
     Mem0OssRunSeal,
     Mem0OssTerminalCleanupEvidence,
 )
+from infinity_context_server.memory_comparison_mem0_oss_v5_http import Mem0V5CleanupRequest
 from infinity_context_server.memory_comparison_mem0_oss_v5_observed_receipt import (
     Mem0V5ObservedExtractionReceiptAuthority,
+)
+from infinity_context_server.memory_comparison_mem0_oss_v5_terminal import (
+    cleanup_request_commitment,
+)
+from infinity_context_server.memory_comparison_provider_provenance import (
+    ProviderRouteAttestation,
+)
+from infinity_context_server.memory_comparison_session_identity_contract import (
+    RunScopedSessionHmacKey,
+    SessionIdentityEvidence,
 )
 from infinity_context_server.resumable_operation_journal.domain import (
     OperationManifest,
@@ -90,6 +113,44 @@ class ManagedMem0V5IngestSnapshot:
     snapshot_commitment_sha256: str
 
 
+@final
+@dataclass(frozen=True, slots=True)
+class ManagedMem0V5IngestProjection:
+    """Authenticated exact evidence retained for the pure cutover projector."""
+
+    snapshot: ManagedMem0V5IngestSnapshot
+    evidence: tuple[ManagedMem0V5CorpusIngestEvidence, ...]
+    admission_commitment_sha256: str
+
+    def __post_init__(self) -> None:
+        expected = (
+            _ingest_snapshot(self.evidence)
+            if type(self.evidence) is tuple and self.evidence
+            else None
+        )
+        if (
+            type(self.snapshot) is not ManagedMem0V5IngestSnapshot
+            or type(self.evidence) is not tuple
+            or len(self.evidence) != self.snapshot.receipt_count
+            or any(type(item) is not ManagedMem0V5CorpusIngestEvidence for item in self.evidence)
+            or tuple(item.evidence_commitment_sha256 for item in self.evidence)
+            != self.snapshot.ordered_evidence_commitment_sha256
+            or expected != self.snapshot
+            or any(
+                item.target_identity_sha256
+                != canonical_sha256(
+                    {
+                        "admission_commitment_sha256": self.admission_commitment_sha256,
+                        "corpus_id": item.corpus_id,
+                    }
+                )
+                for item in self.evidence
+            )
+            or not is_sha256(self.admission_commitment_sha256)
+        ):
+            _fail("receipt_projection_invalid")
+
+
 @dataclass(frozen=True, slots=True)
 class _LifecycleState:
     descriptor: ManagedMem0V5ProductionAuthorityDescriptor
@@ -105,6 +166,8 @@ class _LifecycleState:
     phase: str
     receipts: tuple[ManagedMem0V5CorpusIngestReceipt, ...]
     snapshot: ManagedMem0V5IngestSnapshot | None
+    cleanup_terminal: Mem0OssTerminalCleanupEvidence | None
+    cleanup_request: Mem0V5CleanupRequest | None
     integrity_mac: bytes
 
 
@@ -206,6 +269,8 @@ class ManagedMem0V5ProductionLifecycleAdapter:
             receipt_authority,
             "new",
             (),
+            None,
+            None,
             None,
             b"",
         )
@@ -345,6 +410,13 @@ class ManagedMem0V5ProductionLifecycleAdapter:
     def consume_exact_receipts(
         self, receipts: tuple[ManagedMem0V5CorpusIngestReceipt, ...]
     ) -> ManagedMem0V5IngestSnapshot:
+        return self.consume_exact_receipts_for_projection(receipts).snapshot
+
+    def consume_exact_receipts_for_projection(
+        self, receipts: tuple[ManagedMem0V5CorpusIngestReceipt, ...]
+    ) -> ManagedMem0V5IngestProjection:
+        """Consume once and retain only authenticated redacted identity evidence."""
+
         with _instance_lock(self):
             state = _require_phase(self, {"receipts"}, "receipt_consume_invalid")
             if receipts != state.receipts:
@@ -355,6 +427,19 @@ class ManagedMem0V5ProductionLifecycleAdapter:
                     receipts=receipts,
                 )
                 snapshot = _ingest_snapshot(evidence)
+                admission = Mem0OssFullRunAdmission(
+                    request=state.composition.request,
+                    ingestion_manifest_sha256=(
+                        state.composition.authority.ingestion_manifest_sha256
+                    ),
+                    ingestion_root_sha256=(state.composition.authority.ingestion_root_sha256),
+                    ingestion_unit_count=state.composition.authority.operation_count,
+                )
+                projection = ManagedMem0V5IngestProjection(
+                    snapshot,
+                    evidence,
+                    admission.commitment_sha256,
+                )
                 _commit_operation_evidence(state, evidence)
                 state.journal.seal(state.journal_identity.run_id)
                 accepted = state.lifecycle.consume_corpus_receipts(receipts)
@@ -370,6 +455,27 @@ class ManagedMem0V5ProductionLifecycleAdapter:
                 self,
                 replace(state, phase="ready", snapshot=snapshot, integrity_mac=b""),
             )
+            return projection
+
+    def authenticate_exact_receipts(
+        self, receipts: tuple[ManagedMem0V5CorpusIngestReceipt, ...]
+    ) -> ManagedMem0V5IngestSnapshot:
+        """Authenticate this lifecycle's exact ordered receipts without consuming them."""
+
+        with _instance_lock(self):
+            state = _require_phase(self, {"receipts"}, "receipt_authenticate_invalid")
+            if receipts != state.receipts:
+                _fail("receipt_authenticate_invalid")
+            try:
+                evidence = state.lifecycle._authenticate_corpus_receipts_for_production(
+                    composition_binding=state.binding,
+                    receipts=receipts,
+                )
+                snapshot = _ingest_snapshot(evidence)
+            except ManagedMem0V5ProductionLifecycleError:
+                raise
+            except Exception:
+                _fail("receipt_authenticate_failed")
             return snapshot
 
     def consume_ready_execution_evidence(
@@ -393,6 +499,44 @@ class ManagedMem0V5ProductionLifecycleAdapter:
                 _fail("execution_evidence_failed")
             _store(self, replace(state, phase="evidence", integrity_mac=b""))
 
+    def seal_execution_validation(
+        self,
+        *,
+        composition_binding: ManagedRunnerCompositionBinding,
+        bindings: FullComparisonRunBindings,
+        benchmark: str,
+        case_manifest: tuple[FullExecutionCaseManifestEntry, ...],
+        required_model: str,
+        required_route: ProviderRouteAttestation,
+        provider_calls: tuple[FullExecutionProviderCall, ...],
+        session_verifier: RunScopedSessionHmacKey,
+        session_evidence: tuple[SessionIdentityEvidence, ...],
+    ) -> VerifiedFullExecutionValidation:
+        """Seal only after this facade admitted, dispatched and consumed evidence."""
+
+        with _instance_lock(self):
+            state = _require_phase(self, {"evidence"}, "execution_validation_invalid")
+            if composition_binding is not state.binding or state.snapshot is None:
+                _fail("execution_validation_invalid")
+            try:
+                result = state.evidence.seal_execution_validation(
+                    composition_binding=composition_binding,
+                    bindings=bindings,
+                    benchmark=benchmark,
+                    case_manifest=case_manifest,
+                    required_model=required_model,
+                    required_route=required_route,
+                    provider_calls=provider_calls,
+                    session_verifier=session_verifier,
+                    session_evidence=session_evidence,
+                )
+            except Exception:
+                _fail("execution_validation_failed")
+            if type(result) is not VerifiedFullExecutionValidation:
+                _fail("execution_validation_result_invalid")
+            _store(self, replace(state, phase="validated", integrity_mac=b""))
+            return result
+
     def terminalize(
         self, *, pass_two_request: object | None = None
     ) -> Mem0OssTerminalCleanupEvidence | ManagedMem0V5CleanupReadbackWitness:
@@ -410,6 +554,7 @@ class ManagedMem0V5ProductionLifecycleAdapter:
                     "receipts",
                     "ready",
                     "evidence",
+                    "validated",
                 },
                 "terminalize_invalid",
             )
@@ -432,6 +577,126 @@ class ManagedMem0V5ProductionLifecycleAdapter:
             _store(self, replace(state, phase="terminal", integrity_mac=b""))
             return result
 
+    def cleanup_pass_one(self) -> Mem0OssTerminalCleanupEvidence:
+        """Run exact completed-flow deletion once, retaining pass-two authority."""
+
+        lock = _instance_lock(self)
+        with lock:
+            state = _require_phase(
+                self,
+                {"ready", "evidence", "validated", "cleanup_retry"},
+                "cleanup_pass_one_invalid",
+            )
+            before = _validated_cleanup_journal_snapshot(state)
+            _store(
+                self,
+                replace(state, phase="cleanup_pass_one_inflight", integrity_mac=b""),
+            )
+        try:
+            terminal = state.lifecycle.cleanup_pass1()
+            if type(terminal) is not Mem0OssTerminalCleanupEvidence:
+                _fail("cleanup_pass_one_result_invalid")
+            terminal.__post_init__()
+            request = _cleanup_pass_two_request(terminal)
+            after = _validated_cleanup_journal_snapshot(state)
+            if after != before:
+                _fail("cleanup_pass_one_journal_changed")
+        except ManagedMem0V5ProductionLifecycleError:
+            with lock:
+                current = _state(self)
+                if current.phase == "cleanup_pass_one_inflight":
+                    _store(
+                        self,
+                        replace(
+                            current,
+                            phase="cleanup_integrity_failed",
+                            integrity_mac=b"",
+                        ),
+                    )
+            raise
+        except Exception:
+            with lock:
+                current = _state(self)
+                if current.phase == "cleanup_pass_one_inflight":
+                    _store(
+                        self,
+                        replace(current, phase="cleanup_retry", integrity_mac=b""),
+                    )
+            _fail("cleanup_pass_one_failed")
+        with lock:
+            current = _require_phase(
+                self,
+                {"cleanup_pass_one_inflight"},
+                "cleanup_pass_one_concurrent",
+            )
+            _store(
+                self,
+                replace(
+                    current,
+                    phase="cleanup_pass_one",
+                    cleanup_terminal=terminal,
+                    cleanup_request=request,
+                    integrity_mac=b"",
+                ),
+            )
+        return terminal
+
+    def cleanup_pass_two(self) -> ManagedMem0V5CleanupReadbackWitness:
+        """Run exact readback using only the pass-one-derived immutable request."""
+
+        lock = _instance_lock(self)
+        with lock:
+            state = _require_phase(
+                self,
+                {"cleanup_pass_one", "cleanup_pass_two_retry"},
+                "cleanup_pass_two_invalid",
+            )
+            if state.cleanup_terminal is None or state.cleanup_request is None:
+                _fail("cleanup_pass_two_authority_invalid")
+            before = _validated_cleanup_journal_snapshot(state)
+            _store(
+                self,
+                replace(state, phase="cleanup_pass_two_inflight", integrity_mac=b""),
+            )
+        try:
+            witness = state.lifecycle.cleanup_pass2(request=state.cleanup_request)
+            if type(witness) is not ManagedMem0V5CleanupReadbackWitness:
+                _fail("cleanup_pass_two_result_invalid")
+            witness.public_payload()
+            after = _validated_cleanup_journal_snapshot(state)
+            if after != before:
+                _fail("cleanup_pass_two_journal_changed")
+        except ManagedMem0V5ProductionLifecycleError:
+            with lock:
+                current = _state(self)
+                if current.phase == "cleanup_pass_two_inflight":
+                    _store(
+                        self,
+                        replace(
+                            current,
+                            phase="cleanup_integrity_failed",
+                            integrity_mac=b"",
+                        ),
+                    )
+            raise
+        except Exception:
+            with lock:
+                current = _state(self)
+                if current.phase == "cleanup_pass_two_inflight":
+                    _store(
+                        self,
+                        replace(current, phase="cleanup_pass_two_retry", integrity_mac=b""),
+                    )
+            _fail("cleanup_pass_two_failed")
+        with lock:
+            current = _require_phase(
+                self,
+                {"cleanup_pass_two_inflight"},
+                "cleanup_pass_two_concurrent",
+            )
+            _store(self, replace(current, phase="terminal", integrity_mac=b""))
+        return witness
+
     def __repr__(self) -> str:
         return "ManagedMem0V5ProductionLifecycleAdapter(<redacted>)"
 
@@ -446,7 +711,7 @@ def _validated_terminal_journal_snapshot(state: _LifecycleState) -> object:
         _fail("terminalize_journal_invalid")
     if snapshot.run.phase is OperationRunPhase.SEALED:
         valid = (
-            state.phase in {"sealed", "ready", "evidence"}
+            state.phase in {"sealed", "ready", "evidence", "validated"}
             and snapshot.pending_count == 0
             and snapshot.dispatched_count == 0
             and snapshot.committed_count == expected
@@ -472,6 +737,41 @@ def _validated_terminal_journal_snapshot(state: _LifecycleState) -> object:
     if not valid:
         _fail("terminalize_journal_invalid")
     return snapshot
+
+
+def _validated_cleanup_journal_snapshot(state: _LifecycleState) -> object:
+    snapshot = state.journal.snapshot(state.journal_identity.run_id)
+    if (
+        snapshot.run.phase is not OperationRunPhase.SEALED
+        or snapshot.outcome_unknown_count
+        or snapshot.pending_count
+        or snapshot.dispatched_count
+        or snapshot.committed_count != state.journal_identity.expected_operation_count
+    ):
+        _fail("cleanup_journal_invalid")
+    return snapshot
+
+
+def _cleanup_pass_two_request(
+    terminal: Mem0OssTerminalCleanupEvidence,
+) -> Mem0V5CleanupRequest:
+    context = CleanupVerificationContext(
+        terminal.admission_commitment_sha256,
+        terminal.seal_commitment_sha256,
+        terminal.operation_root_sha256,
+        terminal.operation_inventory_root_sha256,
+        terminal.deleted_operation_count,
+        False,
+    )
+    return Mem0V5CleanupRequest(
+        context.admission_commitment_sha256,
+        context.seal_commitment_sha256,
+        context.operation_root_sha256,
+        context.operation_inventory_root_sha256,
+        context.expected_operation_count,
+        context.aborting,
+        canonical_sha256({"kind": "cleanup", "binding": cleanup_request_commitment(context)}),
+    )
 
 
 def _ingest_snapshot(
@@ -624,6 +924,12 @@ def _state_mac(adapter: ManagedMem0V5ProductionLifecycleAdapter, state: _Lifecyc
             "snapshot": None
             if state.snapshot is None
             else state.snapshot.snapshot_commitment_sha256,
+            "cleanup_terminal": None
+            if state.cleanup_terminal is None
+            else state.cleanup_terminal.commitment_sha256,
+            "cleanup_request_identity": None
+            if state.cleanup_request is None
+            else id(state.cleanup_request),
         },
         sort_keys=True,
         separators=(",", ":"),
@@ -641,6 +947,7 @@ _STATES = weakref.WeakKeyDictionary()
 _INSTANCE_LOCKS = weakref.WeakKeyDictionary()
 
 __all__ = (
+    "ManagedMem0V5IngestProjection",
     "ManagedMem0V5IngestSnapshot",
     "ManagedMem0V5ProductionLifecycleAdapter",
     "ManagedMem0V5ProductionLifecycleError",

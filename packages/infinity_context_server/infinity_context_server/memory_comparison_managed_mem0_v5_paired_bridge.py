@@ -136,6 +136,7 @@ class ManagedMem0V5PairedRun:
         "_clean_state_snapshot",
         "_clean_state_verifier",
         "_cleanup_readback_consumed",
+        "_cleanup_readback_in_flight",
         "_coordinator",
         "_corpus_projector",
         "_durable_clean_state",
@@ -208,6 +209,7 @@ class ManagedMem0V5PairedRun:
         self._terminal: Mem0OssTerminalCleanupEvidence | None = None
         self._transport_coverage_consumed = False
         self._cleanup_readback_consumed = False
+        self._cleanup_readback_in_flight = False
         self._ready_evidence_consumed = False
         _register_paired_run_binding(self)
 
@@ -508,6 +510,8 @@ class ManagedMem0V5PairedRun:
                 raise ManagedRunError("managed Mem0 v5 cleanup readback requires deleted terminal")
             if self._cleanup_readback_consumed:
                 raise ManagedRunError("managed Mem0 v5 cleanup readback is already consumed")
+            if self._cleanup_readback_in_flight:
+                raise ManagedRunError("managed Mem0 v5 cleanup readback is in progress")
             if pass_index != 2:
                 raise ManagedRunError("managed Mem0 v5 cleanup readback pass differs")
             readback = getattr(capability, "readback", None)
@@ -517,14 +521,24 @@ class ManagedMem0V5PairedRun:
                 request=request,
                 terminal=terminal,
             )
-            self._cleanup_readback_consumed = True
+            self._cleanup_readback_in_flight = True
+        try:
             witness = readback(pass_index=pass_index, request=request, terminal=terminal)
             if type(witness) is not ManagedMem0V5CleanupReadbackWitness:
                 raise ManagedRunError("managed Mem0 v5 cleanup readback witness differs")
             witness.public_payload()
             if witness.terminal_commitment_sha256 != terminal.commitment_sha256:
                 raise ManagedRunError("managed Mem0 v5 cleanup readback terminal differs")
-            return witness
+        except BaseException:
+            with self._lock:
+                self._cleanup_readback_in_flight = False
+            raise
+        with self._lock:
+            if not self._cleanup_readback_in_flight or self._cleanup_readback_consumed:
+                raise ManagedRunError("managed Mem0 v5 cleanup readback state differs")
+            self._cleanup_readback_in_flight = False
+            self._cleanup_readback_consumed = True
+        return witness
 
     def retry_abort(self) -> Mem0OssTerminalCleanupEvidence:
         """Retry only terminal abort cleanup; never re-admit or redispatch."""

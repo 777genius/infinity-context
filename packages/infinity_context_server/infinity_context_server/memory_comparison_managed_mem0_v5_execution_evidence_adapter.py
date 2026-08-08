@@ -34,6 +34,11 @@ from infinity_context_server.memory_comparison_full_run_evidence import (
     FullComparisonRunBindings,
     validate_full_comparison_run_bindings,
 )
+from infinity_context_server.memory_comparison_managed_infinity_clean_state_source import (
+    ManagedInfinityCleanStateEvidenceSource,
+    authenticate_managed_infinity_clean_state_evidence_source,
+    consume_managed_infinity_clean_state_evidence_source,
+)
 from infinity_context_server.memory_comparison_managed_mem0_v5_lifecycle_adapter import (
     ManagedMem0V5LifecycleAdapter,
 )
@@ -61,8 +66,10 @@ class ManagedMem0V5ExecutionEvidenceAdapterError(RuntimeError):
 class _AdapterState:
     binding: ManagedRunnerCompositionBinding
     lifecycle: ManagedMem0V5LifecycleAdapter
+    infinity_source: ManagedInfinityCleanStateEvidenceSource
+    infinity_source_implementation_sha256: str
     infinity_clean_state_evidence: FullExecutionCleanStateEvidence | None
-    infinity_descriptor: FullExecutionCleanStateEvidenceDescriptor
+    infinity_descriptor: FullExecutionCleanStateEvidenceDescriptor | None
     phase: str
     case_snapshot: tuple[tuple[str, str], ...]
     transport_evidence: FullExecutionTransportEvidence | None
@@ -88,20 +95,18 @@ class ManagedMem0V5ExecutionEvidenceAdapter:
         *,
         composition_binding: ManagedRunnerCompositionBinding,
         lifecycle: ManagedMem0V5LifecycleAdapter,
-        infinity_clean_state_evidence: FullExecutionCleanStateEvidence,
+        infinity_clean_state_source: ManagedInfinityCleanStateEvidenceSource,
     ) -> None:
         try:
-            descriptor = inspect_full_execution_clean_state_evidence(infinity_clean_state_evidence)
+            source_implementation = authenticate_managed_infinity_clean_state_evidence_source(
+                infinity_clean_state_source,
+                composition_binding=composition_binding,
+            )
             valid = (
                 type(composition_binding) is ManagedRunnerCompositionBinding
                 and type(lifecycle) is ManagedMem0V5LifecycleAdapter
                 and lifecycle.composition_binding is composition_binding
-                and descriptor.variant == "infinity_di"
-                and descriptor.backend_roles == ("infinity-context",)
-                and descriptor.run_id_sha256 == _run_sha256(composition_binding.run_id)
-                and descriptor.admission_commitment_sha256 is None
-                and descriptor.authority_commitment_sha256 is None
-                and bool(descriptor.corpus_scopes)
+                and type(infinity_clean_state_source) is ManagedInfinityCleanStateEvidenceSource
             )
         except Exception:
             valid = False
@@ -114,8 +119,10 @@ class ManagedMem0V5ExecutionEvidenceAdapter:
             _AdapterState(
                 composition_binding,
                 lifecycle,
-                infinity_clean_state_evidence,
-                descriptor,
+                infinity_clean_state_source,
+                source_implementation,
+                None,
+                None,
                 "new",
                 (),
                 None,
@@ -141,13 +148,6 @@ class ManagedMem0V5ExecutionEvidenceAdapter:
         snapshot, corpus_ids = _validate_cases(cases)
         if state.phase != "new":
             self._fail("state_invalid")
-        if not _infinity_matches(
-            state.infinity_clean_state_evidence,
-            state.infinity_descriptor,
-            state.binding,
-            corpus_ids,
-        ):
-            self._fail("cases_invalid")
         try:
             lifecycle_corpus_ids = state.lifecycle._validate_execution_cases_for_adapter(
                 composition_binding=state.binding,
@@ -159,6 +159,20 @@ class ManagedMem0V5ExecutionEvidenceAdapter:
             self._fail("cases_invalid")
         state = _begin(self, state, expected="new", phase="consuming")
         try:
+            infinity = consume_managed_infinity_clean_state_evidence_source(
+                state.infinity_source,
+                composition_binding=state.binding,
+                corpus_ids=corpus_ids,
+                producer_implementation_sha256=(state.infinity_source_implementation_sha256),
+            )
+            infinity_descriptor = inspect_full_execution_clean_state_evidence(infinity)
+            if not _infinity_matches(
+                infinity,
+                infinity_descriptor,
+                state.binding,
+                corpus_ids,
+            ):
+                raise TypeError
             handoff = state.lifecycle._consume_ready_execution_material_for_adapter(
                 composition_binding=state.binding,
                 cases=cases,
@@ -188,6 +202,8 @@ class ManagedMem0V5ExecutionEvidenceAdapter:
             state,
             phase="ready",
             case_snapshot=snapshot,
+            infinity_clean_state_evidence=infinity,
+            infinity_descriptor=infinity_descriptor,
             transport_evidence=transport,
             transport_descriptor=transport_descriptor,
             mem0_evidence=mem0,
@@ -300,7 +316,7 @@ def _validate_cases(
 
 def _infinity_matches(
     evidence: object,
-    snapshot: FullExecutionCleanStateEvidenceDescriptor,
+    snapshot: FullExecutionCleanStateEvidenceDescriptor | None,
     binding: ManagedRunnerCompositionBinding,
     corpus_ids: tuple[str, ...],
 ) -> bool:
@@ -379,6 +395,8 @@ def _transition(
     *,
     phase: str,
     case_snapshot: tuple[tuple[str, str], ...] | None = None,
+    infinity_clean_state_evidence: FullExecutionCleanStateEvidence | None = None,
+    infinity_descriptor: FullExecutionCleanStateEvidenceDescriptor | None = None,
     transport_evidence: FullExecutionTransportEvidence | None = None,
     transport_descriptor: FullExecutionTransportEvidenceDescriptor | None = None,
     mem0_evidence: FullExecutionCleanStateEvidence | None = None,
@@ -396,7 +414,18 @@ def _transition(
                 phase=phase,
                 case_snapshot=(current.case_snapshot if case_snapshot is None else case_snapshot),
                 infinity_clean_state_evidence=(
-                    None if clear else current.infinity_clean_state_evidence
+                    None
+                    if clear
+                    else current.infinity_clean_state_evidence
+                    if infinity_clean_state_evidence is None
+                    else infinity_clean_state_evidence
+                ),
+                infinity_descriptor=(
+                    None
+                    if clear
+                    else current.infinity_descriptor
+                    if infinity_descriptor is None
+                    else infinity_descriptor
                 ),
                 transport_evidence=(
                     None
@@ -451,6 +480,7 @@ def _state_locked(adapter: ManagedMem0V5ExecutionEvidenceAdapter) -> _AdapterSta
             )
             and type(state.lifecycle) is ManagedMem0V5LifecycleAdapter
             and state.lifecycle.composition_binding is state.binding
+            and type(state.infinity_source) is ManagedInfinityCleanStateEvidenceSource
         )
     except Exception:
         valid = False
@@ -480,10 +510,14 @@ def _mac(adapter: ManagedMem0V5ExecutionEvidenceAdapter, state: _AdapterState) -
         "adapter_identity": id(adapter),
         "binding_identity": id(state.binding),
         "lifecycle_identity": id(state.lifecycle),
+        "infinity_source_identity": id(state.infinity_source),
+        "infinity_source_implementation": state.infinity_source_implementation_sha256,
         "infinity_identity": None
         if state.infinity_clean_state_evidence is None
         else id(state.infinity_clean_state_evidence),
-        "infinity_commitment": state.infinity_descriptor.evidence_commitment_sha256,
+        "infinity_commitment": None
+        if state.infinity_descriptor is None
+        else state.infinity_descriptor.evidence_commitment_sha256,
         "phase": state.phase,
         "case_snapshot": state.case_snapshot,
         "transport_identity": None
