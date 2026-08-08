@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import hashlib
+import json
 import threading
 import weakref
 from dataclasses import dataclass
@@ -36,6 +37,28 @@ from infinity_context_server.memory_comparison_mem0_oss_v5_contracts import (
     Mem0OssFullRunAdmission,
     canonical_sha256,
 )
+from infinity_context_server.memory_comparison_retrieval_policy import (
+    NEUTRAL_COMPARISON_RETRIEVAL_POLICY,
+)
+
+_ADAPTER_ID = "managed-mem0-v5.paired-retrieval.v1"
+
+
+def _semantic_implementation_sha256() -> str:
+    material = {
+        "adapter_id": _ADAPTER_ID,
+        "answer_cutoff_source": "managed_runner_composition_binding",
+        "authority_source": "sealed_managed_mem0_v5_paired_run",
+        "retries": 0,
+        "retrieval_policy": NEUTRAL_COMPARISON_RETRIEVAL_POLICY.policy_id,
+        "retrieval_top_k_source": "managed_runner_composition_binding",
+    }
+    return hashlib.sha256(
+        json.dumps(material, allow_nan=False, sort_keys=True, separators=(",", ":")).encode()
+    ).hexdigest()
+
+
+_IMPLEMENTATION_SHA256 = _semantic_implementation_sha256()
 
 
 class ManagedMem0V5RetrievalAdapterError(RuntimeError):
@@ -105,6 +128,16 @@ class ManagedMem0V5RetrievalAdapter:
     def composition_binding(self) -> ManagedRunnerCompositionBinding:
         return _state(self).binding
 
+    @property
+    def adapter_id(self) -> str:
+        _state(self)
+        return _ADAPTER_ID
+
+    @property
+    def implementation_sha256(self) -> str:
+        _state(self)
+        return _IMPLEMENTATION_SHA256
+
     def authority_for(
         self, *, backend_role: str, target_identity_sha256: str
     ) -> ManagedRetrievalAuthority:
@@ -155,7 +188,8 @@ class ManagedMem0V5RetrievalAdapter:
                 evidence=evidence,
                 retrieval_identity=identity,
                 metadata={
-                    "adapter_id": "managed-mem0-v5.paired-retrieval.v1",
+                    "adapter_id": _ADAPTER_ID,
+                    "implementation_sha256": _IMPLEMENTATION_SHA256,
                     "run_id_sha256": hashlib.sha256(state.binding.run_id.encode()).hexdigest(),
                     "backend_role": "mem0",
                     "target_identity_sha256": state.mem0_target_identity_sha256,
@@ -167,6 +201,9 @@ class ManagedMem0V5RetrievalAdapter:
                     "ingestion_manifest_sha256": state.authority.ingestion_manifest_sha256,
                     "retrieval_top_k": state.binding.retrieval_top_k,
                     "answer_cutoff": state.binding.answer_cutoff,
+                    "retrieval_policy": NEUTRAL_COMPARISON_RETRIEVAL_POLICY.telemetry(),
+                    "gold_fields_forwarded": False,
+                    "retries": 0,
                 },
             )
         except ManagedMem0V5RetrievalAdapterError:
@@ -236,10 +273,15 @@ def _state(value: object) -> _AdapterState:
     return state
 
 
+def managed_mem0_v5_retrieval_implementation_sha256() -> str:
+    return _IMPLEMENTATION_SHA256
+
+
 _STATES = weakref.WeakKeyDictionary()
 
 
 __all__ = (
     "ManagedMem0V5RetrievalAdapter",
     "ManagedMem0V5RetrievalAdapterError",
+    "managed_mem0_v5_retrieval_implementation_sha256",
 )
