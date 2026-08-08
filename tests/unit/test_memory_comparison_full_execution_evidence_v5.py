@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import hashlib
+import itertools
 import json
 import secrets
 from concurrent.futures import ThreadPoolExecutor
@@ -9,11 +10,9 @@ import pytest
 from infinity_context_server.memory_comparison_clean_state import (
     clean_state_identity_sha256,
     fresh_namespace_clean_state_proof,
-    mem0_delete_clean_state_proof,
-    validate_typed_clean_state_proofs,
 )
 from infinity_context_server.memory_comparison_full_execution_evidence_variants import (
-    issue_legacy_full_execution_clean_state_evidence,
+    issue_infinity_di_full_execution_clean_state_evidence,
     issue_managed_mem0_v5_full_execution_clean_state_evidence,
     issue_managed_mem0_v5_full_execution_transport_evidence,
 )
@@ -68,8 +67,17 @@ def _sha(value: str) -> str:
     return hashlib.sha256(value.encode()).hexdigest()
 
 
-def _managed_inputs() -> tuple[dict[str, object], object, object]:
-    authority, coordinator, paired = _paired_run()
+_MANAGED_INPUT_SEQUENCE = itertools.count()
+
+
+def _managed_inputs(
+    *, identity_seed: str | None = None, corpus_seed: str | None = None
+) -> tuple[dict[str, object], object, object]:
+    seed = identity_seed or f"managed-input-{next(_MANAGED_INPUT_SEQUENCE)}"
+    authority, coordinator, paired = _paired_run(
+        identity_seed=seed,
+        corpus_seed=corpus_seed,
+    )
     clean_witness = paired.admit()
     admission, observations, capability = _transport_coverage_for(authority, coordinator.request)
     _set_storage_operation(authority, coordinator, observations[0].operation_id_sha256)
@@ -80,23 +88,23 @@ def _managed_inputs() -> tuple[dict[str, object], object, object]:
     assert profile is not None
     bindings = create_full_comparison_run_bindings(
         run_id=coordinator.request.run_id,
-        run_nonce_commitment_sha256=_sha("nonce"),
-        runtime_probe_nonce_sha256=_sha("probe"),
+        run_nonce_commitment_sha256=_sha(f"nonce:{seed}"),
+        runtime_probe_nonce_sha256=_sha(f"probe:{seed}"),
         profile=profile,
         methodology=full_comparison_methodology_contract(profile),
         dataset_sha256=profile.expected_dataset_hash,
-        selection_fingerprint_sha256=_sha("selection"),
+        selection_fingerprint_sha256=_sha(f"selection:{seed}"),
         backend_targets=(
-            FullComparisonBackendTarget("infinity-context", _sha("infinity-target")),
-            FullComparisonBackendTarget("mem0", _sha("mem0-target")),
+            FullComparisonBackendTarget("infinity-context", _sha(f"infinity-target:{seed}")),
+            FullComparisonBackendTarget("mem0", _sha(f"mem0-target:{seed}")),
         ),
     )
     corpus_id = authority.units[0].corpus_id
     manifest = (
         FullExecutionCaseManifestEntry(
-            "case-1",
+            f"case-{_sha(seed)[:16]}",
             corpus_id,
-            "thread-1",
+            f"thread-{_sha(f'thread:{seed}')[:16]}",
             ("memory", "query"),
             ("session-0001", "session-0002"),
             authority.operation_count,
@@ -147,50 +155,26 @@ def _managed_inputs() -> tuple[dict[str, object], object, object]:
 
     clean_key = secrets.token_bytes(32)
     legacy_corpus = clean_state_identity_sha256(corpus_id)
-    infinity_scope = clean_state_identity_sha256("fresh-infinity-scope")
-    legacy_mem0_scope = clean_state_identity_sha256("legacy-mem0-scope")
-    legacy_scopes = (
-        FullExecutionCleanScope("infinity-context", legacy_corpus, infinity_scope),
-        FullExecutionCleanScope("mem0", legacy_corpus, legacy_mem0_scope),
+    infinity_slug = f"fresh-infinity-scope-{_sha(seed)[:16]}"
+    infinity_scope = clean_state_identity_sha256(infinity_slug)
+    infinity_scopes = (FullExecutionCleanScope("infinity-context", legacy_corpus, infinity_scope),)
+    infinity_proofs = (
+        fresh_namespace_clean_state_proof(
+            backend="infinity-context",
+            run_id=bindings.run_id,
+            expected_slug=infinity_slug,
+            corpus_identity_sha256=legacy_corpus,
+            expected_scope_count=1,
+            status_code=201,
+            payload={"data": {"slug": infinity_slug}},
+            attestation_key=clean_key,
+        ),
     )
-    legacy_validation = validate_typed_clean_state_proofs(
-        {
-            "infinity-context": (
-                fresh_namespace_clean_state_proof(
-                    backend="infinity-context",
-                    run_id=bindings.run_id,
-                    expected_slug="fresh-infinity-scope",
-                    corpus_identity_sha256=legacy_corpus,
-                    expected_scope_count=1,
-                    status_code=201,
-                    payload={"data": {"slug": "fresh-infinity-scope"}},
-                    attestation_key=clean_key,
-                ),
-            ),
-            "mem0": (
-                mem0_delete_clean_state_proof(
-                    run_id=bindings.run_id,
-                    scope_identity="legacy-mem0-scope",
-                    corpus_identity_sha256=legacy_corpus,
-                    expected_scope_count=1,
-                    status_code=200,
-                    payload={"deleted": True, "verified_absent": True},
-                    attestation_key=clean_key,
-                ),
-            ),
-        },
-        expected_run_id_sha256=clean_state_identity_sha256(bindings.run_id),
-        expected_scopes_by_backend={
-            "infinity-context": {legacy_corpus: infinity_scope},
-            "mem0": {legacy_corpus: legacy_mem0_scope},
-        },
+    infinity_claim = issue_infinity_di_full_execution_clean_state_evidence(
+        corpus_ids=(corpus_id,),
+        proofs=infinity_proofs,
+        scopes=infinity_scopes,
         attestation_key=clean_key,
-    )
-    infinity_claim = issue_legacy_full_execution_clean_state_evidence(
-        validation=legacy_validation,
-        scopes=legacy_scopes,
-        attestation_key=clean_key,
-        backend_roles=("infinity-context",),
     )
     mem0_claim = issue_managed_mem0_v5_full_execution_clean_state_evidence(
         backend_role="mem0",
@@ -244,6 +228,23 @@ def test_real_paired_v5_evidence_issues_seals_reports_and_consumes() -> None:
     assert "validation_commitment_sha256" not in managed_claim
     assert "legacy_v1" not in json.dumps(report, sort_keys=True)
     assert consume_full_execution_validation(proof, **_identity(values)) == report
+
+
+def test_two_distinct_runs_may_reuse_the_same_canonical_corpus() -> None:
+    first, _witness, _verifier = _managed_inputs(
+        identity_seed="same-corpus-run-1",
+        corpus_seed="shared-corpus",
+    )
+    second, _witness, _verifier = _managed_inputs(
+        identity_seed="same-corpus-run-2",
+        corpus_seed="shared-corpus",
+    )
+    assert first["case_manifest"][0].corpus_id == second["case_manifest"][0].corpus_id
+
+    for values in (first, second):
+        session = issue_full_execution_validation_session_from_evidence(**values)
+        proof = seal_full_execution_validation(session)
+        consume_full_execution_validation(proof, **_identity(values))
 
 
 @pytest.mark.parametrize("mode", ("missing", "duplicate"))

@@ -9,7 +9,7 @@ import sqlite3
 import subprocess
 import sys
 import threading
-from dataclasses import dataclass, replace
+from dataclasses import replace
 from pathlib import Path
 from typing import Any
 
@@ -19,6 +19,9 @@ ROOT = Path(__file__).resolve().parents[2]
 PHASE_C_ROOT = ROOT / "benchmarks" / "phase-c-canary"
 sys.path.insert(0, str(PHASE_C_ROOT))
 
+from infinity_context_server.memory_comparison_bounded_httpx_transport import (  # noqa: E402
+    BoundedHttpResponse as _Response,
+)
 from infinity_context_server.memory_comparison_mem0_oss_v5_contracts import (  # noqa: E402
     MEM0_OSS_EMPTY_ROOT_SHA256,
     Mem0OssAdmissionRequest,
@@ -375,12 +378,6 @@ def _abort_cleanup(
         provider_observed_response_tokens=sum(item.response_tokens for item in receipts.values()),
         failed_receipts=tuple(failed),
     )
-
-
-@dataclass
-class _Response:
-    status_code: int
-    content: bytes
 
 
 class _Transport:

@@ -76,13 +76,15 @@ def _sha(value: str) -> str:
     return hashlib.sha256(value.encode()).hexdigest()
 
 
-def _authority() -> ManagedMem0V5ManifestAuthority:
-    corpus_id = f"locomo-corpus-{'a' * 64}"
+def _authority(identity_seed: str | None = None) -> ManagedMem0V5ManifestAuthority:
+    identity = "a" * 64 if identity_seed is None else _sha(identity_seed)
+    thread_identity = "b" * 64 if identity_seed is None else _sha(f"thread:{identity_seed}")
+    corpus_id = f"locomo-corpus-{identity}"
     record = {
         "schema_version": "memory-comparison-managed-corpus.v2",
         "benchmark": "locomo",
         "corpus_id": corpus_id,
-        "thread_id": f"locomo-thread-{'b' * 64}",
+        "thread_id": f"locomo-thread-{thread_identity}",
         "memories": [
             {
                 "kind": "fact",
@@ -99,14 +101,20 @@ def _authority() -> ManagedMem0V5ManifestAuthority:
         "conversations": [],
     }
     return ManagedMem0V5ManifestProjector().project(
-        (ManagedRunCase("case-1", corpus_id, record),),
+        (
+            ManagedRunCase(
+                "case-1" if identity_seed is None else f"case-{identity[:16]}",
+                corpus_id,
+                record,
+            ),
+        ),
         current_date="2026-08-07",
     )
 
 
-def _request(operation_count: int) -> Mem0OssAdmissionRequest:
+def _request(operation_count: int, *, run_id: str = "paired-v5-test") -> Mem0OssAdmissionRequest:
     return Mem0OssAdmissionRequest(
-        run_id="paired-v5-test",
+        run_id=run_id,
         route_sha256=_sha("route"),
         credential_binding_sha256=_sha("credential"),
         model="gpt-5.6-sol",
@@ -454,9 +462,10 @@ class _Coordinator:
         self.cleanup_failures = 0
         self.abort_failures = 0
         self.dispatch_failures = 0
-        self.storage_issuer, self.storage_verifier = (
-            create_managed_mem0_v5_storage_witness_authority()
-        )
+        (
+            self.storage_issuer,
+            self.storage_verifier,
+        ) = create_managed_mem0_v5_storage_witness_authority()
         self.storage_values: tuple[ManagedMem0V5AuthenticatedStorageWitness, ...] = ()
         self.start_gate: threading.Event | None = None
         self.release_gate: threading.Event | None = None
@@ -542,9 +551,16 @@ class _Coordinator:
             assert self.release_gate.wait(timeout=2)
 
 
-def _run():
-    authority = _authority()
-    request = _request(authority.operation_count)
+def _run(*, identity_seed: str | None = None, corpus_seed: str | None = None):
+    authority = _authority(identity_seed if corpus_seed is None else corpus_seed)
+    request = _request(
+        authority.operation_count,
+        run_id=(
+            "paired-v5-test"
+            if identity_seed is None
+            else f"paired-v5-evidence-{_sha(identity_seed)[:24]}"
+        ),
+    )
     coordinator = _Coordinator(authority, request)
     issuer, verifier = create_managed_mem0_v5_clean_state_witness_authority()
     scopes = _expected_clean_scopes(
@@ -625,6 +641,33 @@ def test_run_admits_clean_state_before_dispatch() -> None:
     assert coordinator.dispatch_calls == 0
     run.dispatch()
     assert coordinator.dispatch_calls == 1
+
+
+@pytest.mark.parametrize(
+    "mutate",
+    (
+        lambda run: object.__setattr__(run._request, "route_sha256", _sha("mutated-route")),
+        lambda run: object.__setattr__(
+            run._budget_policy,
+            "maximum_total_call_count",
+            run._budget_policy.maximum_total_call_count + 1,
+        ),
+        lambda run: object.__setattr__(
+            run._corpus_projector,
+            "_admission",
+            _sha("mutated-admission"),
+        ),
+        lambda run: run._projector._sources.clear(),
+    ),
+)
+def test_deep_delegate_mutation_fails_before_admit_io(mutate) -> None:
+    _authority_value, coordinator, run = _run()
+    mutate(run)
+
+    with pytest.raises(ManagedRunError, match="binding differs"):
+        run.admit()
+
+    assert coordinator.admit_calls == 0
 
 
 def test_sealed_run_projects_corpus_storage_evidence() -> None:
@@ -727,9 +770,7 @@ def _set_storage_operation(
 
 def test_transport_coverage_reauthenticates_before_bridge_acceptance() -> None:
     authority, coordinator, run = _run()
-    admission, observations, capability = _transport_coverage_for(
-        authority, coordinator.request
-    )
+    admission, observations, capability = _transport_coverage_for(authority, coordinator.request)
     _set_storage_operation(authority, coordinator, observations[0].operation_id_sha256)
     coverage = capability.consume_complete_transport_coverage(
         expected_admission_commitment_sha256=admission.commitment_sha256,

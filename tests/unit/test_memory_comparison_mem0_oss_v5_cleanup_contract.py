@@ -2,9 +2,11 @@ from __future__ import annotations
 
 import hashlib
 import json
-from types import SimpleNamespace
 
 import pytest
+from infinity_context_server.memory_comparison_bounded_httpx_transport import (
+    BoundedHttpResponse,
+)
 from infinity_context_server.memory_comparison_mem0_oss_v5_http import (
     Mem0V5CleanupRequest,
     Mem0V5HttpError,
@@ -33,7 +35,7 @@ class _Transport:
         self.payload = payload
 
     def request(self, *_args: object, **_kwargs: object) -> object:
-        return SimpleNamespace(status_code=200, content=json.dumps(self.payload).encode())
+        return BoundedHttpResponse(200, json.dumps(self.payload).encode())
 
 
 def _cleanup_payload(request: Mem0V5CleanupRequest) -> dict[str, object]:

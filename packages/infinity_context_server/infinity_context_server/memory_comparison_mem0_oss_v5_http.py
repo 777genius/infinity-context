@@ -1,17 +1,22 @@
 """Exact sibling HTTP DTOs and Phase-C-backed receipt verification for Mem0 v5."""
 
+# ruff: noqa: E721 - exact DTO and JSON types are security contracts throughout
+
 from __future__ import annotations
 
 import importlib
 import json
+import re
 import threading
 from dataclasses import dataclass
 from typing import Protocol, final
 from urllib.parse import urlsplit
 
-import httpx
-
+from infinity_context_server.memory_comparison_bounded_httpx_transport import (
+    BoundedHttpxTransport,
+)
 from infinity_context_server.memory_comparison_mem0_oss_v5_contracts import (
+    MEM0_OSS_EMPTY_ROOT_SHA256,
     Mem0OssFullRunError,
     Mem0OssReceiptDisposition,
     RuntimeReceiptVerificationContext,
@@ -20,14 +25,19 @@ from infinity_context_server.memory_comparison_mem0_oss_v5_contracts import (
     canonical_sha256,
     is_sha256,
 )
+from infinity_context_server.memory_comparison_secret_validation import (
+    is_bounded_text_secret,
+)
 
 _MAX_RESPONSE_BYTES = 256_000
 _MAX_REQUEST_BYTES = 64_000
+_SAFE_RUNTIME_SOURCE_REVISION = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:-]{0,511}$")
 _PATHS = {
     "admit": "/v5/runs/admit",
     "dispatch": "/v5/operations/dispatch",
     "status": "/v5/operations/status",
     "cleanup": "/v5/runs/cleanup",
+    "clean_state": "/v5/runs/clean-state",
 }
 _SAFE_ERROR_CODES = frozenset(
     {
@@ -50,6 +60,13 @@ class Mem0V5HttpError(RuntimeError):
         super().__init__(safe)
 
 
+class Mem0V5HttpResponsePort(Protocol):
+    @property
+    def status_code(self) -> int: ...
+
+    def read_bounded(self, maximum_bytes: int) -> bytes: ...
+
+
 class Mem0V5TransportPort(Protocol):
     def request(
         self,
@@ -60,7 +77,7 @@ class Mem0V5TransportPort(Protocol):
         content: bytes,
         timeout: float,
         follow_redirects: bool,
-    ) -> object: ...
+    ) -> Mem0V5HttpResponsePort: ...
 
 
 @dataclass(frozen=True, slots=True)
@@ -212,6 +229,128 @@ class Mem0V5CleanupRequest:
 
 
 @dataclass(frozen=True, slots=True)
+class Mem0V5CleanStateScope:
+    corpus_identity_sha256: str
+    scope_identity_sha256: str
+    source_scope_count: int
+    residual_record_count: int
+    residual_root_sha256: str
+
+    def __post_init__(self) -> None:
+        if (
+            not is_sha256(self.corpus_identity_sha256)
+            or not is_sha256(self.scope_identity_sha256)
+            or type(self.source_scope_count) is not int
+            or not 1 <= self.source_scope_count <= 10_000
+            or type(self.residual_record_count) is not int
+            or self.residual_record_count != 0
+            or self.residual_root_sha256 != MEM0_OSS_EMPTY_ROOT_SHA256
+        ):
+            _fail("mem0_v5_http_request_invalid")
+
+    def body(self) -> dict[str, object]:
+        return {
+            "corpus_identity_sha256": self.corpus_identity_sha256,
+            "scope_identity_sha256": self.scope_identity_sha256,
+            "source_scope_count": self.source_scope_count,
+            "residual_record_count": self.residual_record_count,
+            "residual_root_sha256": self.residual_root_sha256,
+        }
+
+
+@dataclass(frozen=True, slots=True)
+class Mem0V5CleanStateRequest:
+    admission_commitment_sha256: str
+    run_id_sha256: str
+    authority_commitment_sha256: str
+    manifest_case_count: int
+    credential_binding_sha256: str
+    runtime_source_revision: str
+    runtime_source_sha256: str
+    runtime_base_sha256: str
+    runtime_binding_commitment_sha256: str
+    scopes: tuple[Mem0V5CleanStateScope, ...]
+    idempotency_key: str
+
+    def __post_init__(self) -> None:
+        if (
+            any(
+                not is_sha256(value)
+                for value in (
+                    self.admission_commitment_sha256,
+                    self.run_id_sha256,
+                    self.authority_commitment_sha256,
+                    self.credential_binding_sha256,
+                    self.runtime_source_sha256,
+                    self.runtime_base_sha256,
+                    self.runtime_binding_commitment_sha256,
+                    self.idempotency_key,
+                )
+            )
+            or type(self.manifest_case_count) is not int
+            or not 1 <= self.manifest_case_count <= 10_000
+            or type(self.runtime_source_revision) is not str
+            or _SAFE_RUNTIME_SOURCE_REVISION.fullmatch(self.runtime_source_revision) is None
+            or type(self.scopes) is not tuple
+            or not self.scopes
+            or len(self.scopes) > 10_000
+            or any(type(item) is not Mem0V5CleanStateScope for item in self.scopes)
+            or len({item.corpus_identity_sha256 for item in self.scopes}) != len(self.scopes)
+        ):
+            _fail("mem0_v5_http_request_invalid")
+
+    def body(self) -> dict[str, object]:
+        return {
+            "schema_version": "mem0-oss-adapter-v5.clean-state-request.v1",
+            "admission_commitment_sha256": self.admission_commitment_sha256,
+            "run_id_sha256": self.run_id_sha256,
+            "authority_commitment_sha256": self.authority_commitment_sha256,
+            "manifest_case_count": self.manifest_case_count,
+            "credential_binding_sha256": self.credential_binding_sha256,
+            "runtime_source_revision": self.runtime_source_revision,
+            "runtime_source_sha256": self.runtime_source_sha256,
+            "runtime_base_sha256": self.runtime_base_sha256,
+            "runtime_binding_commitment_sha256": self.runtime_binding_commitment_sha256,
+            "scopes": [item.body() for item in self.scopes],
+        }
+
+
+@dataclass(frozen=True, slots=True)
+class Mem0V5CleanStateReceipt:
+    payload: dict[str, object]
+
+    def __post_init__(self) -> None:
+        keys = {
+            "schema_version",
+            "admission_commitment_sha256",
+            "run_id_sha256",
+            "authority_commitment_sha256",
+            "ingestion_manifest_sha256",
+            "ingestion_root_sha256",
+            "runtime_binding_commitment_sha256",
+            "request_commitment_sha256",
+            "request_id_sha256",
+            "scope_count",
+            "scope_inventory_root_sha256",
+            "scopes",
+            "evidence_commitment_sha256",
+            "clean_state_hmac_sha256",
+        }
+        if type(self.payload) is not dict or set(self.payload) != keys:
+            _fail("mem0_v5_http_response_invalid")
+        value = self.payload
+        if (
+            value["schema_version"] != "mem0-oss-adapter-v5.clean-state.v1"
+            or any(not is_sha256(value[name]) for name in keys if name.endswith("_sha256"))
+            or type(value["scope_count"]) is not int
+            or type(value["scopes"]) is not list
+            or value["scope_count"] != len(value["scopes"])
+            or not 1 <= value["scope_count"] <= 10_000
+        ):
+            _fail("mem0_v5_http_response_invalid")
+
+
+@dataclass(frozen=True, slots=True)
 class Mem0V5AdmissionReceipt:
     admission_commitment_sha256: str
     runtime_binding_commitment_sha256: str
@@ -250,8 +389,7 @@ class Mem0V5HttpPort:
     ) -> None:
         self._origin = _loopback_origin(origin)
         if (
-            type(bearer_token) is not str
-            or not 32 <= len(bearer_token.encode()) <= 4_096
+            not is_bounded_text_secret(bearer_token)
             or type(timeout_seconds) not in (int, float)
             or isinstance(timeout_seconds, bool)
             or not 0.01 <= float(timeout_seconds) <= 120.0
@@ -314,14 +452,23 @@ class Mem0V5HttpPort:
             _fail("mem0_v5_http_response_invalid")
         return Mem0V5CleanupReceipt(**value)
 
+    def clean_state(self, request: Mem0V5CleanStateRequest) -> Mem0V5CleanStateReceipt:
+        """Post exact pass-one evidence through the hardened v5 transport."""
+
+        if type(request) is not Mem0V5CleanStateRequest:
+            _fail("mem0_v5_http_request_invalid")
+        request.__post_init__()
+        return Mem0V5CleanStateReceipt(
+            self._post("clean_state", request.body(), request.idempotency_key)
+        )
+
     def _post(
         self, endpoint: str, body: dict[str, object], idempotency_key: str
     ) -> dict[str, object]:
+        mem0_v5_canonical_request_size(body)
         encoded = json.dumps(
             body, allow_nan=False, ensure_ascii=True, separators=(",", ":"), sort_keys=True
         ).encode()
-        if len(encoded) > _MAX_REQUEST_BYTES:
-            _fail("mem0_v5_http_request_invalid")
         headers = {
             "Authorization": "Bearer " + self._bearer,
             "Content-Type": "application/json",
@@ -338,9 +485,19 @@ class Mem0V5HttpPort:
                 follow_redirects=False,
             )
             status_code = response.status_code
-            content = bytes(response.content)
+            reader = getattr(response, "read_bounded", None)
+            if type(status_code) is not int or not callable(reader):
+                raise TypeError("invalid bounded response port")
         except Exception:
             raise Mem0V5HttpError("mem0_v5_http_remote_failed") from None
+        try:
+            content = reader(_MAX_RESPONSE_BYTES)
+        except ValueError:
+            raise Mem0V5HttpError("mem0_v5_http_response_invalid") from None
+        except Exception:
+            raise Mem0V5HttpError("mem0_v5_http_remote_failed") from None
+        if type(content) is not bytes:
+            raise Mem0V5HttpError("mem0_v5_http_remote_failed")
         if status_code != 200:
             _fail("mem0_v5_http_remote_failed")
         if not 1 <= len(content) <= _MAX_RESPONSE_BYTES:
@@ -456,8 +613,7 @@ class Mem0V5RuntimeReceiptVerifier(RuntimeReceiptVerificationPort):
         except Exception:
             raise Mem0V5HttpError("mem0_v5_http_configuration_invalid") from None
         if (
-            type(receipt_secret) is not str
-            or not 32 <= len(receipt_secret.encode()) <= 4_096
+            not is_bounded_text_secret(receipt_secret)
             or type(authority) is not Mem0V5ReceiptAuthority
             or authority.runtime_source_sha256 != runtime_binding.runtime_source_sha256
             or authority.route_binding_sha256 != runtime_binding.route_binding_sha256
@@ -581,13 +737,8 @@ class Mem0V5RuntimeReceiptVerifier(RuntimeReceiptVerificationPort):
 
 
 @final
-class _HttpxTransport:
+class _HttpxTransport(BoundedHttpxTransport):
     __slots__ = ()
-
-    def request(self, method: str, url: str, **kwargs: object) -> object:
-        transport = httpx.HTTPTransport(retries=0, trust_env=False)
-        with httpx.Client(transport=transport, follow_redirects=False, trust_env=False) as client:
-            return client.request(method, url, **kwargs)
 
 
 def _runtime_envelope(value: dict[str, object]) -> Mem0V5RuntimeReceiptEnvelope:
@@ -632,6 +783,26 @@ def _loopback_origin(value: object) -> str:
     return value.rstrip("/")
 
 
+def mem0_v5_canonical_request_size(body: object) -> int:
+    """Return exact wire size, enforcing the shared 64KB request ceiling."""
+
+    if type(body) is not dict:
+        _fail("mem0_v5_http_request_invalid")
+    try:
+        encoded = json.dumps(
+            body,
+            allow_nan=False,
+            ensure_ascii=True,
+            separators=(",", ":"),
+            sort_keys=True,
+        ).encode()
+    except (TypeError, ValueError):
+        raise Mem0V5HttpError("mem0_v5_http_request_invalid") from None
+    if len(encoded) > _MAX_REQUEST_BYTES:
+        _fail("mem0_v5_http_request_invalid")
+    return len(encoded)
+
+
 def _fail(code: str) -> None:
     raise Mem0V5HttpError(code)
 
@@ -641,13 +812,18 @@ __all__ = (
     "Mem0V5AdmissionReceipt",
     "Mem0V5CleanupReceipt",
     "Mem0V5CleanupRequest",
+    "Mem0V5CleanStateReceipt",
+    "Mem0V5CleanStateRequest",
+    "Mem0V5CleanStateScope",
     "Mem0V5DispatchRequest",
     "Mem0V5HttpError",
     "Mem0V5HttpPort",
+    "Mem0V5HttpResponsePort",
     "Mem0V5OperationReceiptAuthority",
     "Mem0V5ReceiptAuthority",
     "Mem0V5RuntimeReceiptEnvelope",
     "Mem0V5RuntimeReceiptVerifier",
     "Mem0V5StatusRequest",
     "Mem0V5TransportPort",
+    "mem0_v5_canonical_request_size",
 )

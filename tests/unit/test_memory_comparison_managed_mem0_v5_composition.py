@@ -17,8 +17,15 @@ sys.path.insert(0, str(PHASE_C_ROOT))
 
 import phase_c_canary.runtime_binding as runtime_binding_module
 from infinity_context_server import memory_comparison_managed_mem0_v5_composition as subject
+from infinity_context_server.memory_comparison_bounded_httpx_transport import (
+    BoundedHttpResponse,
+)
 from infinity_context_server.memory_comparison_managed_mem0_v5_checkpoint import (
     ManagedMem0V5RunPhase,
+)
+from infinity_context_server.memory_comparison_managed_mem0_v5_clean_state_http import (
+    ManagedMem0V5HmacDurableCleanStateFactory,
+    ManagedMem0V5HttpCleanStateSnapshotFactory,
 )
 from infinity_context_server.memory_comparison_managed_mem0_v5_credentials import (
     ManagedMem0V5CredentialPaths,
@@ -66,7 +73,7 @@ from test_memory_comparison_managed_mem0_v5_recovery import (
 
 
 def _sha(value: str | bytes) -> str:
-    raw = value if type(value) is bytes else value.encode()
+    raw = value if type(value) is bytes else value.encode()  # noqa: E721
     return hashlib.sha256(raw).hexdigest()
 
 
@@ -80,20 +87,53 @@ class _UnusedReceiptHmacVerifier:
 
 
 class _Transport:
-    def __init__(self) -> None:
+    def __init__(self, evidence_key: bytes, authority: object) -> None:
         self.calls: list[str] = []
+        self.evidence_key = evidence_key
+        self.authority = authority
 
     def request(self, method, url, **kwargs):
         assert method == "POST"
-        assert url.endswith("/v5/runs/admit")
         body = json.loads(kwargs["content"])
         self.calls.append(url)
-        payload = {
-            "admission_commitment_sha256": body["admission_commitment_sha256"],
-            "runtime_binding_commitment_sha256": _sha("runtime-binding"),
-            "accepted": True,
-        }
-        return type("Response", (), {"status_code": 200, "content": json.dumps(payload).encode()})()
+        if url.endswith("/v5/runs/admit"):
+            payload = {
+                "admission_commitment_sha256": body["admission_commitment_sha256"],
+                "runtime_binding_commitment_sha256": _sha("runtime-binding"),
+                "accepted": True,
+            }
+        else:
+            assert url.endswith("/v5/runs/clean-state")
+            base = {
+                "schema_version": "mem0-oss-adapter-v5.clean-state.v1",
+                "admission_commitment_sha256": body["admission_commitment_sha256"],
+                "run_id_sha256": body["run_id_sha256"],
+                "authority_commitment_sha256": body["authority_commitment_sha256"],
+                "ingestion_manifest_sha256": self.authority.ingestion_manifest_sha256,
+                "ingestion_root_sha256": self.authority.ingestion_root_sha256,
+                "runtime_binding_commitment_sha256": _sha("runtime-binding"),
+                "request_commitment_sha256": canonical_sha256(body),
+                "request_id_sha256": kwargs["headers"]["Idempotency-Key"],
+                "scope_count": len(body["scopes"]),
+                "scope_inventory_root_sha256": canonical_sha256({"scopes": body["scopes"]}),
+                "scopes": body["scopes"],
+            }
+            unsigned = {**base, "evidence_commitment_sha256": canonical_sha256(base)}
+            root = hmac.new(
+                self.evidence_key,
+                b"mem0-oss-adapter-v5/evidence-key/v1",
+                hashlib.sha256,
+            ).digest()
+            signing_key = hmac.new(root, b"clean-state/v1", hashlib.sha256).digest()
+            payload = {
+                **unsigned,
+                "clean_state_hmac_sha256": hmac.new(
+                    signing_key,
+                    json.dumps(unsigned, sort_keys=True, separators=(",", ":")).encode(),
+                    hashlib.sha256,
+                ).hexdigest(),
+            }
+        return BoundedHttpResponse(200, json.dumps(payload).encode())
 
 
 def _cases() -> tuple[ManagedRunCase, ...]:
@@ -250,7 +290,7 @@ def _inputs(
         "runtime_receipt_boundary": RuntimeReceiptV2Boundary(_UnusedReceiptHmacVerifier()),
         "trusted_runtime_binding": binding,
         "receipt_authority": receipt_authority,
-        "transport": _Transport(),
+        "transport": _Transport(values["evidence"], authority),
     }, values
 
 
@@ -263,7 +303,7 @@ def _observed_authority(
     current_date = inputs["current_date"]
     request = inputs["request"]
     assert type(cases) is tuple
-    assert type(current_date) is str
+    assert type(current_date) is str  # noqa: E721 - exact fixture contract required
     assert type(request) is Mem0OssAdmissionRequest
     authority = ManagedMem0V5ManifestProjector().project(cases, current_date=current_date)
     admission = Mem0OssFullRunAdmission(
@@ -484,7 +524,7 @@ def test_observed_receipt_union_selects_public_verifier_after_no_secret_prefligh
     class _ObservedVerifier:
         def __init__(self, **kwargs: object) -> None:
             assert kwargs["authority"] is observed
-            assert type(kwargs["receipt_secret"]) is str
+            assert type(kwargs["receipt_secret"]) is str  # noqa: E721
             events.append("verifier")
 
         def mark_outcome_unknown(self, **_kwargs: object) -> None:
@@ -560,12 +600,17 @@ class _Capability:
 
     def consume(self):
         value = self.value
-        self.value = b"" if type(value) is bytes else ""
+        self.value = b"" if type(value) is bytes else ""  # noqa: E721
         return value
+
+    def validate(self) -> None:
+        value = self.value
+        encoded = value if type(value) is bytes else value.encode()  # noqa: E721
+        assert 32 <= len(encoded) <= 4_096
 
     def close(self) -> None:
         self.closed = True
-        self.value = b"" if type(self.value) is bytes else ""
+        self.value = b"" if type(self.value) is bytes else ""  # noqa: E721
 
 
 class _Capabilities:
@@ -659,6 +704,149 @@ def test_fresh_process_composition_rebuilds_equivalent_public_bundle_without_sec
     boundary = inputs["runtime_receipt_boundary"]
     assert type(boundary) is RuntimeReceiptV2Boundary
     assert boundary.hmac_verifier.calls == 0
+
+
+def test_production_clean_state_factories_issue_one_opaque_paired_runtime(
+    tmp_path: Path,
+) -> None:
+    inputs, _values = _inputs(tmp_path)
+    transport = inputs["transport"]
+    composition = subject.compose_managed_mem0_v5(**inputs)
+
+    class Capability:
+        def __init__(self, value: bytes) -> None:
+            self.value = value
+            self.calls = 0
+
+        def validate(self) -> None:
+            assert 32 <= len(self.value) <= 4_096
+
+        def consume(self) -> bytes:
+            self.calls += 1
+            return self.value
+
+    durable = Capability(b"durable-clean-state-key-value!!" * 2)
+    snapshot_factory = ManagedMem0V5HttpCleanStateSnapshotFactory()
+    durable_factory = ManagedMem0V5HmacDurableCleanStateFactory(
+        path=tmp_path / "clean-state.json",
+        hmac_key_capability=durable,
+    )
+    bundle = composition.issue_paired_runtime(
+        budget_policy=ManagedMem0V5BudgetPolicy(5),
+        clean_state_snapshot_factory=snapshot_factory,
+        durable_clean_state_factory=durable_factory,
+    )
+
+    bundle.paired_run.admit()
+    evidence = bundle.issue_ready_clean_state_evidence()
+
+    assert repr(bundle) == "ManagedMem0V5PairedRuntimeBundle(<opaque>)"
+    assert repr(evidence) == "FullExecutionCleanStateEvidence(<opaque>)"
+    assert durable.calls == 1
+    assert type(transport) is _Transport
+    assert sum(path.endswith("/v5/runs/clean-state") for path in transport.calls) == 1
+    with pytest.raises(ManagedRunError, match="paired runtime is already issued"):
+        composition.issue_paired_runtime(
+            budget_policy=ManagedMem0V5BudgetPolicy(5),
+            clean_state_snapshot_factory=snapshot_factory,
+            durable_clean_state_factory=durable_factory,
+        )
+    with pytest.raises(ManagedRunError, match="ready clean-state evidence is unavailable"):
+        bundle.issue_ready_clean_state_evidence()
+    paired_run = bundle.paired_run
+    object.__setattr__(paired_run, "_clean_state_snapshot", object())
+    with pytest.raises(ManagedRunError, match="paired run binding differs"):
+        _ = bundle.paired_run
+
+
+def test_oversized_clean_state_inventory_fails_before_credentials_or_io(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    inputs, _values = _inputs(tmp_path)
+    cases = []
+    for index in range(500):
+        identity = _sha(f"oversized-corpus-{index}")
+        corpus_id = f"locomo-corpus-{identity}"
+        cases.append(
+            ManagedRunCase(
+                f"case-{index:04d}",
+                corpus_id,
+                {
+                    "schema_version": "memory-comparison-managed-corpus.v2",
+                    "benchmark": "locomo",
+                    "corpus_id": corpus_id,
+                    "thread_id": f"locomo-thread-{_sha(f'thread-{index}')}",
+                    "memories": [
+                        {
+                            "kind": "fact",
+                            "role": "user",
+                            "session_alias": "session-0001",
+                            "source_alias": "memory-000001",
+                            "speaker": "Alice",
+                            "session_date": "2024-03-10",
+                            "text": f"Bounded fact {index}.",
+                            "timestamp": 1,
+                        }
+                    ],
+                    "documents": [],
+                    "conversations": [],
+                },
+            )
+        )
+    inputs["cases"] = tuple(cases)
+    request = inputs["request"]
+    assert type(request) is Mem0OssAdmissionRequest
+    request = replace(request, expected_operation_count=500)
+    inputs["request"] = request
+    authority = ManagedMem0V5ManifestProjector().project(
+        tuple(cases),
+        current_date=inputs["current_date"],
+    )
+    admission = Mem0OssFullRunAdmission(
+        request=request,
+        ingestion_manifest_sha256=authority.ingestion_manifest_sha256,
+        ingestion_root_sha256=authority.ingestion_root_sha256,
+        ingestion_unit_count=authority.operation_count,
+    )
+    receipt_authority = inputs["receipt_authority"]
+    assert type(receipt_authority) is Mem0V5ReceiptAuthority
+    inputs["receipt_authority"] = replace(
+        receipt_authority,
+        operations=tuple(
+            Mem0V5OperationReceiptAuthority(
+                operation_id_sha256=canonical_sha256(
+                    {
+                        "admission_commitment_sha256": admission.commitment_sha256,
+                        "unit_index": index,
+                        "unit_identity_sha256": unit.unit_identity_sha256,
+                    }
+                ),
+                sequence=index,
+                thread_id=f"thread-{index}",
+                turn_id=f"turn-{index}",
+                request_body_sha256=_sha(f"request-{index}"),
+                output_text_sha256=_sha(f"output-{index}"),
+            )
+            for index, unit in enumerate(authority.units)
+        ),
+    )
+    credential_loads = 0
+
+    def reject_credential_load(*_args: object, **_kwargs: object) -> object:
+        nonlocal credential_loads
+        credential_loads += 1
+        raise AssertionError("oversized request reached credential loading")
+
+    monkeypatch.setattr(subject, "load_managed_mem0_v5_credentials", reject_credential_load)
+    transport = inputs["transport"]
+    assert type(transport) is _Transport
+
+    with pytest.raises(ManagedRunError, match="clean-state HTTP evidence is invalid"):
+        subject.compose_managed_mem0_v5(**inputs)
+
+    assert credential_loads == 0
+    assert transport.calls == []
 
 
 class _CoverageRecoveryLane:

@@ -13,6 +13,7 @@ from infinity_context_server.memory_comparison_gold_blind_answer_contract import
 )
 from infinity_context_server.memory_comparison_managed_mem0_v5_paired_bridge import (
     ManagedMem0V5PairedRun,
+    managed_mem0_v5_paired_run_fingerprint,
 )
 from infinity_context_server.memory_comparison_managed_mem0_v5_projector import (
     ManagedMem0V5ManifestAuthority,
@@ -50,6 +51,7 @@ class _AdapterState:
     mem0_target_identity_sha256: str
     corpus_ids: frozenset[str]
     admission_commitment_sha256: str
+    paired_run_fingerprint_sha256: str
 
 
 _LOCK = threading.RLock()
@@ -94,6 +96,7 @@ class ManagedMem0V5RetrievalAdapter:
             target,
             frozenset(item.corpus_id for item in authority.units),
             admission.commitment_sha256,
+            managed_mem0_v5_paired_run_fingerprint(paired_run),
         )
         with _LOCK:
             _STATES[self] = state
@@ -209,12 +212,19 @@ def _state(value: object) -> _AdapterState:
         raise ManagedMem0V5RetrievalAdapterError("managed_mem0_v5_retrieval_composition_invalid")
     with _LOCK:
         state = _STATES.get(value)
+    try:
+        current_fingerprint = (
+            None if state is None else managed_mem0_v5_paired_run_fingerprint(state.paired_run)
+        )
+    except Exception:
+        current_fingerprint = None
     if (
         state is None
         or value._binding is not state.binding
         or value._paired_run is not state.paired_run
         or value._authority is not state.authority
         or value._request is not state.request
+        or state.paired_run_fingerprint_sha256 != current_fingerprint
     ):
         raise ManagedMem0V5RetrievalAdapterError("managed_mem0_v5_retrieval_composition_invalid")
     _validate_composition(

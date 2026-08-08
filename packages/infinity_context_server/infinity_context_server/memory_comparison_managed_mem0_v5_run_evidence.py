@@ -42,7 +42,7 @@ class ManagedMem0V5CleanCorpusScope:
         if (
             not is_sha256(self.corpus_identity_sha256)
             or not is_sha256(self.scope_identity_sha256)
-            or type(self.source_scope_count) is not int
+            or type(self.source_scope_count) is not int  # noqa: E721
             or not 1 <= self.source_scope_count <= 10_000
             or self.residual_record_count != 0
             or self.residual_root_sha256 != MEM0_OSS_EMPTY_ROOT_SHA256
@@ -100,15 +100,99 @@ class ManagedMem0V5CleanStateWitnessIssuerPort(Protocol):
         run_id_sha256: str,
         authority_commitment_sha256: str,
         scopes: tuple[ManagedMem0V5CleanCorpusScope, ...],
-    ) -> ManagedMem0V5AuthenticatedCleanStateWitness:
-        ...
+    ) -> ManagedMem0V5AuthenticatedCleanStateWitness: ...
 
 
 class ManagedMem0V5CleanStateWitnessVerifierPort(Protocol):
     def authenticate_clean_state(
         self, witness: object
-    ) -> ManagedMem0V5AuthenticatedCleanStateWitness:
-        ...
+    ) -> ManagedMem0V5AuthenticatedCleanStateWitness: ...
+
+
+@final
+class ManagedMem0V5ReadyCleanStateClaim:
+    """Opaque low-level claim material consumable only by the evidence adapter."""
+
+    __slots__ = ("__weakref__",)
+
+    def __repr__(self) -> str:
+        return "ManagedMem0V5ReadyCleanStateClaim(<opaque>)"
+
+    def __reduce__(self) -> object:
+        raise TypeError("ManagedMem0V5ReadyCleanStateClaim is nonserializable")
+
+
+@dataclass(slots=True)
+class _ReadyCleanState:
+    witness: ManagedMem0V5AuthenticatedCleanStateWitness
+    verifier: ManagedMem0V5CleanStateWitnessVerifierPort
+    signature: bytes
+    consumed: bool = False
+
+
+_READY_LOCK = threading.RLock()
+_READY_KEY = secrets.token_bytes(32)
+_READY: weakref.WeakKeyDictionary[ManagedMem0V5ReadyCleanStateClaim, _ReadyCleanState] = (
+    weakref.WeakKeyDictionary()
+)
+
+
+def issue_managed_mem0_v5_ready_clean_state_claim(
+    *,
+    witness: ManagedMem0V5AuthenticatedCleanStateWitness,
+    verifier: ManagedMem0V5CleanStateWitnessVerifierPort,
+) -> ManagedMem0V5ReadyCleanStateClaim:
+    trusted_verifier = require_managed_mem0_v5_clean_state_witness_verifier(verifier)
+    trusted = trusted_verifier.authenticate_clean_state(witness)
+    if trusted is not witness:
+        raise ManagedRunError("managed Mem0 v5 ready clean-state claim is invalid")
+    claim = ManagedMem0V5ReadyCleanStateClaim()
+    state = _ReadyCleanState(trusted, trusted_verifier, b"")
+    state.signature = _ready_signature(claim, state)
+    with _READY_LOCK:
+        _READY[claim] = state
+    return claim
+
+
+def _consume_managed_mem0_v5_ready_clean_state_claim_for_evidence_adapter(
+    claim: object,
+) -> tuple[
+    ManagedMem0V5AuthenticatedCleanStateWitness,
+    ManagedMem0V5CleanStateWitnessVerifierPort,
+]:
+    if type(claim) is not ManagedMem0V5ReadyCleanStateClaim:
+        raise ManagedRunError("managed Mem0 v5 ready clean-state claim is invalid")
+    with _READY_LOCK:
+        state = _READY.get(claim)
+        if (
+            state is None
+            or state.consumed
+            or not hmac.compare_digest(state.signature, _ready_signature(claim, state))
+        ):
+            raise ManagedRunError("managed Mem0 v5 ready clean-state claim is invalid")
+        trusted = state.verifier.authenticate_clean_state(state.witness)
+        if trusted is not state.witness:
+            raise ManagedRunError("managed Mem0 v5 ready clean-state claim is invalid")
+        state.consumed = True
+        return trusted, state.verifier
+
+
+def _ready_signature(
+    claim: ManagedMem0V5ReadyCleanStateClaim,
+    state: _ReadyCleanState,
+) -> bytes:
+    return hmac.digest(
+        _READY_KEY,
+        canonical_sha256(
+            {
+                "claim_identity": id(claim),
+                "witness_identity": id(state.witness),
+                "verifier_identity": id(state.verifier),
+                "evidence_commitment_sha256": state.witness.evidence_commitment_sha256,
+            }
+        ).encode(),
+        "sha256",
+    )
 
 
 class ManagedMem0V5CleanStateSnapshotPort(Protocol):
@@ -119,13 +203,11 @@ class ManagedMem0V5CleanStateSnapshotPort(Protocol):
         expected_run_id_sha256: str,
         expected_authority_commitment_sha256: str,
         expected_scopes: tuple[ManagedMem0V5CleanCorpusScope, ...],
-    ) -> ManagedMem0V5AuthenticatedCleanStateWitness:
-        ...
+    ) -> ManagedMem0V5AuthenticatedCleanStateWitness: ...
 
 
 class ManagedMem0V5DurableCleanStatePort(Protocol):
-    def save_original(self, witness: ManagedMem0V5AuthenticatedCleanStateWitness) -> None:
-        ...
+    def save_original(self, witness: ManagedMem0V5AuthenticatedCleanStateWitness) -> None: ...
 
     def load_original(
         self,
@@ -134,8 +216,7 @@ class ManagedMem0V5DurableCleanStatePort(Protocol):
         expected_run_id_sha256: str,
         expected_authority_commitment_sha256: str,
         expected_evidence_commitment_sha256: str,
-    ) -> ManagedMem0V5AuthenticatedCleanStateWitness:
-        ...
+    ) -> ManagedMem0V5AuthenticatedCleanStateWitness: ...
 
 
 class _CleanWitnessState:
@@ -238,7 +319,9 @@ def create_managed_mem0_v5_clean_state_witness_authority(
     ManagedMem0V5CleanStateWitnessIssuerPort,
     ManagedMem0V5CleanStateWitnessVerifierPort,
 ]:
-    if hmac_key is not None and (type(hmac_key) is not bytes or len(hmac_key) < 32):
+    if hmac_key is not None and (
+        type(hmac_key) is not bytes or len(hmac_key) < 32  # noqa: E721
+    ):
         raise ManagedRunError("managed Mem0 v5 clean-state HMAC key is invalid")
     state = _CleanWitnessState(hmac_key if hmac_key is not None else secrets.token_bytes(32))
     return _CleanWitnessIssuer(state), _CleanWitnessVerifier(state)
@@ -288,7 +371,7 @@ class ManagedMem0V5CorpusUnitEvidence:
             raise ManagedRunError("managed Mem0 v5 corpus unit evidence is invalid") from None
         if (
             not is_sha256(self.unit_identity_sha256)
-            or type(self.source_id) is not str
+            or type(self.source_id) is not str  # noqa: E721
             or not self.source_id
             or not is_sha256(self.source_sha256)
             or parsed.isoformat() != self.observation_date
@@ -322,10 +405,10 @@ class ManagedMem0V5CorpusIngestEvidence:
 
     def __post_init__(self) -> None:
         if (
-            type(self.run_id) is not str
+            type(self.run_id) is not str  # noqa: E721
             or not self.run_id
             or not is_sha256(self.target_identity_sha256)
-            or type(self.corpus_id) is not str
+            or type(self.corpus_id) is not str  # noqa: E721
             or not self.corpus_id
             or not is_sha256(self.authority_commitment_sha256)
             or not is_sha256(self.seal_commitment_sha256)
@@ -453,9 +536,9 @@ class ManagedMem0V5CorpusEvidenceProjector:
             except Exception:
                 raise ManagedRunError("managed Mem0 v5 corpus seal differs") from None
         if (
-            type(run_id) is not str
+            type(run_id) is not str  # noqa: E721
             or not run_id
-            or type(corpus_id) is not str
+            or type(corpus_id) is not str  # noqa: E721
             or not corpus_id
             or type(seal) is not Mem0OssRunSeal
             or seal.admission_commitment_sha256 != self._admission
@@ -509,7 +592,9 @@ __all__ = (
     "ManagedMem0V5CorpusIngestEvidence",
     "ManagedMem0V5CorpusUnitEvidence",
     "ManagedMem0V5DurableCleanStatePort",
+    "ManagedMem0V5ReadyCleanStateClaim",
     "create_managed_mem0_v5_clean_state_witness_authority",
+    "issue_managed_mem0_v5_ready_clean_state_claim",
     "managed_mem0_v5_clean_evidence_commitment_sha256",
     "require_managed_mem0_v5_clean_state_witness_verifier",
 )

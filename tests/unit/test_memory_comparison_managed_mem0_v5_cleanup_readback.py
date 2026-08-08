@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import hashlib
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import replace
 
 import pytest
@@ -95,6 +96,19 @@ class _Cleanup:
         return self.receipt
 
 
+class _TransientCleanup(_Cleanup):
+    def __init__(self, receipt: object) -> None:
+        super().__init__(receipt)
+        self.failures = 1
+
+    def cleanup(self, request: Mem0V5CleanupRequest) -> object:
+        self.calls.append(request)
+        if self.failures:
+            self.failures -= 1
+            raise RuntimeError("transient")
+        return self.receipt
+
+
 def _adapter(cleanup: _Cleanup) -> ManagedMem0V5CleanupPassTwoAdapter:
     return ManagedMem0V5CleanupPassTwoAdapter(
         cleanup_port=cleanup,
@@ -121,6 +135,57 @@ def test_pass_two_performs_fresh_bound_call_and_issues_exact_witness() -> None:
     assert "opaque" in repr(witness)
     with pytest.raises(ManagedRunError, match="replayed"):
         adapter.readback(pass_index=2, request=request, terminal=terminal)
+    assert cleanup.calls == [request]
+
+
+def test_pass_two_io_failure_is_one_shot() -> None:
+    request = _request()
+    terminal = _terminal(request)
+    cleanup = _TransientCleanup(_receipt(request))
+    adapter = _adapter(cleanup)
+
+    with pytest.raises(ManagedRunError, match="call failed"):
+        adapter.readback(pass_index=2, request=request, terminal=terminal)
+    with pytest.raises(ManagedRunError, match="replayed"):
+        adapter.readback(pass_index=2, request=request, terminal=terminal)
+
+    assert cleanup.calls == [request]
+
+
+def test_invalid_authority_does_not_consume_and_corrected_request_succeeds() -> None:
+    request = _request()
+    terminal = _terminal(request)
+    cleanup = _Cleanup(_receipt(request))
+    adapter = _adapter(cleanup)
+
+    with pytest.raises(ManagedRunError, match="authority differs"):
+        adapter.readback(
+            pass_index=2,
+            request=replace(request, idempotency_key=_sha("wrong")),
+            terminal=terminal,
+        )
+    witness = adapter.readback(pass_index=2, request=request, terminal=terminal)
+
+    assert witness.terminal_commitment_sha256 == terminal.commitment_sha256
+    assert cleanup.calls == [request]
+
+
+def test_concurrent_correct_requests_have_exactly_one_io_winner() -> None:
+    request = _request()
+    terminal = _terminal(request)
+    cleanup = _Cleanup(_receipt(request))
+    adapter = _adapter(cleanup)
+
+    def invoke() -> object:
+        try:
+            return adapter.readback(pass_index=2, request=request, terminal=terminal)
+        except ManagedRunError as error:
+            return error
+
+    with ThreadPoolExecutor(max_workers=8) as executor:
+        outcomes = tuple(executor.map(lambda _index: invoke(), range(8)))
+
+    assert sum(not isinstance(item, ManagedRunError) for item in outcomes) == 1
     assert cleanup.calls == [request]
 
 

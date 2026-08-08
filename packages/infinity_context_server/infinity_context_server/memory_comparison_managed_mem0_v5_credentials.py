@@ -11,6 +11,10 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import final
 
+from infinity_context_server.memory_comparison_secret_validation import (
+    is_bounded_text_secret,
+)
+
 _MIN_BYTES = 32
 _MAX_BYTES = 4_096
 _UNAVAILABLE = "managed_mem0_v5_credential_unavailable"
@@ -86,6 +90,14 @@ class _ReadOnceBytes(_NonExportable):
             finally:
                 _wipe(value)
 
+    def validate(self) -> None:
+        """Validate availability and production byte bounds without consuming."""
+
+        with self._lock:
+            value = self._value
+            if self._consumed or value is None or not _MIN_BYTES <= len(value) <= _MAX_BYTES:
+                _fail(_UNAVAILABLE)
+
     def _take(self) -> bytearray:
         if self._consumed or self._value is None:
             _fail(_REPLAYED)
@@ -132,9 +144,23 @@ class _ReadOnceText(_ReadOnceBytes):
                 _fail(_UNAVAILABLE)
             finally:
                 _wipe(value)
-        if any(character.isspace() or ord(character) < 32 for character in text):
+        if not is_bounded_text_secret(text, minimum=_MIN_BYTES, maximum=_MAX_BYTES):
             _fail(_UNAVAILABLE)
         return text
+
+    def validate(self) -> None:
+        """Validate UTF-8/token syntax without taking the one-shot value."""
+
+        with self._lock:
+            value = self._value
+            if self._consumed or value is None or not _MIN_BYTES <= len(value) <= _MAX_BYTES:
+                _fail(_UNAVAILABLE)
+            try:
+                text = bytes(value).decode("utf-8")
+            except UnicodeDecodeError:
+                _fail(_UNAVAILABLE)
+            if not is_bounded_text_secret(text, minimum=_MIN_BYTES, maximum=_MAX_BYTES):
+                _fail(_UNAVAILABLE)
 
 
 @final
@@ -253,6 +279,8 @@ def load_managed_mem0_v5_credentials(
             for right in loaded[index + 1 :]:
                 if hmac.compare_digest(left.value, right.value):
                     _fail(_NOT_DISTINCT)
+        _validate_text_secret(loaded[0].value)
+        _validate_text_secret(loaded[2].value)
         return ManagedMem0V5CredentialCapabilities(tuple(item.value for item in loaded))
     finally:
         for item in loaded:
@@ -315,6 +343,15 @@ def _read_private_secret(path: Path) -> _LoadedSecret:
         if directory_fd is not None:
             with suppress(OSError):
                 os.close(directory_fd)
+
+
+def _validate_text_secret(value: bytearray) -> None:
+    try:
+        text = bytes(value).decode("utf-8")
+    except UnicodeDecodeError:
+        _fail(_UNAVAILABLE)
+    if not is_bounded_text_secret(text, minimum=_MIN_BYTES, maximum=_MAX_BYTES):
+        _fail(_UNAVAILABLE)
 
 
 def _private_directory(value: os.stat_result) -> bool:

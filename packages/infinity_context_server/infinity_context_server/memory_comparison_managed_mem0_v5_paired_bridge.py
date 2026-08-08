@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import hashlib
-import hmac
 import threading
 from enum import Enum
 from typing import Protocol, final
@@ -15,11 +14,17 @@ from infinity_context_server.memory_comparison_managed_mem0_v5_checkpoint import
 )
 from infinity_context_server.memory_comparison_managed_mem0_v5_cleanup_readback import (
     ManagedMem0V5CleanupReadbackWitness,
-)
-from infinity_context_server.memory_comparison_managed_mem0_v5_http_lane import (
-    ManagedMem0V5SearchRecord,
+    validate_managed_mem0_v5_cleanup_readback_authority,
 )
 from infinity_context_server.memory_comparison_managed_mem0_v5_lane import ManagedMem0V5BudgetPolicy
+from infinity_context_server.memory_comparison_managed_mem0_v5_paired_fingerprint import (
+    _register_paired_run_binding,
+    authenticate_paired_run_binding,
+)
+from infinity_context_server.memory_comparison_managed_mem0_v5_paired_projector import (
+    ManagedMem0V5PairedEvidenceProjector,
+    _require_search_request,
+)
 from infinity_context_server.memory_comparison_managed_mem0_v5_projector import (
     ManagedMem0V5ManifestAuthority,
     ManagedMem0V5SourceUnit,
@@ -32,6 +37,8 @@ from infinity_context_server.memory_comparison_managed_mem0_v5_run_evidence impo
     ManagedMem0V5CorpusEvidenceProjector,
     ManagedMem0V5CorpusIngestEvidence,
     ManagedMem0V5DurableCleanStatePort,
+    ManagedMem0V5ReadyCleanStateClaim,
+    issue_managed_mem0_v5_ready_clean_state_claim,
     managed_mem0_v5_clean_evidence_commitment_sha256,
 )
 from infinity_context_server.memory_comparison_managed_mem0_v5_search_witness import (
@@ -53,104 +60,11 @@ from infinity_context_server.memory_comparison_mem0_oss_v5_contracts import (
     Mem0OssFullRunAdmission,
     Mem0OssFullRunState,
     canonical_sha256,
-    is_sha256,
 )
 from infinity_context_server.memory_comparison_mem0_oss_v5_evidence import (
     Mem0OssRunSeal,
     Mem0OssTerminalCleanupEvidence,
 )
-
-
-@final
-class ManagedMem0V5PairedEvidenceProjector:
-    """Join contract-issued retrieval to canonical source time, never provider time."""
-
-    __slots__ = (
-        "_authority_commitment_sha256",
-        "_expected_admission_commitment_sha256",
-        "_sources",
-    )
-
-    def __init__(
-        self,
-        *,
-        authority: ManagedMem0V5ManifestAuthority,
-        expected_admission_commitment_sha256: str,
-    ) -> None:
-        if type(authority) is not ManagedMem0V5ManifestAuthority:
-            raise ManagedRunError("managed Mem0 v5 paired manifest authority is invalid")
-        authority.__post_init__()
-        if not is_sha256(expected_admission_commitment_sha256):
-            raise ManagedRunError("managed Mem0 v5 paired admission authority is invalid")
-        sources: dict[tuple[str, str], tuple[str, str]] = {}
-        for unit in authority.units:
-            key = (unit.corpus_id, unit.source_id)
-            if key in sources:
-                raise ManagedRunError("managed Mem0 v5 paired source authority is duplicated")
-            sources[key] = (unit.source_sha256, unit.observation_date)
-        self._sources = sources
-        self._authority_commitment_sha256 = authority.authority_commitment_sha256
-        self._expected_admission_commitment_sha256 = expected_admission_commitment_sha256
-
-    @property
-    def authority_commitment_sha256(self) -> str:
-        return self._authority_commitment_sha256
-
-    def project(
-        self,
-        *,
-        authenticated_receipt: ManagedMem0V5AuthenticatedSearchWitness,
-        corpus_id: str,
-        query: str,
-        top_k: int,
-        cutoff: int,
-    ) -> tuple[GoldBlindEvidence, ...]:
-        _require_search_request(corpus_id=corpus_id, query=query, top_k=top_k, cutoff=cutoff)
-        if type(authenticated_receipt) is not ManagedMem0V5AuthenticatedSearchWitness:
-            raise ManagedRunError("managed Mem0 v5 paired search receipt is unauthenticated")
-        receipt = authenticated_receipt.receipt
-        receipt.__post_init__()
-        expected_root = canonical_sha256(
-            {
-                "results": [
-                    record.public_payload(rank) for rank, record in enumerate(receipt.records)
-                ]
-            }
-        )
-        if (
-            receipt.admission_commitment_sha256 != self._expected_admission_commitment_sha256
-            or receipt.corpus_id != corpus_id
-            or receipt.query_commitment_sha256 != canonical_sha256({"query": query})
-            or receipt.limit != top_k
-            or len(receipt.records) > receipt.limit
-            or receipt.result_root_sha256 != expected_root
-        ):
-            raise ManagedRunError("managed Mem0 v5 paired search binding differs")
-
-        evidence: list[GoldBlindEvidence] = []
-        seen_record_ids: set[str] = set()
-        for rank, record in enumerate(receipt.records[:cutoff], start=1):
-            if type(record) is not ManagedMem0V5SearchRecord:
-                raise ManagedRunError("managed Mem0 v5 paired search record is invalid")
-            record.__post_init__()
-            if record.record_id in seen_record_ids:
-                raise ManagedRunError("managed Mem0 v5 paired search record is duplicated")
-            seen_record_ids.add(record.record_id)
-            source = self._sources.get((corpus_id, record.source_id))
-            if source is None:
-                raise ManagedRunError("managed Mem0 v5 paired source authority is missing")
-            source_sha256, created_at = source
-            if not hmac.compare_digest(source_sha256, record.source_sha256):
-                raise ManagedRunError("managed Mem0 v5 paired source authority differs")
-            evidence.append(
-                GoldBlindEvidence(
-                    item_id=record.record_id,
-                    text=record.memory,
-                    rank=rank,
-                    created_at=created_at,
-                )
-            )
-        return tuple(evidence)
 
 
 class ManagedMem0V5PairedCoordinatorPort(Protocol):
@@ -213,6 +127,7 @@ class _RunState(Enum):
 @final
 class ManagedMem0V5PairedRun:
     __slots__ = (
+        "__weakref__",
         "_authority",
         "_accepted_seal",
         "_accepted_seal_commitment_sha256",
@@ -228,6 +143,7 @@ class ManagedMem0V5PairedRun:
         "_expected_clean_scopes",
         "_lock",
         "_projector",
+        "_ready_evidence_consumed",
         "_request",
         "_state",
         "_terminal",
@@ -292,13 +208,18 @@ class ManagedMem0V5PairedRun:
         self._terminal: Mem0OssTerminalCleanupEvidence | None = None
         self._transport_coverage_consumed = False
         self._cleanup_readback_consumed = False
+        self._ready_evidence_consumed = False
+        _register_paired_run_binding(self)
 
     def start(self) -> Mem0OssRunSeal:
+        with self._lock:
+            self._require_static_binding()
         self.admit()
         return self.dispatch()
 
     def admit(self) -> ManagedMem0V5AuthenticatedCleanStateWitness:
         with self._lock:
+            self._require_static_binding()
             self._require_new()
             self._state = _RunState.ADMITTING
             try:
@@ -328,6 +249,7 @@ class ManagedMem0V5PairedRun:
 
     def dispatch(self) -> Mem0OssRunSeal:
         with self._lock:
+            self._require_static_binding()
             if self._state is not _RunState.ADMITTED:
                 raise ManagedRunError("managed Mem0 v5 paired dispatch requires admission")
             self._state = _RunState.DISPATCHING
@@ -343,6 +265,7 @@ class ManagedMem0V5PairedRun:
 
     def restore(self) -> Mem0OssRunSeal | Mem0OssTerminalCleanupEvidence:
         with self._lock:
+            self._require_static_binding()
             self._require_new()
             self._state = _RunState.RESTORING
             try:
@@ -415,6 +338,7 @@ class ManagedMem0V5PairedRun:
         self, *, corpus_id: str, query: str, top_k: int, cutoff: int | None = None
     ) -> tuple[GoldBlindEvidence, ...]:
         with self._lock:
+            self._require_static_binding()
             if self._state is not _RunState.SEALED:
                 raise ManagedRunError("managed Mem0 v5 paired search requires sealed state")
             selected_cutoff = top_k if cutoff is None else cutoff
@@ -444,15 +368,31 @@ class ManagedMem0V5PairedRun:
     @property
     def clean_state_evidence(self) -> ManagedMem0V5AuthenticatedCleanStateWitness:
         with self._lock:
+            self._require_static_binding()
             if self._clean_state is None:
                 raise ManagedRunError("managed Mem0 v5 paired clean-state evidence is missing")
             return self._authenticate_clean_state(self._clean_state)
+
+    def issue_ready_clean_state_claim(self) -> ManagedMem0V5ReadyCleanStateClaim:
+        """Issue low-level opaque claim material without a high-level dependency."""
+
+        with self._lock:
+            self._require_static_binding()
+            if self._ready_evidence_consumed or self._clean_state is None:
+                raise ManagedRunError("managed Mem0 v5 ready clean-state evidence is unavailable")
+            authenticated = self._authenticate_clean_state(self._clean_state)
+            self._ready_evidence_consumed = True
+            return issue_managed_mem0_v5_ready_clean_state_claim(
+                witness=authenticated,
+                verifier=self._clean_state_verifier,
+            )
 
     @property
     def abort_retry_required(self) -> bool:
         """Expose only the safe recovery decision, never mutable internal state."""
 
         with self._lock:
+            self._require_static_binding()
             return self._state is _RunState.ABORT_RETRY
 
     @property
@@ -460,6 +400,7 @@ class ManagedMem0V5PairedRun:
         """Return exact terminal evidence after an implicit abort completed."""
 
         with self._lock:
+            self._require_static_binding()
             if self._state is not _RunState.TERMINAL or self._terminal is None:
                 raise ManagedRunError("managed Mem0 v5 paired terminal evidence is missing")
             self._terminal.__post_init__()
@@ -467,6 +408,7 @@ class ManagedMem0V5PairedRun:
 
     def corpus_ingest_evidence(self, *, corpus_id: str) -> ManagedMem0V5CorpusIngestEvidence:
         with self._lock:
+            self._require_static_binding()
             if (
                 self._state is not _RunState.SEALED
                 or self._accepted_seal is None
@@ -486,6 +428,7 @@ class ManagedMem0V5PairedRun:
         self, capability: ManagedTransportCoverageCapabilityPort
     ) -> VerifiedManagedTransportCoverage:
         with self._lock:
+            self._require_static_binding()
             if self._state is not _RunState.SEALED:
                 raise ManagedRunError("managed Mem0 v5 transport coverage requires sealed state")
             if self._transport_coverage_consumed:
@@ -520,6 +463,7 @@ class ManagedMem0V5PairedRun:
 
     def cleanup(self) -> Mem0OssTerminalCleanupEvidence:
         with self._lock:
+            self._require_static_binding()
             if self._state is _RunState.TERMINAL:
                 if self._terminal is None:
                     raise ManagedRunError("managed Mem0 v5 paired terminal evidence is missing")
@@ -548,6 +492,7 @@ class ManagedMem0V5PairedRun:
         request: object,
     ) -> ManagedMem0V5CleanupReadbackWitness:
         with self._lock:
+            self._require_static_binding()
             terminal = self._terminal
             if (
                 self._state is not _RunState.TERMINAL
@@ -557,9 +502,15 @@ class ManagedMem0V5PairedRun:
                 raise ManagedRunError("managed Mem0 v5 cleanup readback requires deleted terminal")
             if self._cleanup_readback_consumed:
                 raise ManagedRunError("managed Mem0 v5 cleanup readback is already consumed")
+            if pass_index != 2:
+                raise ManagedRunError("managed Mem0 v5 cleanup readback pass differs")
             readback = getattr(capability, "readback", None)
             if not callable(readback):
                 raise ManagedRunError("managed Mem0 v5 cleanup readback capability is invalid")
+            validate_managed_mem0_v5_cleanup_readback_authority(
+                request=request,
+                terminal=terminal,
+            )
             self._cleanup_readback_consumed = True
             witness = readback(pass_index=pass_index, request=request, terminal=terminal)
             if type(witness) is not ManagedMem0V5CleanupReadbackWitness:
@@ -573,6 +524,7 @@ class ManagedMem0V5PairedRun:
         """Retry only terminal abort cleanup; never re-admit or redispatch."""
 
         with self._lock:
+            self._require_static_binding()
             if self._state is not _RunState.ABORT_RETRY:
                 raise ManagedRunError("managed Mem0 v5 paired abort retry is invalid")
             try:
@@ -584,6 +536,34 @@ class ManagedMem0V5PairedRun:
             self._terminal = terminal
             self._state = _RunState.TERMINAL
             return terminal
+
+    def abort(self) -> Mem0OssTerminalCleanupEvidence:
+        """Terminalize any admitted or sealed run without redispatching it."""
+
+        with self._lock:
+            self._require_static_binding()
+            if self._state not in {
+                _RunState.ADMITTED,
+                _RunState.SEALED,
+                _RunState.ABORT_RETRY,
+            }:
+                raise ManagedRunError("managed Mem0 v5 paired abort is invalid")
+            self._state = _RunState.CLEANING
+            try:
+                terminal = self._coordinator.abort()
+                self._require_abort_binding(terminal)
+            except Exception:
+                self._state = _RunState.ABORT_RETRY
+                raise
+            self._terminal = terminal
+            self._state = _RunState.TERMINAL
+            return terminal
+
+    def _require_static_binding(self) -> None:
+        try:
+            authenticate_paired_run_binding(self)
+        except Exception:
+            raise ManagedRunError("managed Mem0 v5 paired run binding differs") from None
 
     def _authenticate_clean_state(
         self, witness: object
@@ -604,6 +584,7 @@ class ManagedMem0V5PairedRun:
     def _abort_after_failure(self, primary: Exception) -> None:
         self._state = _RunState.CLEANING
         try:
+            self._require_static_binding()
             terminal = self._coordinator.abort()
             self._require_abort_binding(terminal)
             self._terminal = terminal
@@ -728,24 +709,6 @@ class ManagedMem0V5PairedRun:
             raise ManagedRunError("managed Mem0 v5 paired restored terminal seal differs")
 
 
-def _require_search_request(
-    *, corpus_id: object, query: object, top_k: object, cutoff: object
-) -> None:
-    if (
-        type(corpus_id) is not str
-        or not corpus_id
-        or corpus_id != corpus_id.strip()
-        or type(query) is not str
-        or not query
-        or query != query.strip()
-        or type(top_k) is not int
-        or not 1 <= top_k <= 200
-        or type(cutoff) is not int
-        or not 1 <= cutoff <= top_k
-    ):
-        raise ManagedRunError("managed Mem0 v5 paired search request is invalid")
-
-
 def _coordinator_port(value: object) -> bool:
     return all(
         callable(getattr(value, name, None))
@@ -804,6 +767,17 @@ def _run_id_sha256(run_id: str) -> str:
     return hashlib.sha256(run_id.encode()).hexdigest()
 
 
+def managed_mem0_v5_paired_run_fingerprint(run: object) -> str:
+    """Authenticate immutable values and the full fixed delegate graph."""
+
+    if type(run) is not ManagedMem0V5PairedRun:
+        raise ManagedRunError("managed Mem0 v5 paired run fingerprint is invalid")
+    try:
+        return authenticate_paired_run_binding(run)
+    except Exception:
+        raise ManagedRunError("managed Mem0 v5 paired run binding differs") from None
+
+
 def _clean_state_snapshot_port(value: object) -> bool:
     return callable(getattr(value, "prove_empty_scopes", None))
 
@@ -821,4 +795,5 @@ __all__ = (
     "ManagedMem0V5CleanupReadbackCapabilityPort",
     "ManagedMem0V5PairedEvidenceProjector",
     "ManagedMem0V5PairedRun",
+    "managed_mem0_v5_paired_run_fingerprint",
 )

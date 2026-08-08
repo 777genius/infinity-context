@@ -10,10 +10,11 @@ import threading
 import weakref
 from dataclasses import dataclass, replace
 from enum import Enum
-from typing import final
+from typing import NoReturn, final
 
 from infinity_context_server.memory_comparison_managed_mem0_v5_cleanup_readback import (
     ManagedMem0V5CleanupReadbackWitness,
+    validate_managed_mem0_v5_cleanup_readback_authority,
 )
 from infinity_context_server.memory_comparison_managed_mem0_v5_ingest_receipts import (
     ManagedMem0V5CorpusIngestReceipt,
@@ -22,6 +23,7 @@ from infinity_context_server.memory_comparison_managed_mem0_v5_ingest_receipts i
 from infinity_context_server.memory_comparison_managed_mem0_v5_paired_bridge import (
     ManagedMem0V5CleanupReadbackCapabilityPort,
     ManagedMem0V5PairedRun,
+    managed_mem0_v5_paired_run_fingerprint,
 )
 from infinity_context_server.memory_comparison_managed_mem0_v5_projector import (
     ManagedMem0V5ManifestAuthority,
@@ -230,6 +232,69 @@ class ManagedMem0V5LifecycleAdapter:
         _transition(self, phase=_Phase.TERMINAL, terminal=terminal)
         return terminal
 
+    def abort(self) -> Mem0OssTerminalCleanupEvidence:
+        """Abort from every stable started phase without re-admission or redispatch."""
+
+        state = _begin(
+            self,
+            {_Phase.ADMITTED, _Phase.SEALED, _Phase.COVERED, _Phase.RECEIPTS},
+            _Phase.ABORTING,
+            "abort_invalid",
+        )
+        try:
+            terminal = state.paired_run.abort()
+        except Exception:
+            _transition(self, phase=_Phase.ABORT_RETRY)
+            raise ManagedMem0V5LifecycleAdapterError(
+                "managed_mem0_v5_lifecycle_abort_failed"
+            ) from None
+        if type(terminal) is not Mem0OssTerminalCleanupEvidence:
+            _transition(self, phase=_Phase.FAILED)
+            raise ManagedMem0V5LifecycleAdapterError(
+                "managed_mem0_v5_lifecycle_abort_result_invalid"
+            )
+        _transition(self, phase=_Phase.TERMINAL, terminal=terminal)
+        return terminal
+
+    def terminalize(
+        self, *, pass_two_request: object | None = None
+    ) -> Mem0OssTerminalCleanupEvidence | ManagedMem0V5CleanupReadbackWitness:
+        """Reach terminal state; completed receipt flows also require fresh pass two."""
+
+        state = _state(self)
+        if state.phase is _Phase.ABORT_RETRY:
+            return self.retry_abort()
+        if state.phase in {_Phase.ADMITTED, _Phase.SEALED, _Phase.COVERED}:
+            return self.abort()
+        if state.phase is _Phase.RECEIPTS:
+            if not state.receipts_consumed or len(state.receipts) != len(state.corpus_ids):
+                return self.abort()
+            if pass_two_request is None:
+                raise ManagedMem0V5LifecycleAdapterError(
+                    "managed_mem0_v5_lifecycle_cleanup_pass_two_request_missing"
+                )
+            self.cleanup_pass1()
+            return self.cleanup_pass2(request=pass_two_request)
+        if state.phase is _Phase.CLEANUP_RETRY:
+            if pass_two_request is None:
+                self._fail("cleanup_pass_two_request_missing")
+            self.cleanup_pass1()
+            return self.cleanup_pass2(request=pass_two_request)
+        if state.phase is _Phase.TERMINAL:
+            if state.terminal is None:
+                self._fail("terminal_invalid")
+            if state.terminal.terminal_state == "deleted":
+                if pass_two_request is None:
+                    self._fail("cleanup_pass_two_request_missing")
+                return self.cleanup_pass2(request=pass_two_request)
+            return state.terminal
+        self._fail("terminalize_invalid")
+
+    def issue_ready_clean_state_claim(self) -> object:
+        """Expose low-level opaque claim material, never its verifier."""
+
+        return _state(self).paired_run.issue_ready_clean_state_claim()
+
     def consume_transport_coverage(
         self, capability: ManagedTransportCoverageCapabilityPort
     ) -> VerifiedManagedTransportCoverage:
@@ -343,6 +408,18 @@ class ManagedMem0V5LifecycleAdapter:
         return terminal
 
     def cleanup_pass2(self, *, request: object) -> ManagedMem0V5CleanupReadbackWitness:
+        current = _state(self)
+        if current.phase is not _Phase.TERMINAL or current.terminal is None:
+            self._fail("cleanup_pass_two_invalid")
+        try:
+            validate_managed_mem0_v5_cleanup_readback_authority(
+                request=request,
+                terminal=current.terminal,
+            )
+        except Exception:
+            raise ManagedMem0V5LifecycleAdapterError(
+                "managed_mem0_v5_lifecycle_cleanup_pass_two_invalid"
+            ) from None
         state = _begin(self, {_Phase.TERMINAL}, _Phase.PASS_TWO, "cleanup_pass_two_invalid")
         if state.terminal is None:
             _transition(self, phase=_Phase.FAILED)
@@ -354,7 +431,7 @@ class ManagedMem0V5LifecycleAdapter:
                 request=request,
             )
         except Exception:
-            _transition(self, phase=_Phase.FAILED)
+            _transition(self, phase=_Phase.TERMINAL)
             raise ManagedMem0V5LifecycleAdapterError(
                 "managed_mem0_v5_lifecycle_cleanup_pass_two_failed"
             ) from None
@@ -366,7 +443,7 @@ class ManagedMem0V5LifecycleAdapter:
         _transition(self, phase=_Phase.PASS_TWO_COMPLETE)
         return witness
 
-    def _fail(self, suffix: str) -> None:
+    def _fail(self, suffix: str) -> NoReturn:
         raise ManagedMem0V5LifecycleAdapterError(f"managed_mem0_v5_lifecycle_{suffix}")
 
     def __repr__(self) -> str:
@@ -515,11 +592,11 @@ def _state_locked(adapter: ManagedMem0V5LifecycleAdapter) -> _LifecycleState:
 
 def _validate_dynamic(state: _LifecycleState) -> None:
     if (
-        type(state.phase) is not _Phase
-        or type(state.receipts) is not tuple
+        type(state.phase) is not _Phase  # noqa: E721 - exact lifecycle state required
+        or type(state.receipts) is not tuple  # noqa: E721 - exact lifecycle state required
         or len(state.receipts) > len(state.corpus_ids)
         or any(type(item) is not ManagedMem0V5CorpusIngestReceipt for item in state.receipts)
-        or type(state.receipts_consumed) is not bool
+        or type(state.receipts_consumed) is not bool  # noqa: E721 - exact state flag required
         or (state.receipts_consumed and len(state.receipts) != len(state.corpus_ids))
         or (
             state.coverage is not None
@@ -556,6 +633,7 @@ def _state_mac(adapter: ManagedMem0V5LifecycleAdapter, state: _LifecycleState) -
         "adapter_identity": id(adapter),
         "binding_identity": id(state.binding),
         "paired_run_identity": id(state.paired_run),
+        "paired_run_fingerprint_sha256": managed_mem0_v5_paired_run_fingerprint(state.paired_run),
         "authority_identity": id(state.authority),
         "request_identity": id(state.request),
         "cleanup_readback_identity": id(state.cleanup_readback),

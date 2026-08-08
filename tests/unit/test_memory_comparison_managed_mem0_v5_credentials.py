@@ -123,6 +123,20 @@ def test_rejects_empty_and_oversized_credentials(tmp_path: Path, value: bytes) -
     assert rejected.value.code == "managed_mem0_v5_credential_unavailable"
 
 
+@pytest.mark.parametrize("index", (0, 2))
+@pytest.mark.parametrize("unsafe", ("\n", "\x7f", "\u200b", "\u202e"))
+def test_rejects_unsafe_text_secret_before_capability_issue(
+    tmp_path: Path, index: int, unsafe: str
+) -> None:
+    values = list(_secret(name) for name in _NAMES)
+    values[index] = ("x" * 31 + unsafe).encode()
+
+    with pytest.raises(ManagedMem0V5CredentialError) as rejected:
+        load_managed_mem0_v5_credentials(_paths(tmp_path / "credentials", values=tuple(values)))
+
+    assert rejected.value.code == "managed_mem0_v5_credential_unavailable"
+
+
 def test_rejects_inode_replacement_between_precheck_and_open(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
