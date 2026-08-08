@@ -183,6 +183,85 @@ def test_request_binding_is_write_once_and_dispatch_is_idempotent(tmp_path) -> N
         service.prepare_dispatch(operations[0], _B)
 
 
+def test_prepare_dispatch_batch_is_atomic_replay_exact_and_retryable(tmp_path) -> None:
+    service, journal, identity, manifest, operations, _, _ = _fixture(tmp_path)
+    service.initialize(identity, manifest)
+    batch = ((operations[0], _A), (operations[1], _B))
+
+    connection = sqlite3.connect(journal.database_path)
+    connection.execute(
+        """CREATE TRIGGER fail_second_batch_dispatch
+           BEFORE INSERT ON operation_events
+           WHEN NEW.run_id = 'run-1' AND NEW.sequence = 3
+           BEGIN SELECT RAISE(FAIL, 'injected batch failure'); END"""
+    )
+    connection.commit()
+    connection.close()
+
+    with pytest.raises(sqlite3.IntegrityError, match="injected batch failure"):
+        service.prepare_dispatch_batch(batch)
+
+    snapshot = service.snapshot(identity.run_id)
+    assert (snapshot.pending_count, snapshot.dispatched_count) == (2, 0)
+    connection = sqlite3.connect(journal.database_path)
+    assert connection.execute("SELECT COUNT(*) FROM operation_states").fetchone()[0] == 0
+    assert connection.execute("SELECT COUNT(*) FROM operation_events").fetchone()[0] == 1
+    connection.execute("DROP TRIGGER fail_second_batch_dispatch")
+    connection.commit()
+    connection.close()
+
+    prepared = service.prepare_dispatch_batch(batch)
+    assert [item.should_dispatch for item in prepared] == [True, True]
+    replayed = service.prepare_dispatch_batch(batch)
+    assert [item.should_dispatch for item in replayed] == [False, False]
+    assert service.snapshot(identity.run_id).dispatched_count == 2
+    with pytest.raises(OperationJournalError, match="request_binding_immutable"):
+        service.prepare_dispatch_batch(((operations[0], _A), (operations[1], _A)))
+    assert service.snapshot(identity.run_id).dispatched_count == 2
+
+
+def test_prepare_dispatch_batch_rejects_mixed_or_divergent_batches(tmp_path) -> None:
+    service, _, identity, manifest, operations, _, _ = _fixture(tmp_path)
+    service.initialize(identity, manifest)
+    service.prepare_dispatch(operations[0], _A)
+
+    with pytest.raises(OperationJournalError, match="dispatch_batch_mixed_state"):
+        service.prepare_dispatch_batch(((operations[0], _A), (operations[1], _B)))
+    with pytest.raises(OperationJournalError, match="dispatch_batch_manifest_divergent"):
+        service.prepare_dispatch_batch(((operations[1], _B), (operations[0], _A)))
+
+
+def test_prepare_dispatch_batch_rejects_outcome_unknown_operation(tmp_path) -> None:
+    service, _, identity, manifest, operations, _, _ = _fixture(tmp_path)
+    service.initialize(identity, manifest)
+    batch = ((operations[0], _A), (operations[1], _B))
+    service.prepare_dispatch_batch(batch)
+    assert service.resume(identity.run_id).outcome_unknown_count == 1
+
+    with pytest.raises(OperationJournalError, match="outcome_unknown_quarantined"):
+        service.prepare_dispatch_batch(batch)
+
+
+def test_prepare_dispatch_batch_rejects_fresh_slots_for_sealed_run(tmp_path) -> None:
+    service, journal, identity, manifest, operations, _, _ = _fixture(tmp_path)
+    service.initialize(identity, manifest)
+    batch = ((operations[0], _A), (operations[1], _B))
+    service.prepare_dispatch_batch(batch)
+    service.commit(operations[0], _receipt(operations[0], _A, "ingest-1"))
+    service.commit(operations[1], _receipt(operations[1], _B, "provider-1"))
+    assert service.seal(identity.run_id).phase is OperationRunPhase.SEALED
+
+    connection = sqlite3.connect(journal.database_path)
+    connection.execute("PRAGMA foreign_keys = ON")
+    connection.execute("DELETE FROM operation_receipts WHERE run_id = ?", (identity.run_id,))
+    connection.execute("DELETE FROM operation_states WHERE run_id = ?", (identity.run_id,))
+    connection.commit()
+    connection.close()
+
+    with pytest.raises(OperationJournalError, match="run_not_dispatchable"):
+        service.prepare_dispatch_batch(batch)
+
+
 def test_snapshot_detects_signed_chain_tampering(tmp_path) -> None:
     service, journal, identity, manifest, _, _, _ = _fixture(tmp_path)
     service.initialize(identity, manifest)

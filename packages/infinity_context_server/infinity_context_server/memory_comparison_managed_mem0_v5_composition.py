@@ -107,6 +107,8 @@ class _CompositionRuntime:
     reference: weakref.ReferenceType[object]
     admission: Mem0OssFullRunAdmission
     lane: ManagedMem0V5HttpLane
+    origin: str
+    receipt_authority: Mem0V5ReceiptAuthority | Mem0V5ObservedExtractionReceiptAuthority
     storage_verifier: ManagedMem0V5StorageWitnessVerifierPort
     cleanup_readback: ManagedMem0V5CleanupPassTwoAdapter
     paired_runtime_issued: bool = False
@@ -229,6 +231,22 @@ class ManagedMem0V5Composition:
             or type(self.coordinator) is not ManagedMem0V5LaneCoordinator
         ):
             raise ManagedRunError("managed Mem0 v5 composition result is invalid")
+
+    @property
+    def runtime_origin(self) -> str:
+        """Return the immutable origin captured by this composition root."""
+
+        with _COMPOSITION_RUNTIME_LOCK:
+            return _composition_runtime_locked(self).origin
+
+    @property
+    def runtime_receipt_authority(
+        self,
+    ) -> Mem0V5ReceiptAuthority | Mem0V5ObservedExtractionReceiptAuthority:
+        """Return the exact public receipt authority captured at composition."""
+
+        with _COMPOSITION_RUNTIME_LOCK:
+            return _composition_runtime_locked(self).receipt_authority
 
     def issue_transport_coverage(
         self,
@@ -513,6 +531,8 @@ def compose_managed_mem0_v5(
         composition,
         admission=preflight.admission,
         lane=lane,
+        origin=origin,
+        receipt_authority=receipt_authority,
         storage_verifier=witness_verifier,
         cleanup_readback=ManagedMem0V5CleanupPassTwoAdapter(
             cleanup_port=lane._control,
@@ -527,6 +547,8 @@ def _register_composition_runtime(
     *,
     admission: Mem0OssFullRunAdmission,
     lane: ManagedMem0V5HttpLane,
+    origin: str,
+    receipt_authority: Mem0V5ReceiptAuthority | Mem0V5ObservedExtractionReceiptAuthority,
     storage_verifier: ManagedMem0V5StorageWitnessVerifierPort,
     cleanup_readback: ManagedMem0V5CleanupPassTwoAdapter,
 ) -> None:
@@ -544,6 +566,8 @@ def _register_composition_runtime(
             reference,
             admission,
             lane,
+            origin,
+            receipt_authority,
             storage_verifier,
             cleanup_readback,
         )
@@ -582,6 +606,30 @@ def _paired_runtime(bundle: object) -> _PairedRuntimeState:
     ):
         raise ManagedRunError("managed Mem0 v5 paired runtime is unavailable")
     return state
+
+
+def _validate_managed_mem0_v5_production_paired_runtime(
+    *,
+    bundle: ManagedMem0V5PairedRuntimeBundle,
+    composition: ManagedMem0V5Composition,
+    paired_run: ManagedMem0V5PairedRun,
+    cleanup_readback: object,
+) -> None:
+    """Require an exact paired runtime issued by this composition root."""
+
+    if (
+        type(bundle) is not ManagedMem0V5PairedRuntimeBundle
+        or type(composition) is not ManagedMem0V5Composition
+        or type(paired_run) is not ManagedMem0V5PairedRun
+    ):
+        raise ManagedRunError("managed Mem0 v5 production paired runtime is invalid")
+    state = _paired_runtime(bundle)
+    if (
+        state.composition is not composition
+        or state.paired_run is not paired_run
+        or state.cleanup_readback is not cleanup_readback
+    ):
+        raise ManagedRunError("managed Mem0 v5 production paired runtime is invalid")
 
 
 def _paired_runtime_signature(
