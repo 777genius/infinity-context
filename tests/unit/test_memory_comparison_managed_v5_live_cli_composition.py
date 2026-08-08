@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import inspect
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from types import SimpleNamespace
@@ -18,6 +19,36 @@ from infinity_context_server.memory_comparison_managed_v5_live_config import (
 )
 
 ROOT = Path(__file__).resolve().parents[2]
+
+
+def test_v5_attestation_prevalidation_is_before_paid_readiness_in_private_stage() -> None:
+    source = inspect.getsource(subject._prepare_and_activate_private_stage)
+
+    assert source.index("runtime_port.prevalidate(") < source.index(
+        "run_readiness=lambda: readiness_claim.run("
+    )
+    assert "ManagedMem0RuntimeAttestationPort" not in source
+    assert "MEM0_V5_RUNTIME_ATTESTATION_ROOT_SECRET" not in source
+
+
+def test_failed_v5_attestation_executes_zero_paid_readiness_calls() -> None:
+    calls = {"prevalidate": 0, "readiness": 0}
+
+    def reject_attestation() -> None:
+        calls["prevalidate"] += 1
+        raise RuntimeError("tampered runtime attestation")
+
+    def paid_readiness() -> object:
+        calls["readiness"] += 1
+        return object()
+
+    with pytest.raises(RuntimeError, match="tampered runtime attestation"):
+        subject._prevalidate_before_paid_readiness(
+            prevalidate=reject_attestation,
+            run_readiness=paid_readiness,
+        )
+
+    assert calls == {"prevalidate": 1, "readiness": 0}
 
 
 class _NoPrivateReads(dict[str, str]):

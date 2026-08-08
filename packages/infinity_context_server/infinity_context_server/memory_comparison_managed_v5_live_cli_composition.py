@@ -12,7 +12,7 @@ import hashlib
 import math
 import secrets
 import time
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
@@ -36,6 +36,10 @@ from infinity_context_server.memory_comparison_managed_mem0_v5_extraction_contra
     ManagedMem0V5ExtractionContractBinding,
     ManagedMem0V5ExtractionContractBindingError,
     require_managed_mem0_v5_extraction_contract_binding,
+)
+from infinity_context_server.memory_comparison_managed_mem0_v5_runtime_attestation import (
+    ManagedMem0V5ExpectedRuntimeAuthority,
+    expected_managed_mem0_v5_runtime_authority_from_pin,
 )
 from infinity_context_server.memory_comparison_managed_plan_builder import (
     ManagedPublicRunProjection,
@@ -155,6 +159,7 @@ class PreparedManagedV5LiveCliPublicStage:
     root_preparation: PreparedManagedV5LiveRun = field(repr=False)
     run_nonce_commitment_sha256: str
     runtime_probe_nonce: str = field(repr=False)
+    runtime_attestation_authority: ManagedMem0V5ExpectedRuntimeAuthority = field(repr=False)
     issued_at: datetime
     deadline: datetime
 
@@ -170,6 +175,7 @@ class PreparedManagedV5LiveCliPublicStage:
             or type(self.root_preparation) is not PreparedManagedV5LiveRun
             or not _is_sha256(self.run_nonce_commitment_sha256)
             or not _is_sha256(self.runtime_probe_nonce)
+            or type(self.runtime_attestation_authority) is not ManagedMem0V5ExpectedRuntimeAuthority
             or self.issued_at.tzinfo is None
             or self.deadline <= self.issued_at
         ):
@@ -262,6 +268,20 @@ def prepare_managed_v5_live_cli_public_stage(
         timeout_seconds=float(request.request_timeout_seconds),
     )
     root_preparation = prepare_managed_v5_live_run(composition.inputs)
+    trusted_binding = composition.inputs.trusted_runtime_binding
+    subscription_binding = getattr(trusted_binding, "commitment_sha256", None)
+    if not _is_sha256(subscription_binding):
+        _fail("managed_v5_live_runtime_authority_cross_wire")
+    filesystem = request.managed_v5_config.filesystem
+    runtime_attestation_authority = expected_managed_mem0_v5_runtime_authority_from_pin(
+        runtime_pin_file=filesystem.adapter_runtime_pin_file,
+        runtime_pin_sha256=filesystem.adapter_runtime_pin_sha256,
+        runtime_source_sha256=runtime_authority.runtime_source_sha256,
+        runtime_route_binding_sha256=runtime_authority.route_binding_sha256,
+        subscription_runtime_binding_commitment_sha256=subscription_binding,
+        expected_account_binding_hmac_sha256=runtime_authority.account_binding_hmac_sha256,
+        expected_base_instructions_sha256=runtime_authority.base_instructions_sha256,
+    )
     return PreparedManagedV5LiveCliPublicStage(
         request,
         profile,
@@ -273,6 +293,7 @@ def prepare_managed_v5_live_cli_public_stage(
         root_preparation,
         run_nonce_commitment,
         runtime_probe_nonce,
+        runtime_attestation_authority,
         issued_at,
         deadline,
     )
@@ -314,12 +335,14 @@ def _prepare_and_activate_private_stage(
         prepare_verified_managed_live_run,
     )
     from infinity_context_server.memory_comparison_managed_mem0_runtime_http import (
-        ManagedMem0RuntimeAttestationPort,
         ManagedUtcClockPort,
     )
     from infinity_context_server.memory_comparison_managed_mem0_v5_lane import (
         ManagedMem0V5Budget,
         ManagedMem0V5BudgetPolicy,
+    )
+    from infinity_context_server.memory_comparison_managed_mem0_v5_runtime_attestation_http import (
+        ManagedMem0V5RuntimeAttestationPort,
     )
     from infinity_context_server.memory_comparison_managed_preflight import (
         MANAGED_PREFLIGHT_PROVIDER_SUBSCRIPTION_RUNTIME,
@@ -349,7 +372,24 @@ def _prepare_and_activate_private_stage(
     except ValueError:
         _fail("subscription_runtime_url_invalid")
     infinity_token = _required_secret(env, "MEMORY_EVAL_AUTH_TOKEN", "MEMORY_SERVICE_TOKEN")
-    probe_token = _required_secret(env, "MEM0_BENCHMARK_PROBE_TOKEN")
+    from infinity_context_server.memory_comparison_managed_mem0_v5_credentials import (
+        _read_private_secret,
+        _validate_text_secret,
+        _wipe,
+    )
+
+    secret = _read_private_secret(
+        request.managed_v5_config.filesystem.runtime_attestation_secret_file
+    )
+    try:
+        _validate_text_secret(secret.value)
+        if hashlib.sha256(secret.value).hexdigest() != (
+            request.managed_v5_config.filesystem.runtime_attestation_secret_sha256
+        ):
+            _fail("managed_v5_live_runtime_attestation_secret_mismatch")
+        probe_token = bytes(secret.value).decode("utf-8")
+    finally:
+        _wipe(secret.value)
     subscription_token = _required_secret(env, "SUBSCRIPTION_RUNTIME_BRIDGE_BEARER_TOKEN")
     auth_mode = (
         MANAGED_MEM0_DATA_PLANE_AUTH_NONE
@@ -416,23 +456,37 @@ def _prepare_and_activate_private_stage(
         deadline=public.deadline,
         now=now,
     )
-    provider_probe = readiness_claim.run(model=public.runtime_authority.model, clock=clock.now)
-    admitted_at = clock.now()
-    remaining = (public.deadline - admitted_at).total_seconds()
+    prevalidated_at = clock.now()
+    remaining = (public.deadline - prevalidated_at).total_seconds()
     if not math.isfinite(remaining) or remaining <= 0.001:
         _fail("managed_v5_live_deadline_expired")
-    runtime_port = ManagedMem0RuntimeAttestationPort(
+    runtime_port = ManagedMem0V5RuntimeAttestationPort(
         base_url=request.mem0_api_url,
-        benchmark_probe_token=probe_token,
-        probe_nonce=public.runtime_probe_nonce,
+        runtime_attestation_root_secret=probe_token,
+        probe_nonce_sha256=public.projection.bindings.runtime_probe_nonce_sha256,
+        expected_authority=public.runtime_attestation_authority,
         timeout_seconds=float(request.request_timeout_seconds),
         deadline_budget_seconds=remaining - 0.001,
         monotonic_clock=time.monotonic,
         expected_implementation_sha256=request.mem0_runtime_implementation_sha256,
         allowed_target_hosts=request.allowed_mem0_hosts,
-        expected_runtime_mode=public.projection.bindings.mem0_expected_runtime_mode,
-        mem0_oss_ingress_authority=ingress_authority,
     )
+    target_identity_sha256 = next(
+        target.target_identity_sha256
+        for target in public.projection.bindings.backend_targets
+        if target.backend_role == "mem0"
+    )
+    provider_probe = _prevalidate_before_paid_readiness(
+        prevalidate=lambda: runtime_port.prevalidate(
+            run_id=request.run_id,
+            probe_nonce_sha256=public.projection.bindings.runtime_probe_nonce_sha256,
+            target_identity_sha256=target_identity_sha256,
+        ),
+        run_readiness=lambda: readiness_claim.run(
+            model=public.runtime_authority.model, clock=clock.now
+        ),
+    )
+    admitted_at = clock.now()
     admission = issue_verified_managed_live_admission(
         request=preflight_request,
         allow_live=True,
@@ -487,6 +541,15 @@ def _prepare_and_activate_private_stage(
         mem0_probe_token=probe_token,
         mem0_ingress_authority=ingress_authority,
     )
+
+
+def _prevalidate_before_paid_readiness(
+    *, prevalidate: Callable[[], None], run_readiness: Callable[[], object]
+) -> object:
+    """Keep the provider-paid readiness call strictly behind v5 attestation."""
+
+    prevalidate()
+    return run_readiness()
 
 
 def _public_backend_targets(

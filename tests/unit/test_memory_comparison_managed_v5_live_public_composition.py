@@ -178,6 +178,8 @@ def _config(tmp_path: Path) -> ManagedV5LiveConfig:
         checkpoint_head_key_file=secrets / "head",
         operation_journal_signer_secret_file=secrets / "journal-signer",
         durable_clean_state_hmac_secret_file=secrets / "clean-state-hmac",
+        runtime_attestation_secret_file=secrets / "runtime-attestation",
+        runtime_attestation_secret_sha256=_sha("runtime-attestation"),
         runtime_authority_file=tmp_path / "runtime-authority.json",
         runtime_authority_sha256=_sha("authority"),
         phase_c_package_root=tmp_path / "phase-c",
@@ -186,6 +188,8 @@ def _config(tmp_path: Path) -> ManagedV5LiveConfig:
         runtime_artifact_manifest_sha256=_sha("artifact"),
         node_executable=Path("/usr/local/bin/node"),
         node_executable_sha256=_sha("node"),
+        adapter_runtime_pin_file=tmp_path / "adapter-runtime-pin.json",
+        adapter_runtime_pin_sha256=_sha("adapter-runtime-pin"),
     )
     return ManagedV5LiveConfig(
         filesystem=filesystem,

@@ -27,6 +27,7 @@ services:
       MEM0_V5_INGRESS_BEARER_FILE: /run/secrets/ingress-bearer
       MEM0_V5_STATE_HMAC_FILE: /run/secrets/state-hmac
       MEM0_V5_RESULT_HMAC_FILE: /run/secrets/result-hmac
+      MEM0_V5_RUNTIME_ATTESTATION_SECRET_FILE: /run/secrets/runtime-attestation-secret
       MEM0_V5_RUNTIME_BEARER_FILE: /run/secrets/runtime-bearer
       MEM0_V5_RECEIPT_SECRET_FILE: /run/secrets/runtime-receipt-secret
       MEM0_V5_RUNTIME_TRANSPORT_ORIGIN_FILE: /run/secrets/runtime-transport-origin

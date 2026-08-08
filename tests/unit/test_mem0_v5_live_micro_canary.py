@@ -19,6 +19,7 @@ from infinity_context_server.memory_comparison_managed_run_contract import Manag
 from scripts import mem0_v5_live_micro_canary as subject
 from scripts.mem0_v5_live_container_copy_contract import (
     ADAPTER_SECRET_NAMES,
+    validate_private_credentials,
     verify_container_copy_authority,
 )
 from scripts.mem0_v5_live_micro_canary import (
@@ -518,6 +519,41 @@ def test_private_file_uses_semantic_transport_origin_policy(
             subject._read_private_file(path, parent=root)
 
 
+def test_runtime_attestation_secret_must_be_distinct_from_every_private_secret(
+    tmp_path: Path,
+) -> None:
+    root = tmp_path / "secrets"
+    root.mkdir(mode=0o700)
+    runner_paths: dict[str, Path] = {}
+    names = (*ADAPTER_SECRET_NAMES, "checkpoint-signing-key", "checkpoint-head-key")
+    for index, name in enumerate(names):
+        path = root / name
+        raw = (
+            b"http://127.0.0.1:8891"
+            if name == "runtime-transport-origin"
+            else (f"private-{index}-" + "x" * 64).encode()
+        )
+        path.write_bytes(raw)
+        path.chmod(0o600)
+        runner_paths[name] = path
+    evidence_sha256 = hashlib.sha256((root / "result-hmac").read_bytes()).hexdigest()
+    validate_private_credentials(
+        secret_root=root,
+        runner_paths=runner_paths,
+        evidence_key_sha256=evidence_sha256,
+        read_private=subject._read_private_file,
+    )
+    (root / "runtime-attestation-secret").write_bytes((root / "ingress-bearer").read_bytes())
+    (root / "runtime-attestation-secret").chmod(0o600)
+    with pytest.raises(ValueError, match="runtime_attestation_secret_not_distinct"):
+        validate_private_credentials(
+            secret_root=root,
+            runner_paths=runner_paths,
+            evidence_key_sha256=evidence_sha256,
+            read_private=subject._read_private_file,
+        )
+
+
 def test_production_factory_composes_observed_authority_and_durable_guard(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -770,6 +806,8 @@ def test_direct_cli_invalid_node_is_no_go_without_secret_files(tmp_path: Path) -
         str(roots["secrets"] / "result-hmac"),
         "--evidence-key-sha256",
         "5" * 64,
+        "--runtime-attestation-secret-file",
+        str(roots["secrets"] / "runtime-attestation-secret"),
         "--receipt-secret-file",
         str(roots["secrets"] / "runtime-receipt-secret"),
         "--checkpoint-signing-key-file",

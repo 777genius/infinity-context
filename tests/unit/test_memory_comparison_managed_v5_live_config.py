@@ -68,6 +68,7 @@ def _config(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> ManagedV5LiveCon
         "head",
         "operation-journal-signer",
         "durable-clean-state-hmac",
+        "runtime-attestation",
     ):
         path = roots["secrets"] / name
         _write(path, ("SECRET:" + name + ":" + "x" * 64).encode(), 0o600)
@@ -88,6 +89,8 @@ def _config(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> ManagedV5LiveCon
     manifest_sha256 = _write(manifest, b'{"reviewed":true}', 0o444)
     node = public / "node"
     node_sha256 = _write(node, b"reviewed-node", 0o555)
+    adapter_runtime_pin = public / "adapter-runtime-pin.json"
+    adapter_runtime_pin_sha256 = _write(adapter_runtime_pin, b'{"pin":true}', 0o444)
     monkeypatch.setattr(subject, "_REVIEWED_NODE_SHA256", node_sha256)
     monkeypatch.setattr(subject, "_REVIEWED_NODE_SIZE_BYTES", node.stat().st_size)
 
@@ -107,6 +110,10 @@ def _config(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> ManagedV5LiveCon
         checkpoint_head_key_file=credentials["head"],
         operation_journal_signer_secret_file=credentials["operation-journal-signer"],
         durable_clean_state_hmac_secret_file=credentials["durable-clean-state-hmac"],
+        runtime_attestation_secret_file=credentials["runtime-attestation"],
+        runtime_attestation_secret_sha256=hashlib.sha256(
+            credentials["runtime-attestation"].read_bytes()
+        ).hexdigest(),
         runtime_authority_file=authority,
         runtime_authority_sha256=authority_sha256,
         phase_c_package_root=phase_c,
@@ -115,6 +122,8 @@ def _config(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> ManagedV5LiveCon
         runtime_artifact_manifest_sha256=manifest_sha256,
         node_executable=node,
         node_executable_sha256=node_sha256,
+        adapter_runtime_pin_file=adapter_runtime_pin,
+        adapter_runtime_pin_sha256=adapter_runtime_pin_sha256,
     )
     return ManagedV5LiveConfig(
         filesystem=filesystem,

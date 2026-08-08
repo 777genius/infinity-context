@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import hashlib
+import time
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import replace
 from datetime import timedelta
@@ -8,6 +10,9 @@ import memory_comparison_full_policy_component_fixtures as policy_fixtures
 import pytest
 from infinity_context_server import memory_comparison_full_run_components as components_module
 from infinity_context_server import memory_comparison_full_run_evidence as evidence_module
+from infinity_context_server import (
+    memory_comparison_managed_mem0_v5_runtime_attestation_http as v5_attestation,
+)
 from infinity_context_server.memory_comparison_full_execution_validation import (
     FullExecutionValidationError,
     consume_full_execution_validation,
@@ -20,6 +25,7 @@ from infinity_context_server.memory_comparison_full_run_components import (
     issue_execution_component_evidence_set,
     issue_gold_blind_component_evidence,
     issue_policy_component_evidence_set,
+    issue_runtime_component_evidence,
     issue_runtime_component_evidence_from_managed_attestation,
 )
 from infinity_context_server.memory_comparison_full_run_evidence import (
@@ -56,6 +62,48 @@ from test_memory_comparison_managed_attestation import _issue as _managed_issue
 from test_memory_comparison_managed_attestation import (
     _runtime_validation as _managed_runtime_validation,
 )
+from test_memory_comparison_managed_mem0_v5_runtime_attestation_http import (
+    _expected as _v5_expected,
+)
+from test_memory_comparison_managed_mem0_v5_runtime_attestation_http import (
+    _signed_response as _v5_signed_response,
+)
+
+
+def test_exact_v5_nominal_runtime_capability_wires_direct_full_run_component() -> None:
+    bindings = _managed_bindings(scope="canary", mem0_expected_runtime_mode="oss")
+    target = bindings.backend_targets[1].target_identity_sha256
+    request = {
+        "schema_version": v5_attestation.REQUEST_SCHEMA,
+        "target_origin_sha256": target,
+        "run_id_sha256": hashlib.sha256(bindings.run_id.encode()).hexdigest(),
+        "probe_nonce_sha256": bindings.runtime_probe_nonce_sha256,
+        "validity_seconds": 120,
+    }
+    root = b"r" * 32
+    expected = _v5_expected()
+    now = int(time.time())
+    capability = v5_attestation._verify_and_issue(
+        _v5_signed_response(
+            root_secret=root,
+            request=request,
+            expected=expected,
+            issued_at_unix=now,
+        ),
+        request=request,
+        root_secret=root,
+        expected_authority=expected,
+        now_unix=now,
+    )
+    issuer = create_full_comparison_evidence_issuer(bindings)
+
+    component = issue_runtime_component_evidence(issuer, capability)
+
+    assert components_module.live_component_status(
+        "runtime",
+        evidence_module._component_state(component).live_validation,
+        bindings,
+    ) == ("verified", None)
 
 
 def _aggregate_inputs():

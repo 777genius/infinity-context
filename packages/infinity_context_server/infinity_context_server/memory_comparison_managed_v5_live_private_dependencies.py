@@ -628,7 +628,7 @@ def _create_managed_v5_live_private_dependency_material(
             _fail("run_binding_invalid")
         infinity_credentials._bind_activated_preparation(activated, now=now)
         filesystem = config.filesystem
-        credentials, signer_secret, durable_secret = _load_seven_distinct_secrets(
+        credentials, signer_secret, durable_secret = _load_eight_distinct_secrets(
             filesystem=filesystem,
             credential_paths=credential_paths,
         )
@@ -888,7 +888,7 @@ def _register_final(
         raise failure from None
 
 
-def _load_seven_distinct_secrets(
+def _load_eight_distinct_secrets(
     *,
     filesystem: object,
     credential_paths: ManagedMem0V5CredentialPaths,
@@ -903,17 +903,20 @@ def _load_seven_distinct_secrets(
     peer_paths = (
         filesystem.operation_journal_signer_secret_file,
         filesystem.durable_clean_state_hmac_secret_file,
+        filesystem.runtime_attestation_secret_file,
     )
-    if credential_paths.values() != expected_paths or len(set(expected_paths + peer_paths)) != 7:
+    if credential_paths.values() != expected_paths or len(set(expected_paths + peer_paths)) != 8:
         _fail("secret_paths_crosswired")
     loaded = []
     try:
         loaded = [_read_private_secret(path) for path in expected_paths + peer_paths]
-        if len({item.identity for item in loaded}) != 7:
+        if len({item.identity for item in loaded}) != 8:
             _fail("secret_reused")
         commitments = tuple(hashlib.sha256(item.value).digest() for item in loaded)
-        if len(set(commitments)) != 7:
+        if len(set(commitments)) != 8:
             _fail("secret_reused")
+        if commitments[7].hex() != filesystem.runtime_attestation_secret_sha256:
+            _fail("runtime_attestation_secret_changed")
         _validate_text_secret(loaded[0].value)
         _validate_text_secret(loaded[2].value)
         capabilities = ManagedMem0V5CredentialCapabilities(tuple(item.value for item in loaded[:5]))

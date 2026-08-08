@@ -25,10 +25,10 @@ from infinity_context_server.memory_comparison_gold_blind_run_proof import (
 from infinity_context_server.memory_comparison_locomo_transport import (
     RunScopedLocomoTransportEvidenceKey,
 )
-from infinity_context_server.memory_comparison_mem0_runtime_attestation import (
-    VerifiedMem0RuntimeAttestationValidation,
-    mem0_runtime_attestation_validation_is_publishable,
-    public_mem0_runtime_attestation_validation,
+from infinity_context_server.memory_comparison_managed_runtime_validation import (
+    managed_runtime_validation_is_publishable,
+    managed_runtime_validation_public_payload,
+    managed_runtime_validation_view,
 )
 from infinity_context_server.memory_comparison_provider_provenance import (
     ProviderRouteAttestation,
@@ -121,14 +121,16 @@ def issue_provider_component_evidence(
 
 def issue_runtime_component_evidence(
     issuer: FullComparisonEvidenceIssuer,
-    validation: VerifiedMem0RuntimeAttestationValidation,
+    validation: object,
 ) -> FullComparisonComponentEvidence:
     """Bind the exact runner-produced runtime validation capability."""
 
     from infinity_context_server.memory_comparison_full_run_evidence import _issue_component
 
+    if managed_runtime_validation_view(validation) is None:
+        raise _evidence_error("runtime validation type must be exact")
     _require_verified_component_binding(issuer, "runtime", validation)
-    return _issue_component(issuer, "runtime", validation, VerifiedMem0RuntimeAttestationValidation)
+    return _issue_component(issuer, "runtime", validation, type(validation))
 
 
 def issue_session_component_evidence(
@@ -183,10 +185,8 @@ def live_component_commitment(component_kind: str, validation: object) -> str:
         payload: object = _aggregate_live_payload(component_kind, validation)
     elif component_kind == "provider" and type(validation) is ProviderRouteAttestation:
         payload: object = validation.public_payload()
-    elif (
-        component_kind == "runtime" and type(validation) is VerifiedMem0RuntimeAttestationValidation
-    ):
-        payload = public_mem0_runtime_attestation_validation(validation)
+    elif component_kind == "runtime" and managed_runtime_validation_view(validation) is not None:
+        payload = managed_runtime_validation_public_payload(validation)
     elif component_kind == "session" and type(validation) is RunScopedSessionHmacKey:
         if not validation._is_sealed():
             raise _evidence_error("session capability is invalid")
@@ -219,9 +219,9 @@ def live_component_status(
     if type(validation) is _AggregateComponentValidation:
         return _aggregate_live_status(component_kind, validation, bindings)
     if component_kind == "runtime":
-        if type(validation) is not VerifiedMem0RuntimeAttestationValidation:
+        if managed_runtime_validation_view(validation) is None:
             return "invalid", "runtime_component_invalid"
-        public = public_mem0_runtime_attestation_validation(validation)
+        public = managed_runtime_validation_public_payload(validation)
         attestation = public.get("attestation")
         run_hash = attestation.get("run_id_sha256") if type(attestation) is dict else None
         valid = bool(
@@ -229,7 +229,7 @@ def live_component_status(
             and attestation.get("probe_nonce_sha256") == bindings.runtime_probe_nonce_sha256
             and attestation.get("target_identity_sha256") == _mem0_target_identity(bindings)
             and _runtime_validation_is_current(public)
-            and mem0_runtime_attestation_validation_is_publishable(
+            and managed_runtime_validation_is_publishable(
                 validation,
                 required_runtime_mode=bindings.mem0_expected_runtime_mode,
             )
@@ -373,9 +373,7 @@ def _issued_execution_case_manifest(
             or state.execution_phase != "issued"
             or state.execution_case_manifest_sha256 is None
         ):
-            raise _evidence_error(
-                "managed HTTP policy requires issued execution aggregate"
-            )
+            raise _evidence_error("managed HTTP policy requires issued execution aggregate")
         return state.execution_case_manifest_sha256
 
 
@@ -637,11 +635,9 @@ def _validate_managed_http_policy_aggregate_report(
         or trusted.get("run_id") != bindings.run_id
         or trusted.get("profile_id") != bindings.profile_id
         or trusted.get("scope_id") != bindings.scope
-        or trusted.get("binding_commitment_sha256")
-        != bindings.binding_commitment_sha256
+        or trusted.get("binding_commitment_sha256") != bindings.binding_commitment_sha256
         or trusted.get("managed_attestation_commitment_sha256") != managed_commitment
-        or trusted.get("execution_case_manifest_sha256")
-        != execution_case_manifest_sha256
+        or trusted.get("execution_case_manifest_sha256") != execution_case_manifest_sha256
         or trusted.get("backend_targets") != expected_targets
         or type(case_count) is not int
         or case_count < 1

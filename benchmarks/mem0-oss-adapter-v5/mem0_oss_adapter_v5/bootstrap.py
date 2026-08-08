@@ -13,6 +13,7 @@ from pathlib import Path
 from .app import create_app
 from .composition import V5AdapterService
 from .mem0_storage import Mem0StorageAdapter, PinnedMem0Backend
+from .runtime_attestation import V5RuntimeAttestationAuthority, V5RuntimeAuthorityProjection
 from .sealed_manifest import SealedInputManifest
 from .source_authority import verify_source_authority
 from .state_sqlite import SqliteOperationState
@@ -34,11 +35,14 @@ class _ReceiptAuthorityBundle:
 def build_app_from_environment():
     manifest = SealedInputManifest(Path(_required_environment("MEM0_V5_INPUT_MANIFEST_FILE")))
     state_path = Path(_required_environment("MEM0_V5_STATE_DB_FILE"))
-    state_key = _read_secret_file("MEM0_V5_STATE_HMAC_FILE").encode()
-    result_hmac_key = _read_secret_file("MEM0_V5_RESULT_HMAC_FILE").encode()
+    state_secret = _read_secret_file("MEM0_V5_STATE_HMAC_FILE")
+    result_hmac_secret = _read_secret_file("MEM0_V5_RESULT_HMAC_FILE")
+    state_key = state_secret.encode()
+    result_hmac_key = result_hmac_secret.encode()
     if hmac.compare_digest(state_key, result_hmac_key):
         raise ValueError("adapter_configuration_invalid")
     ingress = _read_secret_file("MEM0_V5_INGRESS_BEARER_FILE")
+    attestation_secret = _read_secret_file("MEM0_V5_RUNTIME_ATTESTATION_SECRET_FILE")
     runtime_bearer = _read_secret_file("MEM0_V5_RUNTIME_BEARER_FILE")
     receipt_secret = _read_secret_file("MEM0_V5_RECEIPT_SECRET_FILE")
     transport_origin = _read_secret_file("MEM0_V5_RUNTIME_TRANSPORT_ORIGIN_FILE")
@@ -52,7 +56,24 @@ def build_app_from_environment():
         installed_root=Path(__file__).resolve().parents[1],
         phase_c_authority_root=Path(_required_environment("MEM0_V5_PHASE_C_AUTHORITY_DIR")),
     )
+    _require_distinct_secrets(
+        ingress,
+        attestation_secret,
+        runtime_bearer,
+        receipt_secret,
+        state_secret,
+        result_hmac_secret,
+    )
     receipt_bundle = _receipt_authority(receipt_secret)
+    runtime_authority = V5RuntimeAuthorityProjection.issue(
+        source_authority=source_authority,
+        subscription_runtime_binding_commitment_sha256=(receipt_bundle.binding_commitment_sha256),
+        runtime_source_sha256=receipt_bundle.runtime_source_sha256,
+        runtime_route_binding_sha256=receipt_bundle.route_binding_sha256,
+        runtime_transport_origin_sha256=SUBSCRIPTION_RUNTIME_TRANSPORT_ORIGIN_SHA256,
+        expected_account_binding_hmac_sha256=account_binding,
+        expected_base_instructions_sha256=base_instructions,
+    )
     runtime = SubscriptionRuntimeClient(
         transport_origin=transport_origin,
         bearer_token=runtime_bearer,
@@ -67,18 +88,20 @@ def build_app_from_environment():
         state=state,
         runtime=runtime,
         receipt_authority=receipt_bundle.authority,
-        expected_account_binding_hmac_sha256=account_binding,
-        expected_base_instructions_sha256=base_instructions,
         storage=storage,
         receipt_directory=state_path.parent / "receipts",
         result_hmac_key=result_hmac_key,
-        source_authority=source_authority,
-        runtime_binding_commitment_sha256=receipt_bundle.binding_commitment_sha256,
-        runtime_source_sha256=receipt_bundle.runtime_source_sha256,
-        runtime_route_binding_sha256=receipt_bundle.route_binding_sha256,
-        runtime_transport_origin_sha256=SUBSCRIPTION_RUNTIME_TRANSPORT_ORIGIN_SHA256,
+        runtime_authority=runtime_authority,
     )
-    return create_app(service=service, bearer_token=ingress)
+    runtime_attestation = V5RuntimeAttestationAuthority(
+        projection=runtime_authority,
+        root_secret=attestation_secret.encode(),
+    )
+    return create_app(
+        service=service,
+        bearer_token=ingress,
+        runtime_attestation_authority=runtime_attestation,
+    )
 
 
 def _receipt_authority(receipt_secret: str) -> _ReceiptAuthorityBundle:
@@ -217,6 +240,12 @@ def _read_pinned_digest_file(environment_name: str) -> str:
     if len(raw) != 64 or any(byte not in b"0123456789abcdef" for byte in raw):
         raise ValueError("adapter_configuration_invalid")
     return raw.decode("ascii")
+
+
+def _require_distinct_secrets(*values: str) -> None:
+    for index, value in enumerate(values):
+        if any(hmac.compare_digest(value.encode(), item.encode()) for item in values[index + 1 :]):
+            raise ValueError("adapter_configuration_invalid")
 
 
 def _required_environment(name: str) -> str:

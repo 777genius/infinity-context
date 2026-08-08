@@ -148,8 +148,9 @@ def _secret_fixture(
         "checkpoint-head",
         "operation-signer",
         "durable-hmac",
+        "runtime-attestation",
     )
-    values = [f"secret-role-{index}-".encode() + bytes([65 + index]) * 32 for index in range(7)]
+    values = [f"secret-role-{index}-".encode() + bytes([65 + index]) * 32 for index in range(8)]
     if collision is not None:
         values[collision[1]] = values[collision[0]]
     paths = tuple(secret_root / name for name in names)
@@ -168,6 +169,8 @@ def _secret_fixture(
         checkpoint_head_key_file=paths[4],
         operation_journal_signer_secret_file=paths[5],
         durable_clean_state_hmac_secret_file=paths[6],
+        runtime_attestation_secret_file=paths[7],
+        runtime_attestation_secret_sha256=hashlib.sha256(values[7]).hexdigest(),
     )
     return filesystem, ManagedMem0V5CredentialPaths(*paths[:5])
 
@@ -319,9 +322,9 @@ def test_credential_activation_binding_is_idempotent_only_for_exact_object(
         bundle._bind_activated_preparation(material(), now=_NOW)
 
 
-def test_seven_secret_snapshot_returns_sealed_one_shot_capabilities(tmp_path: Path) -> None:
+def test_eight_secret_snapshot_returns_sealed_one_shot_capabilities(tmp_path: Path) -> None:
     filesystem, paths = _secret_fixture(tmp_path)
-    credentials, signer, durable = subject._load_seven_distinct_secrets(
+    credentials, signer, durable = subject._load_eight_distinct_secrets(
         filesystem=filesystem,
         credential_paths=paths,
     )
@@ -336,14 +339,14 @@ def test_seven_secret_snapshot_returns_sealed_one_shot_capabilities(tmp_path: Pa
     credentials.close()
     filesystem.operation_journal_signer_secret_file.chmod(0o640)
     with pytest.raises(subject.ManagedV5LivePrivateDependencyError, match="secret_invalid"):
-        subject._load_seven_distinct_secrets(
+        subject._load_eight_distinct_secrets(
             filesystem=filesystem,
             credential_paths=paths,
         )
 
 
 @pytest.mark.parametrize("existing_role", range(5))
-@pytest.mark.parametrize("new_role", (5, 6))
+@pytest.mark.parametrize("new_role", (5, 6, 7))
 def test_new_secret_roles_cannot_reuse_any_existing_mem0_secret(
     tmp_path: Path,
     existing_role: int,
@@ -361,7 +364,7 @@ def test_new_secret_roles_cannot_reuse_any_existing_mem0_secret(
         collision=(existing_role, new_role),
     )
     with pytest.raises(subject.ManagedV5LivePrivateDependencyError, match="secret_reused"):
-        subject._load_seven_distinct_secrets(
+        subject._load_eight_distinct_secrets(
             filesystem=filesystem,
             credential_paths=paths,
         )
@@ -435,7 +438,7 @@ def test_typed_construction_failure_closes_loaded_credentials(
     loaded_credentials = SimpleNamespace(close=lambda: closed.append(True))
     monkeypatch.setattr(
         subject,
-        "_load_seven_distinct_secrets",
+        "_load_eight_distinct_secrets",
         lambda **_values: (loaded_credentials, b"s" * 32, b"d" * 32),
     )
 

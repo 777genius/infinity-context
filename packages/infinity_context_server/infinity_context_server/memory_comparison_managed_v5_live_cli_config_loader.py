@@ -22,6 +22,8 @@ _FILESYSTEM_DIGEST_KEYS = frozenset(
         "runtime_authority_sha256",
         "runtime_artifact_manifest_sha256",
         "node_executable_sha256",
+        "runtime_attestation_secret_sha256",
+        "adapter_runtime_pin_sha256",
     }
 )
 _FILESYSTEM_KEYS = frozenset(
@@ -41,6 +43,8 @@ _FILESYSTEM_KEYS = frozenset(
         "checkpoint_head_key_file",
         "operation_journal_signer_secret_file",
         "durable_clean_state_hmac_secret_file",
+        "runtime_attestation_secret_file",
+        "runtime_attestation_secret_sha256",
         "runtime_authority_file",
         "runtime_authority_sha256",
         "phase_c_package_root",
@@ -49,6 +53,8 @@ _FILESYSTEM_KEYS = frozenset(
         "runtime_artifact_manifest_sha256",
         "node_executable",
         "node_executable_sha256",
+        "adapter_runtime_pin_file",
+        "adapter_runtime_pin_sha256",
     }
 )
 

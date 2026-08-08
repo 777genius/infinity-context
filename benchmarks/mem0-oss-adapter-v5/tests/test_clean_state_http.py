@@ -20,6 +20,10 @@ from mem0_oss_adapter_v5.mem0_storage import (
     StorageScope,
     independent_snapshot,
 )
+from mem0_oss_adapter_v5.runtime_attestation import (
+    V5RuntimeAttestationAuthority,
+    V5RuntimeAuthorityProjection,
+)
 from mem0_oss_adapter_v5.sealed_manifest import SealedInputManifest
 from mem0_oss_adapter_v5.source_authority import _issue_verified_source_authority
 from mem0_oss_adapter_v5.state_sqlite import SqliteOperationState
@@ -241,21 +245,24 @@ def _rig(tmp_path: Path, *, backend: object | None = None):
     )
     runtime_binding = _sha("runtime-binding")
     runtime_route = _sha("runtime-route")
+    runtime_authority = V5RuntimeAuthorityProjection.issue(
+        source_authority=source_authority,
+        subscription_runtime_binding_commitment_sha256=runtime_binding,
+        runtime_source_sha256=_RUNTIME_SOURCE,
+        runtime_route_binding_sha256=runtime_route,
+        runtime_transport_origin_sha256=SUBSCRIPTION_RUNTIME_TRANSPORT_ORIGIN_SHA256,
+        expected_account_binding_hmac_sha256=_sha("account"),
+        expected_base_instructions_sha256=_sha("base-instructions"),
+    )
     service = V5AdapterService(
         manifest=manifest,
         state=state,
         runtime=runtime,
         receipt_authority=_UnusedReceiptAuthority(),
-        expected_account_binding_hmac_sha256=_sha("account"),
-        expected_base_instructions_sha256=_sha("base-instructions"),
         storage=Mem0StorageAdapter(backend),
         receipt_directory=tmp_path / "receipts",
         result_hmac_key=_KEY,
-        source_authority=source_authority,
-        runtime_binding_commitment_sha256=runtime_binding,
-        runtime_source_sha256=_RUNTIME_SOURCE,
-        runtime_route_binding_sha256=runtime_route,
-        runtime_transport_origin_sha256=SUBSCRIPTION_RUNTIME_TRANSPORT_ORIGIN_SHA256,
+        runtime_authority=runtime_authority,
     )
     implementation_runtime = source_authority.binding_commitment(
         route_sha256=SUBSCRIPTION_RUNTIME_ROUTE_SHA256,
@@ -310,7 +317,17 @@ def _rig(tmp_path: Path, *, backend: object | None = None):
         "runtime_binding_commitment_sha256": implementation_runtime,
         "scopes": _scopes(admission, units),
     }
-    client = TestClient(create_app(service=service, bearer_token=_TOKEN))
+    runtime_attestation = V5RuntimeAttestationAuthority(
+        projection=runtime_authority,
+        root_secret=b"a" * 32,
+    )
+    client = TestClient(
+        create_app(
+            service=service,
+            bearer_token=_TOKEN,
+            runtime_attestation_authority=runtime_attestation,
+        )
+    )
     admit = {
         "admission_commitment_sha256": admission,
         "ingestion_manifest_sha256": unsigned["ingestion_manifest_sha256"],

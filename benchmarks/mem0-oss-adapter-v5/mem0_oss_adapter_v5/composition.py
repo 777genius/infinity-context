@@ -70,9 +70,9 @@ from mem0_oss_adapter_v5.request_binding import (
     RequestBindingV2Response,
 )
 from mem0_oss_adapter_v5.run_commitments import OperationEvidence, reconstruct, runner_state
+from mem0_oss_adapter_v5.runtime_attestation import V5RuntimeAuthorityProjection
 from mem0_oss_adapter_v5.sealed_manifest import InputUnit as _InputUnit
 from mem0_oss_adapter_v5.sealed_manifest import SealedInputManifest
-from mem0_oss_adapter_v5.source_authority import VerifiedSourceAuthority
 from mem0_oss_adapter_v5.state_sqlite import OperationRecord, OperationState, SqliteOperationState
 from mem0_oss_adapter_v5.subscription_runtime import (
     SUBSCRIPTION_RUNTIME_ROUTE_SHA256,
@@ -115,38 +115,27 @@ class V5AdapterService:
         state: SqliteOperationState,
         runtime: SubscriptionRuntimeClient,
         receipt_authority: _ReceiptAuthority,
-        expected_account_binding_hmac_sha256: str,
-        expected_base_instructions_sha256: str,
         storage: Mem0StorageAdapter,
         receipt_directory: Path,
         result_hmac_key: bytes,
-        source_authority: VerifiedSourceAuthority,
-        runtime_binding_commitment_sha256: str,
-        runtime_source_sha256: str,
-        runtime_route_binding_sha256: str,
-        runtime_transport_origin_sha256: str,
+        runtime_authority: V5RuntimeAuthorityProjection,
     ) -> None:
         self._manifest = manifest
         self._state = state
         self._runtime = runtime
         self._receipt_authority = receipt_authority
-        self._expected_account_binding = _digest(expected_account_binding_hmac_sha256)
-        self._expected_base_instructions = _digest(expected_base_instructions_sha256)
+        if type(runtime_authority) is not V5RuntimeAuthorityProjection:
+            raise ValueError("adapter_configuration_invalid")
+        self._runtime_authority = runtime_authority
+        self._expected_account_binding = runtime_authority.expected_account_binding_hmac_sha256
+        self._expected_base_instructions = runtime_authority.expected_base_instructions_sha256
         self._storage = storage
         self._receipt_directory = _private_directory(receipt_directory)
         if type(result_hmac_key) is not bytes or len(result_hmac_key) < 32:
             raise ValueError("adapter_configuration_invalid")
         self._result_hmac_key = bytes(result_hmac_key)
-        if type(source_authority) is not VerifiedSourceAuthority:
-            raise ValueError("adapter_configuration_invalid")
-        self._runtime_binding = source_authority.binding_commitment(
-            route_sha256=SUBSCRIPTION_RUNTIME_ROUTE_SHA256,
-            runtime_binding_commitment_sha256=_digest(runtime_binding_commitment_sha256),
-            runtime_source_sha256=_digest(runtime_source_sha256),
-            runtime_route_binding_sha256=_digest(runtime_route_binding_sha256),
-            runtime_transport_origin_sha256=_digest(runtime_transport_origin_sha256),
-        )
-        self._runtime_source_sha256 = _digest(runtime_source_sha256)
+        self._runtime_binding = runtime_authority.runtime_binding_commitment_sha256
+        self._runtime_source_sha256 = runtime_authority.runtime_source_sha256
         self._admission: str | None = None
         self._committed_memory_ids: dict[str, tuple[str, ...]] = {}
         self._evidence = V5EvidenceComposition(

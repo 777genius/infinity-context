@@ -33,6 +33,7 @@ from mem0_oss_adapter_v5.http_models import (
     StatusRequest,
 )
 from mem0_oss_adapter_v5.mem0_storage import Mem0StorageAdapter, independent_snapshot
+from mem0_oss_adapter_v5.runtime_attestation import V5RuntimeAuthorityProjection
 from mem0_oss_adapter_v5.source_authority import _issue_verified_source_authority
 from mem0_oss_adapter_v5.state_sqlite import OperationState, SqliteOperationState
 from mem0_oss_adapter_v5.subscription_runtime import SUBSCRIPTION_RUNTIME_ROUTE_SHA256
@@ -164,29 +165,33 @@ def _context(tmp_path) -> _Context:
 
 
 def _service(tmp_path, manifest, state, runtime, storage) -> V5AdapterService:
+    source_authority = _issue_verified_source_authority(
+        source_commit_sha1="1" * 40,
+        source_tree_sha1="2" * 40,
+        manifest_sha256=_sha("source-manifest"),
+        closure_sha256=_sha("source-closure"),
+        phase_c_infinity_commit_sha1="3" * 40,
+        phase_c_infinity_tree_sha1="4" * 40,
+        phase_c_release_manifest_sha256=_sha("phase-release"),
+    )
+    runtime_authority = V5RuntimeAuthorityProjection.issue(
+        source_authority=source_authority,
+        subscription_runtime_binding_commitment_sha256=_sha("runtime-binding"),
+        runtime_source_sha256=_sha("runtime-source"),
+        runtime_route_binding_sha256=_sha("runtime-route"),
+        runtime_transport_origin_sha256=_sha("runtime-transport-origin"),
+        expected_account_binding_hmac_sha256=_sha("account"),
+        expected_base_instructions_sha256=_sha("base"),
+    )
     return V5AdapterService(
         manifest=manifest,
         state=state,
         runtime=runtime,
         receipt_authority=_Authority(),
-        expected_account_binding_hmac_sha256=_sha("account"),
-        expected_base_instructions_sha256=_sha("base"),
         storage=storage,
         receipt_directory=tmp_path / "receipts",
         result_hmac_key=b"r" * 32,
-        source_authority=_issue_verified_source_authority(
-            source_commit_sha1="1" * 40,
-            source_tree_sha1="2" * 40,
-            manifest_sha256=_sha("source-manifest"),
-            closure_sha256=_sha("source-closure"),
-            phase_c_infinity_commit_sha1="3" * 40,
-            phase_c_infinity_tree_sha1="4" * 40,
-            phase_c_release_manifest_sha256=_sha("phase-release"),
-        ),
-        runtime_binding_commitment_sha256=_sha("runtime-binding"),
-        runtime_source_sha256=_sha("runtime-source"),
-        runtime_route_binding_sha256=_sha("runtime-route"),
-        runtime_transport_origin_sha256=_sha("runtime-transport-origin"),
+        runtime_authority=runtime_authority,
     )
 
 

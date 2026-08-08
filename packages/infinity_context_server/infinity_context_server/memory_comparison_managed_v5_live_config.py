@@ -133,6 +133,8 @@ class ManagedV5LiveFilesystemConfig:
     checkpoint_head_key_file: Path
     operation_journal_signer_secret_file: Path
     durable_clean_state_hmac_secret_file: Path
+    runtime_attestation_secret_file: Path
+    runtime_attestation_secret_sha256: str
     runtime_authority_file: Path
     runtime_authority_sha256: str
     phase_c_package_root: Path
@@ -141,6 +143,8 @@ class ManagedV5LiveFilesystemConfig:
     runtime_artifact_manifest_sha256: str
     node_executable: Path
     node_executable_sha256: str
+    adapter_runtime_pin_file: Path
+    adapter_runtime_pin_sha256: str
     phase_c_python_tree_sha256: str = _REVIEWED_PHASE_C_PYTHON_TREE_SHA256
 
     def __post_init__(self) -> None:
@@ -159,17 +163,21 @@ class ManagedV5LiveFilesystemConfig:
             self.checkpoint_head_key_file,
             self.operation_journal_signer_secret_file,
             self.durable_clean_state_hmac_secret_file,
+            self.runtime_attestation_secret_file,
             self.runtime_authority_file,
             self.phase_c_package_root,
             self.runtime_repo,
             self.runtime_artifact_manifest,
             self.node_executable,
+            self.adapter_runtime_pin_file,
         )
         digests = (
             self.evidence_key_sha256,
             self.runtime_authority_sha256,
             self.runtime_artifact_manifest_sha256,
             self.node_executable_sha256,
+            self.runtime_attestation_secret_sha256,
+            self.adapter_runtime_pin_sha256,
             self.phase_c_python_tree_sha256,
         )
         if (
@@ -267,6 +275,7 @@ def validate_managed_v5_live_public_config(
         filesystem.checkpoint_head_key_file,
         filesystem.operation_journal_signer_secret_file,
         filesystem.durable_clean_state_hmac_secret_file,
+        filesystem.runtime_attestation_secret_file,
     )
     if len(set(private_files)) != len(private_files):
         raise ManagedV5LiveConfigError("managed_v5_live_credential_paths_invalid")
@@ -316,6 +325,7 @@ def validate_managed_v5_live_public_config(
         filesystem.runtime_repo,
         filesystem.runtime_artifact_manifest,
         filesystem.node_executable,
+        filesystem.adapter_runtime_pin_file,
     )
     if any(_paths_overlap(path, root) for path in public_paths for root in roots):
         raise ManagedV5LiveConfigError("managed_v5_live_public_private_paths_overlap")
@@ -333,6 +343,13 @@ def validate_managed_v5_live_public_config(
         maximum_bytes=_MAX_PUBLIC_IMMUTABLE_BYTES,
         executable=False,
         code="managed_v5_live_runtime_artifact_invalid",
+    )
+    _read_public_immutable(
+        filesystem.adapter_runtime_pin_file,
+        filesystem.adapter_runtime_pin_sha256,
+        maximum_bytes=_MAX_AUTHORITY_BYTES,
+        executable=False,
+        code="managed_v5_live_adapter_runtime_pin_invalid",
     )
     _verify_reviewed_node(filesystem.node_executable, filesystem.node_executable_sha256)
     return parse_managed_v5_live_runtime_authority(authority_raw)

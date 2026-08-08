@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import os
 from contextlib import contextmanager
 from pathlib import Path
@@ -8,6 +9,7 @@ from types import SimpleNamespace
 import pytest
 
 from mem0_oss_adapter_v5 import bootstrap
+from mem0_oss_adapter_v5.source_authority import _issue_verified_source_authority
 
 
 def test_invalid_source_pin_fails_before_runtime_state_or_provider_initialization(
@@ -53,6 +55,69 @@ def test_state_and_result_hmac_keys_must_be_distinct(monkeypatch) -> None:
     monkeypatch.setattr(bootstrap, "_read_secret_file", lambda _name: "a" * 64)
     with pytest.raises(ValueError, match="adapter_configuration_invalid"):
         bootstrap.build_app_from_environment()
+
+
+def test_runtime_attestation_root_must_be_distinct_from_every_runtime_secret() -> None:
+    distinct = tuple(chr(97 + index) * 32 for index in range(6))
+    bootstrap._require_distinct_secrets(*distinct)
+    for index in range(len(distinct)):
+        duplicate = list(distinct)
+        duplicate[index] = distinct[(index + 1) % len(distinct)]
+        with pytest.raises(ValueError, match="adapter_configuration_invalid"):
+            bootstrap._require_distinct_secrets(*duplicate)
+
+
+def test_build_app_reaches_real_service_constructor_with_shared_runtime_authority(
+    tmp_path: Path, monkeypatch
+) -> None:
+    source_authority = _issue_verified_source_authority(
+        source_commit_sha1="1" * 40,
+        source_tree_sha1="2" * 40,
+        manifest_sha256=_digest("source-manifest"),
+        closure_sha256=_digest("source-closure"),
+        phase_c_infinity_commit_sha1="3" * 40,
+        phase_c_infinity_tree_sha1="4" * 40,
+        phase_c_release_manifest_sha256=_digest("phase-release"),
+    )
+    receipt_bundle = bootstrap._ReceiptAuthorityBundle(
+        authority=SimpleNamespace(),
+        binding_commitment_sha256=_digest("runtime-binding"),
+        runtime_source_sha256=_digest("runtime-source"),
+        route_binding_sha256=_digest("runtime-route"),
+    )
+    state_path = tmp_path / "state.sqlite3"
+
+    def required(name: str) -> str:
+        if name == "MEM0_V5_STATE_DB_FILE":
+            return str(state_path)
+        return str(tmp_path / name.lower())
+
+    def secret(name: str) -> str:
+        if name == "MEM0_V5_RUNTIME_TRANSPORT_ORIGIN_FILE":
+            return "http://127.0.0.1:8891"
+        return _digest(name)
+
+    monkeypatch.setattr(bootstrap, "_required_environment", required)
+    monkeypatch.setattr(bootstrap, "_read_secret_file", secret)
+    monkeypatch.setattr(bootstrap, "_read_pinned_digest_file", lambda _name: "a" * 64)
+    monkeypatch.setattr(bootstrap, "SealedInputManifest", lambda _path: SimpleNamespace())
+    monkeypatch.setattr(bootstrap, "verify_source_authority", lambda **_kwargs: source_authority)
+    monkeypatch.setattr(bootstrap, "_receipt_authority", lambda _secret: receipt_bundle)
+    monkeypatch.setattr(bootstrap, "SubscriptionRuntimeClient", lambda **_kwargs: SimpleNamespace())
+    monkeypatch.setattr(
+        bootstrap, "SqliteOperationState", lambda *_args, **_kwargs: SimpleNamespace()
+    )
+    monkeypatch.setattr(bootstrap, "_build_pinned_memory", lambda _path: SimpleNamespace())
+    monkeypatch.setattr(bootstrap, "PinnedMem0Backend", lambda _memory: SimpleNamespace())
+    monkeypatch.setattr(bootstrap, "Mem0StorageAdapter", lambda _backend: SimpleNamespace())
+
+    app = bootstrap.build_app_from_environment()
+
+    assert {route.path for route in app.routes} >= {"/health", "/v5/runtime/attest"}
+
+
+def _digest(value: str) -> str:
+    return hashlib.sha256(value.encode()).hexdigest()
 
 
 def test_tampered_phase_c_authority_blocks_runtime_binding_issue(monkeypatch) -> None:

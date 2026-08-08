@@ -580,6 +580,7 @@ def _preflight(
         runner_paths={
             "ingress-bearer": args.ingress_bearer_file,
             "result-hmac": args.evidence_key_file,
+            "runtime-attestation-secret": args.runtime_attestation_secret_file,
             "runtime-receipt-secret": args.receipt_secret_file,
             "checkpoint-signing-key": args.checkpoint_signing_key_file,
             "checkpoint-head-key": args.checkpoint_head_key_file,
@@ -678,6 +679,7 @@ def _parse_args(argv: list[str] | None) -> argparse.Namespace:
     parser.add_argument("--ingress-bearer-file", required=True, type=Path)
     parser.add_argument("--evidence-key-file", required=True, type=Path)
     parser.add_argument("--evidence-key-sha256", required=True)
+    parser.add_argument("--runtime-attestation-secret-file", required=True, type=Path)
     parser.add_argument("--receipt-secret-file", required=True, type=Path)
     parser.add_argument("--checkpoint-signing-key-file", required=True, type=Path)
     parser.add_argument("--checkpoint-head-key-file", required=True, type=Path)

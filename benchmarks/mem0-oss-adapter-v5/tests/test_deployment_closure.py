@@ -19,7 +19,9 @@ from mem0_oss_adapter_v5.source_authority import (
 from tools.generate_source_authority import (
     PhaseCAuthority,
     encoded_manifest,
+    runtime_attestation_contract,
     source_manifest,
+    write_authority,
 )
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -222,6 +224,99 @@ def test_pin_b_reproduces_live_v2_archive_and_verifies_exact_staged_closure(
         )
 
 
+def _runtime_contract_staged_source() -> dict[str, bytes]:
+    package = ROOT / "mem0_oss_adapter_v5"
+    return {
+        f"mem0_oss_adapter_v5/{name}": (package / name).read_bytes()
+        for name in ("runtime_attestation.py", "extraction_contract.py")
+    }
+
+
+def test_generator_upgrades_old_runtime_pin_from_archived_source_contract(
+    tmp_path: Path,
+) -> None:
+    manifest = json.loads((ROOT / "authority/manifest.json").read_bytes())
+    runtime_pin = json.loads((ROOT / "authority/runtime-pin.json").read_bytes())
+    added = {
+        "runtime_attestation_request_schema",
+        "runtime_attestation_response_schema",
+        "runtime_attestation_route_contract_sha256",
+        "requested_output_tokens",
+        "output_limit_enforced",
+        "usage_attestation_required",
+    }
+    for name in added:
+        runtime_pin["runtime_contract"].pop(name, None)
+    runtime_pin["runtime_contract"]["preserved_generator_fixture"] = "unchanged"
+    runtime_pin_file = tmp_path / "runtime-pin.json"
+    runtime_pin_file.write_text(json.dumps(runtime_pin))
+    authority = tmp_path / "authority"
+    authority.mkdir()
+
+    write_authority(
+        authority_directory=authority,
+        runtime_pin_file=runtime_pin_file,
+        manifest=manifest,
+        staged=_runtime_contract_staged_source(),
+    )
+
+    generated = json.loads(runtime_pin_file.read_bytes())["runtime_contract"]
+    assert generated["preserved_generator_fixture"] == "unchanged"
+    assert {name: generated[name] for name in added} == {
+        "runtime_attestation_request_schema": (
+            "mem0-oss-adapter-v5.runtime-attestation-request.v1"
+        ),
+        "runtime_attestation_response_schema": ("mem0-oss-adapter-v5.runtime-attestation.v1"),
+        "runtime_attestation_route_contract_sha256": (
+            "7ed6947e7694feebff43e5b33e1c99b462462c437be808d078442c4aaac0bf49"
+        ),
+        "requested_output_tokens": 4096,
+        "output_limit_enforced": False,
+        "usage_attestation_required": False,
+    }
+
+
+def test_generator_rejects_tampered_source_and_conflicting_contract(tmp_path: Path) -> None:
+    staged = _runtime_contract_staged_source()
+    exact = runtime_attestation_contract(staged).payload()
+    runtime_pin = json.loads((ROOT / "authority/runtime-pin.json").read_bytes())
+    runtime_pin["runtime_contract"].update(exact)
+    runtime_pin_file = tmp_path / "runtime-pin.json"
+    runtime_pin_file.write_text(json.dumps(runtime_pin))
+    authority = tmp_path / "authority"
+    authority.mkdir()
+    sentinels = {"manifest.json": b"old-manifest", "manifest.sha256": b"old-digest"}
+    for name, raw in sentinels.items():
+        (authority / name).write_bytes(raw)
+    manifest = json.loads((ROOT / "authority/manifest.json").read_bytes())
+    tampered = dict(staged)
+    tampered["mem0_oss_adapter_v5/runtime_attestation.py"] = staged[
+        "mem0_oss_adapter_v5/runtime_attestation.py"
+    ].replace(b'("POST", "/v5/runs/search")', b'("POST", "/v5/runs/tampered")')
+    with pytest.raises(ValueError, match="runtime_pin_runtime_contract_invalid"):
+        write_authority(
+            authority_directory=authority,
+            runtime_pin_file=runtime_pin_file,
+            manifest=manifest,
+            staged=tampered,
+        )
+    assert {name: (authority / name).read_bytes() for name in sentinels} == sentinels
+    assert json.loads(runtime_pin_file.read_bytes()) == runtime_pin
+
+    runtime_pin["runtime_contract"]["requested_output_tokens"] = 2048
+    runtime_pin_file.write_text(json.dumps(runtime_pin))
+    with pytest.raises(ValueError, match="runtime_pin_runtime_contract_invalid"):
+        write_authority(
+            authority_directory=authority,
+            runtime_pin_file=runtime_pin_file,
+            manifest=manifest,
+            staged=staged,
+        )
+
+    assert {name: (authority / name).read_bytes() for name in sentinels} == sentinels
+    assert json.loads(runtime_pin_file.read_bytes()) == runtime_pin
+
+
 def test_live_micro_canary_qdrant_snapshots_use_writable_state_path() -> None:
     compose = yaml.safe_load((ROOT / "compose.live-micro-canary.override.yaml").read_text())
     qdrant = compose["services"]["mem0-oss-v5-qdrant"]
@@ -262,6 +357,9 @@ def test_hosted_compose_has_no_secret_values_or_external_listener() -> None:
         "/run/secrets/runtime-transport-origin"
     )
     assert "MEM0_V5_RUNTIME_ORIGIN_FILE" not in environment
+    assert environment["MEM0_V5_RUNTIME_ATTESTATION_SECRET_FILE"] == (
+        "/run/secrets/runtime-attestation-secret"
+    )
     build_pin_source = compose["secrets"]["source-authority-manifest-sha256"]["file"]
     runtime_pin = next(
         volume
