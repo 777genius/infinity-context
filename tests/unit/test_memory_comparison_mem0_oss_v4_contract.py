@@ -34,13 +34,13 @@ from test_memory_comparison_mem0_oss_contract import deep_copied_v3_capabilities
 
 def test_v4_reviewed_exact_binding_constants_are_pinned() -> None:
     assert REVIEWED_MEM0_OSS_V4_WRAPPER_SOURCE_REVISION == (
-        "6dcdb1339f7af7010bb027d8fdd881a726a4e824"
+        "bdfa97cc30ce3459fd8d3ab21f8368a0781de155"
     )
     assert REVIEWED_MEM0_OSS_V4_WRAPPER_SOURCE_SHA256 == (
-        "9109c2fdc554b86e213773aa40bd29816082199681dabb4ac3246b33ca5814fe"
+        "5ccfc7836202095e4314eee54a14c0518be73e8400e6c554bad4b621a9585ec4"
     )
     assert REVIEWED_MEM0_OSS_V4_RUNTIME_PIN_SHA256 == (
-        "075ec6cf7d5691fa388e2c413fa34e48cbf7cbb14b3b037fbc18fe9a8cf0d17c"
+        "c78739e997fe5b3f643488f72b9850696372cb91de0f857948bcb01f639bcff5"
     )
 
 
