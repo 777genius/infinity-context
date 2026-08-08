@@ -113,7 +113,9 @@ def test_chat_completions_answerer_and_judge_map_messages_and_parse_text() -> No
         {"verdict": "correct", "score": 0.5, "reason": "non-binary"},
         {"verdict": "correct", "score": "1", "reason": "wrong type"},
         {"verdict": "correct", "score": 2, "reason": "out of range"},
+        {"verdict": "correct", "score": 10**400, "reason": "huge integer"},
         {"verdict": "correct", "score": True, "reason": "boolean"},
+        {"verdict": "incorrect", "score": False, "reason": "boolean"},
     ),
 )
 def test_chat_completions_judge_rejects_invalid_or_inconsistent_score(

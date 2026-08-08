@@ -419,10 +419,9 @@ def _extract_json_object(raw_text: str) -> str:
 def _binary_judge_score(value: object) -> float:
     if isinstance(value, bool) or not isinstance(value, int | float):
         raise ValueError("LLM judge returned invalid score")
-    score = float(value)
-    if score not in {0.0, 1.0}:
+    if value != 0 and value != 1:
         raise ValueError("LLM judge returned invalid score")
-    return score
+    return 1.0 if value == 1 else 0.0
 
 
 def _response_output_text(response: Any) -> str:
