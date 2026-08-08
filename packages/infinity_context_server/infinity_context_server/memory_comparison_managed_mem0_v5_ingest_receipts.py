@@ -191,6 +191,22 @@ class ManagedMem0V5CorpusIngestReceiptSet:
             _SETS[self] = next_owner
             return tuple(state.evidence for state in authenticated)
 
+    def authenticate_exact_ordered(
+        self, receipts: tuple[ManagedMem0V5CorpusIngestReceipt, ...]
+    ) -> tuple[ManagedMem0V5CorpusIngestEvidence, ...]:
+        """Authenticate an issued tuple without crossing its consume boundary."""
+
+        with _LOCK:
+            owner = _set_state_locked(self)
+            states = _require_exact_receipts_locked(
+                self,
+                owner,
+                receipts,
+                expected_phase="issued",
+                require_consumed=False,
+            )
+            return tuple(state.evidence for state in states)
+
     def validate_consumed(
         self,
         receipts: tuple[ManagedMem0V5CorpusIngestReceipt, ...],

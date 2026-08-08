@@ -584,6 +584,30 @@ def _paired_runtime(bundle: object) -> _PairedRuntimeState:
     return state
 
 
+def _validate_managed_mem0_v5_production_paired_runtime(
+    *,
+    bundle: ManagedMem0V5PairedRuntimeBundle,
+    composition: ManagedMem0V5Composition,
+    paired_run: ManagedMem0V5PairedRun,
+    cleanup_readback: object,
+) -> None:
+    """Require an exact paired runtime issued by this composition root."""
+
+    if (
+        type(bundle) is not ManagedMem0V5PairedRuntimeBundle
+        or type(composition) is not ManagedMem0V5Composition
+        or type(paired_run) is not ManagedMem0V5PairedRun
+    ):
+        raise ManagedRunError("managed Mem0 v5 production paired runtime is invalid")
+    state = _paired_runtime(bundle)
+    if (
+        state.composition is not composition
+        or state.paired_run is not paired_run
+        or state.cleanup_readback is not cleanup_readback
+    ):
+        raise ManagedRunError("managed Mem0 v5 production paired runtime is invalid")
+
+
 def _paired_runtime_signature(
     bundle: ManagedMem0V5PairedRuntimeBundle,
     state: _PairedRuntimeState,

@@ -427,6 +427,66 @@ class ManagedMem0V5LifecycleAdapter:
         _transition(self, phase=_Phase.RECEIPTS, receipts_consumed=True)
         return evidence
 
+    def _authenticate_corpus_receipts_for_production(
+        self,
+        *,
+        composition_binding: ManagedRunnerCompositionBinding,
+        receipts: tuple[ManagedMem0V5CorpusIngestReceipt, ...],
+    ) -> tuple[ManagedMem0V5CorpusIngestEvidence, ...]:
+        """Read-only authenticated handoff before a production journal commit."""
+
+        with _LOCK:
+            state = _state_locked(self)
+            if (
+                state.phase is not _Phase.RECEIPTS
+                or state.receipts_consumed
+                or composition_binding is not state.binding
+                or receipts != state.receipts
+                or len(receipts) != len(state.corpus_ids)
+            ):
+                self._fail("receipt_authenticate_invalid")
+            try:
+                return state.receipt_set.authenticate_exact_ordered(receipts)
+            except Exception:
+                raise ManagedMem0V5LifecycleAdapterError(
+                    "managed_mem0_v5_lifecycle_receipt_authenticate_invalid"
+                ) from None
+
+    def _validate_production_composition(
+        self,
+        *,
+        paired_runtime_bundle: object,
+        composition: object,
+        authority: ManagedMem0V5ManifestAuthority,
+        request: Mem0OssAdmissionRequest,
+        coordinator: object,
+    ) -> None:
+        """Prove that production dispatch uses a composition-issued paired runtime."""
+
+        with _LOCK:
+            state = _state_locked(self)
+            if (
+                state.authority != authority
+                or state.request != request
+                or state.paired_run._coordinator is not coordinator
+            ):
+                self._fail("production_composition_invalid")
+            paired_run = state.paired_run
+            cleanup_readback = state.cleanup_readback
+        try:
+            from infinity_context_server.memory_comparison_managed_mem0_v5_composition import (
+                _validate_managed_mem0_v5_production_paired_runtime,
+            )
+
+            _validate_managed_mem0_v5_production_paired_runtime(
+                bundle=paired_runtime_bundle,
+                composition=composition,
+                paired_run=paired_run,
+                cleanup_readback=cleanup_readback,
+            )
+        except Exception:
+            self._fail("production_composition_invalid")
+
     def cleanup_pass1(self) -> Mem0OssTerminalCleanupEvidence:
         state = _state(self)
         if state.phase is _Phase.RECEIPTS:

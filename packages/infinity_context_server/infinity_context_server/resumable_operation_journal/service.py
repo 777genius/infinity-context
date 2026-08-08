@@ -158,6 +158,103 @@ class ResumableOperationJournalService:
                 result = DispatchPreparation(state=state, should_dispatch=True)
         return result
 
+    def prepare_dispatch_batch(
+        self,
+        batch: tuple[tuple[LogicalOperationIdentity, str], ...],
+    ) -> tuple[DispatchPreparation, ...]:
+        """Atomically cross the dispatch boundary for one exact manifest batch."""
+
+        if (
+            type(batch) is not tuple
+            or not batch
+            or any(
+                type(item) is not tuple
+                or len(item) != 2
+                or type(item[0]) is not LogicalOperationIdentity
+                or not isinstance(item[1], str)
+                for item in batch
+            )
+        ):
+            raise OperationJournalError("operation_journal_dispatch_batch_input_invalid")
+
+        identities = tuple(item[0] for item in batch)
+        request_commitments = tuple(item[1] for item in batch)
+        run_id = identities[0].run_id
+        if any(identity.run_id != run_id for identity in identities):
+            raise OperationJournalError("operation_journal_dispatch_batch_run_divergent")
+
+        with self._journal.write_transaction() as transaction:
+            run = self._require_run(transaction, run_id)
+            manifest = tuple(transaction.iter_manifest(run_id=run_id))
+            if identities != manifest:
+                raise OperationJournalError("operation_journal_dispatch_batch_manifest_divergent")
+
+            current_states = tuple(
+                transaction.get_operation(
+                    run_id=run_id,
+                    logical_operation_id=identity.logical_operation_id,
+                )
+                for identity in identities
+            )
+            for identity, request_commitment, current in zip(
+                identities, request_commitments, current_states, strict=True
+            ):
+                if current is not None and current.identity != identity:
+                    raise OperationJournalError(
+                        "operation_journal_dispatch_batch_manifest_divergent"
+                    )
+                if current is not None and current.request_commitment_sha256 not in (
+                    None,
+                    request_commitment,
+                ):
+                    raise OperationJournalError("operation_journal_request_binding_immutable")
+                if current is not None and current.phase is OperationPhase.OUTCOME_UNKNOWN:
+                    raise OperationJournalError("operation_journal_outcome_unknown_quarantined")
+
+            fresh = tuple(
+                current is None or current.phase is OperationPhase.PENDING
+                for current in current_states
+            )
+            replay = tuple(
+                current is not None
+                and current.phase in (OperationPhase.DISPATCHED, OperationPhase.COMMITTED)
+                for current in current_states
+            )
+            if all(replay):
+                return tuple(
+                    DispatchPreparation(state=current, should_dispatch=False)
+                    for current in current_states
+                    if current is not None
+                )
+            if not all(fresh):
+                raise OperationJournalError("operation_journal_dispatch_batch_mixed_state")
+            if run.phase is OperationRunPhase.SEALED:
+                raise OperationJournalError("operation_journal_run_not_dispatchable")
+
+            prepared: list[DispatchPreparation] = []
+            updated_run = run
+            for identity, request_commitment in zip(identities, request_commitments, strict=True):
+                state = OperationState(
+                    identity=identity,
+                    phase=OperationPhase.DISPATCHED,
+                    request_commitment_sha256=request_commitment,
+                )
+                transaction.put_operation(state)
+                updated_run = self._append_event(
+                    transaction,
+                    updated_run,
+                    event_type="operation_dispatched",
+                    logical_operation_id=identity.logical_operation_id,
+                    payload={
+                        "ordinal": identity.ordinal,
+                        "request_commitment_sha256": request_commitment,
+                        "retry_disposition": identity.retry_disposition.value,
+                    },
+                    notify=False,
+                )
+                prepared.append(DispatchPreparation(state=state, should_dispatch=True))
+            return tuple(prepared)
+
     def commit(
         self, identity: LogicalOperationIdentity, receipt: OperationReceipt
     ) -> OperationState:
