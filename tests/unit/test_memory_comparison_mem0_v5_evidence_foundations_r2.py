@@ -7,7 +7,9 @@ from dataclasses import replace
 from pathlib import Path
 
 import pytest
-from infinity_context_server import memory_comparison_clean_state as clean_state_module
+from infinity_context_server import (
+    memory_comparison_full_execution_evidence_variants as variants_module,
+)
 from infinity_context_server.memory_comparison_clean_state import (
     fresh_namespace_clean_state_proof,
 )
@@ -41,9 +43,7 @@ def _sha(value: str) -> str:
     return hashlib.sha256(value.encode()).hexdigest()
 
 
-def test_native_infinity_claim_uses_only_exact_infinity_proofs(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
+def test_native_infinity_claim_uses_only_exact_infinity_proofs() -> None:
     key = b"infinity-only-attestation-key!!" * 2
     corpus = _sha("corpus")
     scope = _sha("space")
@@ -58,18 +58,6 @@ def test_native_infinity_claim_uses_only_exact_infinity_proofs(
         attestation_key=key,
     )
 
-    legacy_mem0_calls = 0
-
-    def reject_legacy_mem0(**_values: object) -> object:
-        nonlocal legacy_mem0_calls
-        legacy_mem0_calls += 1
-        raise AssertionError("native Infinity claim called legacy Mem0 proof API")
-
-    monkeypatch.setattr(
-        clean_state_module,
-        "mem0_delete_clean_state_proof",
-        reject_legacy_mem0,
-    )
     claim = issue_infinity_di_full_execution_clean_state_evidence(
         corpus_ids=("corpus",),
         proofs=(proof,),
@@ -81,7 +69,7 @@ def test_native_infinity_claim_uses_only_exact_infinity_proofs(
     assert descriptor.variant == "infinity_di"
     assert descriptor.backend_roles == ("infinity-context",)
     assert descriptor.corpus_scopes == ((canonical_sha256({"corpus_id": "corpus"}), scope, 0),)
-    assert legacy_mem0_calls == 0
+    assert not hasattr(variants_module, "mem0_delete_clean_state_proof")
 
 
 def test_native_infinity_claim_rejects_forged_or_reordered_proofs() -> None:

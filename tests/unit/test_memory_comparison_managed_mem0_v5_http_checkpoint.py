@@ -863,11 +863,12 @@ def test_http_lane_rejects_oversized_chunked_response_without_content_buffering(
         cleanup_binding=_Binding(),
         transport=_OversizedTransport(),
     )
-    with pytest.raises(Mem0V5HttpError, match="remote_failed"):
+    with pytest.raises(Mem0V5HttpError, match="mem0_v5_http_response_invalid") as captured:
         lane.search(
             admission=_admission(),
             corpus_id="corpus-1",
             query="query",
             limit=5,
         )
+    assert captured.value.code == "mem0_v5_http_response_invalid"
     assert bearer.calls == 1

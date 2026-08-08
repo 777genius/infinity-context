@@ -60,6 +60,13 @@ class Mem0V5HttpError(RuntimeError):
         super().__init__(safe)
 
 
+class Mem0V5HttpResponsePort(Protocol):
+    @property
+    def status_code(self) -> int: ...
+
+    def read_bounded(self, maximum_bytes: int) -> bytes: ...
+
+
 class Mem0V5TransportPort(Protocol):
     def request(
         self,
@@ -70,7 +77,7 @@ class Mem0V5TransportPort(Protocol):
         content: bytes,
         timeout: float,
         follow_redirects: bool,
-    ) -> object: ...
+    ) -> Mem0V5HttpResponsePort: ...
 
 
 @dataclass(frozen=True, slots=True)
@@ -478,9 +485,19 @@ class Mem0V5HttpPort:
                 follow_redirects=False,
             )
             status_code = response.status_code
-            content = bytes(response.content)
+            reader = getattr(response, "read_bounded", None)
+            if type(status_code) is not int or not callable(reader):
+                raise TypeError("invalid bounded response port")
         except Exception:
             raise Mem0V5HttpError("mem0_v5_http_remote_failed") from None
+        try:
+            content = reader(_MAX_RESPONSE_BYTES)
+        except ValueError:
+            raise Mem0V5HttpError("mem0_v5_http_response_invalid") from None
+        except Exception:
+            raise Mem0V5HttpError("mem0_v5_http_remote_failed") from None
+        if type(content) is not bytes:
+            raise Mem0V5HttpError("mem0_v5_http_remote_failed")
         if status_code != 200:
             _fail("mem0_v5_http_remote_failed")
         if not 1 <= len(content) <= _MAX_RESPONSE_BYTES:
@@ -801,6 +818,7 @@ __all__ = (
     "Mem0V5DispatchRequest",
     "Mem0V5HttpError",
     "Mem0V5HttpPort",
+    "Mem0V5HttpResponsePort",
     "Mem0V5OperationReceiptAuthority",
     "Mem0V5ReceiptAuthority",
     "Mem0V5RuntimeReceiptEnvelope",

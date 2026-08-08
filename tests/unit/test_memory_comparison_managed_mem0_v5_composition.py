@@ -17,6 +17,9 @@ sys.path.insert(0, str(PHASE_C_ROOT))
 
 import phase_c_canary.runtime_binding as runtime_binding_module
 from infinity_context_server import memory_comparison_managed_mem0_v5_composition as subject
+from infinity_context_server.memory_comparison_bounded_httpx_transport import (
+    BoundedHttpResponse,
+)
 from infinity_context_server.memory_comparison_managed_mem0_v5_checkpoint import (
     ManagedMem0V5RunPhase,
 )
@@ -130,7 +133,7 @@ class _Transport:
                     hashlib.sha256,
                 ).hexdigest(),
             }
-        return type("Response", (), {"status_code": 200, "content": json.dumps(payload).encode()})()
+        return BoundedHttpResponse(200, json.dumps(payload).encode())
 
 
 def _cases() -> tuple[ManagedRunCase, ...]:
@@ -706,7 +709,7 @@ def test_fresh_process_composition_rebuilds_equivalent_public_bundle_without_sec
 def test_production_clean_state_factories_issue_one_opaque_paired_runtime(
     tmp_path: Path,
 ) -> None:
-    inputs, values = _inputs(tmp_path)
+    inputs, _values = _inputs(tmp_path)
     transport = inputs["transport"]
     composition = subject.compose_managed_mem0_v5(**inputs)
 

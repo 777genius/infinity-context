@@ -384,13 +384,18 @@ class ManagedMem0V5HttpLane:
             )
             status = response.status_code
             reader = getattr(response, "read_bounded", None)
-            if not callable(reader):
-                raise TypeError("unbounded response port")
-            content = reader(_MAX_RESPONSE_BYTES)
-            if type(content) is not bytes:  # noqa: E721 - exact transport DTO required
-                raise TypeError("invalid bounded response")
+            if type(status) is not int or not callable(reader):  # noqa: E721
+                raise TypeError("invalid bounded response port")
         except Exception:
             raise Mem0V5HttpError("mem0_v5_http_remote_failed") from None
+        try:
+            content = reader(_MAX_RESPONSE_BYTES)
+        except ValueError:
+            raise Mem0V5HttpError("mem0_v5_http_response_invalid") from None
+        except Exception:
+            raise Mem0V5HttpError("mem0_v5_http_remote_failed") from None
+        if type(content) is not bytes:  # noqa: E721 - exact transport DTO required
+            raise Mem0V5HttpError("mem0_v5_http_remote_failed")
         if status != 200:
             raise Mem0V5HttpError("mem0_v5_http_remote_failed")
         if not 1 <= len(content) <= _MAX_RESPONSE_BYTES:

@@ -382,6 +382,11 @@ class _Response:
     status_code: int
     content: bytes
 
+    def read_bounded(self, maximum_bytes: int) -> bytes:
+        if len(self.content) > maximum_bytes:
+            raise ValueError("oversized response")
+        return self.content
+
 
 class _Transport:
     def __init__(self, response: _Response | Exception) -> None:

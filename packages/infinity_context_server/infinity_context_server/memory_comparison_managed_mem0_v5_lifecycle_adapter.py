@@ -10,7 +10,7 @@ import threading
 import weakref
 from dataclasses import dataclass, replace
 from enum import Enum
-from typing import final
+from typing import NoReturn, final
 
 from infinity_context_server.memory_comparison_managed_mem0_v5_cleanup_readback import (
     ManagedMem0V5CleanupReadbackWitness,
@@ -443,7 +443,7 @@ class ManagedMem0V5LifecycleAdapter:
         _transition(self, phase=_Phase.PASS_TWO_COMPLETE)
         return witness
 
-    def _fail(self, suffix: str) -> None:
+    def _fail(self, suffix: str) -> NoReturn:
         raise ManagedMem0V5LifecycleAdapterError(f"managed_mem0_v5_lifecycle_{suffix}")
 
     def __repr__(self) -> str:
@@ -592,11 +592,11 @@ def _state_locked(adapter: ManagedMem0V5LifecycleAdapter) -> _LifecycleState:
 
 def _validate_dynamic(state: _LifecycleState) -> None:
     if (
-        type(state.phase) is not _Phase
-        or type(state.receipts) is not tuple
+        type(state.phase) is not _Phase  # noqa: E721 - exact lifecycle state required
+        or type(state.receipts) is not tuple  # noqa: E721 - exact lifecycle state required
         or len(state.receipts) > len(state.corpus_ids)
         or any(type(item) is not ManagedMem0V5CorpusIngestReceipt for item in state.receipts)
-        or type(state.receipts_consumed) is not bool
+        or type(state.receipts_consumed) is not bool  # noqa: E721 - exact state flag required
         or (state.receipts_consumed and len(state.receipts) != len(state.corpus_ids))
         or (
             state.coverage is not None

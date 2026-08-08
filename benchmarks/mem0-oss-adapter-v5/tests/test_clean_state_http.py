@@ -427,6 +427,9 @@ def test_managed_runner_client_crosses_real_fastapi_service_and_sqlite_boundary(
     repository_root = Path(__file__).resolve().parents[3]
     monkeypatch.syspath_prepend(str(repository_root / "packages" / "infinity_context_core"))
     monkeypatch.syspath_prepend(str(repository_root / "packages" / "infinity_context_server"))
+    from infinity_context_server.memory_comparison_bounded_httpx_transport import (
+        BoundedHttpResponse,
+    )
     from infinity_context_server.memory_comparison_managed_mem0_v5_http_lane import (
         HmacSha256ManagedMem0V5EvidenceVerifier,
     )
@@ -464,11 +467,7 @@ def test_managed_runner_client_crosses_real_fastapi_service_and_sqlite_boundary(
                 content=values["content"],
                 headers=values["headers"],
             )
-            return type(
-                "Response",
-                (),
-                {"status_code": response.status_code, "content": response.content},
-            )()
+            return BoundedHttpResponse(response.status_code, response.content)
 
     class EvidenceKey:
         def validate(self) -> None:
