@@ -371,6 +371,21 @@ def test_consumed_or_failed_a_does_not_poison_b_and_failure_does_not_consume() -
     )
 
 
+def test_mark_unknown_after_consumption_is_rejected_per_operation() -> None:
+    binding = _binding()
+    authority = _multi_authority(binding)
+    first, second = authority.operations
+    verifier, _ = _verifier(authority, binding)
+    verifier.verify_dispatch_receipt(
+        payload=_payload(authority, first),
+        context=_context(authority, first, readback=False),
+    )
+
+    with pytest.raises(Mem0V5HttpError, match="state_invalid"):
+        verifier.mark_outcome_unknown(context=_context(authority, first, readback=False))
+    verifier.mark_outcome_unknown(context=_context(authority, second, readback=False))
+
+
 def test_cross_operation_context_and_envelope_swaps_do_not_consume_target() -> None:
     binding = _binding()
     authority = _multi_authority(binding)

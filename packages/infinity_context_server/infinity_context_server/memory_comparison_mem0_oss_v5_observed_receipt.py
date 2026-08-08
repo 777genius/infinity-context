@@ -267,9 +267,9 @@ class Mem0V5ObservedExtractionReceiptVerifier(RuntimeReceiptVerificationPort):
         authority: Mem0V5ObservedExtractionReceiptAuthority,
         provider_free_test_seal: object | None,
     ) -> None:
-        if provider_free_test_seal in (
-            _PROVIDER_FREE_TEST_SEAL,
-            _PREFLIGHTED_COMPOSITION_SEAL,
+        if (
+            provider_free_test_seal is _PROVIDER_FREE_TEST_SEAL
+            or provider_free_test_seal is _PREFLIGHTED_COMPOSITION_SEAL
         ):
             module = _require_common_boundary(boundary, runtime_binding, authority)
         else:

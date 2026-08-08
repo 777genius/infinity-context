@@ -12,11 +12,9 @@ import os
 import socket
 import stat
 import sys
-from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Protocol
 
 _PROJECT_ROOT = Path(__file__).resolve().parents[1]
 for _repository_path in (
@@ -40,6 +38,13 @@ from scripts.mem0_v5_live_container_copy_contract import (
     validate_private_credentials,
     verify_container_copy_authority,
 )
+from scripts.mem0_v5_live_micro_canary_views import (
+    CompositionFactory,
+    CompositionView,
+    SealView,
+    SearchView,
+    TerminalView,
+)
 from scripts.mem0_v5_live_project_one_unit import OneUnitProjection, project_one_unit
 
 _IMAGE_ID_PREFIX = "sha256:"
@@ -51,63 +56,6 @@ _REVIEWED_NODE_SHA256 = "b2959781cc5a74c357ffa02367efa8a0330cbb1c9cb347732fdfaaa
 _MAX_PUBLIC_IMMUTABLE_BYTES = 32 * 1024 * 1024
 _REVIEWED_NODE_SIZE_BYTES = 123_438_592
 _RUNTIME_TRANSPORT_ORIGIN = b"http://127.0.0.1:8891"
-
-
-class SealView(Protocol):
-    admission_commitment_sha256: str
-    commitment_sha256: str
-    operation_root_sha256: str
-    provider_observed_extraction_calls: int
-    provider_observed_request_tokens: int
-    provider_observed_response_tokens: int
-
-
-class SearchView(Protocol):
-    records: tuple[object, ...]
-    result_root_sha256: str
-    evidence_commitment_sha256: str
-
-
-class TerminalView(Protocol):
-    terminal_state: str
-    commitment_sha256: str
-    provider_observed_extraction_calls: int
-    provider_observed_request_tokens: int
-    provider_observed_response_tokens: int
-
-
-class CoordinatorView(Protocol):
-    @property
-    def budget(self) -> object: ...
-
-    @property
-    def storage_observations(self) -> tuple[object, ...]: ...
-
-    @property
-    def terminal_evidence(self) -> TerminalView: ...
-
-    def admit(self, *, authority: object, request: object, budget_policy: object) -> None: ...
-
-    def dispatch_pending(self) -> SealView: ...
-
-    def restore(self, *, authority: object, request: object, budget_policy: object) -> object: ...
-
-    def seal_restored_completed(self) -> SealView: ...
-
-    def search_evidence(self, *, corpus_id: str, query: str, limit: int) -> SearchView: ...
-
-    def cleanup(self) -> TerminalView: ...
-
-    def abort(self) -> TerminalView: ...
-
-
-class CompositionView(Protocol):
-    authority: object
-    request: object
-    coordinator: CoordinatorView
-
-
-CompositionFactory = Callable[[], CompositionView]
 
 
 @dataclass(frozen=True, slots=True)
@@ -495,9 +443,13 @@ def _build_public_contract(
             "unit_identity_sha256": unit.unit_identity_sha256,
         }
     )
-    unit_fields = (unit.unit_identity_sha256, unit.unit_sha256, unit.scope_sha256)
     operation = observed_receipt.Mem0V5ObservedExtractionOperationAuthority(
-        operation_id, *unit_fields, 0, projection.request_body_sha256
+        operation_id_sha256=operation_id,
+        unit_identity_sha256=unit.unit_identity_sha256,
+        unit_sha256=unit.unit_sha256,
+        scope_sha256=unit.scope_sha256,
+        sequence=0,
+        request_body_sha256=projection.request_body_sha256,
     )
     observed = observed_receipt.Mem0V5ObservedExtractionReceiptAuthority(
         admission_commitment_sha256=admission.commitment_sha256,
