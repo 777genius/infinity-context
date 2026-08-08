@@ -323,13 +323,16 @@ def _compose_phase_c_boundary(
         preload_validator = ReviewedPhaseCPreloadValidator()
         with _LOCK:
             preload_validator.validate(root, tree_before)
-            if str(root) not in sys.path:
-                sys.path.insert(0, str(root))
-            authority_module = importlib.import_module(f"{_PHASE_C_DOMAIN}.authority")
-            binding_module = importlib.import_module(f"{_PHASE_C_DOMAIN}.runtime_binding")
-            receipt_module = importlib.import_module(f"{_PHASE_C_DOMAIN}.receipt")
-            boundary_module = importlib.import_module(f"{_PHASE_C_DOMAIN}.runtime_receipt_v2")
-            modules_after_import = preload_validator.validate(root, tree_before)
+            path_entry = str(root)
+            sys.path.insert(0, path_entry)
+            try:
+                authority_module = importlib.import_module(f"{_PHASE_C_DOMAIN}.authority")
+                binding_module = importlib.import_module(f"{_PHASE_C_DOMAIN}.runtime_binding")
+                receipt_module = importlib.import_module(f"{_PHASE_C_DOMAIN}.receipt")
+                boundary_module = importlib.import_module(f"{_PHASE_C_DOMAIN}.runtime_receipt_v2")
+                modules_after_import = preload_validator.validate(root, tree_before)
+            finally:
+                _remove_sys_path_entry(path_entry)
         for module in (authority_module, binding_module, receipt_module, boundary_module):
             module_path = Path(module.__file__).resolve(strict=True)
             if not module_path.is_relative_to(package):
@@ -386,6 +389,13 @@ def _compose_phase_c_boundary(
         return binding, boundary
     except Exception:
         _fail("managed_v5_live_phase_c_authority_invalid")
+
+
+def _remove_sys_path_entry(path_entry: str) -> None:
+    for index, candidate in enumerate(sys.path):
+        if candidate is path_entry:
+            del sys.path[index]
+            return
 
 
 def _require_factory_inputs(

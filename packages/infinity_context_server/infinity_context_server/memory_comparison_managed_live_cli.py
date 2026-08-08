@@ -137,6 +137,25 @@ _SAFE_CODES = frozenset(
         "subscription_runtime_url_invalid",
     }
 )
+_MANAGED_V5_COMPOSITION_PUBLIC_CODES = {
+    "credential_missing": "credential_missing",
+    "dataset_unreadable": "dataset_unreadable",
+    "managed_v5_live_cli_private_inputs_invalid": "config_invalid",
+    "managed_v5_live_cli_private_stage_invalid": "config_invalid",
+    "managed_v5_live_cli_public_stage_invalid": "config_invalid",
+    "managed_v5_live_cli_request_invalid": "config_invalid",
+    "managed_v5_live_clock_invalid": "managed_live_execution_failed",
+    "managed_v5_live_deadline_expired": "managed_live_execution_failed",
+    "managed_v5_live_extraction_contract_invalid": "config_invalid",
+    "managed_v5_live_extraction_projector_invalid": "config_invalid",
+    "managed_v5_live_mem0_origin_cross_wire": "config_invalid",
+    "managed_v5_live_private_target_cross_wire": "config_invalid",
+    "managed_v5_live_public_config_invalid": "config_invalid",
+    "mem0_oss_ingress_configuration_invalid": "mem0_oss_ingress_configuration_invalid",
+    "pre_readiness_no_go": "pre_readiness_no_go",
+    "profile_invalid": "profile_invalid",
+    "subscription_runtime_url_invalid": "subscription_runtime_url_invalid",
+}
 
 
 class ManagedLiveCliError(RuntimeError):
@@ -330,17 +349,7 @@ def _run_managed_live(
                 exc.code,
                 sealed_result=exc.sealed_result,
             )
-        mapped = {
-            "credential_missing": "credential_missing",
-            "dataset_unreadable": "dataset_unreadable",
-            "mem0_oss_ingress_configuration_invalid": ("mem0_oss_ingress_configuration_invalid"),
-            "managed_v5_live_public_config_invalid": "config_invalid",
-            "managed_v5_live_cli_request_invalid": "config_invalid",
-            "managed_v5_live_extraction_projector_invalid": "config_invalid",
-            "pre_readiness_no_go": "pre_readiness_no_go",
-            "profile_invalid": "profile_invalid",
-            "subscription_runtime_url_invalid": "subscription_runtime_url_invalid",
-        }.get(exc.code, "managed_live_execution_failed")
+        mapped = _managed_v5_composition_public_code(exc.code)
         raise ManagedLiveCliError(mapped) from None
     return {
         "suite": MANAGED_LIVE_CLI_SUITE,
@@ -354,6 +363,15 @@ def _run_managed_live(
         "publishable": False,
         "result": result,
     }
+
+
+def _managed_v5_composition_public_code(code: object) -> str:
+    if type(code) is not str:
+        return "managed_live_execution_failed"
+    return _MANAGED_V5_COMPOSITION_PUBLIC_CODES.get(
+        code,
+        "managed_live_execution_failed",
+    )
 
 
 def _run_managed_live_legacy(

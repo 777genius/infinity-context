@@ -74,22 +74,34 @@ def test_wrong_caller_hash_is_not_a_dead_field_and_file_is_read(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    reviewed_file = _readonly_contract(tmp_path)
     read_bytes = 0
+    contract_descriptor: int | None = None
+    original_open = subject.os.open
     original_read = subject.os.read
+
+    def tracked_open(path: object, *args: object, **kwargs: object) -> int:
+        nonlocal contract_descriptor
+        descriptor = original_open(path, *args, **kwargs)
+        if Path(path) == reviewed_file:
+            contract_descriptor = descriptor
+        return descriptor
 
     def tracked_read(descriptor: int, size: int) -> bytes:
         nonlocal read_bytes
         chunk = original_read(descriptor, size)
-        read_bytes += len(chunk)
+        if descriptor == contract_descriptor:
+            read_bytes += len(chunk)
         return chunk
 
+    monkeypatch.setattr(subject.os, "open", tracked_open)
     monkeypatch.setattr(subject.os, "read", tracked_read)
-    reviewed_file = _readonly_contract(tmp_path)
     with pytest.raises(
         subject.ManagedMem0V5ExtractionContractBindingError,
         match="contract_file_invalid",
     ):
         subject.ManagedMem0V5ExtractionContractBinding(reviewed_file, "f" * 64)
+    assert contract_descriptor is not None
     assert read_bytes == subject.REVIEWED_MEM0_V5_EXTRACTION_CONTRACT_SIZE_BYTES
 
 

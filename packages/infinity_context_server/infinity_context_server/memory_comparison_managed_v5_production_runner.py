@@ -329,10 +329,11 @@ def _compensate_unsealed_registration(
     registration = dependencies.benchmark_registration
     with suppress(BaseException):
         dependencies.mem0_credential_capabilities.close()
-    receipt = registry.cleanup_receipt
+    receipt: ManagedBenchmarkCleanupReceipt | ManagedBenchmarkPersistedCleanupReceipt | None = None
     try:
         if registration.state != "active":
             return
+        receipt = registry.cleanup_receipt
         if receipt is None:
             receipt = registry.begin_cleanup()
     except BaseException:
@@ -481,7 +482,10 @@ def run_verified_managed_v5_production_execution(
         _fail("managed_v5_production_close_failed")
     if type(outcome) is not ManagedRunOutcome:
         _fail("managed_v5_production_outcome_invalid")
-    observed_token_error = runtime.observed_extraction_verifier.verify()
+    try:
+        observed_token_error = runtime.observed_extraction_verifier.verify()
+    except Exception:
+        _fail("managed_v5_production_execution_failed")
     if observed_token_error is not None:
         _fail(observed_token_error)
     return outcome

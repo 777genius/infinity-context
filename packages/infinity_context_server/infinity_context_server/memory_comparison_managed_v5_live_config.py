@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import hashlib
+import importlib.machinery
 import json
 import os
 import stat
@@ -23,6 +24,7 @@ _PUBLIC_DIRECTORY_MODES = frozenset({0o500, 0o550, 0o555, 0o700, 0o750, 0o755})
 _PUBLIC_FILE_MODES = frozenset({0o400, 0o440, 0o444})
 _PUBLIC_EXECUTABLE_MODES = frozenset({0o500, 0o550, 0o555, 0o700, 0o750, 0o755})
 _PUBLIC_PYTHON_FILE_MODES = frozenset({0o400, 0o440, 0o444, 0o600, 0o640, 0o644})
+_PYTHON_IMPORT_SUFFIXES = tuple(importlib.machinery.all_suffixes())
 _REVIEWED_PHASE_C_PYTHON_TREE_SHA256 = (
     "4a113dc4d6308da0ebf8d61cadc01a8b59afb2edbb5e9c8982b009738764d8ad"
 )
@@ -524,8 +526,13 @@ def _validate_reviewed_phase_c_python_tree(
                     raise ValueError
             for name in file_names:
                 path = current_path / name
+                metadata = path.lstat()
+                if not stat.S_ISREG(metadata.st_mode):
+                    raise ValueError
                 if path.suffix == ".py":
                     observed_paths.add(path.relative_to(package).as_posix())
+                elif _is_unreviewed_executable_or_importable(path, metadata.st_mode):
+                    raise ValueError
         expected = dict(_REVIEWED_PHASE_C_PYTHON_FILES)
         if observed_paths != set(expected):
             raise ValueError
@@ -550,6 +557,10 @@ def _validate_reviewed_phase_c_python_tree(
         return tuple(snapshots)
     except (OSError, ValueError):
         raise ManagedV5LiveConfigError("managed_v5_live_phase_c_tree_invalid") from None
+
+
+def _is_unreviewed_executable_or_importable(path: Path, mode: int) -> bool:
+    return bool(stat.S_IMODE(mode) & 0o111) or path.name.endswith(_PYTHON_IMPORT_SUFFIXES)
 
 
 def _require_public_python_directory(path: Path) -> None:

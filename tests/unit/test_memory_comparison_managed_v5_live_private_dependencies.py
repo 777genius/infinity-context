@@ -368,6 +368,106 @@ def test_new_secret_roles_cannot_reuse_any_existing_mem0_secret(
     assert network_calls == []
 
 
+def test_typed_construction_failure_closes_loaded_credentials(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    run_id = "typed-failure-run"
+    backend_targets = (
+        FullComparisonBackendTarget("infinity-context", _sha("infinity-target")),
+        FullComparisonBackendTarget("mem0", _sha("mem0-target")),
+    )
+    binding_values = {
+        "run_id": run_id,
+        "run_nonce_commitment_sha256": _sha("run-nonce"),
+        "runtime_probe_nonce_sha256": _sha("probe-nonce"),
+        "profile_id": "mem0-locomo-top50-v1",
+        "methodology_commitment_sha256": _sha("methodology"),
+        "dataset_sha256": _sha("dataset"),
+        "selection_fingerprint_sha256": _sha("selection"),
+        "backend_targets": backend_targets,
+        "mem0_expected_runtime_mode": "oss",
+        "scope": "canary",
+    }
+    run_bindings = FullComparisonRunBindings(
+        **binding_values,
+        binding_commitment_sha256=_json_sha256(_binding_fields(**binding_values)),
+    )
+    plan = object.__new__(VerifiedManagedRunPlan)
+    manifest = OperationManifest((_operation(run_id, 0),))
+    activated = SimpleNamespace(
+        plan=plan,
+        request=SimpleNamespace(run_id=run_id),
+        composition_binding=SimpleNamespace(deadline=_DEADLINE),
+        production_authority=object(),
+        operation_manifest=manifest,
+    )
+    monkeypatch.setattr(
+        subject,
+        "_authenticate_activated_managed_v5_public_run",
+        lambda _value: activated,
+    )
+    monkeypatch.setattr(
+        subject,
+        "_inspect_verified_managed_run_plan",
+        lambda _value: SimpleNamespace(run_id=run_id),
+    )
+    monkeypatch.setattr(
+        subject,
+        "create_managed_comparison_run_bindings",
+        lambda _value: run_bindings,
+    )
+    monkeypatch.setattr(
+        subject,
+        "inspect_managed_mem0_v5_production_authority",
+        lambda _value: SimpleNamespace(
+            run_id_sha256=_sha(run_id),
+            authority_commitment_sha256=_sha("production-authority"),
+        ),
+    )
+    infinity_credentials = object.__new__(ManagedV5InfinityCredentialBundle)
+    monkeypatch.setattr(
+        ManagedV5InfinityCredentialBundle,
+        "_bind_activated_preparation",
+        lambda self, value, *, now: None,
+    )
+    closed: list[bool] = []
+    loaded_credentials = SimpleNamespace(close=lambda: closed.append(True))
+    monkeypatch.setattr(
+        subject,
+        "_load_seven_distinct_secrets",
+        lambda **_values: (loaded_credentials, b"s" * 32, b"d" * 32),
+    )
+
+    def typed_failure(**_values: object) -> str:
+        raise subject.ManagedV5LivePrivateDependencyError("injected_typed_failure")
+
+    monkeypatch.setattr(subject, "managed_v5_live_operation_policy_commitment", typed_failure)
+    filesystem, credential_paths = _secret_fixture(tmp_path)
+    config = object.__new__(ManagedV5LiveConfig)
+    object.__setattr__(config, "filesystem", filesystem)
+    object.__setattr__(config, "runtime", object())
+
+    with pytest.raises(
+        subject.ManagedV5LivePrivateDependencyError,
+        match="injected_typed_failure",
+    ):
+        subject._create_managed_v5_live_private_dependency_material(
+            config=config,
+            activated_preparation=object(),
+            plan=plan,
+            infinity_credentials=infinity_credentials,
+            credential_paths=credential_paths,
+            run_bindings=run_bindings,
+            budget_policy=ManagedMem0V5BudgetPolicy(100),
+            deadline=_DEADLINE,
+            now=_NOW,
+            clock=lambda: _NOW,
+        )
+
+    assert closed == [True]
+
+
 def test_factory_registers_last_and_recovers_multi_operation_journal(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,

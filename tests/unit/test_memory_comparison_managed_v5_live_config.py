@@ -287,7 +287,11 @@ def test_mem0_adapter_origin_has_no_permissive_fallback() -> None:
 
 def _reviewed_phase_c_tree(root: Path) -> Path:
     package_root = root / "phase-c-package"
-    shutil.copytree(PHASE_C_SOURCE, package_root / "phase_c_canary")
+    shutil.copytree(
+        PHASE_C_SOURCE,
+        package_root / "phase_c_canary",
+        ignore=shutil.ignore_patterns("__pycache__", "*.pyc"),
+    )
     return package_root
 
 
@@ -328,6 +332,28 @@ def test_phase_c_tree_rejects_extra_missing_symlink_and_writable_source(
                 subject._REVIEWED_PHASE_C_PYTHON_TREE_SHA256,
             )
         assert captured.value.code == "managed_v5_live_phase_c_tree_invalid"
+
+
+@pytest.mark.parametrize(
+    ("relative", "mode"),
+    (("foreign.pyc", 0o444), ("foreign.so", 0o444), ("executable-helper", 0o555)),
+)
+def test_phase_c_tree_rejects_unreviewed_importable_and_executable_artifacts(
+    tmp_path: Path,
+    relative: str,
+    mode: int,
+) -> None:
+    root = _reviewed_phase_c_tree(tmp_path / relative)
+    artifact = root / "phase_c_canary" / relative
+    artifact.write_bytes(b"unreviewed artifact")
+    artifact.chmod(mode)
+
+    with pytest.raises(ManagedV5LiveConfigError) as captured:
+        _REAL_PHASE_C_TREE_VALIDATOR(
+            root,
+            subject._REVIEWED_PHASE_C_PYTHON_TREE_SHA256,
+        )
+    assert captured.value.code == "managed_v5_live_phase_c_tree_invalid"
 
 
 def test_phase_c_malicious_init_is_not_executed_on_tree_mismatch(tmp_path: Path) -> None:

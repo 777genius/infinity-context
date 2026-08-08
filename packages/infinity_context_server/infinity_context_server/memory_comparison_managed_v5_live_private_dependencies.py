@@ -685,6 +685,8 @@ def _create_managed_v5_live_private_dependency_material(
         )
         registry = ManagedBenchmarkRegistryHttpAdapter(registry_config)
     except ManagedV5LivePrivateDependencyError:
+        if "credentials" in locals():
+            credentials.close()
         raise
     except Exception:
         if "credentials" in locals():

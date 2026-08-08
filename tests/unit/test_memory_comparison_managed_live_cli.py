@@ -225,6 +225,21 @@ def test_managed_v5_cli_requires_exact_validated_report_path(tmp_path: Path) -> 
     assert caught.value.code == "config_invalid"
 
 
+@pytest.mark.parametrize(
+    ("internal_code", "public_code"),
+    tuple(subject._MANAGED_V5_COMPOSITION_PUBLIC_CODES.items())
+    + (("PRIVATE-SECRET-CODE", "managed_live_execution_failed"),),
+)
+def test_managed_v5_composition_codes_are_exhaustively_normalized(
+    internal_code: str,
+    public_code: str,
+) -> None:
+    mapped = subject._managed_v5_composition_public_code(internal_code)
+
+    assert mapped == public_code
+    assert "PRIVATE" not in mapped
+
+
 def test_managed_v5_cli_persists_authorization_terminal_report(tmp_path: Path) -> None:
     config = _managed_v5_config(tmp_path, operator_notified=False)
     config.dataset_path.unlink()

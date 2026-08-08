@@ -302,6 +302,7 @@ def _production_fixture(tmp_path):
         tmp_path,
         values=values,
         production_authority=production_authority,
+        budget_policy=budget_policy,
     )
     constructor_values = {
         "production_authority": production_authority,

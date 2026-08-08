@@ -42,7 +42,7 @@ class _InfinityCredentialState:
     execution_transport: httpx.BaseTransport | None
     lifecycle_transport: httpx.BaseTransport | None
     registry_policy_transport: httpx.BaseTransport | None
-    benchmark_registry_transport: httpx.MockTransport | None
+    benchmark_registry_transport: httpx.BaseTransport | None
     deadline: datetime
     request_identity: int
     request_commitment: str
@@ -241,7 +241,7 @@ def _issue_managed_v5_infinity_credential_bundle(
     execution_transport: httpx.BaseTransport | None,
     lifecycle_transport: httpx.BaseTransport | None,
     registry_policy_transport: httpx.BaseTransport | None,
-    benchmark_registry_transport: httpx.MockTransport | None = None,
+    benchmark_registry_transport: httpx.BaseTransport | None = None,
 ) -> ManagedV5InfinityCredentialBundle:
     """Issue without constructing or inspecting any legacy Mem0 configuration."""
 

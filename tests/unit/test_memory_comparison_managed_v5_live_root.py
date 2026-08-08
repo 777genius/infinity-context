@@ -641,7 +641,10 @@ def test_private_stage_failure_closes_subscription_without_masking(
 
 
 @pytest.mark.parametrize("created", (False, True))
-@pytest.mark.parametrize("failure_at", ("none", "begin_cleanup", "finalize_unsealed_abort"))
+@pytest.mark.parametrize(
+    "failure_at",
+    ("none", "cleanup_receipt", "begin_cleanup", "finalize_unsealed_abort"),
+)
 def test_factory_activation_compensation_preserves_primary_or_recovery(
     monkeypatch,
     failure_at: str,
@@ -696,10 +699,15 @@ def test_factory_activation_compensation_preserves_primary_or_recovery(
         if failure_at == "finalize_unsealed_abort":
             raise RuntimeError("private registry failure")
 
+    def current_cleanup_receipt(self):
+        if failure_at == "cleanup_receipt":
+            raise RuntimeError("private registry failure")
+        return receipt_state[-1] if receipt_state else None
+
     monkeypatch.setattr(
         ManagedBenchmarkRegistryHttpAdapter,
         "cleanup_receipt",
-        property(lambda self: receipt_state[-1] if receipt_state else None),
+        property(current_cleanup_receipt),
     )
     monkeypatch.setattr(ManagedBenchmarkRegistryHttpAdapter, "begin_cleanup", begin_cleanup)
     monkeypatch.setattr(
@@ -741,13 +749,17 @@ def test_factory_activation_compensation_preserves_primary_or_recovery(
     else:
         assert caught.value.recovery_registry is registry
         assert caught.value.registration is registration
-        assert caught.value.cleanup_stage == failure_at
+        assert caught.value.cleanup_stage == (
+            "begin_cleanup" if failure_at == "cleanup_receipt" else failure_at
+        )
         assert caught.value.primary_code == primary.code
         assert caught.value.cleanup_receipt is (
-            None if failure_at == "begin_cleanup" else cleanup_receipt
+            None if failure_at in {"cleanup_receipt", "begin_cleanup"} else cleanup_receipt
         )
     assert events == (
-        ["registry.begin_cleanup"]
+        []
+        if failure_at == "cleanup_receipt"
+        else ["registry.begin_cleanup"]
         if failure_at == "begin_cleanup"
         else ["registry.begin_cleanup", "registry.finalize_unsealed_abort"]
     )

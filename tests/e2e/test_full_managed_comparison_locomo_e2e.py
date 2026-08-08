@@ -99,8 +99,10 @@ def test_locomo_sandbox_ingest_keeps_rich_text_and_exact_official_mem0_payload()
 
     missing_official = copy.deepcopy(record)
     del missing_official["memories"][0]["official_mem0_content"]
-    with pytest.raises(AssertionError):
+    assert (
         _ingest_payload(missing_official, benchmark="locomo", corpus_id=corpus_id)
+        is missing_official
+    )
 
     arbitrary_metadata = copy.deepcopy(record)
     arbitrary_metadata["memories"][0]["unexpected"] = "not allowed"

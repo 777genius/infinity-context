@@ -7,7 +7,7 @@ import pytest
 from infinity_context_server import memory_comparison_managed_live_cli as subject
 
 
-def _write_v5_config(tmp_path: Path) -> Path:
+def _write_v5_config(tmp_path: Path, *, extraction_digest: str = "a" * 64) -> Path:
     digest = "a" * 64
     path_names = {
         "state_root",
@@ -48,7 +48,7 @@ def _write_v5_config(tmp_path: Path) -> Path:
                 "extraction_contract_file": str(
                     tmp_path / "mem0_oss_adapter_v5" / "extraction_contract.py"
                 ),
-                "extraction_contract_sha256": digest,
+                "extraction_contract_sha256": extraction_digest,
             }
         )
     )
@@ -71,6 +71,17 @@ def test_strict_v5_cli_config_loads_only_explicit_paths_and_pins(tmp_path: Path)
 def test_v5_cli_config_rejects_duplicate_keys(tmp_path: Path) -> None:
     path = tmp_path / "duplicate.json"
     path.write_text('{"filesystem":{},"filesystem":{},"runtime":{}}')
+
+    with pytest.raises(subject.ManagedLiveCliError, match="config_invalid"):
+        subject._load_managed_v5_cli_config(path)
+
+
+@pytest.mark.parametrize("digest", ("a" * 63, "g" * 64, "A" * 64))
+def test_v5_cli_config_rejects_non_lowercase_64_hex_extraction_digest(
+    tmp_path: Path,
+    digest: str,
+) -> None:
+    path = _write_v5_config(tmp_path, extraction_digest=digest)
 
     with pytest.raises(subject.ManagedLiveCliError, match="config_invalid"):
         subject._load_managed_v5_cli_config(path)
@@ -102,35 +113,61 @@ def test_main_defaults_report_out_to_validated_v5_config_file(
 
     monkeypatch.setattr(subject, "write_json_atomic", record_atomic_write)
 
-    exit_code = subject.main(
-        [
-            "--dataset",
-            str(dataset),
-            "--profile",
-            "mem0-locomo-top50-v1",
-            "--case-id",
-            "case-1",
-            "--run-id",
-            "managed-v5-default-report",
-            "--infinity-api-url",
-            "http://127.0.0.1:7788",
-            "--mem0-api-url",
-            "http://127.0.0.1:8888",
-            "--subscription-runtime-url",
-            "http://127.0.0.1:8890",
-            "--max-extraction-tokens",
-            "1000",
-            "--max-total-tokens",
-            "2000",
-            "--mem0-runtime-implementation-sha256",
-            "b" * 64,
-            "--managed-v5-config-json",
-            str(config_path),
-        ]
-    )
+    exit_code = subject.main(_main_argv(dataset, config_path))
 
     stdout_report = json.loads(capsys.readouterr().out)
     assert exit_code == subject.MANAGED_LIVE_CLI_NO_GO
     assert atomic_writes == [report_file]
     assert json.loads(report_file.read_text()) == stdout_report
     assert stdout_report["reason_code"] == "authorization_required"
+
+
+def test_main_explicit_report_mismatch_has_stable_failure_code(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    dataset = tmp_path / "dataset.json"
+    dataset.write_text('{"official":true}')
+    config_path = _write_v5_config(tmp_path)
+    wrong_report = tmp_path / "wrong-report.json"
+
+    exit_code = subject.main(
+        [
+            *_main_argv(dataset, config_path),
+            "--report-out",
+            str(wrong_report),
+        ]
+    )
+
+    stdout_report = json.loads(capsys.readouterr().out)
+    assert exit_code == subject.MANAGED_LIVE_CLI_FAILURE
+    assert stdout_report["reason_code"] == "config_invalid"
+    assert stdout_report["publishable"] is False
+    assert not wrong_report.exists()
+
+
+def _main_argv(dataset: Path, config_path: Path) -> list[str]:
+    return [
+        "--dataset",
+        str(dataset),
+        "--profile",
+        "mem0-locomo-top50-v1",
+        "--case-id",
+        "case-1",
+        "--run-id",
+        "managed-v5-default-report",
+        "--infinity-api-url",
+        "http://127.0.0.1:7788",
+        "--mem0-api-url",
+        "http://127.0.0.1:8888",
+        "--subscription-runtime-url",
+        "http://127.0.0.1:8890",
+        "--max-extraction-tokens",
+        "1000",
+        "--max-total-tokens",
+        "2000",
+        "--mem0-runtime-implementation-sha256",
+        "b" * 64,
+        "--managed-v5-config-json",
+        str(config_path),
+    ]

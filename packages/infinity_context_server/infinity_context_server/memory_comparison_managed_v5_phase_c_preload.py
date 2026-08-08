@@ -4,8 +4,8 @@ from __future__ import annotations
 
 import ast
 import hashlib
-import importlib
 import importlib.machinery
+import importlib.util
 import os
 import stat
 import sys

@@ -246,9 +246,11 @@ def test_runner_executes_provider_free_v5_success_path_once(
     assert close_calls == 1
 
 
-def test_over_cap_terminal_completes_cleanup_and_withholds_outcome(
+@pytest.mark.parametrize("verifier_raises", (False, True))
+def test_terminal_observed_verification_is_normalized_after_cleanup(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path,
+    verifier_raises: bool,
 ) -> None:
     run_now = datetime.now(UTC)
     monkeypatch.setattr(support, "_RUN_ID", "managed-v5-provider-free-over-cap")
@@ -314,6 +316,12 @@ def test_over_cap_terminal_completes_cleanup_and_withholds_outcome(
             managed_live_max_age_seconds=900,
         ),
     )
+    if verifier_raises:
+        monkeypatch.setattr(
+            type(runtime.observed_extraction_verifier),
+            "verify",
+            lambda self: (_ for _ in ()).throw(RuntimeError("PRIVATE verifier failure")),
+        )
     with pytest.raises(ManagedV5ProductionRunnerError) as caught:
         run_verified_managed_v5_production_execution(
             runtime,
@@ -326,10 +334,15 @@ def test_over_cap_terminal_completes_cleanup_and_withholds_outcome(
     assert mem0.errors == []
     assert runtime.policy_port.terminal_completion_receipt.state == "cleanup_complete"
     assert registry_events[-1] == "registry.finalize"
-    assert caught.value.code == "managed_v5_extraction_observed_token_ceiling_exceeded"
+    assert caught.value.code == (
+        "managed_v5_production_execution_failed"
+        if verifier_raises
+        else "managed_v5_extraction_observed_token_ceiling_exceeded"
+    )
     assert runtime.owned_resources.closed is True
-    for _ in range(2):
-        assert (
-            runtime.observed_extraction_verifier.verify()
-            == "managed_v5_extraction_observed_token_ceiling_exceeded"
-        )
+    if not verifier_raises:
+        for _ in range(2):
+            assert (
+                runtime.observed_extraction_verifier.verify()
+                == "managed_v5_extraction_observed_token_ceiling_exceeded"
+            )

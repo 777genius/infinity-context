@@ -97,7 +97,7 @@ def load_managed_v5_live_cli_config(
         )
         extraction_file = Path(payload["extraction_contract_file"])
         extraction_sha256 = payload["extraction_contract_sha256"]
-        if not extraction_file.is_absolute() or type(extraction_sha256) is not str:
+        if not extraction_file.is_absolute() or not _is_sha256(extraction_sha256):
             raise TypeError
         return config, extraction_file, extraction_sha256
     except Exception:
@@ -142,6 +142,14 @@ def _unique_object(pairs: list[tuple[str, object]]) -> dict[str, object]:
             raise ValueError
         result[key] = value
     return result
+
+
+def _is_sha256(value: object) -> bool:
+    return (
+        type(value) is str
+        and len(value) == 64
+        and all(character in "0123456789abcdef" for character in value)
+    )
 
 
 __all__ = (

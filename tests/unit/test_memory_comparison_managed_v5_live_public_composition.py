@@ -382,37 +382,107 @@ def test_foreign_preloaded_phase_c_module_is_rejected_after_tree_validation(
 
 
 def test_exact_preloaded_phase_c_modules_pass_source_api_fingerprints(
+    tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    phase_root = ROOT / "benchmarks" / "phase-c-canary"
-    monkeypatch.syspath_prepend(str(phase_root))
-    importlib.import_module("phase_c_canary.runtime_receipt_v2")
-    binding_module = importlib.import_module("phase_c_canary.runtime_binding")
-    tree = config_subject._validate_reviewed_phase_c_python_tree(
-        phase_root,
-        config_subject._REVIEWED_PHASE_C_PYTHON_TREE_SHA256,
+    phase_root = tmp_path / "phase-c"
+    shutil.copytree(
+        ROOT / "benchmarks" / "phase-c-canary" / "phase_c_canary",
+        phase_root / "phase_c_canary",
+        ignore=shutil.ignore_patterns("__pycache__", "*.pyc"),
     )
-    snapshot = ReviewedPhaseCPreloadValidator().validate(phase_root, tree)
-    assert snapshot
-    assert snapshot[0][0] == "phase_c_canary"
-    binding = binding_module.RuntimeBindingComposition.compose_phase_c_canary().issue()
-    binding_module.require_trusted_runtime_binding(binding)
-    assert ReviewedPhaseCPreloadValidator().validate(phase_root, tree) == snapshot
+    monkeypatch.setattr(sys, "dont_write_bytecode", True)
+    for name in tuple(sys.modules):
+        if name == "phase_c_canary" or name.startswith("phase_c_canary."):
+            monkeypatch.delitem(sys.modules, name)
+    monkeypatch.syspath_prepend(str(phase_root))
+    try:
+        importlib.import_module("phase_c_canary.runtime_receipt_v2")
+        binding_module = importlib.import_module("phase_c_canary.runtime_binding")
+        tree = config_subject._validate_reviewed_phase_c_python_tree(
+            phase_root,
+            config_subject._REVIEWED_PHASE_C_PYTHON_TREE_SHA256,
+        )
+        snapshot = ReviewedPhaseCPreloadValidator().validate(phase_root, tree)
+        assert snapshot
+        assert snapshot[0][0] == "phase_c_canary"
+        binding = binding_module.RuntimeBindingComposition.compose_phase_c_canary().issue()
+        binding_module.require_trusted_runtime_binding(binding)
+        assert ReviewedPhaseCPreloadValidator().validate(phase_root, tree) == snapshot
+    finally:
+        for name in tuple(sys.modules):
+            if name == "phase_c_canary" or name.startswith("phase_c_canary."):
+                sys.modules.pop(name, None)
+
+
+def test_phase_c_import_path_is_restored_when_import_fails(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    phase_root = tmp_path / "phase-c"
+    shutil.copytree(
+        ROOT / "benchmarks" / "phase-c-canary" / "phase_c_canary",
+        phase_root / "phase_c_canary",
+        ignore=shutil.ignore_patterns("__pycache__", "*.pyc"),
+    )
+    for name in tuple(sys.modules):
+        if name == "phase_c_canary" or name.startswith("phase_c_canary."):
+            monkeypatch.delitem(sys.modules, name)
+    monkeypatch.syspath_prepend(str(phase_root))
+    before = tuple(sys.path)
+    calls = 0
+
+    def reject_import(_name: str) -> object:
+        nonlocal calls
+        calls += 1
+        assert sys.path[0] == str(phase_root)
+        raise RuntimeError("import blocked")
+
+    monkeypatch.setattr(subject.importlib, "import_module", reject_import)
+    base_config = _config(tmp_path)
+    config = replace(
+        base_config,
+        filesystem=replace(
+            base_config.filesystem,
+            phase_c_package_root=phase_root,
+        ),
+    )
+    with pytest.raises(subject.ManagedV5LivePublicCompositionError) as captured:
+        subject._compose_phase_c_boundary(config, _runtime_authority())
+
+    assert captured.value.code == "managed_v5_live_phase_c_authority_invalid"
+    assert calls == 1
+    assert tuple(sys.path) == before
 
 
 def test_tampered_preloaded_phase_c_api_is_rejected(
+    tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    phase_root = ROOT / "benchmarks" / "phase-c-canary"
-    monkeypatch.syspath_prepend(str(phase_root))
-    authority_module = importlib.import_module("phase_c_canary.authority")
-    tree = config_subject._validate_reviewed_phase_c_python_tree(
-        phase_root,
-        config_subject._REVIEWED_PHASE_C_PYTHON_TREE_SHA256,
+    phase_root = tmp_path / "phase-c"
+    shutil.copytree(
+        ROOT / "benchmarks" / "phase-c-canary" / "phase_c_canary",
+        phase_root / "phase_c_canary",
+        ignore=shutil.ignore_patterns("__pycache__", "*.pyc"),
     )
-    monkeypatch.setattr(authority_module, "immutable_authority", lambda: None)
-    with pytest.raises(PhaseCPreloadValidationError, match="phase_c_module_api_invalid"):
-        ReviewedPhaseCPreloadValidator().validate(phase_root, tree)
+    monkeypatch.setattr(sys, "dont_write_bytecode", True)
+    for name in tuple(sys.modules):
+        if name == "phase_c_canary" or name.startswith("phase_c_canary."):
+            monkeypatch.delitem(sys.modules, name)
+    monkeypatch.syspath_prepend(str(phase_root))
+    try:
+        authority_module = importlib.import_module("phase_c_canary.authority")
+        tree = config_subject._validate_reviewed_phase_c_python_tree(
+            phase_root,
+            config_subject._REVIEWED_PHASE_C_PYTHON_TREE_SHA256,
+        )
+        monkeypatch.setattr(authority_module, "immutable_authority", lambda: None)
+        with pytest.raises(PhaseCPreloadValidationError, match="phase_c_module_api_invalid"):
+            ReviewedPhaseCPreloadValidator().validate(phase_root, tree)
+    finally:
+        for name in tuple(sys.modules):
+            if name == "phase_c_canary" or name.startswith("phase_c_canary."):
+                sys.modules.pop(name, None)
 
 
 def test_malicious_phase_c_init_is_not_executed_when_tree_hash_differs(
