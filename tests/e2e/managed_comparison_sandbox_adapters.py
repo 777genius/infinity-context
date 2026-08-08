@@ -7,6 +7,9 @@ import json
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 
+from infinity_context_server.memory_comparison_locomo_cases import (
+    OFFICIAL_MEM0_CONTENT_METADATA_KEY,
+)
 from infinity_context_server.memory_comparison_managed_corpus_projection import (
     MANAGED_CORPUS_PROJECTION_SCHEMA_VERSION,
 )
@@ -17,6 +20,17 @@ REQUIRED_MODEL = "gpt-5"
 RUNTIME_NONCE = "managed-locomo-sandbox-runtime-nonce"
 SANDBOX_SCOPE = "managed-locomo-sandbox-scope"
 MANAGED_CORPUS_SCHEMA_VERSION = MANAGED_CORPUS_PROJECTION_SCHEMA_VERSION
+_MEMORY_KEYS = {
+    "kind",
+    "role",
+    "session_alias",
+    "source_alias",
+    "speaker",
+    "session_date",
+    "text",
+    "timestamp",
+}
+_OFFICIAL_LOCOMO_MEMORY_KEYS = _MEMORY_KEYS | {OFFICIAL_MEM0_CONTENT_METADATA_KEY}
 
 
 @dataclass(frozen=True, slots=True)
@@ -237,16 +251,12 @@ def _ingest_payload(
         assert type(record[key]) is list
     for memory in record["memories"]:
         assert type(memory) is dict
-        assert set(memory) == {
-            "kind",
-            "role",
-            "session_alias",
-            "source_alias",
-            "speaker",
-            "session_date",
-            "text",
-            "timestamp",
-        }
+        expected_keys = _OFFICIAL_LOCOMO_MEMORY_KEYS if benchmark == "locomo" else _MEMORY_KEYS
+        assert set(memory) == expected_keys
+        if benchmark == "locomo":
+            official_content = memory[OFFICIAL_MEM0_CONTENT_METADATA_KEY]
+            assert type(official_content) is str and official_content.strip()
+            assert type(memory["text"]) is str and memory["text"].strip()
     for document in record["documents"]:
         assert type(document) is dict
         assert set(document) == {
