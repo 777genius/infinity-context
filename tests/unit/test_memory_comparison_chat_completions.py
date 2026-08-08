@@ -101,6 +101,53 @@ def test_chat_completions_answerer_and_judge_map_messages_and_parse_text() -> No
     assert requests[1]["messages"][0]["role"] == "system"
     assert "Return JSON only" in requests[1]["messages"][0]["content"]
     assert "Ground truth answer: blue notebook" in requests[1]["messages"][1]["content"]
+    assert "Set score to 1 exactly for verdict correct" in requests[1]["messages"][1]["content"]
+
+
+@pytest.mark.parametrize(
+    "judge_payload",
+    (
+        {"verdict": "correct", "score": 0, "reason": "inconsistent"},
+        {"verdict": "incorrect", "score": 1, "reason": "inconsistent"},
+        {"verdict": "error", "score": 1, "reason": "inconsistent"},
+        {"verdict": "correct", "score": 0.5, "reason": "non-binary"},
+        {"verdict": "correct", "score": "1", "reason": "wrong type"},
+        {"verdict": "correct", "score": 2, "reason": "out of range"},
+        {"verdict": "correct", "score": 10**400, "reason": "huge integer"},
+        {"verdict": "correct", "score": True, "reason": "boolean"},
+        {"verdict": "incorrect", "score": False, "reason": "boolean"},
+    ),
+)
+def test_chat_completions_judge_rejects_invalid_or_inconsistent_score(
+    judge_payload: dict[str, object],
+) -> None:
+    transport = OpenAICompatibleChatCompletionsTransport(
+        api_key="k",
+        base_url="https://runtime.example",
+        max_retries=0,
+        transport=httpx.MockTransport(
+            lambda _: httpx.Response(
+                200,
+                json={"choices": [{"message": {"content": json.dumps(judge_payload)}}]},
+            )
+        ),
+    )
+    judge = ChatCompletionsJudge(transport=transport, model="unit-model")
+
+    try:
+        with pytest.raises(
+            ChatCompletionsMalformedResponseError,
+            match="judge content was malformed",
+        ):
+            judge.judge(
+                _case(),
+                SimpleNamespace(answer="blue notebook"),
+                (RetrievedMemory(text="The checklist is in the blue notebook.", rank=1),),
+                backend_name="infinity-context",
+                cutoff=1,
+            )
+    finally:
+        transport.close()
 
 
 def test_chat_completions_malformed_response_raises_typed_error() -> None:
