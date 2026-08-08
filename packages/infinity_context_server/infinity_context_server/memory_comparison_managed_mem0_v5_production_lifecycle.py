@@ -32,6 +32,9 @@ from infinity_context_server.memory_comparison_managed_mem0_v5_execution_evidenc
 from infinity_context_server.memory_comparison_managed_mem0_v5_ingest_receipts import (
     ManagedMem0V5CorpusIngestReceipt,
 )
+from infinity_context_server.memory_comparison_managed_mem0_v5_lane import (
+    ManagedMem0V5BudgetPolicy,
+)
 from infinity_context_server.memory_comparison_managed_mem0_v5_lifecycle_adapter import (
     ManagedMem0V5LifecycleAdapter,
     ManagedMem0V5LifecycleAdapterError,
@@ -53,6 +56,10 @@ from infinity_context_server.memory_comparison_managed_mem0_v5_transport_evidenc
 from infinity_context_server.memory_comparison_managed_run_contract import ManagedRunCase
 from infinity_context_server.memory_comparison_managed_runner_binding import (
     ManagedRunnerCompositionBinding,
+)
+from infinity_context_server.memory_comparison_managed_v5_live_private_dependencies import (
+    ManagedMem0V5OperationReceiptAuthority,
+    managed_v5_live_operation_policy_commitment,
 )
 from infinity_context_server.memory_comparison_mem0_oss_v5_contracts import (
     CleanupVerificationContext,
@@ -80,7 +87,6 @@ from infinity_context_server.memory_comparison_session_identity_contract import 
 )
 from infinity_context_server.resumable_operation_journal.domain import (
     OperationManifest,
-    OperationReceipt,
     OperationRunIdentity,
     OperationRunPhase,
 )
@@ -162,6 +168,7 @@ class _LifecycleState:
     journal: ResumableOperationJournalService
     journal_identity: OperationRunIdentity
     operation_manifest: OperationManifest
+    operation_receipt_authority: ManagedMem0V5OperationReceiptAuthority
     receipt_authority: Mem0V5ObservedExtractionReceiptAuthority
     phase: str
     receipts: tuple[ManagedMem0V5CorpusIngestReceipt, ...]
@@ -192,6 +199,8 @@ class ManagedMem0V5ProductionLifecycleAdapter:
         execution_evidence: ManagedMem0V5ExecutionEvidenceAdapter,
         operation_journal: ResumableOperationJournalService,
         operation_run_identity: OperationRunIdentity,
+        operation_receipt_authority: ManagedMem0V5OperationReceiptAuthority,
+        budget_policy: ManagedMem0V5BudgetPolicy,
         origin: str,
         receipt_authority: Mem0V5ObservedExtractionReceiptAuthority,
         operation_manifest: OperationManifest,
@@ -205,6 +214,8 @@ class ManagedMem0V5ProductionLifecycleAdapter:
             or execution_evidence.composition_binding is not composition_binding
             or type(operation_journal) is not ResumableOperationJournalService
             or type(operation_run_identity) is not OperationRunIdentity
+            or type(operation_receipt_authority) is not ManagedMem0V5OperationReceiptAuthority
+            or type(budget_policy) is not ManagedMem0V5BudgetPolicy
         ):
             _fail("composition_invalid")
         try:
@@ -234,10 +245,14 @@ class ManagedMem0V5ProductionLifecycleAdapter:
             )
         except Exception:
             _fail("authority_invalid")
-        if (
-            operation_run_identity.policy_commitment_sha256
-            != descriptor.authority_commitment_sha256
-        ):
+        try:
+            expected_policy_commitment = managed_v5_live_operation_policy_commitment(
+                production_authority_commitment_sha256=(descriptor.authority_commitment_sha256),
+                budget_policy=budget_policy,
+            )
+        except Exception:
+            _fail("journal_identity_invalid")
+        if operation_run_identity.policy_commitment_sha256 != expected_policy_commitment:
             _fail("journal_identity_invalid")
         try:
             operation_journal.initialize(operation_run_identity, operation_manifest)
@@ -266,6 +281,7 @@ class ManagedMem0V5ProductionLifecycleAdapter:
             operation_journal,
             operation_run_identity,
             operation_manifest,
+            operation_receipt_authority,
             receipt_authority,
             "new",
             (),
@@ -697,6 +713,18 @@ class ManagedMem0V5ProductionLifecycleAdapter:
             _store(self, replace(current, phase="terminal", integrity_mac=b""))
         return witness
 
+    def observed_extraction_tokens(self) -> tuple[int, int]:
+        """Return persisted terminal usage only after cleanup reaches pass two."""
+
+        state = _require_phase(self, {"terminal"}, "observed_token_verification_invalid")
+        terminal = state.cleanup_terminal
+        if terminal is None:
+            _fail("observed_token_verification_invalid")
+        return (
+            terminal.provider_observed_request_tokens,
+            terminal.provider_observed_response_tokens,
+        )
+
     def __repr__(self) -> str:
         return "ManagedMem0V5ProductionLifecycleAdapter(<redacted>)"
 
@@ -844,16 +872,12 @@ def _commit_operation_evidence(
                 "unit": unit.payload(),
             }
         )
-        state.journal.commit(
-            operation,
-            OperationReceipt(
-                run_id=operation.run_id,
-                logical_operation_id=operation.logical_operation_id,
-                request_commitment_sha256=observed.request_body_sha256,
-                receipt_id=f"mem0-v5-{operation.logical_operation_id[:32]}",
-                result_commitment_sha256=result_commitment,
-            ),
+        receipt = state.operation_receipt_authority._issue_exact(
+            identity=operation,
+            request_commitment_sha256=observed.request_body_sha256,
+            result_commitment_sha256=result_commitment,
         )
+        state.journal.commit(operation, receipt)
 
 
 def _state(adapter: object) -> _LifecycleState:
@@ -918,6 +942,7 @@ def _state_mac(adapter: ManagedMem0V5ProductionLifecycleAdapter, state: _Lifecyc
             "journal_identity": id(state.journal),
             "operation_run_identity": id(state.journal_identity),
             "operation_manifest_identity": id(state.operation_manifest),
+            "operation_receipt_authority_identity": id(state.operation_receipt_authority),
             "receipt_authority_identity": id(state.receipt_authority),
             "phase": state.phase,
             "receipt_identities": tuple(id(item) for item in state.receipts),

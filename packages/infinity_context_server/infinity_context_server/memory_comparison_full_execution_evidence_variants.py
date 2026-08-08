@@ -483,6 +483,8 @@ def _inspect_full_execution_clean_state_evidence_for_validation(
             ),
             "infinity-clean-key:" + hashlib.sha256(key).hexdigest(),
         )
+        resources: tuple[object, ...] = (*proofs, *scopes, *corpus_ids, key)
+        return _CleanInspection(descriptor, tokens, resources)
     return _CleanInspection(descriptor, tokens, state.resources)
 
 

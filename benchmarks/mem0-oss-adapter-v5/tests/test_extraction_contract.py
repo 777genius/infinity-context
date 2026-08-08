@@ -223,6 +223,27 @@ def test_source_message_bounds_fail_closed(messages: list[dict[str, str]]) -> No
         _build(messages)
 
 
+def test_source_message_accepts_exact_128_kib_utf8_boundary() -> None:
+    content = "é" * (MAX_SOURCE_CONTENT_BYTES // 2)
+    request = _build([{"role": "user", "content": content}])
+
+    assert len(content.encode("utf-8")) == MAX_SOURCE_CONTENT_BYTES
+    assert len(request.body) <= 1_048_576
+
+
+def test_aggregate_request_over_one_mib_rejects_without_truncating_sources() -> None:
+    content = "x" * MAX_SOURCE_CONTENT_BYTES
+    messages = [
+        {"role": "user" if index % 2 == 0 else "assistant", "content": content}
+        for index in range(8)
+    ]
+
+    with pytest.raises(AdapterContractError, match="mem0_v5_extraction_request_too_large"):
+        _build(messages)
+
+    assert all(message["content"] == content for message in messages)
+
+
 def test_output_parses_exact_memories_and_commitments_hide_text() -> None:
     memories = parse_extraction_output(
         _output(

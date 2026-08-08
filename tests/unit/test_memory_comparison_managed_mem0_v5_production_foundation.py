@@ -66,6 +66,10 @@ from infinity_context_server.memory_comparison_managed_mem0_v5_run_evidence impo
 from infinity_context_server.memory_comparison_managed_mem0_v5_transport_evidence import (
     issue_managed_transport_coverage_capability,
 )
+from infinity_context_server.memory_comparison_managed_v5_live_private_dependencies import (
+    ManagedMem0V5OperationReceiptAuthority,
+    managed_v5_live_operation_policy_commitment,
+)
 from infinity_context_server.memory_comparison_mem0_oss_v5_contracts import (
     Mem0OssFullRunAdmission,
     Mem0OssFullRunState,
@@ -81,7 +85,6 @@ from infinity_context_server.resumable_operation_journal.domain import (
     LogicalOperationIdentity,
     OperationManifest,
     OperationRunIdentity,
-    VerifiedOperationReceipt,
 )
 from infinity_context_server.resumable_operation_journal.service import (
     AllowAllOperationManifestPolicy,
@@ -216,21 +219,12 @@ def _consume_values(values: dict[str, object], composition: object) -> dict[str,
     }
 
 
-class _ReceiptVerifier:
-    def verify(self, *, identity: object, receipt: object) -> VerifiedOperationReceipt:
-        del identity
-        return VerifiedOperationReceipt(
-            receipt=receipt,
-            verifier_key_id="production-test-verifier",
-            verification_commitment_sha256=_sha("verified-receipt"),
-        )
-
-
 def _journal_inputs(
     tmp_path: object,
     *,
     values: dict[str, object],
     production_authority: object,
+    budget_policy: ManagedMem0V5BudgetPolicy | None = None,
 ) -> dict[str, object]:
     signer = HmacSha256OperationJournalSigner(
         key_id="production-test-signer",
@@ -242,11 +236,19 @@ def _journal_inputs(
         run_id=values["composition_binding"].run_id,
         operation_namespace="managed_mem0_v5_production",
         manifest_commitment_sha256=manifest.commitment_sha256,
-        policy_commitment_sha256=descriptor.authority_commitment_sha256,
+        policy_commitment_sha256=managed_v5_live_operation_policy_commitment(
+            production_authority_commitment_sha256=(descriptor.authority_commitment_sha256),
+            budget_policy=budget_policy or ManagedMem0V5BudgetPolicy(10_000),
+        ),
         signer_key_id=signer.key_id,
         expected_operation_count=len(manifest.operations),
     )
     private = tmp_path / "operation-journal"
+    receipt_authority = ManagedMem0V5OperationReceiptAuthority(
+        key=b"r" * 32,
+        key_id="production-test-receipt-v1",
+        manifest=manifest,
+    )
     service = ResumableOperationJournalService(
         journal=SQLiteOperationJournal(
             private / "operations.sqlite3",
@@ -254,12 +256,13 @@ def _journal_inputs(
         ),
         signer=signer,
         manifest_policy=AllowAllOperationManifestPolicy(),
-        receipt_verifier=_ReceiptVerifier(),
+        receipt_verifier=receipt_authority,
         notifications=NullOperationNotification(),
     )
     return {
         "operation_journal": service,
         "operation_run_identity": identity,
+        "operation_receipt_authority": receipt_authority,
     }
 
 
@@ -268,8 +271,9 @@ def _production_fixture(tmp_path):
     composition = _compose(values)
     authority = composition.authority
     binding = fixture.binding
+    budget_policy = ManagedMem0V5BudgetPolicy(10_000)
     bundle = composition.issue_paired_runtime(
-        budget_policy=ManagedMem0V5BudgetPolicy(10_000),
+        budget_policy=budget_policy,
         clean_state_snapshot_factory=ManagedMem0V5HttpCleanStateSnapshotFactory(),
         durable_clean_state_factory=ManagedMem0V5HmacDurableCleanStateFactory(
             path=tmp_path / "production-clean-state.json",
@@ -298,6 +302,7 @@ def _production_fixture(tmp_path):
         tmp_path,
         values=values,
         production_authority=production_authority,
+        budget_policy=budget_policy,
     )
     constructor_values = {
         "production_authority": production_authority,
@@ -305,6 +310,7 @@ def _production_fixture(tmp_path):
         "paired_runtime_bundle": bundle,
         "lifecycle": lifecycle,
         "execution_evidence": execution_evidence,
+        "budget_policy": budget_policy,
         **journal_values,
         **{
             key: value
@@ -344,6 +350,22 @@ def _new_production(tmp_path):
         journal_values,
         constructor_values,
     )
+
+
+def test_production_lifecycle_rejects_unbound_journal_policy_commitment(tmp_path) -> None:
+    *_, constructor_values = _production_fixture(tmp_path)
+    identity = constructor_values["operation_run_identity"]
+    with pytest.raises(ManagedMem0V5ProductionLifecycleError) as caught:
+        ManagedMem0V5ProductionLifecycleAdapter(
+            **{
+                **constructor_values,
+                "operation_run_identity": replace(
+                    identity,
+                    policy_commitment_sha256="f" * 64,
+                ),
+            }
+        )
+    assert caught.value.code == "managed_mem0_v5_production_lifecycle_journal_identity_invalid"
 
 
 class _Capability:

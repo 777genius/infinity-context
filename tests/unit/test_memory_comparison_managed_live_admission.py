@@ -770,6 +770,7 @@ def test_subscription_canary_probe_is_accounted_and_authorizes_benchmark_budget(
         "backend_internal_provider_cost": "unmeasured",
         "total_provider_calls_claimed": False,
         "benchmark_reserved_token_ceiling": 2_000_000,
+        "output_limit_enforcement": "requested_not_provider_verified",
         "readiness_probe_estimated_tokens": 100,
         "readiness_probe_usage_source": SUBSCRIPTION_RUNTIME_ESTIMATED_USAGE_SOURCE,
         "total_accounted_tokens": 2_000_100,

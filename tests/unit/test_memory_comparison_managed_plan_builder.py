@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import copy
 import hashlib
+import inspect
 import json
 import pickle
 from dataclasses import replace
@@ -20,6 +21,7 @@ from infinity_context_server.memory_comparison_full_profiles import (
 )
 from infinity_context_server.memory_comparison_full_run_evidence import (
     FullComparisonBackendTarget,
+    create_full_comparison_run_bindings,
 )
 from infinity_context_server.memory_comparison_locomo_cases import (
     LOCOMO_INGEST_OFFICIAL_TURNS,
@@ -30,6 +32,7 @@ from infinity_context_server.memory_comparison_managed_corpus_projection import 
 )
 from infinity_context_server.memory_comparison_managed_plan_builder import (
     MANAGED_CANARY_MAX_CASES,
+    ManagedPublicRunProjection,
     VerifiedManagedRunPlan,
     _inspect_verified_managed_run_plan,
     _managed_answer_cases,
@@ -37,6 +40,7 @@ from infinity_context_server.memory_comparison_managed_plan_builder import (
     _managed_cases_and_manifest,
     _validate_full_dataset,
     _validate_provider_route,
+    build_managed_public_run_projection,
     build_verified_managed_run_plan,
     managed_execution_case_material_sha256,
     managed_policy_cases_from_dataset,
@@ -243,6 +247,89 @@ def test_policy_case_projection_is_pure_ordered_and_gold_free() -> None:
     assert "secret-question" not in rendered
     assert "secret-gold" not in rendered
     assert "raw-sample" not in rendered
+
+
+def test_public_run_projection_is_provider_free_and_matches_verified_plan(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    dataset_bytes = _canary_bytes()
+    kwargs = {
+        "run_id": "builder-test",
+        "run_nonce_commitment_sha256": "1" * 64,
+        "runtime_probe_nonce_sha256": "2" * 64,
+        "profile": _profile(),
+        "dataset_bytes": dataset_bytes,
+        "backend_targets": _targets(),
+        "scope": "canary",
+        "selected_case_ids": (
+            "raw-sample-a:qa:1",
+            "raw-sample-a:qa:2",
+        ),
+    }
+    assert "provider_route" not in inspect.signature(build_managed_public_run_projection).parameters
+    monkeypatch.setattr(
+        "infinity_context_server.memory_comparison_managed_plan_builder._validate_provider_route",
+        lambda *_args, **_kwargs: pytest.fail("public projection touched provider route"),
+    )
+
+    projection = build_managed_public_run_projection(**kwargs)
+
+    assert type(projection) is ManagedPublicRunProjection
+    assert "secret-question" not in repr(projection)
+    assert "secret-gold" not in repr(projection)
+    monkeypatch.undo()
+    admission = _build(dataset_bytes)
+    plan = _inspect_verified_managed_run_plan(admission)
+    private_bindings = create_full_comparison_run_bindings(
+        run_id=plan.run_id,
+        run_nonce_commitment_sha256=plan.run_nonce_commitment_sha256,
+        runtime_probe_nonce_sha256=plan.runtime_probe_nonce_sha256,
+        profile=plan.profile,
+        methodology=plan.methodology,
+        dataset_sha256=plan.dataset_sha256,
+        selection_fingerprint_sha256=plan.selection_fingerprint_sha256,
+        backend_targets=plan.backend_targets,
+        mem0_expected_runtime_mode=plan.mem0_expected_runtime_mode,
+        scope=plan.scope,
+    )
+    assert projection.cases == plan.cases
+    assert projection.bindings == private_bindings
+
+
+def test_public_run_projection_changes_with_nonce_or_selected_case() -> None:
+    common = {
+        "run_id": "builder-test",
+        "runtime_probe_nonce_sha256": "2" * 64,
+        "profile": _profile(),
+        "dataset_bytes": _canary_bytes(),
+        "backend_targets": _targets(),
+        "scope": "canary",
+    }
+    baseline = build_managed_public_run_projection(
+        **common,
+        run_nonce_commitment_sha256="1" * 64,
+        selected_case_ids=("raw-sample-a:qa:1",),
+    )
+    changed_nonce = build_managed_public_run_projection(
+        **common,
+        run_nonce_commitment_sha256="3" * 64,
+        selected_case_ids=("raw-sample-a:qa:1",),
+    )
+    changed_case = build_managed_public_run_projection(
+        **common,
+        run_nonce_commitment_sha256="1" * 64,
+        selected_case_ids=("raw-sample-a:qa:1", "raw-sample-a:qa:2"),
+    )
+
+    assert baseline.bindings != changed_nonce.bindings
+    assert baseline.bindings.binding_commitment_sha256 != (
+        changed_nonce.bindings.binding_commitment_sha256
+    )
+    assert baseline.cases != changed_case.cases
+    assert baseline.bindings.selection_fingerprint_sha256 != (
+        changed_case.bindings.selection_fingerprint_sha256
+    )
+    assert baseline.bindings != changed_case.bindings
 
 
 def test_canary_builder_rejects_selection_above_hard_budget() -> None:

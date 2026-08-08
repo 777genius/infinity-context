@@ -13,6 +13,13 @@ from infinity_context_server.memory_comparison_managed_mem0_v5_production_lifecy
     ManagedMem0V5ProductionLifecycleAdapter,
     ManagedMem0V5ProductionLifecycleError,
 )
+from infinity_context_server.memory_comparison_managed_v5_live_private_dependencies import (
+    ManagedMem0V5OperationReceiptAuthority,
+)
+from infinity_context_server.resumable_operation_journal.domain import (
+    LogicalOperationIdentity,
+    OperationManifest,
+)
 from test_memory_comparison_managed_mem0_v5_paired_bridge import _terminal
 from test_memory_comparison_managed_mem0_v5_runner_foundation import _authority_and_case
 
@@ -74,6 +81,22 @@ def _facade(
     journal_snapshots: list[object] | None = None,
 ) -> tuple[ManagedMem0V5ProductionLifecycleAdapter, list[subject._LifecycleState]]:
     adapter = object.__new__(ManagedMem0V5ProductionLifecycleAdapter)
+    operation_manifest = OperationManifest(
+        (
+            LogicalOperationIdentity(
+                run_id="managed-v5-cleanup-seam",
+                operation_key="cleanup-seam-operation",
+                operation_kind="managed_mem0_v5_extraction",
+                ordinal=0,
+                authority_commitment_sha256="a" * 64,
+            ),
+        )
+    )
+    operation_receipt_authority = ManagedMem0V5OperationReceiptAuthority(
+        key=b"c" * 32,
+        key_id="cleanup-seam-receipt-v1",
+        manifest=operation_manifest,
+    )
     states = [
         subject._LifecycleState(
             descriptor=object(),
@@ -84,7 +107,8 @@ def _facade(
             evidence=object(),
             journal=object(),
             journal_identity=object(),
-            operation_manifest=object(),
+            operation_manifest=operation_manifest,
+            operation_receipt_authority=operation_receipt_authority,
             receipt_authority=object(),
             phase="ready",
             receipts=(),

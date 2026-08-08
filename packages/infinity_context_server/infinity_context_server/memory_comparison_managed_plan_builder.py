@@ -22,6 +22,7 @@ from infinity_context_server.memory_comparison_full_execution_validation_slots i
     execution_case_manifest_sha256,
 )
 from infinity_context_server.memory_comparison_full_methodology import (
+    FrozenFullComparisonMethodology,
     case_distribution,
     corpus_count,
     full_comparison_methodology_contract,
@@ -35,6 +36,7 @@ from infinity_context_server.memory_comparison_full_profiles import (
 )
 from infinity_context_server.memory_comparison_full_run_evidence import (
     FullComparisonBackendTarget,
+    FullComparisonRunBindings,
     create_full_comparison_run_bindings,
 )
 from infinity_context_server.memory_comparison_full_scope import (
@@ -133,6 +135,37 @@ class _VerifiedManagedRunMaterial:
     case_material_sha256: tuple[tuple[str, str], ...]
 
 
+@final
+@dataclass(frozen=True, slots=True)
+class ManagedPublicRunProjection:
+    """Gold-free cases and exact run bindings derived from public inputs only."""
+
+    cases: tuple[ManagedRunCase, ...]
+    bindings: FullComparisonRunBindings
+
+    def __post_init__(self) -> None:
+        if (
+            type(self.cases) is not tuple
+            or not self.cases
+            or any(type(item) is not ManagedRunCase for item in self.cases)
+            or type(self.bindings) is not FullComparisonRunBindings
+        ):
+            raise ManagedRunError("managed public run projection is invalid")
+
+    def __init_subclass__(cls, **kwargs: object) -> None:
+        del cls, kwargs
+        raise TypeError("ManagedPublicRunProjection is final")
+
+
+@dataclass(frozen=True, slots=True)
+class _ManagedPublicRunMaterial:
+    profile: FullComparisonProfile
+    methodology: FrozenFullComparisonMethodology
+    selected_cases: tuple[PublicBenchmarkCase, ...]
+    case_manifest: tuple[FullExecutionCaseManifestEntry, ...]
+    projection: ManagedPublicRunProjection
+
+
 _PLANS: weakref.WeakKeyDictionary[VerifiedManagedRunPlan, _VerifiedPlanState] = (
     weakref.WeakKeyDictionary()
 )
@@ -162,32 +195,107 @@ def build_verified_managed_run_plan(
         provider_route,
         scope=trusted_scope,
     )
+    material = _managed_public_run_material(
+        run_id=run_id,
+        run_nonce_commitment_sha256=run_nonce_commitment_sha256,
+        runtime_probe_nonce_sha256=runtime_probe_nonce_sha256,
+        profile=trusted_profile,
+        dataset_bytes=dataset_bytes,
+        backend_targets=backend_targets,
+        scope=trusted_scope,
+        mem0_expected_runtime_mode=mem0_expected_runtime_mode,
+        selected_case_ids=selected_case_ids,
+    )
+    bindings = material.projection.bindings
+    plan = ManagedRunPlan(
+        run_id=bindings.run_id,
+        run_nonce_commitment_sha256=bindings.run_nonce_commitment_sha256,
+        runtime_probe_nonce_sha256=bindings.runtime_probe_nonce_sha256,
+        profile=material.profile,
+        methodology=material.methodology,
+        dataset_sha256=bindings.dataset_sha256,
+        selection_fingerprint_sha256=bindings.selection_fingerprint_sha256,
+        backend_targets=bindings.backend_targets,
+        case_manifest=material.case_manifest,
+        provider_route=provider_route,
+        cases=material.projection.cases,
+        scope=bindings.scope,
+        mem0_expected_runtime_mode=mem0_expected_runtime_mode,
+    )
+    _validate_plan(plan)
+    return _seal_verified_plan(plan, material.selected_cases)
+
+
+def build_managed_public_run_projection(
+    *,
+    run_id: str,
+    run_nonce_commitment_sha256: str,
+    runtime_probe_nonce_sha256: str,
+    profile: FullComparisonProfile,
+    dataset_bytes: bytes,
+    backend_targets: tuple[FullComparisonBackendTarget, ...],
+    scope: str = FULL_COMPARISON_SCOPE_FULL,
+    mem0_expected_runtime_mode: str | None = None,
+    selected_case_ids: tuple[str, ...] = (),
+) -> ManagedPublicRunProjection:
+    """Derive exact gold-free cases and bindings before provider readiness."""
+
+    return _managed_public_run_material(
+        run_id=run_id,
+        run_nonce_commitment_sha256=run_nonce_commitment_sha256,
+        runtime_probe_nonce_sha256=runtime_probe_nonce_sha256,
+        profile=profile,
+        dataset_bytes=dataset_bytes,
+        backend_targets=backend_targets,
+        scope=scope,
+        mem0_expected_runtime_mode=mem0_expected_runtime_mode,
+        selected_case_ids=selected_case_ids,
+    ).projection
+
+
+def _managed_public_run_material(
+    *,
+    run_id: str,
+    run_nonce_commitment_sha256: str,
+    runtime_probe_nonce_sha256: str,
+    profile: FullComparisonProfile,
+    dataset_bytes: bytes,
+    backend_targets: tuple[FullComparisonBackendTarget, ...],
+    scope: str,
+    mem0_expected_runtime_mode: str | None,
+    selected_case_ids: tuple[str, ...],
+) -> _ManagedPublicRunMaterial:
+    if type(dataset_bytes) is not bytes:
+        raise ManagedRunError("dataset_bytes must be exact bytes")
+    trusted_profile = frozen_full_comparison_profile(profile)
+    trusted_scope = normalize_full_comparison_scope(scope)
     selected_cases = _selected_profile_cases_from_dataset(
         trusted_profile,
         dataset_bytes,
         scope=trusted_scope,
         selected_case_ids=selected_case_ids,
     )
-    dataset_sha256 = hashlib.sha256(dataset_bytes).hexdigest()
-
     managed_cases, manifest = _managed_cases_and_manifest(selected_cases)
-    plan = ManagedRunPlan(
+    methodology = full_comparison_methodology_contract(trusted_profile)
+    bindings = create_full_comparison_run_bindings(
         run_id=run_id,
         run_nonce_commitment_sha256=run_nonce_commitment_sha256,
         runtime_probe_nonce_sha256=runtime_probe_nonce_sha256,
         profile=trusted_profile,
-        methodology=full_comparison_methodology_contract(trusted_profile),
-        dataset_sha256=dataset_sha256,
+        methodology=methodology,
+        dataset_sha256=hashlib.sha256(dataset_bytes).hexdigest(),
         selection_fingerprint_sha256=selected_case_fingerprint(selected_cases),
         backend_targets=backend_targets,
-        case_manifest=manifest,
-        provider_route=provider_route,
-        cases=managed_cases,
-        scope=trusted_scope,
         mem0_expected_runtime_mode=mem0_expected_runtime_mode,
+        scope=trusted_scope,
     )
-    _validate_plan(plan)
-    return _seal_verified_plan(plan, selected_cases)
+    return _ManagedPublicRunMaterial(
+        profile=trusted_profile,
+        methodology=methodology,
+        selected_cases=selected_cases,
+        case_manifest=manifest,
+        projection=ManagedPublicRunProjection(managed_cases, bindings),
+    )
 
 
 def _selected_profile_cases_from_dataset(
@@ -682,7 +790,9 @@ def _canonical_json(value: object) -> bytes:
 
 
 __all__ = (
+    "ManagedPublicRunProjection",
     "VerifiedManagedRunPlan",
+    "build_managed_public_run_projection",
     "build_verified_managed_run_plan",
     "managed_execution_case_material_sha256",
     "managed_policy_cases_from_dataset",

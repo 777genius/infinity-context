@@ -12,6 +12,9 @@ from typing import final
 
 import httpx
 
+from infinity_context_server.memory_comparison_managed_benchmark_registry_contracts import (
+    ManagedBenchmarkRegistryHttpConfig,
+)
 from infinity_context_server.memory_comparison_managed_infinity_http_execution import (
     ManagedInfinityHttpRuntimeConfig,
 )
@@ -39,6 +42,7 @@ class _InfinityCredentialState:
     execution_transport: httpx.BaseTransport | None
     lifecycle_transport: httpx.BaseTransport | None
     registry_policy_transport: httpx.BaseTransport | None
+    benchmark_registry_transport: httpx.BaseTransport | None
     deadline: datetime
     request_identity: int
     request_commitment: str
@@ -51,12 +55,13 @@ class _InfinityCredentialState:
     execution_phase: str = "pending"
     lifecycle_phase: str = "pending"
     registry_policy_phase: str = "pending"
+    benchmark_registry_phase: str = "pending"
     integrity: str = ""
 
 
 @final
 class ManagedV5InfinityCredentialBundle:
-    """Opaque exact-use capabilities for three Infinity-only adapter roles."""
+    """Opaque exact-use capabilities for four Infinity-only adapter roles."""
 
     __slots__ = ("__lock", "__state")
 
@@ -79,6 +84,50 @@ class ManagedV5InfinityCredentialBundle:
     def issue_registry_policy_config(self, *, now: datetime) -> ManagedInfinityHttpRuntimeConfig:
         return self._consume("registry_policy", now=now)
 
+    def issue_benchmark_registry_config(
+        self,
+        *,
+        now: datetime,
+        clock: object,
+    ) -> ManagedBenchmarkRegistryHttpConfig:
+        """Consume the distinct canonical-registry lane exactly once."""
+
+        with self.__lock:
+            state = self.__state
+            if not hmac.compare_digest(state.integrity, _state_integrity(state)):
+                _fail("configuration_invalid")
+            if state.activation_phase != "bound" or not callable(clock):
+                _fail("configuration_invalid")
+            if (
+                type(now) is not datetime
+                or now.tzinfo is None
+                or now.utcoffset() is None
+                or now >= state.deadline
+            ):
+                _fail("expired")
+            if state.benchmark_registry_phase != "pending":
+                _fail("replayed")
+            state.benchmark_registry_phase = "active"
+            state.integrity = _state_integrity(state)
+            try:
+                config = ManagedBenchmarkRegistryHttpConfig(
+                    base_url=state.origin,
+                    admin_bearer_token=state.auth_token,
+                    target_identity_sha256=state.target_identity_sha256,
+                    timeout_seconds=state.timeout_seconds,
+                    benchmark_deadline=state.deadline,
+                    cleanup_recovery_timeout_seconds=state.timeout_seconds,
+                    transport=state.benchmark_registry_transport,
+                    clock=clock,
+                )
+            except Exception:
+                state.benchmark_registry_phase = "terminal"
+                state.integrity = _state_integrity(state)
+                _fail("configuration_invalid")
+            state.benchmark_registry_phase = "issued"
+            state.integrity = _state_integrity(state)
+            return config
+
     def _bind_activated_preparation(self, activated: object, *, now: datetime) -> None:
         from infinity_context_server.memory_comparison_managed_v5_live_preparation import (
             _authenticate_activated_managed_v5_public_run,
@@ -89,6 +138,13 @@ class ManagedV5InfinityCredentialBundle:
             state = self.__state
             if not hmac.compare_digest(state.integrity, _state_integrity(state)):
                 _fail("configuration_invalid")
+            if state.activation_phase == "bound":
+                if state.activation_identity == id(material) and hmac.compare_digest(
+                    state.activation_commitment,
+                    material.integrity_mac.hex(),
+                ):
+                    return
+                _fail("replayed")
             if state.activation_phase != "unbound":
                 _fail("replayed")
             infinity_targets = tuple(
@@ -153,7 +209,7 @@ class ManagedV5InfinityCredentialBundle:
             return config
 
     def __repr__(self) -> str:
-        return "ManagedV5InfinityCredentialBundle(<sealed-three-lane>)"
+        return "ManagedV5InfinityCredentialBundle(<sealed-four-lane>)"
 
     def __copy__(self) -> object:
         raise TypeError("managed v5 Infinity credentials are noncopyable")
@@ -185,6 +241,7 @@ def _issue_managed_v5_infinity_credential_bundle(
     execution_transport: httpx.BaseTransport | None,
     lifecycle_transport: httpx.BaseTransport | None,
     registry_policy_transport: httpx.BaseTransport | None,
+    benchmark_registry_transport: httpx.BaseTransport | None = None,
 ) -> ManagedV5InfinityCredentialBundle:
     """Issue without constructing or inspecting any legacy Mem0 configuration."""
 
@@ -239,6 +296,7 @@ def _issue_managed_v5_infinity_credential_bundle(
             execution_transport,
             lifecycle_transport,
             registry_policy_transport,
+            benchmark_registry_transport,
         )
         if any(
             item is not None and not isinstance(item, httpx.BaseTransport) for item in transports
@@ -269,6 +327,7 @@ def _issue_managed_v5_infinity_credential_bundle(
             execution_transport=execution_transport,
             lifecycle_transport=lifecycle_transport,
             registry_policy_transport=registry_policy_transport,
+            benchmark_registry_transport=benchmark_registry_transport,
             deadline=deadline,
             request_identity=id(expected_request),
             request_commitment=request_commitment,
@@ -313,11 +372,13 @@ def _state_integrity(state: _InfinityCredentialState) -> str:
                 id(state.execution_transport),
                 id(state.lifecycle_transport),
                 id(state.registry_policy_transport),
+                id(state.benchmark_registry_transport),
             ],
             "phases": [
                 state.execution_phase,
                 state.lifecycle_phase,
                 state.registry_policy_phase,
+                state.benchmark_registry_phase,
             ],
         },
         sort_keys=True,

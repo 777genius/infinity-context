@@ -190,11 +190,21 @@ def test_exact_public_material_normalizes_targets_without_secrets() -> None:
         pickle.dumps(authority)
 
 
-def test_readiness_then_distinct_execution_adapter_preserve_exact_bearer() -> None:
+def test_readiness_then_distinct_execution_adapter_preserve_exact_bearer(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     authority = _authority()
     request = _bind(authority)
     readiness_requests: list[httpx.Request] = []
     execution_requests: list[httpx.Request] = []
+    closed_adapters: list[SubscriptionRuntimeChatCompletions] = []
+    original_close = SubscriptionRuntimeChatCompletions.close
+
+    def tracked_close(adapter: SubscriptionRuntimeChatCompletions) -> None:
+        closed_adapters.append(adapter)
+        original_close(adapter)
+
+    monkeypatch.setattr(SubscriptionRuntimeChatCompletions, "close", tracked_close)
 
     def readiness_handler(raw: httpx.Request) -> httpx.Response:
         readiness_requests.append(raw)
@@ -211,6 +221,7 @@ def test_readiness_then_distinct_execution_adapter_preserve_exact_bearer() -> No
     proof = claim.run(model=_MODEL, clock=lambda: _NOW)
     assert type(proof).__name__ == "VerifiedSubscriptionRuntimeProbe"
     assert len(readiness_requests) == 1
+    assert len(closed_adapters) == 1
     assert readiness_requests[0].headers["Authorization"] == (f"Bearer {_SUBSCRIPTION_SECRET}")
 
     def execution_handler(raw: httpx.Request) -> httpx.Response:
@@ -239,6 +250,7 @@ def test_readiness_then_distinct_execution_adapter_preserve_exact_bearer() -> No
     assert len(execution_requests) == 1
     assert execution_requests[0].headers["Authorization"] == (f"Bearer {_SUBSCRIPTION_SECRET}")
     execution.close()
+    assert len(closed_adapters) == 2
 
     with pytest.raises(ManagedRuntimeCredentialError) as replay:
         authority.issue_subscription_execution_adapter(
@@ -836,10 +848,20 @@ def test_concurrent_readiness_issue_burns_claim_before_any_provider_call() -> No
     assert calls == 0
 
 
-def test_failed_readiness_is_one_attempt_no_retry_and_blocks_execution() -> None:
+def test_failed_readiness_is_one_attempt_no_retry_and_blocks_execution(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     authority = _authority()
     request = _bind(authority)
     calls = 0
+    closed_adapters: list[SubscriptionRuntimeChatCompletions] = []
+    original_close = SubscriptionRuntimeChatCompletions.close
+
+    def tracked_close(adapter: SubscriptionRuntimeChatCompletions) -> None:
+        closed_adapters.append(adapter)
+        original_close(adapter)
+
+    monkeypatch.setattr(SubscriptionRuntimeChatCompletions, "close", tracked_close)
 
     def handler(_: httpx.Request) -> httpx.Response:
         nonlocal calls
@@ -859,6 +881,7 @@ def test_failed_readiness_is_one_attempt_no_retry_and_blocks_execution() -> None
     assert caught.value.code == "managed_credentials_readiness_failed"
     assert "private provider failure" not in repr(caught.value)
     assert calls == 1
+    assert len(closed_adapters) == 1
 
     with pytest.raises(ManagedRuntimeCredentialError):
         authority.issue_subscription_execution_adapter(
@@ -870,3 +893,4 @@ def test_failed_readiness_is_one_attempt_no_retry_and_blocks_execution() -> None
             now=_NOW,
             transport=httpx.MockTransport(handler),
         )
+    assert len(closed_adapters) == 1

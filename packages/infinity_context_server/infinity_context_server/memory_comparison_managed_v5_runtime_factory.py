@@ -35,6 +35,7 @@ from infinity_context_server.memory_comparison_managed_mem0_v5_composition impor
     compose_managed_mem0_v5,
 )
 from infinity_context_server.memory_comparison_managed_mem0_v5_credentials import (
+    ManagedMem0V5CredentialCapabilities,
     ManagedMem0V5CredentialPaths,
 )
 from infinity_context_server.memory_comparison_managed_mem0_v5_execution_evidence_adapter import (
@@ -78,11 +79,17 @@ from infinity_context_server.memory_comparison_managed_runtime_credentials_model
 from infinity_context_server.memory_comparison_managed_target_aware_retrieval_router import (
     ManagedTargetAwareRetrievalRouter,
 )
+from infinity_context_server.memory_comparison_managed_v5_extraction_budget import (
+    ManagedV5ExtractionTokenBudget,
+)
 from infinity_context_server.memory_comparison_managed_v5_infinity_credentials import (
     ManagedV5InfinityCredentialBundle,
 )
 from infinity_context_server.memory_comparison_managed_v5_live_preparation import (
     _ActivatedManagedV5PublicRun,
+)
+from infinity_context_server.memory_comparison_managed_v5_live_private_dependencies import (
+    ManagedMem0V5OperationReceiptAuthority,
 )
 from infinity_context_server.memory_comparison_managed_v5_owned_resources import (
     ManagedV5OwnedResources,
@@ -111,6 +118,42 @@ class ManagedV5ProductionRuntimeFactoryError(RuntimeError):
 
 
 @final
+class ManagedV5ObservedExtractionVerifier:
+    """Verify only persisted terminal usage against the admitted public ceiling."""
+
+    __slots__ = ("_budget", "_lifecycle")
+
+    def __init__(
+        self,
+        *,
+        lifecycle: ManagedMem0V5ProductionLifecycleAdapter,
+        budget: ManagedV5ExtractionTokenBudget | None,
+    ) -> None:
+        if type(lifecycle) is not ManagedMem0V5ProductionLifecycleAdapter or (
+            budget is not None and type(budget) is not ManagedV5ExtractionTokenBudget
+        ):
+            _fail("managed_v5_observed_extraction_verifier_invalid")
+        self._lifecycle = lifecycle
+        self._budget = budget
+
+    def verify(self) -> str | None:
+        request_tokens, response_tokens = self._lifecycle.observed_extraction_tokens()
+        if self._budget is None:
+            return None
+        try:
+            self._budget.require_observed_extraction_tokens(
+                provider_observed_request_tokens=request_tokens,
+                provider_observed_response_tokens=response_tokens,
+            )
+        except ValueError as error:
+            code = getattr(error, "code", None)
+            if code != "managed_v5_extraction_observed_token_ceiling_exceeded":
+                raise
+            return code
+        return None
+
+
+@final
 class ManagedV5ProductionRuntime:
     """Narrow runtime product; raw credentials and authorities never escape."""
 
@@ -120,6 +163,7 @@ class ManagedV5ProductionRuntime:
         "__execution_evidence",
         "__lifecycle_ports",
         "__owned_resources",
+        "__observed_extraction_verifier",
         "__plan",
         "__policy_delegate",
         "__policy_port",
@@ -136,11 +180,15 @@ class ManagedV5ProductionRuntime:
         policy_delegate: ManagedInfinityV5PolicyLifecycleAdapter,
         policy_port: ManagedComparisonRegistryPolicyLifecycleAdapter,
         owned_resources: ManagedV5OwnedResources,
+        observed_extraction_verifier: ManagedV5ObservedExtractionVerifier,
         plan: VerifiedManagedRunPlan,
         bindings: FullComparisonRunBindings,
         _token: object,
     ) -> None:
-        if _token is not _RUNTIME_TOKEN:
+        if (
+            _token is not _RUNTIME_TOKEN
+            or type(observed_extraction_verifier) is not ManagedV5ObservedExtractionVerifier
+        ):
             _fail("managed_v5_runtime_forged")
         self.__composition_binding = composition_binding
         self.__lifecycle_ports = lifecycle_ports
@@ -149,6 +197,7 @@ class ManagedV5ProductionRuntime:
         self.__policy_delegate = policy_delegate
         self.__policy_port = policy_port
         self.__owned_resources = owned_resources
+        self.__observed_extraction_verifier = observed_extraction_verifier
         self.__plan = plan
         self.__bindings = bindings
 
@@ -181,6 +230,10 @@ class ManagedV5ProductionRuntime:
         return self.__owned_resources
 
     @property
+    def observed_extraction_verifier(self) -> ManagedV5ObservedExtractionVerifier:
+        return self.__observed_extraction_verifier
+
+    @property
     def _plan(self) -> VerifiedManagedRunPlan:
         return self.__plan
 
@@ -211,6 +264,8 @@ def create_managed_v5_production_runtime(
     durable_clean_state_factory: ManagedMem0V5DurableCleanStateFactoryPort,
     operation_journal: ResumableOperationJournalService,
     operation_run_identity: OperationRunIdentity,
+    operation_receipt_authority: ManagedMem0V5OperationReceiptAuthority,
+    mem0_credential_capabilities: ManagedMem0V5CredentialCapabilities,
     benchmark_registry: ManagedBenchmarkRegistryHttpAdapter,
     benchmark_registration: ManagedBenchmarkRunRegistration,
     mem0_transport: Mem0V5TransportPort | None = None,
@@ -225,6 +280,8 @@ def create_managed_v5_production_runtime(
         or type(infinity_credentials) is not ManagedV5InfinityCredentialBundle
         or type(operation_journal) is not ResumableOperationJournalService
         or type(operation_run_identity) is not OperationRunIdentity
+        or type(operation_receipt_authority) is not ManagedMem0V5OperationReceiptAuthority
+        or type(mem0_credential_capabilities) is not ManagedMem0V5CredentialCapabilities
         or type(benchmark_registry) is not ManagedBenchmarkRegistryHttpAdapter
         or type(benchmark_registration) is not ManagedBenchmarkRunRegistration
         or not callable(clock)
@@ -254,6 +311,7 @@ def create_managed_v5_production_runtime(
             timeout_seconds=timeout_seconds,
             state_paths=state_paths,
             credential_paths=credential_paths,
+            credential_capabilities=mem0_credential_capabilities,
             runtime_receipt_boundary=runtime_receipt_boundary,
             trusted_runtime_binding=trusted_runtime_binding,
             receipt_authority=material.receipt_authority,
@@ -293,6 +351,8 @@ def create_managed_v5_production_runtime(
             execution_evidence=evidence,
             operation_journal=operation_journal,
             operation_run_identity=operation_run_identity,
+            operation_receipt_authority=operation_receipt_authority,
+            budget_policy=budget_policy,
             origin=mem0_origin,
             receipt_authority=material.receipt_authority,
             operation_manifest=material.operation_manifest,
@@ -363,6 +423,10 @@ def create_managed_v5_production_runtime(
             cases=material.cases,
             registration=benchmark_registration,
         )
+        observed_extraction_verifier = ManagedV5ObservedExtractionVerifier(
+            lifecycle=production_lifecycle,
+            budget=budget_policy.extraction_token_budget,
+        )
         return ManagedV5ProductionRuntime(
             composition_binding=material.composition_binding,
             lifecycle_ports=lifecycle_ports,
@@ -371,6 +435,7 @@ def create_managed_v5_production_runtime(
             policy_delegate=policy_delegate,
             policy_port=policy_port,
             owned_resources=owned,
+            observed_extraction_verifier=observed_extraction_verifier,
             plan=material.plan,
             bindings=bindings,
             _token=_RUNTIME_TOKEN,
@@ -421,6 +486,7 @@ def _fail(code: str) -> None:
 
 
 __all__ = (
+    "ManagedV5ObservedExtractionVerifier",
     "ManagedV5ProductionRuntime",
     "ManagedV5ProductionRuntimeFactoryError",
     "create_managed_v5_production_runtime",

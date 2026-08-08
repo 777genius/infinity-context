@@ -29,6 +29,9 @@ from infinity_context_server.memory_comparison_managed_mem0_v5_storage_witness i
     ManagedMem0V5AuthenticatedStorageWitness,
 )
 from infinity_context_server.memory_comparison_managed_run_contract import ManagedRunError
+from infinity_context_server.memory_comparison_managed_v5_extraction_budget import (
+    ManagedV5ExtractionTokenBudget,
+)
 from infinity_context_server.memory_comparison_mem0_oss_v5_contracts import (
     CleanupVerificationContext,
     Mem0OssAdmissionRequest,
@@ -93,9 +96,17 @@ class ManagedMem0V5Budget:
 @dataclass(frozen=True, slots=True)
 class ManagedMem0V5BudgetPolicy:
     maximum_total_call_count: int
+    extraction_token_budget: ManagedV5ExtractionTokenBudget | None = None
 
     def __post_init__(self) -> None:
-        if type(self.maximum_total_call_count) is not int or self.maximum_total_call_count < 1:
+        if (
+            type(self.maximum_total_call_count) is not int
+            or self.maximum_total_call_count < 1
+            or (
+                self.extraction_token_budget is not None
+                and type(self.extraction_token_budget) is not ManagedV5ExtractionTokenBudget
+            )
+        ):
             raise ManagedRunError("managed Mem0 v5 budget policy is invalid")
 
     def require(self, budget: ManagedMem0V5Budget) -> None:
@@ -264,6 +275,7 @@ class ManagedMem0V5LaneCoordinator:
     __slots__ = (
         "_authority",
         "_budget",
+        "_budget_policy",
         "_completed",
         "_dispatched",
         "_lane",
@@ -301,6 +313,7 @@ class ManagedMem0V5LaneCoordinator:
         self._progress = progress_port
         self._authority: ManagedMem0V5ManifestAuthority | None = None
         self._budget: ManagedMem0V5Budget | None = None
+        self._budget_policy: ManagedMem0V5BudgetPolicy | None = None
         self._operation_ids: dict[int, str] = {}
         self._pending_terminal: Mem0OssTerminalCleanupEvidence | None = None
         self._dispatched: set[int] = set()
@@ -350,6 +363,7 @@ class ManagedMem0V5LaneCoordinator:
         )
         self._authority = authority
         self._budget = budget
+        self._budget_policy = budget_policy
         if self._progress is not None:
             self._progress.initialize(authority=authority, admission=self._service.admission)
         try:
@@ -481,6 +495,7 @@ class ManagedMem0V5LaneCoordinator:
         checkpoint = self._progress.load(authority=authority, admission=self._service.admission)
         self._authority = authority
         self._budget = budget
+        self._budget_policy = budget_policy
         if checkpoint.run_phase is ManagedMem0V5RunPhase.TERMINAL:
             self._terminal = checkpoint.terminal_evidence
             return checkpoint

@@ -23,11 +23,13 @@ from infinity_context_server.public_benchmark import (
 )
 from infinity_context_server.public_benchmark_models import (
     BenchmarkMemoryInput,
+    BenchmarkValidationError,
     PublicBenchmarkCase,
 )
 
 LOCOMO_INGEST_RICH_DOCUMENTS = "rich-documents"
 LOCOMO_INGEST_OFFICIAL_TURNS = "official-turns"
+OFFICIAL_MEM0_CONTENT_METADATA_KEY = "official_mem0_content"
 
 _LOCOMO_CATEGORY_NAMES = {
     1: "multi-hop",
@@ -87,9 +89,13 @@ def _official_locomo_turn_cases(raw: Mapping[str, object]) -> tuple[PublicBenchm
         question = _first_str(qa, "question", "query")
         evidence_terms = _official_locomo_evidence_terms(qa, evidence_lookup)
         answer_terms = _terms(qa, "answer", "expected_answer", "answers")
-        expected_terms = answer_terms or evidence_terms or _official_locomo_supported_answer_terms(
-            qa,
-            documents=(),
+        expected_terms = (
+            answer_terms
+            or evidence_terms
+            or _official_locomo_supported_answer_terms(
+                qa,
+                documents=(),
+            )
         )
         if not question or not expected_terms:
             continue
@@ -167,6 +173,10 @@ def _official_locomo_turn_memories(
                 turn_index=index,
             )
             speaker = _first_str(turn, "speaker", "role", "author") or "speaker"
+            official_mem0_content = _official_mem0_turn_content(
+                turn,
+                speaker=speaker,
+            )
             text = _official_locomo_turn_memory_text(
                 turn,
                 session_key=session_key,
@@ -174,12 +184,15 @@ def _official_locomo_turn_memories(
                 speaker=speaker,
                 date_value=date_value,
             )
-            if not text:
+            if not text and official_mem0_content is None:
                 continue
+            if not text or official_mem0_content is None:
+                raise BenchmarkValidationError(
+                    "official LoCoMo semantic and Mem0 payload emptiness differs"
+                )
             role = (
                 "user"
-                if speaker_a_identity
-                and _normalized_locomo_speaker(speaker) == speaker_a_identity
+                if speaker_a_identity and _normalized_locomo_speaker(speaker) == speaker_a_identity
                 else "assistant"
             )
             memories.append(
@@ -193,6 +206,7 @@ def _official_locomo_turn_memories(
                         "session_date": date_value,
                         "dia_id": dia_id,
                         "speaker": speaker,
+                        OFFICIAL_MEM0_CONTENT_METADATA_KEY: official_mem0_content,
                     },
                 )
             )
@@ -237,6 +251,36 @@ def _official_locomo_turn_memory_text(
     return f"{date_prefix}{dia_id} {speaker}: {text.strip()}"
 
 
+def _official_mem0_turn_content(
+    turn: Mapping[str, object],
+    *,
+    speaker: str,
+) -> str | None:
+    """Render the frozen upstream Mem0 ``session_to_chunks`` content bytes."""
+
+    text = _official_mem0_string(turn, "text")
+    query = _official_mem0_string(turn, "query")
+    caption = _official_mem0_string(turn, "blip_caption")
+    if query and caption:
+        photo_tag = f"[Sharing image - query: {query}. The image shows: {caption}]"
+    elif query:
+        photo_tag = f"[Sharing image - query for: {query}]"
+    elif caption:
+        photo_tag = f"[Sharing image that shows: {caption}]"
+    else:
+        photo_tag = ""
+    if photo_tag:
+        text = f"{text} {photo_tag}" if text else photo_tag
+    return f"{speaker}: {text}" if text else None
+
+
+def _official_mem0_string(turn: Mapping[str, object], key: str) -> str:
+    value = turn.get(key, "")
+    if type(value) is not str:
+        raise BenchmarkValidationError(f"official LoCoMo {key} must be exact text or absent")
+    return value
+
+
 def _locomo_turn_dia_id(
     turn: Mapping[str, object],
     *,
@@ -257,9 +301,7 @@ def _locomo_turn_dia_id(
 
 def _looks_like_locomo_dia_id(value: str) -> bool:
     stripped = value.strip()
-    return bool(
-        stripped.upper().startswith("D") and (":" in stripped or "-" in stripped)
-    )
+    return bool(stripped.upper().startswith("D") and (":" in stripped or "-" in stripped))
 
 
 def _locomo_session_number(session_key: str) -> int | None:

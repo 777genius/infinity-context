@@ -76,9 +76,10 @@ _BINDING = re.compile(r"^sha256:[0-9a-f]{64}$")
 @final
 @dataclass(frozen=True, slots=True)
 class ManagedLiveExecutionLimits:
-    """Immutable answer/judge reservations and non-publishable usage estimates.
+    """Requested answer/judge reservations and non-publishable usage estimates.
 
-    Provider work internal to memory backends is not measured by these limits.
+    Output limits are not provider-verified. Provider work internal to memory
+    backends is not measured by these limits.
     """
 
     provider_kind: str
@@ -148,6 +149,7 @@ class ManagedLiveExecutionLimits:
             "backend_internal_provider_cost": "unmeasured",
             "total_provider_calls_claimed": False,
             "benchmark_reserved_token_ceiling": self.benchmark_reserved_token_ceiling,
+            "output_limit_enforcement": "requested_not_provider_verified",
             "readiness_probe_estimated_tokens": self.readiness_probe_estimated_tokens,
             "readiness_probe_usage_source": self.readiness_probe_usage_source,
             "total_accounted_tokens": self.total_accounted_tokens,

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import copy
 import hashlib
 import json
 from collections.abc import Callable
@@ -56,6 +57,7 @@ from managed_comparison_sandbox_adapters import (
     SANDBOX_SCOPE,
     SandboxBackendState,
     SandboxTrace,
+    _ingest_payload,
     implementation_sha256,
 )
 from managed_comparison_sandbox_execution import (
@@ -82,6 +84,30 @@ class _Rig:
     judge: SandboxJudgePort
     policy: SandboxPolicyPort
     assembler: ManagedFullComparisonAssembler
+
+
+def test_locomo_sandbox_ingest_keeps_rich_text_and_exact_official_mem0_payload() -> None:
+    case = _fixture_case()
+    corpus_id, _thread_id = _managed_corpus_identity(case)
+    record = _managed_corpus_record(case)
+    memory = record["memories"][0]
+
+    assert memory["text"] == "Alice bought green tea after work."
+    assert memory["official_mem0_content"] == ("Alice: Alice bought green tea after work.")
+    assert memory["text"] != memory["official_mem0_content"]
+    assert _ingest_payload(record, benchmark="locomo", corpus_id=corpus_id) is record
+
+    missing_official = copy.deepcopy(record)
+    del missing_official["memories"][0]["official_mem0_content"]
+    assert (
+        _ingest_payload(missing_official, benchmark="locomo", corpus_id=corpus_id)
+        is missing_official
+    )
+
+    arbitrary_metadata = copy.deepcopy(record)
+    arbitrary_metadata["memories"][0]["unexpected"] = "not allowed"
+    with pytest.raises(AssertionError):
+        _ingest_payload(arbitrary_metadata, benchmark="locomo", corpus_id=corpus_id)
 
 
 def test_managed_locomo_canary_runs_real_nine_slot_lifecycle_without_skips() -> None:

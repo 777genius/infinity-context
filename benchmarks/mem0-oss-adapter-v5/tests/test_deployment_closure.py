@@ -25,7 +25,7 @@ from tools.generate_source_authority import (
 ROOT = Path(__file__).resolve().parents[1]
 REPOSITORY = ROOT.parents[1]
 FROZEN_V4_TREE = "5d640f4ea0164f18a5e8cff2bd5469b1e7eea201"
-LIVE_SOURCE_COMMIT = "d5648af2a579cabedb5f64d9cbecc24fffac4e01"
+LIVE_SOURCE_COMMIT = "67fbadc44ccef4aed935cfb9512b5bd1464045bf"
 
 
 def test_complete_v4_tree_and_working_bytes_remain_exact() -> None:
@@ -227,9 +227,7 @@ def test_live_micro_canary_qdrant_snapshots_use_writable_state_path() -> None:
     qdrant = compose["services"]["mem0-oss-v5-qdrant"]
     assert qdrant["read_only"] is True
     assert qdrant["environment"]["QDRANT__STORAGE__STORAGE_PATH"] == "/qdrant/storage"
-    assert qdrant["environment"]["QDRANT__STORAGE__SNAPSHOTS_PATH"] == (
-        "/qdrant/storage/snapshots"
-    )
+    assert qdrant["environment"]["QDRANT__STORAGE__SNAPSHOTS_PATH"] == ("/qdrant/storage/snapshots")
     state_mount = next(
         volume for volume in qdrant["volumes"] if volume["target"] == "/qdrant/storage"
     )

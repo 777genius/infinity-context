@@ -7,6 +7,16 @@ from types import SimpleNamespace
 
 import pytest
 from infinity_context_server import memory_comparison_managed_live_cli as subject
+from infinity_context_server.memory_comparison_managed_benchmark_registry_contracts import (
+    REGISTRATION_SCHEMA_VERSION,
+    ManagedBenchmarkRunRegistration,
+)
+from infinity_context_server.memory_comparison_managed_benchmark_registry_http import (
+    ManagedBenchmarkRegistryHttpAdapter,
+)
+from infinity_context_server.memory_comparison_managed_v5_live_private_dependencies import (
+    ManagedV5RegistryRecoveryEnvelope,
+)
 
 _NOW = datetime(2026, 8, 2, 12, 0, tzinfo=UTC)
 _PRIVATE = "PRIVATE-SECRET-MUST-NOT-LEAK"
@@ -33,6 +43,7 @@ def _config(tmp_path: Path, **changes: object) -> subject.ManagedLiveCliConfig:
         "mem0_api_url": "http://127.0.0.1:8888",
         "subscription_runtime_url": "http://127.0.0.1:8890",
         "max_total_tokens": 50_000,
+        "max_extraction_tokens": 20_000,
         "mem0_runtime_implementation_sha256": "a" * 64,
         "allow_live": True,
         "allow_paid_llm": True,
@@ -42,6 +53,17 @@ def _config(tmp_path: Path, **changes: object) -> subject.ManagedLiveCliConfig:
     }
     values.update(changes)
     return subject.ManagedLiveCliConfig(**values)  # type: ignore[arg-type]
+
+
+def _managed_v5_config(tmp_path: Path, **changes: object) -> subject.ManagedLiveCliConfig:
+    report_file = tmp_path / "reports" / "managed-v5-terminal.json"
+    report_file.parent.mkdir(exist_ok=True)
+    filesystem = SimpleNamespace(report_file=report_file)
+    managed_v5 = object.__new__(subject.ManagedV5LiveConfig)
+    object.__setattr__(managed_v5, "filesystem", filesystem)
+    object.__setattr__(managed_v5, "runtime", object())
+    values = {"managed_v5_config": managed_v5, "report_out": report_file, **changes}
+    return _config(tmp_path, **values)
 
 
 def test_operator_flags_block_before_files_env_or_provider(
@@ -79,7 +101,7 @@ def test_cli_reports_only_allowlisted_production_failure_phase(
     runner_code: str,
     expected_reason_code: str,
 ) -> None:
-    config = _config(tmp_path)
+    config = _managed_v5_config(tmp_path)
 
     def fail(*_: object) -> dict[str, object]:
         raise subject.ManagedProductionRunnerError(runner_code)
@@ -93,6 +115,156 @@ def test_cli_reports_only_allowlisted_production_failure_phase(
     serialized = json.dumps(report, sort_keys=True)
     assert _PRIVATE not in serialized
     assert "ManagedProductionRunnerError" not in serialized
+
+
+def test_cli_retains_secret_free_durable_registry_recovery_state(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    config = _managed_v5_config(tmp_path)
+    registry = object.__new__(ManagedBenchmarkRegistryHttpAdapter)
+    registration = ManagedBenchmarkRunRegistration(
+        schema_version=REGISTRATION_SCHEMA_VERSION,
+        authority="infinity_canonical",
+        run_id_sha256="1" * 64,
+        binding_commitment_sha256="2" * 64,
+        infinity_target_identity_sha256="3" * 64,
+        space_id="space-1",
+        space_slug="memory-comparison-run-1",
+        state="active",
+        created=False,
+    )
+    envelope = ManagedV5RegistryRecoveryEnvelope(
+        stage="begin_cleanup",
+        primary_reason_code="managed_v5_production_activation_failed",
+        run_id_sha256=registration.run_id_sha256,
+        binding_commitment_sha256=registration.binding_commitment_sha256,
+        infinity_target_identity_sha256=registration.infinity_target_identity_sha256,
+        space_slug=registration.space_slug,
+        recovery_registry=registry,
+        registration=registration,
+    )
+    failure = subject.ManagedV5ProductionRecoveryRequiredError(
+        envelope=envelope,
+    )
+
+    def fail(*_: object) -> dict[str, object]:
+        raise failure
+
+    monkeypatch.setattr(subject, "_run_managed_live", fail)
+    report = subject.run_managed_live_cli(config, env={})
+
+    assert report["reason_code"] == "cleanup_required"
+    assert report["registry_recovery"] == {
+        "schema_version": "managed-v5-registry-recovery.v1",
+        "cleanup_required": True,
+        "canonical_state": "active",
+        "canonical_state_retained": True,
+        "cleanup_stage": "begin_cleanup",
+        "primary_reason_code": "managed_v5_production_activation_failed",
+        "run_id_sha256": "1" * 64,
+        "binding_commitment_sha256": "2" * 64,
+        "infinity_target_identity_sha256": "3" * 64,
+        "space_slug": "memory-comparison-run-1",
+        "registration": {
+            "run_id_sha256": "1" * 64,
+            "binding_commitment_sha256": "2" * 64,
+            "infinity_target_identity_sha256": "3" * 64,
+            "space_id": "space-1",
+            "space_slug": "memory-comparison-run-1",
+            "state": "active",
+            "created": False,
+        },
+        "cleanup_receipt_sha256": None,
+    }
+    serialized = json.dumps(report, sort_keys=True)
+    assert _PRIVATE not in serialized
+    assert "recovery_registry" not in serialized
+    assert json.loads(config.report_out.read_text()) == report
+
+
+def test_cli_unknown_registration_outcome_writes_exact_secret_free_report(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    config = _managed_v5_config(tmp_path)
+    registry = object.__new__(ManagedBenchmarkRegistryHttpAdapter)
+    envelope = ManagedV5RegistryRecoveryEnvelope(
+        stage="registration_outcome_unknown",
+        primary_reason_code=("managed_v5_live_private_dependencies_registration_failed"),
+        run_id_sha256="a" * 64,
+        binding_commitment_sha256="b" * 64,
+        infinity_target_identity_sha256="c" * 64,
+        space_slug="memory-comparison-unknown",
+        recovery_registry=registry,
+    )
+    failure = subject.ManagedV5ProductionRecoveryRequiredError(envelope=envelope)
+    monkeypatch.setattr(
+        subject,
+        "_run_managed_live",
+        lambda *_: (_ for _ in ()).throw(failure),
+    )
+
+    report = subject.run_managed_live_cli(config, env={})
+
+    recovery = report["registry_recovery"]
+    assert recovery["canonical_state"] == "unknown_may_exist"
+    assert recovery["canonical_state_retained"] is False
+    assert recovery["registration"] is None
+    assert recovery["cleanup_stage"] == "registration_outcome_unknown"
+    assert json.loads(config.report_out.read_text()) == report
+    assert "recovery_registry" not in json.dumps(report, sort_keys=True)
+
+
+def test_managed_v5_cli_requires_exact_validated_report_path(tmp_path: Path) -> None:
+    config = _managed_v5_config(tmp_path, report_out=tmp_path / "wrong.json")
+
+    with pytest.raises(subject.ManagedLiveCliError) as caught:
+        subject.run_managed_live_cli(config, env={})
+
+    assert caught.value.code == "config_invalid"
+
+
+@pytest.mark.parametrize(
+    ("internal_code", "public_code"),
+    tuple(subject._MANAGED_V5_COMPOSITION_PUBLIC_CODES.items())
+    + (("PRIVATE-SECRET-CODE", "managed_live_execution_failed"),),
+)
+def test_managed_v5_composition_codes_are_exhaustively_normalized(
+    internal_code: str,
+    public_code: str,
+) -> None:
+    mapped = subject._managed_v5_composition_public_code(internal_code)
+
+    assert mapped == public_code
+    assert "PRIVATE" not in mapped
+
+
+def test_managed_v5_cli_persists_authorization_terminal_report(tmp_path: Path) -> None:
+    config = _managed_v5_config(tmp_path, operator_notified=False)
+    config.dataset_path.unlink()
+
+    report = subject.run_managed_live_cli(config, env={})
+
+    assert report["reason_code"] == "authorization_required"
+    assert json.loads(config.report_out.read_text()) == report
+
+
+def test_managed_v5_cli_report_write_failure_is_terminal(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    config = _managed_v5_config(tmp_path, operator_notified=False)
+    monkeypatch.setattr(
+        subject,
+        "write_json_atomic",
+        lambda *_: (_ for _ in ()).throw(OSError("private write failure")),
+    )
+
+    with pytest.raises(subject.ManagedLiveCliError) as caught:
+        subject.run_managed_live_cli(config, env={})
+
+    assert caught.value.code == "artifact_write_failed"
 
 
 @pytest.mark.parametrize(
@@ -323,7 +495,7 @@ def test_oss_ingress_protected_target_must_be_vetted_local_or_private(tmp_path: 
     ("usage_required", "usage_fails"),
     ((True, False), (False, False), (True, True)),
 )
-def test_public_composition_wires_v4_only_post_sealed_usage_proof_without_real_io(
+def test_legacy_helper_retains_v4_post_sealed_usage_proof_without_real_io(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
     usage_required: bool,
@@ -478,7 +650,7 @@ def test_public_composition_wires_v4_only_post_sealed_usage_proof_without_real_i
     )
     monkeypatch.setattr(subject.secrets, "token_hex", adapter_compatible_probe_nonce)
 
-    report = subject.run_managed_live_cli(
+    report = subject._run_managed_live_legacy(
         config,
         env={
             **_ENV,

@@ -1,6 +1,6 @@
 {
   "closure_algorithm": "sha256(sorted(path + NUL + size + NUL + sha256 + LF))",
-  "closure_sha256": "697608ca0623dcfd06b81019e9115018f034eabfd7353d508b5ad038877a5654",
+  "closure_sha256": "d78fb229294f83851d8c2265105569856d3acb73b0b4b274202dbfba5107a723",
   "files": [
     {
       "path": "README.md",
@@ -94,13 +94,18 @@
     },
     {
       "path": "mem0_oss_adapter_v5/app.py",
-      "sha256": "abf4d86374a454676978cb7fb33ae91341399bb5dd0506eef2b7c2003f7c6cb1",
-      "size": 11625
+      "sha256": "ab6adfe7470ab0bbb1f1cc0bdf0b2554aacc52becd19d86e5dea2156f725181f",
+      "size": 12699
     },
     {
       "path": "mem0_oss_adapter_v5/bootstrap.py",
       "sha256": "079d713b09d2610b6ccc7716f81eb006970df8aa328ee36d9ddc6f41b9a624f2",
       "size": 9894
+    },
+    {
+      "path": "mem0_oss_adapter_v5/clean_state.py",
+      "sha256": "6190643209d031a87deb39aa0471ad40dd535041b4a71e5d9755e68a87abce7b",
+      "size": 12594
     },
     {
       "path": "mem0_oss_adapter_v5/cleanup.py",
@@ -114,13 +119,18 @@
     },
     {
       "path": "mem0_oss_adapter_v5/composition.py",
-      "sha256": "9cd668457d43a819bd3e9d0214cccbb53c4f846bd78975e26c3a343b3d1042b5",
-      "size": 39618
+      "sha256": "224ab1982353686cf40cf0759fe60d529d680edfc60b17459a31d0dd5fb18645",
+      "size": 39464
     },
     {
       "path": "mem0_oss_adapter_v5/domain.py",
       "sha256": "a00312bbd86db15402404d361f4f60e1a9b53453678c766a41b725ec539eea23",
       "size": 16432
+    },
+    {
+      "path": "mem0_oss_adapter_v5/evidence_composition.py",
+      "sha256": "b133bdf90602e08b3d1db5a5430e36152bd5ff0afd3db867aab51df00e787d95",
+      "size": 3887
     },
     {
       "path": "mem0_oss_adapter_v5/evidence_contracts.py",
@@ -134,18 +144,18 @@
     },
     {
       "path": "mem0_oss_adapter_v5/extraction_contract.py",
-      "sha256": "6d53b369f05415bafccee4aefc17b5f356753050bd336fddc891393cf4ea2a98",
-      "size": 20995
+      "sha256": "577f40e8f4121a4d337dfcf21fdeb82f8eb093695952e2e3c582df272224ff79",
+      "size": 20996
     },
     {
       "path": "mem0_oss_adapter_v5/http_models.py",
-      "sha256": "bb782f45946c919a53f468346decc9382bac7ec7cf6bda35e20a400265d67894",
-      "size": 8945
+      "sha256": "af414a0c7c8fac71e5c992b7f361ab67b244f1fc9b49c1b89383accc5dac02c8",
+      "size": 11586
     },
     {
       "path": "mem0_oss_adapter_v5/mem0_storage.py",
-      "sha256": "bd5ab84105b139188edc7123e12a25c7e96e8c1da88de5901fdae2fcfe6f3d14",
-      "size": 31083
+      "sha256": "c0b9d33a21813a2c7be98d9f939c4df5010cfded71b662f63853731a1e2927a2",
+      "size": 32949
     },
     {
       "path": "mem0_oss_adapter_v5/private_io.py",
@@ -154,8 +164,8 @@
     },
     {
       "path": "mem0_oss_adapter_v5/request_binding.py",
-      "sha256": "61e8c55b773ed06cad78f78724933b30e70317114c090b797507d1c7779ab9bb",
-      "size": 6497
+      "sha256": "82977d76d6fc5055c098bcea0de2b3270d6ac62f5e68deb194176792d2998bf1",
+      "size": 9260
     },
     {
       "path": "mem0_oss_adapter_v5/run_commitments.py",
@@ -164,8 +174,8 @@
     },
     {
       "path": "mem0_oss_adapter_v5/sealed_manifest.py",
-      "sha256": "7490bed396999492187d72a9c3aee294c5fd067a5c27145c31a92871a0ba7c55",
-      "size": 7113
+      "sha256": "82225026ddbe8cd46c660a56e5507c2f2091ad0e9a7300033134eb440f727465",
+      "size": 7158
     },
     {
       "path": "mem0_oss_adapter_v5/source_authority.py",
@@ -309,6 +319,6 @@
     "release_manifest_sha256": "10b73e189ab23867b3cf368dd0f961faa19aad7baa94e6c3df48471adf4abe93"
   },
   "schema_version": "mem0-oss-adapter-v5.source-authority.v1",
-  "source_commit_sha1": "d5648af2a579cabedb5f64d9cbecc24fffac4e01",
-  "source_tree_sha1": "7148e1ec39738b8e2768295f7032fff4f97fabe7"
+  "source_commit_sha1": "67fbadc44ccef4aed935cfb9512b5bd1464045bf",
+  "source_tree_sha1": "e19e400f4d799fabb5ddb0f1a3ec6756a28f7487"
 }
