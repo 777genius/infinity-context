@@ -68,6 +68,24 @@ from infinity_context_server.memory_comparison_managed_run import public_managed
 from infinity_context_server.memory_comparison_managed_runtime_credentials import (
     issue_managed_runtime_credential_authority,
 )
+from infinity_context_server.memory_comparison_managed_v5_live_cli_composition import (
+    ManagedV5LiveCliCompositionError,
+    run_managed_v5_live_cli_composition,
+)
+from infinity_context_server.memory_comparison_managed_v5_live_cli_config_loader import (
+    ManagedV5LiveCliConfigLoaderError,
+    build_managed_v5_live_cli_composition_request,
+    load_managed_v5_live_cli_config,
+)
+from infinity_context_server.memory_comparison_managed_v5_live_config import (
+    ManagedV5LiveConfig,
+)
+from infinity_context_server.memory_comparison_managed_v5_production_runner import (
+    ManagedV5ProductionRecoveryRequiredError,
+)
+from infinity_context_server.memory_comparison_managed_v5_recovery_report import (
+    managed_v5_registry_recovery_payload,
+)
 from infinity_context_server.memory_comparison_mem0_oss_ingress import (
     MEM0_OSS_INGRESS_API_KEY_ENV,
     Mem0OssIngressCredentialAuthority,
@@ -87,7 +105,7 @@ MANAGED_LIVE_CLI_SUITE = "managed-comparison-live-subscription-canary"
 MANAGED_LIVE_CLI_SCHEMA_VERSION = "managed-comparison-live-subscription-canary.v1"
 MANAGED_LIVE_CLI_MODEL = "gpt-5.6-sol"
 MANAGED_LIVE_CLI_MAX_DATASET_BYTES = 402_653_184
-MANAGED_LIVE_CLI_MAX_TOTAL_TOKENS = 2_000_000
+MANAGED_LIVE_CLI_MAX_TOTAL_TOKENS = 2_000_000_000
 MANAGED_LIVE_CLI_MAX_RUN_SECONDS = 7_200.0
 MANAGED_LIVE_CLI_MAX_REQUEST_SECONDS = 120.0
 MANAGED_LIVE_CLI_SUCCESS = 0
@@ -105,6 +123,7 @@ _SAFE_CODES = frozenset(
         "artifact_write_failed",
         "authorization_required",
         "config_invalid",
+        "cleanup_required",
         "credential_missing",
         "dataset_too_large",
         "dataset_unreadable",
@@ -140,6 +159,7 @@ class ManagedLiveCliConfig:
     infinity_api_url: str
     mem0_api_url: str
     subscription_runtime_url: str
+    max_extraction_tokens: int
     max_total_tokens: int
     mem0_runtime_implementation_sha256: str
     allow_live: bool
@@ -152,6 +172,9 @@ class ManagedLiveCliConfig:
     connect_timeout_seconds: float = 10.0
     request_timeout_seconds: float = 120.0
     run_timeout_seconds: float = 3_600.0
+    managed_v5_config: ManagedV5LiveConfig | None = None
+    extraction_contract_file: Path | None = None
+    extraction_contract_sha256: str | None = None
 
     def __post_init__(self) -> None:
         urls = (self.infinity_api_url, self.mem0_api_url, self.subscription_runtime_url)
@@ -176,6 +199,8 @@ class ManagedLiveCliConfig:
             or type(self.run_id) is not str
             or not self.run_id
             or any(type(value) is not str or not value for value in urls)
+            or type(self.max_extraction_tokens) is not int
+            or not 1 <= self.max_extraction_tokens <= MANAGED_LIVE_CLI_MAX_TOTAL_TOKENS
             or type(self.max_total_tokens) is not int
             or not 1 <= self.max_total_tokens <= MANAGED_LIVE_CLI_MAX_TOTAL_TOKENS
             or type(self.mem0_runtime_implementation_sha256) is not str
@@ -197,6 +222,25 @@ class ManagedLiveCliConfig:
                 self.run_timeout_seconds,
                 MANAGED_LIVE_CLI_MAX_RUN_SECONDS,
             )
+            or (
+                self.managed_v5_config is not None
+                and type(self.managed_v5_config) is not ManagedV5LiveConfig
+            )
+            or (
+                self.extraction_contract_file is not None
+                and not isinstance(self.extraction_contract_file, Path)
+            )
+            or (
+                self.extraction_contract_sha256 is not None
+                and (
+                    type(self.extraction_contract_sha256) is not str
+                    or len(self.extraction_contract_sha256) != 64
+                    or any(
+                        character not in "0123456789abcdef"
+                        for character in self.extraction_contract_sha256
+                    )
+                )
+            )
         ):
             raise ManagedLiveCliError("config_invalid")
 
@@ -214,39 +258,105 @@ def run_managed_live_cli(
 
     if type(config) is not ManagedLiveCliConfig:
         raise ManagedLiveCliError("config_invalid")
+    report_path = _managed_v5_terminal_report_path(config)
     if (
         config.allow_live is not True
         or config.allow_paid_llm is not True
         or config.operator_notified is not True
     ):
-        return _failure("authorization_required")
-    environment = os.environ if env is None else env
-    if not isinstance(environment, Mapping):
-        raise ManagedLiveCliError("config_invalid")
-    try:
-        validate_artifact_paths_do_not_overwrite_dataset(
-            dataset_path=config.dataset_path,
-            error_factory=lambda _: ManagedLiveCliError("artifact_path_invalid"),
-            report_out=config.report_out,
-        )
-        report = _run_managed_live(config, environment)
-    except ManagedLiveCliError as exc:
-        report = _failure(exc.code)
-    except ManagedProductionRunnerError as exc:
-        report = _failure_from_trusted_managed_production_error(exc)
-    except OSError:
-        report = _failure("dataset_unreadable")
-    except Exception:
-        report = _failure("managed_live_execution_failed")
-    if config.report_out is not None:
+        report = _failure("authorization_required")
+    else:
+        environment = os.environ if env is None else env
+        if not isinstance(environment, Mapping):
+            raise ManagedLiveCliError("config_invalid")
         try:
-            write_json_atomic(config.report_out, report)
+            validate_artifact_paths_do_not_overwrite_dataset(
+                dataset_path=config.dataset_path,
+                error_factory=lambda _: ManagedLiveCliError("artifact_path_invalid"),
+                report_out=report_path,
+            )
+            report = _run_managed_live(config, environment)
+        except ManagedLiveCliError as exc:
+            report = _failure(exc.code)
+        except ManagedProductionRunnerError as exc:
+            report = _failure_from_trusted_managed_production_error(exc)
+        except ManagedV5ProductionRecoveryRequiredError as exc:
+            report = _cleanup_required_failure(exc)
+        except OSError:
+            report = _failure("dataset_unreadable")
+        except Exception:
+            report = _failure("managed_live_execution_failed")
+    if report_path is not None:
+        try:
+            write_json_atomic(report_path, report)
         except (OSError, TypeError, ValueError) as exc:
             raise ManagedLiveCliError("artifact_write_failed") from exc
     return report
 
 
+def _managed_v5_terminal_report_path(config: ManagedLiveCliConfig) -> Path | None:
+    managed_v5 = config.managed_v5_config
+    if managed_v5 is None:
+        return config.report_out
+    expected = managed_v5.filesystem.report_file
+    if not isinstance(expected, Path) or config.report_out != expected:
+        raise ManagedLiveCliError("config_invalid")
+    return expected
+
+
 def _run_managed_live(
+    config: ManagedLiveCliConfig,
+    env: Mapping[str, str],
+) -> dict[str, object]:
+    try:
+        _validated_loopback_origin(config.subscription_runtime_url)
+    except ValueError:
+        raise ManagedLiveCliError("subscription_runtime_url_invalid") from None
+    if (
+        type(config.managed_v5_config) is not ManagedV5LiveConfig
+        or not isinstance(config.extraction_contract_file, Path)
+        or type(config.extraction_contract_sha256) is not str
+    ):
+        raise ManagedLiveCliError("config_invalid")
+    try:
+        request = build_managed_v5_live_cli_composition_request(config)
+    except ManagedV5LiveCliConfigLoaderError:
+        raise ManagedLiveCliError("config_invalid") from None
+    try:
+        result = run_managed_v5_live_cli_composition(request, env=env)
+    except ManagedV5LiveCliCompositionError as exc:
+        if exc.sealed_result is not None:
+            return _post_sealed_usage_failure(
+                exc.code,
+                sealed_result=exc.sealed_result,
+            )
+        mapped = {
+            "credential_missing": "credential_missing",
+            "dataset_unreadable": "dataset_unreadable",
+            "mem0_oss_ingress_configuration_invalid": ("mem0_oss_ingress_configuration_invalid"),
+            "managed_v5_live_public_config_invalid": "config_invalid",
+            "managed_v5_live_cli_request_invalid": "config_invalid",
+            "managed_v5_live_extraction_projector_invalid": "config_invalid",
+            "pre_readiness_no_go": "pre_readiness_no_go",
+            "profile_invalid": "profile_invalid",
+            "subscription_runtime_url_invalid": "subscription_runtime_url_invalid",
+        }.get(exc.code, "managed_live_execution_failed")
+        raise ManagedLiveCliError(mapped) from None
+    return {
+        "suite": MANAGED_LIVE_CLI_SUITE,
+        "schema_version": MANAGED_LIVE_CLI_SCHEMA_VERSION,
+        "ok": True,
+        "status": "completed",
+        "provider_kind": MANAGED_PROVIDER_SUBSCRIPTION_RUNTIME,
+        "profile_id": config.profile_id,
+        "scope": FULL_COMPARISON_SCOPE_CANARY,
+        "selected_case_count": len(config.selected_case_ids),
+        "publishable": False,
+        "result": result,
+    }
+
+
+def _run_managed_live_legacy(
     config: ManagedLiveCliConfig,
     env: Mapping[str, str],
 ) -> dict[str, object]:
@@ -611,6 +721,18 @@ def _failure_from_trusted_managed_production_error(
     return _failure("managed_live_execution_failed")
 
 
+def _cleanup_required_failure(
+    error: ManagedV5ProductionRecoveryRequiredError,
+) -> dict[str, object]:
+    """Publish durable, secret-free authority needed for exact cleanup recovery."""
+
+    if type(error) is not ManagedV5ProductionRecoveryRequiredError:
+        return _failure("managed_live_execution_failed")
+    report = _failure("cleanup_required")
+    report["registry_recovery"] = managed_v5_registry_recovery_payload(error)
+    return report
+
+
 def _post_sealed_usage_failure(
     code: str,
     *,
@@ -650,8 +772,16 @@ def _parser() -> argparse.ArgumentParser:
             "the CLI appends /v1/chat/completions"
         ),
     )
+    parser.add_argument("--max-extraction-tokens", type=int, required=True)
     parser.add_argument("--max-total-tokens", type=int, required=True)
     parser.add_argument("--mem0-runtime-implementation-sha256", required=True)
+    parser.add_argument(
+        "--managed-v5-config-json",
+        type=Path,
+        required=True,
+        metavar="ABSOLUTE_PATH",
+        help="strict public path/pin configuration for the managed-v5 runtime",
+    )
     parser.add_argument("--allow-live", action="store_true")
     parser.add_argument("--allow-paid-llm", action="store_true")
     parser.add_argument("--operator-notified", action="store_true")
@@ -668,6 +798,9 @@ def _parser() -> argparse.ArgumentParser:
 def main(argv: Sequence[str] | None = None) -> int:
     args = _parser().parse_args(argv)
     try:
+        managed_v5_config, extraction_file, extraction_sha256 = _load_managed_v5_cli_config(
+            args.managed_v5_config_json
+        )
         config = ManagedLiveCliConfig(
             dataset_path=args.dataset,
             profile_id=str(args.profile),
@@ -676,6 +809,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             infinity_api_url=str(args.infinity_api_url),
             mem0_api_url=str(args.mem0_api_url),
             subscription_runtime_url=str(args.subscription_runtime_url),
+            max_extraction_tokens=args.max_extraction_tokens,
             max_total_tokens=args.max_total_tokens,
             mem0_runtime_implementation_sha256=str(args.mem0_runtime_implementation_sha256),
             allow_live=args.allow_live,
@@ -684,10 +818,17 @@ def main(argv: Sequence[str] | None = None) -> int:
             mem0_local_auth_disabled_managed=args.mem0_local_auth_disabled_managed,
             mem0_oss_ingress_protected=args.mem0_oss_ingress_protected,
             allowed_mem0_hosts=tuple(args.allow_mem0_host),
-            report_out=args.report_out,
+            report_out=(
+                args.report_out
+                if args.report_out is not None
+                else managed_v5_config.filesystem.report_file
+            ),
             connect_timeout_seconds=args.connect_timeout_seconds,
             request_timeout_seconds=args.request_timeout_seconds,
             run_timeout_seconds=args.run_timeout_seconds,
+            managed_v5_config=managed_v5_config,
+            extraction_contract_file=extraction_file,
+            extraction_contract_sha256=extraction_sha256,
         )
         report = run_managed_live_cli(config)
     except ManagedLiveCliError as exc:
@@ -698,6 +839,15 @@ def main(argv: Sequence[str] | None = None) -> int:
     if report.get("status") == "no-go":
         return MANAGED_LIVE_CLI_NO_GO
     return MANAGED_LIVE_CLI_FAILURE
+
+
+def _load_managed_v5_cli_config(
+    path: Path,
+) -> tuple[ManagedV5LiveConfig, Path, str]:
+    try:
+        return load_managed_v5_live_cli_config(path)
+    except ManagedV5LiveCliConfigLoaderError:
+        raise ManagedLiveCliError("config_invalid") from None
 
 
 __all__ = (

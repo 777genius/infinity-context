@@ -64,7 +64,7 @@ from infinity_context_server.memory_comparison_subscription_chat import (
     _validated_loopback_origin,
 )
 from infinity_context_server.memory_comparison_subscription_live_probe import (
-    run_subscription_runtime_live_probe,
+    _run_subscription_runtime_live_probe_attempt,
 )
 from infinity_context_server.memory_comparison_subscription_probe import (
     SubscriptionRuntimeProbeObservation,
@@ -176,7 +176,7 @@ class ManagedSubscriptionReadinessClaim:
                 or self.__adapter.route_attestation != state.material.provider_route
             ):
                 _fail("managed_credentials_context_mismatch")
-            proof = run_subscription_runtime_live_probe(
+            proof = _run_subscription_runtime_live_probe_attempt(
                 self.__adapter,
                 expected_route=state.material.provider_route,
                 model=model,
@@ -200,11 +200,15 @@ class ManagedSubscriptionReadinessClaim:
             with self.__lock:
                 self.__phase = "terminal"
                 self.__authority_state.readiness_phase = "terminal"
-            with suppress(Exception):
-                self.__adapter.close()
             if isinstance(exc, ManagedRuntimeCredentialError):
                 raise
             raise ManagedRuntimeCredentialError("managed_credentials_readiness_failed") from None
+        finally:
+            # The readiness transport is a one-attempt capability.  Execution
+            # always receives a separately-issued adapter, so retaining this
+            # client after either outcome only leaks sockets and ownership.
+            with suppress(Exception):
+                self.__adapter.close()
         with self.__lock:
             if self.__phase != "active" or self.__authority_state.readiness_phase != "active":
                 self.__phase = "terminal"

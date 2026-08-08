@@ -200,6 +200,7 @@ def test_limits_bind_total_readiness_and_benchmark_usage(
         "backend_internal_provider_cost": "unmeasured",
         "total_provider_calls_claimed": False,
         "benchmark_reserved_token_ceiling": 50_000,
+        "output_limit_enforcement": "requested_not_provider_verified",
         "readiness_probe_estimated_tokens": 321,
         "readiness_probe_usage_source": SUBSCRIPTION_RUNTIME_ESTIMATED_USAGE_SOURCE,
         "total_accounted_tokens": 50_321,

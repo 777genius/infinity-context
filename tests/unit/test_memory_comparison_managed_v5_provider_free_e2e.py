@@ -15,13 +15,13 @@ from _phase_c_hermetic import install_hermetic_phase_c_authority
 from infinity_context_core.ports.derived_projection_policy import (
     derived_not_projected_policy_sha256,
 )
+from infinity_context_server import (
+    memory_comparison_managed_mem0_v5_composition as composition_subject,
+)
 
 sys.path.insert(0, str(Path(__file__).parents[1] / "e2e"))
 import memory_comparison_managed_mem0_v5_custom_loopback_process_harness as loopback
 import test_memory_comparison_managed_registry_policy_lifecycle as registry_support
-from infinity_context_server import (
-    memory_comparison_managed_mem0_v5_composition as composition_subject,
-)
 from infinity_context_server import (
     memory_comparison_managed_v5_live_preparation as preparation_subject,
 )
@@ -57,6 +57,9 @@ from infinity_context_server.memory_comparison_managed_live_composition import (
 from infinity_context_server.memory_comparison_managed_mem0_v5_clean_state_http import (
     ManagedMem0V5HmacDurableCleanStateFactory,
     ManagedMem0V5HttpCleanStateSnapshotFactory,
+)
+from infinity_context_server.memory_comparison_managed_mem0_v5_credentials import (
+    load_managed_mem0_v5_credentials,
 )
 from infinity_context_server.memory_comparison_managed_mem0_v5_lane import (
     ManagedMem0V5BudgetPolicy,
@@ -486,7 +489,12 @@ def _infinity_handler(authority, events: list[str]):
     return handle
 
 
-def _fixture(monkeypatch: pytest.MonkeyPatch, tmp_path):
+def _fixture(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path,
+    *,
+    budget_policy: ManagedMem0V5BudgetPolicy | None = None,
+):
     space_slug = self_space_slug(_RUN_ID)
     monkeypatch.setattr(registry_support, "_SPACE_SLUG", space_slug)
     authority = issue_managed_runtime_credential_authority(
@@ -567,6 +575,7 @@ def _fixture(monkeypatch: pytest.MonkeyPatch, tmp_path):
         transport=mem0_transport,
     )
     prep_state = preparation_subject._STATES[preparation]
+    budget_policy = budget_policy or ManagedMem0V5BudgetPolicy(10_000)
     journal_values = _journal_inputs(
         tmp_path,
         values={
@@ -574,6 +583,7 @@ def _fixture(monkeypatch: pytest.MonkeyPatch, tmp_path):
             "composition_binding": composition_binding,
         },
         production_authority=prep_state.production_authority,
+        budget_policy=budget_policy,
     )
     infinity_events: list[str] = []
     infinity_handler = _infinity_handler(projected, infinity_events)
@@ -622,6 +632,12 @@ def _fixture(monkeypatch: pytest.MonkeyPatch, tmp_path):
         plan=plan,
         now=_NOW,
     )
+    sealed_credentials = load_managed_mem0_v5_credentials(base["credential_paths"])
+    monkeypatch.setattr(
+        composition_subject,
+        "load_managed_mem0_v5_credentials",
+        lambda _paths: (_ for _ in ()).throw(AssertionError("credential reread")),
+    )
     runtime = create_managed_v5_production_runtime(
         activated_preparation=activated,
         infinity_credentials=credentials,
@@ -632,7 +648,7 @@ def _fixture(monkeypatch: pytest.MonkeyPatch, tmp_path):
         credential_paths=base["credential_paths"],
         runtime_receipt_boundary=runtime_receipt_boundary,
         trusted_runtime_binding=trusted,
-        budget_policy=ManagedMem0V5BudgetPolicy(10_000),
+        budget_policy=budget_policy,
         clean_state_snapshot_factory=ManagedMem0V5HttpCleanStateSnapshotFactory(),
         durable_clean_state_factory=ManagedMem0V5HmacDurableCleanStateFactory(
             path=tmp_path / "clean-state.json",
@@ -640,6 +656,8 @@ def _fixture(monkeypatch: pytest.MonkeyPatch, tmp_path):
         ),
         operation_journal=journal_values["operation_journal"],
         operation_run_identity=journal_values["operation_run_identity"],
+        operation_receipt_authority=journal_values["operation_receipt_authority"],
+        mem0_credential_capabilities=sealed_credentials,
         benchmark_registry=registry,
         benchmark_registration=registration,
         mem0_transport=mem0_transport,

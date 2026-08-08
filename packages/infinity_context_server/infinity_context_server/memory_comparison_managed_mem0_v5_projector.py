@@ -3,10 +3,15 @@
 from __future__ import annotations
 
 import datetime as dt
+import re
+from contextlib import suppress
 from dataclasses import dataclass
 from typing import final
 
 from infinity_context_server.memory_comparison_http_ingest_request import case_message_groups
+from infinity_context_server.memory_comparison_locomo_cases import (
+    OFFICIAL_MEM0_CONTENT_METADATA_KEY,
+)
 from infinity_context_server.memory_comparison_managed_corpus_projection import (
     _reconstruct_managed_corpus_case,
 )
@@ -25,6 +30,12 @@ from infinity_context_server.memory_comparison_mem0_oss_v5_contracts import (
 MANAGED_MEM0_V5_MANIFEST_SCHEMA_VERSION = "managed-mem0-v5-manifest.v1"
 MEM0_V5_SEALED_INPUT_SCHEMA_VERSION = "mem0-oss-adapter-v5.sealed-input.v2"
 _GOLD_FREE_PROJECTION_QUESTION = "Managed source projection sentinel."
+_LONGMEMEVAL_SESSION_DATE = re.compile(
+    r"(?P<date>\d{4}/\d{2}/\d{2}) "
+    r"\((?P<weekday>Mon|Tue|Wed|Thu|Fri|Sat|Sun)\) "
+    r"(?P<hour>\d{2}):(?P<minute>\d{2})"
+)
+_ENGLISH_WEEKDAYS = ("Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun")
 
 
 @final
@@ -34,7 +45,7 @@ class ManagedMem0V5SourceMessage:
     content: str
 
     def __post_init__(self) -> None:
-        if self.role not in {"user", "assistant"} or not _text(self.content):
+        if self.role not in {"user", "assistant"} or not _content(self.content):
             raise ManagedRunError("managed Mem0 v5 source message is invalid")
 
     def payload(self) -> dict[str, str]:
@@ -212,7 +223,16 @@ class ManagedMem0V5ManifestProjector:
             )
             if reconstructed.memory_scope_external_ref != corpus_id:
                 raise ManagedRunError("managed Mem0 v5 corpus identity differs")
-            for messages, _timestamp, metadata in case_message_groups(reconstructed):
+            for group_index, (messages, source_timestamp, metadata) in enumerate(
+                case_message_groups(reconstructed)
+            ):
+                official_mem0_content: object = None
+                official_mem0_speaker: object = None
+                if reconstructed.benchmark == "locomo":
+                    memory = reconstructed.memories[group_index]
+                    official_mem0_content = memory.metadata.get(OFFICIAL_MEM0_CONTENT_METADATA_KEY)
+                    if official_mem0_content is not None:
+                        official_mem0_speaker = memory.metadata.get("speaker")
                 units.append(
                     _source_unit_from_group(
                         sequence=len(units),
@@ -220,6 +240,10 @@ class ManagedMem0V5ManifestProjector:
                         messages=messages,
                         metadata=metadata,
                         current_date=current_date,
+                        source_timestamp=source_timestamp,
+                        timestamp_is_authoritative=reconstructed.benchmark == "longmemeval",
+                        official_mem0_content=official_mem0_content,
+                        official_mem0_speaker=official_mem0_speaker,
                     )
                 )
         if not units:
@@ -272,14 +296,23 @@ def _source_unit_from_group(
     messages: tuple[dict[str, str], ...],
     metadata: dict[str, object],
     current_date: str,
+    source_timestamp: int | None,
+    timestamp_is_authoritative: bool,
+    official_mem0_content: object,
+    official_mem0_speaker: object,
 ) -> ManagedMem0V5SourceUnit:
     source_id = metadata.get("source_id")
     source_sha256 = metadata.get("source_sha256")
     if not _text(source_id) or not is_sha256(source_sha256):
         raise ManagedRunError("managed Mem0 v5 canonical source identity is invalid")
+    projected_messages = _official_mem0_messages(
+        messages,
+        content=official_mem0_content,
+        speaker=official_mem0_speaker,
+    )
     typed_messages = tuple(
         ManagedMem0V5SourceMessage(item.get("role", ""), item.get("content", ""))
-        for item in messages
+        for item in projected_messages
     )
     unit_sha256 = canonical_sha256({"source_messages": [item.payload() for item in typed_messages]})
     scope_sha256 = canonical_sha256(
@@ -294,7 +327,12 @@ def _source_unit_from_group(
         sequence=sequence,
         corpus_id=corpus_id,
         source_id=source_id,
-        observation_date=_source_date(metadata.get("session_date"), current_date),
+        observation_date=_source_date(
+            metadata.get("session_date"),
+            current_date,
+            source_timestamp=source_timestamp,
+            timestamp_is_authoritative=timestamp_is_authoritative,
+        ),
         source_messages=typed_messages,
         unit_identity_sha256=canonical_sha256(
             {
@@ -307,6 +345,26 @@ def _source_unit_from_group(
         source_sha256=source_sha256,
         scope_sha256=scope_sha256,
     )
+
+
+def _official_mem0_messages(
+    messages: tuple[dict[str, str], ...],
+    *,
+    content: object,
+    speaker: object,
+) -> tuple[dict[str, str], ...]:
+    if content is None and speaker is None:
+        return messages
+    if (
+        type(content) is not str
+        or not content.strip()
+        or type(speaker) is not str
+        or not speaker.strip()
+        or len(messages) != 1
+        or not content.startswith(f"{speaker}: ")
+    ):
+        raise ManagedRunError("managed Mem0 v5 official LoCoMo payload is invalid")
+    return ({"role": messages[0].get("role", ""), "content": content},)
 
 
 def _validate_authority(authority: ManagedMem0V5ManifestAuthority, *, allow_unsealed: bool) -> None:
@@ -391,25 +449,69 @@ def _unsigned_manifest_payload(authority: ManagedMem0V5ManifestAuthority) -> dic
     }
 
 
-def _source_date(value: object, fallback: str) -> str:
+def _source_date(
+    value: object,
+    fallback: str,
+    *,
+    source_timestamp: object,
+    timestamp_is_authoritative: bool,
+) -> str:
+    timestamp_date = _utc_source_date(source_timestamp) if timestamp_is_authoritative else None
     if value is None:
-        return _date(fallback)
+        return timestamp_date or _date(fallback)
     if type(value) is not str or not value.strip():
         raise ManagedRunError("managed Mem0 v5 observation date is invalid")
     raw = value.strip()
-    try:
-        return dt.date.fromisoformat(raw).isoformat()
-    except ValueError:
-        pass
-    for date_format in ("%I:%M %p on %d %B, %Y", "%I:%M %p on %d %b, %Y"):
+    parsed_date: str | None = None
+    with suppress(ValueError):
+        parsed_date = dt.date.fromisoformat(raw).isoformat()
+    if parsed_date is None:
+        parsed_date = _official_longmemeval_date(raw)
+    if parsed_date is None:
+        for date_format in ("%I:%M %p on %d %B, %Y", "%I:%M %p on %d %b, %Y"):
+            try:
+                parsed_date = dt.datetime.strptime(raw, date_format).date().isoformat()
+                break
+            except ValueError:
+                continue
+    if parsed_date is None:
         try:
-            return dt.datetime.strptime(raw, date_format).date().isoformat()
+            parsed_date = dt.datetime.fromisoformat(raw.replace("Z", "+00:00")).date().isoformat()
         except ValueError:
-            continue
+            raise ManagedRunError("managed Mem0 v5 observation date is invalid") from None
+    if timestamp_date is not None and parsed_date != timestamp_date:
+        raise ManagedRunError("managed Mem0 v5 observation date differs from source timestamp")
+    return parsed_date
+
+
+def _official_longmemeval_date(value: str) -> str | None:
+    match = _LONGMEMEVAL_SESSION_DATE.fullmatch(value)
+    if match is None:
+        return None
     try:
-        return dt.datetime.fromisoformat(raw.replace("Z", "+00:00")).date().isoformat()
+        parsed = dt.datetime.strptime(
+            f"{match.group('date')} {match.group('hour')}:{match.group('minute')}",
+            "%Y/%m/%d %H:%M",
+        )
     except ValueError:
         raise ManagedRunError("managed Mem0 v5 observation date is invalid") from None
+    if match.group("weekday") != _ENGLISH_WEEKDAYS[parsed.weekday()]:
+        raise ManagedRunError("managed Mem0 v5 observation date is invalid")
+    return parsed.date().isoformat()
+
+
+def _utc_source_date(value: object) -> str | None:
+    if value is None:
+        return None
+    if type(value) is not int:
+        raise ManagedRunError("managed Mem0 v5 source timestamp is invalid")
+    try:
+        instant = dt.datetime.fromtimestamp(value, tz=dt.UTC)
+    except (OverflowError, OSError, ValueError):
+        raise ManagedRunError("managed Mem0 v5 source timestamp is invalid") from None
+    if not 1970 <= instant.year <= 2100:
+        raise ManagedRunError("managed Mem0 v5 source timestamp is invalid")
+    return instant.date().isoformat()
 
 
 def _date(value: object) -> str:
@@ -426,6 +528,10 @@ def _date(value: object) -> str:
 
 def _text(value: object) -> bool:
     return type(value) is str and bool(value) and value == value.strip()
+
+
+def _content(value: object) -> bool:
+    return type(value) is str and bool(value.strip())
 
 
 __all__ = (

@@ -252,6 +252,39 @@ def test_longmemeval_roundtrip_preserves_provider_relevant_corpus_semantics() ->
     assert rebuilt.metadata == {"reference_date": "2024-01-01"}
 
 
+def test_longmemeval_roundtrip_preserves_whitespace_significant_message_bytes() -> None:
+    record = _managed_corpus_record(_longmemeval_case())
+    content = "  leading\nbody\t\ntrailing  "
+    record["conversations"][0]["messages"][0]["content"] = content
+
+    rebuilt = _reconstruct_managed_corpus_case(
+        record,
+        case_id="longmemeval-case-" + "c" * 64,
+        question="Where did I move?",
+        temporal_context={},
+    )
+
+    actual = rebuilt.conversations[0].messages[0].content
+    assert actual == content
+    assert actual.encode("utf-8") == content.encode("utf-8")
+
+
+@pytest.mark.parametrize("content", (" \n\t ", "é" * 524_289))
+def test_longmemeval_message_content_remains_nonempty_and_byte_bounded(
+    content: str,
+) -> None:
+    record = _managed_corpus_record(_longmemeval_case())
+    record["conversations"][0]["messages"][0]["content"] = content
+
+    with pytest.raises(ManagedRunError, match="message content is invalid"):
+        _reconstruct_managed_corpus_case(
+            record,
+            case_id="longmemeval-case-" + "d" * 64,
+            question="Where did I move?",
+            temporal_context={},
+        )
+
+
 @pytest.mark.parametrize(
     ("path", "replacement"),
     (

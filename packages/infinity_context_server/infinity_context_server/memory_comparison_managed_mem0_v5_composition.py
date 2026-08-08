@@ -30,6 +30,7 @@ from infinity_context_server.memory_comparison_managed_mem0_v5_cleanup_readback 
     ManagedMem0V5CleanupPassTwoAdapter,
 )
 from infinity_context_server.memory_comparison_managed_mem0_v5_credentials import (
+    ManagedMem0V5CredentialCapabilities,
     ManagedMem0V5CredentialPaths,
     load_managed_mem0_v5_credentials,
 )
@@ -430,6 +431,7 @@ def compose_managed_mem0_v5(
     runtime_receipt_boundary: object,
     trusted_runtime_binding: object,
     receipt_authority: Mem0V5ReceiptAuthority | Mem0V5ObservedExtractionReceiptAuthority,
+    credential_capabilities: ManagedMem0V5CredentialCapabilities | None = None,
     dispatch_guard: ManagedMem0V5SingleDispatchGuardPort | None = None,
     transport: Mem0V5TransportPort | None = None,
 ) -> ManagedMem0V5Composition:
@@ -440,6 +442,11 @@ def compose_managed_mem0_v5(
     admission metadata; this composition root makes no provenance claim for either field.
     """
 
+    if (
+        credential_capabilities is not None
+        and type(credential_capabilities) is not ManagedMem0V5CredentialCapabilities
+    ):
+        raise ManagedRunError("managed Mem0 v5 credential capabilities differ")
     preflight = preflight_managed_mem0_v5(
         cases=cases,
         current_date=current_date,
@@ -461,7 +468,12 @@ def compose_managed_mem0_v5(
         admission=preflight.admission,
     )
 
-    with load_managed_mem0_v5_credentials(credential_paths) as credentials:
+    credential_context = (
+        credential_capabilities
+        if credential_capabilities is not None
+        else load_managed_mem0_v5_credentials(credential_paths)
+    )
+    with credential_context as credentials:
         witness_issuer, witness_verifier = create_managed_mem0_v5_storage_witness_authority()
         evidence_verifier = HmacSha256ManagedMem0V5EvidenceVerifier(
             key_capability=credentials.evidence_key,

@@ -85,7 +85,7 @@ def run_subscription_runtime_live_probe(
     evidence: VerifiedSubscriptionRuntimeProbe | None = None
     failure: SubscriptionRuntimeLiveProbeError | None = None
     try:
-        evidence = _perform_probe(
+        evidence = _run_subscription_runtime_live_probe_attempt(
             adapter,
             expected_route=expected_route,
             model=model,
@@ -107,6 +107,30 @@ def run_subscription_runtime_live_probe(
     if evidence is None:  # pragma: no cover - defensive invariant
         raise SubscriptionRuntimeLiveProbeError("subscription_live_probe_failed")
     return evidence
+
+
+def _run_subscription_runtime_live_probe_attempt(
+    adapter: SubscriptionRuntimeChatCompletions,
+    *,
+    expected_route: ProviderRouteAttestation,
+    model: str,
+    clock: Callable[[], datetime],
+) -> VerifiedSubscriptionRuntimeProbe:
+    """Run one normalized probe attempt without taking adapter ownership."""
+
+    if type(adapter) is not SubscriptionRuntimeChatCompletions:
+        raise TypeError("subscription live probe requires its dedicated adapter")
+    try:
+        return _perform_probe(
+            adapter,
+            expected_route=expected_route,
+            model=model,
+            clock=clock,
+        )
+    except SubscriptionRuntimeLiveProbeError:
+        raise
+    except Exception:
+        raise SubscriptionRuntimeLiveProbeError("subscription_live_probe_failed") from None
 
 
 def _perform_probe(

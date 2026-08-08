@@ -8,6 +8,9 @@ import re
 from collections.abc import Mapping
 from types import MappingProxyType
 
+from infinity_context_server.memory_comparison_locomo_cases import (
+    OFFICIAL_MEM0_CONTENT_METADATA_KEY,
+)
 from infinity_context_server.memory_comparison_managed_run_contract import (
     ManagedAnswerCase,
     ManagedRunError,
@@ -26,6 +29,7 @@ _OPAQUE_ID = re.compile(r"(locomo|longmemeval)-(corpus|thread)-[0-9a-f]{64}")
 _SOURCE_ALIAS = re.compile(r"(?:memory|document)-[0-9]{6}")
 _CONVERSATION_ALIAS = re.compile(r"conversation-[0-9]{4}")
 _MESSAGE_ALIAS = re.compile(r"conversation-[0-9]{4}-message-[0-9]{4}")
+_MAX_MESSAGE_CONTENT_BYTES = 1_048_576
 _MANAGED_CASE_ID = re.compile(r"[A-Za-z0-9][A-Za-z0-9._:-]{0,199}")
 _TOP_LEVEL_KEYS = {
     "schema_version",
@@ -46,6 +50,7 @@ _MEMORY_KEYS = {
     "text",
     "timestamp",
 }
+_MEMORY_KEYS_WITH_OFFICIAL_MEM0_CONTENT = _MEMORY_KEYS | {OFFICIAL_MEM0_CONTENT_METADATA_KEY}
 _DOCUMENT_KEYS = {
     "classification",
     "source_alias",
@@ -91,6 +96,10 @@ def _managed_corpus_record(case: PublicBenchmarkCase) -> dict[str, object]:
         )
         item: dict[str, object] = {
             "kind": memory.kind,
+            OFFICIAL_MEM0_CONTENT_METADATA_KEY: _projection_optional_content(
+                memory.metadata.get(OFFICIAL_MEM0_CONTENT_METADATA_KEY),
+                "memory official Mem0 content",
+            ),
             "role": _memory_role(
                 memory.metadata.get("role"),
                 required=official_locomo,
@@ -268,12 +277,16 @@ def _validated_memories(
     result: list[dict[str, object]] = []
     seen_sessions: list[str] = []
     for index, raw in enumerate(items, start=1):
-        item = _exact_object(raw, _MEMORY_KEYS, "managed corpus memory")
+        item = _exact_memory_object(raw)
         _expected_alias(item["source_alias"], f"memory-{index:06d}", _SOURCE_ALIAS)
         session_alias = _session_alias(item["session_alias"], seen_sessions)
         kind = _required_string(item["kind"], "memory kind")
         role = _role(item["role"])
         text = _required_string(item["text"], "memory text")
+        official_mem0_content = _nullable_content(
+            item.get(OFFICIAL_MEM0_CONTENT_METADATA_KEY),
+            "memory official Mem0 content",
+        )
         speaker = _nullable_string(item["speaker"], "memory speaker")
         session_date = _nullable_string(item["session_date"], "memory session_date")
         timestamp = _nullable_int(item["timestamp"], "memory timestamp")
@@ -284,6 +297,7 @@ def _validated_memories(
         result.append(
             {
                 "kind": kind,
+                OFFICIAL_MEM0_CONTENT_METADATA_KEY: official_mem0_content,
                 "role": role,
                 "session_alias": session_alias,
                 "source_alias": item["source_alias"],
@@ -327,7 +341,7 @@ def _validated_conversations(value: object) -> tuple[dict[str, object], ...]:
             _expected_alias(message["source_alias"], message_alias, _MESSAGE_ALIAS)
             validated_messages.append(
                 {
-                    "content": _required_string(message["content"], "message content"),
+                    "content": _required_content(message["content"], "message content"),
                     "role": _role(message["role"]),
                     "source_alias": message_alias,
                     "timestamp": _nullable_int(message["timestamp"], "message timestamp"),
@@ -376,6 +390,9 @@ def _reconstructed_locomo_memories(
                 kind=item["kind"],
                 source_external_id=source_external_id,
                 metadata={
+                    OFFICIAL_MEM0_CONTENT_METADATA_KEY: item.get(
+                        OFFICIAL_MEM0_CONTENT_METADATA_KEY
+                    ),
                     "role": item["role"],
                     "timestamp": timestamp,
                     "session_key": session_key,
@@ -494,6 +511,15 @@ def _exact_object(value: object, keys: set[str], name: str) -> dict[str, object]
     return value
 
 
+def _exact_memory_object(value: object) -> dict[str, object] | MappingProxyType:
+    if type(value) not in {dict, MappingProxyType} or set(value) not in {
+        frozenset(_MEMORY_KEYS),
+        frozenset(_MEMORY_KEYS_WITH_OFFICIAL_MEM0_CONTENT),
+    }:
+        raise ManagedRunError("managed corpus memory fields are not exact")
+    return value
+
+
 def _exact_list(value: object, name: str) -> list[object] | tuple[object, ...]:
     if type(value) not in {list, tuple}:
         raise ManagedRunError(f"{name} must be an exact JSON sequence")
@@ -532,10 +558,32 @@ def _required_string(value: object, name: str) -> str:
     return value
 
 
+def _required_content(value: object, name: str) -> str:
+    """Validate bounded UTF-8 content without changing source-significant bytes."""
+
+    if type(value) is not str or not value.strip():
+        raise ManagedRunError(f"{name} is invalid")
+    try:
+        size = len(value.encode("utf-8"))
+    except UnicodeEncodeError:
+        raise ManagedRunError(f"{name} is invalid") from None
+    if size > _MAX_MESSAGE_CONTENT_BYTES:
+        raise ManagedRunError(f"{name} is invalid")
+    return value
+
+
 def _nullable_string(value: object, name: str) -> str | None:
     if value is None:
         return None
     return _required_string(value, name)
+
+
+def _nullable_content(value: object, name: str) -> str | None:
+    if value is None:
+        return None
+    if type(value) is not str or not value.strip():
+        raise ManagedRunError(f"{name} is invalid")
+    return value
 
 
 def _nullable_int(value: object, name: str) -> int | None:
@@ -608,6 +656,14 @@ def _projection_optional_int(value: object, name: str) -> int | None:
     if value is None:
         return None
     if type(value) is not int:
+        raise ManagedRunError(f"{name} is invalid")
+    return value
+
+
+def _projection_optional_content(value: object, name: str) -> str | None:
+    if value is None:
+        return None
+    if type(value) is not str or not value.strip():
         raise ManagedRunError(f"{name} is invalid")
     return value
 

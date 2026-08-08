@@ -80,9 +80,10 @@ class ManagedLiveAdmissionError(ValueError):
 @final
 @dataclass(frozen=True, slots=True)
 class ManagedLiveBudget:
-    """Hard answer/judge bounds carried into the live composition.
+    """Requested answer/judge reservation used as an admission circuit breaker.
 
-    Backend-internal provider work is deliberately outside this budget.
+    Subscription output limits are requested, not provider-verified. Backend-internal
+    provider work is deliberately outside this reservation.
     """
 
     max_cases: int
@@ -108,9 +109,10 @@ class ManagedLiveBudget:
 @final
 @dataclass(frozen=True, slots=True)
 class ManagedLiveProviderUsageBudget:
-    """Hard answer/judge reservations plus non-publishable readiness estimates.
+    """Requested answer/judge reservations plus readiness usage estimates.
 
-    Backend-internal provider calls and costs are intentionally unmeasured.
+    Output limits are not provider-verified. Backend-internal provider calls and
+    costs are intentionally unmeasured, so this accounting is non-publishable.
     """
 
     provider_kind: str
@@ -157,6 +159,7 @@ class ManagedLiveProviderUsageBudget:
             "backend_internal_provider_cost": "unmeasured",
             "total_provider_calls_claimed": False,
             "benchmark_reserved_token_ceiling": self.benchmark_reserved_token_ceiling,
+            "output_limit_enforcement": "requested_not_provider_verified",
             "readiness_probe_estimated_tokens": self.readiness_probe_estimated_tokens,
             "readiness_probe_usage_source": self.readiness_probe_usage_source,
             "total_accounted_tokens": self.total_accounted_tokens,
