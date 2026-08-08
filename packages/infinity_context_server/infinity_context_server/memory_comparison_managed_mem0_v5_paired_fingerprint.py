@@ -180,6 +180,7 @@ def _receipt_binding(receipt: object) -> dict[str, object]:
     authority = getattr(receipt, "_authority", None)
     module = getattr(receipt, "_module", None)
     boundary = getattr(receipt, "_boundary", None)
+    operation_index = getattr(receipt, "_operation_index", None)
     return {
         **_identity(receipt),
         "module_identity": id(module),
@@ -192,6 +193,19 @@ def _receipt_binding(receipt: object) -> dict[str, object]:
         },
         "runtime_binding": _runtime_binding(getattr(receipt, "_runtime_binding", None)),
         "authority": _receipt_authority(authority),
+        "operation_index": {
+            **_identity(operation_index),
+            "entries": (
+                [
+                    [operation_id, id(operation)]
+                    for operation_id, operation in operation_index.items()
+                ]
+                if type(operation_index) is dict  # noqa: E721 - exact container is bound
+                else None
+            ),
+        },
+        "unknown_identity": _attribute_identity(receipt, "_unknown"),
+        "consumed_identity": _attribute_identity(receipt, "_consumed"),
         "secret_identity": _attribute_identity(receipt, "_secret"),
         "lock_identity": _attribute_identity(receipt, "_lock"),
     }
@@ -211,12 +225,6 @@ def _receipt_authority(authority: object) -> dict[str, object]:
         return _identity(authority)
     fields = (
         "admission_commitment_sha256",
-        "operation_id_sha256",
-        "unit_identity_sha256",
-        "unit_sha256",
-        "scope_sha256",
-        "sequence",
-        "request_body_sha256",
         "model",
         "reasoning_effort",
         "service_tier",
@@ -237,15 +245,21 @@ def _receipt_authority(authority: object) -> dict[str, object]:
         "fields": {name: getattr(authority, name, None) for name in fields},
         "operations": [
             {
-                name: getattr(operation, name, None)
-                for name in (
-                    "operation_id_sha256",
-                    "sequence",
-                    "thread_id",
-                    "turn_id",
-                    "request_body_sha256",
-                    "output_text_sha256",
-                )
+                **_identity(operation),
+                "fields": {
+                    name: getattr(operation, name, None)
+                    for name in (
+                        "operation_id_sha256",
+                        "unit_identity_sha256",
+                        "unit_sha256",
+                        "scope_sha256",
+                        "sequence",
+                        "request_body_sha256",
+                        "thread_id",
+                        "turn_id",
+                        "output_text_sha256",
+                    )
+                },
             }
             for operation in operations
         ],

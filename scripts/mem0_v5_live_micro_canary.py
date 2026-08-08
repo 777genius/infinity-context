@@ -446,6 +446,9 @@ def _build_public_contract(
     phase_c_root = args.phase_c_package_root
     if str(phase_c_root) not in sys.path:
         sys.path.insert(0, str(phase_c_root))
+    from infinity_context_server import (
+        memory_comparison_mem0_oss_v5_observed_receipt as observed_receipt,
+    )
     from infinity_context_server.memory_comparison_managed_mem0_v5_composition import (
         ManagedMem0V5StatePaths,
         preflight_managed_mem0_v5,
@@ -455,9 +458,6 @@ def _build_public_contract(
     )
     from infinity_context_server.memory_comparison_managed_mem0_v5_dispatch_guard import (
         create_managed_mem0_v5_single_dispatch_guard,
-    )
-    from infinity_context_server.memory_comparison_mem0_oss_v5_observed_receipt import (
-        Mem0V5ObservedExtractionReceiptAuthority,
     )
     from phase_c_canary.receipt import NodePublicReceiptVerifier
     from phase_c_canary.runtime_binding import RuntimeBindingComposition
@@ -495,14 +495,12 @@ def _build_public_contract(
             "unit_identity_sha256": unit.unit_identity_sha256,
         }
     )
-    observed = Mem0V5ObservedExtractionReceiptAuthority(
+    unit_fields = (unit.unit_identity_sha256, unit.unit_sha256, unit.scope_sha256)
+    operation = observed_receipt.Mem0V5ObservedExtractionOperationAuthority(
+        operation_id, *unit_fields, 0, projection.request_body_sha256
+    )
+    observed = observed_receipt.Mem0V5ObservedExtractionReceiptAuthority(
         admission_commitment_sha256=admission.commitment_sha256,
-        operation_id_sha256=operation_id,
-        unit_identity_sha256=unit.unit_identity_sha256,
-        unit_sha256=unit.unit_sha256,
-        scope_sha256=unit.scope_sha256,
-        sequence=0,
-        request_body_sha256=projection.request_body_sha256,
         model=runtime.model,
         reasoning_effort=runtime.reasoning_effort,
         service_tier=runtime.service_tier,
@@ -515,7 +513,7 @@ def _build_public_contract(
         response_schema_sha256=runtime.response_schema_sha256,
         node_executable_path=str(args.node_executable),
         node_executable_sha256=args.node_executable_sha256,
-        requested_output_tokens=4096,
+        operations=(operation,),
     )
     credential_paths = ManagedMem0V5CredentialPaths(
         bearer_token=args.ingress_bearer_file,

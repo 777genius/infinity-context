@@ -21,11 +21,13 @@ from pathlib import Path
 from typing import final
 
 from infinity_context_server.memory_comparison_mem0_oss_v5_contracts import (
+    MEM0_OSS_FULL_RUN_MAX_OPERATIONS,
     Mem0OssFullRunError,
     Mem0OssReceiptDisposition,
     RuntimeReceiptVerificationContext,
     RuntimeReceiptVerificationPort,
     RuntimeReceiptVerificationResult,
+    canonical_sha256,
     is_sha256,
 )
 from infinity_context_server.memory_comparison_mem0_oss_v5_http import (
@@ -40,6 +42,7 @@ _SAFE_TEXT = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:-]{0,511}$")
 _REQUESTED_OUTPUT_TOKENS = 4096
 _MAX_NODE_EXECUTABLE_BYTES = 256 * 1024 * 1024
 _PROVIDER_FREE_TEST_SEAL = object()
+_PREFLIGHTED_COMPOSITION_SEAL = object()
 
 
 @dataclass(frozen=True, slots=True)
@@ -56,16 +59,43 @@ _REVIEWED_NODE_EXECUTABLE = _ReviewedNodeExecutableAuthority(
 
 @final
 @dataclass(frozen=True, slots=True)
-class Mem0V5ObservedExtractionReceiptAuthority:
-    """Single-operation static authority for one observed extraction receipt."""
+class Mem0V5ObservedExtractionOperationAuthority:
+    """Opaque authority for one ordered observed extraction operation."""
 
-    admission_commitment_sha256: str
     operation_id_sha256: str
     unit_identity_sha256: str
     unit_sha256: str
     scope_sha256: str
     sequence: int
     request_body_sha256: str
+
+    def __post_init__(self) -> None:
+        if (
+            any(
+                not is_sha256(value)
+                for value in (
+                    self.operation_id_sha256,
+                    self.unit_identity_sha256,
+                    self.unit_sha256,
+                    self.scope_sha256,
+                    self.request_body_sha256,
+                )
+            )
+            or type(self.sequence) is not int
+            or self.sequence < 0
+        ):
+            _fail("mem0_v5_http_configuration_invalid")
+
+    def __repr__(self) -> str:
+        return "Mem0V5ObservedExtractionOperationAuthority(<opaque>)"
+
+
+@final
+@dataclass(frozen=True, slots=True)
+class Mem0V5ObservedExtractionReceiptAuthority:
+    """Shared authority plus an ordered set of observed extraction operations."""
+
+    admission_commitment_sha256: str
     model: str
     reasoning_effort: str
     service_tier: str
@@ -78,16 +108,12 @@ class Mem0V5ObservedExtractionReceiptAuthority:
     response_format_type: str
     response_format_sha256: str
     response_schema_sha256: str
+    operations: tuple[Mem0V5ObservedExtractionOperationAuthority, ...]
     requested_output_tokens: int = _REQUESTED_OUTPUT_TOKENS
 
     def __post_init__(self) -> None:
         digests = (
             self.admission_commitment_sha256,
-            self.operation_id_sha256,
-            self.unit_identity_sha256,
-            self.unit_sha256,
-            self.scope_sha256,
-            self.request_body_sha256,
             self.base_instructions_sha256,
             self.runtime_source_sha256,
             self.route_binding_sha256,
@@ -106,12 +132,37 @@ class Mem0V5ObservedExtractionReceiptAuthority:
             any(not is_sha256(value) for value in digests)
             or any(not _safe_text(value) for value in text)
             or not _safe_absolute_path(self.node_executable_path)
-            or type(self.sequence) is not int
-            or self.sequence < 0
             or type(self.requested_output_tokens) is not int
             or self.requested_output_tokens != _REQUESTED_OUTPUT_TOKENS
+            or type(self.operations) is not tuple
+            or not 1 <= len(self.operations) <= MEM0_OSS_FULL_RUN_MAX_OPERATIONS
         ):
             _fail("mem0_v5_http_configuration_invalid")
+        operation_ids: set[str] = set()
+        unit_identities: set[str] = set()
+        for index, operation in enumerate(self.operations):
+            if type(operation) is not Mem0V5ObservedExtractionOperationAuthority:
+                _fail("mem0_v5_http_configuration_invalid")
+            Mem0V5ObservedExtractionOperationAuthority.__post_init__(operation)
+            if (
+                operation.sequence != index
+                or operation.operation_id_sha256 in operation_ids
+                or operation.unit_identity_sha256 in unit_identities
+                or operation.operation_id_sha256
+                != canonical_sha256(
+                    {
+                        "admission_commitment_sha256": self.admission_commitment_sha256,
+                        "unit_index": index,
+                        "unit_identity_sha256": operation.unit_identity_sha256,
+                    }
+                )
+            ):
+                _fail("mem0_v5_http_configuration_invalid")
+            operation_ids.add(operation.operation_id_sha256)
+            unit_identities.add(operation.unit_identity_sha256)
+
+    def __repr__(self) -> str:
+        return "Mem0V5ObservedExtractionReceiptAuthority(<opaque>)"
 
 
 @dataclass(frozen=True, slots=True)
@@ -132,13 +183,21 @@ class Mem0V5ObservedExtractionReceiptVerifier(RuntimeReceiptVerificationPort):
 
     __slots__ = (
         "_authority",
+        "_authority_identity",
+        "_authority_snapshot",
+        "_authority_snapshot_identity",
         "_boundary",
         "_consumed",
+        "_consumed_identity",
         "_lock",
         "_module",
+        "_operation_index",
+        "_operation_index_identity",
+        "_operations",
         "_runtime_binding",
         "_secret",
         "_unknown",
+        "_unknown_identity",
     )
 
     def __init__(
@@ -178,6 +237,27 @@ class Mem0V5ObservedExtractionReceiptVerifier(RuntimeReceiptVerificationPort):
         )
         return instance
 
+    @classmethod
+    def _for_preflighted_composition(
+        cls,
+        *,
+        boundary: object,
+        runtime_binding: object,
+        receipt_secret: str,
+        authority: Mem0V5ObservedExtractionReceiptAuthority,
+    ) -> Mem0V5ObservedExtractionReceiptVerifier:
+        """Build after the composition root completed the live preflight once."""
+
+        instance = object.__new__(cls)
+        instance._initialize(
+            boundary=boundary,
+            runtime_binding=runtime_binding,
+            receipt_secret=receipt_secret,
+            authority=authority,
+            provider_free_test_seal=_PREFLIGHTED_COMPOSITION_SEAL,
+        )
+        return instance
+
     def _initialize(
         self,
         *,
@@ -187,7 +267,10 @@ class Mem0V5ObservedExtractionReceiptVerifier(RuntimeReceiptVerificationPort):
         authority: Mem0V5ObservedExtractionReceiptAuthority,
         provider_free_test_seal: object | None,
     ) -> None:
-        if provider_free_test_seal is _PROVIDER_FREE_TEST_SEAL:
+        if provider_free_test_seal in (
+            _PROVIDER_FREE_TEST_SEAL,
+            _PREFLIGHTED_COMPOSITION_SEAL,
+        ):
             module = _require_common_boundary(boundary, runtime_binding, authority)
         else:
             require_mem0_v5_observed_extraction_receipt_boundary(
@@ -203,16 +286,27 @@ class Mem0V5ObservedExtractionReceiptVerifier(RuntimeReceiptVerificationPort):
         self._runtime_binding = runtime_binding
         self._secret = receipt_secret
         self._authority = authority
-        self._unknown = False
-        self._consumed = False
+        self._authority_identity = id(authority)
+        self._authority_snapshot = _authority_snapshot(authority)
+        self._authority_snapshot_identity = id(self._authority_snapshot)
+        self._operations = authority.operations
+        self._operation_index = {
+            operation.operation_id_sha256: operation for operation in authority.operations
+        }
+        self._operation_index_identity = id(self._operation_index)
+        self._unknown: set[str] = set()
+        self._unknown_identity = id(self._unknown)
+        self._consumed: set[str] = set()
+        self._consumed_identity = id(self._consumed)
         self._lock = threading.Lock()
 
     def mark_outcome_unknown(self, *, context: RuntimeReceiptVerificationContext) -> None:
         with self._lock:
-            self._require_context(context, readback=False)
-            if self._consumed:
+            operation = self._require_context(context, readback=False)
+            operation_id = operation.operation_id_sha256
+            if operation_id in self._consumed:
                 _fail("mem0_v5_runtime_receipt_state_invalid")
-            self._unknown = True
+            self._unknown.add(operation_id)
 
     def verify_dispatch_receipt(
         self,
@@ -238,12 +332,13 @@ class Mem0V5ObservedExtractionReceiptVerifier(RuntimeReceiptVerificationPort):
         readback: bool,
     ) -> RuntimeReceiptVerificationResult:
         with self._lock:
-            self._require_context(context, readback=readback)
-            if self._consumed:
+            operation = self._require_context(context, readback=readback)
+            operation_id = operation.operation_id_sha256
+            if operation_id in self._consumed:
                 _fail("mem0_v5_runtime_receipt_replayed")
-            if not readback and self._unknown:
+            if not readback and operation_id in self._unknown:
                 _fail("mem0_v5_runtime_receipt_state_invalid")
-            envelope = self._require_envelope(payload)
+            envelope = self._require_envelope(payload, operation)
             observed = _observe_provider_identity(envelope.runtime_receipt)
             expectation = self._module.RuntimeReceiptExpectation(
                 model=self._authority.model,
@@ -255,7 +350,7 @@ class Mem0V5ObservedExtractionReceiptVerifier(RuntimeReceiptVerificationPort):
                 account_binding_hmac_sha256=self._authority.account_binding_hmac_sha256,
                 thread_id=observed.thread_id,
                 turn_id=observed.turn_id,
-                request_body_sha256=self._authority.request_body_sha256,
+                request_body_sha256=operation.request_body_sha256,
                 output_text_sha256=observed.output_text_sha256,
                 response_format_type=self._authority.response_format_type,
                 response_format_sha256=self._authority.response_format_sha256,
@@ -269,8 +364,8 @@ class Mem0V5ObservedExtractionReceiptVerifier(RuntimeReceiptVerificationPort):
                     expectation=expectation,
                     runtime_binding=self._runtime_binding,
                     call_kind=self._module.RuntimeCallKind.EXTRACTION,
-                    sequence=self._authority.sequence,
-                    operation_id_sha256=self._authority.operation_id_sha256,
+                    sequence=operation.sequence,
+                    operation_id_sha256=operation.operation_id_sha256,
                 )
                 self._module.require_verified_safe_receipt(safe)
             except Exception:
@@ -278,24 +373,24 @@ class Mem0V5ObservedExtractionReceiptVerifier(RuntimeReceiptVerificationPort):
             if (
                 type(safe) is not self._module.SafeRuntimeReceipt
                 or safe.call_kind is not self._module.RuntimeCallKind.EXTRACTION
-                or safe.sequence != self._authority.sequence
-                or safe.operation_id_sha256 != self._authority.operation_id_sha256
+                or safe.sequence != operation.sequence
+                or safe.operation_id_sha256 != operation.operation_id_sha256
                 or safe.runtime_source_sha256 != self._authority.runtime_source_sha256
                 or safe.route_binding_sha256 != self._authority.route_binding_sha256
                 or safe.runtime_binding_commitment_sha256 != self._runtime_binding.commitment_sha256
-                or safe.request_body_sha256 != self._authority.request_body_sha256
+                or safe.request_body_sha256 != operation.request_body_sha256
                 or safe.output_text_sha256 != observed.output_text_sha256
             ):
                 _fail("mem0_v5_runtime_receipt_invalid")
-            self._consumed = True
-            self._unknown = False
+            self._consumed.add(operation_id)
+            self._unknown.discard(operation_id)
             return RuntimeReceiptVerificationResult(
                 admission_commitment_sha256=self._authority.admission_commitment_sha256,
-                operation_id_sha256=self._authority.operation_id_sha256,
-                unit_identity_sha256=self._authority.unit_identity_sha256,
-                unit_sha256=self._authority.unit_sha256,
+                operation_id_sha256=operation.operation_id_sha256,
+                unit_identity_sha256=operation.unit_identity_sha256,
+                unit_sha256=operation.unit_sha256,
                 route_sha256=self._authority.route_binding_sha256,
-                scope_sha256=self._authority.scope_sha256,
+                scope_sha256=operation.scope_sha256,
                 provider_receipt_sha256=safe.receipt_sha256,
                 disposition=Mem0OssReceiptDisposition.COMPLETED,
                 extraction_calls=1,
@@ -309,32 +404,98 @@ class Mem0V5ObservedExtractionReceiptVerifier(RuntimeReceiptVerificationPort):
         context: RuntimeReceiptVerificationContext,
         *,
         readback: bool,
-    ) -> None:
+    ) -> Mem0V5ObservedExtractionOperationAuthority:
+        self._require_authority_state()
         authority = self._authority
         if type(context) is not RuntimeReceiptVerificationContext:
             _fail("mem0_v5_runtime_receipt_invalid")
         if context.readback_only is not readback:
             raise Mem0OssFullRunError("mem0_v5_receipt_context_invalid")
+        operation = self._operation_index.get(context.operation_id_sha256)
         if (
-            context.admission_commitment_sha256 != authority.admission_commitment_sha256
-            or context.operation_id_sha256 != authority.operation_id_sha256
-            or context.unit_identity_sha256 != authority.unit_identity_sha256
-            or context.unit_sha256 != authority.unit_sha256
+            type(operation) is not Mem0V5ObservedExtractionOperationAuthority
+            or context.admission_commitment_sha256 != authority.admission_commitment_sha256
+            or context.operation_id_sha256 != operation.operation_id_sha256
+            or context.unit_identity_sha256 != operation.unit_identity_sha256
+            or context.unit_sha256 != operation.unit_sha256
             or context.route_sha256 != authority.route_binding_sha256
-            or context.scope_sha256 != authority.scope_sha256
+            or context.scope_sha256 != operation.scope_sha256
         ):
             _fail("mem0_v5_runtime_receipt_invalid")
+        return operation
 
-    def _require_envelope(self, payload: object) -> Mem0V5RuntimeReceiptEnvelope:
+    def _require_envelope(
+        self,
+        payload: object,
+        operation: Mem0V5ObservedExtractionOperationAuthority,
+    ) -> Mem0V5RuntimeReceiptEnvelope:
         if type(payload) is not Mem0V5RuntimeReceiptEnvelope:
             _fail("mem0_v5_runtime_receipt_invalid")
         if (
             payload.admission_commitment_sha256 != self._authority.admission_commitment_sha256
-            or payload.operation_id_sha256 != self._authority.operation_id_sha256
+            or payload.operation_id_sha256 != operation.operation_id_sha256
             or type(payload.runtime_receipt) is not dict
         ):
             _fail("mem0_v5_runtime_receipt_invalid")
         return payload
+
+    def _require_authority_state(self) -> None:
+        try:
+            operations = self._authority.operations
+            operation_ids = tuple(operation.operation_id_sha256 for operation in operations)
+            if (
+                type(self._authority) is not Mem0V5ObservedExtractionReceiptAuthority
+                or id(self._authority) != self._authority_identity
+                or id(self._authority_snapshot) != self._authority_snapshot_identity
+                or _authority_snapshot(self._authority) != self._authority_snapshot
+                or operations is not self._operations
+                or id(self._operation_index) != self._operation_index_identity
+                or type(self._operation_index) is not dict
+                or tuple(self._operation_index) != operation_ids
+                or any(
+                    self._operation_index.get(operation.operation_id_sha256) is not operation
+                    for operation in operations
+                )
+                or id(self._unknown) != self._unknown_identity
+                or type(self._unknown) is not set
+                or id(self._consumed) != self._consumed_identity
+                or type(self._consumed) is not set
+            ):
+                raise ValueError
+        except Exception:
+            _fail("mem0_v5_runtime_receipt_state_invalid")
+
+
+def _authority_snapshot(authority: Mem0V5ObservedExtractionReceiptAuthority) -> tuple[object, ...]:
+    return (
+        authority.admission_commitment_sha256,
+        authority.model,
+        authority.reasoning_effort,
+        authority.service_tier,
+        authority.base_instructions_sha256,
+        authority.runtime_source_sha256,
+        authority.route_binding_sha256,
+        authority.account_binding_hmac_sha256,
+        authority.node_executable_path,
+        authority.node_executable_sha256,
+        authority.response_format_type,
+        authority.response_format_sha256,
+        authority.response_schema_sha256,
+        authority.requested_output_tokens,
+        tuple(
+            (
+                type(operation),
+                id(operation),
+                operation.operation_id_sha256,
+                operation.unit_identity_sha256,
+                operation.unit_sha256,
+                operation.scope_sha256,
+                operation.sequence,
+                operation.request_body_sha256,
+            )
+            for operation in authority.operations
+        ),
+    )
 
 
 def require_mem0_v5_observed_extraction_receipt_boundary(
@@ -365,9 +526,11 @@ def _require_common_boundary(
         if type(runtime_binding) is not binding_module.TrustedRuntimeBinding:
             raise TypeError
         binding_module.require_trusted_runtime_binding(runtime_binding)
+        if type(authority) is not Mem0V5ObservedExtractionReceiptAuthority:
+            raise TypeError
+        Mem0V5ObservedExtractionReceiptAuthority.__post_init__(authority)
         if (
-            type(authority) is not Mem0V5ObservedExtractionReceiptAuthority
-            or authority.runtime_source_sha256 != runtime_binding.runtime_source_sha256
+            authority.runtime_source_sha256 != runtime_binding.runtime_source_sha256
             or authority.route_binding_sha256 != runtime_binding.route_binding_sha256
         ):
             raise TypeError
@@ -532,6 +695,7 @@ def _fail(code: str) -> None:
 
 
 __all__ = (
+    "Mem0V5ObservedExtractionOperationAuthority",
     "Mem0V5ObservedExtractionReceiptAuthority",
     "Mem0V5ObservedExtractionReceiptVerifier",
     "require_mem0_v5_observed_extraction_receipt_boundary",
