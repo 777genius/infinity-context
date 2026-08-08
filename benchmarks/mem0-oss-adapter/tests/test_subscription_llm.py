@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import json
 
 import httpx
@@ -8,6 +9,7 @@ import pytest
 from mem0_oss_adapter.subscription_llm import (
     ExtractionCallLimitError,
     SubscriptionBridgeConfig,
+    SubscriptionBridgeError,
     SubscriptionOpenAICompatibleLlm,
     UsageLedger,
     validate_loopback_bridge_url,
@@ -28,12 +30,28 @@ def _subscription_llm(
         response_max_bytes=1024,
     )
     llm = SubscriptionOpenAICompatibleLlm(config)
-    llm._client.close()
-    llm._client = httpx.Client(transport=handler, trust_env=False)
+    llm._transport = handler
     return llm, ledger
 
 
-def test_subscription_bridge_uses_bounded_runtime_timeout() -> None:
+class _PeriodicAsyncStream(httpx.AsyncByteStream):
+    def __init__(self) -> None:
+        self.closed = False
+
+    async def __aiter__(self):
+        while True:
+            await asyncio.sleep(0.005)
+            yield b"x"
+
+    async def aclose(self) -> None:
+        self.closed = True
+
+
+def test_subscription_bridge_enforces_wall_clock_deadline(monkeypatch) -> None:
+    monkeypatch.setattr(
+        "mem0_oss_adapter.subscription_llm._SUBSCRIPTION_BRIDGE_TIMEOUT_SECONDS",
+        0.025,
+    )
     ledger = UsageLedger()
     config = SubscriptionBridgeConfig(
         bridge_url="http://127.0.0.1:19090/v1",
@@ -44,10 +62,23 @@ def test_subscription_bridge_uses_bounded_runtime_timeout() -> None:
         response_max_bytes=1024,
     )
     llm = SubscriptionOpenAICompatibleLlm(config)
-    try:
-        assert llm._client.timeout.read == 180.0
-    finally:
-        llm.close()
+    stream = _PeriodicAsyncStream()
+    llm._transport = httpx.MockTransport(lambda _: httpx.Response(200, stream=stream))
+
+    with (
+        ledger.operation(
+            run_id="run-deadline",
+            mode="subscription_llm",
+            max_calls=1,
+            request_max_bytes=1024,
+            response_max_bytes=1024,
+        ),
+        pytest.raises(SubscriptionBridgeError, match="deadline exceeded"),
+    ):
+        llm.generate_response([{"role": "user", "content": "extract"}])
+
+    assert stream.closed is True
+    assert ledger.entries[-1].extraction_calls == 1
 
 
 def test_subscription_bridge_is_narrow_bounded_and_ledgered() -> None:

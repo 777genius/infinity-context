@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import contextvars
 import ipaddress
 import json
@@ -242,11 +243,7 @@ class SubscriptionOpenAICompatibleLlm(LLMBase):
             raise ValueError("subscription bridge configuration is required")
         super().__init__(config)
         self.config: SubscriptionBridgeConfig = config
-        self._client = httpx.Client(
-            timeout=_SUBSCRIPTION_BRIDGE_TIMEOUT_SECONDS,
-            follow_redirects=False,
-            trust_env=False,
-        )
+        self._transport: httpx.AsyncBaseTransport | None = None
 
     def generate_response(
         self,
@@ -296,9 +293,15 @@ class SubscriptionOpenAICompatibleLlm(LLMBase):
         return content
 
     def close(self) -> None:
-        self._client.close()
+        return None
 
     def _post_and_read(self, encoded: bytes) -> bytes:
+        try:
+            return asyncio.run(self._post_and_read_async(encoded))
+        except TimeoutError:
+            raise SubscriptionBridgeError("subscription bridge deadline exceeded") from None
+
+    async def _post_and_read_async(self, encoded: bytes) -> bytes:
         assert self.config.bridge_url is not None
         assert self.config.bearer_token is not None
         headers = {
@@ -308,20 +311,27 @@ class SubscriptionOpenAICompatibleLlm(LLMBase):
         endpoint = f"{self.config.bridge_url}/chat/completions"
         collected = bytearray()
         try:
-            with self._client.stream(
-                "POST",
-                endpoint,
-                content=encoded,
-                headers=headers,
-            ) as response:
-                if response.status_code < 200 or response.status_code >= 300:
-                    raise SubscriptionBridgeError("subscription bridge rejected extraction")
-                for chunk in response.iter_bytes():
-                    if len(collected) + len(chunk) > self.config.response_max_bytes:
-                        self.config.usage_ledger.record_response(
-                            response_bytes=self.config.response_max_bytes + 1
-                        )
-                    collected.extend(chunk)
+            async with asyncio.timeout(_SUBSCRIPTION_BRIDGE_TIMEOUT_SECONDS):
+                async with httpx.AsyncClient(
+                    timeout=_SUBSCRIPTION_BRIDGE_TIMEOUT_SECONDS,
+                    follow_redirects=False,
+                    trust_env=False,
+                    transport=self._transport,
+                ) as client:
+                    async with client.stream(
+                        "POST",
+                        endpoint,
+                        content=encoded,
+                        headers=headers,
+                    ) as response:
+                        if response.status_code < 200 or response.status_code >= 300:
+                            raise SubscriptionBridgeError("subscription bridge rejected extraction")
+                        async for chunk in response.aiter_bytes():
+                            if len(collected) + len(chunk) > self.config.response_max_bytes:
+                                self.config.usage_ledger.record_response(
+                                    response_bytes=self.config.response_max_bytes + 1
+                                )
+                            collected.extend(chunk)
         except httpx.HTTPError as exc:
             raise SubscriptionBridgeError("subscription bridge transport failed") from exc
         return bytes(collected)
