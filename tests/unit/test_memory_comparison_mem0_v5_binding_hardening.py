@@ -8,6 +8,7 @@ from dataclasses import replace
 from pathlib import Path
 
 import pytest
+from _phase_c_hermetic import install_hermetic_phase_c_authority
 from infinity_context_server import (
     memory_comparison_bounded_httpx_transport as bounded_transport_module,
 )
@@ -38,7 +39,7 @@ from infinity_context_server.memory_comparison_secret_validation import (
 )
 from test_memory_comparison_managed_mem0_v5_composition import _inputs, _Transport
 from test_memory_comparison_managed_mem0_v5_paired_bridge import _run, _sha
-from test_memory_comparison_mem0_oss_v5_observed_receipt import _binding
+from test_memory_comparison_mem0_oss_v5_observed_receipt import PHASE_C_ROOT, _binding
 from test_memory_comparison_mem0_v5_evidence_foundations_r2 import _clean_request
 from test_memory_comparison_mem0_v5_observed_multi_authority import (
     _multi_authority,
@@ -46,6 +47,18 @@ from test_memory_comparison_mem0_v5_observed_multi_authority import (
 from test_memory_comparison_mem0_v5_observed_multi_authority import (
     _verifier as _observed_verifier,
 )
+
+
+@pytest.fixture(autouse=True)
+def _use_hermetic_phase_c_authority(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    install_hermetic_phase_c_authority(
+        monkeypatch=monkeypatch,
+        tmp_path=tmp_path,
+        phase_c_root=PHASE_C_ROOT,
+    )
 
 
 def test_mutation_cannot_be_recomputed_or_written_back_as_new_authority() -> None:

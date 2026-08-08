@@ -1,13 +1,24 @@
 from __future__ import annotations
 
+# ruff: noqa: E402, I001 - bootstrap hermetic Phase-C imports during collection.
+
 import copy
 import json
+import sys
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import replace
 from pathlib import Path
 from threading import Barrier
 
+# The module must collect hermetically even when it runs before its helper module.
+ROOT = Path(__file__).resolve().parents[2]
+PHASE_C_ROOT = ROOT / "benchmarks" / "phase-c-canary"
+UNIT_TEST_ROOT = Path(__file__).resolve().parent
+sys.path.insert(0, str(PHASE_C_ROOT))
+sys.path.insert(0, str(UNIT_TEST_ROOT))
+
 import pytest
+from _phase_c_hermetic import install_hermetic_phase_c_authority
 from infinity_context_server import (
     memory_comparison_managed_mem0_v5_composition as composition_subject,
 )
@@ -51,6 +62,18 @@ from test_memory_comparison_mem0_oss_v5_observed_receipt import (
     _sign,
     _unsigned_receipt,
 )
+
+
+@pytest.fixture(autouse=True)
+def _use_hermetic_phase_c_authority(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    install_hermetic_phase_c_authority(
+        monkeypatch=monkeypatch,
+        tmp_path=tmp_path,
+        phase_c_root=PHASE_C_ROOT,
+    )
 
 
 class _CountingReceiptHmacVerifier(_DeterministicReceiptHmacVerifier):
