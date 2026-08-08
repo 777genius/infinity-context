@@ -593,13 +593,14 @@ def _fixture(monkeypatch: pytest.MonkeyPatch, tmp_path):
         infinity_target,
         registry_events,
     )
+    registry_deadline = datetime.now(UTC) + timedelta(seconds=60)
     registry = ManagedBenchmarkRegistryHttpAdapter(
         ManagedBenchmarkRegistryHttpConfig(
             base_url=_INFINITY_ORIGIN,
             admin_bearer_token="registry-secret",
             target_identity_sha256=infinity_target,
             timeout_seconds=30,
-            benchmark_deadline=_DEADLINE,
+            benchmark_deadline=registry_deadline,
             cleanup_recovery_timeout_seconds=600,
             transport=httpx.MockTransport(backend),
         )
