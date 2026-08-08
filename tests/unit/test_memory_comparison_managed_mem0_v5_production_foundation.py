@@ -19,6 +19,9 @@ from infinity_context_server import (
 from infinity_context_server import (
     memory_comparison_managed_mem0_v5_production_authority as authority_subject,
 )
+from infinity_context_server import (
+    memory_comparison_managed_mem0_v5_production_lifecycle as production_lifecycle_subject,
+)
 from infinity_context_server.memory_comparison_managed_mem0_v5_clean_state_http import (
     ManagedMem0V5HmacDurableCleanStateFactory,
     ManagedMem0V5HttpCleanStateSnapshotFactory,
@@ -504,6 +507,84 @@ def test_production_lifecycle_consumes_authority_and_blocks_out_of_order_calls(
             bindings=object(),
             cases=values["cases"],
         )
+
+
+def test_admission_failure_is_cleanup_only_and_preserves_pre_dispatch_journal(
+    tmp_path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    (
+        production,
+        lifecycle,
+        _binding,
+        authority,
+        coordinator,
+        values,
+        journal_values,
+        _constructor,
+    ) = _new_production(tmp_path)
+    journal = journal_values["operation_journal"]
+    before = journal.snapshot(values["request"].run_id)
+    terminal = _terminal(
+        authority,
+        Mem0OssFullRunAdmission(
+            request=values["request"],
+            ingestion_manifest_sha256=authority.ingestion_manifest_sha256,
+            ingestion_root_sha256=authority.ingestion_root_sha256,
+            ingestion_unit_count=authority.operation_count,
+        ).commitment_sha256,
+        terminal_state=Mem0OssFullRunState.ABORTED.value,
+    )
+    coordinator_type = type(coordinator)
+    real_admit = coordinator_type.admit
+    real_abort = coordinator_type.abort
+    abort_calls = 0
+
+    def fail_after_admit(instance: object, *args: object, **kwargs: object):
+        result = real_admit(instance, *args, **kwargs)
+        if instance is coordinator:
+            raise RuntimeError("admission-provider-secret")
+        return result
+
+    def fail_abort_once(instance: object):
+        nonlocal abort_calls
+        if instance is not coordinator:
+            return real_abort(instance)
+        abort_calls += 1
+        if abort_calls == 1:
+            raise RuntimeError("abort-provider-secret")
+        return terminal
+
+    monkeypatch.setattr(coordinator_type, "admit", fail_after_admit)
+    monkeypatch.setattr(coordinator_type, "abort", fail_abort_once)
+
+    with pytest.raises(ManagedMem0V5ProductionLifecycleError) as failed:
+        production.admit_or_restore()
+    assert failed.value.code == "managed_mem0_v5_production_lifecycle_admission_failed"
+    assert production_lifecycle_subject._STATES[production].phase == "admission_failed"
+    assert journal.snapshot(values["request"].run_id) == before
+    assert before.dispatched_count == 0
+    with pytest.raises(ManagedMem0V5ProductionLifecycleError, match="admission_invalid"):
+        production.admit_or_restore()
+    with pytest.raises(ManagedMem0V5ProductionLifecycleError, match="dispatch_invalid"):
+        production.dispatch_once()
+
+    real_terminalize = ManagedMem0V5LifecycleAdapter.terminalize
+    monkeypatch.setattr(
+        ManagedMem0V5LifecycleAdapter,
+        "terminalize",
+        lambda _self, *, pass_two_request=None: object(),
+    )
+    with pytest.raises(ManagedMem0V5ProductionLifecycleError) as invalid:
+        production.terminalize()
+    assert invalid.value.code == "managed_mem0_v5_production_lifecycle_terminalize_result_invalid"
+    assert production_lifecycle_subject._STATES[production].phase == "admission_failed"
+    monkeypatch.setattr(ManagedMem0V5LifecycleAdapter, "terminalize", real_terminalize)
+
+    assert production.terminalize() == terminal
+    assert abort_calls == 2
+    assert journal.snapshot(values["request"].run_id) == before
+    assert production_lifecycle_subject._STATES[production].phase == "terminal"
+    assert lifecycle.terminal_evidence == terminal
 
 
 def test_production_rejects_crosswired_lifecycle_not_issued_by_composition(tmp_path) -> None:

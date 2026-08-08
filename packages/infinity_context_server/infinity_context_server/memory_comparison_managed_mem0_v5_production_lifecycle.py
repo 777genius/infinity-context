@@ -232,17 +232,25 @@ class ManagedMem0V5ProductionLifecycleAdapter:
             _fail("admission_invalid")
         with _instance_lock(self):
             state = _require_phase(self, {"new"}, "admission_invalid")
+            delegated = False
             try:
                 if restore:
                     resumed = state.journal.resume(state.journal_identity.run_id)
                     if resumed.outcome_unknown_count:
                         _fail("restore_reconciliation_required")
+                    delegated = True
                     result = state.lifecycle.restore()
                 else:
+                    delegated = True
                     result = state.lifecycle.admit()
             except ManagedMem0V5ProductionLifecycleError:
                 raise
             except Exception:
+                if delegated:
+                    _store(
+                        self,
+                        replace(state, phase="admission_failed", integrity_mac=b""),
+                    )
                 _fail("admission_failed")
             if type(result) is ManagedMem0V5AuthenticatedCleanStateWitness:
                 phase = "admitted"
@@ -251,6 +259,10 @@ class ManagedMem0V5ProductionLifecycleAdapter:
             elif type(result) is Mem0OssTerminalCleanupEvidence:
                 phase = "terminal"
             else:
+                _store(
+                    self,
+                    replace(state, phase="admission_failed", integrity_mac=b""),
+                )
                 _fail("admission_result_invalid")
             _store(self, replace(state, phase=phase, integrity_mac=b""))
             return result
@@ -390,6 +402,7 @@ class ManagedMem0V5ProductionLifecycleAdapter:
             state = _require_phase(
                 self,
                 {
+                    "admission_failed",
                     "admitted",
                     "dispatch_ambiguous",
                     "sealed",
@@ -439,10 +452,12 @@ def _validated_terminal_journal_snapshot(state: _LifecycleState) -> object:
             and snapshot.committed_count == expected
         )
     elif snapshot.run.phase is OperationRunPhase.ACTIVE:
-        if state.phase in {"admitted", "dispatch_ambiguous"}:
+        if state.phase in {"admission_failed", "admitted", "dispatch_ambiguous"}:
             valid = (
-                snapshot.pending_count == (expected if state.phase == "admitted" else 0)
-                and snapshot.dispatched_count == (0 if state.phase == "admitted" else expected)
+                snapshot.pending_count
+                == (expected if state.phase in {"admission_failed", "admitted"} else 0)
+                and snapshot.dispatched_count
+                == (0 if state.phase in {"admission_failed", "admitted"} else expected)
                 and snapshot.committed_count == 0
             )
         else:
