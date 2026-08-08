@@ -92,6 +92,10 @@ def _context_item(fact: MemoryFactSnapshot, *, reference_time: datetime) -> Cont
             char_start=source.char_start,
             char_end=source.char_end,
             quote_preview=source.quote_preview,
+            page_number=source.page_number,
+            time_start_ms=source.time_start_ms,
+            time_end_ms=source.time_end_ms,
+            bbox=source.bbox,
             occurred_at=fact.temporal_extent.occurred_from,
         )
         for source in fact.source_refs

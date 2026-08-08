@@ -18,6 +18,11 @@ from infinity_context_adapters.postgres.legacy_schema_manifest import (
 _MIGRATIONS_DIRECTORY = Path(__file__).with_name("migrations")
 _LEGACY_BASELINE_PREFIX = "0022_"
 _ADVISORY_LOCK_ID = 4_916_625_310_112_023_308
+_PUBLISHED_CHECKSUM_ALIASES: dict[str, frozenset[str]] = {
+    "0030_suggestion_receipt_tenant_integrity": frozenset(
+        {"4d936c3d49f76028eec009a1b1e8ee2bcf214b2b4a03e7ac120bad5321aa3064"}
+    ),
+}
 
 
 @dataclass(frozen=True, slots=True)
@@ -116,7 +121,11 @@ def _validate_history(
     if unknown:
         raise RuntimeError(f"Unknown applied PostgreSQL migration: {unknown[0]}")
     for migration_id, checksum in history.items():
-        if known[migration_id].checksum != checksum:
+        if known[
+            migration_id
+        ].checksum != checksum and checksum not in _PUBLISHED_CHECKSUM_ALIASES.get(
+            migration_id, frozenset()
+        ):
             raise RuntimeError(f"PostgreSQL migration checksum drift: {migration_id}")
     applied_ids = tuple(history)
     expected_prefix = tuple(migration.migration_id for migration in migrations[: len(history)])

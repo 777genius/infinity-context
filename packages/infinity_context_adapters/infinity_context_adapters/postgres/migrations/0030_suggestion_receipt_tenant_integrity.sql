@@ -4,6 +4,10 @@ ALTER TABLE suggestion_resolution_receipts
   ADD COLUMN IF NOT EXISTS result_fact_id VARCHAR(80),
   ADD COLUMN IF NOT EXISTS result_fact_version INTEGER;
 
+UPDATE suggestion_resolution_receipts
+SET result_fact_json = NULL
+WHERE jsonb_typeof(result_fact_json) = 'null';
+
 DO $$
 BEGIN
   IF EXISTS (

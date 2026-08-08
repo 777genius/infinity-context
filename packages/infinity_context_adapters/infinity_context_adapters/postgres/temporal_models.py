@@ -31,6 +31,14 @@ class MemoryFactTemporalDecisionRow(Base):
             "id",
             "space_id",
             "memory_scope_id",
+            "thread_scope_key",
+            name="uq_memory_fact_temporal_decisions_id_scope_thread",
+        ),
+        UniqueConstraint(
+            "id",
+            "space_id",
+            "memory_scope_id",
+            "thread_scope_key",
             "source_fact_id",
             "source_fact_version",
             "target_fact_id",
@@ -39,13 +47,23 @@ class MemoryFactTemporalDecisionRow(Base):
             name="uq_memory_fact_temporal_decision_relation_identity",
         ),
         ForeignKeyConstraint(
-            ["source_fact_id", "space_id", "memory_scope_id"],
-            ["memory_facts.id", "memory_facts.space_id", "memory_facts.memory_scope_id"],
+            ["source_fact_id", "space_id", "memory_scope_id", "thread_scope_key"],
+            [
+                "memory_facts.id",
+                "memory_facts.space_id",
+                "memory_facts.memory_scope_id",
+                "memory_facts.thread_scope_key",
+            ],
             name="fk_memory_fact_temporal_decision_source_scope",
         ),
         ForeignKeyConstraint(
-            ["target_fact_id", "space_id", "memory_scope_id"],
-            ["memory_facts.id", "memory_facts.space_id", "memory_facts.memory_scope_id"],
+            ["target_fact_id", "space_id", "memory_scope_id", "thread_scope_key"],
+            [
+                "memory_facts.id",
+                "memory_facts.space_id",
+                "memory_facts.memory_scope_id",
+                "memory_facts.thread_scope_key",
+            ],
             name="fk_memory_fact_temporal_decision_target_scope",
         ),
         ForeignKeyConstraint(
@@ -59,11 +77,17 @@ class MemoryFactTemporalDecisionRow(Base):
             name="fk_memory_fact_temporal_decision_target_version",
         ),
         ForeignKeyConstraint(
-            ["compensates_decision_id", "space_id", "memory_scope_id"],
+            [
+                "compensates_decision_id",
+                "space_id",
+                "memory_scope_id",
+                "thread_scope_key",
+            ],
             [
                 "memory_fact_temporal_decisions.id",
                 "memory_fact_temporal_decisions.space_id",
                 "memory_fact_temporal_decisions.memory_scope_id",
+                "memory_fact_temporal_decisions.thread_scope_key",
             ],
             name="fk_memory_fact_temporal_decision_compensation_scope",
         ),

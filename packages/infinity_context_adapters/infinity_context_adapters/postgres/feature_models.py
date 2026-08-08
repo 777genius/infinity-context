@@ -25,8 +25,13 @@ class MemoryFactOperationReceiptRow(Base):
     __tablename__ = "memory_fact_operation_receipts"
     __table_args__ = (
         ForeignKeyConstraint(
-            ["result_fact_id", "space_id", "memory_scope_id"],
-            ["memory_facts.id", "memory_facts.space_id", "memory_facts.memory_scope_id"],
+            ["result_fact_id", "space_id", "memory_scope_id", "thread_scope_key"],
+            [
+                "memory_facts.id",
+                "memory_facts.space_id",
+                "memory_facts.memory_scope_id",
+                "memory_facts.thread_scope_key",
+            ],
             name="fk_memory_fact_operation_receipt_fact_scope",
         ),
         ForeignKeyConstraint(

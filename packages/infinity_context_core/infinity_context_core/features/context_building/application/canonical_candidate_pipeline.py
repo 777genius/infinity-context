@@ -9,6 +9,7 @@ from infinity_context_core.features.context_building.domain import (
     CandidateHit,
     ContextItem,
     FusedCandidate,
+    HydratedContextCandidate,
 )
 from infinity_context_core.features.context_building.ports import (
     CanonicalContextHydratorPort,
@@ -64,6 +65,8 @@ class CanonicalCandidatePipeline:
         active = list(self.providers)
         hits: list[CandidateHit] = []
         seen_hits: set[tuple[str, str, str, int, int]] = set()
+        hydration_attempted: set[str] = set()
+        hydrated_by_id: dict[str, HydratedContextCandidate] = {}
         weights = {item.provider_id: item.weight for item in self.providers}
         selected: tuple[ContextItem, ...] = ()
         for page_number in range(self.max_scan_pages):
@@ -96,20 +99,81 @@ class CanonicalCandidatePipeline:
                 if len(result) == page_size and new_hit_count > 0:
                     next_active.append(registration)
             active = next_active
-            selected = await self._hydrate_and_select(request, hits, weights)
+            selected = await self._hydrate_and_select(
+                request,
+                hits,
+                weights,
+                hydration_attempted=hydration_attempted,
+                hydrated_by_id=hydrated_by_id,
+            )
             if len(selected) >= request.limit:
-                return selected
+                selected = await self._revalidate_selected(
+                    request,
+                    selected,
+                    hits,
+                    weights,
+                    hydration_attempted=hydration_attempted,
+                    hydrated_by_id=hydrated_by_id,
+                )
+                if len(selected) >= request.limit:
+                    return selected
         if active:
             raise RuntimeError(
                 "Canonical candidate scan limit reached before enough eligible facts were found"
             )
-        return selected
+        return await self._revalidate_selected(
+            request,
+            selected,
+            hits,
+            weights,
+            hydration_attempted=hydration_attempted,
+            hydrated_by_id=hydrated_by_id,
+        )
+
+    async def _revalidate_selected(
+        self,
+        request: ContextCandidateRequest,
+        selected: tuple[ContextItem, ...],
+        hits: list[CandidateHit],
+        weights: dict[str, float],
+        *,
+        hydration_attempted: set[str],
+        hydrated_by_id: dict[str, HydratedContextCandidate],
+    ) -> tuple[ContextItem, ...]:
+        current = selected
+        latest_batch_ids: set[str] = set()
+        max_rounds = len({hit.canonical_id for hit in hits}) + 1
+        for _round in range(max_rounds):
+            if not current:
+                return ()
+            selected_ids = tuple(item.item_id for item in current)
+            latest_batch_ids = set(selected_ids)
+            for canonical_id in selected_ids:
+                hydrated_by_id.pop(canonical_id, None)
+            revalidated = await self.hydrator.hydrate_candidates(request, selected_ids)
+            hydrated_by_id.update(
+                (candidate.canonical_id, candidate) for candidate in revalidated
+            )
+            hydration_attempted.update(selected_ids)
+            current = await self._hydrate_and_select(
+                request,
+                hits,
+                weights,
+                hydration_attempted=hydration_attempted,
+                hydrated_by_id=hydrated_by_id,
+            )
+            if {item.item_id for item in current} <= latest_batch_ids:
+                return current
+        return tuple(item for item in current if item.item_id in latest_batch_ids)
 
     async def _hydrate_and_select(
         self,
         request: ContextCandidateRequest,
         hits: list[CandidateHit],
         weights: dict[str, float],
+        *,
+        hydration_attempted: set[str],
+        hydrated_by_id: dict[str, HydratedContextCandidate],
     ) -> tuple[ContextItem, ...]:
         initially_fused = _fuse_hits(
             tuple(hits),
@@ -120,8 +184,17 @@ class CanonicalCandidatePipeline:
         if not canonical_ids:
             return ()
 
-        hydrated = await self.hydrator.hydrate_candidates(request, canonical_ids)
-        hydrated_by_id = {candidate.canonical_id: candidate for candidate in hydrated}
+        pending_ids = tuple(
+            canonical_id
+            for canonical_id in canonical_ids
+            if canonical_id not in hydration_attempted
+        )
+        if pending_ids:
+            hydration_attempted.update(pending_ids)
+            hydrated = await self.hydrator.hydrate_candidates(request, pending_ids)
+            hydrated_by_id.update(
+                (candidate.canonical_id, candidate) for candidate in hydrated
+            )
         current_hits = tuple(
             hit
             for hit in hits

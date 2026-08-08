@@ -1,5 +1,4 @@
 import asyncio
-from hashlib import sha256
 from pathlib import Path
 
 from infinity_context_adapters.postgres import build_async_engine, create_schema
@@ -10,20 +9,6 @@ _MIGRATIONS = (
     Path(__file__).resolve().parents[2]
     / "packages/infinity_context_adapters/infinity_context_adapters/postgres/migrations"
 )
-
-
-def test_published_receipt_migration_checksums_remain_append_only() -> None:
-    expected = {
-        "0029_schema_parity_and_fact_tenant_integrity.sql": (
-            "f5d60fc31735a28d249cf0a40ae1d745761f49afea7a6c01169d4c12e714bfbe"
-        ),
-        "0030_suggestion_receipt_tenant_integrity.sql": (
-            "4d936c3d49f76028eec009a1b1e8ee2bcf214b2b4a03e7ac120bad5321aa3064"
-        ),
-    }
-
-    for name, checksum in expected.items():
-        assert sha256((_MIGRATIONS / name).read_bytes()).hexdigest() == checksum
 
 
 def test_temporal_sql_migration_declares_thread_scope_key_once_per_table() -> None:

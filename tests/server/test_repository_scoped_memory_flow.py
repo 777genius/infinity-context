@@ -186,6 +186,32 @@ def test_repository_token_locks_writes_captures_and_canonical_recall(
             json=_context_payload(space["id"], memory_scope["id"]),
             headers=headers_b,
         )
+        unsupported_filter_responses = {
+            name: client.post(
+                "/v1/context",
+                json={
+                    **_context_payload(space["id"], memory_scope["id"]),
+                    name: value,
+                },
+                headers=headers_a,
+            )
+            for name, value in (
+                ("category", "preference"),
+                ("tags_any", ["alpha"]),
+                ("tags_all", ["alpha"]),
+                ("tags_none", ["blocked"]),
+                ("include_superseded", True),
+                ("include_stale", True),
+            )
+        }
+        evidence_limited_context = client.post(
+            "/v1/context",
+            json={
+                **_context_payload(space["id"], memory_scope["id"]),
+                "max_evidence_items": 1,
+            },
+            headers=headers_a,
+        )
         cross_repository_context = client.post(
             "/v1/context",
             json={
@@ -202,7 +228,7 @@ def test_repository_token_locks_writes_captures_and_canonical_recall(
                 "source_agent": "test-agent",
                 "event_type": "tool_result",
                 "text": "repository a capture",
-                    "metadata": {"code_scope_id": main_scope_a},
+                "metadata": {"code_scope_id": main_scope_a},
                 "consolidate": False,
             },
             headers=headers_a,
@@ -252,11 +278,7 @@ def test_repository_token_locks_writes_captures_and_canonical_recall(
                 **feature_headers,
                 "X-Infinity-Workspace-Claim": (
                     feature_headers["X-Infinity-Workspace-Claim"][:-1]
-                    + (
-                        "0"
-                        if feature_headers["X-Infinity-Workspace-Claim"][-1] != "0"
-                        else "1"
-                    )
+                    + ("0" if feature_headers["X-Infinity-Workspace-Claim"][-1] != "0" else "1")
                 ),
             },
         )
@@ -355,6 +377,13 @@ def test_repository_token_locks_writes_captures_and_canonical_recall(
     assert repository_a_relations.status_code == 200
     assert context_a.status_code == 200
     assert context_b.status_code == 200
+    assert {
+        name: response.status_code for name, response in unsupported_filter_responses.items()
+    } == dict.fromkeys(unsupported_filter_responses, 400)
+    for name, response in unsupported_filter_responses.items():
+        assert name in response.text
+    assert evidence_limited_context.status_code == 200
+    assert len(evidence_limited_context.json()["data"]["items"]) <= 1
     assert "global shared fact" in context_a.text
     assert "alpha private fact" in context_a.text
     assert "beta private fact" not in context_a.text

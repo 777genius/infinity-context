@@ -24,7 +24,7 @@ from infinity_context_core.features.memory_facts.public import (
     MemoryFactSourceRef,
     MemoryFactUnitOfWorkFactoryPort,
 )
-from sqlalchemy import select, text, update
+from sqlalchemy import select, text, tuple_, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
@@ -53,6 +53,8 @@ from infinity_context_adapters.postgres.models import (
     MemoryOutboxRow,
     MemorySourceRefRow,
 )
+
+_SOURCE_REF_PAIR_BATCH_SIZE = 400
 
 
 class PostgresMemoryFactStore:
@@ -223,19 +225,27 @@ class PostgresMemoryFactStore:
         )
         if not rows:
             return ()
-        ref_rows = tuple(
-            (
-                await self._session.execute(
-                    select(MemorySourceRefRow)
-                    .where(MemorySourceRefRow.fact_id.in_(tuple(row.id for row in rows)))
-                    .order_by(
-                        MemorySourceRefRow.fact_id,
-                        MemorySourceRefRow.fact_version,
-                        MemorySourceRefRow.id,
+        ref_rows: list[MemorySourceRefRow] = []
+        pairs = tuple((row.id, row.version) for row in rows)
+        for offset in range(0, len(pairs), _SOURCE_REF_PAIR_BATCH_SIZE):
+            ref_rows.extend(
+                (
+                    await self._session.execute(
+                        select(MemorySourceRefRow)
+                        .where(
+                            tuple_(
+                                MemorySourceRefRow.fact_id,
+                                MemorySourceRefRow.fact_version,
+                            ).in_(pairs[offset : offset + _SOURCE_REF_PAIR_BATCH_SIZE])
+                        )
+                        .order_by(
+                            MemorySourceRefRow.fact_id,
+                            MemorySourceRefRow.fact_version,
+                            MemorySourceRefRow.id,
+                        )
                     )
-                )
-            ).scalars()
-        )
+                ).scalars()
+            )
         refs_by_version: dict[tuple[str, int], list[MemorySourceRefRow]] = {}
         for ref in ref_rows:
             refs_by_version.setdefault((ref.fact_id, ref.fact_version), []).append(ref)

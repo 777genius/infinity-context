@@ -14,7 +14,7 @@ from infinity_context_core.application.context_diagnostics import (
 from infinity_context_core.application.context_stage_diagnostics import (
     record_context_stage_duration,
 )
-from infinity_context_core.domain.errors import MemoryForbiddenError
+from infinity_context_core.domain.errors import MemoryForbiddenError, MemoryValidationError
 
 from infinity_context_server.api.auth import (
     get_authorized_agent_context,
@@ -380,7 +380,29 @@ async def _build_context_bundle(
 ):
     memory_scope_ids = tuple(str(value) for value in scope.memory_scope_ids)
     if request.repository_id is not None and len(memory_scope_ids) == 1:
-        if request.max_facts <= 0:
+        unsupported_filters = tuple(
+            name
+            for name, enabled in (
+                ("category", request.category is not None),
+                ("tags_any", bool(request.tags_any)),
+                ("tags_all", bool(request.tags_all)),
+                ("tags_none", bool(request.tags_none)),
+                ("include_superseded", request.include_superseded),
+                ("include_stale", request.include_stale),
+            )
+            if enabled
+        )
+        if unsupported_filters:
+            raise MemoryValidationError(
+                "Repository-scoped canonical context does not support filters: "
+                + ", ".join(unsupported_filters)
+            )
+        canonical_item_limit = min(
+            request.max_facts,
+            request.max_evidence_items,
+            selection_item_limit if selection_item_limit is not None else request.max_facts,
+        )
+        if canonical_item_limit <= 0:
             return LegacyContextBundle(
                 bundle_id=bundle_id,
                 rendered_text="",
@@ -392,6 +414,8 @@ async def _build_context_bundle(
                     "candidate_count": 0,
                     "repository_isolation_mode": "canonical_facts_only",
                     "non_fact_evidence_status": "deferred_until_repository_scoped",
+                    "requested_max_chunks": request.max_chunks,
+                    "canonical_chunk_candidate_count": 0,
                 },
             )
         feature_request = context_building_server.BuildContextHttpRequest(
@@ -404,9 +428,9 @@ async def _build_context_bundle(
             as_of=request.as_of,
             budget=context_building_server.ContextBudgetHttpRequest(
                 max_context_tokens=request.token_budget,
-                max_items=request.max_facts,
+                max_items=canonical_item_limit,
             ),
-            tags=request.tags_any,
+            tags=(),
         )
         result = await container.build_canonical_fact_context.execute(
             context_building_server.build_context_query_from_contract(feature_request.to_contract())
@@ -415,6 +439,8 @@ async def _build_context_bundle(
             result,
             bundle_id=bundle_id,
             memory_scope_id=memory_scope_ids[0],
+            requested_max_chunks=request.max_chunks,
+            requested_max_evidence_items=request.max_evidence_items,
         )
     return await container.build_context.execute(
         context_building_server.build_legacy_context_query_from_request(

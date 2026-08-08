@@ -45,6 +45,7 @@ class _HitProvider:
 class _Hydrator:
     candidates: tuple[HydratedContextCandidate, ...]
     requested_ids: tuple[str, ...] = ()
+    requested_batches: list[tuple[str, ...]] | None = None
 
     async def hydrate_candidates(
         self,
@@ -52,12 +53,15 @@ class _Hydrator:
         canonical_ids: tuple[str, ...],
     ) -> tuple[HydratedContextCandidate, ...]:
         self.requested_ids = canonical_ids
+        if self.requested_batches is not None:
+            self.requested_batches.append(canonical_ids)
         allowed = set(canonical_ids)
         return tuple(item for item in self.candidates if item.canonical_id in allowed)
 
 
 def test_pipeline_rejects_stale_and_missing_hits_then_refills() -> None:
     limits: list[int] = []
+    hydration_batches: list[tuple[str, ...]] = []
     provider = _HitProvider(
         requested_limits=limits,
         hits=(
@@ -68,6 +72,7 @@ def test_pipeline_rejects_stale_and_missing_hits_then_refills() -> None:
         ),
     )
     hydrator = _Hydrator(
+        requested_batches=hydration_batches,
         candidates=(
             _hydrated("stale", version=2),
             _hydrated("current-1", version=2),
@@ -84,13 +89,15 @@ def test_pipeline_rejects_stale_and_missing_hits_then_refills() -> None:
 
     assert limits == [6]
     assert tuple(item.item_id for item in result) == ("current-1", "current-2")
-    assert set(hydrator.requested_ids) == {"stale", "current-1", "missing", "current-2"}
+    assert set(hydration_batches[0]) == {"stale", "current-1", "missing", "current-2"}
+    assert hydration_batches[1] == ("current-1", "current-2")
     assert result[0].evidence[0].retrieval_sources == ("vector",)
     assert result[0].evidence[0].relevance_score > result[1].evidence[0].relevance_score
 
 
 def test_pipeline_pages_past_ineligible_provider_results() -> None:
     offsets: list[int] = []
+    hydration_batches: list[tuple[str, ...]] = []
     provider = _HitProvider(
         requested_offsets=offsets,
         hits=tuple(
@@ -103,6 +110,7 @@ def test_pipeline_pages_past_ineligible_provider_results() -> None:
         ),
     )
     hydrator = _Hydrator(
+        requested_batches=hydration_batches,
         candidates=(
             *(_hydrated(f"stale-{rank}", version=2) for rank in range(1, 7)),
             _hydrated("current", version=1),
@@ -117,7 +125,104 @@ def test_pipeline_pages_past_ineligible_provider_results() -> None:
     result = asyncio.run(pipeline.find_candidates(_request(limit=2)))
 
     assert offsets == [0, 6]
+    assert hydration_batches == [
+        tuple(f"stale-{rank}" for rank in range(1, 7)),
+        ("current",),
+        ("current",),
+    ]
     assert tuple(item.item_id for item in result) == ("current",)
+
+
+def test_pipeline_revalidates_selected_ids_after_later_page_mutation() -> None:
+    provider = _HitProvider(
+        hits=(
+            _hit("changed", version=1, rank=1),
+            *(
+                _hit(f"stale-{rank}", version=1, rank=rank)
+                for rank in range(2, 7)
+            ),
+            _hit("current", version=1, rank=7),
+        )
+    )
+
+    class MutatingHydrator:
+        def __init__(self) -> None:
+            self.batches: list[tuple[str, ...]] = []
+
+        async def hydrate_candidates(
+            self,
+            _request: ContextCandidateRequest,
+            canonical_ids: tuple[str, ...],
+        ) -> tuple[HydratedContextCandidate, ...]:
+            self.batches.append(canonical_ids)
+            candidates = {
+                "changed": _hydrated("changed", version=1),
+                "current": _hydrated("current", version=1),
+                **{
+                    f"stale-{rank}": _hydrated(f"stale-{rank}", version=2)
+                    for rank in range(2, 7)
+                },
+            }
+            if len(self.batches) >= 3:
+                candidates.pop("changed")
+            return tuple(
+                candidates[canonical_id]
+                for canonical_id in canonical_ids
+                if canonical_id in candidates
+            )
+
+    hydrator = MutatingHydrator()
+    pipeline = CanonicalCandidatePipeline(
+        providers=(CandidateHitProviderRegistration("vector", provider),),
+        hydrator=hydrator,
+        overfetch_factor=3,
+    )
+
+    result = asyncio.run(pipeline.find_candidates(_request(limit=2)))
+
+    assert tuple(item.item_id for item in result) == ("current",)
+    assert hydrator.batches[2] == ("changed", "current")
+
+
+def test_pipeline_revalidates_promoted_cached_fallback_before_return() -> None:
+    provider = _HitProvider(
+        hits=(
+            _hit("selected-a", version=1, rank=1),
+            _hit("fallback-b", version=1, rank=2),
+        )
+    )
+
+    class ConcurrentMutationHydrator:
+        def __init__(self) -> None:
+            self.batches: list[tuple[str, ...]] = []
+
+        async def hydrate_candidates(
+            self,
+            _request: ContextCandidateRequest,
+            canonical_ids: tuple[str, ...],
+        ) -> tuple[HydratedContextCandidate, ...]:
+            self.batches.append(canonical_ids)
+            if len(self.batches) == 1:
+                return (_hydrated("selected-a"), _hydrated("fallback-b"))
+            if canonical_ids == ("fallback-b",):
+                return (_hydrated("fallback-b", version=2),)
+            return ()
+
+    hydrator = ConcurrentMutationHydrator()
+    pipeline = CanonicalCandidatePipeline(
+        providers=(CandidateHitProviderRegistration("vector", provider),),
+        hydrator=hydrator,
+        overfetch_factor=3,
+    )
+
+    result = asyncio.run(pipeline.find_candidates(_request(limit=1)))
+
+    assert result == ()
+    assert hydrator.batches == [
+        ("selected-a", "fallback-b"),
+        ("selected-a",),
+        ("fallback-b",),
+    ]
 
 
 def test_fusion_is_independent_of_provider_registration_order() -> None:

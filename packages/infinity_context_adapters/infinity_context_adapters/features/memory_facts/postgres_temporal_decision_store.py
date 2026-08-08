@@ -10,7 +10,7 @@ from infinity_context_core.features.memory_facts.public import (
     FactTemporalDecisionType,
     MemoryFactScope,
 )
-from sqlalchemy import Select, select
+from sqlalchemy import Select, and_, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from infinity_context_adapters.features.memory_facts.postgres_fact_mapping import (
@@ -134,6 +134,73 @@ class PostgresFactSupersessionRepository:
         if len(rows) != 1:
             raise ValueError("Multiple feature-owned supersession successors found")
         return _audited_supersession_from_rows(*rows[0])
+
+    async def find_active_successors(
+        self,
+        predecessors: tuple[tuple[MemoryFactScope, str], ...],
+    ) -> tuple[FactSupersessionRelation, ...]:
+        """Load exact scoped successors in one query without weakening isolation."""
+
+        if not predecessors:
+            return ()
+        identities = tuple(
+            (scope.space_id, scope.memory_scope_id, scope.thread_id, fact_id)
+            for scope, fact_id in predecessors
+        )
+        if len(set(identities)) != len(identities):
+            raise ValueError("Supersession predecessor batch contains duplicates")
+        rows = tuple(
+            (
+                await self._session.execute(
+                    _audited_supersession_select().where(
+                        or_(
+                            *(
+                                and_(
+                                    *_scope_conditions(scope),
+                                    MemoryFactRelationRow.target_fact_id == fact_id,
+                                )
+                                for scope, fact_id in predecessors
+                            )
+                        ),
+                        MemoryFactRelationRow.relation_type == "supersedes",
+                        MemoryFactRelationRow.status == "active",
+                    )
+                )
+            ).all()
+        )
+        rows_by_identity: dict[
+            tuple[str, str, str | None, str],
+            list[tuple[MemoryFactRelationRow, MemoryFactTemporalDecisionRow | None]],
+        ] = {}
+        for relation_row, decision_row in rows:
+            identity = (
+                relation_row.space_id,
+                relation_row.memory_scope_id,
+                relation_row.thread_id,
+                relation_row.target_fact_id,
+            )
+            rows_by_identity.setdefault(identity, []).append((relation_row, decision_row))
+        relations: list[FactSupersessionRelation] = []
+        for identity in identities:
+            matched_rows = rows_by_identity.get(identity, [])
+            if len(matched_rows) != 1:
+                continue
+            try:
+                relations.append(_audited_supersession_from_rows(*matched_rows[0]))
+            except ValueError:
+                continue
+        return tuple(
+            sorted(
+                relations,
+                key=lambda relation: (
+                    relation.scope.space_id,
+                    relation.scope.memory_scope_id,
+                    relation.scope.thread_id or "",
+                    relation.predecessor_fact_id,
+                    relation.relation_id,
+                ),
+            )
+        )
 
     async def find_active_predecessor(
         self,

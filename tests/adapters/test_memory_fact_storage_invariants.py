@@ -7,9 +7,6 @@ from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 import pytest
-from infinity_context_adapters.features.memory_facts.postgres_temporal_decision_store import (
-    PostgresFactSupersessionRepository,
-)
 from infinity_context_adapters.postgres import (
     build_async_engine,
     build_session_factory,
@@ -32,7 +29,7 @@ from infinity_context_core.features.memory_facts.public import (
     FactTemporalQueryMode,
     MemoryFactSelectionQuery,
 )
-from sqlalchemy import text
+from sqlalchemy import event, text
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -56,6 +53,7 @@ def test_metadata_declares_temporal_relation_and_chunk_backstops() -> None:
         "temporal_decision_id",
         "space_id",
         "memory_scope_id",
+        "thread_scope_key",
         "source_fact_id",
         "source_fact_version",
         "target_fact_id",
@@ -66,6 +64,7 @@ def test_metadata_declares_temporal_relation_and_chunk_backstops() -> None:
         "id",
         "space_id",
         "memory_scope_id",
+        "thread_scope_key",
         "source_fact_id",
         "source_fact_version",
         "target_fact_id",
@@ -76,6 +75,7 @@ def test_metadata_declares_temporal_relation_and_chunk_backstops() -> None:
         "compensates_decision_id",
         "space_id",
         "memory_scope_id",
+        "thread_scope_key",
     )
     assert "ck_chunk_owner" in chunk_constraints
 
@@ -261,20 +261,14 @@ def test_supersession_store_fails_closed_on_thread_mismatch(tmp_path: Path) -> N
             async with AsyncSession(engine) as session:
                 await session.execute(text("PRAGMA foreign_keys=ON"))
                 await _seed_consistent_supersession(session)
-                await session.execute(
-                    text(
-                        "UPDATE memory_fact_relations "
-                        "SET thread_id = 'thread-other' WHERE id = 'relation-1'"
+                with pytest.raises(IntegrityError):
+                    await session.execute(
+                        text(
+                            "UPDATE memory_fact_relations "
+                            "SET thread_id = 'thread-other' WHERE id = 'relation-1'"
+                        )
                     )
-                )
-                await session.commit()
-
-                repository = PostgresFactSupersessionRepository(session)
-                with pytest.raises(
-                    ValueError,
-                    match="does not match its temporal decision",
-                ):
-                    await repository.find_by_decision("decision-1")
+                    await session.commit()
         finally:
             await engine.dispose()
 
@@ -329,15 +323,121 @@ def test_selection_fails_closed_on_inconsistent_audited_relation(
     asyncio.run(run())
 
 
-async def _seed_consistent_supersession(session: AsyncSession) -> None:
+def test_selection_batches_successor_hydration_for_multiple_predecessors(
+    tmp_path: Path,
+) -> None:
+    async def run() -> None:
+        engine = build_async_engine(f"sqlite+aiosqlite:///{tmp_path / 'batched.db'}")
+        try:
+            await create_schema(engine)
+            async with AsyncSession(engine) as session:
+                await session.execute(text("PRAGMA foreign_keys=ON"))
+                await _seed_consistent_supersession(session)
+                await _seed_consistent_supersession(session, suffix="-2")
+
+            select_count = 0
+
+            def count_selects(
+                _connection: object,
+                _cursor: object,
+                statement: str,
+                _parameters: object,
+                _context: object,
+                _executemany: object,
+            ) -> None:
+                nonlocal select_count
+                if statement.lstrip().upper().startswith("SELECT"):
+                    select_count += 1
+
+            event.listen(engine.sync_engine, "before_cursor_execute", count_selects)
+            try:
+                selection = create_postgres_memory_fact_selection(
+                    build_session_factory(engine)
+                )
+                relations = await selection.find_current_supersessions(
+                    MemoryFactSelectionQuery(
+                        space_id="space-1",
+                        memory_scope_ids=("scope-1",),
+                        thread_id=None,
+                        temporal_mode=FactTemporalQueryMode.CURRENT,
+                        reference_time=EFFECTIVE_AT + timedelta(days=2),
+                        fact_ids=("predecessor", "predecessor-2"),
+                        limit=2,
+                    )
+                )
+            finally:
+                event.remove(engine.sync_engine, "before_cursor_execute", count_selects)
+
+            assert {relation.predecessor_fact_id for relation in relations} == {
+                "predecessor",
+                "predecessor-2",
+            }
+            assert select_count == 2
+        finally:
+            await engine.dispose()
+
+    asyncio.run(run())
+
+
+def test_batched_successor_hydration_isolates_corruption_per_predecessor(
+    tmp_path: Path,
+) -> None:
+    async def run() -> None:
+        engine = build_async_engine(f"sqlite+aiosqlite:///{tmp_path / 'isolated.db'}")
+        try:
+            await create_schema(engine)
+            async with AsyncSession(engine) as session:
+                await session.execute(text("PRAGMA foreign_keys=ON"))
+                await _seed_consistent_supersession(session)
+                await _seed_consistent_supersession(session, suffix="-2")
+                await session.execute(text("PRAGMA foreign_keys=OFF"))
+                await session.execute(
+                    text(
+                        "UPDATE memory_fact_relations "
+                        "SET valid_from = :invalid WHERE id = 'relation-1'"
+                    ),
+                    {"invalid": EFFECTIVE_AT + timedelta(hours=1)},
+                )
+                await session.commit()
+
+            selection = create_postgres_memory_fact_selection(build_session_factory(engine))
+            relations = await selection.find_current_supersessions(
+                MemoryFactSelectionQuery(
+                    space_id="space-1",
+                    memory_scope_ids=("scope-1",),
+                    thread_id=None,
+                    temporal_mode=FactTemporalQueryMode.CURRENT,
+                    reference_time=EFFECTIVE_AT + timedelta(days=2),
+                    fact_ids=("predecessor", "predecessor-2"),
+                    limit=2,
+                )
+            )
+
+            assert [relation.predecessor_fact_id for relation in relations] == [
+                "predecessor-2"
+            ]
+        finally:
+            await engine.dispose()
+
+    asyncio.run(run())
+
+
+async def _seed_consistent_supersession(
+    session: AsyncSession,
+    *,
+    suffix: str = "",
+) -> None:
+    predecessor_id = f"predecessor{suffix}"
+    successor_id = f"successor{suffix}"
+    decision_id = f"decision-1{suffix}"
     predecessor = _fact_row(
-        "predecessor",
+        predecessor_id,
         status="superseded",
         valid_from=NOW - timedelta(days=10),
         valid_to=EFFECTIVE_AT,
     )
     successor = _fact_row(
-        "successor",
+        successor_id,
         status="active",
         valid_from=EFFECTIVE_AT,
     )
@@ -352,15 +452,15 @@ async def _seed_consistent_supersession(session: AsyncSession) -> None:
     await session.commit()
     session.add(
         MemoryFactTemporalDecisionRow(
-            id="decision-1",
+            id=decision_id,
             decision_type="supersede",
             space_id="space-1",
             memory_scope_id="scope-1",
             thread_id=None,
             thread_scope_key="global",
-            source_fact_id="successor",
+            source_fact_id=successor_id,
             source_fact_version=1,
-            target_fact_id="predecessor",
+            target_fact_id=predecessor_id,
             target_fact_version=1,
             effective_at=EFFECTIVE_AT,
             evidence_refs_json=[],
@@ -368,7 +468,7 @@ async def _seed_consistent_supersession(session: AsyncSession) -> None:
             policy_version="test-v1",
             reason_code="accepted_replacement",
             applied_at=EFFECTIVE_AT,
-            idempotency_key="decision-1",
+            idempotency_key=decision_id,
             compensates_decision_id=None,
             outbox_message_ids_json=[],
         )
@@ -376,21 +476,21 @@ async def _seed_consistent_supersession(session: AsyncSession) -> None:
     await session.commit()
     session.add(
         MemoryFactRelationRow(
-            id="relation-1",
+            id=f"relation-1{suffix}",
             space_id="space-1",
             memory_scope_id="scope-1",
             thread_id=None,
-            source_fact_id="successor",
+            source_fact_id=successor_id,
             source_fact_version=1,
-            target_fact_id="predecessor",
+            target_fact_id=predecessor_id,
             target_fact_version=1,
             relation_type="supersedes",
-            reason="temporal_decision:decision-1",
+            reason=f"temporal_decision:{decision_id}",
             status="active",
             observed_at=EFFECTIVE_AT,
             valid_from=EFFECTIVE_AT,
             valid_to=None,
-            temporal_decision_id="decision-1",
+            temporal_decision_id=decision_id,
             created_at=EFFECTIVE_AT,
             updated_at=EFFECTIVE_AT,
         )

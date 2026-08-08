@@ -165,23 +165,25 @@ class PostgresMemoryFactSelection:
                 ).all()
             )
             repository = PostgresFactSupersessionRepository(session)
-            relations: list[FactSupersessionRelation] = []
-            for row in rows:
-                try:
-                    relation = await repository.find_active_successor(
-                        scope=MemoryFactScope(
-                            space_id=row.space_id,
-                            memory_scope_id=row.memory_scope_id,
-                            thread_id=row.thread_id,
-                        ),
-                        predecessor_fact_id=row.id,
+            try:
+                relations = await repository.find_active_successors(
+                    tuple(
+                        (
+                            MemoryFactScope(
+                                space_id=row.space_id,
+                                memory_scope_id=row.memory_scope_id,
+                                thread_id=row.thread_id,
+                            ),
+                            row.id,
+                        )
+                        for row in rows
                     )
-                except ValueError:
-                    continue
-                if relation is not None and relation.effective_at <= query.reference_time:
-                    relations.append(relation)
-        relations.sort(key=lambda relation: (relation.predecessor_fact_id, relation.relation_id))
-        return tuple(relations)
+                )
+            except ValueError:
+                relations = ()
+        return tuple(
+            relation for relation in relations if relation.effective_at <= query.reference_time
+        )
 
 
 def create_postgres_memory_fact_selection(

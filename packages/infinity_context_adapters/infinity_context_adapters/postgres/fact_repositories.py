@@ -34,7 +34,7 @@ from infinity_context_core.ports.repositories import (
     FactRelationRepositoryPort,
     FactRepositoryPort,
 )
-from sqlalchemy import and_, delete, func, or_, select, union, update
+from sqlalchemy import and_, delete, func, or_, select, tuple_, union, update
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import aliased
 
@@ -63,7 +63,7 @@ from infinity_context_adapters.postgres.repository_helpers import (
     _terms,
 )
 
-_MAX_FACT_HYDRATION_BINDS = 900
+_MAX_FACT_HYDRATION_BINDS = 400
 
 
 class PostgresFactRepository(FactRepositoryPort, ActiveFactBatchRepositoryPort):
@@ -759,7 +759,12 @@ async def _hydrate_fact_rows_by_ids(
             (
                 await session.execute(
                     select(MemorySourceRefRow)
-                    .where(MemorySourceRefRow.fact_id.in_(tuple(row.id for row in rows)))
+                    .where(
+                        tuple_(
+                            MemorySourceRefRow.fact_id,
+                            MemorySourceRefRow.fact_version,
+                        ).in_(tuple((row.id, row.version) for row in rows))
+                    )
                     .order_by(
                         MemorySourceRefRow.fact_id,
                         MemorySourceRefRow.fact_version,

@@ -66,6 +66,10 @@ class ContextSourceRef:
     char_start: int | None = None
     char_end: int | None = None
     quote_preview: str | None = None
+    page_number: int | None = None
+    time_start_ms: int | None = None
+    time_end_ms: int | None = None
+    bbox: tuple[float, float, float, float] | None = None
     occurred_at: datetime | None = None
 
 

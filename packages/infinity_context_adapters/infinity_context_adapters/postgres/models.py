@@ -4,6 +4,7 @@ from datetime import datetime
 
 from sqlalchemy import (
     CheckConstraint,
+    Computed,
     DateTime,
     Float,
     ForeignKey,
@@ -253,6 +254,13 @@ class MemoryFactRow(Base):
             "memory_scope_id",
             name="uq_memory_facts_id_scope",
         ),
+        UniqueConstraint(
+            "id",
+            "space_id",
+            "memory_scope_id",
+            "thread_scope_key",
+            name="uq_memory_facts_id_scope_thread",
+        ),
         ForeignKeyConstraint(
             ["repository_id", "space_id"],
             ["code_repositories.id", "code_repositories.space_id"],
@@ -286,6 +294,13 @@ class MemoryFactRow(Base):
     space_id: Mapped[str] = mapped_column(String(80), nullable=False)
     memory_scope_id: Mapped[str] = mapped_column(String(80), nullable=False)
     thread_id: Mapped[str | None] = mapped_column(String(80), nullable=True)
+    thread_scope_key: Mapped[str] = mapped_column(
+        String(87),
+        Computed(
+            "CASE WHEN thread_id IS NULL THEN 'global' ELSE 'thread:' || thread_id END",
+            persisted=True,
+        ),
+    )
     kind: Mapped[str] = mapped_column(String(80), nullable=False)
     text: Mapped[str] = mapped_column(Text, nullable=False)
     status: Mapped[str] = mapped_column(String(40), nullable=False)
@@ -577,6 +592,13 @@ class MemoryFactRelationRow(Base):
     space_id: Mapped[str] = mapped_column(String(80), nullable=False)
     memory_scope_id: Mapped[str] = mapped_column(String(80), nullable=False)
     thread_id: Mapped[str | None] = mapped_column(String(80), nullable=True)
+    thread_scope_key: Mapped[str] = mapped_column(
+        String(87),
+        Computed(
+            "CASE WHEN thread_id IS NULL THEN 'global' ELSE 'thread:' || thread_id END",
+            persisted=True,
+        ),
+    )
     source_fact_id: Mapped[str] = mapped_column(
         String(80),
         ForeignKey("memory_facts.id"),

@@ -13,6 +13,8 @@ def legacy_bundle_from_canonical_facts(
     *,
     bundle_id: str,
     memory_scope_id: str,
+    requested_max_chunks: int | None = None,
+    requested_max_evidence_items: int | None = None,
 ) -> LegacyContextBundle:
     """Preserve the established response while changing fact ownership underneath it."""
 
@@ -20,7 +22,7 @@ def legacy_bundle_from_canonical_facts(
     items = tuple(
         LegacyContextItem(
             item_id=item.item_id,
-            item_type=item.kind,
+            item_type="fact",
             text=item.text,
             score=item.score,
             source_refs=_source_refs(item),
@@ -28,6 +30,7 @@ def legacy_bundle_from_canonical_facts(
             diagnostics={
                 "memory_scope_id": memory_scope_id,
                 "canonical_hydration": True,
+                "fact_kind": item.kind,
                 "role": item.role,
                 "temporal": _temporal_diagnostics(item),
             },
@@ -46,6 +49,9 @@ def legacy_bundle_from_canonical_facts(
             "dropped_item_count": len(bundle.dropped_items),
             "repository_isolation_mode": "canonical_facts_only",
             "non_fact_evidence_status": "deferred_until_repository_scoped",
+            "requested_max_chunks": requested_max_chunks,
+            "canonical_chunk_candidate_count": 0,
+            "requested_max_evidence_items": requested_max_evidence_items,
         },
     )
 
@@ -60,6 +66,10 @@ def _source_refs(item: context_building.ContextItem) -> tuple[SourceRef, ...]:
                 ref.chunk_id,
                 ref.char_start,
                 ref.char_end,
+                ref.page_number,
+                ref.time_start_ms,
+                ref.time_end_ms,
+                ref.bbox,
             )
             unique.setdefault(
                 key,
@@ -70,6 +80,10 @@ def _source_refs(item: context_building.ContextItem) -> tuple[SourceRef, ...]:
                     char_start=ref.char_start,
                     char_end=ref.char_end,
                     quote_preview=ref.quote_preview,
+                    page_number=ref.page_number,
+                    time_start_ms=ref.time_start_ms,
+                    time_end_ms=ref.time_end_ms,
+                    bbox=ref.bbox,
                 ),
             )
     return tuple(unique.values())

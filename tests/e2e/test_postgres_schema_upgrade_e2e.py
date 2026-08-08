@@ -44,24 +44,6 @@ async def _assert_clean_and_legacy_upgrade(database_url: str) -> None:
     except ValueError:
         pytest.skip("INFINITY_CONTEXT_TEST_POSTGRES_URL is not PostgreSQL")
 
-    async def install_legacy_schema() -> None:
-        raw = await database.connect()
-        try:
-            for path in sorted(_MIGRATIONS.glob("*.sql")):
-                if path.name.startswith("0023_"):
-                    break
-                await raw.execute(path.read_text(encoding="utf-8"))
-        finally:
-            await raw.close()
-
-    async def install_metadata_legacy_schema() -> None:
-        await install_legacy_schema()
-        raw = await database.connect()
-        try:
-            await raw.execute(_METADATA_BASELINE_DELTA.read_text(encoding="utf-8"))
-        finally:
-            await raw.close()
-
     try:
         await database.recreate()
         engine = build_async_engine(database.app_url)
@@ -69,16 +51,16 @@ async def _assert_clean_and_legacy_upgrade(database_url: str) -> None:
             clean_results = await asyncio.gather(upgrade_schema(engine), upgrade_schema(engine))
             clean = next(result for result in clean_results if result.applied)
             assert clean.legacy_baseline is False
-            assert clean.current == "0031_receipt_snapshot_identity"
+            assert clean.current == "0032_receipt_and_thread_scope_integrity"
             assert clean.applied[0] == "0001_core_facts"
-            assert sorted(len(result.applied) for result in clean_results) == [0, 32]
+            assert sorted(len(result.applied) for result in clean_results) == [0, 33]
             assert (await upgrade_schema(engine)).applied == ()
             await _assert_head_schema(engine)
         finally:
             await engine.dispose()
 
         await database.recreate()
-        await install_metadata_legacy_schema()
+        await _install_metadata_legacy_schema(database)
         engine = build_async_engine(database.app_url)
         try:
             metadata_legacy = await upgrade_schema(engine)
@@ -89,14 +71,14 @@ async def _assert_clean_and_legacy_upgrade(database_url: str) -> None:
             await engine.dispose()
 
         await database.recreate()
-        await install_legacy_schema()
+        await _install_legacy_schema(database)
 
         engine = build_async_engine(database.app_url)
         try:
             legacy = await upgrade_schema(engine)
             assert legacy.legacy_baseline is True
             assert legacy.applied[0].startswith("0023_")
-            assert legacy.current == "0031_receipt_snapshot_identity"
+            assert legacy.current == "0032_receipt_and_thread_scope_integrity"
             await _assert_head_schema(engine)
             await _assert_cross_scope_audit_reference_rejected(engine)
         finally:
@@ -186,7 +168,7 @@ async def _assert_clean_and_legacy_upgrade(database_url: str) -> None:
             await engine.dispose()
 
         await database.recreate()
-        await install_legacy_schema()
+        await _install_legacy_schema(database)
         raw = await database.connect()
         try:
             await raw.execute("DROP TABLE memory_threads CASCADE")
@@ -256,6 +238,26 @@ async def _install_versioned_schema_through(
             """,
             [(path.stem, sha256(path.read_bytes()).hexdigest()) for path in paths],
         )
+    finally:
+        await raw.close()
+
+
+async def _install_legacy_schema(database: PostgresTestDatabase) -> None:
+    raw = await database.connect()
+    try:
+        for path in sorted(_MIGRATIONS.glob("*.sql")):
+            if path.name.startswith("0023_"):
+                break
+            await raw.execute(path.read_text(encoding="utf-8"))
+    finally:
+        await raw.close()
+
+
+async def _install_metadata_legacy_schema(database: PostgresTestDatabase) -> None:
+    await _install_legacy_schema(database)
+    raw = await database.connect()
+    try:
+        await raw.execute(_METADATA_BASELINE_DELTA.read_text(encoding="utf-8"))
     finally:
         await raw.close()
 
