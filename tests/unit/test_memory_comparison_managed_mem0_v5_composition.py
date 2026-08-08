@@ -61,6 +61,7 @@ from infinity_context_server.memory_comparison_mem0_oss_v5_http import (
     Mem0V5ReceiptAuthority,
 )
 from infinity_context_server.memory_comparison_mem0_oss_v5_observed_receipt import (
+    Mem0V5ObservedExtractionOperationAuthority,
     Mem0V5ObservedExtractionReceiptAuthority,
 )
 from infinity_context_server.memory_comparison_mem0_oss_v5_run import Mem0OssFullRunService
@@ -316,12 +317,6 @@ def _observed_authority(
     unit = authority.units[0]
     return Mem0V5ObservedExtractionReceiptAuthority(
         admission_commitment_sha256=admission.commitment_sha256,
-        operation_id_sha256=operation.operation_id_sha256,
-        unit_identity_sha256=unit.unit_identity_sha256,
-        unit_sha256=unit.unit_sha256,
-        scope_sha256=unit.scope_sha256,
-        sequence=0,
-        request_body_sha256=operation.request_body_sha256,
         model=old.model,
         reasoning_effort=old.reasoning_effort,
         service_tier=old.service_tier,
@@ -335,6 +330,16 @@ def _observed_authority(
         node_executable_path="/usr/local/bin/node",
         node_executable_sha256=("b2959781cc5a74c357ffa02367efa8a0330cbb1c9cb347732fdfaaaca381cbcd"),
         requested_output_tokens=old.requested_output_tokens,
+        operations=(
+            Mem0V5ObservedExtractionOperationAuthority(
+                operation.operation_id_sha256,
+                unit.unit_identity_sha256,
+                unit.unit_sha256,
+                unit.scope_sha256,
+                0,
+                operation.request_body_sha256,
+            ),
+        ),
     )
 
 
@@ -399,10 +404,9 @@ def test_observed_public_binding_mismatch_fails_before_trust_helper_and_credenti
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     inputs, _ = _inputs(tmp_path)
-    inputs["receipt_authority"] = replace(
-        _observed_authority(inputs),
-        operation_id_sha256="0" * 64,
-    )
+    observed = _observed_authority(inputs)
+    object.__setattr__(observed, "admission_commitment_sha256", "0" * 64)
+    inputs["receipt_authority"] = observed
     helper_calls = 0
     loads = 0
 
@@ -522,6 +526,10 @@ def test_observed_receipt_union_selects_public_verifier_after_no_secret_prefligh
         return real_load(paths)
 
     class _ObservedVerifier:
+        @classmethod
+        def _for_preflighted_composition(cls, **kwargs: object) -> _ObservedVerifier:
+            return cls(**kwargs)
+
         def __init__(self, **kwargs: object) -> None:
             assert kwargs["authority"] is observed
             assert type(kwargs["receipt_secret"]) is str  # noqa: E721

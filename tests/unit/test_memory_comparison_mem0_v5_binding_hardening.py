@@ -8,6 +8,7 @@ from dataclasses import replace
 from pathlib import Path
 
 import pytest
+from _phase_c_hermetic import install_hermetic_phase_c_authority
 from infinity_context_server import (
     memory_comparison_bounded_httpx_transport as bounded_transport_module,
 )
@@ -38,7 +39,26 @@ from infinity_context_server.memory_comparison_secret_validation import (
 )
 from test_memory_comparison_managed_mem0_v5_composition import _inputs, _Transport
 from test_memory_comparison_managed_mem0_v5_paired_bridge import _run, _sha
+from test_memory_comparison_mem0_oss_v5_observed_receipt import PHASE_C_ROOT, _binding
 from test_memory_comparison_mem0_v5_evidence_foundations_r2 import _clean_request
+from test_memory_comparison_mem0_v5_observed_multi_authority import (
+    _multi_authority,
+)
+from test_memory_comparison_mem0_v5_observed_multi_authority import (
+    _verifier as _observed_verifier,
+)
+
+
+@pytest.fixture(autouse=True)
+def _use_hermetic_phase_c_authority(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    install_hermetic_phase_c_authority(
+        monkeypatch=monkeypatch,
+        tmp_path=tmp_path,
+        phase_c_root=PHASE_C_ROOT,
+    )
 
 
 def test_mutation_cannot_be_recomputed_or_written_back_as_new_authority() -> None:
@@ -71,6 +91,29 @@ def test_registry_swap_is_rejected_and_registry_does_not_retain_run() -> None:
     del first
     gc.collect()
     assert reference() is None
+
+
+def test_observed_receipt_fingerprint_binds_exact_operations_and_state_containers() -> None:
+    binding = _binding()
+    authority = _multi_authority(binding)
+    verifier, _ = _observed_verifier(authority, binding)
+    snapshot = fingerprint_module._receipt_binding(verifier)
+    serialized = json.dumps(snapshot, sort_keys=True)
+
+    assert snapshot["authority"]["operations"][0]["identity"] == id(authority.operations[0])
+    assert snapshot["operation_index"]["identity"] == id(verifier._operation_index)
+    assert snapshot["operation_index"]["entries"] == [
+        [operation.operation_id_sha256, id(operation)] for operation in authority.operations
+    ]
+    assert snapshot["unknown_identity"] == id(verifier._unknown)
+    assert snapshot["consumed_identity"] == id(verifier._consumed)
+    assert SECRET_NOT_PRESENT not in serialized
+    assert hashlib.sha256(SECRET_NOT_PRESENT.encode()).hexdigest() not in serialized
+    verifier._unknown.add("unknown-state-is-not-fingerprinted")
+    assert fingerprint_module._receipt_binding(verifier) == snapshot
+
+
+SECRET_NOT_PRESENT = "deterministic-receipt-secret-at-least-32-bytes"
 
 
 def _target(run: object, component: str) -> object:

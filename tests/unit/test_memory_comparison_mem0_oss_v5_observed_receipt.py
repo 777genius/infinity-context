@@ -23,12 +23,14 @@ from _phase_c_hermetic import install_hermetic_phase_c_authority  # noqa: E402
 from infinity_context_server.memory_comparison_mem0_oss_v5_contracts import (  # noqa: E402
     Mem0OssFullRunError,
     RuntimeReceiptVerificationContext,
+    canonical_sha256,
 )
 from infinity_context_server.memory_comparison_mem0_oss_v5_http import (  # noqa: E402
     Mem0V5HttpError,
     Mem0V5RuntimeReceiptEnvelope,
 )
 from infinity_context_server.memory_comparison_mem0_oss_v5_observed_receipt import (  # noqa: E402
+    Mem0V5ObservedExtractionOperationAuthority,
     Mem0V5ObservedExtractionReceiptAuthority,
     Mem0V5ObservedExtractionReceiptVerifier,
     require_mem0_v5_observed_extraction_receipt_boundary,
@@ -142,14 +144,10 @@ def test_ordinary_binding_is_exact_class_and_never_uses_hosting_authority(
 
 
 def _authority(binding: object) -> Mem0V5ObservedExtractionReceiptAuthority:
+    admission = _sha("admission")
+    unit_identity = _sha("unit-identity")
     return Mem0V5ObservedExtractionReceiptAuthority(
-        admission_commitment_sha256=_sha("admission"),
-        operation_id_sha256=_sha("operation"),
-        unit_identity_sha256=_sha("unit-identity"),
-        unit_sha256=_sha("unit"),
-        scope_sha256=_sha("scope"),
-        sequence=0,
-        request_body_sha256=_sha("request-body"),
+        admission_commitment_sha256=admission,
         model="gpt-5.6-sol",
         reasoning_effort="high",
         service_tier="default",
@@ -162,7 +160,29 @@ def _authority(binding: object) -> Mem0V5ObservedExtractionReceiptAuthority:
         response_format_type="json_schema",
         response_format_sha256=_sha("response-format"),
         response_schema_sha256=_sha("response-schema"),
+        operations=(
+            Mem0V5ObservedExtractionOperationAuthority(
+                operation_id_sha256=canonical_sha256(
+                    {
+                        "admission_commitment_sha256": admission,
+                        "unit_index": 0,
+                        "unit_identity_sha256": unit_identity,
+                    }
+                ),
+                unit_identity_sha256=unit_identity,
+                unit_sha256=_sha("unit"),
+                scope_sha256=_sha("scope"),
+                sequence=0,
+                request_body_sha256=_sha("request-body"),
+            ),
+        ),
     )
+
+
+def _operation(
+    authority: Mem0V5ObservedExtractionReceiptAuthority,
+) -> Mem0V5ObservedExtractionOperationAuthority:
+    return authority.operations[0]
 
 
 def _verifier(
@@ -190,18 +210,20 @@ def _context(
     *,
     readback: bool,
 ) -> RuntimeReceiptVerificationContext:
+    operation = _operation(authority)
     return RuntimeReceiptVerificationContext(
         admission_commitment_sha256=authority.admission_commitment_sha256,
-        operation_id_sha256=authority.operation_id_sha256,
-        unit_identity_sha256=authority.unit_identity_sha256,
-        unit_sha256=authority.unit_sha256,
+        operation_id_sha256=operation.operation_id_sha256,
+        unit_identity_sha256=operation.unit_identity_sha256,
+        unit_sha256=operation.unit_sha256,
         route_sha256=authority.route_binding_sha256,
-        scope_sha256=authority.scope_sha256,
+        scope_sha256=operation.scope_sha256,
         readback_only=readback,
     )
 
 
 def _unsigned_receipt(authority: Mem0V5ObservedExtractionReceiptAuthority) -> dict[str, Any]:
+    operation = _operation(authority)
     return {
         "metadata": {
             "schema_version": 2,
@@ -223,7 +245,7 @@ def _unsigned_receipt(authority: Mem0V5ObservedExtractionReceiptAuthority) -> di
                 "client_requested_model": authority.model,
                 "configured_codex_model": authority.model,
                 "requested_codex_model": authority.model,
-                "request_body_sha256": authority.request_body_sha256,
+                "request_body_sha256": operation.request_body_sha256,
                 "response_format_type": authority.response_format_type,
                 "response_format_sha256": authority.response_format_sha256,
                 "response_schema_sha256": authority.response_schema_sha256,
@@ -252,9 +274,10 @@ def _envelope(
     authority: Mem0V5ObservedExtractionReceiptAuthority,
     receipt: dict[str, Any],
 ) -> Mem0V5RuntimeReceiptEnvelope:
+    operation = _operation(authority)
     return Mem0V5RuntimeReceiptEnvelope(
         admission_commitment_sha256=authority.admission_commitment_sha256,
-        operation_id_sha256=authority.operation_id_sha256,
+        operation_id_sha256=operation.operation_id_sha256,
         runtime_receipt=receipt,
     )
 
@@ -299,7 +322,7 @@ def test_actual_phase_c_boundary_accepts_observed_provider_identity_once() -> No
     )
 
     assert result.admission_commitment_sha256 == authority.admission_commitment_sha256
-    assert result.operation_id_sha256 == authority.operation_id_sha256
+    assert result.operation_id_sha256 == _operation(authority).operation_id_sha256
     assert result.provider_receipt_sha256 != _sha("")
     assert result.request_tokens == 11
     assert result.response_tokens == 5
@@ -332,7 +355,7 @@ def test_public_live_constructor_requires_and_uses_pinned_node_verifier(
             payload=_envelope(authority, receipt),
             context=_context(authority, readback=False),
         ).operation_id_sha256
-        == authority.operation_id_sha256
+        == _operation(authority).operation_id_sha256
     )
 
     forged = copy.deepcopy(receipt)
@@ -367,7 +390,7 @@ def test_forged_hmac_is_rejected_without_consuming_the_operation() -> None:
             payload=_envelope(authority, authentic),
             context=_context(authority, readback=False),
         ).operation_id_sha256
-        == authority.operation_id_sha256
+        == _operation(authority).operation_id_sha256
     )
 
 
@@ -546,7 +569,7 @@ def test_outcome_unknown_is_idempotent_and_status_recovery_is_fresh_process_safe
             payload=_envelope(authority, receipt),
             context=readback,
         ).operation_id_sha256
-        == authority.operation_id_sha256
+        == _operation(authority).operation_id_sha256
     )
 
     fresh, fresh_authority = _verifier(binding=binding)

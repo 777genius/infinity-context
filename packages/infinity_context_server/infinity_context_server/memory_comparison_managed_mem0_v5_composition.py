@@ -357,6 +357,23 @@ def preflight_managed_mem0_v5(
     """Validate all public production authority without secrets, writes, or network."""
 
     authority = ManagedMem0V5ManifestProjector().project(cases, current_date=current_date)
+    if type(receipt_authority) not in (
+        Mem0V5ReceiptAuthority,
+        Mem0V5ObservedExtractionReceiptAuthority,
+    ):
+        raise ManagedRunError("managed Mem0 v5 composition input is invalid")
+    admission = None
+    if type(receipt_authority) is Mem0V5ObservedExtractionReceiptAuthority:
+        _require_observed_authority_integrity(receipt_authority)
+        admission = _require_public_binding(
+            authority=authority,
+            request=request,
+            state_paths=state_paths,
+            credential_paths=credential_paths,
+            trusted_runtime_binding=trusted_runtime_binding,
+            receipt_authority=receipt_authority,
+            dispatch_guard=dispatch_guard,
+        )
     _require_endpoint(origin=origin, timeout_seconds=timeout_seconds)
     _require_state_storage(state_paths)
     _require_trusted_runtime_inputs(
@@ -364,15 +381,16 @@ def preflight_managed_mem0_v5(
         trusted_runtime_binding=trusted_runtime_binding,
         transport=transport,
     )
-    admission = _require_public_binding(
-        authority=authority,
-        request=request,
-        state_paths=state_paths,
-        credential_paths=credential_paths,
-        trusted_runtime_binding=trusted_runtime_binding,
-        receipt_authority=receipt_authority,
-        dispatch_guard=dispatch_guard,
-    )
+    if admission is None:
+        admission = _require_public_binding(
+            authority=authority,
+            request=request,
+            state_paths=state_paths,
+            credential_paths=credential_paths,
+            trusted_runtime_binding=trusted_runtime_binding,
+            receipt_authority=receipt_authority,
+            dispatch_guard=dispatch_guard,
+        )
     if type(receipt_authority) is Mem0V5ObservedExtractionReceiptAuthority:
         require_mem0_v5_observed_extraction_receipt_boundary(
             boundary=runtime_receipt_boundary,
@@ -443,7 +461,7 @@ def compose_managed_mem0_v5(
                 authority=receipt_authority,
             )
         else:
-            receipt_verifier = Mem0V5ObservedExtractionReceiptVerifier(
+            receipt_verifier = Mem0V5ObservedExtractionReceiptVerifier._for_preflighted_composition(
                 boundary=runtime_receipt_boundary,
                 runtime_binding=trusted_runtime_binding,
                 receipt_secret=receipt_secret,
@@ -610,17 +628,6 @@ def _require_public_binding(
         )
     ):
         raise ManagedRunError("managed Mem0 v5 composition input is invalid")
-    state_values = (state_paths.checkpoint, state_paths.local_checkpoint_head)
-    guard_values = () if dispatch_guard is None else (dispatch_guard.path,)
-    try:
-        normalized_paths = tuple(
-            path.resolve(strict=False)
-            for path in (*state_values, *guard_values, *credential_paths.values())
-        )
-    except OSError:
-        raise ManagedRunError("managed Mem0 v5 composition paths are not distinct") from None
-    if len(set(normalized_paths)) != 7 + len(guard_values):
-        raise ManagedRunError("managed Mem0 v5 composition paths are not distinct")
     try:
         binding_source = trusted_runtime_binding.runtime_source_sha256
         binding_route = trusted_runtime_binding.route_binding_sha256
@@ -653,6 +660,9 @@ def _require_public_binding(
                     "unit_identity_sha256": unit.unit_identity_sha256,
                 }
             ),
+            unit.unit_identity_sha256,
+            unit.unit_sha256,
+            unit.scope_sha256,
         )
         for index, unit in enumerate(authority.units)
     )
@@ -661,21 +671,48 @@ def _require_public_binding(
             (operation.sequence, operation.operation_id_sha256)
             for operation in receipt_authority.operations
         )
-        if actual_operations != expected_operations:
+        if actual_operations != tuple(item[:2] for item in expected_operations):
             raise ManagedRunError("managed Mem0 v5 composition receipt operations differ")
     else:
-        unit = authority.units[0] if authority.operation_count == 1 else None
+        _require_observed_authority_integrity(receipt_authority)
+        actual_operations = tuple(
+            (
+                operation.sequence,
+                operation.operation_id_sha256,
+                operation.unit_identity_sha256,
+                operation.unit_sha256,
+                operation.scope_sha256,
+            )
+            for operation in receipt_authority.operations
+        )
         if (
-            unit is None
-            or receipt_authority.admission_commitment_sha256 != admission.commitment_sha256
-            or receipt_authority.sequence != 0
-            or receipt_authority.operation_id_sha256 != expected_operations[0][1]
-            or receipt_authority.unit_identity_sha256 != unit.unit_identity_sha256
-            or receipt_authority.unit_sha256 != unit.unit_sha256
-            or receipt_authority.scope_sha256 != unit.scope_sha256
+            receipt_authority.admission_commitment_sha256 != admission.commitment_sha256
+            or actual_operations != expected_operations
         ):
             raise ManagedRunError("managed Mem0 v5 composition observed receipt binding differs")
+    state_values = (state_paths.checkpoint, state_paths.local_checkpoint_head)
+    guard_values = () if dispatch_guard is None else (dispatch_guard.path,)
+    try:
+        normalized_paths = tuple(
+            path.resolve(strict=False)
+            for path in (*state_values, *guard_values, *credential_paths.values())
+        )
+    except OSError:
+        raise ManagedRunError("managed Mem0 v5 composition paths are not distinct") from None
+    if len(set(normalized_paths)) != 7 + len(guard_values):
+        raise ManagedRunError("managed Mem0 v5 composition paths are not distinct")
     return admission
+
+
+def _require_observed_authority_integrity(
+    authority: Mem0V5ObservedExtractionReceiptAuthority,
+) -> None:
+    try:
+        Mem0V5ObservedExtractionReceiptAuthority.__post_init__(authority)
+    except Exception:
+        raise ManagedRunError(
+            "managed Mem0 v5 composition observed receipt binding differs"
+        ) from None
 
 
 def _require_endpoint(*, origin: str, timeout_seconds: float) -> None:
