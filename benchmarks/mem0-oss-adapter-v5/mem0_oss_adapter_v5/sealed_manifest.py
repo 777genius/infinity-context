@@ -12,6 +12,8 @@ from .domain import canonical_sha256
 
 _SCHEMA_V1 = "mem0-oss-adapter-v5.sealed-input.v1"
 _SCHEMA_V2 = "mem0-oss-adapter-v5.sealed-input.v2"
+_MAX_SOURCE_MESSAGES = 100
+_MAX_SOURCE_CONTENT_BYTES = 131_072
 
 
 @dataclass(frozen=True, slots=True)
@@ -99,17 +101,24 @@ def _unit(value: object, sequence: int, *, schema_version: object) -> InputUnit:
         unit_keys,
     )
     messages = raw["source_messages"]
-    if raw["sequence"] != sequence or type(messages) is not list or not messages:
+    if (
+        raw["sequence"] != sequence
+        or type(messages) is not list
+        or not messages
+        or (schema_version == _SCHEMA_V2 and len(messages) > _MAX_SOURCE_MESSAGES)
+    ):
         raise ValueError("sealed_input_invalid")
     normalized = []
     for message in messages:
         item = _exact(message, {"role", "content"})
-        if item["role"] not in {"user", "assistant"} or type(item["content"]) is not str:
-            raise ValueError("sealed_input_invalid")
-        if schema_version == _SCHEMA_V2 and (
-            not item["content"] or item["content"] != item["content"].strip()
+        if (
+            type(item["role"]) is not str
+            or item["role"] not in {"user", "assistant"}
+            or type(item["content"]) is not str
         ):
             raise ValueError("sealed_input_invalid")
+        if schema_version == _SCHEMA_V2:
+            _v2_content(item["content"])
         normalized.append({"role": item["role"], "content": item["content"]})
     unit_sha256 = _digest(raw["unit_sha256"])
     source_sha256 = unit_sha256 if schema_version == _SCHEMA_V1 else _digest(raw["source_sha256"])
@@ -188,6 +197,17 @@ def _text(value: object) -> str:
     if type(value) is not str or not value or value != value.strip() or len(value) > 512:
         raise ValueError("sealed_input_invalid")
     return value
+
+
+def _v2_content(value: str) -> None:
+    if not value.strip():
+        raise ValueError("sealed_input_invalid")
+    try:
+        encoded = value.encode("utf-8")
+    except UnicodeEncodeError:
+        raise ValueError("sealed_input_invalid") from None
+    if not 1 <= len(encoded) <= _MAX_SOURCE_CONTENT_BYTES:
+        raise ValueError("sealed_input_invalid")
 
 
 def _date(value: object) -> str:
