@@ -292,7 +292,21 @@ def _install_success_wiring(
 
     def policy_factory(**kwargs: object) -> object:
         capture.constructors["policy"] = kwargs
-        policy = SimpleNamespace(name="policy")
+        capability = SimpleNamespace(name="delegate-capability")
+        capture.constructors["delegate_capability_instance"] = {"value": capability}
+
+        def issue_registry_delegate_capability() -> object:
+            capture.constructors["delegate_capability"] = {
+                "delegate": policy,
+                "bindings": kwargs["bindings"],
+                "cases": kwargs["cases"],
+            }
+            return capability
+
+        policy = SimpleNamespace(
+            name="policy",
+            issue_registry_delegate_capability=issue_registry_delegate_capability,
+        )
         capture.constructors["policy_instance"] = {"value": policy}
         return policy
 
@@ -411,8 +425,17 @@ def test_composes_exact_shared_bindings_and_closes_owned_resources(
     registry_policy = capture.constructors["registry_policy_instance"]["value"]
     assert capture.runner["policy_port"] is registry_policy
     assert (
-        capture.constructors["registry_policy"]["delegate"]
+        capture.constructors["delegate_capability"]["delegate"]
         is (capture.constructors["policy_instance"]["value"])
+    )
+    assert capture.constructors["delegate_capability"]["bindings"] is bindings
+    assert (
+        capture.constructors["delegate_capability"]["cases"]
+        is (capture.constructors["policy"]["cases"])
+    )
+    assert (
+        capture.constructors["registry_policy"]["delegate_capability"]
+        is (capture.constructors["delegate_capability_instance"]["value"])
     )
     assert capture.constructors["registry_policy"]["registry"] is registry
     assert capture.constructors["registry_policy"]["bindings"] is bindings

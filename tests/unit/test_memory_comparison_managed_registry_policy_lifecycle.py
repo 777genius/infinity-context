@@ -2,12 +2,18 @@ from __future__ import annotations
 
 import hashlib
 import json
+import pickle
+from concurrent.futures import ThreadPoolExecutor
+from copy import copy
 from dataclasses import dataclass, replace
 from datetime import UTC, datetime, timedelta
 
 import httpx
 import pytest
 from infinity_context_server import memory_comparison_managed_http_policy_lifecycle as policy
+from infinity_context_server import (
+    memory_comparison_managed_policy_delegate_capability as delegate_subject,
+)
 from infinity_context_server.memory_comparison_managed_benchmark_registry_contracts import (
     ManagedBenchmarkCleanupCompletionReceipt,
     ManagedBenchmarkRegistryHttpConfig,
@@ -21,6 +27,10 @@ from infinity_context_server.memory_comparison_managed_http_policy_support impor
 )
 from infinity_context_server.memory_comparison_managed_http_policy_validation import (
     public_managed_http_policy_validation,
+)
+from infinity_context_server.memory_comparison_managed_policy_delegate_capability import (
+    ManagedPolicyDelegateCapabilityError,
+    consume_managed_policy_delegate_capability,
 )
 from infinity_context_server.memory_comparison_managed_projection_manifest import (
     ManagedProjectionEpisodeInventory,
@@ -320,8 +330,9 @@ def _wrapper(
         "consume_managed_http_ingest_receipts",
         lambda *args, **kwargs: views,
     )
+    capability = delegate.issue_registry_delegate_capability()
     wrapper = ManagedComparisonRegistryPolicyLifecycleAdapter(
-        delegate=delegate,
+        delegate_capability=capability,
         registry=registry,
         bindings=bindings,
         cases=cases,
@@ -672,7 +683,7 @@ def test_delete_order_and_unsealed_projection_evidence_fail_closed(
         ManagedHttpPolicyLifecycleError,
         match="^managed_http_policy_projection_evidence_unavailable$",
     ):
-        _ = wrapper._delegate.exact_projection_evidence
+        _ = wrapper._delegate_port.exact_projection_evidence
 
     _seal_source(wrapper, bindings, cases)
     mem0 = bindings.backend_targets[1]
@@ -695,9 +706,110 @@ def test_constructor_rejects_non_exact_registry(monkeypatch: pytest.MonkeyPatch)
         match="^managed_registry_policy_registry_invalid$",
     ):
         ManagedComparisonRegistryPolicyLifecycleAdapter(
-            delegate=wrapper._delegate,
+            delegate_capability=object(),
             registry=object(),
             bindings=bindings,
             cases=cases,
             registration=wrapper._registration,
+        )
+
+
+def test_constructor_rejects_raw_legacy_delegate(monkeypatch: pytest.MonkeyPatch) -> None:
+    wrapper, bindings, cases, _, _ = _wrapper(monkeypatch)
+    raw_delegate = delegate_subject._PORTS[wrapper._delegate_port].delegate
+
+    with pytest.raises(
+        ManagedRegistryPolicyLifecycleError,
+        match="^managed_registry_policy_delegate_invalid$",
+    ):
+        ManagedComparisonRegistryPolicyLifecycleAdapter(
+            delegate_capability=raw_delegate,
+            registry=wrapper._registry,
+            bindings=bindings,
+            cases=cases,
+            registration=wrapper._registration,
+        )
+
+
+def test_delegate_capability_has_exactly_one_concurrent_consumer() -> None:
+    cases = (_locomo_case(),)
+    delegate, bindings = _policy_adapter([], cases)
+    capability = delegate.issue_registry_delegate_capability()
+    with pytest.raises(ManagedHttpPolicyLifecycleError, match="capability_invalid"):
+        delegate.issue_registry_delegate_capability()
+
+    def attempt() -> str:
+        try:
+            consume_managed_policy_delegate_capability(
+                capability,
+                bindings=bindings,
+                cases=cases,
+            )
+        except ManagedPolicyDelegateCapabilityError as exc:
+            return exc.code
+        return "accepted"
+
+    with ThreadPoolExecutor(max_workers=8) as pool:
+        results = tuple(pool.map(lambda _index: attempt(), range(8)))
+
+    assert results.count("accepted") == 1
+    assert results.count("managed_policy_delegate_capability_replay") == 7
+
+
+def test_delegate_capability_rejects_crosswire_tamper_copy_and_pickle() -> None:
+    cases = (_locomo_case(),)
+    delegate, bindings = _policy_adapter([], cases)
+    capability = delegate.issue_registry_delegate_capability()
+    foreign_delegate, foreign_bindings = _policy_adapter([], cases)
+    del foreign_delegate
+    with pytest.raises(ManagedPolicyDelegateCapabilityError, match="binding_invalid"):
+        consume_managed_policy_delegate_capability(
+            capability,
+            bindings=foreign_bindings,
+            cases=cases,
+        )
+
+    state = delegate_subject._CAPABILITIES[capability]
+    delegate_subject._CAPABILITIES[capability] = replace(
+        state,
+        corpus_ids=("tampered",),
+    )
+    with pytest.raises(ManagedPolicyDelegateCapabilityError, match="capability_changed"):
+        consume_managed_policy_delegate_capability(
+            capability,
+            bindings=bindings,
+            cases=cases,
+        )
+    with pytest.raises(TypeError, match="noncopyable"):
+        copy(capability)
+    with pytest.raises(TypeError, match="nonserializable"):
+        pickle.dumps(capability)
+
+
+def test_delegate_capability_issuer_rejects_crosswired_composition() -> None:
+    cases = (_locomo_case(),)
+    delegate, _bindings = _policy_adapter([], cases)
+    _foreign_delegate, foreign_bindings = _policy_adapter([], cases)
+
+    with pytest.raises(ManagedPolicyDelegateCapabilityError, match="binding_invalid"):
+        delegate_subject._issue_legacy_managed_policy_delegate_capability(
+            delegate=delegate,
+            bindings=foreign_bindings,
+            cases=cases,
+        )
+
+
+def test_delegate_capability_consume_rejects_distinct_same_corpus_case() -> None:
+    cases = (_locomo_case(),)
+    delegate, bindings = _policy_adapter([], cases)
+    capability = delegate.issue_registry_delegate_capability()
+    foreign_cases = (_locomo_case(),)
+    assert foreign_cases[0] is not cases[0]
+    assert foreign_cases[0].corpus_id == cases[0].corpus_id
+
+    with pytest.raises(ManagedPolicyDelegateCapabilityError, match="binding_invalid"):
+        consume_managed_policy_delegate_capability(
+            capability,
+            bindings=bindings,
+            cases=foreign_cases,
         )

@@ -7,15 +7,21 @@ from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, replace
 from datetime import UTC, datetime
 
+import httpx
 import pytest
+from infinity_context_server import (
+    memory_comparison_managed_infinity_clean_state_source as source_subject,
+)
 from infinity_context_server.memory_comparison_backend_target import (
     FullComparisonBackendTarget,
 )
 from infinity_context_server.memory_comparison_clean_state import (
+    BackendCleanStateProof,
     clean_state_identity_sha256,
     fresh_namespace_clean_state_proof,
 )
 from infinity_context_server.memory_comparison_full_execution_evidence_variants import (
+    inspect_full_execution_clean_state_evidence,
     issue_infinity_di_full_execution_clean_state_evidence,
 )
 from infinity_context_server.memory_comparison_full_execution_validation import (
@@ -29,11 +35,22 @@ from infinity_context_server.memory_comparison_full_methodology import (
 )
 from infinity_context_server.memory_comparison_full_profiles import (
     PROFILE_LOCOMO_TOP_50,
+    PROFILE_LONGMEMEVAL_TOP_50,
     resolve_full_comparison_profile,
 )
 from infinity_context_server.memory_comparison_full_run_evidence import (
     FullComparisonRunBindings,
     create_full_comparison_run_bindings,
+)
+from infinity_context_server.memory_comparison_managed_http_lifecycle import (
+    consume_managed_http_execution_evidence,
+)
+from infinity_context_server.memory_comparison_managed_infinity_clean_state_source import (
+    ManagedInfinityCleanStateSourceError,
+    consume_managed_infinity_clean_state_evidence_source,
+    create_managed_infinity_clean_state_evidence_channel,
+    record_managed_infinity_clean_state_ingest,
+    record_managed_infinity_clean_state_reset_evidence,
 )
 from infinity_context_server.memory_comparison_managed_mem0_v5_execution_evidence_adapter import (
     ManagedMem0V5ExecutionEvidenceAdapter,
@@ -59,6 +76,33 @@ from infinity_context_server.memory_comparison_provider_provenance import (
 from infinity_context_server.memory_comparison_session_identity_contract import (
     RunScopedSessionHmacKey,
     SessionIdentityMapping,
+)
+from test_memory_comparison_managed_http_lifecycle import (
+    _BINDING as _HTTP_BINDING,
+)
+from test_memory_comparison_managed_http_lifecycle import (
+    _RUN as _HTTP_RUN,
+)
+from test_memory_comparison_managed_http_lifecycle import (
+    _build as _build_http_lifecycle,
+)
+from test_memory_comparison_managed_http_lifecycle import (
+    _Clock as _HttpClock,
+)
+from test_memory_comparison_managed_http_lifecycle import (
+    _ingest as _http_ingest,
+)
+from test_memory_comparison_managed_http_lifecycle import (
+    _longmem_case as _http_longmem_case,
+)
+from test_memory_comparison_managed_http_lifecycle import (
+    _profile as _http_profile,
+)
+from test_memory_comparison_managed_http_lifecycle import (
+    _reset as _http_reset,
+)
+from test_memory_comparison_managed_http_lifecycle import (
+    _targets as _http_targets,
 )
 from test_memory_comparison_managed_mem0_v5_paired_bridge import (
     _run as _paired_run,
@@ -92,6 +136,7 @@ class _Scenario:
 
 
 _SCENARIO_SEQUENCE = itertools.count()
+_INFINITY_SOURCE_IMPLEMENTATION = _sha("managed-infinity-clean-state-source-test-v1")
 
 
 def _managed_case(
@@ -128,38 +173,74 @@ def _managed_case(
 
 
 def _infinity_claim(*, run_id: str, corpus_id: str):
+    return _infinity_claim_many(run_id=run_id, corpus_ids=(corpus_id,))
+
+
+def _infinity_claim_many(*, run_id: str, corpus_ids: tuple[str, ...]):
     key = secrets.token_bytes(32)
-    corpus_identity = clean_state_identity_sha256(corpus_id)
     slug = f"fresh-infinity-{_sha(run_id)[:16]}"
     scope_identity = clean_state_identity_sha256(slug)
-    scopes = (
+    scopes = tuple(
         FullExecutionCleanScope(
             "infinity-context",
-            corpus_identity,
+            clean_state_identity_sha256(corpus_id),
             scope_identity,
-        ),
+        )
+        for corpus_id in corpus_ids
     )
-    proofs = (
+    proofs = tuple(
         fresh_namespace_clean_state_proof(
             backend="infinity-context",
             run_id=run_id,
             expected_slug=slug,
-            corpus_identity_sha256=corpus_identity,
-            expected_scope_count=1,
+            corpus_identity_sha256=clean_state_identity_sha256(corpus_id),
+            expected_scope_count=len(corpus_ids),
             status_code=201,
             payload={"data": {"slug": slug}},
             attestation_key=key,
-        ),
+        )
+        for corpus_id in corpus_ids
     )
     return issue_infinity_di_full_execution_clean_state_evidence(
-        corpus_ids=(corpus_id,),
+        corpus_ids=corpus_ids,
         proofs=proofs,
         scopes=scopes,
         attestation_key=key,
     )
 
 
-def _scenario(*, consume_receipts: bool = True) -> _Scenario:
+def _record_ready_infinity_source(
+    publisher,
+    binding: ManagedRunnerCompositionBinding,
+    corpus_id: str,
+    evidence,
+) -> None:
+    record_managed_infinity_clean_state_reset_evidence(
+        publisher,
+        composition_binding=binding,
+        corpus_ids=(corpus_id,),
+        producer_implementation_sha256=_INFINITY_SOURCE_IMPLEMENTATION,
+        evidence=evidence,
+    )
+    infinity_target = next(
+        item.target_identity_sha256
+        for item in binding.backend_targets
+        if item.backend_role == "infinity-context"
+    )
+    record_managed_infinity_clean_state_ingest(
+        publisher,
+        composition_binding=binding,
+        target_identity_sha256=infinity_target,
+        corpus_id=corpus_id,
+        producer_implementation_sha256=_INFINITY_SOURCE_IMPLEMENTATION,
+    )
+
+
+def _scenario(
+    *,
+    consume_receipts: bool = True,
+    fulfill_infinity_source: bool = True,
+) -> _Scenario:
     seed = f"execution-adapter-{next(_SCENARIO_SEQUENCE)}"
     identity = _sha(seed)
     authority, coordinator, paired = _paired_run(identity_seed=seed)
@@ -229,14 +310,23 @@ def _scenario(*, consume_receipts: bool = True) -> _Scenario:
             thread_id=f"locomo-thread-{_sha(f'thread:{seed}')}",
         ),
     )
+    infinity_publisher, infinity_source = create_managed_infinity_clean_state_evidence_channel(
+        composition_binding=binding,
+        corpus_ids=(corpus_id,),
+        producer_implementation_sha256=_INFINITY_SOURCE_IMPLEMENTATION,
+    )
     adapter = ManagedMem0V5ExecutionEvidenceAdapter(
         composition_binding=binding,
         lifecycle=lifecycle,
-        infinity_clean_state_evidence=_infinity_claim(
-            run_id=bindings.run_id,
-            corpus_id=corpus_id,
-        ),
+        infinity_clean_state_source=infinity_source,
     )
+    if fulfill_infinity_source:
+        _record_ready_infinity_source(
+            infinity_publisher,
+            binding,
+            corpus_id,
+            _infinity_claim(run_id=bindings.run_id, corpus_id=corpus_id),
+        )
     manifest = (
         FullExecutionCaseManifestEntry(
             cases[0].case_id,
@@ -401,15 +491,301 @@ def test_concurrent_consume_has_exactly_one_winner() -> None:
     assert results.count("rejected") == 7
 
 
-def test_two_adapters_sharing_lifecycle_have_one_handoff_winner() -> None:
-    scenario = _scenario()
-    peer = ManagedMem0V5ExecutionEvidenceAdapter(
+def test_unfulfilled_infinity_source_fails_closed_only_when_evidence_is_consumed() -> None:
+    scenario = _scenario(fulfill_infinity_source=False)
+
+    with pytest.raises(ManagedMem0V5ExecutionEvidenceAdapterError, match="consume_failed"):
+        _consume(scenario)
+
+    replacement_publisher, replacement = create_managed_infinity_clean_state_evidence_channel(
         composition_binding=scenario.binding,
-        lifecycle=scenario.lifecycle,
-        infinity_clean_state_evidence=_infinity_claim(
+        corpus_ids=(scenario.cases[0].corpus_id,),
+        producer_implementation_sha256=_INFINITY_SOURCE_IMPLEMENTATION,
+    )
+    _record_ready_infinity_source(
+        replacement_publisher,
+        scenario.binding,
+        scenario.cases[0].corpus_id,
+        _infinity_claim(
             run_id=scenario.bindings.run_id,
             corpus_id=scenario.cases[0].corpus_id,
         ),
+    )
+    replacement_adapter = ManagedMem0V5ExecutionEvidenceAdapter(
+        composition_binding=scenario.binding,
+        lifecycle=scenario.lifecycle,
+        infinity_clean_state_source=replacement,
+    )
+    replacement_adapter.consume_ready_evidence(
+        composition_binding=scenario.binding,
+        bindings=scenario.bindings,
+        cases=scenario.cases,
+    )
+
+
+def test_infinity_source_requires_reset_and_exact_ordered_ingest_coverage() -> None:
+    scenario = _scenario()
+    corpus_ids = ("corpus-a", "corpus-b")
+    evidence = _infinity_claim_many(
+        run_id=scenario.binding.run_id,
+        corpus_ids=corpus_ids,
+    )
+    infinity_target = next(
+        item.target_identity_sha256
+        for item in scenario.binding.backend_targets
+        if item.backend_role == "infinity-context"
+    )
+
+    premature_publisher, _premature_source = create_managed_infinity_clean_state_evidence_channel(
+        composition_binding=scenario.binding,
+        corpus_ids=corpus_ids,
+        producer_implementation_sha256=_INFINITY_SOURCE_IMPLEMENTATION,
+    )
+    with pytest.raises(ManagedInfinityCleanStateSourceError, match="ingest_invalid"):
+        record_managed_infinity_clean_state_ingest(
+            premature_publisher,
+            composition_binding=scenario.binding,
+            target_identity_sha256=infinity_target,
+            corpus_id=corpus_ids[0],
+            producer_implementation_sha256=_INFINITY_SOURCE_IMPLEMENTATION,
+        )
+
+    partial_publisher, partial_source = create_managed_infinity_clean_state_evidence_channel(
+        composition_binding=scenario.binding,
+        corpus_ids=corpus_ids,
+        producer_implementation_sha256=_INFINITY_SOURCE_IMPLEMENTATION,
+    )
+    record_managed_infinity_clean_state_reset_evidence(
+        partial_publisher,
+        composition_binding=scenario.binding,
+        corpus_ids=corpus_ids,
+        producer_implementation_sha256=_INFINITY_SOURCE_IMPLEMENTATION,
+        evidence=evidence,
+    )
+    record_managed_infinity_clean_state_ingest(
+        partial_publisher,
+        composition_binding=scenario.binding,
+        target_identity_sha256=infinity_target,
+        corpus_id=corpus_ids[0],
+        producer_implementation_sha256=_INFINITY_SOURCE_IMPLEMENTATION,
+    )
+    with pytest.raises(ManagedInfinityCleanStateSourceError, match="not_ready"):
+        consume_managed_infinity_clean_state_evidence_source(
+            partial_source,
+            composition_binding=scenario.binding,
+            corpus_ids=corpus_ids,
+            producer_implementation_sha256=_INFINITY_SOURCE_IMPLEMENTATION,
+        )
+
+    order_publisher, _order_source = create_managed_infinity_clean_state_evidence_channel(
+        composition_binding=scenario.binding,
+        corpus_ids=corpus_ids,
+        producer_implementation_sha256=_INFINITY_SOURCE_IMPLEMENTATION,
+    )
+    record_managed_infinity_clean_state_reset_evidence(
+        order_publisher,
+        composition_binding=scenario.binding,
+        corpus_ids=corpus_ids,
+        producer_implementation_sha256=_INFINITY_SOURCE_IMPLEMENTATION,
+        evidence=_infinity_claim_many(
+            run_id=scenario.binding.run_id,
+            corpus_ids=corpus_ids,
+        ),
+    )
+    with pytest.raises(ManagedInfinityCleanStateSourceError, match="ingest_invalid"):
+        record_managed_infinity_clean_state_ingest(
+            order_publisher,
+            composition_binding=scenario.binding,
+            target_identity_sha256=infinity_target,
+            corpus_id=corpus_ids[1],
+            producer_implementation_sha256=_INFINITY_SOURCE_IMPLEMENTATION,
+        )
+
+    target_publisher, _target_source = create_managed_infinity_clean_state_evidence_channel(
+        composition_binding=scenario.binding,
+        corpus_ids=corpus_ids,
+        producer_implementation_sha256=_INFINITY_SOURCE_IMPLEMENTATION,
+    )
+    record_managed_infinity_clean_state_reset_evidence(
+        target_publisher,
+        composition_binding=scenario.binding,
+        corpus_ids=corpus_ids,
+        producer_implementation_sha256=_INFINITY_SOURCE_IMPLEMENTATION,
+        evidence=_infinity_claim_many(
+            run_id=scenario.binding.run_id,
+            corpus_ids=corpus_ids,
+        ),
+    )
+    with pytest.raises(ManagedInfinityCleanStateSourceError, match="ingest_invalid"):
+        record_managed_infinity_clean_state_ingest(
+            target_publisher,
+            composition_binding=scenario.binding,
+            target_identity_sha256="f" * 64,
+            corpus_id=corpus_ids[0],
+            producer_implementation_sha256=_INFINITY_SOURCE_IMPLEMENTATION,
+        )
+
+
+def test_infinity_source_has_one_concurrent_consumer_and_rejects_replay() -> None:
+    scenario = _scenario()
+    publisher, source = create_managed_infinity_clean_state_evidence_channel(
+        composition_binding=scenario.binding,
+        corpus_ids=(scenario.cases[0].corpus_id,),
+        producer_implementation_sha256=_INFINITY_SOURCE_IMPLEMENTATION,
+    )
+    _record_ready_infinity_source(
+        publisher,
+        scenario.binding,
+        scenario.cases[0].corpus_id,
+        _infinity_claim(
+            run_id=scenario.bindings.run_id,
+            corpus_id=scenario.cases[0].corpus_id,
+        ),
+    )
+
+    def attempt() -> str:
+        try:
+            consume_managed_infinity_clean_state_evidence_source(
+                source,
+                composition_binding=scenario.binding,
+                corpus_ids=(scenario.cases[0].corpus_id,),
+                producer_implementation_sha256=_INFINITY_SOURCE_IMPLEMENTATION,
+            )
+        except ManagedInfinityCleanStateSourceError as exc:
+            return exc.code
+        return "accepted"
+
+    with ThreadPoolExecutor(max_workers=8) as pool:
+        results = tuple(pool.map(lambda _index: attempt(), range(8)))
+
+    assert results.count("accepted") == 1
+    assert results.count("managed_infinity_clean_state_source_replay") == 7
+
+
+def test_infinity_source_rejects_crosswire_and_hmac_state_tamper() -> None:
+    scenario = _scenario()
+    foreign = _scenario()
+    _publisher, source = create_managed_infinity_clean_state_evidence_channel(
+        composition_binding=scenario.binding,
+        corpus_ids=(scenario.cases[0].corpus_id,),
+        producer_implementation_sha256=_INFINITY_SOURCE_IMPLEMENTATION,
+    )
+    with pytest.raises(ManagedMem0V5ExecutionEvidenceAdapterError, match="composition_invalid"):
+        ManagedMem0V5ExecutionEvidenceAdapter(
+            composition_binding=foreign.binding,
+            lifecycle=foreign.lifecycle,
+            infinity_clean_state_source=source,
+        )
+
+    state = source_subject._SOURCES[source]
+    source_subject._SOURCES[source] = replace(state, corpus_ids=("tampered",))
+    with pytest.raises(ManagedInfinityCleanStateSourceError, match="source_changed"):
+        consume_managed_infinity_clean_state_evidence_source(
+            source,
+            composition_binding=scenario.binding,
+            corpus_ids=(scenario.cases[0].corpus_id,),
+            producer_implementation_sha256=_INFINITY_SOURCE_IMPLEMENTATION,
+        )
+
+
+def test_infinity_source_is_fulfilled_from_real_reset_and_ingest_fixture() -> None:
+    case = _http_longmem_case()
+    clock = _HttpClock()
+    events: list[str] = []
+
+    def infinity_handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path == "/v1/spaces":
+            events.append("reset")
+            return httpx.Response(
+                201,
+                json={"data": {"slug": "memory-comparison-managed-lifecycle-run"}},
+            )
+        events.append("infinity-ingest")
+        return httpx.Response(201, json={"data": {"id": "document-1"}})
+
+    def mem0_handler(request: httpx.Request) -> httpx.Response:
+        if request.method == "DELETE":
+            events.append("mem0-reset")
+            return httpx.Response(200, json={"deleted": True, "verified_absent": True})
+        events.append("mem0-ingest")
+        return httpx.Response(200, json={"results": [{"id": "memory-1"}]})
+
+    profile = _http_profile(PROFILE_LONGMEMEVAL_TOP_50)
+    targets = _http_targets()
+    binding = ManagedRunnerCompositionBinding(
+        run_id=_HTTP_RUN,
+        profile=profile,
+        binding_commitment_sha256=_HTTP_BINDING,
+        deadline=clock.value + (datetime(2026, 8, 1, 12, 0, 10, tzinfo=UTC) - clock.value),
+        backend_targets=targets,
+        retrieval_top_k=profile.retrieval_top_k,
+        answer_cutoff=profile.answer_cutoff,
+    )
+    publisher, source = create_managed_infinity_clean_state_evidence_channel(
+        composition_binding=binding,
+        corpus_ids=(case.corpus_id,),
+        producer_implementation_sha256=_INFINITY_SOURCE_IMPLEMENTATION,
+    )
+    lifecycle, execution = _build_http_lifecycle(
+        case=case,
+        infinity_handler=infinity_handler,
+        mem0_handler=mem0_handler,
+        clock=clock,
+    )
+    try:
+        _http_reset(lifecycle)
+        _http_ingest(lifecycle, case, "infinity-context")
+        _http_ingest(lifecycle, case, "mem0")
+        view = consume_managed_http_execution_evidence(
+            lifecycle.execution_evidence_capability(),
+            run_id=_HTTP_RUN,
+            binding_commitment_sha256=_HTTP_BINDING,
+            backend_targets=targets,
+            cases=(case,),
+        )
+    finally:
+        execution.close()
+
+    backend = view.validation.payload["backends"]["infinity-context"]
+    proofs = tuple(BackendCleanStateProof(**item) for item in backend["proofs"])
+    scopes = tuple(item for item in view.scopes if item.backend_role == "infinity-context")
+    evidence = issue_infinity_di_full_execution_clean_state_evidence(
+        corpus_ids=(case.corpus_id,),
+        proofs=proofs,
+        scopes=scopes,
+        attestation_key=view.attestation_key,
+    )
+    assert events == ["reset", "mem0-reset", "infinity-ingest", "mem0-ingest"]
+    _record_ready_infinity_source(publisher, binding, case.corpus_id, evidence)
+    consumed = consume_managed_infinity_clean_state_evidence_source(
+        source,
+        composition_binding=binding,
+        corpus_ids=(case.corpus_id,),
+        producer_implementation_sha256=_INFINITY_SOURCE_IMPLEMENTATION,
+    )
+    assert inspect_full_execution_clean_state_evidence(consumed).variant == "infinity_di"
+
+
+def test_two_adapters_sharing_lifecycle_have_one_handoff_winner() -> None:
+    scenario = _scenario()
+    peer_publisher, peer_source = create_managed_infinity_clean_state_evidence_channel(
+        composition_binding=scenario.binding,
+        corpus_ids=(scenario.cases[0].corpus_id,),
+        producer_implementation_sha256=_INFINITY_SOURCE_IMPLEMENTATION,
+    )
+    _record_ready_infinity_source(
+        peer_publisher,
+        scenario.binding,
+        scenario.cases[0].corpus_id,
+        _infinity_claim(
+            run_id=scenario.bindings.run_id,
+            corpus_id=scenario.cases[0].corpus_id,
+        ),
+    )
+    peer = ManagedMem0V5ExecutionEvidenceAdapter(
+        composition_binding=scenario.binding,
+        lifecycle=scenario.lifecycle,
+        infinity_clean_state_source=peer_source,
     )
 
     def attempt(adapter: ManagedMem0V5ExecutionEvidenceAdapter) -> str:
@@ -473,11 +849,18 @@ def test_infinity_claim_run_mismatch_and_repr_are_fail_closed_and_redacted() -> 
         corpus_id=scenario.cases[0].corpus_id,
     )
 
-    with pytest.raises(ManagedMem0V5ExecutionEvidenceAdapterError, match="composition_invalid"):
-        ManagedMem0V5ExecutionEvidenceAdapter(
+    publisher, _source = create_managed_infinity_clean_state_evidence_channel(
+        composition_binding=scenario.binding,
+        corpus_ids=(scenario.cases[0].corpus_id,),
+        producer_implementation_sha256=_INFINITY_SOURCE_IMPLEMENTATION,
+    )
+    with pytest.raises(ManagedInfinityCleanStateSourceError, match="reset_invalid"):
+        record_managed_infinity_clean_state_reset_evidence(
+            publisher,
             composition_binding=scenario.binding,
-            lifecycle=scenario.lifecycle,
-            infinity_clean_state_evidence=foreign_claim,
+            corpus_ids=(scenario.cases[0].corpus_id,),
+            producer_implementation_sha256=_INFINITY_SOURCE_IMPLEMENTATION,
+            evidence=foreign_claim,
         )
 
     rendered = repr(scenario.adapter)

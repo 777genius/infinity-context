@@ -198,6 +198,7 @@ class ManagedComparisonHttpPolicyLifecycleAdapter:
         self._managed_attestation: VerifiedManagedCompositionAttestation | None = None
         self._managed_attestation_commitment_sha256: str | None = None
         self._registry_evidence = ManagedHttpPolicyRegistryEvidenceBinding()
+        self._registry_delegate_capability_issued = False
         self._phase = "open"
         self._next_delete = 0
         self._delete_in_flight: tuple[str, str, int] | None = None
@@ -221,6 +222,48 @@ class ManagedComparisonHttpPolicyLifecycleAdapter:
             phase=phase,
             evidence=evidence,
         )
+
+    def issue_registry_delegate_capability(self) -> object:
+        """Issue the sole exact registry authority for this open composition."""
+
+        with self._lock:
+            if self._phase != "open" or self._registry_delegate_capability_issued:
+                raise ManagedHttpPolicyLifecycleError(
+                    "managed_http_policy_registry_delegate_capability_invalid"
+                )
+            self._registry_delegate_capability_issued = True
+        try:
+            from infinity_context_server import (
+                memory_comparison_managed_policy_delegate_capability as delegate_capability,
+            )
+
+            return delegate_capability._issue_legacy_managed_policy_delegate_capability(
+                delegate=self,
+                bindings=self._bindings,
+                cases=self._cases,
+            )
+        except BaseException:
+            with self._lock:
+                self._phase = "terminal"
+            raise
+
+    def _registry_delegate_composition_for_capability(
+        self,
+    ) -> tuple[
+        FullComparisonRunBindings,
+        tuple[object, ...],
+        tuple[ManagedRunCase, ...],
+        str,
+    ]:
+        """Return the exact reserved composition to the capability issuer only."""
+
+        with self._lock:
+            return (
+                self._bindings,
+                self._binding_snapshot,
+                self._cases,
+                self._phase,
+            )
 
     def seal_canonical_source(
         self,

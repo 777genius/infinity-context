@@ -22,6 +22,11 @@ from infinity_context_server import (
 from infinity_context_server import (
     memory_comparison_managed_mem0_v5_production_lifecycle as production_lifecycle_subject,
 )
+from infinity_context_server.memory_comparison_managed_infinity_clean_state_source import (
+    create_managed_infinity_clean_state_evidence_channel,
+    record_managed_infinity_clean_state_ingest,
+    record_managed_infinity_clean_state_reset_evidence,
+)
 from infinity_context_server.memory_comparison_managed_mem0_v5_clean_state_http import (
     ManagedMem0V5HmacDurableCleanStateFactory,
     ManagedMem0V5HttpCleanStateSnapshotFactory,
@@ -109,6 +114,35 @@ from test_memory_comparison_managed_mem0_v5_runner_foundation import (
 
 def _sha(value: str) -> str:
     return hashlib.sha256(value.encode()).hexdigest()
+
+
+def _infinity_source(binding, corpus_id: str):
+    implementation = _sha("managed-infinity-clean-state-source-test-v1")
+    publisher, source = create_managed_infinity_clean_state_evidence_channel(
+        composition_binding=binding,
+        corpus_ids=(corpus_id,),
+        producer_implementation_sha256=implementation,
+    )
+    record_managed_infinity_clean_state_reset_evidence(
+        publisher,
+        composition_binding=binding,
+        corpus_ids=(corpus_id,),
+        producer_implementation_sha256=implementation,
+        evidence=_infinity_claim(run_id=binding.run_id, corpus_id=corpus_id),
+    )
+    infinity_target = next(
+        item.target_identity_sha256
+        for item in binding.backend_targets
+        if item.backend_role == "infinity-context"
+    )
+    record_managed_infinity_clean_state_ingest(
+        publisher,
+        composition_binding=binding,
+        target_identity_sha256=infinity_target,
+        corpus_id=corpus_id,
+        producer_implementation_sha256=implementation,
+    )
+    return source
 
 
 @pytest.fixture(autouse=True)
@@ -254,9 +288,9 @@ def _production_fixture(tmp_path):
     execution_evidence = ManagedMem0V5ExecutionEvidenceAdapter(
         composition_binding=binding,
         lifecycle=lifecycle,
-        infinity_clean_state_evidence=_infinity_claim(
-            run_id=binding.run_id,
-            corpus_id=authority.units[0].corpus_id,
+        infinity_clean_state_source=_infinity_source(
+            binding,
+            authority.units[0].corpus_id,
         ),
     )
     production_authority = issue_managed_mem0_v5_production_authority(**values)
@@ -608,9 +642,9 @@ def test_production_rejects_crosswired_lifecycle_not_issued_by_composition(tmp_p
     cross_evidence = ManagedMem0V5ExecutionEvidenceAdapter(
         composition_binding=binding,
         lifecycle=cross_lifecycle,
-        infinity_clean_state_evidence=_infinity_claim(
-            run_id=binding.run_id,
-            corpus_id=authority.units[0].corpus_id,
+        infinity_clean_state_source=_infinity_source(
+            binding,
+            authority.units[0].corpus_id,
         ),
     )
     with pytest.raises(ManagedMem0V5ProductionLifecycleError) as failed:

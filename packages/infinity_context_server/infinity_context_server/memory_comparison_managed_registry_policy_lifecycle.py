@@ -24,11 +24,6 @@ from infinity_context_server.memory_comparison_managed_benchmark_registry_contra
 from infinity_context_server.memory_comparison_managed_benchmark_registry_http import (
     ManagedBenchmarkRegistryHttpAdapter,
 )
-from infinity_context_server.memory_comparison_managed_http_policy_lifecycle import (
-    MANAGED_HTTP_POLICY_ADAPTER_ID,
-    ManagedComparisonHttpPolicyLifecycleAdapter,
-    managed_http_policy_lifecycle_implementation_sha256,
-)
 from infinity_context_server.memory_comparison_managed_http_policy_material_projection import (
     binding_snapshot,
 )
@@ -38,6 +33,12 @@ from infinity_context_server.memory_comparison_managed_http_policy_registry_evid
 from infinity_context_server.memory_comparison_managed_http_policy_validation import (
     ManagedHttpPolicyRegistryMaterial,
     managed_http_policy_registry_material_sha256,
+)
+from infinity_context_server.memory_comparison_managed_policy_delegate_capability import (
+    ManagedPolicyDelegateCapability,
+    ManagedPolicyDelegatePort,
+    authenticate_managed_policy_delegate_port,
+    consume_managed_policy_delegate_capability,
 )
 from infinity_context_server.memory_comparison_managed_projection_manifest import (
     ManagedProjectionManifest,
@@ -81,7 +82,7 @@ class ManagedComparisonRegistryPolicyLifecycleAdapter:
         "_cases",
         "_cleanup_receipt",
         "_completion_receipt",
-        "_delegate",
+        "_delegate_port",
         "_delegate_adapter_implementation",
         "_delete_in_flight",
         "_implementation",
@@ -103,13 +104,12 @@ class ManagedComparisonRegistryPolicyLifecycleAdapter:
     def __init__(
         self,
         *,
-        delegate: ManagedComparisonHttpPolicyLifecycleAdapter,
+        delegate_capability: ManagedPolicyDelegateCapability,
         registry: ManagedBenchmarkRegistryHttpAdapter,
         bindings: FullComparisonRunBindings,
         cases: tuple[ManagedRunCase, ...],
         registration: ManagedBenchmarkRunRegistration,
     ) -> None:
-        delegate_implementation = _trusted_delegate_implementation(delegate)
         if type(registry) is not ManagedBenchmarkRegistryHttpAdapter:
             _fail("managed_registry_policy_registry_invalid")
         if type(bindings) is not FullComparisonRunBindings:
@@ -123,6 +123,16 @@ class ManagedComparisonRegistryPolicyLifecycleAdapter:
         if type(registration) is not ManagedBenchmarkRunRegistration:
             _fail("managed_registry_policy_registration_invalid")
         _validate_registration(bindings, registration)
+        if type(delegate_capability) is not ManagedPolicyDelegateCapability:
+            _fail("managed_registry_policy_delegate_invalid")
+        try:
+            trusted_delegate, delegate_implementation = consume_managed_policy_delegate_capability(
+                delegate_capability,
+                bindings=bindings,
+                cases=cases,
+            )
+        except Exception:
+            _fail("managed_registry_policy_delegate_invalid")
         self._bindings = bindings
         self._binding_snapshot = binding_snapshot(bindings)
         self._cases = cases
@@ -147,7 +157,7 @@ class ManagedComparisonRegistryPolicyLifecycleAdapter:
         self._next_delete = 0
         self._delete_in_flight: tuple[str, str, int] | None = None
         self._lock = threading.RLock()
-        self._delegate = delegate
+        self._delegate_port = trusted_delegate
 
     def __init_subclass__(cls, **kwargs: object) -> None:
         del cls, kwargs
@@ -575,11 +585,14 @@ class ManagedComparisonRegistryPolicyLifecycleAdapter:
         if bindings is not self._bindings or binding_snapshot(bindings) != self._binding_snapshot:
             _fail("managed_registry_policy_binding_changed")
 
-    def _trusted_delegate(self) -> ManagedComparisonHttpPolicyLifecycleAdapter:
-        current = _trusted_delegate_implementation(self._delegate)
+    def _trusted_delegate(self) -> ManagedPolicyDelegatePort:
+        try:
+            current = authenticate_managed_policy_delegate_port(self._delegate_port)
+        except Exception:
+            _fail("managed_registry_policy_delegate_changed")
         if not hmac.compare_digest(current, self._delegate_adapter_implementation):
             _fail("managed_registry_policy_delegate_changed")
-        return self._delegate
+        return self._delegate_port
 
     def _target(self, role: str) -> str:
         matches = tuple(
@@ -600,16 +613,11 @@ class ManagedComparisonRegistryPolicyLifecycleAdapter:
 
 
 def managed_registry_policy_lifecycle_implementation_sha256(
-    delegate_implementation_sha256: str | None = None,
+    delegate_implementation_sha256: str,
 ) -> str:
-    delegate = (
-        managed_http_policy_lifecycle_implementation_sha256()
-        if delegate_implementation_sha256 is None
-        else delegate_implementation_sha256
-    )
     material = {
         "adapter_id": MANAGED_REGISTRY_POLICY_LIFECYCLE_ADAPTER_ID,
-        "delegate": delegate,
+        "delegate": delegate_implementation_sha256,
         "projection_seal": "after-exact-canonical-source-before-retrieval",
         "canonical_cleanup": "before-first-infinity-delete",
         "completion": "after-terminal-delete-seal-before-aggregate",
@@ -620,17 +628,6 @@ def managed_registry_policy_lifecycle_implementation_sha256(
     return hashlib.sha256(
         json.dumps(material, sort_keys=True, separators=(",", ":")).encode()
     ).hexdigest()
-
-
-def _trusted_delegate_implementation(delegate: object) -> str:
-    if type(delegate) is not ManagedComparisonHttpPolicyLifecycleAdapter:
-        _fail("managed_registry_policy_delegate_invalid")
-    implementation = managed_http_policy_lifecycle_implementation_sha256()
-    if delegate.adapter_id != MANAGED_HTTP_POLICY_ADAPTER_ID or not hmac.compare_digest(
-        delegate.implementation_sha256, implementation
-    ):
-        _fail("managed_registry_policy_delegate_changed")
-    return implementation
 
 
 def _validate_registration(
