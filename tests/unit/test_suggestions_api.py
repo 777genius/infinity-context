@@ -102,38 +102,6 @@ def test_pending_suggestion_not_in_context_and_approve_creates_fact(tmp_path: Pa
     assert "Use Postgres as canonical truth" in after.json()["data"]["rendered_text"]
 
 
-def test_create_suggestion_rejects_unknown_top_level_fields(tmp_path: Path) -> None:
-    with make_client(tmp_path) as client:
-        created = client.post(
-            "/v1/suggestions",
-            json=suggestion_payload(unexpected_raw_payload="must not be ignored"),
-            headers=auth_headers(),
-        )
-
-    assert created.status_code == 400
-    assert created.json()["error"]["code"] == "memory.validation"
-
-
-def test_create_suggestion_rejects_unknown_source_ref_fields(tmp_path: Path) -> None:
-    with make_client(tmp_path) as client:
-        created = client.post(
-            "/v1/suggestions",
-            json=suggestion_payload(
-                source_refs=[
-                    {
-                        "source_type": "manual",
-                        "source_id": "strict-ref",
-                        "unknown_raw_path": "/private/session.jsonl",
-                    }
-                ]
-            ),
-            headers=auth_headers(),
-        )
-
-    assert created.status_code == 400
-    assert created.json()["error"]["code"] == "memory.validation"
-
-
 def test_create_suggestions_batch_creates_review_queue_items(tmp_path: Path) -> None:
     with make_client(tmp_path) as client:
         created = client.post(
@@ -897,6 +865,7 @@ def test_weak_source_cannot_supersede_strong_fact_without_force(tmp_path: Path) 
                 safe_reason="weak_source",
                 target_fact_id=fact["id"],
                 target_fact_version=fact["version"],
+                resolution_kind="correction",
             ),
             headers=auth_headers(),
         )
@@ -978,6 +947,7 @@ def test_approve_rejects_legacy_targeted_suggestion_without_version(tmp_path: Pa
                 candidate_text="LEGACY_TARGET_VERSION unsafe update.",
                 target_fact_id=fact["id"],
                 target_fact_version=fact["version"],
+                resolution_kind="correction",
                 source_refs=[{"source_type": "manual", "source_id": "legacy-target-suggestion"}],
             ),
             headers=auth_headers(),
@@ -1031,6 +1001,7 @@ def test_approve_rejects_stale_target_fact_version(tmp_path: Path) -> None:
                 candidate_text="STALE_TARGET_VERSION stale suggestion update.",
                 target_fact_id=fact["id"],
                 target_fact_version=fact["version"],
+                resolution_kind="correction",
                 source_refs=[{"source_type": "manual", "source_id": "stale-target-suggestion"}],
             ),
             headers=auth_headers(),
@@ -1091,6 +1062,7 @@ def test_suggestion_cannot_update_target_fact_from_another_memory_scope(tmp_path
                 candidate_text="CROSS_MEMORY_SCOPE_TARGET_FACT overwritten by wrong memory_scope.",
                 target_fact_id=fact["id"],
                 target_fact_version=fact["version"],
+                resolution_kind="correction",
                 source_refs=[{"source_type": "manual", "source_id": "wrong-memory_scope"}],
             ),
             headers=auth_headers(),

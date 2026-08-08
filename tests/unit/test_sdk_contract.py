@@ -189,17 +189,20 @@ def test_sdk_payload_helpers_serialize_feature_contract_dtos() -> None:
     fact_contract.pop("tags")
 
     assert fact_payload == fact_contract
-    assert sdk_payloads.update_fact_body(
-        expected_version=2,
-        text="Updated fact.",
-        reason="reviewed",
-        source_refs=source_refs,
-    ) == UpdateFactRequestDto(
-        expected_version=2,
-        text="Updated fact.",
-        reason="reviewed",
-        source_refs=source_refs,
-    ).to_dict()
+    assert (
+        sdk_payloads.update_fact_body(
+            expected_version=2,
+            text="Updated fact.",
+            reason="reviewed",
+            source_refs=source_refs,
+        )
+        == UpdateFactRequestDto(
+            expected_version=2,
+            text="Updated fact.",
+            reason="reviewed",
+            source_refs=source_refs,
+        ).to_dict()
+    )
 
 
 def test_sdk_document_and_memory_scope_helpers_serialize_feature_contract_dtos() -> None:
@@ -855,9 +858,7 @@ def test_sdk_exposes_typed_extraction_capability_diagnostics() -> None:
     assert diagnostics.resource_hard_cap("max_bytes") == 524288000
     assert diagnostics.resource_hard_cap("max_archive_entries") == 100000
     assert diagnostics.resource_hard_cap("missing") is None
-    assert diagnostics.resource_diagnostic_field_present(
-        "extraction_archive_resource_checked"
-    )
+    assert diagnostics.resource_diagnostic_field_present("extraction_archive_resource_checked")
     assert not diagnostics.resource_diagnostic_field_present("missing")
     assert diagnostics.modality_action("audio", "transcription_api") == {
         "profile": "media_api",
@@ -994,9 +995,7 @@ def test_sdk_defaults_legacy_extraction_capability_contract_fields() -> None:
     assert diagnostics.resource_policy == {}
     assert diagnostics.degraded_components == ()
     assert diagnostics.resource_hard_cap("max_bytes") is None
-    assert not diagnostics.resource_diagnostic_field_present(
-        "extraction_archive_resource_checked"
-    )
+    assert not diagnostics.resource_diagnostic_field_present("extraction_archive_resource_checked")
     assert standard_local is not None
     assert standard_local.input_modalities == ()
     assert standard_local.evidence_coordinates == ()
@@ -1665,9 +1664,7 @@ def test_sdk_build_typed_context_returns_bounded_safe_diagnostics() -> None:
     assert item.diagnostics.ranking_reason == "hybrid match via vector_chunks, keyword_chunks"
     assert item.diagnostics.review_only is True
     assert item.diagnostics.stale_reason == "fact_status_superseded"
-    assert item.diagnostics.review_recommended_action == (
-        "merge_source_refs_into_existing_fact"
-    )
+    assert item.diagnostics.review_recommended_action == ("merge_source_refs_into_existing_fact")
     assert item.diagnostics.review_recommended_resolution_action == "merge_source_refs"
     assert item.diagnostics.review_default_resolution == "merge_or_keep_separate_after_review"
     assert item.diagnostics.review_risk == "medium"
@@ -1780,9 +1777,7 @@ def test_sdk_typed_context_preserves_late_summary_diagnostics() -> None:
         "answerability_status": "grounded",
         "retrieval_mode": "multimodal_single_source",
     }
-    assert bundle.diagnostics.raw["provenance_summary"] == (
-        bundle.diagnostics.provenance_summary
-    )
+    assert bundle.diagnostics.raw["provenance_summary"] == (bundle.diagnostics.provenance_summary)
 
 
 def test_sdk_typed_context_defaults_missing_diagnostic_counters() -> None:

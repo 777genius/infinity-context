@@ -24,6 +24,7 @@ class ContextItem:
     is_instruction: bool = False
     diagnostics: dict[str, object] | None = None
 
+
 @dataclass(frozen=True)
 class ContextBundle:
     bundle_id: str
@@ -32,12 +33,16 @@ class ContextBundle:
     token_estimate: int
     diagnostics: dict[str, object]
 
+
 @dataclass(frozen=True)
 class BuildContextQuery:
     space_id: SpaceId
     memory_scope_ids: tuple[MemoryScopeId, ...]
     query: str
     thread_id: ThreadId | None = None
+    repository_id: str | None = None
+    code_scope_id: str | None = None
+    as_of: datetime | None = None
     consistency_mode: ConsistencyMode = ConsistencyMode.BEST_EFFORT
     token_budget: int = 1800
     max_rendered_chars: int = 18000
@@ -55,6 +60,7 @@ class BuildContextQuery:
     selection_mode: str = "prompt_context"
     selection_item_limit: int | None = None
 
+
 @dataclass(frozen=True)
 class BuildMemoryDigestQuery:
     space_id: SpaceId
@@ -71,11 +77,13 @@ class BuildMemoryDigestQuery:
     include_superseded: bool = False
     include_related: bool = True
 
+
 @dataclass(frozen=True)
 class MemoryDigestSection:
     title: str
     items: tuple[ContextItem, ...]
     truncated: bool = False
+
 
 @dataclass(frozen=True)
 class MemoryDigest:
@@ -86,6 +94,7 @@ class MemoryDigest:
     source_refs: tuple[SourceRef, ...]
     token_estimate: int
     diagnostics: dict[str, object]
+
 
 @dataclass(frozen=True)
 class BuildMemoryInsightsQuery:
@@ -99,6 +108,7 @@ class BuildMemoryInsightsQuery:
     max_captures: int = 100
     max_activity: int = 50
 
+
 @dataclass(frozen=True)
 class MemoryInsightActionItem:
     id: str
@@ -110,6 +120,7 @@ class MemoryInsightActionItem:
     reason: str
     preview: str | None = None
     metadata: dict[str, object] | None = None
+
 
 @dataclass(frozen=True)
 class MemoryActivityItem:
@@ -124,6 +135,7 @@ class MemoryActivityItem:
     preview: str | None = None
     metadata: dict[str, object] | None = None
 
+
 @dataclass(frozen=True)
 class MemoryConsolidationPlanItem:
     id: str
@@ -136,6 +148,7 @@ class MemoryConsolidationPlanItem:
     reason: str
     preview: str | None = None
     metadata: dict[str, object] | None = None
+
 
 @dataclass(frozen=True)
 class MemoryInsightsResult:
@@ -150,11 +163,13 @@ class MemoryInsightsResult:
     consolidation_plan: tuple[MemoryConsolidationPlanItem, ...]
     diagnostics: dict[str, object]
 
+
 @dataclass(frozen=True)
 class DeleteThreadMemoryCommand:
     space_id: SpaceId
     memory_scope_id: MemoryScopeId
     thread_id: ThreadId
+
 
 @dataclass(frozen=True)
 class DeleteThreadMemoryResult:
@@ -162,11 +177,13 @@ class DeleteThreadMemoryResult:
     deleted_facts: int
     deleted_jobs: int
 
+
 @dataclass(frozen=True)
 class GetSessionStatusQuery:
     space_id: SpaceId
     memory_scope_id: MemoryScopeId
     thread_id: ThreadId
+
 
 @dataclass(frozen=True)
 class SessionStatusResult:

@@ -74,11 +74,38 @@ def test_http_gateway_sends_auth_idempotency_and_external_scope() -> None:
         source_refs=[{"source_type": "manual", "source_id": "note-1"}],
         classification="internal",
     ).to_dict()
-    contract_payload = {
-        key: value for key, value in contract_payload.items() if value is not None
-    }
+    contract_payload = {key: value for key, value in contract_payload.items() if value is not None}
     contract_payload.pop("tags")
     assert seen["body"] == contract_payload
+
+
+def test_http_gateway_sends_suggestion_approval_idempotency_key() -> None:
+    seen: dict[str, str | None] = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen["path"] = request.url.path
+        seen["idempotency_key"] = request.headers.get("idempotency-key")
+        return httpx.Response(200, json={"data": {"suggestion": {"id": "sug-1"}}})
+
+    async def run() -> None:
+        gateway = HttpMemoryGateway(
+            base_url="http://memory.test",
+            auth_token="test-token",
+            timeout_seconds=3,
+            transport=httpx.MockTransport(handler),
+        )
+        await gateway.approve_suggestion(
+            suggestion_id="sug-1",
+            reason="reviewed",
+            force=False,
+            idempotency_key="approve-sug-1",
+        )
+
+    asyncio.run(run())
+    assert seen == {
+        "path": "/v1/suggestions/sug-1/approve",
+        "idempotency_key": "approve-sug-1",
+    }
 
 
 def test_http_gateway_sends_read_scope_memory_scope_external_refs() -> None:
@@ -392,5 +419,38 @@ def test_http_gateway_marks_write_body_timeout_unknown_commit_state() -> None:
         assert error.code == "infinity_context_mcp.gateway.write_timeout"
         assert error.retryable is True
         assert error.unknown_commit_state is True
+
+    asyncio.run(run())
+
+
+def test_http_gateway_marks_ambiguous_mutation_responses_unknown() -> None:
+    async def exercise(response: httpx.Response) -> MemoryGatewayError:
+        gateway = HttpMemoryGateway(
+            base_url="http://memory.test",
+            auth_token="test-token",
+            timeout_seconds=3,
+            transport=httpx.MockTransport(lambda _request: response),
+        )
+        try:
+            await gateway.remember_fact(
+                scope=MemoryScope("default", "default"),
+                text="A durable fact.",
+                kind="note",
+                source_refs=[SourceRef(source_type="manual", source_id="note-1")],
+                classification="internal",
+                idempotency_key="same-key-on-retry",
+            )
+        except MemoryGatewayError as exc:
+            return exc
+        raise AssertionError("expected ambiguous mutation error")
+
+    async def run() -> None:
+        unavailable = await exercise(httpx.Response(503, json={"error": {}}))
+        invalid_json = await exercise(httpx.Response(200, text="not-json"))
+
+        assert unavailable.retryable is True
+        assert unavailable.unknown_commit_state is True
+        assert invalid_json.retryable is True
+        assert invalid_json.unknown_commit_state is True
 
     asyncio.run(run())

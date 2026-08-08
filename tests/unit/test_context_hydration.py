@@ -1,6 +1,10 @@
 import asyncio
+from dataclasses import replace
 from datetime import UTC, datetime, timedelta
 
+from infinity_context_adapters.features.memory_facts.in_memory_fact_store import (
+    create_in_memory_memory_fact_store,
+)
 from infinity_context_core.application.context_hydration import ContextHydrator
 from infinity_context_core.application.dto import BuildContextQuery, ContextItem
 from infinity_context_core.domain.entities import (
@@ -17,6 +21,24 @@ from infinity_context_core.domain.entities import (
     MemoryScopeId,
     SourceRef,
     SpaceId,
+)
+from infinity_context_core.features.memory_facts.public import (
+    FactRetention,
+    FactSupersessionRelation,
+    FactTemporalExtent,
+    MemoryFactSelectionQuery,
+)
+from infinity_context_core.features.memory_facts.public import (
+    MemoryFact as CanonicalMemoryFact,
+)
+from infinity_context_core.features.memory_facts.public import (
+    MemoryFactIdentity as CanonicalMemoryFactIdentity,
+)
+from infinity_context_core.features.memory_facts.public import (
+    MemoryFactScope as CanonicalMemoryFactScope,
+)
+from infinity_context_core.features.memory_facts.public import (
+    MemoryFactSourceRef as CanonicalMemoryFactSourceRef,
 )
 
 NOW = datetime(2026, 6, 18, tzinfo=UTC)
@@ -257,9 +279,7 @@ def test_hydrator_hydrates_graph_facts_with_single_batch_lookup() -> None:
             "fact_2": _fact("fact_2", text="Graph fact two is visible."),
         }
     )
-    hydrator = ContextHydrator(
-        uow_factory=_FakeUowFactory(facts=repo, chunks=_FailingChunkRepo())
-    )
+    hydrator = ContextHydrator(uow_factory=_FakeUowFactory(facts=repo, chunks=_FailingChunkRepo()))
 
     items, stale_count = asyncio.run(
         hydrator.hydrate_graph_facts(
@@ -277,6 +297,145 @@ def test_hydrator_hydrates_graph_facts_with_single_batch_lookup() -> None:
     assert stale_count == 1
     assert repo.get_by_ids_calls == [("fact_1", "fact_missing", "fact_2")]
     assert repo.get_by_id_calls == []
+
+
+def test_canonical_gate_keeps_review_history_separate_from_current_candidates() -> None:
+    current = _canonical_fact("current", valid_from=NOW - timedelta(days=10))
+    future = _canonical_fact("future", valid_from=NOW + timedelta(days=1))
+    expired = replace(
+        _canonical_fact("expired", valid_from=NOW - timedelta(days=10)),
+        retention=FactRetention(context_expires_at=NOW),
+    )
+    superseded = _canonical_fact(
+        "superseded",
+        valid_from=NOW - timedelta(days=20),
+    ).supersede(
+        expected_version=1,
+        effective_at=NOW - timedelta(days=5),
+        now=NOW,
+    )
+    selection = create_in_memory_memory_fact_store(
+        tuple(fact.to_snapshot() for fact in (current, future, expired, superseded))
+    )
+    hydrator = ContextHydrator(
+        uow_factory=_FakeUowFactory(
+            facts=_BatchOnlyFactRepo(facts={}),
+            chunks=_FailingChunkRepo(),
+        ),
+        clock=_FixedClock(),
+        fact_selection=selection,
+    )
+    review = ContextItem(
+        item_id="superseded",
+        item_type="fact",
+        text="stale projection",
+        score=0.5,
+        source_refs=(),
+        diagnostics={
+            "review_only": True,
+            "retrieval_source": "superseded_review",
+        },
+    )
+
+    result = asyncio.run(
+        hydrator.revalidate_visible_items(
+            (_item("current"), _item("future"), _item("expired"), review),
+            query=replace(_query(), include_superseded=True),
+            memory_scope_ids=("scope_1",),
+        )
+    )
+
+    assert [item.item_id for item in result] == ["current", "superseded"]
+    assert result[1].diagnostics["review_only"] is True
+    assert result[1].diagnostics["fact_status"] == "superseded"
+
+
+def test_linked_fact_hydration_resolves_audited_chain_and_fails_closed_on_version() -> None:
+    first_effective = NOW - timedelta(days=5)
+    second_effective = NOW - timedelta(days=2)
+    old = _canonical_fact("old", valid_from=NOW - timedelta(days=20)).supersede(
+        expected_version=1,
+        effective_at=first_effective,
+        now=NOW,
+    )
+    middle = _canonical_fact("middle", valid_from=first_effective)
+    middle = middle.record_as_supersession_successor(
+        expected_version=1,
+        effective_at=first_effective,
+        now=NOW,
+    ).supersede(expected_version=2, effective_at=second_effective, now=NOW)
+    current = _canonical_fact(
+        "current", valid_from=second_effective
+    ).record_as_supersession_successor(
+        expected_version=1, effective_at=second_effective, now=NOW
+    )
+    valid_path = (
+        replace(
+            _supersession("relation-1", old, middle, effective_at=first_effective),
+            successor_fact_version=2,
+        ),
+        _supersession("relation-2", middle, current, effective_at=second_effective),
+    )
+    selection = _SupersessionSelection(
+        facts=(old.to_snapshot(), middle.to_snapshot(), current.to_snapshot()),
+        relations=valid_path,
+    )
+    hydrator = ContextHydrator(
+        uow_factory=_FakeUowFactory(
+            facts=_BatchOnlyFactRepo(facts={}),
+            chunks=_FailingChunkRepo(),
+        ),
+        clock=_FixedClock(),
+        fact_selection=selection,
+    )
+
+    resolved = asyncio.run(
+        hydrator.hydrate_linked_facts(
+            fact_ids=("old",),
+            query=_query(),
+            memory_scope_ids=("scope_1",),
+        )
+    )
+
+    assert resolved is not None
+    assert resolved["old"].fact.identity.fact_id == "current"
+    assert resolved["old"].supersession_path == valid_path
+
+    invalid_version = replace(valid_path[-1], successor_fact_version=999)
+    selection.relations = (*valid_path[:-1], invalid_version)
+    rejected = asyncio.run(
+        hydrator.hydrate_linked_facts(
+            fact_ids=("old",),
+            query=_query(),
+            memory_scope_ids=("scope_1",),
+        )
+    )
+    assert rejected == {}
+
+
+class _SupersessionSelection:
+    def __init__(
+        self,
+        *,
+        facts: tuple[object, ...],
+        relations: tuple[FactSupersessionRelation, ...],
+    ) -> None:
+        self._facts = create_in_memory_memory_fact_store(facts)
+        self.relations = relations
+
+    async def find_eligible(self, query: MemoryFactSelectionQuery):
+        return await self._facts.find_eligible(query)
+
+    async def find_current_supersessions(
+        self,
+        query: MemoryFactSelectionQuery,
+    ) -> tuple[FactSupersessionRelation, ...]:
+        return tuple(
+            relation
+            for relation in self.relations
+            if relation.predecessor_fact_id in query.fact_ids
+            and relation.effective_at <= query.reference_time
+        )
 
 
 class _BatchOnlyFactRepo:
@@ -408,6 +567,45 @@ def _fact(fact_id: str, *, text: str) -> MemoryFact:
     )
 
 
+def _canonical_fact(fact_id: str, *, valid_from: datetime) -> CanonicalMemoryFact:
+    return CanonicalMemoryFact.remember(
+        identity=CanonicalMemoryFactIdentity(
+            fact_id=fact_id,
+            scope=CanonicalMemoryFactScope(
+                space_id="space_1",
+                memory_scope_id="scope_1",
+            ),
+        ),
+        text=f"Canonical {fact_id}",
+        source_refs=(CanonicalMemoryFactSourceRef(source_type="manual", source_id=fact_id),),
+        now=NOW,
+        temporal_extent=FactTemporalExtent.ongoing_state(
+            observed_at=NOW,
+            valid_from=valid_from,
+        ),
+    )
+
+
+def _supersession(
+    relation_id: str,
+    predecessor: CanonicalMemoryFact,
+    successor: CanonicalMemoryFact,
+    *,
+    effective_at: datetime,
+) -> FactSupersessionRelation:
+    return FactSupersessionRelation(
+        relation_id=relation_id,
+        scope=predecessor.identity.scope,
+        successor_fact_id=successor.identity.fact_id,
+        successor_fact_version=successor.revision.value,
+        predecessor_fact_id=predecessor.identity.fact_id,
+        predecessor_fact_version=predecessor.revision.value,
+        effective_at=effective_at,
+        decision_id=f"decision-{relation_id}",
+        created_at=NOW,
+    )
+
+
 def _anchor(
     anchor_id: str,
     *,
@@ -423,9 +621,7 @@ def _anchor(
         kind=MemoryAnchorKind.PERSON,
         normalized_key=anchor_id,
         label=anchor_id,
-        evidence_refs=(
-            SourceRef(source_type="manual", source_id=f"evidence_{anchor_id}"),
-        ),
+        evidence_refs=(SourceRef(source_type="manual", source_id=f"evidence_{anchor_id}"),),
         valid_from=valid_from,
         valid_to=valid_to,
         now=NOW,

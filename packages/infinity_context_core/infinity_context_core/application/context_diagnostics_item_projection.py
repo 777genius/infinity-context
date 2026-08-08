@@ -125,6 +125,7 @@ def normalize_context_diagnostics(diagnostics: object) -> dict[str, object]:
     normalized.update(_safe_context_link_diagnostics(raw))
     normalized.update(_safe_review_diagnostics(raw))
     normalized.update(_safe_anchor_diagnostics(raw))
+    normalized.update(_safe_fact_temporal_diagnostics(raw))
     normalized["retrieval_sources"] = list(retrieval_sources)
     normalized["retrieval_sources_total"] = len(all_retrieval_sources)
     normalized["retrieval_sources_returned"] = len(retrieval_sources)
@@ -403,6 +404,35 @@ def _safe_anchor_diagnostics(raw: dict[str, Any]) -> dict[str, object]:
     identity_metadata = safe_diagnostic_mapping(raw.get("identity_metadata"))
     if identity_metadata:
         diagnostics["identity_metadata"] = identity_metadata
+    return diagnostics
+
+def _safe_fact_temporal_diagnostics(raw: dict[str, Any]) -> dict[str, object]:
+    diagnostics: dict[str, object] = {}
+    for key in (
+        "fact_status",
+        "temporal_currentness",
+        "temporal_assurance",
+        "temporal_kind",
+        "observed_at",
+        "valid_from",
+        "valid_to",
+        "last_confirmed_at",
+    ):
+        value = _safe_optional_text(raw.get(key), limit=_MAX_DIAGNOSTIC_STRING_CHARS)
+        if value:
+            diagnostics[key] = value
+    fact_version = _optional_non_negative_int(raw.get("fact_version"))
+    if fact_version is not None:
+        diagnostics["fact_version"] = fact_version
+    reason_codes = raw.get("temporal_reason_codes")
+    if isinstance(reason_codes, list | tuple):
+        diagnostics["temporal_reason_codes"] = [
+            reason
+            for raw_reason in reason_codes[:_MAX_DIAGNOSTIC_LIST_ITEMS]
+            if (reason := _safe_optional_text(raw_reason, limit=_MAX_DIAGNOSTIC_KEY_CHARS))
+        ]
+    if isinstance(raw.get("sensitive_item_text_redacted"), bool):
+        diagnostics["sensitive_item_text_redacted"] = raw["sensitive_item_text_redacted"]
     return diagnostics
 
 def _candidate_count(diagnostics: dict[str, Any]) -> int:

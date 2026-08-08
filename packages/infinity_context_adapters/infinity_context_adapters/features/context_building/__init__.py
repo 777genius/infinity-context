@@ -19,7 +19,13 @@ from infinity_context_adapters.features.context_building.in_memory_candidate_pro
     InMemoryContextCandidateProvider,
     create_in_memory_context_candidate_provider,
 )
+from infinity_context_adapters.features.context_building.memory_fact_hydrator import (
+    MemoryFactContextHydrator,
+    create_memory_fact_context_hydrator,
+)
 from infinity_context_adapters.features.context_building.postgres_candidate_provider import (
+    PostgresCandidateLookupPort,
+    PostgresCandidatePointer,
     PostgresContextCandidateProvider,
     create_postgres_context_candidate_provider,
 )
@@ -42,11 +48,15 @@ __all__ = (
     "ContextCandidateRecord",
     "GraphitiContextCandidateProvider",
     "InMemoryContextCandidateProvider",
+    "MemoryFactContextHydrator",
     "PostgresContextCandidateProvider",
+    "PostgresCandidateLookupPort",
+    "PostgresCandidatePointer",
     "QdrantContextCandidateProvider",
     "create_context_candidate_provider_chain",
     "create_graphiti_context_candidate_provider",
     "create_in_memory_context_candidate_provider",
+    "create_memory_fact_context_hydrator",
     "create_postgres_context_candidate_provider",
     "create_qdrant_context_candidate_provider",
     "context_candidate_adapter_query_from_request",

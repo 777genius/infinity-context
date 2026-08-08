@@ -5,6 +5,11 @@ from infinity_context_core.features.context_building.domain.budget import (
     ContextBudgetPolicy,
     ContextPackingPlan,
 )
+from infinity_context_core.features.context_building.domain.candidate_hits import (
+    CandidateHit,
+    FusedCandidate,
+    HydratedContextCandidate,
+)
 from infinity_context_core.features.context_building.domain.context import (
     ContextBundle,
     ContextConfidence,
@@ -81,11 +86,14 @@ __all__ = (
     "ContextScope",
     "ContextSourceRef",
     "ContextTrustLevel",
+    "CandidateHit",
     "EvidenceClaim",
     "EvidenceObligation",
     "EvidenceObligationConfidence",
     "EvidenceObligationId",
     "EvidenceRenderPolicy",
+    "FusedCandidate",
+    "HydratedContextCandidate",
     "NormalizedContextQuery",
     "PromptEvidenceSection",
     "PromptSectionPlan",

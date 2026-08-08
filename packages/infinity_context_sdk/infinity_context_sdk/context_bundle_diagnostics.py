@@ -331,9 +331,7 @@ def bundle_diagnostics_from_payload(value: object) -> ContextBundleDiagnostics:
         default="missing",
         limit=MAX_KEY_CHARS,
     )
-    answer_support_items_returned = _non_negative_int(
-        payload.get("answer_support_items_returned")
-    )
+    answer_support_items_returned = _non_negative_int(payload.get("answer_support_items_returned"))
     answer_support_cited_count = _non_negative_int(payload.get("answer_support_cited_count"))
     answer_support_precise_location_count = _non_negative_int(
         payload.get("answer_support_precise_location_count")
@@ -341,9 +339,7 @@ def bundle_diagnostics_from_payload(value: object) -> ContextBundleDiagnostics:
     answer_support_multimodal_count = _non_negative_int(
         payload.get("answer_support_multimodal_count")
     )
-    answer_support_coverage_ratio = _safe_float(
-        payload.get("answer_support_coverage_ratio")
-    )
+    answer_support_coverage_ratio = _safe_float(payload.get("answer_support_coverage_ratio"))
     answer_support_source_type_count = _non_negative_int(
         payload.get("answer_support_source_type_count")
     )
@@ -376,7 +372,9 @@ def bundle_diagnostics_from_payload(value: object) -> ContextBundleDiagnostics:
         retrieval_sources_returned=retrieval_sources_returned,
         retrieval_sources_truncated=retrieval_sources_truncated,
         hybrid_items_used=_non_negative_int(payload.get("hybrid_items_used")),
-        temporal_replacements_applied=_non_negative_int(payload.get("temporal_replacements_applied")),
+        temporal_replacements_applied=_non_negative_int(
+            payload.get("temporal_replacements_applied")
+        ),
         temporal_relations_skipped_by_validity=_non_negative_int(
             payload.get("temporal_relations_skipped_by_validity")
         ),
@@ -538,7 +536,9 @@ def bundle_diagnostics_from_payload(value: object) -> ContextBundleDiagnostics:
         stale_facts_used=_non_negative_int(payload.get("stale_facts_used")),
         superseded_facts_considered=_non_negative_int(payload.get("superseded_facts_considered")),
         superseded_facts_used=_non_negative_int(payload.get("superseded_facts_used")),
-        temporal_relations_considered=_non_negative_int(payload.get("temporal_relations_considered")),
+        temporal_relations_considered=_non_negative_int(
+            payload.get("temporal_relations_considered")
+        ),
         temporal_contradictions_considered=_non_negative_int(
             payload.get("temporal_contradictions_considered")
         ),
@@ -636,7 +636,9 @@ def bundle_diagnostics_from_payload(value: object) -> ContextBundleDiagnostics:
         stale_context_linked_extraction_artifact_drop_count=_non_negative_int(
             payload.get("stale_context_linked_extraction_artifact_drop_count")
         ),
-        diversity_families_considered=_non_negative_int(payload.get("diversity_families_considered")),
+        diversity_families_considered=_non_negative_int(
+            payload.get("diversity_families_considered")
+        ),
         diversity_families_used=_non_negative_int(payload.get("diversity_families_used")),
         diversity_items_used=_non_negative_int(payload.get("diversity_items_used")),
         chunk_sources_considered=_non_negative_int(payload.get("chunk_sources_considered")),
@@ -678,29 +680,65 @@ def bundle_diagnostics_from_payload(value: object) -> ContextBundleDiagnostics:
         requirement_guard_items_dropped=_non_negative_int(
             payload.get("requirement_guard_items_dropped")
         ),
-        anchor_lookup_keys_considered=_non_negative_int(payload.get("anchor_lookup_keys_considered")),
+        anchor_lookup_keys_considered=_non_negative_int(
+            payload.get("anchor_lookup_keys_considered")
+        ),
         anchors_loaded_by_lookup=_non_negative_int(payload.get("anchors_loaded_by_lookup")),
         anchors_used_by_query_intent=_non_negative_int(payload.get("anchors_used_by_query_intent")),
-        anchors_dropped_by_query_intent_conflict=_non_negative_int(payload.get("anchors_dropped_by_query_intent_conflict")),
+        anchors_dropped_by_query_intent_conflict=_non_negative_int(
+            payload.get("anchors_dropped_by_query_intent_conflict")
+        ),
         query_anchor_hint_count=_non_negative_int(payload.get("query_anchor_hint_count")),
-        query_anchor_person_hint_count=_non_negative_int(payload.get("query_anchor_person_hint_count")),
-        query_anchor_event_hint_count=_non_negative_int(payload.get("query_anchor_event_hint_count")),
-        query_anchor_project_hint_count=_non_negative_int(payload.get("query_anchor_project_hint_count")),
-        query_anchor_organization_hint_count=_non_negative_int(payload.get("query_anchor_organization_hint_count")),
-        query_anchor_temporal_hint_count=_non_negative_int(payload.get("query_anchor_temporal_hint_count")),
-        query_anchor_event_type_hint_count=_non_negative_int(payload.get("query_anchor_event_type_hint_count")),
+        query_anchor_person_hint_count=_non_negative_int(
+            payload.get("query_anchor_person_hint_count")
+        ),
+        query_anchor_event_hint_count=_non_negative_int(
+            payload.get("query_anchor_event_hint_count")
+        ),
+        query_anchor_project_hint_count=_non_negative_int(
+            payload.get("query_anchor_project_hint_count")
+        ),
+        query_anchor_organization_hint_count=_non_negative_int(
+            payload.get("query_anchor_organization_hint_count")
+        ),
+        query_anchor_temporal_hint_count=_non_negative_int(
+            payload.get("query_anchor_temporal_hint_count")
+        ),
+        query_anchor_event_type_hint_count=_non_negative_int(
+            payload.get("query_anchor_event_type_hint_count")
+        ),
         keyword_query_count=_non_negative_int(payload.get("keyword_query_count")),
-        keyword_neighbor_chunks_considered=_non_negative_int(payload.get("keyword_neighbor_chunks_considered")),
+        keyword_neighbor_chunks_considered=_non_negative_int(
+            payload.get("keyword_neighbor_chunks_considered")
+        ),
         keyword_neighbor_chunks_used=_non_negative_int(payload.get("keyword_neighbor_chunks_used")),
-        keyword_neighbor_chunks_skipped=_non_negative_int(payload.get("keyword_neighbor_chunks_skipped")),
-        keyword_source_sibling_chunks_considered=_non_negative_int(payload.get("keyword_source_sibling_chunks_considered")),
-        keyword_source_sibling_chunks_used=_non_negative_int(payload.get("keyword_source_sibling_chunks_used")),
-        keyword_source_sibling_chunks_skipped=_non_negative_int(payload.get("keyword_source_sibling_chunks_skipped")),
-        keyword_source_sibling_group_count=_non_negative_int(payload.get("keyword_source_sibling_group_count")),
-        keyword_source_sibling_candidate_limit=_non_negative_int(payload.get("keyword_source_sibling_candidate_limit")),
-        keyword_aggregation_chunks_considered=_non_negative_int(payload.get("keyword_aggregation_chunks_considered")),
-        keyword_aggregation_chunks_used=_non_negative_int(payload.get("keyword_aggregation_chunks_used")),
-        keyword_aggregation_chunks_skipped=_non_negative_int(payload.get("keyword_aggregation_chunks_skipped")),
+        keyword_neighbor_chunks_skipped=_non_negative_int(
+            payload.get("keyword_neighbor_chunks_skipped")
+        ),
+        keyword_source_sibling_chunks_considered=_non_negative_int(
+            payload.get("keyword_source_sibling_chunks_considered")
+        ),
+        keyword_source_sibling_chunks_used=_non_negative_int(
+            payload.get("keyword_source_sibling_chunks_used")
+        ),
+        keyword_source_sibling_chunks_skipped=_non_negative_int(
+            payload.get("keyword_source_sibling_chunks_skipped")
+        ),
+        keyword_source_sibling_group_count=_non_negative_int(
+            payload.get("keyword_source_sibling_group_count")
+        ),
+        keyword_source_sibling_candidate_limit=_non_negative_int(
+            payload.get("keyword_source_sibling_candidate_limit")
+        ),
+        keyword_aggregation_chunks_considered=_non_negative_int(
+            payload.get("keyword_aggregation_chunks_considered")
+        ),
+        keyword_aggregation_chunks_used=_non_negative_int(
+            payload.get("keyword_aggregation_chunks_used")
+        ),
+        keyword_aggregation_chunks_skipped=_non_negative_int(
+            payload.get("keyword_aggregation_chunks_skipped")
+        ),
         keyword_aggregation_relaxed_relevance_used=_non_negative_int(
             payload.get("keyword_aggregation_relaxed_relevance_used")
         ),
@@ -782,9 +820,7 @@ def bundle_diagnostics_from_payload(value: object) -> ContextBundleDiagnostics:
         distinct_set_source_candidates=_non_negative_int(
             payload.get("distinct_set_source_candidates")
         ),
-        distinct_set_items_selected=_non_negative_int(
-            payload.get("distinct_set_items_selected")
-        ),
+        distinct_set_items_selected=_non_negative_int(payload.get("distinct_set_items_selected")),
         distinct_set_member_slots_selected=_non_negative_int(
             payload.get("distinct_set_member_slots_selected")
         ),
@@ -792,7 +828,9 @@ def bundle_diagnostics_from_payload(value: object) -> ContextBundleDiagnostics:
             payload.get("distinct_set_redundant_items_suppressed")
         ),
         vector_query_count=_non_negative_int(payload.get("vector_query_count")),
-        vector_embedding_vector_count=_non_negative_int(payload.get("vector_embedding_vector_count")),
+        vector_embedding_vector_count=_non_negative_int(
+            payload.get("vector_embedding_vector_count")
+        ),
         vector_search_count=_non_negative_int(payload.get("vector_search_count")),
         vector_query_limit=_non_negative_int(payload.get("vector_query_limit")),
         vector_query_degraded_count=_non_negative_int(payload.get("vector_query_degraded_count")),
@@ -805,8 +843,12 @@ def bundle_diagnostics_from_payload(value: object) -> ContextBundleDiagnostics:
         rag_hydrated_count=_non_negative_int(payload.get("rag_hydrated_count")),
         rag_query_degraded_count=_non_negative_int(payload.get("rag_query_degraded_count")),
         final_rank_source_item_count=_non_negative_int(payload.get("final_rank_source_item_count")),
-        final_rank_candidate_item_count=_non_negative_int(payload.get("final_rank_candidate_item_count")),
-        answer_support_families_considered=_non_negative_int(payload.get("answer_support_families_considered")),
+        final_rank_candidate_item_count=_non_negative_int(
+            payload.get("final_rank_candidate_item_count")
+        ),
+        answer_support_families_considered=_non_negative_int(
+            payload.get("answer_support_families_considered")
+        ),
         answer_support_families_used=_non_negative_int(payload.get("answer_support_families_used")),
         answer_support_items_used=_non_negative_int(payload.get("answer_support_items_used")),
         dropped_by_source_group_cap=_non_negative_int(payload.get("dropped_by_source_group_cap")),
@@ -870,18 +912,12 @@ def _retrieval_trace_entry_from_payload(
         source_refs_with_char_range_count=_non_negative_int(
             payload.get("source_refs_with_char_range_count")
         ),
-        source_refs_with_page_count=_non_negative_int(
-            payload.get("source_refs_with_page_count")
-        ),
-        source_refs_with_bbox_count=_non_negative_int(
-            payload.get("source_refs_with_bbox_count")
-        ),
+        source_refs_with_page_count=_non_negative_int(payload.get("source_refs_with_page_count")),
+        source_refs_with_bbox_count=_non_negative_int(payload.get("source_refs_with_bbox_count")),
         source_refs_with_time_range_count=_non_negative_int(
             payload.get("source_refs_with_time_range_count")
         ),
-        media_time_query_match_count=_non_negative_int(
-            payload.get("media_time_query_match_count")
-        ),
+        media_time_query_match_count=_non_negative_int(payload.get("media_time_query_match_count")),
     )
 
 

@@ -53,6 +53,8 @@ class MemoryFact:
     tags: tuple[str, ...] = ()
     ttl_policy: str | None = None
     expires_at: datetime | None = None
+    repository_id: str | None = None
+    code_scope_id: str | None = None
 
     @classmethod
     def create(
@@ -73,12 +75,16 @@ class MemoryFact:
         tags: tuple[str, ...] = (),
         ttl_policy: str | None = None,
         expires_at: datetime | None = None,
+        repository_id: str | None = None,
+        code_scope_id: str | None = None,
     ) -> MemoryFact:
         if not text.strip():
             raise MemoryValidationError("Active fact text is required")
         if not source_refs:
             raise MemoryValidationError("Active fact requires source refs")
         _validate_taxonomy(tags=tags, ttl_policy=ttl_policy)
+        if code_scope_id is not None and repository_id is None:
+            raise MemoryValidationError("Code scope requires repository")
         return cls(
             id=fact_id,
             space_id=space_id,
@@ -96,6 +102,8 @@ class MemoryFact:
             tags=tuple(tags),
             ttl_policy=ttl_policy,
             expires_at=expires_at,
+            repository_id=repository_id,
+            code_scope_id=code_scope_id,
             created_at=now,
             updated_at=now,
         )
@@ -174,6 +182,7 @@ class MemoryFact:
             return self
         return replace(self, status=FactStatus.DISPUTED, version=self.version + 1, updated_at=now)
 
+
 @dataclass(frozen=True)
 class MemoryFactRelation:
     id: MemoryFactRelationId
@@ -232,6 +241,7 @@ class MemoryFactRelation:
             return self
         return replace(self, status=LifecycleStatus.DELETED, updated_at=now)
 
+
 @dataclass(frozen=True)
 class MemoryEpisode:
     id: MemoryEpisodeId
@@ -287,6 +297,7 @@ class MemoryEpisode:
             metadata=dict(metadata or {}),
         )
 
+
 @dataclass(frozen=True)
 class MemoryDocument:
     id: MemoryDocumentId
@@ -339,6 +350,7 @@ class MemoryDocument:
             updated_at=now,
             classification=_classification_value(classification),
         )
+
 
 @dataclass(frozen=True)
 class MemoryChunk:

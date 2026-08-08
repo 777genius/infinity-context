@@ -4,30 +4,37 @@ from __future__ import annotations
 
 from dataclasses import replace
 from datetime import datetime
-from typing import Any
 
 from infinity_context_core.application.dto import ResolveDuplicateMergeCommand, SuggestionResult
 from infinity_context_core.application.review_payloads import DUPLICATE_FACT_MERGE_REVIEW_KIND
 from infinity_context_core.application.sensitive_text import redact_sensitive_text
+from infinity_context_core.application.suggestion_fact_resolution import (
+    annotate_canonical_review_resolution,
+    annotate_suggestion_reviewer,
+    apply_reviewed_fact_mutation,
+    authorize_suggestion_review,
+    reviewed_fact_decision,
+)
+from infinity_context_core.application.suggestion_resolution_replay import (
+    load_suggestion_resolution_replay,
+    new_suggestion_resolution_receipt,
+    suggestion_resolution_identity,
+)
 from infinity_context_core.domain.entities import (
-    FactStatus,
-    MemoryFact,
-    MemoryFactId,
     MemorySuggestion,
     SuggestionStatus,
-    TrustLevel,
 )
 from infinity_context_core.domain.errors import (
     MemoryConflictError,
     MemoryNotFoundError,
     MemoryValidationError,
 )
-from infinity_context_core.domain.events import OutboxEvent
+from infinity_context_core.features.review_governance.public import (
+    SuggestionResolutionUnitOfWorkFactoryPort,
+)
 from infinity_context_core.ports.clock import ClockPort
 from infinity_context_core.ports.ids import IdGeneratorPort
-from infinity_context_core.ports.unit_of_work import UnitOfWorkFactoryPort
 
-_TRUST_RANK = {TrustLevel.LOW: 1, TrustLevel.MEDIUM: 2, TrustLevel.HIGH: 3}
 _ASSISTANT_SOURCES = {"ai_response", "assistant_answer", "assistant_summary"}
 _DUPLICATE_MERGE_ACTION_ALIASES = {
     "merge_source_refs": "merge_source_refs",
@@ -47,7 +54,7 @@ class ResolveDuplicateMergeUseCase:
     def __init__(
         self,
         *,
-        uow_factory: UnitOfWorkFactoryPort,
+        uow_factory: SuggestionResolutionUnitOfWorkFactoryPort,
         clock: ClockPort,
         ids: IdGeneratorPort,
     ) -> None:
@@ -57,10 +64,43 @@ class ResolveDuplicateMergeUseCase:
 
     async def execute(self, command: ResolveDuplicateMergeCommand) -> SuggestionResult:
         action = _normalize_duplicate_merge_action(command.action)
+        operation = f"resolve_duplicate:{action}"
+        idempotency_key, request_fingerprint = suggestion_resolution_identity(
+            suggestion_id=command.suggestion_id,
+            operation=operation,
+            idempotency_key=command.idempotency_key,
+            request={
+                "action": action,
+                "reason": command.reason,
+                "force": command.force,
+                "actor_id": command.actor_id,
+            },
+        )
         async with self._uow_factory() as uow:
+            replay = await load_suggestion_resolution_replay(
+                uow.suggestion_resolution_receipts,
+                suggestion_id=command.suggestion_id,
+                operation=operation,
+                idempotency_key=idempotency_key,
+                request_fingerprint=request_fingerprint,
+                review_scope=command.review_scope,
+            )
+            if replay is not None:
+                return replay
             suggestion = await uow.suggestions.get_for_update(command.suggestion_id)
             if suggestion is None:
                 raise MemoryNotFoundError("Suggestion not found")
+            replay = await load_suggestion_resolution_replay(
+                uow.suggestion_resolution_receipts,
+                suggestion_id=command.suggestion_id,
+                operation=operation,
+                idempotency_key=idempotency_key,
+                request_fingerprint=request_fingerprint,
+                review_scope=command.review_scope,
+            )
+            if replay is not None:
+                return replay
+            authorize_suggestion_review(suggestion, command.review_scope)
             payload = _duplicate_fact_merge_review_payload(suggestion)
             if suggestion.status != SuggestionStatus.PENDING:
                 raise MemoryConflictError("Only pending duplicate merge suggestion can be resolved")
@@ -74,131 +114,112 @@ class ResolveDuplicateMergeUseCase:
             if action == "reject_candidate":
                 saved = await uow.suggestions.save(
                     _annotate_duplicate_merge_resolution(
-                        suggestion,
+                        annotate_suggestion_reviewer(
+                            suggestion,
+                            actor_id=command.actor_id,
+                            now=now,
+                        ),
                         action=action,
                         effect="keep_existing_fact_without_candidate_source_refs",
                         now=now,
                         reason=reason,
                     ).reject(now=now, reason=reason)
                 )
+                result = SuggestionResult(suggestion=saved)
+                await uow.suggestion_resolution_receipts.create(
+                    new_suggestion_resolution_receipt(
+                        result=result,
+                        operation=operation,
+                        idempotency_key=idempotency_key,
+                        request_fingerprint=request_fingerprint,
+                        outcome=None,
+                        created_at=now,
+                    )
+                )
                 await uow.commit()
-                return SuggestionResult(suggestion=saved)
+                return result
 
             if action == "expire_candidate":
                 saved = await uow.suggestions.save(
                     _annotate_duplicate_merge_resolution(
-                        suggestion,
+                        annotate_suggestion_reviewer(
+                            suggestion,
+                            actor_id=command.actor_id,
+                            now=now,
+                        ),
                         action=action,
                         effect="hide_pending_duplicate_merge_review",
                         now=now,
                         reason=reason,
                     ).expire(now=now, reason=reason)
                 )
+                result = SuggestionResult(suggestion=saved)
+                await uow.suggestion_resolution_receipts.create(
+                    new_suggestion_resolution_receipt(
+                        result=result,
+                        operation=operation,
+                        idempotency_key=idempotency_key,
+                        request_fingerprint=request_fingerprint,
+                        outcome=None,
+                        created_at=now,
+                    )
+                )
                 await uow.commit()
-                return SuggestionResult(suggestion=saved)
+                return result
 
             _ensure_duplicate_candidate_has_independent_source(suggestion)
-            duplicate_fact = await _load_duplicate_merge_fact_for_resolution(
-                uow,
-                suggestion=suggestion,
-            )
             expected_version = _duplicate_merge_target_version(payload, suggestion)
-            if duplicate_fact.version != expected_version:
-                raise MemoryConflictError("Stale duplicate fact version")
-
-            if action == "merge_source_refs":
-                return await _merge_source_refs(
-                    uow,
-                    suggestion=suggestion,
-                    duplicate_fact=duplicate_fact,
-                    expected_version=expected_version,
-                    reason=reason,
-                    now=now,
-                    force=command.force,
-                )
-
-            return await _keep_candidate_separate(
-                uow,
-                ids=self._ids,
-                suggestion=suggestion,
-                duplicate_fact=duplicate_fact,
+            decision = reviewed_fact_decision(
+                suggestion,
+                actor_id=command.actor_id,
                 reason=reason,
                 now=now,
+                allow_weaker=command.force,
+                target_fact_version=expected_version,
             )
-
-
-async def _merge_source_refs(
-    uow: Any,
-    *,
-    suggestion: MemorySuggestion,
-    duplicate_fact: MemoryFact,
-    expected_version: int,
-    reason: str,
-    now: datetime,
-    force: bool,
-) -> SuggestionResult:
-    if _TRUST_RANK[suggestion.trust_level] < _TRUST_RANK[duplicate_fact.trust_level] and not force:
-        raise MemoryConflictError("Weak duplicate suggestion cannot merge stronger fact")
-    fact = duplicate_fact.merge_source_refs(
-        expected_version=expected_version,
-        source_refs=suggestion.source_refs,
-        reason=reason,
-        now=now,
-    )
-    fact = await uow.facts.save(fact)
-    reviewed = _annotate_duplicate_merge_resolution(
-        suggestion,
-        action="merge_source_refs",
-        effect="merge_source_refs_into_existing_fact",
-        now=now,
-        reason=reason,
-        duplicate_fact=duplicate_fact,
-        applied_fact=fact,
-    ).approve(now=now, reason=reason)
-    saved = await uow.suggestions.save(reviewed)
-    await _enqueue_fact_projection(uow, fact)
-    await uow.commit()
-    return SuggestionResult(suggestion=saved, fact=fact, indexing_status="pending")
-
-
-async def _keep_candidate_separate(
-    uow: Any,
-    *,
-    ids: IdGeneratorPort,
-    suggestion: MemorySuggestion,
-    duplicate_fact: MemoryFact,
-    reason: str,
-    now: datetime,
-) -> SuggestionResult:
-    fact = MemoryFact.create(
-        fact_id=MemoryFactId(ids.new_id("fact")),
-        space_id=suggestion.space_id,
-        memory_scope_id=suggestion.memory_scope_id,
-        text=suggestion.candidate_text,
-        kind=suggestion.kind,
-        source_refs=suggestion.source_refs,
-        confidence=suggestion.confidence,
-        trust_level=suggestion.trust_level,
-        category=suggestion.category,
-        tags=suggestion.tags,
-        ttl_policy=suggestion.ttl_policy,
-        expires_at=suggestion.expires_at,
-        now=now,
-    )
-    fact = await uow.facts.create(fact)
-    reviewed = _annotate_duplicate_merge_resolution(
-        suggestion,
-        action="keep_separate_fact",
-        effect="create_new_fact_keep_existing_fact",
-        now=now,
-        reason=reason,
-        duplicate_fact=duplicate_fact,
-        applied_fact=fact,
-    ).approve(now=now, reason=reason)
-    saved = await uow.suggestions.save(reviewed)
-    await _enqueue_fact_projection(uow, fact)
-    await uow.commit()
-    return SuggestionResult(suggestion=saved, fact=fact, indexing_status="pending")
+            if action == "merge_source_refs":
+                outcome = await apply_reviewed_fact_mutation(
+                    uow.reviewed_facts.attach_evidence(decision)
+                )
+                resolution_kind = "attach_evidence"
+                effect = "merge_source_refs_into_existing_fact"
+            else:
+                outcome = await apply_reviewed_fact_mutation(
+                    uow.reviewed_facts.remember(replace(decision, target=None))
+                )
+                resolution_kind = "remember_separate"
+                effect = "create_new_fact_keep_existing_fact"
+            reviewed = annotate_canonical_review_resolution(
+                _annotate_duplicate_merge_resolution(
+                    suggestion,
+                    action=action,
+                    effect=effect,
+                    now=now,
+                    reason=reason,
+                ),
+                outcome=outcome,
+                resolution_kind=resolution_kind,
+                actor_id=command.actor_id,
+                now=now,
+            ).approve(now=now, reason=reason)
+            saved = await uow.suggestions.save(reviewed)
+            result = SuggestionResult(
+                suggestion=saved,
+                fact=outcome.primary_fact,
+                indexing_status="pending",
+            )
+            await uow.suggestion_resolution_receipts.create(
+                new_suggestion_resolution_receipt(
+                    result=result,
+                    operation=operation,
+                    idempotency_key=idempotency_key,
+                    request_fingerprint=request_fingerprint,
+                    outcome=outcome,
+                    created_at=now,
+                )
+            )
+            await uow.commit()
+            return result
 
 
 def _normalize_duplicate_merge_action(action: str) -> str:
@@ -233,23 +254,6 @@ def _duplicate_merge_target_version(
     raise MemoryValidationError("Duplicate merge review requires duplicate_fact_version")
 
 
-async def _load_duplicate_merge_fact_for_resolution(
-    uow: Any,
-    *,
-    suggestion: MemorySuggestion,
-) -> MemoryFact:
-    if suggestion.target_fact_id is None:
-        raise MemoryValidationError("Duplicate merge review requires target_fact_id")
-    fact = await uow.facts.get_for_update(str(suggestion.target_fact_id))
-    if fact is None:
-        raise MemoryNotFoundError("Duplicate fact not found")
-    if fact.space_id != suggestion.space_id or fact.memory_scope_id != suggestion.memory_scope_id:
-        raise MemoryConflictError("Duplicate fact scope mismatch")
-    if fact.status == FactStatus.DELETED:
-        raise MemoryConflictError("Deleted duplicate fact cannot be resolved")
-    return fact
-
-
 def _ensure_duplicate_candidate_has_independent_source(suggestion: MemorySuggestion) -> None:
     if not any(ref.source_type not in _ASSISTANT_SOURCES for ref in suggestion.source_refs):
         raise MemoryValidationError("Duplicate merge resolution requires non-assistant source refs")
@@ -273,8 +277,6 @@ def _annotate_duplicate_merge_resolution(
     effect: str,
     now: datetime,
     reason: str,
-    duplicate_fact: MemoryFact | None = None,
-    applied_fact: MemoryFact | None = None,
 ) -> MemorySuggestion:
     payload = dict(suggestion.review_payload or {})
     updates: dict[str, object] = {
@@ -283,25 +285,5 @@ def _annotate_duplicate_merge_resolution(
         "resolved_at": now.isoformat(),
         "resolution_reason": redact_sensitive_text(reason)[:320],
     }
-    if duplicate_fact is not None:
-        updates["resolved_duplicate_fact_id"] = str(duplicate_fact.id)
-        updates["resolved_duplicate_fact_version"] = duplicate_fact.version
-        updates["resolved_duplicate_fact_status"] = duplicate_fact.status.value
-    if applied_fact is not None:
-        updates["resolved_fact_id"] = str(applied_fact.id)
-        updates["resolved_fact_version"] = applied_fact.version
-        updates["resolved_fact_status"] = applied_fact.status.value
     payload.update(updates)
     return replace(suggestion, review_payload=payload, updated_at=now)
-
-
-async def _enqueue_fact_projection(uow: Any, fact: MemoryFact) -> None:
-    await uow.outbox.enqueue(
-        OutboxEvent(
-            event_type="graph.upsert_fact",
-            aggregate_type="fact",
-            aggregate_id=str(fact.id),
-            aggregate_version=fact.version,
-            payload={"fact_id": str(fact.id), "version": fact.version},
-        )
-    )

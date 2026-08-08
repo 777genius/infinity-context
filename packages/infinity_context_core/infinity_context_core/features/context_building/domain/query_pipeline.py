@@ -142,6 +142,8 @@ class ContextQueryNormalizationPolicy:
             intent=_normalize_label(query.intent) or "answer",
             as_of=query.as_of,
             tags=normalized_tags,
+            repository_id=query.repository_id,
+            code_scope_id=query.code_scope_id,
         )
         return NormalizedContextQuery(
             original_query=query,
@@ -155,9 +157,7 @@ class ContextQueryNormalizationPolicy:
 class ContextQueryExpansionPolicy:
     """Build deterministic query variants from normalized text, terms and tags."""
 
-    normalization_policy: ContextQueryNormalizationPolicy = (
-        ContextQueryNormalizationPolicy()
-    )
+    normalization_policy: ContextQueryNormalizationPolicy = ContextQueryNormalizationPolicy()
     max_variants: int = 6
     max_terms_per_variant: int = 6
     include_tag_variants: bool = True

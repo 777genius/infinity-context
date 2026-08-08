@@ -105,16 +105,21 @@ def test_memory_facts_server_feature_public_surface_composes_router() -> None:
     assert server_public.__all__ == tuple(
         (  # noqa: SIM905 - keep the exact ordered public surface compact.
             "CreateSuggestionBatchItemRequest CreateSuggestionRequest CreateSuggestionsBatchRequest "  # noqa: E501
-            "ForgetFactHttpRequest LinkFactRequest MemoryFactSourceRefHttpRequest "
+            "ForgetFactHttpRequest ConfirmFactHttpRequest DisputeFactHttpRequest "
+            "EndFactValidityHttpRequest LinkFactRequest MemoryFactSourceRefHttpRequest "
+            "MemoryFactEpistemicContextHttpRequest MemoryFactFreshnessHttpRequest "
+            "MemoryFactRetentionHttpRequest MemoryFactTemporalHttpRequest "
             "MemoryFactsServerComposition MemoryFactsServerFeature RememberFactRequest "
             "RememberFactHttpRequest ResolveDuplicateMergeRequest "
-            "ResolveSuggestionConflictRequest ReviewSuggestionBatchItemRequest "
+            "ResolveSuggestionConflictRequest ReinstateSupersessionHttpRequest "
+            "ReviewSuggestionBatchItemRequest "
             "ReviewSuggestionRequest ReviewSuggestionsBatchRequest SourceRefRequest "
-            "UpdateFactRequest UpdateFactHttpRequest FEATURE_ID "
+            "SupersedeFactHttpRequest UpdateFactRequest UpdateFactHttpRequest FEATURE_ID "
             "build_memory_facts_server_composition build_memory_facts_server_feature "
             "create_memory_facts_router create_suggestion_command_from_v1_request "
             "create_suggestions_batch_to_response create_suggestions_batch_command_from_v1_request "
-            "evidence_ref_request_to_public evidence_ref_to_response fact_relation_item_to_response "  # noqa: E501
+            "evidence_ref_request_to_public evidence_ref_to_response confirm_fact_command "
+            "dispute_facts_command end_fact_validity_command fact_relation_item_to_response "
             "fact_relation_to_response fact_result_to_response fact_to_response "
             "forget_fact_command_from_v1_path forget_fact_command_from_http "
             "forget_fact_request_to_command forget_fact_result_to_contract legacy_interview_kind "
@@ -124,11 +129,14 @@ def test_memory_facts_server_feature_public_surface_composes_router() -> None:
             "memory_fact_scope_from_contract memory_fact_scope_from_ids "
             "memory_fact_snapshot_to_contract memory_fact_snapshot_to_response "
             "normalize_suggestion_tag_filter related_fact_to_response "
+            "reinstate_supersession_command "
             "remember_fact_command_from_v1_request remember_fact_command_from_contract "
             "remember_fact_request_to_command remember_fact_result_to_contract "
             "review_suggestions_batch_command_from_v1_request review_suggestions_batch_to_response "
             "source_ref_from_v1_request source_ref_request_to_public source_ref_to_contract "
             "source_ref_to_response suggestion_result_to_response suggestion_to_response "
+            "supersede_fact_command supersession_relation_to_response "
+            "temporal_decision_to_response "
             "unlink_fact_relation_command_from_v1_path update_fact_command_from_v1_request "
             "update_fact_command_from_http update_fact_request_to_command update_fact_result_to_contract "  # noqa: E501
             "validate_fact_status_filter validate_fact_relation_status_filter "
@@ -796,9 +804,9 @@ def test_v1_facts_route_delegates_write_mapping_to_feature_public_seam() -> None
     assert "def fact_relation_to_response" not in source
     assert "def fact_relation_item_to_response" not in source
     assert "infinity_context_server.api.public_payload" not in _imports(API_FACTS_PATH)
-    assert "memory_facts_feature.remember_fact_command_from_v1_request" in source
-    assert "memory_facts_feature.update_fact_command_from_v1_request" in source
-    assert "memory_facts_feature.forget_fact_command_from_v1_path" in source
+    assert "memory_facts_feature.remember_fact_request_to_command" in source
+    assert "memory_facts_feature.update_fact_request_to_command" in source
+    assert "memory_facts_feature.forget_fact_request_to_command" in source
     assert "memory_facts_feature.link_fact_relation_command_from_v1_request" in source
     assert "memory_facts_feature.unlink_fact_relation_command_from_v1_path" in source
     assert "memory_facts_feature.memory_kind_from_v1_request" in source

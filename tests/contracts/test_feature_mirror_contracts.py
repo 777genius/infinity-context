@@ -117,6 +117,9 @@ def test_context_building_contracts_serialize_to_plain_json_dicts() -> None:
         "memory_scope_external_ref": None,
         "memory_scope_external_refs": ["default", "candidate"],
         "thread_external_ref": "session_1",
+        "repository_id": None,
+        "code_scope_id": None,
+        "as_of": None,
         "budget": {
             "max_context_tokens": 1200,
             "reserved_response_tokens": 300,
@@ -325,10 +328,13 @@ def test_memory_scope_contracts_serialize_create_and_transfer_shapes() -> None:
         },
         "created": True,
     }
-    assert TransferMemoryScopeResultDto(
-        scope=transferred_scope,
-        previous_space_id="space_client_app",
-    ).to_dict()["data"]["previous_space_id"] == "space_client_app"
+    assert (
+        TransferMemoryScopeResultDto(
+            scope=transferred_scope,
+            previous_space_id="space_client_app",
+        ).to_dict()["data"]["previous_space_id"]
+        == "space_client_app"
+    )
     json.dumps(CreateMemoryScopeResultDto(scope=created_scope).to_dict(), sort_keys=True)
 
 

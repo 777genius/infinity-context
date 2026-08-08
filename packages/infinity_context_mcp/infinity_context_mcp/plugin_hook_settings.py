@@ -8,6 +8,8 @@ from dataclasses import dataclass
 from enum import StrEnum
 from pathlib import Path
 
+from infinity_context_mcp.workspace_binding import HookProjectScopeMode
+
 NO_DEFAULT_THREAD_SENTINEL = "__INFINITY_CONTEXT_NO_DEFAULT_THREAD__"
 NO_DEFAULT_THREAD_SENTINELS = frozenset({NO_DEFAULT_THREAD_SENTINEL})
 
@@ -49,6 +51,20 @@ class HookSettings:
     transcript_tail_mode: str
     transcript_tail_max_chars: int
     verbose: bool
+    project_scope_mode: HookProjectScopeMode
+    project_repository_id: str | None
+    project_bindings_file: str | None
+    project_git_remote: str | None
+
+    def __post_init__(self) -> None:
+        if (
+            self.project_scope_mode is HookProjectScopeMode.AUTO_LOCKED
+            and self.capture_mode is HookCaptureMode.EPISODES
+        ):
+            raise ValueError(
+                "AUTO_LOCKED project scope requires repository-aware captures; "
+                "episode capture is not supported"
+            )
 
     @classmethod
     def from_env(cls, env: Mapping[str, str] | None = None) -> HookSettings:
@@ -72,17 +88,11 @@ class HookSettings:
         auto_memory_mode = setting("MEMORY_AUTO_MEMORY_MODE")
         memory_mode = _hook_memory_mode(
             auto_memory_mode or setting("MEMORY_CAPTURE_MODE", "retrieve_only"),
-            name=(
-                "MEMORY_AUTO_MEMORY_MODE"
-                if auto_memory_mode
-                else "MEMORY_CAPTURE_MODE"
-            ),
+            name=("MEMORY_AUTO_MEMORY_MODE" if auto_memory_mode else "MEMORY_CAPTURE_MODE"),
         )
         return cls(
             api_url=setting("MEMORY_MCP_API_URL", "http://127.0.0.1:7788").rstrip("/"),
-            auth_token=setting("MEMORY_MCP_AUTH_TOKEN")
-            or setting("MEMORY_SERVICE_TOKEN")
-            or None,
+            auth_token=setting("MEMORY_MCP_AUTH_TOKEN") or setting("MEMORY_SERVICE_TOKEN") or None,
             default_space_slug=setting("MEMORY_MCP_DEFAULT_SPACE_SLUG", "default"),
             default_memory_scope_external_ref=setting(
                 "MEMORY_MCP_DEFAULT_MEMORY_SCOPE_EXTERNAL_REF", "default"
@@ -140,6 +150,12 @@ class HookSettings:
                 "MEMORY_PLUGIN_HOOK_TRANSCRIPT_TAIL_MAX_CHARS",
             ),
             verbose=_bool(setting("MEMORY_PLUGIN_HOOK_VERBOSE", "false")),
+            project_scope_mode=_project_scope_mode(
+                setting("MEMORY_PLUGIN_PROJECT_SCOPE_MODE", "explicit")
+            ),
+            project_repository_id=(setting("MEMORY_PLUGIN_PROJECT_REPOSITORY_ID") or None),
+            project_bindings_file=(setting("MEMORY_PLUGIN_PROJECT_BINDINGS_FILE") or None),
+            project_git_remote=setting("MEMORY_PLUGIN_GIT_REMOTE") or None,
         )
 
 
@@ -204,8 +220,7 @@ def _hook_memory_mode(
         return HookMemoryMode(mode)
     except ValueError as exc:
         raise ValueError(
-            f"{name} must be off, retrieve_only, capture_only, "
-            "suggest, or auto_apply_safe"
+            f"{name} must be off, retrieve_only, capture_only, suggest, or auto_apply_safe"
         ) from exc
 
 
@@ -224,6 +239,15 @@ def _hook_capture_mode(*, explicit_value: str, memory_mode: HookMemoryMode) -> H
     }:
         return HookCaptureMode.CAPTURES
     return HookCaptureMode.OFF
+
+
+def _project_scope_mode(value: str) -> HookProjectScopeMode:
+    try:
+        return HookProjectScopeMode(value.strip().lower())
+    except ValueError as exc:
+        raise ValueError(
+            "MEMORY_PLUGIN_PROJECT_SCOPE_MODE must be explicit, shadow, or auto_locked"
+        ) from exc
 
 
 def _positive_float(value: str, name: str) -> float:

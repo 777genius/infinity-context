@@ -15,6 +15,8 @@ from infinity_context_core.domain.entities import (
     SpaceId,
     ThreadId,
 )
+from infinity_context_core.features.memory_facts.public import MemoryFactSnapshot
+from infinity_context_core.features.review_governance.public import SuggestionReviewScope
 from infinity_context_core.ports.capabilities import ConsistencyMode as ConsistencyMode
 
 
@@ -41,17 +43,21 @@ class CreateSuggestionCommand:
     review_payload: dict[str, object] | None = None
     auto_approve: bool = False
 
+
 @dataclass(frozen=True)
 class CreateSuggestionsBatchCommand:
     items: tuple[CreateSuggestionCommand, ...]
     continue_on_error: bool = False
 
+
 @dataclass(frozen=True)
 class SuggestionResult:
     suggestion: MemorySuggestion
-    fact: MemoryFact | None = None
+    fact: MemoryFact | MemoryFactSnapshot | None = None
     indexing_status: str | None = None
     created: bool = True
+    replayed: bool = False
+
 
 @dataclass(frozen=True)
 class CreateSuggestionBatchItemResult:
@@ -61,6 +67,7 @@ class CreateSuggestionBatchItemResult:
     error_code: str | None = None
     error_message: str | None = None
 
+
 @dataclass(frozen=True)
 class CreateSuggestionsBatchResult:
     created: int
@@ -68,6 +75,7 @@ class CreateSuggestionsBatchResult:
     failed: int
     stopped: bool
     results: tuple[CreateSuggestionBatchItemResult, ...]
+
 
 @dataclass(frozen=True)
 class ListSuggestionsQuery:
@@ -79,21 +87,34 @@ class ListSuggestionsQuery:
     tag: str | None = None
     limit: int = 100
 
+
 @dataclass(frozen=True)
 class ApproveSuggestionCommand:
     suggestion_id: str
     reason: str | None = None
     force: bool = False
+    actor_id: str = "legacy-reviewer"
+    review_scope: SuggestionReviewScope | None = None
+    idempotency_key: str | None = None
+
 
 @dataclass(frozen=True)
 class RejectSuggestionCommand:
     suggestion_id: str
     reason: str | None = None
+    actor_id: str = "legacy-reviewer"
+    review_scope: SuggestionReviewScope | None = None
+    idempotency_key: str | None = None
+
 
 @dataclass(frozen=True)
 class ExpireSuggestionCommand:
     suggestion_id: str
     reason: str | None = None
+    actor_id: str = "legacy-reviewer"
+    review_scope: SuggestionReviewScope | None = None
+    idempotency_key: str | None = None
+
 
 @dataclass(frozen=True)
 class ResolveSuggestionConflictCommand:
@@ -101,6 +122,10 @@ class ResolveSuggestionConflictCommand:
     action: str
     reason: str | None = None
     force: bool = False
+    actor_id: str = "legacy-reviewer"
+    review_scope: SuggestionReviewScope | None = None
+    idempotency_key: str | None = None
+
 
 @dataclass(frozen=True)
 class ResolveDuplicateMergeCommand:
@@ -108,6 +133,10 @@ class ResolveDuplicateMergeCommand:
     action: str
     reason: str | None = None
     force: bool = False
+    actor_id: str = "legacy-reviewer"
+    review_scope: SuggestionReviewScope | None = None
+    idempotency_key: str | None = None
+
 
 @dataclass(frozen=True)
 class ReviewSuggestionBatchItemCommand:
@@ -115,11 +144,16 @@ class ReviewSuggestionBatchItemCommand:
     action: str
     reason: str | None = None
     force: bool = False
+    idempotency_key: str | None = None
+
 
 @dataclass(frozen=True)
 class ReviewSuggestionsBatchCommand:
     items: tuple[ReviewSuggestionBatchItemCommand, ...]
     continue_on_error: bool = False
+    actor_id: str = "legacy-reviewer"
+    review_scope: SuggestionReviewScope | None = None
+
 
 @dataclass(frozen=True)
 class ReviewSuggestionBatchItemResult:
@@ -130,12 +164,14 @@ class ReviewSuggestionBatchItemResult:
     error_code: str | None = None
     error_message: str | None = None
 
+
 @dataclass(frozen=True)
 class ReviewSuggestionsBatchResult:
     applied: int
     failed: int
     stopped: bool
     results: tuple[ReviewSuggestionBatchItemResult, ...]
+
 
 @dataclass(frozen=True)
 class ReceiveCaptureCommand:
@@ -165,6 +201,7 @@ class ReceiveCaptureCommand:
     idempotency_key: str | None = None
     consolidate: bool = True
 
+
 @dataclass(frozen=True)
 class CaptureResult:
     capture: CanonicalCapture
@@ -173,6 +210,7 @@ class CaptureResult:
     suggestion_ids: tuple[str, ...] = ()
     auto_applied_facts: int = 0
     auto_applied_fact_ids: tuple[str, ...] = ()
+
 
 @dataclass(frozen=True)
 class ListCapturesQuery:
@@ -184,14 +222,17 @@ class ListCapturesQuery:
     cursor_created_at: datetime | None = None
     cursor_id: str | None = None
 
+
 @dataclass(frozen=True)
 class GetCaptureQuery:
     capture_id: str
+
 
 @dataclass(frozen=True)
 class PurgeCaptureCommand:
     capture_id: str
     reason: str = "privacy_purge"
+
 
 @dataclass(frozen=True)
 class ConsolidateCaptureCommand:

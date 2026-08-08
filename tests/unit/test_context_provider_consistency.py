@@ -66,6 +66,8 @@ from infinity_context_server.provider_circuit import (
 from sqlalchemy import event, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from tests.context_temporal_test_support import audited_supersede, state_temporal
+
 
 def make_client(tmp_path: Path) -> TestClient:
     app = create_app(
@@ -2237,6 +2239,7 @@ def test_context_replaces_superseded_fact_with_active_temporal_relation(
                 "text": "TEMPORAL_OLD_FACT: legacy cache TTL is 7 days.",
                 "kind": "architecture_decision",
                 "source_refs": [{"source_type": "manual", "source_id": "old-cache-ttl"}],
+                "temporal": state_temporal("2025-01-01T00:00:00+00:00"),
             },
             headers=auth_headers(),
         )
@@ -2248,18 +2251,16 @@ def test_context_replaces_superseded_fact_with_active_temporal_relation(
                 "text": "TEMPORAL_NEW_FACT: cache TTL is 24 hours.",
                 "kind": "architecture_decision",
                 "source_refs": [{"source_type": "manual", "source_id": "new-cache-ttl"}],
+                "temporal": state_temporal("2026-01-01T00:00:00+00:00"),
             },
             headers=auth_headers(),
         )
-        relation = client.post(
-            f"/v1/facts/{new_fact.json()['data']['id']}/relations",
-            json={
-                "target_fact_id": old_fact.json()["data"]["id"],
-                "relation_type": "supersedes",
-                "reason": "New cache TTL decision replaces legacy TTL.",
-                "valid_from": "2026-01-01T00:00:00+00:00",
-            },
-            headers=auth_headers(),
+        relation = audited_supersede(
+            client,
+            predecessor_fact_id=old_fact.json()["data"]["id"],
+            successor_fact_id=new_fact.json()["data"]["id"],
+            effective_at="2026-01-01T00:00:00+00:00",
+            idempotency_key="context-cache-ttl-supersede",
         )
         context = client.post(
             "/v1/context",
@@ -2274,21 +2275,19 @@ def test_context_replaces_superseded_fact_with_active_temporal_relation(
 
     assert old_fact.status_code == 201
     assert new_fact.status_code == 201
-    assert relation.status_code == 201
+    assert relation.status_code == 200
     assert context.status_code == 200
     data = context.json()["data"]
     assert "TEMPORAL_NEW_FACT" in data["rendered_text"]
     assert "TEMPORAL_OLD_FACT" not in data["rendered_text"]
-    assert data["diagnostics"]["temporal_replacements_applied"] == 1
-    assert "temporal_supersedes_relation" in data["diagnostics"]["retrieval_sources_used"]
+    assert relation.json()["data"]["predecessor"]["status"] == "superseded"
+    assert relation.json()["data"]["successor"]["status"] == "active"
+    assert data["diagnostics"]["temporal_replacements_applied"] == 0
     replacement = next(
         item for item in data["items"] if item["item_id"] == new_fact.json()["data"]["id"]
     )
-    assert replacement["diagnostics"]["retrieval_source"] == "temporal_supersedes_relation"
-    assert (
-        replacement["diagnostics"]["temporal_replacement_for_fact_id"]
-        == old_fact.json()["data"]["id"]
-    )
+    assert replacement["diagnostics"]["fact_status"] == "active"
+    assert replacement["diagnostics"]["temporal_currentness"] == "current"
 
 
 def test_context_replaces_linked_superseded_fact_after_approved_link_expansion(
@@ -2300,9 +2299,10 @@ def test_context_replaces_linked_superseded_fact_after_approved_link_expansion(
             json={
                 "space_id": "space_client_app",
                 "memory_scope_id": "memory_scope_default",
-                "text": "LINKED_TEMPORAL_OLD_FACT: Atlas launch owner was Alex.",
+                "text": "LINKED_TEMPORAL_OLD_FACT: Project Atlas launch owner was Alex.",
                 "kind": "architecture_decision",
                 "source_refs": [{"source_type": "manual", "source_id": "linked-old-owner"}],
+                "temporal": state_temporal("2025-01-01T00:00:00+00:00"),
             },
             headers=auth_headers(),
         )
@@ -2311,9 +2311,10 @@ def test_context_replaces_linked_superseded_fact_after_approved_link_expansion(
             json={
                 "space_id": "space_client_app",
                 "memory_scope_id": "memory_scope_default",
-                "text": "LINKED_TEMPORAL_NEW_FACT: Atlas launch owner is Dana.",
+                "text": "LINKED_TEMPORAL_NEW_FACT: Dana owns rollout operations.",
                 "kind": "architecture_decision",
                 "source_refs": [{"source_type": "manual", "source_id": "linked-new-owner"}],
+                "temporal": state_temporal("2026-01-01T00:00:00+00:00"),
             },
             headers=auth_headers(),
         )
@@ -2345,15 +2346,12 @@ def test_context_replaces_linked_superseded_fact_after_approved_link_expansion(
             },
             headers=auth_headers(),
         )
-        relation = client.post(
-            f"/v1/facts/{new_fact.json()['data']['id']}/relations",
-            json={
-                "target_fact_id": old_fact.json()["data"]["id"],
-                "relation_type": "supersedes",
-                "reason": "New launch owner replaces the old linked owner fact.",
-                "valid_from": "2026-01-01T00:00:00+00:00",
-            },
-            headers=auth_headers(),
+        relation = audited_supersede(
+            client,
+            predecessor_fact_id=old_fact.json()["data"]["id"],
+            successor_fact_id=new_fact.json()["data"]["id"],
+            effective_at="2026-01-01T00:00:00+00:00",
+            idempotency_key="context-linked-owner-supersede",
         )
         context = client.post(
             "/v1/context",
@@ -2372,23 +2370,25 @@ def test_context_replaces_linked_superseded_fact_after_approved_link_expansion(
     assert new_fact.status_code == 201, new_fact.text
     assert anchor.status_code == 200, anchor.text
     assert link.status_code == 200, link.text
-    assert relation.status_code == 201, relation.text
+    assert relation.status_code == 200, relation.text
     assert context.status_code == 200, context.text
     data = context.json()["data"]
     assert "project: Project Atlas" in data["rendered_text"]
     assert "LINKED_TEMPORAL_NEW_FACT" in data["rendered_text"]
     assert "LINKED_TEMPORAL_OLD_FACT" not in data["rendered_text"]
     assert data["diagnostics"]["approved_context_linked_facts_used"] == 1
+    assert data["diagnostics"]["stale_context_linked_fact_drop_count"] == 0
     assert data["diagnostics"]["linked_temporal_replacements_applied"] == 1
-    assert "temporal_supersedes_relation" in data["diagnostics"]["retrieval_sources_used"]
     replacement = next(
         item for item in data["items"] if item["item_id"] == new_fact.json()["data"]["id"]
     )
-    assert replacement["diagnostics"]["retrieval_source"] == "temporal_supersedes_relation"
-    assert (
-        replacement["diagnostics"]["temporal_replacement_for_fact_id"]
-        == old_fact.json()["data"]["id"]
-    )
+    assert replacement["diagnostics"]["fact_status"] == "active"
+    assert replacement["diagnostics"]["temporal_currentness"] == "current"
+    assert replacement["diagnostics"]["temporal_replacement_for_fact_id"] == old_fact.json()[
+        "data"
+    ]["id"]
+    assert "approved_context_linked_facts" in replacement["diagnostics"]["retrieval_sources"]
+    assert "temporal_supersedes_relation" in replacement["diagnostics"]["retrieval_sources"]
 
 
 def test_context_resolves_relative_time_query_to_current_fact(
@@ -2403,6 +2403,7 @@ def test_context_resolves_relative_time_query_to_current_fact(
                 "text": ("RELATIVE_TIME_OLD_FACT: billing rollout owner was Alex last week."),
                 "kind": "architecture_decision",
                 "source_refs": [{"source_type": "manual", "source_id": "relative-old"}],
+                "temporal": state_temporal("2026-06-11T00:00:00+00:00"),
             },
             headers=auth_headers(),
         )
@@ -2414,19 +2415,16 @@ def test_context_resolves_relative_time_query_to_current_fact(
                 "text": "RELATIVE_TIME_CURRENT_FACT: billing rollout owner is Priya now.",
                 "kind": "architecture_decision",
                 "source_refs": [{"source_type": "manual", "source_id": "relative-current"}],
+                "temporal": state_temporal("2026-06-18T00:00:00+00:00"),
             },
             headers=auth_headers(),
         )
-        relation = client.post(
-            f"/v1/facts/{current_fact.json()['data']['id']}/relations",
-            json={
-                "target_fact_id": old_fact.json()["data"]["id"],
-                "relation_type": "supersedes",
-                "reason": "Current rollout ownership replaced last week's owner.",
-                "observed_at": "2026-06-18T09:00:00+00:00",
-                "valid_from": "2026-06-18T00:00:00+00:00",
-            },
-            headers=auth_headers(),
+        relation = audited_supersede(
+            client,
+            predecessor_fact_id=old_fact.json()["data"]["id"],
+            successor_fact_id=current_fact.json()["data"]["id"],
+            effective_at="2026-06-18T00:00:00+00:00",
+            idempotency_key="context-relative-owner-supersede",
         )
         context = client.post(
             "/v1/context",
@@ -2442,26 +2440,20 @@ def test_context_resolves_relative_time_query_to_current_fact(
 
     assert old_fact.status_code == 201
     assert current_fact.status_code == 201
-    assert relation.status_code == 201
+    assert relation.status_code == 200
     assert context.status_code == 200
     data = context.json()["data"]
     assert "RELATIVE_TIME_CURRENT_FACT" in data["rendered_text"]
     assert "RELATIVE_TIME_OLD_FACT" not in data["rendered_text"]
-    assert data["diagnostics"]["temporal_replacements_applied"] == 1
+    assert data["diagnostics"]["temporal_replacements_applied"] == 0
     replacement = next(
         item for item in data["items"] if item["item_id"] == current_fact.json()["data"]["id"]
     )
-    assert replacement["diagnostics"]["ranking_reason"] == (
-        "active fact supersedes a matched older fact"
-    )
-    assert replacement["diagnostics"]["provenance"]["valid_from"].startswith("2026-06-18")
-    assert (
-        replacement["diagnostics"]["provenance"]["supersedes_fact_id"]
-        == (old_fact.json()["data"]["id"])
-    )
+    assert replacement["diagnostics"]["temporal_currentness"] == "current"
+    assert replacement["diagnostics"]["valid_from"].startswith("2026-06-18")
 
 
-def test_context_ignores_future_and_expired_supersedes_relations_by_default(
+def test_context_rejects_scheduled_and_unaudited_supersession_relations(
     tmp_path: Path,
 ) -> None:
     with make_client(tmp_path) as client:
@@ -2473,6 +2465,7 @@ def test_context_ignores_future_and_expired_supersedes_relations_by_default(
                 "text": "TEMPORAL_FUTURE_OLD_FACT: legacy retention is 90 days.",
                 "kind": "architecture_decision",
                 "source_refs": [{"source_type": "manual", "source_id": "future-old"}],
+                "temporal": state_temporal("2026-01-01T00:00:00+00:00"),
             },
             headers=auth_headers(),
         )
@@ -2484,6 +2477,11 @@ def test_context_ignores_future_and_expired_supersedes_relations_by_default(
                 "text": "TEMPORAL_FUTURE_NEW_FACT: retention will become 7 days.",
                 "kind": "architecture_decision",
                 "source_refs": [{"source_type": "manual", "source_id": "future-new"}],
+                "temporal": {
+                    "kind": "state",
+                    "observed_at": "2026-01-01T00:00:00+00:00",
+                    "valid_from": "2099-01-01T00:00:00+00:00",
+                },
             },
             headers=auth_headers(),
         )
@@ -2509,15 +2507,12 @@ def test_context_ignores_future_and_expired_supersedes_relations_by_default(
             },
             headers=auth_headers(),
         )
-        future_relation = client.post(
-            f"/v1/facts/{future_new.json()['data']['id']}/relations",
-            json={
-                "target_fact_id": future_old.json()["data"]["id"],
-                "relation_type": "supersedes",
-                "reason": "Future policy is not active yet.",
-                "valid_from": "2099-01-01T00:00:00+00:00",
-            },
-            headers=auth_headers(),
+        future_relation = audited_supersede(
+            client,
+            predecessor_fact_id=future_old.json()["data"]["id"],
+            successor_fact_id=future_new.json()["data"]["id"],
+            effective_at="2099-01-01T00:00:00+00:00",
+            idempotency_key="context-future-supersede",
         )
         expired_relation = client.post(
             f"/v1/facts/{expired_new.json()['data']['id']}/relations",
@@ -2546,8 +2541,8 @@ def test_context_ignores_future_and_expired_supersedes_relations_by_default(
     assert future_new.status_code == 201
     assert expired_old.status_code == 201
     assert expired_new.status_code == 201
-    assert future_relation.status_code == 201
-    assert expired_relation.status_code == 201
+    assert future_relation.status_code == 400
+    assert expired_relation.status_code == 400
     assert context.status_code == 200
     data = context.json()["data"]
     assert "TEMPORAL_FUTURE_OLD_FACT" in data["rendered_text"]
@@ -2555,7 +2550,7 @@ def test_context_ignores_future_and_expired_supersedes_relations_by_default(
     assert "TEMPORAL_FUTURE_NEW_FACT" not in data["rendered_text"]
     assert "TEMPORAL_EXPIRED_NEW_FACT" not in data["rendered_text"]
     assert data["diagnostics"]["temporal_replacements_applied"] == 0
-    assert data["diagnostics"]["temporal_relations_skipped_by_validity"] == 2
+    assert data["diagnostics"]["temporal_relations_skipped_by_validity"] == 0
 
 
 def test_context_batches_temporal_relation_lookup_for_multiple_fact_items(

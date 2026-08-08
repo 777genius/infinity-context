@@ -1,0 +1,1 @@
+"""Agent authorization feature capsule."""

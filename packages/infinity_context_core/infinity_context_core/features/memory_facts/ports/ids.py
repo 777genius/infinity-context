@@ -15,5 +15,11 @@ class MemoryFactIdPort(Protocol):
     def new_tombstone_id(self) -> str:
         """Return a new tombstone id for a forget operation."""
 
+    def new_temporal_decision_id(self) -> str:
+        """Return a new append-only temporal decision id."""
+
+    def new_fact_relation_id(self) -> str:
+        """Return a new high-impact fact relation id."""
+
 
 __all__ = ("MemoryFactIdPort",)

@@ -1,44 +1,71 @@
-"""Postgres canonical candidate provider seam for context_building."""
+"""Provider-facing Postgres candidate seam without SQLAlchemy dependencies."""
 
 from __future__ import annotations
 
-from typing import NoReturn
+from dataclasses import dataclass
+from typing import Protocol
 
 from infinity_context_core.features.context_building.public import (
     FEATURE_ID,
-    ContextCandidateProviderPort,
+    CandidateHit,
+    ContextCandidateHitProviderPort,
     ContextCandidateRequest,
-    ContextItem,
 )
 
 
-class PostgresContextCandidateProvider:
-    """Placeholder for future canonical context candidate queries."""
+@dataclass(frozen=True, slots=True)
+class PostgresCandidatePointer:
+    canonical_id: str
+    canonical_version: int
+    rank: int
+    query_key: str = "canonical_postgres"
 
+
+class PostgresCandidateLookupPort(Protocol):
+    async def find_candidate_pointers(
+        self,
+        request: ContextCandidateRequest,
+    ) -> tuple[PostgresCandidatePointer, ...]:
+        """Return identity-only pointers from a stable canonical ranking."""
+
+
+@dataclass(frozen=True, slots=True)
+class PostgresContextCandidateProvider:
+    """Convert data-access pointers into the context feature's safe hit contract."""
+
+    lookup: PostgresCandidateLookupPort
     adapter_name = "postgres"
     feature_id = FEATURE_ID
+    provider_id = "postgres"
 
-    async def find_candidates(
+    async def find_candidate_hits(
         self,
-        _request: ContextCandidateRequest,
-    ) -> tuple[ContextItem, ...]:
-        _raise_not_implemented("find_candidates")
+        request: ContextCandidateRequest,
+    ) -> tuple[CandidateHit, ...]:
+        pointers = await self.lookup.find_candidate_pointers(request)
+        return tuple(
+            CandidateHit(
+                canonical_id=pointer.canonical_id,
+                canonical_version=pointer.canonical_version,
+                provider_id=self.provider_id,
+                query_key=pointer.query_key,
+                rank=pointer.rank,
+                match_reasons=("canonical_postgres",),
+            )
+            for pointer in pointers
+        )
 
 
-def create_postgres_context_candidate_provider() -> ContextCandidateProviderPort:
-    """Create the feature-owned Postgres candidate provider placeholder."""
-
-    return PostgresContextCandidateProvider()
-
-
-def _raise_not_implemented(operation: str) -> NoReturn:
-    raise NotImplementedError(
-        f"context_building Postgres candidate provider {operation} is a placeholder seam; "
-        "real canonical query wiring is deferred."
-    )
+def create_postgres_context_candidate_provider(
+    *,
+    lookup: PostgresCandidateLookupPort,
+) -> ContextCandidateHitProviderPort:
+    return PostgresContextCandidateProvider(lookup=lookup)
 
 
 __all__ = (
+    "PostgresCandidateLookupPort",
+    "PostgresCandidatePointer",
     "PostgresContextCandidateProvider",
     "create_postgres_context_candidate_provider",
 )

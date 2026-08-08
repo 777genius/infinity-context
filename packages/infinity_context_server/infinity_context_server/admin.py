@@ -380,6 +380,8 @@ async def token_create(
     *,
     space_id: str | None,
     memory_scope_ids: tuple[str, ...] | None = None,
+    repository_id: str | None = None,
+    code_scope_id: str | None = None,
     description: str,
     expires_at: str | None = None,
     permissions: tuple[str, ...] | None = None,
@@ -394,6 +396,8 @@ async def token_create(
             description=description,
             space_id=space_id,
             memory_scope_ids=memory_scope_ids,
+            repository_id=repository_id,
+            code_scope_id=code_scope_id,
             expires_at=parsed_expires_at,
             permissions=permissions,
         )
@@ -405,6 +409,8 @@ async def token_create(
             "memory_scope_ids": list(token.memory_scope_ids)
             if token.memory_scope_ids is not None
             else None,
+            "repository_id": token.repository_id,
+            "code_scope_id": token.code_scope_id,
             "description": token.description,
             "permissions": list(token.permissions),
             "expires_at": parsed_expires_at.isoformat() if parsed_expires_at else None,
@@ -698,6 +704,8 @@ async def _run(args: argparse.Namespace) -> dict[str, object]:
             return await token_create(
                 space_id=args.space,
                 memory_scope_ids=tuple(args.memory_scope) if args.memory_scope else None,
+                repository_id=args.repository,
+                code_scope_id=args.code_scope,
                 description=args.description,
                 expires_at=args.expires_at,
                 permissions=tuple(args.permission) if args.permission else None,
@@ -780,6 +788,16 @@ def main() -> None:
         action="append",
         default=[],
         help="Repeatable memory_scope id or external ref for memory_scope-scoped tokens",
+    )
+    token_create_parser.add_argument(
+        "--repository",
+        default=None,
+        help="Canonical repository id for a locked project token",
+    )
+    token_create_parser.add_argument(
+        "--code-scope",
+        default=None,
+        help="Canonical code scope id for a branch/commit locked project token",
     )
     token_create_parser.add_argument("--description", required=True)
     token_create_parser.add_argument("--expires-at", default=None)

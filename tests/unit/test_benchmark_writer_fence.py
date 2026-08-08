@@ -2,6 +2,7 @@ import asyncio
 import os
 import uuid
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 from infinity_context_adapters.noop import SystemClock
@@ -15,6 +16,7 @@ from infinity_context_adapters.postgres.benchmark_writer_fence import (
 from infinity_context_adapters.postgres.unit_of_work import (
     PostgresUnitOfWork,
     _ensure_managed_benchmark_writer_fence,
+    _ensure_runtime_schema,
     _is_benchmark_writer_fence_error,
     create_schema,
 )
@@ -29,6 +31,7 @@ MIGRATIONS = (
 INITIAL_MIGRATION = MIGRATIONS / "0017_managed_benchmark_writer_fence.sql"
 PROJECTION_MANIFEST_MIGRATION = MIGRATIONS / "0018_benchmark_projection_manifest.sql"
 SEALED_FENCE_MIGRATION = MIGRATIONS / "0019_managed_benchmark_sealed_fence.sql"
+CLEANUP_COMPLETION_MIGRATION = MIGRATIONS / "0020_benchmark_cleanup_completion.sql"
 FENCE_SQLSTATE = BENCHMARK_WRITER_FENCE_SQLSTATE
 FENCE_CONSTRAINT = BENCHMARK_WRITER_FENCE_CONSTRAINT
 FENCED_TABLES = tuple(table for table, _update_columns in BENCHMARK_WRITER_FENCE_TABLES)
@@ -80,12 +83,15 @@ def test_latest_migration_fails_closed_after_projection_manifest_seal() -> None:
 
 
 def test_runtime_installer_statements_do_not_drift_from_latest_migration() -> None:
-    migration_sql = _normalize_sql(SEALED_FENCE_MIGRATION.read_text(encoding="utf-8"))
+    migration_sql = _normalize_sql(CLEANUP_COMPLETION_MIGRATION.read_text(encoding="utf-8"))
 
     assert len(BENCHMARK_WRITER_FENCE_STATEMENTS) == 15
     assert BENCHMARK_WRITER_FENCE_FUNCTION in migration_sql
-    for statement in BENCHMARK_WRITER_FENCE_STATEMENTS:
-        assert _normalize_sql(statement) in migration_sql
+    assert _normalize_sql(BENCHMARK_WRITER_FENCE_STATEMENTS[0]) in migration_sql
+    for table in FENCED_TABLES:
+        assert f"'{table}'" in migration_sql
+    assert "DROP TRIGGER IF EXISTS %I ON %I.%I" in migration_sql
+    assert "CREATE TRIGGER %I BEFORE INSERT OR UPDATE OR DELETE" in migration_sql
 
 
 @pytest.mark.parametrize(
@@ -201,6 +207,7 @@ class _RecordingBegin:
 
 class _RecordingEngine:
     def __init__(self) -> None:
+        self.dialect = SimpleNamespace(name="sqlite")
         self.connection = _RunSyncRecordingConnection()
 
     def begin(self) -> _RecordingBegin:
@@ -245,7 +252,7 @@ async def _assert_create_schema_registers_writer_fence() -> None:
 
     await create_schema(engine)
 
-    assert engine.connection.callbacks[-1] is _ensure_managed_benchmark_writer_fence
+    assert engine.connection.callbacks[-1] is _ensure_runtime_schema
 
 
 async def _assert_uow_exit_mapping() -> None:

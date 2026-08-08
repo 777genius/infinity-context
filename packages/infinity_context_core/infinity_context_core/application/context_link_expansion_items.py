@@ -9,6 +9,10 @@ from infinity_context_core.application.context_anchors import (
     anchor_identity_retrieval_text,
     anchor_retrieval_text,
 )
+from infinity_context_core.application.context_hydration import (
+    LinkedFactHydration,
+    canonical_fact_context_item,
+)
 from infinity_context_core.application.context_media_time import (
     enrich_context_item_with_media_time,
 )
@@ -20,7 +24,7 @@ from infinity_context_core.application.context_snippets import (
     source_refs_with_query_snippet,
 )
 from infinity_context_core.application.document_text import document_chunk_retrieval_text
-from infinity_context_core.application.dto import ContextItem
+from infinity_context_core.application.dto import BuildContextQuery, ContextItem
 from infinity_context_core.application.source_refs import (
     chunk_source_refs,
     source_ref_location_summary,
@@ -36,6 +40,7 @@ from infinity_context_core.domain.extraction import (
     AssetExtractionJob,
     ExtractionArtifact,
 )
+from infinity_context_core.features.memory_facts.public import FactSupersessionRelation
 
 
 def _linked_anchor_context_item(
@@ -198,6 +203,90 @@ def _linked_fact_context_item(
         ),
         query_text=query_text,
     )
+
+
+def _linked_canonical_fact_context_item(
+    hydration: LinkedFactHydration,
+    *,
+    link: MemoryContextLink,
+    query: BuildContextQuery,
+    reference_time: datetime,
+) -> ContextItem:
+    fact = hydration.fact
+    path = hydration.supersession_path
+    score = min(0.97, round(_linked_item_score(link) + (0.055 if path else 0.015), 4))
+    diagnostics = _linked_item_diagnostics(
+        link=link,
+        retrieval_source="approved_context_linked_facts",
+        memory_scope_id=fact.identity.scope.memory_scope_id,
+        score=score,
+        source_ref_count=len(fact.source_refs),
+        ranking_reason=(
+            "approved context link resolved through audited supersession to current fact"
+            if path
+            else "approved context link connected visible memory to related fact"
+        ),
+        score_signals_extra={
+            **({"temporal_supersedes_boost": 0.04} if path else {}),
+        },
+        extra_provenance={
+            "fact_status": fact.visibility.status,
+            "fact_version": fact.visibility.version,
+            **_linked_supersession_provenance(path),
+        },
+        extra_diagnostics={
+            "confidence": fact.visibility.confidence,
+            "trust_level": fact.visibility.trust_level,
+            "updated_at": fact.updated_at.isoformat(),
+            **_linked_supersession_diagnostics(path),
+        },
+    )
+    if path:
+        diagnostics["retrieval_sources"] = [
+            "approved_context_linked_facts",
+            "temporal_supersedes_relation",
+        ]
+        provenance = dict(diagnostics.get("provenance") or {})
+        provenance["retrieval_sources"] = diagnostics["retrieval_sources"]
+        diagnostics["provenance"] = provenance
+    return canonical_fact_context_item(
+        fact,
+        query=query,
+        reference_time=reference_time,
+        score=score,
+        diagnostics=diagnostics,
+    )
+
+
+def _linked_supersession_diagnostics(
+    path: tuple[FactSupersessionRelation, ...],
+) -> dict[str, object]:
+    if not path:
+        return {}
+    first = path[0]
+    last = path[-1]
+    return {
+        "temporal_replacement_for_fact_id": first.predecessor_fact_id,
+        "temporal_relation_id": last.relation_id,
+        "temporal_relation_ids": [relation.relation_id for relation in path],
+        "temporal_replacement_hops": len(path),
+    }
+
+
+def _linked_supersession_provenance(
+    path: tuple[FactSupersessionRelation, ...],
+) -> dict[str, object]:
+    if not path:
+        return {}
+    first = path[0]
+    last = path[-1]
+    return {
+        "supersedes_fact_id": first.predecessor_fact_id,
+        "temporal_relation_id": last.relation_id,
+        "temporal_relation_ids": [relation.relation_id for relation in path],
+        "temporal_decision_ids": [relation.decision_id for relation in path],
+        "temporal_effective_at": last.effective_at.isoformat(),
+    }
 
 def _linked_asset_context_item(asset: MemoryAsset, *, link: MemoryContextLink) -> ContextItem:
     score = min(0.9, round(_linked_item_score(link) + 0.005, 4))

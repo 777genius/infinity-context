@@ -2,10 +2,11 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass, replace
-from datetime import datetime
-from typing import Final
+from dataclasses import dataclass
 
+from infinity_context_core.features.memory_facts.application.authorization import (
+    require_authorized_code_scope,
+)
 from infinity_context_core.features.memory_facts.application.commands import (
     ForgetFactCommand,
     ForgetFactResult,
@@ -14,22 +15,31 @@ from infinity_context_core.features.memory_facts.application.commands import (
     UpdateFactCommand,
     UpdateFactResult,
 )
+from infinity_context_core.features.memory_facts.application.events import (
+    FACT_CREATED_EVENT,
+    FACT_DELETED_EVENT,
+    FACT_UPDATED_EVENT,
+    new_fact_outbox_message,
+)
+from infinity_context_core.features.memory_facts.application.idempotency import (
+    lifecycle_command_fingerprint,
+    normalize_memory_fact_idempotency_key,
+    validate_lifecycle_replay,
+)
 from infinity_context_core.features.memory_facts.domain import (
+    MemoryFact,
     MemoryFactIdentity,
-    MemoryFactSnapshot,
-    MemoryFactSourceRef,
-    MemoryFactVisibility,
+)
+from infinity_context_core.features.memory_facts.domain.taxonomy import (
+    materialize_fact_retention_expiry,
 )
 from infinity_context_core.features.memory_facts.ports import (
     MemoryFactClockPort,
+    MemoryFactIdempotencyConflict,
     MemoryFactIdPort,
-    MemoryFactOutboxMessage,
+    MemoryFactOperationReceipt,
     MemoryFactUnitOfWorkFactoryPort,
 )
-
-FACT_CREATED_EVENT: Final = "fact.created"
-FACT_UPDATED_EVENT: Final = "fact.updated"
-FACT_DELETED_EVENT: Final = "fact.deleted"
 
 
 @dataclass(frozen=True, slots=True)
@@ -41,40 +51,80 @@ class RememberFactHandler:
     ids: MemoryFactIdPort
 
     async def execute(self, command: RememberFactCommand) -> RememberFactResult:
-        _require_active_fact_content(command.text, command.source_refs)
-
-        async with self.uow_factory() as uow:
-            now = self.clock.now()
-            fact = MemoryFactSnapshot(
-                identity=MemoryFactIdentity(
-                    fact_id=self.ids.new_fact_id(),
-                    scope=command.scope,
-                ),
-                text=command.text,
-                source_refs=command.source_refs,
-                visibility=MemoryFactVisibility(status="active", version=1),
-                kind=command.kind,
-                evidence_refs=command.evidence_refs,
-                category=command.category,
-                tags=command.tags,
-                created_at=now,
-                updated_at=now,
+        key = _idempotency_key(command.idempotency_key)
+        fingerprint = lifecycle_command_fingerprint(command)
+        try:
+            async with self.uow_factory() as uow:
+                if key is not None:
+                    receipt = await uow.operation_receipts.get(
+                        space_id=command.scope.space_id,
+                        memory_scope_id=command.scope.memory_scope_id,
+                        thread_id=command.scope.thread_id,
+                        operation="remember",
+                        idempotency_key=key,
+                    )
+                    if receipt is not None:
+                        return _remember_replay(receipt, fingerprint)
+                now = self.clock.now()
+                aggregate = MemoryFact.remember(
+                    identity=MemoryFactIdentity(
+                        fact_id=self.ids.new_fact_id(),
+                        scope=command.scope,
+                    ),
+                    text=command.text,
+                    source_refs=command.source_refs,
+                    now=now,
+                    kind=command.kind,
+                    evidence_refs=command.evidence_refs,
+                    category=command.category,
+                    tags=command.tags,
+                    quality=command.quality,
+                    temporal_extent=command.temporal_extent,
+                    freshness=command.freshness,
+                    retention=materialize_fact_retention_expiry(
+                        command.retention,
+                        now=now,
+                    ),
+                    epistemic_context=command.epistemic_context,
+                    code_scope=command.code_scope,
+                )
+                saved = await uow.facts.create(aggregate.to_snapshot())
+                message = new_fact_outbox_message(
+                    ids=self.ids,
+                    fact=saved,
+                    event_type=FACT_CREATED_EVENT,
+                    occurred_at=now,
+                )
+                await uow.outbox.enqueue(message)
+                if key is not None:
+                    await uow.operation_receipts.create(
+                        MemoryFactOperationReceipt(
+                            space_id=command.scope.space_id,
+                            memory_scope_id=command.scope.memory_scope_id,
+                            thread_id=command.scope.thread_id,
+                            idempotency_key=key,
+                            operation="remember",
+                            request_fingerprint=fingerprint,
+                            result_fact=saved,
+                            outbox_message_ids=(message.message_id,),
+                            created_at=now,
+                        )
+                    )
+                await uow.commit()
+        except MemoryFactIdempotencyConflict:
+            replay = await _load_replay(
+                self.uow_factory,
+                space_id=command.scope.space_id,
+                memory_scope_id=command.scope.memory_scope_id,
+                thread_id=command.scope.thread_id,
+                operation="remember",
+                idempotency_key=key,
             )
+            if replay is not None:
+                return _remember_replay(replay, fingerprint)
+            raise
 
-            saved = await uow.facts.create(fact)
-            message = _outbox_message(
-                ids=self.ids,
-                fact=saved,
-                event_type=FACT_CREATED_EVENT,
-                occurred_at=now,
-            )
-            await uow.outbox.enqueue(message)
-            await uow.commit()
-
-        return RememberFactResult(
-            fact=saved,
-            outbox_message_ids=(message.message_id,),
-        )
+        return RememberFactResult(fact=saved, outbox_message_ids=(message.message_id,))
 
 
 @dataclass(frozen=True, slots=True)
@@ -86,53 +136,109 @@ class UpdateFactHandler:
     ids: MemoryFactIdPort
 
     async def execute(self, command: UpdateFactCommand) -> UpdateFactResult:
-        _require_active_fact_content(command.text, command.source_refs)
-
-        async with self.uow_factory() as uow:
-            current = await uow.facts.get_for_update(command.identity)
-            if current is None:
-                raise LookupError(f"Memory fact not found: {command.identity.fact_id}")
-            if current.visibility.status == "deleted":
-                raise ValueError(
-                    f"Deleted memory fact cannot be updated: {command.identity.fact_id}"
+        key = _idempotency_key(command.idempotency_key)
+        fingerprint = lifecycle_command_fingerprint(command)
+        space_id = command.identity.scope.space_id
+        try:
+            async with self.uow_factory() as uow:
+                if key is not None:
+                    receipt = await uow.operation_receipts.get(
+                        space_id=space_id,
+                        memory_scope_id=command.identity.scope.memory_scope_id,
+                        thread_id=command.identity.scope.thread_id,
+                        operation="update",
+                        idempotency_key=key,
+                    )
+                    if receipt is not None:
+                        result = _update_replay(receipt, fingerprint)
+                        require_authorized_code_scope(
+                            result.fact,
+                            command.authorized_code_scope,
+                        )
+                        return result
+                current = await uow.facts.get_for_update(command.identity)
+                if key is not None:
+                    receipt = await uow.operation_receipts.get(
+                        space_id=space_id,
+                        memory_scope_id=command.identity.scope.memory_scope_id,
+                        thread_id=command.identity.scope.thread_id,
+                        operation="update",
+                        idempotency_key=key,
+                    )
+                    if receipt is not None:
+                        result = _update_replay(receipt, fingerprint)
+                        require_authorized_code_scope(
+                            result.fact,
+                            command.authorized_code_scope,
+                        )
+                        return result
+                if current is None:
+                    raise LookupError(f"Memory fact not found: {command.identity.fact_id}")
+                require_authorized_code_scope(current, command.authorized_code_scope)
+                aggregate = MemoryFact.restore(current)
+                now = self.clock.now()
+                updated = aggregate.update(
+                    expected_version=command.expected_version,
+                    text=command.text,
+                    source_refs=command.source_refs,
+                    now=now,
+                    kind=command.kind or aggregate.kind,
+                    evidence_refs=(
+                        command.evidence_refs
+                        if command.evidence_refs is not None
+                        else aggregate.evidence_refs
+                    ),
+                    category=(
+                        command.category if command.category is not None else aggregate.category
+                    ),
+                    tags=command.tags if command.tags is not None else aggregate.tags,
+                    retention=materialize_fact_retention_expiry(
+                        command.retention,
+                        now=now,
+                    ),
                 )
-            _require_expected_version(
-                current,
-                expected_version=command.expected_version,
+                saved = await uow.facts.save(updated.to_snapshot())
+                now = saved.updated_at
+                if now is None:  # pragma: no cover - aggregate supplies transaction time.
+                    raise RuntimeError("Updated memory fact has no transaction time")
+                message = new_fact_outbox_message(
+                    ids=self.ids,
+                    fact=saved,
+                    event_type=FACT_UPDATED_EVENT,
+                    occurred_at=now,
+                )
+                await uow.outbox.enqueue(message)
+                if key is not None:
+                    await uow.operation_receipts.create(
+                        MemoryFactOperationReceipt(
+                            space_id=space_id,
+                            memory_scope_id=command.identity.scope.memory_scope_id,
+                            thread_id=command.identity.scope.thread_id,
+                            idempotency_key=key,
+                            operation="update",
+                            request_fingerprint=fingerprint,
+                            result_fact=saved,
+                            outbox_message_ids=(message.message_id,),
+                            created_at=now,
+                        )
+                    )
+                await uow.commit()
+        except MemoryFactIdempotencyConflict:
+            replay = await _load_replay(
+                self.uow_factory,
+                space_id=space_id,
+                memory_scope_id=command.identity.scope.memory_scope_id,
+                thread_id=command.identity.scope.thread_id,
+                operation="update",
+                idempotency_key=key,
             )
+            if replay is not None:
+                result = _update_replay(replay, fingerprint)
+                require_authorized_code_scope(result.fact, command.authorized_code_scope)
+                return result
+            raise
 
-            now = self.clock.now()
-            updated = MemoryFactSnapshot(
-                identity=current.identity,
-                text=command.text,
-                source_refs=command.source_refs,
-                visibility=replace(
-                    current.visibility,
-                    status="active",
-                    version=current.visibility.version + 1,
-                ),
-                kind=command.kind,
-                evidence_refs=command.evidence_refs,
-                category=command.category,
-                tags=command.tags,
-                created_at=current.created_at,
-                updated_at=now,
-            )
-
-            saved = await uow.facts.save(updated)
-            message = _outbox_message(
-                ids=self.ids,
-                fact=saved,
-                event_type=FACT_UPDATED_EVENT,
-                occurred_at=now,
-            )
-            await uow.outbox.enqueue(message)
-            await uow.commit()
-
-        return UpdateFactResult(
-            fact=saved,
-            outbox_message_ids=(message.message_id,),
-        )
+        return UpdateFactResult(fact=saved, outbox_message_ids=(message.message_id,))
 
 
 @dataclass(frozen=True, slots=True)
@@ -144,46 +250,91 @@ class ForgetFactHandler:
     ids: MemoryFactIdPort
 
     async def execute(self, command: ForgetFactCommand) -> ForgetFactResult:
-        async with self.uow_factory() as uow:
-            current = await uow.facts.get_for_update(command.identity)
-            if current is None:
-                raise LookupError(f"Memory fact not found: {command.identity.fact_id}")
-            if current.visibility.status == "deleted":
-                raise ValueError(f"Memory fact is already deleted: {command.identity.fact_id}")
-            if command.expected_version is not None:
-                _require_expected_version(
-                    current,
+        key = _idempotency_key(command.idempotency_key)
+        fingerprint = lifecycle_command_fingerprint(command)
+        space_id = command.identity.scope.space_id
+        try:
+            async with self.uow_factory() as uow:
+                if key is not None:
+                    receipt = await uow.operation_receipts.get(
+                        space_id=space_id,
+                        memory_scope_id=command.identity.scope.memory_scope_id,
+                        thread_id=command.identity.scope.thread_id,
+                        operation="forget",
+                        idempotency_key=key,
+                    )
+                    if receipt is not None:
+                        result = _forget_replay(receipt, fingerprint)
+                        require_authorized_code_scope(
+                            result.fact,
+                            command.authorized_code_scope,
+                        )
+                        return result
+                current = await uow.facts.get_for_update(command.identity)
+                if key is not None:
+                    receipt = await uow.operation_receipts.get(
+                        space_id=space_id,
+                        memory_scope_id=command.identity.scope.memory_scope_id,
+                        thread_id=command.identity.scope.thread_id,
+                        operation="forget",
+                        idempotency_key=key,
+                    )
+                    if receipt is not None:
+                        result = _forget_replay(receipt, fingerprint)
+                        require_authorized_code_scope(
+                            result.fact,
+                            command.authorized_code_scope,
+                        )
+                        return result
+                if current is None:
+                    raise LookupError(f"Memory fact not found: {command.identity.fact_id}")
+                require_authorized_code_scope(current, command.authorized_code_scope)
+                if current.visibility.status == "deleted" and command.expected_version is None:
+                    return ForgetFactResult(fact=current, already_deleted=True)
+                now = self.clock.now()
+                tombstone_id = self.ids.new_tombstone_id()
+                forgotten = MemoryFact.restore(current).forget(
                     expected_version=command.expected_version,
+                    now=now,
                 )
-
-            now = self.clock.now()
-            tombstone_id = self.ids.new_tombstone_id()
-            forgotten = MemoryFactSnapshot(
-                identity=current.identity,
-                text=current.text,
-                source_refs=current.source_refs,
-                visibility=replace(
-                    current.visibility,
-                    status="deleted",
-                    version=current.visibility.version + 1,
-                ),
-                kind=current.kind,
-                evidence_refs=current.evidence_refs,
-                category=current.category,
-                tags=current.tags,
-                created_at=current.created_at,
-                updated_at=now,
+                saved = await uow.facts.save(forgotten.to_snapshot())
+                message = new_fact_outbox_message(
+                    ids=self.ids,
+                    fact=saved,
+                    event_type=FACT_DELETED_EVENT,
+                    occurred_at=now,
+                )
+                await uow.outbox.enqueue(message)
+                if key is not None:
+                    await uow.operation_receipts.create(
+                        MemoryFactOperationReceipt(
+                            space_id=space_id,
+                            memory_scope_id=command.identity.scope.memory_scope_id,
+                            thread_id=command.identity.scope.thread_id,
+                            idempotency_key=key,
+                            operation="forget",
+                            request_fingerprint=fingerprint,
+                            result_fact=saved,
+                            outbox_message_ids=(message.message_id,),
+                            tombstone_id=tombstone_id,
+                            created_at=now,
+                        )
+                    )
+                await uow.commit()
+        except MemoryFactIdempotencyConflict:
+            replay = await _load_replay(
+                self.uow_factory,
+                space_id=space_id,
+                memory_scope_id=command.identity.scope.memory_scope_id,
+                thread_id=command.identity.scope.thread_id,
+                operation="forget",
+                idempotency_key=key,
             )
-
-            saved = await uow.facts.save(forgotten)
-            message = _outbox_message(
-                ids=self.ids,
-                fact=saved,
-                event_type=FACT_DELETED_EVENT,
-                occurred_at=now,
-            )
-            await uow.outbox.enqueue(message)
-            await uow.commit()
+            if replay is not None:
+                result = _forget_replay(replay, fingerprint)
+                require_authorized_code_scope(result.fact, command.authorized_code_scope)
+                return result
+            raise
 
         return ForgetFactResult(
             fact=saved,
@@ -192,42 +343,69 @@ class ForgetFactHandler:
         )
 
 
-def _require_active_fact_content(
-    text: str,
-    source_refs: tuple[MemoryFactSourceRef, ...],
-) -> None:
-    if not text.strip():
-        raise ValueError("Memory fact text is required")
-    if not source_refs:
-        raise ValueError("Memory fact source_refs are required")
+def _idempotency_key(value: str | None) -> str | None:
+    return normalize_memory_fact_idempotency_key(value)
 
 
-def _require_expected_version(
-    fact: MemoryFactSnapshot,
+async def _load_replay(
+    uow_factory: MemoryFactUnitOfWorkFactoryPort,
     *,
-    expected_version: int,
-) -> None:
-    actual_version = fact.visibility.version
-    if actual_version != expected_version:
-        raise ValueError(
-            "Memory fact version conflict: "
-            f"expected {expected_version}, actual {actual_version}"
+    space_id: str,
+    memory_scope_id: str,
+    thread_id: str | None,
+    operation: str,
+    idempotency_key: str | None,
+) -> MemoryFactOperationReceipt | None:
+    if idempotency_key is None:
+        return None
+    async with uow_factory() as uow:
+        return await uow.operation_receipts.get(
+            space_id=space_id,
+            memory_scope_id=memory_scope_id,
+            thread_id=thread_id,
+            operation=operation,
+            idempotency_key=idempotency_key,
         )
 
 
-def _outbox_message(
-    *,
-    ids: MemoryFactIdPort,
-    fact: MemoryFactSnapshot,
-    event_type: str,
-    occurred_at: datetime,
-) -> MemoryFactOutboxMessage:
-    return MemoryFactOutboxMessage(
-        message_id=ids.new_outbox_message_id(),
-        event_type=event_type,
-        aggregate_id=fact.identity.fact_id,
-        aggregate_version=fact.visibility.version,
-        occurred_at=occurred_at,
+def _remember_replay(
+    receipt: MemoryFactOperationReceipt,
+    fingerprint: str,
+) -> RememberFactResult:
+    validate_lifecycle_replay(
+        receipt,
+        operation="remember",
+        request_fingerprint=fingerprint,
+    )
+    return RememberFactResult(receipt.result_fact, receipt.outbox_message_ids, replayed=True)
+
+
+def _update_replay(
+    receipt: MemoryFactOperationReceipt,
+    fingerprint: str,
+) -> UpdateFactResult:
+    validate_lifecycle_replay(
+        receipt,
+        operation="update",
+        request_fingerprint=fingerprint,
+    )
+    return UpdateFactResult(receipt.result_fact, receipt.outbox_message_ids, replayed=True)
+
+
+def _forget_replay(
+    receipt: MemoryFactOperationReceipt,
+    fingerprint: str,
+) -> ForgetFactResult:
+    validate_lifecycle_replay(
+        receipt,
+        operation="forget",
+        request_fingerprint=fingerprint,
+    )
+    return ForgetFactResult(
+        receipt.result_fact,
+        receipt.tombstone_id,
+        receipt.outbox_message_ids,
+        replayed=True,
     )
 
 

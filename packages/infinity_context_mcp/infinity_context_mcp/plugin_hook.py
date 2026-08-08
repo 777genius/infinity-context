@@ -16,7 +16,7 @@ import urllib.error
 import urllib.parse
 import urllib.request
 from collections.abc import Mapping, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Any
 
@@ -26,6 +26,46 @@ from infinity_context_mcp.domain.models import (
     safe_message,
 )
 from infinity_context_mcp.plugin_hook_settings import HookCaptureMode, HookSettings
+from infinity_context_mcp.safe_http import open_without_redirects
+from infinity_context_mcp.workspace_binding import (
+    AgentScopeResolverPort,
+    GitRepositoryIdentityProbe,
+    JsonProjectScopeBindingStore,
+    ProjectScopeResolver,
+    ResolvedAgentScope,
+)
+from infinity_context_mcp.workspace_claim_signing import signed_workspace_scope_claim
+
+
+def _event_scope(event: HookEvent, settings: HookSettings) -> ResolvedAgentScope:
+    if event.resolved_scope is not None:
+        return event.resolved_scope
+    return ResolvedAgentScope(
+        space_slug=settings.default_space_slug,
+        memory_scope_external_ref=settings.default_memory_scope_external_ref,
+        thread_external_ref=settings.default_thread_external_ref,
+        repository_id=settings.project_repository_id,
+        code_scope_id=None,
+        binding_id=None,
+        binding_version=None,
+        resolution_method="explicit",
+    )
+
+
+def _safe_scope_metadata(scope: ResolvedAgentScope) -> dict[str, object]:
+    values: dict[str, object | None] = {
+        "project_scope_resolution": scope.resolution_method,
+        "repository_id": scope.repository_id,
+        "code_scope_id": scope.code_scope_id,
+        "project_binding_id": scope.binding_id,
+        "project_binding_version": scope.binding_version,
+        "project_binding_drift": scope.drift_status,
+        "code_branch": scope.branch,
+        "code_commit_sha": scope.commit_sha,
+        "code_worktree_state": scope.worktree_state.value,
+    }
+    return {key: value for key, value in values.items() if value is not None}
+
 
 GEMINI_EVENT_ALIASES = {
     "GeminiSessionStart": "SessionStart",
@@ -50,6 +90,7 @@ class HookEvent:
     cwd: str
     host: str = ""
     native_name: str = ""
+    resolved_scope: ResolvedAgentScope | None = None
 
     @property
     def query_text(self) -> str:
@@ -57,7 +98,7 @@ class HookEvent:
         if not text:
             text = self.raw_payload.strip()
         if not text:
-            text = f"Agent lifecycle event {self.name} in {self.cwd}"
+            text = f"Agent lifecycle event {self.name}"
         return text
 
 
@@ -77,36 +118,41 @@ class MemoryHookGateway:
         self._settings = settings
 
     def build_context(self, event: HookEvent, query: str) -> dict[str, Any]:
+        scope = _event_scope(event, self._settings)
         return self._request_json(
             "POST",
             "/v1/context",
             {
-                "space_slug": self._settings.default_space_slug,
-                "memory_scope_external_ref": self._settings.default_memory_scope_external_ref,
-                "thread_external_ref": self._settings.default_thread_external_ref,
+                "space_slug": scope.space_slug,
+                "memory_scope_external_ref": scope.memory_scope_external_ref,
+                "thread_external_ref": scope.thread_external_ref,
+                "repository_id": scope.repository_id,
+                "code_scope_id": scope.code_scope_id,
                 "query": query,
                 "token_budget": self._settings.token_budget,
                 "max_facts": self._settings.max_facts,
                 "max_chunks": self._settings.max_chunks,
             },
+            scope=scope,
         )
 
     def ingest_episode(self, event: HookEvent, text: str) -> dict[str, Any]:
-        if not self._settings.default_thread_external_ref:
+        scope = _event_scope(event, self._settings)
+        if not scope.thread_external_ref:
             raise HookGatewayError(
                 "episode capture requires MEMORY_MCP_DEFAULT_THREAD_EXTERNAL_REF"
             )
         digest = hashlib.sha256(
-            f"{event.name}\0{event.cwd}\0{text}".encode("utf-8", errors="ignore")
+            f"{event.name}\0{scope.idempotency_namespace}\0{text}".encode("utf-8", errors="ignore")
         ).hexdigest()[:32]
         source_external_id = f"{self._settings.agent_name}:{event.name}:{digest}"[:240]
         return self._request_json(
             "POST",
             "/v1/episodes",
             {
-                "space_slug": self._settings.default_space_slug,
-                "memory_scope_external_ref": self._settings.default_memory_scope_external_ref,
-                "thread_external_ref": self._settings.default_thread_external_ref,
+                "space_slug": scope.space_slug,
+                "memory_scope_external_ref": scope.memory_scope_external_ref,
+                "thread_external_ref": scope.thread_external_ref,
                 "source_type": self._settings.source_type,
                 "source_external_id": source_external_id,
                 "text": text,
@@ -116,10 +162,11 @@ class MemoryHookGateway:
                 "metadata": {
                     "agent_name": self._settings.agent_name,
                     "hook_event": event.name,
-                    "cwd": event.cwd,
+                    **_safe_scope_metadata(scope),
                 },
                 "idempotency_key": source_external_id,
             },
+            scope=scope,
         )
 
     def create_capture(
@@ -131,8 +178,9 @@ class MemoryHookGateway:
         source_authority: str | None = None,
         metadata: dict[str, object] | None = None,
     ) -> dict[str, Any]:
+        scope = _event_scope(event, self._settings)
         digest = hashlib.sha256(
-            f"{event.name}\0{event.cwd}\0{text}".encode("utf-8", errors="ignore")
+            f"{event.name}\0{scope.idempotency_namespace}\0{text}".encode("utf-8", errors="ignore")
         ).hexdigest()[:32]
         source_event_id = f"{self._settings.agent_name}:{event.name}:{digest}"[:240]
         actor_role = _actor_role_for_event(event.name, event.payload)
@@ -145,9 +193,9 @@ class MemoryHookGateway:
             "POST",
             "/v1/captures",
             {
-                "space_slug": self._settings.default_space_slug,
-                "memory_scope_external_ref": self._settings.default_memory_scope_external_ref,
-                "thread_external_ref": self._settings.default_thread_external_ref,
+                "space_slug": scope.space_slug,
+                "memory_scope_external_ref": scope.memory_scope_external_ref,
+                "thread_external_ref": scope.thread_external_ref,
                 "source_agent": self._settings.agent_name,
                 "source_kind": source_kind,
                 "event_type": event.name,
@@ -166,20 +214,28 @@ class MemoryHookGateway:
                     {
                         "agent_name": self._settings.agent_name,
                         "hook_event": event.name,
-                        "cwd_hash": hashlib.sha256(event.cwd.encode()).hexdigest()[:16],
                         "client_minimization_version": "plugin-hook-minimization-v1",
+                        **_safe_scope_metadata(scope),
                         **(metadata or {}),
                     }
                 ),
                 "idempotency_key": f"hook:{source_event_id}",
                 "consolidate": True,
             },
+            scope=scope,
         )
 
     def get_capabilities(self) -> dict[str, Any]:
         return self._request_json("GET", "/v1/capabilities", {})
 
-    def _request_json(self, method: str, path: str, payload: dict[str, Any]) -> dict[str, Any]:
+    def _request_json(
+        self,
+        method: str,
+        path: str,
+        payload: dict[str, Any],
+        *,
+        scope: ResolvedAgentScope | None = None,
+    ) -> dict[str, Any]:
         body = None if method == "GET" else json.dumps(_without_none(payload)).encode("utf-8")
         request = urllib.request.Request(
             f"{self._settings.api_url}{path}",
@@ -188,11 +244,11 @@ class MemoryHookGateway:
             headers={
                 "Accept": "application/json",
                 "Content-Type": "application/json",
-                **self._auth_header(),
+                **self._auth_header(scope),
             },
         )
         try:
-            with urllib.request.urlopen(
+            with open_without_redirects(
                 request,
                 timeout=self._settings.request_timeout_seconds,
             ) as response:
@@ -209,10 +265,19 @@ class MemoryHookGateway:
             raise HookGatewayError(f"{path} returned a non-object JSON payload")
         return parsed
 
-    def _auth_header(self) -> dict[str, str]:
+    def _auth_header(
+        self,
+        scope: ResolvedAgentScope | None = None,
+    ) -> dict[str, str]:
         if not self._settings.auth_token:
             return {}
-        return {"Authorization": f"Bearer {self._settings.auth_token}"}
+        headers = {"Authorization": f"Bearer {self._settings.auth_token}"}
+        claim = signed_workspace_scope_claim(scope)
+        if claim is not None:
+            headers["X-Infinity-Workspace-Claim"] = claim
+            assert scope is not None and scope.binding_grant is not None
+            headers["X-Infinity-Workspace-Grant"] = scope.binding_grant
+        return headers
 
 
 class MemoryPluginHookApp:
@@ -221,15 +286,38 @@ class MemoryPluginHookApp:
         *,
         settings: HookSettings | None = None,
         gateway: MemoryHookGateway | None = None,
+        scope_resolver: AgentScopeResolverPort | None = None,
     ) -> None:
         self._settings = settings or HookSettings.from_env()
         self._gateway = gateway or MemoryHookGateway(self._settings)
+        bindings = (
+            JsonProjectScopeBindingStore(self._settings.project_bindings_file)
+            if self._settings.project_bindings_file
+            else None
+        )
+        self._scope_resolver = scope_resolver or ProjectScopeResolver(
+            mode=self._settings.project_scope_mode,
+            explicit_space_slug=self._settings.default_space_slug,
+            explicit_memory_scope_external_ref=(self._settings.default_memory_scope_external_ref),
+            explicit_thread_external_ref=self._settings.default_thread_external_ref,
+            explicit_repository_id=self._settings.project_repository_id,
+            probe=GitRepositoryIdentityProbe(remote_name=self._settings.project_git_remote),
+            bindings=bindings,
+        )
 
     def run(self, event: HookEvent) -> HookResult:
         if not self._settings.enabled:
             return self._host_result(event, stderr="infinity-context-plugin-hook: hooks disabled\n")
 
         try:
+            resolved_scope = self._scope_resolver.resolve(cwd=event.cwd)
+            if resolved_scope is None:
+                message = (
+                    "infinity-context-plugin-hook: project scope unresolved; "
+                    "memory retrieval and capture skipped\n"
+                )
+                return self._host_result(event, stderr=message)
+            event = replace(event, resolved_scope=resolved_scope)
             stderr_parts: list[str] = []
             rendered_context = ""
             source_text = _truncate(event.query_text, self._settings.max_input_chars)
@@ -320,8 +408,7 @@ class MemoryPluginHookApp:
             self._gateway.ingest_episode(event, text)
         except HookGatewayError as exc:
             return (
-                "infinity-context-plugin-hook: episode capture skipped: "
-                f"{safe_message(str(exc))}\n"
+                f"infinity-context-plugin-hook: episode capture skipped: {safe_message(str(exc))}\n"
             )
         if self._settings.verbose:
             return "infinity-context-plugin-hook: episode captured\n"

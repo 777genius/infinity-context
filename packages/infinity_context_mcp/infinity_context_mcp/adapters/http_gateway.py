@@ -12,6 +12,9 @@ from infinity_context_contracts.features.memory_facts import (
     UpdateFactRequestDto,
 )
 
+from infinity_context_mcp.adapters.http_temporal_fact_gateway import (
+    HttpMemoryTemporalFactGatewayMixin,
+)
 from infinity_context_mcp.domain.models import (
     MemoryGatewayError,
     MemoryReadScope,
@@ -22,7 +25,7 @@ from infinity_context_mcp.domain.models import (
 )
 
 
-class HttpMemoryGateway:
+class HttpMemoryGateway(HttpMemoryTemporalFactGatewayMixin):
     def __init__(
         self,
         *,
@@ -453,11 +456,13 @@ class HttpMemoryGateway:
         suggestion_id: str,
         reason: str | None,
         force: bool,
+        idempotency_key: str | None = None,
     ) -> dict[str, Any]:
         return await self._request(
             "POST",
             f"/v1/suggestions/{suggestion_id}/approve",
             json=_without_none({"reason": reason, "force": force}),
+            idempotency_key=idempotency_key,
         )
 
     async def review_suggestions_batch(
@@ -723,6 +728,7 @@ class HttpMemoryGateway:
         params: dict[str, Any] | None = None,
         idempotency_key: str | None = None,
     ) -> dict[str, Any]:
+        mutation = method.upper() in {"POST", "PUT", "PATCH", "DELETE"}
         headers: dict[str, str] = {}
         if self._auth_token:
             headers["Authorization"] = f"Bearer {self._auth_token}"
@@ -750,7 +756,7 @@ class HttpMemoryGateway:
                     code="infinity_context_mcp.gateway.read_timeout",
                     message="Infinity Context response timed out",
                     retryable=True,
-                    unknown_commit_state=method.upper() in {"POST", "PUT", "PATCH", "DELETE"},
+                    unknown_commit_state=mutation,
                 ) from exc
             except httpx.WriteTimeout as exc:
                 raise MemoryGatewayError(
@@ -758,7 +764,15 @@ class HttpMemoryGateway:
                     code="infinity_context_mcp.gateway.write_timeout",
                     message="Infinity Context request body timed out",
                     retryable=True,
-                    unknown_commit_state=method.upper() in {"POST", "PUT", "PATCH", "DELETE"},
+                    unknown_commit_state=mutation,
+                ) from exc
+            except httpx.ConnectError as exc:
+                raise MemoryGatewayError(
+                    status_code=0,
+                    code="infinity_context_mcp.gateway.connect_error",
+                    message="Infinity Context connection failed",
+                    retryable=True,
+                    unknown_commit_state=False,
                 ) from exc
             except httpx.TransportError as exc:
                 raise MemoryGatewayError(
@@ -766,10 +780,10 @@ class HttpMemoryGateway:
                     code="infinity_context_mcp.gateway.network_error",
                     message="Infinity Context HTTP request failed",
                     retryable=True,
-                    unknown_commit_state=False,
+                    unknown_commit_state=mutation,
                 ) from exc
         if response.is_error:
-            raise _to_error(response)
+            raise _to_error(response, mutation=mutation)
         try:
             return response.json()
         except ValueError as exc:
@@ -777,11 +791,16 @@ class HttpMemoryGateway:
                 status_code=response.status_code,
                 code="infinity_context_mcp.gateway.invalid_json",
                 message="Infinity Context returned invalid JSON",
-                retryable=False,
+                retryable=mutation,
+                unknown_commit_state=mutation,
             ) from exc
 
 
-def _to_error(response: httpx.Response) -> MemoryGatewayError:
+def _to_error(
+    response: httpx.Response,
+    *,
+    mutation: bool = False,
+) -> MemoryGatewayError:
     try:
         payload = response.json()
     except ValueError:
@@ -789,9 +808,7 @@ def _to_error(response: httpx.Response) -> MemoryGatewayError:
     error = payload.get("error", {}) if isinstance(payload, dict) else {}
     detail = payload.get("detail", {}) if isinstance(payload, dict) else {}
     raw_code = str(
-        error.get("code")
-        or detail.get("code")
-        or "infinity_context_mcp.gateway.http_error"
+        error.get("code") or detail.get("code") or "infinity_context_mcp.gateway.http_error"
     )
     code = public_error_code(raw_code, status_code=response.status_code)
     raw_message = str(error.get("message") or detail.get("message") or response.text or code)
@@ -809,6 +826,7 @@ def _to_error(response: httpx.Response) -> MemoryGatewayError:
         code=code,
         message=message,
         retryable=retryable,
+        unknown_commit_state=mutation and response.status_code >= 500,
     )
 
 

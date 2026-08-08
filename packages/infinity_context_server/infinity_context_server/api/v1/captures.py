@@ -5,7 +5,7 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Annotated, Any
 
-from fastapi import APIRouter, Depends, Query, status
+from fastapi import APIRouter, Depends, Query, Request, status
 from infinity_context_core.application import (
     ConsolidateCaptureCommand,
     GetCaptureQuery,
@@ -19,13 +19,17 @@ from infinity_context_core.domain.capture import (
     ConsolidationStatus,
 )
 from infinity_context_core.domain.errors import (
+    MemoryForbiddenError,
     MemoryIngressLimitError,
     MemoryPolicyBlockedError,
     MemoryValidationError,
 )
 from pydantic import BaseModel, ConfigDict, Field
 
-from infinity_context_server.api.auth import require_service_token
+from infinity_context_server.api.auth import (
+    get_authorized_agent_context,
+    require_service_token,
+)
 from infinity_context_server.api.dependencies import get_container
 from infinity_context_server.api.policy import ensure_server_writes_enabled, should_capture
 from infinity_context_server.api.public_payload import safe_public_metadata
@@ -37,6 +41,11 @@ from infinity_context_server.api.v1.source_refs import (
     SourceRefRequest,
     map_source_ref,
     source_ref_to_response,
+)
+from infinity_context_server.auth_tokens import (
+    MEMORY_PERMISSION_ADMIN,
+    MEMORY_PERMISSION_CAPTURE,
+    MEMORY_PERMISSION_WRITE,
 )
 from infinity_context_server.composition import Container
 from infinity_context_server.config import CaptureMode
@@ -95,13 +104,14 @@ class PurgeCaptureRequest(BaseModel):
 @router.post("/captures", status_code=status.HTTP_201_CREATED)
 async def create_capture(
     request: CreateCaptureRequest,
+    http_request: Request,
     container: Annotated[Container, Depends(get_container)],
 ) -> dict[str, Any]:
     ensure_server_writes_enabled(container)
-    if (
-        container.settings.capture_mode in {CaptureMode.OFF, CaptureMode.RETRIEVE_ONLY}
-        or not should_capture(container)
-    ):
+    if container.settings.capture_mode in {
+        CaptureMode.OFF,
+        CaptureMode.RETRIEVE_ONLY,
+    } or not should_capture(container):
         raise MemoryPolicyBlockedError("Capture writes are disabled by policy")
     if len(request.text) > container.settings.max_capture_text_chars:
         raise MemoryIngressLimitError("Capture text exceeds configured ingress limit")
@@ -115,6 +125,37 @@ async def create_capture(
         thread_external_ref=request.thread_external_ref,
         thread_required=False,
     )
+    metadata = dict(request.metadata or {})
+    authorized_context = get_authorized_agent_context(http_request)
+    if authorized_context is not None:
+        required_permission = (
+            MEMORY_PERMISSION_CAPTURE
+            if MEMORY_PERMISSION_CAPTURE in authorized_context.permissions
+            else (
+                MEMORY_PERMISSION_WRITE
+                if authorized_context.repository_id is None
+                and MEMORY_PERMISSION_WRITE in authorized_context.permissions
+                else MEMORY_PERMISSION_ADMIN
+            )
+        )
+        try:
+            authorized = authorized_context.authorize(
+                requested_space_id=str(scope.space_id),
+                requested_memory_scope_ids=(str(scope.memory_scope_id),),
+                required_permission=required_permission,
+                requested_repository_id=_metadata_text(metadata, "repository_id"),
+                requested_code_scope_id=_metadata_text(metadata, "code_scope_id"),
+            )
+        except PermissionError as exc:
+            raise MemoryForbiddenError(str(exc)) from exc
+        if authorized.repository_id is not None:
+            metadata["repository_id"] = authorized.repository_id
+        else:
+            metadata.pop("repository_id", None)
+        if authorized.code_scope_id is not None:
+            metadata["code_scope_id"] = authorized.code_scope_id
+        else:
+            metadata.pop("code_scope_id", None)
     consolidation_allowed = container.settings.capture_mode in {
         CaptureMode.SUGGEST,
         CaptureMode.AUTO_APPLY_SAFE,
@@ -141,7 +182,7 @@ async def create_capture(
             sensitivity=request.sensitivity,
             data_classification=request.data_classification,
             occurred_at=request.occurred_at,
-            metadata=request.metadata,
+            metadata=metadata,
             source_event_id=request.source_event_id,
             source_actor_external_ref=request.source_actor_external_ref,
             client_instance_id=request.client_instance_id,
@@ -233,10 +274,10 @@ async def consolidate_capture(
     container: Annotated[Container, Depends(get_container)],
 ) -> dict[str, Any]:
     ensure_server_writes_enabled(container)
-    if (
-        container.settings.capture_mode not in {CaptureMode.SUGGEST, CaptureMode.AUTO_APPLY_SAFE}
-        or not should_capture(container)
-    ):
+    if container.settings.capture_mode not in {
+        CaptureMode.SUGGEST,
+        CaptureMode.AUTO_APPLY_SAFE,
+    } or not should_capture(container):
         raise MemoryPolicyBlockedError("Capture consolidation is disabled by policy")
     result = await container.consolidate_capture.execute(
         ConsolidateCaptureCommand(capture_id=capture_id, force=request.force)
@@ -314,6 +355,14 @@ def capture_to_response(capture: CanonicalCapture) -> dict[str, Any]:
 
 def _safe_metadata(metadata: Any) -> dict[str, Any]:
     return safe_public_metadata(metadata)
+
+
+def _metadata_text(metadata: dict[str, Any], key: str) -> str | None:
+    value = metadata.get(key)
+    if not isinstance(value, str):
+        return None
+    normalized = value.strip()
+    return normalized or None
 
 
 def _validate_status(status_value: str | None, consolidation_value: str | None) -> None:

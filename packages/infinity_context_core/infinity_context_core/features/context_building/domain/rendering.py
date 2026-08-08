@@ -56,16 +56,17 @@ class ContextEvidenceRenderer:
                     text = _truncate(text, self.policy.max_item_chars)
 
                 labels = [
-                    f"item={item.item_id}",
-                    f"kind={item.kind}",
-                    f"role={item.role}",
+                    f"item={_safe_label(item.item_id)}",
+                    f"kind={_safe_label(item.kind)}",
+                    f"role={_safe_label(item.role)}",
                     f"priority={item.priority}",
                 ]
                 if self.policy.include_sources:
                     labels.append(f"sources={sources}")
+                labels.extend(_format_evidence_labels(item))
 
                 lines.append(f"{index}. {'; '.join(labels)}")
-                lines.append(f'   quote: "{text}"')
+                lines.append(f'   quote: "{_quote_text(text)}"')
                 index += 1
 
         return "\n".join(lines)
@@ -78,17 +79,66 @@ def _format_sources(item: ContextItem) -> str:
 
     labels = []
     for ref in source_refs:
-        source = f"{ref.source_type}:{ref.source_id}"
+        source = f"{_safe_identity_part(ref.source_type)}:{_safe_identity_part(ref.source_id)}"
         if ref.chunk_id is not None:
-            source = f"{source}#{ref.chunk_id}"
+            source = f"{source}#{_safe_identity_part(ref.chunk_id)}"
         elif ref.fact_id is not None:
-            source = f"{source}#{ref.fact_id}"
+            source = f"{source}#{_safe_identity_part(ref.fact_id)}"
         labels.append(source)
     return ",".join(labels)
 
 
+def _format_evidence_labels(item: ContextItem) -> list[str]:
+    values: dict[str, list[str]] = {}
+    for evidence in item.evidence:
+        _append_label(values, "trust", evidence.trust_level)
+        _append_label(values, "confidence", evidence.confidence)
+        _append_label(values, "lifecycle", evidence.lifecycle_label)
+        _append_label(values, "temporal", evidence.temporal_label)
+        _append_label(values, "temporal_assurance", evidence.temporal_assurance)
+        for reason in evidence.temporal_reason_codes:
+            _append_label(values, "temporal_reason", reason)
+        _append_label(values, "temporal_kind", evidence.temporal_kind)
+        _append_label(
+            values,
+            "version",
+            str(evidence.canonical_version) if evidence.canonical_version is not None else None,
+        )
+        for name in ("observed_at", "valid_from", "valid_to", "last_confirmed_at"):
+            timestamp = getattr(evidence, name)
+            _append_label(values, name, timestamp.isoformat() if timestamp is not None else None)
+        for provider in evidence.retrieval_sources:
+            _append_label(values, "retrieved_via", provider)
+    return [
+        f"{name}={','.join(_safe_label(item) for item in items)}" for name, items in values.items()
+    ]
+
+
+def _append_label(values: dict[str, list[str]], name: str, value: str | None) -> None:
+    if value is None or value in values.setdefault(name, []):
+        return
+    values[name].append(value)
+
+
 def _normalize_text(text: str) -> str:
     return " ".join(text.split())
+
+
+def _quote_text(text: str) -> str:
+    return text.replace("\\", "\\\\").replace('"', '\\"')
+
+
+def _safe_label(value: str, *, max_chars: int = 160) -> str:
+    normalized = _normalize_text(value)
+    sanitized = "".join(
+        character if character.isalnum() or character in "._:/@+-" else "_"
+        for character in normalized
+    )
+    return _truncate(sanitized, max_chars)
+
+
+def _safe_identity_part(value: str) -> str:
+    return _safe_label(value, max_chars=120)
 
 
 def _truncate(text: str, max_chars: int) -> str:

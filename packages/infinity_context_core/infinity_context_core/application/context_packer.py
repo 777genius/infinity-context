@@ -197,7 +197,11 @@ class ContextPacker:
         inference_reservation_attempted = False
         inference_reservations_selected = 0
         inference_generic_displacements = 0
-        redacted_item_keys: set[tuple[str, str]] = set()
+        redacted_item_keys = {
+            _selection_key(item)
+            for item in items
+            if (item.diagnostics or {}).get("sensitive_item_text_redacted") is True
+        }
         for item in ordered_items:
             if item.is_instruction:
                 dropped_by_instruction_flag += 1

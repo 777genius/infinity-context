@@ -2,6 +2,7 @@ import asyncio
 from datetime import UTC, datetime
 
 from infinity_context_core.application import CreateSuggestionCommand, CreateSuggestionUseCase
+from infinity_context_core.application.suggestion_fact_resolution import reviewed_fact_decision
 from infinity_context_core.domain.entities import (
     MAX_SOURCE_REFS_PER_ITEM,
     MAX_SUGGESTION_REVIEW_EVENTS,
@@ -73,6 +74,38 @@ def test_suggestion_review_audit_events_are_capped() -> None:
     assert events[0]["suggestion_id"] == "sug_6"
     assert events[-1]["suggestion_id"] == "sug_review_cap"
     assert events[-1]["action"] == "reject"
+
+
+def test_reviewed_candidate_preserves_extracted_temporal_window() -> None:
+    suggestion = MemorySuggestion.create(
+        suggestion_id=MemorySuggestionId("sug_temporal"),
+        space_id=SpaceId("space_1"),
+        memory_scope_id=MemoryScopeId("memory_scope_1"),
+        candidate_text="MySQL was used from January through June.",
+        kind=MemoryKind.NOTE,
+        source_refs=(SourceRef(source_type="manual", source_id="source_1"),),
+        confidence=Confidence.MEDIUM,
+        trust_level=TrustLevel.MEDIUM,
+        safe_reason="review",
+        review_payload={
+            "valid_from": "2026-01-01T00:00:00+00:00",
+            "valid_until": "2026-07-01T00:00:00+00:00",
+        },
+        now=_NOW,
+    )
+
+    decision = reviewed_fact_decision(
+        suggestion,
+        actor_id="reviewer-1",
+        reason="approved temporal evidence",
+        now=_NOW,
+        allow_weaker=False,
+    )
+
+    assert decision.candidate.temporal_extent is not None
+    assert decision.candidate.temporal_extent.observed_at == _NOW
+    assert decision.candidate.temporal_extent.valid_from == datetime(2026, 1, 1, tzinfo=UTC)
+    assert decision.candidate.temporal_extent.valid_to == datetime(2026, 7, 1, tzinfo=UTC)
 
 
 async def _run_commit_conflict_recovery() -> None:

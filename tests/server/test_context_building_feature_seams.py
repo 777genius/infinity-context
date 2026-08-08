@@ -13,6 +13,9 @@ from infinity_context_contracts.features.context_building import (
     BuildContextRequestDto,
     ContextBudgetDto,
 )
+from infinity_context_server.context_feature_legacy_bridge import (
+    legacy_bundle_from_canonical_facts,
+)
 from infinity_context_server.features.context_building import public as server_public
 
 MemoryInsightsResponseMapper = server_public.LegacyMemoryInsightsApiResponseMapper
@@ -71,6 +74,10 @@ class RecordingBuildContext:
             char_start=0,
             char_end=37,
             quote_preview="Postgres owns canonical lifecycle.",
+            page_number=2,
+            time_start_ms=1200,
+            time_end_ms=5400,
+            bbox=(12.0, 32.0, 300.0, 88.0),
         )
         evidence = context_building.ContextEvidence(
             text="Postgres owns canonical lifecycle.",
@@ -104,6 +111,56 @@ class RecordingBuildContext:
             total_estimated_tokens=8,
         )
         return context_building.BuildContextResult(bundle=bundle)
+
+
+def test_canonical_fact_legacy_bridge_preserves_fact_kind_and_source_coordinates() -> None:
+    source_ref = context_building.ContextSourceRef(
+        source_type="video",
+        source_id="asset-1",
+        chunk_id="chunk-1",
+        page_number=7,
+        time_start_ms=1250,
+        time_end_ms=4800,
+        bbox=(0.1, 0.2, 0.8, 0.9),
+    )
+    evidence = context_building.ContextEvidence(
+        text="Canonical evidence",
+        source_refs=(source_ref,),
+    )
+    item = context_building.ContextItem(
+        item_id="fact-1",
+        text="Canonical evidence",
+        kind="preference",
+        evidence=(evidence,),
+        score=0.9,
+    )
+    result = SimpleNamespace(
+        bundle=SimpleNamespace(
+            items=(item,),
+            dropped_items=(),
+            rendered_evidence="[1] Canonical evidence",
+            total_estimated_tokens=5,
+        )
+    )
+
+    legacy = legacy_bundle_from_canonical_facts(
+        result,
+        bundle_id="bundle-1",
+        memory_scope_id="scope-1",
+        requested_max_chunks=3,
+        requested_max_evidence_items=2,
+    )
+
+    mapped = legacy.items[0]
+    assert mapped.item_type == "fact"
+    assert mapped.diagnostics["fact_kind"] == "preference"
+    assert mapped.source_refs[0].page_number == 7
+    assert mapped.source_refs[0].time_start_ms == 1250
+    assert mapped.source_refs[0].time_end_ms == 4800
+    assert mapped.source_refs[0].bbox == (0.1, 0.2, 0.8, 0.9)
+    assert legacy.diagnostics["canonical_chunk_candidate_count"] == 0
+    assert legacy.diagnostics["requested_max_chunks"] == 3
+    assert legacy.diagnostics["requested_max_evidence_items"] == 2
 
 
 def test_context_building_server_feature_public_surface_composes_router() -> None:
@@ -233,6 +290,10 @@ def test_context_building_route_maps_http_contract_to_feature_use_case() -> None
     assert evidence["document_id"] == "doc_1"
     assert evidence["chunk_id"] == "chunk_1"
     assert evidence["quote_preview"] == "Postgres owns canonical lifecycle."
+    assert evidence["page_number"] == 2
+    assert evidence["time_start_ms"] == 1200
+    assert evidence["time_end_ms"] == 5400
+    assert evidence["bbox"] == [12.0, 32.0, 300.0, 88.0]
     assert evidence["score"] == 0.97
     assert evidence["trust_level"] == "high"
     assert evidence["metadata"] == {

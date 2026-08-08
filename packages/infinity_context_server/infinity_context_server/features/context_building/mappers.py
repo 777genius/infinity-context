@@ -35,7 +35,10 @@ def build_context_query_from_contract(
                 thread_id=_optional_text(request.thread_id),
             ),
             text=_required_text(request.query, "query"),
+            as_of=_optional_datetime(request.as_of, "as_of"),
             tags=_string_tuple(request.tags),
+            repository_id=_optional_text(request.repository_id),
+            code_scope_id=_optional_text(request.code_scope_id),
         ),
         budget=context_building.ContextBudget(
             max_prompt_tokens=budget.max_context_tokens,
@@ -129,19 +132,46 @@ def _evidence_to_contracts(
             document_id=source_ref.document_id,
             chunk_id=source_ref.chunk_id,
             quote_preview=source_ref.quote_preview,
+            page_number=source_ref.page_number,
+            time_start_ms=source_ref.time_start_ms,
+            time_end_ms=source_ref.time_end_ms,
+            bbox=source_ref.bbox,
             score=evidence.relevance_score,
             trust_level=evidence.trust_level,
-            metadata={
-                "evidence_id": evidence.evidence_id,
-                "confidence": evidence.confidence,
-                "temporal_label": evidence.temporal_label,
-                "char_start": source_ref.char_start,
-                "char_end": source_ref.char_end,
-                "occurred_at": _datetime_to_string(source_ref.occurred_at),
-            },
+            metadata=_evidence_metadata(evidence, source_ref),
         )
         for source_ref in evidence.source_refs
     )
+
+
+def _evidence_metadata(
+    evidence: context_building.ContextEvidence,
+    source_ref: context_building.ContextSourceRef,
+) -> dict[str, object]:
+    metadata: dict[str, object] = {
+        "evidence_id": evidence.evidence_id,
+        "confidence": evidence.confidence,
+        "temporal_label": evidence.temporal_label,
+        "char_start": source_ref.char_start,
+        "char_end": source_ref.char_end,
+        "occurred_at": _datetime_to_string(source_ref.occurred_at),
+    }
+    optional_values: tuple[tuple[str, object], ...] = (
+        ("temporal_assurance", evidence.temporal_assurance),
+        ("temporal_reason_codes", list(evidence.temporal_reason_codes)),
+        ("lifecycle_label", evidence.lifecycle_label),
+        ("temporal_kind", evidence.temporal_kind),
+        ("observed_at", _datetime_to_string(evidence.observed_at)),
+        ("valid_from", _datetime_to_string(evidence.valid_from)),
+        ("valid_to", _datetime_to_string(evidence.valid_to)),
+        ("last_confirmed_at", _datetime_to_string(evidence.last_confirmed_at)),
+        ("canonical_version", evidence.canonical_version),
+        ("retrieval_sources", list(evidence.retrieval_sources)),
+    )
+    metadata.update(
+        (name, value) for name, value in optional_values if value is not None and value != []
+    )
+    return metadata
 
 
 def _required_text(value: str | None, field_name: str) -> str:
@@ -195,6 +225,18 @@ def _datetime_to_string(value: datetime | None) -> str | None:
     if value is None:
         return None
     return value.isoformat()
+
+
+def _optional_datetime(value: str | None, field_name: str) -> datetime | None:
+    if value is None:
+        return None
+    try:
+        parsed = datetime.fromisoformat(value)
+    except ValueError as exc:
+        raise ValueError(f"{field_name} must be an ISO-8601 datetime") from exc
+    if parsed.tzinfo is None or parsed.utcoffset() is None:
+        raise ValueError(f"{field_name} must be timezone-aware")
+    return parsed
 
 
 __all__ = (

@@ -1,40 +1,63 @@
 """SQLAlchemy persistence models for canonical Postgres storage."""
 
-from __future__ import annotations
-
 from datetime import datetime
 
 from sqlalchemy import (
     CheckConstraint,
+    Computed,
     DateTime,
     Float,
     ForeignKey,
+    ForeignKeyConstraint,
     Index,
     Integer,
     String,
     Text,
     UniqueConstraint,
+    and_,
 )
 from sqlalchemy.dialects.postgresql import JSONB
-from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
+from sqlalchemy.orm import Mapped, mapped_column
 from sqlalchemy.types import JSON
 
-
-class Base(DeclarativeBase):
-    pass
-
-
-def json_type() -> JSON:
-    return JSON().with_variant(JSONB(), "postgresql")
+from infinity_context_adapters.postgres.fact_audit_constraints import (
+    active_predecessor_index,
+    memory_fact_relation_tenant_constraints,
+    memory_fact_relation_version_constraint,
+)
+from infinity_context_adapters.postgres.fact_storage_constraints import (
+    memory_fact_storage_constraints,
+)
+from infinity_context_adapters.postgres.orm import Base, json_type
+from infinity_context_adapters.postgres.suggestion_constraints import (
+    pending_suggestion_fingerprint_indexes,
+)
 
 
 class MemoryServiceTokenRow(Base):
     __tablename__ = "memory_service_tokens"
-    __table_args__ = (Index("ix_memory_service_tokens_status", "status", "created_at"),)
+    __table_args__ = (
+        ForeignKeyConstraint(
+            ["repository_id", "space_id"],
+            ["code_repositories.id", "code_repositories.space_id"],
+            name="fk_memory_service_tokens_repository_space",
+        ),
+        CheckConstraint(
+            "repository_id IS NULL OR space_id IS NOT NULL",
+            name="ck_memory_service_tokens_repository_space_pair",
+        ),
+        CheckConstraint(
+            "code_scope_id IS NULL OR repository_id IS NOT NULL",
+            name="ck_memory_service_tokens_code_scope_pair",
+        ),
+        Index("ix_memory_service_tokens_status", "status", "created_at"),
+    )
 
     id: Mapped[str] = mapped_column(String(80), primary_key=True)
     space_id: Mapped[str | None] = mapped_column(String(80), nullable=True)
     memory_scope_ids_json: Mapped[list[str] | None] = mapped_column(json_type(), nullable=True)
+    repository_id: Mapped[str | None] = mapped_column(String(80), nullable=True)
+    code_scope_id: Mapped[str | None] = mapped_column(String(96), nullable=True)
     description: Mapped[str] = mapped_column(String(240), nullable=False)
     token_hash: Mapped[str] = mapped_column(String(80), unique=True, nullable=False)
     permissions_json: Mapped[list[str] | None] = mapped_column(json_type(), nullable=True)
@@ -225,16 +248,59 @@ class MemoryFactRow(Base):
     __tablename__ = "memory_facts"
     __table_args__ = (
         CheckConstraint("version > 0", name="ck_fact_version_positive"),
+        UniqueConstraint(
+            "id",
+            "space_id",
+            "memory_scope_id",
+            name="uq_memory_facts_id_scope",
+        ),
+        UniqueConstraint(
+            "id",
+            "space_id",
+            "memory_scope_id",
+            "thread_scope_key",
+            name="uq_memory_facts_id_scope_thread",
+        ),
+        ForeignKeyConstraint(
+            ["repository_id", "space_id"],
+            ["code_repositories.id", "code_repositories.space_id"],
+            name="fk_memory_facts_repository_space",
+        ),
+        *memory_fact_storage_constraints(),
         Index(
             "ix_memory_facts_scope_status", "space_id", "memory_scope_id", "status", "updated_at"
         ),
         Index("ix_memory_facts_taxonomy", "space_id", "memory_scope_id", "category", "status"),
+        Index(
+            "ix_memory_facts_temporal_selection",
+            "space_id",
+            "memory_scope_id",
+            "status",
+            "temporal_kind",
+            "valid_from",
+            "valid_to",
+        ),
+        Index(
+            "ix_memory_facts_code_scope",
+            "space_id",
+            "memory_scope_id",
+            "repository_id",
+            "code_scope_id",
+            "status",
+        ),
     )
 
     id: Mapped[str] = mapped_column(String(80), primary_key=True)
     space_id: Mapped[str] = mapped_column(String(80), nullable=False)
     memory_scope_id: Mapped[str] = mapped_column(String(80), nullable=False)
     thread_id: Mapped[str | None] = mapped_column(String(80), nullable=True)
+    thread_scope_key: Mapped[str] = mapped_column(
+        String(87),
+        Computed(
+            "CASE WHEN thread_id IS NULL THEN 'global' ELSE 'thread:' || thread_id END",
+            persisted=True,
+        ),
+    )
     kind: Mapped[str] = mapped_column(String(80), nullable=False)
     text: Mapped[str] = mapped_column(Text, nullable=False)
     status: Mapped[str] = mapped_column(String(40), nullable=False)
@@ -243,8 +309,31 @@ class MemoryFactRow(Base):
     classification: Mapped[str] = mapped_column(String(40), nullable=False, default="internal")
     category: Mapped[str | None] = mapped_column(String(80), nullable=True)
     tags_json: Mapped[list[str]] = mapped_column(json_type(), nullable=False, default=list)
+    evidence_refs_json: Mapped[list[dict[str, object]]] = mapped_column(
+        json_type(), nullable=False, default=list
+    )
     ttl_policy: Mapped[str | None] = mapped_column(String(80), nullable=True)
     expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    temporal_kind: Mapped[str] = mapped_column(String(20), nullable=False, default="state")
+    observed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    valid_from: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    valid_to: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    occurred_from: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    occurred_to: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    temporal_basis: Mapped[str] = mapped_column(
+        String(80), nullable=False, default="migrated_legacy"
+    )
+    temporal_precision: Mapped[str] = mapped_column(String(40), nullable=False, default="unknown")
+    last_confirmed_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    confirmation_basis: Mapped[str | None] = mapped_column(String(120), nullable=True)
+    purge_after: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    epistemic_mode: Mapped[str] = mapped_column(String(40), nullable=False, default="world_claim")
+    asserted_by: Mapped[str | None] = mapped_column(String(160), nullable=True)
+    perspective_subject: Mapped[str | None] = mapped_column(String(160), nullable=True)
+    repository_id: Mapped[str | None] = mapped_column(String(80), nullable=True)
+    code_scope_id: Mapped[str | None] = mapped_column(String(96), nullable=True)
     version: Mapped[int] = mapped_column(Integer, nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
@@ -429,6 +518,9 @@ class MemoryChunkRow(Base):
     __tablename__ = "memory_chunks"
     __table_args__ = (
         UniqueConstraint("space_id", "memory_scope_id", "source_hash", name="uq_chunk_source_hash"),
+        CheckConstraint(
+            "(document_id IS NOT NULL) <> (episode_id IS NOT NULL)", name="ck_chunk_owner"
+        ),
         Index("ix_memory_chunks_scope_status", "space_id", "memory_scope_id", "status"),
         Index("ix_memory_chunks_thread_status", "thread_id", "status"),
         Index("ix_memory_chunks_document", "document_id", "status", "sequence"),
@@ -486,6 +578,9 @@ class MemoryFactVersionRow(Base):
     text: Mapped[str] = mapped_column(Text, nullable=False)
     status: Mapped[str] = mapped_column(String(40), nullable=False)
     source_refs_json: Mapped[list[dict[str, object]]] = mapped_column(json_type(), nullable=False)
+    snapshot_json: Mapped[dict[str, object]] = mapped_column(
+        json_type(), nullable=False, default=dict
+    )
     reason: Mapped[str | None] = mapped_column(String(240), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
 
@@ -496,6 +591,14 @@ class MemoryFactRelationRow(Base):
     id: Mapped[str] = mapped_column(String(80), primary_key=True)
     space_id: Mapped[str] = mapped_column(String(80), nullable=False)
     memory_scope_id: Mapped[str] = mapped_column(String(80), nullable=False)
+    thread_id: Mapped[str | None] = mapped_column(String(80), nullable=True)
+    thread_scope_key: Mapped[str] = mapped_column(
+        String(87),
+        Computed(
+            "CASE WHEN thread_id IS NULL THEN 'global' ELSE 'thread:' || thread_id END",
+            persisted=True,
+        ),
+    )
     source_fact_id: Mapped[str] = mapped_column(
         String(80),
         ForeignKey("memory_facts.id"),
@@ -512,9 +615,24 @@ class MemoryFactRelationRow(Base):
     observed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     valid_from: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     valid_to: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    source_fact_version: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    target_fact_version: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    temporal_decision_id: Mapped[str | None] = mapped_column(
+        String(80),
+        nullable=True,
+    )
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     __table_args__ = (
+        UniqueConstraint(
+            "id",
+            "space_id",
+            "memory_scope_id",
+            "temporal_decision_id",
+            name="uq_memory_fact_relations_receipt_identity",
+        ),
+        *memory_fact_relation_tenant_constraints(),
+        memory_fact_relation_version_constraint(),
         Index(
             "uq_memory_fact_relation_active",
             "source_fact_id",
@@ -527,17 +645,40 @@ class MemoryFactRelationRow(Base):
         Index("ix_memory_fact_relations_source", "source_fact_id", "status"),
         Index("ix_memory_fact_relations_target", "target_fact_id", "status"),
         Index("ix_memory_fact_relations_scope", "space_id", "memory_scope_id", "status"),
+        Index(
+            "uq_memory_fact_single_active_supersession",
+            "target_fact_id",
+            unique=True,
+            sqlite_where=and_(
+                relation_type == "supersedes",
+                status == "active",
+                temporal_decision_id.is_not(None),
+            ),
+            postgresql_where=and_(
+                relation_type == "supersedes",
+                status == "active",
+                temporal_decision_id.is_not(None),
+            ),
+        ),
+        active_predecessor_index(relation_type, status, temporal_decision_id),
     )
 
 
 class MemorySuggestionRow(Base):
     __tablename__ = "memory_suggestions"
     __table_args__ = (
+        UniqueConstraint(
+            "id",
+            "space_id",
+            "memory_scope_id",
+            name="uq_memory_suggestions_id_scope",
+        ),
         Index("ix_memory_suggestions_scope_status", "space_id", "memory_scope_id", "status"),
         Index("ix_memory_suggestions_target", "target_fact_id", "status"),
         Index(
             "ix_memory_suggestions_expiry", "space_id", "memory_scope_id", "status", "expires_at"
         ),
+        *pending_suggestion_fingerprint_indexes(),
     )
 
     id: Mapped[str] = mapped_column(String(80), primary_key=True)
@@ -742,36 +883,6 @@ class MemoryContextLinkSuggestionRow(Base):
     )
 
 
-class MemoryOutboxRow(Base):
-    __tablename__ = "memory_outbox"
-    __table_args__ = (
-        Index("ix_memory_outbox_status_next", "status", "next_attempt_at"),
-        Index(
-            "ix_memory_outbox_workload_fairness",
-            "status",
-            "workload_class",
-            "fairness_key",
-            "next_attempt_at",
-        ),
-    )
-
-    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
-    event_type: Mapped[str] = mapped_column(String(120), nullable=False)
-    aggregate_type: Mapped[str] = mapped_column(String(80), nullable=False)
-    aggregate_id: Mapped[str] = mapped_column(String(80), nullable=False)
-    aggregate_version: Mapped[int | None] = mapped_column(Integer, nullable=True)
-    workload_class: Mapped[str] = mapped_column(String(80), nullable=False, default="projection")
-    fairness_key: Mapped[str | None] = mapped_column(String(160), nullable=True)
-    payload_json: Mapped[dict[str, object]] = mapped_column(json_type(), nullable=False)
-    status: Mapped[str] = mapped_column(String(40), nullable=False, default="pending")
-    attempt_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
-    next_attempt_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
-    last_safe_error: Mapped[str | None] = mapped_column(String(400), nullable=True)
-    last_safe_diagnostic_code: Mapped[str | None] = mapped_column(String(120), nullable=True)
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
-    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
-
-
 class MemoryIdempotencyRecordRow(Base):
     __tablename__ = "memory_idempotency_records"
     __table_args__ = (UniqueConstraint("space_id", "key", name="uq_idempotency_space_key"),)
@@ -876,3 +987,12 @@ class MemoryComparisonBenchmarkRunRow(Base):
     completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+
+
+# Imported last to preserve the legacy public model surface.
+from infinity_context_adapters.postgres.outbox_models import (  # noqa: E402
+    MemoryOutboxRow,  # noqa: F401
+)
+from infinity_context_adapters.postgres.temporal_models import (  # noqa: E402
+    MemoryFactTemporalDecisionRow,  # noqa: F401
+)

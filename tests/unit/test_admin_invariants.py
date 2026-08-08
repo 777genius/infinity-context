@@ -521,7 +521,7 @@ async def _insert_broken_rows(client: TestClient, *, space_id: str, memory_scope
                 space_id=space_id,
                 memory_scope_id="memory_scope_missing",
                 thread_id=None,
-                document_id=None,
+                document_id="document_missing",
                 episode_id=None,
                 source_type="manual",
                 source_external_id="broken",

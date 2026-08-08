@@ -13,6 +13,22 @@ from infinity_context_core.features.memory_facts.application.commands import (
     UpdateFactCommand,
     UpdateFactResult,
 )
+from infinity_context_core.features.memory_facts.application.conflicts import (
+    DisputeFactsCommand,
+    DisputeFactsResult,
+)
+from infinity_context_core.features.memory_facts.application.supersession import (
+    ReinstateSupersededFactCommand,
+    ReinstateSupersededFactResult,
+    SupersedeFactCommand,
+    SupersedeFactResult,
+)
+from infinity_context_core.features.memory_facts.application.temporal_mutations import (
+    ConfirmFactCommand,
+    ConfirmFactResult,
+    EndFactValidityCommand,
+    EndFactValidityResult,
+)
 
 
 class RememberFactUseCase(Protocol):
@@ -30,6 +46,29 @@ class ForgetFactUseCase(Protocol):
         """Forget a fact through the feature-owned application boundary."""
 
 
+class ConfirmFactUseCase(Protocol):
+    async def execute(self, command: ConfirmFactCommand) -> ConfirmFactResult: ...
+
+
+class EndFactValidityUseCase(Protocol):
+    async def execute(self, command: EndFactValidityCommand) -> EndFactValidityResult: ...
+
+
+class SupersedeFactUseCase(Protocol):
+    async def execute(self, command: SupersedeFactCommand) -> SupersedeFactResult: ...
+
+
+class DisputeFactsUseCase(Protocol):
+    async def execute(self, command: DisputeFactsCommand) -> DisputeFactsResult: ...
+
+
+class ReinstateSupersededFactUseCase(Protocol):
+    async def execute(
+        self,
+        command: ReinstateSupersededFactCommand,
+    ) -> ReinstateSupersededFactResult: ...
+
+
 @dataclass(frozen=True, slots=True)
 class MemoryFactLifecycleUseCases:
     """Feature-owned remember/update/forget use case bundle."""
@@ -39,9 +78,21 @@ class MemoryFactLifecycleUseCases:
     forget_fact: ForgetFactUseCase
 
 
+@dataclass(frozen=True, slots=True)
+class MemoryFactTemporalUseCases:
+    """Audited temporal decisions exposed as one application capability."""
+
+    confirm_fact: ConfirmFactUseCase
+    end_validity: EndFactValidityUseCase
+    supersede_fact: SupersedeFactUseCase
+    dispute_facts: DisputeFactsUseCase
+    reinstate_supersession: ReinstateSupersededFactUseCase
+
+
 __all__ = (
     "ForgetFactUseCase",
     "MemoryFactLifecycleUseCases",
+    "MemoryFactTemporalUseCases",
     "RememberFactUseCase",
     "UpdateFactUseCase",
 )

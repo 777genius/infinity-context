@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import re
+from datetime import datetime
 from typing import Protocol
 
 from infinity_context_core.application import BuildContextQuery, ConsistencyMode
@@ -27,6 +28,9 @@ class ContextRequest(BaseModel):
     memory_scope_external_ref: str | None = Field(default=None, min_length=1, max_length=200)
     memory_scope_external_refs: list[str] | None = Field(default=None, min_length=1, max_length=20)
     thread_external_ref: str | None = Field(default=None, min_length=1, max_length=200)
+    repository_id: str | None = Field(default=None, min_length=1, max_length=80)
+    code_scope_id: str | None = Field(default=None, min_length=1, max_length=96)
+    as_of: datetime | None = None
     query: str = Field(min_length=1, max_length=12000)
     consistency_mode: ConsistencyMode = Field(default=ConsistencyMode.BEST_EFFORT)
     token_budget: int = Field(default=1800, ge=64, le=16000)
@@ -81,6 +85,9 @@ def build_legacy_context_query_from_request(
         space_id=space_id,
         memory_scope_ids=memory_scope_ids,
         thread_id=thread_id,
+        repository_id=request.repository_id,
+        code_scope_id=request.code_scope_id,
+        as_of=request.as_of,
         query=request.query,
         consistency_mode=request.consistency_mode,
         token_budget=token_budget,
@@ -115,6 +122,9 @@ def _feature_context_query_for_legacy_request(
                 space_id=str(scope.space_id),
                 memory_scope_id=str(scope.memory_scope_ids[0]),
                 thread_id=str(scope.thread_id) if scope.thread_id else None,
+                repository_id=request.repository_id,
+                code_scope_id=request.code_scope_id,
+                as_of=request.as_of,
                 budget=ContextBudgetHttpRequest(
                     max_context_tokens=request.token_budget,
                 ),

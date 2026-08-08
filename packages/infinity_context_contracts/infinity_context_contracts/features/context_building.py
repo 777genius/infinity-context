@@ -86,9 +86,7 @@ class ContextItemDto:
     id: str
     text: str
     kind: str
-    evidence: Sequence[ContextEvidenceDto | Mapping[str, JsonValue]] = field(
-        default_factory=tuple
-    )
+    evidence: Sequence[ContextEvidenceDto | Mapping[str, JsonValue]] = field(default_factory=tuple)
     score: float | None = None
     token_count: int | None = None
     trust_level: str = "medium"
@@ -124,6 +122,9 @@ class BuildContextRequestDto:
     memory_scope_external_ref: str | None = None
     memory_scope_external_refs: Sequence[str] = field(default_factory=tuple)
     thread_external_ref: str | None = None
+    repository_id: str | None = None
+    code_scope_id: str | None = None
+    as_of: str | None = None
     budget: ContextBudgetDto | Mapping[str, JsonValue] | None = None
     token_budget: int | None = None
     max_facts: int | None = None
@@ -152,10 +153,11 @@ class BuildContextRequestDto:
             "thread_id": self.thread_id,
             "space_slug": self.space_slug,
             "memory_scope_external_ref": self.memory_scope_external_ref,
-            "memory_scope_external_refs": json_compatible(
-                self.memory_scope_external_refs
-            ),
+            "memory_scope_external_refs": json_compatible(self.memory_scope_external_refs),
             "thread_external_ref": self.thread_external_ref,
+            "repository_id": self.repository_id,
+            "code_scope_id": self.code_scope_id,
+            "as_of": self.as_of,
             "budget": json_compatible(self.budget),
             "token_budget": self.token_budget,
             "max_facts": self.max_facts,

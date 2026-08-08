@@ -64,12 +64,19 @@ class ReceiveCaptureUseCase:
             client_instance_id=command.client_instance_id,
             text=admitted.text,
         )
+        safe_metadata = _safe_metadata(command.metadata)
+        request_fingerprint = _capture_request_fingerprint(
+            command,
+            admitted_text=admitted.text,
+            safe_metadata=safe_metadata,
+        )
         async with self._uow_factory() as uow:
             existing = await uow.captures.get_by_idempotency_key(
                 space_id=str(command.space_id),
                 idempotency_key=idempotency_key,
             )
             if existing is not None:
+                _require_exact_capture_replay(existing, request_fingerprint)
                 return CaptureResult(capture=existing, duplicate=True)
 
             pending_count = await uow.captures.count_for_scope(
@@ -85,7 +92,6 @@ class ReceiveCaptureUseCase:
             if pending_count >= self._max_pending_captures_per_memory_scope:
                 raise MemoryIngressLimitError("Pending capture limit reached")
 
-            safe_metadata = _safe_metadata(command.metadata)
             capture = CanonicalCapture.create(
                 capture_id=MemoryCaptureId(self._ids.new_id("cap")),
                 space_id=command.space_id,
@@ -97,14 +103,7 @@ class ReceiveCaptureUseCase:
                 actor_role=_actor_role(command.actor_role),
                 text=admitted.text,
                 evidence_refs=command.evidence_refs,
-                payload_hash=capture_payload_hash(
-                    command.source_agent,
-                    command.source_kind,
-                    command.event_type,
-                    command.source_event_id,
-                    command.client_instance_id,
-                    admitted.text,
-                ),
+                payload_hash=request_fingerprint,
                 idempotency_key=idempotency_key,
                 trust_level=_trust_level(command.trust_level),
                 source_authority=_source_authority(command.source_authority),
@@ -162,6 +161,7 @@ class ReceiveCaptureUseCase:
                 )
                 if existing is None:
                     raise
+                _require_exact_capture_replay(existing, request_fingerprint)
                 return CaptureResult(capture=existing, duplicate=True)
         return CaptureResult(capture=saved)
 
@@ -236,3 +236,45 @@ def _safe_metadata(metadata: dict[str, object] | None) -> dict[str, object]:
         elif isinstance(value, (int, float, bool)) or value is None:
             safe[key_text] = value
     return safe
+
+
+def _capture_request_fingerprint(
+    command: ReceiveCaptureCommand,
+    *,
+    admitted_text: str,
+    safe_metadata: dict[str, object],
+) -> str:
+    return capture_payload_hash(
+        str(command.space_id),
+        str(command.memory_scope_id),
+        str(command.thread_id) if command.thread_id else None,
+        command.source_agent,
+        command.source_kind,
+        command.event_type,
+        command.actor_role,
+        admitted_text,
+        tuple(command.evidence_refs),
+        command.trust_level,
+        command.source_authority,
+        command.sensitivity,
+        command.data_classification,
+        command.occurred_at.isoformat() if command.occurred_at else None,
+        tuple(sorted(safe_metadata.items())),
+        command.source_event_id,
+        command.source_actor_external_ref,
+        command.client_instance_id,
+        command.agent_session_external_ref,
+        command.turn_external_ref,
+        command.parent_capture_id,
+        command.sequence_index,
+        command.trace_id,
+        command.consolidate,
+    )
+
+
+def _require_exact_capture_replay(
+    existing: CanonicalCapture,
+    request_fingerprint: str,
+) -> None:
+    if existing.payload_hash != request_fingerprint:
+        raise MemoryConflictError("Capture idempotency key was reused for a different request")

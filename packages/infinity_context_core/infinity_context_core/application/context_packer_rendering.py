@@ -90,10 +90,7 @@ def source_group_key(item: ContextItem) -> str:
     item_memory_scope_id = memory_scope_id(item)
     if item.source_refs:
         ref = item.source_refs[0]
-        return (
-            f"{item_memory_scope_id}:{ref.source_type}:"
-            f"{source_group_identity(ref.source_id)}"
-        )
+        return f"{item_memory_scope_id}:{ref.source_type}:{source_group_identity(ref.source_id)}"
     return f"{item_memory_scope_id}:{item.item_type}:{item.item_id}"
 
 
@@ -158,8 +155,7 @@ def _source_label(item: ContextItem) -> str:
             f"#{_safe_source_identity_part(ref.chunk_id)}"
         )
     return (
-        f"{_safe_source_identity_part(ref.source_type)}:"
-        f"{_safe_source_identity_part(ref.source_id)}"
+        f"{_safe_source_identity_part(ref.source_type)}:{_safe_source_identity_part(ref.source_id)}"
     )
 
 
@@ -171,10 +167,35 @@ def _rendered_metadata_part(item: ContextItem) -> str:
     confidence = _evidence_confidence(item)
     if confidence:
         parts.append(f"confidence={confidence}")
+    parts.extend(_fact_temporal_metadata(item))
     reason = _rendered_reason(item)
     if reason:
         parts.append(f'reason="{quote_text(reason)}"')
     return " ".join(parts)
+
+
+def _fact_temporal_metadata(item: ContextItem) -> tuple[str, ...]:
+    diagnostics = item.diagnostics or {}
+    if item.item_type != "fact" or not diagnostics.get("canonical_hydration"):
+        return ()
+    labels: list[str] = []
+    for output_name, diagnostic_name in (
+        ("lifecycle", "fact_status"),
+        ("temporal", "temporal_currentness"),
+        ("assurance", "temporal_assurance"),
+    ):
+        value = _safe_inline_label(diagnostic_text(item, diagnostic_name))
+        if value:
+            labels.append(f"{output_name}={value}")
+    for output_name, diagnostic_name in (
+        ("valid_from", "valid_from"),
+        ("valid_to", "valid_to"),
+        ("last_confirmed", "last_confirmed_at"),
+    ):
+        value = diagnostic_text(item, diagnostic_name)
+        if value:
+            labels.append(f'{output_name}="{quote_text(one_line(value))}"')
+    return tuple(labels)
 
 
 def _format_score(value: float) -> str:
@@ -239,8 +260,7 @@ def _source_ref_identity(ref: SourceRef) -> str:
             f"#{_safe_source_identity_part(ref.chunk_id)}"
         )
     return (
-        f"{_safe_source_identity_part(ref.source_type)}:"
-        f"{_safe_source_identity_part(ref.source_id)}"
+        f"{_safe_source_identity_part(ref.source_type)}:{_safe_source_identity_part(ref.source_id)}"
     )
 
 

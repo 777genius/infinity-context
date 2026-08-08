@@ -66,6 +66,12 @@ def test_fact_lifecycle_commands_and_results_are_frozen_dataclasses() -> None:
                 "evidence_refs",
                 "category",
                 "tags",
+                "quality",
+                "temporal_extent",
+                "freshness",
+                "retention",
+                "epistemic_context",
+                "code_scope",
                 "idempotency_key",
             ),
         ),
@@ -75,7 +81,7 @@ def test_fact_lifecycle_commands_and_results_are_frozen_dataclasses() -> None:
                 fact=snapshot,
                 outbox_message_ids=("outbox-1",),
             ),
-            ("fact", "outbox_message_ids"),
+            ("fact", "outbox_message_ids", "replayed"),
         ),
         (
             application.UpdateFactCommand,
@@ -95,14 +101,16 @@ def test_fact_lifecycle_commands_and_results_are_frozen_dataclasses() -> None:
                 "evidence_refs",
                 "category",
                 "tags",
+                "retention",
                 "reason",
                 "idempotency_key",
+                "authorized_code_scope",
             ),
         ),
         (
             application.UpdateFactResult,
             application.UpdateFactResult(fact=snapshot),
-            ("fact", "outbox_message_ids"),
+            ("fact", "outbox_message_ids", "replayed"),
         ),
         (
             application.ForgetFactCommand,
@@ -111,12 +119,18 @@ def test_fact_lifecycle_commands_and_results_are_frozen_dataclasses() -> None:
                 expected_version=1,
                 reason="obsolete",
             ),
-            ("identity", "expected_version", "reason", "idempotency_key"),
+            (
+                "identity",
+                "expected_version",
+                "reason",
+                "idempotency_key",
+                "authorized_code_scope",
+            ),
         ),
         (
             application.ForgetFactResult,
             application.ForgetFactResult(fact=snapshot, tombstone_id="tombstone-1"),
-            ("fact", "tombstone_id", "outbox_message_ids"),
+            ("fact", "tombstone_id", "outbox_message_ids", "replayed", "already_deleted"),
         ),
     )
 
@@ -132,10 +146,14 @@ def test_fact_lifecycle_ports_are_protocol_boundaries() -> None:
     domain = importlib.import_module(DOMAIN_MODULE)
 
     protocol_names = (
+        "FactSupersessionRepositoryPort",
+        "FactTemporalDecisionRepositoryPort",
         "MemoryFactClockPort",
         "MemoryFactIdPort",
         "MemoryFactOutboxPort",
         "MemoryFactRepositoryPort",
+        "MemoryFactSelectionPort",
+        "MemoryFactTransactionPort",
         "MemoryFactUnitOfWorkFactoryPort",
         "MemoryFactUnitOfWorkPort",
     )
@@ -143,14 +161,34 @@ def test_fact_lifecycle_ports_are_protocol_boundaries() -> None:
         assert getattr(getattr(ports, name), "_is_protocol", False)
 
     assert inspect.iscoroutinefunction(ports.MemoryFactOutboxPort.enqueue)
-    for method_name in ("create", "get", "get_for_update", "save"):
+    for method_name in (
+        "create",
+        "get",
+        "get_for_update",
+        "get_many_for_update",
+        "list_versions",
+        "save",
+    ):
+        assert inspect.iscoroutinefunction(getattr(ports.MemoryFactRepositoryPort, method_name))
+    assert inspect.iscoroutinefunction(ports.MemoryFactSelectionPort.find_eligible)
+    assert inspect.iscoroutinefunction(
+        ports.MemoryFactSelectionPort.find_current_supersessions
+    )
+    for method_name in ("create", "find_active_successor", "list_active"):
         assert inspect.iscoroutinefunction(
-            getattr(ports.MemoryFactRepositoryPort, method_name)
+            getattr(ports.FactSupersessionRepositoryPort, method_name)
         )
-    for method_name in ("__aenter__", "__aexit__", "commit", "rollback"):
+    for method_name in (
+        "create",
+        "find_compensation",
+        "get",
+        "get_by_idempotency_key",
+    ):
         assert inspect.iscoroutinefunction(
-            getattr(ports.MemoryFactUnitOfWorkPort, method_name)
+            getattr(ports.FactTemporalDecisionRepositoryPort, method_name)
         )
+    for method_name in ("__aenter__", "__aexit__", "commit", "rollback", "lock_scope"):
+        assert inspect.iscoroutinefunction(getattr(ports.MemoryFactUnitOfWorkPort, method_name))
     assert not inspect.iscoroutinefunction(ports.MemoryFactUnitOfWorkFactoryPort.__call__)
 
     message = ports.MemoryFactOutboxMessage(
@@ -158,13 +196,17 @@ def test_fact_lifecycle_ports_are_protocol_boundaries() -> None:
         event_type="fact.remembered",
         aggregate_id="fact-1",
         aggregate_version=1,
+        scope=domain.MemoryFactScope("space-1", "scope-1"),
     )
     assert is_dataclass(ports.MemoryFactOutboxMessage)
     assert not hasattr(message, "__dict__")
     _assert_frozen(message)
 
-    annotations = ports.MemoryFactUnitOfWorkPort.__annotations__
+    annotations = ports.MemoryFactTransactionPort.__annotations__
     assert annotations["facts"] == "MemoryFactRepositoryPort"
+    assert annotations["supersessions"] == "FactSupersessionRepositoryPort"
+    assert annotations["temporal_decisions"] == "FactTemporalDecisionRepositoryPort"
+    assert annotations["operation_receipts"] == "MemoryFactOperationReceiptPort"
     assert annotations["outbox"] == "MemoryFactOutboxPort"
     assert domain.MemoryFactSnapshot.__name__ == "MemoryFactSnapshot"
 
@@ -177,6 +219,42 @@ def test_memory_facts_public_api_exports_exact_feature_boundary() -> None:
 
     expected_exports = {
         "FEATURE_ID": domain,
+        "FACT_TEMPORAL_MUTATION_POLICY_VERSION": application,
+        "SUPERSESSION_POLICY_VERSION": application,
+        "DisputeFactsCommand": application,
+        "DisputeFactsHandler": application,
+        "DisputeFactsResult": application,
+        "ConfirmFactCommand": application,
+        "ConfirmFactHandler": application,
+        "ConfirmFactResult": application,
+        "EndFactValidityCommand": application,
+        "EndFactValidityHandler": application,
+        "EndFactValidityResult": application,
+        "FactCurrentness": domain,
+        "FactCurrentnessAssessment": domain,
+        "FactCurrentnessPolicy": domain,
+        "FactCodeScopeReference": domain,
+        "FactEligibilityAssessment": domain,
+        "FactEligibilityPolicy": domain,
+        "FactEpistemicContext": domain,
+        "FactEpistemicMode": domain,
+        "FactFreshness": domain,
+        "FactLifecycle": domain,
+        "FactLifecycleStatus": domain,
+        "FactQuality": domain,
+        "FactRetention": domain,
+        "FactRevision": domain,
+        "FactTemporalAssurance": domain,
+        "FactSupersessionPolicy": domain,
+        "FactSupersessionRelation": domain,
+        "FactTemporalDecision": domain,
+        "FactTemporalDecisionRepositoryPort": ports,
+        "FactTemporalDecisionType": domain,
+        "FactSupersessionRepositoryPort": ports,
+        "FactTemporalExtent": domain,
+        "FactTemporalKind": domain,
+        "FactTemporalQueryMode": domain,
+        "FactTtlPolicy": domain,
         "ForgetFactCommand": application,
         "ForgetFactHandler": application,
         "ForgetFactResult": application,
@@ -184,15 +262,26 @@ def test_memory_facts_public_api_exports_exact_feature_boundary() -> None:
         "MemoryFactClassification": domain,
         "MemoryFactClockPort": ports,
         "MemoryFactConfidence": domain,
+        "MemoryFact": domain,
         "MemoryFactEvidenceRef": domain,
         "MemoryFactIdPort": ports,
         "MemoryFactIdentity": domain,
         "MemoryFactKind": domain,
         "MemoryFactLifecycleUseCases": application,
+        "MemoryFactReadUseCases": application,
+        "MemoryFactListSpec": ports,
+        "MemoryFactReadModelPort": ports,
+        "MemoryFactTemporalUseCases": application,
+        "MemoryFactTransactionPort": ports,
         "MemoryFactOutboxMessage": ports,
         "MemoryFactOutboxPort": ports,
+        "MemoryFactOperationReceipt": ports,
+        "MemoryFactIdempotencyConflict": ports,
+        "MemoryFactOperationReceiptPort": ports,
         "MemoryFactRepositoryPort": ports,
         "MemoryFactScope": domain,
+        "MemoryFactSelectionPort": ports,
+        "MemoryFactSelectionQuery": domain,
         "MemoryFactSnapshot": domain,
         "MemoryFactSourceRef": domain,
         "MemoryFactStatus": domain,
@@ -201,10 +290,28 @@ def test_memory_facts_public_api_exports_exact_feature_boundary() -> None:
         "MemoryFactUnitOfWorkPort": ports,
         "MemoryFactVisibility": domain,
         "MemoryFactsFeature": domain,
+        "NormalizedFactTaxonomy": domain,
+        "normalize_fact_taxonomy_fields": domain,
         "RememberFactCommand": application,
         "RememberFactHandler": application,
         "RememberFactResult": application,
         "RememberFactUseCase": application,
+        "ReinstateSupersededFactCommand": application,
+        "ReinstateSupersededFactHandler": application,
+        "ReinstateSupersededFactResult": application,
+        "ReviewedFactCandidate": application,
+        "ReviewedFactDecision": application,
+        "ReviewedFactMutationExecutor": application,
+        "ReviewedFactMutationPort": application,
+        "ReviewedFactMutationResult": application,
+        "ReviewedFactTarget": application,
+        "SelectMemoryFactsHandler": application,
+        "GetMemoryFactHandler": application,
+        "ListMemoryFactVersionsHandler": application,
+        "ListMemoryFactsHandler": application,
+        "SupersedeFactCommand": application,
+        "SupersedeFactHandler": application,
+        "SupersedeFactResult": application,
         "UpdateFactCommand": application,
         "UpdateFactHandler": application,
         "UpdateFactResult": application,
@@ -312,7 +419,4 @@ def _package_context(path: Path) -> str | None:
 
 
 def _matches_prefix(imported: str, prefixes: tuple[str, ...]) -> bool:
-    return any(
-        imported == prefix or imported.startswith(f"{prefix}.")
-        for prefix in prefixes
-    )
+    return any(imported == prefix or imported.startswith(f"{prefix}.") for prefix in prefixes)

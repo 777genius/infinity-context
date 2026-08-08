@@ -8,7 +8,6 @@ from typing import Any
 import httpx
 
 import infinity_context_sdk._payloads as _payloads
-from infinity_context_sdk._redaction import redact_sensitive_text
 from infinity_context_sdk.anchors import InfinityContextAnchorsMixin
 from infinity_context_sdk.assets import InfinityContextAssetsMixin
 from infinity_context_sdk.capabilities import ExtractionCapabilityDiagnostics
@@ -18,31 +17,21 @@ from infinity_context_sdk.context import (
     ContextEvidenceSelection,
     context_bundle_from_response,
 )
+from infinity_context_sdk.errors import InfinityContextError
 from infinity_context_sdk.export import InfinityContextExportMixin
+from infinity_context_sdk.http_transport import InfinityContextHttpMixin
 from infinity_context_sdk.scopes import MemoryScope, ReadScope
+from infinity_context_sdk.temporal_facts import InfinityContextTemporalFactsMixin
 from infinity_context_sdk.thread_memory import InfinityContextThreadMemoryMixin
-
-
-class InfinityContextError(RuntimeError):
-    def __init__(
-        self,
-        *,
-        status_code: int,
-        code: str,
-        message: str,
-        retryable: bool,
-    ) -> None:
-        super().__init__(message)
-        self.status_code = status_code
-        self.code = code
-        self.retryable = retryable
 
 
 @dataclass(frozen=True)
 class InfinityContextClient(
+    InfinityContextHttpMixin,
     InfinityContextAnchorsMixin,
     InfinityContextAssetsMixin,
     InfinityContextExportMixin,
+    InfinityContextTemporalFactsMixin,
     InfinityContextThreadMemoryMixin,
 ):
     base_url: str = "http://127.0.0.1:7788"
@@ -897,11 +886,13 @@ class InfinityContextClient(
         *,
         reason: str | None = None,
         force: bool = False,
+        idempotency_key: str | None = None,
     ) -> dict[str, Any]:
         return self._request(
             "POST",
             f"/v1/suggestions/{suggestion_id}/approve",
             json={"reason": reason, "force": force},
+            idempotency_key=idempotency_key,
         )
 
     def review_suggestions_batch(
@@ -928,113 +919,33 @@ class InfinityContextClient(
             json={"items": items, "continue_on_error": continue_on_error},
         )
 
-    def reject_suggestion(self, suggestion_id: str, *, reason: str | None = None) -> dict[str, Any]:
+    def reject_suggestion(
+        self,
+        suggestion_id: str,
+        *,
+        reason: str | None = None,
+        idempotency_key: str | None = None,
+    ) -> dict[str, Any]:
         return self._request(
             "POST",
             f"/v1/suggestions/{suggestion_id}/reject",
             json={"reason": reason},
+            idempotency_key=idempotency_key,
         )
 
-    def expire_suggestion(self, suggestion_id: str, *, reason: str | None = None) -> dict[str, Any]:
+    def expire_suggestion(
+        self,
+        suggestion_id: str,
+        *,
+        reason: str | None = None,
+        idempotency_key: str | None = None,
+    ) -> dict[str, Any]:
         return self._request(
             "POST",
             f"/v1/suggestions/{suggestion_id}/expire",
             json={"reason": reason},
+            idempotency_key=idempotency_key,
         )
-
-    def _request(
-        self,
-        method: str,
-        path: str,
-        *,
-        json: dict[str, Any] | None = None,
-        idempotency_key: str | None = None,
-        params: dict[str, Any] | None = None,
-        content: bytes | None = None,
-        headers: dict[str, str] | None = None,
-    ) -> dict[str, Any]:
-        request_headers = {}
-        if self.token:
-            request_headers["Authorization"] = f"Bearer {self.token}"
-        if idempotency_key:
-            request_headers["Idempotency-Key"] = idempotency_key
-        if headers:
-            request_headers.update(headers)
-        with httpx.Client(
-            base_url=self.base_url.rstrip("/"),
-            timeout=self.timeout,
-            headers=request_headers,
-            transport=self.transport,
-        ) as client:
-            try:
-                response = client.request(
-                    method,
-                    path,
-                    json=json,
-                    params=params,
-                    content=content,
-                )
-            except httpx.TransportError as exc:
-                raise InfinityContextError(
-                    status_code=0,
-                    code="memory.network_error",
-                    message="Infinity Context request failed",
-                    retryable=True,
-                ) from exc
-            if response.is_error:
-                raise _to_error(response)
-            return response.json()
-
-    def _request_bytes(
-        self,
-        method: str,
-        path: str,
-        *,
-        params: dict[str, Any] | None = None,
-    ) -> bytes:
-        headers = {}
-        if self.token:
-            headers["Authorization"] = f"Bearer {self.token}"
-        with httpx.Client(
-            base_url=self.base_url.rstrip("/"),
-            timeout=self.timeout,
-            headers=headers,
-            transport=self.transport,
-        ) as client:
-            try:
-                response = client.request(method, path, params=params)
-            except httpx.TransportError as exc:
-                raise InfinityContextError(
-                    status_code=0,
-                    code="memory.network_error",
-                    message="Infinity Context request failed",
-                    retryable=True,
-                ) from exc
-            if response.is_error:
-                raise _to_error(response)
-            return response.content
-
-
-def _to_error(response: httpx.Response) -> InfinityContextError:
-    try:
-        payload = response.json()
-    except ValueError:
-        payload = {}
-    error = payload.get("error", {}) if isinstance(payload, dict) else {}
-    detail = payload.get("detail", {}) if isinstance(payload, dict) else {}
-    code = str(error.get("code") or detail.get("code") or "memory.http_error")
-    message = _safe_error_message(str(error.get("message") or response.text or code))
-    retryable = bool(error.get("retryable", response.status_code >= 500))
-    return InfinityContextError(
-        status_code=response.status_code,
-        code=code,
-        message=message,
-        retryable=retryable,
-    )
-
-
-def _safe_error_message(value: str) -> str:
-    return redact_sensitive_text(value.strip() or "Infinity Context request failed")[:500]
 
 
 __all__ = [

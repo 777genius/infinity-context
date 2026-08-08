@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from datetime import UTC, datetime
 
 from infinity_context_core.application.context_artifact_evidence import (
     context_items_from_media_manifest_payload,
@@ -14,6 +15,7 @@ from infinity_context_core.application.context_link_expansion_items import (
     _linked_asset_context_item,
     _linked_asset_manifest_extra_diagnostics,
     _linked_asset_manifest_extra_provenance,
+    _linked_canonical_fact_context_item,
     _linked_chunk_context_item,
     _linked_extraction_artifact_context_item,
     _linked_extraction_artifact_extra_diagnostics,
@@ -43,6 +45,7 @@ from infinity_context_core.ports.unit_of_work import UnitOfWorkFactoryPort
 class ContextLinkExpansionResult:
     items: tuple[ContextItem, ...]
     diagnostics: dict[str, object]
+    temporal_replacements_applied: int = 0
 
 
 class ApprovedContextLinkExpander:
@@ -94,7 +97,11 @@ class ApprovedContextLinkExpander:
             query=query,
             memory_scope_ids=memory_scope_ids,
         )
-        fact_items, stale_fact_drop_count = await self._linked_fact_items(
+        (
+            fact_items,
+            stale_fact_drop_count,
+            temporal_replacements_applied,
+        ) = await self._linked_fact_items(
             links=deduped_links,
             existing_fact_ids=existing_fact_ids,
             query=query,
@@ -150,6 +157,7 @@ class ApprovedContextLinkExpander:
                 **asset_manifest_diagnostics,
                 **artifact_diagnostics,
             },
+            temporal_replacements_applied=temporal_replacements_applied,
         )
 
     async def _collect_links(
@@ -226,9 +234,9 @@ class ApprovedContextLinkExpander:
         existing_fact_ids: set[str],
         query: BuildContextQuery,
         memory_scope_ids: tuple[str, ...],
-    ) -> tuple[tuple[ContextItem, ...], int]:
+    ) -> tuple[tuple[ContextItem, ...], int, int]:
         if query.max_facts <= 0:
-            return (), 0
+            return (), 0, 0
         links_by_fact_id = _best_links_by_target_id(
             links=links,
             target_type="fact",
@@ -237,7 +245,35 @@ class ApprovedContextLinkExpander:
         )
         fact_ids = tuple(links_by_fact_id)
         if not fact_ids:
-            return (), 0
+            return (), 0, 0
+        canonical = await self._hydrator.hydrate_linked_facts(
+            fact_ids=fact_ids,
+            query=query,
+            memory_scope_ids=memory_scope_ids,
+        )
+        if canonical is not None:
+            reference_time = query.as_of or (
+                self._clock.now() if self._clock is not None else datetime.now(UTC)
+            )
+            items = tuple(
+                _linked_canonical_fact_context_item(
+                    hydration,
+                    link=links_by_fact_id[fact_id],
+                    query=query,
+                    reference_time=reference_time,
+                )
+                for fact_id in fact_ids
+                if (hydration := canonical.get(fact_id)) is not None
+            )
+            return (
+                items,
+                max(0, len(fact_ids) - len(items)),
+                sum(
+                    bool(hydration.supersession_path)
+                    for fact_id in fact_ids
+                    if (hydration := canonical.get(fact_id)) is not None
+                ),
+            )
         now = self._clock.now() if self._clock is not None else None
         async with self._uow_factory() as uow:
             facts_by_id = {str(fact.id): fact for fact in await uow.facts.get_by_ids(fact_ids)}
@@ -252,7 +288,7 @@ class ApprovedContextLinkExpander:
             ):
                 continue
             items.append(_linked_fact_context_item(fact, link=link, query_text=query.query))
-        return tuple(items), max(0, len(fact_ids) - len(items))
+        return tuple(items), max(0, len(fact_ids) - len(items)), 0
 
     async def _linked_anchor_items(
         self,

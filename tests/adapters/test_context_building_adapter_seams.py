@@ -293,15 +293,27 @@ def test_candidate_provider_chain_requests_remaining_limit_from_later_providers(
     assert second.requested_limits == [1]
 
 
+def test_postgres_candidate_provider_exposes_only_canonical_versioned_hits() -> None:
+    module = importlib.import_module("infinity_context_adapters.features.context_building")
+    lookup = _StaticPostgresPointerLookup(module)
+    provider = module.create_postgres_context_candidate_provider(lookup=lookup)
+    request = _request(limit=2)
+
+    hits = asyncio.run(provider.find_candidate_hits(request))
+
+    assert lookup.requests == [request]
+    assert tuple(
+        (hit.canonical_id, hit.canonical_version, hit.provider_id, hit.rank) for hit in hits
+    ) == (
+        ("fact-1", 3, "postgres", 1),
+        ("fact-2", 7, "postgres", 2),
+    )
+    assert not hasattr(provider, "find_candidates")
+
+
 def test_placeholder_candidate_providers_are_explicit_deferred_seams() -> None:
     request = _request()
     placeholders = (
-        (
-            "postgres_candidate_provider",
-            "PostgresContextCandidateProvider",
-            "create_postgres_context_candidate_provider",
-            "canonical query wiring is deferred",
-        ),
         (
             "qdrant_candidate_provider",
             "QdrantContextCandidateProvider",
@@ -325,8 +337,9 @@ def test_placeholder_candidate_providers_are_explicit_deferred_seams() -> None:
 
         assert provider.feature_id == FEATURE_ID
         assert factory_provider.feature_id == FEATURE_ID
+        assert not hasattr(provider, "find_candidates")
         with pytest.raises(NotImplementedError, match=message):
-            asyncio.run(provider.find_candidates(request))
+            asyncio.run(provider.find_candidate_hits(request))
 
 
 class _StaticProvider:
@@ -340,6 +353,27 @@ class _StaticProvider:
     ) -> tuple[ContextItem, ...]:
         self.requested_limits.append(request.limit)
         return self._items[: request.limit]
+
+
+class _StaticPostgresPointerLookup:
+    def __init__(self, module: object) -> None:
+        self._module = module
+        self.requests: list[ContextCandidateRequest] = []
+
+    async def find_candidate_pointers(self, request: ContextCandidateRequest):
+        self.requests.append(request)
+        return (
+            self._module.PostgresCandidatePointer(
+                canonical_id="fact-1",
+                canonical_version=3,
+                rank=1,
+            ),
+            self._module.PostgresCandidatePointer(
+                canonical_id="fact-2",
+                canonical_version=7,
+                rank=2,
+            ),
+        )
 
 
 def _item(module: object, item_id: str) -> ContextItem:

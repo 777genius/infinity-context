@@ -38,6 +38,7 @@ class RememberFactCommand:
     ttl_policy: str | None = None
     expires_at: datetime | None = None
 
+
 @dataclass(frozen=True)
 class UpdateFactCommand:
     fact_id: str
@@ -46,28 +47,37 @@ class UpdateFactCommand:
     source_refs: tuple[SourceRef, ...]
     reason: str
 
+
 @dataclass(frozen=True)
 class ForgetFactCommand:
     fact_id: str
+
 
 @dataclass(frozen=True)
 class FactResult:
     fact: MemoryFact
     indexing_status: str
 
+
 @dataclass(frozen=True)
 class GetFactQuery:
     fact_id: str
 
+
 @dataclass(frozen=True)
 class FactVersionsQuery:
     fact_id: str
+
 
 @dataclass(frozen=True)
 class RelatedFactsQuery:
     fact_id: str
     limit: int = 10
     include_other_threads: bool = False
+    enforce_code_scope: bool = False
+    repository_id: str | None = None
+    code_scope_id: str | None = None
+
 
 @dataclass(frozen=True)
 class ListFactsQuery:
@@ -81,13 +91,16 @@ class ListFactsQuery:
     category: str | None = None
     tag: str | None = None
 
+
 @dataclass(frozen=True)
 class FactQueryResult:
     fact: MemoryFact
 
+
 @dataclass(frozen=True)
 class FactsQueryResult:
     facts: tuple[MemoryFact, ...]
+
 
 @dataclass(frozen=True)
 class RelatedFactItem:
@@ -95,11 +108,13 @@ class RelatedFactItem:
     score: float
     relation_reasons: tuple[str, ...]
 
+
 @dataclass(frozen=True)
 class RelatedFactsResult:
     target: MemoryFact
     items: tuple[RelatedFactItem, ...]
     diagnostics: dict[str, object]
+
 
 @dataclass(frozen=True)
 class LinkFactsCommand:
@@ -111,15 +126,21 @@ class LinkFactsCommand:
     valid_from: datetime | None = None
     valid_to: datetime | None = None
 
+
 @dataclass(frozen=True)
 class ListFactRelationsQuery:
     fact_id: str
     status: str | None = "active"
     limit: int = 50
+    enforce_code_scope: bool = False
+    repository_id: str | None = None
+    code_scope_id: str | None = None
+
 
 @dataclass(frozen=True)
 class UnlinkFactRelationCommand:
     relation_id: str
+
 
 @dataclass(frozen=True)
 class FactRelationItem:
@@ -127,14 +148,17 @@ class FactRelationItem:
     related_fact: MemoryFact
     direction: str
 
+
 @dataclass(frozen=True)
 class FactRelationResult:
     relation: MemoryFactRelation
+
 
 @dataclass(frozen=True)
 class FactRelationsResult:
     target: MemoryFact
     items: tuple[FactRelationItem, ...]
+
 
 @dataclass(frozen=True)
 class EnsureScopeCommand:
@@ -142,11 +166,13 @@ class EnsureScopeCommand:
     memory_scope_external_ref: str
     thread_external_ref: str | None = None
 
+
 @dataclass(frozen=True)
 class ScopeResult:
     space_id: SpaceId
     memory_scope_id: MemoryScopeId
     thread_id: ThreadId | None = None
+
 
 @dataclass(frozen=True)
 class IngestEpisodeCommand:
@@ -164,6 +190,7 @@ class IngestEpisodeCommand:
     metadata: dict[str, object] | None = None
     idempotency_key: str | None = None
 
+
 @dataclass(frozen=True)
 class IngestEpisodeResult:
     episode: MemoryEpisode | None
@@ -173,6 +200,7 @@ class IngestEpisodeResult:
     created_suggestions: int = 0
     suggestion_ids: tuple[str, ...] = ()
     chunk_ids: tuple[str, ...] = ()
+
 
 @dataclass(frozen=True)
 class IngestDocumentCommand:
@@ -187,6 +215,7 @@ class IngestDocumentCommand:
     classification: str = "unknown"
     chunk_metadata: dict[str, object] | None = None
 
+
 @dataclass(frozen=True)
 class IngestDocumentResult:
     document: MemoryDocument
@@ -194,9 +223,11 @@ class IngestDocumentResult:
     duplicate_chunks: int
     indexing_status: str
 
+
 @dataclass(frozen=True)
 class GetDocumentQuery:
     document_id: str
+
 
 @dataclass(frozen=True)
 class ListDocumentChunksQuery:
@@ -205,14 +236,17 @@ class ListDocumentChunksQuery:
     cursor_sequence: int | None = None
     cursor_id: str | None = None
 
+
 @dataclass(frozen=True)
 class DocumentQueryResult:
     document: MemoryDocument
+
 
 @dataclass(frozen=True)
 class DocumentChunksQueryResult:
     document: MemoryDocument
     chunks: tuple[MemoryChunk, ...]
+
 
 @dataclass(frozen=True)
 class ExportGraphQuery:
@@ -227,12 +261,14 @@ class ExportGraphQuery:
     max_chunks: int
     max_anchors: int = 100
 
+
 @dataclass(frozen=True)
 class GraphExportNode:
     id: str
     type: str
     label: str
     data: dict[str, object]
+
 
 @dataclass(frozen=True)
 class GraphExportEdge:
@@ -242,6 +278,7 @@ class GraphExportEdge:
     target: str
     label: str
     data: dict[str, object]
+
 
 @dataclass(frozen=True)
 class GraphExportResult:
@@ -253,14 +290,17 @@ class GraphExportResult:
     truncated: bool
     warnings: tuple[str, ...]
 
+
 @dataclass(frozen=True)
 class DeleteDocumentCommand:
     document_id: str
+
 
 @dataclass(frozen=True)
 class ProcessDocumentCommand:
     document_id: str
     idempotency_key: str | None = None
+
 
 @dataclass(frozen=True)
 class DeleteDocumentResult:
@@ -268,6 +308,7 @@ class DeleteDocumentResult:
     deleted_chunks: int
     deleted_facts: int
     indexing_status: str
+
 
 @dataclass(frozen=True)
 class ProcessDocumentResult:

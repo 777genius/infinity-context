@@ -23,11 +23,14 @@ Keep package boundaries for dependency isolation, but mirror the same feature id
 
 Target feature ids:
 
+- `agent_authorization`
+- `code_identity`
 - `memory_facts`
 - `context_building`
 - `document_ingestion`
 - `memory_scopes`
 - `cognitive_memory`
+- `review_governance`
 
 Core feature capsules use Clean Architecture internally:
 
@@ -35,6 +38,8 @@ Core feature capsules use Clean Architecture internally:
 infinity_context_core/
   shared_kernel/
   features/
+    agent_authorization/
+    code_identity/
     memory_facts/
       public.py
       domain/
@@ -48,6 +53,8 @@ Infrastructure mirrors feature ids:
 ```text
 infinity_context_adapters/
   features/
+    agent_authorization/
+    code_identity/
     memory_facts/
     context_building/
     document_ingestion/
@@ -60,6 +67,8 @@ Server mirrors feature ids:
 ```text
 infinity_context_server/
   features/
+    agent_authorization/
+    code_identity/
     memory_facts/
     context_building/
     document_ingestion/
@@ -72,6 +81,8 @@ Contracts mirror feature ids:
 ```text
 infinity_context_contracts/
   features/
+    agent_authorization.py
+    code_identity.py
     memory_facts.py
     context_building.py
     document_ingestion.py
@@ -91,6 +102,11 @@ infinity_context_contracts/
 - Postgres remains canonical truth. Qdrant and Graphiti are derived projections.
 - Cognitive memory is a feature-owned candidate derivation slice; its logical plane does not create
   a new global layer tree. See ADR-0009.
+- Agent authorization owns immutable actor, Space, MemoryScope and locked-request context. It does
+  not inspect Git, paths or provider credentials.
+- Code identity owns canonical `CodeRepository` and repository-relative `CodeScope`. Integration
+  adapters may supply hashed Git evidence, but raw local paths and remote URLs are not canonical
+  identity and are not exposed through the feature boundary.
 
 ## Consequences
 

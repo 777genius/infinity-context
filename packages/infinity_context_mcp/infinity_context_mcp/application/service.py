@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from datetime import datetime
 from typing import Any
 
 from infinity_context_mcp.application.policy import MemoryPolicyService
@@ -12,6 +13,9 @@ from infinity_context_mcp.application.service_facts import MemoryToolFactService
 from infinity_context_mcp.application.service_lifecycle import MemoryToolLifecycleService
 from infinity_context_mcp.application.service_query import MemoryToolQueryService
 from infinity_context_mcp.application.service_suggestions import MemoryToolSuggestionService
+from infinity_context_mcp.application.service_temporal_facts import (
+    MemoryToolTemporalFactService,
+)
 from infinity_context_mcp.application.usage_guide import MEMORY_USAGE_GUIDE as MEMORY_USAGE_GUIDE
 from infinity_context_mcp.config import MemoryMcpSettings
 from infinity_context_mcp.domain.models import (
@@ -41,6 +45,7 @@ class MemoryToolService(MemoryToolApplicationServiceBase):
         self._suggestion_service = MemoryToolSuggestionService(**handler_kwargs)
         self._context_link_service = MemoryToolContextLinkService(**handler_kwargs)
         self._lifecycle_service = MemoryToolLifecycleService(**handler_kwargs)
+        self._temporal_fact_service = MemoryToolTemporalFactService(**handler_kwargs)
 
     async def status(self) -> dict[str, Any]:
         return await self._query_service.status()
@@ -307,6 +312,97 @@ class MemoryToolService(MemoryToolApplicationServiceBase):
             fact_id=fact_id,
         )
 
+    async def confirm_fact(
+        self,
+        *,
+        fact_id: str,
+        expected_version: int,
+        confirmed_at: datetime,
+        confirmation_basis: str,
+        **common: Any,
+    ) -> dict[str, Any]:
+        return await self._temporal_fact_service.confirm_fact(
+            fact_id=fact_id,
+            expected_version=expected_version,
+            confirmed_at=confirmed_at,
+            confirmation_basis=confirmation_basis,
+            **common,
+        )
+
+    async def end_fact_validity(
+        self,
+        *,
+        fact_id: str,
+        expected_version: int,
+        effective_at: datetime,
+        reason_code: str,
+        **common: Any,
+    ) -> dict[str, Any]:
+        return await self._temporal_fact_service.end_fact_validity(
+            fact_id=fact_id,
+            expected_version=expected_version,
+            effective_at=effective_at,
+            reason_code=reason_code,
+            **common,
+        )
+
+    async def supersede_fact(
+        self,
+        *,
+        predecessor_fact_id: str,
+        successor_fact_id: str,
+        expected_predecessor_version: int,
+        expected_successor_version: int,
+        effective_at: datetime,
+        reason_code: str,
+        **common: Any,
+    ) -> dict[str, Any]:
+        return await self._temporal_fact_service.supersede_fact(
+            predecessor_fact_id=predecessor_fact_id,
+            successor_fact_id=successor_fact_id,
+            expected_predecessor_version=expected_predecessor_version,
+            expected_successor_version=expected_successor_version,
+            effective_at=effective_at,
+            reason_code=reason_code,
+            **common,
+        )
+
+    async def dispute_facts(
+        self,
+        *,
+        challenged_fact_id: str,
+        challenger_fact_id: str,
+        expected_challenged_version: int,
+        expected_challenger_version: int,
+        reason_code: str,
+        **common: Any,
+    ) -> dict[str, Any]:
+        return await self._temporal_fact_service.dispute_facts(
+            challenged_fact_id=challenged_fact_id,
+            challenger_fact_id=challenger_fact_id,
+            expected_challenged_version=expected_challenged_version,
+            expected_challenger_version=expected_challenger_version,
+            reason_code=reason_code,
+            **common,
+        )
+
+    async def reinstate_supersession(
+        self,
+        *,
+        supersession_decision_id: str,
+        expected_rejected_successor_version: int,
+        expected_original_predecessor_version: int,
+        reason_code: str,
+        **common: Any,
+    ) -> dict[str, Any]:
+        return await self._temporal_fact_service.reinstate_supersession(
+            supersession_decision_id=supersession_decision_id,
+            expected_rejected_successor_version=expected_rejected_successor_version,
+            expected_original_predecessor_version=expected_original_predecessor_version,
+            reason_code=reason_code,
+            **common,
+        )
+
     async def suggest_fact(
         self,
         *,
@@ -413,11 +509,13 @@ class MemoryToolService(MemoryToolApplicationServiceBase):
         suggestion_id: str,
         reason: str | None = None,
         force: bool = False,
+        idempotency_key: str | None = None,
     ) -> dict[str, Any]:
         return await self._suggestion_service.approve_suggestion(
             suggestion_id=suggestion_id,
             reason=reason,
             force=force,
+            idempotency_key=idempotency_key,
         )
 
     async def reject_suggestion(
@@ -449,12 +547,14 @@ class MemoryToolService(MemoryToolApplicationServiceBase):
         action: str,
         reason: str | None = None,
         force: bool = False,
+        idempotency_key: str | None = None,
     ) -> dict[str, Any]:
         return await self._suggestion_service.review_suggestion(
             suggestion_id=suggestion_id,
             action=action,
             reason=reason,
             force=force,
+            idempotency_key=idempotency_key,
         )
 
     async def review_suggestions_batch(

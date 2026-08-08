@@ -12,3 +12,4 @@ dependencies = [
 [project.scripts]
 infinity-context-mcp = "infinity_context_mcp.server:main"
 infinity-context-mcp-bench = "infinity_context_mcp.bench:main"
+infinity-context-project-enroll = "infinity_context_mcp.project_enrollment:main"

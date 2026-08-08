@@ -8,6 +8,7 @@ from hashlib import sha256
 
 from infinity_context_core.application.auto_apply import AutoApplySafePolicy
 from infinity_context_core.application.auto_memory import MemoryAdmissionService
+from infinity_context_core.application.code_scope_metadata import code_scope_from_metadata
 from infinity_context_core.application.dto import CaptureResult, ConsolidateCaptureCommand
 from infinity_context_core.application.extractor import (
     RuleBasedMemoryExtractor,
@@ -155,6 +156,10 @@ class ConsolidateCaptureUseCase:
                 memory_scope_id=str(current.memory_scope_id),
                 status="pending",
             )
+            repository_id, code_scope_id = code_scope_from_metadata(
+                current.metadata,
+                source="Capture",
+            )
             seen_fingerprints: set[str] = set()
             touched_targets: set[str] = set()
             for candidate in validation.candidates:
@@ -169,6 +174,8 @@ class ConsolidateCaptureUseCase:
                     uow,
                     capture=current,
                     candidate=candidate,
+                    repository_id=repository_id,
+                    code_scope_id=code_scope_id,
                 )
                 if resolution_rejection is not None:
                     resolver_rejected_codes.append(resolution_rejection)
@@ -185,6 +192,8 @@ class ConsolidateCaptureUseCase:
                     if (
                         target_fact.space_id != current.space_id
                         or target_fact.memory_scope_id != current.memory_scope_id
+                        or target_fact.repository_id != repository_id
+                        or target_fact.code_scope_id != code_scope_id
                     ):
                         resolver_rejected_codes.append("target_fact_scope_mismatch")
                         continue
@@ -218,6 +227,8 @@ class ConsolidateCaptureUseCase:
                     operation=candidate.operation_hint.value,
                     target_fact_id=candidate.target_fact_id,
                     category=taxonomy.category,
+                    repository_id=repository_id,
+                    code_scope_id=code_scope_id,
                 )
                 if fingerprint in seen_fingerprints:
                     resolver_rejected_codes.append("duplicate_candidate_in_capture")
@@ -232,6 +243,8 @@ class ConsolidateCaptureUseCase:
                         thread_id=str(current.thread_id) if current.thread_id else None,
                         text=candidate.text,
                         kind=candidate.kind.value,
+                        repository_id=repository_id,
+                        code_scope_id=code_scope_id,
                     )
                 if active_duplicate is not None:
                     resolver_rejected_codes.append("duplicate_active_fact")
@@ -257,6 +270,8 @@ class ConsolidateCaptureUseCase:
                         operation=CandidateOperation.REVIEW.value,
                         target_fact_id=str(active_duplicate.id),
                         category=duplicate_taxonomy.category,
+                        repository_id=repository_id,
+                        code_scope_id=code_scope_id,
                     )
                     duplicate_pending = await uow.suggestions.find_pending_duplicate(
                         space_id=str(current.space_id),
@@ -307,6 +322,8 @@ class ConsolidateCaptureUseCase:
                             "tags": list(duplicate_taxonomy.tags),
                             "ttl_policy": duplicate_taxonomy.ttl_policy.name,
                             "source_authority": current.source_authority.value,
+                            "repository_id": repository_id,
+                            "code_scope_id": code_scope_id,
                             "target_fact_id": str(active_duplicate.id),
                             "target_fact_version": active_duplicate.version,
                             "duplicate_fact_id": str(active_duplicate.id),
@@ -333,6 +350,8 @@ class ConsolidateCaptureUseCase:
                         thread_id=str(current.thread_id) if current.thread_id else None,
                         text=candidate.text,
                         kind=candidate.kind.value,
+                        repository_id=repository_id,
+                        code_scope_id=code_scope_id,
                     )
                 active_conflict_match = (
                     describe_conflicting_fact_match(candidate.text, active_conflict.text)
@@ -360,7 +379,7 @@ class ConsolidateCaptureUseCase:
                     has_active_conflict=active_conflict is not None,
                     has_pending_duplicate=False,
                 )
-                if auto_apply.allowed:
+                if auto_apply.allowed and not (candidate.valid_from or candidate.valid_until):
                     fact = MemoryFact.create(
                         fact_id=MemoryFactId(self._ids.new_id("fact")),
                         space_id=current.space_id,
@@ -371,6 +390,8 @@ class ConsolidateCaptureUseCase:
                         source_refs=source_refs,
                         confidence=decision.confidence,
                         trust_level=decision.trust_level,
+                        repository_id=repository_id,
+                        code_scope_id=code_scope_id,
                         now=now,
                     )
                     saved_fact = await uow.facts.create(fact)
@@ -385,7 +406,9 @@ class ConsolidateCaptureUseCase:
                     )
                     auto_applied_ids.append(str(saved_fact.id))
                     continue
-                resolver_rejected_codes.append(auto_apply.reason)
+                resolver_rejected_codes.append(
+                    "temporal_window_requires_review" if auto_apply.allowed else auto_apply.reason
+                )
                 if pending_suggestion_count + len(created_ids) >= (
                     self._max_pending_suggestions_per_memory_scope
                 ):
@@ -422,10 +445,17 @@ class ConsolidateCaptureUseCase:
                             else {}
                         ),
                         "operation": _suggestion_operation(candidate.operation_hint).value,
+                        "resolution_kind": (
+                            "supersede"
+                            if candidate.operation_hint == CandidateOperation.UPDATE
+                            else None
+                        ),
                         "category": taxonomy.category,
                         "tags": list(taxonomy.tags),
                         "ttl_policy": taxonomy.ttl_policy.name,
                         "source_authority": current.source_authority.value,
+                        "repository_id": repository_id,
+                        "code_scope_id": code_scope_id,
                         "target_fact_id": candidate.target_fact_id,
                         "target_fact_version": candidate.target_fact_version,
                         "target_hint": candidate.target_hint,
@@ -555,6 +585,8 @@ async def _resolve_candidate_target(
     *,
     capture,
     candidate,
+    repository_id: str | None,
+    code_scope_id: str | None,
 ) -> tuple[object, dict[str, object], str | None]:
     if candidate.operation_hint not in {CandidateOperation.UPDATE, CandidateOperation.DELETE}:
         return candidate, {"status": "not_required"}, None
@@ -577,6 +609,8 @@ async def _resolve_candidate_target(
         space_id=str(capture.space_id),
         memory_scope_ids=(str(capture.memory_scope_id),),
         thread_id=str(capture.thread_id) if capture.thread_id else None,
+        repository_id=repository_id,
+        code_scope_id=code_scope_id,
         query=target_hint,
         limit=5,
     )
@@ -631,6 +665,7 @@ def _effective_capture_trust(capture) -> TrustLevel:
     if (
         capture.actor_role == CaptureActorRole.ASSISTANT
         or capture.source_authority == SourceAuthority.ASSISTANT_INFERENCE
+        or capture.metadata.get("repository_id") is not None
     ):
         return TrustLevel.LOW
     return capture.trust_level
@@ -644,8 +679,13 @@ def _candidate_fingerprint(
     operation: str,
     target_fact_id: str | None,
     category: str,
+    repository_id: str | None,
+    code_scope_id: str | None,
 ) -> str:
-    raw = f"{space_id}:{memory_scope_id}:{operation}:{target_fact_id or ''}:{category}:{text}"
+    raw = (
+        f"{space_id}:{memory_scope_id}:{repository_id or ''}:{code_scope_id or ''}:"
+        f"{operation}:{target_fact_id or ''}:{category}:{text}"
+    )
     return sha256(raw.encode("utf-8")).hexdigest()
 
 
@@ -674,6 +714,8 @@ async def _find_active_duplicate(
     thread_id: str | None,
     text: str,
     kind: str,
+    repository_id: str | None,
+    code_scope_id: str | None,
 ):
     normalized = normalize_memory_text(text)
     candidates = await _active_duplicate_candidates(
@@ -682,6 +724,8 @@ async def _find_active_duplicate(
         memory_scope_id=memory_scope_id,
         thread_id=thread_id,
         text=text,
+        repository_id=repository_id,
+        code_scope_id=code_scope_id,
     )
     seen_ids: set[str] = set()
     for fact in candidates:
@@ -699,6 +743,8 @@ async def _find_active_duplicate(
         thread_id=thread_id,
         query="",
         limit=50,
+        repository_id=repository_id,
+        code_scope_id=code_scope_id,
     )
     for fact in fallback_candidates:
         if str(fact.id) in seen_ids or fact.kind.value != kind:
@@ -719,6 +765,8 @@ async def _find_active_conflict(
     thread_id: str | None,
     text: str,
     kind: str,
+    repository_id: str | None,
+    code_scope_id: str | None,
 ):
     candidates = await uow.facts.find_active(
         space_id=space_id,
@@ -726,6 +774,8 @@ async def _find_active_conflict(
         thread_id=thread_id,
         query=text,
         limit=50,
+        repository_id=repository_id,
+        code_scope_id=code_scope_id,
     )
     for fact in candidates:
         if fact.kind.value == kind and looks_conflicting_fact(text, fact.text):
@@ -736,6 +786,8 @@ async def _find_active_conflict(
         thread_id=thread_id,
         query="",
         limit=50,
+        repository_id=repository_id,
+        code_scope_id=code_scope_id,
     )
     seen_ids = {str(fact.id) for fact in candidates}
     for fact in fallback_candidates:
@@ -753,6 +805,8 @@ async def _active_duplicate_candidates(
     memory_scope_id: str,
     thread_id: str | None,
     text: str,
+    repository_id: str | None,
+    code_scope_id: str | None,
 ):
     return await uow.facts.find_active(
         space_id=space_id,
@@ -760,6 +814,8 @@ async def _active_duplicate_candidates(
         thread_id=thread_id,
         query=text,
         limit=10,
+        repository_id=repository_id,
+        code_scope_id=code_scope_id,
     )
 
 

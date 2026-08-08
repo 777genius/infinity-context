@@ -498,7 +498,7 @@ def test_extraction_worker_filter_processes_only_extraction_jobs(tmp_path: Path)
     assert fact.status_code == 201
     assert upload.status_code == 201
     assert processed == 1
-    assert ("graph.upsert_fact", "projection", "pending") in summary
+    assert ("fact.created", "projection", "pending") in summary
     assert ("asset.extract", "extraction", "done") in summary
     assert any(
         event_type == "vector.upsert_chunk"
@@ -1847,7 +1847,7 @@ def test_db_upgrade_and_seed_defaults_cli_functions(tmp_path: Path, monkeypatch)
     upgraded = asyncio.run(upgrade())
     seeded = asyncio.run(seed_defaults())
 
-    assert upgraded == {"operation": "upgrade", "status": "ok"}
+    assert (upgraded["operation"], upgraded["status"]) == ("upgrade", "ok")
     assert seeded["status"] == "ok"
     assert str(seeded["space_id"]).startswith("space_")
     assert str(seeded["memory_scope_id"]).startswith("memory_scope_")

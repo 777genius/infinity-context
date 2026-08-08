@@ -5,6 +5,89 @@ from infinity_context_adapters.postgres import build_async_engine, create_schema
 from sqlalchemy import inspect, text
 from sqlalchemy.exc import IntegrityError
 
+_MIGRATIONS = (
+    Path(__file__).resolve().parents[2]
+    / "packages/infinity_context_adapters/infinity_context_adapters/postgres/migrations"
+)
+
+
+def test_temporal_sql_migration_declares_thread_scope_key_once_per_table() -> None:
+    sql = (_MIGRATIONS / "0023_memory_fact_temporal_architecture.sql").read_text(encoding="utf-8")
+
+    def create_table_body(table_name: str) -> str:
+        start = sql.index(f"CREATE TABLE IF NOT EXISTS {table_name} (")
+        return sql[start : sql.index("\n);", start)]
+
+    receipt_body = create_table_body("memory_fact_operation_receipts")
+    decision_body = create_table_body("memory_fact_temporal_decisions")
+
+    assert receipt_body.count("thread_scope_key VARCHAR(87) NOT NULL") == 1
+    assert decision_body.count("thread_scope_key VARCHAR(87) NOT NULL") == 1
+    assert (
+        "UNIQUE (\n      space_id,\n      memory_scope_id,\n      thread_scope_key" in receipt_body
+    )
+    assert (
+        "UNIQUE (\n      space_id,\n      memory_scope_id,\n      thread_scope_key" in decision_body
+    )
+
+
+def test_repository_integrity_migration_fails_closed_and_adds_composite_fks() -> None:
+    sql = (_MIGRATIONS / "0027_review_replay_and_repository_integrity.sql").read_text(
+        encoding="utf-8"
+    )
+
+    assert "repository integrity preflight failed" in sql
+    assert "FOREIGN KEY (repository_id, space_id)" in sql
+    assert "fk_memory_facts_repository_space" in sql
+    assert "fk_memory_service_tokens_repository_space" in sql
+    assert "suggestion_resolution_receipts" in sql
+
+
+def test_dynamic_code_scope_migration_uses_server_owned_repository_allowlist() -> None:
+    sql = (_MIGRATIONS / "0028_code_scope_authorizations.sql").read_text(encoding="utf-8")
+
+    assert "code_scope_authorizations" in sql
+    assert "FOREIGN KEY (repository_id, space_id)" in sql
+    assert "UNIQUE (repository_id, code_scope_id)" in sql
+    assert "code-scope-v1-[0-9a-f]{64}" in sql
+
+
+def test_schema_parity_migration_binds_relations_to_exact_temporal_decisions() -> None:
+    sql = (_MIGRATIONS / "0029_schema_parity_and_fact_tenant_integrity.sql").read_text(
+        encoding="utf-8"
+    )
+
+    assert "uq_memory_fact_temporal_decision_relation_identity" in sql
+    assert "fk_memory_fact_relation_temporal_decision_identity" in sql
+    assert "decision.thread_id IS DISTINCT FROM relation.thread_id" in sql
+    assert "decision.effective_at IS DISTINCT FROM relation.valid_from" in sql
+
+
+def test_suggestion_receipt_migration_binds_exact_result_to_tenant_and_decision() -> None:
+    sql = (_MIGRATIONS / "0030_suggestion_receipt_tenant_integrity.sql").read_text(encoding="utf-8")
+
+    assert "suggestion receipt tenant integrity preflight failed" in sql
+    assert "fk_suggestion_resolution_receipt_suggestion_scope" in sql
+    assert "fk_suggestion_resolution_receipt_fact_scope" in sql
+    assert "fk_suggestion_resolution_receipt_fact_version" in sql
+    assert "fk_suggestion_resolution_receipt_decision_scope" in sql
+    assert "fk_suggestion_resolution_receipt_relation_decision" in sql
+    assert "relation_id IS NULL OR temporal_decision_id IS NOT NULL" in sql
+    assert "trg_suggestion_resolution_receipt_compatibility_fields" in sql
+
+
+def test_append_only_receipt_snapshot_migration_normalizes_and_validates_identity() -> None:
+    sql = (_MIGRATIONS / "0031_receipt_snapshot_identity.sql").read_text(encoding="utf-8")
+
+    assert "jsonb_typeof(result_fact_json) = 'null'" in sql
+    assert "SET result_fact_json = NULL" in sql
+    assert "fact operation receipt snapshot identity preflight failed" in sql
+    assert "trg_memory_fact_operation_receipt_snapshot_identity" in sql
+    assert "suggestion receipt snapshot identity preflight failed" in sql
+    assert "suggestion receipt fact snapshot identity preflight failed" in sql
+    assert "ck_suggestion_resolution_receipt_suggestion_snapshot_identity" in sql
+    assert "ck_suggestion_resolution_receipt_fact_snapshot_identity" in sql
+
 
 def test_create_schema_adds_classification_to_existing_memory_tables(tmp_path: Path) -> None:
     async def run() -> dict[str, dict[str, object]]:
@@ -42,6 +125,40 @@ def test_create_schema_adds_classification_to_existing_memory_tables(tmp_path: P
                             version INTEGER NOT NULL,
                             created_at DATETIME NOT NULL,
                             updated_at DATETIME NOT NULL
+                        )
+                        """
+                    )
+                )
+                await connection.execute(
+                    text(
+                        """
+                        INSERT INTO memory_facts (
+                            id,
+                            space_id,
+                            memory_scope_id,
+                            thread_id,
+                            kind,
+                            text,
+                            status,
+                            confidence,
+                            trust_level,
+                            version,
+                            created_at,
+                            updated_at
+                        )
+                        VALUES (
+                            'fact_legacy',
+                            'space_1',
+                            'scope_1',
+                            NULL,
+                            'note',
+                            'Legacy fact remains visible.',
+                            'active',
+                            'medium',
+                            'medium',
+                            1,
+                            '2026-05-25T10:00:00+00:00',
+                            '2026-05-25T10:00:00+00:00'
                         )
                         """
                     )
@@ -114,6 +231,49 @@ def test_create_schema_adds_classification_to_existing_memory_tables(tmp_path: P
                 await connection.execute(
                     text(
                         """
+                        INSERT INTO memory_fact_relations (
+                            id,
+                            space_id,
+                            memory_scope_id,
+                            source_fact_id,
+                            target_fact_id,
+                            relation_type,
+                            reason,
+                            status,
+                            created_at,
+                            updated_at
+                        )
+                        VALUES
+                            (
+                                'legacy_supersession_a',
+                                'space_1',
+                                'scope_1',
+                                'legacy_successor_a',
+                                'legacy_target',
+                                'supersedes',
+                                'legacy relation',
+                                'active',
+                                '2026-05-25T10:00:00+00:00',
+                                '2026-05-25T10:00:00+00:00'
+                            ),
+                            (
+                                'legacy_supersession_b',
+                                'space_1',
+                                'scope_1',
+                                'legacy_successor_b',
+                                'legacy_target',
+                                'supersedes',
+                                'legacy duplicate',
+                                'active',
+                                '2026-05-25T10:00:00+00:00',
+                                '2026-05-25T10:00:00+00:00'
+                            )
+                        """
+                    )
+                )
+                await connection.execute(
+                    text(
+                        """
                         CREATE TABLE memory_source_refs (
                             id INTEGER PRIMARY KEY AUTOINCREMENT,
                             fact_id VARCHAR(80) NOT NULL,
@@ -178,10 +338,66 @@ def test_create_schema_adds_classification_to_existing_memory_tables(tmp_path: P
                     for column in inspector.get_columns("memory_facts")
                     if column["name"] in {"category", "tags_json", "ttl_policy", "expires_at"}
                 }
+                fact_temporal_columns = {
+                    column["name"]: column
+                    for column in inspector.get_columns("memory_facts")
+                    if column["name"]
+                    in {
+                        "temporal_kind",
+                        "observed_at",
+                        "valid_from",
+                        "valid_to",
+                        "occurred_from",
+                        "occurred_to",
+                        "temporal_basis",
+                        "temporal_precision",
+                        "last_confirmed_at",
+                        "confirmation_basis",
+                        "purge_after",
+                        "epistemic_mode",
+                        "asserted_by",
+                        "perspective_subject",
+                    }
+                }
+                fact_version_columns = {
+                    column["name"]: column
+                    for column in inspector.get_columns("memory_fact_versions")
+                    if column["name"] == "snapshot_json"
+                }
+                fact_code_scope_columns = {
+                    column["name"]: column
+                    for column in inspector.get_columns("memory_facts")
+                    if column["name"] in {"repository_id", "code_scope_id"}
+                }
+                outbox_columns = {
+                    column["name"]: column
+                    for column in inspector.get_columns("memory_outbox")
+                    if column["name"] == "message_key"
+                }
                 fact_relation_temporal_columns = {
                     column["name"]: column
                     for column in inspector.get_columns("memory_fact_relations")
-                    if column["name"] in {"observed_at", "valid_from", "valid_to"}
+                    if column["name"]
+                    in {
+                        "thread_id",
+                        "observed_at",
+                        "valid_from",
+                        "valid_to",
+                        "source_fact_version",
+                        "target_fact_version",
+                        "temporal_decision_id",
+                    }
+                }
+                temporal_decision_columns = {
+                    column["name"]
+                    for column in inspector.get_columns("memory_fact_temporal_decisions")
+                }
+                relation_indexes = {
+                    index["name"] for index in inspector.get_indexes("memory_fact_relations")
+                }
+                temporal_decision_indexes = {
+                    index["name"]
+                    for index in inspector.get_indexes("memory_fact_temporal_decisions")
                 }
                 source_ref_multimodal_columns = {
                     column["name"]: column
@@ -195,12 +411,29 @@ def test_create_schema_adds_classification_to_existing_memory_tables(tmp_path: P
                 source_ref_count = connection.execute(
                     text("SELECT COUNT(*) FROM memory_source_refs WHERE fact_id = 'fact_legacy'")
                 ).scalar_one()
+                legacy_temporal = connection.execute(
+                    text(
+                        """
+                        SELECT observed_at, valid_from, temporal_basis
+                        FROM memory_facts
+                        WHERE id = 'fact_legacy'
+                        """
+                    )
+                ).one()
                 return {
                     **classification_columns,
                     "memory_fact_taxonomy": fact_taxonomy_columns,
+                    "memory_fact_temporal": fact_temporal_columns,
+                    "memory_fact_versions": fact_version_columns,
+                    "memory_fact_code_scope": fact_code_scope_columns,
+                    "memory_outbox": outbox_columns,
                     "memory_fact_relation_temporal": fact_relation_temporal_columns,
+                    "memory_fact_temporal_decisions": temporal_decision_columns,
+                    "memory_fact_relation_indexes": relation_indexes,
+                    "memory_fact_temporal_decision_indexes": temporal_decision_indexes,
                     "memory_source_ref_multimodal": source_ref_multimodal_columns,
                     "memory_source_ref_count": source_ref_count,
+                    "memory_fact_legacy_temporal": tuple(legacy_temporal),
                     "memory_service_tokens": token_columns,
                     "memory_document_indexes": document_indexes,
                 }
@@ -221,11 +454,62 @@ def test_create_schema_adds_classification_to_existing_memory_tables(tmp_path: P
         "ttl_policy",
         "expires_at",
     }
-    assert set(columns["memory_fact_relation_temporal"]) == {
+    assert set(columns["memory_fact_temporal"]) == {
+        "temporal_kind",
         "observed_at",
         "valid_from",
         "valid_to",
+        "occurred_from",
+        "occurred_to",
+        "temporal_basis",
+        "temporal_precision",
+        "last_confirmed_at",
+        "confirmation_basis",
+        "purge_after",
+        "epistemic_mode",
+        "asserted_by",
+        "perspective_subject",
     }
+    assert set(columns["memory_fact_versions"]) == {"snapshot_json"}
+    assert set(columns["memory_fact_code_scope"]) == {
+        "repository_id",
+        "code_scope_id",
+    }
+    assert set(columns["memory_outbox"]) == {"message_key"}
+    assert set(columns["memory_fact_relation_temporal"]) == {
+        "thread_id",
+        "observed_at",
+        "valid_from",
+        "valid_to",
+        "source_fact_version",
+        "target_fact_version",
+        "temporal_decision_id",
+    }
+    assert {
+        "id",
+        "decision_type",
+        "space_id",
+        "memory_scope_id",
+        "thread_id",
+        "thread_scope_key",
+        "source_fact_id",
+        "source_fact_version",
+        "target_fact_id",
+        "target_fact_version",
+        "effective_at",
+        "evidence_refs_json",
+        "actor_id",
+        "policy_version",
+        "reason_code",
+        "applied_at",
+        "idempotency_key",
+        "compensates_decision_id",
+    } <= columns["memory_fact_temporal_decisions"]
+    assert "uq_memory_fact_single_active_supersession" in columns["memory_fact_relation_indexes"]
+    assert (
+        "uq_memory_fact_temporal_decision_compensation"
+        in columns["memory_fact_temporal_decision_indexes"]
+    )
     assert set(columns["memory_source_ref_multimodal"]) == {
         "page_number",
         "time_start_ms",
@@ -233,6 +517,9 @@ def test_create_schema_adds_classification_to_existing_memory_tables(tmp_path: P
         "bbox_json",
     }
     assert columns["memory_source_ref_count"] == 1
+    assert columns["memory_fact_legacy_temporal"][0] is not None
+    assert columns["memory_fact_legacy_temporal"][0] == columns["memory_fact_legacy_temporal"][1]
+    assert columns["memory_fact_legacy_temporal"][2] == "migrated_legacy"
     assert set(columns["memory_service_tokens"]) == {
         "memory_scope_ids_json",
         "permissions_json",
@@ -359,8 +646,7 @@ def test_create_schema_adds_asset_and_context_link_tables(tmp_path: Path) -> Non
                         index["name"] for index in inspector.get_indexes("memory_users")
                     },
                     "space_membership_indexes": {
-                        index["name"]
-                        for index in inspector.get_indexes("memory_space_memberships")
+                        index["name"] for index in inspector.get_indexes("memory_space_memberships")
                     },
                 }
 
@@ -692,350 +978,3 @@ def test_create_schema_dedupes_pending_suggestions_before_unique_indexes(
     assert result["pending_count"] == 1
     assert result["expired_count"] == 1
     assert result["duplicate_insert_ok"] is False
-
-
-def test_create_schema_rebuilds_sqlite_legacy_document_unique_constraint(
-    tmp_path: Path,
-) -> None:
-    async def run() -> dict[str, object]:
-        engine = build_async_engine(f"sqlite+aiosqlite:///{tmp_path / 'old-unique.db'}")
-        try:
-            async with engine.begin() as connection:
-                await connection.execute(
-                    text(
-                        """
-                        CREATE TABLE memory_documents (
-                            id VARCHAR(80) PRIMARY KEY,
-                            space_id VARCHAR(80) NOT NULL,
-                            memory_scope_id VARCHAR(80) NOT NULL,
-                            thread_id VARCHAR(80),
-                            title VARCHAR(300) NOT NULL,
-                            source_type VARCHAR(80) NOT NULL,
-                            source_external_id VARCHAR(240) NOT NULL,
-                            content_hash VARCHAR(80) NOT NULL,
-                            status VARCHAR(40) NOT NULL DEFAULT 'active',
-                            created_at DATETIME NOT NULL,
-                            updated_at DATETIME NOT NULL,
-                            CONSTRAINT uq_document_source_hash UNIQUE (
-                                space_id,
-                                memory_scope_id,
-                                source_type,
-                                source_external_id,
-                                content_hash
-                            )
-                        )
-                        """
-                    )
-                )
-                await connection.execute(
-                    text(
-                        """
-                        INSERT INTO memory_documents (
-                            id,
-                            space_id,
-                            memory_scope_id,
-                            thread_id,
-                            title,
-                            source_type,
-                            source_external_id,
-                            content_hash,
-                            status,
-                            created_at,
-                            updated_at
-                        )
-                        VALUES (
-                            'doc_thread_a',
-                            'space_1',
-                            'memory_scope_1',
-                            'thread_a',
-                            'Doc A',
-                            'document',
-                            'same-source',
-                            'same-hash',
-                            'active',
-                            '2026-05-25T10:00:00+00:00',
-                            '2026-05-25T10:00:00+00:00'
-                        )
-                        """
-                    )
-                )
-
-            await create_schema(engine)
-
-            async with engine.begin() as connection:
-                await connection.execute(
-                    text(
-                        """
-                        INSERT INTO memory_documents (
-                            id,
-                            space_id,
-                            memory_scope_id,
-                            thread_id,
-                            title,
-                            source_type,
-                            source_external_id,
-                            content_hash,
-                            classification,
-                            status,
-                            created_at,
-                            updated_at
-                        )
-                        VALUES (
-                            'doc_thread_b',
-                            'space_1',
-                            'memory_scope_1',
-                            'thread_b',
-                            'Doc B',
-                            'document',
-                            'same-source',
-                            'same-hash',
-                            'internal',
-                            'active',
-                            '2026-05-25T10:01:00+00:00',
-                            '2026-05-25T10:01:00+00:00'
-                        )
-                        """
-                    )
-                )
-
-            def inspect_documents(connection) -> dict[str, object]:
-                inspector = inspect(connection)
-                unique_constraints = inspector.get_unique_constraints("memory_documents")
-                indexes = inspector.get_indexes("memory_documents")
-                document_count = connection.execute(
-                    text("SELECT COUNT(*) FROM memory_documents")
-                ).scalar_one()
-                return {
-                    "document_count": document_count,
-                    "index_names": {index["name"] for index in indexes},
-                    "legacy_unique_exists": any(
-                        tuple(constraint.get("column_names") or ())
-                        == (
-                            "space_id",
-                            "memory_scope_id",
-                            "source_type",
-                            "source_external_id",
-                            "content_hash",
-                        )
-                        for constraint in unique_constraints
-                    ),
-                }
-
-            async with engine.connect() as connection:
-                return await connection.run_sync(inspect_documents)
-        finally:
-            await engine.dispose()
-
-    result = asyncio.run(run())
-
-    assert result["document_count"] == 2
-    assert result["legacy_unique_exists"] is False
-    assert "uq_document_content_hash_memory_scope_wide" in result["index_names"]
-    assert "uq_document_content_hash_thread" in result["index_names"]
-
-
-def test_document_unique_indexes_prevent_same_hash_duplicate_rows_per_scope(
-    tmp_path: Path,
-) -> None:
-    async def run() -> dict[str, str]:
-        engine = build_async_engine(f"sqlite+aiosqlite:///{tmp_path / 'content-unique.db'}")
-        try:
-            await create_schema(engine)
-            async with engine.begin() as connection:
-                await connection.execute(
-                    text(
-                        """
-                        INSERT INTO memory_documents (
-                            id,
-                            space_id,
-                            memory_scope_id,
-                            thread_id,
-                            title,
-                            source_type,
-                            source_external_id,
-                            content_hash,
-                            classification,
-                            status,
-                            created_at,
-                            updated_at
-                        )
-                        VALUES (
-                            'doc_a',
-                            'space_1',
-                            'memory_scope_1',
-                            'thread_a',
-                            'Doc A',
-                            'document',
-                            'source-a',
-                            'same-hash',
-                            'internal',
-                            'active',
-                            '2026-05-25T10:00:00+00:00',
-                            '2026-05-25T10:00:00+00:00'
-                        )
-                        """
-                    )
-                )
-                await connection.execute(
-                    text(
-                        """
-                        INSERT INTO memory_documents (
-                            id,
-                            space_id,
-                            memory_scope_id,
-                            thread_id,
-                            title,
-                            source_type,
-                            source_external_id,
-                            content_hash,
-                            classification,
-                            status,
-                            created_at,
-                            updated_at
-                        )
-                        VALUES (
-                            'doc_b',
-                            'space_1',
-                            'memory_scope_1',
-                            'thread_b',
-                            'Doc B',
-                            'document',
-                            'source-b',
-                            'same-hash',
-                            'internal',
-                            'active',
-                            '2026-05-25T10:01:00+00:00',
-                            '2026-05-25T10:01:00+00:00'
-                        )
-                        """
-                    )
-                )
-            async with engine.begin() as connection:
-                try:
-                    await connection.execute(
-                        text(
-                            """
-                            INSERT INTO memory_documents (
-                                id,
-                                space_id,
-                                memory_scope_id,
-                                thread_id,
-                                title,
-                                source_type,
-                                source_external_id,
-                                content_hash,
-                                classification,
-                                status,
-                                created_at,
-                                updated_at
-                            )
-                            VALUES (
-                                'doc_duplicate_thread_a',
-                                'space_1',
-                                'memory_scope_1',
-                                'thread_a',
-                                'Doc duplicate',
-                                'document',
-                                'different-source',
-                                'same-hash',
-                                'internal',
-                                'active',
-                                '2026-05-25T10:02:00+00:00',
-                                '2026-05-25T10:02:00+00:00'
-                            )
-                            """
-                        )
-                    )
-                except Exception as exc:
-                    return {"error_type": exc.__class__.__name__}
-        finally:
-            await engine.dispose()
-        return {"error_type": ""}
-
-    result = asyncio.run(run())
-
-    assert result["error_type"] == "IntegrityError"
-
-
-def test_document_unique_indexes_allow_reimport_after_deleted_tombstone(
-    tmp_path: Path,
-) -> None:
-    async def run() -> int:
-        engine = build_async_engine(f"sqlite+aiosqlite:///{tmp_path / 'deleted-reimport.db'}")
-        try:
-            await create_schema(engine)
-            async with engine.begin() as connection:
-                await connection.execute(
-                    text(
-                        """
-                        INSERT INTO memory_documents (
-                            id,
-                            space_id,
-                            memory_scope_id,
-                            thread_id,
-                            title,
-                            source_type,
-                            source_external_id,
-                            content_hash,
-                            classification,
-                            status,
-                            created_at,
-                            updated_at
-                        )
-                        VALUES (
-                            'doc_deleted',
-                            'space_1',
-                            'memory_scope_1',
-                            'thread_a',
-                            'Deleted doc',
-                            'document',
-                            'source-old',
-                            'same-hash',
-                            'internal',
-                            'deleted',
-                            '2026-05-25T10:00:00+00:00',
-                            '2026-05-25T10:00:00+00:00'
-                        )
-                        """
-                    )
-                )
-                await connection.execute(
-                    text(
-                        """
-                        INSERT INTO memory_documents (
-                            id,
-                            space_id,
-                            memory_scope_id,
-                            thread_id,
-                            title,
-                            source_type,
-                            source_external_id,
-                            content_hash,
-                            classification,
-                            status,
-                            created_at,
-                            updated_at
-                        )
-                        VALUES (
-                            'doc_reimported',
-                            'space_1',
-                            'memory_scope_1',
-                            'thread_a',
-                            'Reimported doc',
-                            'document',
-                            'source-new',
-                            'same-hash',
-                            'internal',
-                            'active',
-                            '2026-05-25T10:01:00+00:00',
-                            '2026-05-25T10:01:00+00:00'
-                        )
-                        """
-                    )
-                )
-                count = await connection.execute(text("SELECT COUNT(*) FROM memory_documents"))
-                return int(count.scalar_one())
-        finally:
-            await engine.dispose()
-
-    assert asyncio.run(run()) == 2

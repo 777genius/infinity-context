@@ -78,6 +78,30 @@ def test_remember_fact_persists_normalized_taxonomy_and_filters_by_tag(
     assert [item["id"] for item in listed.json()["data"]] == [fact["id"]]
 
 
+def test_debug_fact_derives_task_expiry_from_server_clock(tmp_path: Path) -> None:
+    before = datetime.now(tz=UTC)
+    with make_client(tmp_path) as client:
+        created = client.post(
+            "/v1/facts",
+            json={
+                "space_id": "space_client_app",
+                "memory_scope_id": "memory_scope_default",
+                "text": "Debug hypotheses should leave active context automatically.",
+                "kind": "note",
+                "source_refs": [{"source_type": "manual", "source_id": "debug-ttl"}],
+                "category": "debug_notes",
+            },
+            headers=auth_headers(),
+        )
+    after = datetime.now(tz=UTC)
+
+    assert created.status_code == 201
+    fact = created.json()["data"]
+    assert fact["ttl_policy"] == "task"
+    expires_at = datetime.fromisoformat(fact["expires_at"])
+    assert before + timedelta(days=3) <= expires_at <= after + timedelta(days=3)
+
+
 def test_approved_suggestion_preserves_taxonomy_on_created_fact(tmp_path: Path) -> None:
     with make_client(tmp_path) as client:
         suggestion = client.post(

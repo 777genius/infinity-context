@@ -49,6 +49,7 @@ def test_mcp_tool_annotations_are_closed_domain_and_typed() -> None:
                     branch.get("maxLength") is not None
                     or branch.get("enum") is not None
                     or branch.get("const") is not None
+                    or branch.get("format") == "date-time"
                 ), path
             if branch.get("type") == "array":
                 assert branch.get("maxItems") is not None, path
@@ -91,6 +92,11 @@ def test_mcp_tool_annotations_are_closed_domain_and_typed() -> None:
             "memory_list_fact_versions",
             "memory_update_fact",
             "memory_forget_fact",
+            "memory_confirm_fact",
+            "memory_end_fact_validity",
+            "memory_supersede_fact",
+            "memory_dispute_facts",
+            "memory_reinstate_supersession",
             "memory_suggest_fact",
             "memory_suggest_facts_batch",
             "memory_propose_updates",
@@ -231,6 +237,15 @@ def test_mcp_tool_annotations_are_closed_domain_and_typed() -> None:
         assert "category" in list_suggestions.inputSchema["properties"]
         assert "tag" in list_suggestions.inputSchema["properties"]
         remember = next(tool for tool in tools if tool.name == "memory_remember_fact")
+        list_facts = next(tool for tool in tools if tool.name == "memory_list_facts")
+        update_fact = next(tool for tool in tools if tool.name == "memory_update_fact")
+        approve_suggestion = next(
+            tool for tool in tools if tool.name == "memory_approve_suggestion"
+        )
+        assert remember.annotations.idempotentHint is True
+        assert list_facts.annotations.idempotentHint is True
+        assert update_fact.annotations.idempotentHint is False
+        assert approve_suggestion.annotations.idempotentHint is True
         kind_schema = remember.inputSchema["properties"]["kind"]
         assert set(kind_schema["enum"]) == {
             "note",
@@ -306,9 +321,7 @@ def test_mcp_tool_annotations_are_closed_domain_and_typed() -> None:
             "expire",
         }
         context_link_batch = next(
-            tool
-            for tool in tools
-            if tool.name == "memory_review_context_link_suggestions_batch"
+            tool for tool in tools if tool.name == "memory_review_context_link_suggestions_batch"
         )
         assert context_link_batch.inputSchema["properties"]["items"]["maxItems"] == 50
         captures = next(tool for tool in tools if tool.name == "memory_list_captures")

@@ -20,9 +20,7 @@ def make_client(tmp_path: Path, **overrides: Any) -> TestClient:
         "capture_mode": CaptureMode.SUGGEST,
         **overrides,
     }
-    app = create_app(
-        Settings(**settings_values)
-    )
+    app = create_app(Settings(**settings_values))
     return TestClient(app)
 
 
@@ -347,9 +345,7 @@ def test_capture_privacy_purge_redacts_evidence_and_keeps_idempotency(
     assert purged.json()["data"]["evidence_refs"][0]["char_start"] is None
     assert fetched.status_code == 200
     assert "CAPTURE_PURGE_MARKER" not in fetched.text
-    assert duplicate.status_code == 201
-    assert duplicate.json()["data"]["duplicate"] is True
-    assert duplicate.json()["data"]["status"] == "purged"
+    assert duplicate.status_code == 409
 
 
 def test_capture_privacy_purge_expires_pending_suggestions(tmp_path: Path) -> None:

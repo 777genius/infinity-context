@@ -6,7 +6,7 @@ import argparse
 import asyncio
 import json
 
-from infinity_context_adapters.postgres import build_async_engine, create_schema
+from infinity_context_adapters.postgres import build_async_engine, create_schema, upgrade_schema
 
 from infinity_context_server.config import Settings
 
@@ -16,10 +16,26 @@ async def upgrade() -> dict[str, object]:
     settings.validate_for_startup()
     engine = build_async_engine(settings.database_url)
     try:
-        await create_schema(engine)
+        if engine.dialect.name == "postgresql":
+            result = await upgrade_schema(engine)
+        else:
+            await create_schema(engine)
+            return {
+                "status": "ok",
+                "operation": "upgrade",
+                "current_migration": "metadata-test-compatibility",
+                "applied_migrations": [],
+                "legacy_baseline": False,
+            }
     finally:
         await engine.dispose()
-    return {"status": "ok", "operation": "upgrade"}
+    return {
+        "status": "ok",
+        "operation": "upgrade",
+        "current_migration": result.current,
+        "applied_migrations": list(result.applied),
+        "legacy_baseline": result.legacy_baseline,
+    }
 
 
 async def _run(args: argparse.Namespace) -> dict[str, object]:

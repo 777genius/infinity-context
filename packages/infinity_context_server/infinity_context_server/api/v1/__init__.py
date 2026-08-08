@@ -6,6 +6,9 @@ from infinity_context_server.api.v1.anchors import router as anchors_router
 from infinity_context_server.api.v1.assets import router as assets_router
 from infinity_context_server.api.v1.capabilities import router as capabilities_router
 from infinity_context_server.api.v1.captures import router as captures_router
+from infinity_context_server.api.v1.code_repositories import (
+    router as code_repositories_router,
+)
 from infinity_context_server.api.v1.context import router as context_router
 from infinity_context_server.api.v1.context_links import router as context_links_router
 from infinity_context_server.api.v1.diagnostics import router as diagnostics_router
@@ -41,6 +44,7 @@ router.include_router(anchors_router)
 router.include_router(documents_router)
 router.include_router(episodes_router)
 router.include_router(captures_router)
+router.include_router(code_repositories_router)
 router.include_router(context_links_router)
 router.include_router(context_router)
 router.include_router(digest_router)

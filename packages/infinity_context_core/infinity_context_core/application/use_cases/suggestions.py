@@ -6,8 +6,8 @@ import re
 from dataclasses import replace
 from datetime import datetime
 from hashlib import sha256
-from typing import Any
 
+from infinity_context_core.application.code_scope_metadata import code_scope_from_metadata
 from infinity_context_core.application.dto import (
     ApproveSuggestionCommand,
     CreateSuggestionBatchItemResult,
@@ -29,10 +29,21 @@ from infinity_context_core.application.review_payloads import (
     DUPLICATE_FACT_MERGE_REVIEW_KIND,
 )
 from infinity_context_core.application.sensitive_text import redact_sensitive_text
+from infinity_context_core.application.suggestion_fact_resolution import (
+    annotate_canonical_review_resolution,
+    annotate_suggestion_reviewer,
+    apply_reviewed_fact_mutation,
+    authorize_suggestion_review,
+    reviewed_fact_decision,
+    targeted_suggestion_resolution_kind,
+)
+from infinity_context_core.application.suggestion_resolution_replay import (
+    load_suggestion_resolution_replay,
+    new_suggestion_resolution_receipt,
+    suggestion_resolution_identity,
+)
 from infinity_context_core.domain.entities import (
     Confidence,
-    FactStatus,
-    MemoryFact,
     MemoryFactId,
     MemorySuggestion,
     MemorySuggestionId,
@@ -46,12 +57,14 @@ from infinity_context_core.domain.errors import (
     MemoryNotFoundError,
     MemoryValidationError,
 )
-from infinity_context_core.domain.events import OutboxEvent
+from infinity_context_core.features.review_governance.public import (
+    SuggestionResolutionUnitOfWorkFactoryPort,
+    SuggestionReviewScope,
+)
 from infinity_context_core.ports.clock import ClockPort
 from infinity_context_core.ports.ids import IdGeneratorPort
 from infinity_context_core.ports.unit_of_work import UnitOfWorkFactoryPort
 
-_TRUST_RANK = {TrustLevel.LOW: 1, TrustLevel.MEDIUM: 2, TrustLevel.HIGH: 3}
 _ASSISTANT_SOURCES = {"ai_response", "assistant_answer", "assistant_summary"}
 _CONFLICT_REVIEW_ACTION_ALIASES = {
     "approve_candidate": "approve_candidate",
@@ -62,6 +75,8 @@ _CONFLICT_REVIEW_ACTION_ALIASES = {
     "mark_existing_disputed": "mark_existing_disputed",
     "mark_disputed": "mark_existing_disputed",
 }
+
+
 class CreateSuggestionUseCase:
     def __init__(
         self,
@@ -79,9 +94,7 @@ class CreateSuggestionUseCase:
         trust = TrustLevel(command.trust_level)
         operation = SuggestionOperation(command.operation)
         if command.target_fact_id and command.target_fact_version is None:
-            raise MemoryValidationError(
-                "Target fact version is required for targeted suggestion"
-            )
+            raise MemoryValidationError("Target fact version is required for targeted suggestion")
         candidate_fingerprint = command.candidate_fingerprint or _suggestion_fingerprint(
             command=command,
             operation=operation,
@@ -109,6 +122,12 @@ class CreateSuggestionUseCase:
             review_payload=command.review_payload,
             now=now,
         )
+        if (
+            suggestion.target_fact_id is not None
+            and suggestion.operation is not SuggestionOperation.DELETE
+            and not _is_conflict_or_duplicate_review(suggestion)
+        ):
+            targeted_suggestion_resolution_kind(suggestion)
         try:
             async with self._uow_factory() as uow:
                 duplicate = await uow.suggestions.find_pending_duplicate(
@@ -235,7 +254,7 @@ class ApproveSuggestionUseCase:
     def __init__(
         self,
         *,
-        uow_factory: UnitOfWorkFactoryPort,
+        uow_factory: SuggestionResolutionUnitOfWorkFactoryPort,
         clock: ClockPort,
         ids: IdGeneratorPort,
     ) -> None:
@@ -244,10 +263,42 @@ class ApproveSuggestionUseCase:
         self._ids = ids
 
     async def execute(self, command: ApproveSuggestionCommand) -> SuggestionResult:
+        operation = "approve"
+        idempotency_key, request_fingerprint = suggestion_resolution_identity(
+            suggestion_id=command.suggestion_id,
+            operation=operation,
+            idempotency_key=command.idempotency_key,
+            request={
+                "reason": command.reason,
+                "force": command.force,
+                "actor_id": command.actor_id,
+            },
+        )
         async with self._uow_factory() as uow:
+            replay = await load_suggestion_resolution_replay(
+                uow.suggestion_resolution_receipts,
+                suggestion_id=command.suggestion_id,
+                operation=operation,
+                idempotency_key=idempotency_key,
+                request_fingerprint=request_fingerprint,
+                review_scope=command.review_scope,
+            )
+            if replay is not None:
+                return replay
             suggestion = await uow.suggestions.get_for_update(command.suggestion_id)
             if suggestion is None:
                 raise MemoryNotFoundError("Suggestion not found")
+            replay = await load_suggestion_resolution_replay(
+                uow.suggestion_resolution_receipts,
+                suggestion_id=command.suggestion_id,
+                operation=operation,
+                idempotency_key=idempotency_key,
+                request_fingerprint=request_fingerprint,
+                review_scope=command.review_scope,
+            )
+            if replay is not None:
+                return replay
+            authorize_suggestion_review(suggestion, command.review_scope)
             if not _has_independent_source(suggestion):
                 raise MemoryValidationError(
                     "Suggestion approval requires non-assistant source refs"
@@ -256,130 +307,172 @@ class ApproveSuggestionUseCase:
                 raise MemoryValidationError(
                     "Target fact version is required for targeted suggestion approval"
                 )
-
             now = self._clock.now()
-            fact: MemoryFact
-            if suggestion.target_fact_id:
-                current = await uow.facts.get_for_update(str(suggestion.target_fact_id))
-                if (
-                    current is None
-                    or current.space_id != suggestion.space_id
-                    or current.memory_scope_id != suggestion.memory_scope_id
-                ):
-                    raise MemoryNotFoundError("Target fact not found")
-                if (
-                    _TRUST_RANK[suggestion.trust_level] < _TRUST_RANK[current.trust_level]
-                    and not command.force
-                ):
-                    raise MemoryConflictError("Weak suggestion cannot supersede stronger fact")
-                if suggestion.operation == SuggestionOperation.DELETE:
-                    expected = suggestion.target_fact_version or current.version
-                    if current.version != expected:
-                        raise MemoryConflictError("Stale fact version")
-                    fact = current.forget(now=now)
-                elif _is_duplicate_fact_merge_review(suggestion):
-                    fact = current.merge_source_refs(
-                        expected_version=suggestion.target_fact_version or current.version,
-                        source_refs=suggestion.source_refs,
-                        reason=command.reason or suggestion.safe_reason,
-                        now=now,
-                    )
-                else:
-                    fact = current.update(
-                        expected_version=suggestion.target_fact_version or current.version,
-                        text=suggestion.candidate_text,
-                        source_refs=suggestion.source_refs,
-                        reason=command.reason or suggestion.safe_reason,
-                        category=suggestion.category,
-                        tags=suggestion.tags,
-                        ttl_policy=suggestion.ttl_policy,
-                        expires_at=suggestion.expires_at,
-                        now=now,
-                    )
-                fact = await uow.facts.save(fact)
-            else:
+            decision = reviewed_fact_decision(
+                suggestion,
+                actor_id=command.actor_id,
+                reason=command.reason or suggestion.safe_reason,
+                now=now,
+                allow_weaker=command.force,
+            )
+            if suggestion.target_fact_id is None:
                 if suggestion.operation == SuggestionOperation.DELETE:
                     raise MemoryValidationError("Delete suggestion requires target fact")
-                fact = MemoryFact.create(
-                    fact_id=MemoryFactId(self._ids.new_id("fact")),
-                    space_id=suggestion.space_id,
-                    memory_scope_id=suggestion.memory_scope_id,
-                    text=suggestion.candidate_text,
-                    kind=suggestion.kind,
-                    source_refs=suggestion.source_refs,
-                    confidence=suggestion.confidence,
-                    trust_level=suggestion.trust_level,
-                    category=suggestion.category,
-                    tags=suggestion.tags,
-                    ttl_policy=suggestion.ttl_policy,
-                    expires_at=suggestion.expires_at,
-                    now=now,
+                outcome = await apply_reviewed_fact_mutation(uow.reviewed_facts.remember(decision))
+                resolution_kind = "remember"
+            elif suggestion.operation == SuggestionOperation.DELETE:
+                outcome = await apply_reviewed_fact_mutation(uow.reviewed_facts.forget(decision))
+                resolution_kind = "forget"
+            elif _is_duplicate_fact_merge_review(suggestion):
+                outcome = await apply_reviewed_fact_mutation(
+                    uow.reviewed_facts.attach_evidence(decision)
                 )
-                fact = await uow.facts.create(fact)
+                resolution_kind = "attach_evidence"
+            else:
+                resolution_kind = targeted_suggestion_resolution_kind(suggestion)
+                if resolution_kind == "correction":
+                    outcome = await apply_reviewed_fact_mutation(
+                        uow.reviewed_facts.correct(decision)
+                    )
+                else:
+                    outcome = await apply_reviewed_fact_mutation(
+                        uow.reviewed_facts.create_and_supersede(decision)
+                    )
 
-            reviewed = suggestion.approve(now=now, reason=command.reason)
+            reviewed = annotate_canonical_review_resolution(
+                suggestion,
+                outcome=outcome,
+                resolution_kind=resolution_kind,
+                actor_id=command.actor_id,
+                now=now,
+            ).approve(now=now, reason=command.reason)
             saved_suggestion = await uow.suggestions.save(reviewed)
-            projection_event = (
-                "graph.delete_fact"
-                if suggestion.operation == SuggestionOperation.DELETE
-                else "graph.upsert_fact"
+            result = SuggestionResult(
+                suggestion=saved_suggestion,
+                fact=outcome.primary_fact,
+                indexing_status="pending",
             )
-            await uow.outbox.enqueue(
-                OutboxEvent(
-                    event_type=projection_event,
-                    aggregate_type="fact",
-                    aggregate_id=str(fact.id),
-                    aggregate_version=fact.version,
-                    payload={"fact_id": str(fact.id), "version": fact.version},
+            await uow.suggestion_resolution_receipts.create(
+                new_suggestion_resolution_receipt(
+                    result=result,
+                    operation=operation,
+                    idempotency_key=idempotency_key,
+                    request_fingerprint=request_fingerprint,
+                    outcome=outcome,
+                    created_at=now,
                 )
             )
             await uow.commit()
-        return SuggestionResult(
-            suggestion=saved_suggestion,
-            fact=fact,
-            indexing_status="pending",
-        )
+        return result
 
 
 class RejectSuggestionUseCase:
-    def __init__(self, *, uow_factory: UnitOfWorkFactoryPort, clock: ClockPort) -> None:
+    def __init__(
+        self,
+        *,
+        uow_factory: SuggestionResolutionUnitOfWorkFactoryPort,
+        clock: ClockPort,
+    ) -> None:
         self._uow_factory = uow_factory
         self._clock = clock
 
     async def execute(self, command: RejectSuggestionCommand) -> SuggestionResult:
-        async with self._uow_factory() as uow:
-            suggestion = await uow.suggestions.get_for_update(command.suggestion_id)
-            if suggestion is None:
-                raise MemoryNotFoundError("Suggestion not found")
-            saved = await uow.suggestions.save(
-                suggestion.reject(now=self._clock.now(), reason=command.reason)
-            )
-            await uow.commit()
-        return SuggestionResult(suggestion=saved)
+        return await _resolve_terminal_suggestion(
+            uow_factory=self._uow_factory,
+            clock=self._clock,
+            command=command,
+            operation="reject",
+        )
 
 
 class ExpireSuggestionUseCase:
-    def __init__(self, *, uow_factory: UnitOfWorkFactoryPort, clock: ClockPort) -> None:
+    def __init__(
+        self,
+        *,
+        uow_factory: SuggestionResolutionUnitOfWorkFactoryPort,
+        clock: ClockPort,
+    ) -> None:
         self._uow_factory = uow_factory
         self._clock = clock
 
     async def execute(self, command: ExpireSuggestionCommand) -> SuggestionResult:
-        async with self._uow_factory() as uow:
-            suggestion = await uow.suggestions.get_for_update(command.suggestion_id)
-            if suggestion is None:
-                raise MemoryNotFoundError("Suggestion not found")
-            saved = await uow.suggestions.save(
-                suggestion.expire(now=self._clock.now(), reason=command.reason)
+        return await _resolve_terminal_suggestion(
+            uow_factory=self._uow_factory,
+            clock=self._clock,
+            command=command,
+            operation="expire",
+        )
+
+
+async def _resolve_terminal_suggestion(
+    *,
+    uow_factory: SuggestionResolutionUnitOfWorkFactoryPort,
+    clock: ClockPort,
+    command: RejectSuggestionCommand | ExpireSuggestionCommand,
+    operation: str,
+) -> SuggestionResult:
+    idempotency_key, request_fingerprint = suggestion_resolution_identity(
+        suggestion_id=command.suggestion_id,
+        operation=operation,
+        idempotency_key=command.idempotency_key,
+        request={"reason": command.reason, "actor_id": command.actor_id},
+    )
+    async with uow_factory() as uow:
+        replay = await load_suggestion_resolution_replay(
+            uow.suggestion_resolution_receipts,
+            suggestion_id=command.suggestion_id,
+            operation=operation,
+            idempotency_key=idempotency_key,
+            request_fingerprint=request_fingerprint,
+            review_scope=command.review_scope,
+        )
+        if replay is not None:
+            return replay
+        suggestion = await uow.suggestions.get_for_update(command.suggestion_id)
+        if suggestion is None:
+            raise MemoryNotFoundError("Suggestion not found")
+        replay = await load_suggestion_resolution_replay(
+            uow.suggestion_resolution_receipts,
+            suggestion_id=command.suggestion_id,
+            operation=operation,
+            idempotency_key=idempotency_key,
+            request_fingerprint=request_fingerprint,
+            review_scope=command.review_scope,
+        )
+        if replay is not None:
+            return replay
+        authorize_suggestion_review(suggestion, command.review_scope)
+        now = clock.now()
+        reviewed = annotate_suggestion_reviewer(
+            suggestion,
+            actor_id=command.actor_id,
+            now=now,
+        )
+        resolved = (
+            reviewed.reject(now=now, reason=command.reason)
+            if operation == "reject"
+            else reviewed.expire(now=now, reason=command.reason)
+        )
+        result = SuggestionResult(suggestion=await uow.suggestions.save(resolved))
+        await uow.suggestion_resolution_receipts.create(
+            new_suggestion_resolution_receipt(
+                result=result,
+                operation=operation,
+                idempotency_key=idempotency_key,
+                request_fingerprint=request_fingerprint,
+                outcome=None,
+                created_at=now,
             )
-            await uow.commit()
-        return SuggestionResult(suggestion=saved)
+        )
+        await uow.commit()
+        return result
 
 
 class ResolveSuggestionConflictUseCase:
     def __init__(
         self,
         *,
-        uow_factory: UnitOfWorkFactoryPort,
+        uow_factory: SuggestionResolutionUnitOfWorkFactoryPort,
         clock: ClockPort,
         ids: IdGeneratorPort,
     ) -> None:
@@ -389,10 +482,43 @@ class ResolveSuggestionConflictUseCase:
 
     async def execute(self, command: ResolveSuggestionConflictCommand) -> SuggestionResult:
         action = _normalize_conflict_resolution_action(command.action)
+        operation = f"resolve_conflict:{action}"
+        idempotency_key, request_fingerprint = suggestion_resolution_identity(
+            suggestion_id=command.suggestion_id,
+            operation=operation,
+            idempotency_key=command.idempotency_key,
+            request={
+                "action": action,
+                "reason": command.reason,
+                "force": command.force,
+                "actor_id": command.actor_id,
+            },
+        )
         async with self._uow_factory() as uow:
+            replay = await load_suggestion_resolution_replay(
+                uow.suggestion_resolution_receipts,
+                suggestion_id=command.suggestion_id,
+                operation=operation,
+                idempotency_key=idempotency_key,
+                request_fingerprint=request_fingerprint,
+                review_scope=command.review_scope,
+            )
+            if replay is not None:
+                return replay
             suggestion = await uow.suggestions.get_for_update(command.suggestion_id)
             if suggestion is None:
                 raise MemoryNotFoundError("Suggestion not found")
+            replay = await load_suggestion_resolution_replay(
+                uow.suggestion_resolution_receipts,
+                suggestion_id=command.suggestion_id,
+                operation=operation,
+                idempotency_key=idempotency_key,
+                request_fingerprint=request_fingerprint,
+                review_scope=command.review_scope,
+            )
+            if replay is not None:
+                return replay
+            authorize_suggestion_review(suggestion, command.review_scope)
             payload = _conflict_review_payload(suggestion)
             if suggestion.status != SuggestionStatus.PENDING:
                 raise MemoryConflictError("Only pending conflict suggestion can be resolved")
@@ -405,27 +531,57 @@ class ResolveSuggestionConflictUseCase:
 
             if action == "reject_candidate":
                 reviewed = _annotate_conflict_resolution(
-                    suggestion,
+                    annotate_suggestion_reviewer(
+                        suggestion,
+                        actor_id=command.actor_id,
+                        now=now,
+                    ),
                     action=action,
                     effect="keep_existing_fact",
                     now=now,
                     reason=reason,
                 ).reject(now=now, reason=reason)
                 saved = await uow.suggestions.save(reviewed)
+                result = SuggestionResult(suggestion=saved)
+                await uow.suggestion_resolution_receipts.create(
+                    new_suggestion_resolution_receipt(
+                        result=result,
+                        operation=operation,
+                        idempotency_key=idempotency_key,
+                        request_fingerprint=request_fingerprint,
+                        outcome=None,
+                        created_at=now,
+                    )
+                )
                 await uow.commit()
-                return SuggestionResult(suggestion=saved)
+                return result
 
             if action == "expire_candidate":
                 reviewed = _annotate_conflict_resolution(
-                    suggestion,
+                    annotate_suggestion_reviewer(
+                        suggestion,
+                        actor_id=command.actor_id,
+                        now=now,
+                    ),
                     action=action,
                     effect="hide_pending_suggestion",
                     now=now,
                     reason=reason,
                 ).expire(now=now, reason=reason)
                 saved = await uow.suggestions.save(reviewed)
+                result = SuggestionResult(suggestion=saved)
+                await uow.suggestion_resolution_receipts.create(
+                    new_suggestion_resolution_receipt(
+                        result=result,
+                        operation=operation,
+                        idempotency_key=idempotency_key,
+                        request_fingerprint=request_fingerprint,
+                        outcome=None,
+                        created_at=now,
+                    )
+                )
                 await uow.commit()
-                return SuggestionResult(suggestion=saved)
+                return result
 
             if action in {
                 "approve_candidate",
@@ -434,110 +590,73 @@ class ResolveSuggestionConflictUseCase:
             }:
                 _ensure_conflict_candidate_has_independent_source(suggestion)
 
-            conflict_fact = await _load_conflicting_fact_for_resolution(
-                uow,
-                suggestion=suggestion,
-                payload=payload,
-            )
             expected_version = _conflicting_fact_version(payload)
-            if conflict_fact.version != expected_version:
-                raise MemoryConflictError("Stale conflict fact version")
-
-            if action == "approve_candidate":
-                fact = MemoryFact.create(
-                    fact_id=MemoryFactId(self._ids.new_id("fact")),
-                    space_id=suggestion.space_id,
-                    memory_scope_id=suggestion.memory_scope_id,
-                    text=suggestion.candidate_text,
-                    kind=suggestion.kind,
-                    source_refs=suggestion.source_refs,
-                    confidence=suggestion.confidence,
-                    trust_level=suggestion.trust_level,
-                    category=suggestion.category,
-                    tags=suggestion.tags,
-                    ttl_policy=suggestion.ttl_policy,
-                    expires_at=suggestion.expires_at,
-                    now=now,
-                )
-                fact = await uow.facts.create(fact)
-                reviewed = _annotate_conflict_resolution(
-                    suggestion,
-                    action=action,
-                    effect="create_new_fact_keep_conflicting_fact",
-                    now=now,
-                    reason=reason,
-                    conflicting_fact=conflict_fact,
-                    applied_fact=fact,
-                ).approve(now=now, reason=reason)
-                saved = await uow.suggestions.save(reviewed)
-                await _enqueue_fact_projection(uow, fact)
-                await uow.commit()
-                return SuggestionResult(
-                    suggestion=saved,
-                    fact=fact,
-                    indexing_status="pending",
-                )
-
-            if action == "replace_existing_fact":
-                if conflict_fact.status not in {FactStatus.ACTIVE, FactStatus.DISPUTED}:
-                    raise MemoryConflictError("Conflict fact cannot be replaced")
-                if (
-                    _TRUST_RANK[suggestion.trust_level] < _TRUST_RANK[conflict_fact.trust_level]
-                    and not command.force
-                ):
-                    raise MemoryConflictError("Weak suggestion cannot replace stronger fact")
-                fact = conflict_fact.update(
-                    expected_version=expected_version,
-                    text=suggestion.candidate_text,
-                    source_refs=suggestion.source_refs,
-                    reason=reason,
-                    category=suggestion.category,
-                    tags=suggestion.tags,
-                    ttl_policy=suggestion.ttl_policy,
-                    expires_at=suggestion.expires_at,
-                    now=now,
-                )
-                fact = await uow.facts.save(fact)
-                reviewed = _annotate_conflict_resolution(
-                    suggestion,
-                    action=action,
-                    effect="update_conflicting_fact_with_candidate",
-                    now=now,
-                    reason=reason,
-                    conflicting_fact=conflict_fact,
-                    applied_fact=fact,
-                ).approve(now=now, reason=reason)
-                saved = await uow.suggestions.save(reviewed)
-                await _enqueue_fact_projection(uow, fact)
-                await uow.commit()
-                return SuggestionResult(
-                    suggestion=saved,
-                    fact=fact,
-                    indexing_status="pending",
-                )
-
-            fact = conflict_fact.mark_disputed(now=now)
-            fact_changed = fact != conflict_fact
-            if fact_changed:
-                fact = await uow.facts.save(fact)
-            reviewed = _annotate_conflict_resolution(
+            conflicting_fact_id = _payload_text(payload, "conflicting_fact_id")
+            if conflicting_fact_id is None:
+                raise MemoryValidationError("Conflict review requires conflicting_fact_id")
+            decision = reviewed_fact_decision(
                 suggestion,
-                action=action,
-                effect="mark_existing_fact_disputed_keep_candidate_as_evidence",
-                now=now,
+                actor_id=command.actor_id,
                 reason=reason,
-                conflicting_fact=conflict_fact,
-                applied_fact=fact,
+                now=now,
+                allow_weaker=command.force,
+                target_fact_id=conflicting_fact_id,
+                target_fact_version=expected_version,
+            )
+            if action == "replace_existing_fact":
+                outcome = await apply_reviewed_fact_mutation(
+                    uow.reviewed_facts.create_and_supersede(decision)
+                )
+                resolution_kind = "supersede"
+            elif action == "approve_candidate":
+                outcome = await apply_reviewed_fact_mutation(
+                    uow.reviewed_facts.remember(replace(decision, target=None))
+                )
+                resolution_kind = "remember_separate"
+            else:
+                outcome = await apply_reviewed_fact_mutation(
+                    uow.reviewed_facts.create_and_dispute(decision)
+                )
+                resolution_kind = "dispute"
+            reviewed = annotate_canonical_review_resolution(
+                _annotate_conflict_resolution(
+                    suggestion,
+                    action=action,
+                    effect=(
+                        "create_successor_and_supersede_conflicting_fact"
+                        if action == "replace_existing_fact"
+                        else (
+                            "create_new_fact_keep_conflicting_fact"
+                            if action == "approve_candidate"
+                            else "create_challenger_and_dispute_both_facts"
+                        )
+                    ),
+                    now=now,
+                    reason=reason,
+                ),
+                outcome=outcome,
+                resolution_kind=resolution_kind,
+                actor_id=command.actor_id,
+                now=now,
             ).approve(now=now, reason=reason)
             saved = await uow.suggestions.save(reviewed)
-            if fact_changed:
-                await _enqueue_fact_projection(uow, fact)
-            await uow.commit()
-            return SuggestionResult(
+            result = SuggestionResult(
                 suggestion=saved,
-                fact=fact,
+                fact=outcome.primary_fact,
                 indexing_status="pending",
             )
+            await uow.suggestion_resolution_receipts.create(
+                new_suggestion_resolution_receipt(
+                    result=result,
+                    operation=operation,
+                    idempotency_key=idempotency_key,
+                    request_fingerprint=request_fingerprint,
+                    outcome=outcome,
+                    created_at=now,
+                )
+            )
+            await uow.commit()
+            return result
 
 
 class ReviewSuggestionsBatchUseCase:
@@ -565,7 +684,11 @@ class ReviewSuggestionsBatchUseCase:
             if item.action not in {"approve", "reject", "expire"}:
                 raise MemoryValidationError("Unknown suggestion review action")
             try:
-                result = await self._review_one(item)
+                result = await self._review_one(
+                    item,
+                    actor_id=command.actor_id,
+                    review_scope=command.review_scope,
+                )
                 results.append(
                     ReviewSuggestionBatchItemResult(
                         suggestion_id=item.suggestion_id,
@@ -596,21 +719,42 @@ class ReviewSuggestionsBatchUseCase:
             results=tuple(results),
         )
 
-    async def _review_one(self, item: ReviewSuggestionBatchItemCommand) -> SuggestionResult:
+    async def _review_one(
+        self,
+        item: ReviewSuggestionBatchItemCommand,
+        *,
+        actor_id: str,
+        review_scope: SuggestionReviewScope | None,
+    ) -> SuggestionResult:
         if item.action == "approve":
             return await self._approve_suggestion.execute(
                 ApproveSuggestionCommand(
                     suggestion_id=item.suggestion_id,
                     reason=item.reason,
                     force=item.force,
+                    actor_id=actor_id,
+                    review_scope=review_scope,
+                    idempotency_key=item.idempotency_key,
                 )
             )
         if item.action == "reject":
             return await self._reject_suggestion.execute(
-                RejectSuggestionCommand(suggestion_id=item.suggestion_id, reason=item.reason)
+                RejectSuggestionCommand(
+                    suggestion_id=item.suggestion_id,
+                    reason=item.reason,
+                    actor_id=actor_id,
+                    review_scope=review_scope,
+                    idempotency_key=item.idempotency_key,
+                )
             )
         return await self._expire_suggestion.execute(
-            ExpireSuggestionCommand(suggestion_id=item.suggestion_id, reason=item.reason)
+            ExpireSuggestionCommand(
+                suggestion_id=item.suggestion_id,
+                reason=item.reason,
+                actor_id=actor_id,
+                review_scope=review_scope,
+                idempotency_key=item.idempotency_key,
+            )
         )
 
 
@@ -640,11 +784,17 @@ def _suggestion_fingerprint(
     command: CreateSuggestionCommand,
     operation: SuggestionOperation,
 ) -> str:
+    repository_id, code_scope_id = code_scope_from_metadata(
+        command.review_payload or {},
+        source="Suggestion",
+    )
     raw = "|".join(
         (
             str(command.space_id),
             str(command.memory_scope_id),
             operation.value,
+            repository_id or "",
+            code_scope_id or "",
             command.target_fact_id or "",
             str(command.target_fact_version or ""),
             command.kind.value,
@@ -669,9 +819,15 @@ def _is_duplicate_fact_merge_review(suggestion: MemorySuggestion) -> bool:
     return (
         suggestion.operation == SuggestionOperation.REVIEW
         and suggestion.target_fact_id is not None
-        and (suggestion.review_payload or {}).get("review_kind")
-        == DUPLICATE_FACT_MERGE_REVIEW_KIND
+        and (suggestion.review_payload or {}).get("review_kind") == DUPLICATE_FACT_MERGE_REVIEW_KIND
     )
+
+
+def _is_conflict_or_duplicate_review(suggestion: MemorySuggestion) -> bool:
+    return (suggestion.review_payload or {}).get("review_kind") in {
+        CONFLICT_REVIEW_KIND,
+        DUPLICATE_FACT_MERGE_REVIEW_KIND,
+    }
 
 
 def _normalize_conflict_resolution_action(action: str) -> str:
@@ -699,25 +855,6 @@ def _conflicting_fact_version(payload: dict[str, object]) -> int:
     if isinstance(value, str) and value.strip().isdigit() and int(value) > 0:
         return int(value)
     raise MemoryValidationError("Conflict review requires conflicting_fact_version")
-
-
-async def _load_conflicting_fact_for_resolution(
-    uow: Any,
-    *,
-    suggestion: MemorySuggestion,
-    payload: dict[str, object],
-) -> MemoryFact:
-    fact_id = _payload_text(payload, "conflicting_fact_id")
-    if fact_id is None:
-        raise MemoryValidationError("Conflict review requires conflicting_fact_id")
-    fact = await uow.facts.get_for_update(fact_id)
-    if fact is None:
-        raise MemoryNotFoundError("Conflicting fact not found")
-    if fact.space_id != suggestion.space_id or fact.memory_scope_id != suggestion.memory_scope_id:
-        raise MemoryConflictError("Conflicting fact scope mismatch")
-    if fact.status == FactStatus.DELETED:
-        raise MemoryConflictError("Deleted conflict fact cannot be resolved")
-    return fact
 
 
 def _payload_text(payload: dict[str, object], key: str) -> str | None:
@@ -751,8 +888,6 @@ def _annotate_conflict_resolution(
     effect: str,
     now: datetime,
     reason: str,
-    conflicting_fact: MemoryFact | None = None,
-    applied_fact: MemoryFact | None = None,
 ) -> MemorySuggestion:
     payload = dict(suggestion.review_payload or {})
     updates: dict[str, object] = {
@@ -761,28 +896,8 @@ def _annotate_conflict_resolution(
         "resolved_at": now.isoformat(),
         "resolution_reason": redact_sensitive_text(reason)[:320],
     }
-    if conflicting_fact is not None:
-        updates["resolved_conflicting_fact_id"] = str(conflicting_fact.id)
-        updates["resolved_conflicting_fact_version"] = conflicting_fact.version
-        updates["resolved_conflicting_fact_status"] = conflicting_fact.status.value
-    if applied_fact is not None:
-        updates["resolved_fact_id"] = str(applied_fact.id)
-        updates["resolved_fact_version"] = applied_fact.version
-        updates["resolved_fact_status"] = applied_fact.status.value
     payload.update(updates)
     return replace(suggestion, review_payload=payload, updated_at=now)
-
-
-async def _enqueue_fact_projection(uow: Any, fact: MemoryFact) -> None:
-    await uow.outbox.enqueue(
-        OutboxEvent(
-            event_type="graph.upsert_fact",
-            aggregate_type="fact",
-            aggregate_id=str(fact.id),
-            aggregate_version=fact.version,
-            payload={"fact_id": str(fact.id), "version": fact.version},
-        )
-    )
 
 
 def _batch_candidate_key(command: CreateSuggestionCommand) -> tuple[object, ...]:

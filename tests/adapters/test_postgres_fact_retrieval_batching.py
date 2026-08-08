@@ -125,7 +125,7 @@ async def _assert_find_active_many_preserves_scalar_results_and_candidate_window
             _fact_row(
                 "thread-category",
                 "needle in the matching category",
-                now=now + timedelta(minutes=1),
+                now=now,
                 tags=("allowed", "preferred"),
                 thread_id="thread-a",
                 category="profile",
@@ -174,6 +174,73 @@ def test_find_active_many_bounds_oversized_hydration_in_binds() -> None:
     asyncio.run(_assert_find_active_many_bounds_oversized_hydration_in_binds())
 
 
+def test_find_active_many_hydrates_source_refs_for_exact_fact_version() -> None:
+    asyncio.run(_assert_find_active_many_hydrates_source_refs_for_exact_fact_version())
+
+
+async def _assert_find_active_many_hydrates_source_refs_for_exact_fact_version() -> None:
+    engine = create_async_engine("sqlite+aiosqlite://")
+    async with engine.begin() as connection:
+        await connection.run_sync(Base.metadata.create_all)
+    now = datetime(2026, 7, 30, tzinfo=UTC)
+    current = _fact_row("versioned", "versioned marker", now=now, tags=())
+    current.version = 2
+    async with AsyncSession(engine, expire_on_commit=False) as session:
+        session.add(current)
+        session.add_all(
+            (
+                _source_ref("versioned", "old-source", fact_version=1),
+                _source_ref("versioned", "current-source", fact_version=2),
+            )
+        )
+        await session.commit()
+
+        result = await PostgresFactRepository(session, now=now).find_active_many(
+            (_search("versioned", limit=1),)
+        )
+
+    assert [ref.source_id for ref in result[0][0].source_refs] == ["current-source"]
+    await engine.dispose()
+
+
+def test_legacy_candidate_search_uses_as_of_before_ranking() -> None:
+    asyncio.run(_assert_legacy_candidate_search_uses_as_of_before_ranking())
+
+
+async def _assert_legacy_candidate_search_uses_as_of_before_ranking() -> None:
+    engine = create_async_engine("sqlite+aiosqlite://")
+    async with engine.begin() as connection:
+        await connection.run_sync(Base.metadata.create_all)
+    now = datetime(2026, 8, 10, tzinfo=UTC)
+    boundary = datetime(2026, 8, 5, tzinfo=UTC)
+    predecessor = _fact_row("predecessor", "database engine", now=now, tags=())
+    predecessor.status = "superseded"
+    predecessor.temporal_kind = "state"
+    predecessor.observed_at = datetime(2026, 7, 1, tzinfo=UTC)
+    predecessor.valid_from = datetime(2026, 7, 1, tzinfo=UTC)
+    predecessor.valid_to = boundary
+    successor = _fact_row("successor", "database engine", now=now, tags=())
+    successor.temporal_kind = "state"
+    successor.observed_at = boundary
+    successor.valid_from = boundary
+
+    async with AsyncSession(engine, expire_on_commit=False) as session:
+        session.add_all((predecessor, successor))
+        await session.commit()
+        repository = PostgresFactRepository(session, now=now)
+
+        before, after = await repository.find_active_many(
+            (
+                _search_as_of(datetime(2026, 8, 1, tzinfo=UTC)),
+                _search_as_of(datetime(2026, 8, 6, tzinfo=UTC)),
+            )
+        )
+
+    assert [str(fact.id) for fact in before] == ["predecessor"]
+    assert [str(fact.id) for fact in after] == ["successor"]
+    await engine.dispose()
+
+
 async def _assert_find_active_many_bounds_oversized_hydration_in_binds() -> None:
     engine = create_async_engine("sqlite+aiosqlite://")
     async with engine.begin() as connection:
@@ -193,7 +260,7 @@ async def _assert_find_active_many_bounds_oversized_hydration_in_binds() -> None
         bind_count = len(parameters)  # type: ignore[arg-type]
         if "WHERE memory_facts.id IN" in statement:
             fact_hydration_binds.append(bind_count)
-        if "WHERE memory_source_refs.fact_id IN" in statement:
+        if "FROM memory_source_refs" in statement and "fact_version" in statement:
             ref_hydration_binds.append(bind_count)
 
     event.listen(engine.sync_engine, "before_cursor_execute", record_hydration_binds)
@@ -217,7 +284,7 @@ async def _assert_find_active_many_bounds_oversized_hydration_in_binds() -> None
 
     assert len(result[0]) == _MAX_FACT_HYDRATION_BINDS + 105
     assert fact_hydration_binds == [_MAX_FACT_HYDRATION_BINDS, 105]
-    assert ref_hydration_binds == [_MAX_FACT_HYDRATION_BINDS, 105]
+    assert ref_hydration_binds == [_MAX_FACT_HYDRATION_BINDS * 2, 105 * 2]
     await engine.dispose()
 
 
@@ -329,6 +396,18 @@ def _search(query: str, *, limit: int) -> ActiveFactSearch:
     )
 
 
+def _search_as_of(reference_time: datetime) -> ActiveFactSearch:
+    return ActiveFactSearch(
+        space_id="space-a",
+        memory_scope_ids=("scope-a",),
+        thread_id=None,
+        query="database",
+        limit=5,
+        reference_time=reference_time,
+        temporal_mode="as_of",
+    )
+
+
 def _fact_row(
     fact_id: str,
     text: str,
@@ -353,16 +432,26 @@ def _fact_row(
         tags_json=list(tags),
         ttl_policy=None,
         expires_at=None,
+        temporal_kind="state",
+        observed_at=now,
+        valid_from=now,
+        temporal_basis="migrated_legacy",
+        temporal_precision="unknown",
         version=1,
         created_at=now,
         updated_at=now,
     )
 
 
-def _source_ref(fact_id: str, source_id: str) -> MemorySourceRefRow:
+def _source_ref(
+    fact_id: str,
+    source_id: str,
+    *,
+    fact_version: int = 1,
+) -> MemorySourceRefRow:
     return MemorySourceRefRow(
         fact_id=fact_id,
-        fact_version=1,
+        fact_version=fact_version,
         source_type="locomo_turn",
         source_id=source_id,
         chunk_id=None,

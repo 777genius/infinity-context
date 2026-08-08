@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from dataclasses import asdict
+from datetime import datetime
 
 from infinity_context_core.domain.capture import (
     CanonicalCapture,
@@ -131,6 +133,8 @@ __all__ = [
     "space_membership_to_row",
     "space_row_to_domain",
     "suggestion_row_to_domain",
+    "suggestion_from_json",
+    "suggestion_to_json",
     "suggestion_to_row",
     "thread_row_to_domain",
     "user_row_to_domain",
@@ -243,7 +247,8 @@ def anchor_to_row(anchor: MemoryAnchor) -> MemoryAnchorRow:
         confidence=anchor.confidence.value,
         evidence_refs_json=[source_ref_to_json(ref) for ref in anchor.evidence_refs],
         observed_at=anchor.observed_at,
-        valid_from=anchor.valid_from, valid_to=anchor.valid_to,
+        valid_from=anchor.valid_from,
+        valid_to=anchor.valid_to,
         metadata_json=dict(anchor.metadata),
         created_at=anchor.created_at,
         updated_at=anchor.updated_at,
@@ -311,6 +316,8 @@ def fact_row_to_domain(row: MemoryFactRow, source_refs: list[MemorySourceRefRow]
         tags=tuple(getattr(row, "tags_json", None) or ()),
         ttl_policy=getattr(row, "ttl_policy", None),
         expires_at=getattr(row, "expires_at", None),
+        repository_id=getattr(row, "repository_id", None),
+        code_scope_id=getattr(row, "code_scope_id", None),
         created_at=row.created_at,
         updated_at=row.updated_at,
     )
@@ -327,7 +334,8 @@ def fact_relation_to_row(relation: MemoryFactRelation) -> MemoryFactRelationRow:
         reason=relation.reason,
         status=relation.status.value,
         observed_at=relation.observed_at,
-        valid_from=relation.valid_from, valid_to=relation.valid_to,
+        valid_from=relation.valid_from,
+        valid_to=relation.valid_to,
         created_at=relation.created_at,
         updated_at=relation.updated_at,
     )
@@ -536,9 +544,7 @@ def source_ref_from_json(ref: dict[str, object]) -> SourceRef:
         char_end=int(ref["char_end"]) if ref.get("char_end") is not None else None,
         quote_preview=str(ref["quote_preview"]) if ref.get("quote_preview") is not None else None,
         page_number=int(ref["page_number"]) if ref.get("page_number") is not None else None,
-        time_start_ms=(
-            int(ref["time_start_ms"]) if ref.get("time_start_ms") is not None else None
-        ),
+        time_start_ms=(int(ref["time_start_ms"]) if ref.get("time_start_ms") is not None else None),
         time_end_ms=int(ref["time_end_ms"]) if ref.get("time_end_ms") is not None else None,
         bbox=_source_ref_bbox(ref.get("bbox")),
     )
@@ -581,6 +587,83 @@ def suggestion_to_row(suggestion: MemorySuggestion) -> MemorySuggestionRow:
     )
 
 
+def suggestion_to_json(suggestion: MemorySuggestion) -> dict[str, object]:
+    return {
+        "schema_version": 1,
+        "id": str(suggestion.id),
+        "space_id": str(suggestion.space_id),
+        "memory_scope_id": str(suggestion.memory_scope_id),
+        "candidate_text": suggestion.candidate_text,
+        "kind": suggestion.kind.value,
+        "operation": suggestion.operation.value,
+        "status": suggestion.status.value,
+        "source_refs": [source_ref_to_json(ref) for ref in suggestion.source_refs],
+        "confidence": suggestion.confidence.value,
+        "trust_level": suggestion.trust_level.value,
+        "safe_reason": suggestion.safe_reason,
+        "target_fact_id": str(suggestion.target_fact_id) if suggestion.target_fact_id else None,
+        "target_fact_version": suggestion.target_fact_version,
+        "category": suggestion.category,
+        "tags": list(suggestion.tags),
+        "ttl_policy": suggestion.ttl_policy,
+        "expires_at": suggestion.expires_at.isoformat() if suggestion.expires_at else None,
+        "expiry_reason": suggestion.expiry_reason,
+        "created_from_capture_id": suggestion.created_from_capture_id,
+        "candidate_fingerprint": suggestion.candidate_fingerprint,
+        "review_payload": dict(suggestion.review_payload or {}),
+        "review_reason": suggestion.review_reason,
+        "created_at": suggestion.created_at.isoformat(),
+        "updated_at": suggestion.updated_at.isoformat(),
+        "reviewed_at": suggestion.reviewed_at.isoformat() if suggestion.reviewed_at else None,
+    }
+
+
+def suggestion_from_json(payload: Mapping[str, object]) -> MemorySuggestion:
+    if int(payload.get("schema_version", 0)) != 1:
+        raise ValueError("Unsupported suggestion snapshot schema")
+    source_refs = payload.get("source_refs")
+    if not isinstance(source_refs, list):
+        raise ValueError("Suggestion snapshot source_refs must be a list")
+    tags = payload.get("tags")
+    if not isinstance(tags, list):
+        raise ValueError("Suggestion snapshot tags must be a list")
+    review_payload = payload.get("review_payload")
+    if not isinstance(review_payload, dict):
+        raise ValueError("Suggestion snapshot review_payload must be an object")
+    target_fact_id = _optional_json_text(payload.get("target_fact_id"))
+    return MemorySuggestion(
+        id=MemorySuggestionId(_required_json_text(payload, "id")),
+        space_id=SpaceId(_required_json_text(payload, "space_id")),
+        memory_scope_id=MemoryScopeId(_required_json_text(payload, "memory_scope_id")),
+        candidate_text=_required_json_text(payload, "candidate_text"),
+        kind=MemoryKind(_required_json_text(payload, "kind")),
+        operation=SuggestionOperation(_required_json_text(payload, "operation")),
+        status=SuggestionStatus(_required_json_text(payload, "status")),
+        source_refs=tuple(
+            source_ref_from_json(dict(item))
+            for item in source_refs
+            if isinstance(item, dict)
+        ),
+        confidence=Confidence(_required_json_text(payload, "confidence")),
+        trust_level=TrustLevel(_required_json_text(payload, "trust_level")),
+        safe_reason=_required_json_text(payload, "safe_reason"),
+        target_fact_id=MemoryFactId(target_fact_id) if target_fact_id else None,
+        target_fact_version=_optional_json_int(payload.get("target_fact_version")),
+        category=_optional_json_text(payload.get("category")),
+        tags=tuple(str(tag) for tag in tags),
+        ttl_policy=_optional_json_text(payload.get("ttl_policy")),
+        expires_at=_optional_json_datetime(payload.get("expires_at")),
+        expiry_reason=_optional_json_text(payload.get("expiry_reason")),
+        created_from_capture_id=_optional_json_text(payload.get("created_from_capture_id")),
+        candidate_fingerprint=_optional_json_text(payload.get("candidate_fingerprint")),
+        review_payload=dict(review_payload),
+        review_reason=_optional_json_text(payload.get("review_reason")),
+        created_at=_required_json_datetime(payload, "created_at"),
+        updated_at=_required_json_datetime(payload, "updated_at"),
+        reviewed_at=_optional_json_datetime(payload.get("reviewed_at")),
+    )
+
+
 def suggestion_row_to_domain(row: MemorySuggestionRow) -> MemorySuggestion:
     return MemorySuggestion(
         id=MemorySuggestionId(row.id),
@@ -609,6 +692,36 @@ def suggestion_row_to_domain(row: MemorySuggestionRow) -> MemorySuggestion:
         reviewed_at=row.reviewed_at,
         review_reason=row.review_reason,
     )
+
+
+def _required_json_text(payload: Mapping[str, object], key: str) -> str:
+    value = payload.get(key)
+    if not isinstance(value, str) or not value:
+        raise ValueError(f"Suggestion snapshot {key} is required")
+    return value
+
+
+def _optional_json_text(value: object) -> str | None:
+    return str(value) if value is not None else None
+
+
+def _optional_json_int(value: object) -> int | None:
+    return int(value) if value is not None else None
+
+
+def _required_json_datetime(payload: Mapping[str, object], key: str) -> datetime:
+    value = _optional_json_datetime(payload.get(key))
+    if value is None:
+        raise ValueError(f"Suggestion snapshot {key} is required")
+    return value
+
+
+def _optional_json_datetime(value: object) -> datetime | None:
+    if value is None:
+        return None
+    if not isinstance(value, str):
+        raise ValueError("Suggestion snapshot datetime must be an ISO string")
+    return datetime.fromisoformat(value)
 
 
 def apply_suggestion_to_row(suggestion: MemorySuggestion, row: MemorySuggestionRow) -> None:

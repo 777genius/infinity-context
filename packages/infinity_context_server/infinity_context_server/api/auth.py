@@ -5,6 +5,17 @@ from typing import Annotated, Any
 
 from fastapi import Depends, Header, Request
 from infinity_context_core.domain.errors import MemoryForbiddenError, MemoryUnauthorizedError
+from infinity_context_core.features.agent_authorization.public import (
+    AgentAccessPolicy,
+    AgentScopeResolutionEvidence,
+    AgentScopeResolutionMethod,
+    AuthorizedAgentContext,
+    WorkspaceScopeClaim,
+    decode_workspace_scope_claim,
+)
+from infinity_context_core.processes.workspace_scope_claim_verification import (
+    VerifyWorkspaceScopeClaimCommand,
+)
 
 from infinity_context_server.api.dependencies import get_container
 from infinity_context_server.auth_scope import (
@@ -16,14 +27,22 @@ from infinity_context_server.auth_scope import (
 )
 from infinity_context_server.auth_tokens import (
     MEMORY_PERMISSION_ADMIN,
+    MEMORY_PERMISSION_CAPTURE,
     MEMORY_PERMISSION_DELETE,
     MEMORY_PERMISSION_DIAGNOSTICS,
+    MEMORY_PERMISSION_FACT_WRITE,
+    MEMORY_PERMISSION_GOVERN,
     MEMORY_PERMISSION_READ,
     MEMORY_PERMISSION_WRITE,
     ActiveServiceToken,
     get_active_db_token,
 )
 from infinity_context_server.composition import Container
+
+WORKSPACE_SCOPE_CLAIM_HEADER = "X-Infinity-Workspace-Claim"
+WORKSPACE_SCOPE_GRANT_HEADER = "X-Infinity-Workspace-Grant"
+WORKSPACE_SCOPE_CLAIM_MAX_AGE_SECONDS = 300
+WORKSPACE_SCOPE_CLAIM_FUTURE_SKEW_SECONDS = 60
 
 
 async def require_service_token(
@@ -33,19 +52,36 @@ async def require_service_token(
 ) -> None:
     expected = container.settings.service_token
     if not expected:
+        request.state.authenticated_actor_id = "local-server"
         return
     prefix = "Bearer "
     if not authorization or not authorization.startswith(prefix):
         raise MemoryUnauthorizedError("Missing or invalid service token")
     token = authorization.removeprefix(prefix).strip()
     if token == expected:
+        request.state.authenticated_actor_id = "root-service-token"
         return
     db_token = await get_active_db_token(container, token)
     if db_token is None:
         raise MemoryUnauthorizedError("Missing or invalid service token")
+    if not db_token.binding_active:
+        raise MemoryForbiddenError("Service token scope is no longer active")
+    request.state.authenticated_actor_id = db_token.token_id
     _ensure_permission(request, db_token)
     await _ensure_scoped_token_can_access_request(container, request, db_token)
     await _ensure_memory_scope_scoped_token_can_access_request(container, request, db_token)
+    _ensure_repository_token_endpoint_isolated(request, db_token)
+    workspace_claim = await _verified_workspace_scope_claim(
+        container=container,
+        request=request,
+        token=db_token,
+    )
+    authorized_context = _authorized_agent_context_from_token(
+        db_token,
+        workspace_claim=workspace_claim,
+    )
+    if authorized_context is not None:
+        request.state.authorized_agent_context = authorized_context
 
 
 async def require_strict_admin_service_token(
@@ -67,6 +103,8 @@ async def require_strict_admin_service_token(
     db_token = await get_active_db_token(container, token)
     if db_token is None:
         raise MemoryUnauthorizedError("Missing or invalid service token")
+    if not db_token.binding_active:
+        raise MemoryForbiddenError("Service token scope is no longer active")
     if MEMORY_PERMISSION_ADMIN not in db_token.permissions:
         raise MemoryForbiddenError("Service token lacks required permission")
     if db_token.space_id is not None or db_token.memory_scope_ids is not None:
@@ -77,8 +115,159 @@ def _ensure_permission(request: Request, token: ActiveServiceToken) -> None:
     required = _required_permission(request)
     if required is None:
         return
-    if required not in token.permissions and MEMORY_PERMISSION_ADMIN not in token.permissions:
+    if not _token_has_permission(token, required):
         raise MemoryForbiddenError("Service token lacks required permission")
+
+
+def _token_has_permission(token: ActiveServiceToken, required: str) -> bool:
+    if required in token.permissions or MEMORY_PERMISSION_ADMIN in token.permissions:
+        return True
+    legacy_write_permissions = {
+        MEMORY_PERMISSION_CAPTURE,
+        MEMORY_PERMISSION_FACT_WRITE,
+        MEMORY_PERMISSION_GOVERN,
+    }
+    return (
+        token.repository_id is None
+        and required in legacy_write_permissions
+        and MEMORY_PERMISSION_WRITE in token.permissions
+    )
+
+
+def get_authorized_agent_context(request: Request) -> AuthorizedAgentContext | None:
+    """Return the immutable context established by service-token authentication."""
+
+    value = getattr(request.state, "authorized_agent_context", None)
+    return value if isinstance(value, AuthorizedAgentContext) else None
+
+
+def get_authenticated_actor_id(request: Request) -> str | None:
+    value = getattr(request.state, "authenticated_actor_id", None)
+    return value if isinstance(value, str) and value.strip() else None
+
+
+def _authorized_agent_context_from_token(
+    token: ActiveServiceToken,
+    *,
+    workspace_claim: WorkspaceScopeClaim | None = None,
+) -> AuthorizedAgentContext | None:
+    if token.space_id is None or token.memory_scope_ids is None:
+        return None
+    return AuthorizedAgentContext(
+        actor_id=token.token_id,
+        space_id=token.space_id,
+        memory_scope_ids=tuple(sorted(token.memory_scope_ids)),
+        repository_id=token.repository_id,
+        code_scope_id=(
+            workspace_claim.code_scope_id if workspace_claim is not None else token.code_scope_id
+        ),
+        permissions=token.permissions,
+        access_policy=(
+            AgentAccessPolicy.LOCKED_PROJECT
+            if token.repository_id is not None
+            else AgentAccessPolicy.SCOPED
+        ),
+        resolution=(
+            AgentScopeResolutionEvidence(
+                method=workspace_claim.resolution_method,
+                binding_id=workspace_claim.binding_id,
+                binding_version=workspace_claim.binding_version,
+                drift_status=workspace_claim.drift_status,
+            )
+            if workspace_claim is not None
+            else AgentScopeResolutionEvidence(
+                method=AgentScopeResolutionMethod.SERVER_TOKEN,
+                binding_id=token.token_id,
+            )
+        ),
+    )
+
+
+async def _verified_workspace_scope_claim(
+    *,
+    container: Container,
+    request: Request,
+    token: ActiveServiceToken,
+) -> WorkspaceScopeClaim | None:
+    value = request.headers.get(WORKSPACE_SCOPE_CLAIM_HEADER)
+    if value is None:
+        if (
+            token.repository_id is not None
+            and token.code_scope_id is None
+            and not _is_safe_unscoped_endpoint(request)
+        ):
+            raise MemoryForbiddenError(
+                "Dynamic repository token requires a trusted workspace scope claim"
+            )
+        return None
+    if token.repository_id is None:
+        raise MemoryForbiddenError("Workspace claim requires a repository-scoped token")
+    try:
+        scheme, encoded, supplied_signature = value.split(".", 2)
+        if scheme != "v1" or len(supplied_signature) != 64:
+            raise ValueError("Invalid workspace claim envelope")
+        claim = decode_workspace_scope_claim(encoded)
+    except (UnicodeError, ValueError) as exc:
+        raise MemoryForbiddenError("Invalid workspace scope claim") from exc
+    binding_grant = request.headers.get(WORKSPACE_SCOPE_GRANT_HEADER)
+    if binding_grant is None or not binding_grant.startswith("wg_") or len(binding_grant) > 160:
+        raise MemoryForbiddenError("Workspace scope claim requires a binding grant")
+    return await container.workspace_scope_claim_verification.execute(
+        VerifyWorkspaceScopeClaimCommand(
+            claim=claim,
+            signed_value=f"{scheme}.{encoded}",
+            supplied_signature=supplied_signature,
+            binding_grant=binding_grant,
+            token_space_id=token.space_id or "",
+            token_repository_id=token.repository_id,
+            token_code_scope_id=token.code_scope_id,
+            now_epoch_seconds=int(container.clock.now().timestamp()),
+        )
+    )
+
+
+def _ensure_repository_token_endpoint_isolated(
+    request: Request,
+    token: ActiveServiceToken,
+) -> None:
+    """Fail closed until each endpoint consumes AuthorizedAgentContext itself."""
+
+    if token.repository_id is None:
+        return
+    method = request.method.upper()
+    path = request.url.path
+    fact_resource = path.removeprefix("/v1/facts/")
+    is_single_fact_resource = (
+        path.startswith("/v1/facts/") and bool(fact_resource) and "/" not in fact_resource
+    )
+    is_safe_fact_read = method == "GET" and (
+        path == "/v1/facts"
+        or is_single_fact_resource
+        or (
+            path.startswith("/v1/facts/")
+            and path.endswith(("/versions", "/related", "/relations"))
+            and fact_resource.count("/") == 1
+        )
+    )
+    allowed = (
+        (method == "GET" and path == "/v1/capabilities")
+        or (method == "POST" and path in {"/v1/context", "/v1/search"})
+        or (method == "POST" and path == "/v1/context/benchmark-search")
+        or (method == "POST" and path == "/v1/captures")
+        or (method == "POST" and path == "/v1/facts")
+        or is_safe_fact_read
+        or (method in {"PATCH", "DELETE"} and is_single_fact_resource)
+        or (
+            method == "POST"
+            and path.startswith("/v1/facts/")
+            and path.endswith(("/confirm", "/end-validity", "/supersede", "/dispute"))
+        )
+        or (method == "POST" and path == "/v1/facts/reinstate-supersession")
+    )
+    if not allowed:
+        raise MemoryForbiddenError(
+            "Repository-scoped token cannot access an endpoint without repository isolation"
+        )
 
 
 def _required_permission(request: Request) -> str | None:
@@ -115,7 +304,7 @@ def _required_permission(request: Request) -> str | None:
     if path.startswith("/v1/captures"):
         if method == "DELETE":
             return MEMORY_PERMISSION_DELETE
-        return MEMORY_PERMISSION_READ if method == "GET" else MEMORY_PERMISSION_WRITE
+        return MEMORY_PERMISSION_READ if method == "GET" else MEMORY_PERMISSION_CAPTURE
 
     if (
         path.startswith("/v1/assets")
@@ -146,13 +335,13 @@ def _required_permission(request: Request) -> str | None:
         return MEMORY_PERMISSION_READ
 
     if path.startswith("/v1/facts"):
-        return _fact_required_permission(method)
+        return _fact_required_permission(path, method)
 
     if path.startswith("/v1/documents"):
         return _document_required_permission(method)
 
     if path.startswith("/v1/suggestions"):
-        return _suggestion_required_permission(method)
+        return _suggestion_required_permission(path, method)
 
     if path == "/v1/spaces":
         return MEMORY_PERMISSION_WRITE if method == "POST" else MEMORY_PERMISSION_READ
@@ -177,11 +366,16 @@ def _legacy_required_permission(path: str, method: str) -> str:
     return MEMORY_PERMISSION_WRITE
 
 
-def _fact_required_permission(method: str) -> str:
+def _fact_required_permission(path: str, method: str) -> str:
     if method == "DELETE":
         return MEMORY_PERMISSION_DELETE
+    if method == "POST" and (
+        path == "/v1/facts/reinstate-supersession"
+        or path.endswith(("/confirm", "/end-validity", "/supersede", "/dispute"))
+    ):
+        return MEMORY_PERMISSION_GOVERN
     if method in {"POST", "PATCH", "PUT"}:
-        return MEMORY_PERMISSION_WRITE
+        return MEMORY_PERMISSION_FACT_WRITE
     return MEMORY_PERMISSION_READ
 
 
@@ -193,10 +387,12 @@ def _document_required_permission(method: str) -> str:
     return MEMORY_PERMISSION_READ
 
 
-def _suggestion_required_permission(method: str) -> str:
+def _suggestion_required_permission(path: str, method: str) -> str:
     if method == "GET":
         return MEMORY_PERMISSION_READ
-    return MEMORY_PERMISSION_WRITE
+    if path in {"/v1/suggestions", "/v1/suggestions/batch"}:
+        return MEMORY_PERMISSION_CAPTURE
+    return MEMORY_PERMISSION_GOVERN
 
 
 def _memory_scope_required_permission(method: str) -> str:

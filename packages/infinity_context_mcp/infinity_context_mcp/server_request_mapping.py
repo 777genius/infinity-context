@@ -9,8 +9,6 @@ MemoryClassification = Literal["public", "internal", "restricted", "unknown"]
 FactStatus = Literal["active", "superseded", "disputed", "deleted"]
 FactRelationType = Literal[
     "supports",
-    "supersedes",
-    "contradicts",
     "duplicates",
     "references",
     "depends_on",

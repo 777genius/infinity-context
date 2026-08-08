@@ -110,7 +110,8 @@ async def _assert_real_postgres_access_path(database_url: str) -> None:
                         token_estimate, classification, created_at, updated_at, metadata_json
                     )
                     SELECT
-                        'filler-' || value, 'space-a', 'scope-a', NULL, NULL, NULL,
+                        'filler-' || value, 'space-a', 'scope-a', NULL,
+                        'filler-document', NULL,
                         'manual', 'filler-source-' || value, 'filler-hash-' || value,
                         'document_section', 'ordinary filler row ' || value,
                         'ordinary filler row ' || value, 'active', value, 0, 20, 4,
@@ -282,7 +283,7 @@ def _semantic_rows(now: datetime) -> list[MemoryChunkRow]:
             space_id="space-a",
             memory_scope_id=scope_id,
             thread_id=thread_id,
-            document_id=None,
+            document_id=f"document-{item_id}",
             episode_id=None,
             source_type=source_type,
             source_external_id=source_external_id,

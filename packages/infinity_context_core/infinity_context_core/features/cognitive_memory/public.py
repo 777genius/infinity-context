@@ -1,6 +1,13 @@
 """Narrow public API for provider-neutral cognitive memory foundations."""
 
-from .application import ProviderCognitiveDerivationUseCase
+from .application import (
+    CanonicalEvidenceChangedCommand,
+    InvalidateCognitiveDependenciesHandler,
+    InvalidateCognitiveDependenciesResult,
+    PersistCognitiveCandidateCommand,
+    PersistCognitiveCandidateHandler,
+    ProviderCognitiveDerivationUseCase,
+)
 from .domain import (
     FEATURE_ID,
     CanonicalEvidenceIdentity,
@@ -11,6 +18,9 @@ from .domain import (
     CognitiveKind,
     CognitiveMemoryFeature,
     CognitiveMemoryInvariantError,
+    CognitiveProjectionDependencySet,
+    CognitiveProjectionInvalidation,
+    CognitiveProjectionState,
     CognitiveProjectionVersion,
     CognitiveScope,
     InvalidationAssessment,
@@ -25,11 +35,13 @@ from .ports import (
     CognitiveDerivationPort,
     CognitiveDerivationRequest,
     CognitiveDerivationSource,
+    CognitiveProjectionRepositoryPort,
 )
 
 __all__ = (
     "FEATURE_ID",
     "CanonicalEvidenceIdentity",
+    "CanonicalEvidenceChangedCommand",
     "CognitiveCandidate",
     "CognitiveCandidateIdentity",
     "CognitiveDerivationDraft",
@@ -41,10 +53,18 @@ __all__ = (
     "CognitiveKind",
     "CognitiveMemoryFeature",
     "CognitiveMemoryInvariantError",
+    "CognitiveProjectionDependencySet",
+    "CognitiveProjectionInvalidation",
+    "CognitiveProjectionRepositoryPort",
+    "CognitiveProjectionState",
     "CognitiveProjectionVersion",
     "CognitiveScope",
     "InvalidationAssessment",
     "InvalidationDecision",
+    "InvalidateCognitiveDependenciesHandler",
+    "InvalidateCognitiveDependenciesResult",
+    "PersistCognitiveCandidateCommand",
+    "PersistCognitiveCandidateHandler",
     "PromotionAssessment",
     "PromotionDecision",
     "ProviderCognitiveDerivationUseCase",

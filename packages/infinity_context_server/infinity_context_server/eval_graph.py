@@ -87,6 +87,7 @@ def _install_eval_graph_adapter(app, graph: EvalGraphMemoryAdapter) -> None:
         rag_recall=container.cognee_memory,
         packer=ContextPacker(),
         blob_storage=container.blob_storage,
+        fact_selection=container.canonical_fact_selection,
     )
     object.__setattr__(container, "graph_index", graph)
     object.__setattr__(container, "build_context", graph_context)

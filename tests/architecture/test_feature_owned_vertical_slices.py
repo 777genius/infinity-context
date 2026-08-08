@@ -20,11 +20,14 @@ CORE_FEATURE_LAYERS = ("domain", "application", "ports")
 
 FEATURE_IDS = frozenset(
     {
+        "agent_authorization",
+        "code_identity",
         "cognitive_memory",
         "memory_facts",
         "context_building",
         "document_ingestion",
         "memory_scopes",
+        "review_governance",
     }
 )
 
@@ -78,6 +81,7 @@ CONTRACT_FORBIDDEN_IMPORT_PREFIXES = (
 OUTBOX_WORKFLOW_DEFINITION_NAMES = frozenset(
     {
         "ExtractionOutboxProcess",
+        "FactCognitiveInvalidationOutboxProcess",
         "OutboxEventDispatcher",
         "OutboxEventHandler",
         "OutboxHandlerRegistry",
@@ -90,6 +94,7 @@ OUTBOX_WORKFLOW_HANDLER_NAMES = frozenset(
     {
         "handle_asset_extract",
         "handle_capture_consolidate",
+        "handle_fact_changed",
         "handle_cognee_document_forget",
         "handle_cognee_document_ingest",
         "handle_graph_delete",
@@ -340,9 +345,14 @@ def _is_allowed_core_feature_import(feature_id: str, path: Path, imported: str) 
         }
 
     layer = relative_parts[0]
+    cross_feature_public = imported.startswith(
+        "infinity_context_core.features."
+    ) and imported.endswith(".public")
     if layer == "domain":
         return _matches_module_prefix(imported, (f"{own_feature}.domain",))
     if layer == "application":
+        if cross_feature_public:
+            return True
         return _matches_module_prefix(
             imported,
             (
@@ -352,6 +362,8 @@ def _is_allowed_core_feature_import(feature_id: str, path: Path, imported: str) 
             ),
         )
     if layer == "ports":
+        if cross_feature_public:
+            return True
         return _matches_module_prefix(
             imported,
             (
@@ -495,6 +507,42 @@ def test_memory_facts_public_api_is_importable_and_narrow() -> None:
     assert public.MemoryFactsFeature().feature_id == "memory_facts"
     assert public.__all__ == (
         "FEATURE_ID",
+        "FACT_TEMPORAL_MUTATION_POLICY_VERSION",
+        "SUPERSESSION_POLICY_VERSION",
+        "DisputeFactsCommand",
+        "DisputeFactsHandler",
+        "DisputeFactsResult",
+        "ConfirmFactCommand",
+        "ConfirmFactHandler",
+        "ConfirmFactResult",
+        "EndFactValidityCommand",
+        "EndFactValidityHandler",
+        "EndFactValidityResult",
+        "FactCurrentness",
+        "FactCurrentnessAssessment",
+        "FactCurrentnessPolicy",
+        "FactCodeScopeReference",
+        "FactEligibilityAssessment",
+        "FactEligibilityPolicy",
+        "FactEpistemicContext",
+        "FactEpistemicMode",
+        "FactFreshness",
+        "FactLifecycle",
+        "FactLifecycleStatus",
+        "FactQuality",
+        "FactRetention",
+        "FactRevision",
+        "FactTemporalAssurance",
+        "FactSupersessionPolicy",
+        "FactSupersessionRelation",
+        "FactTemporalDecision",
+        "FactTemporalDecisionRepositoryPort",
+        "FactTemporalDecisionType",
+        "FactSupersessionRepositoryPort",
+        "FactTemporalExtent",
+        "FactTemporalKind",
+        "FactTemporalQueryMode",
+        "FactTtlPolicy",
         "ForgetFactCommand",
         "ForgetFactHandler",
         "ForgetFactResult",
@@ -502,15 +550,26 @@ def test_memory_facts_public_api_is_importable_and_narrow() -> None:
         "MemoryFactClassification",
         "MemoryFactClockPort",
         "MemoryFactConfidence",
+        "MemoryFact",
         "MemoryFactEvidenceRef",
         "MemoryFactIdPort",
         "MemoryFactIdentity",
         "MemoryFactKind",
         "MemoryFactLifecycleUseCases",
+        "MemoryFactReadUseCases",
+        "MemoryFactListSpec",
+        "MemoryFactReadModelPort",
+        "MemoryFactTemporalUseCases",
+        "MemoryFactTransactionPort",
         "MemoryFactOutboxMessage",
         "MemoryFactOutboxPort",
+        "MemoryFactOperationReceipt",
+        "MemoryFactIdempotencyConflict",
+        "MemoryFactOperationReceiptPort",
         "MemoryFactRepositoryPort",
         "MemoryFactScope",
+        "MemoryFactSelectionPort",
+        "MemoryFactSelectionQuery",
         "MemoryFactSnapshot",
         "MemoryFactSourceRef",
         "MemoryFactStatus",
@@ -519,10 +578,28 @@ def test_memory_facts_public_api_is_importable_and_narrow() -> None:
         "MemoryFactUnitOfWorkPort",
         "MemoryFactVisibility",
         "MemoryFactsFeature",
+        "NormalizedFactTaxonomy",
+        "normalize_fact_taxonomy_fields",
         "RememberFactCommand",
         "RememberFactHandler",
         "RememberFactResult",
         "RememberFactUseCase",
+        "ReinstateSupersededFactCommand",
+        "ReinstateSupersededFactHandler",
+        "ReinstateSupersededFactResult",
+        "ReviewedFactCandidate",
+        "ReviewedFactDecision",
+        "ReviewedFactMutationExecutor",
+        "ReviewedFactMutationPort",
+        "ReviewedFactMutationResult",
+        "ReviewedFactTarget",
+        "SelectMemoryFactsHandler",
+        "GetMemoryFactHandler",
+        "ListMemoryFactVersionsHandler",
+        "ListMemoryFactsHandler",
+        "SupersedeFactCommand",
+        "SupersedeFactHandler",
+        "SupersedeFactResult",
         "UpdateFactCommand",
         "UpdateFactHandler",
         "UpdateFactResult",

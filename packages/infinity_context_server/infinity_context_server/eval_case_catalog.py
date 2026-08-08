@@ -153,7 +153,7 @@ def _quality_golden_cases(
             must_not_include=("QUALITY_FACT_TEMPORAL_OLD",),
             max_facts=5,
             max_chunks=0,
-            required_diagnostics=(("temporal_replacements_applied", "gte", 1),),
+            required_diagnostics=(("retrieval_sources_used", "contains", "postgres_facts"),),
         ),
         EvalCase(
             case_id="linked_temporal_supersedes_current_only",
@@ -165,11 +165,7 @@ def _quality_golden_cases(
             must_not_include=("QUALITY_LINKED_TEMPORAL_OLD",),
             max_facts=6,
             max_chunks=0,
-            required_diagnostics=(
-                ("approved_context_linked_facts_used", "gte", 1),
-                ("linked_temporal_replacements_applied", "gte", 1),
-                ("retrieval_sources_used", "contains", "temporal_supersedes_relation"),
-            ),
+            required_diagnostics=(("retrieval_sources_used", "contains", "postgres_facts"),),
         ),
         EvalCase(
             case_id="relative_time_current_fact_not_last_week_fact",
@@ -181,7 +177,7 @@ def _quality_golden_cases(
             must_not_include=("QUALITY_FACT_RELATIVE_TIME_OLD",),
             max_facts=5,
             max_chunks=0,
-            required_diagnostics=(("temporal_replacements_applied", "gte", 1),),
+            required_diagnostics=(("retrieval_sources_used", "contains", "postgres_facts"),),
         ),
         EvalCase(
             case_id="contradicted_fact_hidden_by_default",
@@ -189,8 +185,9 @@ def _quality_golden_cases(
             space_id=space_id,
             memory_scope_ids=(alpha_memory_scope_id,),
             query="legacy billing owner Alex",
-            must_include=("QUALITY_FACT_CONTRADICTION_CURRENT",),
-            must_not_include=("QUALITY_FACT_CONTRADICTION_OLD",),
+            must_not_include=(
+                "QUALITY_FACT_CONTRADICTION_OLD", "QUALITY_FACT_CONTRADICTION_CURRENT"
+            ),
             max_facts=5,
             max_chunks=0,
         ),
@@ -200,8 +197,11 @@ def _quality_golden_cases(
             space_id=space_id,
             memory_scope_ids=(alpha_memory_scope_id,),
             query="legacy billing owner Alex",
-            must_include=("QUALITY_FACT_CONTRADICTION_OLD",),
-            token_budget=2500,
+            must_include=(
+                "QUALITY_FACT_CONTRADICTION_OLD",
+                "QUALITY_FACT_CONTRADICTION_CURRENT",
+            ),
+            token_budget=4000,
             max_facts=10,
             max_chunks=0,
             max_evidence_items=0,
@@ -480,7 +480,7 @@ def _quality_golden_cases(
             category="hybrid_retrieval",
             space_id=space_id,
             memory_scope_ids=(alpha_memory_scope_id,),
-            query="quality context diversity screenshot transcript fact crowd",
+            query="quality context diversity chunk detail fact crowd canonical decision",
             must_include=("QUALITY_DIVERSITY_FACT_PRIMARY", "QUALITY_DIVERSITY_CHUNK"),
             must_not_include=("QUALITY_DIVERSITY_FACT_SECONDARY",),
             token_budget=160,

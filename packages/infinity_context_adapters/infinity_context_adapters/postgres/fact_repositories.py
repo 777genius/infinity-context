@@ -2,19 +2,46 @@
 
 from __future__ import annotations
 
+from dataclasses import replace
 from datetime import UTC, datetime
 
 from infinity_context_core.domain.entities import MemoryFact, MemoryFactRelation, SourceRef
 from infinity_context_core.domain.errors import MemoryConflictError, MemoryNotFoundError
+from infinity_context_core.features.memory_facts.public import (
+    FactCodeScopeReference,
+    FactEpistemicContext,
+    FactFreshness,
+    FactTemporalExtent,
+)
+from infinity_context_core.features.memory_facts.public import (
+    MemoryFactIdentity as CanonicalMemoryFactIdentity,
+)
+from infinity_context_core.features.memory_facts.public import (
+    MemoryFactScope as CanonicalMemoryFactScope,
+)
+from infinity_context_core.features.memory_facts.public import (
+    MemoryFactSnapshot as CanonicalMemoryFactSnapshot,
+)
+from infinity_context_core.features.memory_facts.public import (
+    MemoryFactSourceRef as CanonicalMemoryFactSourceRef,
+)
+from infinity_context_core.features.memory_facts.public import (
+    MemoryFactVisibility as CanonicalMemoryFactVisibility,
+)
 from infinity_context_core.ports.repositories import (
     ActiveFactBatchRepositoryPort,
     ActiveFactSearch,
     FactRelationRepositoryPort,
     FactRepositoryPort,
 )
-from sqlalchemy import delete, func, or_, select, union, update
+from sqlalchemy import and_, delete, func, or_, select, tuple_, union, update
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import aliased
 
+from infinity_context_adapters.postgres.fact_selection_conditions import (
+    memory_fact_code_scope_conditions,
+    memory_fact_selection_conditions,
+)
 from infinity_context_adapters.postgres.mappers import (
     fact_relation_row_to_domain,
     fact_relation_to_row,
@@ -36,7 +63,7 @@ from infinity_context_adapters.postgres.repository_helpers import (
     _terms,
 )
 
-_MAX_FACT_HYDRATION_BINDS = 900
+_MAX_FACT_HYDRATION_BINDS = 400
 
 
 class PostgresFactRepository(FactRepositoryPort, ActiveFactBatchRepositoryPort):
@@ -60,6 +87,14 @@ class PostgresFactRepository(FactRepositoryPort, ActiveFactBatchRepositoryPort):
             tags_json=list(fact.tags),
             ttl_policy=fact.ttl_policy,
             expires_at=fact.expires_at,
+            temporal_kind="state",
+            observed_at=fact.created_at,
+            valid_from=fact.created_at,
+            temporal_basis="migrated_legacy",
+            temporal_precision="unknown",
+            epistemic_mode="world_claim",
+            repository_id=fact.repository_id,
+            code_scope_id=fact.code_scope_id,
             version=fact.version,
             created_at=fact.created_at,
             updated_at=fact.updated_at,
@@ -147,6 +182,8 @@ class PostgresFactRepository(FactRepositoryPort, ActiveFactBatchRepositoryPort):
                 tags_json=list(fact.tags),
                 ttl_policy=fact.ttl_policy,
                 expires_at=fact.expires_at,
+                repository_id=fact.repository_id,
+                code_scope_id=fact.code_scope_id,
                 version=fact.version,
                 created_at=fact.created_at,
                 updated_at=fact.updated_at,
@@ -218,6 +255,8 @@ class PostgresFactRepository(FactRepositoryPort, ActiveFactBatchRepositoryPort):
                 tags=current.tags,
                 ttl_policy=current.ttl_policy,
                 expires_at=current.expires_at,
+                repository_id=current.repository_id,
+                code_scope_id=current.code_scope_id,
                 created_at=current.created_at,
                 updated_at=version_row.created_at,
             )
@@ -232,6 +271,10 @@ class PostgresFactRepository(FactRepositoryPort, ActiveFactBatchRepositoryPort):
         thread_id: str | None,
         query: str,
         limit: int,
+        reference_time: datetime | None = None,
+        temporal_mode: str = "current",
+        repository_id: str | None = None,
+        code_scope_id: str | None = None,
         category: str | None = None,
         tags_any: tuple[str, ...] = (),
         tags_all: tuple[str, ...] = (),
@@ -245,6 +288,10 @@ class PostgresFactRepository(FactRepositoryPort, ActiveFactBatchRepositoryPort):
                     thread_id=thread_id,
                     query=query,
                     limit=limit,
+                    reference_time=reference_time,
+                    temporal_mode=temporal_mode,
+                    repository_id=repository_id,
+                    code_scope_id=code_scope_id,
                     category=category,
                     tags_any=tags_any,
                     tags_all=tags_all,
@@ -332,6 +379,9 @@ class PostgresFactRepository(FactRepositoryPort, ActiveFactBatchRepositoryPort):
         cursor_id: str | None = None,
         category: str | None = None,
         tag: str | None = None,
+        enforce_code_scope: bool = False,
+        repository_id: str | None = None,
+        code_scope_id: str | None = None,
     ) -> list[MemoryFact]:
         conditions = [
             MemoryFactRow.space_id == space_id,
@@ -343,6 +393,14 @@ class PostgresFactRepository(FactRepositoryPort, ActiveFactBatchRepositoryPort):
                 conditions.append(_not_expired(MemoryFactRow, self._now))
         if category:
             conditions.append(MemoryFactRow.category == category)
+        if enforce_code_scope:
+            conditions.extend(
+                memory_fact_code_scope_conditions(
+                    MemoryFactRow,
+                    repository_id=repository_id,
+                    code_scope_id=code_scope_id,
+                )
+            )
         if thread_id is not None:
             conditions.append(
                 or_(MemoryFactRow.thread_id == thread_id, MemoryFactRow.thread_id.is_(None))
@@ -428,6 +486,12 @@ class PostgresFactRepository(FactRepositoryPort, ActiveFactBatchRepositoryPort):
         return tuple(deleted)
 
     async def _write_version(self, fact: MemoryFact) -> None:
+        from infinity_context_adapters.features.memory_facts.postgres_fact_mapping import (
+            memory_fact_snapshot_to_json,
+        )
+
+        snapshot = await self._canonical_snapshot(fact)
+        payload = memory_fact_snapshot_to_json(snapshot)
         existing = (
             await self._session.execute(
                 select(MemoryFactVersionRow).where(
@@ -437,11 +501,9 @@ class PostgresFactRepository(FactRepositoryPort, ActiveFactBatchRepositoryPort):
             )
         ).scalar_one_or_none()
         if existing is not None:
-            existing.text = fact.text
-            existing.status = fact.status.value
-            existing.source_refs_json = [source_ref_to_json(ref) for ref in fact.source_refs]
-            existing.created_at = fact.updated_at
-            return
+            if existing.snapshot_json == payload:
+                return
+            raise MemoryConflictError("Fact versions are append-only")
         self._session.add(
             MemoryFactVersionRow(
                 fact_id=str(fact.id),
@@ -449,10 +511,109 @@ class PostgresFactRepository(FactRepositoryPort, ActiveFactBatchRepositoryPort):
                 text=fact.text,
                 status=fact.status.value,
                 source_refs_json=[source_ref_to_json(ref) for ref in fact.source_refs],
+                snapshot_json=payload,
                 reason=None,
                 created_at=fact.updated_at,
             )
         )
+
+    async def _canonical_snapshot(self, fact: MemoryFact) -> CanonicalMemoryFactSnapshot:
+        row = await self._session.get(MemoryFactRow, str(fact.id))
+        previous = await self._previous_canonical_snapshot(fact)
+        temporal_extent = (
+            FactTemporalExtent(
+                kind=getattr(row, "temporal_kind", "state") or "state",
+                observed_at=_aware_datetime(getattr(row, "observed_at", None) or fact.created_at),
+                valid_from=_aware_datetime(getattr(row, "valid_from", None)),
+                valid_to=_aware_datetime(getattr(row, "valid_to", None)),
+                occurred_from=_aware_datetime(getattr(row, "occurred_from", None)),
+                occurred_to=_aware_datetime(getattr(row, "occurred_to", None)),
+                basis=getattr(row, "temporal_basis", "migrated_legacy") or "migrated_legacy",
+                precision=getattr(row, "temporal_precision", "unknown") or "unknown",
+            )
+            if row is not None
+            else FactTemporalExtent.ongoing_state(
+                observed_at=_aware_datetime(fact.created_at),
+                basis="migrated_legacy",
+                precision="unknown",
+            )
+        )
+        base = CanonicalMemoryFactSnapshot(
+            identity=CanonicalMemoryFactIdentity(
+                fact_id=str(fact.id),
+                scope=CanonicalMemoryFactScope(
+                    space_id=str(fact.space_id),
+                    memory_scope_id=str(fact.memory_scope_id),
+                    thread_id=str(fact.thread_id) if fact.thread_id else None,
+                ),
+            ),
+            text=fact.text,
+            source_refs=tuple(_canonical_source_ref(ref) for ref in fact.source_refs),
+            visibility=CanonicalMemoryFactVisibility(
+                status=fact.status.value,
+                version=fact.version,
+                confidence=fact.confidence.value,
+                trust_level=fact.trust_level.value,
+                classification=fact.classification,
+                ttl_policy=fact.ttl_policy,
+                expires_at=_aware_datetime(fact.expires_at),
+            ),
+            kind=fact.kind.value,
+            category=fact.category,
+            tags=tuple(fact.tags),
+            created_at=_aware_datetime(fact.created_at),
+            updated_at=_aware_datetime(fact.updated_at),
+            temporal_extent=temporal_extent,
+            freshness=FactFreshness(
+                last_confirmed_at=_aware_datetime(getattr(row, "last_confirmed_at", None)),
+                confirmation_basis=getattr(row, "confirmation_basis", None),
+            ),
+            epistemic_context=FactEpistemicContext(
+                mode=getattr(row, "epistemic_mode", "world_claim") or "world_claim",
+                asserted_by=getattr(row, "asserted_by", None),
+                perspective_subject=getattr(row, "perspective_subject", None),
+            ),
+            purge_after=_aware_datetime(getattr(row, "purge_after", None)),
+            code_scope=(
+                FactCodeScopeReference(
+                    repository_id=row.repository_id,
+                    code_scope_id=row.code_scope_id,
+                )
+                if row is not None and row.repository_id is not None
+                else (previous.code_scope if previous is not None else None)
+            ),
+            evidence_refs=previous.evidence_refs if previous is not None else (),
+        )
+        if previous is None:
+            return base
+        return replace(
+            base,
+            code_scope=previous.code_scope,
+            epistemic_context=previous.epistemic_context,
+            evidence_refs=previous.evidence_refs,
+        )
+
+    async def _previous_canonical_snapshot(
+        self,
+        fact: MemoryFact,
+    ) -> CanonicalMemoryFactSnapshot | None:
+        from infinity_context_adapters.features.memory_facts.postgres_fact_mapping import (
+            memory_fact_snapshot_from_json,
+        )
+
+        if fact.version <= 1:
+            return None
+        previous = (
+            await self._session.execute(
+                select(MemoryFactVersionRow).where(
+                    MemoryFactVersionRow.fact_id == str(fact.id),
+                    MemoryFactVersionRow.version == fact.version - 1,
+                )
+            )
+        ).scalar_one_or_none()
+        if previous is None or not previous.snapshot_json:
+            return None
+        return memory_fact_snapshot_from_json(previous.snapshot_json)
 
     async def _replace_source_refs(self, fact: MemoryFact) -> None:
         await self._session.execute(
@@ -494,27 +655,47 @@ class PostgresFactRepository(FactRepositoryPort, ActiveFactBatchRepositoryPort):
         )
 
 
+def _canonical_source_ref(ref: SourceRef) -> CanonicalMemoryFactSourceRef:
+    return CanonicalMemoryFactSourceRef(
+        source_type=ref.source_type,
+        source_id=ref.source_id,
+        chunk_id=ref.chunk_id,
+        char_start=ref.char_start,
+        char_end=ref.char_end,
+        quote_preview=ref.quote_preview,
+        page_number=ref.page_number,
+        time_start_ms=ref.time_start_ms,
+        time_end_ms=ref.time_end_ms,
+        bbox=ref.bbox,
+    )
+
+
+def _aware_datetime(value: datetime | None) -> datetime | None:
+    if value is None or value.tzinfo is not None:
+        return value
+    return value.replace(tzinfo=UTC)
+
+
 def _active_fact_conditions(
     search: ActiveFactSearch,
     *,
     now: datetime | None,
 ) -> tuple[object, ...]:
-    conditions = [
-        MemoryFactRow.space_id == search.space_id,
-        MemoryFactRow.memory_scope_id.in_(search.memory_scope_ids),
-        MemoryFactRow.status == "active",
-        MemoryFactRow.classification != "restricted",
-        _not_expired(MemoryFactRow, now),
-    ]
+    reference_time = search.reference_time or now or datetime.now(UTC)
+    conditions = list(
+        memory_fact_selection_conditions(
+            space_id=search.space_id,
+            memory_scope_ids=search.memory_scope_ids,
+            thread_id=search.thread_id,
+            repository_id=search.repository_id,
+            code_scope_id=search.code_scope_id,
+            temporal_mode=search.temporal_mode,
+            reference_time=reference_time,
+        )
+    )
+    conditions.append(MemoryFactRow.classification != "restricted")
     if search.category:
         conditions.append(MemoryFactRow.category == search.category)
-    if search.thread_id is not None:
-        conditions.append(
-            or_(
-                MemoryFactRow.thread_id == search.thread_id,
-                MemoryFactRow.thread_id.is_(None),
-            )
-        )
     return tuple(conditions)
 
 
@@ -523,6 +704,10 @@ def _active_fact_search_group_key(search: ActiveFactSearch) -> tuple[object, ...
         search.space_id,
         search.memory_scope_ids,
         search.thread_id,
+        search.repository_id,
+        search.code_scope_id,
+        search.reference_time,
+        search.temporal_mode,
         search.category,
         search.tags_any,
         search.tags_all,
@@ -574,7 +759,12 @@ async def _hydrate_fact_rows_by_ids(
             (
                 await session.execute(
                     select(MemorySourceRefRow)
-                    .where(MemorySourceRefRow.fact_id.in_(tuple(row.id for row in rows)))
+                    .where(
+                        tuple_(
+                            MemorySourceRefRow.fact_id,
+                            MemorySourceRefRow.fact_version,
+                        ).in_(tuple((row.id, row.version) for row in rows))
+                    )
                     .order_by(
                         MemorySourceRefRow.fact_id,
                         MemorySourceRefRow.fact_version,
@@ -601,7 +791,7 @@ def _active_fact_matches_search(
     *,
     now: datetime | None,
 ) -> bool:
-    comparable_now = now or datetime.now(UTC)
+    comparable_now = search.reference_time or now or datetime.now(UTC)
     expires_at = fact.expires_at
     if expires_at is not None:
         if expires_at.tzinfo is None and comparable_now.tzinfo is not None:
@@ -611,7 +801,10 @@ def _active_fact_matches_search(
     return (
         str(fact.space_id) == search.space_id
         and str(fact.memory_scope_id) in search.memory_scope_ids
-        and fact.status.value == "active"
+        and (
+            fact.status.value == "active"
+            or (search.temporal_mode == "as_of" and fact.status.value == "superseded")
+        )
         and fact.classification != "restricted"
         and (not search.category or fact.category == search.category)
         and (
@@ -629,10 +822,7 @@ def _active_fact_matches_search(
 
 
 def _batches(values: tuple[str, ...], size: int) -> tuple[tuple[str, ...], ...]:
-    return tuple(
-        values[offset : offset + size]
-        for offset in range(0, len(values), size)
-    )
+    return tuple(values[offset : offset + size] for offset in range(0, len(values), size))
 
 
 class PostgresFactRelationRepository(FactRelationRepositoryPort):
@@ -684,6 +874,9 @@ class PostgresFactRelationRepository(FactRelationRepositoryPort):
         fact_id: str,
         status: str | None,
         limit: int,
+        enforce_code_scope: bool = False,
+        repository_id: str | None = None,
+        code_scope_id: str | None = None,
     ) -> list[MemoryFactRelation]:
         conditions = [
             or_(
@@ -693,10 +886,33 @@ class PostgresFactRelationRepository(FactRelationRepositoryPort):
         ]
         if status is not None:
             conditions.append(MemoryFactRelationRow.status == status)
+        statement = select(MemoryFactRelationRow)
+        if enforce_code_scope:
+            related_fact_row = aliased(MemoryFactRow)
+            statement = statement.join(
+                related_fact_row,
+                or_(
+                    and_(
+                        MemoryFactRelationRow.source_fact_id == fact_id,
+                        related_fact_row.id == MemoryFactRelationRow.target_fact_id,
+                    ),
+                    and_(
+                        MemoryFactRelationRow.target_fact_id == fact_id,
+                        related_fact_row.id == MemoryFactRelationRow.source_fact_id,
+                    ),
+                ),
+            )
+            conditions.extend(
+                memory_fact_code_scope_conditions(
+                    related_fact_row,
+                    repository_id=repository_id,
+                    code_scope_id=code_scope_id,
+                )
+            )
+            conditions.append(related_fact_row.classification != "restricted")
         rows = (
             await self._session.execute(
-                select(MemoryFactRelationRow)
-                .where(*conditions)
+                statement.where(*conditions)
                 .order_by(MemoryFactRelationRow.updated_at.desc(), MemoryFactRelationRow.id.desc())
                 .limit(limit)
             )
