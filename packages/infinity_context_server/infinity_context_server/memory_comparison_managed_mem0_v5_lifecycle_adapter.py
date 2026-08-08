@@ -27,10 +27,12 @@ from infinity_context_server.memory_comparison_managed_mem0_v5_paired_bridge imp
 )
 from infinity_context_server.memory_comparison_managed_mem0_v5_projector import (
     ManagedMem0V5ManifestAuthority,
+    ManagedMem0V5ManifestProjector,
 )
 from infinity_context_server.memory_comparison_managed_mem0_v5_run_evidence import (
     ManagedMem0V5AuthenticatedCleanStateWitness,
     ManagedMem0V5CorpusIngestEvidence,
+    ManagedMem0V5ReadyCleanStateClaim,
 )
 from infinity_context_server.memory_comparison_managed_mem0_v5_transport_evidence import (
     ManagedTransportCoverageCapability,
@@ -38,6 +40,7 @@ from infinity_context_server.memory_comparison_managed_mem0_v5_transport_evidenc
     VerifiedManagedTransportCoverage,
     authenticate_managed_transport_coverage,
 )
+from infinity_context_server.memory_comparison_managed_run_contract import ManagedRunCase
 from infinity_context_server.memory_comparison_managed_runner_binding import (
     ManagedRunnerCompositionBinding,
 )
@@ -91,8 +94,16 @@ class _LifecycleState:
     coverage: VerifiedManagedTransportCoverage | None
     receipts: tuple[ManagedMem0V5CorpusIngestReceipt, ...]
     receipts_consumed: bool
+    execution_evidence_consumed: bool
     terminal: Mem0OssTerminalCleanupEvidence | None
     integrity_mac: bytes
+
+
+@dataclass(frozen=True, slots=True)
+class _ManagedMem0V5ExecutionEvidenceHandoff:
+    coverage: VerifiedManagedTransportCoverage
+    ready_clean_state_claim: ManagedMem0V5ReadyCleanStateClaim
+    corpus_ids: tuple[str, ...]
 
 
 _LOCK = threading.RLock()
@@ -138,6 +149,7 @@ class ManagedMem0V5LifecycleAdapter:
             _Phase.NEW,
             None,
             (),
+            False,
             False,
             None,
             b"",
@@ -290,10 +302,52 @@ class ManagedMem0V5LifecycleAdapter:
             return state.terminal
         self._fail("terminalize_invalid")
 
-    def issue_ready_clean_state_claim(self) -> object:
+    def issue_ready_clean_state_claim(self) -> ManagedMem0V5ReadyCleanStateClaim:
         """Expose low-level opaque claim material, never its verifier."""
 
-        return _state(self).paired_run.issue_ready_clean_state_claim()
+        with _LOCK:
+            state = _state_locked(self)
+            return _consume_ready_clean_state_claim_locked(self, state)
+
+    def _consume_ready_execution_material_for_adapter(
+        self,
+        *,
+        composition_binding: ManagedRunnerCompositionBinding,
+        cases: tuple[ManagedRunCase, ...],
+    ) -> _ManagedMem0V5ExecutionEvidenceHandoff:
+        """Atomically consume exact run material for the high-level evidence adapter."""
+
+        with _LOCK:
+            state = _state_locked(self)
+            if (
+                composition_binding is not state.binding
+                or not _cases_match_authority(cases, state)
+                or not _execution_material_is_ready(state)
+            ):
+                self._fail("execution_evidence_invalid")
+            claim = _consume_ready_clean_state_claim_locked(self, state)
+            coverage = state.coverage
+            if coverage is None:  # guarded by the shared consume helper
+                self._fail("execution_evidence_invalid")
+            return _ManagedMem0V5ExecutionEvidenceHandoff(
+                coverage,
+                claim,
+                state.corpus_ids,
+            )
+
+    def _validate_execution_cases_for_adapter(
+        self,
+        *,
+        composition_binding: ManagedRunnerCompositionBinding,
+        cases: tuple[ManagedRunCase, ...],
+    ) -> tuple[str, ...]:
+        """Read-only preflight repeated by the atomic handoff before consumption."""
+
+        with _LOCK:
+            state = _state_locked(self)
+            if composition_binding is not state.binding or not _cases_match_authority(cases, state):
+                self._fail("execution_evidence_cases_invalid")
+            return state.corpus_ids
 
     def consume_transport_coverage(
         self, capability: ManagedTransportCoverageCapabilityPort
@@ -507,6 +561,73 @@ def _coverage_matches(
     )
 
 
+def _cases_match_authority(cases: object, state: _LifecycleState) -> bool:
+    try:
+        if (
+            type(cases) is not tuple
+            or not cases
+            or any(type(item) is not ManagedRunCase for item in cases)
+            or len({item.case_id for item in cases}) != len(cases)
+            or tuple(dict.fromkeys(item.corpus_id for item in cases)) != state.corpus_ids
+        ):
+            return False
+        projected = ManagedMem0V5ManifestProjector().project(
+            cases,
+            current_date=state.authority.current_date,
+        )
+        return projected == state.authority
+    except Exception:
+        return False
+
+
+def _consume_ready_clean_state_claim_locked(
+    adapter: ManagedMem0V5LifecycleAdapter,
+    state: _LifecycleState,
+) -> ManagedMem0V5ReadyCleanStateClaim:
+    if state.execution_evidence_consumed:
+        adapter._fail("execution_evidence_invalid")
+    _store_locked(
+        adapter,
+        replace(
+            state,
+            execution_evidence_consumed=True,
+            integrity_mac=b"",
+        ),
+    )
+    try:
+        claim = state.paired_run.issue_ready_clean_state_claim()
+    except Exception:
+        raise ManagedMem0V5LifecycleAdapterError(
+            "managed_mem0_v5_lifecycle_execution_evidence_failed"
+        ) from None
+    if type(claim) is not ManagedMem0V5ReadyCleanStateClaim:
+        raise ManagedMem0V5LifecycleAdapterError(
+            "managed_mem0_v5_lifecycle_execution_evidence_result_invalid"
+        )
+    return claim
+
+
+def _execution_material_is_ready(state: _LifecycleState) -> bool:
+    try:
+        valid = (
+            state.phase is _Phase.RECEIPTS
+            and not state.execution_evidence_consumed
+            and state.receipts_consumed
+            and len(state.receipts) == len(state.corpus_ids)
+            and state.coverage is not None
+            and _coverage_matches(
+                state.coverage,
+                state,
+                expected_benchmark=state.binding.profile.benchmark,
+            )
+        )
+        if valid:
+            state.receipt_set.validate_consumed(state.receipts)
+        return valid
+    except Exception:
+        return False
+
+
 def _finish_abort_outcome(adapter: ManagedMem0V5LifecycleAdapter) -> None:
     state = _state(adapter)
     try:
@@ -542,6 +663,7 @@ def _transition(
     coverage: VerifiedManagedTransportCoverage | None | object = ...,
     receipts: tuple[ManagedMem0V5CorpusIngestReceipt, ...] | object = ...,
     receipts_consumed: bool | object = ...,
+    execution_evidence_consumed: bool | object = ...,
     terminal: Mem0OssTerminalCleanupEvidence | None | object = ...,
 ) -> _LifecycleState:
     with _LOCK:
@@ -553,6 +675,11 @@ def _transition(
             receipts=current.receipts if receipts is ... else receipts,
             receipts_consumed=(
                 current.receipts_consumed if receipts_consumed is ... else receipts_consumed
+            ),
+            execution_evidence_consumed=(
+                current.execution_evidence_consumed
+                if execution_evidence_consumed is ...
+                else execution_evidence_consumed
             ),
             terminal=current.terminal if terminal is ... else terminal,
             integrity_mac=b"",
@@ -597,6 +724,7 @@ def _validate_dynamic(state: _LifecycleState) -> None:
         or len(state.receipts) > len(state.corpus_ids)
         or any(type(item) is not ManagedMem0V5CorpusIngestReceipt for item in state.receipts)
         or type(state.receipts_consumed) is not bool  # noqa: E721 - exact state flag required
+        or type(state.execution_evidence_consumed) is not bool  # noqa: E721
         or (state.receipts_consumed and len(state.receipts) != len(state.corpus_ids))
         or (
             state.coverage is not None
@@ -647,6 +775,7 @@ def _state_mac(adapter: ManagedMem0V5LifecycleAdapter, state: _LifecycleState) -
         ),
         "receipt_identities": tuple(id(item) for item in state.receipts),
         "receipts_consumed": state.receipts_consumed,
+        "execution_evidence_consumed": state.execution_evidence_consumed,
         "terminal_identity": None if state.terminal is None else id(state.terminal),
         "terminal_commitment": (
             None if state.terminal is None else state.terminal.commitment_sha256
