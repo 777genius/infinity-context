@@ -9,7 +9,7 @@ import secrets
 import threading
 import weakref
 from dataclasses import dataclass, replace
-from typing import final
+from typing import NoReturn, final
 from urllib.parse import urlsplit
 
 from infinity_context_server.memory_comparison_managed_mem0_v5_composition import (
@@ -266,9 +266,8 @@ def _authenticate_exact_tuple_locked(
         _fail("consume_invalid")
     state = _state_locked(authority)
     try:
-        coordinator = composition.coordinator
-        composed_origin = coordinator._lane._origin
-        composed_receipt_authority = coordinator._service._receipt_port._authority
+        composed_origin = composition.runtime_origin
+        composed_receipt_authority = composition.runtime_receipt_authority
     except Exception:
         _fail("consume_invalid")
     if (
@@ -409,7 +408,7 @@ def _state_mac(authority: ManagedMem0V5ProductionAuthority, state: _AuthoritySta
     return hmac.new(_SECRET, material, hashlib.sha256).digest()
 
 
-def _fail(suffix: str) -> None:
+def _fail(suffix: str) -> NoReturn:
     raise ManagedMem0V5ProductionAuthorityError(
         f"managed_mem0_v5_production_authority_{suffix}"
     ) from None

@@ -9,9 +9,12 @@ import secrets
 import threading
 import weakref
 from dataclasses import dataclass, replace
-from typing import final
+from typing import NoReturn, final
 
 from infinity_context_server.memory_comparison_full_run_evidence import FullComparisonRunBindings
+from infinity_context_server.memory_comparison_managed_mem0_v5_cleanup_readback import (
+    ManagedMem0V5CleanupReadbackWitness,
+)
 from infinity_context_server.memory_comparison_managed_mem0_v5_composition import (
     ManagedMem0V5Composition,
     ManagedMem0V5PairedRuntimeBundle,
@@ -24,6 +27,7 @@ from infinity_context_server.memory_comparison_managed_mem0_v5_ingest_receipts i
 )
 from infinity_context_server.memory_comparison_managed_mem0_v5_lifecycle_adapter import (
     ManagedMem0V5LifecycleAdapter,
+    ManagedMem0V5LifecycleAdapterError,
 )
 from infinity_context_server.memory_comparison_managed_mem0_v5_production_authority import (
     ManagedMem0V5ProductionAuthority,
@@ -148,7 +152,7 @@ class ManagedMem0V5ProductionLifecycleAdapter:
                 request=composition.request,
                 coordinator=composition.coordinator,
             )
-        except Exception:
+        except ManagedMem0V5LifecycleAdapterError:
             _fail("composition_invalid")
         _validate_journal_identity(
             operation_run_identity,
@@ -227,7 +231,7 @@ class ManagedMem0V5ProductionLifecycleAdapter:
         if type(restore) is not bool:
             _fail("admission_invalid")
         with _instance_lock(self):
-            state = _require_phase_locked(self, {"new"}, "admission_invalid")
+            state = _require_phase(self, {"new"}, "admission_invalid")
             try:
                 if restore:
                     resumed = state.journal.resume(state.journal_identity.run_id)
@@ -253,7 +257,7 @@ class ManagedMem0V5ProductionLifecycleAdapter:
 
     def dispatch_once(self) -> Mem0OssRunSeal:
         with _instance_lock(self):
-            state = _require_phase_locked(
+            state = _require_phase(
                 self,
                 {"admitted", "dispatch_ambiguous"},
                 "dispatch_invalid",
@@ -296,7 +300,7 @@ class ManagedMem0V5ProductionLifecycleAdapter:
         self, capability: ManagedTransportCoverageCapabilityPort
     ) -> VerifiedManagedTransportCoverage:
         with _instance_lock(self):
-            state = _require_phase_locked(self, {"sealed"}, "coverage_invalid")
+            state = _require_phase(self, {"sealed"}, "coverage_invalid")
             try:
                 result = state.lifecycle.consume_transport_coverage(capability)
             except Exception:
@@ -308,7 +312,7 @@ class ManagedMem0V5ProductionLifecycleAdapter:
 
     def issue_corpus_receipt(self, *, corpus_id: str) -> ManagedMem0V5CorpusIngestReceipt:
         with _instance_lock(self):
-            state = _require_phase_locked(self, {"covered", "receipts"}, "receipt_invalid")
+            state = _require_phase(self, {"covered", "receipts"}, "receipt_invalid")
             try:
                 receipt = state.lifecycle.issue_corpus_receipt(corpus_id=corpus_id)
             except Exception:
@@ -330,7 +334,7 @@ class ManagedMem0V5ProductionLifecycleAdapter:
         self, receipts: tuple[ManagedMem0V5CorpusIngestReceipt, ...]
     ) -> ManagedMem0V5IngestSnapshot:
         with _instance_lock(self):
-            state = _require_phase_locked(self, {"receipts"}, "receipt_consume_invalid")
+            state = _require_phase(self, {"receipts"}, "receipt_consume_invalid")
             if receipts != state.receipts:
                 _fail("receipt_consume_invalid")
             try:
@@ -364,7 +368,7 @@ class ManagedMem0V5ProductionLifecycleAdapter:
         cases: tuple[ManagedRunCase, ...],
     ) -> None:
         with _instance_lock(self):
-            state = _require_phase_locked(self, {"ready"}, "execution_evidence_invalid")
+            state = _require_phase(self, {"ready"}, "execution_evidence_invalid")
             if composition_binding is not state.binding or state.snapshot is None:
                 _fail("execution_evidence_invalid")
             try:
@@ -377,11 +381,13 @@ class ManagedMem0V5ProductionLifecycleAdapter:
                 _fail("execution_evidence_failed")
             _store(self, replace(state, phase="evidence", integrity_mac=b""))
 
-    def terminalize(self, *, pass_two_request: object | None = None) -> object:
+    def terminalize(
+        self, *, pass_two_request: object | None = None
+    ) -> Mem0OssTerminalCleanupEvidence | ManagedMem0V5CleanupReadbackWitness:
         """Delegate cleanup/abort ownership; never expose a cleanup port."""
 
         with _instance_lock(self):
-            state = _require_phase_locked(
+            state = _require_phase(
                 self,
                 {
                     "admitted",
@@ -397,6 +403,12 @@ class ManagedMem0V5ProductionLifecycleAdapter:
             try:
                 before = _validated_terminal_journal_snapshot(state)
                 result = state.lifecycle.terminalize(pass_two_request=pass_two_request)
+                if type(result) is Mem0OssTerminalCleanupEvidence:
+                    result.__post_init__()
+                elif type(result) is ManagedMem0V5CleanupReadbackWitness:
+                    result.public_payload()
+                else:
+                    _fail("terminalize_result_invalid")
                 after = _validated_terminal_journal_snapshot(state)
                 if after != before:
                     _fail("terminalize_journal_changed")
@@ -497,6 +509,11 @@ def _commit_operation_evidence(
     }
     if set(by_unit) != set(observed_by_unit):
         _fail("journal_evidence_invalid")
+    # Reviewed recovery invariant: every receipt below is derived only from the
+    # immutable authority, manifest and authenticated corpus evidence. A partial
+    # loop retry therefore replays byte-identical OperationReceipt values, and
+    # journal.commit is idempotent for those exact bytes. Regression:
+    # test_production_lifecycle_retries_journal_before_atomic_ingest_consume.
     for operation, observed in zip(
         state.operation_manifest.operations,
         state.receipt_authority.operations,
@@ -543,7 +560,7 @@ def _state_locked(adapter: object) -> _LifecycleState:
     return state
 
 
-def _require_phase_locked(
+def _require_phase(
     adapter: ManagedMem0V5ProductionLifecycleAdapter,
     allowed: set[str],
     suffix: str,
@@ -599,7 +616,7 @@ def _state_mac(adapter: ManagedMem0V5ProductionLifecycleAdapter, state: _Lifecyc
     return hmac.new(_SECRET, material, hashlib.sha256).digest()
 
 
-def _fail(suffix: str) -> None:
+def _fail(suffix: str) -> NoReturn:
     raise ManagedMem0V5ProductionLifecycleError(
         f"managed_mem0_v5_production_lifecycle_{suffix}"
     ) from None

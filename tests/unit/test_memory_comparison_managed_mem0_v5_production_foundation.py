@@ -60,7 +60,11 @@ from infinity_context_server.memory_comparison_managed_mem0_v5_transport_evidenc
 )
 from infinity_context_server.memory_comparison_mem0_oss_v5_contracts import (
     Mem0OssFullRunAdmission,
+    Mem0OssFullRunState,
     canonical_sha256,
+)
+from infinity_context_server.memory_comparison_mem0_oss_v5_evidence import (
+    Mem0OssTerminalCleanupEvidence,
 )
 from infinity_context_server.resumable_operation_journal.crypto import (
     HmacSha256OperationJournalSigner,
@@ -91,6 +95,7 @@ from test_memory_comparison_managed_mem0_v5_execution_evidence_adapter import (
 from test_memory_comparison_managed_mem0_v5_paired_bridge import (
     _Coordinator,
     _expected_clean_scopes,
+    _terminal,
 )
 from test_memory_comparison_managed_mem0_v5_runner_foundation import (
     _binding,
@@ -474,8 +479,9 @@ def test_authority_hmac_snapshot_rejects_private_state_tamper(tmp_path) -> None:
     state = authority_subject._STATES[authority]
     authority_subject._STATES[authority] = replace(state, consumed=True)
 
-    with pytest.raises(ManagedMem0V5ProductionAuthorityError, match="authority_invalid"):
+    with pytest.raises(ManagedMem0V5ProductionAuthorityError) as failed:
         inspect_managed_mem0_v5_production_authority(authority)
+    assert failed.value.code == "managed_mem0_v5_production_authority_invalid"
 
 
 def test_production_lifecycle_consumes_authority_and_blocks_out_of_order_calls(
@@ -689,7 +695,7 @@ def test_dispatch_ambiguity_is_safe_and_never_redispatches(
     tmp_path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    production, _lifecycle, _binding, _authority, _coordinator, _values, _journal, _constructor = (
+    production, _lifecycle, _binding, authority, _coordinator, values, _journal, _constructor = (
         _new_production(tmp_path)
     )
     calls = 0
@@ -712,7 +718,16 @@ def test_dispatch_ambiguity_is_safe_and_never_redispatches(
     assert "provider-secret-must-not-leak" not in rendered
     assert calls == 1
 
-    terminal = object()
+    terminal = _terminal(
+        authority,
+        Mem0OssFullRunAdmission(
+            request=values["request"],
+            ingestion_manifest_sha256=authority.ingestion_manifest_sha256,
+            ingestion_root_sha256=authority.ingestion_root_sha256,
+            ingestion_unit_count=authority.operation_count,
+        ).commitment_sha256,
+        terminal_state=Mem0OssFullRunState.ABORTED.value,
+    )
     monkeypatch.setattr(
         ManagedMem0V5LifecycleAdapter,
         "terminalize",
@@ -725,13 +740,24 @@ def test_terminalize_retries_through_lifecycle_owner(
     tmp_path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    production, _lifecycle, _binding, _authority, _coordinator, _values, _journal, _constructor = (
+    production, _lifecycle, _binding, authority, _coordinator, values, _journal, _constructor = (
         _new_production(tmp_path)
     )
-    terminal = object()
+    terminal = _terminal(
+        authority,
+        Mem0OssFullRunAdmission(
+            request=values["request"],
+            ingestion_manifest_sha256=authority.ingestion_manifest_sha256,
+            ingestion_root_sha256=authority.ingestion_root_sha256,
+            ingestion_unit_count=authority.operation_count,
+        ).commitment_sha256,
+        terminal_state=Mem0OssFullRunState.ABORTED.value,
+    )
     calls = 0
 
-    def terminalize(_self: object, *, pass_two_request: object | None = None) -> object:
+    def terminalize(
+        _self: object, *, pass_two_request: object | None = None
+    ) -> Mem0OssTerminalCleanupEvidence:
         nonlocal calls
         del pass_two_request
         calls += 1

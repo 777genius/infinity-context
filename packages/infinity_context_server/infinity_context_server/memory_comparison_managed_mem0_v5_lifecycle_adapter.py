@@ -468,16 +468,16 @@ class ManagedMem0V5LifecycleAdapter:
             if (
                 state.authority != authority
                 or state.request != request
-                or state.paired_run._coordinator is not coordinator
+                or state.paired_run.coordinator is not coordinator
             ):
                 self._fail("production_composition_invalid")
             paired_run = state.paired_run
             cleanup_readback = state.cleanup_readback
-        try:
-            from infinity_context_server.memory_comparison_managed_mem0_v5_composition import (
-                _validate_managed_mem0_v5_production_paired_runtime,
-            )
+        from infinity_context_server.memory_comparison_managed_mem0_v5_composition import (
+            _validate_managed_mem0_v5_production_paired_runtime,
+        )
 
+        try:
             _validate_managed_mem0_v5_production_paired_runtime(
                 bundle=paired_runtime_bundle,
                 composition=composition,

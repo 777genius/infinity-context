@@ -122,40 +122,30 @@ class ResumableOperationJournalService:
                 run_id=identity.run_id,
                 logical_operation_id=identity.logical_operation_id,
             )
-            if current is not None and current.request_commitment_sha256 not in (
-                None,
-                request_commitment_sha256,
-            ):
-                raise OperationJournalError("operation_journal_request_binding_immutable")
+            candidate, payload = self._validated_dispatch_transition(
+                identity=identity,
+                request_commitment_sha256=request_commitment_sha256,
+                current=current,
+                identity_error="operation_journal_manifest_identity_divergent",
+            )
             if current is not None and current.phase in (
                 OperationPhase.DISPATCHED,
                 OperationPhase.COMMITTED,
             ):
                 result = DispatchPreparation(state=current, should_dispatch=False)
             else:
-                if current is not None and current.phase is OperationPhase.OUTCOME_UNKNOWN:
-                    raise OperationJournalError("operation_journal_outcome_unknown_quarantined")
                 if run.phase is OperationRunPhase.SEALED:
                     raise OperationJournalError("operation_journal_run_not_dispatchable")
-                state = OperationState(
-                    identity=identity,
-                    phase=OperationPhase.DISPATCHED,
-                    request_commitment_sha256=request_commitment_sha256,
-                )
-                transaction.put_operation(state)
+                transaction.put_operation(candidate)
                 self._append_event(
                     transaction,
                     run,
                     event_type="operation_dispatched",
                     logical_operation_id=identity.logical_operation_id,
-                    payload={
-                        "ordinal": identity.ordinal,
-                        "request_commitment_sha256": request_commitment_sha256,
-                        "retry_disposition": identity.retry_disposition.value,
-                    },
+                    payload=payload,
                     notify=False,
                 )
-                result = DispatchPreparation(state=state, should_dispatch=True)
+                result = DispatchPreparation(state=candidate, should_dispatch=True)
         return result
 
     def prepare_dispatch_batch(
@@ -196,20 +186,17 @@ class ResumableOperationJournalService:
                 )
                 for identity in identities
             )
-            for identity, request_commitment, current in zip(
-                identities, request_commitments, current_states, strict=True
-            ):
-                if current is not None and current.identity != identity:
-                    raise OperationJournalError(
-                        "operation_journal_dispatch_batch_manifest_divergent"
-                    )
-                if current is not None and current.request_commitment_sha256 not in (
-                    None,
-                    request_commitment,
-                ):
-                    raise OperationJournalError("operation_journal_request_binding_immutable")
-                if current is not None and current.phase is OperationPhase.OUTCOME_UNKNOWN:
-                    raise OperationJournalError("operation_journal_outcome_unknown_quarantined")
+            transitions = tuple(
+                self._validated_dispatch_transition(
+                    identity=identity,
+                    request_commitment_sha256=request_commitment,
+                    current=current,
+                    identity_error="operation_journal_dispatch_batch_manifest_divergent",
+                )
+                for identity, request_commitment, current in zip(
+                    identities, request_commitments, current_states, strict=True
+                )
+            )
 
             fresh = tuple(
                 current is None or current.phase is OperationPhase.PENDING
@@ -233,27 +220,48 @@ class ResumableOperationJournalService:
 
             prepared: list[DispatchPreparation] = []
             updated_run = run
-            for identity, request_commitment in zip(identities, request_commitments, strict=True):
-                state = OperationState(
-                    identity=identity,
-                    phase=OperationPhase.DISPATCHED,
-                    request_commitment_sha256=request_commitment,
-                )
+            for state, payload in transitions:
                 transaction.put_operation(state)
                 updated_run = self._append_event(
                     transaction,
                     updated_run,
                     event_type="operation_dispatched",
-                    logical_operation_id=identity.logical_operation_id,
-                    payload={
-                        "ordinal": identity.ordinal,
-                        "request_commitment_sha256": request_commitment,
-                        "retry_disposition": identity.retry_disposition.value,
-                    },
+                    logical_operation_id=state.identity.logical_operation_id,
+                    payload=payload,
                     notify=False,
                 )
                 prepared.append(DispatchPreparation(state=state, should_dispatch=True))
             return tuple(prepared)
+
+    def _validated_dispatch_transition(
+        self,
+        *,
+        identity: LogicalOperationIdentity,
+        request_commitment_sha256: str,
+        current: OperationState | None,
+        identity_error: str,
+    ) -> tuple[OperationState, dict[str, object]]:
+        """Validate one dispatch slot and build its deterministic transition."""
+
+        if current is not None and current.identity != identity:
+            raise OperationJournalError(identity_error)
+        if current is not None and current.request_commitment_sha256 not in (
+            None,
+            request_commitment_sha256,
+        ):
+            raise OperationJournalError("operation_journal_request_binding_immutable")
+        if current is not None and current.phase is OperationPhase.OUTCOME_UNKNOWN:
+            raise OperationJournalError("operation_journal_outcome_unknown_quarantined")
+        state = OperationState(
+            identity=identity,
+            phase=OperationPhase.DISPATCHED,
+            request_commitment_sha256=request_commitment_sha256,
+        )
+        return state, {
+            "ordinal": identity.ordinal,
+            "request_commitment_sha256": request_commitment_sha256,
+            "retry_disposition": identity.retry_disposition.value,
+        }
 
     def commit(
         self, identity: LogicalOperationIdentity, receipt: OperationReceipt

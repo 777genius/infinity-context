@@ -231,6 +231,37 @@ def test_prepare_dispatch_batch_rejects_mixed_or_divergent_batches(tmp_path) -> 
         service.prepare_dispatch_batch(((operations[1], _B), (operations[0], _A)))
 
 
+def test_prepare_dispatch_batch_rejects_outcome_unknown_operation(tmp_path) -> None:
+    service, _, identity, manifest, operations, _, _ = _fixture(tmp_path)
+    service.initialize(identity, manifest)
+    batch = ((operations[0], _A), (operations[1], _B))
+    service.prepare_dispatch_batch(batch)
+    assert service.resume(identity.run_id).outcome_unknown_count == 1
+
+    with pytest.raises(OperationJournalError, match="outcome_unknown_quarantined"):
+        service.prepare_dispatch_batch(batch)
+
+
+def test_prepare_dispatch_batch_rejects_fresh_slots_for_sealed_run(tmp_path) -> None:
+    service, journal, identity, manifest, operations, _, _ = _fixture(tmp_path)
+    service.initialize(identity, manifest)
+    batch = ((operations[0], _A), (operations[1], _B))
+    service.prepare_dispatch_batch(batch)
+    service.commit(operations[0], _receipt(operations[0], _A, "ingest-1"))
+    service.commit(operations[1], _receipt(operations[1], _B, "provider-1"))
+    assert service.seal(identity.run_id).phase is OperationRunPhase.SEALED
+
+    connection = sqlite3.connect(journal.database_path)
+    connection.execute("PRAGMA foreign_keys = ON")
+    connection.execute("DELETE FROM operation_receipts WHERE run_id = ?", (identity.run_id,))
+    connection.execute("DELETE FROM operation_states WHERE run_id = ?", (identity.run_id,))
+    connection.commit()
+    connection.close()
+
+    with pytest.raises(OperationJournalError, match="run_not_dispatchable"):
+        service.prepare_dispatch_batch(batch)
+
+
 def test_snapshot_detects_signed_chain_tampering(tmp_path) -> None:
     service, journal, identity, manifest, _, _, _ = _fixture(tmp_path)
     service.initialize(identity, manifest)

@@ -211,6 +211,12 @@ class ManagedMem0V5PairedRun:
         self._ready_evidence_consumed = False
         _register_paired_run_binding(self)
 
+    @property
+    def coordinator(self) -> ManagedMem0V5PairedCoordinatorPort:
+        """Return the exact coordinator captured by this paired run."""
+
+        return self._coordinator
+
     def start(self) -> Mem0OssRunSeal:
         with self._lock:
             self._require_static_binding()
