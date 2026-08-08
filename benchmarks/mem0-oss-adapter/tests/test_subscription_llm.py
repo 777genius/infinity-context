@@ -33,6 +33,23 @@ def _subscription_llm(
     return llm, ledger
 
 
+def test_subscription_bridge_uses_bounded_runtime_timeout() -> None:
+    ledger = UsageLedger()
+    config = SubscriptionBridgeConfig(
+        bridge_url="http://127.0.0.1:19090/v1",
+        bearer_token="explicit-token",
+        mode="subscription_llm",
+        usage_ledger=ledger,
+        request_max_bytes=1024,
+        response_max_bytes=1024,
+    )
+    llm = SubscriptionOpenAICompatibleLlm(config)
+    try:
+        assert llm._client.timeout.read == 180.0
+    finally:
+        llm.close()
+
+
 def test_subscription_bridge_is_narrow_bounded_and_ledgered() -> None:
     requests: list[httpx.Request] = []
 
@@ -48,7 +65,13 @@ def test_subscription_bridge_is_narrow_bounded_and_ledgered() -> None:
         request_max_bytes=1024,
         response_max_bytes=1024,
     ):
-        assert llm.generate_response([{"role": "user", "content": "extract"}]) == "{}"
+        assert (
+            llm.generate_response(
+                [{"role": "user", "content": "extract"}],
+                response_format={"type": "json_object"},
+            )
+            == "{}"
+        )
         with pytest.raises(ExtractionCallLimitError):
             llm.generate_response([{"role": "user", "content": "extract again"}])
     llm.close()
@@ -56,7 +79,34 @@ def test_subscription_bridge_is_narrow_bounded_and_ledgered() -> None:
     assert len(requests) == 1
     assert requests[0].url == "http://127.0.0.1:19090/v1/chat/completions"
     assert requests[0].headers["authorization"] == "Bearer explicit-token"
-    assert json.loads(requests[0].content)["model"] == "gpt-5.6-sol"
+    request_payload = json.loads(requests[0].content)
+    assert request_payload["model"] == "gpt-5.6-sol"
+    assert request_payload["response_format"] == {
+        "type": "json_schema",
+        "json_schema": {
+            "name": "mem0_isolated_add_extraction",
+            "strict": True,
+            "schema": {
+                "type": "object",
+                "properties": {
+                    "memory": {
+                        "type": "array",
+                        "items": {
+                            "type": "object",
+                            "properties": {
+                                "id": {"type": "string"},
+                                "text": {"type": "string"},
+                            },
+                            "required": ["id", "text"],
+                            "additionalProperties": False,
+                        },
+                    }
+                },
+                "required": ["memory"],
+                "additionalProperties": False,
+            },
+        },
+    }
     assert ledger.entries[-1].extraction_calls == 1
     assert ledger.entries[-1].request_bytes > 0
     assert ledger.entries[-1].response_bytes > 0

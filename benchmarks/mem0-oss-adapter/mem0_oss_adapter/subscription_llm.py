@@ -26,6 +26,8 @@ from mem0_oss_adapter.usage import (
 
 _MODEL = FIXED_EXTRACTION_MODEL
 _MODE = Literal["raw_passthrough", "subscription_llm"]
+_MEM0_JSON_OBJECT_RESPONSE_FORMAT = {"type": "json_object"}
+_SUBSCRIPTION_BRIDGE_TIMEOUT_SECONDS = 180.0
 
 
 class SubscriptionBridgeError(RuntimeError):
@@ -240,7 +242,11 @@ class SubscriptionOpenAICompatibleLlm(LLMBase):
             raise ValueError("subscription bridge configuration is required")
         super().__init__(config)
         self.config: SubscriptionBridgeConfig = config
-        self._client = httpx.Client(timeout=30.0, follow_redirects=False, trust_env=False)
+        self._client = httpx.Client(
+            timeout=_SUBSCRIPTION_BRIDGE_TIMEOUT_SECONDS,
+            follow_redirects=False,
+            trust_env=False,
+        )
 
     def generate_response(
         self,
@@ -253,16 +259,15 @@ class SubscriptionOpenAICompatibleLlm(LLMBase):
             raise ExtractionCallLimitError("raw passthrough forbids extraction")
         if tools:
             raise SubscriptionBridgeError("tool calls are not permitted for extraction")
-        if response_format not in (None, {"type": "json_object"}):
-            raise SubscriptionBridgeError("unsupported extraction response format")
+        strict_response_format = _strict_response_format(response_format)
         normalized_messages = _normalize_messages(messages)
         request_payload: dict[str, Any] = {
             "model": self.config.model,
             "messages": normalized_messages,
             "max_completion_tokens": self.config.max_tokens,
         }
-        if response_format is not None:
-            request_payload["response_format"] = {"type": "json_object"}
+        if strict_response_format is not None:
+            request_payload["response_format"] = strict_response_format
         encoded = json.dumps(
             request_payload,
             ensure_ascii=False,
@@ -320,6 +325,41 @@ class SubscriptionOpenAICompatibleLlm(LLMBase):
         except httpx.HTTPError as exc:
             raise SubscriptionBridgeError("subscription bridge transport failed") from exc
         return bytes(collected)
+
+
+def _strict_response_format(
+    response_format: Mapping[str, str] | None,
+) -> dict[str, object] | None:
+    if response_format is None:
+        return None
+    if response_format != _MEM0_JSON_OBJECT_RESPONSE_FORMAT:
+        raise SubscriptionBridgeError("unsupported extraction response format")
+    return {
+        "type": "json_schema",
+        "json_schema": {
+            "name": "mem0_isolated_add_extraction",
+            "strict": True,
+            "schema": {
+                "type": "object",
+                "properties": {
+                    "memory": {
+                        "type": "array",
+                        "items": {
+                            "type": "object",
+                            "properties": {
+                                "id": {"type": "string"},
+                                "text": {"type": "string"},
+                            },
+                            "required": ["id", "text"],
+                            "additionalProperties": False,
+                        },
+                    }
+                },
+                "required": ["memory"],
+                "additionalProperties": False,
+            },
+        },
+    }
 
 
 def validate_loopback_bridge_url(value: object) -> str:
