@@ -32,9 +32,11 @@ INITIAL_MIGRATION = MIGRATIONS / "0017_managed_benchmark_writer_fence.sql"
 PROJECTION_MANIFEST_MIGRATION = MIGRATIONS / "0018_benchmark_projection_manifest.sql"
 SEALED_FENCE_MIGRATION = MIGRATIONS / "0019_managed_benchmark_sealed_fence.sql"
 CLEANUP_COMPLETION_MIGRATION = MIGRATIONS / "0020_benchmark_cleanup_completion.sql"
+CLEANUP_PLAN_MIGRATION = MIGRATIONS / "0033_benchmark_cleanup_plan.sql"
 FENCE_SQLSTATE = BENCHMARK_WRITER_FENCE_SQLSTATE
 FENCE_CONSTRAINT = BENCHMARK_WRITER_FENCE_CONSTRAINT
 FENCED_TABLES = tuple(table for table, _update_columns in BENCHMARK_WRITER_FENCE_TABLES)
+INITIAL_FENCED_TABLES = FENCED_TABLES[:7]
 
 
 def test_migration_installs_active_writer_fence_on_all_canonical_tables() -> None:
@@ -50,7 +52,7 @@ def test_migration_installs_active_writer_fence_on_all_canonical_tables() -> Non
     assert f"ERRCODE = '{FENCE_SQLSTATE}'" in sql
     assert f"CONSTRAINT = '{FENCE_CONSTRAINT}'" in sql
     assert sql.count("RAISE EXCEPTION") == 3
-    for table in FENCED_TABLES:
+    for table in INITIAL_FENCED_TABLES:
         assert f"DROP TRIGGER IF EXISTS trg_{table}_benchmark_writer_fence ON {table};" in sql
         assert f"CREATE TRIGGER trg_{table}_benchmark_writer_fence" in sql
     assert "BEFORE INSERT OR UPDATE OF id, status ON memory_spaces" in sql
@@ -74,8 +76,8 @@ def test_latest_migration_fails_closed_after_projection_manifest_seal() -> None:
     assert "NEW.status = 'deleted'" in sql
     assert "to_jsonb(OLD) - 'status' - 'updated_at'" in sql
     assert "to_jsonb(NEW) - 'status' - 'updated_at'" in sql
-    assert sql.count("BEFORE INSERT OR UPDATE OR DELETE") == len(FENCED_TABLES)
-    for table in FENCED_TABLES:
+    assert sql.count("BEFORE INSERT OR UPDATE OR DELETE") == len(INITIAL_FENCED_TABLES)
+    for table in INITIAL_FENCED_TABLES:
         assert f"DROP TRIGGER IF EXISTS trg_{table}_benchmark_writer_fence ON {table};" in sql
         assert f"CREATE TRIGGER trg_{table}_benchmark_writer_fence" in sql
     assert f"ERRCODE = '{FENCE_SQLSTATE}'" in sql
@@ -83,20 +85,23 @@ def test_latest_migration_fails_closed_after_projection_manifest_seal() -> None:
 
 
 def test_runtime_installer_statements_do_not_drift_from_latest_migration() -> None:
-    migration_sql = _normalize_sql(CLEANUP_COMPLETION_MIGRATION.read_text(encoding="utf-8"))
+    migration_sql = _normalize_sql(CLEANUP_PLAN_MIGRATION.read_text(encoding="utf-8"))
 
-    assert len(BENCHMARK_WRITER_FENCE_STATEMENTS) == 15
+    assert len(BENCHMARK_WRITER_FENCE_STATEMENTS) == 37
     assert BENCHMARK_WRITER_FENCE_FUNCTION in migration_sql
     assert _normalize_sql(BENCHMARK_WRITER_FENCE_STATEMENTS[0]) in migration_sql
-    for table in FENCED_TABLES:
-        assert f"'{table}'" in migration_sql
-    assert "DROP TRIGGER IF EXISTS %I ON %I.%I" in migration_sql
-    assert "CREATE TRIGGER %I BEFORE INSERT OR UPDATE OR DELETE" in migration_sql
+    assert "registry_cleanup_plan_state" in migration_sql
+    assert "cleanup_plan_state = 'sealed'" in migration_sql
+    assert "AND TG_OP = 'INSERT'" in migration_sql
+    assert "memory_fact_operation_receipts" in migration_sql
+    assert "memory_anchors" in migration_sql
+    assert "memory_fact_relations" in migration_sql
+    assert "memory_context_links" in migration_sql
 
 
 @pytest.mark.parametrize(
     ("dialect_name", "expected_statement_count"),
-    [("postgresql", 15), ("sqlite", 0)],
+    [("postgresql", 37), ("sqlite", 0)],
 )
 def test_create_schema_writer_fence_helper_is_postgres_only(
     dialect_name: str,

@@ -21,6 +21,7 @@ from infinity_context_server.memory_comparison_managed_mem0_v5_checkpoint import
     HmacSha256ManagedMem0V5CheckpointSigner,
 )
 from infinity_context_server.memory_comparison_managed_mem0_v5_clean_state_http import (
+    ManagedMem0V5HttpCleanStateSnapshotFactory,
     preflight_managed_mem0_v5_clean_state_request,
 )
 from infinity_context_server.memory_comparison_managed_mem0_v5_cleanup_binding import (
@@ -60,6 +61,9 @@ from infinity_context_server.memory_comparison_managed_mem0_v5_projector import 
     ManagedMem0V5ManifestAuthority,
     ManagedMem0V5ManifestProjector,
 )
+from infinity_context_server.memory_comparison_managed_mem0_v5_recovery_cleanup_readback import (
+    ManagedMem0V5RecoveryCleanupReadback,
+)
 from infinity_context_server.memory_comparison_managed_mem0_v5_run_evidence import (
     ManagedMem0V5CleanStateSnapshotPort,
     ManagedMem0V5CleanStateWitnessIssuerPort,
@@ -82,6 +86,9 @@ from infinity_context_server.memory_comparison_managed_mem0_v5_verifiers import 
 from infinity_context_server.memory_comparison_managed_run_contract import (
     ManagedRunCase,
     ManagedRunError,
+)
+from infinity_context_server.memory_comparison_managed_v5_recovery_mem0 import (
+    ManagedMem0V5RecoveryCapabilities,
 )
 from infinity_context_server.memory_comparison_mem0_oss_v5_contracts import (
     Mem0OssAdmissionRequest,
@@ -113,6 +120,7 @@ class _CompositionRuntime:
     storage_verifier: ManagedMem0V5StorageWitnessVerifierPort
     cleanup_readback: ManagedMem0V5CleanupPassTwoAdapter
     paired_runtime_issued: bool = False
+    recovery_readback_issued: bool = False
 
 
 _COMPOSITION_RUNTIMES: dict[int, _CompositionRuntime] = {}
@@ -331,6 +339,33 @@ class ManagedMem0V5Composition:
         with _PAIRED_RUNTIME_LOCK:
             _PAIRED_RUNTIMES[bundle] = state
         return bundle
+
+    def issue_recovery_capabilities(
+        self, *, hmac_secret: bytes
+    ) -> ManagedMem0V5RecoveryCapabilities:
+        """Transfer the one-shot cleanup lane without exposing dispatch capability."""
+
+        with _COMPOSITION_RUNTIME_LOCK:
+            runtime = _composition_runtime_locked(self)
+            if runtime.paired_runtime_issued or runtime.recovery_readback_issued:
+                raise ManagedRunError("managed Mem0 v5 recovery readback is already issued")
+            runtime.recovery_readback_issued = True
+        issuer, verifier = create_managed_mem0_v5_clean_state_witness_authority()
+        snapshot = ManagedMem0V5HttpCleanStateSnapshotFactory().create_snapshot_port(
+            authority=self.authority,
+            admission=runtime.admission,
+            witness_issuer=issuer,
+            runtime_binding_port=runtime.lane,
+        )
+        return ManagedMem0V5RecoveryCapabilities(
+            cleanup_readback=ManagedMem0V5RecoveryCleanupReadback(
+                cleanup_port=runtime.lane._control,
+                verification_port=ManagedMem0V5CleanupBridgeVerifier(),
+                hmac_secret=hmac_secret,
+            ),
+            clean_snapshot=snapshot,
+            clean_verifier=verifier,
+        )
 
     def __repr__(self) -> str:
         return "ManagedMem0V5Composition(<opaque>)"

@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import inspect
 from dataclasses import dataclass
-from typing import cast
 
 import infinity_context_core.features.context_building.public as context_building_feature
 import infinity_context_core.features.memory_facts.public as memory_facts_feature
@@ -19,13 +18,7 @@ from infinity_context_adapters.features.memory_facts import (
     create_postgres_memory_fact_unit_of_work_factory,
 )
 from infinity_context_adapters.local_blob import LocalBlobStorage
-from infinity_context_adapters.noop import (
-    NoopEmbeddingAdapter,
-    NoopGraphMemoryAdapter,
-    NoopVectorMemoryAdapter,
-    SystemClock,
-    UuidIdGenerator,
-)
+from infinity_context_adapters.noop import SystemClock, UuidIdGenerator
 from infinity_context_adapters.postgres import (
     PostgresProjectionFence,
     PostgresUnitOfWorkFactory,
@@ -130,6 +123,12 @@ from infinity_context_core.application import (
     UpdateMemoryScopeUseCase,
 )
 from infinity_context_core.application.auto_memory import RuleBasedMemoryClassifier
+from infinity_context_core.application.benchmark_managed_write_admission import (
+    ManagedBenchmarkCreateMemoryScopeAdmission,
+    ManagedBenchmarkDocumentMutationBlocker,
+    ManagedBenchmarkEnsureScopeAdmission,
+    ManagedBenchmarkFactMutationBlocker,
+)
 from infinity_context_core.application.context_packer import ContextPacker
 from infinity_context_core.application.extractor import (
     NoopMemoryExtractor,
@@ -154,17 +153,14 @@ from infinity_context_core.ports.unit_of_work import UnitOfWorkFactoryPort
 from infinity_context_core.ports.vector_projection_evidence import VectorProjectionEvidencePort
 from sqlalchemy.ext.asyncio import AsyncEngine
 
+from infinity_context_server import (
+    benchmark_managed_fact_composition,
+    benchmark_run_composition,
+    derived_provider_composition,
+)
 from infinity_context_server import processes as server_processes
-from infinity_context_server.benchmark_projection_absence import (
-    ServerBenchmarkProjectionAbsence,
-)
 from infinity_context_server.config import CaptureMode, MemoryPolicyMode, Settings
-from infinity_context_server.derived_identity_evidence import (
-    DerivedIdentityEvidenceCoordinator,
-    SqlAlchemyProjectionReadiness,
-    graphiti_target_commitment_sha256,
-)
-from infinity_context_server.derived_projection_policy import derived_projection_lane_policies
+from infinity_context_server.derived_identity_evidence import DerivedIdentityEvidenceCoordinator
 from infinity_context_server.metrics import RuntimeMetrics
 from infinity_context_server.provider_budget import QueryEmbeddingBudgetAdapter
 from infinity_context_server.provider_circuit import (
@@ -366,68 +362,33 @@ def build_container(settings: Settings | None = None) -> Container:
         list_facts=memory_facts_feature.ListMemoryFactsHandler(memory_fact_read_model),
         list_versions=memory_facts_feature.ListMemoryFactVersionsHandler(memory_fact_read_model),
     )
-    memory_fact_lifecycle = memory_facts_feature.MemoryFactLifecycleUseCases(
-        remember_fact=memory_facts_feature.RememberFactHandler(
-            uow_factory=memory_fact_uow_factory,
+    memory_fact_lifecycle, memory_fact_temporal = (
+        benchmark_managed_fact_composition.build_managed_memory_fact_use_cases(
+            benchmark_uow_factory=uow_factory,
+            memory_fact_uow_factory=memory_fact_uow_factory,
             clock=clock,
             ids=memory_fact_ids,
-        ),
-        update_fact=memory_facts_feature.UpdateFactHandler(
-            uow_factory=memory_fact_uow_factory,
-            clock=clock,
-            ids=memory_fact_ids,
-        ),
-        forget_fact=memory_facts_feature.ForgetFactHandler(
-            uow_factory=memory_fact_uow_factory,
-            clock=clock,
-            ids=memory_fact_ids,
-        ),
+        )
     )
-    memory_fact_temporal = memory_facts_feature.MemoryFactTemporalUseCases(
-        confirm_fact=memory_facts_feature.ConfirmFactHandler(
-            uow_factory=memory_fact_uow_factory, clock=clock, ids=memory_fact_ids
-        ),
-        end_validity=memory_facts_feature.EndFactValidityHandler(
-            uow_factory=memory_fact_uow_factory, clock=clock, ids=memory_fact_ids
-        ),
-        supersede_fact=memory_facts_feature.SupersedeFactHandler(
-            uow_factory=memory_fact_uow_factory, clock=clock, ids=memory_fact_ids
-        ),
-        dispute_facts=memory_facts_feature.DisputeFactsHandler(
-            uow_factory=memory_fact_uow_factory, clock=clock, ids=memory_fact_ids
-        ),
-        reinstate_supersession=memory_facts_feature.ReinstateSupersededFactHandler(
-            uow_factory=memory_fact_uow_factory, clock=clock, ids=memory_fact_ids
-        ),
+    derived_providers = derived_provider_composition.build_derived_provider_bundle(
+        engine=engine, settings=resolved_settings
     )
-    raw_vector = _build_vector_adapter(resolved_settings)
-    raw_graph = _build_graph_adapter(resolved_settings)
-    vector_projection_evidence = (
-        cast(VectorProjectionEvidencePort, raw_vector) if resolved_settings.qdrant_enabled else None
-    )
-    graph_projection_evidence = _build_graph_projection_evidence(resolved_settings)
-    derived_lane_policies = derived_projection_lane_policies(
-        qdrant_enabled=resolved_settings.qdrant_enabled,
-        graphiti_enabled=resolved_settings.graphiti_enabled,
-    )
-    derived_identity_evidence = DerivedIdentityEvidenceCoordinator(
-        readiness=SqlAlchemyProjectionReadiness(engine),
-        vector_evidence=vector_projection_evidence,
-        graph_evidence=graph_projection_evidence,
-        graph_target_commitment_sha256=(
-            graphiti_target_commitment_sha256(
-                neo4j_uri=resolved_settings.graphiti_neo4j_uri,
-            )
-            if graph_projection_evidence is not None
-            else None
-        ),
-        lane_policies=derived_lane_policies,
-    )
-    raw_embeddings = _build_embedding_adapter(resolved_settings)
+    raw_vector = derived_providers.raw_vector
+    raw_graph = derived_providers.raw_graph
+    vector_projection_evidence = derived_providers.vector_evidence
+    graph_projection_evidence = derived_providers.graph_evidence
+    derived_identity_evidence = derived_providers.identity_evidence
+    raw_embeddings = derived_provider_composition.build_embedding_adapter(resolved_settings)
     provider_circuits = (
-        _provider_circuit("qdrant", "vector", clock, resolved_settings),
-        _provider_circuit("graphiti", "graph", clock, resolved_settings),
-        _provider_circuit("embeddings", "embeddings", clock, resolved_settings),
+        derived_provider_composition.build_provider_circuit(
+            "qdrant", "vector", clock, resolved_settings
+        ),
+        derived_provider_composition.build_provider_circuit(
+            "graphiti", "graph", clock, resolved_settings
+        ),
+        derived_provider_composition.build_provider_circuit(
+            "embeddings", "embeddings", clock, resolved_settings
+        ),
     )
     vector = CircuitBreakingVectorMemoryAdapter(raw_vector, provider_circuits[0])
     graph = CircuitBreakingGraphMemoryAdapter(raw_graph, provider_circuits[1])
@@ -442,7 +403,7 @@ def build_container(settings: Settings | None = None) -> Container:
         tier=resolved_settings.product_plan_tier,
         media_analysis_seconds_per_month=(resolved_settings.plan_media_analysis_seconds_per_month),
     )
-    cognee = _build_cognee_adapter(resolved_settings)
+    cognee = derived_provider_composition.build_cognee_adapter(resolved_settings)
     adapters: tuple[MemoryAdapterPort, ...] = (vector, graph, embeddings, cognee)
     get_capabilities = GetCapabilitiesUseCase(
         service_name=resolved_settings.service_name,
@@ -471,22 +432,24 @@ def build_container(settings: Settings | None = None) -> Container:
         },
     )
     create_space = CreateSpaceUseCase(uow_factory=uow_factory, clock=clock, ids=ids)
-    register_benchmark_run = RegisterBenchmarkRunUseCase(uow_factory=uow_factory, clock=clock)
-    seal_projection_manifest = SealProjectionManifestUseCase(uow_factory=uow_factory, clock=clock)
-    cleanup_benchmark_run = CleanupBenchmarkRunUseCase(uow_factory=uow_factory, clock=clock)
-    get_benchmark_run_lifecycle = GetBenchmarkRunLifecycleUseCase(uow_factory=uow_factory)
-    benchmark_projection_absence = ServerBenchmarkProjectionAbsence(derived_identity_evidence)
-    finalize_benchmark_run_cleanup = FinalizeBenchmarkRunCleanupUseCase(
+    benchmark_runs = benchmark_run_composition.build_benchmark_run_use_cases(
+        engine=engine,
         uow_factory=uow_factory,
         clock=clock,
-        projection_absence=benchmark_projection_absence,
+        sealed_evidence=derived_identity_evidence,
+        derived_providers=derived_providers,
     )
-    finalize_unsealed_benchmark_abort = FinalizeUnsealedBenchmarkAbortUseCase(
-        uow_factory=uow_factory,
-        clock=clock,
-    )
+    register_benchmark_run = benchmark_runs.register
+    seal_projection_manifest = benchmark_runs.seal_manifest
+    cleanup_benchmark_run = benchmark_runs.begin_cleanup
+    get_benchmark_run_lifecycle = benchmark_runs.get_lifecycle
+    finalize_benchmark_run_cleanup = benchmark_runs.finalize_sealed
+    finalize_unsealed_benchmark_abort = benchmark_runs.finalize_unsealed
     list_spaces = ListSpacesUseCase(uow_factory=uow_factory)
-    create_memory_scope = CreateMemoryScopeUseCase(uow_factory=uow_factory, clock=clock, ids=ids)
+    create_memory_scope = ManagedBenchmarkCreateMemoryScopeAdmission(
+        uow_factory=uow_factory,
+        inner=CreateMemoryScopeUseCase(uow_factory=uow_factory, clock=clock, ids=ids),
+    )
     list_memory_scopes = ListMemoryScopesUseCase(uow_factory=uow_factory)
     update_memory_scope = UpdateMemoryScopeUseCase(uow_factory=uow_factory, clock=clock)
     delete_memory_scope = DeleteMemoryScopeUseCase(uow_factory=uow_factory, clock=clock)
@@ -504,9 +467,15 @@ def build_container(settings: Settings | None = None) -> Container:
     get_fact = GetFactUseCase(uow_factory=uow_factory)
     list_fact_versions = ListFactVersionsUseCase(uow_factory=uow_factory)
     related_facts = RelatedFactsUseCase(uow_factory=uow_factory)
-    link_facts = LinkFactsUseCase(uow_factory=uow_factory, clock=clock, ids=ids)
+    link_facts = ManagedBenchmarkFactMutationBlocker(
+        inner=LinkFactsUseCase(uow_factory=uow_factory, clock=clock, ids=ids),
+        uow_factory=uow_factory,
+    )
     list_fact_relations = ListFactRelationsUseCase(uow_factory=uow_factory)
-    unlink_fact_relation = UnlinkFactRelationUseCase(uow_factory=uow_factory, clock=clock)
+    unlink_fact_relation = ManagedBenchmarkFactMutationBlocker(
+        inner=UnlinkFactRelationUseCase(uow_factory=uow_factory, clock=clock),
+        uow_factory=uow_factory,
+    )
     create_asset = CreateAssetUseCase(
         uow_factory=uow_factory,
         clock=clock,
@@ -553,9 +522,18 @@ def build_container(settings: Settings | None = None) -> Container:
     )
     update_context_link = UpdateContextLinkUseCase(uow_factory=uow_factory, clock=clock)
     delete_context_link = DeleteContextLinkUseCase(uow_factory=uow_factory, clock=clock)
-    update_fact = UpdateFactUseCase(uow_factory=uow_factory, clock=clock)
-    forget_fact = ForgetFactUseCase(uow_factory=uow_factory, clock=clock)
-    ensure_scope = EnsureScopeUseCase(uow_factory=uow_factory, clock=clock)
+    update_fact = ManagedBenchmarkFactMutationBlocker(
+        inner=UpdateFactUseCase(uow_factory=uow_factory, clock=clock),
+        uow_factory=uow_factory,
+    )
+    forget_fact = ManagedBenchmarkFactMutationBlocker(
+        inner=ForgetFactUseCase(uow_factory=uow_factory, clock=clock),
+        uow_factory=uow_factory,
+    )
+    ensure_scope = ManagedBenchmarkEnsureScopeAdmission(
+        uow_factory=uow_factory,
+        inner=EnsureScopeUseCase(uow_factory=uow_factory, clock=clock),
+    )
     ingest_episode = IngestEpisodeUseCase(
         uow_factory=uow_factory,
         clock=clock,
@@ -647,8 +625,14 @@ def build_container(settings: Settings | None = None) -> Container:
     backfill_anchors = BackfillAnchorsUseCase(uow_factory=uow_factory, clock=clock, ids=ids)
     get_document = GetDocumentUseCase(uow_factory=uow_factory)
     list_document_chunks = ListDocumentChunksUseCase(uow_factory=uow_factory)
-    process_document = ProcessDocumentUseCase(uow_factory=uow_factory)
-    delete_document = DeleteDocumentUseCase(uow_factory=uow_factory, clock=clock)
+    process_document = ManagedBenchmarkDocumentMutationBlocker(
+        uow_factory=uow_factory,
+        inner=ProcessDocumentUseCase(uow_factory=uow_factory),
+    )
+    delete_document = ManagedBenchmarkDocumentMutationBlocker(
+        uow_factory=uow_factory,
+        inner=DeleteDocumentUseCase(uow_factory=uow_factory, clock=clock),
+    )
     build_context = BuildContextUseCase(
         uow_factory=uow_factory,
         ids=ids,
@@ -902,66 +886,6 @@ def _build_blob_storage(settings: Settings) -> BlobStorageMaintenancePort:
     raise RuntimeError("Unsupported asset storage backend")
 
 
-def _build_vector_adapter(settings: Settings) -> MemoryAdapterPort:
-    if not settings.qdrant_enabled:
-        return NoopVectorMemoryAdapter(name="qdrant")
-    from infinity_context_adapters.qdrant import QdrantVectorMemoryAdapter
-
-    return QdrantVectorMemoryAdapter(
-        url=settings.qdrant_url,
-        api_key=settings.qdrant_api_key,
-        collection_name=settings.qdrant_collection,
-        vector_size=settings.embeddings_dimensions,
-        hybrid_sparse_enabled=settings.qdrant_hybrid_sparse_enabled,
-        sparse_model=settings.qdrant_sparse_model,
-        dense_vector_name=settings.qdrant_dense_vector_name,
-        sparse_vector_name=settings.qdrant_sparse_vector_name,
-    )
-
-
-def _build_graph_adapter(settings: Settings) -> MemoryAdapterPort:
-    if not settings.graphiti_enabled:
-        return NoopGraphMemoryAdapter(name="graphiti")
-    from infinity_context_adapters.graphiti import GraphitiGraphMemoryAdapter
-
-    return GraphitiGraphMemoryAdapter(
-        neo4j_uri=settings.graphiti_neo4j_uri,
-        neo4j_user=settings.graphiti_neo4j_user,
-        neo4j_password=settings.graphiti_neo4j_password,
-        build_indices=settings.graphiti_build_indices,
-    )
-
-
-def _build_graph_projection_evidence(
-    settings: Settings,
-) -> GraphProjectionEvidencePort | None:
-    if not settings.graphiti_enabled:
-        return None
-    from infinity_context_adapters.graphiti.identity_evidence import (
-        Neo4jGraphitiIdentityEvidenceAdapter,
-    )
-
-    return Neo4jGraphitiIdentityEvidenceAdapter(
-        neo4j_uri=settings.graphiti_neo4j_uri,
-        neo4j_user=settings.graphiti_neo4j_user,
-        neo4j_password=settings.graphiti_neo4j_password,
-    )
-
-
-def _build_embedding_adapter(settings: Settings) -> MemoryAdapterPort:
-    if not settings.embeddings_enabled:
-        return NoopEmbeddingAdapter(name="embeddings")
-    if settings.embeddings_provider == "openai":
-        from infinity_context_adapters.embeddings import OpenAIEmbeddingAdapter
-
-        return OpenAIEmbeddingAdapter(
-            api_key=settings.openai_api_key,
-            model=settings.embeddings_model,
-            dimensions=settings.embeddings_dimensions,
-        )
-    return NoopEmbeddingAdapter(name="embeddings")
-
-
 def _build_capture_extractor(settings: Settings) -> MemoryExtractorPort:
     if settings.capture_extractor_provider == "noop":
         return NoopMemoryExtractor()
@@ -973,28 +897,3 @@ def _build_capture_extractor(settings: Settings) -> MemoryExtractorPort:
             model=settings.capture_extractor_model,
         )
     return RuleBasedMemoryExtractor()
-
-
-def _build_cognee_adapter(settings: Settings) -> MemoryAdapterPort:
-    from infinity_context_adapters.cognee import CogneeMemoryAdapter
-
-    return CogneeMemoryAdapter(
-        enabled=settings.cognee_enabled,
-        configured=settings.cognee_runtime_configured,
-        dataset_prefix=settings.cognee_dataset_prefix,
-    )
-
-
-def _provider_circuit(
-    adapter_name: str,
-    operation_kind: str,
-    clock: ClockPort,
-    settings: Settings,
-) -> ProviderCircuitBreaker:
-    return ProviderCircuitBreaker(
-        adapter_name=adapter_name,
-        operation_kind=operation_kind,
-        clock=clock,
-        failure_threshold=settings.provider_circuit_failure_threshold,
-        reset_after_seconds=settings.provider_circuit_reset_after_seconds,
-    )

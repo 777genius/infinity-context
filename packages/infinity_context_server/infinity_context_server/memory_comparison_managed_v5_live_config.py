@@ -125,6 +125,7 @@ class ManagedV5LiveFilesystemConfig:
     dispatch_journal: Path
     operation_journal: Path
     durable_clean_state: Path
+    recovery_journal: Path
     ingress_bearer_file: Path
     evidence_key_file: Path
     evidence_key_sha256: str
@@ -134,6 +135,7 @@ class ManagedV5LiveFilesystemConfig:
     operation_journal_signer_secret_file: Path
     durable_clean_state_hmac_secret_file: Path
     runtime_attestation_secret_file: Path
+    recovery_hmac_secret_file: Path
     runtime_attestation_secret_sha256: str
     runtime_authority_file: Path
     runtime_authority_sha256: str
@@ -145,6 +147,7 @@ class ManagedV5LiveFilesystemConfig:
     node_executable_sha256: str
     adapter_runtime_pin_file: Path
     adapter_runtime_pin_sha256: str
+    recovery_report_file: Path
     phase_c_python_tree_sha256: str = _REVIEWED_PHASE_C_PYTHON_TREE_SHA256
 
     def __post_init__(self) -> None:
@@ -156,6 +159,7 @@ class ManagedV5LiveFilesystemConfig:
             self.dispatch_journal,
             self.operation_journal,
             self.durable_clean_state,
+            self.recovery_journal,
             self.ingress_bearer_file,
             self.evidence_key_file,
             self.receipt_secret_file,
@@ -164,12 +168,14 @@ class ManagedV5LiveFilesystemConfig:
             self.operation_journal_signer_secret_file,
             self.durable_clean_state_hmac_secret_file,
             self.runtime_attestation_secret_file,
+            self.recovery_hmac_secret_file,
             self.runtime_authority_file,
             self.phase_c_package_root,
             self.runtime_repo,
             self.runtime_artifact_manifest,
             self.node_executable,
             self.adapter_runtime_pin_file,
+            self.recovery_report_file,
         )
         digests = (
             self.evidence_key_sha256,
@@ -276,6 +282,7 @@ def validate_managed_v5_live_public_config(
         filesystem.operation_journal_signer_secret_file,
         filesystem.durable_clean_state_hmac_secret_file,
         filesystem.runtime_attestation_secret_file,
+        filesystem.recovery_hmac_secret_file,
     )
     if len(set(private_files)) != len(private_files):
         raise ManagedV5LiveConfigError("managed_v5_live_credential_paths_invalid")
@@ -290,6 +297,7 @@ def validate_managed_v5_live_public_config(
         filesystem.dispatch_journal,
         filesystem.operation_journal,
         filesystem.durable_clean_state,
+        filesystem.recovery_journal,
     )
     if len(set(state_files)) != len(state_files):
         raise ManagedV5LiveConfigError("managed_v5_live_state_paths_invalid")
@@ -304,9 +312,22 @@ def validate_managed_v5_live_public_config(
         code="managed_v5_live_durable_clean_state_invalid",
     )
     _require_optional_private_file(
+        filesystem.recovery_journal,
+        parent=filesystem.state_root,
+        code="managed_v5_live_recovery_journal_invalid",
+    )
+    _require_optional_private_file(
         filesystem.report_file,
         parent=filesystem.report_root,
         code="managed_v5_live_report_file_invalid",
+    )
+    report_files = (filesystem.report_file, filesystem.recovery_report_file)
+    if len(set(report_files)) != len(report_files):
+        raise ManagedV5LiveConfigError("managed_v5_live_report_paths_invalid")
+    _require_optional_private_file(
+        filesystem.recovery_report_file,
+        parent=filesystem.report_root,
+        code="managed_v5_live_recovery_report_file_invalid",
     )
 
     _require_public_directory(filesystem.phase_c_package_root)

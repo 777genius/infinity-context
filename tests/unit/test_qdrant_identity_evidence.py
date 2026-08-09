@@ -8,6 +8,9 @@ from infinity_context_adapters.qdrant import QdrantVectorMemoryAdapter
 from infinity_context_adapters.qdrant.identity_evidence import (
     qdrant_point_id_for_chunk,
 )
+from infinity_context_core.ports.benchmark_unsealed_projection import (
+    BenchmarkUnsealedProjectionScope,
+)
 from infinity_context_core.ports.vector_projection_evidence import VectorProjectionScope
 
 
@@ -289,3 +292,73 @@ def test_qdrant_evidence_rejects_projection_scope_mismatch_before_provider_acces
         )
 
     assert client.retrieve_calls == []
+
+
+def _recovery_scopes() -> tuple[BenchmarkUnsealedProjectionScope, ...]:
+    return (BenchmarkUnsealedProjectionScope("memory_scope_1", None, ("chunk_1",), ()),)
+
+
+def test_qdrant_recovery_deletes_present_and_accepts_already_absent_space() -> None:
+    async def run(records: tuple[object, ...]) -> tuple[object, object, _EvidenceClient]:
+        client = _EvidenceClient(records)
+        receipts = await _adapter(client).delete_benchmark_space_two_pass(
+            space_id="space_1", scopes=_recovery_scopes()
+        )
+        return *receipts, client
+
+    first, second, present = asyncio.run(run((_record("chunk_1"),)))
+    assert first.absent and second.absent
+    assert first.receipt_sha256 != second.receipt_sha256
+    assert len(present.delete_calls) == 1
+    absent_first, absent_second, absent = asyncio.run(run(()))
+    assert absent_first.absent and absent_second.absent
+    assert absent.delete_calls == []
+    assert len(present.count_calls) == 4 and len(absent.count_calls) == 4
+
+
+@pytest.mark.parametrize("failure", ["unexpected", "malformed"])
+def test_qdrant_recovery_blocks_unknown_or_malformed_space_points(failure: str) -> None:
+    record = _record("unexpected" if failure == "unexpected" else "chunk_1")
+    if failure == "malformed":
+        record.payload["memory_scope_id"] = "wrong"
+    client = _EvidenceClient((record,))
+
+    with pytest.raises(ValueError, match="unknown|malformed"):
+        asyncio.run(
+            _adapter(client).delete_benchmark_space_two_pass(
+                space_id="space_1", scopes=_recovery_scopes()
+            )
+        )
+    assert client.delete_calls == []
+
+
+def test_qdrant_recovery_blocks_expected_point_moved_before_space_scan() -> None:
+    record = _record("chunk_1")
+    record.payload["space_id"] = "foreign-space"
+    client = _EvidenceClient((record,))
+
+    with pytest.raises(ValueError, match="moved or is malformed"):
+        asyncio.run(
+            _adapter(client).delete_benchmark_space_two_pass(
+                space_id="space_1", scopes=_recovery_scopes()
+            )
+        )
+    assert client.delete_calls == []
+
+
+def test_qdrant_recovery_fails_if_second_fresh_pass_observes_new_point() -> None:
+    class _LatePointClient(_EvidenceClient):
+        async def scroll(self, **kwargs: object) -> tuple[list[object], int | None]:
+            if len(self.scroll_calls) == 2:
+                late = _record("unexpected")
+                self.records[str(late.id)] = late
+            return await super().scroll(**kwargs)
+
+    client = _LatePointClient((_record("chunk_1"),))
+    with pytest.raises(ValueError, match="unknown"):
+        asyncio.run(
+            _adapter(client).delete_benchmark_space_two_pass(
+                space_id="space_1", scopes=_recovery_scopes()
+            )
+        )
+    assert len(client.delete_calls) == 1

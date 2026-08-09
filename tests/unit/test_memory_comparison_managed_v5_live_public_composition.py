@@ -170,6 +170,7 @@ def _config(tmp_path: Path) -> ManagedV5LiveConfig:
         dispatch_journal=state / "dispatch.json",
         operation_journal=state / "operation-journal.json",
         durable_clean_state=state / "durable-clean-state.json",
+        recovery_journal=state / "recovery-journal.json",
         ingress_bearer_file=secrets / "bearer",
         evidence_key_file=secrets / "evidence",
         evidence_key_sha256=_sha("evidence"),
@@ -179,6 +180,7 @@ def _config(tmp_path: Path) -> ManagedV5LiveConfig:
         operation_journal_signer_secret_file=secrets / "journal-signer",
         durable_clean_state_hmac_secret_file=secrets / "clean-state-hmac",
         runtime_attestation_secret_file=secrets / "runtime-attestation",
+        recovery_hmac_secret_file=secrets / "recovery-hmac",
         runtime_attestation_secret_sha256=_sha("runtime-attestation"),
         runtime_authority_file=tmp_path / "runtime-authority.json",
         runtime_authority_sha256=_sha("authority"),
@@ -190,6 +192,7 @@ def _config(tmp_path: Path) -> ManagedV5LiveConfig:
         node_executable_sha256=_sha("node"),
         adapter_runtime_pin_file=tmp_path / "adapter-runtime-pin.json",
         adapter_runtime_pin_sha256=_sha("adapter-runtime-pin"),
+        recovery_report_file=reports / "recovery-report.json",
     )
     return ManagedV5LiveConfig(
         filesystem=filesystem,

@@ -17,12 +17,29 @@ from infinity_context_server.memory_comparison_managed_v5_extraction_budget impo
 from infinity_context_server.memory_comparison_managed_v5_live_config import (
     ManagedV5LiveConfig,
 )
+from infinity_context_server.memory_comparison_managed_v5_recovery_contracts import (
+    ManagedV5LiveRecoveryAuthority,
+)
 
 ROOT = Path(__file__).resolve().parents[2]
 
 
+def _private_stage(selected: object, probe: str, ingress: object | None = None):
+    journal = SimpleNamespace(append=lambda **_kwargs: None, close=lambda: None)
+    authority = object.__new__(ManagedV5LiveRecoveryAuthority)
+    return subject.ActivatedManagedV5LiveCliPrivateStage(
+        selected,
+        probe,
+        ingress,
+        journal,
+        authority,
+        "a" * 64,
+        lambda: datetime(2026, 8, 9, tzinfo=UTC),
+    )
+
+
 def test_v5_attestation_prevalidation_is_before_paid_readiness_in_private_stage() -> None:
-    source = inspect.getsource(subject._prepare_and_activate_private_stage)
+    source = inspect.getsource(subject._activate_private_stage_after_recovery_prepare)
 
     assert source.index("runtime_port.prevalidate(") < source.index(
         "run_readiness=lambda: readiness_claim.run("
@@ -175,7 +192,7 @@ def test_orchestrator_selects_exact_v5_without_legacy_fallback(
     public = object()
     provider = SimpleNamespace(close=lambda: events.append("provider.close"))
     selected = SimpleNamespace(selection=SimpleNamespace(provider=provider))
-    private = subject.ActivatedManagedV5LiveCliPrivateStage(selected, "probe-token")
+    private = _private_stage(selected, "probe-token")
     outcome = object()
 
     def prepare_public(_: object) -> object:
@@ -235,7 +252,7 @@ def test_orchestrator_does_not_double_close_runner_owned_provider(
     events: list[str] = []
     provider = SimpleNamespace(close=lambda: events.append("provider.close"))
     selected = SimpleNamespace(selection=SimpleNamespace(provider=provider))
-    private = subject.ActivatedManagedV5LiveCliPrivateStage(selected, "probe-token")
+    private = _private_stage(selected, "probe-token")
     monkeypatch.setattr(
         subject,
         "prepare_managed_v5_live_cli_public_stage",
@@ -304,11 +321,7 @@ def test_post_sealed_usage_proof_never_discards_sealed_result(
             attestation_port=SimpleNamespace(usage_attestation_required=lambda: True)
         )
     )
-    private = subject.ActivatedManagedV5LiveCliPrivateStage(
-        selected,
-        "probe-token",
-        ingress,
-    )
+    private = _private_stage(selected, "probe-token", ingress)
     public = SimpleNamespace(
         request=SimpleNamespace(
             mem0_api_url="http://127.0.0.1:19091",

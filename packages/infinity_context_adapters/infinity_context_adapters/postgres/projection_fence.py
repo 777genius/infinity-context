@@ -69,6 +69,9 @@ def _projection_state_query(space_id: str) -> Select[tuple[bool]]:
         and_(
             MemoryComparisonBenchmarkRunRow.state == "active",
             MemoryComparisonBenchmarkRunRow.projection_cleanup_state == "unsealed",
+            MemoryComparisonBenchmarkRunRow.cleanup_plan_state == "sealed",
+            MemoryComparisonBenchmarkRunRow.cleanup_plan_json.is_not(None),
+            MemoryComparisonBenchmarkRunRow.cleanup_plan_sha256.is_not(None),
         )
     ).where(MemoryComparisonBenchmarkRunRow.space_id == space_id)
 

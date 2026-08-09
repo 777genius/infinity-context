@@ -17,6 +17,7 @@ def _write_v5_config(tmp_path: Path, *, extraction_digest: str = "a" * 64) -> Pa
         "dispatch_journal",
         "operation_journal",
         "durable_clean_state",
+        "recovery_journal",
         "ingress_bearer_file",
         "evidence_key_file",
         "receipt_secret_file",
@@ -24,11 +25,15 @@ def _write_v5_config(tmp_path: Path, *, extraction_digest: str = "a" * 64) -> Pa
         "checkpoint_head_key_file",
         "operation_journal_signer_secret_file",
         "durable_clean_state_hmac_secret_file",
+        "runtime_attestation_secret_file",
+        "recovery_hmac_secret_file",
         "runtime_authority_file",
         "phase_c_package_root",
         "runtime_repo",
         "runtime_artifact_manifest",
         "node_executable",
+        "adapter_runtime_pin_file",
+        "recovery_report_file",
     }
     filesystem = {name: str(tmp_path / name) for name in path_names}
     filesystem.update(
@@ -37,6 +42,8 @@ def _write_v5_config(tmp_path: Path, *, extraction_digest: str = "a" * 64) -> Pa
             "runtime_authority_sha256": digest,
             "runtime_artifact_manifest_sha256": digest,
             "node_executable_sha256": digest,
+            "runtime_attestation_secret_sha256": digest,
+            "adapter_runtime_pin_sha256": digest,
         }
     )
     config_path = tmp_path / "managed-v5.json"
@@ -63,6 +70,7 @@ def test_strict_v5_cli_config_loads_only_explicit_paths_and_pins(tmp_path: Path)
 
     assert config.filesystem.operation_journal == tmp_path / "operation_journal"
     assert config.filesystem.durable_clean_state == tmp_path / "durable_clean_state"
+    assert config.filesystem.recovery_journal == tmp_path / "recovery_journal"
     assert config.runtime.mem0_adapter_origin == "http://127.0.0.1:19091"
     assert contract.name == "extraction_contract.py"
     assert contract_sha256 == digest

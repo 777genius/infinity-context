@@ -7,6 +7,11 @@ from datetime import UTC, datetime, timedelta
 
 import httpx
 import pytest
+from benchmark_cleanup_plan_fixtures import cleanup_plan_pair
+from infinity_context_core.ports.benchmark_cleanup_plan import (
+    ManagedBenchmarkCleanupPlan,
+    validate_managed_benchmark_cleanup_plan,
+)
 from infinity_context_server.memory_comparison_managed_benchmark_registry_http import (
     ManagedBenchmarkRegistryHttpAdapter,
     ManagedBenchmarkRegistryHttpConfig,
@@ -19,7 +24,7 @@ from infinity_context_server.memory_comparison_managed_preflight import (
 BASE_URL = "http://127.0.0.1:7788"
 RUN = "a" * 64
 BINDING = "b" * 64
-SPACE_ID = "benchmark-space-1"
+SPACE_ID = f"benchmark-space-{RUN[:48]}"
 SPACE_SLUG = "memory-comparison-managed-run"
 TOKEN = "private-admin-token"
 
@@ -85,8 +90,26 @@ def _manifest() -> dict[str, object]:
         "binding_commitment_sha256": BINDING,
         "infinity_target_identity_sha256": _target(),
         "space_id": SPACE_ID,
+        "cleanup_plan_sha256": _plan().sha256,
         "scopes": [],
     }
+
+
+def _plan() -> ManagedBenchmarkCleanupPlan:
+    value, sha256 = cleanup_plan_pair(
+        run_id=RUN,
+        binding=BINDING,
+        target=_target(),
+        space_slug=SPACE_SLUG,
+    )
+    return validate_managed_benchmark_cleanup_plan(
+        value,
+        sha256,
+        run_id_sha256=RUN,
+        binding_commitment_sha256=BINDING,
+        infinity_target_identity_sha256=_target(),
+        space_slug=SPACE_SLUG,
+    )
 
 
 def _digest(value: dict[str, object]) -> str:
@@ -111,7 +134,7 @@ def _registration(
 ) -> dict[str, object]:
     return {
         "data": {
-            "schema_version": "memory-comparison-run-registration-response.v1",
+            "schema_version": "memory-comparison-run-registration-response.v2",
             "authority": "infinity_canonical",
             "run_id_sha256": RUN,
             "binding_commitment_sha256": binding,
@@ -119,6 +142,8 @@ def _registration(
             "space_id": SPACE_ID,
             "space_slug": SPACE_SLUG,
             "state": state,
+            "cleanup_plan_sha256": _plan().sha256,
+            "cleanup_plan_state": "sealed",
             "created": created,
         }
     }
@@ -127,12 +152,14 @@ def _registration(
 def _seal(manifest_sha256: str, *, replayed: bool = False) -> dict[str, object]:
     return {
         "data": {
-            "schema_version": "memory-comparison-projection-manifest-seal-response.v1",
+            "schema_version": "memory-comparison-projection-manifest-seal-response.v2",
             "authority": "infinity_canonical",
             "run_id_sha256": RUN,
             "binding_commitment_sha256": BINDING,
             "infinity_target_identity_sha256": _target(),
             "projection_manifest_sha256": manifest_sha256,
+            "cleanup_plan_sha256": _plan().sha256,
+            "cleanup_plan_state": "sealed",
             "state": "active",
             "projection_cleanup_state": "sealed",
             "replayed": replayed,
@@ -264,7 +291,7 @@ def _lifecycle(
 ) -> dict[str, object]:
     return {
         "data": {
-            "schema_version": "memory-comparison-run-lifecycle-response.v1",
+            "schema_version": "memory-comparison-run-lifecycle-response.v2",
             "authority": "infinity_canonical",
             "run_id_sha256": RUN,
             "binding_commitment_sha256": binding,
@@ -272,6 +299,8 @@ def _lifecycle(
             "space_id": SPACE_ID,
             "space_slug": SPACE_SLUG,
             "state": state,
+            "cleanup_plan_sha256": _plan().sha256,
+            "cleanup_plan_state": "sealed",
             "projection_cleanup_state": projection_cleanup_state,
             "projection_manifest_sha256": projection_manifest_sha256,
             "cleanup_receipt": cleanup_receipt,

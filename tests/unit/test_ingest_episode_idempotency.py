@@ -1,6 +1,8 @@
 import asyncio
 from dataclasses import replace
 from datetime import UTC, datetime, timedelta
+from hashlib import sha256
+from types import SimpleNamespace
 
 import pytest
 from infinity_context_core.application import IngestEpisodeCommand, IngestEpisodeUseCase
@@ -9,6 +11,7 @@ from infinity_context_core.application.use_cases.ingest_episode import (
     legacy_episode_fingerprint,
 )
 from infinity_context_core.domain.entities import (
+    LifecycleStatus,
     MemoryEpisode,
     MemoryEpisodeId,
     MemoryScopeId,
@@ -22,6 +25,90 @@ from infinity_context_core.domain.idempotency import IdempotencyRecord
 from infinity_context_core.ports.repositories import UpsertChunkResult
 
 _NOW = datetime(2026, 8, 6, 9, 30, tzinfo=UTC)
+
+
+@pytest.mark.parametrize("cleanup_plan_state", [None, "recovery_blocked"])
+def test_managed_episode_requires_sealed_plan_before_any_write(
+    cleanup_plan_state: str | None,
+) -> None:
+    async def run() -> None:
+        store = _Store()
+        store.benchmark_run = (
+            None
+            if cleanup_plan_state is None
+            else SimpleNamespace(
+                state="active",
+                projection_cleanup_state="unsealed",
+                cleanup_plan_state=cleanup_plan_state,
+                cleanup_plan_json=None,
+                cleanup_plan_sha256=None,
+            )
+        )
+        command = replace(
+            _command(),
+            space_id=SpaceId("benchmark-space-" + "a" * 48),
+        )
+
+        with pytest.raises(MemoryConflictError, match="episode admission is unsupported"):
+            await _use_case(store).execute(command)
+
+        assert store.episodes == {}
+        assert store.chunks == {}
+        assert store.outbox == []
+        assert store.record is None
+
+    asyncio.run(run())
+
+
+@pytest.mark.parametrize("corruption", ["scope", "source"])
+def test_managed_episode_rejects_unplanned_authority_before_any_write(
+    corruption: str,
+) -> None:
+    async def run() -> None:
+        store = _Store()
+        space_id = "benchmark-space-" + "a" * 48
+        scope_ref = "managed-corpus"
+        command = replace(_command(), space_id=SpaceId(space_id))
+        allowed_source = command.source_external_id if corruption == "scope" else "planned-source"
+        store.benchmark_run = SimpleNamespace(
+            state="active",
+            projection_cleanup_state="unsealed",
+            cleanup_plan_state="sealed",
+            cleanup_plan_json={
+                "corpora": [
+                    {
+                        "memory_scope_external_ref_sha256": sha256(scope_ref.encode()).hexdigest(),
+                        "ordered_source_external_id_sha256": [
+                            sha256(allowed_source.encode()).hexdigest()
+                        ],
+                        "expected_ingest_unit_count": 1,
+                    }
+                ]
+            },
+            cleanup_plan_sha256="1" * 64,
+        )
+        store.memory_scope = SimpleNamespace(
+            id=MemoryScopeId("scope_1"),
+            space_id=SpaceId(space_id),
+            external_ref="foreign-corpus" if corruption == "scope" else scope_ref,
+            status=LifecycleStatus.ACTIVE,
+        )
+        store.thread = SimpleNamespace(
+            id=ThreadId("thread_1"),
+            memory_scope_id=MemoryScopeId("scope_1"),
+            external_ref="foreign-corpus" if corruption == "scope" else scope_ref,
+            status=LifecycleStatus.ACTIVE,
+        )
+
+        with pytest.raises(MemoryConflictError, match="episode admission is unsupported"):
+            await _use_case(store).execute(command)
+
+        assert store.episodes == {}
+        assert store.chunks == {}
+        assert store.outbox == []
+        assert store.record is None
+
+    asyncio.run(run())
 
 
 def test_concurrent_same_request_returns_one_canonical_episode() -> None:
@@ -388,6 +475,9 @@ class _Store:
         self._read_target = concurrent_initial_reads
         self._read_count = 0
         self._read_barrier = asyncio.Event()
+        self.benchmark_run = None
+        self.memory_scope = None
+        self.thread = None
 
     async def synchronize_initial_read(self) -> None:
         if self._read_target == 0:
@@ -419,6 +509,8 @@ class _Uow:
         self.idempotency = _Idempotency(self)
         self.outbox = _Outbox(self)
         self.suggestions = _Suggestions()
+        self.benchmark_runs = _BenchmarkRuns(store)
+        self.scope = _Scope(store)
         self._staged_episode: MemoryEpisode | None = None
         self._staged_record: IdempotencyRecord | None = None
         self._staged_outbox: list[object] = []
@@ -461,6 +553,25 @@ class _Uow:
         self._staged_chunks.clear()
 
 
+class _BenchmarkRuns:
+    def __init__(self, store: _Store) -> None:
+        self._store = store
+
+    async def get_by_space_id(self, _space_id: str):
+        return self._store.benchmark_run
+
+
+class _Scope:
+    def __init__(self, store: _Store) -> None:
+        self._store = store
+
+    async def get_memory_scope(self, _memory_scope_id: str):
+        return self._store.memory_scope
+
+    async def get_thread(self, _thread_id: str):
+        return self._store.thread
+
+
 class _Episodes:
     def __init__(self, uow: _Uow) -> None:
         self._uow = uow
@@ -474,6 +585,12 @@ class _Episodes:
 
     async def get_by_id(self, episode_id: str) -> MemoryEpisode | None:
         return self._uow._store.episodes.get(episode_id)
+
+    async def list_for_scope(self, **_kwargs) -> list[MemoryEpisode]:
+        episodes = list(self._uow._store.episodes.values())
+        if self._uow._staged_episode is not None:
+            episodes.append(self._uow._staged_episode)
+        return episodes
 
 
 class _Chunks:

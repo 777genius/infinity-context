@@ -91,6 +91,9 @@ from infinity_context_server.memory_comparison_managed_v5_live_preparation impor
 from infinity_context_server.memory_comparison_managed_v5_live_private_dependencies import (
     ManagedMem0V5OperationReceiptAuthority,
 )
+from infinity_context_server.memory_comparison_managed_v5_live_recovery_observer import (
+    ManagedV5LiveRecoveryObserver,
+)
 from infinity_context_server.memory_comparison_managed_v5_owned_resources import (
     ManagedV5OwnedResources,
 )
@@ -268,6 +271,7 @@ def create_managed_v5_production_runtime(
     mem0_credential_capabilities: ManagedMem0V5CredentialCapabilities,
     benchmark_registry: ManagedBenchmarkRegistryHttpAdapter,
     benchmark_registration: ManagedBenchmarkRunRegistration,
+    recovery_observer: ManagedV5LiveRecoveryObserver,
     mem0_transport: Mem0V5TransportPort | None = None,
     infinity_derived_transport_factory: Callable[[], httpx.BaseTransport] | None = None,
     infinity_cleanup_transport_factory: Callable[[], httpx.BaseTransport] | None = None,
@@ -284,6 +288,7 @@ def create_managed_v5_production_runtime(
         or type(mem0_credential_capabilities) is not ManagedMem0V5CredentialCapabilities
         or type(benchmark_registry) is not ManagedBenchmarkRegistryHttpAdapter
         or type(benchmark_registration) is not ManagedBenchmarkRunRegistration
+        or type(recovery_observer) is not ManagedV5LiveRecoveryObserver
         or not callable(clock)
     ):
         _fail("managed_v5_runtime_composition_invalid")
@@ -422,6 +427,7 @@ def create_managed_v5_production_runtime(
             bindings=bindings,
             cases=material.cases,
             registration=benchmark_registration,
+            recovery_observer=recovery_observer,
         )
         observed_extraction_verifier = ManagedV5ObservedExtractionVerifier(
             lifecycle=production_lifecycle,

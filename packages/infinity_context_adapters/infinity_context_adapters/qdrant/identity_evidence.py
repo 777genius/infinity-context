@@ -4,11 +4,16 @@ from __future__ import annotations
 
 import hashlib
 import inspect
+import json
 from collections.abc import Awaitable, Callable, Iterable, Mapping
 from dataclasses import dataclass
 from urllib.parse import urlsplit, urlunsplit
 from uuid import NAMESPACE_URL, uuid5
 
+from infinity_context_core.ports.benchmark_unsealed_projection import (
+    BenchmarkProjectionPassReceipt,
+    BenchmarkUnsealedProjectionScope,
+)
 from infinity_context_core.ports.vector_projection_evidence import (
     VectorProjectionDeleteEvidence,
     VectorProjectionPointIdentity,
@@ -221,6 +226,107 @@ class QdrantIdentityEvidence:
         finally:
             await _close_client(client)
 
+    async def delete_benchmark_space_two_pass(
+        self,
+        *,
+        space_id: str,
+        scopes: tuple[BenchmarkUnsealedProjectionScope, ...],
+    ) -> tuple[BenchmarkProjectionPassReceipt, BenchmarkProjectionPassReceipt]:
+        """Delete only canonical points after two independent full-space scans."""
+
+        _required_identity(space_id, "space_id")
+        expected = _benchmark_expected(space_id, scopes, self._projection_version)
+        receipts = []
+        for pass_index in (1, 2):
+            receipts.append(
+                await self._delete_benchmark_space_pass(
+                    space_id=space_id,
+                    expected=expected,
+                    pass_index=pass_index,
+                )
+            )
+        return receipts[0], receipts[1]
+
+    async def _delete_benchmark_space_pass(
+        self,
+        *,
+        space_id: str,
+        expected: dict[str, tuple[str, str, str | None]],
+        pass_index: int,
+    ) -> BenchmarkProjectionPassReceipt:
+        client = None
+        try:
+            client, models = await self._client_factory()
+            present: tuple[str, ...] = ()
+            if await client.collection_exists(self._collection_name):
+                globally_present = await _benchmark_expected_point_ids(
+                    client,
+                    collection_name=self._collection_name,
+                    space_id=space_id,
+                    projection_version=self._projection_version,
+                    expected=expected,
+                )
+                scoped_present = await _benchmark_space_point_ids(
+                    client,
+                    models,
+                    collection_name=self._collection_name,
+                    space_id=space_id,
+                    projection_version=self._projection_version,
+                    expected=expected,
+                )
+                if globally_present != scoped_present:
+                    raise ValueError("Qdrant recovery global and space inventories differ")
+                present = globally_present
+                if pass_index == 2 and present:
+                    raise ValueError("Qdrant recovery second pass observed residual points")
+                if present:
+                    result = await client.delete(
+                        collection_name=self._collection_name,
+                        points_selector=models.PointIdsList(points=list(present)),
+                        wait=True,
+                        ordering=models.WriteOrdering.STRONG,
+                    )
+                    if not _delete_completed(result):
+                        raise ValueError("Qdrant recovery delete was not completed")
+                global_after = await _benchmark_expected_point_ids(
+                    client,
+                    collection_name=self._collection_name,
+                    space_id=space_id,
+                    projection_version=self._projection_version,
+                    expected=expected,
+                )
+                after = await _benchmark_space_point_ids(
+                    client,
+                    models,
+                    collection_name=self._collection_name,
+                    space_id=space_id,
+                    projection_version=self._projection_version,
+                    expected=expected,
+                )
+                if global_after or after:
+                    raise ValueError("Qdrant recovery space is not absent")
+            digest = _json_sha256(
+                {
+                    "schema_version": "benchmark-qdrant-recovery-pass.v1",
+                    "target_commitment_sha256": self.target_commitment_sha256,
+                    "space_id": space_id,
+                    "pass_index": pass_index,
+                    "expected_point_ids": sorted(expected),
+                    "present_before": list(present),
+                    "space_count_after": 0,
+                }
+            )
+            return BenchmarkProjectionPassReceipt(
+                lane="qdrant",
+                target_commitment_sha256=self.target_commitment_sha256,
+                pass_index=pass_index,
+                observed_count=0,
+                absent=True,
+                receipt_sha256=digest,
+            )
+        finally:
+            await _close_client(client)
+
     async def _projection_snapshot(
         self,
         client: object,
@@ -344,6 +450,152 @@ def qdrant_target_commitment_sha256(url: str, collection_name: str) -> str:
         b"qdrant\x00" + normalized_url.encode("utf-8") + b"\x00" + collection_name.encode("utf-8")
     )
     return hashlib.sha256(target_identity).hexdigest()
+
+
+def _benchmark_expected(
+    space_id: str,
+    scopes: tuple[BenchmarkUnsealedProjectionScope, ...],
+    projection_version: str,
+) -> dict[str, tuple[str, str, str | None]]:
+    expected: dict[str, tuple[str, str, str | None]] = {}
+    for scope in scopes:
+        if type(scope) is not BenchmarkUnsealedProjectionScope:
+            raise ValueError("benchmark recovery scope is invalid")
+        for chunk_id in scope.chunk_ids:
+            point_id = qdrant_point_id_for_chunk(chunk_id)
+            if point_id in expected:
+                raise ValueError("benchmark recovery points are duplicated")
+            expected[point_id] = (chunk_id, scope.memory_scope_id, scope.thread_id)
+    if len(expected) > _MAX_EVIDENCE_POINTS:
+        raise ValueError("benchmark recovery points exceed the hard cap")
+    del space_id, projection_version
+    return expected
+
+
+async def _benchmark_space_point_ids(
+    client: object,
+    models: object,
+    *,
+    collection_name: str,
+    space_id: str,
+    projection_version: str,
+    expected: Mapping[str, tuple[str, str, str | None]],
+) -> tuple[str, ...]:
+    query_filter = models.Filter(
+        must=[models.FieldCondition(key="space_id", match=models.MatchValue(value=space_id))]
+    )
+    point_ids: list[str] = []
+    seen: set[str] = set()
+    offsets: set[tuple[str, str]] = set()
+    offset = None
+    exhausted = False
+    max_pages = (_MAX_EVIDENCE_POINTS // _EVIDENCE_SCROLL_PAGE_SIZE) + 2
+    for _ in range(max_pages):
+        page = await client.scroll(
+            collection_name=collection_name,
+            scroll_filter=query_filter,
+            limit=_EVIDENCE_SCROLL_PAGE_SIZE,
+            offset=offset,
+            with_payload=list(_IDENTITY_PAYLOAD_FIELDS),
+            with_vectors=False,
+            consistency="all",
+        )
+        if not isinstance(page, (list, tuple)) or len(page) != 2:
+            raise TypeError("Qdrant recovery scroll response is invalid")
+        records, next_offset = page
+        if not isinstance(records, (list, tuple)):
+            raise TypeError("Qdrant recovery scroll records are invalid")
+        for record in records:
+            raw_id = getattr(record, "id", None)
+            point_id = str(raw_id) if isinstance(raw_id, (str, int)) else ""
+            payload = getattr(record, "payload", None)
+            if not point_id or point_id in seen or not isinstance(payload, Mapping):
+                raise ValueError("Qdrant recovery point identity is malformed")
+            target = expected.get(point_id)
+            if target is None:
+                raise ValueError("Qdrant recovery found an unknown space point")
+            chunk_id, memory_scope_id, thread_id = target
+            if (
+                payload.get("chunk_id") != chunk_id
+                or payload.get("space_id") != space_id
+                or payload.get("memory_scope_id") != memory_scope_id
+                or payload.get("thread_id") != thread_id
+                or payload.get("projection_version") != projection_version
+                or qdrant_point_id_for_chunk(chunk_id) != point_id
+            ):
+                raise ValueError("Qdrant recovery point payload is malformed")
+            seen.add(point_id)
+            point_ids.append(point_id)
+            if len(point_ids) > _MAX_EVIDENCE_POINTS:
+                raise ValueError("Qdrant recovery scan exceeds the hard cap")
+        if next_offset is None:
+            exhausted = True
+            break
+        key = (type(next_offset).__name__, str(next_offset))
+        if key in offsets:
+            raise ValueError("Qdrant recovery scroll offset repeated")
+        offsets.add(key)
+        offset = next_offset
+    if not exhausted:
+        raise ValueError("Qdrant recovery scan did not exhaust the space")
+    count = await client.count(
+        collection_name=collection_name,
+        count_filter=query_filter,
+        exact=True,
+    )
+    exact_count = getattr(count, "count", None)
+    if exact_count != len(point_ids):
+        raise ValueError("Qdrant recovery full-space count differs from scroll")
+    return tuple(sorted(point_ids))
+
+
+async def _benchmark_expected_point_ids(
+    client: object,
+    *,
+    collection_name: str,
+    space_id: str,
+    projection_version: str,
+    expected: Mapping[str, tuple[str, str, str | None]],
+) -> tuple[str, ...]:
+    present: list[str] = []
+    point_ids = sorted(expected)
+    for start in range(0, len(point_ids), _EVIDENCE_BATCH_SIZE):
+        records = await client.retrieve(
+            collection_name=collection_name,
+            ids=point_ids[start : start + _EVIDENCE_BATCH_SIZE],
+            with_payload=list(_IDENTITY_PAYLOAD_FIELDS),
+            with_vectors=False,
+            consistency="all",
+        )
+        if not isinstance(records, (list, tuple)):
+            raise TypeError("Qdrant recovery retrieve response is invalid")
+        for record in records:
+            raw_id = getattr(record, "id", None)
+            point_id = str(raw_id) if isinstance(raw_id, (str, int)) else ""
+            payload = getattr(record, "payload", None)
+            target = expected.get(point_id)
+            if not point_id or target is None or not isinstance(payload, Mapping):
+                raise ValueError("Qdrant recovery expected point is malformed")
+            chunk_id, memory_scope_id, thread_id = target
+            if (
+                payload.get("chunk_id") != chunk_id
+                or payload.get("space_id") != space_id
+                or payload.get("memory_scope_id") != memory_scope_id
+                or payload.get("thread_id") != thread_id
+                or payload.get("projection_version") != projection_version
+                or qdrant_point_id_for_chunk(chunk_id) != point_id
+            ):
+                raise ValueError("Qdrant recovery expected point moved or is malformed")
+            present.append(point_id)
+    if len(present) != len(set(present)):
+        raise ValueError("Qdrant recovery expected point is duplicated")
+    return tuple(sorted(present))
+
+
+def _json_sha256(value: object) -> str:
+    return hashlib.sha256(
+        json.dumps(value, sort_keys=True, separators=(",", ":")).encode()
+    ).hexdigest()
 
 
 def _normalized_provider_url(url: object) -> str:

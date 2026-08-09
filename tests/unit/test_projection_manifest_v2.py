@@ -13,6 +13,7 @@ from infinity_context_core.domain.errors import MemoryValidationError
 RUN = "a" * 64
 BINDING = "b" * 64
 TARGET = "c" * 64
+CLEANUP_PLAN = "d" * 64
 SPACE = "space-1"
 
 
@@ -28,6 +29,7 @@ def test_v1_manifest_remains_byte_compatible_and_rejects_episode_field() -> None
             binding_commitment_sha256=BINDING,
             infinity_target_identity_sha256=TARGET,
             space_id=SPACE,
+            cleanup_plan_sha256=CLEANUP_PLAN,
         )
         == manifest
     )
@@ -137,6 +139,7 @@ def _validate(manifest: dict[str, object]) -> dict[str, object]:
         binding_commitment_sha256=BINDING,
         infinity_target_identity_sha256=TARGET,
         space_id=SPACE,
+        cleanup_plan_sha256=CLEANUP_PLAN,
     )
 
 
@@ -165,5 +168,6 @@ def _manifest(schema_version: str, *, episode_ids: list[str] | None) -> dict[str
         "binding_commitment_sha256": BINDING,
         "infinity_target_identity_sha256": TARGET,
         "space_id": SPACE,
+        "cleanup_plan_sha256": CLEANUP_PLAN,
         "scopes": [scope],
     }

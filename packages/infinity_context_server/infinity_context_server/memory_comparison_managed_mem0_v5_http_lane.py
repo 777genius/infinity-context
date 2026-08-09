@@ -397,6 +397,8 @@ class ManagedMem0V5HttpLane:
         if type(content) is not bytes:  # noqa: E721 - exact transport DTO required
             raise Mem0V5HttpError("mem0_v5_http_remote_failed")
         if status != 200:
+            if status in {401, 403, 409}:
+                raise Mem0V5HttpError("mem0_v5_http_response_rejected")
             raise Mem0V5HttpError("mem0_v5_http_remote_failed")
         if not 1 <= len(content) <= _MAX_RESPONSE_BYTES:
             raise Mem0V5HttpError("mem0_v5_http_response_invalid")

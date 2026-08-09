@@ -50,7 +50,7 @@ from infinity_context_server.memory_comparison_managed_v5_live_config import (
     _validate_reviewed_phase_c_python_tree,
     validate_managed_v5_live_public_config,
 )
-from infinity_context_server.memory_comparison_managed_v5_live_root import (
+from infinity_context_server.memory_comparison_managed_v5_live_public_inputs import (
     ManagedV5LivePublicInputs,
 )
 from infinity_context_server.memory_comparison_managed_v5_phase_c_preload import (

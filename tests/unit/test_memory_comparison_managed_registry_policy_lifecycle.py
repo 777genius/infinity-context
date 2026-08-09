@@ -10,6 +10,11 @@ from datetime import UTC, datetime, timedelta
 
 import httpx
 import pytest
+from benchmark_cleanup_plan_fixtures import cleanup_plan_pair
+from infinity_context_core.ports.benchmark_cleanup_plan import (
+    ManagedBenchmarkCleanupPlan,
+    validate_managed_benchmark_cleanup_plan,
+)
 from infinity_context_server import memory_comparison_managed_http_policy_lifecycle as policy
 from infinity_context_server import (
     memory_comparison_managed_policy_delegate_capability as delegate_subject,
@@ -41,6 +46,9 @@ from infinity_context_server.memory_comparison_managed_registry_policy_lifecycle
     ManagedRegistryPolicyLifecycleError,
 )
 from infinity_context_server.memory_comparison_managed_run_contract import ManagedRunCase
+from infinity_context_server.memory_comparison_managed_v5_mem0_terminal_observation import (
+    ManagedMem0TerminalObservation,
+)
 from memory_comparison_managed_http_policy_lifecycle_test_support import (
     _ATTESTATION,
     _INFINITY_TARGET,
@@ -69,6 +77,25 @@ def _json_digest(value: object) -> str:
     ).hexdigest()
 
 
+def _cleanup_plan(
+    *, run_id_sha256: str, binding: str, target: str, space_slug: str
+) -> ManagedBenchmarkCleanupPlan:
+    value, digest = cleanup_plan_pair(
+        run_id=run_id_sha256,
+        binding=binding,
+        target=target,
+        space_slug=space_slug,
+    )
+    return validate_managed_benchmark_cleanup_plan(
+        value,
+        digest,
+        run_id_sha256=run_id_sha256,
+        binding_commitment_sha256=binding,
+        infinity_target_identity_sha256=target,
+        space_slug=space_slug,
+    )
+
+
 @dataclass
 class _RegistryBackend:
     run_id_sha256: str
@@ -83,6 +110,7 @@ class _RegistryBackend:
         self.manifest_sha256: str | None = None
         self.manifest_json: dict[str, object] | None = None
         self.cleanup_receipt_sha256: str | None = None
+        self.cleanup_plan_sha256: str | None = None
         self.seal_attempts = 0
         self.begin_attempts = 0
         self.finalize_attempts = 0
@@ -93,6 +121,9 @@ class _RegistryBackend:
         path = request.url.path
         if request.method == "POST" and path.endswith("/runs"):
             self.events.append("registry.register")
+            payload = json.loads(request.content)
+            self.cleanup_plan_sha256 = payload["cleanup_plan_sha256"]
+            assert payload["schema_version"] == "memory-comparison-run-registration.v2"
             return httpx.Response(201, json={"data": self._registration()})
         if request.method == "PUT" and path.endswith("/projection-manifest"):
             self.events.append("registry.seal")
@@ -124,8 +155,9 @@ class _RegistryBackend:
         raise AssertionError(f"unexpected registry request: {request.method} {path}")
 
     def _registration(self) -> dict[str, object]:
+        assert self.cleanup_plan_sha256 is not None
         return {
-            "schema_version": "memory-comparison-run-registration-response.v1",
+            "schema_version": "memory-comparison-run-registration-response.v2",
             "authority": "infinity_canonical",
             "run_id_sha256": self.run_id_sha256,
             "binding_commitment_sha256": self.binding_commitment_sha256,
@@ -133,18 +165,23 @@ class _RegistryBackend:
             "space_id": _SPACE_ID,
             "space_slug": _SPACE_SLUG,
             "state": "active",
+            "cleanup_plan_sha256": self.cleanup_plan_sha256,
+            "cleanup_plan_state": "sealed",
             "created": True,
         }
 
     def _seal(self) -> dict[str, object]:
         assert self.manifest_sha256 is not None
+        assert self.cleanup_plan_sha256 is not None
         return {
-            "schema_version": "memory-comparison-projection-manifest-seal-response.v1",
+            "schema_version": "memory-comparison-projection-manifest-seal-response.v2",
             "authority": "infinity_canonical",
             "run_id_sha256": self.run_id_sha256,
             "binding_commitment_sha256": self.binding_commitment_sha256,
             "infinity_target_identity_sha256": self.target_identity_sha256,
             "projection_manifest_sha256": self.manifest_sha256,
+            "cleanup_plan_sha256": self.cleanup_plan_sha256,
+            "cleanup_plan_state": "sealed",
             "state": "active",
             "projection_cleanup_state": "sealed",
             "replayed": False,
@@ -205,6 +242,26 @@ class _RegistryBackend:
             "receipt_sha256": _json_digest(material),
             "replayed": self.finalize_attempts > 1,
         }
+
+
+class _RecoveryObserver:
+    def __init__(self, events: list[str]) -> None:
+        self.events = events
+
+    def projection_manifest_persisted(self, _value: object) -> None:
+        self.events.append("recovery.projection-persisted")
+
+    def registry_seal_observed(self, _value: object) -> None:
+        self.events.append("recovery.registry-sealed")
+
+    def cleanup_observed(self, _value: object) -> None:
+        self.events.append("recovery.cleanup-observed")
+
+    def mem0_terminal_observed(self, _value: object) -> None:
+        self.events.append("recovery.mem0-terminal")
+
+    def canonical_terminal_observed(self, _value: object) -> None:
+        self.events.append("recovery.canonical-terminal")
 
 
 def _policy_adapter(
@@ -306,6 +363,12 @@ def _wrapper(
         run_id_sha256=run_id_sha256,
         binding_commitment_sha256=bindings.binding_commitment_sha256,
         space_slug=_SPACE_SLUG,
+        cleanup_plan=_cleanup_plan(
+            run_id_sha256=run_id_sha256,
+            binding=bindings.binding_commitment_sha256,
+            target=_INFINITY_TARGET,
+            space_slug=_SPACE_SLUG,
+        ),
     )
     monkeypatch.setattr(policy, "_attestation", lambda *args: None)
     views = _views(cases[0])
@@ -330,6 +393,18 @@ def _wrapper(
         "consume_managed_http_ingest_receipts",
         lambda *args, **kwargs: views,
     )
+    monkeypatch.setattr(
+        policy.ManagedComparisonHttpPolicyLifecycleAdapter,
+        "mem0_terminal_observation",
+        property(
+            lambda _self: ManagedMem0TerminalObservation(
+                terminal_state="deleted",
+                terminal_commitment_sha256="d" * 64,
+                cleanup_readback_witness_sha256="e" * 64,
+            )
+        ),
+        raising=False,
+    )
     capability = delegate.issue_registry_delegate_capability()
     wrapper = ManagedComparisonRegistryPolicyLifecycleAdapter(
         delegate_capability=capability,
@@ -337,6 +412,7 @@ def _wrapper(
         bindings=bindings,
         cases=cases,
         registration=registration,
+        recovery_observer=_RecoveryObserver(events),
     )
     return wrapper, bindings, cases, backend, events
 
@@ -392,13 +468,14 @@ def test_happy_path_seals_before_retrieval_and_finalizes_after_exact_cleanup(
     assert completion.projection_cleanup == "complete"
     assert events.index("delegate.presence") < events.index("registry.seal")
     assert events.index("registry.begin") < events.index("delegate.canonical-delete")
-    assert events[-1] == "registry.finalize"
+    assert events.index("registry.finalize") < events.index("recovery.canonical-terminal")
+    assert events[-1] == "recovery.canonical-terminal"
     assert backend.seal_attempts == backend.begin_attempts == backend.finalize_attempts == 1
     assert backend.manifest_json is not None
     assert backend.manifest_json["schema_version"] == ("memory-comparison-projection-manifest.v1")
     assert "episode_ids" not in backend.manifest_json["scopes"][0]
     assert backend.manifest_sha256 == (
-        "b98f702b8f8ad897289f89a5e9342bc74c4744661baa52cd18ea8060d64e4cdb"
+        "d19b0299d20be6aabc92bdbadf926b6402b1b06899e14673cdf4e4298c6dff38"
     )
 
     validation = wrapper.aggregate_policy(
@@ -413,7 +490,9 @@ def test_happy_path_seals_before_retrieval_and_finalizes_after_exact_cleanup(
     assert report["adapter_id"] == MANAGED_REGISTRY_POLICY_LIFECYCLE_ADAPTER_ID
     assert report["implementation_sha256"] == wrapper.implementation_sha256
     assert report["registry_evidence"] == {
-        "registration_commitment_sha256": _json_digest(backend._registration()),
+        "registration_commitment_sha256": (
+            "6462c4b2adffd6c871b128e9d9ab8be2eae5f0afb137f4ec412d9636b89c7fbb"
+        ),
         "projection_manifest_sha256": backend.manifest_sha256,
         "cleanup_initiation_receipt_sha256": backend.cleanup_receipt_sha256,
         "completion_receipt_sha256": completion.receipt_sha256,
@@ -711,6 +790,7 @@ def test_constructor_rejects_non_exact_registry(monkeypatch: pytest.MonkeyPatch)
             bindings=bindings,
             cases=cases,
             registration=wrapper._registration,
+            recovery_observer=_RecoveryObserver([]),
         )
 
 
@@ -728,6 +808,7 @@ def test_constructor_rejects_raw_legacy_delegate(monkeypatch: pytest.MonkeyPatch
             bindings=bindings,
             cases=cases,
             registration=wrapper._registration,
+            recovery_observer=_RecoveryObserver([]),
         )
 
 

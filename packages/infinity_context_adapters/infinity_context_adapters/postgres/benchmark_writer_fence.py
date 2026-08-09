@@ -13,6 +13,27 @@ BENCHMARK_WRITER_FENCE_TABLES = (
     ("memory_episodes", "space_id, status"),
     ("memory_documents", "space_id, status"),
     ("memory_chunks", "space_id, status"),
+    ("memory_fact_operation_receipts", "space_id"),
+    ("memory_idempotency_records", "space_id"),
+    ("memory_anchors", "space_id, status"),
+    ("memory_assets", "space_id, status"),
+    ("memory_asset_extraction_jobs", "space_id, status"),
+    ("memory_fact_relations", "space_id, status"),
+    ("memory_fact_temporal_decisions", "space_id"),
+    ("memory_suggestions", "space_id, status"),
+    ("memory_captures", "space_id, status"),
+    ("memory_context_links", "space_id, status"),
+    ("memory_context_link_suggestions", "space_id, status"),
+)
+
+BENCHMARK_INITIAL_INSERT_TABLES = (
+    "memory_scopes",
+    "memory_threads",
+    "memory_facts",
+    "memory_documents",
+    "memory_chunks",
+    "memory_fact_operation_receipts",
+    "memory_idempotency_records",
 )
 
 BENCHMARK_WRITER_FENCE_FUNCTION_SQL = f"""
@@ -23,6 +44,7 @@ AS $$
 DECLARE
     registry_state VARCHAR(40);
     registry_projection_cleanup_state VARCHAR(40);
+    registry_cleanup_plan_state VARCHAR(40);
     old_space_id VARCHAR(80);
     new_space_id VARCHAR(80);
     target_space_id VARCHAR(80);
@@ -58,8 +80,9 @@ BEGIN
 
     target_space_id := COALESCE(new_space_id, old_space_id);
     BEGIN
-        SELECT benchmark_run.state, benchmark_run.projection_cleanup_state
-        INTO registry_state, registry_projection_cleanup_state
+        SELECT benchmark_run.state, benchmark_run.projection_cleanup_state,
+               benchmark_run.cleanup_plan_state
+        INTO registry_state, registry_projection_cleanup_state, registry_cleanup_plan_state
         FROM memory_comparison_benchmark_runs AS benchmark_run
         WHERE benchmark_run.space_id = target_space_id
         FOR SHARE NOWAIT;
@@ -80,10 +103,14 @@ BEGIN
 
     IF registry_state = 'active'
         AND registry_projection_cleanup_state = 'unsealed'
+        AND registry_cleanup_plan_state = 'sealed'
+        AND TG_OP = 'INSERT'
+        AND TG_TABLE_NAME IN (
+            'memory_scopes', 'memory_threads', 'memory_facts', 'memory_documents',
+            'memory_chunks', 'memory_fact_operation_receipts',
+            'memory_idempotency_records'
+        )
     THEN
-        IF TG_OP = 'DELETE' THEN
-            RETURN OLD;
-        END IF;
         RETURN NEW;
     END IF;
 
@@ -138,6 +165,7 @@ BENCHMARK_WRITER_FENCE_STATEMENTS = (
 __all__ = (
     "BENCHMARK_WRITER_FENCE_CONSTRAINT",
     "BENCHMARK_WRITER_FENCE_FUNCTION",
+    "BENCHMARK_INITIAL_INSERT_TABLES",
     "BENCHMARK_WRITER_FENCE_SQLSTATE",
     "BENCHMARK_WRITER_FENCE_STATEMENTS",
     "BENCHMARK_WRITER_FENCE_TABLES",

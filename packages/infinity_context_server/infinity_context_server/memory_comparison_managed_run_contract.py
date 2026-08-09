@@ -7,7 +7,7 @@ import re
 from collections.abc import Mapping
 from dataclasses import dataclass
 from types import MappingProxyType
-from typing import Protocol, final
+from typing import TYPE_CHECKING, Protocol, final
 
 from infinity_context_server.memory_comparison_full_execution_validation_slots import (
     FullExecutionCaseManifestEntry,
@@ -29,15 +29,17 @@ from infinity_context_server.memory_comparison_full_scope import (
 from infinity_context_server.memory_comparison_managed_attestation import (
     VerifiedManagedCompositionAttestation,
 )
-from infinity_context_server.memory_comparison_managed_execution_receipts import (
-    ManagedSealedJudgeOutcome,
-)
 from infinity_context_server.memory_comparison_managed_mem0_auth import (
     managed_mem0_runtime_mode,
 )
 from infinity_context_server.memory_comparison_managed_run_ports import ManagedPortIdentity
 from infinity_context_server.memory_comparison_provider_provenance import ProviderRouteAttestation
 from infinity_context_server.public_benchmark_models import PublicBenchmarkCase
+
+if TYPE_CHECKING:
+    from infinity_context_server.memory_comparison_managed_execution_receipts import (
+        ManagedSealedJudgeOutcome,
+    )
 
 _ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:-]{0,199}$")
 _SHA256 = re.compile(r"^[0-9a-f]{64}$")
@@ -204,9 +206,13 @@ class ManagedExecutionArtifacts:
             raise ManagedRunError("execution validations must be distinct")
         _digest(self.case_manifest_sha256, "case manifest")
         _validated_case_material_sha256(self.case_material_sha256)
+        if self.quality_outcomes:
+            from infinity_context_server.memory_comparison_managed_execution_receipts import (
+                ManagedSealedJudgeOutcome,
+            )
+
         if type(self.quality_outcomes) is not tuple or any(
-            type(item) is not ManagedSealedJudgeOutcome
-            for item in self.quality_outcomes
+            type(item) is not ManagedSealedJudgeOutcome for item in self.quality_outcomes
         ):
             raise ManagedRunError("execution quality outcomes must be exact")
 

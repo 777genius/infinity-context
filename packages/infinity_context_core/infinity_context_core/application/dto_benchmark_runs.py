@@ -5,6 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Literal
 
+from infinity_context_core.ports.benchmark_cleanup_plan import CanonicalCleanupPlanSeal
 from infinity_context_core.ports.benchmark_runs import (
     BenchmarkAbortCompletionReceipt,
     BenchmarkCleanupCompletionReceipt,
@@ -20,12 +21,15 @@ class RegisterBenchmarkRunCommand:
     infinity_target_identity_sha256: str
     space_slug: str
     idempotency_key_sha256: str
+    cleanup_plan_json: dict[str, object] | None = None
+    cleanup_plan_sha256: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
 class RegisterBenchmarkRunResult:
     record: BenchmarkRunRegistryRecord
     created: bool
+    cleanup_plan_seal: CanonicalCleanupPlanSeal | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -49,6 +53,7 @@ class CleanupBenchmarkRunCommand:
     space_id: str
     space_slug: str
     idempotency_key_sha256: str
+    cleanup_plan_sha256: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -62,6 +67,7 @@ class CleanupBenchmarkRunResult:
 class FinalizeBenchmarkRunCleanupCommand:
     run_id_sha256: str
     expected_cleanup_receipt_sha256: str
+    expected_cleanup_plan_sha256: str
     idempotency_key_sha256: str
 
 
@@ -79,6 +85,7 @@ class FinalizeUnsealedBenchmarkAbortCommand:
     space_id: str
     space_slug: str
     expected_cleanup_receipt_sha256: str
+    expected_cleanup_plan_sha256: str
     idempotency_key_sha256: str
 
 

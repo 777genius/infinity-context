@@ -8,6 +8,7 @@ from datetime import UTC, datetime, timedelta
 
 import httpx
 import pytest
+from benchmark_cleanup_plan_fixtures import cleanup_plan_pair
 from infinity_context_server import (
     memory_comparison_managed_http_lifecycle_evidence as evidence_module,
 )
@@ -103,15 +104,24 @@ def _targets() -> tuple[FullComparisonBackendTarget, ...]:
 
 
 def _registration() -> ManagedBenchmarkRunRegistration:
+    run_id_sha256 = hashlib.sha256(_RUN.encode()).hexdigest()
+    _, cleanup_plan_sha256 = cleanup_plan_pair(
+        run_id=run_id_sha256,
+        binding=_BINDING,
+        target=_INFINITY_TARGET,
+        space_slug=f"memory-comparison-{_RUN}",
+    )
     return ManagedBenchmarkRunRegistration(
         schema_version=REGISTRATION_SCHEMA_VERSION,
         authority="infinity_canonical",
-        run_id_sha256=hashlib.sha256(_RUN.encode()).hexdigest(),
+        run_id_sha256=run_id_sha256,
         binding_commitment_sha256=_BINDING,
         infinity_target_identity_sha256=_INFINITY_TARGET,
         space_id="space-registry-1",
         space_slug=f"memory-comparison-{_RUN}",
         state="active",
+        cleanup_plan_sha256=cleanup_plan_sha256,
+        cleanup_plan_state="sealed",
         created=True,
     )
 

@@ -30,6 +30,9 @@ from infinity_context_server.memory_comparison_managed_runtime_validation import
     managed_runtime_validation_public_payload,
     managed_runtime_validation_view,
 )
+from infinity_context_server.memory_comparison_mem0_runtime_attestation import (
+    public_mem0_runtime_attestation_validation,
+)
 from infinity_context_server.memory_comparison_provider_provenance import (
     ProviderRouteAttestation,
 )
@@ -763,6 +766,7 @@ __all__ = (
     "issue_gold_blind_component_evidence",
     "issue_policy_component_evidence_set",
     "issue_provider_component_evidence",
+    "public_mem0_runtime_attestation_validation",
     "issue_runtime_component_evidence",
     "issue_runtime_component_evidence_from_managed_attestation",
     "issue_session_component_evidence",

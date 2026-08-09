@@ -112,6 +112,10 @@ class ManagedPolicyDelegatePort:
     def exact_projection_evidence(self) -> object:
         return _trusted_port_delegate(self).exact_projection_evidence
 
+    @property
+    def mem0_terminal_observation(self) -> object:
+        return _trusted_port_delegate(self).mem0_terminal_observation
+
     def seal_canonical_source(self, **kwargs: object) -> tuple[object, ...]:
         return _trusted_port_delegate(self).seal_canonical_source(**kwargs)
 

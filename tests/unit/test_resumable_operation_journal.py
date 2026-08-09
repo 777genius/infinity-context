@@ -183,6 +183,17 @@ def test_request_binding_is_write_once_and_dispatch_is_idempotent(tmp_path) -> N
         service.prepare_dispatch(operations[0], _B)
 
 
+def test_pristine_proof_authenticates_initialized_zero_dispatch_state(tmp_path) -> None:
+    service, _, identity, manifest, operations, _, _ = _fixture(tmp_path)
+    service.initialize(identity, manifest)
+    proof = service.prove_pristine(identity, manifest)
+    assert len(proof) == 64
+    assert proof == service.prove_pristine(identity, manifest)
+    service.prepare_dispatch(operations[0], _A)
+    with pytest.raises(OperationJournalError, match="not_pristine"):
+        service.prove_pristine(identity, manifest)
+
+
 def test_prepare_dispatch_batch_is_atomic_replay_exact_and_retryable(tmp_path) -> None:
     service, journal, identity, manifest, operations, _, _ = _fixture(tmp_path)
     service.initialize(identity, manifest)

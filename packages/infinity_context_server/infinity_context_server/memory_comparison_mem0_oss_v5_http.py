@@ -44,6 +44,7 @@ _SAFE_ERROR_CODES = frozenset(
         "mem0_v5_http_configuration_invalid",
         "mem0_v5_http_request_invalid",
         "mem0_v5_http_response_invalid",
+        "mem0_v5_http_response_rejected",
         "mem0_v5_http_remote_failed",
         "mem0_v5_runtime_receipt_invalid",
         "mem0_v5_runtime_receipt_replayed",
@@ -499,6 +500,8 @@ class Mem0V5HttpPort:
         if type(content) is not bytes:
             raise Mem0V5HttpError("mem0_v5_http_remote_failed")
         if status_code != 200:
+            if status_code in {401, 403, 409}:
+                _fail("mem0_v5_http_response_rejected")
             _fail("mem0_v5_http_remote_failed")
         if not 1 <= len(content) <= _MAX_RESPONSE_BYTES:
             _fail("mem0_v5_http_response_invalid")

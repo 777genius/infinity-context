@@ -6,6 +6,11 @@ from datetime import UTC, datetime, timedelta
 
 import httpx
 import pytest
+from benchmark_cleanup_plan_fixtures import cleanup_plan_pair
+from infinity_context_core.ports.benchmark_cleanup_plan import (
+    ManagedBenchmarkCleanupPlan,
+    validate_managed_benchmark_cleanup_plan,
+)
 from infinity_context_server.memory_comparison_managed_benchmark_registry_http import (
     ManagedBenchmarkRegistryHttpAdapter,
     ManagedBenchmarkRegistryHttpConfig,
@@ -26,11 +31,30 @@ from memory_comparison_managed_benchmark_registry_test_support import (
     _lifecycle,
     _manifest,
     _MutableClock,
+    _plan,
     _registration,
     _seal,
     _target,
     _TruncatedCommittedStream,
 )
+
+
+def _plan_for_base_url(base_url: str) -> ManagedBenchmarkCleanupPlan:
+    target = _target(base_url)
+    value, digest = cleanup_plan_pair(
+        run_id=RUN,
+        binding=BINDING,
+        target=target,
+        space_slug=SPACE_SLUG,
+    )
+    return validate_managed_benchmark_cleanup_plan(
+        value,
+        digest,
+        run_id_sha256=RUN,
+        binding_commitment_sha256=BINDING,
+        infinity_target_identity_sha256=target,
+        space_slug=SPACE_SLUG,
+    )
 
 
 def test_mismatched_registration_response_is_terminal_and_secret_free() -> None:
@@ -44,6 +68,7 @@ def test_mismatched_registration_response_is_terminal_and_secret_free() -> None:
 
     with pytest.raises(ManagedBenchmarkRegistryHttpError) as caught:
         adapter.register(
+            cleanup_plan=_plan(),
             run_id_sha256=RUN,
             binding_commitment_sha256=BINDING,
             space_slug=SPACE_SLUG,
@@ -68,6 +93,7 @@ def test_expired_deadline_prevents_transport_call_and_closes_on_failure() -> Non
     )
     with pytest.raises(ManagedBenchmarkRegistryHttpError) as caught:
         adapter.register(
+            cleanup_plan=_plan(),
             run_id_sha256=RUN,
             binding_commitment_sha256=BINDING,
             space_slug=SPACE_SLUG,
@@ -85,6 +111,7 @@ def test_transport_failure_is_sanitized() -> None:
     adapter = ManagedBenchmarkRegistryHttpAdapter(_config(httpx.MockTransport(handler)))
     with pytest.raises(ManagedBenchmarkRegistryHttpError) as caught:
         adapter.register(
+            cleanup_plan=_plan(),
             run_id_sha256=RUN,
             binding_commitment_sha256=BINDING,
             space_slug=SPACE_SLUG,
@@ -118,6 +145,7 @@ def test_unknown_registration_replays_only_exact_attempt_then_allows_cleanup() -
     adapter = ManagedBenchmarkRegistryHttpAdapter(_config(httpx.MockTransport(handler)))
     with pytest.raises(ManagedBenchmarkRegistryHttpError) as caught:
         adapter.register(
+            cleanup_plan=_plan(),
             run_id_sha256=RUN,
             binding_commitment_sha256=BINDING,
             space_slug=SPACE_SLUG,
@@ -128,6 +156,7 @@ def test_unknown_registration_replays_only_exact_attempt_then_allows_cleanup() -
 
     with pytest.raises(ManagedBenchmarkRegistryHttpError) as mismatch:
         adapter.register(
+            cleanup_plan=_plan(),
             run_id_sha256=RUN,
             binding_commitment_sha256=BINDING,
             space_slug=SPACE_SLUG,
@@ -137,6 +166,7 @@ def test_unknown_registration_replays_only_exact_attempt_then_allows_cleanup() -
     assert registration_calls == 1
 
     recovered = adapter.register(
+        cleanup_plan=_plan(),
         run_id_sha256=RUN,
         binding_commitment_sha256=BINDING,
         space_slug=SPACE_SLUG,
@@ -177,12 +207,14 @@ def test_unknown_registration_recovery_uses_fresh_recovery_window() -> None:
     adapter = ManagedBenchmarkRegistryHttpAdapter(config)
     with pytest.raises(ManagedBenchmarkRegistryHttpError):
         adapter.register(
+            cleanup_plan=_plan(),
             run_id_sha256=RUN,
             binding_commitment_sha256=BINDING,
             space_slug=SPACE_SLUG,
         )
 
     adapter.register(
+        cleanup_plan=_plan(),
         run_id_sha256=RUN,
         binding_commitment_sha256=BINDING,
         space_slug=SPACE_SLUG,
@@ -212,6 +244,7 @@ def test_unknown_cleanup_replays_after_truncated_response_and_missed_window() ->
         _config(httpx.MockTransport(handler), clock=clock)
     )
     adapter.register(
+        cleanup_plan=_plan(),
         run_id_sha256=RUN,
         binding_commitment_sha256=BINDING,
         space_slug=SPACE_SLUG,
@@ -267,6 +300,7 @@ def test_unknown_finalize_replays_only_exact_attempt_then_closes() -> None:
 
     adapter = ManagedBenchmarkRegistryHttpAdapter(_config(httpx.MockTransport(handler)))
     adapter.register(
+        cleanup_plan=_plan(),
         run_id_sha256=RUN,
         binding_commitment_sha256=BINDING,
         space_slug=SPACE_SLUG,
@@ -327,6 +361,7 @@ def test_finalize_rejects_false_completion_digest_then_recovers_same_key() -> No
 
     adapter = ManagedBenchmarkRegistryHttpAdapter(_config(httpx.MockTransport(handler)))
     adapter.register(
+        cleanup_plan=_plan(),
         run_id_sha256=RUN,
         binding_commitment_sha256=BINDING,
         space_slug=SPACE_SLUG,
@@ -365,6 +400,7 @@ def test_unsealed_cleanup_cannot_claim_terminal_completion() -> None:
 
     adapter = ManagedBenchmarkRegistryHttpAdapter(_config(httpx.MockTransport(handler)))
     adapter.register(
+        cleanup_plan=_plan(),
         run_id_sha256=RUN,
         binding_commitment_sha256=BINDING,
         space_slug=SPACE_SLUG,
@@ -402,6 +438,7 @@ def test_cleanup_uses_fresh_window_after_benchmark_deadline_expires() -> None:
     )
     adapter = ManagedBenchmarkRegistryHttpAdapter(config)
     adapter.register(
+        cleanup_plan=_plan(),
         run_id_sha256=RUN,
         binding_commitment_sha256=BINDING,
         space_slug=SPACE_SLUG,
@@ -423,6 +460,7 @@ def test_cleanup_can_start_immediately_after_unsealed_registration() -> None:
 
     adapter = ManagedBenchmarkRegistryHttpAdapter(_config(httpx.MockTransport(handler)))
     adapter.register(
+        cleanup_plan=_plan(),
         run_id_sha256=RUN,
         binding_commitment_sha256=BINDING,
         space_slug=SPACE_SLUG,
@@ -451,6 +489,7 @@ def test_rejected_seal_keeps_client_usable_for_best_effort_cleanup() -> None:
 
     adapter = ManagedBenchmarkRegistryHttpAdapter(_config(httpx.MockTransport(handler)))
     adapter.register(
+        cleanup_plan=_plan(),
         run_id_sha256=RUN,
         binding_commitment_sha256=BINDING,
         space_slug=SPACE_SLUG,
@@ -461,7 +500,7 @@ def test_rejected_seal_keeps_client_usable_for_best_effort_cleanup() -> None:
             projection_manifest_sha256=manifest_sha256,
         )
 
-    assert caught.value.code == "managed_benchmark_registry_response_rejected"
+    assert caught.value.code == "managed_benchmark_registry_response_retryable"
     assert adapter._client.is_closed is False
     receipt = adapter.begin_cleanup()
     assert receipt.projection_cleanup == "blocked"
@@ -506,6 +545,7 @@ def test_lost_seal_response_pending_cleanup_can_finalize_exact_attempt() -> None
 
     adapter = ManagedBenchmarkRegistryHttpAdapter(_config(httpx.MockTransport(handler)))
     adapter.register(
+        cleanup_plan=_plan(),
         run_id_sha256=RUN,
         binding_commitment_sha256=BINDING,
         space_slug=SPACE_SLUG,
@@ -550,6 +590,7 @@ def test_unknown_seal_outcome_keeps_client_usable_for_cleanup() -> None:
 
     adapter = ManagedBenchmarkRegistryHttpAdapter(_config(httpx.MockTransport(handler)))
     adapter.register(
+        cleanup_plan=_plan(),
         run_id_sha256=RUN,
         binding_commitment_sha256=BINDING,
         space_slug=SPACE_SLUG,
@@ -572,18 +613,22 @@ def test_unknown_seal_outcome_keeps_client_usable_for_cleanup() -> None:
 @pytest.mark.parametrize("base_url", (f"{BASE_URL}/api", f"{BASE_URL}/api/"))
 def test_admitted_api_base_path_is_preserved_in_registry_url(base_url: str) -> None:
     seen_paths: list[str] = []
+    cleanup_plan = _plan_for_base_url(base_url)
 
     def handler(request: httpx.Request) -> httpx.Response:
         seen_paths.append(request.url.path)
+        registration = _registration(target=_target(base_url))
+        registration["data"]["cleanup_plan_sha256"] = cleanup_plan.sha256
         return httpx.Response(
             201,
-            json=_registration(target=_target(base_url)),
+            json=registration,
         )
 
     adapter = ManagedBenchmarkRegistryHttpAdapter(
         _config(httpx.MockTransport(handler), base_url=base_url)
     )
     adapter.register(
+        cleanup_plan=cleanup_plan,
         run_id_sha256=RUN,
         binding_commitment_sha256=BINDING,
         space_slug=SPACE_SLUG,
@@ -617,6 +662,7 @@ def test_absolute_deadline_is_rechecked_while_response_streams() -> None:
 
     with pytest.raises(ManagedBenchmarkRegistryHttpError) as caught:
         adapter.register(
+            cleanup_plan=_plan(),
             run_id_sha256=RUN,
             binding_commitment_sha256=BINDING,
             space_slug=SPACE_SLUG,
@@ -670,6 +716,7 @@ def test_successful_completion_receipt_is_returned_when_client_close_fails(
     transport = httpx.MockTransport(handler)
     adapter = ManagedBenchmarkRegistryHttpAdapter(_config(transport))
     adapter.register(
+        cleanup_plan=_plan(),
         run_id_sha256=RUN,
         binding_commitment_sha256=BINDING,
         space_slug=SPACE_SLUG,
@@ -701,6 +748,7 @@ def test_context_exit_rejects_silent_cleanup_abandonment_without_network_cleanup
     adapter = ManagedBenchmarkRegistryHttpAdapter(_config(httpx.MockTransport(handler)))
     with pytest.raises(ManagedBenchmarkRegistryHttpError) as caught, adapter:
         adapter.register(
+            cleanup_plan=_plan(),
             run_id_sha256=RUN,
             binding_commitment_sha256=BINDING,
             space_slug=SPACE_SLUG,
@@ -730,6 +778,7 @@ def test_control_flow_base_exceptions_preserve_type_without_secret_traceback(
     adapter = ManagedBenchmarkRegistryHttpAdapter(_config(httpx.MockTransport(handler)))
     with pytest.raises(expected_type) as caught:
         adapter.register(
+            cleanup_plan=_plan(),
             run_id_sha256=RUN,
             binding_commitment_sha256=BINDING,
             space_slug=SPACE_SLUG,
@@ -755,6 +804,7 @@ def test_cleanup_receipt_digest_and_outbox_counts_are_verified() -> None:
 
     adapter = ManagedBenchmarkRegistryHttpAdapter(_config(httpx.MockTransport(handler)))
     adapter.register(
+        cleanup_plan=_plan(),
         run_id_sha256=RUN,
         binding_commitment_sha256=BINDING,
         space_slug=SPACE_SLUG,

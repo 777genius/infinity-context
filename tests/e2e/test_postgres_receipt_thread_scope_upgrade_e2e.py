@@ -64,12 +64,15 @@ async def _assert_receipt_and_thread_scope_upgrade(database_url: str) -> None:
             ):
                 await upgrade_schema(engine)
             async with engine.connect() as connection:
-                assert await connection.scalar(
-                    text(
-                        "SELECT migration_id FROM infinity_context_schema_migrations "
-                        "ORDER BY migration_id DESC LIMIT 1"
+                assert (
+                    await connection.scalar(
+                        text(
+                            "SELECT migration_id FROM infinity_context_schema_migrations "
+                            "ORDER BY migration_id DESC LIMIT 1"
+                        )
                     )
-                ) == "0031_receipt_snapshot_identity"
+                    == "0031_receipt_snapshot_identity"
+                )
         finally:
             await engine.dispose()
 
@@ -80,7 +83,7 @@ async def _assert_receipt_and_thread_scope_upgrade(database_url: str) -> None:
         try:
             result = await upgrade_schema(engine)
             assert result.legacy_baseline is True
-            assert result.current == "0032_receipt_and_thread_scope_integrity"
+            assert result.current == "0033_benchmark_cleanup_plan"
             await _assert_same_thread_relation_and_not_null_keys(engine)
             await _assert_thread_scope_fks_and_append_only_receipts(engine)
         finally:

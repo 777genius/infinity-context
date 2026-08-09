@@ -9,6 +9,9 @@ from infinity_context_adapters.postgres.models import Base
 
 _TABLE_NAME = "memory_comparison_benchmark_runs"
 _BENCHMARK_LIFECYCLE_COLUMNS = (
+    "cleanup_plan_json",
+    "cleanup_plan_sha256",
+    "cleanup_plan_state",
     "projection_manifest_json",
     "projection_manifest_sha256",
     "projection_cleanup_state",
@@ -17,6 +20,7 @@ _BENCHMARK_LIFECYCLE_COLUMNS = (
     "completed_at",
 )
 _BENCHMARK_LIFECYCLE_CONSTRAINTS = (
+    "ck_memory_comparison_benchmark_run_cleanup_plan_coupling",
     "ck_memory_comparison_benchmark_run_state",
     "ck_memory_comparison_benchmark_run_cleanup_state",
     "ck_memory_comparison_benchmark_run_manifest_coupling",
@@ -24,6 +28,11 @@ _BENCHMARK_LIFECYCLE_CONSTRAINTS = (
     "ck_memory_comparison_benchmark_run_projection_lifecycle",
 )
 _CURRENT_CONSTRAINT_MARKERS = {
+    "ck_memory_comparison_benchmark_run_cleanup_plan_coupling": (
+        "cleanup_plan_json",
+        "cleanup_plan_sha256",
+        "recovery_blocked",
+    ),
     "ck_memory_comparison_benchmark_run_state": ("cleanup_aborted",),
     "ck_memory_comparison_benchmark_run_cleanup_state": (
         "cleanup_aborted",
@@ -67,6 +76,9 @@ def _ensure_postgres_benchmark_projection_manifest_schema(
         return
     existing_columns = _column_names(connection)
     additive_columns = (
+        ("cleanup_plan_json", "JSONB"),
+        ("cleanup_plan_sha256", "VARCHAR(64)"),
+        ("cleanup_plan_state", "VARCHAR(40)"),
         ("projection_manifest_json", "JSONB"),
         ("projection_manifest_sha256", "VARCHAR(64)"),
         ("projection_cleanup_state", "VARCHAR(40)"),
@@ -78,6 +90,24 @@ def _ensure_postgres_benchmark_projection_manifest_schema(
         if column_name not in existing_columns:
             connection.execute(text(f"ALTER TABLE {_TABLE_NAME} ADD COLUMN {column_name} {ddl}"))
 
+    connection.execute(
+        text(
+            """
+            UPDATE memory_comparison_benchmark_runs
+            SET cleanup_plan_state = 'recovery_blocked'
+            WHERE cleanup_plan_state IS NULL
+            """
+        )
+    )
+    connection.execute(
+        text(
+            """
+            ALTER TABLE memory_comparison_benchmark_runs
+            ALTER COLUMN cleanup_plan_state SET DEFAULT 'recovery_blocked',
+            ALTER COLUMN cleanup_plan_state SET NOT NULL
+            """
+        )
+    )
     connection.execute(
         text(
             """
@@ -109,6 +139,11 @@ def _ensure_postgres_benchmark_projection_manifest_schema(
             )
         )
     constraint_definitions = {
+        "ck_memory_comparison_benchmark_run_cleanup_plan_coupling": (
+            "(cleanup_plan_json IS NOT NULL AND cleanup_plan_sha256 IS NOT NULL "
+            "AND cleanup_plan_state = 'sealed') OR (cleanup_plan_json IS NULL "
+            "AND cleanup_plan_sha256 IS NULL AND cleanup_plan_state = 'recovery_blocked')"
+        ),
         "ck_memory_comparison_benchmark_run_state": (
             "state IN ('active', 'cleanup_pending', 'cleanup_complete', 'cleanup_aborted')"
         ),
@@ -192,6 +227,9 @@ def _ensure_sqlite_benchmark_projection_manifest_schema(
                 "WHEN state = 'active' THEN 'unsealed' "
                 "WHEN state = 'cleanup_pending' THEN 'blocked' END"
             )
+        elif column_name == "cleanup_plan_state":
+            existing_value = "cleanup_plan_state" if column_name in columns else "NULL"
+            select_expressions.append(f"COALESCE({existing_value}, 'recovery_blocked')")
         elif column_name in columns:
             select_expressions.append(column_name)
         else:

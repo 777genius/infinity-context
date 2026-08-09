@@ -51,6 +51,7 @@ def finalize_unsealed_abort(
                 "space_id": registration.space_id,
                 "space_slug": registration.space_slug,
                 "receipt_sha256": initiation,
+                "cleanup_plan_sha256": registration.cleanup_plan_sha256,
             },
             idempotency_key=adapter._abort_finalize_idempotency_key,
             accepted_statuses=frozenset({200}),

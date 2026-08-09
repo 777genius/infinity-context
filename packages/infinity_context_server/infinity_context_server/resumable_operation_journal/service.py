@@ -23,6 +23,7 @@ from infinity_context_server.resumable_operation_journal.domain import (
     RetryDisposition,
     VerifiedOperationReceipt,
     create_operation_event,
+    sha256_commitment,
 )
 from infinity_context_server.resumable_operation_journal.ports import (
     OperationJournalPort,
@@ -455,6 +456,45 @@ class ResumableOperationJournalService:
                 committed_count=committed,
                 outcome_unknown_count=unknown,
                 state_commitment_sha256=transaction.state_commitment(run_id=run_id),
+            )
+
+    def prove_pristine(self, identity: OperationRunIdentity, manifest: OperationManifest) -> str:
+        """Authenticate an initialized manifest with no attempted operation."""
+
+        if type(identity) is not OperationRunIdentity or type(manifest) is not OperationManifest:
+            raise OperationJournalError("operation_journal_pristine_input_invalid")
+        self._assert_manifest_binding(identity, manifest)
+        self._manifest_policy.validate(identity=identity, manifest=manifest)
+        self._assert_runtime_binding(identity)
+        with self._journal.write_transaction() as transaction:
+            run = self._require_run(transaction, identity.run_id)
+            if run.identity != identity:
+                raise OperationJournalError("operation_journal_pristine_identity_divergent")
+            persisted = OperationManifest(tuple(transaction.iter_manifest(run_id=identity.run_id)))
+            operations = tuple(transaction.iter_operations(run_id=identity.run_id))
+            receipts = tuple(transaction.iter_verified_receipts(run_id=identity.run_id))
+            events = tuple(transaction.iter_events(run_id=identity.run_id))
+            self._verify_replay(transaction, run)
+            if (
+                persisted != manifest
+                or operations
+                or receipts
+                or run.phase is not OperationRunPhase.ACTIVE
+                or run.event_count != 1
+                or len(events) != 1
+                or events[0].event_type != "run_initialized"
+                or events[0].logical_operation_id is not None
+                or run.head_event_sha256 != events[0].event_sha256
+            ):
+                raise OperationJournalError("operation_journal_not_pristine")
+            return sha256_commitment(
+                {
+                    "schema_version": "operation-journal-pristine-proof.v1",
+                    "identity": identity.commitment_payload(),
+                    "manifest_commitment_sha256": manifest.commitment_sha256,
+                    "head_event_sha256": events[0].event_sha256,
+                    "state_commitment_sha256": transaction.state_commitment(run_id=identity.run_id),
+                }
             )
 
     def retry_pending_notifications(self, run_id: str, *, batch_size: int = 64) -> int:

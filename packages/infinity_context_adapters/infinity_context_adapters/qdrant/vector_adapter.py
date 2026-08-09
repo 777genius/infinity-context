@@ -19,6 +19,10 @@ from infinity_context_core.ports.adapters import (
     VectorUpsertItem,
     VectorWriteResult,
 )
+from infinity_context_core.ports.benchmark_unsealed_projection import (
+    BenchmarkProjectionPassReceipt,
+    BenchmarkUnsealedProjectionScope,
+)
 from infinity_context_core.ports.vector_projection_evidence import (
     VectorProjectionDeleteEvidence,
     VectorProjectionPresenceEvidence,
@@ -271,6 +275,17 @@ class QdrantVectorMemoryAdapter:
             scope=scope,
             chunk_ids=chunk_ids,
             pass_index=pass_index,
+        )
+
+    async def delete_benchmark_space_two_pass(
+        self,
+        *,
+        space_id: str,
+        scopes: tuple[BenchmarkUnsealedProjectionScope, ...],
+    ) -> tuple[BenchmarkProjectionPassReceipt, BenchmarkProjectionPassReceipt]:
+        return await self._identity_evidence.delete_benchmark_space_two_pass(
+            space_id=space_id,
+            scopes=scopes,
         )
 
     async def search_chunks(
