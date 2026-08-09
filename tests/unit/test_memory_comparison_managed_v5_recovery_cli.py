@@ -167,6 +167,88 @@ import infinity_context_server.memory_comparison_managed_v5_recovery_cli
     assert result.returncode == 0, result.stderr
 
 
+def test_recovery_bootstrap_sets_bytecode_guard_before_project_imports(
+    tmp_path: Path,
+) -> None:
+    import os
+    import tomllib
+
+    script = r"""
+import sys
+sys.dont_write_bytecode = False
+import infinity_context_server.memory_comparison_managed_v5_recovery_bootstrap
+assert sys.dont_write_bytecode is True
+assert 'infinity_context_server.memory_comparison_managed_v5_recovery_cli' not in sys.modules
+assert (
+    'infinity_context_server.memory_comparison_managed_v5_live_cli_config_loader'
+    not in sys.modules
+)
+print('RECOVERY_BOOTSTRAP_OK')
+"""
+
+    env = dict(os.environ)
+    env.pop("PYTHONDONTWRITEBYTECODE", None)
+    env["PYTHONPYCACHEPREFIX"] = str(tmp_path / "bootstrap-cache")
+    result = subprocess.run(
+        [sys.executable, "-c", script],
+        check=False,
+        capture_output=True,
+        text=True,
+        env=env,
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert result.stdout.strip() == "RECOVERY_BOOTSTRAP_OK"
+    project = tomllib.loads(Path("pyproject.toml").read_text())
+    assert project["project"]["scripts"]["infinity-context-managed-v5-recover"] == (
+        "infinity_context_server.memory_comparison_managed_v5_recovery_bootstrap:main"
+    )
+
+
+def test_cold_recovery_bootstrap_creates_no_dependency_or_staged_bytecode(
+    tmp_path: Path,
+) -> None:
+    import os
+
+    cache = tmp_path / "pycache-prefix"
+    staged = tmp_path / "staged-phase-c"
+    staged.mkdir()
+    (staged / "phase_c_probe.py").write_text("VALUE = 1\n")
+    script = rf"""
+import sys
+from infinity_context_server.memory_comparison_managed_v5_recovery_bootstrap import main
+sys.path.insert(0, {str(staged)!r})
+import phase_c_probe
+assert phase_c_probe.VALUE == 1
+main(['--help'])
+"""
+    env = dict(os.environ)
+    env.pop("PYTHONDONTWRITEBYTECODE", None)
+    env["PYTHONPYCACHEPREFIX"] = str(cache)
+
+    result = subprocess.run(
+        [sys.executable, "-c", script],
+        check=False,
+        capture_output=True,
+        text=True,
+        env=env,
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert not tuple(staged.rglob("*.pyc"))
+    dependency_bytecode = tuple(
+        path
+        for path in cache.rglob("*.pyc")
+        if "infinity_context_server" in path.as_posix()
+        and path.stem.split(".")[0]
+        not in {
+            "__init__",
+            "memory_comparison_managed_v5_recovery_bootstrap",
+        }
+    )
+    assert dependency_bytecode == ()
+
+
 def test_expired_original_deadline_uses_fresh_bounded_recovery_deadline(
     tmp_path: Path,
 ) -> None:

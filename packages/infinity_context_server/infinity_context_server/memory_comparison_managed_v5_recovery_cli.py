@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 import hashlib
 import os
+import sys
 from collections.abc import Callable, Mapping, Sequence
 from contextlib import suppress
 from datetime import UTC, datetime, timedelta
@@ -83,6 +84,7 @@ def run_recovery_cli(
     env: Mapping[str, str],
     clock: Callable[[], datetime] = _utc_now,
 ) -> int:
+    sys.dont_write_bytecode = True
     store: ManagedV5LiveRecoveryJournalStore | None = None
     mem0: ManagedV5RecoveryMem0Adapter | None = None
     pristine = None
