@@ -19,6 +19,9 @@ from infinity_context_server.memory_comparison_managed_mem0_v5_extraction_projec
 from infinity_context_server.memory_comparison_publishable_methodology import (
     SUBSCRIPTION_RUNTIME_BASE_INSTRUCTIONS_SHA256,
 )
+from infinity_context_server.memory_comparison_reviewed_node import (
+    require_reviewed_node_executable,
+)
 
 _AUTHORITY_SCHEMA = "managed-mem0-v5-live-runtime-authority.v3"
 _RUNTIME_RESPONSE_FORMAT_SHA256 = "812938567c7a81bac6ed3266608adf470dedc57706102e039422f695495322bf"
@@ -26,8 +29,6 @@ _RUNTIME_RESPONSE_SCHEMA_SHA256 = "2461f7a465be82aa67751dc04e0717cde75c69b86e7db
 _MAX_AUTHORITY_BYTES = 64 * 1024
 _MAX_PUBLIC_IMMUTABLE_BYTES = 32 * 1024 * 1024
 _MEM0_ADAPTER_ORIGIN = "http://127.0.0.1:19091"
-_REVIEWED_NODE_SHA256 = "b2959781cc5a74c357ffa02367efa8a0330cbb1c9cb347732fdfaaaca381cbcd"
-_REVIEWED_NODE_SIZE_BYTES = 123_438_592
 _SHA256_CHARS = frozenset("0123456789abcdef")
 _PRIVATE_FILE_MODE = 0o600
 _PRIVATE_ROOT_MODE = 0o700
@@ -552,20 +553,9 @@ def _read_public_immutable(
 
 
 def _verify_reviewed_node(path: Path, expected_sha256: str) -> None:
-    if expected_sha256 != _REVIEWED_NODE_SHA256:
-        raise ManagedV5LiveConfigError("managed_v5_live_node_authority_invalid")
     try:
-        metadata = path.stat()
-        if metadata.st_size != _REVIEWED_NODE_SIZE_BYTES:
-            raise ValueError
-        _read_public_immutable(
-            path,
-            expected_sha256,
-            maximum_bytes=_REVIEWED_NODE_SIZE_BYTES,
-            executable=True,
-            code="managed_v5_live_node_authority_invalid",
-        )
-    except (OSError, ValueError, ManagedV5LiveConfigError):
+        require_reviewed_node_executable(path, expected_sha256)
+    except ValueError:
         raise ManagedV5LiveConfigError("managed_v5_live_node_authority_invalid") from None
 
 

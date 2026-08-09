@@ -9,6 +9,7 @@ from pathlib import Path
 
 import pytest
 from infinity_context_server import memory_comparison_managed_v5_live_config as subject
+from infinity_context_server import memory_comparison_reviewed_node as reviewed_node
 from infinity_context_server.memory_comparison_managed_mem0_v5_extraction_projection import (
     MEM0_V5_EXTRACTION_RESPONSE_FORMAT_SHA256,
     MEM0_V5_EXTRACTION_SCHEMA_SHA256,
@@ -110,8 +111,8 @@ def _config(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> ManagedV5LiveCon
     node_sha256 = _write(node, b"reviewed-node", 0o555)
     adapter_runtime_pin = public / "adapter-runtime-pin.json"
     adapter_runtime_pin_sha256 = _write(adapter_runtime_pin, b'{"pin":true}', 0o444)
-    monkeypatch.setattr(subject, "_REVIEWED_NODE_SHA256", node_sha256)
-    monkeypatch.setattr(subject, "_REVIEWED_NODE_SIZE_BYTES", node.stat().st_size)
+    monkeypatch.setattr(reviewed_node, "REVIEWED_NODE_EXECUTABLE_SHA256", node_sha256)
+    monkeypatch.setattr(reviewed_node, "REVIEWED_NODE_EXECUTABLE_SIZE_BYTES", node.stat().st_size)
 
     filesystem = ManagedV5LiveFilesystemConfig(
         state_root=roots["state"],

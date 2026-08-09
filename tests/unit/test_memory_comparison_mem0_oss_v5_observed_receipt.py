@@ -524,6 +524,28 @@ def test_node_hash_drift_is_rejected_before_secret_consumption(
     assert secret.consumed is False
 
 
+@_requires_pinned_runtime
+def test_authority_and_verifier_node_path_mismatch_is_rejected_before_secret(
+    _real_phase_c_authority: None,
+) -> None:
+    binding = _binding()
+    _assert_e904_binding(binding)
+    authority = replace(_authority(binding), node_executable_path="/different/node")
+    secret = _SecretConsumptionProbe()
+    boundary = RuntimeReceiptV2Boundary(
+        NodePublicReceiptVerifier(RUNTIME_REPO, node_executable=NODE_EXECUTABLE)
+    )
+
+    with pytest.raises(Mem0V5HttpError, match="mem0_v5_http_configuration_invalid"):
+        Mem0V5ObservedExtractionReceiptVerifier(
+            boundary=boundary,
+            runtime_binding=binding,
+            receipt_secret=secret,  # type: ignore[arg-type]
+            authority=authority,
+        )
+    assert secret.consumed is False
+
+
 @pytest.mark.parametrize(
     ("section", "field", "malformed"),
     (

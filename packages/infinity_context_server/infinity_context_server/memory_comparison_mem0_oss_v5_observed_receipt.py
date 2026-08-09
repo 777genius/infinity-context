@@ -34,27 +34,18 @@ from infinity_context_server.memory_comparison_mem0_oss_v5_http import (
     Mem0V5HttpError,
     Mem0V5RuntimeReceiptEnvelope,
 )
+from infinity_context_server.memory_comparison_reviewed_node import (
+    REVIEWED_NODE_EXECUTABLE_SHA256,
+    require_reviewed_node_executable,
+)
 from infinity_context_server.memory_comparison_secret_validation import (
     is_bounded_text_secret,
 )
 
 _SAFE_TEXT = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:-]{0,511}$")
 _REQUESTED_OUTPUT_TOKENS = 4096
-_MAX_NODE_EXECUTABLE_BYTES = 256 * 1024 * 1024
 _PROVIDER_FREE_TEST_SEAL = object()
 _PREFLIGHTED_COMPOSITION_SEAL = object()
-
-
-@dataclass(frozen=True, slots=True)
-class _ReviewedNodeExecutableAuthority:
-    canonical_path: Path
-    sha256: str
-
-
-_REVIEWED_NODE_EXECUTABLE = _ReviewedNodeExecutableAuthority(
-    canonical_path=Path("/usr/local/bin/node"),
-    sha256="b2959781cc5a74c357ffa02367efa8a0330cbb1c9cb347732fdfaaaca381cbcd",
-)
 
 
 @final
@@ -558,16 +549,14 @@ def _preflight_live_boundary(
         or _sha256_file(manifest) != reviewed.runtime_artifact_manifest.sha256
     ):
         raise ValueError
-    reviewed_node = _REVIEWED_NODE_EXECUTABLE
-    if (
-        authority.node_executable_path != str(reviewed_node.canonical_path)
-        or authority.node_executable_sha256 != reviewed_node.sha256
-    ):
+    if authority.node_executable_sha256 != REVIEWED_NODE_EXECUTABLE_SHA256:
         raise ValueError
-    node = _canonical_path(verifier.node_executable, directory=False)
-    if node != reviewed_node.canonical_path:
+    node = require_reviewed_node_executable(
+        verifier.node_executable,
+        authority.node_executable_sha256,
+    )
+    if authority.node_executable_path != str(node):
         raise ValueError
-    _require_pinned_node_executable(node, reviewed_node.sha256)
     verifier._verified_module_url()
 
 
@@ -581,73 +570,6 @@ def _canonical_path(value: object, *, directory: bool) -> Path:
     if (directory and not stat.S_ISDIR(mode)) or (not directory and not stat.S_ISREG(mode)):
         raise ValueError
     return resolved
-
-
-def _require_pinned_node_executable(path: Path, expected_sha256: str) -> None:
-    before = os.stat(path, follow_symlinks=False)
-    mode = before.st_mode
-    if (
-        not stat.S_ISREG(mode)
-        or not mode & stat.S_IRUSR
-        or not mode & stat.S_IXUSR
-        or mode & (stat.S_IWGRP | stat.S_IWOTH)
-        or not 1 <= before.st_size <= _MAX_NODE_EXECUTABLE_BYTES
-        or not os.access(path, os.X_OK)
-    ):
-        raise ValueError
-    flags = (
-        os.O_RDONLY
-        | getattr(os, "O_CLOEXEC", 0)
-        | getattr(os, "O_NOFOLLOW", 0)
-        | getattr(os, "O_NONBLOCK", 0)
-    )
-    descriptor = os.open(path, flags)
-    try:
-        observed = os.fstat(descriptor)
-        stable = (
-            observed.st_dev,
-            observed.st_ino,
-            observed.st_uid,
-            observed.st_gid,
-            observed.st_mode,
-            observed.st_size,
-        ) == (
-            before.st_dev,
-            before.st_ino,
-            before.st_uid,
-            before.st_gid,
-            before.st_mode,
-            before.st_size,
-        )
-        if not stable or not stat.S_ISREG(observed.st_mode):
-            raise ValueError
-        actual_sha256 = _sha256_descriptor(descriptor, observed.st_size)
-    finally:
-        os.close(descriptor)
-    after = os.stat(path, follow_symlinks=False)
-    if (after.st_dev, after.st_ino, after.st_uid, after.st_gid, after.st_mode, after.st_size) != (
-        before.st_dev,
-        before.st_ino,
-        before.st_uid,
-        before.st_gid,
-        before.st_mode,
-        before.st_size,
-    ) or actual_sha256 != expected_sha256:
-        raise ValueError
-
-
-def _sha256_descriptor(descriptor: int, expected_size: int) -> str:
-    digest = hashlib.sha256()
-    consumed = 0
-    while consumed < expected_size:
-        chunk = os.read(descriptor, min(1024 * 1024, expected_size - consumed))
-        if not chunk:
-            raise ValueError
-        consumed += len(chunk)
-        digest.update(chunk)
-    if os.read(descriptor, 1):
-        raise ValueError
-    return digest.hexdigest()
 
 
 def _sha256_file(path: Path) -> str:
