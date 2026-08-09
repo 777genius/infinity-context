@@ -70,19 +70,20 @@ class SQLiteManagedMem0V5CheckpointHead:
 
     __slots__ = ("_hmac_key", "_path")
 
-    def __init__(self, path: Path, *, hmac_key: bytes) -> None:
+    def __init__(self, path: Path, *, hmac_key: bytes, require_existing: bool = False) -> None:
         if (
             not isinstance(path, Path)
             or not path.is_absolute()
             or path.name in {"", ".", ".."}
             or type(hmac_key) is not bytes
             or len(hmac_key) < 32
+            or type(require_existing) is not bool
         ):
             raise ManagedRunError(_INPUT_INVALID)
         self._path = path
         self._hmac_key = bytes(hmac_key)
         try:
-            newly_created = self._prepare_private_storage()
+            newly_created = self._prepare_private_storage(require_existing=require_existing)
             with self._connection() as connection:
                 if newly_created:
                     self._initialize_new(connection)
@@ -142,6 +143,28 @@ class SQLiteManagedMem0V5CheckpointHead:
                 else:
                     connection.execute("COMMIT")
             return None if row is None else row[4]
+        except ManagedRunError:
+            raise
+        except (OSError, sqlite3.Error):
+            raise ManagedRunError(_UNAVAILABLE) from None
+
+    def require_empty(self) -> None:
+        """Authenticate the complete store and reject every persisted head row."""
+
+        try:
+            with self._connection() as connection:
+                connection.execute("BEGIN")
+                try:
+                    self._verify_schema(connection)
+                    self._verify_all_heads(connection)
+                    row = connection.execute("SELECT COUNT(*) FROM checkpoint_heads").fetchone()
+                    if row is None or type(row[0]) is not int or row[0] != 0:
+                        raise ManagedRunError(_CORRUPT)
+                except BaseException:
+                    connection.execute("ROLLBACK")
+                    raise
+                else:
+                    connection.execute("COMMIT")
         except ManagedRunError:
             raise
         except (OSError, sqlite3.Error):
@@ -312,8 +335,7 @@ class SQLiteManagedMem0V5CheckpointHead:
         if (
             tables != _EXPECTED_TABLES
             or unexpected
-            or meta
-            != [(_SCHEMA_VERSION, _STRUCTURAL_FINGERPRINT, self._schema_hmac())]
+            or meta != [(_SCHEMA_VERSION, _STRUCTURAL_FINGERPRINT, self._schema_hmac())]
         ):
             raise ManagedRunError(_CORRUPT)
 
@@ -357,14 +379,18 @@ class SQLiteManagedMem0V5CheckpointHead:
             },
         )
 
-    def _prepare_private_storage(self) -> bool:
+    def _prepare_private_storage(self, *, require_existing: bool) -> bool:
         directory = self._path.parent
         if not os.path.lexists(directory):
+            if require_existing:
+                raise ManagedRunError(_UNAVAILABLE)
             directory.mkdir(mode=0o700, parents=True)
         _require_private_directory(directory)
         self._assert_surfaces()
         newly_created = not os.path.lexists(self._path)
         if newly_created:
+            if require_existing:
+                raise ManagedRunError(_UNAVAILABLE)
             directory_fd = _open_directory(directory)
             try:
                 flags = os.O_CREAT | os.O_EXCL | os.O_WRONLY | os.O_NOFOLLOW

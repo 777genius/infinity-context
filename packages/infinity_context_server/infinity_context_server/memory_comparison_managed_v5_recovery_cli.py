@@ -49,13 +49,16 @@ from infinity_context_server.memory_comparison_managed_v5_recovery_mem0 import (
     ManagedV5RecoveryMem0Adapter,
 )
 from infinity_context_server.memory_comparison_managed_v5_recovery_operation_authority import (
+    ManagedV5RecoveryOperationAuthorityError,
     build_managed_v5_recovery_pristine_verifier,
+    require_managed_v5_recovery_pristine_checkpoint_head,
 )
 from infinity_context_server.memory_comparison_managed_v5_recovery_projector import (
     rebuild_managed_v5_recovery_public_projection,
 )
 from infinity_context_server.memory_comparison_managed_v5_recovery_registry import (
     ManagedV5RecoveryError,
+    RecoveryRegistryCoordinator,
 )
 from infinity_context_server.memory_comparison_managed_v5_recovery_report import (
     ManagedV5RecoveryReport,
@@ -87,6 +90,7 @@ def run_recovery_cli(
     recovery_secret: bytearray | None = None
     authenticator: RecoveryJournalAuthenticator | None = None
     cleanup_readback_owner = None
+    material = None
     try:
         arguments = _arguments(argv)
         config, extraction_file, extraction_sha = load_managed_v5_live_cli_config(
@@ -155,15 +159,56 @@ def run_recovery_cli(
         if rebuilt != cleanup_plan:
             raise ValueError
         token = _token(env)
+        recovery_now = _clock_value(clock)
+        registry_config = _registry_config(authority, token, clock, recovery_now)
+
+        def registry_factory():
+            return ManagedBenchmarkRegistryHttpAdapter(registry_config)
+
+        if _is_preregistration_absence_candidate(journal):
+            if _path_present(authority.checkpoint_head_file):
+                material = load_recovery_distinct_secrets(
+                    filesystem=filesystem,
+                    credential_paths=public.public_composition.inputs.credential_paths,
+                    recovery_secret_sha256=recovery_secret_sha,
+                )
+                try:
+                    require_managed_v5_recovery_pristine_checkpoint_head(
+                        checkpoint_head_file=authority.checkpoint_head_file,
+                        checkpoint_head_secret=bytes(material.checkpoint_head_secret),
+                        authority=public.public_composition.manifest_authority,
+                        admission=public.public_composition.admission,
+                    )
+                except ManagedV5RecoveryOperationAuthorityError as error:
+                    raise ManagedV5RecoveryError(
+                        "managed_v5_recovery_preregistration_state_invalid", exit_code=3
+                    ) from error
+                finally:
+                    material.close()
+                    material = None
+            observed = RecoveryRegistryCoordinator(
+                authority=authority,
+                cleanup_plan=cleanup_plan,
+                factory=registry_factory,
+            ).recover_existing_or_missing(cleanup_plan.sha256)
+            if observed is None:
+                report = _no_registration_report(journal)
+                write_recovery_report(
+                    filesystem.recovery_report_file,
+                    report_root=filesystem.report_root,
+                    report=report,
+                )
+                return 0
         budget = ManagedMem0V5Budget.for_authority(public.public_composition.manifest_authority)
         budget_policy = ManagedMem0V5BudgetPolicy(
             budget.total_call_count, public.public_composition.extraction_token_budget
         )
-        material = load_recovery_distinct_secrets(
-            filesystem=filesystem,
-            credential_paths=public.public_composition.inputs.credential_paths,
-            recovery_secret_sha256=recovery_secret_sha,
-        )
+        if material is None:
+            material = load_recovery_distinct_secrets(
+                filesystem=filesystem,
+                credential_paths=public.public_composition.inputs.credential_paths,
+                recovery_secret_sha256=recovery_secret_sha,
+            )
         try:
             composition = _compose_mem0(public.public_composition, material.credentials)
             capabilities = composition.issue_recovery_capabilities(
@@ -182,6 +227,7 @@ def run_recovery_cli(
             )
         finally:
             material.close()
+            material = None
         mem0 = ManagedV5RecoveryMem0Adapter(
             coordinator=composition.coordinator,
             authority=composition.authority,
@@ -194,13 +240,11 @@ def run_recovery_cli(
             pristine_state=pristine,
         )
         cleanup_readback_owner = None
-        recovery_now = _clock_value(clock)
-        registry_config = _registry_config(authority, token, clock, recovery_now)
         runner = ManagedV5RecoveryRunner(
             authority=authority,
             cleanup_plan=cleanup_plan,
             journal=store,
-            registry_factory=lambda: ManagedBenchmarkRegistryHttpAdapter(registry_config),
+            registry_factory=registry_factory,
             mem0=mem0,
             clock=clock,
         )
@@ -224,6 +268,8 @@ def run_recovery_cli(
             _safe_close(cleanup_readback_owner)
         if pristine is not None:
             _safe_close(pristine)
+        if material is not None:
+            _safe_close(material)
         if store is not None:
             _safe_close(store)
         elif authenticator is not None:
@@ -297,6 +343,43 @@ def _no_registration_report(journal) -> ManagedV5RecoveryReport:
         journal.events[-1].event_sha256,
         journal.body_sha256,
     )
+
+
+def _is_preregistration_absence_candidate(journal) -> bool:
+    if tuple(event.kind for event in journal.events) != (
+        "prepared",
+        "cleanup_plan_prepared",
+    ):
+        return False
+    authority = journal.authority
+    for path in (
+        authority.checkpoint_file,
+        authority.dispatch_journal,
+        authority.operation_journal,
+        authority.durable_clean_state,
+    ):
+        try:
+            os.lstat(path)
+        except FileNotFoundError:
+            continue
+        except OSError as error:
+            raise ManagedV5RecoveryError(
+                "managed_v5_recovery_preregistration_state_unknown", exit_code=3
+            ) from error
+        return False
+    return True
+
+
+def _path_present(path: Path) -> bool:
+    try:
+        os.lstat(path)
+    except FileNotFoundError:
+        return False
+    except OSError as error:
+        raise ManagedV5RecoveryError(
+            "managed_v5_recovery_preregistration_state_unknown", exit_code=3
+        ) from error
+    return True
 
 
 def _write_failure(scope: dict[str, object], reason: str, exit_code: int) -> int:

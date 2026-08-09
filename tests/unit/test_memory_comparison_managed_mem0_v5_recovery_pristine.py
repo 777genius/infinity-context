@@ -29,6 +29,7 @@ from infinity_context_server.memory_comparison_managed_v5_recovery_operation_aut
     ManagedV5RecoveryOperationAuthorityError,
     _existing_operation_journal,
     _RecoveryOperationSigner,
+    require_managed_v5_recovery_pristine_checkpoint_head,
 )
 from infinity_context_server.memory_comparison_mem0_oss_v5_contracts import (
     MEM0_OSS_EMPTY_ROOT_SHA256,
@@ -182,6 +183,82 @@ def test_initialized_pre_registration_material_proves_pristine(tmp_path: Path) -
 
     assert len(commitment) == 64
     pristine.close()
+
+
+def test_initialized_empty_checkpoint_head_is_accepted_without_operation_journal(
+    tmp_path: Path,
+) -> None:
+    pristine, authority, admission, _witness, _journal, _operation, root = _material(tmp_path)
+    pristine.close()
+
+    require_managed_v5_recovery_pristine_checkpoint_head(
+        checkpoint_head_file=root / "head.sqlite3",
+        checkpoint_head_secret=b"h" * 64,
+        authority=authority,
+        admission=admission,
+    )
+
+
+@pytest.mark.parametrize("row_binding", ("expected", "other"))
+def test_checkpoint_head_with_any_authenticated_row_is_rejected(
+    tmp_path: Path, row_binding: str
+) -> None:
+    pristine, authority, admission, _witness, _journal, _operation, root = _material(tmp_path)
+    pristine.close()
+    store = SQLiteManagedMem0V5CheckpointHead(root / "head.sqlite3", hmac_key=b"h" * 64)
+    store.compare_and_swap_head(
+        authority_commitment_sha256=(
+            authority.authority_commitment_sha256
+            if row_binding == "expected"
+            else _sha("other-authority")
+        ),
+        admission_commitment_sha256=(
+            admission.commitment_sha256 if row_binding == "expected" else _sha("other-admission")
+        ),
+        expected_commitment_sha256=None,
+        next_commitment_sha256=_sha("head"),
+    )
+
+    with pytest.raises(ManagedV5RecoveryOperationAuthorityError, match="head_invalid"):
+        require_managed_v5_recovery_pristine_checkpoint_head(
+            checkpoint_head_file=root / "head.sqlite3",
+            checkpoint_head_secret=b"h" * 64,
+            authority=authority,
+            admission=admission,
+        )
+
+
+def test_arbitrary_checkpoint_head_bytes_are_rejected(tmp_path: Path) -> None:
+    pristine, authority, admission, _witness, _journal, _operation, root = _material(tmp_path)
+    pristine.close()
+    (root / "head.sqlite3").write_bytes(b"not sqlite or authenticated")
+
+    with pytest.raises(ManagedV5RecoveryOperationAuthorityError, match="head_invalid"):
+        require_managed_v5_recovery_pristine_checkpoint_head(
+            checkpoint_head_file=root / "head.sqlite3",
+            checkpoint_head_secret=b"h" * 64,
+            authority=authority,
+            admission=admission,
+        )
+
+
+def test_checkpoint_head_removed_before_authenticated_open_is_not_recreated(
+    tmp_path: Path,
+) -> None:
+    pristine, authority, admission, _witness, _journal, _operation, root = _material(tmp_path)
+    pristine.close()
+    head = root / "head.sqlite3"
+    head.unlink()
+
+    with pytest.raises(ManagedV5RecoveryOperationAuthorityError, match="head_invalid"):
+        require_managed_v5_recovery_pristine_checkpoint_head(
+            checkpoint_head_file=head,
+            checkpoint_head_secret=b"h" * 64,
+            authority=authority,
+            admission=admission,
+        )
+
+    assert not head.exists()
 
 
 def test_pristine_proof_rejects_any_operation_dispatch(tmp_path: Path) -> None:

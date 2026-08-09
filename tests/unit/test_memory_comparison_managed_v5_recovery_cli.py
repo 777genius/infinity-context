@@ -321,6 +321,7 @@ def test_live_cleanup_cli_normalizes_exit_and_redacts_secret(
         filesystem=filesystem,
         runtime=SimpleNamespace(mem0_adapter_origin=authority.mem0_origin),
     )
+    filesystem.operation_journal.write_bytes(b"existing authenticated state fixture")
     public_composition = SimpleNamespace(
         manifest_authority=object(),
         extraction_token_budget=object(),
@@ -436,6 +437,193 @@ def test_live_cleanup_cli_normalizes_exit_and_redacts_secret(
     assert pristine_closes == ([] if runner_exit == "pristine_failure" else ["close"])
 
 
+@pytest.mark.parametrize(
+    ("checkpoint_head", "expected_exit", "expected_calls", "expected_reason"),
+    (
+        (None, 0, ["construct", "fresh_get", "close"], "no_registration"),
+        (
+            b"authenticated empty checkpoint head",
+            0,
+            ["material_close", "construct", "fresh_get", "close"],
+            "no_registration",
+        ),
+        (
+            b"arbitrary checkpoint head",
+            3,
+            ["material_close"],
+            "managed_v5_recovery_preregistration_state_invalid",
+        ),
+    ),
+)
+def test_cleanup_plan_prepared_preregistration_recovery_is_fail_closed(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    checkpoint_head: bytes | None,
+    expected_exit: int,
+    expected_calls: list[str],
+    expected_reason: str,
+) -> None:
+    from infinity_context_core.ports.benchmark_cleanup_plan import (
+        build_managed_benchmark_cleanup_target_authority,
+    )
+    from infinity_context_server import memory_comparison_managed_v5_recovery_cli as subject
+
+    state = tmp_path / "state"
+    secrets = tmp_path / "secrets"
+    reports = tmp_path / "reports"
+    for root in (state, secrets, reports):
+        root.mkdir(mode=0o700)
+    authority = _authority(tmp_path)
+    secret_path = secrets / "recovery.key"
+    secret_path.write_bytes(b"r" * 64)
+    secret_path.chmod(0o600)
+    report_path = reports / "recovery-report.json"
+    journal_path = state / "recovery.json"
+    store = ManagedV5LiveRecoveryJournalStore(
+        path=journal_path,
+        state_root=state,
+        authenticator=RecoveryJournalAuthenticator(
+            secret=b"r" * 64, run_id_sha256=authority.run_id_sha256
+        ),
+    )
+    store.initialize(
+        authority=authority,
+        recorded_at="2026-08-09T00:00:00Z",
+        details={"authority_sha256": authority.sha256},
+    )
+    plan_value, plan_sha = cleanup_plan_pair(
+        run_id=authority.run_id_sha256,
+        binding=authority.binding_commitment_sha256,
+        target=authority.infinity_target_identity_sha256,
+        space_slug=authority.space_slug,
+    )
+    plan = ManagedBenchmarkCleanupPlan(plan_value, plan_sha)
+    target = build_managed_benchmark_cleanup_target_authority(
+        infinity_target_identity_sha256=authority.infinity_target_identity_sha256,
+        qdrant_target_commitment_sha256=plan.value["qdrant"]["target_commitment_sha256"],
+        graphiti_target_commitment_sha256=plan.value["graphiti"]["target_commitment_sha256"],
+    )
+    prepared = store.append(
+        expected_authority=authority,
+        kind="cleanup_plan_prepared",
+        recorded_at="2026-08-09T00:00:01Z",
+        details={
+            "cleanup_plan_sha256": plan.sha256,
+            "cleanup_target_authority_sha256": target.authority_sha256,
+        },
+        cleanup_plan=plan,
+    )
+    store.close()
+    if checkpoint_head is not None:
+        authority.checkpoint_head_file.write_bytes(checkpoint_head)
+        authority.checkpoint_head_file.chmod(0o600)
+    filesystem = SimpleNamespace(
+        recovery_hmac_secret_file=secret_path,
+        recovery_journal=journal_path,
+        recovery_report_file=report_path,
+        report_root=reports,
+        state_root=state,
+        dispatch_journal=authority.dispatch_journal,
+        operation_journal=authority.operation_journal,
+        durable_clean_state=authority.durable_clean_state,
+    )
+    config = SimpleNamespace(
+        filesystem=filesystem,
+        runtime=SimpleNamespace(mem0_adapter_origin=authority.mem0_origin),
+    )
+    public = SimpleNamespace(
+        cleanup_plan_inputs=object(),
+        public_composition=SimpleNamespace(
+            inputs=SimpleNamespace(credential_paths=object()),
+            manifest_authority=object(),
+            admission=object(),
+        ),
+    )
+    calls: list[str] = []
+
+    class _HeadMaterial:
+        checkpoint_head_secret = bytearray(b"h" * 64)
+
+        def close(self) -> None:
+            calls.append("material_close")
+
+    class _Registry:
+        def __init__(self, _config: object) -> None:
+            calls.append("construct")
+
+        def recover_lifecycle_or_missing(self, **_kwargs: object):
+            calls.append("fresh_get")
+            return None
+
+        def close(self) -> None:
+            calls.append("close")
+
+        def register(self, **_kwargs: object) -> None:
+            raise AssertionError("registration replay forbidden")
+
+        def relinquish_recovery_authority(self, **_kwargs: object) -> None:
+            raise AssertionError("missing lifecycle must close")
+
+    def _forbidden(*_args: object, **_kwargs: object):
+        raise AssertionError("Mem0/recovery runner forbidden")
+
+    monkeypatch.setattr(
+        subject,
+        "load_managed_v5_live_cli_config",
+        lambda _path: (
+            config,
+            authority.extraction_contract_file,
+            authority.extraction_contract_sha256,
+        ),
+    )
+    monkeypatch.setattr(
+        subject, "rebuild_managed_v5_recovery_public_projection", lambda **_kwargs: public
+    )
+    monkeypatch.setattr(subject, "build_managed_v5_cleanup_plan", lambda **_kwargs: plan)
+    monkeypatch.setattr(subject, "ManagedBenchmarkRegistryHttpAdapter", _Registry)
+    monkeypatch.setattr(
+        subject, "load_recovery_distinct_secrets", lambda **_kwargs: _HeadMaterial()
+    )
+    monkeypatch.setattr(subject, "_compose_mem0", _forbidden)
+    monkeypatch.setattr(subject, "ManagedV5RecoveryRunner", _forbidden)
+
+    def _verify_head(**_kwargs: object) -> None:
+        if checkpoint_head == b"arbitrary checkpoint head":
+            raise subject.ManagedV5RecoveryOperationAuthorityError("invalid")
+
+    monkeypatch.setattr(
+        subject, "require_managed_v5_recovery_pristine_checkpoint_head", _verify_head
+    )
+
+    exit_code = subject.run_recovery_cli(
+        argv=(
+            "--managed-v5-config-json",
+            str(tmp_path / "config.json"),
+            "--expected-run-id-sha256",
+            authority.run_id_sha256,
+            "--allow-live-cleanup",
+        ),
+        env={"MEMORY_EVAL_AUTH_TOKEN": "t" * 64},
+        clock=lambda: datetime(2026, 8, 10, 12, 0, tzinfo=UTC),
+    )
+
+    assert exit_code == expected_exit
+    assert calls == expected_calls
+    report = json.loads(report_path.read_bytes())
+    assert report["reason_code"] == expected_reason
+    assert report["provider_calls_performed"] == 0
+    assert report["subscription_runtime_calls_performed"] == 0
+    verifier = ManagedV5LiveRecoveryJournalStore(
+        path=journal_path,
+        state_root=state,
+        authenticator=RecoveryJournalAuthenticator(
+            secret=b"r" * 64, run_id_sha256=authority.run_id_sha256
+        ),
+    )
+    assert prepared == verifier.load(expected_authority=authority)
+    verifier.close()
+
+
 def test_store_construction_failure_closes_authenticator_once(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -498,3 +686,23 @@ def test_store_construction_failure_closes_authenticator_once(
 
     assert exit_code == 3
     assert closes == ["close"]
+
+
+def test_recovery_secret_material_closes_unused_credentials_and_wipes_keys() -> None:
+    from infinity_context_server.memory_comparison_managed_v5_live_secret_snapshot import (
+        ManagedV5RecoverySecretMaterial,
+    )
+
+    closes: list[str] = []
+
+    class _Credentials:
+        def close(self) -> None:
+            closes.append("close")
+
+    keys = tuple(bytearray(value * 64) for value in (b"o", b"d", b"h"))
+    material = ManagedV5RecoverySecretMaterial(_Credentials(), *keys)
+
+    material.close()
+
+    assert closes == ["close"]
+    assert keys == (bytearray(), bytearray(), bytearray())

@@ -32,13 +32,16 @@ class ManagedV5RecoverySecretMaterial:
     checkpoint_head_secret: bytearray
 
     def close(self) -> None:
-        for value in (
-            self.operation_signer_secret,
-            self.durable_clean_state_secret,
-            self.checkpoint_head_secret,
-        ):
-            wipe_managed_mem0_v5_private_secret(value)
-            value.clear()
+        try:
+            self.credentials.close()
+        finally:
+            for value in (
+                self.operation_signer_secret,
+                self.durable_clean_state_secret,
+                self.checkpoint_head_secret,
+            ):
+                wipe_managed_mem0_v5_private_secret(value)
+                value.clear()
 
 
 def load_recovery_distinct_secrets(

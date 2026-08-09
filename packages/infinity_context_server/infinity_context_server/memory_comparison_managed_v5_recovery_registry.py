@@ -93,6 +93,28 @@ class RecoveryRegistryCoordinator:
         self._relinquish(replay, cleanup_plan_sha)
         return self.fresh_get(cleanup_plan_sha)
 
+    def recover_existing_or_missing(
+        self, cleanup_plan_sha: str
+    ) -> ManagedBenchmarkRunLifecycleSnapshot | None:
+        """Probe canonical state without creating a missing registration."""
+
+        adapter = self._factory()
+        try:
+            observed = adapter.recover_lifecycle_or_missing(**self._identity(cleanup_plan_sha))
+        except ManagedBenchmarkRegistryHttpError as error:
+            self._release_unknown(adapter, cleanup_plan_sha)
+            _registry_failure(error)
+        if observed is None:
+            self._close(adapter)
+            return None
+        try:
+            observed = require_snapshot(observed, self._authority, cleanup_plan_sha)
+        except ManagedV5RecoveryError:
+            self._release_unknown(adapter, cleanup_plan_sha)
+            raise
+        self._release(adapter, observed, cleanup_plan_sha)
+        return observed
+
     def recover_projection_seal(
         self,
         journal: ManagedV5LiveRecoveryJournal,

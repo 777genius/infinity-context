@@ -9,8 +9,8 @@ import stat
 from pathlib import Path
 from typing import final
 
-from infinity_context_server.memory_comparison_managed_mem0_v5_dispatch_guard import (
-    create_managed_mem0_v5_single_dispatch_guard,
+from infinity_context_server.memory_comparison_managed_mem0_v5_head_sqlite import (
+    SQLiteManagedMem0V5CheckpointHead,
 )
 from infinity_context_server.memory_comparison_managed_mem0_v5_lane import (
     ManagedMem0V5BudgetPolicy,
@@ -19,11 +19,18 @@ from infinity_context_server.memory_comparison_managed_mem0_v5_production_author
     inspect_managed_mem0_v5_production_authority,
     issue_managed_mem0_v5_production_authority,
 )
+from infinity_context_server.memory_comparison_managed_mem0_v5_projector import (
+    ManagedMem0V5ManifestAuthority,
+)
 from infinity_context_server.memory_comparison_managed_mem0_v5_recovery_pristine import (
     ManagedMem0V5PristineStateVerifier,
 )
+from infinity_context_server.memory_comparison_managed_run_contract import ManagedRunError
 from infinity_context_server.memory_comparison_managed_v5_live_public_composition import (
     ManagedV5LivePublicComposition,
+)
+from infinity_context_server.memory_comparison_mem0_oss_v5_contracts import (
+    Mem0OssFullRunAdmission,
 )
 from infinity_context_server.resumable_operation_journal.domain import (
     LogicalOperationIdentity,
@@ -100,6 +107,45 @@ class _NoReceiptVerifier:
         _fail("managed_v5_recovery_receipt_verification_forbidden")
 
 
+def require_managed_v5_recovery_pristine_checkpoint_head(
+    *,
+    checkpoint_head_file: Path,
+    checkpoint_head_secret: bytes,
+    authority: ManagedMem0V5ManifestAuthority,
+    admission: Mem0OssFullRunAdmission,
+) -> None:
+    """Authenticate an initialized checkpoint-head store and require zero rows."""
+
+    if (
+        not isinstance(checkpoint_head_file, Path)
+        or not checkpoint_head_file.is_absolute()
+        or type(checkpoint_head_secret) is not bytes
+        or len(checkpoint_head_secret) < 32
+        or type(authority) is not ManagedMem0V5ManifestAuthority
+        or type(admission) is not Mem0OssFullRunAdmission
+    ):
+        _fail("managed_v5_recovery_checkpoint_head_invalid")
+    try:
+        store = SQLiteManagedMem0V5CheckpointHead(
+            checkpoint_head_file,
+            hmac_key=checkpoint_head_secret,
+            require_existing=True,
+        )
+        store.require_empty()
+        if (
+            store.load_head(
+                authority_commitment_sha256=authority.authority_commitment_sha256,
+                admission_commitment_sha256=admission.commitment_sha256,
+            )
+            is not None
+        ):
+            _fail("managed_v5_recovery_checkpoint_head_nonempty")
+    except ManagedV5RecoveryOperationAuthorityError:
+        raise
+    except (ManagedRunError, OSError, TypeError, ValueError):
+        _fail("managed_v5_recovery_checkpoint_head_invalid")
+
+
 def build_managed_v5_recovery_pristine_verifier(
     *,
     public: ManagedV5LivePublicComposition,
@@ -137,7 +183,6 @@ def build_managed_v5_recovery_pristine_verifier(
             for index, item in enumerate(inputs.receipt_authority.operations)
         )
     )
-    dispatch_guard = create_managed_mem0_v5_single_dispatch_guard(dispatch_journal)
     production = issue_managed_mem0_v5_production_authority(
         cases=inputs.cases,
         current_date=inputs.current_date,
@@ -151,7 +196,6 @@ def build_managed_v5_recovery_pristine_verifier(
         trusted_runtime_binding=inputs.trusted_runtime_binding,
         receipt_authority=inputs.receipt_authority,
         operation_manifest=manifest,
-        dispatch_guard=dispatch_guard,
         transport=None,
     )
     descriptor = inspect_managed_mem0_v5_production_authority(production)
@@ -233,4 +277,5 @@ def _fail(code: str) -> None:
 __all__ = (
     "ManagedV5RecoveryOperationAuthorityError",
     "build_managed_v5_recovery_pristine_verifier",
+    "require_managed_v5_recovery_pristine_checkpoint_head",
 )
