@@ -51,9 +51,9 @@ async def _assert_clean_and_legacy_upgrade(database_url: str) -> None:
             clean_results = await asyncio.gather(upgrade_schema(engine), upgrade_schema(engine))
             clean = next(result for result in clean_results if result.applied)
             assert clean.legacy_baseline is False
-            assert clean.current == "0033_benchmark_cleanup_plan"
+            assert clean.current == "0034_benchmark_generated_tombstone_fence"
             assert clean.applied[0] == "0001_core_facts"
-            assert sorted(len(result.applied) for result in clean_results) == [0, 34]
+            assert sorted(len(result.applied) for result in clean_results) == [0, 35]
             assert (await upgrade_schema(engine)).applied == ()
             await _assert_head_schema(engine)
         finally:
@@ -78,7 +78,7 @@ async def _assert_clean_and_legacy_upgrade(database_url: str) -> None:
             legacy = await upgrade_schema(engine)
             assert legacy.legacy_baseline is True
             assert legacy.applied[0].startswith("0023_")
-            assert legacy.current == "0033_benchmark_cleanup_plan"
+            assert legacy.current == "0034_benchmark_generated_tombstone_fence"
             await _assert_head_schema(engine)
             await _assert_cross_scope_audit_reference_rejected(engine)
         finally:

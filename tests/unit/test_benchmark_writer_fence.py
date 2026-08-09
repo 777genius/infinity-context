@@ -33,6 +33,7 @@ PROJECTION_MANIFEST_MIGRATION = MIGRATIONS / "0018_benchmark_projection_manifest
 SEALED_FENCE_MIGRATION = MIGRATIONS / "0019_managed_benchmark_sealed_fence.sql"
 CLEANUP_COMPLETION_MIGRATION = MIGRATIONS / "0020_benchmark_cleanup_completion.sql"
 CLEANUP_PLAN_MIGRATION = MIGRATIONS / "0033_benchmark_cleanup_plan.sql"
+GENERATED_TOMBSTONE_FENCE_MIGRATION = MIGRATIONS / "0034_benchmark_generated_tombstone_fence.sql"
 FENCE_SQLSTATE = BENCHMARK_WRITER_FENCE_SQLSTATE
 FENCE_CONSTRAINT = BENCHMARK_WRITER_FENCE_CONSTRAINT
 FENCED_TABLES = tuple(table for table, _update_columns in BENCHMARK_WRITER_FENCE_TABLES)
@@ -85,7 +86,8 @@ def test_latest_migration_fails_closed_after_projection_manifest_seal() -> None:
 
 
 def test_runtime_installer_statements_do_not_drift_from_latest_migration() -> None:
-    migration_sql = _normalize_sql(CLEANUP_PLAN_MIGRATION.read_text(encoding="utf-8"))
+    migration_sql = _normalize_sql(GENERATED_TOMBSTONE_FENCE_MIGRATION.read_text(encoding="utf-8"))
+    cleanup_plan_sql = _normalize_sql(CLEANUP_PLAN_MIGRATION.read_text(encoding="utf-8"))
 
     assert len(BENCHMARK_WRITER_FENCE_STATEMENTS) == 37
     assert BENCHMARK_WRITER_FENCE_FUNCTION in migration_sql
@@ -93,10 +95,11 @@ def test_runtime_installer_statements_do_not_drift_from_latest_migration() -> No
     assert "registry_cleanup_plan_state" in migration_sql
     assert "cleanup_plan_state = 'sealed'" in migration_sql
     assert "AND TG_OP = 'INSERT'" in migration_sql
-    assert "memory_fact_operation_receipts" in migration_sql
-    assert "memory_anchors" in migration_sql
-    assert "memory_fact_relations" in migration_sql
-    assert "memory_context_links" in migration_sql
+    assert "- 'updated_at' - 'thread_scope_key'" in migration_sql
+    assert "memory_fact_operation_receipts" in cleanup_plan_sql
+    assert "memory_anchors" in cleanup_plan_sql
+    assert "memory_fact_relations" in cleanup_plan_sql
+    assert "memory_context_links" in cleanup_plan_sql
 
 
 @pytest.mark.parametrize(
@@ -318,6 +321,7 @@ async def _assert_real_postgres_fence(database_url: str) -> None:
         await admin.execute(INITIAL_MIGRATION.read_text(encoding="utf-8"))
         await admin.execute(PROJECTION_MANIFEST_MIGRATION.read_text(encoding="utf-8"))
         await admin.execute(SEALED_FENCE_MIGRATION.read_text(encoding="utf-8"))
+        await admin.execute(GENERATED_TOMBSTONE_FENCE_MIGRATION.read_text(encoding="utf-8"))
         writer = await asyncpg.connect(dsn)
         cleanup = await asyncpg.connect(dsn)
         await writer.execute(f'SET search_path TO "{schema}"')
@@ -349,6 +353,16 @@ async def _assert_real_postgres_fence(database_url: str) -> None:
         visible_active_facts = await asyncio.wait_for(cleanup_task, timeout=5)
         assert visible_active_facts == 1
 
+        for changed_column in ("thread_id = 'foreign'", "payload = 'changed'"):
+            with pytest.raises(asyncpg.CheckViolationError):
+                async with admin.transaction():
+                    await admin.execute(
+                        f"""
+                        UPDATE memory_facts
+                        SET status = 'deleted', {changed_column}
+                        WHERE id = 'fact-before-cleanup'
+                        """
+                    )
         with pytest.raises(asyncpg.CheckViolationError) as active_write:
             async with writer.transaction():
                 await writer.execute(
@@ -577,7 +591,7 @@ def _minimal_postgres_schema() -> str:
         );
         """
         for table in FENCED_TABLES
-        if table != "memory_spaces"
+        if table not in {"memory_spaces", "memory_facts"}
     )
     return f"""
     CREATE TABLE memory_spaces (
@@ -588,7 +602,20 @@ def _minimal_postgres_schema() -> str:
     );
     CREATE TABLE memory_comparison_benchmark_runs (
         space_id VARCHAR(80) PRIMARY KEY,
-        state VARCHAR(40) NOT NULL
+        state VARCHAR(40) NOT NULL,
+        cleanup_plan_state VARCHAR(40) NOT NULL DEFAULT 'sealed'
+    );
+    CREATE TABLE memory_facts (
+        id VARCHAR(80) PRIMARY KEY,
+        space_id VARCHAR(80) NOT NULL,
+        thread_id VARCHAR(80),
+        thread_scope_key VARCHAR(87)
+            GENERATED ALWAYS AS (
+                CASE WHEN thread_id IS NULL THEN 'global' ELSE 'thread:' || thread_id END
+            ) STORED,
+        status VARCHAR(40) NOT NULL,
+        payload VARCHAR(80),
+        updated_at TIMESTAMPTZ
     );
     {child_tables}
     """

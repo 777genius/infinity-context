@@ -1,43 +1,4 @@
-"""Postgres DDL for the managed benchmark canonical writer fence."""
-
-from __future__ import annotations
-
-BENCHMARK_WRITER_FENCE_SQLSTATE = "23514"
-BENCHMARK_WRITER_FENCE_CONSTRAINT = "ck_memory_comparison_benchmark_run_writer_fence"
-BENCHMARK_WRITER_FENCE_FUNCTION = "memory_comparison_enforce_benchmark_writer_fence"
-BENCHMARK_WRITER_FENCE_TABLES = (
-    ("memory_spaces", "id, status"),
-    ("memory_scopes", "space_id, status"),
-    ("memory_threads", "space_id, status"),
-    ("memory_facts", "space_id, status"),
-    ("memory_episodes", "space_id, status"),
-    ("memory_documents", "space_id, status"),
-    ("memory_chunks", "space_id, status"),
-    ("memory_fact_operation_receipts", "space_id"),
-    ("memory_idempotency_records", "space_id"),
-    ("memory_anchors", "space_id, status"),
-    ("memory_assets", "space_id, status"),
-    ("memory_asset_extraction_jobs", "space_id, status"),
-    ("memory_fact_relations", "space_id, status"),
-    ("memory_fact_temporal_decisions", "space_id"),
-    ("memory_suggestions", "space_id, status"),
-    ("memory_captures", "space_id, status"),
-    ("memory_context_links", "space_id, status"),
-    ("memory_context_link_suggestions", "space_id, status"),
-)
-
-BENCHMARK_INITIAL_INSERT_TABLES = (
-    "memory_scopes",
-    "memory_threads",
-    "memory_facts",
-    "memory_documents",
-    "memory_chunks",
-    "memory_fact_operation_receipts",
-    "memory_idempotency_records",
-)
-
-BENCHMARK_WRITER_FENCE_FUNCTION_SQL = f"""
-CREATE OR REPLACE FUNCTION {BENCHMARK_WRITER_FENCE_FUNCTION}()
+CREATE OR REPLACE FUNCTION memory_comparison_enforce_benchmark_writer_fence()
 RETURNS TRIGGER
 LANGUAGE plpgsql
 AS $$
@@ -73,8 +34,8 @@ BEGIN
         ) THEN
             RAISE EXCEPTION 'benchmark canonical space identity is immutable'
                 USING
-                    ERRCODE = '{BENCHMARK_WRITER_FENCE_SQLSTATE}',
-                    CONSTRAINT = '{BENCHMARK_WRITER_FENCE_CONSTRAINT}';
+                    ERRCODE = '23514',
+                    CONSTRAINT = 'ck_memory_comparison_benchmark_run_writer_fence';
         END IF;
     END IF;
 
@@ -90,8 +51,8 @@ BEGIN
         WHEN lock_not_available THEN
             RAISE EXCEPTION 'benchmark canonical writer fence rejected data mutation'
                 USING
-                    ERRCODE = '{BENCHMARK_WRITER_FENCE_SQLSTATE}',
-                    CONSTRAINT = '{BENCHMARK_WRITER_FENCE_CONSTRAINT}';
+                    ERRCODE = '23514',
+                    CONSTRAINT = 'ck_memory_comparison_benchmark_run_writer_fence';
     END;
 
     IF registry_state IS NULL THEN
@@ -133,40 +94,7 @@ BEGIN
 
     RAISE EXCEPTION 'benchmark canonical writer fence rejected data mutation'
         USING
-            ERRCODE = '{BENCHMARK_WRITER_FENCE_SQLSTATE}',
-            CONSTRAINT = '{BENCHMARK_WRITER_FENCE_CONSTRAINT}';
+            ERRCODE = '23514',
+            CONSTRAINT = 'ck_memory_comparison_benchmark_run_writer_fence';
 END;
-$$
-""".strip()
-
-
-def _trigger_statements(table: str, _update_columns: str) -> tuple[str, str]:
-    trigger_name = f"trg_{table}_benchmark_writer_fence"
-    return (
-        f"DROP TRIGGER IF EXISTS {trigger_name} ON {table}",
-        f"""
-        CREATE TRIGGER {trigger_name}
-        BEFORE INSERT OR UPDATE OR DELETE ON {table}
-        FOR EACH ROW
-        EXECUTE FUNCTION {BENCHMARK_WRITER_FENCE_FUNCTION}()
-        """.strip(),
-    )
-
-
-BENCHMARK_WRITER_FENCE_STATEMENTS = (
-    BENCHMARK_WRITER_FENCE_FUNCTION_SQL,
-    *(
-        statement
-        for table, update_columns in BENCHMARK_WRITER_FENCE_TABLES
-        for statement in _trigger_statements(table, update_columns)
-    ),
-)
-
-__all__ = (
-    "BENCHMARK_WRITER_FENCE_CONSTRAINT",
-    "BENCHMARK_WRITER_FENCE_FUNCTION",
-    "BENCHMARK_INITIAL_INSERT_TABLES",
-    "BENCHMARK_WRITER_FENCE_SQLSTATE",
-    "BENCHMARK_WRITER_FENCE_STATEMENTS",
-    "BENCHMARK_WRITER_FENCE_TABLES",
-)
+$$;

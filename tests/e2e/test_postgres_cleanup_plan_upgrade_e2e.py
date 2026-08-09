@@ -38,7 +38,10 @@ async def _assert_cleanup_plan_upgrade(database_url: str) -> None:
         engine = build_async_engine(database.app_url)
         try:
             upgrade = await upgrade_schema(engine)
-            assert upgrade.applied == ("0033_benchmark_cleanup_plan",)
+            assert upgrade.applied == (
+                "0033_benchmark_cleanup_plan",
+                "0034_benchmark_generated_tombstone_fence",
+            )
             await _assert_cleanup_plan_schema(engine)
             await _assert_cleanup_plan_coupling(engine)
         finally:

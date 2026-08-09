@@ -6,10 +6,9 @@ import uuid
 from collections.abc import Iterator
 from contextlib import contextmanager
 from dataclasses import replace
-from datetime import UTC, datetime, timedelta
+from functools import partial
 from pathlib import Path
 
-import httpx
 import pytest
 from fastapi.testclient import TestClient
 from infinity_context_adapters.qdrant.identity_evidence import (
@@ -42,17 +41,8 @@ from infinity_context_server.derived_identity_target import (
     graphiti_target_commitment_sha256,
 )
 from infinity_context_server.main import create_app
-from infinity_context_server.memory_comparison_managed_benchmark_registry_contracts import (
-    ManagedBenchmarkRegistryHttpConfig,
-)
-from infinity_context_server.memory_comparison_managed_benchmark_registry_http import (
-    ManagedBenchmarkRegistryHttpAdapter,
-)
-from infinity_context_server.memory_comparison_managed_preflight import (
-    managed_backend_target_identity_sha256,
-)
 from infinity_context_server.worker import OutboxWorker, OutboxWorkerFilter
-from infinity_context_server_harness import PROJECT_ROOT, run_infinity_context_server
+from infinity_context_server_harness import PROJECT_ROOT
 from sqlalchemy.engine import make_url
 
 RUN = "a" * 64
@@ -66,88 +56,127 @@ SCOPE_REF = "e2e-corpus"
 THREAD_REF = "e2e-thread"
 FACT_SOURCE = "e2e-fact-source"
 FACT_TEXT = "The benchmark abort fixture binds one exact fact."
-DERIVED_LANE_ENV = {
-    "MEMORY_QDRANT_ENABLED": "true",
-    "MEMORY_GRAPHITI_ENABLED": "true",
-    "MEMORY_GRAPHITI_NEO4J_PASSWORD": "sandbox-graph-password",
-    "MEMORY_EMBEDDINGS_ENABLED": "true",
-    "MEMORY_EMBEDDINGS_PROVIDER": "openai",
-    "MEMORY_OPENAI_API_KEY": "sandbox-openai-key",
-}
 
 
 def test_app_postgres_registry_abort_recovers_and_replays_when_configured(
-    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     with _isolated_postgres_database() as database_url:
         token = "sandbox-postgres-admin-token"
-        with run_infinity_context_server(
-            tmp_path,
+        with _provider_free_test_client(
+            monkeypatch,
+            database_url=database_url,
             token=token,
-            extra_env={**DERIVED_LANE_ENV, "MEMORY_DATABASE_URL": database_url},
-        ) as server:
-            adapter = _live_registry_adapter(server.base_url, token)
-            target_authority = adapter.prepare_cleanup_target_authority()
-            cleanup_plan = _cleanup_plan(
-                managed_backend_target_identity_sha256(
-                    backend_role="infinity-context",
-                    base_url=server.base_url,
-                ),
-                target_authority,
-            )
-            registration = adapter.register(
-                run_id_sha256=RUN,
-                binding_commitment_sha256=BINDING,
-                space_slug=SPACE_SLUG,
-                cleanup_plan=cleanup_plan,
-                idempotency_key=REGISTER_KEY,
-            )
-            cleanup = adapter.begin_cleanup(idempotency_key=CLEANUP_KEY)
-            terminal = adapter.finalize_unsealed_abort(
-                cleanup_initiation_receipt_sha256=cleanup.receipt_sha256,
-                idempotency_key=ABORT_KEY,
-            )
-            assert registration.created is True
-            assert cleanup.projection_cleanup == "blocked"
-            assert terminal.state == "cleanup_aborted"
-            assert terminal.replayed is False
-
-            recovery = _live_registry_adapter(server.base_url, token)
-            snapshot = recovery.recover_lifecycle(
-                run_id_sha256=RUN,
-                binding_commitment_sha256=BINDING,
-                space_slug=SPACE_SLUG,
-                cleanup_plan_sha256=cleanup_plan.sha256,
-            )
-            assert snapshot.state == "cleanup_aborted"
-            assert snapshot.projection_cleanup_state == "unsealed_abort_complete"
-            assert snapshot.completion_receipt is not None
-            assert snapshot.completion_receipt.receipt_sha256 == terminal.receipt_sha256
-
-            replay = httpx.post(
-                f"{server.base_url}/v1/internal/memory-comparison/runs/"
-                f"{RUN}/cleanup/abort/finalize",
+        ) as client:
+            authority_response = client.post(
+                "/v1/internal/memory-comparison/runs/cleanup-target-authority",
                 json={
-                    "schema_version": "memory-comparison-run-abort-finalize.v2",
+                    "schema_version": ("memory-comparison-cleanup-target-authority-request.v1"),
+                    "infinity_target_identity_sha256": TARGET,
+                },
+            )
+            assert authority_response.status_code == 200, authority_response.text
+            target_authority = validate_managed_benchmark_cleanup_target_authority(
+                authority_response.json()["data"],
+                infinity_target_identity_sha256=TARGET,
+            )
+            cleanup_plan = _cleanup_plan(TARGET, target_authority)
+            registered = client.post(
+                "/v1/internal/memory-comparison/runs",
+                json={
+                    "schema_version": "memory-comparison-run-registration.v2",
+                    "run_id_sha256": RUN,
                     "binding_commitment_sha256": BINDING,
-                    "infinity_target_identity_sha256": (
-                        registration.infinity_target_identity_sha256
-                    ),
-                    "space_id": registration.space_id,
+                    "infinity_target_identity_sha256": TARGET,
                     "space_slug": SPACE_SLUG,
-                    "receipt_sha256": cleanup.receipt_sha256,
+                    "cleanup_plan": cleanup_plan.value,
                     "cleanup_plan_sha256": cleanup_plan.sha256,
                 },
-                headers={
-                    "Authorization": f"Bearer {token}",
-                    "Idempotency-Key": ABORT_KEY,
+                headers={"Idempotency-Key": REGISTER_KEY},
+            )
+            assert registered.status_code == 201, registered.text
+            registration = registered.json()["data"]
+            assert registration["created"] is True
+            assert registration["cleanup_plan_state"] == "sealed"
+
+            fact = client.post(
+                "/v1/facts",
+                json={
+                    "space_slug": SPACE_SLUG,
+                    "memory_scope_external_ref": SCOPE_REF,
+                    "thread_external_ref": THREAD_REF,
+                    "text": FACT_TEXT,
+                    "kind": "requirement",
+                    "source_refs": [
+                        {
+                            "source_type": "memory_comparison_benchmark",
+                            "source_id": FACT_SOURCE,
+                            "quote_preview": FACT_TEXT,
+                        }
+                    ],
                 },
-                timeout=10,
+            )
+            assert fact.status_code == 201, fact.text
+
+            cleanup = client.request(
+                "DELETE",
+                f"/v1/internal/memory-comparison/runs/{RUN}",
+                json={
+                    "schema_version": "memory-comparison-run-cleanup.v2",
+                    "binding_commitment_sha256": BINDING,
+                    "infinity_target_identity_sha256": TARGET,
+                    "space_id": registration["space_id"],
+                    "space_slug": SPACE_SLUG,
+                    "cleanup_plan_sha256": cleanup_plan.sha256,
+                },
+                headers={"Idempotency-Key": CLEANUP_KEY},
+            )
+            assert cleanup.status_code == 200, cleanup.text
+            initiation = cleanup.json()["data"]
+            assert initiation["projection_cleanup"] == "blocked"
+            worker = OutboxWorker(
+                client.app.state.container,
+                worker_filter=OutboxWorkerFilter(workload_classes=("projection",)),
+            )
+            processed = [client.portal.call(partial(worker.run_once, limit=10)) for _ in range(3)]
+            assert processed[0] >= 1
+
+            abort_payload = {
+                "schema_version": "memory-comparison-run-abort-finalize.v2",
+                "binding_commitment_sha256": BINDING,
+                "infinity_target_identity_sha256": TARGET,
+                "space_id": registration["space_id"],
+                "space_slug": SPACE_SLUG,
+                "receipt_sha256": initiation["receipt_sha256"],
+                "cleanup_plan_sha256": cleanup_plan.sha256,
+            }
+            aborted = client.post(
+                f"/v1/internal/memory-comparison/runs/{RUN}/cleanup/abort/finalize",
+                json=abort_payload,
+                headers={"Idempotency-Key": ABORT_KEY},
+            )
+            assert aborted.status_code == 200, aborted.text
+            terminal = aborted.json()["data"]
+            assert terminal["state"] == "cleanup_aborted"
+            assert terminal["replayed"] is False
+
+            lifecycle_response = client.get(f"/v1/internal/memory-comparison/runs/{RUN}/cleanup")
+            assert lifecycle_response.status_code == 200, lifecycle_response.text
+            lifecycle = lifecycle_response.json()["data"]
+            assert lifecycle["state"] == "cleanup_aborted"
+            assert lifecycle["projection_cleanup_state"] == "unsealed_abort_complete"
+            assert lifecycle["cleanup_plan_sha256"] == cleanup_plan.sha256
+            assert lifecycle["completion_receipt"]["receipt_sha256"] == terminal["receipt_sha256"]
+
+            replay = client.post(
+                f"/v1/internal/memory-comparison/runs/{RUN}/cleanup/abort/finalize",
+                json=abort_payload,
+                headers={"Idempotency-Key": ABORT_KEY},
             )
             assert replay.status_code == 200, replay.text
             replayed = replay.json()["data"]
             assert replayed["replayed"] is True
-            assert replayed["receipt_sha256"] == terminal.receipt_sha256
+            assert replayed["receipt_sha256"] == terminal["receipt_sha256"]
 
 
 def test_app_sqlite_registry_unsealed_abort_persists_and_replays(
@@ -438,6 +467,21 @@ def _sqlite_test_client(
     token: str,
     database_name: str,
 ) -> Iterator[TestClient]:
+    with _provider_free_test_client(
+        monkeypatch,
+        database_url=f"sqlite+aiosqlite:///{tmp_path / database_name}",
+        token=token,
+    ) as client:
+        yield client
+
+
+@contextmanager
+def _provider_free_test_client(
+    monkeypatch: pytest.MonkeyPatch,
+    *,
+    database_url: str,
+    token: str,
+) -> Iterator[TestClient]:
     original = derived_provider_composition.build_derived_provider_bundle
 
     def provider_free_bundle(*, engine: object, settings: Settings) -> object:
@@ -470,7 +514,7 @@ def _sqlite_test_client(
     app = create_app(
         Settings(
             deploy_profile=DeployProfile.LOCAL,
-            database_url=f"sqlite+aiosqlite:///{tmp_path / database_name}",
+            database_url=database_url,
             auto_create_schema=True,
             service_token=token,
             qdrant_enabled=True,
@@ -503,25 +547,6 @@ def test_postgres_unsealed_abort_migration_contract_is_explicit() -> None:
     assert "projection_manifest_json IS NULL" in migration
     assert migration.count(") NOT VALID") == 4
     assert migration.count("VALIDATE CONSTRAINT") == 4
-
-
-def _live_registry_adapter(
-    base_url: str,
-    token: str,
-) -> ManagedBenchmarkRegistryHttpAdapter:
-    return ManagedBenchmarkRegistryHttpAdapter(
-        ManagedBenchmarkRegistryHttpConfig(
-            base_url=base_url,
-            admin_bearer_token=token,
-            target_identity_sha256=managed_backend_target_identity_sha256(
-                backend_role="infinity-context",
-                base_url=base_url,
-            ),
-            timeout_seconds=10,
-            benchmark_deadline=datetime.now(UTC) + timedelta(seconds=30),
-            cleanup_recovery_timeout_seconds=10,
-        )
-    )
 
 
 @contextmanager
