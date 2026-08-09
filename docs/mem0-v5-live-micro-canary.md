@@ -87,6 +87,7 @@ not relax host privacy or file modes.
 Invoke `scripts/mem0_v5_live_micro_canary.py` first with all required immutable
 digests, image IDs, ports, credential file paths, private roots, Phase C package
 root, runtime repository, its sibling `artifact-manifest.json`, Node executable,
+the reviewed extraction-contract file and its exact SHA-256 digest,
 the public evidence-key commitment (`sha256(result-hmac)`), and the immutable
 `container-copy-authority.json` path/digest emitted by init, plus
 `--preflight-only`. The artifact manifest path

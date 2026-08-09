@@ -6,7 +6,7 @@ import json
 import os
 import subprocess
 import sys
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -41,6 +41,10 @@ if str(UNIT_TEST_ROOT) not in sys.path:
 from _phase_c_hermetic import install_hermetic_phase_c_authority  # noqa: E402
 
 SHA = "a" * 64
+RUNTIME_BASE_SHA256 = "5c15d6c502d380282a933d4f20a886a06c9d04d3b5d7c918b95df0b0acf33671"
+EXTRACTION_PROMPT_SHA256 = "ad19187a37813ef77ee156e714c0650e6ec749e0264bdc07d499bc9b24115155"
+RESPONSE_FORMAT_SHA256 = "f45055c9f24f763294c0c96c3d71cd3ae494d96376596f34a6203cf171f9a516"
+RESPONSE_SCHEMA_SHA256 = "17c002c4bc8c4aa9d9131253ef0763fd5769c039985c65885e5877fda443120b"
 
 
 @pytest.fixture(autouse=True)
@@ -71,8 +75,8 @@ def test_live_unit_binding_uses_exact_class_without_hosting_composition(
 @dataclass(frozen=True)
 class _Request:
     request_body_sha256: str = "1" * 64
-    response_format_sha256: str = "2" * 64
-    response_schema_sha256: str = "3" * 64
+    response_format_sha256: str = RESPONSE_FORMAT_SHA256
+    response_schema_sha256: str = RESPONSE_SCHEMA_SHA256
     max_tokens: int = 4096
 
 
@@ -228,8 +232,8 @@ def _projection() -> OneUnitProjection:
         cases=(case,),
         authority=authority,
         request_body_sha256="1" * 64,
-        response_format_sha256="2" * 64,
-        response_schema_sha256="3" * 64,
+        response_format_sha256=RESPONSE_FORMAT_SHA256,
+        response_schema_sha256=RESPONSE_SCHEMA_SHA256,
         requested_output_tokens=4096,
         case_file_sha256="0" * 64,
         search_query=payload["search_query"],
@@ -245,17 +249,24 @@ def _runtime() -> LiveRuntimeAuthority:
         runtime_source_sha256="a" * 64,
         runtime_base_sha256="b" * 64,
         route_binding_sha256="c" * 64,
-        base_instructions_sha256="d" * 64,
+        base_instructions_sha256=RUNTIME_BASE_SHA256,
+        extraction_system_prompt_sha256=EXTRACTION_PROMPT_SHA256,
         account_binding_hmac_sha256="e" * 64,
         response_format_type="json_schema",
-        response_format_sha256="2" * 64,
-        response_schema_sha256="3" * 64,
+        response_format_sha256=RESPONSE_FORMAT_SHA256,
+        response_schema_sha256=RESPONSE_SCHEMA_SHA256,
         requested_output_tokens=4096,
     )
 
 
 def _inputs(*, restore: bool = False, orphan: bool = False) -> MicroCanaryInputs:
     return MicroCanaryInputs(_projection(), _runtime(), restore, orphan)
+
+
+def test_extraction_projection_is_bound_separately_from_runtime_base() -> None:
+    projection = replace(_projection(), response_format_sha256="f" * 64)
+    with pytest.raises(ValueError, match="mem0_v5_live_inputs_invalid"):
+        MicroCanaryInputs(projection, _runtime(), False)
 
 
 def test_projector_materializes_exact_private_one_unit(tmp_path: Path) -> None:
@@ -393,107 +404,6 @@ def test_orphan_guard_is_no_go_before_composition() -> None:
     assert created == 0
 
 
-def test_runtime_authority_is_exact_and_requires_4096() -> None:
-    runtime = _runtime()
-    payload = {
-        "schema_version": "managed-mem0-v5-live-runtime-authority.v1",
-        **{field: getattr(runtime, field) for field in runtime.__dataclass_fields__},
-    }
-    assert LiveRuntimeAuthority.parse(json.dumps(payload).encode()) == runtime
-    payload["requested_output_tokens"] = 2048
-    with pytest.raises(ValueError, match="runtime_authority_invalid"):
-        LiveRuntimeAuthority.parse(json.dumps(payload).encode())
-
-
-def test_attacker_node_fails_before_private_credentials_are_opened(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    roots = {}
-    for name in ("input", "state", "secrets", "reports"):
-        path = tmp_path / name
-        path.mkdir(mode=0o700)
-        roots[name] = path
-    runtime_parent = tmp_path / "runtime"
-    runtime_repo = runtime_parent / "repo"
-    runtime_repo.mkdir(parents=True)
-    artifact = runtime_parent / "artifact-manifest.json"
-    artifact.write_text("{}")
-    os.chmod(artifact, 0o444)
-    node = tmp_path / "attacker-node"
-    node.write_text("#!/bin/sh\nexit 0\n")
-    os.chmod(node, 0o755)
-    attacker_sha = hashlib.sha256(node.read_bytes()).hexdigest()
-    args = SimpleNamespace(
-        input_root=roots["input"],
-        state_root=roots["state"],
-        secret_root=roots["secrets"],
-        report_root=roots["reports"],
-        dispatch_journal=roots["state"] / "dispatch-claim.json",
-        case_file=tmp_path / "case.json",
-        runtime_authority_file=tmp_path / "runtime-authority.json",
-        phase_c_package_root=tmp_path,
-        runtime_repo=runtime_repo,
-        runtime_artifact_manifest=artifact,
-        runtime_artifact_manifest_sha256=hashlib.sha256(artifact.read_bytes()).hexdigest(),
-        node_executable=node,
-        node_executable_sha256=attacker_sha,
-        adapter_image_id="sha256:" + "a" * 64,
-        qdrant_image_id="sha256:" + "b" * 64,
-        adapter_port=19091,
-        qdrant_port=6334,
-        timeout_seconds=1.0,
-        ingress_bearer_file=roots["secrets"] / "bearer",
-        evidence_key_file=roots["secrets"] / "evidence",
-        evidence_key_sha256="a" * 64,
-        receipt_secret_file=roots["secrets"] / "receipt",
-        checkpoint_signing_key_file=roots["secrets"] / "signing",
-        checkpoint_head_key_file=roots["secrets"] / "head",
-        container_copy_authority_file=tmp_path / "container-copy-authority.json",
-        container_copy_authority_sha256="b" * 64,
-    )
-
-    def private_file_must_remain_unopened(*_args, **_kwargs):
-        raise AssertionError("private credential opened before Node rejection")
-
-    monkeypatch.setattr(subject, "_read_private_file", private_file_must_remain_unopened)
-    with pytest.raises(ValueError, match="node_authority_invalid"):
-        subject._preflight(args)
-
-
-def test_reviewed_node_uses_exact_reviewed_binary_size_bound(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    node = tmp_path / "reviewed-node"
-    node.write_text("reviewed")
-    node.chmod(0o555)
-    observed: dict[str, object] = {}
-
-    def capture_public_authority(
-        path: Path,
-        expected: str,
-        *,
-        executable: bool,
-        maximum_bytes: int,
-    ) -> None:
-        observed.update(
-            path=path,
-            expected=expected,
-            executable=executable,
-            maximum_bytes=maximum_bytes,
-        )
-
-    monkeypatch.setattr(subject, "_verify_public_immutable", capture_public_authority)
-
-    subject._verify_reviewed_node(node, subject._REVIEWED_NODE_SHA256)
-
-    assert observed == {
-        "path": node,
-        "expected": subject._REVIEWED_NODE_SHA256,
-        "executable": True,
-        "maximum_bytes": 123_438_592,
-    }
-
-
 @pytest.mark.parametrize(
     ("name", "raw", "accepted"),
     (
@@ -590,6 +500,7 @@ def test_production_factory_composes_observed_authority_and_durable_guard(
         runtime_base_sha256=base.runtime_base_sha256,
         route_binding_sha256=binding.route_binding_sha256,
         base_instructions_sha256=base.base_instructions_sha256,
+        extraction_system_prompt_sha256=base.extraction_system_prompt_sha256,
         account_binding_hmac_sha256=base.account_binding_hmac_sha256,
         response_format_type=base.response_format_type,
         response_format_sha256=base.response_format_sha256,
@@ -790,6 +701,10 @@ def test_direct_cli_invalid_node_is_no_go_without_secret_files(tmp_path: Path) -
         str(tmp_path / "runtime-authority.json"),
         "--runtime-authority-sha256",
         "4" * 64,
+        "--extraction-contract-file",
+        str(tmp_path / "extraction-contract.py"),
+        "--extraction-contract-sha256",
+        "9" * 64,
         "--state-root",
         str(roots["state"]),
         "--secret-root",

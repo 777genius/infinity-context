@@ -66,6 +66,9 @@ from infinity_context_server.memory_comparison_mem0_oss_v5_contracts import (
 from infinity_context_server.memory_comparison_mem0_oss_v5_observed_receipt import (
     Mem0V5ObservedExtractionReceiptAuthority,
 )
+from infinity_context_server.memory_comparison_publishable_methodology import (
+    SUBSCRIPTION_RUNTIME_BASE_INSTRUCTIONS_SHA256,
+)
 
 
 def _sha(value: object) -> str:
@@ -147,7 +150,8 @@ def _runtime_authority() -> ManagedV5LiveRuntimeAuthority:
         runtime_source_sha256=_sha("reviewed-runtime-r1"),
         runtime_base_sha256=_sha("runtime-base"),
         route_binding_sha256=_sha("http://127.0.0.1:8890/v1"),
-        base_instructions_sha256=MEM0_V5_EXTRACTION_SYSTEM_PROMPT_SHA256,
+        base_instructions_sha256=SUBSCRIPTION_RUNTIME_BASE_INSTRUCTIONS_SHA256,
+        extraction_system_prompt_sha256=MEM0_V5_EXTRACTION_SYSTEM_PROMPT_SHA256,
         account_binding_hmac_sha256=_sha("account"),
         response_format_type="json_schema",
         response_format_sha256=MEM0_V5_EXTRACTION_RESPONSE_FORMAT_SHA256,
@@ -276,6 +280,12 @@ def test_multi_unit_order_and_request_hashes_match_pinned_adapter(
         item.unit_identity_sha256 for item in result.manifest_authority.units
     )
     assert tuple(item.request_body_sha256 for item in operations) == expected
+    assert result.inputs.receipt_authority.base_instructions_sha256 == (
+        SUBSCRIPTION_RUNTIME_BASE_INSTRUCTIONS_SHA256
+    )
+    assert result.inputs.receipt_authority.base_instructions_sha256 != (
+        MEM0_V5_EXTRACTION_SYSTEM_PROMPT_SHA256
+    )
     assert not hasattr(result.inputs, "dispatch_guard")
 
 
@@ -306,6 +316,29 @@ def test_runtime_authority_cross_wire_fails_before_adapter_projection(
             config=config,
             timeout_seconds=5.0,
         )
+
+
+def test_extraction_prompt_tamper_fails_before_adapter_projection(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    profile, projection = _projection()
+    authority = _runtime_authority()
+    object.__setattr__(authority, "extraction_system_prompt_sha256", _sha("tampered-prompt"))
+    _install_public_seams(monkeypatch, authority)
+    with pytest.raises(subject.ManagedV5LivePublicCompositionError) as captured:
+        subject.compose_managed_v5_live_public_inputs(
+            projection=projection,
+            profile=profile,
+            deadline=datetime.now(UTC) + timedelta(minutes=10),
+            current_date="2026-08-08",
+            extraction_contract_binding=_extraction_binding(tmp_path),
+            operator_extraction_token_ceiling=1_000_000,
+            operator_total_token_ceiling=2_000_000,
+            runtime_authority=authority,
+            config=_config(tmp_path),
+            timeout_seconds=5.0,
+        )
+    assert captured.value.code == "managed_v5_live_extraction_authority_cross_wire"
 
 
 def test_tampered_extraction_binding_fails_before_public_config_or_phase_c(

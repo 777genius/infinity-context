@@ -11,7 +11,14 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import final
 
-_AUTHORITY_SCHEMA = "managed-mem0-v5-live-runtime-authority.v1"
+from infinity_context_server.memory_comparison_managed_mem0_v5_extraction_projection import (
+    MEM0_V5_EXTRACTION_SYSTEM_PROMPT_SHA256,
+)
+from infinity_context_server.memory_comparison_publishable_methodology import (
+    SUBSCRIPTION_RUNTIME_BASE_INSTRUCTIONS_SHA256,
+)
+
+_AUTHORITY_SCHEMA = "managed-mem0-v5-live-runtime-authority.v2"
 _MAX_AUTHORITY_BYTES = 64 * 1024
 _MAX_PUBLIC_IMMUTABLE_BYTES = 32 * 1024 * 1024
 _MEM0_ADAPTER_ORIGIN = "http://127.0.0.1:19091"
@@ -78,6 +85,7 @@ class ManagedV5LiveRuntimeAuthority:
     runtime_base_sha256: str
     route_binding_sha256: str
     base_instructions_sha256: str
+    extraction_system_prompt_sha256: str
     account_binding_hmac_sha256: str
     response_format_type: str
     response_format_sha256: str
@@ -97,6 +105,7 @@ class ManagedV5LiveRuntimeAuthority:
             self.runtime_base_sha256,
             self.route_binding_sha256,
             self.base_instructions_sha256,
+            self.extraction_system_prompt_sha256,
             self.account_binding_hmac_sha256,
             self.response_format_sha256,
             self.response_schema_sha256,
@@ -107,6 +116,8 @@ class ManagedV5LiveRuntimeAuthority:
                 for value in text
             )
             or any(not _is_sha256(value) for value in digests)
+            or self.base_instructions_sha256 != SUBSCRIPTION_RUNTIME_BASE_INSTRUCTIONS_SHA256
+            or self.extraction_system_prompt_sha256 != MEM0_V5_EXTRACTION_SYSTEM_PROMPT_SHA256
             or type(self.requested_output_tokens) is not int
             or self.requested_output_tokens != 4096
         ):
@@ -244,6 +255,7 @@ def parse_managed_v5_live_runtime_authority(
         "runtime_base_sha256",
         "route_binding_sha256",
         "base_instructions_sha256",
+        "extraction_system_prompt_sha256",
         "account_binding_hmac_sha256",
         "response_format_type",
         "response_format_sha256",

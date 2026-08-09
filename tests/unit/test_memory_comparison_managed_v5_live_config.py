@@ -9,6 +9,9 @@ from pathlib import Path
 
 import pytest
 from infinity_context_server import memory_comparison_managed_v5_live_config as subject
+from infinity_context_server.memory_comparison_managed_mem0_v5_extraction_projection import (
+    MEM0_V5_EXTRACTION_SYSTEM_PROMPT_SHA256,
+)
 from infinity_context_server.memory_comparison_managed_v5_live_cli_config_loader import (
     ManagedV5LiveCliConfigLoaderError,
     load_managed_v5_live_cli_config,
@@ -24,6 +27,9 @@ from infinity_context_server.memory_comparison_managed_v5_live_config import (
 from infinity_context_server.memory_comparison_managed_v5_recovery_contracts import (
     managed_v5_live_config_commitment_sha256,
 )
+from infinity_context_server.memory_comparison_publishable_methodology import (
+    SUBSCRIPTION_RUNTIME_BASE_INSTRUCTIONS_SHA256,
+)
 
 ROOT = Path(__file__).resolve().parents[2]
 PHASE_C_SOURCE = ROOT / "benchmarks" / "phase-c-canary" / "phase_c_canary"
@@ -32,7 +38,7 @@ _REAL_PHASE_C_TREE_VALIDATOR = subject._validate_reviewed_phase_c_python_tree
 
 def _authority_payload() -> dict[str, object]:
     return {
-        "schema_version": "managed-mem0-v5-live-runtime-authority.v1",
+        "schema_version": "managed-mem0-v5-live-runtime-authority.v2",
         "model": "gpt-5.4-mini",
         "reasoning_effort": "medium",
         "service_tier": "priority",
@@ -40,7 +46,8 @@ def _authority_payload() -> dict[str, object]:
         "runtime_source_sha256": "1" * 64,
         "runtime_base_sha256": "2" * 64,
         "route_binding_sha256": "3" * 64,
-        "base_instructions_sha256": "4" * 64,
+        "base_instructions_sha256": SUBSCRIPTION_RUNTIME_BASE_INSTRUCTIONS_SHA256,
+        "extraction_system_prompt_sha256": MEM0_V5_EXTRACTION_SYSTEM_PROMPT_SHA256,
         "account_binding_hmac_sha256": "5" * 64,
         "response_format_type": "json_schema",
         "response_format_sha256": "6" * 64,
@@ -170,6 +177,8 @@ def test_public_validation_returns_exact_authority_without_reading_secrets(
     authority = validate_managed_v5_live_public_config(config)
     assert authority.model == "gpt-5.4-mini"
     assert authority.route_binding_sha256 == "3" * 64
+    assert authority.base_instructions_sha256 == SUBSCRIPTION_RUNTIME_BASE_INSTRUCTIONS_SHA256
+    assert authority.extraction_system_prompt_sha256 == (MEM0_V5_EXTRACTION_SYSTEM_PROMPT_SHA256)
     assert authority.requested_output_tokens == 4096
 
 
@@ -402,6 +411,51 @@ def test_runtime_authority_parser_is_exact_and_bounded() -> None:
         parse_managed_v5_live_runtime_authority(raw[:-1] + b',"model":"ambiguous"}')
     assert duplicate.value.code == "managed_v5_live_runtime_authority_invalid"
     assert duplicate.value.__cause__ is None
+
+
+@pytest.mark.parametrize(
+    "mutate",
+    (
+        lambda value: value.pop("extraction_system_prompt_sha256"),
+        lambda value: value.pop("base_instructions_sha256"),
+        lambda value: value.__setitem__("unexpected", True),
+        lambda value: value.update(
+            {
+                "base_instructions_sha256": value["extraction_system_prompt_sha256"],
+                "extraction_system_prompt_sha256": value["base_instructions_sha256"],
+            }
+        ),
+        lambda value: value.__setitem__(
+            "extraction_system_prompt_sha256", value["base_instructions_sha256"]
+        ),
+        lambda value: value.__setitem__("base_instructions_sha256", "a" * 64),
+        lambda value: value.__setitem__("extraction_system_prompt_sha256", "e" * 64),
+        lambda value: value.__setitem__(
+            "extraction_system_prompt_sha256",
+            MEM0_V5_EXTRACTION_SYSTEM_PROMPT_SHA256.upper(),
+        ),
+        lambda value: value.__setitem__(
+            "schema_version", "managed-mem0-v5-live-runtime-authority.v1"
+        ),
+    ),
+    ids=(
+        "missing-extraction",
+        "missing-base",
+        "extra",
+        "swapped",
+        "equalized",
+        "tampered-base",
+        "tampered-extraction",
+        "uppercase",
+        "legacy-v1",
+    ),
+)
+def test_runtime_authority_v2_rejects_ambiguous_instruction_digests(mutate) -> None:
+    payload = _authority_payload()
+    mutate(payload)
+    with pytest.raises(ManagedV5LiveConfigError) as captured:
+        parse_managed_v5_live_runtime_authority(json.dumps(payload).encode())
+    assert captured.value.code == "managed_v5_live_runtime_authority_invalid"
 
 
 def test_mem0_adapter_origin_has_no_permissive_fallback() -> None:

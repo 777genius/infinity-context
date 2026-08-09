@@ -46,10 +46,14 @@ from scripts.mem0_v5_live_micro_canary_views import (
     TerminalView,
 )
 from scripts.mem0_v5_live_project_one_unit import OneUnitProjection, project_one_unit
+from scripts.mem0_v5_live_runtime_authority import (
+    LiveRuntimeAuthority,
+    MicroCanaryInputs,
+    require_extraction_authority,
+)
 
 _IMAGE_ID_PREFIX = "sha256:"
 _REPORT_SCHEMA = "managed-mem0-v5-live-micro-canary.v1"
-_AUTHORITY_SCHEMA = "managed-mem0-v5-live-runtime-authority.v1"
 _SHA256_CHARS = frozenset("0123456789abcdef")
 _MAX_AUTHORITY_BYTES = 64 * 1024
 _REVIEWED_NODE_SHA256 = "b2959781cc5a74c357ffa02367efa8a0330cbb1c9cb347732fdfaaaca381cbcd"
@@ -67,103 +71,6 @@ class _ProductionPublicContract:
     trusted_runtime_binding: object
     receipt_authority: object
     dispatch_guard: object
-
-
-@dataclass(frozen=True, slots=True)
-class LiveRuntimeAuthority:
-    model: str
-    reasoning_effort: str
-    service_tier: str
-    runtime_source_revision: str
-    runtime_source_sha256: str
-    runtime_base_sha256: str
-    route_binding_sha256: str
-    base_instructions_sha256: str
-    account_binding_hmac_sha256: str
-    response_format_type: str
-    response_format_sha256: str
-    response_schema_sha256: str
-    requested_output_tokens: int
-
-    @classmethod
-    def parse(cls, raw: bytes) -> LiveRuntimeAuthority:
-        try:
-            payload = json.loads(raw)
-        except (UnicodeDecodeError, json.JSONDecodeError):
-            raise ValueError("mem0_v5_live_runtime_authority_invalid") from None
-        keys = {
-            "schema_version",
-            "model",
-            "reasoning_effort",
-            "service_tier",
-            "runtime_source_revision",
-            "runtime_source_sha256",
-            "runtime_base_sha256",
-            "route_binding_sha256",
-            "base_instructions_sha256",
-            "account_binding_hmac_sha256",
-            "response_format_type",
-            "response_format_sha256",
-            "response_schema_sha256",
-            "requested_output_tokens",
-        }
-        if type(payload) is not dict or set(payload) != keys:
-            raise ValueError("mem0_v5_live_runtime_authority_invalid")
-        if payload.pop("schema_version") != _AUTHORITY_SCHEMA:
-            raise ValueError("mem0_v5_live_runtime_authority_invalid")
-        try:
-            value = cls(**payload)
-        except TypeError:
-            raise ValueError("mem0_v5_live_runtime_authority_invalid") from None
-        value.require_valid()
-        return value
-
-    def require_valid(self) -> None:
-        text = (
-            self.model,
-            self.reasoning_effort,
-            self.service_tier,
-            self.runtime_source_revision,
-            self.response_format_type,
-        )
-        digests = (
-            self.runtime_source_sha256,
-            self.runtime_base_sha256,
-            self.route_binding_sha256,
-            self.base_instructions_sha256,
-            self.account_binding_hmac_sha256,
-            self.response_format_sha256,
-            self.response_schema_sha256,
-        )
-        if (
-            any(
-                type(item) is not str or not item or item != item.strip() or len(item) > 512
-                for item in text
-            )
-            or any(not _is_sha256(item) for item in digests)
-            or self.requested_output_tokens != 4096
-        ):
-            raise ValueError("mem0_v5_live_runtime_authority_invalid")
-
-
-@dataclass(frozen=True, slots=True)
-class MicroCanaryInputs:
-    projection: OneUnitProjection
-    runtime: LiveRuntimeAuthority
-    restore_existing: bool
-    orphan_dispatch_claim: bool = False
-
-    def __post_init__(self) -> None:
-        if (
-            type(self.projection) is not OneUnitProjection
-            or type(self.runtime) is not LiveRuntimeAuthority
-            or type(self.restore_existing) is not bool
-            or type(self.orphan_dispatch_claim) is not bool
-            or self.projection.response_format_sha256 != self.runtime.response_format_sha256
-            or self.projection.response_schema_sha256 != self.runtime.response_schema_sha256
-            or self.projection.requested_output_tokens != self.runtime.requested_output_tokens
-        ):
-            raise ValueError("mem0_v5_live_inputs_invalid")
 
 
 def execute_micro_canary(
@@ -330,6 +237,8 @@ def _base_report(inputs: MicroCanaryInputs) -> dict[str, object]:
             "runtime_source_sha256": runtime.runtime_source_sha256,
             "runtime_base_sha256": runtime.runtime_base_sha256,
             "route_binding_sha256": runtime.route_binding_sha256,
+            "base_instructions_sha256": runtime.base_instructions_sha256,
+            "extraction_system_prompt_sha256": runtime.extraction_system_prompt_sha256,
         },
     }
 
@@ -525,6 +434,7 @@ def _preflight(
     for path in (
         args.case_file,
         args.runtime_authority_file,
+        args.extraction_contract_file,
         args.input_root / "manifest.json",
         args.input_root / "one-unit-authority.json",
         args.phase_c_package_root,
@@ -565,6 +475,11 @@ def _preflight(
         maximum_bytes=_MAX_AUTHORITY_BYTES,
     )
     runtime = LiveRuntimeAuthority.parse(raw_authority)
+    require_extraction_authority(
+        runtime=runtime,
+        contract_file=args.extraction_contract_file,
+        contract_sha256=args.extraction_contract_sha256,
+    )
     from mem0_oss_adapter_v5.extraction_contract import build_extraction_request
 
     projection = project_one_unit(
@@ -573,6 +488,7 @@ def _preflight(
         current_date=args.current_date,
         extraction_projector=build_extraction_request,
     )
+    MicroCanaryInputs(projection, runtime, False)
     _require_materialized_projection(args, projection)
     contract = _build_public_contract(args=args, projection=projection, runtime=runtime)
     secret_digests = validate_private_credentials(
@@ -671,6 +587,8 @@ def _parse_args(argv: list[str] | None) -> argparse.Namespace:
     parser.add_argument("--one-unit-authority-sha256", required=True)
     parser.add_argument("--runtime-authority-file", required=True, type=Path)
     parser.add_argument("--runtime-authority-sha256", required=True)
+    parser.add_argument("--extraction-contract-file", required=True, type=Path)
+    parser.add_argument("--extraction-contract-sha256", required=True)
     parser.add_argument("--state-root", required=True, type=Path)
     parser.add_argument("--secret-root", required=True, type=Path)
     parser.add_argument("--report-root", required=True, type=Path)

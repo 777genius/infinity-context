@@ -65,6 +65,9 @@ from infinity_context_server.memory_comparison_mem0_oss_v5_observed_receipt impo
     Mem0V5ObservedExtractionOperationAuthority,
     Mem0V5ObservedExtractionReceiptAuthority,
 )
+from infinity_context_server.memory_comparison_publishable_methodology import (
+    SUBSCRIPTION_RUNTIME_BASE_INSTRUCTIONS_SHA256,
+)
 
 _PHASE_C_DOMAIN = "phase_c_canary"
 _CHECKPOINT_NAME = "managed-mem0-v5-checkpoint.json"
@@ -448,7 +451,9 @@ def _require_extraction_binding_authority(
         binding.implementation_domain != projector.implementation_domain
         or binding.implementation_sha256 != projector.implementation_sha256
         or binding.model != runtime_authority.model
-        or binding.system_prompt_sha256 != runtime_authority.base_instructions_sha256
+        or runtime_authority.base_instructions_sha256
+        != SUBSCRIPTION_RUNTIME_BASE_INSTRUCTIONS_SHA256
+        or binding.system_prompt_sha256 != runtime_authority.extraction_system_prompt_sha256
         or binding.response_format_sha256 != runtime_authority.response_format_sha256
         or binding.response_schema_sha256 != runtime_authority.response_schema_sha256
         or binding.requested_output_tokens != runtime_authority.requested_output_tokens
