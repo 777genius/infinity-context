@@ -1,6 +1,6 @@
 {
   "closure_algorithm": "sha256(sorted(path + NUL + size + NUL + sha256 + LF))",
-  "closure_sha256": "c6ed98fb5f1f86e1d4d762448cefa94c962a37750e786b535a8c6421034d886e",
+  "closure_sha256": "47216de107cfab6dc1b836ef27733c6860674cf06a2577f9a37a2a1f50700f34",
   "files": [
     {
       "path": "README.md",
@@ -179,8 +179,8 @@
     },
     {
       "path": "mem0_oss_adapter_v5/sealed_manifest.py",
-      "sha256": "82225026ddbe8cd46c660a56e5507c2f2091ad0e9a7300033134eb440f727465",
-      "size": 7158
+      "sha256": "eccb9476cc38551d4b467575a5e19d7032127d4c8ec6d87a87893c5632532ad0",
+      "size": 7672
     },
     {
       "path": "mem0_oss_adapter_v5/source_authority.py",
@@ -324,6 +324,6 @@
     "release_manifest_sha256": "10b73e189ab23867b3cf368dd0f961faa19aad7baa94e6c3df48471adf4abe93"
   },
   "schema_version": "mem0-oss-adapter-v5.source-authority.v1",
-  "source_commit_sha1": "14ed225c12710d6a9dff5633967a9dee4f9b76a6",
-  "source_tree_sha1": "21e810344f9794c91676d850173ae61e50c1142c"
+  "source_commit_sha1": "8de62f81100a396c1bd46f03f1d8afcd6e5448e8",
+  "source_tree_sha1": "682b2f8f9260ef2ea0282b43aa21721bb76597f2"
 }
