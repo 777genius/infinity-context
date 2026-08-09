@@ -5,11 +5,43 @@ import os
 import uuid
 from collections.abc import Iterator
 from contextlib import contextmanager
+from dataclasses import replace
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 import httpx
 import pytest
+from fastapi.testclient import TestClient
+from infinity_context_adapters.qdrant.identity_evidence import (
+    qdrant_target_commitment_sha256,
+)
+from infinity_context_core.ports.adapters import VectorWriteResult
+from infinity_context_core.ports.benchmark_cleanup_plan import (
+    CLEANUP_PLAN_LIMITS_POLICY_SHA256,
+    CLEANUP_PLAN_SCHEMA_VERSION,
+    COGNEE_NOT_PROJECTED_POLICY_SHA256,
+    INFINITY_NAMESPACE_POLICY_SHA256,
+    ManagedBenchmarkCleanupPlan,
+    ManagedBenchmarkCleanupTargetAuthority,
+    managed_benchmark_cleanup_plan_material_sha256,
+    validate_managed_benchmark_cleanup_plan,
+    validate_managed_benchmark_cleanup_target_authority,
+)
+from infinity_context_core.ports.benchmark_managed_ingest import (
+    managed_benchmark_fact_operation_material,
+    managed_benchmark_fact_source_ref_descriptor,
+    managed_benchmark_infinity_operation_sha256,
+    managed_benchmark_text_sha256,
+)
+from infinity_context_core.ports.benchmark_unsealed_projection import (
+    BenchmarkProjectionPassReceipt,
+)
+from infinity_context_server import derived_provider_composition
+from infinity_context_server.config import DeployProfile, Settings
+from infinity_context_server.derived_identity_target import (
+    graphiti_target_commitment_sha256,
+)
+from infinity_context_server.main import create_app
 from infinity_context_server.memory_comparison_managed_benchmark_registry_contracts import (
     ManagedBenchmarkRegistryHttpConfig,
 )
@@ -19,6 +51,7 @@ from infinity_context_server.memory_comparison_managed_benchmark_registry_http i
 from infinity_context_server.memory_comparison_managed_preflight import (
     managed_backend_target_identity_sha256,
 )
+from infinity_context_server.worker import OutboxWorker, OutboxWorkerFilter
 from infinity_context_server_harness import PROJECT_ROOT, run_infinity_context_server
 from sqlalchemy.engine import make_url
 
@@ -29,6 +62,18 @@ SPACE_SLUG = "memory-comparison-app-sqlite-abort"
 REGISTER_KEY = "sandbox-register-idempotency"
 CLEANUP_KEY = "sandbox-cleanup-idempotency"
 ABORT_KEY = "sandbox-abort-idempotency"
+SCOPE_REF = "e2e-corpus"
+THREAD_REF = "e2e-thread"
+FACT_SOURCE = "e2e-fact-source"
+FACT_TEXT = "The benchmark abort fixture binds one exact fact."
+DERIVED_LANE_ENV = {
+    "MEMORY_QDRANT_ENABLED": "true",
+    "MEMORY_GRAPHITI_ENABLED": "true",
+    "MEMORY_GRAPHITI_NEO4J_PASSWORD": "sandbox-graph-password",
+    "MEMORY_EMBEDDINGS_ENABLED": "true",
+    "MEMORY_EMBEDDINGS_PROVIDER": "openai",
+    "MEMORY_OPENAI_API_KEY": "sandbox-openai-key",
+}
 
 
 def test_app_postgres_registry_abort_recovers_and_replays_when_configured(
@@ -39,13 +84,22 @@ def test_app_postgres_registry_abort_recovers_and_replays_when_configured(
         with run_infinity_context_server(
             tmp_path,
             token=token,
-            extra_env={"MEMORY_DATABASE_URL": database_url},
+            extra_env={**DERIVED_LANE_ENV, "MEMORY_DATABASE_URL": database_url},
         ) as server:
             adapter = _live_registry_adapter(server.base_url, token)
+            target_authority = adapter.prepare_cleanup_target_authority()
+            cleanup_plan = _cleanup_plan(
+                managed_backend_target_identity_sha256(
+                    backend_role="infinity-context",
+                    base_url=server.base_url,
+                ),
+                target_authority,
+            )
             registration = adapter.register(
                 run_id_sha256=RUN,
                 binding_commitment_sha256=BINDING,
                 space_slug=SPACE_SLUG,
+                cleanup_plan=cleanup_plan,
                 idempotency_key=REGISTER_KEY,
             )
             cleanup = adapter.begin_cleanup(idempotency_key=CLEANUP_KEY)
@@ -63,6 +117,7 @@ def test_app_postgres_registry_abort_recovers_and_replays_when_configured(
                 run_id_sha256=RUN,
                 binding_commitment_sha256=BINDING,
                 space_slug=SPACE_SLUG,
+                cleanup_plan_sha256=cleanup_plan.sha256,
             )
             assert snapshot.state == "cleanup_aborted"
             assert snapshot.projection_cleanup_state == "unsealed_abort_complete"
@@ -73,7 +128,7 @@ def test_app_postgres_registry_abort_recovers_and_replays_when_configured(
                 f"{server.base_url}/v1/internal/memory-comparison/runs/"
                 f"{RUN}/cleanup/abort/finalize",
                 json={
-                    "schema_version": "memory-comparison-run-abort-finalize.v1",
+                    "schema_version": "memory-comparison-run-abort-finalize.v2",
                     "binding_commitment_sha256": BINDING,
                     "infinity_target_identity_sha256": (
                         registration.infinity_target_identity_sha256
@@ -81,6 +136,7 @@ def test_app_postgres_registry_abort_recovers_and_replays_when_configured(
                     "space_id": registration.space_id,
                     "space_slug": SPACE_SLUG,
                     "receipt_sha256": cleanup.receipt_sha256,
+                    "cleanup_plan_sha256": cleanup_plan.sha256,
                 },
                 headers={
                     "Authorization": f"Bearer {token}",
@@ -94,26 +150,42 @@ def test_app_postgres_registry_abort_recovers_and_replays_when_configured(
             assert replayed["receipt_sha256"] == terminal.receipt_sha256
 
 
-def test_app_sqlite_registry_unsealed_abort_persists_and_replays(tmp_path: Path) -> None:
+def test_app_sqlite_registry_unsealed_abort_persists_and_replays(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     database_name = "benchmark-registry-abort.db"
     token = "sandbox-admin-token"
-    headers = {"Authorization": f"Bearer {token}"}
-    registration_payload = {
-        "schema_version": "memory-comparison-run-registration.v1",
-        "run_id_sha256": RUN,
-        "binding_commitment_sha256": BINDING,
-        "infinity_target_identity_sha256": TARGET,
-        "space_slug": SPACE_SLUG,
-    }
 
     with (
-        run_infinity_context_server(
+        _sqlite_test_client(
+            monkeypatch,
             tmp_path,
             token=token,
             database_name=database_name,
-        ) as server,
-        httpx.Client(base_url=server.base_url, headers=headers, timeout=10) as client,
+        ) as client,
     ):
+        authority_response = client.post(
+            "/v1/internal/memory-comparison/runs/cleanup-target-authority",
+            json={
+                "schema_version": ("memory-comparison-cleanup-target-authority-request.v1"),
+                "infinity_target_identity_sha256": TARGET,
+            },
+        )
+        assert authority_response.status_code == 200, authority_response.text
+        target_authority = validate_managed_benchmark_cleanup_target_authority(
+            authority_response.json()["data"],
+            infinity_target_identity_sha256=TARGET,
+        )
+        cleanup_plan = _cleanup_plan(TARGET, target_authority)
+        registration_payload = {
+            "schema_version": "memory-comparison-run-registration.v2",
+            "run_id_sha256": RUN,
+            "binding_commitment_sha256": BINDING,
+            "infinity_target_identity_sha256": TARGET,
+            "space_slug": SPACE_SLUG,
+            "cleanup_plan": cleanup_plan.value,
+            "cleanup_plan_sha256": cleanup_plan.sha256,
+        }
         registered = client.post(
             "/v1/internal/memory-comparison/runs",
             json=registration_payload,
@@ -126,17 +198,38 @@ def test_app_sqlite_registry_unsealed_abort_persists_and_replays(tmp_path: Path)
         assert registration["run_id_sha256"] == RUN
         assert registration["binding_commitment_sha256"] == BINDING
         assert registration["infinity_target_identity_sha256"] == TARGET
+        assert registration["cleanup_plan_sha256"] == cleanup_plan.sha256
+        assert registration["cleanup_plan_state"] == "sealed"
 
         space_id = registration["space_id"]
+        fact = client.post(
+            "/v1/facts",
+            json={
+                "space_slug": SPACE_SLUG,
+                "memory_scope_external_ref": SCOPE_REF,
+                "thread_external_ref": THREAD_REF,
+                "text": FACT_TEXT,
+                "kind": "requirement",
+                "source_refs": [
+                    {
+                        "source_type": "memory_comparison_benchmark",
+                        "source_id": FACT_SOURCE,
+                        "quote_preview": FACT_TEXT,
+                    }
+                ],
+            },
+        )
+        assert fact.status_code == 201, fact.text
         cleanup = client.request(
             "DELETE",
             f"/v1/internal/memory-comparison/runs/{RUN}",
             json={
-                "schema_version": "memory-comparison-run-cleanup.v1",
+                "schema_version": "memory-comparison-run-cleanup.v2",
                 "binding_commitment_sha256": BINDING,
                 "infinity_target_identity_sha256": TARGET,
                 "space_id": space_id,
                 "space_slug": SPACE_SLUG,
+                "cleanup_plan_sha256": cleanup_plan.sha256,
             },
             headers={"Idempotency-Key": CLEANUP_KEY},
         )
@@ -144,18 +237,27 @@ def test_app_sqlite_registry_unsealed_abort_persists_and_replays(tmp_path: Path)
         initiation = cleanup.json()["data"]
         assert initiation["state"] == "cleanup_pending"
         assert initiation["projection_cleanup"] == "blocked"
-        assert all(value == 0 for value in initiation["counts"].values())
+        assert initiation["counts"]["memory_scopes"] == 1
+        assert initiation["counts"]["threads"] == 1
+        assert initiation["counts"]["facts"] == 1
         assert initiation["vector_delete_outbox_ids"] == []
-        assert initiation["graph_delete_outbox_ids"] == []
+        assert len(initiation["graph_delete_outbox_ids"]) == 1
         assert initiation["cognee_delete_outbox_ids"] == []
+        worker = OutboxWorker(
+            client.app.state.container,
+            worker_filter=OutboxWorkerFilter(workload_classes=("projection",)),
+        )
+        processed = [asyncio.run(worker.run_once(limit=10)) for _ in range(3)]
+        assert processed[0] >= 1
 
         abort_payload = {
-            "schema_version": "memory-comparison-run-abort-finalize.v1",
+            "schema_version": "memory-comparison-run-abort-finalize.v2",
             "binding_commitment_sha256": BINDING,
             "infinity_target_identity_sha256": TARGET,
             "space_id": space_id,
             "space_slug": SPACE_SLUG,
             "receipt_sha256": initiation["receipt_sha256"],
+            "cleanup_plan_sha256": cleanup_plan.sha256,
         }
         aborted = client.post(
             f"/v1/internal/memory-comparison/runs/{RUN}/cleanup/abort/finalize",
@@ -170,24 +272,24 @@ def test_app_sqlite_registry_unsealed_abort_persists_and_replays(tmp_path: Path)
         assert terminal["binding_commitment_sha256"] == BINDING
         assert terminal["infinity_target_identity_sha256"] == TARGET
         assert terminal["cleanup_initiation_receipt_sha256"] == initiation["receipt_sha256"]
+        assert terminal["cleanup_plan_sha256"] == cleanup_plan.sha256
         assert terminal["replayed"] is False
 
     with (
-        run_infinity_context_server(
+        _sqlite_test_client(
+            monkeypatch,
             tmp_path,
             token=token,
             database_name=database_name,
-        ) as restarted,
-        httpx.Client(
-            base_url=restarted.base_url,
-            headers=headers,
-            timeout=10,
         ) as client,
     ):
         lifecycle_response = client.get(f"/v1/internal/memory-comparison/runs/{RUN}/cleanup")
         assert lifecycle_response.status_code == 200, lifecycle_response.text
         lifecycle = lifecycle_response.json()["data"]
+        assert lifecycle["schema_version"] == "memory-comparison-run-lifecycle-response.v2"
         assert lifecycle["state"] == "cleanup_aborted"
+        assert lifecycle["cleanup_plan_sha256"] == cleanup_plan.sha256
+        assert lifecycle["cleanup_plan_state"] == "sealed"
         assert lifecycle["projection_cleanup_state"] == "unsealed_abort_complete"
         assert lifecycle["projection_manifest_sha256"] is None
         assert lifecycle["cleanup_receipt"]["receipt_sha256"] == initiation["receipt_sha256"]
@@ -203,6 +305,184 @@ def test_app_sqlite_registry_unsealed_abort_persists_and_replays(tmp_path: Path)
         assert replayed["replayed"] is True
         assert replayed["receipt_sha256"] == terminal["receipt_sha256"]
         assert replayed["completed_at"] == terminal["completed_at"]
+
+
+def _cleanup_plan(
+    target: str,
+    authority: ManagedBenchmarkCleanupTargetAuthority,
+) -> ManagedBenchmarkCleanupPlan:
+    def digest(character: str) -> str:
+        return character * 64
+
+    source_sha256 = managed_benchmark_text_sha256(FACT_SOURCE)
+    content_sha256 = managed_benchmark_text_sha256(FACT_TEXT)
+    source_ref = managed_benchmark_fact_source_ref_descriptor(
+        source_type="memory_comparison_benchmark",
+        source_id=FACT_SOURCE,
+        quote_preview=FACT_TEXT,
+    )
+    operation_sha256 = managed_benchmark_infinity_operation_sha256(
+        managed_benchmark_fact_operation_material(
+            source_external_id_sha256=source_sha256,
+            content_sha256=content_sha256,
+            kind="requirement",
+            classification="internal",
+            source_refs=(source_ref,),
+        )
+    )
+    value: dict[str, object] = {
+        "schema_version": CLEANUP_PLAN_SCHEMA_VERSION,
+        "run_id_sha256": RUN,
+        "binding_commitment_sha256": BINDING,
+        "infinity_target_identity_sha256": target,
+        "space_id": f"benchmark-space-{RUN[:48]}",
+        "space_slug": SPACE_SLUG,
+        "profile_id": "e2e-unsealed-abort",
+        "ordered_case_sha256": [digest("1")],
+        "corpora": [
+            {
+                "ordinal": 0,
+                "corpus_id_sha256": digest("2"),
+                "managed_corpus_projection_sha256": digest("3"),
+                "memory_scope_external_ref_sha256": managed_benchmark_text_sha256(SCOPE_REF),
+                "thread_external_ref_sha256": managed_benchmark_text_sha256(THREAD_REF),
+                "infinity_lane": "fact",
+                "ordered_infinity_operation_sha256": [operation_sha256],
+                "ordered_infinity_source_external_id_sha256": [source_sha256],
+                "ordered_infinity_content_sha256": [content_sha256],
+                "ordered_document_fragment_count": [],
+                "expected_fact_count": 1,
+                "expected_document_count": 0,
+                "expected_chunk_count": 0,
+                "mem0_corpus_identity_sha256": digest("6"),
+                "ordered_mem0_source_id_sha256": [digest("5")],
+                "ordered_mem0_unit_identity_sha256": [digest("7")],
+                "expected_ingest_unit_count": 1,
+            }
+        ],
+        "mem0": {
+            "admission_commitment_sha256": digest("8"),
+            "ingestion_manifest_sha256": digest("9"),
+            "ingestion_root_sha256": digest("d"),
+            "expected_operation_count": 1,
+        },
+        "infinity_namespace_policy_sha256": INFINITY_NAMESPACE_POLICY_SHA256,
+        "qdrant": {},
+        "graphiti": {},
+        "cognee": {
+            "disposition": "not_projected",
+            "policy_sha256": COGNEE_NOT_PROJECTED_POLICY_SHA256,
+        },
+        "cardinality": {
+            "case_count": 1,
+            "corpus_count": 1,
+            "mem0_source_identity_count": 1,
+            "expected_ingest_unit_count": 1,
+            "infinity_operation_count": 1,
+            "expected_fact_count": 1,
+            "expected_document_count": 0,
+            "expected_chunk_count": 0,
+        },
+        "limits_policy_sha256": CLEANUP_PLAN_LIMITS_POLICY_SHA256,
+    }
+    for lane in ("qdrant", "graphiti", "cognee"):
+        value[lane] = authority.value[lane]
+    digest = managed_benchmark_cleanup_plan_material_sha256(value)
+    return validate_managed_benchmark_cleanup_plan(
+        value,
+        digest,
+        run_id_sha256=RUN,
+        binding_commitment_sha256=BINDING,
+        infinity_target_identity_sha256=target,
+        space_slug=SPACE_SLUG,
+    )
+
+
+class _AbsentProjectionEvidence:
+    def __init__(self, lane: str, target: str) -> None:
+        self._lane = lane
+        self._target = target
+
+    async def delete_benchmark_space_two_pass(
+        self, **_: object
+    ) -> tuple[BenchmarkProjectionPassReceipt, BenchmarkProjectionPassReceipt]:
+        return tuple(
+            BenchmarkProjectionPassReceipt(
+                lane=self._lane,
+                target_commitment_sha256=self._target,
+                pass_index=pass_index,
+                observed_count=0,
+                absent=True,
+                receipt_sha256=str(pass_index) * 64,
+            )
+            for pass_index in (1, 2)
+        )
+
+
+class _SuccessfulDeleteGraph:
+    def __init__(self, delegate: object) -> None:
+        self._delegate = delegate
+
+    def __getattr__(self, name: str) -> object:
+        return getattr(self._delegate, name)
+
+    async def delete_fact(self, *_args: object, **_kwargs: object) -> VectorWriteResult:
+        return VectorWriteResult.ok(1)
+
+
+@contextmanager
+def _sqlite_test_client(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    *,
+    token: str,
+    database_name: str,
+) -> Iterator[TestClient]:
+    original = derived_provider_composition.build_derived_provider_bundle
+
+    def provider_free_bundle(*, engine: object, settings: Settings) -> object:
+        disabled = settings.model_copy(
+            update={
+                "qdrant_enabled": False,
+                "graphiti_enabled": False,
+                "embeddings_enabled": False,
+            }
+        )
+        bundle = original(engine=engine, settings=disabled)
+        qdrant_target = qdrant_target_commitment_sha256(
+            settings.qdrant_url, settings.qdrant_collection
+        )
+        graphiti_target = graphiti_target_commitment_sha256(neo4j_uri=settings.graphiti_neo4j_uri)
+        return replace(
+            bundle,
+            raw_graph=_SuccessfulDeleteGraph(bundle.raw_graph),
+            vector_evidence=_AbsentProjectionEvidence("qdrant", qdrant_target),
+            graph_evidence=_AbsentProjectionEvidence("graphiti", graphiti_target),
+            qdrant_target_commitment_sha256=qdrant_target,
+            graphiti_target_commitment_sha256=graphiti_target,
+        )
+
+    monkeypatch.setattr(
+        derived_provider_composition,
+        "build_derived_provider_bundle",
+        provider_free_bundle,
+    )
+    app = create_app(
+        Settings(
+            deploy_profile=DeployProfile.LOCAL,
+            database_url=f"sqlite+aiosqlite:///{tmp_path / database_name}",
+            auto_create_schema=True,
+            service_token=token,
+            qdrant_enabled=True,
+            graphiti_enabled=True,
+            graphiti_neo4j_password="sandbox-graph-password",
+            embeddings_enabled=True,
+            embeddings_provider="openai",
+            openai_api_key="sandbox-openai-key",
+        )
+    )
+    with TestClient(app, headers={"Authorization": f"Bearer {token}"}) as client:
+        yield client
 
 
 def test_postgres_unsealed_abort_migration_contract_is_explicit() -> None:
