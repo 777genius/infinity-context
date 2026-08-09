@@ -110,6 +110,14 @@ material. In the adapter secret directory the evidence material is named
 pass its public digest as `--evidence-key-sha256`. Adapter SQLite
 state HMAC and runner checkpoint signing/head keys remain distinct.
 
+The immutable runtime authority uses schema
+`managed-mem0-v5-live-runtime-authority.v3`. Its Phase C runtime response-format
+and schema commitments are distinct from the adapter extraction response-format
+and schema commitments. The runner binds Phase C receipt/runtime evidence to the
+runtime pair and binds one-unit projection plus observed extraction receipts to
+the extraction pair. Missing, legacy, swapped, or equalized pairs are NO-GO
+before credentials, readiness, or provider access.
+
 Run the same command without `--preflight-only` only after the report says GO.
 Use a new private state root, dispatch journal, adapter state root, Qdrant state
 root, and report filename for a new attempt. If a checkpoint exists, the runner

@@ -16,6 +16,8 @@ RUNTIME_BASE_SHA256 = "5c15d6c502d380282a933d4f20a886a06c9d04d3b5d7c918b95df0b0a
 EXTRACTION_PROMPT_SHA256 = "ad19187a37813ef77ee156e714c0650e6ec749e0264bdc07d499bc9b24115155"
 RESPONSE_FORMAT_SHA256 = "f45055c9f24f763294c0c96c3d71cd3ae494d96376596f34a6203cf171f9a516"
 RESPONSE_SCHEMA_SHA256 = "17c002c4bc8c4aa9d9131253ef0763fd5769c039985c65885e5877fda443120b"
+RUNTIME_RESPONSE_FORMAT_SHA256 = "812938567c7a81bac6ed3266608adf470dedc57706102e039422f695495322bf"
+RUNTIME_RESPONSE_SCHEMA_SHA256 = "2461f7a465be82aa67751dc04e0717cde75c69b86e7db54bb306a2e3d1d4d8f0"
 
 
 def _runtime() -> LiveRuntimeAuthority:
@@ -31,15 +33,17 @@ def _runtime() -> LiveRuntimeAuthority:
         extraction_system_prompt_sha256=EXTRACTION_PROMPT_SHA256,
         account_binding_hmac_sha256="e" * 64,
         response_format_type="json_schema",
-        response_format_sha256=RESPONSE_FORMAT_SHA256,
-        response_schema_sha256=RESPONSE_SCHEMA_SHA256,
+        response_format_sha256=RUNTIME_RESPONSE_FORMAT_SHA256,
+        response_schema_sha256=RUNTIME_RESPONSE_SCHEMA_SHA256,
+        extraction_response_format_sha256=RESPONSE_FORMAT_SHA256,
+        extraction_response_schema_sha256=RESPONSE_SCHEMA_SHA256,
         requested_output_tokens=4096,
     )
 
 
 def _payload(runtime: LiveRuntimeAuthority) -> dict[str, object]:
     return {
-        "schema_version": "managed-mem0-v5-live-runtime-authority.v2",
+        "schema_version": "managed-mem0-v5-live-runtime-authority.v3",
         **{field: getattr(runtime, field) for field in runtime.__dataclass_fields__},
     }
 
@@ -85,7 +89,7 @@ def test_runtime_authority_rejects_duplicate_json_keys() -> None:
         LiveRuntimeAuthority.parse(duplicate)
 
 
-@pytest.mark.parametrize("mutation", ("missing", "swapped", "equalized", "v1"))
+@pytest.mark.parametrize("mutation", ("missing", "swapped", "equalized", "v1", "v2"))
 def test_runtime_authority_rejects_conflated_instruction_authority(mutation: str) -> None:
     payload = _payload(_runtime())
     if mutation == "missing":
@@ -98,7 +102,30 @@ def test_runtime_authority_rejects_conflated_instruction_authority(mutation: str
     elif mutation == "equalized":
         payload["extraction_system_prompt_sha256"] = payload["base_instructions_sha256"]
     else:
-        payload["schema_version"] = "managed-mem0-v5-live-runtime-authority.v1"
+        payload["schema_version"] = f"managed-mem0-v5-live-runtime-authority.{mutation}"
+    with pytest.raises(ValueError, match="runtime_authority_invalid"):
+        LiveRuntimeAuthority.parse(json.dumps(payload).encode())
+
+
+@pytest.mark.parametrize("mutation", ("missing", "swapped", "equalized", "type"))
+def test_runtime_authority_rejects_conflated_response_authority(mutation: str) -> None:
+    payload = _payload(_runtime())
+    if mutation == "missing":
+        payload.pop("extraction_response_format_sha256")
+    elif mutation == "swapped":
+        payload["response_format_sha256"], payload["extraction_response_format_sha256"] = (
+            payload["extraction_response_format_sha256"],
+            payload["response_format_sha256"],
+        )
+        payload["response_schema_sha256"], payload["extraction_response_schema_sha256"] = (
+            payload["extraction_response_schema_sha256"],
+            payload["response_schema_sha256"],
+        )
+    elif mutation == "equalized":
+        payload["extraction_response_format_sha256"] = payload["response_format_sha256"]
+        payload["extraction_response_schema_sha256"] = payload["response_schema_sha256"]
+    else:
+        payload["extraction_response_schema_sha256"] = [RESPONSE_SCHEMA_SHA256]
     with pytest.raises(ValueError, match="runtime_authority_invalid"):
         LiveRuntimeAuthority.parse(json.dumps(payload).encode())
 

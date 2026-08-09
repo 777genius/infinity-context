@@ -45,6 +45,8 @@ RUNTIME_BASE_SHA256 = "5c15d6c502d380282a933d4f20a886a06c9d04d3b5d7c918b95df0b0a
 EXTRACTION_PROMPT_SHA256 = "ad19187a37813ef77ee156e714c0650e6ec749e0264bdc07d499bc9b24115155"
 RESPONSE_FORMAT_SHA256 = "f45055c9f24f763294c0c96c3d71cd3ae494d96376596f34a6203cf171f9a516"
 RESPONSE_SCHEMA_SHA256 = "17c002c4bc8c4aa9d9131253ef0763fd5769c039985c65885e5877fda443120b"
+RUNTIME_RESPONSE_FORMAT_SHA256 = "812938567c7a81bac6ed3266608adf470dedc57706102e039422f695495322bf"
+RUNTIME_RESPONSE_SCHEMA_SHA256 = "2461f7a465be82aa67751dc04e0717cde75c69b86e7db54bb306a2e3d1d4d8f0"
 
 
 @pytest.fixture(autouse=True)
@@ -253,8 +255,10 @@ def _runtime() -> LiveRuntimeAuthority:
         extraction_system_prompt_sha256=EXTRACTION_PROMPT_SHA256,
         account_binding_hmac_sha256="e" * 64,
         response_format_type="json_schema",
-        response_format_sha256=RESPONSE_FORMAT_SHA256,
-        response_schema_sha256=RESPONSE_SCHEMA_SHA256,
+        response_format_sha256=RUNTIME_RESPONSE_FORMAT_SHA256,
+        response_schema_sha256=RUNTIME_RESPONSE_SCHEMA_SHA256,
+        extraction_response_format_sha256=RESPONSE_FORMAT_SHA256,
+        extraction_response_schema_sha256=RESPONSE_SCHEMA_SHA256,
         requested_output_tokens=4096,
     )
 
@@ -505,6 +509,8 @@ def test_production_factory_composes_observed_authority_and_durable_guard(
         response_format_type=base.response_format_type,
         response_format_sha256=base.response_format_sha256,
         response_schema_sha256=base.response_schema_sha256,
+        extraction_response_format_sha256=base.extraction_response_format_sha256,
+        extraction_response_schema_sha256=base.extraction_response_schema_sha256,
         requested_output_tokens=4096,
     )
     state = tmp_path / "state"

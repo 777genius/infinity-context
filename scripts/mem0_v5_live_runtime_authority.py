@@ -11,6 +11,8 @@ from infinity_context_server.memory_comparison_managed_mem0_v5_extraction_contra
     require_managed_mem0_v5_extraction_contract_binding,
 )
 from infinity_context_server.memory_comparison_managed_mem0_v5_extraction_projection import (
+    MEM0_V5_EXTRACTION_RESPONSE_FORMAT_SHA256,
+    MEM0_V5_EXTRACTION_SCHEMA_SHA256,
     MEM0_V5_EXTRACTION_SYSTEM_PROMPT_SHA256,
 )
 from infinity_context_server.memory_comparison_publishable_methodology import (
@@ -19,7 +21,9 @@ from infinity_context_server.memory_comparison_publishable_methodology import (
 
 from scripts.mem0_v5_live_project_one_unit import OneUnitProjection
 
-AUTHORITY_SCHEMA = "managed-mem0-v5-live-runtime-authority.v2"
+AUTHORITY_SCHEMA = "managed-mem0-v5-live-runtime-authority.v3"
+RUNTIME_RESPONSE_FORMAT_SHA256 = "812938567c7a81bac6ed3266608adf470dedc57706102e039422f695495322bf"
+RUNTIME_RESPONSE_SCHEMA_SHA256 = "2461f7a465be82aa67751dc04e0717cde75c69b86e7db54bb306a2e3d1d4d8f0"
 _SHA256_CHARS = frozenset("0123456789abcdef")
 
 
@@ -38,6 +42,8 @@ class LiveRuntimeAuthority:
     response_format_type: str
     response_format_sha256: str
     response_schema_sha256: str
+    extraction_response_format_sha256: str
+    extraction_response_schema_sha256: str
     requested_output_tokens: int
 
     @classmethod
@@ -75,6 +81,8 @@ class LiveRuntimeAuthority:
             self.account_binding_hmac_sha256,
             self.response_format_sha256,
             self.response_schema_sha256,
+            self.extraction_response_format_sha256,
+            self.extraction_response_schema_sha256,
         )
         if (
             any(
@@ -85,6 +93,12 @@ class LiveRuntimeAuthority:
             or self.base_instructions_sha256 != SUBSCRIPTION_RUNTIME_BASE_INSTRUCTIONS_SHA256
             or self.extraction_system_prompt_sha256 != MEM0_V5_EXTRACTION_SYSTEM_PROMPT_SHA256
             or self.base_instructions_sha256 == self.extraction_system_prompt_sha256
+            or self.response_format_sha256 != RUNTIME_RESPONSE_FORMAT_SHA256
+            or self.response_schema_sha256 != RUNTIME_RESPONSE_SCHEMA_SHA256
+            or self.extraction_response_format_sha256 != MEM0_V5_EXTRACTION_RESPONSE_FORMAT_SHA256
+            or self.extraction_response_schema_sha256 != MEM0_V5_EXTRACTION_SCHEMA_SHA256
+            or self.response_format_sha256 == self.extraction_response_format_sha256
+            or self.response_schema_sha256 == self.extraction_response_schema_sha256
             or type(self.requested_output_tokens) is not int
             or self.requested_output_tokens != 4096
         ):
@@ -104,8 +118,10 @@ class MicroCanaryInputs:
             or type(self.runtime) is not LiveRuntimeAuthority
             or type(self.restore_existing) is not bool
             or type(self.orphan_dispatch_claim) is not bool
-            or self.projection.response_format_sha256 != self.runtime.response_format_sha256
-            or self.projection.response_schema_sha256 != self.runtime.response_schema_sha256
+            or self.projection.response_format_sha256
+            != self.runtime.extraction_response_format_sha256
+            or self.projection.response_schema_sha256
+            != self.runtime.extraction_response_schema_sha256
             or self.projection.requested_output_tokens != self.runtime.requested_output_tokens
         ):
             raise ValueError("mem0_v5_live_inputs_invalid")
@@ -127,8 +143,8 @@ def require_extraction_authority(
     if (
         runtime.model != binding.model
         or runtime.extraction_system_prompt_sha256 != binding.system_prompt_sha256
-        or runtime.response_format_sha256 != binding.response_format_sha256
-        or runtime.response_schema_sha256 != binding.response_schema_sha256
+        or runtime.extraction_response_format_sha256 != binding.response_format_sha256
+        or runtime.extraction_response_schema_sha256 != binding.response_schema_sha256
         or runtime.requested_output_tokens != binding.requested_output_tokens
     ):
         raise ValueError("mem0_v5_live_extraction_authority_differs")
@@ -151,5 +167,7 @@ __all__ = (
     "AUTHORITY_SCHEMA",
     "LiveRuntimeAuthority",
     "MicroCanaryInputs",
+    "RUNTIME_RESPONSE_FORMAT_SHA256",
+    "RUNTIME_RESPONSE_SCHEMA_SHA256",
     "require_extraction_authority",
 )

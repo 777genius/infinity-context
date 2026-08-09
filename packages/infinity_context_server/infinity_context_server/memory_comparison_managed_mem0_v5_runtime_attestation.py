@@ -183,6 +183,10 @@ def expected_managed_mem0_v5_runtime_authority_from_pin(
     subscription_runtime_binding_commitment_sha256: str,
     expected_account_binding_hmac_sha256: str,
     expected_base_instructions_sha256: str,
+    expected_extraction_system_prompt_sha256: str,
+    expected_extraction_response_format_sha256: str,
+    expected_extraction_response_schema_sha256: str,
+    expected_requested_output_tokens: int,
 ) -> ManagedMem0V5ExpectedRuntimeAuthority:
     """Build exact expected response authority from independently pinned public inputs."""
 
@@ -220,7 +224,17 @@ def expected_managed_mem0_v5_runtime_authority_from_pin(
             raise ValueError
         runtime_transport = _digest(contract["transport_origin_sha256"])
         route = _digest(contract["route_binding_sha256"])
-        if route != runtime_route_binding_sha256:
+        extraction_system_prompt = _digest(contract["adapter_extraction_system_prompt_sha256"])
+        extraction_response_format = _digest(contract["adapter_extraction_response_format_sha256"])
+        extraction_response_schema = _digest(contract["adapter_extraction_schema_sha256"])
+        if (
+            route != runtime_route_binding_sha256
+            or extraction_system_prompt != _digest(expected_extraction_system_prompt_sha256)
+            or extraction_response_format != _digest(expected_extraction_response_format_sha256)
+            or extraction_response_schema != _digest(expected_extraction_response_schema_sha256)
+            or type(expected_requested_output_tokens) is not int
+            or expected_requested_output_tokens != 4096
+        ):
             raise ValueError
         source_values = {
             "source_commit_sha1": _sha1(source["commit_sha1"]),
@@ -260,14 +274,10 @@ def expected_managed_mem0_v5_runtime_authority_from_pin(
             runtime_transport_origin_sha256=runtime_transport,
             expected_account_binding_hmac_sha256=_digest(expected_account_binding_hmac_sha256),
             expected_base_instructions_sha256=_digest(expected_base_instructions_sha256),
-            extraction_system_prompt_sha256=_digest(
-                contract["adapter_extraction_system_prompt_sha256"]
-            ),
-            extraction_response_format_sha256=_digest(
-                contract["adapter_extraction_response_format_sha256"]
-            ),
-            extraction_response_schema_sha256=_digest(contract["adapter_extraction_schema_sha256"]),
-            requested_output_tokens=4096,
+            extraction_system_prompt_sha256=extraction_system_prompt,
+            extraction_response_format_sha256=extraction_response_format,
+            extraction_response_schema_sha256=extraction_response_schema,
+            requested_output_tokens=expected_requested_output_tokens,
             output_limit_enforced=False,
             usage_attestation_required=False,
         )

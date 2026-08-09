@@ -233,6 +233,8 @@ def _base_report(inputs: MicroCanaryInputs) -> dict[str, object]:
             "request_body_sha256": projection.request_body_sha256,
             "response_format_sha256": projection.response_format_sha256,
             "response_schema_sha256": projection.response_schema_sha256,
+            "runtime_response_format_sha256": runtime.response_format_sha256,
+            "runtime_response_schema_sha256": runtime.response_schema_sha256,
             "account_binding_hmac_sha256": runtime.account_binding_hmac_sha256,
             "runtime_source_sha256": runtime.runtime_source_sha256,
             "runtime_base_sha256": runtime.runtime_base_sha256,
@@ -316,14 +318,20 @@ def _build_public_contract(
     from infinity_context_server.memory_comparison_managed_mem0_v5_dispatch_guard import (
         create_managed_mem0_v5_single_dispatch_guard,
     )
+    from phase_c_canary.authority import immutable_authority
     from phase_c_canary.receipt import NodePublicReceiptVerifier
     from phase_c_canary.runtime_binding import RuntimeBindingComposition
     from phase_c_canary.runtime_receipt_v2 import RuntimeReceiptV2Boundary
 
     binding = RuntimeBindingComposition.compose_phase_c_canary().issue()
+    phase_c_authority = immutable_authority()
     if (
         binding.runtime_source_sha256 != runtime.runtime_source_sha256
         or binding.route_binding_sha256 != runtime.route_binding_sha256
+        or phase_c_authority.response_format_type != runtime.response_format_type
+        or phase_c_authority.response_format_sha256 != runtime.response_format_sha256
+        or phase_c_authority.response_schema_sha256 != runtime.response_schema_sha256
+        or phase_c_authority.requested_output_tokens != runtime.requested_output_tokens
     ):
         raise ValueError("mem0_v5_live_runtime_binding_differs")
     request = Mem0OssAdmissionRequest(
@@ -370,8 +378,8 @@ def _build_public_contract(
         route_binding_sha256=runtime.route_binding_sha256,
         account_binding_hmac_sha256=runtime.account_binding_hmac_sha256,
         response_format_type=runtime.response_format_type,
-        response_format_sha256=runtime.response_format_sha256,
-        response_schema_sha256=runtime.response_schema_sha256,
+        response_format_sha256=runtime.extraction_response_format_sha256,
+        response_schema_sha256=runtime.extraction_response_schema_sha256,
         node_executable_path=str(args.node_executable),
         node_executable_sha256=args.node_executable_sha256,
         operations=(operation,),

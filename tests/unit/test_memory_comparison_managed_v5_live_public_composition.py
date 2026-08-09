@@ -154,8 +154,10 @@ def _runtime_authority() -> ManagedV5LiveRuntimeAuthority:
         extraction_system_prompt_sha256=MEM0_V5_EXTRACTION_SYSTEM_PROMPT_SHA256,
         account_binding_hmac_sha256=_sha("account"),
         response_format_type="json_schema",
-        response_format_sha256=MEM0_V5_EXTRACTION_RESPONSE_FORMAT_SHA256,
-        response_schema_sha256=MEM0_V5_EXTRACTION_SCHEMA_SHA256,
+        response_format_sha256=config_subject._RUNTIME_RESPONSE_FORMAT_SHA256,
+        response_schema_sha256=config_subject._RUNTIME_RESPONSE_SCHEMA_SHA256,
+        extraction_response_format_sha256=MEM0_V5_EXTRACTION_RESPONSE_FORMAT_SHA256,
+        extraction_response_schema_sha256=MEM0_V5_EXTRACTION_SCHEMA_SHA256,
         requested_output_tokens=4096,
     )
 
@@ -286,6 +288,18 @@ def test_multi_unit_order_and_request_hashes_match_pinned_adapter(
     assert result.inputs.receipt_authority.base_instructions_sha256 != (
         MEM0_V5_EXTRACTION_SYSTEM_PROMPT_SHA256
     )
+    assert result.inputs.receipt_authority.response_format_sha256 == (
+        MEM0_V5_EXTRACTION_RESPONSE_FORMAT_SHA256
+    )
+    assert result.inputs.receipt_authority.response_schema_sha256 == (
+        MEM0_V5_EXTRACTION_SCHEMA_SHA256
+    )
+    assert result.inputs.receipt_authority.response_format_sha256 != (
+        config_subject._RUNTIME_RESPONSE_FORMAT_SHA256
+    )
+    assert result.inputs.receipt_authority.response_schema_sha256 != (
+        config_subject._RUNTIME_RESPONSE_SCHEMA_SHA256
+    )
     assert not hasattr(result.inputs, "dispatch_guard")
 
 
@@ -318,12 +332,20 @@ def test_runtime_authority_cross_wire_fails_before_adapter_projection(
         )
 
 
-def test_extraction_prompt_tamper_fails_before_adapter_projection(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+@pytest.mark.parametrize(
+    "field",
+    (
+        "extraction_system_prompt_sha256",
+        "extraction_response_format_sha256",
+        "extraction_response_schema_sha256",
+    ),
+)
+def test_extraction_authority_tamper_fails_before_adapter_projection(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, field: str
 ) -> None:
     profile, projection = _projection()
     authority = _runtime_authority()
-    object.__setattr__(authority, "extraction_system_prompt_sha256", _sha("tampered-prompt"))
+    object.__setattr__(authority, field, _sha(f"tampered-{field}"))
     _install_public_seams(monkeypatch, authority)
     with pytest.raises(subject.ManagedV5LivePublicCompositionError) as captured:
         subject.compose_managed_v5_live_public_inputs(

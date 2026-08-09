@@ -292,6 +292,7 @@ def prepare_managed_v5_live_cli_public_stage(
     if not _is_sha256(subscription_binding):
         _fail("managed_v5_live_runtime_authority_cross_wire")
     filesystem = request.managed_v5_config.filesystem
+    extraction = extraction_contract_binding
     runtime_attestation_authority = expected_managed_mem0_v5_runtime_authority_from_pin(
         runtime_pin_file=filesystem.adapter_runtime_pin_file,
         runtime_pin_sha256=filesystem.adapter_runtime_pin_sha256,
@@ -300,6 +301,10 @@ def prepare_managed_v5_live_cli_public_stage(
         subscription_runtime_binding_commitment_sha256=subscription_binding,
         expected_account_binding_hmac_sha256=runtime_authority.account_binding_hmac_sha256,
         expected_base_instructions_sha256=runtime_authority.base_instructions_sha256,
+        expected_extraction_system_prompt_sha256=extraction.system_prompt_sha256,
+        expected_extraction_response_format_sha256=extraction.response_format_sha256,
+        expected_extraction_response_schema_sha256=extraction.response_schema_sha256,
+        expected_requested_output_tokens=extraction.requested_output_tokens,
     )
     infinity_target = next(
         target.target_identity_sha256

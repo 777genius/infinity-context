@@ -453,8 +453,37 @@ def test_runtime_pin_is_safe_read_and_requires_attestation_contract_fields(
         ),
         expected_account_binding_hmac_sha256=expected.expected_account_binding_hmac_sha256,
         expected_base_instructions_sha256=expected.expected_base_instructions_sha256,
+        expected_extraction_system_prompt_sha256=expected.extraction_system_prompt_sha256,
+        expected_extraction_response_format_sha256=expected.extraction_response_format_sha256,
+        expected_extraction_response_schema_sha256=expected.extraction_response_schema_sha256,
+        expected_requested_output_tokens=expected.requested_output_tokens,
     )
     assert len(parsed.runtime_binding_commitment_sha256) == 64
+
+    mismatches = (
+        {"expected_extraction_system_prompt_sha256": _sha("foreign-prompt")},
+        {"expected_extraction_response_format_sha256": _sha("foreign-format")},
+        {"expected_extraction_response_schema_sha256": _sha("foreign-schema")},
+        {"expected_requested_output_tokens": 2048},
+    )
+    common = {
+        "runtime_pin_file": path,
+        "runtime_pin_sha256": hashlib.sha256(raw).hexdigest(),
+        "runtime_source_sha256": expected.runtime_source_sha256,
+        "runtime_route_binding_sha256": expected.runtime_route_binding_sha256,
+        "subscription_runtime_binding_commitment_sha256": (
+            expected.subscription_runtime_binding_commitment_sha256
+        ),
+        "expected_account_binding_hmac_sha256": expected.expected_account_binding_hmac_sha256,
+        "expected_base_instructions_sha256": expected.expected_base_instructions_sha256,
+        "expected_extraction_system_prompt_sha256": expected.extraction_system_prompt_sha256,
+        "expected_extraction_response_format_sha256": (expected.extraction_response_format_sha256),
+        "expected_extraction_response_schema_sha256": (expected.extraction_response_schema_sha256),
+        "expected_requested_output_tokens": expected.requested_output_tokens,
+    }
+    for mismatch in mismatches:
+        with pytest.raises(subject.ManagedMem0V5RuntimeAttestationHttpError):
+            subject.expected_managed_mem0_v5_runtime_authority_from_pin(**{**common, **mismatch})
 
     contract.pop("usage_attestation_required")
     tampered = json.dumps(pin, sort_keys=True).encode()
@@ -472,4 +501,8 @@ def test_runtime_pin_is_safe_read_and_requires_attestation_contract_fields(
             ),
             expected_account_binding_hmac_sha256=expected.expected_account_binding_hmac_sha256,
             expected_base_instructions_sha256=expected.expected_base_instructions_sha256,
+            expected_extraction_system_prompt_sha256=expected.extraction_system_prompt_sha256,
+            expected_extraction_response_format_sha256=(expected.extraction_response_format_sha256),
+            expected_extraction_response_schema_sha256=(expected.extraction_response_schema_sha256),
+            expected_requested_output_tokens=expected.requested_output_tokens,
         )

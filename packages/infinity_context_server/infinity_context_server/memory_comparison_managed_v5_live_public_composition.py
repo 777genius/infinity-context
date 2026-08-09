@@ -203,8 +203,8 @@ def compose_managed_v5_live_public_inputs(
         node_executable_path=str(config.filesystem.node_executable),
         node_executable_sha256=config.filesystem.node_executable_sha256,
         response_format_type=runtime_authority.response_format_type,
-        response_format_sha256=runtime_authority.response_format_sha256,
-        response_schema_sha256=runtime_authority.response_schema_sha256,
+        response_format_sha256=runtime_authority.extraction_response_format_sha256,
+        response_schema_sha256=runtime_authority.extraction_response_schema_sha256,
         operations=operations,
         requested_output_tokens=runtime_authority.requested_output_tokens,
     )
@@ -280,9 +280,9 @@ def _operation_authority(
 ]:
     projected = extraction_projector.project(unit, current_date=current_date)
     if (
-        projected.response_format_sha256 != runtime_authority.response_format_sha256
+        projected.response_format_sha256 != runtime_authority.extraction_response_format_sha256
         or projected.response_format_sha256 != extraction_contract_binding.response_format_sha256
-        or projected.response_schema_sha256 != runtime_authority.response_schema_sha256
+        or projected.response_schema_sha256 != runtime_authority.extraction_response_schema_sha256
         or projected.response_schema_sha256 != extraction_contract_binding.response_schema_sha256
         or projected.requested_output_tokens != runtime_authority.requested_output_tokens
         or projected.requested_output_tokens != extraction_contract_binding.requested_output_tokens
@@ -454,8 +454,8 @@ def _require_extraction_binding_authority(
         or runtime_authority.base_instructions_sha256
         != SUBSCRIPTION_RUNTIME_BASE_INSTRUCTIONS_SHA256
         or binding.system_prompt_sha256 != runtime_authority.extraction_system_prompt_sha256
-        or binding.response_format_sha256 != runtime_authority.response_format_sha256
-        or binding.response_schema_sha256 != runtime_authority.response_schema_sha256
+        or binding.response_format_sha256 != runtime_authority.extraction_response_format_sha256
+        or binding.response_schema_sha256 != runtime_authority.extraction_response_schema_sha256
         or binding.requested_output_tokens != runtime_authority.requested_output_tokens
     ):
         _fail("managed_v5_live_extraction_authority_cross_wire")
