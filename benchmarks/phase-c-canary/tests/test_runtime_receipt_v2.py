@@ -366,6 +366,33 @@ def test_public_composition_accepts_no_self_attested_authority_input(
         RuntimeBindingComposition.compose_phase_c_canary(**{field_name: value})
 
 
+def test_container_path_binding_preserves_reviewed_runtime_commitment(
+    tmp_path: Path,
+) -> None:
+    source = tmp_path / "phase-c"
+    runtime = tmp_path / "runtime"
+    source.mkdir()
+    runtime.mkdir()
+    relocated_artifact = runtime / "artifact-manifest.json"
+    relocated_artifact.write_bytes(RUNTIME_ARTIFACT.read_bytes())
+    hostile = replace(
+        runtime_binding_module.immutable_authority(),
+        infinity_source_root=source,
+        runtime_root=runtime,
+        runtime_commit="attacker-selected-runtime",
+    )
+
+    relocated = RuntimeBindingComposition.compose_phase_c_canary(authority_binding=hostile).issue()
+
+    reviewed = trusted_binding()
+    assert relocated.runtime_source_sha256 == reviewed.runtime_source_sha256
+    assert relocated.route_binding_sha256 == reviewed.route_binding_sha256
+    assert relocated.commitment_sha256 == reviewed.commitment_sha256
+    relocated_artifact.write_bytes(b"drifted")
+    with pytest.raises(ReceiptVerificationError, match="hash mismatch"):
+        RuntimeBindingComposition.compose_phase_c_canary(authority_binding=hostile).issue()
+
+
 def test_route_and_runtime_source_substitution_fail_closed() -> None:
     raw = sign_receipt(unsigned_receipt())
     with pytest.raises(ReceiptVerificationError, match="runtime_source_sha256"):

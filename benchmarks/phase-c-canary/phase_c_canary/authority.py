@@ -1,7 +1,24 @@
 from __future__ import annotations
 
+import stat
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Protocol, runtime_checkable
+
+
+class AuthorityBindingError(RuntimeError):
+    """A deployment tried to relocate an authority through an unsafe path."""
+
+
+@runtime_checkable
+class AuthorityPathBindingPort(Protocol):
+    """Deployment-owned roots for the same immutable Phase-C authority."""
+
+    @property
+    def infinity_source_root(self) -> Path: ...
+
+    @property
+    def runtime_root(self) -> Path: ...
 
 
 @dataclass(frozen=True, slots=True)
@@ -34,11 +51,16 @@ class AuthorityContract:
     requested_output_tokens: int
 
 
-def immutable_authority() -> AuthorityContract:
-    source = Path("/mnt/volume_ams3_1784742570542/infinity-context/sources/9499b9c2")
-    runtime = Path(
-        "/mnt/volume_ams3_1784742570542/infinity-context/runtimes/subscription-runtime/e904ec95"
-    )
+def immutable_authority(
+    *, authority_binding: AuthorityPathBindingPort | None = None
+) -> AuthorityContract:
+    if authority_binding is None:
+        source = Path("/mnt/volume_ams3_1784742570542/infinity-context/sources/9499b9c2")
+        runtime = Path(
+            "/mnt/volume_ams3_1784742570542/infinity-context/runtimes/subscription-runtime/e904ec95"
+        )
+    else:
+        source, runtime = _bound_roots(authority_binding)
     return AuthorityContract(
         schema_version=1,
         infinity_commit="9499b9c2cf3842c4fe3bbe78a601b278cf00ba43",
@@ -72,3 +94,35 @@ def immutable_authority() -> AuthorityContract:
         service_tier="default",
         requested_output_tokens=4096,
     )
+
+
+def _bound_roots(binding: AuthorityPathBindingPort) -> tuple[Path, Path]:
+    if not isinstance(binding, AuthorityPathBindingPort):
+        raise AuthorityBindingError("immutable authority path binding is invalid")
+    source = _real_directory(binding.infinity_source_root)
+    runtime = _real_directory(binding.runtime_root)
+    if source == runtime or source.is_relative_to(runtime) or runtime.is_relative_to(source):
+        raise AuthorityBindingError("immutable authority roots overlap")
+    return source, runtime
+
+
+def _real_directory(value: object) -> Path:
+    if not isinstance(value, Path) or not value.is_absolute() or ".." in value.parts:
+        raise AuthorityBindingError("immutable authority path binding is invalid")
+    try:
+        metadata = value.lstat()
+        canonical = value.resolve(strict=True)
+    except OSError:
+        raise AuthorityBindingError("immutable authority path binding is unavailable") from None
+    if canonical != value or stat.S_ISLNK(metadata.st_mode) or not stat.S_ISDIR(metadata.st_mode):
+        raise AuthorityBindingError("immutable authority path binding is invalid")
+    return value
+
+
+__all__ = (
+    "AuthorityBindingError",
+    "AuthorityContract",
+    "AuthorityPathBindingPort",
+    "ImmutableFile",
+    "immutable_authority",
+)

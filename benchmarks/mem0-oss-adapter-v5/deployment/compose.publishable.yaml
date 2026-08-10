@@ -343,6 +343,7 @@ services:
       MEM0_V5_ACCOUNT_BINDING_HMAC_FILE: /run/secrets/account-binding-hmac-sha256
       MEM0_V5_BASE_INSTRUCTIONS_SHA256_FILE: /run/secrets/base-instructions-sha256
       MEM0_V5_QDRANT_ORIGIN: http://127.0.0.1:6334
+      MEM0_V5_RUNTIME_AUTHORITY_DIR: /opt/publishable/runtime
       MEM0_V5_RUNTIME_REPO: /opt/publishable/runtime/repo
       MEM0_V5_NODE_EXECUTABLE: /opt/publishable/bin/node
       MEM0_V5_SOURCE_AUTHORITY_MANIFEST_FILE: /run/source-authority/manifest.json

@@ -70,15 +70,7 @@ def test_runtime_attestation_root_must_be_distinct_from_every_runtime_secret() -
 def test_build_app_reaches_real_service_constructor_with_shared_runtime_authority(
     tmp_path: Path, monkeypatch
 ) -> None:
-    source_authority = _issue_verified_source_authority(
-        source_commit_sha1="1" * 40,
-        source_tree_sha1="2" * 40,
-        manifest_sha256=_digest("source-manifest"),
-        closure_sha256=_digest("source-closure"),
-        phase_c_infinity_commit_sha1="3" * 40,
-        phase_c_infinity_tree_sha1="4" * 40,
-        phase_c_release_manifest_sha256=_digest("phase-release"),
-    )
+    source_authority = _source_authority()
     receipt_bundle = bootstrap._ReceiptAuthorityBundle(
         authority=SimpleNamespace(),
         binding_commitment_sha256=_digest("runtime-binding"),
@@ -86,10 +78,19 @@ def test_build_app_reaches_real_service_constructor_with_shared_runtime_authorit
         route_binding_sha256=_digest("runtime-route"),
     )
     state_path = tmp_path / "state.sqlite3"
+    phase_c_root = tmp_path / "phase-c"
+    runtime_root = tmp_path / "runtime"
+    captured = {}
 
     def required(name: str) -> str:
         if name == "MEM0_V5_STATE_DB_FILE":
             return str(state_path)
+        if name == "MEM0_V5_PHASE_C_AUTHORITY_DIR":
+            return str(phase_c_root)
+        if name == "MEM0_V5_RUNTIME_AUTHORITY_DIR":
+            return str(runtime_root)
+        if name == "MEM0_V5_RUNTIME_REPO":
+            return str(runtime_root / "repo")
         return str(tmp_path / name.lower())
 
     def secret(name: str) -> str:
@@ -102,7 +103,12 @@ def test_build_app_reaches_real_service_constructor_with_shared_runtime_authorit
     monkeypatch.setattr(bootstrap, "_read_pinned_digest_file", lambda _name: "a" * 64)
     monkeypatch.setattr(bootstrap, "SealedInputManifest", lambda _path: SimpleNamespace())
     monkeypatch.setattr(bootstrap, "verify_source_authority", lambda **_kwargs: source_authority)
-    monkeypatch.setattr(bootstrap, "_receipt_authority", lambda _secret: receipt_bundle)
+
+    def receipt_authority(_secret, **values):
+        captured.update(values)
+        return receipt_bundle
+
+    monkeypatch.setattr(bootstrap, "_receipt_authority", receipt_authority)
     monkeypatch.setattr(bootstrap, "SubscriptionRuntimeClient", lambda **_kwargs: SimpleNamespace())
     monkeypatch.setattr(
         bootstrap, "SqliteOperationState", lambda *_args, **_kwargs: SimpleNamespace()
@@ -114,16 +120,48 @@ def test_build_app_reaches_real_service_constructor_with_shared_runtime_authorit
     app = bootstrap.build_app_from_environment()
 
     assert {route.path for route in app.routes} >= {"/health", "/v5/runtime/attest"}
+    assert captured["authority_binding"] == bootstrap._ContainerAuthorityBinding(
+        infinity_source_root=phase_c_root,
+        runtime_root=runtime_root,
+    )
+    assert captured["runtime_repo"] == runtime_root / "repo"
+    assert captured["source_authority"] is source_authority
 
 
 def _digest(value: str) -> str:
     return hashlib.sha256(value.encode()).hexdigest()
 
 
+def _source_authority(
+    *,
+    phase_c_commit: str = "3" * 40,
+    phase_c_release: str | None = None,
+):
+    return _issue_verified_source_authority(
+        source_commit_sha1="1" * 40,
+        source_tree_sha1="2" * 40,
+        manifest_sha256=_digest("source-manifest"),
+        closure_sha256=_digest("source-closure"),
+        phase_c_infinity_commit_sha1=phase_c_commit,
+        phase_c_infinity_tree_sha1="4" * 40,
+        phase_c_release_manifest_sha256=phase_c_release or _digest("phase-release"),
+    )
+
+
 def test_tampered_phase_c_authority_blocks_runtime_binding_issue(monkeypatch) -> None:
     phase_package = Path(__file__).resolve().parents[2] / "phase-c-canary"
     monkeypatch.syspath_prepend(str(phase_package))
-    from phase_c_canary import attestation, runtime_binding
+    from phase_c_canary import attestation, authority, runtime_binding
+
+    reviewed = authority.immutable_authority()
+    source_authority = _source_authority(
+        phase_c_commit=reviewed.infinity_commit,
+        phase_c_release=reviewed.infinity_release_manifest.sha256,
+    )
+    binding = bootstrap._ContainerAuthorityBinding(
+        infinity_source_root=reviewed.infinity_source_root,
+        runtime_root=reviewed.runtime_root,
+    )
 
     events = []
 
@@ -131,7 +169,7 @@ def test_tampered_phase_c_authority_blocks_runtime_binding_issue(monkeypatch) ->
         events.append("attestation")
         raise attestation.AuthorityError("tampered")
 
-    def forbidden_issue():
+    def forbidden_issue(**_kwargs):
         events.append("binding")
         raise AssertionError("runtime binding issued before immutable preflight")
 
@@ -142,8 +180,110 @@ def test_tampered_phase_c_authority_blocks_runtime_binding_issue(monkeypatch) ->
         forbidden_issue,
     )
     with pytest.raises(attestation.AuthorityError, match="tampered"):
-        bootstrap._receipt_authority("receipt-secret")
+        bootstrap._receipt_authority(
+            "receipt-secret",
+            authority_binding=binding,
+            runtime_repo=reviewed.runtime_root / "repo",
+            source_authority=source_authority,
+        )
     assert events == ["attestation"]
+
+
+def test_missing_container_runtime_authority_fails_before_binding_issue(
+    tmp_path: Path, monkeypatch
+) -> None:
+    phase_package = Path(__file__).resolve().parents[2] / "phase-c-canary"
+    monkeypatch.syspath_prepend(str(phase_package))
+    from phase_c_canary import authority, runtime_binding
+
+    reviewed = authority.immutable_authority()
+    source_authority = _source_authority(
+        phase_c_commit=reviewed.infinity_commit,
+        phase_c_release=reviewed.infinity_release_manifest.sha256,
+    )
+    monkeypatch.setattr(
+        runtime_binding.RuntimeBindingComposition,
+        "compose_phase_c_canary",
+        lambda **_kwargs: pytest.fail("binding issued for missing authority"),
+    )
+    with pytest.raises(authority.AuthorityBindingError, match="unavailable"):
+        bootstrap._receipt_authority(
+            "receipt-secret",
+            authority_binding=bootstrap._ContainerAuthorityBinding(
+                infinity_source_root=reviewed.infinity_source_root,
+                runtime_root=tmp_path / "missing-runtime",
+            ),
+            runtime_repo=tmp_path / "missing-runtime/repo",
+            source_authority=source_authority,
+        )
+
+
+def test_runtime_repo_cross_wire_fails_before_node_or_binding(tmp_path: Path, monkeypatch) -> None:
+    phase_package = Path(__file__).resolve().parents[2] / "phase-c-canary"
+    monkeypatch.syspath_prepend(str(phase_package))
+    from phase_c_canary import attestation, authority, runtime_binding
+
+    reviewed = authority.immutable_authority()
+    source_authority = _source_authority(
+        phase_c_commit=reviewed.infinity_commit,
+        phase_c_release=reviewed.infinity_release_manifest.sha256,
+    )
+    monkeypatch.setattr(attestation, "verify_immutable_authority", lambda _authority: None)
+    monkeypatch.setattr(
+        bootstrap,
+        "_verify_node_executable",
+        lambda _path: pytest.fail("node checked before runtime repo binding"),
+    )
+    monkeypatch.setattr(
+        runtime_binding.RuntimeBindingComposition,
+        "compose_phase_c_canary",
+        lambda **_kwargs: pytest.fail("binding issued for cross-wired runtime repo"),
+    )
+    with pytest.raises(ValueError, match="adapter_configuration_invalid"):
+        bootstrap._receipt_authority(
+            "receipt-secret",
+            authority_binding=bootstrap._ContainerAuthorityBinding(
+                infinity_source_root=reviewed.infinity_source_root,
+                runtime_root=reviewed.runtime_root,
+            ),
+            runtime_repo=tmp_path / "foreign-runtime/repo",
+            source_authority=source_authority,
+        )
+
+
+def test_runtime_binding_commitment_drift_fails_closed(monkeypatch) -> None:
+    phase_package = Path(__file__).resolve().parents[2] / "phase-c-canary"
+    monkeypatch.syspath_prepend(str(phase_package))
+    from phase_c_canary import attestation, authority, runtime_binding
+
+    reviewed = authority.immutable_authority()
+    source_authority = _source_authority(
+        phase_c_commit=reviewed.infinity_commit,
+        phase_c_release=reviewed.infinity_release_manifest.sha256,
+    )
+    monkeypatch.setattr(attestation, "verify_immutable_authority", lambda _authority: None)
+    monkeypatch.setattr(bootstrap, "_verify_node_executable", lambda _path: None)
+    monkeypatch.setattr(bootstrap, "_required_environment", lambda _name: "/tmp/node")
+    issued = SimpleNamespace(
+        commitment_sha256="f" * 64,
+        runtime_source_sha256=_digest("runtime-source"),
+        route_binding_sha256=_digest("runtime-route"),
+    )
+    monkeypatch.setattr(
+        runtime_binding.RuntimeBindingComposition,
+        "compose_phase_c_canary",
+        lambda **_kwargs: SimpleNamespace(issue=lambda: issued),
+    )
+    with pytest.raises(ValueError, match="adapter_configuration_invalid"):
+        bootstrap._receipt_authority(
+            "receipt-secret",
+            authority_binding=bootstrap._ContainerAuthorityBinding(
+                infinity_source_root=reviewed.infinity_source_root,
+                runtime_root=reviewed.runtime_root,
+            ),
+            runtime_repo=reviewed.runtime_root / "repo",
+            source_authority=source_authority,
+        )
 
 
 def _enable_adapter_imports(monkeypatch) -> None:

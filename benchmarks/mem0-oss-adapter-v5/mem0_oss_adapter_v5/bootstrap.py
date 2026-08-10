@@ -15,13 +15,23 @@ from .composition import V5AdapterService
 from .mem0_storage import Mem0StorageAdapter, PinnedMem0Backend
 from .runtime_attestation import V5RuntimeAttestationAuthority, V5RuntimeAuthorityProjection
 from .sealed_manifest import SealedInputManifest
-from .source_authority import verify_source_authority
+from .source_authority import VerifiedSourceAuthority, verify_source_authority
 from .state_sqlite import SqliteOperationState
 from .subscription_runtime import (
     SUBSCRIPTION_RUNTIME_TRANSPORT_ORIGIN_SHA256,
     EstablishedReceiptV2Authority,
     SubscriptionRuntimeClient,
 )
+
+_PHASE_C_RUNTIME_BINDING_COMMITMENT_SHA256 = (
+    "9636a031655ad158b5864217ca400ee6d6d294fdd799757296f38f7c926786fa"
+)
+
+
+@dataclass(frozen=True, slots=True)
+class _ContainerAuthorityBinding:
+    infinity_source_root: Path
+    runtime_root: Path
 
 
 @dataclass(frozen=True, slots=True)
@@ -48,13 +58,20 @@ def build_app_from_environment():
     transport_origin = _read_secret_file("MEM0_V5_RUNTIME_TRANSPORT_ORIGIN_FILE")
     account_binding = _read_secret_file("MEM0_V5_ACCOUNT_BINDING_HMAC_FILE")
     base_instructions = _read_secret_file("MEM0_V5_BASE_INSTRUCTIONS_SHA256_FILE")
+    phase_c_authority_root = Path(_required_environment("MEM0_V5_PHASE_C_AUTHORITY_DIR"))
+    runtime_authority_root = Path(_required_environment("MEM0_V5_RUNTIME_AUTHORITY_DIR"))
+    runtime_repo = Path(_required_environment("MEM0_V5_RUNTIME_REPO"))
     source_authority = verify_source_authority(
         manifest_path=Path(_required_environment("MEM0_V5_SOURCE_AUTHORITY_MANIFEST_FILE")),
         expected_manifest_sha256=_read_pinned_digest_file(
             "MEM0_V5_SOURCE_AUTHORITY_MANIFEST_SHA256_FILE"
         ),
         installed_root=Path(__file__).resolve().parents[1],
-        phase_c_authority_root=Path(_required_environment("MEM0_V5_PHASE_C_AUTHORITY_DIR")),
+        phase_c_authority_root=phase_c_authority_root,
+    )
+    authority_binding = _ContainerAuthorityBinding(
+        infinity_source_root=phase_c_authority_root,
+        runtime_root=runtime_authority_root,
     )
     _require_distinct_secrets(
         ingress,
@@ -64,7 +81,12 @@ def build_app_from_environment():
         state_secret,
         result_hmac_secret,
     )
-    receipt_bundle = _receipt_authority(receipt_secret)
+    receipt_bundle = _receipt_authority(
+        receipt_secret,
+        authority_binding=authority_binding,
+        runtime_repo=runtime_repo,
+        source_authority=source_authority,
+    )
     runtime_authority = V5RuntimeAuthorityProjection.issue(
         source_authority=source_authority,
         subscription_runtime_binding_commitment_sha256=(receipt_bundle.binding_commitment_sha256),
@@ -104,18 +126,33 @@ def build_app_from_environment():
     )
 
 
-def _receipt_authority(receipt_secret: str) -> _ReceiptAuthorityBundle:
+def _receipt_authority(
+    receipt_secret: str,
+    *,
+    authority_binding: _ContainerAuthorityBinding,
+    runtime_repo: Path,
+    source_authority: VerifiedSourceAuthority,
+) -> _ReceiptAuthorityBundle:
     from phase_c_canary.attestation import verify_immutable_authority
     from phase_c_canary.authority import immutable_authority
     from phase_c_canary.receipt import NodePublicReceiptVerifier
     from phase_c_canary.runtime_binding import RuntimeBindingComposition
     from phase_c_canary.runtime_receipt_v2 import RuntimeReceiptV2Boundary
 
-    verify_immutable_authority(immutable_authority())
-    runtime_repo = Path(_required_environment("MEM0_V5_RUNTIME_REPO"))
+    reviewed = immutable_authority(authority_binding=authority_binding)
+    _verify_phase_c_source_binding(reviewed, source_authority)
+    verify_immutable_authority(reviewed)
+    _verify_runtime_repo_binding(runtime_repo, reviewed.runtime_root)
     node_executable = Path(_required_environment("MEM0_V5_NODE_EXECUTABLE"))
     _verify_node_executable(node_executable)
-    trusted_binding = RuntimeBindingComposition.compose_phase_c_canary().issue()
+    trusted_binding = RuntimeBindingComposition.compose_phase_c_canary(
+        authority_binding=authority_binding
+    ).issue()
+    if not hmac.compare_digest(
+        trusted_binding.commitment_sha256,
+        _PHASE_C_RUNTIME_BINDING_COMMITMENT_SHA256,
+    ):
+        raise ValueError("adapter_configuration_invalid")
     return _ReceiptAuthorityBundle(
         authority=EstablishedReceiptV2Authority(
             boundary=RuntimeReceiptV2Boundary(
@@ -129,6 +166,44 @@ def _receipt_authority(receipt_secret: str) -> _ReceiptAuthorityBundle:
         runtime_source_sha256=trusted_binding.runtime_source_sha256,
         route_binding_sha256=trusted_binding.route_binding_sha256,
     )
+
+
+def _verify_phase_c_source_binding(
+    reviewed: object,
+    source_authority: VerifiedSourceAuthority,
+) -> None:
+    infinity_commit = getattr(reviewed, "infinity_commit", None)
+    release_manifest = getattr(reviewed, "infinity_release_manifest", None)
+    release_sha256 = getattr(release_manifest, "sha256", None)
+    if not (
+        isinstance(infinity_commit, str)
+        and isinstance(release_sha256, str)
+        and hmac.compare_digest(
+            infinity_commit,
+            source_authority.phase_c_infinity_commit_sha1,
+        )
+        and hmac.compare_digest(
+            release_sha256,
+            source_authority.phase_c_release_manifest_sha256,
+        )
+    ):
+        raise ValueError("adapter_configuration_invalid")
+
+
+def _verify_runtime_repo_binding(runtime_repo: Path, runtime_root: Path) -> None:
+    expected = runtime_root / "repo"
+    try:
+        metadata = runtime_repo.lstat()
+        canonical = runtime_repo.resolve(strict=True)
+    except OSError:
+        raise ValueError("adapter_configuration_invalid") from None
+    if (
+        runtime_repo != expected
+        or canonical != runtime_repo
+        or stat.S_ISLNK(metadata.st_mode)
+        or not stat.S_ISDIR(metadata.st_mode)
+    ):
+        raise ValueError("adapter_configuration_invalid")
 
 
 def _build_pinned_memory(state_directory: Path):

@@ -242,6 +242,10 @@ def _environment_for(service: str) -> list[str]:
             "MEM0_V5_ACCOUNT_BINDING_HMAC_FILE": "/run/secrets/account-binding-hmac-sha256",
             "MEM0_V5_BASE_INSTRUCTIONS_SHA256_FILE": "/run/secrets/base-instructions-sha256",
             "MEM0_V5_QDRANT_ORIGIN": "http://127.0.0.1:6334",
+            "MEM0_V5_RUNTIME_AUTHORITY_DIR": (
+                "/mnt/volume_ams3_1784742570542/infinity-context/"
+                "runtimes/subscription-runtime/e904ec95"
+            ),
             "MEM0_V5_RUNTIME_REPO": (
                 "/mnt/volume_ams3_1784742570542/infinity-context/"
                 "runtimes/subscription-runtime/e904ec95/repo"

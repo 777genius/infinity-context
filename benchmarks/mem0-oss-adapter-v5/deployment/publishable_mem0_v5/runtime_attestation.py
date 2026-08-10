@@ -581,7 +581,10 @@ def _attest_command_and_environment(
         },
         **{service: bridge_environment for service in _BRIDGE_SERVICES},
         "publishable-adapter": {
+            "MEM0_V5_PHASE_C_AUTHORITY_DIR": "/opt/publishable/source/phase-c",
             "MEM0_V5_QDRANT_ORIGIN": f"http://127.0.0.1:{QDRANT_HTTP_PORT}",
+            "MEM0_V5_RUNTIME_AUTHORITY_DIR": "/opt/publishable/runtime",
+            "MEM0_V5_RUNTIME_REPO": "/opt/publishable/runtime/repo",
             "MEM0_V5_RUNTIME_TRANSPORT_ORIGIN_FILE": ("/run/secrets/runtime-transport-origin"),
             "HF_HUB_OFFLINE": "1",
             "TRANSFORMERS_OFFLINE": "1",

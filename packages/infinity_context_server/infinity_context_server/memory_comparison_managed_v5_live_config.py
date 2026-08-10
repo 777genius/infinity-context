@@ -38,12 +38,12 @@ _PUBLIC_EXECUTABLE_MODES = frozenset({0o500, 0o550, 0o555, 0o700, 0o750, 0o755})
 _PUBLIC_PYTHON_FILE_MODES = frozenset({0o400, 0o440, 0o444, 0o600, 0o640, 0o644})
 _PYTHON_IMPORT_SUFFIXES = tuple(importlib.machinery.all_suffixes())
 _REVIEWED_PHASE_C_PYTHON_TREE_SHA256 = (
-    "4a113dc4d6308da0ebf8d61cadc01a8b59afb2edbb5e9c8982b009738764d8ad"
+    "911b85ca131cea7f8150456ba122730ec768ddc2c2d6869453071aa5029cef18"
 )
 _REVIEWED_PHASE_C_PYTHON_FILES = (
     ("__init__.py", "efbde36910ac6e64f630ce91401b723ac966949ca380ba6b0275a3fb0a81e53b"),
     ("attestation.py", "dcf4b326a637f227a1fb52e8cd724009827d28021f17258d2d053c589578fcb3"),
-    ("authority.py", "2b86b4735e4abe23c3ee32c645de233ec097bac3ac3cd0df5298c3365d32c571"),
+    ("authority.py", "87fdb0887681b485522675ac9cfd17b0456341f8d402de771ad4fc0b9ffc7798"),
     ("bundle.py", "27c2fc7075c5b2b8f48eadd2d9d3576c3d1592a2f3988baafb3e59ce7d391411"),
     ("cli.py", "a1b880005a2f516c51871c6fe1ec337afbc601a9119cc42a273e68b9ac4de595"),
     ("environment.py", "a5e67c287b4eaf3b2df680a6da3be35880413fc6458f2564805328322a8af8d8"),
@@ -57,7 +57,7 @@ _REVIEWED_PHASE_C_PYTHON_FILES = (
     ("readiness.py", "7ac29fa558a7dde984275035cce804b9d0190086a51b308631ac2e312d04815c"),
     ("receipt.py", "bdaeb7f1323d9cd1c38a46954ee325063f301b7f58d5cf726744b90e4374dd6f"),
     ("receipt_aggregation.py", "b5119397a008a9f48b66b51b2723b88087b72703d73fa40250e960136abb926c"),
-    ("runtime_binding.py", "62174e6d4b35095656fd6e39a01b5e3dd9f2b4573729f106f27c6704ca657797"),
+    ("runtime_binding.py", "999501b7ed8f0ecfd96bf0b39902898fddfed2ffc226be46e9e7535463733fc6"),
     ("runtime_receipt_v2.py", "48fd63c6b2ec65de508d65795d827714eb77720c50ecafb426a5c80b5e8bf62f"),
     ("strict_schema.py", "d630a26047861bedeea7643eb3b3265260233a6414792cf79e6871b4fb26bceb"),
 )

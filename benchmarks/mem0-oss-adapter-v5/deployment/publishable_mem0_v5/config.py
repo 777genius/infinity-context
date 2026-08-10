@@ -20,7 +20,7 @@ from uuid import UUID
 CONFIG_SCHEMA: Final = "publishable-mem0-v5-isolated-lane.v2"
 CONFIG_AUTHENTICATION_SCHEMA: Final = "publishable-mem0-v5-config-authentication.v1"
 DEPLOYMENT_AUTHORITY_KEY_NAME: Final = "deployment-authority-hmac.secret"
-COMPOSE_SHA256: Final = "93a9f46a4a0ac1ee6c37a16e60bf30bfbd5dd58d4b2ef01fc474d2cd7a01809c"
+COMPOSE_SHA256: Final = "064cc0d6edb2353d928dc2b6c9b7e1524348658fb5c85d0efdcf6dd3e9178c37"
 QDRANT_IMAGE: Final = (
     "qdrant/qdrant:v1.18.3@sha256:ecc81d662bb9bb734db879b94461eb44be38604fc259491d478ad7e673238a0d"
 )

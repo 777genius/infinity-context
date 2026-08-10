@@ -446,6 +446,7 @@ def test_full_runtime_attestation_binds_image_netns_mount_user_and_port(
     assert any("exec" in call[0] for call in runner.calls)
 
 
+<<<<<<< HEAD
 def test_runtime_attestation_rejects_fake_internal_health_when_host_relay_is_unreachable(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -480,6 +481,11 @@ def test_runtime_attestation_rejects_fake_internal_health_when_host_relay_is_unr
 
 
 @pytest.mark.parametrize("difference", ["image", "netns", "mount", "user", "port"])
+=======
+@pytest.mark.parametrize(
+    "difference", ["image", "netns", "mount", "user", "port", "authority_environment"]
+)
+>>>>>>> cf7ed782 (fix(benchmark): bind container runtime authorities)
 def test_runtime_attestation_rejects_each_runtime_difference(
     tmp_path: Path,
     difference: str,
@@ -500,6 +506,9 @@ def test_runtime_attestation_rejects_each_runtime_difference(
         adapter["Mounts"][0]["Source"] = "/tmp/cross-wired-input"
     elif difference == "user":
         adapter["Config"]["User"] = "0:0"
+    elif difference == "authority_environment":
+        adapter["Config"]["Env"].remove("MEM0_V5_RUNTIME_AUTHORITY_DIR=/opt/publishable/runtime")
+        adapter["Config"]["Env"].append("MEM0_V5_RUNTIME_AUTHORITY_DIR=/host/runtime")
     else:
         adapter["HostConfig"]["PortBindings"] = {
             "19091/tcp": [{"HostIp": "0.0.0.0", "HostPort": "19091"}]

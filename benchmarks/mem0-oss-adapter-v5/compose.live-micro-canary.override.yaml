@@ -224,6 +224,7 @@ services:
       MEM0_V5_ACCOUNT_BINDING_HMAC_FILE: /run/secrets/account-binding-hmac-sha256
       MEM0_V5_BASE_INSTRUCTIONS_SHA256_FILE: /run/secrets/base-instructions-sha256
       MEM0_V5_QDRANT_ORIGIN: http://127.0.0.1:${MEM0_V5_QDRANT_PORT:?set explicit qdrant port}
+      MEM0_V5_RUNTIME_AUTHORITY_DIR: ${MEM0_V5_RUNTIME_AUTHORITY_CONTAINER:?set runtime authority container path}
       MEM0_V5_RUNTIME_REPO: ${MEM0_V5_RUNTIME_REPO_CONTAINER:?set immutable runtime repo path}
       MEM0_V5_NODE_EXECUTABLE: ${MEM0_V5_NODE_EXECUTABLE_CONTAINER:?set immutable node path}
       MEM0_V5_SOURCE_AUTHORITY_MANIFEST_FILE: /run/source-authority/manifest.json

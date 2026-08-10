@@ -329,6 +329,11 @@ def test_live_micro_canary_qdrant_snapshots_use_writable_state_path() -> None:
     )
     assert state_mount.get("read_only") is not True
     assert state_mount["source"].startswith("${MEM0_V5_QDRANT_STATE_DIR:")
+    adapter = compose["services"]["mem0-oss-adapter-v5"]
+    mounts = {volume["target"]: volume for volume in adapter["volumes"]}
+    environment = adapter["environment"]
+    assert mounts[environment["MEM0_V5_RUNTIME_AUTHORITY_DIR"]]["read_only"] is True
+    assert mounts[environment["MEM0_V5_PHASE_C_AUTHORITY_DIR"]]["read_only"] is True
 
 
 def test_hosted_compose_has_no_secret_values_or_external_listener() -> None:
@@ -351,6 +356,12 @@ def test_hosted_compose_has_no_secret_values_or_external_listener() -> None:
         "/run/source-authority/manifest.json"
     )
     assert environment["MEM0_V5_PHASE_C_AUTHORITY_DIR"].endswith("/sources/9499b9c2")
+    assert environment["MEM0_V5_RUNTIME_AUTHORITY_DIR"].endswith(
+        "/runtimes/subscription-runtime/e904ec95"
+    )
+    assert environment["MEM0_V5_RUNTIME_REPO"] == (
+        f"{environment['MEM0_V5_RUNTIME_AUTHORITY_DIR']}/repo"
+    )
     assert environment["MEM0_V5_SOURCE_AUTHORITY_MANIFEST_SHA256_FILE"].endswith(
         "/source-authority-pin/manifest.sha256"
     )
