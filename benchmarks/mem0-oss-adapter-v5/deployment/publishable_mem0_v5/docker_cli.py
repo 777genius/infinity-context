@@ -152,35 +152,25 @@ class DockerCli:
     def start(self, *, mode: str) -> None:
         """Start with Compose's pull and build paths explicitly disabled."""
 
-        if mode not in {"create", "reopen"}:
-            raise DockerCliError("publishable_compose_mode_invalid")
-        environment = {
-            **self._environment,
-            **self._config.compose_environment(
-                config_file=self._config_file_path,
-                fleet_mode=mode,
-            ),
-        }
-        self._run(
-            *self._compose_prefix(),
+        self._run_compose(
             "up",
             "--detach",
             "--pull",
             "never",
             "--no-build",
             "--wait",
-            environment=environment,
+            mode=mode,
         )
 
-    def container_ids(self) -> dict[str, str]:
+    def container_ids(self, *, mode: str) -> dict[str, str]:
         result: dict[str, str] = {}
         for service in SERVICES:
-            raw = self._run(
-                *self._compose_prefix(),
+            raw = self._run_compose(
                 "ps",
                 "--all",
                 "--quiet",
                 service,
+                mode=mode,
             )
             values = raw.decode("ascii", "strict").splitlines()
             if len(values) != 1 or _CONTAINER_ID.fullmatch(values[0]) is None:
@@ -276,6 +266,22 @@ class DockerCli:
             str(self._config.paths.deployment_dir),
             "--file",
             str(self.compose_file),
+        )
+
+    def _run_compose(self, *arguments: str, mode: str) -> bytes:
+        if mode not in {"create", "reopen"}:
+            raise DockerCliError("publishable_compose_mode_invalid")
+        environment = {
+            **self._environment,
+            **self._config.compose_environment(
+                config_file=self._config_file_path,
+                fleet_mode=mode,
+            ),
+        }
+        return self._run(
+            *self._compose_prefix(),
+            *arguments,
+            environment=environment,
         )
 
     def _run(

@@ -179,7 +179,7 @@ def attest_runtime_lane(
     current_images = docker.inspect_cached_images()
     if current_images != cached_images:
         _fail("publishable_attestation_cached_image_changed")
-    container_ids = docker.container_ids()
+    container_ids = docker.container_ids(mode=fleet_mode)
     if set(container_ids.values()) & set(config.account_i_r16_fence.container_ids):
         _fail("publishable_attestation_account_i_container_collision")
     containers = docker.inspect_containers(container_ids)

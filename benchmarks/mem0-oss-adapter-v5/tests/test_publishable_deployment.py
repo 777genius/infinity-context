@@ -343,6 +343,35 @@ def test_docker_start_command_is_cached_only_and_never_builds(tmp_path: Path) ->
         )
 
 
+@pytest.mark.parametrize("mode", ("create", "reopen"))
+def test_docker_start_then_inspection_uses_exact_compose_environment(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    mode: str,
+) -> None:
+    config, _ = _config(tmp_path)
+    config_file = tmp_path / "config.json"
+    config_file.write_text("{}")
+    monkeypatch.setenv("HTTPS_PROXY", "http://ambient-proxy.invalid")
+    runner = _RecordingRunner()
+    docker = DockerCli(config, config_file=config_file, runner=runner)
+
+    docker.start(mode=mode)
+    container_ids = docker.container_ids(mode=mode)
+
+    assert container_ids == {
+        service: f"{index:064x}" for index, service in enumerate(SERVICES, start=1)
+    }
+    expected_environment = {
+        "LANG": "C.UTF-8",
+        "PATH": os.defpath,
+        **config.compose_environment(config_file=config_file, fleet_mode=mode),
+    }
+    compose_calls = [call for call in runner.calls if call[0][3] == "compose"]
+    assert len(compose_calls) == len(SERVICES) + 1
+    assert all(environment == expected_environment for _, environment in compose_calls)
+
+
 def test_run_provider_dispatches_selected_bridge_through_the_only_host_relay() -> None:
     request_body = b'{"messages":[{"role":"user","content":"bounded"}]}'
     observed: dict[str, object] = {}
@@ -705,6 +734,9 @@ class _RecordingRunner:
                 digest = QDRANT_IMAGE.split("@", 1)[1]
                 return _json_bytes([{"Id": _QDRANT_ID, "RepoDigests": [f"qdrant/qdrant@{digest}"]}])
             return _json_bytes([{"Id": reference, "RepoDigests": []}])
+        if arguments[3] == "compose" and "ps" in arguments:
+            index = SERVICES.index(arguments[-1]) + 1
+            return f"{index:064x}\n".encode()
         return b""
 
 
