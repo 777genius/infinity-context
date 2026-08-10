@@ -7,6 +7,7 @@ from pathlib import Path
 
 import pytest
 from publishable_mem0_v5.config import load_lane_config
+
 from tools.build_publishable_staging import (
     OperatorStagingError,
     StagingPublicInputs,
@@ -120,6 +121,7 @@ def test_builds_exact_secret_free_lane_and_2040_configs_with_private_modes(
     ]
     assert len(set(private_lane_paths)) == 7
     assert all(path.parent == Path(lane["paths"]["run_root"]) for path in private_lane_paths)
+    assert lane["runtime"]["codex_executable_sha256"] == "d" * 64
 
     assert run == {
         "adapter": {

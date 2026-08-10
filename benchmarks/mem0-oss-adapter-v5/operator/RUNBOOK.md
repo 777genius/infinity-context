@@ -81,6 +81,13 @@ secrets path named by `secrets_path_not_created` does not exist. Populate the
 authority layout referenced by the lane config using reviewed immutable public
 artifacts.
 
+The Codex executable ceiling is a local anti-DoS verification budget, not an
+executable-format or provider protocol requirement. The production verifier's
+`CODEX_EXECUTABLE_MAX_BYTES` contract accepts at most 335,544,320 bytes
+(320 MiB), hashes the opened file in bounded chunks, and still requires the
+result to match the exact reviewed SHA-256 value supplied to the staging
+builder. The builder deliberately does not open or hash the executable itself.
+
 Provision the run secrets file separately through the approved secret channel.
 It must use the `memory-comparison-publishable-run-secrets.v1` schema, be a
 regular current-user-owned `0600` file below the reported `0700` run private

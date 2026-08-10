@@ -27,6 +27,7 @@ from .json_boundary import (
     strict_json_loads,
 )
 from .process_contracts import (
+    CODEX_EXECUTABLE_MAX_BYTES,
     BridgeFleetReadinessReceipt,
     BridgeFleetSpec,
     BridgeLaunchReceipt,
@@ -583,7 +584,7 @@ def _verify_public_material(item: BridgeProcessSpec) -> None:
             item.codex_executable,
             item.codex_executable_sha256,
             True,
-            256 * 1024 * 1024,
+            CODEX_EXECUTABLE_MAX_BYTES,
             "codex_executable",
         ),
     ):

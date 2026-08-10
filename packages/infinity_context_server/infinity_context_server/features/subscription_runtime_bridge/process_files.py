@@ -138,6 +138,8 @@ def verify_public_file(
             or (before.st_dev, before.st_ino) != (opened.st_dev, opened.st_ino)
         ):
             _fail(f"bridge_process_{label}_unsafe")
+        if opened.st_size > maximum_bytes:
+            _fail(f"bridge_process_{label}_size_invalid")
         actual = _sha256_descriptor(descriptor, maximum_bytes=maximum_bytes, label=label)
         if not hmac.compare_digest(actual, expected_sha256):
             _fail(f"bridge_process_{label}_sha256_mismatch")

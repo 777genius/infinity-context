@@ -8,7 +8,7 @@ import os
 import re
 from dataclasses import dataclass
 from pathlib import Path
-from typing import ClassVar, Literal
+from typing import ClassVar, Final, Literal
 from uuid import UUID
 
 from .contracts import BridgeAuthority, BridgePoolAuthority
@@ -24,6 +24,9 @@ PROVIDER_RECEIPT_SCHEMA = "subscription-runtime-codex-execution-receipt.v2"
 RUNTIME_ENTRYPOINT_RELATIVE = Path("repo/dist/openai-compatible-codex/cli.js")
 RUNTIME_ARTIFACT_MANIFEST_NAME = "artifact-manifest.json"
 LAUNCHER_RECEIPT_KEY_NAME = "launcher-receipt.key"
+
+# Local streamed-verification budget, not an executable-format or provider protocol limit.
+CODEX_EXECUTABLE_MAX_BYTES: Final = 320 * 1024 * 1024
 
 _SHA256 = re.compile(r"^[0-9a-f]{64}$")
 _IDENTIFIER = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$")
@@ -863,6 +866,7 @@ __all__ = (
     "BridgePrivateFiles",
     "BridgeProcessError",
     "BridgeProcessSpec",
+    "CODEX_EXECUTABLE_MAX_BYTES",
     "GracefulStopMetadata",
     "PendingLaunchMetadata",
     "ProcessIdentity",

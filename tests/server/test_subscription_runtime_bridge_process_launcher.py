@@ -11,6 +11,7 @@ from pathlib import Path
 import pytest
 from infinity_context_server.features.subscription_runtime_bridge import process_launcher
 from infinity_context_server.features.subscription_runtime_bridge.process_contracts import (
+    CODEX_EXECUTABLE_MAX_BYTES,
     BridgeProcessError,
     GracefulStopMetadata,
 )
@@ -153,6 +154,37 @@ def test_fake_launches_are_isolated_secret_safe_ready_and_gracefully_stopped(
     assert ACCOUNT_I_PID not in {pgid for pgid, _ in harness.control.signals}
     assert not spec.account_i_fence.state_root.exists()
     assert not spec.account_i_fence.auth_root.exists()
+
+
+def test_public_material_uses_shared_codex_size_contract(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    process = build_fleet_spec(tmp_path).processes[0]
+    observed: list[tuple[Path, str, bool, int, str]] = []
+
+    def verify(
+        path: Path,
+        expected_sha256: str,
+        *,
+        executable: bool,
+        maximum_bytes: int,
+        label: str,
+    ) -> None:
+        observed.append((path, expected_sha256, executable, maximum_bytes, label))
+
+    monkeypatch.setattr(process_launcher, "_verify_public_file", verify)
+
+    process_launcher._verify_public_material(process)  # noqa: SLF001
+
+    by_label = {item[-1]: item for item in observed}
+    assert by_label["codex_executable"] == (
+        process.codex_executable,
+        process.codex_executable_sha256,
+        True,
+        CODEX_EXECUTABLE_MAX_BYTES,
+        "codex_executable",
+    )
 
 
 def test_readiness_is_exact_provider_free_get_health(
