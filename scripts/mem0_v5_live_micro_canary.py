@@ -25,9 +25,6 @@ for _repository_path in (
     if str(_repository_path) not in sys.path:
         sys.path.insert(0, str(_repository_path))
 
-from infinity_context_server.memory_comparison_managed_mem0_v5_lane import (
-    ManagedMem0V5BudgetPolicy,
-)
 from infinity_context_server.memory_comparison_mem0_oss_v5_contracts import (
     Mem0OssAdmissionRequest,
     Mem0OssFullRunAdmission,
@@ -38,12 +35,18 @@ from scripts.mem0_v5_live_container_copy_contract import (
     validate_private_credentials,
     verify_container_copy_authority,
 )
+from scripts.mem0_v5_live_micro_canary_recovery import (
+    REPORT_SCHEMA,
+    LiveCanaryRecoverySession,
+    execute_micro_canary,
+    publish_report,
+)
+from scripts.mem0_v5_live_micro_canary_recovery import (
+    base_report as _base_report,
+)
 from scripts.mem0_v5_live_micro_canary_views import (
     CompositionFactory,
     CompositionView,
-    SealView,
-    SearchView,
-    TerminalView,
 )
 from scripts.mem0_v5_live_project_one_unit import OneUnitProjection, project_one_unit
 from scripts.mem0_v5_live_runtime_authority import (
@@ -53,7 +56,7 @@ from scripts.mem0_v5_live_runtime_authority import (
 )
 
 _IMAGE_ID_PREFIX = "sha256:"
-_REPORT_SCHEMA = "managed-mem0-v5-live-micro-canary.v1"
+_REPORT_SCHEMA = REPORT_SCHEMA
 _SHA256_CHARS = frozenset("0123456789abcdef")
 _MAX_AUTHORITY_BYTES = 64 * 1024
 _REVIEWED_NODE_SHA256 = "b2959781cc5a74c357ffa02367efa8a0330cbb1c9cb347732fdfaaaca381cbcd"
@@ -89,204 +92,6 @@ class _ProductionPublicContract:
     trusted_runtime_binding: object
     receipt_authority: object
     dispatch_guard: object
-
-
-def execute_micro_canary(
-    *,
-    inputs: MicroCanaryInputs,
-    composition_factory: CompositionFactory,
-) -> dict[str, object]:
-    """Execute at most one dispatch; every started lifecycle ends terminal."""
-
-    base = _base_report(inputs)
-    if inputs.orphan_dispatch_claim:
-        return _no_go(base, "orphan_dispatch_claim")
-    composition: CompositionView | None = None
-    terminal: TerminalView | None = None
-    seal: SealView | None = None
-    search: SearchView | None = None
-    record_count = 0
-    started = False
-    succeeded = False
-    failure = "live_micro_canary_failed"
-    try:
-        composition = composition_factory()
-        coordinator = composition.coordinator
-        if inputs.restore_existing:
-            started = True
-            checkpoint = coordinator.restore(
-                authority=composition.authority,
-                request=composition.request,
-                budget_policy=ManagedMem0V5BudgetPolicy(maximum_total_call_count=5),
-            )
-            phase = getattr(checkpoint, "run_phase", None)
-            if getattr(phase, "value", phase) == "terminal":
-                terminal = coordinator.terminal_evidence
-                failure = "run_already_terminal"
-                raise _NoGo
-            seal = coordinator.seal_restored_completed()
-        else:
-            coordinator.admit(
-                authority=composition.authority,
-                request=composition.request,
-                budget_policy=ManagedMem0V5BudgetPolicy(maximum_total_call_count=5),
-            )
-            started = True
-            try:
-                seal = coordinator.dispatch_pending()
-            except Exception:
-                recovery = composition_factory()
-                composition = recovery
-                coordinator = recovery.coordinator
-                started = True
-                try:
-                    coordinator.restore(
-                        authority=recovery.authority,
-                        request=recovery.request,
-                        budget_policy=ManagedMem0V5BudgetPolicy(maximum_total_call_count=5),
-                    )
-                    seal = coordinator.seal_restored_completed()
-                except Exception:
-                    failure = "dispatch_status_unavailable"
-                    raise _NoGo from None
-        if getattr(coordinator.budget, "total_call_count", None) != 5:
-            failure = "coordinator_budget_invalid"
-            raise _NoGo
-        observations = coordinator.storage_observations
-        record_count = sum(len(item.created_record_ids) for item in observations)
-        if record_count < 1:
-            failure = "zero_authenticated_memories"
-            raise _NoGo
-        search = coordinator.search_evidence(
-            corpus_id=inputs.projection.cases[0].corpus_id,
-            query=inputs.projection.search_query,
-            limit=10,
-        )
-        if not search.records:
-            failure = "authenticated_search_empty"
-            raise _NoGo
-        succeeded = True
-    except _NoGo:
-        pass
-    except Exception:
-        failure = "live_micro_canary_failed"
-    finally:
-        if started and composition is not None and terminal is None:
-            try:
-                terminal = (
-                    composition.coordinator.cleanup()
-                    if succeeded or seal is not None
-                    else composition.coordinator.abort()
-                )
-            except Exception:
-                terminal = None
-                succeeded = False
-                failure = "terminal_cleanup_failed"
-    if not succeeded or seal is None or search is None or terminal is None:
-        report = _no_go(base, failure)
-        if terminal is not None:
-            _attach_terminal(report, terminal)
-        return report
-    if terminal.terminal_state != "deleted":
-        report = _no_go(base, "cleanup_terminal_state_invalid")
-        _attach_terminal(report, terminal)
-        return report
-    usage = _usage(seal)
-    if usage["extraction_calls"] != 1 or usage != _usage(terminal):
-        report = _no_go(base, "terminal_usage_binding_invalid")
-        _attach_terminal(report, terminal)
-        return report
-    base.update(
-        {
-            "outcome": "GO",
-            "ok": True,
-            "failure_code": None,
-            "usage": usage,
-            "commitments": {
-                **base["commitments"],
-                "admission_commitment_sha256": seal.admission_commitment_sha256,
-                "seal_commitment_sha256": seal.commitment_sha256,
-                "operation_root_sha256": seal.operation_root_sha256,
-                "search_result_root_sha256": search.result_root_sha256,
-                "search_evidence_commitment_sha256": search.evidence_commitment_sha256,
-                "terminal_cleanup_commitment_sha256": terminal.commitment_sha256,
-            },
-            "authenticated_search_result_count": len(search.records),
-            "authenticated_storage_record_count": record_count,
-            "terminal_state": terminal.terminal_state,
-        }
-    )
-    return base
-
-
-class _NoGo(Exception):
-    pass
-
-
-def _base_report(inputs: MicroCanaryInputs) -> dict[str, object]:
-    projection = inputs.projection
-    runtime = inputs.runtime
-    return {
-        "schema_version": _REPORT_SCHEMA,
-        "completed_at_utc": datetime.now(UTC).isoformat(),
-        "ok": False,
-        "outcome": "NO-GO",
-        "failure_code": None,
-        "budget": {
-            "coordinator_full_plan_total_calls": 5,
-            "hard_dispatch_guard_max": 1,
-            "benchmark_calls_executed": 0,
-            "answer_calls_executed": 0,
-            "judge_calls_executed": 0,
-        },
-        "requested_output_tokens": 4096,
-        "requested_output_tokens_enforced": False,
-        "release": {"account": "<redacted>", "runtime": "<redacted>"},
-        "commitments": {
-            "case_file_sha256": projection.case_file_sha256,
-            "manifest_authority_commitment_sha256": (
-                projection.authority.authority_commitment_sha256
-            ),
-            "sealed_payload_sha256": projection.authority.sealed_payload_sha256,
-            "request_body_sha256": projection.request_body_sha256,
-            "response_format_sha256": projection.response_format_sha256,
-            "response_schema_sha256": projection.response_schema_sha256,
-            "runtime_response_format_sha256": runtime.response_format_sha256,
-            "runtime_response_schema_sha256": runtime.response_schema_sha256,
-            "account_binding_hmac_sha256": runtime.account_binding_hmac_sha256,
-            "runtime_source_sha256": runtime.runtime_source_sha256,
-            "runtime_base_sha256": runtime.runtime_base_sha256,
-            "route_binding_sha256": runtime.route_binding_sha256,
-            "base_instructions_sha256": runtime.base_instructions_sha256,
-            "extraction_system_prompt_sha256": runtime.extraction_system_prompt_sha256,
-        },
-    }
-
-
-def _no_go(report: dict[str, object], code: str) -> dict[str, object]:
-    report["ok"] = False
-    report["outcome"] = "NO-GO"
-    report["failure_code"] = code
-    return report
-
-
-def _usage(source: SealView | TerminalView) -> dict[str, int]:
-    prompt = source.provider_observed_request_tokens
-    completion = source.provider_observed_response_tokens
-    return {
-        "prompt_tokens": prompt,
-        "completion_tokens": completion,
-        "total_tokens": prompt + completion,
-        "extraction_calls": source.provider_observed_extraction_calls,
-    }
-
-
-def _attach_terminal(report: dict[str, object], terminal: TerminalView) -> None:
-    report["terminal_state"] = terminal.terminal_state
-    report["usage"] = _usage(terminal)
-    commitments = report["commitments"]
-    assert type(commitments) is dict
-    commitments["terminal_cleanup_commitment_sha256"] = terminal.commitment_sha256
 
 
 def _production_factory(
@@ -571,8 +376,8 @@ def _preflight_report(
             args.dispatch_journal.exists() and not (args.state_root / "checkpoint.json").exists()
         ),
     )
-    report = _base_report(inputs)
     topology = _host_endpoint_topology(args)
+    report = _base_report(inputs, report_context=_report_context(args, topology))
     adapter_ready, qdrant_ready = _tcp_readiness(topology, args.timeout_seconds)
     safe = adapter_ready and qdrant_ready is not False and not inputs.orphan_dispatch_claim
     report.update(
@@ -582,19 +387,6 @@ def _preflight_report(
             "outcome": "GO" if safe else "NO-GO",
             "failure_code": None if safe else "tcp_or_state_preflight_failed",
             "tcp_readiness": {"adapter": adapter_ready, "qdrant": qdrant_ready},
-            "qdrant_topology": topology.qdrant_topology,
-            "images": {
-                "adapter_image_id": args.adapter_image_id,
-                "qdrant_image_id": args.qdrant_image_id,
-            },
-        }
-    )
-    commitments = report["commitments"]
-    assert type(commitments) is dict
-    commitments.update(
-        {
-            "node_executable_sha256": args.node_executable_sha256,
-            "runtime_artifact_manifest_sha256": (args.runtime_artifact_manifest_sha256),
         }
     )
     return report
@@ -665,45 +457,41 @@ def _parse_args(argv: list[str] | None) -> argparse.Namespace:
 def main(argv: list[str] | None = None) -> int:
     args = _parse_args(argv)
     topology = _host_endpoint_topology(args)
+    report_context = _report_context(args, topology)
     report: dict[str, object]
     try:
         projection, runtime, contract = _preflight(args)
         if args.preflight_only:
             report = _preflight_report(args, projection, runtime)
         else:
-            adapter_ready, qdrant_ready = _tcp_readiness(topology, args.timeout_seconds)
-            if not adapter_ready or qdrant_ready is False:
-                raise ValueError("mem0_v5_live_tcp_readiness_failed")
+            checkpoint_exists = (args.state_root / "checkpoint.json").exists()
             inputs = MicroCanaryInputs(
                 projection=projection,
                 runtime=runtime,
-                restore_existing=(args.state_root / "checkpoint.json").exists(),
-                orphan_dispatch_claim=(
-                    args.dispatch_journal.exists()
-                    and not (args.state_root / "checkpoint.json").exists()
-                ),
+                restore_existing=checkpoint_exists,
+                orphan_dispatch_claim=(args.dispatch_journal.exists() and not checkpoint_exists),
             )
-            report = execute_micro_canary(
-                inputs=inputs,
-                composition_factory=_production_factory(
-                    args=args, projection=projection, contract=contract
-                ),
+            if not checkpoint_exists:
+                adapter_ready, qdrant_ready = _tcp_readiness(topology, args.timeout_seconds)
+                if not adapter_ready or qdrant_ready is False:
+                    raise ValueError("mem0_v5_live_tcp_readiness_failed")
+            recovery_key = _read_private_file(
+                args.checkpoint_signing_key_file,
+                parent=args.secret_root,
             )
-        report["images"] = {
-            "adapter_image_id": args.adapter_image_id,
-            "qdrant_image_id": args.qdrant_image_id,
-        }
-        report["qdrant_topology"] = topology.qdrant_topology
-        commitments = report.get("commitments")
-        if type(commitments) is dict:
-            commitments.update(
-                {
-                    "node_executable_sha256": args.node_executable_sha256,
-                    "runtime_artifact_manifest_sha256": (args.runtime_artifact_manifest_sha256),
-                    "container_copy_authority_sha256": (args.container_copy_authority_sha256),
-                    "evidence_key_sha256": args.evidence_key_sha256,
-                }
-            )
+            with LiveCanaryRecoverySession(
+                state_root=args.state_root,
+                checkpoint_signing_key=recovery_key,
+            ) as recovery:
+                report = execute_micro_canary(
+                    inputs=inputs,
+                    composition_factory=_production_factory(
+                        args=args, projection=projection, contract=contract
+                    ),
+                    recovery=recovery,
+                    report_context=report_context,
+                )
+        _bind_report_context(report, report_context)
     except Exception:
         report = {
             "schema_version": _REPORT_SCHEMA,
@@ -713,39 +501,49 @@ def main(argv: list[str] | None = None) -> int:
             "failure_code": "live_micro_canary_preflight_failed",
         }
     try:
-        _write_report(args.report_file, args.report_root, report)
+        published = _write_report(args.report_file, args.report_root, report)
+        if published is not None:
+            report = published
     except Exception:
         return 3
     print(json.dumps(report, sort_keys=True))
     return 0 if report.get("ok") is True else 2
 
 
-def _write_report(path: Path, root: Path, report: dict[str, object]) -> None:
-    if not path.is_absolute() or path.parent.resolve(strict=False) != root.resolve(strict=True):
-        raise ValueError("mem0_v5_live_report_path_invalid")
-    encoded = json.dumps(
-        report, sort_keys=True, separators=(",", ":"), ensure_ascii=True, allow_nan=False
-    ).encode()
-    descriptor = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
-    try:
-        view = memoryview(encoded)
-        written = 0
-        while written < len(view):
-            count = os.write(descriptor, view[written:])
-            if count <= 0:
-                raise OSError("short write")
-            written += count
-        os.fsync(descriptor)
-    finally:
-        os.close(descriptor)
-    parent = os.open(
-        root,
-        os.O_RDONLY | os.O_CLOEXEC | getattr(os, "O_DIRECTORY", 0),
-    )
-    try:
-        os.fsync(parent)
-    finally:
-        os.close(parent)
+def _report_context(args: argparse.Namespace, topology: _HostEndpointTopology) -> dict[str, object]:
+    return {
+        "images": {
+            "adapter_image_id": args.adapter_image_id,
+            "qdrant_image_id": args.qdrant_image_id,
+        },
+        "qdrant_topology": topology.qdrant_topology,
+        "commitments": {
+            "node_executable_sha256": args.node_executable_sha256,
+            "runtime_artifact_manifest_sha256": args.runtime_artifact_manifest_sha256,
+            "container_copy_authority_sha256": args.container_copy_authority_sha256,
+            "evidence_key_sha256": args.evidence_key_sha256,
+        },
+    }
+
+
+def _bind_report_context(report: dict[str, object], context: dict[str, object]) -> None:
+    expected = dict(context)
+    expected_commitments = expected.pop("commitments")
+    for key, value in expected.items():
+        existing = report.setdefault(key, value)
+        if existing != value:
+            raise ValueError("mem0_v5_live_report_context_differs")
+    commitments = report.get("commitments")
+    if type(commitments) is not dict or type(expected_commitments) is not dict:
+        raise ValueError("mem0_v5_live_report_context_differs")
+    for key, value in expected_commitments.items():
+        existing = commitments.setdefault(key, value)
+        if existing != value:
+            raise ValueError("mem0_v5_live_report_context_differs")
+
+
+def _write_report(path: Path, root: Path, report: dict[str, object]) -> dict[str, object]:
+    return publish_report(path, root, report)
 
 
 def _tcp_probe(port: int, timeout: float) -> bool:

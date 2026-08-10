@@ -721,20 +721,47 @@ def test_cleanup_response_verified_before_terminal_save_replays_cleanup_on_resta
     )
 
     fresh_service = _service(_StoragePort())
+    fresh_progress = _progress(checkpoint_path, head)
     fresh = ManagedMem0V5LaneCoordinator(
         service=fresh_service,
         lane_port=lane,
-        progress_port=_progress(checkpoint_path, head),
+        progress_port=fresh_progress,
     )
-    fresh.restore(
+    restored = fresh.restore(
         authority=authority,
         request=_request(),
         budget_policy=ManagedMem0V5BudgetPolicy(5),
     )
+    durable_terminal = fresh_progress.load(
+        authority=authority,
+        admission=fresh_service.admission,
+    )
+    assert restored == durable_terminal
+    assert restored.run_phase is ManagedMem0V5RunPhase.TERMINAL
+    assert restored.terminal_evidence == fresh.terminal_evidence
     assert fresh.terminal_evidence.residual_record_count == 0
     assert lane.calls.count("cleanup") == 2
     assert lane.cleanup_commits == 1
     assert lane.calls.count("status") == 0
+
+    call_counts = tuple(lane.calls.count(name) for name in ("cleanup", "status", "dispatch"))
+    terminal_service = _service(_StoragePort())
+    terminal_restart = ManagedMem0V5LaneCoordinator(
+        service=terminal_service,
+        lane_port=lane,
+        progress_port=_progress(checkpoint_path, head),
+    )
+    repeated = terminal_restart.restore(
+        authority=authority,
+        request=_request(),
+        budget_policy=ManagedMem0V5BudgetPolicy(5),
+    )
+    assert repeated == durable_terminal
+    assert repeated.run_phase is ManagedMem0V5RunPhase.TERMINAL
+    assert repeated.terminal_evidence == fresh.terminal_evidence
+    assert tuple(lane.calls.count(name) for name in ("cleanup", "status", "dispatch")) == (
+        call_counts
+    )
 
 
 def test_cleanup_attempt_checkpoint_precedes_remote_call(tmp_path: Path) -> None:

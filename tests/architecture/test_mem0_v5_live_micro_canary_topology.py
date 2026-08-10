@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from contextlib import nullcontext
 from pathlib import Path
 
 import pytest
@@ -139,6 +140,12 @@ def test_live_command_probes_only_explicit_host_endpoints(
         lambda port, _timeout: probes.append(port) is None,
     )
     monkeypatch.setattr(subject, "MicroCanaryInputs", lambda **_kwargs: object())
+    monkeypatch.setattr(subject, "_read_private_file", lambda *_args, **_kwargs: b"k" * 32)
+    monkeypatch.setattr(
+        subject,
+        "LiveCanaryRecoverySession",
+        lambda **_kwargs: nullcontext(object()),
+    )
     monkeypatch.setattr(
         subject,
         "execute_micro_canary",
@@ -153,6 +160,47 @@ def test_live_command_probes_only_explicit_host_endpoints(
     assert subject.main(_command(*topology)) == 0
     assert probes == expected_ports
     assert reports[0]["qdrant_topology"] == expected_qdrant_topology
+
+
+def test_terminal_recovery_does_not_require_live_tcp_endpoints(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    probes: list[int] = []
+    reports: list[dict[str, object]] = []
+    real_exists = Path.exists
+
+    monkeypatch.setattr(subject, "_preflight", lambda _args: (object(), object(), object()))
+    monkeypatch.setattr(
+        subject,
+        "_tcp_probe",
+        lambda port, _timeout: probes.append(port) is None,
+    )
+    monkeypatch.setattr(
+        Path,
+        "exists",
+        lambda path: path.name == "checkpoint.json" or real_exists(path),
+    )
+    monkeypatch.setattr(subject, "MicroCanaryInputs", lambda **_kwargs: object())
+    monkeypatch.setattr(subject, "_read_private_file", lambda *_args, **_kwargs: b"k" * 32)
+    monkeypatch.setattr(
+        subject,
+        "LiveCanaryRecoverySession",
+        lambda **_kwargs: nullcontext(object()),
+    )
+    monkeypatch.setattr(
+        subject,
+        "execute_micro_canary",
+        lambda **_kwargs: {"ok": True, "commitments": {}},
+    )
+    monkeypatch.setattr(
+        subject,
+        "_write_report",
+        lambda _path, _root, report: reports.append(report),
+    )
+
+    assert subject.main(_command("--qdrant-internal-only")) == 0
+    assert probes == []
+    assert reports[0]["qdrant_topology"] == "internal-only"
 
 
 def test_runner_source_contains_no_legacy_host_port_constants() -> None:

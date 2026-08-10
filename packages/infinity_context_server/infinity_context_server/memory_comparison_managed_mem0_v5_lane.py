@@ -501,7 +501,16 @@ class ManagedMem0V5LaneCoordinator:
             return checkpoint
         if checkpoint.run_phase is ManagedMem0V5RunPhase.CLEANUP_ATTEMPTED:
             self._resume_cleanup(checkpoint)
-            return checkpoint
+            recovered = self._progress.load(
+                authority=authority,
+                admission=self._service.admission,
+            )
+            if (
+                recovered.run_phase is not ManagedMem0V5RunPhase.TERMINAL
+                or recovered.terminal_evidence != self._terminal
+            ):
+                raise ManagedRunError("managed Mem0 v5 cleanup recovery differs")
+            return recovered
         self._lane.admit(authority=authority, admission=self._service.admission)
         attempted: list[int] = []
         for index, unit_progress in enumerate(checkpoint.units):

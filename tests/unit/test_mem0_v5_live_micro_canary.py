@@ -15,6 +15,10 @@ from infinity_context_server.memory_comparison_managed_mem0_v5_projector import 
     ManagedMem0V5ManifestProjector,
 )
 from infinity_context_server.memory_comparison_managed_run_contract import ManagedRunCase
+from infinity_context_server.memory_comparison_mem0_oss_v5_contracts import (
+    MEM0_OSS_EMPTY_ROOT_SHA256,
+    canonical_sha256,
+)
 
 from scripts import mem0_v5_live_micro_canary as subject
 from scripts.mem0_v5_live_container_copy_contract import (
@@ -95,10 +99,37 @@ class _Seal:
 @dataclass(frozen=True)
 class _Terminal:
     terminal_state: str
-    commitment_sha256: str = "7" * 64
+    admission_commitment_sha256: str = "4" * 64
+    seal_commitment_sha256: str | None = "5" * 64
+    operation_root_sha256: str | None = "6" * 64
+    operation_inventory_root_sha256: str = "a" * 64
+    deleted_operation_count: int = 1
+    residual_record_count: int = 0
+    residual_root_sha256: str = MEM0_OSS_EMPTY_ROOT_SHA256
     provider_observed_extraction_calls: int = 1
     provider_observed_request_tokens: int = 101
     provider_observed_response_tokens: int = 23
+    failed_receipts: tuple[object, ...] = ()
+
+    @property
+    def commitment_sha256(self) -> str:
+        return canonical_sha256(self.public_payload())
+
+    def public_payload(self) -> dict[str, object]:
+        return {
+            "terminal_state": self.terminal_state,
+            "admission_commitment_sha256": self.admission_commitment_sha256,
+            "seal_commitment_sha256": self.seal_commitment_sha256,
+            "operation_root_sha256": self.operation_root_sha256,
+            "operation_inventory_root_sha256": self.operation_inventory_root_sha256,
+            "deleted_operation_count": self.deleted_operation_count,
+            "residual_record_count": self.residual_record_count,
+            "residual_root_sha256": self.residual_root_sha256,
+            "provider_observed_extraction_calls": self.provider_observed_extraction_calls,
+            "provider_observed_request_tokens": self.provider_observed_request_tokens,
+            "provider_observed_response_tokens": self.provider_observed_response_tokens,
+            "failed_receipts": [],
+        }
 
 
 @dataclass(frozen=True)
