@@ -515,7 +515,7 @@ def test_managed_runner_client_crosses_real_fastapi_service_and_sqlite_boundary(
     assert verified == scopes
     first_readbacks = len(backend.list_calls)
 
-    with pytest.raises(Mem0V5HttpError, match="remote_failed"):
+    with pytest.raises(Mem0V5HttpError, match="response_rejected"):
         port.clean_state(request)
 
     assert first_readbacks == len(units) == len(backend.list_calls)

@@ -1,0 +1,423 @@
+services:
+  publishable-relay-anchor:
+    image: ${MEM0_V5_PUBLISHABLE_ADAPTER_IMAGE_ID:?set exact cached adapter sha256 image ID}
+    pull_policy: never
+    command: [python, -m, publishable_mem0_v5.relay, serve]
+    user: "65532:65532"
+    read_only: true
+    init: true
+    restart: "no"
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    pids_limit: 128
+    mem_limit: 256m
+    cpus: 0.5
+    environment:
+      PYTHONDONTWRITEBYTECODE: "1"
+      PYTHONPATH: /opt/publishable/deployment
+    volumes:
+      - type: bind
+        source: ${MEM0_V5_PUBLISHABLE_DEPLOYMENT_DIR:?set immutable deployment directory}
+        target: /opt/publishable/deployment
+        read_only: true
+    tmpfs:
+      - /tmp:size=16m,mode=1770,uid=65532,gid=65532
+    ports:
+      - "127.0.0.1:${MEM0_V5_PUBLISHABLE_HOST_ADAPTER_PORT:?set loopback host adapter port}:19191"
+    networks: [publishable-runtime]
+    healthcheck:
+      test: [CMD, python, -m, publishable_mem0_v5.relay, health]
+      interval: 2s
+      timeout: 3s
+      retries: 60
+      start_period: 5s
+
+  publishable-qdrant:
+    image: qdrant/qdrant:v1.18.3@sha256:ecc81d662bb9bb734db879b94461eb44be38604fc259491d478ad7e673238a0d
+    pull_policy: never
+    network_mode: service:publishable-relay-anchor
+    user: "65532:65532"
+    read_only: true
+    restart: "no"
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    pids_limit: 128
+    mem_limit: 2g
+    cpus: 1.0
+    environment:
+      QDRANT__SERVICE__HOST: 127.0.0.1
+      QDRANT__SERVICE__HTTP_PORT: "6334"
+      QDRANT__SERVICE__GRPC_PORT: "6335"
+      QDRANT__STORAGE__STORAGE_PATH: /qdrant/storage
+      QDRANT__STORAGE__SNAPSHOTS_PATH: /qdrant/storage/snapshots
+      QDRANT__TELEMETRY_DISABLED: "true"
+    volumes:
+      - type: bind
+        source: ${MEM0_V5_PUBLISHABLE_QDRANT_STATE_DIR:?set private qdrant state directory}
+        target: /qdrant/storage
+    tmpfs:
+      - /tmp:size=32m,mode=1770,uid=65532,gid=65532
+    healthcheck:
+      test:
+        - CMD
+        - /bin/bash
+        - -ec
+        - |-
+          exec 3<>/dev/tcp/127.0.0.1/6334
+          exec 3>&-
+          exec 3<>/dev/tcp/127.0.0.1/6335
+          exec 3>&-
+      interval: 2s
+      timeout: 3s
+      retries: 60
+      start_period: 5s
+    depends_on:
+      publishable-relay-anchor:
+        condition: service_started
+
+  publishable-bridge-a:
+    image: ${MEM0_V5_PUBLISHABLE_ADAPTER_IMAGE_ID:?set exact cached adapter sha256 image ID}
+    pull_policy: never
+    command:
+      - python
+      - -m
+      - publishable_mem0_v5.fleet_controller
+      - serve
+      - --mode
+      - ${MEM0_V5_PUBLISHABLE_FLEET_MODE}
+      - --account-index
+      - "0"
+    network_mode: service:publishable-relay-anchor
+    user: "65532:65532"
+    read_only: true
+    init: true
+    restart: "no"
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    pids_limit: 128
+    mem_limit: 2g
+    cpus: 1.0
+    environment:
+      PYTHONDONTWRITEBYTECODE: "1"
+      PYTHONUNBUFFERED: "1"
+      PYTHONPATH: /opt/publishable/deployment:/opt/publishable/server
+      HOME: /run/publishable-bridge-state/current
+      XDG_CACHE_HOME: /run/publishable-bridge-state/current/cache
+      XDG_CONFIG_HOME: /run/publishable-bridge-state/current/config
+      XDG_DATA_HOME: /run/publishable-bridge-state/current/data
+      XDG_STATE_HOME: /run/publishable-bridge-state/current/xdg-state
+    volumes:
+      - type: bind
+        source: ${MEM0_V5_PUBLISHABLE_CONFIG_FILE:?set immutable fleet config file}
+        target: /run/publishable-config/config.json
+        read_only: true
+      - type: bind
+        source: ${MEM0_V5_PUBLISHABLE_BRIDGE_A_STATE_DIR:?set private bridge A state directory}
+        target: /run/publishable-bridge-state
+      - type: bind
+        source: ${MEM0_V5_PUBLISHABLE_BRIDGE_A_AUTH_DIR:?set private bridge A auth directory}
+        target: /run/publishable-bridge-auth
+        read_only: true
+      - type: bind
+        source: ${MEM0_V5_PUBLISHABLE_RUNTIME_AUTHORITY_DIR:?set immutable runtime authority directory}
+        target: /opt/publishable/runtime
+        read_only: true
+      - type: bind
+        source: ${MEM0_V5_PUBLISHABLE_NODE_EXECUTABLE_SOURCE:?set immutable Node executable}
+        target: /opt/publishable/bin/node
+        read_only: true
+      - type: bind
+        source: ${MEM0_V5_PUBLISHABLE_CODEX_EXECUTABLE_SOURCE:?set immutable Codex executable}
+        target: /opt/publishable/bin/codex
+        read_only: true
+      - type: bind
+        source: ${MEM0_V5_PUBLISHABLE_SERVER_PACKAGE_DIR:?set immutable server package directory}
+        target: /opt/publishable/server
+        read_only: true
+      - type: bind
+        source: ${MEM0_V5_PUBLISHABLE_DEPLOYMENT_DIR:?set immutable deployment directory}
+        target: /opt/publishable/deployment
+        read_only: true
+    tmpfs:
+      - /tmp:size=64m,mode=1770,uid=65533,gid=65533
+    healthcheck:
+      test:
+        [CMD, python, -m, publishable_mem0_v5.fleet_controller, health, --account-index, "0"]
+      interval: 2s
+      timeout: 3s
+      retries: 60
+      start_period: 5s
+    depends_on:
+      publishable-relay-anchor:
+        condition: service_started
+
+  publishable-bridge-b:
+    image: ${MEM0_V5_PUBLISHABLE_ADAPTER_IMAGE_ID:?set exact cached adapter sha256 image ID}
+    pull_policy: never
+    command:
+      - python
+      - -m
+      - publishable_mem0_v5.fleet_controller
+      - serve
+      - --mode
+      - ${MEM0_V5_PUBLISHABLE_FLEET_MODE}
+      - --account-index
+      - "1"
+    network_mode: service:publishable-relay-anchor
+    user: "65532:65532"
+    read_only: true
+    init: true
+    restart: "no"
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    pids_limit: 128
+    mem_limit: 2g
+    cpus: 1.0
+    environment:
+      PYTHONDONTWRITEBYTECODE: "1"
+      PYTHONUNBUFFERED: "1"
+      PYTHONPATH: /opt/publishable/deployment:/opt/publishable/server
+      HOME: /run/publishable-bridge-state/current
+      XDG_CACHE_HOME: /run/publishable-bridge-state/current/cache
+      XDG_CONFIG_HOME: /run/publishable-bridge-state/current/config
+      XDG_DATA_HOME: /run/publishable-bridge-state/current/data
+      XDG_STATE_HOME: /run/publishable-bridge-state/current/xdg-state
+    volumes:
+      - type: bind
+        source: ${MEM0_V5_PUBLISHABLE_CONFIG_FILE:?set immutable fleet config file}
+        target: /run/publishable-config/config.json
+        read_only: true
+      - type: bind
+        source: ${MEM0_V5_PUBLISHABLE_BRIDGE_B_STATE_DIR:?set private bridge B state directory}
+        target: /run/publishable-bridge-state
+      - type: bind
+        source: ${MEM0_V5_PUBLISHABLE_BRIDGE_B_AUTH_DIR:?set private bridge B auth directory}
+        target: /run/publishable-bridge-auth
+        read_only: true
+      - type: bind
+        source: ${MEM0_V5_PUBLISHABLE_RUNTIME_AUTHORITY_DIR:?set immutable runtime authority directory}
+        target: /opt/publishable/runtime
+        read_only: true
+      - type: bind
+        source: ${MEM0_V5_PUBLISHABLE_NODE_EXECUTABLE_SOURCE:?set immutable Node executable}
+        target: /opt/publishable/bin/node
+        read_only: true
+      - type: bind
+        source: ${MEM0_V5_PUBLISHABLE_CODEX_EXECUTABLE_SOURCE:?set immutable Codex executable}
+        target: /opt/publishable/bin/codex
+        read_only: true
+      - type: bind
+        source: ${MEM0_V5_PUBLISHABLE_SERVER_PACKAGE_DIR:?set immutable server package directory}
+        target: /opt/publishable/server
+        read_only: true
+      - type: bind
+        source: ${MEM0_V5_PUBLISHABLE_DEPLOYMENT_DIR:?set immutable deployment directory}
+        target: /opt/publishable/deployment
+        read_only: true
+    tmpfs:
+      - /tmp:size=64m,mode=1770,uid=65534,gid=65534
+    healthcheck:
+      test:
+        [CMD, python, -m, publishable_mem0_v5.fleet_controller, health, --account-index, "1"]
+      interval: 2s
+      timeout: 3s
+      retries: 60
+      start_period: 5s
+    depends_on:
+      publishable-relay-anchor:
+        condition: service_started
+
+  publishable-bridge-c:
+    image: ${MEM0_V5_PUBLISHABLE_ADAPTER_IMAGE_ID:?set exact cached adapter sha256 image ID}
+    pull_policy: never
+    command:
+      - python
+      - -m
+      - publishable_mem0_v5.fleet_controller
+      - serve
+      - --mode
+      - ${MEM0_V5_PUBLISHABLE_FLEET_MODE}
+      - --account-index
+      - "2"
+    network_mode: service:publishable-relay-anchor
+    user: "65532:65532"
+    read_only: true
+    init: true
+    restart: "no"
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    pids_limit: 128
+    mem_limit: 2g
+    cpus: 1.0
+    environment:
+      PYTHONDONTWRITEBYTECODE: "1"
+      PYTHONUNBUFFERED: "1"
+      PYTHONPATH: /opt/publishable/deployment:/opt/publishable/server
+      HOME: /run/publishable-bridge-state/current
+      XDG_CACHE_HOME: /run/publishable-bridge-state/current/cache
+      XDG_CONFIG_HOME: /run/publishable-bridge-state/current/config
+      XDG_DATA_HOME: /run/publishable-bridge-state/current/data
+      XDG_STATE_HOME: /run/publishable-bridge-state/current/xdg-state
+    volumes:
+      - type: bind
+        source: ${MEM0_V5_PUBLISHABLE_CONFIG_FILE:?set immutable fleet config file}
+        target: /run/publishable-config/config.json
+        read_only: true
+      - type: bind
+        source: ${MEM0_V5_PUBLISHABLE_BRIDGE_C_STATE_DIR:?set private bridge C state directory}
+        target: /run/publishable-bridge-state
+      - type: bind
+        source: ${MEM0_V5_PUBLISHABLE_BRIDGE_C_AUTH_DIR:?set private bridge C auth directory}
+        target: /run/publishable-bridge-auth
+        read_only: true
+      - type: bind
+        source: ${MEM0_V5_PUBLISHABLE_RUNTIME_AUTHORITY_DIR:?set immutable runtime authority directory}
+        target: /opt/publishable/runtime
+        read_only: true
+      - type: bind
+        source: ${MEM0_V5_PUBLISHABLE_NODE_EXECUTABLE_SOURCE:?set immutable Node executable}
+        target: /opt/publishable/bin/node
+        read_only: true
+      - type: bind
+        source: ${MEM0_V5_PUBLISHABLE_CODEX_EXECUTABLE_SOURCE:?set immutable Codex executable}
+        target: /opt/publishable/bin/codex
+        read_only: true
+      - type: bind
+        source: ${MEM0_V5_PUBLISHABLE_SERVER_PACKAGE_DIR:?set immutable server package directory}
+        target: /opt/publishable/server
+        read_only: true
+      - type: bind
+        source: ${MEM0_V5_PUBLISHABLE_DEPLOYMENT_DIR:?set immutable deployment directory}
+        target: /opt/publishable/deployment
+        read_only: true
+    tmpfs:
+      - /tmp:size=64m,mode=1770,uid=65535,gid=65535
+    healthcheck:
+      test:
+        [CMD, python, -m, publishable_mem0_v5.fleet_controller, health, --account-index, "2"]
+      interval: 2s
+      timeout: 3s
+      retries: 60
+      start_period: 5s
+    depends_on:
+      publishable-relay-anchor:
+        condition: service_started
+
+  publishable-adapter:
+    image: ${MEM0_V5_PUBLISHABLE_ADAPTER_IMAGE_ID:?set exact cached adapter sha256 image ID}
+    pull_policy: never
+    command:
+      - uvicorn
+      - mem0_oss_adapter_v5.composition:build_app_from_environment
+      - --factory
+      - --host
+      - 127.0.0.1
+      - --port
+      - "19091"
+      - --no-access-log
+      - --no-proxy-headers
+    network_mode: service:publishable-relay-anchor
+    user: "65532:65532"
+    read_only: true
+    init: true
+    restart: "no"
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    pids_limit: 128
+    mem_limit: 4g
+    cpus: 2.0
+    environment:
+      HF_HUB_OFFLINE: "1"
+      TRANSFORMERS_OFFLINE: "1"
+      MEM0_TELEMETRY: "false"
+      MEM0_TELEMETRY_SAMPLE_RATE: "0"
+      MEM0_V5_INPUT_MANIFEST_FILE: /run/mem0-v5-input/manifest.json
+      MEM0_V5_STATE_DB_FILE: /run/mem0-v5-state/operations.sqlite3
+      MEM0_V5_INGRESS_BEARER_FILE: /run/secrets/ingress-bearer
+      MEM0_V5_STATE_HMAC_FILE: /run/secrets/state-hmac
+      MEM0_V5_RESULT_HMAC_FILE: /run/secrets/result-hmac
+      MEM0_V5_RUNTIME_ATTESTATION_SECRET_FILE: /run/secrets/runtime-attestation-secret
+      MEM0_V5_RUNTIME_BEARER_FILE: /run/secrets/runtime-bearer
+      MEM0_V5_RECEIPT_SECRET_FILE: /run/secrets/runtime-receipt-secret
+      MEM0_V5_RUNTIME_TRANSPORT_ORIGIN_FILE: /run/secrets/runtime-transport-origin
+      MEM0_V5_ACCOUNT_BINDING_HMAC_FILE: /run/secrets/account-binding-hmac-sha256
+      MEM0_V5_BASE_INSTRUCTIONS_SHA256_FILE: /run/secrets/base-instructions-sha256
+      MEM0_V5_QDRANT_ORIGIN: http://127.0.0.1:6334
+      MEM0_V5_RUNTIME_REPO: /opt/publishable/runtime/repo
+      MEM0_V5_NODE_EXECUTABLE: /opt/publishable/bin/node
+      MEM0_V5_SOURCE_AUTHORITY_MANIFEST_FILE: /run/source-authority/manifest.json
+      MEM0_V5_SOURCE_AUTHORITY_MANIFEST_SHA256_FILE: /run/source-authority-pin/manifest.sha256
+      MEM0_V5_PHASE_C_AUTHORITY_DIR: /opt/publishable/source/phase-c
+      HOME: /run/mem0-v5-state
+      XDG_CACHE_HOME: /run/mem0-v5-state/cache
+      XDG_CONFIG_HOME: /run/mem0-v5-state/config
+      XDG_DATA_HOME: /run/mem0-v5-state/data
+      XDG_STATE_HOME: /run/mem0-v5-state/state
+    volumes:
+      - type: bind
+        source: ${MEM0_V5_PUBLISHABLE_INPUT_DIR:?set private sealed input directory}
+        target: /run/mem0-v5-input
+        read_only: true
+      - type: bind
+        source: ${MEM0_V5_PUBLISHABLE_ADAPTER_STATE_DIR:?set private adapter state directory}
+        target: /run/mem0-v5-state
+      - type: bind
+        source: ${MEM0_V5_PUBLISHABLE_ADAPTER_SECRET_DIR:?set private adapter secret directory}
+        target: /run/secrets
+        read_only: true
+      - type: bind
+        source: ${MEM0_V5_PUBLISHABLE_RUNTIME_AUTHORITY_DIR:?set immutable runtime authority directory}
+        target: /opt/publishable/runtime
+        read_only: true
+      - type: bind
+        source: ${MEM0_V5_PUBLISHABLE_PHASE_C_AUTHORITY_DIR:?set immutable Phase C authority directory}
+        target: /opt/publishable/source/phase-c
+        read_only: true
+      - type: bind
+        source: ${MEM0_V5_PUBLISHABLE_SOURCE_AUTHORITY_DIR:?set immutable source authority directory}
+        target: /run/source-authority
+        read_only: true
+      - type: bind
+        source: ${MEM0_V5_PUBLISHABLE_SOURCE_AUTHORITY_PIN_DIR:?set immutable source pin directory}
+        target: /run/source-authority-pin
+        read_only: true
+      - type: bind
+        source: ${MEM0_V5_PUBLISHABLE_SOURCE_AUTHORITY_PIN_SHA256_FILE:?set immutable source pin digest}
+        target: /run/source-authority-pin/manifest.sha256
+        read_only: true
+      - type: bind
+        source: ${MEM0_V5_PUBLISHABLE_NODE_EXECUTABLE_SOURCE:?set immutable Node executable}
+        target: /opt/publishable/bin/node
+        read_only: true
+    tmpfs:
+      - /tmp:size=64m,mode=1770,uid=65532,gid=65532
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - |-
+          import socket
+          connection = socket.create_connection(("127.0.0.1", 19091), 2)
+          connection.close()
+      interval: 2s
+      timeout: 3s
+      retries: 60
+      start_period: 5s
+    depends_on:
+      publishable-relay-anchor:
+        condition: service_started
+      publishable-qdrant:
+        condition: service_healthy
+      publishable-bridge-a:
+        condition: service_healthy
+      publishable-bridge-b:
+        condition: service_healthy
+      publishable-bridge-c:
+        condition: service_healthy
+
+networks:
+  publishable-runtime:
+    driver: bridge
+    internal: false
+    attachable: false

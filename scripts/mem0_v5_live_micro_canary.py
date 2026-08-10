@@ -63,6 +63,24 @@ _RUNTIME_TRANSPORT_ORIGIN = b"http://127.0.0.1:8891"
 
 
 @dataclass(frozen=True, slots=True)
+class _HostEndpointTopology:
+    adapter_port: int
+    qdrant_port: int | None
+
+    def __post_init__(self) -> None:
+        if not _is_host_port(self.adapter_port):
+            raise ValueError("mem0_v5_live_port_invalid")
+        if self.qdrant_port is not None and (
+            not _is_host_port(self.qdrant_port) or self.qdrant_port == self.adapter_port
+        ):
+            raise ValueError("mem0_v5_live_port_invalid")
+
+    @property
+    def qdrant_topology(self) -> str:
+        return "internal-only" if self.qdrant_port is None else "loopback-host"
+
+
+@dataclass(frozen=True, slots=True)
 class _ProductionPublicContract:
     request: Mem0OssAdmissionRequest
     state_paths: object
@@ -466,12 +484,9 @@ def _preflight(
             raise ValueError("mem0_v5_live_runtime_path_invalid")
     _image_id(args.adapter_image_id)
     _image_id(args.qdrant_image_id)
+    _host_endpoint_topology(args)
     if (
-        type(args.adapter_port) is not int
-        or type(args.qdrant_port) is not int
-        or args.adapter_port != 19091
-        or args.qdrant_port != 6334
-        or type(args.timeout_seconds) not in {int, float}
+        type(args.timeout_seconds) not in {int, float}
         or isinstance(args.timeout_seconds, bool)
         or not math.isfinite(args.timeout_seconds)
         or not 0.01 <= args.timeout_seconds <= 120.0
@@ -557,9 +572,9 @@ def _preflight_report(
         ),
     )
     report = _base_report(inputs)
-    adapter_ready = _tcp_probe(args.adapter_port, args.timeout_seconds)
-    qdrant_ready = _tcp_probe(args.qdrant_port, args.timeout_seconds)
-    safe = adapter_ready and qdrant_ready and not inputs.orphan_dispatch_claim
+    topology = _host_endpoint_topology(args)
+    adapter_ready, qdrant_ready = _tcp_readiness(topology, args.timeout_seconds)
+    safe = adapter_ready and qdrant_ready is not False and not inputs.orphan_dispatch_claim
     report.update(
         {
             "preflight_only": True,
@@ -567,6 +582,7 @@ def _preflight_report(
             "outcome": "GO" if safe else "NO-GO",
             "failure_code": None if safe else "tcp_or_state_preflight_failed",
             "tcp_readiness": {"adapter": adapter_ready, "qdrant": qdrant_ready},
+            "qdrant_topology": topology.qdrant_topology,
             "images": {
                 "adapter_image_id": args.adapter_image_id,
                 "qdrant_image_id": args.qdrant_image_id,
@@ -619,24 +635,44 @@ def _parse_args(argv: list[str] | None) -> argparse.Namespace:
     parser.add_argument("--container-copy-authority-sha256", required=True)
     parser.add_argument("--adapter-image-id", required=True)
     parser.add_argument("--qdrant-image-id", required=True)
-    parser.add_argument("--adapter-port", required=True, type=int)
-    parser.add_argument("--qdrant-port", required=True, type=int)
+    parser.add_argument(
+        "--adapter-port",
+        required=True,
+        type=_parse_host_port,
+        help="explicit loopback host port for the adapter or isolated lane relay",
+    )
+    qdrant_topology = parser.add_mutually_exclusive_group(required=True)
+    qdrant_topology.add_argument(
+        "--qdrant-port",
+        type=_parse_host_port,
+        help="explicit legacy loopback host port to probe for Qdrant",
+    )
+    qdrant_topology.add_argument(
+        "--qdrant-internal-only",
+        action="store_true",
+        help="declare that Qdrant has no host-published port",
+    )
     parser.add_argument("--timeout-seconds", type=float, default=10.0)
     parser.add_argument("--preflight-only", action="store_true")
-    return parser.parse_args(argv)
+    args = parser.parse_args(argv)
+    try:
+        _host_endpoint_topology(args)
+    except ValueError as exc:
+        parser.error(str(exc))
+    return args
 
 
 def main(argv: list[str] | None = None) -> int:
     args = _parse_args(argv)
+    topology = _host_endpoint_topology(args)
     report: dict[str, object]
     try:
         projection, runtime, contract = _preflight(args)
         if args.preflight_only:
             report = _preflight_report(args, projection, runtime)
         else:
-            if not _tcp_probe(args.adapter_port, args.timeout_seconds) or not _tcp_probe(
-                args.qdrant_port, args.timeout_seconds
-            ):
+            adapter_ready, qdrant_ready = _tcp_readiness(topology, args.timeout_seconds)
+            if not adapter_ready or qdrant_ready is False:
                 raise ValueError("mem0_v5_live_tcp_readiness_failed")
             inputs = MicroCanaryInputs(
                 projection=projection,
@@ -657,6 +693,7 @@ def main(argv: list[str] | None = None) -> int:
             "adapter_image_id": args.adapter_image_id,
             "qdrant_image_id": args.qdrant_image_id,
         }
+        report["qdrant_topology"] = topology.qdrant_topology
         commitments = report.get("commitments")
         if type(commitments) is dict:
             commitments.update(
@@ -717,6 +754,39 @@ def _tcp_probe(port: int, timeout: float) -> bool:
             return True
     except OSError:
         return False
+
+
+def _tcp_readiness(topology: _HostEndpointTopology, timeout: float) -> tuple[bool, bool | None]:
+    adapter_ready = _tcp_probe(topology.adapter_port, timeout)
+    qdrant_ready = (
+        None if topology.qdrant_port is None else _tcp_probe(topology.qdrant_port, timeout)
+    )
+    return adapter_ready, qdrant_ready
+
+
+def _host_endpoint_topology(args: argparse.Namespace) -> _HostEndpointTopology:
+    qdrant_port = getattr(args, "qdrant_port", None)
+    internal_only = getattr(args, "qdrant_internal_only", False)
+    if type(internal_only) is not bool or internal_only == (qdrant_port is not None):
+        raise ValueError("mem0_v5_live_qdrant_topology_invalid")
+    return _HostEndpointTopology(
+        adapter_port=args.adapter_port,
+        qdrant_port=qdrant_port,
+    )
+
+
+def _parse_host_port(value: str) -> int:
+    try:
+        port = int(value)
+    except ValueError as exc:
+        raise argparse.ArgumentTypeError("host port must be an integer") from exc
+    if not _is_host_port(port):
+        raise argparse.ArgumentTypeError("host port must be between 1024 and 65535")
+    return port
+
+
+def _is_host_port(value: object) -> bool:
+    return type(value) is int and 1024 <= value <= 65_535
 
 
 def _read_private_file(path: Path, *, parent: Path) -> bytes:

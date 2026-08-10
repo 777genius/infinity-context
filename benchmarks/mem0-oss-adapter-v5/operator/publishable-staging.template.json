@@ -1,0 +1,76 @@
+{
+  "account_i_r16_fence": {
+    "auth_root": "/var/data/codex-home/live-codex-auth/account-i",
+    "required_protected_host_ports": [
+      6334,
+      8891,
+      8892,
+      19091
+    ],
+    "state_root": "/mnt/volume_ams3_1784742570542/infinity-context/live-canaries/mem0-v5-live-d7bf1ac4-r16"
+  },
+  "authorities": {
+    "codex_executable_name": "bin/codex-e904",
+    "deployment_dir_name": "mem0-v5-publishable-deployment-r17-6f2c",
+    "node_executable_name": "bin/node-e904",
+    "node_executable_sha256": "b2959781cc5a74c357ffa02367efa8a0330cbb1c9cb347732fdfaaaca381cbcd",
+    "phase_c_authority_dir_name": "phase-c-authority-r17-6f2c",
+    "runtime_artifact_manifest_sha256": "789018b5b15a1299252895babdc550c3d5322c54a1d9c82656f93d31423a0850",
+    "runtime_entrypoint_sha256": "83db85671ec5da675706c903e5b8ed1ae0cb307014d7c10a10be34f1700762fd",
+    "runtime_root_name": "subscription-runtime-e904-r17-6f2c",
+    "server_package_dir_name": "infinity-context-server-r17-6f2c",
+    "source_authority_dir_name": "mem0-v5-source-authority-r17-6f2c",
+    "source_authority_pin_dir_name": "mem0-v5-source-pin-r17-6f2c",
+    "source_manifest_sha256": "175ed7008e78ce958c3f9bc0195fbd81bfa3359d67f96f986dfce38360a2c62f"
+  },
+  "lane": {
+    "bridge_accounts": [
+      {
+        "account_name": "publishable-r17-6f2c-a",
+        "bridge_id": "mem0-v5-publishable-r17-6f2c-bridge-a"
+      },
+      {
+        "account_name": "publishable-r17-6f2c-b",
+        "bridge_id": "mem0-v5-publishable-r17-6f2c-bridge-b"
+      },
+      {
+        "account_name": "publishable-r17-6f2c-c",
+        "bridge_id": "mem0-v5-publishable-r17-6f2c-bridge-c"
+      }
+    ],
+    "docker_host": "unix:///run/infinity-context/mem0-v5-publishable-staging-r17-6f2c/docker.sock",
+    "host_adapter_port": 29192,
+    "lane_config_file_name": "publishable-lane-staging-r17-6f2c.json",
+    "private_directory_names": {
+      "adapter_secret_dir": "adapter-secrets-r17-6f2c",
+      "adapter_state_dir": "adapter-state-r17-6f2c",
+      "attestation_dir": "runtime-attestations-r17-6f2c",
+      "fleet_auth_dir": "bridge-fleet-auth-r17-6f2c",
+      "fleet_state_dir": "bridge-fleet-state-r17-6f2c",
+      "input_dir": "sealed-input-r17-6f2c",
+      "qdrant_state_dir": "qdrant-state-r17-6f2c"
+    },
+    "project_name": "mem0-v5-publishable-staging-r17-6f2c"
+  },
+  "run_2040": {
+    "dependency_provider": "mem0-oss-v5",
+    "expected_case_count": 2040,
+    "expected_evaluation_call_count": 8160,
+    "expected_extraction_operation_count": 130226,
+    "expected_total_call_count": 138386,
+    "max_dispatches_per_batch": 64,
+    "private_root_name": "publishable-run-2040-staging-r17-6f2c",
+    "publication_key_id": "publishable-staging-r17-6f2c-publication-2040",
+    "run_config_file_name": "publishable-run-2040.json",
+    "secrets_file_name": "publishable-run-2040.secrets.json",
+    "state_directory_name": "state-2040-r17-6f2c",
+    "state_file_names": {
+      "longmemeval_scheduler_database_path": "longmemeval-2040-r17-6f2c.sqlite3",
+      "locomo_scheduler_database_path": "locomo-2040-r17-6f2c.sqlite3",
+      "official_case_authority_path": "official-cases-2040-r17-6f2c.sqlite3",
+      "publication_receipt_path": "publication-receipt-2040-r17-6f2c.json",
+      "suite_seal_database_path": "suite-seals-2040-r17-6f2c.sqlite3"
+    }
+  },
+  "schema_version": "publishable-mem0-v5-operator-staging-template.v1"
+}
