@@ -446,7 +446,6 @@ def test_full_runtime_attestation_binds_image_netns_mount_user_and_port(
     assert any("exec" in call[0] for call in runner.calls)
 
 
-<<<<<<< HEAD
 def test_runtime_attestation_rejects_fake_internal_health_when_host_relay_is_unreachable(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -480,12 +479,9 @@ def test_runtime_attestation_rejects_fake_internal_health_when_host_relay_is_unr
     assert any(call[0][3] == "exec" for call in runner.calls)
 
 
-@pytest.mark.parametrize("difference", ["image", "netns", "mount", "user", "port"])
-=======
 @pytest.mark.parametrize(
     "difference", ["image", "netns", "mount", "user", "port", "authority_environment"]
 )
->>>>>>> cf7ed782 (fix(benchmark): bind container runtime authorities)
 def test_runtime_attestation_rejects_each_runtime_difference(
     tmp_path: Path,
     difference: str,
