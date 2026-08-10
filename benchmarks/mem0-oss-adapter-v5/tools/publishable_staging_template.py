@@ -14,6 +14,10 @@ from uuid import UUID
 
 TEMPLATE_SCHEMA: Final = "publishable-mem0-v5-operator-staging-template.v2"
 PINNED_DOCKER_HOST: Final = "unix:///run/infinity-locomo-docker/docker.sock"
+RUNTIME_PIN_SHA256: Final = "6976b4507071d95bc0df1cb91c56d5c5932fbc5ed1a76475126be05f91e8a15c"
+SOURCE_COMMIT_SHA1: Final = "cf7ed782226118cec3eb520e322ebe024c2f332e"
+SOURCE_COMMIT_SHA256: Final = "16c40bb404f71f22d7c5a569b084dcb110a9b01164909261aa0b403ac34c27da"
+SOURCE_MANIFEST_SHA256: Final = "83cd1a1f081cd0c8e1f5f270577061ab18f8927aacd16b7554fd3e750c062a4c"
 PROTECTED_ACCOUNT_I_AUTH_ROOT: Final = Path("/var/data/codex-home/live-codex-auth/account-i")
 PROTECTED_R16_ROOT: Final = Path(
     "/mnt/volume_ams3_1784742570542/infinity-context/live-canaries/mem0-v5-live-d7bf1ac4-r16"
@@ -157,6 +161,24 @@ class StagingPublicInputs:
             or any(_CONTAINER_ID.fullmatch(item) is None for item in containers)
         ):
             fail("operator_staging_account_i_container_ids_invalid")
+
+
+def require_runtime_authority_tuple(template: StagingTemplate) -> None:
+    """Require the one reviewed runtime-pin/source generation for this lane."""
+
+    if type(template) is not StagingTemplate:
+        fail("operator_staging_build_input_invalid")
+    runtime = template.provider.get("runtime")
+    suite = template.provider.get("suite")
+    if type(runtime) is not dict or type(suite) is not dict:
+        fail("operator_staging_runtime_authority_invalid")
+    if runtime.get("runtime_pin_sha256") != RUNTIME_PIN_SHA256:
+        fail("operator_staging_runtime_pin_stale")
+    if (
+        template.authority_digests.get("source_manifest_sha256") != SOURCE_MANIFEST_SHA256
+        or suite.get("source_commit_sha256") != SOURCE_COMMIT_SHA256
+    ):
+        fail("operator_staging_runtime_source_cross_wire")
 
 
 def load_staging_template(path: Path) -> StagingTemplate:
@@ -347,7 +369,7 @@ def _parse_template(value: object) -> StagingTemplate:
         or _IDENTIFIER.fullmatch(publication_key_id) is None
     ):
         fail("operator_staging_run_identifier_invalid")
-    return StagingTemplate(
+    template = StagingTemplate(
         project_name=project_name,
         docker_host=docker_host,
         host_adapter_port=host_port,
@@ -369,6 +391,8 @@ def _parse_template(value: object) -> StagingTemplate:
         required_protected_host_ports=ports,
         provider=provider,
     )
+    require_runtime_authority_tuple(template)
+    return template
 
 
 def _provider(value: object) -> dict[str, dict[str, object]]:
@@ -617,6 +641,10 @@ __all__ = (
     "PINNED_DOCKER_HOST",
     "PROTECTED_ACCOUNT_I_AUTH_ROOT",
     "PROTECTED_R16_ROOT",
+    "RUNTIME_PIN_SHA256",
+    "SOURCE_COMMIT_SHA1",
+    "SOURCE_COMMIT_SHA256",
+    "SOURCE_MANIFEST_SHA256",
     "STATE_FILE_KEYS",
     "OperatorStagingError",
     "StagingPublicInputs",
@@ -624,4 +652,5 @@ __all__ = (
     "fail",
     "load_staging_template",
     "require_absolute_path",
+    "require_runtime_authority_tuple",
 )

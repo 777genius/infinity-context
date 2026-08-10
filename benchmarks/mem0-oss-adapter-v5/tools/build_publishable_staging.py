@@ -35,12 +35,16 @@ INTERNAL_LANE_PORTS = staging_contracts.INTERNAL_LANE_PORTS
 PINNED_DOCKER_HOST = staging_contracts.PINNED_DOCKER_HOST
 PROTECTED_ACCOUNT_I_AUTH_ROOT = staging_contracts.PROTECTED_ACCOUNT_I_AUTH_ROOT
 PROTECTED_R16_ROOT = staging_contracts.PROTECTED_R16_ROOT
+RUNTIME_PIN_SHA256 = staging_contracts.RUNTIME_PIN_SHA256
+SOURCE_COMMIT_SHA256 = staging_contracts.SOURCE_COMMIT_SHA256
+SOURCE_MANIFEST_SHA256 = staging_contracts.SOURCE_MANIFEST_SHA256
 _STATE_FILE_KEYS = staging_contracts.STATE_FILE_KEYS
 OperatorStagingError = staging_contracts.OperatorStagingError
 StagingPublicInputs = staging_contracts.StagingPublicInputs
 StagingTemplate = staging_contracts.StagingTemplate
 _require_absolute_path = staging_contracts.require_absolute_path
 load_staging_template = staging_contracts.load_staging_template
+require_runtime_authority_tuple = staging_contracts.require_runtime_authority_tuple
 
 
 @dataclass(frozen=True, slots=True)
@@ -96,6 +100,7 @@ def build_staging_bundle(
 
     if type(template) is not StagingTemplate or type(public_inputs) is not StagingPublicInputs:
         _fail("operator_staging_build_input_invalid")
+    require_runtime_authority_tuple(template)
     if template.docker_host != PINNED_DOCKER_HOST:
         _fail("operator_staging_docker_host_invalid")
     _require_absolute_path(output_root, "output_root")
@@ -223,6 +228,8 @@ def _lane_payload(
     authority_paths: dict[str, Path],
     source_pin_file: Path,
 ) -> dict[str, object]:
+    runtime = template.provider["runtime"]
+    suite = template.provider["suite"]
     return {
         "account_i_r16_fence": {
             "auth_root": str(template.fence_auth_root),
@@ -277,7 +284,9 @@ def _lane_payload(
                 "runtime_artifact_manifest_sha256"
             ],
             "runtime_entrypoint_sha256": template.authority_digests["runtime_entrypoint_sha256"],
+            "runtime_pin_sha256": runtime["runtime_pin_sha256"],
             "runtime_root": str(authority_paths["runtime_root"]),
+            "source_commit_sha256": suite["source_commit_sha256"],
         },
         "schema_version": LANE_CONFIG_SCHEMA,
         "source_manifest_sha256": template.authority_digests["source_manifest_sha256"],
@@ -484,6 +493,14 @@ def _validate_lane_payload(
     fence = value["account_i_r16_fence"]
     if type(fence) is not dict or fence.get("pid") != public_inputs.account_i_pid:
         _fail("operator_staging_lane_fence_invalid")
+    runtime = value["runtime"]
+    if (
+        type(runtime) is not dict
+        or runtime.get("runtime_pin_sha256") != RUNTIME_PIN_SHA256
+        or runtime.get("source_commit_sha256") != SOURCE_COMMIT_SHA256
+        or value.get("source_manifest_sha256") != SOURCE_MANIFEST_SHA256
+    ):
+        _fail("operator_staging_lane_runtime_authority_invalid")
     encoded = _canonical_json(value)
     if b'"secrets"' in encoded or b'"credentials"' in encoded:
         _fail("operator_staging_lane_contains_secret_material")
@@ -519,6 +536,17 @@ def _validate_run_payload(value: dict[str, object], *, run_root: Path) -> None:
         or adapter.get("schema_version") != RUN_PROVIDER_CONFIG_SCHEMA
     ):
         _fail("operator_staging_run_adapter_invalid")
+    runtime = adapter["runtime"]
+    suite = adapter["suite"]
+    authority = runtime.get("authority") if type(runtime) is dict else None
+    if (
+        type(authority) is not dict
+        or type(suite) is not dict
+        or authority.get("runtime_pin_sha256") != RUNTIME_PIN_SHA256
+        or authority.get("source_manifest_sha256") != SOURCE_MANIFEST_SHA256
+        or suite.get("source_commit_sha256") != SOURCE_COMMIT_SHA256
+    ):
+        _fail("operator_staging_run_runtime_authority_invalid")
     prohibited = ("api_key", "bearer", "credential", "password", "private_key", "secret", "token")
     if _contains_prohibited_key(adapter, prohibited=prohibited):
         _fail("operator_staging_run_contains_secret_material")

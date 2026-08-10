@@ -89,10 +89,39 @@ artifacts.
 The run config's adapter object is the exact seven-section production provider
 contract. Its reviewed runtime pin, source-commit digest, source manifest,
 runtime authority, lane receipt directory, and loopback endpoint must remain
-unchanged between review and execution. The suite's 64-character source-commit
-authority is exactly SHA-256 over the lowercase 40-character Git commit SHA-1
-ASCII exposed by that runtime pin; the provider authenticates this mapping
-against the signed adapter response.
+unchanged between review and execution. The one tracked runtime/source tuple for
+this staging generation is:
+
+```text
+runtime-pin.json SHA-256    6976b4507071d95bc0df1cb91c56d5c5932fbc5ed1a76475126be05f91e8a15c
+source manifest SHA-256     83cd1a1f081cd0c8e1f5f270577061ab18f8927aacd16b7554fd3e750c062a4c
+source commit SHA-1         cf7ed782226118cec3eb520e322ebe024c2f332e
+SHA-256(commit SHA-1 ASCII) 16c40bb404f71f22d7c5a569b084dcb110a9b01164909261aa0b403ac34c27da
+```
+
+The template loader, builder revalidation, and generated lane-config loader all
+reject a stale pin or a source digest from another generation before any live
+command. The suite's 64-character source-commit authority is exactly SHA-256
+over the lowercase 40-character Git commit SHA-1 ASCII exposed by that runtime
+pin; the provider authenticates this mapping against the signed adapter
+response.
+
+For immutable restaging, use a fresh output root and a fresh public authority
+root. Copy (do not symlink or hard-link) the tracked
+`benchmarks/mem0-oss-adapter-v5/authority/runtime-pin.json` bytes to the runtime
+pin name emitted in the run config, and stage the matching tracked manifest and
+64-byte `manifest.sha256`. Before provisioning secrets, independently confirm
+the runtime-pin file hash above, its `source_a.commit_sha1` and
+`source_a.manifest_sha256`, the manifest file hash, and the no-newline ASCII
+commit digest. Make public authority files root-owned or current-operator-owned,
+single-link regular files with an admitted read-only mode (`0400`, `0440`, or
+`0444`). At run
+preflight the immutable reader uses a no-follow stable open, verifies identity,
+mode, link count, bounded size, and the configured raw-byte hash, then verifies
+the pin's manifest and commit mapping again. A new config HMAC and closure
+commitments must cover the restaged paths and tuple through the approved
+offline authority workflow; staging does not create an authority receipt or
+live evidence.
 
 The Codex executable ceiling is a local anti-DoS verification budget, not an
 executable-format or provider protocol requirement. The production verifier's

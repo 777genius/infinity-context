@@ -32,6 +32,9 @@ RELAY_PORT: Final = 19191
 BRIDGE_PORTS: Final = (8891, 8892, 8893)
 BASE_INSTRUCTIONS_SHA256: Final = "5c15d6c502d380282a933d4f20a886a06c9d04d3b5d7c918b95df0b0acf33671"
 SOURCE_MANIFEST_SHA256: Final = "83cd1a1f081cd0c8e1f5f270577061ab18f8927aacd16b7554fd3e750c062a4c"
+SOURCE_COMMIT_SHA1: Final = "cf7ed782226118cec3eb520e322ebe024c2f332e"
+SOURCE_COMMIT_SHA256: Final = "16c40bb404f71f22d7c5a569b084dcb110a9b01164909261aa0b403ac34c27da"
+RUNTIME_PIN_SHA256: Final = "6976b4507071d95bc0df1cb91c56d5c5932fbc5ed1a76475126be05f91e8a15c"
 RUNTIME_MANIFEST_SHA256: Final = "789018b5b15a1299252895babdc550c3d5322c54a1d9c82656f93d31423a0850"
 RUNTIME_ENTRYPOINT_SHA256: Final = (
     "83db85671ec5da675706c903e5b8ed1ae0cb307014d7c10a10be34f1700762fd"
@@ -116,6 +119,8 @@ class RuntimeAuthorityConfig:
     node_executable_sha256: str
     codex_executable: Path
     codex_executable_sha256: str
+    runtime_pin_sha256: str = RUNTIME_PIN_SHA256
+    source_commit_sha256: str = SOURCE_COMMIT_SHA256
 
     def __post_init__(self) -> None:
         for path, label in (
@@ -131,6 +136,10 @@ class RuntimeAuthorityConfig:
         if self.node_executable_sha256 != NODE_EXECUTABLE_SHA256:
             _fail("publishable_lane_node_pin_invalid")
         _require_sha256(self.codex_executable_sha256, "codex_executable")
+        if self.runtime_pin_sha256 != RUNTIME_PIN_SHA256:
+            _fail("publishable_lane_runtime_pin_stale")
+        if self.source_commit_sha256 != SOURCE_COMMIT_SHA256:
+            _fail("publishable_lane_runtime_source_cross_wire")
         if self.node_executable == self.codex_executable:
             _fail("publishable_lane_executable_paths_overlap")
 
@@ -462,6 +471,8 @@ def _parse_runtime(value: object) -> RuntimeAuthorityConfig:
         "node_executable_sha256",
         "codex_executable",
         "codex_executable_sha256",
+        "runtime_pin_sha256",
+        "source_commit_sha256",
     }
     item = _object(value, names, "runtime")
     return RuntimeAuthorityConfig(
@@ -476,6 +487,8 @@ def _parse_runtime(value: object) -> RuntimeAuthorityConfig:
         node_executable_sha256=_string(item["node_executable_sha256"], "node_executable_sha256"),
         codex_executable=Path(_string(item["codex_executable"], "codex_executable")),
         codex_executable_sha256=_string(item["codex_executable_sha256"], "codex_executable_sha256"),
+        runtime_pin_sha256=_string(item["runtime_pin_sha256"], "runtime_pin_sha256"),
+        source_commit_sha256=_string(item["source_commit_sha256"], "source_commit_sha256"),
     )
 
 
@@ -694,6 +707,9 @@ __all__ = (
     "QDRANT_HTTP_PORT",
     "QDRANT_IMAGE",
     "RELAY_PORT",
+    "RUNTIME_PIN_SHA256",
+    "SOURCE_COMMIT_SHA1",
+    "SOURCE_COMMIT_SHA256",
     "SOURCE_MANIFEST_SHA256",
     "BindMountAuthorityConfig",
     "DeploymentConfigError",

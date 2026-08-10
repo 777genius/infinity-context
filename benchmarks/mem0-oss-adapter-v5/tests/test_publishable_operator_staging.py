@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import json
 import stat
 from dataclasses import replace
@@ -17,6 +18,9 @@ from infinity_context_server.publishable_durable_scheduler.publishable_run_contr
 )
 from publishable_mem0_v5.config import (
     PINNED_DOCKER_HOST,
+    RUNTIME_PIN_SHA256,
+    SOURCE_COMMIT_SHA1,
+    SOURCE_COMMIT_SHA256,
     SOURCE_MANIFEST_SHA256,
     DeploymentConfigError,
     load_lane_config,
@@ -40,7 +44,12 @@ from tools.build_publishable_staging import (
 
 ROOT = Path(__file__).resolve().parents[1]
 TEMPLATE = ROOT / "operator" / "publishable-staging.template.json"
+TRACKED_RUNTIME_PIN = ROOT / "authority" / "runtime-pin.json"
+TRACKED_SOURCE_MANIFEST = ROOT / "authority" / "manifest.json"
 REQUIRED_R16_PORTS = (6334, 8891, 8892, 19091)
+STALE_RUNTIME_PIN_SHA256 = "f8f338b73d816d87981745b240026d802fb52c1a228b0e608231a4ef9ad33e46"
+STALE_SOURCE_COMMIT_SHA256 = "ed27595275c2a0a884c15c28f9891088180ef3be734ee8304a8fbeaa68e953a7"
+STALE_SOURCE_MANIFEST_SHA256 = "175ed7008e78ce958c3f9bc0195fbd81bfa3359d67f96f986dfce38360a2c62f"
 
 
 def _public_inputs(
@@ -79,6 +88,25 @@ def _build(tmp_path: Path):
 
 def _mode(path: Path) -> int:
     return stat.S_IMODE(path.lstat().st_mode)
+
+
+def test_tracked_runtime_pin_and_source_manifest_define_one_current_tuple() -> None:
+    runtime_pin_raw = TRACKED_RUNTIME_PIN.read_bytes()
+    manifest_raw = TRACKED_SOURCE_MANIFEST.read_bytes()
+    runtime_pin = json.loads(runtime_pin_raw)
+    manifest = json.loads(manifest_raw)
+    source = runtime_pin["source_a"]
+    template = load_staging_template(TEMPLATE)
+
+    assert hashlib.sha256(runtime_pin_raw).hexdigest() == RUNTIME_PIN_SHA256
+    assert source["commit_sha1"] == manifest["source_commit_sha1"] == SOURCE_COMMIT_SHA1
+    assert hashlib.sha256(SOURCE_COMMIT_SHA1.encode("ascii")).hexdigest() == (SOURCE_COMMIT_SHA256)
+    assert hashlib.sha256(manifest_raw).hexdigest() == SOURCE_MANIFEST_SHA256
+    assert (ROOT / "authority" / "manifest.sha256").read_text() == SOURCE_MANIFEST_SHA256
+    assert source["manifest_sha256"] == SOURCE_MANIFEST_SHA256
+    assert template.provider["runtime"]["runtime_pin_sha256"] == RUNTIME_PIN_SHA256
+    assert template.provider["suite"]["source_commit_sha256"] == SOURCE_COMMIT_SHA256
+    assert template.authority_digests["source_manifest_sha256"] == SOURCE_MANIFEST_SHA256
 
 
 def test_builds_exact_secret_free_lane_and_2040_configs_with_private_modes(
@@ -146,6 +174,9 @@ def test_builds_exact_secret_free_lane_and_2040_configs_with_private_modes(
     assert len(set(private_lane_paths)) == 7
     assert all(path.parent == Path(lane["paths"]["run_root"]) for path in private_lane_paths)
     assert lane["runtime"]["codex_executable_sha256"] == "d" * 64
+    assert lane["runtime"]["runtime_pin_sha256"] == RUNTIME_PIN_SHA256
+    assert lane["runtime"]["source_commit_sha256"] == SOURCE_COMMIT_SHA256
+    assert lane["source_manifest_sha256"] == SOURCE_MANIFEST_SHA256
 
     assert {key: value for key, value in run.items() if key != "adapter"} == {
         "dependency_provider": "mem0-infinity-production-v1",
@@ -201,9 +232,9 @@ def test_builds_exact_secret_free_lane_and_2040_configs_with_private_modes(
         ),
     }
     assert adapter["suite"]["mem0_base_url"] == "http://127.0.0.1:29192"
-    assert adapter["suite"]["source_commit_sha256"] == (
-        "ed27595275c2a0a884c15c28f9891088180ef3be734ee8304a8fbeaa68e953a7"
-    )
+    assert adapter["runtime"]["authority"]["runtime_pin_sha256"] == RUNTIME_PIN_SHA256
+    assert adapter["runtime"]["authority"]["source_manifest_sha256"] == (SOURCE_MANIFEST_SHA256)
+    assert adapter["suite"]["source_commit_sha256"] == SOURCE_COMMIT_SHA256
     assert [item["account_name"] for item in adapter["fleet"]["bridges"]] == [
         "publishable-r17-6f2c-a",
         "publishable-r17-6f2c-b",
@@ -491,6 +522,76 @@ def test_rejects_template_path_and_bridge_name_collisions(tmp_path: Path) -> Non
         load_staging_template(collision)
 
 
+def test_rejects_the_exact_stale_runtime_source_generation_before_writing(
+    tmp_path: Path,
+) -> None:
+    raw = json.loads(TEMPLATE.read_bytes())
+    raw["authorities"]["source_manifest_sha256"] = STALE_SOURCE_MANIFEST_SHA256
+    raw["provider"]["runtime"]["runtime_pin_sha256"] = STALE_RUNTIME_PIN_SHA256
+    raw["provider"]["suite"]["source_commit_sha256"] = STALE_SOURCE_COMMIT_SHA256
+    changed = tmp_path / "stale-runtime-source.json"
+    changed.write_text(json.dumps(raw))
+
+    with pytest.raises(OperatorStagingError, match="operator_staging_runtime_pin_stale"):
+        load_staging_template(changed)
+
+    template = load_staging_template(TEMPLATE)
+    provider = json.loads(json.dumps(template.provider))
+    provider["runtime"]["runtime_pin_sha256"] = STALE_RUNTIME_PIN_SHA256
+    provider["suite"]["source_commit_sha256"] = STALE_SOURCE_COMMIT_SHA256
+    stale = replace(
+        template,
+        authority_digests={
+            **template.authority_digests,
+            "source_manifest_sha256": STALE_SOURCE_MANIFEST_SHA256,
+        },
+        provider=provider,
+    )
+    output = tmp_path / "operator-private-r17-6f2c"
+    with pytest.raises(OperatorStagingError, match="operator_staging_runtime_pin_stale"):
+        build_staging_bundle(
+            template=stale,
+            output_root=output,
+            authority_root=tmp_path / "public-authorities-r17-6f2c",
+            public_inputs=_public_inputs(),
+        )
+    assert not output.exists()
+
+
+def test_rejects_current_runtime_pin_cross_wired_to_stale_source_before_writing(
+    tmp_path: Path,
+) -> None:
+    raw = json.loads(TEMPLATE.read_bytes())
+    assert raw["provider"]["runtime"]["runtime_pin_sha256"] == RUNTIME_PIN_SHA256
+    assert raw["authorities"]["source_manifest_sha256"] == SOURCE_MANIFEST_SHA256
+    raw["provider"]["suite"]["source_commit_sha256"] = STALE_SOURCE_COMMIT_SHA256
+    changed = tmp_path / "cross-wired-runtime-source.json"
+    changed.write_text(json.dumps(raw))
+
+    with pytest.raises(
+        OperatorStagingError,
+        match="operator_staging_runtime_source_cross_wire",
+    ):
+        load_staging_template(changed)
+
+    template = load_staging_template(TEMPLATE)
+    provider = json.loads(json.dumps(template.provider))
+    provider["suite"]["source_commit_sha256"] = STALE_SOURCE_COMMIT_SHA256
+    crossed = replace(template, provider=provider)
+    output = tmp_path / "operator-private-r17-6f2c"
+    with pytest.raises(
+        OperatorStagingError,
+        match="operator_staging_runtime_source_cross_wire",
+    ):
+        build_staging_bundle(
+            template=crossed,
+            output_root=output,
+            authority_root=tmp_path / "public-authorities-r17-6f2c",
+            public_inputs=_public_inputs(),
+        )
+    assert not output.exists()
+
+
 @pytest.mark.parametrize(
     ("section", "field", "value"),
     (
@@ -607,6 +708,28 @@ def test_generated_lane_config_ignores_ambient_and_rejects_unpinned_docker_socke
     bundle.lane_config_path.write_text(json.dumps(lane))
 
     with pytest.raises(DeploymentConfigError, match="publishable_lane_docker_host_invalid"):
+        load_lane_config(bundle.lane_config_path)
+
+
+def test_generated_lane_config_rejects_stale_and_cross_wired_runtime_source_tuple(
+    tmp_path: Path,
+) -> None:
+    bundle = _build(tmp_path)
+    lane = json.loads(bundle.lane_config_path.read_bytes())
+    lane["runtime"]["runtime_pin_sha256"] = STALE_RUNTIME_PIN_SHA256
+    bundle.lane_config_path.write_text(json.dumps(lane))
+
+    with pytest.raises(DeploymentConfigError, match="publishable_lane_runtime_pin_stale"):
+        load_lane_config(bundle.lane_config_path)
+
+    lane["runtime"]["runtime_pin_sha256"] = RUNTIME_PIN_SHA256
+    lane["runtime"]["source_commit_sha256"] = STALE_SOURCE_COMMIT_SHA256
+    bundle.lane_config_path.write_text(json.dumps(lane))
+
+    with pytest.raises(
+        DeploymentConfigError,
+        match="publishable_lane_runtime_source_cross_wire",
+    ):
         load_lane_config(bundle.lane_config_path)
 
 

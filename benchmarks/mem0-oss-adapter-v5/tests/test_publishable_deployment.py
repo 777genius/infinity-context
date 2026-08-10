@@ -6,6 +6,7 @@ import json
 import os
 import re
 import tomllib
+from dataclasses import replace
 from pathlib import Path
 
 import httpx
@@ -36,6 +37,9 @@ from publishable_mem0_v5.config import (
     BASE_INSTRUCTIONS_SHA256,
     COMPOSE_SHA256,
     PINNED_DOCKER_HOST,
+    RUNTIME_PIN_SHA256,
+    SOURCE_COMMIT_SHA256,
+    DeploymentConfigError,
 )
 from publishable_mem0_v5.docker_cli import QDRANT_IMAGE, SERVICES, CachedImages, DockerCli
 from publishable_mem0_v5.fleet_spec import FleetSpecBuildError, build_isolated_bridge_spec
@@ -91,6 +95,8 @@ REPOSITORY = ROOT.parents[1]
 DEPLOYMENT = ROOT / "deployment"
 COMPOSE = DEPLOYMENT / "compose.publishable.yaml"
 _QDRANT_ID = "sha256:" + "d" * 64
+_STALE_RUNTIME_PIN_SHA256 = "f8f338b73d816d87981745b240026d802fb52c1a228b0e608231a4ef9ad33e46"
+_STALE_SOURCE_COMMIT_SHA256 = "ed27595275c2a0a884c15c28f9891088180ef3be734ee8304a8fbeaa68e953a7"
 
 
 def test_compose_is_exact_cached_only_anchor_namespace_contract() -> None:
@@ -164,6 +170,22 @@ def test_configured_console_command_packages_the_deployment_module() -> None:
         "benchmarks/mem0-oss-adapter-v5/deployment"
         in (repository["tool"]["setuptools"]["packages"]["find"]["where"])
     )
+
+
+def test_lane_config_runtime_authority_rejects_stale_and_cross_wired_tuple(
+    tmp_path: Path,
+) -> None:
+    config, _ = _config(tmp_path)
+
+    assert config.runtime.runtime_pin_sha256 == RUNTIME_PIN_SHA256
+    assert config.runtime.source_commit_sha256 == SOURCE_COMMIT_SHA256
+    with pytest.raises(DeploymentConfigError, match="publishable_lane_runtime_pin_stale"):
+        replace(config.runtime, runtime_pin_sha256=_STALE_RUNTIME_PIN_SHA256)
+    with pytest.raises(
+        DeploymentConfigError,
+        match="publishable_lane_runtime_source_cross_wire",
+    ):
+        replace(config.runtime, source_commit_sha256=_STALE_SOURCE_COMMIT_SHA256)
 
 
 def test_single_dispatcher_authenticates_the_selected_private_bridge_port() -> None:
