@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import hashlib
+import hmac
 import json
 import os
 import stat
@@ -50,7 +51,9 @@ from .runtime_integrity import (
 
 ATTESTATION_SCHEMA: Final = "publishable-mem0-v5-runtime-attestation.v3"
 ATTESTATION_FILE_PREFIX: Final = "runtime-attestation-"
+ATTESTATION_HMAC_DOMAIN: Final = b"publishable-mem0-v5/host-runtime-attestation/v1\0"
 _MAX_COMPOSE_BYTES = 512 * 1024
+_MAX_AUTHENTICATION_KEY_BYTES = 4096
 _BRIDGE_SERVICES: Final = (
     "publishable-bridge-a",
     "publishable-bridge-b",
@@ -89,6 +92,14 @@ class ServiceRuntimeIdentity:
             "image_id": self.image_id,
             "pid": self.pid,
         }
+
+
+@dataclass(frozen=True, slots=True)
+class WrittenRuntimeAttestation:
+    """Durable path and exact content-address of one authenticated receipt."""
+
+    path: Path
+    sha256: str
 
 
 @dataclass(frozen=True, slots=True)
@@ -140,10 +151,6 @@ class LaneRuntimeAttestation:
             "relay_reachability_sha256": self.relay_reachability_sha256,
             "services": {name: self.services[name].payload() for name in sorted(self.services)},
         }
-
-    @property
-    def commitment_sha256(self) -> str:
-        return hashlib.sha256(_canonical_json(self.payload())).hexdigest()
 
 
 def attest_runtime_lane(
@@ -369,14 +376,36 @@ def attest_compose_asset(path: Path) -> str:
 def write_runtime_attestation(
     attestation: LaneRuntimeAttestation,
     directory: Path,
-) -> Path:
-    """Durably create one commitment-named, secret-free attestation file."""
+    *,
+    authentication_key: bytes,
+) -> WrittenRuntimeAttestation:
+    """Authenticate and durably create one content-addressed attestation file."""
 
-    if type(attestation) is not LaneRuntimeAttestation or not directory.is_absolute():
+    if (
+        type(attestation) is not LaneRuntimeAttestation
+        or not directory.is_absolute()
+        or type(authentication_key) is not bytes
+        or not 32 <= len(authentication_key) <= _MAX_AUTHENTICATION_KEY_BYTES
+    ):
+        _fail("publishable_attestation_write_input_invalid")
+    try:
+        key_text = authentication_key.decode("utf-8")
+    except UnicodeDecodeError:
+        _fail("publishable_attestation_write_input_invalid")
+    if not key_text or key_text != key_text.strip():
         _fail("publishable_attestation_write_input_invalid")
     _require_private_directory(directory)
-    destination = directory / (f"{ATTESTATION_FILE_PREFIX}{attestation.commitment_sha256}.json")
-    raw = _canonical_json(attestation.payload()) + b"\n"
+    unsigned = attestation.payload()
+    authentication = hmac.new(
+        authentication_key,
+        ATTESTATION_HMAC_DOMAIN + _canonical_json(unsigned),
+        hashlib.sha256,
+    ).hexdigest()
+    payload = {**unsigned, "attestation_hmac_sha256": authentication}
+    canonical = _canonical_json(payload)
+    commitment_sha256 = hashlib.sha256(canonical).hexdigest()
+    destination = directory / (f"{ATTESTATION_FILE_PREFIX}{commitment_sha256}.json")
+    raw = canonical + b"\n"
     flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_CLOEXEC | getattr(os, "O_NOFOLLOW", 0)
     previous_umask = os.umask(0o077)
     descriptor: int | None = None
@@ -394,7 +423,7 @@ def write_runtime_attestation(
         if descriptor is not None:
             os.close(descriptor)
     _fsync_directory(directory)
-    return destination
+    return WrittenRuntimeAttestation(path=destination, sha256=commitment_sha256)
 
 
 def _attest_network(
@@ -792,11 +821,13 @@ def _fail(code: str) -> None:
 
 __all__ = (
     "ATTESTATION_FILE_PREFIX",
+    "ATTESTATION_HMAC_DOMAIN",
     "ATTESTATION_SCHEMA",
     "LaneRuntimeAttestation",
     "NamespaceIdentity",
     "RuntimeAttestationError",
     "ServiceRuntimeIdentity",
+    "WrittenRuntimeAttestation",
     "attest_compose_asset",
     "attest_runtime_lane",
     "write_runtime_attestation",

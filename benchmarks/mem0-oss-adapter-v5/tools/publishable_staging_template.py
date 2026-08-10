@@ -9,9 +9,10 @@ import stat
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Final
+from urllib.parse import urlsplit
 from uuid import UUID
 
-TEMPLATE_SCHEMA: Final = "publishable-mem0-v5-operator-staging-template.v1"
+TEMPLATE_SCHEMA: Final = "publishable-mem0-v5-operator-staging-template.v2"
 PROTECTED_ACCOUNT_I_AUTH_ROOT: Final = Path("/var/data/codex-home/live-codex-auth/account-i")
 PROTECTED_R16_ROOT: Final = Path(
     "/mnt/volume_ams3_1784742570542/infinity-context/live-canaries/mem0-v5-live-d7bf1ac4-r16"
@@ -88,6 +89,7 @@ class StagingTemplate:
     fence_state_root: Path
     fence_auth_root: Path
     required_protected_host_ports: tuple[int, ...]
+    provider: dict[str, dict[str, object]]
 
 
 @dataclass(frozen=True, slots=True)
@@ -180,7 +182,14 @@ def load_staging_template(path: Path) -> StagingTemplate:
 def _parse_template(value: object) -> StagingTemplate:
     root = _object(
         value,
-        {"account_i_r16_fence", "authorities", "lane", "run_2040", "schema_version"},
+        {
+            "account_i_r16_fence",
+            "authorities",
+            "lane",
+            "provider",
+            "run_2040",
+            "schema_version",
+        },
         "root",
     )
     if root["schema_version"] != TEMPLATE_SCHEMA:
@@ -238,6 +247,7 @@ def _parse_template(value: object) -> StagingTemplate:
         {"auth_root", "required_protected_host_ports", "state_root"},
         "account_i_r16_fence",
     )
+    provider = _provider(root["provider"])
     private_names = _string_map(
         lane["private_directory_names"],
         required=_PRIVATE_DIRECTORY_KEYS,
@@ -276,6 +286,8 @@ def _parse_template(value: object) -> StagingTemplate:
     _require_port(host_port, "host_adapter")
     if host_port in INTERNAL_LANE_PORTS:
         fail("operator_staging_host_port_collision")
+    if provider["suite"]["infinity_base_url"] == f"http://127.0.0.1:{host_port}":
+        fail("operator_staging_provider_endpoint_cross_wire")
 
     authority_names = {
         key.removesuffix("_name"): _string(item, key)
@@ -354,7 +366,132 @@ def _parse_template(value: object) -> StagingTemplate:
         fence_state_root=state_root,
         fence_auth_root=auth_root,
         required_protected_host_ports=ports,
+        provider=provider,
     )
+
+
+def _provider(value: object) -> dict[str, dict[str, object]]:
+    root = _object(
+        value,
+        {"extraction", "official_cases", "retrieval", "runtime", "suite"},
+        "provider",
+    )
+    extraction = _object(
+        root["extraction"],
+        {"locomo_terminal_name", "longmemeval_terminal_name"},
+        "provider_extraction",
+    )
+    official = _object(
+        root["official_cases"],
+        {
+            "locomo_dataset_name",
+            "locomo_dataset_sha256",
+            "longmemeval_dataset_name",
+            "longmemeval_dataset_sha256",
+        },
+        "provider_official_cases",
+    )
+    retrieval = _object(
+        root["retrieval"],
+        {"authority_root_sha256", "database_name"},
+        "provider_retrieval",
+    )
+    runtime = _object(
+        root["runtime"],
+        {
+            "attestation_max_age_seconds",
+            "bridge_connect_timeout_seconds",
+            "bridge_read_timeout_seconds",
+            "bridge_write_timeout_seconds",
+            "endpoint_attestation_timeout_seconds",
+            "extraction_response_format_sha256",
+            "extraction_response_schema_sha256",
+            "extraction_system_prompt_sha256",
+            "lease_duration_ms",
+            "maximum_bridge_request_bytes",
+            "maximum_ciphertext_bytes",
+            "output_cipher_key_id",
+            "runtime_pin_name",
+            "runtime_pin_sha256",
+            "runtime_route_binding_sha256",
+            "runtime_source_sha256",
+            "subscription_runtime_binding_commitment_sha256",
+        },
+        "provider_runtime",
+    )
+    suite = _object(
+        root["suite"],
+        {
+            "dispatch_deadline_unix_ms",
+            "dispatch_not_before_unix_ms",
+            "infinity_base_url",
+            "locomo_run_id",
+            "longmemeval_run_id",
+            "publication_bundle_sha256",
+            "source_commit_sha256",
+            "suite_id",
+        },
+        "provider_suite",
+    )
+    for key in extraction:
+        _require_simple_name(_string(extraction[key], key))
+    dataset_names = tuple(
+        _string(official[key], key) for key in ("locomo_dataset_name", "longmemeval_dataset_name")
+    )
+    for name in dataset_names:
+        _require_relative_name(name)
+    dataset_paths = tuple(Path(name) for name in dataset_names)
+    if (
+        any(len(path.parts) != 2 for path in dataset_paths)
+        or dataset_paths[0].parent != dataset_paths[1].parent
+    ):
+        fail("operator_staging_provider_dataset_path_invalid")
+    _require_simple_name(_string(retrieval["database_name"], "retrieval_database_name"))
+    _require_simple_name(_string(runtime["runtime_pin_name"], "runtime_pin_name"))
+    for mapping in (official, retrieval, runtime, suite):
+        for key, item in mapping.items():
+            if key.endswith("_sha256"):
+                require_sha256(item, key.removesuffix("_sha256"))
+    maximum_safe_integer = 9_007_199_254_740_991
+    attestation_age = _integer(
+        runtime["attestation_max_age_seconds"],
+        "attestation_max_age_seconds",
+    )
+    if not 1 <= attestation_age <= 7_200:
+        fail("operator_staging_attestation_max_age_seconds_invalid")
+    lease_duration = _integer(runtime["lease_duration_ms"], "lease_duration_ms")
+    if not 1 <= lease_duration <= maximum_safe_integer:
+        fail("operator_staging_lease_duration_ms_invalid")
+    for key in ("maximum_bridge_request_bytes", "maximum_ciphertext_bytes"):
+        if not 1_024 <= _integer(runtime[key], key) <= maximum_safe_integer:
+            fail(f"operator_staging_{key}_invalid")
+    for key in (
+        "bridge_connect_timeout_seconds",
+        "bridge_read_timeout_seconds",
+        "bridge_write_timeout_seconds",
+        "endpoint_attestation_timeout_seconds",
+    ):
+        item = runtime[key]
+        if type(item) not in {int, float} or not 0 < float(item) <= 3_600:
+            fail(f"operator_staging_{key}_invalid")
+    before = _integer(suite["dispatch_not_before_unix_ms"], "dispatch_not_before_unix_ms")
+    deadline = _integer(suite["dispatch_deadline_unix_ms"], "dispatch_deadline_unix_ms")
+    if not 0 <= before <= maximum_safe_integer or not before < deadline <= maximum_safe_integer:
+        fail("operator_staging_provider_dispatch_window_invalid")
+    for key in ("output_cipher_key_id",):
+        if _IDENTIFIER.fullmatch(_string(runtime[key], key)) is None:
+            fail("operator_staging_provider_identifier_invalid")
+    for key in ("locomo_run_id", "longmemeval_run_id", "suite_id"):
+        if _IDENTIFIER.fullmatch(_string(suite[key], key)) is None:
+            fail("operator_staging_provider_identifier_invalid")
+    _loopback_origin(suite["infinity_base_url"])
+    return {
+        "extraction": dict(extraction),
+        "official_cases": dict(official),
+        "retrieval": dict(retrieval),
+        "runtime": dict(runtime),
+        "suite": dict(suite),
+    }
 
 
 def _bridge(value: object) -> BridgeTemplate:
@@ -398,6 +535,29 @@ def _integer(value: object, label: str) -> int:
     if type(value) is not int:
         fail(f"operator_staging_{label}_invalid")
     return value
+
+
+def _loopback_origin(value: object) -> str:
+    origin = _string(value, "infinity_base_url")
+    try:
+        parsed = urlsplit(origin)
+        port = parsed.port
+    except ValueError:
+        fail("operator_staging_infinity_base_url_invalid")
+    if (
+        parsed.scheme != "http"
+        or parsed.hostname != "127.0.0.1"
+        or parsed.username is not None
+        or parsed.password is not None
+        or parsed.path not in {"", "/"}
+        or parsed.query
+        or parsed.fragment
+        or type(port) is not int
+        or not 1024 <= port <= 65_535
+        or origin != f"http://127.0.0.1:{port}"
+    ):
+        fail("operator_staging_infinity_base_url_invalid")
+    return origin
 
 
 def require_sha256(value: object, label: str) -> None:

@@ -13,18 +13,12 @@ from typing import final
 
 from infinity_context_server.features.subscription_runtime_bridge import (
     Aes256GcmOutputCipher,
-    BridgeAuthority,
     BridgeJournal,
-    BridgePoolAuthority,
     HmacJournalIntegrity,
     OutputCipherKey,
 )
 from infinity_context_server.features.subscription_runtime_bridge.process_contracts import (
     BridgeFleetReadinessReceipt,
-    BridgeLaunchReceipt,
-)
-from infinity_context_server.features.subscription_runtime_bridge.process_files import (
-    read_private_json,
 )
 from infinity_context_server.memory_comparison_case_loader import (
     load_memory_comparison_cases,
@@ -37,7 +31,6 @@ from infinity_context_server.memory_comparison_managed_preflight import (
 )
 from infinity_context_server.memory_comparison_publishable_methodology import (
     PUBLISHABLE_PRIORITY_METHODOLOGY_V4_COMMITMENT_SHA256,
-    SUBSCRIPTION_RUNTIME_BASE_INSTRUCTIONS_SHA256,
 )
 from infinity_context_server.memory_comparison_publishable_profile import (
     public_publishable_comparison_profile,
@@ -78,6 +71,7 @@ from .run_provider_config import (
     parse_run_provider_inputs,
 )
 from .run_provider_extraction import open_sealed_extraction_suite
+from .run_provider_preflight import preflight_run_provider
 
 PUBLISHABLE_MEM0_INFINITY_PROVIDER_NAME = "mem0-infinity-production-v1"
 PublishableProductionOpenMode = publishable_production_composition.PublishableProductionOpenMode
@@ -85,7 +79,6 @@ SQLiteSchedulerRetrievalEvidenceReader = (
     retrieval_evidence_sqlite_authority.SQLiteSchedulerRetrievalEvidenceReader
 )
 _MAX_DATASET_BYTES = 512 * 1024 * 1024
-_MAX_READINESS_BYTES = 256 * 1024
 _JOURNAL_FILE = "subscription-bridge-journal.sqlite3"
 
 
@@ -104,13 +97,17 @@ class Mem0InfinityPublishableRunDependencyFactory:
         if type(mode) is not PublishableProductionOpenMode:
             _fail("publishable_run_provider_mode_invalid")
         config, secrets = parse_run_provider_inputs(inputs)
+        readiness = preflight_run_provider(
+            config=config,
+            secrets=secrets,
+            mode=mode,
+        )
         extraction = open_sealed_extraction_suite(
             config.extraction_terminal_paths,
             authentication_keys=secrets.extraction_authentication_keys,
         )
         projection = _OfficialCaseProjection.load(config)
         bridge_keys = _BridgeSecrets(secrets)
-        readiness = _verified_fleet(config, bridge_keys)
         suite = _suite(config, projection, extraction, readiness)
         return _ProductionRunSession(
             inputs=inputs,
@@ -346,42 +343,6 @@ class _SingleOutputKeyResolver:
 
     def __repr__(self) -> str:
         return "_SingleOutputKeyResolver(<redacted>)"
-
-
-def _verified_fleet(
-    config: RunProviderConfig,
-    bridge_keys: _BridgeSecrets,
-) -> BridgeFleetReadinessReceipt:
-    try:
-        pool = BridgePoolAuthority(
-            pool_id=config.fleet_pool_id,
-            bridges=tuple(
-                BridgeAuthority(
-                    bridge_id=item.bridge_id,
-                    origin=item.origin,
-                    account_binding_hmac_sha256=item.account_binding_hmac_sha256,
-                    public_model="gpt-5.6-sol",
-                    base_instructions_sha256=SUBSCRIPTION_RUNTIME_BASE_INSTRUCTIONS_SHA256,
-                )
-                for item in config.fleet_bridges
-            ),
-        )
-        launches = tuple(
-            BridgeLaunchReceipt.from_payload(
-                read_private_json(
-                    item.readiness_receipt_path,
-                    maximum_bytes=_MAX_READINESS_BYTES,
-                )
-            )
-            for item in config.fleet_bridges
-        )
-        readiness = BridgeFleetReadinessReceipt(pool=pool, launches=launches)
-        scheduler_subscription_bridge_adapter.verify_fleet_launch_receipts(readiness, bridge_keys)
-        return readiness
-    except PublishableRunError:
-        raise
-    except Exception:
-        _fail("publishable_run_provider_fleet_unverified")
 
 
 def _suite(config, projection, extraction, readiness) -> SchedulerSuiteAuthority:

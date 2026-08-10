@@ -8,13 +8,21 @@ from types import SimpleNamespace
 
 import pytest
 from infinity_context_server.publishable_durable_scheduler import publishable_run_cli
+from infinity_context_server.publishable_durable_scheduler.publishable_run_config import (
+    load_publishable_run_files,
+)
 from infinity_context_server.publishable_durable_scheduler.publishable_run_contracts import (
     PUBLISHABLE_RUN_SECRETS_SCHEMA,
+    PublishableRunProviderInputs,
 )
 from publishable_mem0_v5.config import load_lane_config
 from publishable_mem0_v5.run_provider import (
     PUBLISHABLE_MEM0_INFINITY_PROVIDER_NAME,
     Mem0InfinityPublishableRunDependencyFactory,
+)
+from publishable_mem0_v5.run_provider_config import (
+    RUN_PROVIDER_SECRETS_SCHEMA,
+    parse_run_provider_inputs,
 )
 
 from tools.build_publishable_staging import (
@@ -132,20 +140,7 @@ def test_builds_exact_secret_free_lane_and_2040_configs_with_private_modes(
     assert all(path.parent == Path(lane["paths"]["run_root"]) for path in private_lane_paths)
     assert lane["runtime"]["codex_executable_sha256"] == "d" * 64
 
-    assert run == {
-        "adapter": {
-            "expected_case_count": 2040,
-            "expected_evaluation_call_count": 8160,
-            "expected_extraction_operation_count": 130226,
-            "expected_total_call_count": 138386,
-            "lane_project_name": "mem0-v5-publishable-staging-r17-6f2c",
-            "public_endpoint": "http://127.0.0.1:29192",
-            "runtime_attestation_directory": str(
-                bundle.output_root
-                / "mem0-v5-publishable-staging-r17-6f2c"
-                / "runtime-attestations-r17-6f2c"
-            ),
-        },
+    assert {key: value for key, value in run.items() if key != "adapter"} == {
         "dependency_provider": "mem0-infinity-production-v1",
         "max_dispatches_per_batch": 64,
         "publication_key_id": "publishable-staging-r17-6f2c-publication-2040",
@@ -176,6 +171,48 @@ def test_builds_exact_secret_free_lane_and_2040_configs_with_private_modes(
             ),
         },
     }
+    adapter = run["adapter"]
+    assert set(adapter) == {
+        "extraction",
+        "fleet",
+        "official_cases",
+        "retrieval",
+        "runtime",
+        "schema_version",
+        "suite",
+    }
+    assert adapter["schema_version"] == "publishable-mem0-infinity-run-provider.v2"
+    assert adapter["runtime"]["attestation"] == {
+        "endpoint_timeout_seconds": 5,
+        "lane_project_name": "mem0-v5-publishable-staging-r17-6f2c",
+        "maximum_age_seconds": 300,
+        "public_endpoint": "http://127.0.0.1:29192",
+        "runtime_attestation_directory": str(
+            bundle.output_root
+            / "mem0-v5-publishable-staging-r17-6f2c"
+            / "runtime-attestations-r17-6f2c"
+        ),
+    }
+    assert adapter["suite"]["mem0_base_url"] == "http://127.0.0.1:29192"
+    assert adapter["suite"]["source_commit_sha256"] == (
+        "ed27595275c2a0a884c15c28f9891088180ef3be734ee8304a8fbeaa68e953a7"
+    )
+    assert [item["account_name"] for item in adapter["fleet"]["bridges"]] == [
+        "publishable-r17-6f2c-a",
+        "publishable-r17-6f2c-b",
+        "publishable-r17-6f2c-c",
+    ]
+    assert [item["origin"] for item in adapter["fleet"]["bridges"]] == [
+        "http://127.0.0.1:8891",
+        "http://127.0.0.1:8892",
+        "http://127.0.0.1:8893",
+    ]
+    assert adapter["official_cases"]["locomo"]["sha256"] == (
+        "79fa87e90f04081343b8c8debecb80a9a6842b76a7aa537dc9fdf651ea698ff4"
+    )
+    assert adapter["official_cases"]["longmemeval"]["sha256"] == (
+        "d6f21ea9d60a0d56f34a05b609c79c88a451d2ae03597821ea3d5a9678c3a442"
+    )
     assert not bundle.secrets_path.exists()
     assert _mode(bundle.lane_config_path) == 0o600
     assert _mode(bundle.run_config_path) == 0o600
@@ -189,6 +226,69 @@ def test_builds_exact_secret_free_lane_and_2040_configs_with_private_modes(
     assert all(_mode(path) == 0o700 for path in directories)
     assert "publishable-run-2040.secrets.json" not in bundle.run_config_path.read_text()
     assert "credentials" not in bundle.run_config_path.read_text().casefold()
+
+
+def _adapter_secrets(adapter: dict[str, object]) -> dict[str, object]:
+    bridges = adapter["fleet"]["bridges"]
+    return {
+        "bridge_journal_authentication_key_hex": "13" * 32,
+        "bridges": [
+            {
+                "attestation_secret_hex": f"{40 + index:02x}" * 32,
+                "authorization_bearer": f"provider-free-bearer-{index}-" + "x" * 32,
+                "bridge_id": bridge["bridge_id"],
+                "launcher_receipt_key_hex": f"{50 + index:02x}" * 32,
+            }
+            for index, bridge in enumerate(bridges)
+        ],
+        "extraction_authentication_keys_hex": ["10" * 32, "11" * 32],
+        "output_cipher_key_hex": "14" * 32,
+        "retrieval_authentication_key_hex": "12" * 32,
+        "runtime_attestation_root_secret_hex": "15" * 32,
+        "schema_version": RUN_PROVIDER_SECRETS_SCHEMA,
+    }
+
+
+def test_generated_config_passes_real_outer_loader_and_production_provider_parser(
+    tmp_path: Path,
+) -> None:
+    bundle = _build(tmp_path)
+    run = json.loads(bundle.run_config_path.read_bytes())
+    secrets = {
+        "adapter": _adapter_secrets(run["adapter"]),
+        "keys": {
+            "official_case_authentication_key_hex": "01" * 32,
+            "locomo_scheduler_authentication_key_hex": "02" * 32,
+            "longmemeval_scheduler_authentication_key_hex": "03" * 32,
+            "suite_seal_authentication_key_hex": "04" * 32,
+            "publication_receipt_authentication_key_hex": "05" * 32,
+        },
+        "schema_version": PUBLISHABLE_RUN_SECRETS_SCHEMA,
+    }
+    bundle.secrets_path.write_text(json.dumps(secrets, sort_keys=True, separators=(",", ":")))
+    bundle.secrets_path.chmod(0o600)
+
+    outer_config, outer_secrets = load_publishable_run_files(
+        private_root=bundle.run_private_root,
+        config_path=bundle.run_config_path,
+        secrets_path=bundle.secrets_path,
+    )
+    provider_root = bundle.run_private_root / "state-2040-r17-6f2c" / ".provider-test"
+    provider_root.mkdir(mode=0o700)
+    provider_config, provider_secrets = parse_run_provider_inputs(
+        PublishableRunProviderInputs(
+            state_root=provider_root,
+            adapter_config_json=outer_config.adapter_config_json,
+            adapter_secrets_json=outer_secrets.adapter_secrets_json,
+        )
+    )
+
+    assert provider_config.runtime_attestation.endpoint == "http://127.0.0.1:29192"
+    assert provider_config.suite.mem0_base_url == provider_config.runtime_attestation.endpoint
+    assert provider_config.runtime_authority.source_manifest_sha256 == (
+        "175ed7008e78ce958c3f9bc0195fbd81bfa3359d67f96f986dfce38360a2c62f"
+    )
+    assert repr(provider_secrets) == "RunProviderSecrets(<redacted>)"
 
 
 def test_generated_run_config_resolves_exact_installed_factory_provider_free(
@@ -384,6 +484,69 @@ def test_rejects_template_path_and_bridge_name_collisions(tmp_path: Path) -> Non
     collision.write_text(json.dumps(raw))
     with pytest.raises(OperatorStagingError, match="operator_staging_bridge_name_collision"):
         load_staging_template(collision)
+
+
+@pytest.mark.parametrize(
+    ("section", "field", "value"),
+    (
+        ("suite", "infinity_base_url", "http://credential@127.0.0.1:29292"),
+        ("suite", "infinity_base_url", "http://127.0.0.1:29192"),
+        ("runtime", "attestation_max_age_seconds", 7_201),
+        ("runtime", "maximum_bridge_request_bytes", 1_023),
+        ("runtime", "maximum_ciphertext_bytes", 1_023),
+        ("runtime", "runtime_pin_name", "nested/runtime-pin.json"),
+        ("retrieval", "database_name", "nested/retrieval.sqlite3"),
+        ("official_cases", "locomo_dataset_name", "locomo10.json"),
+        (
+            "official_cases",
+            "longmemeval_dataset_name",
+            "foreign/longmemeval_oracle.json",
+        ),
+    ),
+)
+def test_template_rejects_provider_values_the_production_parser_would_reject(
+    tmp_path: Path,
+    section: str,
+    field: str,
+    value: object,
+) -> None:
+    raw = json.loads(TEMPLATE.read_bytes())
+    raw["provider"][section][field] = value
+    changed = tmp_path / f"invalid-{field}.json"
+    changed.write_text(json.dumps(raw))
+
+    with pytest.raises(OperatorStagingError):
+        load_staging_template(changed)
+
+
+@pytest.mark.parametrize(
+    ("field", "value"),
+    (
+        ("expected_case_count", 2_039),
+        ("expected_evaluation_call_count", 8_159),
+        ("expected_extraction_operation_count", 130_225),
+        ("expected_total_call_count", 138_385),
+    ),
+)
+def test_template_keeps_every_exact_2040_cardinality(
+    tmp_path: Path,
+    field: str,
+    value: int,
+) -> None:
+    raw = json.loads(TEMPLATE.read_bytes())
+    assert raw["run_2040"] == {
+        **raw["run_2040"],
+        "expected_case_count": 2_040,
+        "expected_evaluation_call_count": 8_160,
+        "expected_extraction_operation_count": 130_226,
+        "expected_total_call_count": 138_386,
+    }
+    raw["run_2040"][field] = value
+    changed = tmp_path / f"changed-{field}.json"
+    changed.write_text(json.dumps(raw))
+
+    with pytest.raises(OperatorStagingError, match="operator_staging_run_2040_cardinality_invalid"):
+        load_staging_template(changed)
 
 
 def test_rejects_any_account_i_r16_fence_root_change(tmp_path: Path) -> None:

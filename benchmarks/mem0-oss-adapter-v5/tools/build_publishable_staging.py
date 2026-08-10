@@ -25,6 +25,8 @@ else:
 
 LANE_CONFIG_SCHEMA = "publishable-mem0-v5-isolated-lane.v2"
 RUN_CONFIG_SCHEMA = "memory-comparison-publishable-run-config.v1"
+RUN_PROVIDER_CONFIG_SCHEMA = "publishable-mem0-infinity-run-provider.v2"
+BRIDGE_PORTS = (8891, 8892, 8893)
 EXPECTED_CASE_COUNT = staging_contracts.EXPECTED_CASE_COUNT
 EXPECTED_EVALUATION_CALL_COUNT = staging_contracts.EXPECTED_EVALUATION_CALL_COUNT
 EXPECTED_EXTRACTION_OPERATION_COUNT = staging_contracts.EXPECTED_EXTRACTION_OPERATION_COUNT
@@ -132,6 +134,11 @@ def build_staging_bundle(
     }
     authority_paths = {key: authority_root / name for key, name in template.authority_names.items()}
     source_pin_file = authority_paths["source_authority_pin_dir"] / "manifest.sha256"
+    provider_paths = _provider_paths(
+        template=template,
+        authority_root=authority_root,
+        input_root=private_paths["input_dir"],
+    )
 
     all_named_paths = (
         lane_root,
@@ -144,6 +151,7 @@ def build_staging_bundle(
         *run_state_paths.values(),
         *authority_paths.values(),
         source_pin_file,
+        *provider_paths.values(),
     )
     if len(set(all_named_paths)) != len(all_named_paths):
         _fail("operator_staging_path_collision")
@@ -165,6 +173,9 @@ def build_staging_bundle(
     run_payload = _run_payload(
         template=template,
         lane_root=lane_root,
+        private_paths=private_paths,
+        provider_paths=provider_paths,
+        public_inputs=public_inputs,
         run_state_paths=run_state_paths,
     )
     _validate_lane_payload(lane_payload, template=template, public_inputs=public_inputs)
@@ -274,25 +285,131 @@ def _run_payload(
     *,
     template: StagingTemplate,
     lane_root: Path,
+    private_paths: dict[str, Path],
+    provider_paths: dict[str, Path],
+    public_inputs: StagingPublicInputs,
     run_state_paths: dict[str, Path],
 ) -> dict[str, object]:
+    provider = template.provider
+    runtime = provider["runtime"]
+    suite = provider["suite"]
+    endpoint = f"http://127.0.0.1:{template.host_adapter_port}"
     return {
         "adapter": {
-            "expected_case_count": EXPECTED_CASE_COUNT,
-            "expected_evaluation_call_count": EXPECTED_EVALUATION_CALL_COUNT,
-            "expected_extraction_operation_count": EXPECTED_EXTRACTION_OPERATION_COUNT,
-            "expected_total_call_count": EXPECTED_TOTAL_CALL_COUNT,
-            "lane_project_name": template.project_name,
-            "public_endpoint": f"http://127.0.0.1:{template.host_adapter_port}",
-            "runtime_attestation_directory": str(
-                lane_root / template.private_directory_names["attestation_dir"]
-            ),
+            "extraction": {
+                "locomo_terminal_path": str(provider_paths["locomo_terminal"]),
+                "longmemeval_terminal_path": str(provider_paths["longmemeval_terminal"]),
+            },
+            "fleet": {
+                "bridges": [
+                    {
+                        "account_binding_hmac_sha256": binding,
+                        "account_name": bridge.account_name,
+                        "bridge_id": bridge.bridge_id,
+                        "origin": f"http://127.0.0.1:{port}",
+                        "readiness_receipt_path": str(
+                            private_paths["fleet_state_dir"]
+                            / bridge.account_name
+                            / ".controller-readiness.json"
+                        ),
+                    }
+                    for bridge, binding, port in zip(
+                        template.bridges,
+                        public_inputs.bridge_account_binding_sha256,
+                        BRIDGE_PORTS,
+                        strict=True,
+                    )
+                ],
+                "pool_id": f"{template.project_name}-runtime-pool",
+            },
+            "official_cases": {
+                "locomo": {
+                    "path": str(provider_paths["locomo_dataset"]),
+                    "sha256": provider["official_cases"]["locomo_dataset_sha256"],
+                },
+                "longmemeval": {
+                    "path": str(provider_paths["longmemeval_dataset"]),
+                    "sha256": provider["official_cases"]["longmemeval_dataset_sha256"],
+                },
+            },
+            "retrieval": {
+                "authority_root_sha256": provider["retrieval"]["authority_root_sha256"],
+                "database_path": str(provider_paths["retrieval_database"]),
+            },
+            "runtime": {
+                "attestation": {
+                    "endpoint_timeout_seconds": runtime["endpoint_attestation_timeout_seconds"],
+                    "lane_project_name": template.project_name,
+                    "maximum_age_seconds": runtime["attestation_max_age_seconds"],
+                    "public_endpoint": endpoint,
+                    "runtime_attestation_directory": str(
+                        lane_root / template.private_directory_names["attestation_dir"]
+                    ),
+                },
+                "authority": {
+                    "adapter_image_id": public_inputs.adapter_image_id,
+                    "codex_executable_sha256": public_inputs.codex_executable_sha256,
+                    "extraction_response_format_sha256": runtime[
+                        "extraction_response_format_sha256"
+                    ],
+                    "extraction_response_schema_sha256": runtime[
+                        "extraction_response_schema_sha256"
+                    ],
+                    "extraction_system_prompt_sha256": runtime["extraction_system_prompt_sha256"],
+                    "node_executable_sha256": template.authority_digests["node_executable_sha256"],
+                    "runtime_artifact_manifest_sha256": template.authority_digests[
+                        "runtime_artifact_manifest_sha256"
+                    ],
+                    "runtime_entrypoint_sha256": template.authority_digests[
+                        "runtime_entrypoint_sha256"
+                    ],
+                    "runtime_pin_path": str(provider_paths["runtime_pin"]),
+                    "runtime_pin_sha256": runtime["runtime_pin_sha256"],
+                    "runtime_route_binding_sha256": runtime["runtime_route_binding_sha256"],
+                    "runtime_source_sha256": runtime["runtime_source_sha256"],
+                    "source_manifest_sha256": template.authority_digests["source_manifest_sha256"],
+                    "subscription_runtime_binding_commitment_sha256": runtime[
+                        "subscription_runtime_binding_commitment_sha256"
+                    ],
+                },
+                "bridge_connect_timeout_seconds": runtime["bridge_connect_timeout_seconds"],
+                "bridge_read_timeout_seconds": runtime["bridge_read_timeout_seconds"],
+                "bridge_write_timeout_seconds": runtime["bridge_write_timeout_seconds"],
+                "lease_duration_ms": runtime["lease_duration_ms"],
+                "maximum_bridge_request_bytes": runtime["maximum_bridge_request_bytes"],
+                "maximum_ciphertext_bytes": runtime["maximum_ciphertext_bytes"],
+                "output_cipher_key_id": runtime["output_cipher_key_id"],
+            },
+            "schema_version": RUN_PROVIDER_CONFIG_SCHEMA,
+            "suite": {
+                **suite,
+                "mem0_base_url": endpoint,
+            },
         },
         "dependency_provider": template.dependency_provider,
         "max_dispatches_per_batch": template.max_dispatches_per_batch,
         "publication_key_id": template.publication_key_id,
         "schema_version": RUN_CONFIG_SCHEMA,
         "state": {key: str(path) for key, path in run_state_paths.items()},
+    }
+
+
+def _provider_paths(
+    *,
+    template: StagingTemplate,
+    authority_root: Path,
+    input_root: Path,
+) -> dict[str, Path]:
+    provider = template.provider
+    return {
+        "locomo_dataset": authority_root / str(provider["official_cases"]["locomo_dataset_name"]),
+        "longmemeval_dataset": authority_root
+        / str(provider["official_cases"]["longmemeval_dataset_name"]),
+        "runtime_pin": authority_root / str(provider["runtime"]["runtime_pin_name"]),
+        "locomo_terminal": input_root / str(provider["extraction"]["locomo_terminal_name"]),
+        "longmemeval_terminal": input_root
+        / str(provider["extraction"]["longmemeval_terminal_name"]),
+        "retrieval_database": input_root / str(provider["retrieval"]["database_name"]),
     }
 
 
@@ -381,10 +498,23 @@ def _validate_run_payload(value: dict[str, object], *, run_root: Path) -> None:
     ):
         _fail("operator_staging_run_payload_invalid")
     adapter = value["adapter"]
-    if type(adapter) is not dict:
+    if (
+        type(adapter) is not dict
+        or set(adapter)
+        != {
+            "extraction",
+            "fleet",
+            "official_cases",
+            "retrieval",
+            "runtime",
+            "schema_version",
+            "suite",
+        }
+        or adapter.get("schema_version") != RUN_PROVIDER_CONFIG_SCHEMA
+    ):
         _fail("operator_staging_run_adapter_invalid")
     prohibited = ("api_key", "bearer", "credential", "password", "private_key", "secret", "token")
-    if any(marker in key.casefold().replace("-", "_") for key in adapter for marker in prohibited):
+    if _contains_prohibited_key(adapter, prohibited=prohibited):
         _fail("operator_staging_run_contains_secret_material")
     state_paths = value["state"]
     if type(state_paths) is not dict or set(state_paths) != _STATE_FILE_KEYS:
@@ -392,6 +522,23 @@ def _validate_run_payload(value: dict[str, object], *, run_root: Path) -> None:
     paths = tuple(Path(path) for path in state_paths.values())
     if len(set(paths)) != len(paths) or any(run_root not in path.parents for path in paths):
         _fail("operator_staging_run_state_path_collision")
+
+
+def _contains_prohibited_key(value: object, *, prohibited: tuple[str, ...]) -> bool:
+    stack = [value]
+    while stack:
+        current = stack.pop()
+        if type(current) is dict:
+            for key, item in current.items():
+                if type(key) is not str:
+                    return True
+                normalized = key.casefold().replace("-", "_")
+                if any(marker in normalized for marker in prohibited):
+                    return True
+                stack.append(item)
+        elif type(current) is list:
+            stack.extend(current)
+    return False
 
 
 def _preflight_private_directories(paths: tuple[Path, ...]) -> None:

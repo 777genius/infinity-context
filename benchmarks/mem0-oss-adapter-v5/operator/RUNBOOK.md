@@ -81,6 +81,14 @@ secrets path named by `secrets_path_not_created` does not exist. Populate the
 authority layout referenced by the lane config using reviewed immutable public
 artifacts.
 
+The run config's adapter object is the exact seven-section production provider
+contract. Its reviewed runtime pin, source-commit digest, source manifest,
+runtime authority, lane receipt directory, and loopback endpoint must remain
+unchanged between review and execution. The suite's 64-character source-commit
+authority is exactly SHA-256 over the lowercase 40-character Git commit SHA-1
+ASCII exposed by that runtime pin; the provider authenticates this mapping
+against the signed adapter response.
+
 The Codex executable ceiling is a local anti-DoS verification budget, not an
 executable-format or provider protocol requirement. The production verifier's
 `CODEX_EXECUTABLE_MAX_BYTES` contract accepts at most 335,544,320 bytes
@@ -94,6 +102,14 @@ regular current-user-owned `0600` file below the reported `0700` run private
 root, and contain five distinct domain-separated keys plus adapter-private
 material. Do not commit, print, or paste that file into an issue or terminal
 transcript.
+
+The adapter-private material must include the distinct runtime-attestation root
+used by the adapter's `/v5/runtime/attest` challenge. It must match the lane's
+`runtime-attestation-secret` file and must not be reused as a bridge receipt,
+launcher, journal, extraction, retrieval, output, or publication key. The run
+provider authenticates a fresh challenge response and the exact create/reopen
+host receipt before it opens extraction, official cases, retrieval, or a live
+session.
 
 ## Exact command order
 

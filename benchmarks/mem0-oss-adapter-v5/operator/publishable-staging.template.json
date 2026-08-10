@@ -52,6 +52,51 @@
     },
     "project_name": "mem0-v5-publishable-staging-r17-6f2c"
   },
+  "provider": {
+    "extraction": {
+      "locomo_terminal_name": "locomo-extraction-terminal-r17-6f2c.json",
+      "longmemeval_terminal_name": "longmemeval-extraction-terminal-r17-6f2c.json"
+    },
+    "official_cases": {
+      "locomo_dataset_name": "official-cases/locomo10.json",
+      "locomo_dataset_sha256": "79fa87e90f04081343b8c8debecb80a9a6842b76a7aa537dc9fdf651ea698ff4",
+      "longmemeval_dataset_name": "official-cases/longmemeval_oracle.json",
+      "longmemeval_dataset_sha256": "d6f21ea9d60a0d56f34a05b609c79c88a451d2ae03597821ea3d5a9678c3a442"
+    },
+    "retrieval": {
+      "authority_root_sha256": "0351785dcfdf74e1a74aa6dddf49f20259c94bd5ac2b5056155b485ef3bba841",
+      "database_name": "retrieval-authority-r17-6f2c.sqlite3"
+    },
+    "runtime": {
+      "attestation_max_age_seconds": 300,
+      "bridge_connect_timeout_seconds": 5,
+      "bridge_read_timeout_seconds": 120,
+      "bridge_write_timeout_seconds": 30,
+      "endpoint_attestation_timeout_seconds": 5,
+      "extraction_response_format_sha256": "f45055c9f24f763294c0c96c3d71cd3ae494d96376596f34a6203cf171f9a516",
+      "extraction_response_schema_sha256": "17c002c4bc8c4aa9d9131253ef0763fd5769c039985c65885e5877fda443120b",
+      "extraction_system_prompt_sha256": "ad19187a37813ef77ee156e714c0650e6ec749e0264bdc07d499bc9b24115155",
+      "lease_duration_ms": 120000,
+      "maximum_bridge_request_bytes": 4194304,
+      "maximum_ciphertext_bytes": 8388608,
+      "output_cipher_key_id": "publishable-r17-6f2c-output-v1",
+      "runtime_pin_name": "mem0-v5-runtime-pin-r17-6f2c.json",
+      "runtime_pin_sha256": "f8f338b73d816d87981745b240026d802fb52c1a228b0e608231a4ef9ad33e46",
+      "runtime_route_binding_sha256": "aaff3d27c7ca1b964a86355622e87b2bbd7841722dbcff782292ea02e1fa0935",
+      "runtime_source_sha256": "6c0bfa587ea52cea8b3cfff75980836ffa157efcc3f074ce97faa55d9bed4695",
+      "subscription_runtime_binding_commitment_sha256": "9636a031655ad158b5864217ca400ee6d6d294fdd799757296f38f7c926786fa"
+    },
+    "suite": {
+      "dispatch_deadline_unix_ms": 1786924800000,
+      "dispatch_not_before_unix_ms": 1786320000000,
+      "infinity_base_url": "http://127.0.0.1:29292",
+      "locomo_run_id": "publishable-r17-6f2c-locomo-1985",
+      "longmemeval_run_id": "publishable-r17-6f2c-longmemeval-55",
+      "publication_bundle_sha256": "202a3937be09587681f60dc31ee60aa87f4af743fe63a4879eb9c424e853f7b1",
+      "source_commit_sha256": "ed27595275c2a0a884c15c28f9891088180ef3be734ee8304a8fbeaa68e953a7",
+      "suite_id": "publishable-mem0-v5-r17-6f2c-suite-2040"
+    }
+  },
   "run_2040": {
     "dependency_provider": "mem0-infinity-production-v1",
     "expected_case_count": 2040,
@@ -72,5 +117,5 @@
       "suite_seal_database_path": "suite-seals-2040-r17-6f2c.sqlite3"
     }
   },
-  "schema_version": "publishable-mem0-v5-operator-staging-template.v1"
+  "schema_version": "publishable-mem0-v5-operator-staging-template.v2"
 }

@@ -12,6 +12,7 @@ from .preflight import (
     attest_account_i_fence,
     attest_deployment_inputs,
     attest_secret_cross_wire,
+    load_runtime_attestation_key,
 )
 from .runtime_attestation import (
     attest_compose_asset,
@@ -62,6 +63,11 @@ def deploy(
         expected_uid=expected_uid,
         expected_gid=expected_gid,
     )
+    attestation_key = load_runtime_attestation_key(
+        config,
+        expected_uid=expected_uid,
+        expected_gid=expected_gid,
+    )
     cached = docker.inspect_cached_images()
     if start:
         docker.start(mode=fleet_mode)
@@ -75,10 +81,14 @@ def deploy(
         fleet_mode=fleet_mode,
         proc_root=proc_root,
     )
-    destination = write_runtime_attestation(attestation, config.paths.attestation_dir)
+    receipt = write_runtime_attestation(
+        attestation,
+        config.paths.attestation_dir,
+        authentication_key=attestation_key,
+    )
     return DeploymentOutcome(
-        attestation_file=destination,
-        attestation_sha256=attestation.commitment_sha256,
+        attestation_file=receipt.path,
+        attestation_sha256=receipt.sha256,
     )
 
 

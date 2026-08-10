@@ -6,14 +6,15 @@ import re
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import final
+from urllib.parse import urlsplit
 
 from infinity_context_server.publishable_durable_scheduler.publishable_run_contracts import (
     PublishableRunError,
     PublishableRunProviderInputs,
 )
 
-RUN_PROVIDER_CONFIG_SCHEMA = "publishable-mem0-infinity-run-provider.v1"
-RUN_PROVIDER_SECRETS_SCHEMA = "publishable-mem0-infinity-run-provider-secrets.v1"
+RUN_PROVIDER_CONFIG_SCHEMA = "publishable-mem0-infinity-run-provider.v2"
+RUN_PROVIDER_SECRETS_SCHEMA = "publishable-mem0-infinity-run-provider-secrets.v2"
 
 _SHA256 = re.compile(r"[0-9a-f]{64}\Z")
 _IDENTIFIER = re.compile(r"[A-Za-z0-9][A-Za-z0-9._:-]{0,199}\Z")
@@ -43,10 +44,40 @@ class RunSuiteConfig:
 @final
 @dataclass(frozen=True, slots=True)
 class FleetBridgeConfig:
+    account_name: str
     bridge_id: str
     origin: str
     account_binding_hmac_sha256: str
     readiness_receipt_path: Path
+
+
+@final
+@dataclass(frozen=True, slots=True)
+class RuntimeAttestationConfig:
+    directory: Path
+    endpoint: str
+    endpoint_timeout_seconds: float
+    lane_project_name: str
+    maximum_age_seconds: int
+
+
+@final
+@dataclass(frozen=True, slots=True)
+class RuntimeAuthorityConfig:
+    adapter_image_id: str
+    codex_executable_sha256: str
+    extraction_response_format_sha256: str
+    extraction_response_schema_sha256: str
+    extraction_system_prompt_sha256: str
+    node_executable_sha256: str
+    runtime_artifact_manifest_sha256: str
+    runtime_entrypoint_sha256: str
+    runtime_pin_path: Path
+    runtime_pin_sha256: str
+    runtime_route_binding_sha256: str
+    runtime_source_sha256: str
+    source_manifest_sha256: str
+    subscription_runtime_binding_commitment_sha256: str
 
 
 @final
@@ -60,6 +91,8 @@ class RunProviderConfig:
     retrieval_authority_root_sha256: str
     fleet_pool_id: str
     fleet_bridges: tuple[FleetBridgeConfig, FleetBridgeConfig, FleetBridgeConfig]
+    runtime_attestation: RuntimeAttestationConfig
+    runtime_authority: RuntimeAuthorityConfig
     output_cipher_key_id: str
     maximum_ciphertext_bytes: int
     maximum_bridge_request_bytes: int
@@ -85,6 +118,7 @@ class RunProviderSecrets:
     retrieval_authentication_key: bytes = field(repr=False)
     bridge_journal_authentication_key: bytes = field(repr=False)
     output_cipher_key: bytes = field(repr=False)
+    runtime_attestation_root_secret: bytes = field(repr=False)
     bridges: tuple[FleetBridgeSecret, FleetBridgeSecret, FleetBridgeSecret] = field(repr=False)
 
     def __repr__(self) -> str:
@@ -113,8 +147,10 @@ def parse_run_provider_inputs(
         secrets.retrieval_authentication_key,
         secrets.bridge_journal_authentication_key,
         secrets.output_cipher_key,
+        secrets.runtime_attestation_root_secret,
         *(item.attestation_secret for item in secrets.bridges),
         *(item.launcher_receipt_key for item in secrets.bridges),
+        *(item.authorization_bearer.encode("utf-8") for item in secrets.bridges),
     )
     if len({bytes(item) for item in all_keys}) != len(all_keys):
         _fail("publishable_run_provider_secret_reuse")
@@ -148,6 +184,8 @@ def _config(value: dict[str, object]) -> RunProviderConfig:
     runtime = _object(
         root["runtime"],
         {
+            "attestation",
+            "authority",
             "bridge_connect_timeout_seconds",
             "bridge_read_timeout_seconds",
             "bridge_write_timeout_seconds",
@@ -183,7 +221,7 @@ def _config(value: dict[str, object]) -> RunProviderConfig:
     deadline = _integer(suite["dispatch_deadline_unix_ms"], minimum=1)
     if deadline <= before:
         _fail("publishable_run_provider_config_invalid")
-    return RunProviderConfig(
+    config = RunProviderConfig(
         locomo_dataset=_dataset(official["locomo"]),
         longmemeval_dataset=_dataset(official["longmemeval"]),
         suite=RunSuiteConfig(
@@ -192,8 +230,8 @@ def _config(value: dict[str, object]) -> RunProviderConfig:
             longmemeval_run_id=_identifier(suite["longmemeval_run_id"]),
             publication_bundle_sha256=_sha(suite["publication_bundle_sha256"]),
             source_commit_sha256=_sha(suite["source_commit_sha256"]),
-            infinity_base_url=_text(suite["infinity_base_url"]),
-            mem0_base_url=_text(suite["mem0_base_url"]),
+            infinity_base_url=_loopback_origin(suite["infinity_base_url"]),
+            mem0_base_url=_loopback_origin(suite["mem0_base_url"]),
             dispatch_not_before_unix_ms=before,
             dispatch_deadline_unix_ms=deadline,
         ),
@@ -205,6 +243,8 @@ def _config(value: dict[str, object]) -> RunProviderConfig:
         retrieval_authority_root_sha256=_sha(retrieval["authority_root_sha256"]),
         fleet_pool_id=_identifier(fleet["pool_id"]),
         fleet_bridges=bridges,
+        runtime_attestation=_runtime_attestation(runtime["attestation"]),
+        runtime_authority=_runtime_authority(runtime["authority"]),
         output_cipher_key_id=_identifier(runtime["output_cipher_key_id"]),
         maximum_ciphertext_bytes=_integer(runtime["maximum_ciphertext_bytes"], minimum=1024),
         maximum_bridge_request_bytes=_integer(
@@ -215,6 +255,8 @@ def _config(value: dict[str, object]) -> RunProviderConfig:
         bridge_write_timeout_seconds=_seconds(runtime["bridge_write_timeout_seconds"]),
         lease_duration_ms=_integer(runtime["lease_duration_ms"], minimum=1),
     )
+    _validate_cross_wiring(config)
+    return config
 
 
 def _secrets(value: dict[str, object]) -> RunProviderSecrets:
@@ -226,6 +268,7 @@ def _secrets(value: dict[str, object]) -> RunProviderSecrets:
             "extraction_authentication_keys_hex",
             "output_cipher_key_hex",
             "retrieval_authentication_key_hex",
+            "runtime_attestation_root_secret_hex",
             "schema_version",
         },
         "secrets",
@@ -243,6 +286,9 @@ def _secrets(value: dict[str, object]) -> RunProviderSecrets:
         retrieval_authentication_key=_key(root["retrieval_authentication_key_hex"]),
         bridge_journal_authentication_key=_key(root["bridge_journal_authentication_key_hex"]),
         output_cipher_key=_key(root["output_cipher_key_hex"], exact=32),
+        runtime_attestation_root_secret=_runtime_attestation_key(
+            root["runtime_attestation_root_secret_hex"]
+        ),
         bridges=tuple(_fleet_secret(item) for item in bridges_value),
     )
 
@@ -255,15 +301,118 @@ def _dataset(value: object) -> OfficialDatasetConfig:
 def _fleet_bridge(value: object) -> FleetBridgeConfig:
     item = _object(
         value,
-        {"account_binding_hmac_sha256", "bridge_id", "origin", "readiness_receipt_path"},
+        {
+            "account_binding_hmac_sha256",
+            "account_name",
+            "bridge_id",
+            "origin",
+            "readiness_receipt_path",
+        },
         "fleet_bridge",
     )
     return FleetBridgeConfig(
+        account_name=_identifier(item["account_name"]),
         bridge_id=_identifier(item["bridge_id"]),
         origin=_text(item["origin"]),
         account_binding_hmac_sha256=_sha(item["account_binding_hmac_sha256"]),
         readiness_receipt_path=_path(item["readiness_receipt_path"]),
     )
+
+
+def _runtime_attestation(value: object) -> RuntimeAttestationConfig:
+    item = _object(
+        value,
+        {
+            "endpoint_timeout_seconds",
+            "lane_project_name",
+            "maximum_age_seconds",
+            "public_endpoint",
+            "runtime_attestation_directory",
+        },
+        "runtime_attestation",
+    )
+    return RuntimeAttestationConfig(
+        directory=_path(item["runtime_attestation_directory"]),
+        endpoint=_loopback_origin(item["public_endpoint"]),
+        endpoint_timeout_seconds=_seconds(item["endpoint_timeout_seconds"]),
+        lane_project_name=_identifier(item["lane_project_name"]),
+        maximum_age_seconds=_integer(item["maximum_age_seconds"], minimum=1),
+    )
+
+
+def _runtime_authority(value: object) -> RuntimeAuthorityConfig:
+    item = _object(
+        value,
+        {
+            "adapter_image_id",
+            "codex_executable_sha256",
+            "extraction_response_format_sha256",
+            "extraction_response_schema_sha256",
+            "extraction_system_prompt_sha256",
+            "node_executable_sha256",
+            "runtime_artifact_manifest_sha256",
+            "runtime_entrypoint_sha256",
+            "runtime_pin_path",
+            "runtime_pin_sha256",
+            "runtime_route_binding_sha256",
+            "runtime_source_sha256",
+            "source_manifest_sha256",
+            "subscription_runtime_binding_commitment_sha256",
+        },
+        "runtime_authority",
+    )
+    adapter_image = _text(item["adapter_image_id"])
+    if re.fullmatch(r"sha256:[0-9a-f]{64}", adapter_image) is None:
+        _fail("publishable_run_provider_config_invalid")
+    return RuntimeAuthorityConfig(
+        adapter_image_id=adapter_image,
+        codex_executable_sha256=_sha(item["codex_executable_sha256"]),
+        extraction_response_format_sha256=_sha(item["extraction_response_format_sha256"]),
+        extraction_response_schema_sha256=_sha(item["extraction_response_schema_sha256"]),
+        extraction_system_prompt_sha256=_sha(item["extraction_system_prompt_sha256"]),
+        node_executable_sha256=_sha(item["node_executable_sha256"]),
+        runtime_artifact_manifest_sha256=_sha(item["runtime_artifact_manifest_sha256"]),
+        runtime_entrypoint_sha256=_sha(item["runtime_entrypoint_sha256"]),
+        runtime_pin_path=_path(item["runtime_pin_path"]),
+        runtime_pin_sha256=_sha(item["runtime_pin_sha256"]),
+        runtime_route_binding_sha256=_sha(item["runtime_route_binding_sha256"]),
+        runtime_source_sha256=_sha(item["runtime_source_sha256"]),
+        source_manifest_sha256=_sha(item["source_manifest_sha256"]),
+        subscription_runtime_binding_commitment_sha256=_sha(
+            item["subscription_runtime_binding_commitment_sha256"]
+        ),
+    )
+
+
+def _validate_cross_wiring(config: RunProviderConfig) -> None:
+    attestation = config.runtime_attestation
+    lane_root = attestation.directory.parent
+    input_paths = (*config.extraction_terminal_paths, config.retrieval_database_path)
+    authority = config.runtime_authority
+    expected_origins = tuple(f"http://127.0.0.1:{port}" for port in (8891, 8892, 8893))
+    readiness_paths = tuple(item.readiness_receipt_path for item in config.fleet_bridges)
+    if (
+        config.suite.mem0_base_url != attestation.endpoint
+        or config.suite.infinity_base_url == config.suite.mem0_base_url
+        or lane_root.name != attestation.lane_project_name
+        or config.fleet_pool_id != f"{attestation.lane_project_name}-runtime-pool"
+        or tuple(item.origin for item in config.fleet_bridges) != expected_origins
+        or len({item.account_name for item in config.fleet_bridges}) != 3
+        or len(set(readiness_paths)) != 3
+        or any(path.name != ".controller-readiness.json" for path in readiness_paths)
+        or any(
+            path.parent.name != item.account_name
+            for path, item in zip(readiness_paths, config.fleet_bridges, strict=True)
+        )
+        or any(len(path.parents) < 3 or path.parents[2] != lane_root for path in readiness_paths)
+        or len({path.parent for path in input_paths}) != 1
+        or input_paths[0].parent.parent != lane_root
+        or config.locomo_dataset.path.parent != config.longmemeval_dataset.path.parent
+        or len(config.locomo_dataset.path.parents) < 2
+        or config.locomo_dataset.path.parents[1] != authority.runtime_pin_path.parent
+        or config.runtime_attestation.maximum_age_seconds > 7_200
+    ):
+        _fail("publishable_run_provider_config_cross_wire")
 
 
 def _fleet_secret(value: object) -> FleetBridgeSecret:
@@ -315,6 +464,29 @@ def _text(value: object) -> str:
     return value
 
 
+def _loopback_origin(value: object) -> str:
+    origin = _text(value)
+    try:
+        parsed = urlsplit(origin)
+        port = parsed.port
+    except ValueError:
+        _fail("publishable_run_provider_config_invalid")
+    if (
+        parsed.scheme != "http"
+        or parsed.hostname != "127.0.0.1"
+        or parsed.username is not None
+        or parsed.password is not None
+        or parsed.path not in {"", "/"}
+        or parsed.query
+        or parsed.fragment
+        or type(port) is not int
+        or not 1024 <= port <= 65_535
+        or origin != f"http://127.0.0.1:{port}"
+    ):
+        _fail("publishable_run_provider_config_invalid")
+    return origin
+
+
 def _sha(value: object) -> str:
     if type(value) is not str or _SHA256.fullmatch(value) is None:
         _fail("publishable_run_provider_config_invalid")
@@ -345,6 +517,17 @@ def _key(value: object, *, exact: int | None = None) -> bytes:
     return key
 
 
+def _runtime_attestation_key(value: object) -> bytes:
+    key = _key(value)
+    try:
+        text = key.decode("utf-8")
+    except UnicodeDecodeError:
+        _fail("publishable_run_provider_secrets_invalid")
+    if not text or text != text.strip():
+        _fail("publishable_run_provider_secrets_invalid")
+    return key
+
+
 def _fail(code: str) -> None:
     raise PublishableRunError(code) from None
 
@@ -358,5 +541,7 @@ __all__ = (
     "RunProviderConfig",
     "RunProviderSecrets",
     "RunSuiteConfig",
+    "RuntimeAttestationConfig",
+    "RuntimeAuthorityConfig",
     "parse_run_provider_inputs",
 )

@@ -24,6 +24,7 @@ from .config import (
 )
 
 _ADAPTER_RUNTIME_ORIGIN: Final = "http://127.0.0.1:8891"
+_RUNTIME_ATTESTATION_SECRET_NAME: Final = "runtime-attestation-secret"
 _MAX_PRIVATE_FILE_BYTES = 8192
 _MAX_PUBLIC_FILE_BYTES = 32 * 1024 * 1024
 _MAX_CLOSURE_BYTES = 256 * 1024 * 1024
@@ -456,6 +457,38 @@ def attest_secret_cross_wire(
     return hashlib.sha256("".join(pair_commitments).encode("ascii")).hexdigest()
 
 
+def load_runtime_attestation_key(
+    config: PublishableLaneConfig,
+    *,
+    expected_uid: int = CONTAINER_UID,
+    expected_gid: int = CONTAINER_GID,
+) -> bytes:
+    """Read the adapter's endpoint and host-receipt authentication root."""
+
+    if type(config) is not PublishableLaneConfig:
+        _fail("publishable_preflight_config_invalid")
+    root = config.paths.adapter_secret_dir
+    _require_private_directory(
+        root,
+        "adapter_secret_root",
+        expected_uid=expected_uid,
+        expected_gid=expected_gid,
+    )
+    key = _read_private_file(
+        root / _RUNTIME_ATTESTATION_SECRET_NAME,
+        "runtime_attestation_key",
+        expected_uid=expected_uid,
+        expected_gid=expected_gid,
+    )
+    try:
+        text = key.decode("utf-8")
+    except UnicodeDecodeError:
+        _fail("publishable_preflight_runtime_attestation_key_invalid")
+    if not 32 <= len(key) <= 4096 or not text or text != text.strip():
+        _fail("publishable_preflight_runtime_attestation_key_invalid")
+    return key
+
+
 def _attest_public_path(
     path: Path,
     *,
@@ -722,5 +755,6 @@ __all__ = (
     "attest_deployment_inputs",
     "attest_secret_cross_wire",
     "configuration_hmac_sha256",
+    "load_runtime_attestation_key",
     "measure_file_closure",
 )
