@@ -38,6 +38,8 @@ from publishable_mem0_v5 import (
 from publishable_mem0_v5 import (
     runtime_attestation as host_runtime_attestation,
 )
+from publishable_mem0_v5.acceptance_attestation import read_runtime_attestation
+from publishable_mem0_v5.config import COMPOSE_SHA256
 from publishable_mem0_v5.run_provider import (
     Mem0InfinityPublishableRunDependencyFactory,
     PublishableProductionOpenMode,
@@ -53,7 +55,6 @@ _RUNTIME_PIN_SOURCE = _HERE / "authority/runtime-pin.json"
 _CONTROL_SCHEMA = "publishable-mem0-v5-bridge-controller-readiness.v2"
 _HOST_ATTESTATION_SCHEMA = "publishable-mem0-v5-runtime-attestation.v3"
 _HOST_ATTESTATION_DOMAIN = b"publishable-mem0-v5/host-runtime-attestation/v1\0"
-_COMPOSE_SHA256 = "93a9f46a4a0ac1ee6c37a16e60bf30bfbd5dd58d4b2ef01fc474d2cd7a01809c"
 _ADAPTER_IMAGE = f"sha256:{'a' * 64}"
 _QDRANT_IMAGE = f"sha256:{'b' * 64}"
 _RUNTIME_MANIFEST = "789018b5b15a1299252895babdc550c3d5322c54a1d9c82656f93d31423a0850"
@@ -435,7 +436,7 @@ def _build_lane(
         "anchor_netns": {"device": 1, "inode": 2},
         "anchor_pidns": {"device": 1, "inode": 3},
         "bridge_ports": [8891, 8892, 8893],
-        "compose_sha256": _COMPOSE_SHA256,
+        "compose_sha256": COMPOSE_SHA256,
         "deployment_inputs_sha256": _sha("deployment-inputs"),
         "fleet": host_fleet,
         "host_exposure": {
@@ -444,16 +445,17 @@ def _build_lane(
             "host_port": endpoint_port,
             "relayed_adapter_port": 19_091,
         },
-        "loopback_bindings_sha256": _sha("loopback-bindings"),
         "observed_at_unix_ns": time.time_ns(),
         "project_name": project,
         "qdrant_image_id": _QDRANT_IMAGE,
         "qdrant_ports": {"grpc": 6335, "http": 6334},
+        "relay_reachability_sha256": _sha("relay-reachability"),
         "schema_version": _HOST_ATTESTATION_SCHEMA,
         "secret_cross_wire_sha256": hashlib.sha256(
             "".join(primary_cross_wire).encode("ascii")
         ).hexdigest(),
         "services": services,
+        "socket_bindings_sha256": _sha("socket-bindings"),
     }
     host_attestation = _authenticate_host_attestation(
         host_attestation,
@@ -666,7 +668,7 @@ def test_reopen_attestation_accepts_retained_create_launches(
     assert lane.attestation_payload["fleet"]["requested_mode"] == "reopen"
 
 
-def test_producer_receipt_is_consumed_by_the_real_provider_verifier(tmp_path: Path) -> None:
+def test_producer_receipt_is_consumed_by_the_real_receipt_verifiers(tmp_path: Path) -> None:
     lane = _build_lane(tmp_path)
     payload = lane.attestation_payload
     fleet_payload = payload["fleet"]
@@ -701,7 +703,8 @@ def test_producer_receipt_is_consumed_by_the_real_provider_verifier(tmp_path: Pa
         secret_cross_wire_sha256=str(payload["secret_cross_wire_sha256"]),
         deployment_inputs_sha256=str(payload["deployment_inputs_sha256"]),
         anchor_container_inventory_sha256=str(payload["anchor_container_inventory_sha256"]),
-        loopback_bindings_sha256=str(payload["loopback_bindings_sha256"]),
+        socket_bindings_sha256=str(payload["socket_bindings_sha256"]),
+        relay_reachability_sha256=str(payload["relay_reachability_sha256"]),
         fleet=fleet,
         services=services,
         host_adapter_port=int(payload["host_exposure"]["host_port"]),
@@ -713,10 +716,19 @@ def test_producer_receipt_is_consumed_by_the_real_provider_verifier(tmp_path: Pa
         authentication_key=lane.runtime_root_secret,
     )
 
-    assert run_provider_preflight._read_lane_attestation(
+    written_payload = run_provider_preflight._read_lane_attestation(
         receipt.path,
         authentication_key=lane.runtime_root_secret,
-    ) == json.loads(receipt.path.read_bytes())
+    )
+    assert written_payload == json.loads(receipt.path.read_bytes())
+    readback = read_runtime_attestation(
+        path=receipt.path,
+        directory=lane.attestation_directory,
+        expected_project=str(payload["project_name"]),
+        expected_mode="create",
+        expected_commitment=receipt.sha256,
+    )
+    assert readback.commitment_sha256 == receipt.sha256
 
 
 @pytest.mark.parametrize(

@@ -440,14 +440,15 @@ def _cross_check_lane_attestation(
         "deployment_inputs_sha256",
         "fleet",
         "host_exposure",
-        "loopback_bindings_sha256",
         "observed_at_unix_ns",
         "project_name",
         "qdrant_image_id",
         "qdrant_ports",
+        "relay_reachability_sha256",
         "schema_version",
         "secret_cross_wire_sha256",
         "services",
+        "socket_bindings_sha256",
     }
     host = payload.get("host_exposure")
     services = payload.get("services")
@@ -477,7 +478,8 @@ def _cross_check_lane_attestation(
                 "account_i_fence_commitment_sha256",
                 "anchor_container_inventory_sha256",
                 "deployment_inputs_sha256",
-                "loopback_bindings_sha256",
+                "relay_reachability_sha256",
+                "socket_bindings_sha256",
             )
         )
         or not _image_id(payload.get("qdrant_image_id"))

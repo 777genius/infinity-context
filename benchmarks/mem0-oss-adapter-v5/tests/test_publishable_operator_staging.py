@@ -15,7 +15,7 @@ from infinity_context_server.publishable_durable_scheduler.publishable_run_contr
     PUBLISHABLE_RUN_SECRETS_SCHEMA,
     PublishableRunProviderInputs,
 )
-from publishable_mem0_v5.config import load_lane_config
+from publishable_mem0_v5.config import SOURCE_MANIFEST_SHA256, load_lane_config
 from publishable_mem0_v5.run_provider import (
     PUBLISHABLE_MEM0_INFINITY_PROVIDER_NAME,
     Mem0InfinityPublishableRunDependencyFactory,
@@ -285,9 +285,7 @@ def test_generated_config_passes_real_outer_loader_and_production_provider_parse
 
     assert provider_config.runtime_attestation.endpoint == "http://127.0.0.1:29192"
     assert provider_config.suite.mem0_base_url == provider_config.runtime_attestation.endpoint
-    assert provider_config.runtime_authority.source_manifest_sha256 == (
-        "175ed7008e78ce958c3f9bc0195fbd81bfa3359d67f96f986dfce38360a2c62f"
-    )
+    assert provider_config.runtime_authority.source_manifest_sha256 == SOURCE_MANIFEST_SHA256
     assert repr(provider_secrets) == "RunProviderSecrets(<redacted>)"
 
 

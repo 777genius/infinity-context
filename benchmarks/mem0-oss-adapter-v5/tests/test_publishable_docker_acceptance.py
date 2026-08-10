@@ -644,6 +644,7 @@ def _runtime_attestation_payload(
     return {
         "account_i_fence_commitment_sha256": "1" * 64,
         "adapter_image_id": config.adapter_image_id,
+        "attestation_hmac_sha256": "0" * 64,
         "anchor_container_inventory_sha256": "2" * 64,
         "anchor_netns": {"device": 1, "inode": 2},
         "anchor_pidns": {"device": 1, "inode": 3},
@@ -674,14 +675,15 @@ def _runtime_attestation_payload(
             "host_port": config.host_adapter_port,
             "relayed_adapter_port": 19091,
         },
-        "loopback_bindings_sha256": "d" * 64,
         "observed_at_unix_ns": generation,
         "project_name": config.project_name,
         "qdrant_image_id": "sha256:" + "e" * 64,
         "qdrant_ports": {"grpc": 6335, "http": 6334},
+        "relay_reachability_sha256": "d" * 64,
         "schema_version": ATTESTATION_SCHEMA,
         "secret_cross_wire_sha256": "f" * 64,
         "services": services,
+        "socket_bindings_sha256": "4" * 64,
     }
 
 

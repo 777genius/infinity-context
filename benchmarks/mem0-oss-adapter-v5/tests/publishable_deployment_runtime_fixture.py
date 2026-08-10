@@ -299,8 +299,13 @@ def stub_runtime_dependencies(
     )
     monkeypatch.setattr(
         runtime_attestation,
-        "_attest_loopback_bindings",
+        "_attest_socket_bindings",
         lambda *_args, **_kwargs: "a" * 64,
+    )
+    monkeypatch.setattr(
+        runtime_attestation,
+        "_attest_relay_reachability",
+        lambda *_args, **_kwargs: "b" * 64,
     )
     monkeypatch.setattr(
         runtime_attestation,

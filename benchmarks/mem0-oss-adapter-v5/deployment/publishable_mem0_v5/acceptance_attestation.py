@@ -16,6 +16,7 @@ from .runtime_attestation import ATTESTATION_FILE_PREFIX, ATTESTATION_SCHEMA
 _TOP_LEVEL_KEYS = {
     "account_i_fence_commitment_sha256",
     "adapter_image_id",
+    "attestation_hmac_sha256",
     "anchor_container_inventory_sha256",
     "anchor_netns",
     "anchor_pidns",
@@ -24,14 +25,15 @@ _TOP_LEVEL_KEYS = {
     "deployment_inputs_sha256",
     "fleet",
     "host_exposure",
-    "loopback_bindings_sha256",
     "observed_at_unix_ns",
     "project_name",
     "qdrant_image_id",
     "qdrant_ports",
+    "relay_reachability_sha256",
     "schema_version",
     "secret_cross_wire_sha256",
     "services",
+    "socket_bindings_sha256",
 }
 _FLEET_KEYS = {
     "bridges",
@@ -113,7 +115,15 @@ def read_runtime_attestation(
         set(payload) != _TOP_LEVEL_KEYS
         or payload.get("schema_version") != ATTESTATION_SCHEMA
         or payload.get("project_name") != expected_project
-        or not _sha256(payload.get("deployment_inputs_sha256"))
+        or not all(
+            _sha256(payload.get(key))
+            for key in (
+                "attestation_hmac_sha256",
+                "deployment_inputs_sha256",
+                "relay_reachability_sha256",
+                "socket_bindings_sha256",
+            )
+        )
     ):
         _fail("publishable_acceptance_attestation_invalid")
     services = payload.get("services")
