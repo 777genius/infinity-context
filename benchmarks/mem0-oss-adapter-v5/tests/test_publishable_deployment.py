@@ -65,6 +65,7 @@ from publishable_mem0_v5.runtime_attestation import (
     write_runtime_attestation,
 )
 from publishable_mem0_v5.runtime_integrity import BridgeRuntimeIdentity, FleetRuntimeEvidence
+
 from tests.publishable_deployment_runtime_fixture import (
     runtime_inventory as _runtime_inventory,
 )
