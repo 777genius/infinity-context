@@ -721,12 +721,19 @@ def test_producer_receipt_is_consumed_by_the_real_receipt_verifiers(tmp_path: Pa
         authentication_key=lane.runtime_root_secret,
     )
     assert written_payload == json.loads(receipt.path.read_bytes())
+    acceptance_secret_directory = _private_directory(tmp_path / "acceptance-secrets")
+    acceptance_secret = acceptance_secret_directory / "runtime-attestation-secret"
+    acceptance_secret.write_bytes(lane.runtime_root_secret)
+    acceptance_secret.chmod(0o600)
     readback = read_runtime_attestation(
         path=receipt.path,
         directory=lane.attestation_directory,
+        authentication_key_file=acceptance_secret,
         expected_project=str(payload["project_name"]),
         expected_mode="create",
         expected_commitment=receipt.sha256,
+        expected_uid=acceptance_secret.stat().st_uid,
+        expected_gid=acceptance_secret.stat().st_gid,
     )
     assert readback.commitment_sha256 == receipt.sha256
 

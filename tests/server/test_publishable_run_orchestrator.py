@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+from dataclasses import replace
 from pathlib import Path
 
 import pytest
@@ -17,6 +18,7 @@ from infinity_context_server.publishable_durable_scheduler.publishable_run_attes
 )
 from infinity_context_server.publishable_durable_scheduler.publishable_run_contracts import (
     PublishableRunError,
+    canonical_adapter_json,
 )
 from infinity_context_server.publishable_durable_scheduler.publishable_run_orchestrator import (
     PublishableRunOrchestrator,
@@ -55,6 +57,44 @@ def test_invalid_adapter_session_is_closed_before_rejection(tmp_path: Path) -> N
         )
 
     assert session.closed is True
+
+
+@pytest.mark.parametrize(
+    "outer_key_index",
+    range(5),
+    ids=("official-cases", "locomo", "longmemeval", "suite-seal", "publication"),
+)
+def test_cross_layer_outer_key_reuse_rejects_before_provider_or_state_work(
+    tmp_path: Path,
+    outer_key_index: int,
+) -> None:
+    files = private_run_files(tmp_path)
+    outer_keys = (
+        files.secrets.official_case_authentication_key,
+        *files.secrets.scheduler_authentication_keys,
+        files.secrets.suite_seal_authentication_key,
+        files.secrets.publication_receipt_authentication_key,
+    )
+    adapter_secrets = files.secrets.adapter_secrets()
+    adapter_secrets["output_cipher_key_hex"] = outer_keys[outer_key_index].hex()
+    crossed = replace(
+        files.secrets,
+        adapter_secrets_json=canonical_adapter_json(adapter_secrets, secret=True),
+    )
+    factory = ProviderFreeDependencyFactory()
+
+    with pytest.raises(
+        PublishableRunError,
+        match="publishable_run_cross_layer_secret_reuse",
+    ):
+        PublishableRunOrchestrator(
+            dependency_factory=factory,
+            composition_opener=factory.open_composition,
+        ).run(config=files.config, secrets=crossed)
+
+    assert factory.session_modes == []
+    assert not (files.config.publication_receipt_path.parent / ".provider").exists()
+    assert not files.config.official_case_authority_path.exists()
 
 
 @pytest.mark.parametrize("residue", ("one-scheduler", "receipt-only"))

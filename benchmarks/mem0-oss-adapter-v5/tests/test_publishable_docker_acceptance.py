@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import hashlib
+import hmac
 import json
 import os
 import shutil
@@ -9,7 +10,7 @@ from pathlib import Path
 from typing import Any
 
 import pytest
-from publishable_mem0_v5 import cli
+from publishable_mem0_v5 import acceptance_attestation, cli
 from publishable_mem0_v5.acceptance import (
     CLEAN_STATE_STATUS,
     DockerAcceptanceError,
@@ -36,6 +37,7 @@ from publishable_mem0_v5.preflight import DeploymentInputEvidence
 from publishable_mem0_v5.provider_attestation import ProviderAttestationEvidence
 from publishable_mem0_v5.runtime_attestation import (
     ATTESTATION_FILE_PREFIX,
+    ATTESTATION_HMAC_DOMAIN,
     ATTESTATION_SCHEMA,
 )
 from test_publishable_deployment import DEPLOYMENT, _config, _deployment_evidence
@@ -44,6 +46,8 @@ _PROJECT_NETWORK_ID = "e" * 64
 _OTHER_PROJECT_CONTAINER = "f" * 64
 _OTHER_PROJECT_NETWORK = "d" * 64
 _OTHER_PROJECT_VOLUME = "other_project_state"
+_RUNTIME_ATTESTATION_KEY = b"runtime-attestation-root-" * 2
+_WRONG_RUNTIME_ATTESTATION_KEY = b"wrong-runtime-attestation-root-" * 2
 
 
 class FakeDockerRunner:
@@ -181,11 +185,13 @@ class FakeLaneDeployer:
         tamper_create_on_reopen: bool = False,
         replace_state_on_create: bool = False,
         reopen_generation: int = 2,
+        attestation_authentication_key: bytes | None = _RUNTIME_ATTESTATION_KEY,
     ) -> None:
         self.failure_mode = failure_mode
         self.tamper_create_on_reopen = tamper_create_on_reopen
         self.replace_state_on_create = replace_state_on_create
         self.reopen_generation = reopen_generation
+        self.attestation_authentication_key = attestation_authentication_key
         self.calls: list[str] = []
         self.create_path: Path | None = None
 
@@ -209,15 +215,25 @@ class FakeLaneDeployer:
             original = config.paths.adapter_state_dir
             original.rename(original.with_name("adapter-state-replaced"))
             original.mkdir(mode=0o700)
+        payload = _runtime_attestation_payload(
+            config,
+            mode=mode,
+            deployment_inputs_sha256=deployment.commitment_sha256,
+            generation=self.reopen_generation if mode == "reopen" else 1,
+        )
+        payload["attestation_hmac_sha256"] = (
+            "0" * 64
+            if self.attestation_authentication_key is None
+            else hmac.new(
+                self.attestation_authentication_key,
+                ATTESTATION_HMAC_DOMAIN + _canonical_json(payload),
+                hashlib.sha256,
+            ).hexdigest()
+        )
         immutable = write_immutable_json(
             directory=config.paths.attestation_dir,
             prefix=ATTESTATION_FILE_PREFIX,
-            payload=_runtime_attestation_payload(
-                config,
-                mode=mode,
-                deployment_inputs_sha256=deployment.commitment_sha256,
-                generation=self.reopen_generation if mode == "reopen" else 1,
-            ),
+            payload=payload,
         )
         if mode == "create":
             self.create_path = immutable.path
@@ -311,11 +327,13 @@ def test_acceptance_driver_sha_binds_installed_and_deployed_package(tmp_path: Pa
 
 def test_acceptance_owns_exact_provider_free_lifecycle_and_cleans_project(
     tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     config, proc_root, config_file = _acceptance_config(tmp_path)
     runner = FakeDockerRunner()
     deployer = FakeLaneDeployer()
     probe = FakeProviderProbe(config)
+    authentication_keys = _capture_authentication_keys(monkeypatch)
 
     outcome = run_docker_acceptance(
         config_file=config_file,
@@ -346,6 +364,8 @@ def test_acceptance_owns_exact_provider_free_lifecycle_and_cleans_project(
     }
     assert deployer.calls == ["create", "reopen"]
     assert [item[0] for item in probe.calls] == ["create", "reopen"]
+    assert authentication_keys
+    assert all(not any(key) for key in authentication_keys)
     assert not _exact_project_resources(runner, config.project_name)
     assert _OTHER_PROJECT_CONTAINER in runner.containers
     assert _OTHER_PROJECT_NETWORK in runner.networks
@@ -396,6 +416,117 @@ def test_preexisting_exact_project_is_refused_without_cleanup(tmp_path: Path) ->
 
     assert _exact_project_resources(runner, config.project_name)
     assert not _compose_mutations(runner.calls)
+
+
+@pytest.mark.parametrize(
+    "authentication_key",
+    (None, _WRONG_RUNTIME_ATTESTATION_KEY),
+    ids=("all-zero", "recomputed-wrong-key"),
+)
+def test_acceptance_rejects_unauthenticated_host_receipt_before_provider_probe(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    authentication_key: bytes | None,
+) -> None:
+    config, proc_root, config_file = _acceptance_config(tmp_path)
+    runner = FakeDockerRunner()
+    deployer = FakeLaneDeployer(attestation_authentication_key=authentication_key)
+    probe = FakeProviderProbe(config)
+    authentication_keys = _capture_authentication_keys(monkeypatch)
+
+    with pytest.raises(
+        RuntimeError,
+        match="publishable_acceptance_attestation_authentication_invalid",
+    ):
+        run_docker_acceptance(
+            config_file=config_file,
+            runner=runner,
+            proc_root=proc_root,
+            expected_uid=os.geteuid(),
+            expected_gid=os.getegid(),
+            lane_deployer=deployer,
+            runtime_probe=probe,
+            deployment_attestor=_fake_deployment_attestor,
+        )
+
+    assert deployer.calls == ["create"]
+    assert probe.calls == []
+    assert deployer.create_path is not None
+    assert deployer.create_path.exists()
+    assert authentication_keys
+    assert all(not any(key) for key in authentication_keys)
+    assert not _exact_project_resources(runner, config.project_name)
+    assert _compose_mutations(runner.calls)[-1][0] == "down"
+
+
+@pytest.mark.parametrize(
+    "case",
+    ("directory-mode", "file-mode", "oversized", "owner", "symlink"),
+)
+def test_acceptance_rejects_unsafe_runtime_authentication_key(
+    tmp_path: Path,
+    case: str,
+) -> None:
+    config, _proc_root, _config_file = _acceptance_config(tmp_path)
+    path = config.paths.adapter_secret_dir / "runtime-attestation-secret"
+    expected_uid = os.geteuid()
+    expected_gid = os.getegid()
+    if case == "directory-mode":
+        path.parent.chmod(0o750)
+    elif case == "file-mode":
+        path.chmod(0o640)
+    elif case == "oversized":
+        path.write_bytes(b"x" * 4097)
+        path.chmod(0o600)
+    elif case == "owner":
+        expected_uid += 1
+    elif case == "symlink":
+        target = path.with_name("replacement-runtime-attestation-secret")
+        target.write_bytes(_RUNTIME_ATTESTATION_KEY)
+        target.chmod(0o600)
+        path.unlink()
+        path.symlink_to(target)
+    else:
+        raise AssertionError(case)
+
+    with pytest.raises(RuntimeError, match="publishable_acceptance_attestation_key_"):
+        acceptance_attestation._read_runtime_authentication_key(
+            path,
+            expected_uid=expected_uid,
+            expected_gid=expected_gid,
+        )
+
+
+def test_acceptance_rejects_changed_runtime_authentication_key_and_wipes_buffer(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    config, _proc_root, _config_file = _acceptance_config(tmp_path)
+    path = config.paths.adapter_secret_dir / "runtime-attestation-secret"
+    read_bounded = acceptance_attestation._read_bounded
+    observed: list[bytearray] = []
+
+    def change_after_first_read(descriptor: int, target: bytearray) -> None:
+        read_bounded(descriptor, target)
+        observed.append(target)
+        if len(observed) == 1:
+            path.write_bytes(b"changed-attestation-root-" * 2)
+            path.chmod(0o600)
+
+    monkeypatch.setattr(acceptance_attestation, "_read_bounded", change_after_first_read)
+
+    with pytest.raises(
+        RuntimeError,
+        match="publishable_acceptance_attestation_key_changed",
+    ):
+        acceptance_attestation._read_runtime_authentication_key(
+            path,
+            expected_uid=os.geteuid(),
+            expected_gid=os.getegid(),
+        )
+
+    assert observed
+    assert all(not any(value) for value in observed)
 
 
 @pytest.mark.parametrize(
@@ -606,6 +737,9 @@ def _acceptance_config(
     tmp_path: Path,
 ) -> tuple[PublishableLaneConfig, Path, Path]:
     config, proc_root = _config(tmp_path, deployment_dir=DEPLOYMENT)
+    authentication_key_file = config.paths.adapter_secret_dir / "runtime-attestation-secret"
+    authentication_key_file.write_bytes(_RUNTIME_ATTESTATION_KEY)
+    authentication_key_file.chmod(0o600)
     for account in config.bridges:
         path = config.paths.fleet_state_dir / account.account_name
         path.mkdir(mode=0o700)
@@ -623,6 +757,30 @@ def _fake_deployment_attestor(
     **_values: object,
 ) -> DeploymentInputEvidence:
     return _deployment_evidence(config, config_file)
+
+
+def _capture_authentication_keys(
+    monkeypatch: pytest.MonkeyPatch,
+) -> list[bytearray]:
+    observed: list[bytearray] = []
+    read_key = acceptance_attestation._read_runtime_authentication_key
+
+    def capture_key(
+        path: Path,
+        *,
+        expected_uid: int,
+        expected_gid: int,
+    ) -> bytearray:
+        key = read_key(path, expected_uid=expected_uid, expected_gid=expected_gid)
+        observed.append(key)
+        return key
+
+    monkeypatch.setattr(
+        acceptance_attestation,
+        "_read_runtime_authentication_key",
+        capture_key,
+    )
+    return observed
 
 
 def _runtime_attestation_payload(
@@ -644,7 +802,6 @@ def _runtime_attestation_payload(
     return {
         "account_i_fence_commitment_sha256": "1" * 64,
         "adapter_image_id": config.adapter_image_id,
-        "attestation_hmac_sha256": "0" * 64,
         "anchor_container_inventory_sha256": "2" * 64,
         "anchor_netns": {"device": 1, "inode": 2},
         "anchor_pidns": {"device": 1, "inode": 3},

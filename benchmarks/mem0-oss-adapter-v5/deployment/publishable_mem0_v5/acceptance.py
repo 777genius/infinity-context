@@ -152,6 +152,7 @@ def run_docker_acceptance(
     ):
         _fail("publishable_acceptance_input_invalid")
     config = load_lane_config(config_file)
+    authentication_key_file = config.paths.adapter_secret_dir / "runtime-attestation-secret"
     driver = attest_acceptance_driver(config)
     docker = DockerCli(config, config_file=config_file, runner=runner)
     attest_compose_asset(docker.compose_file)
@@ -199,9 +200,12 @@ def run_docker_acceptance(
         create = read_runtime_attestation(
             path=create_outcome.attestation_file,
             directory=config.paths.attestation_dir,
+            authentication_key_file=authentication_key_file,
             expected_project=config.project_name,
             expected_mode="create",
             expected_commitment=create_outcome.attestation_sha256,
+            expected_uid=expected_uid,
+            expected_gid=expected_gid,
         )
         _require_deployment_inputs(create, deployment_before)
         create_provider = probe.attest(
@@ -219,6 +223,9 @@ def run_docker_acceptance(
         require_runtime_attestation_unchanged(
             create,
             directory=config.paths.attestation_dir,
+            authentication_key_file=authentication_key_file,
+            expected_uid=expected_uid,
+            expected_gid=expected_gid,
         )
         probe.require_unchanged(create_provider)
         require_acceptance_driver_unchanged(driver, config)
@@ -244,9 +251,12 @@ def run_docker_acceptance(
         reopen = read_runtime_attestation(
             path=reopen_outcome.attestation_file,
             directory=config.paths.attestation_dir,
+            authentication_key_file=authentication_key_file,
             expected_project=config.project_name,
             expected_mode="reopen",
             expected_commitment=reopen_outcome.attestation_sha256,
+            expected_uid=expected_uid,
+            expected_gid=expected_gid,
         )
         reopen_provider = probe.attest(
             fleet_mode="reopen",
@@ -262,10 +272,16 @@ def run_docker_acceptance(
         require_runtime_attestation_unchanged(
             create,
             directory=config.paths.attestation_dir,
+            authentication_key_file=authentication_key_file,
+            expected_uid=expected_uid,
+            expected_gid=expected_gid,
         )
         require_runtime_attestation_unchanged(
             reopen,
             directory=config.paths.attestation_dir,
+            authentication_key_file=authentication_key_file,
+            expected_uid=expected_uid,
+            expected_gid=expected_gid,
         )
         probe.require_unchanged(create_provider)
         probe.require_unchanged(reopen_provider)
@@ -302,8 +318,20 @@ def run_docker_acceptance(
         expected_uid=expected_uid,
         expected_gid=expected_gid,
     )
-    require_runtime_attestation_unchanged(create, directory=config.paths.attestation_dir)
-    require_runtime_attestation_unchanged(reopen, directory=config.paths.attestation_dir)
+    require_runtime_attestation_unchanged(
+        create,
+        directory=config.paths.attestation_dir,
+        authentication_key_file=authentication_key_file,
+        expected_uid=expected_uid,
+        expected_gid=expected_gid,
+    )
+    require_runtime_attestation_unchanged(
+        reopen,
+        directory=config.paths.attestation_dir,
+        authentication_key_file=authentication_key_file,
+        expected_uid=expected_uid,
+        expected_gid=expected_gid,
+    )
     probe.require_unchanged(create_provider)
     probe.require_unchanged(reopen_provider)
     require_acceptance_driver_unchanged(driver, config)
