@@ -5,6 +5,7 @@ from __future__ import annotations
 import hmac
 import json
 import re
+from collections.abc import Iterator
 from dataclasses import dataclass, field, replace
 from typing import TYPE_CHECKING, final
 
@@ -166,31 +167,51 @@ class PairedOutcome:
 
 
 def normalize_paired_judge_outputs(
-    outputs: tuple[AuthenticatedJudgeOutput, ...],
+    outputs: tuple[AuthenticatedJudgeOutput, ...] | Iterator[AuthenticatedJudgeOutput],
     *,
     dataset_bindings: tuple[PairedOutcomeDatasetBinding, PairedOutcomeDatasetBinding],
     authentication_secrets: tuple[bytes, bytes],
 ) -> tuple[PairedOutcome, ...]:
-    """Authenticate and normalize the exact manifest order without sorting."""
+    """Authenticate a tuple or one-shot stream without retaining all plaintext."""
 
     _validate_dataset_inputs(dataset_bindings, authentication_secrets)
-    if type(outputs) is not tuple or len(outputs) != EXPECTED_AUTHENTICATED_JUDGE_OUTPUT_COUNT:
-        _fail("paired_outcome_coverage_invalid")
+    if type(outputs) is tuple:
+        if len(outputs) != EXPECTED_AUTHENTICATED_JUDGE_OUTPUT_COUNT:
+            _fail("paired_outcome_coverage_invalid")
+        iterator = iter(outputs)
+    else:
+        try:
+            iterator = iter(outputs)
+        except TypeError:
+            _fail("paired_outcome_coverage_invalid")
+        if iterator is not outputs:
+            _fail("paired_outcome_coverage_invalid")
+    return _normalize_paired_judge_output_iterator(
+        iterator,
+        dataset_bindings=dataset_bindings,
+        authentication_secrets=authentication_secrets,
+    )
+
+
+def _normalize_paired_judge_output_iterator(
+    outputs: Iterator[AuthenticatedJudgeOutput],
+    *,
+    dataset_bindings: tuple[PairedOutcomeDatasetBinding, PairedOutcomeDatasetBinding],
+    authentication_secrets: tuple[bytes, bytes],
+) -> tuple[PairedOutcome, ...]:
     seen_cases: set[tuple[str, str]] = set()
     seen_calls: set[str] = set()
     seen_receipts: set[str] = set()
     records: list[PairedOutcome] = []
-    cursor = 0
-    pair_index = 0
     suite_sha256: str | None = None
     for dataset_slot, ((benchmark, case_count), binding) in enumerate(
         zip(_EXPECTED_DATASETS, dataset_bindings, strict=True)
     ):
         secret = authentication_secrets[dataset_slot]
         for case_index in range(case_count):
-            pair = outputs[cursor : cursor + 2]
-            cursor += 2
-            if len(pair) != 2:
+            try:
+                pair = (next(outputs), next(outputs))
+            except StopIteration:
                 _fail("paired_outcome_coverage_invalid")
             infinity_output, mem0_output = pair
             for output, backend_role in zip(pair, _EXPECTED_BACKENDS, strict=True):
@@ -225,7 +246,7 @@ def normalize_paired_judge_outputs(
             seen_cases.add(identity)
             records.append(
                 PairedOutcome(
-                    pair_index=pair_index,
+                    pair_index=len(records),
                     benchmark=benchmark,
                     dataset_case_index=case_index,
                     case_id=infinity_output.case_id,
@@ -239,8 +260,13 @@ def normalize_paired_judge_outputs(
                     mem0_correct=_normalize_judge_output(mem0_output),
                 )
             )
-            pair_index += 1
-    if cursor != len(outputs) or len(records) != EXPECTED_PAIRED_OUTCOME_COUNT:
+    try:
+        next(outputs)
+    except StopIteration:
+        pass
+    else:
+        _fail("paired_outcome_coverage_invalid")
+    if len(records) != EXPECTED_PAIRED_OUTCOME_COUNT:
         _fail("paired_outcome_coverage_invalid")
     return tuple(records)
 
@@ -481,7 +507,9 @@ class PairedOutcomeTerminal:
 def build_paired_outcome_terminal(
     *,
     dataset_bindings: tuple[PairedOutcomeDatasetBinding, PairedOutcomeDatasetBinding],
-    authenticated_judge_outputs: tuple[AuthenticatedJudgeOutput, ...],
+    authenticated_judge_outputs: (
+        tuple[AuthenticatedJudgeOutput, ...] | Iterator[AuthenticatedJudgeOutput]
+    ),
     judge_output_authentication_secrets: tuple[bytes, bytes],
     terminal_authentication_secret: bytes,
 ) -> PairedOutcomeTerminal:

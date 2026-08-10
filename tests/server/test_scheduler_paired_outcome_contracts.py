@@ -282,6 +282,31 @@ def test_manifest_pair_reorder_fails_closed(dataset_bindings, passing_outputs) -
         )
 
 
+def test_one_shot_stream_is_exact_and_missing_output_fails_closed(
+    dataset_bindings,
+    passing_outputs,
+) -> None:
+    outcomes = normalize_paired_judge_outputs(
+        iter(passing_outputs),
+        dataset_bindings=dataset_bindings,
+        authentication_secrets=_JUDGE_SECRETS,
+    )
+    assert len(outcomes) == EXPECTED_PAIRED_OUTCOME_COUNT
+
+    with pytest.raises(PairedOutcomeContractError, match="paired_outcome_coverage_invalid"):
+        normalize_paired_judge_outputs(
+            iter(passing_outputs[:-1]),
+            dataset_bindings=dataset_bindings,
+            authentication_secrets=_JUDGE_SECRETS,
+        )
+    with pytest.raises(PairedOutcomeContractError, match="paired_outcome_coverage_invalid"):
+        normalize_paired_judge_outputs(
+            list(passing_outputs),
+            dataset_bindings=dataset_bindings,
+            authentication_secrets=_JUDGE_SECRETS,
+        )
+
+
 def test_policy_failure_authenticates_but_cannot_seal_or_publish(dataset_bindings) -> None:
     failing_outputs = _authenticated_outputs(
         dataset_bindings,

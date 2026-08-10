@@ -19,6 +19,10 @@ from infinity_context_server.features.subscription_runtime_bridge.process_contra
 from infinity_context_server.publishable_durable_scheduler.contracts import (
     SchedulerSuiteAuthority,
 )
+from infinity_context_server.publishable_durable_scheduler.paired_outcome_production import (
+    PUBLISHABLE_PAIRED_OUTCOME_SEALING_POLICY_SHA256,
+    PublishablePairedOutcomeSealBinder,
+)
 from infinity_context_server.publishable_durable_scheduler.resumable_runner import (
     PublishableResumableEvaluationRunner,
 )
@@ -58,6 +62,7 @@ class SchedulerSubscriptionBridgeComposition:
     renderer: PublishableOfficialRequestRenderer = field(repr=False)
     scheduler_bridge: SchedulerSubscriptionBridgeAdapter = field(repr=False)
     subscription_bridge: SubscriptionRuntimeBridgeAdapter = field(repr=False)
+    suite_seal_binding_policy_sha256: str | None
 
     def __post_init__(self) -> None:
         if (
@@ -65,6 +70,8 @@ class SchedulerSubscriptionBridgeComposition:
             or type(self.renderer) is not PublishableOfficialRequestRenderer
             or type(self.scheduler_bridge) is not SchedulerSubscriptionBridgeAdapter
             or type(self.subscription_bridge) is not SubscriptionRuntimeBridgeAdapter
+            or self.suite_seal_binding_policy_sha256
+            not in (None, PUBLISHABLE_PAIRED_OUTCOME_SEALING_POLICY_SHA256)
         ):
             _fail("scheduler_subscription_bridge_composition_invalid")
 
@@ -92,6 +99,7 @@ def open_scheduler_subscription_bridge_composition(
     lease_id_factory: Callable[[], str],
     private_output_decryptor: SchedulerPrivateOutputDecryptPort | None = None,
     suite_seal_store: SchedulerSuiteSealStoreSpec | None = None,
+    paired_outcome_sealing: bool = False,
     lease_duration_ms: int = 60_000,
     maximum_request_bytes: int = SCHEDULER_OFFICIAL_REQUEST_BYTES_CAP,
     maximum_response_bytes: int = SCHEDULER_PRIVATE_ANSWER_CIPHERTEXT_BYTES_CAP,
@@ -106,6 +114,7 @@ def open_scheduler_subscription_bridge_composition(
         type(suite) is not SchedulerSuiteAuthority
         or type(bridge_fleet_readiness) is not BridgeFleetReadinessReceipt
         or type(bridge_journal) is not BridgeJournal
+        or type(paired_outcome_sealing) is not bool
         or not callable(clock)
         or not callable(lease_id_factory)
         or type(maximum_request_bytes) is not int
@@ -149,6 +158,30 @@ def open_scheduler_subscription_bridge_composition(
         bridge=subscription_bridge,
         keys=bridge_keys,
     )
+    if (
+        type(run_stores) is not tuple
+        or len(run_stores) != 2
+        or any(type(item) is not SchedulerRunStoreSpec for item in run_stores)
+        or suite_seal_store is not None
+        and type(suite_seal_store) is not SchedulerSuiteSealStoreSpec
+    ):
+        _fail("scheduler_subscription_bridge_composition_invalid")
+    selected_seal_store = suite_seal_store or SchedulerSuiteSealStoreSpec(
+        database_path=run_stores[0].private_directory / "suite-seal.sqlite3",
+        private_directory=run_stores[0].private_directory,
+        authentication_secret=run_stores[0].authentication_secret,
+    )
+    seal_binding = (
+        PublishablePairedOutcomeSealBinder(
+            suite=suite,
+            run_stores=run_stores,
+            case_reader=case_reader,
+            bridge=subscription_bridge,
+            terminal_authentication_secret=selected_seal_store.authentication_secret,
+        )
+        if paired_outcome_sealing
+        else None
+    )
     runner = PublishableResumableEvaluationRunner.open(
         suite=suite,
         run_stores=run_stores,
@@ -157,7 +190,8 @@ def open_scheduler_subscription_bridge_composition(
         receipt_verifier=scheduler_bridge,
         extraction_terminal_reader=extraction_terminal_reader,
         reconciliation=scheduler_bridge,
-        suite_seal_store=suite_seal_store,
+        suite_seal_store=selected_seal_store,
+        suite_seal_binding=seal_binding,
         clock=clock,
         lease_id_factory=lease_id_factory,
         lease_duration_ms=lease_duration_ms,
@@ -167,6 +201,9 @@ def open_scheduler_subscription_bridge_composition(
         renderer=renderer,
         scheduler_bridge=scheduler_bridge,
         subscription_bridge=subscription_bridge,
+        suite_seal_binding_policy_sha256=(
+            PUBLISHABLE_PAIRED_OUTCOME_SEALING_POLICY_SHA256 if paired_outcome_sealing else None
+        ),
     )
 
 

@@ -9,13 +9,7 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from typing import final
 
-from infinity_context_core.ports.managed_full_run_extraction_ledger import (
-    ManagedFullRunExtractionContext,
-    ManagedFullRunExtractionTerminal,
-)
-
 from infinity_context_server.publishable_durable_scheduler.contracts import (
-    SchedulerBenchmark,
     SchedulerCallStage,
     SchedulerRunAuthority,
     SchedulerSuiteAuthority,
@@ -26,8 +20,6 @@ from infinity_context_server.publishable_durable_scheduler.manifest import (
     SchedulerLogicalCall,
 )
 from infinity_context_server.publishable_durable_scheduler.runner_contracts import (
-    LOCOMO_EXTRACTION_OPERATION_COUNT,
-    LONGMEMEVAL_EXTRACTION_OPERATION_COUNT,
     NO_EXTRACTION_TERMINAL_READ_POLICY_SHA256,
     NO_OUTCOME_READBACK_POLICY_SHA256,
     PUBLISHABLE_SUITE_CASE_COUNT,
@@ -40,7 +32,6 @@ from infinity_context_server.publishable_durable_scheduler.runner_contracts impo
     SCHEDULER_RUNNER_PUBLISHABLE,
     SCHEDULER_RUNNER_READINESS_BLOCKERS,
     SUITE_SEAL_READBACK_POLICY_SHA256,
-    SchedulerAuthenticatedExtractionTerminal,
     SchedulerDispatchEnvelope,
     SchedulerDispatchOutcome,
     SchedulerDispatchReceipt,
@@ -61,13 +52,16 @@ from infinity_context_server.publishable_durable_scheduler.runner_contracts impo
     bound_request_sha256,
     dispatch_intent_sha256,
     is_sha256,
-    verify_authenticated_extraction_terminal,
 )
 from infinity_context_server.publishable_durable_scheduler.runner_recovery import (
     reconcile_expired_intent,
 )
 from infinity_context_server.publishable_durable_scheduler.runner_sealing import (
+    SchedulerSuiteSealBindingPort,
+    bind_suite_seal,
     evaluation_summary,
+    read_authenticated_extraction_terminals,
+    validate_suite_seal_binding,
 )
 from infinity_context_server.publishable_durable_scheduler.runner_suite_binding import (
     read_bound_suite_seal,
@@ -91,10 +85,6 @@ from infinity_context_server.publishable_durable_scheduler.suite_seal_store impo
 )
 
 _DEFAULT_LEASE_DURATION_MS = 60_000
-_EXTRACTION_COUNTS = {
-    SchedulerBenchmark.LOCOMO: LOCOMO_EXTRACTION_OPERATION_COUNT,
-    SchedulerBenchmark.LONGMEMEVAL: LONGMEMEVAL_EXTRACTION_OPERATION_COUNT,
-}
 
 
 @final
@@ -133,6 +123,8 @@ class PublishableResumableEvaluationRunner:
         "_seal_store",
         "_suite",
         "_suite_authority_sha256",
+        "_suite_seal_binding",
+        "_suite_seal_binding_policy_sha256",
     )
 
     def __init__(
@@ -146,6 +138,7 @@ class PublishableResumableEvaluationRunner:
         extraction_terminal_reader: SchedulerExtractionTerminalReadPort | None = None,
         reconciliation: SchedulerDispatchReconciliationPort | None = None,
         suite_seal_store: SchedulerSuiteSealStoreSpec | None = None,
+        suite_seal_binding: SchedulerSuiteSealBindingPort | None = None,
         clock: Callable[[], int] = lambda: time.time_ns() // 1_000_000,
         lease_id_factory: Callable[[], str] = lambda: secrets.token_hex(32),
         lease_duration_ms: int = _DEFAULT_LEASE_DURATION_MS,
@@ -168,6 +161,11 @@ class PublishableResumableEvaluationRunner:
             )
             or suite_seal_store is not None
             and type(suite_seal_store) is not SchedulerSuiteSealStoreSpec
+            or suite_seal_binding is not None
+            and any(
+                not callable(getattr(suite_seal_binding, name, None))
+                for name in ("bind", "validate")
+            )
             or not callable(clock)
             or not callable(lease_id_factory)
             or type(lease_duration_ms) is not int
@@ -182,6 +180,7 @@ class PublishableResumableEvaluationRunner:
         self._receipt_verifier = receipt_verifier
         self._extraction_terminal_reader = extraction_terminal_reader
         self._reconciliation = reconciliation
+        self._suite_seal_binding = suite_seal_binding
         self._clock = clock
         self._lease_id_factory = lease_id_factory
         self._lease_duration_ms = lease_duration_ms
@@ -202,6 +201,11 @@ class PublishableResumableEvaluationRunner:
             NO_EXTRACTION_TERMINAL_READ_POLICY_SHA256
             if extraction_terminal_reader is None
             else _port_digest(extraction_terminal_reader, "read_policy_sha256")
+        )
+        self._suite_seal_binding_policy_sha256 = (
+            None
+            if suite_seal_binding is None
+            else _port_digest(suite_seal_binding, "policy_sha256")
         )
         self._require_composition_binding()
         entries: list[_RunEntry] = []
@@ -253,6 +257,7 @@ class PublishableResumableEvaluationRunner:
         extraction_terminal_reader: SchedulerExtractionTerminalReadPort | None = None,
         reconciliation: SchedulerDispatchReconciliationPort | None = None,
         suite_seal_store: SchedulerSuiteSealStoreSpec | None = None,
+        suite_seal_binding: SchedulerSuiteSealBindingPort | None = None,
         clock: Callable[[], int] = lambda: time.time_ns() // 1_000_000,
         lease_id_factory: Callable[[], str] = lambda: secrets.token_hex(32),
         lease_duration_ms: int = _DEFAULT_LEASE_DURATION_MS,
@@ -268,6 +273,7 @@ class PublishableResumableEvaluationRunner:
             extraction_terminal_reader=extraction_terminal_reader,
             reconciliation=reconciliation,
             suite_seal_store=suite_seal_store,
+            suite_seal_binding=suite_seal_binding,
             clock=clock,
             lease_id_factory=lease_id_factory,
             lease_duration_ms=lease_duration_ms,
@@ -373,7 +379,13 @@ class PublishableResumableEvaluationRunner:
             root, consumed = evaluation_summary(run=entry.run, store=entry.store)
             roots.append(root)
             charged_tokens += consumed
-        terminals = self._read_authenticated_extraction_terminals()
+        terminals = read_authenticated_extraction_terminals(
+            suite=self._suite,
+            runs=tuple(entry.run for entry in self._entries),
+            authentication_secrets=tuple(entry.authentication_secret for entry in self._entries),
+            reader=self._extraction_terminal_reader,
+            read_policy_sha256=self._extraction_read_policy_sha256,
+        )
         seal = SchedulerSuiteSeal(
             suite_authority_sha256=self._suite.commitment_sha256,
             runtime_provenance_sha256=self._suite.runtime_provenance_sha256,
@@ -398,6 +410,7 @@ class PublishableResumableEvaluationRunner:
             extraction_operation_count=PUBLISHABLE_SUITE_EXTRACTION_OPERATION_COUNT,
             charged_tokens=charged_tokens,
         )
+        seal = bind_suite_seal(seal, binding=self._suite_seal_binding)
         existing = self._read_bound_suite_seal()
         if existing is not None and existing != seal:
             _fail("scheduler_runner_suite_seal_divergent")
@@ -847,62 +860,15 @@ class PublishableResumableEvaluationRunner:
         return None
 
     def _read_bound_suite_seal(self) -> SchedulerSuiteSeal | None:
-        return read_bound_suite_seal(
+        seal = read_bound_suite_seal(
             suite=self._suite,
             runs=tuple(entry.run for entry in self._entries),
             stores=tuple(entry.store for entry in self._entries),
             seal_store=self._seal_store,
         )
-
-    def _read_authenticated_extraction_terminals(
-        self,
-    ) -> tuple[
-        SchedulerAuthenticatedExtractionTerminal,
-        SchedulerAuthenticatedExtractionTerminal,
-    ]:
-        reader = self._extraction_terminal_reader
-        if reader is None:
-            _fail("scheduler_runner_extraction_evidence_missing")
-        observed: list[SchedulerAuthenticatedExtractionTerminal] = []
-        for entry in self._entries:
-            try:
-                item = reader.read_terminal(run=entry.run)
-            except Exception:
-                _fail("scheduler_runner_extraction_evidence_read_failed")
-            if (
-                type(item) is not SchedulerAuthenticatedExtractionTerminal
-                or item.run_authority_sha256 != entry.run.commitment_sha256
-                or item.read_policy_sha256 != self._extraction_read_policy_sha256
-                or not verify_authenticated_extraction_terminal(
-                    item,
-                    authentication_secret=entry.authentication_secret,
-                )
-            ):
-                _fail("scheduler_runner_extraction_evidence_unauthenticated")
-            evidence = item.evidence
-            context = evidence.context
-            terminal = evidence.terminal
-            try:
-                ManagedFullRunExtractionContext.__post_init__(context)
-                ManagedFullRunExtractionTerminal.__post_init__(terminal)
-            except Exception:
-                _fail("scheduler_runner_extraction_evidence_divergent")
-            expected_count = _EXTRACTION_COUNTS[entry.run.binding.profile.benchmark]
-            if (
-                context.profile_id != entry.run.binding.profile.profile_id
-                or context.run_id_sha256
-                != hashlib.sha256(entry.run.binding.run_id.encode()).hexdigest()
-                or context.binding_commitment_sha256 != entry.run.binding.binding_commitment_sha256
-                or context.methodology_commitment_sha256 != self._suite.methodology_sha256
-                or context.runtime_binding_commitment_sha256
-                != self._suite.bridge_boot.runtime_authority_sha256
-                or context.expected_receipt_count != expected_count
-                or terminal.context_commitment_sha256 != context.commitment_sha256
-                or terminal.receipt_count != expected_count
-            ):
-                _fail("scheduler_runner_extraction_evidence_divergent")
-            observed.append(item)
-        return observed[0], observed[1]
+        if seal is not None:
+            validate_suite_seal_binding(seal, binding=self._suite_seal_binding)
+        return seal
 
     def _require_composition_binding(self) -> None:
         try:
@@ -920,6 +886,9 @@ class PublishableResumableEvaluationRunner:
                 if self._extraction_terminal_reader is None
                 else self._extraction_terminal_reader.read_policy_sha256
             )
+            seal_binding_policy = (
+                None if self._suite_seal_binding is None else self._suite_seal_binding.policy_sha256
+            )
         except Exception:
             _fail("scheduler_runner_composition_binding_invalid")
         if (
@@ -933,6 +902,7 @@ class PublishableResumableEvaluationRunner:
             or private_answer_policy != self._private_answer_policy_sha256
             or readback_policy != self._outcome_readback_policy_sha256
             or extraction_policy != self._extraction_read_policy_sha256
+            or seal_binding_policy != self._suite_seal_binding_policy_sha256
             or not is_sha256(bridge)
             or not is_sha256(policy)
             or not is_sha256(renderer_policy)

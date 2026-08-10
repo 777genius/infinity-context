@@ -47,6 +47,9 @@ from infinity_context_server.publishable_durable_scheduler.state_models import (
     SchedulerCallPhase,
 )
 
+from .paired_outcome_production import (
+    PUBLISHABLE_PAIRED_OUTCOME_SEALING_POLICY_SHA256,
+)
 from .publishable_extraction_terminal_adapter import (
     PublishableExtractionSuiteTerminalAdapter,
 )
@@ -61,7 +64,7 @@ from .scheduler_subscription_bridge_composition import (
 )
 
 PUBLISHABLE_PRODUCTION_COMPOSITION_SCHEMA = (
-    "memory-comparison-publishable-production-composition.v2"
+    "memory-comparison-publishable-production-composition.v3"
 )
 PUBLISHABLE_PRODUCTION_RUNTIME_PROVENANCE_SCHEMA = (
     "memory-comparison-publishable-production-runtime-provenance.v1"
@@ -229,6 +232,8 @@ class PublishableProductionComposition:
             != self.scheduler.scheduler_bridge.bridge_boot_authority_sha256
             or self.runtime_provenance.bridge_pool_authority_sha256
             != self.scheduler.scheduler_bridge.pool_authority_sha256
+            or self.scheduler.suite_seal_binding_policy_sha256
+            != PUBLISHABLE_PAIRED_OUTCOME_SEALING_POLICY_SHA256
         ):
             _fail("publishable_production_composition_invalid")
 
@@ -350,6 +355,7 @@ def open_publishable_production_composition(
         clock=clock,
         lease_id_factory=lease_id_factory,
         suite_seal_store=seal_spec,
+        paired_outcome_sealing=True,
         lease_duration_ms=lease_duration_ms,
     )
     _audit_bundle(
@@ -369,6 +375,9 @@ def open_publishable_production_composition(
             "cipher": "aes-256-gcm-envelope-v1",
             "extraction_suite_readback_sha256": (extraction_suite.suite_readback_commitment_sha256),
             "ordered_run_authority_sha256": [item.run.commitment_sha256 for item in run_stores],
+            "paired_outcome_sealing_policy_sha256": (
+                PUBLISHABLE_PAIRED_OUTCOME_SEALING_POLICY_SHA256
+            ),
             "private_output_policy_sha256": scheduler.renderer.private_answer_policy_sha256,
             "renderer_policy_sha256": scheduler.renderer.renderer_policy_sha256,
             "retrieval_authority_root_sha256": (retrieval_capture_authority.authority_root_sha256),

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import hashlib
+from dataclasses import replace
 
 from infinity_context_core.ports.managed_full_run_extraction_ledger import (
     FULL_RUN_EXTRACTION_LEDGER_SCHEMA,
@@ -32,6 +33,7 @@ from infinity_context_server.publishable_durable_scheduler.contracts import (
 from infinity_context_server.publishable_durable_scheduler.runner_contracts import (
     LOCOMO_EXTRACTION_OPERATION_COUNT,
     LONGMEMEVAL_EXTRACTION_OPERATION_COUNT,
+    PUBLISHABLE_SUITE_CASE_COUNT,
     PUBLISHABLE_SUITE_EVALUATION_CALL_COUNT,
     SchedulerRunStoreSpec,
 )
@@ -40,6 +42,7 @@ from infinity_context_server.publishable_durable_scheduler.runner_request_compos
     SchedulerAuthenticatedRetrievalEvidence,
     SchedulerOfficialCaseKey,
     SchedulerRetrievalEvidenceKey,
+    official_case_material_sha256,
 )
 from scheduler_subscription_bridge_composition_test_support import (
     SyntheticCaseReader,
@@ -52,7 +55,9 @@ from subscription_runtime_bridge_test_support import (
 )
 
 FULL_TRAVERSAL_TRANSPORT_CALL_CAP = PUBLISHABLE_SUITE_EVALUATION_CALL_COUNT
-FULL_TRAVERSAL_CASE_READ_CAP = PUBLISHABLE_SUITE_EVALUATION_CALL_COUNT
+FULL_TRAVERSAL_CASE_READ_CAP = (
+    PUBLISHABLE_SUITE_EVALUATION_CALL_COUNT + PUBLISHABLE_SUITE_CASE_COUNT + 4
+)
 FULL_TRAVERSAL_RETRIEVAL_READ_CAP = PUBLISHABLE_SUITE_EVALUATION_CALL_COUNT // 2
 FULL_TRAVERSAL_NONCE_CAP = PUBLISHABLE_SUITE_EVALUATION_CALL_COUNT
 
@@ -116,6 +121,7 @@ class BoundedAttestedFakeTransport:
                 bridge=bridge,
                 request_body=request_body,
                 secret=self._secrets.attestation_secret(bridge.bridge_id),
+                output_text=self._output_text(),
             )
         )
         self.maximum_request_bytes_observed = max(
@@ -131,6 +137,17 @@ class BoundedAttestedFakeTransport:
         self.call_count += 1
         self.call_count_by_bridge_id[bridge.bridge_id] += 1
         return response
+
+    def _output_text(self) -> str:
+        slot = self.call_count % 4
+        if slot in (0, 2):
+            return "Postgres"
+        infinity = slot == 1
+        if self.call_count < 6_160:
+            label = "CORRECT" if infinity else "WRONG"
+            return f'{{"reasoning":"exact","label":"{label}"}}'
+        verdict = "yes" if infinity else "no"
+        return f"<thinking>exact</thinking>{verdict}"
 
     def _assert_bridge_request(
         self,
@@ -168,9 +185,41 @@ class CountingOfficialCaseReader:
         if self.read_count >= FULL_TRAVERSAL_CASE_READ_CAP:
             raise AssertionError("full_traversal_case_read_cap_exceeded")
         result = self._delegate.read_exact(key=key)
+        metadata = dict(result.case.metadata)
+        if key.benchmark.value == "locomo":
+            metadata["category"] = _locomo_category(key.case_index)
+        else:
+            metadata["question_type"] = _longmemeval_question_type(key.case_index)
+        case = replace(result.case, metadata=metadata)
+        result = SchedulerAuthenticatedOfficialCase(
+            key=key,
+            material_sha256=official_case_material_sha256(key, case),
+            case=case,
+        )
         self.read_count += 1
         self.read_count_by_benchmark[key.benchmark.value] += 1
         return result
+
+
+def _locomo_category(case_index: int) -> int:
+    for end, category in ((282, 1), (603, 2), (699, 3), (1_540, 4)):
+        if case_index < end:
+            return category
+    raise AssertionError("full_traversal_locomo_case_index_invalid")
+
+
+def _longmemeval_question_type(case_index: int) -> str:
+    for end, question_type in (
+        (78, "knowledge-update"),
+        (211, "multi-session"),
+        (267, "single-session-assistant"),
+        (297, "single-session-preference"),
+        (367, "single-session-user"),
+        (500, "temporal-reasoning"),
+    ):
+        if case_index < end:
+            return question_type
+    raise AssertionError("full_traversal_longmemeval_case_index_invalid")
 
 
 class CountingRetrievalEvidenceReader:
