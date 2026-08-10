@@ -138,7 +138,12 @@ def _projection():
         backend_targets=targets,
         scope="canary",
     )
-    return profile, ManagedPublicRunProjection(cases, bindings)
+    return profile, ManagedPublicRunProjection(
+        cases,
+        bindings,
+        _sha("case-manifest"),
+        _sha("profile-commitment"),
+    )
 
 
 def _runtime_authority() -> ManagedV5LiveRuntimeAuthority:

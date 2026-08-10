@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Iterable
 from dataclasses import replace
 from typing import final
 
@@ -124,6 +125,7 @@ class SchedulerStateTransitionValidator:
             attempt_count=call.attempt_count + 1,
             lease_id=lease_id,
             lease_expires_unix_ms=lease_expires_unix_ms,
+            terminal_evidence_sha256=None,
             version=call.version + 1,
         )
 
@@ -193,16 +195,20 @@ class SchedulerStateTransitionValidator:
         *,
         intent_sha256: str,
         receipt_sha256: str,
+        completion_tokens: int,
         charged_tokens: int,
     ) -> tuple[SchedulerRunState, SchedulerCallState]:
         self._require_intent(run, call, intent_sha256)
-        _charge(charged_tokens, call.token_ceiling)
+        _charge(completion_tokens, call.token_ceiling)
+        if type(charged_tokens) is not int or charged_tokens < completion_tokens:
+            _fail("scheduler_charge_invalid")
         return self._terminal(
             run,
             call,
             run_phase=SchedulerRunPhase.ACTIVE,
             call_phase=SchedulerCallPhase.COMMITTED,
             evidence_sha256=receipt_sha256,
+            consumed_tokens=completion_tokens,
             charged_tokens=charged_tokens,
             burned_tokens=0,
         )
@@ -224,6 +230,7 @@ class SchedulerStateTransitionValidator:
             run_phase=SchedulerRunPhase.FAILED_KNOWN,
             call_phase=SchedulerCallPhase.FAILED_KNOWN,
             evidence_sha256=failure_sha256,
+            consumed_tokens=charged_tokens,
             charged_tokens=charged_tokens,
             burned_tokens=0,
         )
@@ -243,6 +250,7 @@ class SchedulerStateTransitionValidator:
             run_phase=SchedulerRunPhase.FROZEN_OUTCOME_UNKNOWN,
             call_phase=SchedulerCallPhase.OUTCOME_UNKNOWN,
             evidence_sha256=ambiguity_sha256,
+            consumed_tokens=0,
             charged_tokens=0,
             burned_tokens=call.token_ceiling,
         )
@@ -281,27 +289,67 @@ class SchedulerStateTransitionValidator:
             version=call.version + 1,
         )
 
+    def reconcile_authenticated_terminal_absence(
+        self,
+        run: SchedulerRunState,
+        call: SchedulerCallState,
+        *,
+        now_unix_ms: int,
+        lease_id: str,
+        intent_sha256: str,
+        absence_sha256: str,
+    ) -> tuple[SchedulerRunState, SchedulerCallState]:
+        """Permit retry only after authenticated terminal absence and lease expiry."""
+
+        self._require_intent(run, call, intent_sha256)
+        _time(now_unix_ms)
+        if (
+            call.lease_id != lease_id
+            or call.lease_expires_unix_ms is None
+            or now_unix_ms < call.lease_expires_unix_ms
+            or not _sha(absence_sha256)
+        ):
+            _fail("scheduler_dispatch_absence_reconcile_invalid")
+        return replace(
+            run,
+            reserved_tokens=run.reserved_tokens - call.token_ceiling,
+            inflight_logical_call_id=None,
+            version=run.version + 1,
+        ), replace(
+            call,
+            phase=SchedulerCallPhase.PLANNED,
+            lease_id=None,
+            lease_expires_unix_ms=None,
+            request_sha256=None,
+            intent_sha256=None,
+            terminal_evidence_sha256=absence_sha256,
+            version=call.version + 1,
+        )
+
     def seal_run(
         self,
         run: SchedulerRunState,
-        calls: tuple[SchedulerCallState, ...],
+        calls: Iterable[SchedulerCallState],
     ) -> SchedulerRunState:
         self._require_run(run)
         if (
             run.phase is not SchedulerRunPhase.ACTIVE
             or run.reserved_tokens != 0
             or run.inflight_logical_call_id is not None
-            or type(calls) is not tuple
-            or len(calls) != run.expected_call_count
-            or any(type(item) is not SchedulerCallState for item in calls)
-            or tuple(item.ordinal for item in calls) != tuple(range(run.expected_call_count))
-            or any(
-                item.run_id != run.run_id
+        ):
+            _fail("scheduler_run_seal_invalid")
+        count = 0
+        for item in calls:
+            if (
+                type(item) is not SchedulerCallState
+                or item.ordinal != count
+                or item.run_id != run.run_id
                 or item.run_authority_sha256 != run.run_authority_sha256
                 or item.phase is not SchedulerCallPhase.COMMITTED
-                for item in calls
-            )
-        ):
+            ):
+                _fail("scheduler_run_seal_invalid")
+            count += 1
+        if count != run.expected_call_count:
             _fail("scheduler_run_seal_invalid")
         return replace(run, phase=SchedulerRunPhase.SEALED, version=run.version + 1)
 
@@ -349,6 +397,7 @@ class SchedulerStateTransitionValidator:
         run_phase: SchedulerRunPhase,
         call_phase: SchedulerCallPhase,
         evidence_sha256: str,
+        consumed_tokens: int,
         charged_tokens: int,
         burned_tokens: int,
     ) -> tuple[SchedulerRunState, SchedulerCallState]:
@@ -358,7 +407,7 @@ class SchedulerStateTransitionValidator:
             run,
             phase=run_phase,
             reserved_tokens=run.reserved_tokens - call.token_ceiling,
-            consumed_tokens=run.consumed_tokens + charged_tokens,
+            consumed_tokens=run.consumed_tokens + consumed_tokens,
             burned_tokens=run.burned_tokens + burned_tokens,
             inflight_logical_call_id=None,
             version=run.version + 1,

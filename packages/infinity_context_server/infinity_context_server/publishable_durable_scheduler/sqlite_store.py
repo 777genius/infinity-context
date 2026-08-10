@@ -1,12 +1,13 @@
 """Durable SQLite scheduler adapter with atomic C1a state transitions.
 
-This adapter is still not paid-run capable: no provider-attempt lookup or
-deduplication bridge exists in this standalone slice.
+This adapter remains not paid-go-ready.  The resumable composition injects a
+reviewed one-shot boundary and permanently freezes ambiguous durable intents.
 """
 
 from __future__ import annotations
 
 from collections.abc import Callable
+from dataclasses import replace
 from pathlib import Path
 from sqlite3 import Connection
 from typing import final
@@ -26,12 +27,15 @@ from infinity_context_server.publishable_durable_scheduler.sqlite_contracts impo
     SchedulerSQLiteError,
     SchedulerSQLiteEvent,
     ciphertext_material,
+    is_sha256,
 )
 from infinity_context_server.publishable_durable_scheduler.sqlite_repository import (
     SQLiteSchedulerRepository,
 )
+from infinity_context_server.publishable_durable_scheduler.sqlite_rows import state_sha256
 from infinity_context_server.publishable_durable_scheduler.state_models import (
     SchedulerCallState,
+    SchedulerRunPhase,
     SchedulerRunState,
 )
 
@@ -165,6 +169,7 @@ class SQLiteDurableSchedulerStore:
         *,
         intent_sha256: str,
         receipt_sha256: str,
+        completion_tokens: int,
         charged_tokens: int,
         answer_ciphertext: bytes | None,
     ) -> SchedulerCallState:
@@ -183,6 +188,7 @@ class SQLiteDurableSchedulerStore:
                 current,
                 intent_sha256=intent_sha256,
                 receipt_sha256=receipt_sha256,
+                completion_tokens=completion_tokens,
                 charged_tokens=charged_tokens,
             ),
             answer_ciphertext=answer_ciphertext,
@@ -246,6 +252,112 @@ class SQLiteDurableSchedulerStore:
             ),
         )
 
+    def reconcile_authenticated_terminal_absence(
+        self,
+        logical_call_id: str,
+        *,
+        now_unix_ms: int,
+        lease_id: str,
+        intent_sha256: str,
+        absence_sha256: str,
+    ) -> SchedulerCallState:
+        return self._apply(
+            logical_call_id,
+            "authenticated_terminal_absence_reconciled",
+            lambda _connection, run, call: (
+                self._repository.validator.reconcile_authenticated_terminal_absence(
+                    run,
+                    call,
+                    now_unix_ms=now_unix_ms,
+                    lease_id=lease_id,
+                    intent_sha256=intent_sha256,
+                    absence_sha256=absence_sha256,
+                )
+            ),
+        )
+
+    def seal_run(self, *, suite_seal_sha256: str) -> SchedulerRunState:
+        """Durably seal exact committed coverage; repeated reopen sealing is safe."""
+
+        if not is_sha256(suite_seal_sha256):
+            raise SchedulerSQLiteError("scheduler_sqlite_suite_seal_invalid")
+
+        with self._repository.immediate() as connection:
+            before_run, event_head = self._repository.load_run(connection)
+            if before_run.phase is SchedulerRunPhase.SEALED:
+                self._verify_sealed_run_binding(
+                    connection,
+                    run=before_run,
+                    event_head=event_head,
+                    suite_seal_sha256=suite_seal_sha256,
+                )
+                return before_run
+            try:
+                run = self._repository.validator.seal_run(
+                    before_run,
+                    self._repository.iter_calls_bounded(connection),
+                )
+            except SchedulerSQLiteError:
+                raise
+            except SchedulerContractError as error:
+                raise SchedulerSQLiteError(error.code) from error
+            self._repository.persist_run_transition(
+                connection,
+                before_run=before_run,
+                run=run,
+                event_kind="run_sealed",
+                transition_evidence_sha256=suite_seal_sha256,
+            )
+            return run
+
+    def verify_suite_seal_binding(self, *, suite_seal_sha256: str) -> SchedulerRunState:
+        """Authenticate a sealed run head against one exact durable suite seal."""
+
+        if not is_sha256(suite_seal_sha256):
+            raise SchedulerSQLiteError("scheduler_sqlite_suite_seal_invalid")
+        with self._repository.immediate() as connection:
+            run, event_head = self._repository.load_run(connection)
+            if run.phase is not SchedulerRunPhase.SEALED:
+                raise SchedulerSQLiteError("scheduler_sqlite_suite_seal_evidence_invalid")
+            self._verify_sealed_run_binding(
+                connection,
+                run=run,
+                event_head=event_head,
+                suite_seal_sha256=suite_seal_sha256,
+            )
+            return run
+
+    def exhaust_deadline(self, *, now_unix_ms: int) -> SchedulerRunState:
+        """Durably terminalize an idle active run after its immutable deadline."""
+
+        with self._repository.immediate() as connection:
+            before_run, _ = self._repository.load_run(connection)
+            if before_run.phase is SchedulerRunPhase.DEADLINE_EXHAUSTED:
+                if (
+                    before_run.reserved_tokens != 0
+                    or before_run.inflight_logical_call_id is not None
+                ):
+                    raise SchedulerSQLiteError("scheduler_sqlite_deadline_exhaustion_invalid")
+                return before_run
+            calls = self._repository.load_calls_bounded(connection)
+            try:
+                run = self._repository.validator.exhaust_deadline(
+                    before_run,
+                    calls,
+                    now_unix_ms=now_unix_ms,
+                )
+            except SchedulerSQLiteError:
+                raise
+            except SchedulerContractError as error:
+                raise SchedulerSQLiteError(error.code) from error
+            self._repository.persist_run_transition(
+                connection,
+                before_run=before_run,
+                run=run,
+                event_kind="deadline_exhausted",
+            )
+            return run
+
     def _apply(
         self,
         logical_call_id: str,
@@ -277,6 +389,37 @@ class SQLiteDurableSchedulerStore:
                 answer_ciphertext=answer_ciphertext,
             )
             return call
+
+    def _verify_sealed_run_binding(
+        self,
+        connection: Connection,
+        *,
+        run: SchedulerRunState,
+        event_head: str,
+        suite_seal_sha256: str,
+    ) -> None:
+        if run.reserved_tokens != 0 or run.inflight_logical_call_id is not None:
+            raise SchedulerSQLiteError("scheduler_sqlite_sealed_coverage_invalid")
+        try:
+            self._repository.validator.seal_run(
+                replace(
+                    run,
+                    phase=SchedulerRunPhase.ACTIVE,
+                    version=run.version - 1,
+                ),
+                self._repository.iter_calls_bounded(connection),
+            )
+        except SchedulerContractError as error:
+            raise SchedulerSQLiteError(error.code) from error
+        head = self._repository.load_event_head(connection, event_head)
+        if head.event_kind != "run_sealed" or head.state_sha256 != state_sha256(
+            run,
+            call=None,
+            ciphertext_sha256=None,
+            ciphertext_bytes=0,
+            transition_evidence_sha256=suite_seal_sha256,
+        ):
+            raise SchedulerSQLiteError("scheduler_sqlite_suite_seal_evidence_invalid")
 
 
 __all__ = ("SQLiteDurableSchedulerStore",)

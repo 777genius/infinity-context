@@ -17,6 +17,7 @@ from infinity_context_server.memory_comparison_bounded_httpx_transport import (
 )
 from infinity_context_server.memory_comparison_mem0_oss_v5_contracts import (
     MEM0_OSS_EMPTY_ROOT_SHA256,
+    MEM0_OSS_FULL_RUN_MAX_OPERATIONS,
     Mem0OssFullRunError,
     Mem0OssReceiptDisposition,
     RuntimeReceiptVerificationContext,
@@ -103,7 +104,7 @@ class Mem0V5AdmitRequest:
                 )
             )
             or type(self.expected_operation_count) is not int
-            or not 1 <= self.expected_operation_count <= 10_000
+            or not 1 <= self.expected_operation_count <= MEM0_OSS_FULL_RUN_MAX_OPERATIONS
         ):
             _fail("mem0_v5_http_request_invalid")
 
@@ -143,7 +144,7 @@ class Mem0V5DispatchRequest:
                 )
             )
             or type(self.sequence) is not int
-            or not 0 <= self.sequence < 10_000
+            or not 0 <= self.sequence < MEM0_OSS_FULL_RUN_MAX_OPERATIONS
         ):
             _fail("mem0_v5_http_request_invalid")
 
@@ -213,7 +214,7 @@ class Mem0V5CleanupRequest:
             )
             or not is_sha256(self.operation_inventory_root_sha256)
             or type(self.expected_operation_count) is not int
-            or not 1 <= self.expected_operation_count <= 10_000
+            or not 1 <= self.expected_operation_count <= MEM0_OSS_FULL_RUN_MAX_OPERATIONS
             or not is_sha256(self.idempotency_key)
         ):
             _fail("mem0_v5_http_request_invalid")
@@ -721,6 +722,10 @@ class Mem0V5RuntimeReceiptVerifier(RuntimeReceiptVerificationPort):
                 route_sha256=context.route_sha256,
                 scope_sha256=context.scope_sha256,
                 provider_receipt_sha256=safe.receipt_sha256,
+                sequence=safe.sequence,
+                request_body_sha256=safe.request_body_sha256,
+                output_text_sha256=safe.output_text_sha256,
+                runtime_binding_commitment_sha256=safe.runtime_binding_commitment_sha256,
                 disposition=Mem0OssReceiptDisposition.COMPLETED,
                 extraction_calls=1,
                 retry_count=0,

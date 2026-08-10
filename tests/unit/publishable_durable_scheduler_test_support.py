@@ -52,7 +52,7 @@ def suite_and_cases() -> tuple[
         receipt_verifier_policy_sha256=sha("receipt-verifier"),
     )
     backends = (
-        SchedulerBackendAuthority("infinity", sha("infinity-target")),
+        SchedulerBackendAuthority("infinity-context", sha("infinity-target")),
         SchedulerBackendAuthority("mem0", sha("mem0-target")),
     )
 

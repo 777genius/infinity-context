@@ -282,6 +282,7 @@ def state_sha256(
     call: SchedulerCallState | None,
     ciphertext_sha256: str | None,
     ciphertext_bytes: int,
+    transition_evidence_sha256: str | None = None,
 ) -> str:
     material = {
         "call": None
@@ -303,6 +304,7 @@ def state_sha256(
             "burned_tokens": run.burned_tokens,
             "inflight_logical_call_id": run.inflight_logical_call_id,
         },
+        "transition_evidence_sha256": transition_evidence_sha256,
     }
     return hashlib.sha256(canonical_json(material)).hexdigest()
 

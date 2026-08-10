@@ -116,12 +116,10 @@ def open_scheduler_connection(
     *,
     private_directory: Path,
 ) -> sqlite3.Connection:
-    database = _paths(database_path, private_directory)
-    existed = database.exists()
-    if existed:
-        _file(database)
-    else:
-        _create_private_database(database)
+    database, created = prepare_private_database(
+        database_path,
+        private_directory=private_directory,
+    )
     try:
         connection = sqlite3.connect(
             database,
@@ -133,12 +131,12 @@ def open_scheduler_connection(
         raise SchedulerSQLiteError("scheduler_sqlite_open_failed") from error
     connection.row_factory = sqlite3.Row
     try:
+        validate_private_database_file(database)
         connection.execute("PRAGMA foreign_keys = ON")
         connection.execute("PRAGMA trusted_schema = OFF")
         connection.execute("PRAGMA synchronous = FULL")
         connection.execute("PRAGMA journal_mode = DELETE")
-        _file(database)
-        _ensure_schema(connection)
+        _ensure_schema(connection, initialize=created)
         _validate_database(connection)
         return connection
     except sqlite3.DatabaseError as error:
@@ -149,11 +147,43 @@ def open_scheduler_connection(
         raise
 
 
-def _ensure_schema(connection: sqlite3.Connection) -> None:
+def prepare_private_database_path(
+    database_path: Path,
+    *,
+    private_directory: Path,
+) -> Path:
+    """Resolve or create one owner-only regular database file without following links."""
+
+    return prepare_private_database(
+        database_path,
+        private_directory=private_directory,
+    )[0]
+
+
+def prepare_private_database(
+    database_path: Path,
+    *,
+    private_directory: Path,
+) -> tuple[Path, bool]:
+    """Return the exact path and whether this call atomically created its inode."""
+
+    database = _paths(database_path, private_directory)
+    if database.exists():
+        validate_private_database_file(database)
+        created = False
+    else:
+        _create_private_database(database)
+        created = True
+    return database, created
+
+
+def _ensure_schema(connection: sqlite3.Connection, *, initialize: bool) -> None:
     try:
         connection.execute("BEGIN IMMEDIATE")
         tables = _user_schema(connection)
         if not tables:
+            if not initialize:
+                raise SchedulerSQLiteError("scheduler_sqlite_schema_invalid")
             for statement in _SCHEMA:
                 connection.execute(statement)
         elif _fingerprint(connection) != schema_fingerprint_sha256():
@@ -203,9 +233,15 @@ def _paths(database_path: Path, private_directory: Path) -> Path:
         raise SchedulerSQLiteError("scheduler_sqlite_path_invalid")
     if not private_directory.exists():
         private_directory.mkdir(mode=0o700, parents=False)
+    try:
+        canonical_private = private_directory.resolve(strict=True)
+    except OSError as error:
+        raise SchedulerSQLiteError("scheduler_sqlite_private_directory_unsafe") from error
     info = private_directory.lstat()
     if (
-        stat.S_ISLNK(info.st_mode)
+        not private_directory.is_absolute()
+        or canonical_private != private_directory
+        or stat.S_ISLNK(info.st_mode)
         or not stat.S_ISDIR(info.st_mode)
         or stat.S_IMODE(info.st_mode) != 0o700
         or info.st_uid != os.geteuid()
@@ -217,7 +253,7 @@ def _paths(database_path: Path, private_directory: Path) -> Path:
     return database_path
 
 
-def _file(database: Path) -> None:
+def validate_private_database_file(database: Path) -> None:
     try:
         info = database.lstat()
     except FileNotFoundError as error:
@@ -254,4 +290,10 @@ def _create_private_database(database: Path) -> None:
         os.close(descriptor)
 
 
-__all__ = ("open_scheduler_connection", "schema_fingerprint_sha256")
+__all__ = (
+    "open_scheduler_connection",
+    "prepare_private_database",
+    "prepare_private_database_path",
+    "schema_fingerprint_sha256",
+    "validate_private_database_file",
+)

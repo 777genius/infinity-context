@@ -67,6 +67,7 @@ def test_exact_answer_then_judge_dependency_transition(prepared) -> None:
             item,
             intent_sha256=sha("intent"),
             receipt_sha256=sha("receipt"),
+            completion_tokens=100,
             charged_tokens=100,
         ),
     )

@@ -116,7 +116,7 @@ class SchedulerCallState:
             or type(self.attempt_count) is not int
             or self.attempt_count < 0
             or type(self.charged_tokens) is not int
-            or not 0 <= self.charged_tokens <= self.token_ceiling
+            or self.charged_tokens < 0
             or type(self.version) is not int
             or self.version < 0
         ):
@@ -145,12 +145,20 @@ def _require_call_phase_shape(call: SchedulerCallState) -> None:
         SchedulerCallPhase.OUTCOME_UNKNOWN,
     )
     expected = {
-        SchedulerCallPhase.PLANNED: (False, False, False, False),
         SchedulerCallPhase.LEASED: (True, False, False, False),
         SchedulerCallPhase.REQUEST_BOUND: (True, True, False, False),
         SchedulerCallPhase.DISPATCH_INTENT: (True, True, True, False),
     }.get(call.phase, (True, True, True, terminal))
-    if observed != expected:
+    planned_shapes = {
+        (False, False, False, False),
+        (False, False, False, True),
+    }
+    if (
+        call.phase is SchedulerCallPhase.PLANNED
+        and observed not in planned_shapes
+        or call.phase is not SchedulerCallPhase.PLANNED
+        and observed != expected
+    ):
         _fail("scheduler_call_phase_shape_invalid")
     if (
         call.phase

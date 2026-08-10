@@ -5,6 +5,7 @@ from dataclasses import replace
 import pytest
 from infinity_context_server.publishable_durable_scheduler import (
     SCHEDULER_PAID_GO_READY,
+    SchedulerBackendAuthority,
     SchedulerCallStage,
     SchedulerContractError,
     SchedulerPageQuery,
@@ -94,6 +95,65 @@ def test_deadline_and_token_ceilings_are_authority_bound() -> None:
             suite=changed_suite,
             ordered_cases=locomo_cases,
         )
+
+
+@pytest.mark.parametrize(
+    "roles",
+    (
+        ("mem0", "infinity-context"),
+        ("infinity", "mem0"),
+        ("infinity-context", "mem-zero"),
+    ),
+)
+def test_run_contract_rejects_reordered_or_aliased_backend_roles(
+    roles: tuple[str, str],
+) -> None:
+    suite, _, _ = suite_and_cases()
+    binding = suite.ordered_runs[0]
+    backends = tuple(
+        SchedulerBackendAuthority(role, original.target_identity_sha256)
+        for role, original in zip(roles, binding.backends, strict=True)
+    )
+
+    with pytest.raises(SchedulerContractError, match="scheduler_run_binding_invalid"):
+        replace(binding, backends=backends)
+
+
+def test_suite_contract_rejects_backend_target_identity_drift_between_runs() -> None:
+    suite, _, _ = suite_and_cases()
+    longmemeval = suite.ordered_runs[1]
+    infinity, mem0 = longmemeval.backends
+    divergent = replace(
+        longmemeval,
+        backends=(
+            replace(infinity, target_identity_sha256="1" * 64),
+            replace(mem0, target_identity_sha256="2" * 64),
+        ),
+    )
+
+    with pytest.raises(SchedulerContractError, match="scheduler_suite_runs_invalid"):
+        replace(suite, ordered_runs=(suite.ordered_runs[0], divergent))
+
+
+def test_suite_runtime_provenance_binds_ordered_backends_and_bridge_boot() -> None:
+    suite, _, _ = suite_and_cases()
+    changed_backend = replace(
+        suite.ordered_runs[0].backends[0],
+        target_identity_sha256="1" * 64,
+    )
+    changed_backends = (changed_backend, suite.ordered_runs[0].backends[1])
+    changed_runs = tuple(replace(run, backends=changed_backends) for run in suite.ordered_runs)
+    changed_suite = replace(suite, ordered_runs=changed_runs)
+    changed_boot_suite = replace(
+        suite,
+        bridge_boot=replace(suite.bridge_boot, boot_nonce_sha256="2" * 64),
+    )
+
+    assert suite.ordered_backend_identities == suite.ordered_runs[1].backends
+    assert changed_suite.runtime_provenance_sha256 != suite.runtime_provenance_sha256
+    assert changed_boot_suite.runtime_provenance_sha256 != suite.runtime_provenance_sha256
+    assert changed_suite.commitment_sha256 != suite.commitment_sha256
+    assert changed_boot_suite.commitment_sha256 != suite.commitment_sha256
 
 
 def test_manifest_page_double_enforces_bounded_queries(manifests) -> None:

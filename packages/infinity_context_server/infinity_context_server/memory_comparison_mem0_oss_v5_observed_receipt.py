@@ -174,9 +174,9 @@ class Mem0V5ObservedExtractionReceiptVerifier(RuntimeReceiptVerificationPort):
 
     __slots__ = (
         "_authority",
+        "_authority_header_snapshot",
+        "_authority_header_snapshot_identity",
         "_authority_identity",
-        "_authority_snapshot",
-        "_authority_snapshot_identity",
         "_boundary",
         "_consumed",
         "_consumed_identity",
@@ -185,6 +185,8 @@ class Mem0V5ObservedExtractionReceiptVerifier(RuntimeReceiptVerificationPort):
         "_operation_index",
         "_operation_index_identity",
         "_operations",
+        "_operation_snapshots",
+        "_operation_snapshots_identity",
         "_runtime_binding",
         "_secret",
         "_unknown",
@@ -278,9 +280,13 @@ class Mem0V5ObservedExtractionReceiptVerifier(RuntimeReceiptVerificationPort):
         self._secret = receipt_secret
         self._authority = authority
         self._authority_identity = id(authority)
-        self._authority_snapshot = _authority_snapshot(authority)
-        self._authority_snapshot_identity = id(self._authority_snapshot)
+        self._authority_header_snapshot = _authority_header_snapshot(authority)
+        self._authority_header_snapshot_identity = id(self._authority_header_snapshot)
         self._operations = authority.operations
+        self._operation_snapshots = tuple(
+            _operation_snapshot(operation) for operation in authority.operations
+        )
+        self._operation_snapshots_identity = id(self._operation_snapshots)
         self._operation_index = {
             operation.operation_id_sha256: operation for operation in authority.operations
         }
@@ -383,6 +389,10 @@ class Mem0V5ObservedExtractionReceiptVerifier(RuntimeReceiptVerificationPort):
                 route_sha256=self._authority.route_binding_sha256,
                 scope_sha256=operation.scope_sha256,
                 provider_receipt_sha256=safe.receipt_sha256,
+                sequence=safe.sequence,
+                request_body_sha256=safe.request_body_sha256,
+                output_text_sha256=safe.output_text_sha256,
+                runtime_binding_commitment_sha256=safe.runtime_binding_commitment_sha256,
                 disposition=Mem0OssReceiptDisposition.COMPLETED,
                 extraction_calls=1,
                 retry_count=0,
@@ -403,9 +413,12 @@ class Mem0V5ObservedExtractionReceiptVerifier(RuntimeReceiptVerificationPort):
         if context.readback_only is not readback:
             raise Mem0OssFullRunError("mem0_v5_receipt_context_invalid")
         operation = self._operation_index.get(context.operation_id_sha256)
+        if type(operation) is not Mem0V5ObservedExtractionOperationAuthority:
+            _fail("mem0_v5_runtime_receipt_invalid")
+        if not self._operation_state_is_exact(operation):
+            _fail("mem0_v5_runtime_receipt_state_invalid")
         if (
-            type(operation) is not Mem0V5ObservedExtractionOperationAuthority
-            or context.admission_commitment_sha256 != authority.admission_commitment_sha256
+            context.admission_commitment_sha256 != authority.admission_commitment_sha256
             or context.operation_id_sha256 != operation.operation_id_sha256
             or context.unit_identity_sha256 != operation.unit_identity_sha256
             or context.unit_sha256 != operation.unit_sha256
@@ -433,20 +446,19 @@ class Mem0V5ObservedExtractionReceiptVerifier(RuntimeReceiptVerificationPort):
     def _require_authority_state(self) -> None:
         try:
             operations = self._authority.operations
-            operation_ids = tuple(operation.operation_id_sha256 for operation in operations)
             if (
                 type(self._authority) is not Mem0V5ObservedExtractionReceiptAuthority
                 or id(self._authority) != self._authority_identity
-                or id(self._authority_snapshot) != self._authority_snapshot_identity
-                or _authority_snapshot(self._authority) != self._authority_snapshot
+                or id(self._authority_header_snapshot) != self._authority_header_snapshot_identity
+                or _authority_header_snapshot(self._authority) != self._authority_header_snapshot
                 or operations is not self._operations
+                or type(operations) is not tuple
+                or id(self._operation_snapshots) != self._operation_snapshots_identity
+                or type(self._operation_snapshots) is not tuple
+                or len(self._operation_snapshots) != len(operations)
                 or id(self._operation_index) != self._operation_index_identity
                 or type(self._operation_index) is not dict
-                or tuple(self._operation_index) != operation_ids
-                or any(
-                    self._operation_index.get(operation.operation_id_sha256) is not operation
-                    for operation in operations
-                )
+                or len(self._operation_index) != len(operations)
                 or id(self._unknown) != self._unknown_identity
                 or type(self._unknown) is not set
                 or id(self._consumed) != self._consumed_identity
@@ -456,8 +468,23 @@ class Mem0V5ObservedExtractionReceiptVerifier(RuntimeReceiptVerificationPort):
         except Exception:
             _fail("mem0_v5_runtime_receipt_state_invalid")
 
+    def _operation_state_is_exact(
+        self,
+        operation: Mem0V5ObservedExtractionOperationAuthority,
+    ) -> bool:
+        sequence = operation.sequence
+        return (
+            type(sequence) is int
+            and 0 <= sequence < len(self._operations)
+            and self._operations[sequence] is operation
+            and self._operation_index.get(operation.operation_id_sha256) is operation
+            and self._operation_snapshots[sequence] == _operation_snapshot(operation)
+        )
 
-def _authority_snapshot(authority: Mem0V5ObservedExtractionReceiptAuthority) -> tuple[object, ...]:
+
+def _authority_header_snapshot(
+    authority: Mem0V5ObservedExtractionReceiptAuthority,
+) -> tuple[object, ...]:
     return (
         authority.admission_commitment_sha256,
         authority.model,
@@ -473,19 +500,21 @@ def _authority_snapshot(authority: Mem0V5ObservedExtractionReceiptAuthority) -> 
         authority.response_format_sha256,
         authority.response_schema_sha256,
         authority.requested_output_tokens,
-        tuple(
-            (
-                type(operation),
-                id(operation),
-                operation.operation_id_sha256,
-                operation.unit_identity_sha256,
-                operation.unit_sha256,
-                operation.scope_sha256,
-                operation.sequence,
-                operation.request_body_sha256,
-            )
-            for operation in authority.operations
-        ),
+    )
+
+
+def _operation_snapshot(
+    operation: Mem0V5ObservedExtractionOperationAuthority,
+) -> tuple[object, ...]:
+    return (
+        type(operation),
+        id(operation),
+        operation.operation_id_sha256,
+        operation.unit_identity_sha256,
+        operation.unit_sha256,
+        operation.scope_sha256,
+        operation.sequence,
+        operation.request_body_sha256,
     )
 
 

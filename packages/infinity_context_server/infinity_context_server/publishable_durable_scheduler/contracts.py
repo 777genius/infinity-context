@@ -1,7 +1,7 @@
 """Immutable authorities for the provider-free publishable scheduler v4.
 
-This is a standalone design boundary.  It is not paid-run capable until durable
-store and provider-attempt bridge adapters implement the declared semantics.
+This is a provider-neutral design boundary.  A durable coordinator may compose
+it, but that does not activate any publishable or paid-go readiness flag.
 """
 
 from __future__ import annotations
@@ -18,6 +18,7 @@ SCHEDULER_CALLS_PER_CASE = 4
 SCHEDULER_SHARD_CALL_LIMIT = 256
 SCHEDULER_QUERY_LIMIT = 256
 SCHEDULER_PAID_GO_READY = False
+SCHEDULER_ORDERED_BACKEND_ROLES = ("infinity-context", "mem0")
 
 _SHA256 = re.compile(r"^[0-9a-f]{64}$")
 _IDENTIFIER = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:-]{0,199}$")
@@ -192,7 +193,7 @@ class SchedulerRunBinding:
             type(self.backends) is not tuple
             or len(self.backends) != 2
             or any(type(item) is not SchedulerBackendAuthority for item in self.backends)
-            or len({item.backend_role for item in self.backends}) != 2
+            or tuple(item.backend_role for item in self.backends) != SCHEDULER_ORDERED_BACKEND_ROLES
             or len({item.target_identity_sha256 for item in self.backends}) != 2
             or type(self.limits) is not SchedulerDeadlineTokenAuthority
         ):
@@ -249,13 +250,43 @@ class SchedulerSuiteAuthority:
             or type(self.ordered_runs) is not tuple
             or len(self.ordered_runs) != 2
             or any(type(item) is not SchedulerRunBinding for item in self.ordered_runs)
+            or any(
+                tuple(backend.backend_role for backend in item.backends)
+                != SCHEDULER_ORDERED_BACKEND_ROLES
+                for item in self.ordered_runs
+            )
             or tuple(item.profile.benchmark for item in self.ordered_runs)
             != (SchedulerBenchmark.LOCOMO, SchedulerBenchmark.LONGMEMEVAL)
+            or self.ordered_runs[0].backends != self.ordered_runs[1].backends
             or len({item.run_id for item in self.ordered_runs}) != 2
             or len({item.binding_commitment_sha256 for item in self.ordered_runs}) != 2
         ):
             _fail("scheduler_suite_runs_invalid")
         object.__setattr__(self, "commitment_sha256", _commit("suite", self.material()))
+
+    @property
+    def ordered_backend_identities(
+        self,
+    ) -> tuple[SchedulerBackendAuthority, SchedulerBackendAuthority]:
+        """Return the one exact backend identity order shared by both runs."""
+
+        return self.ordered_runs[0].backends
+
+    @property
+    def runtime_provenance_sha256(self) -> str:
+        """Commit ordered backend identities to the exact scheduler bridge boot."""
+
+        return _commit(
+            "runtime-provenance",
+            {
+                "bridge_boot": self.bridge_boot.material(),
+                "bridge_boot_authority_sha256": self.bridge_boot.commitment_sha256,
+                "ordered_backend_identities": [
+                    item.material() for item in self.ordered_backend_identities
+                ],
+                "schema_version": SCHEDULER_SCHEMA_VERSION,
+            },
+        )
 
     def material(self) -> dict[str, object]:
         return {
@@ -263,6 +294,7 @@ class SchedulerSuiteAuthority:
             "methodology_sha256": self.methodology_sha256,
             "ordered_runs": [item.material() for item in self.ordered_runs],
             "publication_bundle_sha256": self.publication_bundle_sha256,
+            "runtime_provenance_sha256": self.runtime_provenance_sha256,
             "schema_version": SCHEDULER_SCHEMA_VERSION,
             "source_commit_sha256": self.source_commit_sha256,
             "suite_id": self.suite_id,
@@ -381,6 +413,7 @@ __all__ = (
     "LONGMEMEVAL_PROFILE",
     "SCHEDULER_CALLS_PER_CASE",
     "SCHEDULER_PAID_GO_READY",
+    "SCHEDULER_ORDERED_BACKEND_ROLES",
     "SCHEDULER_QUERY_LIMIT",
     "SCHEDULER_SCHEMA_VERSION",
     "SCHEDULER_SHARD_CALL_LIMIT",

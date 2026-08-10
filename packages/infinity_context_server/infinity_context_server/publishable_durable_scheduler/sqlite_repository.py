@@ -203,6 +203,95 @@ class SQLiteSchedulerRepository:
         )
         return observed
 
+    def persist_run_transition(
+        self,
+        connection: sqlite3.Connection,
+        *,
+        before_run: SchedulerRunState,
+        run: SchedulerRunState,
+        event_kind: str,
+        transition_evidence_sha256: str | None = None,
+    ) -> SchedulerSQLiteEvent:
+        """Persist one run-only terminal transition and its authenticated event."""
+
+        current_run, previous_head = self.load_run(connection)
+        if current_run != before_run:
+            raise SchedulerSQLiteError("scheduler_sqlite_concurrent_transition")
+        event_id = self._next_event_id(connection)
+        observed = event(
+            self._auth,
+            event_id=event_id,
+            run_id=run.run_id,
+            logical_call_id=None,
+            event_kind=event_kind,
+            run_version=run.version,
+            call_version=None,
+            state_sha256=state_sha256(
+                run,
+                call=None,
+                ciphertext_sha256=None,
+                ciphertext_bytes=0,
+                transition_evidence_sha256=transition_evidence_sha256,
+            ),
+            previous_event_sha256=previous_head,
+        )
+        self._update_run(
+            connection,
+            run_values(run, event_head_sha256=observed.event_sha256),
+            before_version=before_run.version,
+        )
+        connection.execute(
+            """INSERT INTO scheduler_events
+               (event_id, run_id, logical_call_id, event_kind, run_version,
+                call_version, state_sha256, previous_event_sha256, event_sha256)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+            _event_parameters(observed),
+        )
+        return observed
+
+    def load_calls_bounded(
+        self,
+        connection: sqlite3.Connection,
+    ) -> tuple[SchedulerCallState, ...]:
+        """Authenticate every exact call while fetching in bounded batches."""
+
+        calls = list(self.iter_calls_bounded(connection))
+        if len(calls) != self._manifest.authority.call_count:
+            raise SchedulerSQLiteError("scheduler_sqlite_call_count_invalid")
+        return tuple(calls)
+
+    def iter_calls_bounded(
+        self,
+        connection: sqlite3.Connection,
+    ) -> Iterator[SchedulerCallState]:
+        """Yield authenticated calls from bounded SQLite fetches without accumulation."""
+
+        cursor = connection.execute(
+            """SELECT * FROM scheduler_calls
+               WHERE run_id = ? ORDER BY ordinal""",
+            (self._run.binding.run_id,),
+        )
+        while rows := cursor.fetchmany(257):
+            for row in rows:
+                yield call_from_row(
+                    row,
+                    self._auth,
+                    expected=self._expected_by_ordinal(row["ordinal"]),
+                )[0]
+
+    def load_event_head(
+        self,
+        connection: sqlite3.Connection,
+        event_head_sha256: str,
+    ) -> SchedulerSQLiteEvent:
+        row = connection.execute(
+            "SELECT * FROM scheduler_events WHERE event_sha256 = ?",
+            (event_head_sha256,),
+        ).fetchone()
+        if row is None:
+            raise SchedulerSQLiteError("scheduler_sqlite_event_head_missing")
+        return event_from_row(row, self._auth)
+
     def read_calls(self, *, after_ordinal: int, limit: int) -> tuple[SchedulerCallState, ...]:
         after, cap = require_query(limit, after=after_ordinal)
         connection = self._connection()
