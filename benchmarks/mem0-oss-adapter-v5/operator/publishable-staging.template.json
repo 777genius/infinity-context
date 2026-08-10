@@ -21,7 +21,7 @@
     "server_package_dir_name": "infinity-context-server-r17-6f2c",
     "source_authority_dir_name": "mem0-v5-source-authority-r17-6f2c",
     "source_authority_pin_dir_name": "mem0-v5-source-pin-r17-6f2c",
-    "source_manifest_sha256": "175ed7008e78ce958c3f9bc0195fbd81bfa3359d67f96f986dfce38360a2c62f"
+    "source_manifest_sha256": "83cd1a1f081cd0c8e1f5f270577061ab18f8927aacd16b7554fd3e750c062a4c"
   },
   "lane": {
     "bridge_accounts": [

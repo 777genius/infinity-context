@@ -1,6 +1,6 @@
 {
   "closure_algorithm": "sha256(sorted(path + NUL + size + NUL + sha256 + LF))",
-  "closure_sha256": "47216de107cfab6dc1b836ef27733c6860674cf06a2577f9a37a2a1f50700f34",
+  "closure_sha256": "69ffac8d7f89067b248ff0ab4bae5e131ce57dabf70c96f5457b7e7435614b72",
   "files": [
     {
       "path": "README.md",
@@ -14,8 +14,8 @@
     },
     {
       "path": "deploy/compose.hosted-canary.yaml",
-      "sha256": "d790565fdc387155664c393f68cfab0fbc717dc304fb526c3d174a4f6aa7b8b0",
-      "size": 4920
+      "sha256": "3e5c0b0386711d831151cb813300c0fcad12730825085ef272848f3d2948f9ee",
+      "size": 5044
     },
     {
       "path": "mem0_oss_adapter/__init__.py",
@@ -99,8 +99,8 @@
     },
     {
       "path": "mem0_oss_adapter_v5/bootstrap.py",
-      "sha256": "019b0f4964c4ffbef24b890e8bf0d1f72b12f9aed015a8699e0d877807267ff0",
-      "size": 10947
+      "sha256": "2a16ac6ef0de7d7f9a01fc1980e0c37e8663adc2ffb32aa4a61ede99a8a2a1ba",
+      "size": 13517
     },
     {
       "path": "mem0_oss_adapter_v5/clean_state.py",
@@ -209,8 +209,8 @@
     },
     {
       "path": "phase_c_canary/authority.py",
-      "sha256": "2b86b4735e4abe23c3ee32c645de233ec097bac3ac3cd0df5298c3365d32c571",
-      "size": 2651
+      "sha256": "87fdb0887681b485522675ac9cfd17b0456341f8d402de771ad4fc0b9ffc7798",
+      "size": 4565
     },
     {
       "path": "phase_c_canary/bundle.py",
@@ -279,8 +279,8 @@
     },
     {
       "path": "phase_c_canary/runtime_binding.py",
-      "sha256": "62174e6d4b35095656fd6e39a01b5e3dd9f2b4573729f106f27c6704ca657797",
-      "size": 14766
+      "sha256": "999501b7ed8f0ecfd96bf0b39902898fddfed2ffc226be46e9e7535463733fc6",
+      "size": 15005
     },
     {
       "path": "phase_c_canary/runtime_receipt_v2.py",
@@ -294,8 +294,8 @@
     },
     {
       "path": "pyproject.toml",
-      "sha256": "ad40a803ba310785a5fcfa2be65e7e6fc558f3026d2f4846eda5a4406435abd2",
-      "size": 797
+      "sha256": "593ccafa5daa700579043d93e04462752a9de9de7814e4ed86882ae4bd579768",
+      "size": 1062
     },
     {
       "path": "runtime-lock.json",
@@ -324,6 +324,6 @@
     "release_manifest_sha256": "10b73e189ab23867b3cf368dd0f961faa19aad7baa94e6c3df48471adf4abe93"
   },
   "schema_version": "mem0-oss-adapter-v5.source-authority.v1",
-  "source_commit_sha1": "ea30b63ba1063c945dd884abb618d6b0b9e0fe51",
-  "source_tree_sha1": "cc8a3b0f899aab02c951a2f8b7083437b6d1ed0a"
+  "source_commit_sha1": "cf7ed782226118cec3eb520e322ebe024c2f332e",
+  "source_tree_sha1": "37bc94f2109ce3dd0d9240f84b0b5dbc4ddcce52"
 }

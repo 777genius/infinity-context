@@ -27,7 +27,7 @@ from tools.generate_source_authority import (
 ROOT = Path(__file__).resolve().parents[1]
 REPOSITORY = ROOT.parents[1]
 FROZEN_V4_TREE = "5d640f4ea0164f18a5e8cff2bd5469b1e7eea201"
-LIVE_SOURCE_COMMIT = "ea30b63ba1063c945dd884abb618d6b0b9e0fe51"
+LIVE_SOURCE_COMMIT = "cf7ed782226118cec3eb520e322ebe024c2f332e"
 
 
 def test_complete_v4_tree_and_working_bytes_remain_exact() -> None:

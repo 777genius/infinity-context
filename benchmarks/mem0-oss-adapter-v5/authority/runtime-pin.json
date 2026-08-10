@@ -62,11 +62,11 @@
   "schema_version": "mem0-oss-adapter-v5.runtime-pin.v1",
   "source_a": {
     "closure_algorithm": "sha256(sorted(path + NUL + size + NUL + sha256 + LF))",
-    "closure_sha256": "47216de107cfab6dc1b836ef27733c6860674cf06a2577f9a37a2a1f50700f34",
-    "commit_sha1": "ea30b63ba1063c945dd884abb618d6b0b9e0fe51",
+    "closure_sha256": "69ffac8d7f89067b248ff0ab4bae5e131ce57dabf70c96f5457b7e7435614b72",
+    "commit_sha1": "cf7ed782226118cec3eb520e322ebe024c2f332e",
     "manifest_file_count": 63,
-    "manifest_sha256": "175ed7008e78ce958c3f9bc0195fbd81bfa3359d67f96f986dfce38360a2c62f",
-    "tree_sha1": "cc8a3b0f899aab02c951a2f8b7083437b6d1ed0a"
+    "manifest_sha256": "83cd1a1f081cd0c8e1f5f270577061ab18f8927aacd16b7554fd3e750c062a4c",
+    "tree_sha1": "37bc94f2109ce3dd0d9240f84b0b5dbc4ddcce52"
   },
   "subscription_runtime": {
     "artifact_manifest_sha256": "789018b5b15a1299252895babdc550c3d5322c54a1d9c82656f93d31423a0850",
