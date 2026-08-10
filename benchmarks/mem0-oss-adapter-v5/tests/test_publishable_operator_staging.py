@@ -15,7 +15,12 @@ from infinity_context_server.publishable_durable_scheduler.publishable_run_contr
     PUBLISHABLE_RUN_SECRETS_SCHEMA,
     PublishableRunProviderInputs,
 )
-from publishable_mem0_v5.config import SOURCE_MANIFEST_SHA256, load_lane_config
+from publishable_mem0_v5.config import (
+    PINNED_DOCKER_HOST,
+    SOURCE_MANIFEST_SHA256,
+    DeploymentConfigError,
+    load_lane_config,
+)
 from publishable_mem0_v5.run_provider import (
     PUBLISHABLE_MEM0_INFINITY_PROVIDER_NAME,
     Mem0InfinityPublishableRunDependencyFactory,
@@ -94,8 +99,10 @@ def test_builds_exact_secret_free_lane_and_2040_configs_with_private_modes(
     assert load_lane_config(bundle.lane_config_path).public_payload() == lane
     assert lane["project_name"] == "mem0-v5-publishable-staging-r17-6f2c"
     assert lane["host_adapter_port"] == 29192
-    assert lane["docker_host"] == (
-        "unix:///run/infinity-context/mem0-v5-publishable-staging-r17-6f2c/docker.sock"
+    assert (
+        lane["docker_host"]
+        == PINNED_DOCKER_HOST
+        == "unix:///run/infinity-locomo-docker/docker.sock"
     )
     assert [item["account_name"] for item in lane["bridges"]] == [
         "publishable-r17-6f2c-a",
@@ -555,6 +562,52 @@ def test_rejects_any_account_i_r16_fence_root_change(tmp_path: Path) -> None:
 
     with pytest.raises(OperatorStagingError, match="operator_staging_account_i_r16_fence_invalid"):
         load_staging_template(changed)
+
+
+def test_rejects_any_docker_socket_authority_change_before_writing(tmp_path: Path) -> None:
+    alternate = "unix:///var/run/docker.sock"
+    raw = json.loads(TEMPLATE.read_bytes())
+    raw["lane"]["docker_host"] = alternate
+    changed = tmp_path / "changed-docker-host.json"
+    changed.write_text(json.dumps(raw))
+
+    with pytest.raises(OperatorStagingError, match="operator_staging_docker_host_invalid"):
+        load_staging_template(changed)
+
+    output = tmp_path / "operator-private-r17-6f2c"
+    with pytest.raises(OperatorStagingError, match="operator_staging_docker_host_invalid"):
+        build_staging_bundle(
+            template=replace(load_staging_template(TEMPLATE), docker_host=alternate),
+            output_root=output,
+            authority_root=tmp_path / "public-authorities-r17-6f2c",
+            public_inputs=_public_inputs(),
+        )
+    assert not output.exists()
+
+
+def test_generated_lane_config_ignores_ambient_and_rejects_unpinned_docker_socket(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("DOCKER_HOST", "unix:///var/run/docker.sock")
+    bundle = _build(tmp_path)
+    lane = json.loads(bundle.lane_config_path.read_bytes())
+    config = load_lane_config(bundle.lane_config_path)
+
+    assert config.docker_host == PINNED_DOCKER_HOST
+    assert config.authentication_payload()["config"]["docker_host"] == PINNED_DOCKER_HOST
+    assert (
+        config.compose_environment(config_file=bundle.lane_config_path, fleet_mode="create")[
+            "DOCKER_HOST"
+        ]
+        == PINNED_DOCKER_HOST
+    )
+
+    lane["docker_host"] = "unix:///var/run/docker.sock"
+    bundle.lane_config_path.write_text(json.dumps(lane))
+
+    with pytest.raises(DeploymentConfigError, match="publishable_lane_docker_host_invalid"):
+        load_lane_config(bundle.lane_config_path)
 
 
 def test_cli_reports_only_secret_free_paths_and_exact_commands(

@@ -11,6 +11,7 @@ from publishable_mem0_v5 import runtime_attestation
 from publishable_mem0_v5.config import (
     BASE_INSTRUCTIONS_SHA256,
     NODE_EXECUTABLE_SHA256,
+    PINNED_DOCKER_HOST,
     PROTECTED_ACCOUNT_I_AUTH_ROOT,
     PROTECTED_R16_ROOT,
     RUNTIME_ENTRYPOINT_SHA256,
@@ -460,7 +461,7 @@ def build_config(
         project_name=project,
         adapter_image_id="sha256:" + "a" * 64,
         host_adapter_port=29191,
-        docker_host="unix:///run/publishable-test/docker.sock",
+        docker_host=PINNED_DOCKER_HOST,
         source_manifest_sha256=SOURCE_MANIFEST_SHA256,
         bind_mount_authority=BindMountAuthorityConfig(
             config_hmac_sha256="1" * 64,

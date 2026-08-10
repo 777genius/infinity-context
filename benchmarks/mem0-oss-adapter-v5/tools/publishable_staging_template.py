@@ -13,6 +13,7 @@ from urllib.parse import urlsplit
 from uuid import UUID
 
 TEMPLATE_SCHEMA: Final = "publishable-mem0-v5-operator-staging-template.v2"
+PINNED_DOCKER_HOST: Final = "unix:///run/infinity-locomo-docker/docker.sock"
 PROTECTED_ACCOUNT_I_AUTH_ROOT: Final = Path("/var/data/codex-home/live-codex-auth/account-i")
 PROTECTED_R16_ROOT: Final = Path(
     "/mnt/volume_ams3_1784742570542/infinity-context/live-canaries/mem0-v5-live-d7bf1ac4-r16"
@@ -279,7 +280,7 @@ def _parse_template(value: object) -> StagingTemplate:
     if _PROJECT.fullmatch(project_name) is None or _reserved(project_name):
         fail("operator_staging_project_name_invalid")
     docker_host = _string(lane["docker_host"], "docker_host")
-    if not docker_host.startswith("unix:///"):
+    if docker_host != PINNED_DOCKER_HOST:
         fail("operator_staging_docker_host_invalid")
     require_absolute_path(Path(docker_host.removeprefix("unix://")), "docker_socket")
     host_port = _integer(lane["host_adapter_port"], "host_adapter_port")
@@ -613,6 +614,7 @@ __all__ = (
     "EXPECTED_EXTRACTION_OPERATION_COUNT",
     "EXPECTED_TOTAL_CALL_COUNT",
     "INTERNAL_LANE_PORTS",
+    "PINNED_DOCKER_HOST",
     "PROTECTED_ACCOUNT_I_AUTH_ROOT",
     "PROTECTED_R16_ROOT",
     "STATE_FILE_KEYS",

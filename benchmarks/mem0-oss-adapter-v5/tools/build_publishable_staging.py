@@ -32,6 +32,7 @@ EXPECTED_EVALUATION_CALL_COUNT = staging_contracts.EXPECTED_EVALUATION_CALL_COUN
 EXPECTED_EXTRACTION_OPERATION_COUNT = staging_contracts.EXPECTED_EXTRACTION_OPERATION_COUNT
 EXPECTED_TOTAL_CALL_COUNT = staging_contracts.EXPECTED_TOTAL_CALL_COUNT
 INTERNAL_LANE_PORTS = staging_contracts.INTERNAL_LANE_PORTS
+PINNED_DOCKER_HOST = staging_contracts.PINNED_DOCKER_HOST
 PROTECTED_ACCOUNT_I_AUTH_ROOT = staging_contracts.PROTECTED_ACCOUNT_I_AUTH_ROOT
 PROTECTED_R16_ROOT = staging_contracts.PROTECTED_R16_ROOT
 _STATE_FILE_KEYS = staging_contracts.STATE_FILE_KEYS
@@ -95,6 +96,8 @@ def build_staging_bundle(
 
     if type(template) is not StagingTemplate or type(public_inputs) is not StagingPublicInputs:
         _fail("operator_staging_build_input_invalid")
+    if template.docker_host != PINNED_DOCKER_HOST:
+        _fail("operator_staging_docker_host_invalid")
     _require_absolute_path(output_root, "output_root")
     _require_absolute_path(authority_root, "authority_root")
     if _paths_overlap(output_root, authority_root):
@@ -473,7 +476,10 @@ def _validate_lane_payload(
     }
     if set(value) != expected or value["schema_version"] != LANE_CONFIG_SCHEMA:
         _fail("operator_staging_lane_payload_invalid")
-    if value["host_adapter_port"] != template.host_adapter_port:
+    if (
+        value["docker_host"] != PINNED_DOCKER_HOST
+        or value["host_adapter_port"] != template.host_adapter_port
+    ):
         _fail("operator_staging_lane_payload_invalid")
     fence = value["account_i_r16_fence"]
     if type(fence) is not dict or fence.get("pid") != public_inputs.account_i_pid:

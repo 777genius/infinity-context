@@ -19,6 +19,7 @@ from uuid import UUID
 
 CONFIG_SCHEMA: Final = "publishable-mem0-v5-isolated-lane.v2"
 CONFIG_AUTHENTICATION_SCHEMA: Final = "publishable-mem0-v5-config-authentication.v1"
+PINNED_DOCKER_HOST: Final = "unix:///run/infinity-locomo-docker/docker.sock"
 DEPLOYMENT_AUTHORITY_KEY_NAME: Final = "deployment-authority-hmac.secret"
 COMPOSE_SHA256: Final = "064cc0d6edb2353d928dc2b6c9b7e1524348658fb5c85d0efdcf6dd3e9178c37"
 QDRANT_IMAGE: Final = (
@@ -267,7 +268,7 @@ class PublishableLaneConfig:
         }
         if self.host_adapter_port in forbidden:
             _fail("publishable_lane_host_adapter_port_collision")
-        if not self.docker_host.startswith("unix:///") or "\x00" in self.docker_host:
+        if self.docker_host != PINNED_DOCKER_HOST:
             _fail("publishable_lane_docker_host_invalid")
         _require_absolute_path(Path(self.docker_host.removeprefix("unix://")), "docker_socket")
         if self.source_manifest_sha256 != SOURCE_MANIFEST_SHA256:
@@ -686,6 +687,7 @@ __all__ = (
     "CONTAINER_GID",
     "CONTAINER_UID",
     "DEPLOYMENT_AUTHORITY_KEY_NAME",
+    "PINNED_DOCKER_HOST",
     "PROTECTED_ACCOUNT_I_AUTH_ROOT",
     "PROTECTED_R16_ROOT",
     "QDRANT_GRPC_PORT",

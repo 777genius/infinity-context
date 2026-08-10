@@ -9,11 +9,16 @@ The reviewed template reserves these identities exclusively for this lane:
 
 - Compose project `mem0-v5-publishable-staging-r17-6f2c`;
 - loopback host port `29192`;
-- Docker socket
-  `/run/infinity-context/mem0-v5-publishable-staging-r17-6f2c/docker.sock`;
 - bridge accounts `publishable-r17-6f2c-a`, `-b`, and `-c`;
 - lane, authority, scheduler, receipt, and attestation paths carrying the
   `r17-6f2c` suffix.
+
+It also pins Docker authority to the benchmark-isolated daemon at
+`unix:///run/infinity-locomo-docker/docker.sock`. The exact URI is covered by
+the generated lane config's configuration HMAC, supplied through the runner's
+clean environment, and passed to Docker with an explicit `--host`. Ambient
+`DOCKER_HOST` is not authoritative. The exact Compose project name remains the
+resource-isolation boundary on that daemon.
 
 ## Fence and public inputs
 

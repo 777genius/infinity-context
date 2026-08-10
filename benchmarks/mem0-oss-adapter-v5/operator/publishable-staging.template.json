@@ -38,7 +38,7 @@
         "bridge_id": "mem0-v5-publishable-r17-6f2c-bridge-c"
       }
     ],
-    "docker_host": "unix:///run/infinity-context/mem0-v5-publishable-staging-r17-6f2c/docker.sock",
+    "docker_host": "unix:///run/infinity-locomo-docker/docker.sock",
     "host_adapter_port": 29192,
     "lane_config_file_name": "publishable-lane-staging-r17-6f2c.json",
     "private_directory_names": {

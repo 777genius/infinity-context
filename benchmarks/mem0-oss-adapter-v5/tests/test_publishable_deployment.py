@@ -35,6 +35,7 @@ from publishable_mem0_v5.bridge_dispatch import (
 from publishable_mem0_v5.config import (
     BASE_INSTRUCTIONS_SHA256,
     COMPOSE_SHA256,
+    PINNED_DOCKER_HOST,
 )
 from publishable_mem0_v5.docker_cli import QDRANT_IMAGE, SERVICES, CachedImages, DockerCli
 from publishable_mem0_v5.fleet_spec import FleetSpecBuildError, build_isolated_bridge_spec
@@ -386,6 +387,7 @@ def test_docker_start_then_inspection_uses_exact_compose_environment(
     config_file = tmp_path / "config.json"
     config_file.write_text("{}")
     monkeypatch.setenv("HTTPS_PROXY", "http://ambient-proxy.invalid")
+    monkeypatch.setenv("DOCKER_HOST", "unix:///var/run/docker.sock")
     runner = _RecordingRunner()
     docker = DockerCli(config, config_file=config_file, runner=runner)
 
@@ -403,6 +405,11 @@ def test_docker_start_then_inspection_uses_exact_compose_environment(
     compose_calls = [call for call in runner.calls if call[0][3] == "compose"]
     assert len(compose_calls) == len(SERVICES) + 1
     assert all(environment == expected_environment for _, environment in compose_calls)
+    assert all(
+        arguments[:3] == ("/usr/bin/docker", "--host", PINNED_DOCKER_HOST)
+        for arguments, _ in runner.calls
+    )
+    assert all(environment["DOCKER_HOST"] == PINNED_DOCKER_HOST for _, environment in runner.calls)
 
 
 def test_run_provider_dispatches_selected_bridge_through_the_only_host_relay() -> None:
