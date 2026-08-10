@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import hmac
+import http.client
 import json
 import os
 import stat
@@ -25,7 +26,7 @@ from infinity_context_server.features.subscription_runtime_bridge.process_contra
     RuntimeProcessAuthority,
 )
 
-from .config import BASE_INSTRUCTIONS_SHA256, BRIDGE_PORTS, PublishableLaneConfig
+from .config import BASE_INSTRUCTIONS_SHA256, BRIDGE_PORTS, RELAY_PORT, PublishableLaneConfig
 from .docker_cli import SERVICES
 
 _MAX_FLEET_METADATA_BYTES = 256 * 1024
@@ -35,8 +36,18 @@ _READINESS_FILE = "readiness.json"
 _RUNTIME_AUTHORITY_FILE = "runtime-authority.json"
 _CONTROL_FILE = ".controller-readiness.json"
 _CONTROL_SCHEMA = "publishable-mem0-v5-bridge-controller-readiness.v2"
-_EXPECTED_LOOPBACK_PORTS = (6334, 6335, 8891, 8892, 8893, 19091, 19191)
+_EXPECTED_LOOPBACK_PORTS = (6334, 6335, 8891, 8892, 8893, 19091)
+_IPV4_ANY_HEX = "00000000"
 _IPV4_LOOPBACK_HEX = "0100007F"
+_LOOPBACK_HOST = "127.0.0.1"
+_RELAY_HEALTH_ROUTE = "/health"
+_RELAY_HEALTH_MAX_BYTES = 4 * 1024
+_RELAY_HEALTH_TIMEOUT_SECONDS = 2.0
+_EXPECTED_RELAY_HEALTH = {
+    "ok": True,
+    "provider_calls": "dispatch_only",
+    "service": "mem0-oss-adapter-v5",
+}
 
 
 class RuntimeIntegrityError(RuntimeError):
@@ -140,13 +151,13 @@ def attest_anchor_container_inventory(
     return hashlib.sha256(_canonical_json(anchored)).hexdigest()
 
 
-def attest_loopback_bindings(
+def attest_socket_bindings(
     *,
     proc_root: Path,
     anchor_pid: int,
     host_relay_port: int,
 ) -> str:
-    """Require kernel-observed internal listeners to be IPv4 loopback only."""
+    """Require private listeners on loopback and the published relay on IPv4 interfaces."""
 
     if not proc_root.is_absolute() or anchor_pid <= 1 or not 1024 <= host_relay_port <= 65535:
         _fail("publishable_attestation_loopback_input_invalid")
@@ -166,6 +177,14 @@ def attest_loopback_bindings(
         if observed != [expected]:
             _fail("publishable_attestation_loopback_bindings_invalid")
         rows.append(expected)
+    relay = {
+        "address": _IPV4_ANY_HEX,
+        "family": "ipv4",
+        "port": RELAY_PORT,
+    }
+    if [item for item in listeners if item["port"] == RELAY_PORT] != [relay]:
+        _fail("publishable_attestation_relay_binding_invalid")
+    rows.append(relay)
     host_rows: list[dict[str, object]] = []
     host_net = proc_root / "net"
     if (host_net / "tcp").exists() and (host_net / "tcp6").exists():
@@ -187,6 +206,56 @@ def attest_loopback_bindings(
             }
         )
     ).hexdigest()
+
+
+def attest_relay_reachability(*, host_relay_port: int) -> str:
+    """Prove the exact host-loopback relay reaches provider-free adapter health."""
+
+    if type(host_relay_port) is not int or not 1024 <= host_relay_port <= 65535:
+        _fail("publishable_attestation_relay_reachability_input_invalid")
+    connection = http.client.HTTPConnection(
+        _LOOPBACK_HOST,
+        host_relay_port,
+        timeout=_RELAY_HEALTH_TIMEOUT_SECONDS,
+    )
+    try:
+        connection.request(
+            "GET",
+            _RELAY_HEALTH_ROUTE,
+            headers={
+                "Accept": "application/json",
+                "Connection": "close",
+                "Host": f"{_LOOPBACK_HOST}:{host_relay_port}",
+            },
+        )
+        response = connection.getresponse()
+        body = response.read(_RELAY_HEALTH_MAX_BYTES + 1)
+    except (OSError, http.client.HTTPException) as exc:
+        raise RuntimeIntegrityError("publishable_attestation_relay_unreachable") from exc
+    finally:
+        connection.close()
+    try:
+        payload = json.loads(body, object_pairs_hook=_unique_relay_object)
+    except (UnicodeDecodeError, json.JSONDecodeError, ValueError) as exc:
+        raise RuntimeIntegrityError("publishable_attestation_relay_response_invalid") from exc
+    if (
+        response.status != 200
+        or len(body) > _RELAY_HEALTH_MAX_BYTES
+        or type(payload) is not dict
+        or _canonical_json(payload) != _canonical_json(_EXPECTED_RELAY_HEALTH)
+    ):
+        _fail("publishable_attestation_relay_response_invalid")
+    evidence = {
+        "container_port": RELAY_PORT,
+        "host_ip": _LOOPBACK_HOST,
+        "host_port": host_relay_port,
+        "method": "GET",
+        "probe_provider_calls": 0,
+        "response_body_sha256": hashlib.sha256(_canonical_json(payload)).hexdigest(),
+        "route": _RELAY_HEALTH_ROUTE,
+        "status_code": response.status,
+    }
+    return hashlib.sha256(_canonical_json(evidence)).hexdigest()
 
 
 def attest_fleet_readiness(
@@ -493,6 +562,15 @@ def _read_listener_table(path: Path, *, family: str) -> list[dict[str, object]]:
     return result
 
 
+def _unique_relay_object(pairs: list[tuple[str, object]]) -> dict[str, object]:
+    result: dict[str, object] = {}
+    for key, value in pairs:
+        if key in result:
+            raise ValueError("duplicate relay health key")
+        result[key] = value
+    return result
+
+
 def _read_private_json(
     path: Path,
     *,
@@ -623,5 +701,6 @@ __all__ = (
     "RuntimeIntegrityError",
     "attest_anchor_container_inventory",
     "attest_fleet_readiness",
-    "attest_loopback_bindings",
+    "attest_relay_reachability",
+    "attest_socket_bindings",
 )

@@ -1,4 +1,4 @@
-"""Fail-closed image, namespace, mount, user, and port runtime attestation."""
+"""Fail-closed image, namespace, mount, user, port, and reachability attestation."""
 
 from __future__ import annotations
 
@@ -42,10 +42,13 @@ from .runtime_integrity import (
     attest_fleet_readiness as _attest_fleet_readiness,
 )
 from .runtime_integrity import (
-    attest_loopback_bindings as _attest_loopback_bindings,
+    attest_relay_reachability as _attest_relay_reachability,
+)
+from .runtime_integrity import (
+    attest_socket_bindings as _attest_socket_bindings,
 )
 
-ATTESTATION_SCHEMA: Final = "publishable-mem0-v5-runtime-attestation.v2"
+ATTESTATION_SCHEMA: Final = "publishable-mem0-v5-runtime-attestation.v3"
 ATTESTATION_FILE_PREFIX: Final = "runtime-attestation-"
 _MAX_COMPOSE_BYTES = 512 * 1024
 _BRIDGE_SERVICES: Final = (
@@ -101,7 +104,8 @@ class LaneRuntimeAttestation:
     secret_cross_wire_sha256: str
     deployment_inputs_sha256: str
     anchor_container_inventory_sha256: str
-    loopback_bindings_sha256: str
+    socket_bindings_sha256: str
+    relay_reachability_sha256: str
     fleet: FleetRuntimeEvidence
     services: Mapping[str, ServiceRuntimeIdentity]
     host_adapter_port: int
@@ -132,7 +136,8 @@ class LaneRuntimeAttestation:
             "schema_version": ATTESTATION_SCHEMA,
             "secret_cross_wire_sha256": self.secret_cross_wire_sha256,
             "anchor_container_inventory_sha256": (self.anchor_container_inventory_sha256),
-            "loopback_bindings_sha256": self.loopback_bindings_sha256,
+            "socket_bindings_sha256": self.socket_bindings_sha256,
+            "relay_reachability_sha256": self.relay_reachability_sha256,
             "services": {name: self.services[name].payload() for name in sorted(self.services)},
         }
 
@@ -235,7 +240,7 @@ def attest_runtime_lane(
             anchor_pidns=anchor_pidns,
             proc_root=proc_root,
         )
-        loopback_bindings_sha256 = _attest_loopback_bindings(
+        socket_bindings_sha256 = _attest_socket_bindings(
             proc_root=proc_root,
             anchor_pid=service_identities["publishable-relay-anchor"].pid,
             host_relay_port=config.host_adapter_port,
@@ -293,6 +298,12 @@ def attest_runtime_lane(
     )
     if deployment_after != deployment_before:
         _fail("publishable_attestation_deployment_inputs_changed")
+    try:
+        relay_reachability_sha256 = _attest_relay_reachability(
+            host_relay_port=config.host_adapter_port,
+        )
+    except RuntimeIntegrityError as exc:
+        raise RuntimeAttestationError(str(exc)) from exc
     return LaneRuntimeAttestation(
         project_name=config.project_name,
         compose_sha256=compose_sha256,
@@ -305,7 +316,8 @@ def attest_runtime_lane(
         secret_cross_wire_sha256=secret_cross_wire_sha256,
         deployment_inputs_sha256=deployment_before.commitment_sha256,
         anchor_container_inventory_sha256=container_inventory_sha256,
-        loopback_bindings_sha256=loopback_bindings_sha256,
+        socket_bindings_sha256=socket_bindings_sha256,
+        relay_reachability_sha256=relay_reachability_sha256,
         fleet=fleet,
         services=service_identities,
         host_adapter_port=config.host_adapter_port,

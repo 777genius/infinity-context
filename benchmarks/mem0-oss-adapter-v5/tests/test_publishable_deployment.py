@@ -439,10 +439,44 @@ def test_full_runtime_attestation_binds_image_netns_mount_user_and_port(
         "host_port": config.host_adapter_port,
         "relayed_adapter_port": 19091,
     }
+    assert len(attestation.payload()["relay_reachability_sha256"]) == 64
     path = write_runtime_attestation(attestation, config.paths.attestation_dir)
     assert json.loads(path.read_bytes()) == attestation.payload()
     assert write_runtime_attestation(attestation, config.paths.attestation_dir) == path
     assert any("exec" in call[0] for call in runner.calls)
+
+
+def test_runtime_attestation_rejects_fake_internal_health_when_host_relay_is_unreachable(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    config, proc_root = _config(tmp_path, deployment_dir=DEPLOYMENT)
+    config_file = tmp_path / "lane-config.json"
+    config_file.write_text("fixture")
+    containers, network = _runtime_inventory(config, config_file, proc_root)
+    runner = _RuntimeRunner(config, containers, network)
+    docker = DockerCli(config, config_file=config_file, runner=runner)
+    cached = docker.inspect_cached_images()
+    before = attest_account_i_fence(config.account_i_r16_fence, proc_root=proc_root)
+    deployment_before = _deployment_evidence(config, config_file)
+    _stub_runtime_dependencies(monkeypatch, config, deployment_before)
+
+    def unreachable(**_kwargs: object) -> str:
+        raise runtime_integrity.RuntimeIntegrityError("publishable_attestation_relay_unreachable")
+
+    monkeypatch.setattr(runtime_attestation, "_attest_relay_reachability", unreachable)
+    with pytest.raises(RuntimeAttestationError, match="relay_unreachable"):
+        attest_runtime_lane(
+            config=config,
+            docker=docker,
+            cached_images=cached,
+            account_i_before=before,
+            deployment_before=deployment_before,
+            secret_cross_wire_sha256="f" * 64,
+            fleet_mode="reopen",
+            proc_root=proc_root,
+        )
+    assert any(call[0][3] == "exec" for call in runner.calls)
 
 
 @pytest.mark.parametrize("difference", ["image", "netns", "mount", "user", "port"])
@@ -698,8 +732,13 @@ def _stub_runtime_dependencies(
     )
     monkeypatch.setattr(
         runtime_attestation,
-        "_attest_loopback_bindings",
+        "_attest_socket_bindings",
         lambda *_args, **_kwargs: "a" * 64,
+    )
+    monkeypatch.setattr(
+        runtime_attestation,
+        "_attest_relay_reachability",
+        lambda *_args, **_kwargs: "b" * 64,
     )
     monkeypatch.setattr(
         runtime_attestation,

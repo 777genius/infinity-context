@@ -19,6 +19,7 @@ from .bridge_dispatch import (
     render_upstream_request,
 )
 
+_CONTAINER_INTERFACES = "0.0.0.0"
 _LOOPBACK = "127.0.0.1"
 _LISTEN_PORT = 19_191
 _ADAPTER_PORT = 19_091
@@ -65,7 +66,11 @@ class _RelayServer(socketserver.ThreadingTCPServer):
 
     def __init__(self) -> None:
         self._slots = threading.BoundedSemaphore(_MAX_CONNECTIONS)
-        super().__init__((_LOOPBACK, _LISTEN_PORT), _RelayHandler, bind_and_activate=True)
+        super().__init__(
+            (_CONTAINER_INTERFACES, _LISTEN_PORT),
+            _RelayHandler,
+            bind_and_activate=True,
+        )
 
     def process_request(self, request: socket.socket, client_address: object) -> None:
         if not self._slots.acquire(blocking=False):
