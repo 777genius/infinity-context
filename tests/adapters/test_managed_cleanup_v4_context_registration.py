@@ -18,7 +18,8 @@ from infinity_context_core.features.projection_receipts import (
     ProjectionReceiptError,
     context_authority_registration_sha256,
 )
-from test_projection_result_receipts import V3_AUTHORITY, V3_CONTEXT
+
+from tests.adapters.managed_cleanup_v4_test_support import V3_AUTHORITY, V3_CONTEXT
 
 WHEN = datetime(2026, 8, 9, tzinfo=UTC)
 AUTHENTICATOR = ProjectionReceiptAuthenticator(b"v" * 32)

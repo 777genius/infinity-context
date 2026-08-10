@@ -15,7 +15,8 @@ from infinity_context_core.ports.managed_benchmark_strict_v4_write import (
     ManagedBenchmarkStrictV4WriteError,
 )
 from infinity_context_core.ports.managed_cleanup_v3_contracts import LOCOMO_PROFILE
-from test_managed_cleanup_v3_paged_authority import _context, _operation
+
+from tests.unit.test_managed_cleanup_v3_paged_authority import _context, _operation
 
 
 class _Lookup:
