@@ -16,6 +16,11 @@ from infinity_context_server.features.subscription_runtime_bridge.process_files 
     write_private_json_once,
     write_private_json_replace,
 )
+from infinity_context_server.memory_comparison_publishable_go_readiness import (
+    PublishableExecutionAuthority,
+    PublishableExecutionPolicyError,
+    require_active_publishable_execution_authority,
+)
 from infinity_context_server.processes.publishable_full_extraction_suite import (
     PUBLISHABLE_EXTRACTION_TOTAL_OPERATION_COUNT,
 )
@@ -92,6 +97,7 @@ class PublishableRunOrchestrator:
         if type(config) is not PublishableRunConfig or type(secrets) is not PublishableRunSecrets:
             _fail("publishable_run_orchestrator_inputs_invalid")
         _require_cross_layer_secret_distinctness(secrets)
+        execution_authority = _issue_publishable_execution_authority()
         mode = _open_mode(config)
         prior_receipt = _authenticate_existing_receipt(config=config, secrets=secrets)
         session = self.dependency_factory.open_session(
@@ -129,6 +135,7 @@ class PublishableRunOrchestrator:
                 suite=suite,
                 runtime=runtime,
                 prior_receipt=prior_receipt,
+                execution_authority=execution_authority,
             )
         finally:
             try:
@@ -150,12 +157,14 @@ class PublishableRunOrchestrator:
         suite: SchedulerSuiteAuthority,
         runtime: PublishableRunRuntimeCapabilities,
         prior_receipt: PublishableRunAttestation | None,
+        execution_authority: PublishableExecutionAuthority,
     ) -> PublishableRunAttestation:
         composition = self._open(
             mode=mode,
             prepared=prepared,
             suite=suite,
             runtime=runtime,
+            execution_authority=execution_authority,
         )
         initial_committed = composition.runner.committed_call_count()
         initial_statistics = runtime.bridge_journal.statistics()
@@ -207,6 +216,7 @@ class PublishableRunOrchestrator:
                 runtime=runtime,
                 seal=seal,
                 statistics=statistics,
+                execution_authority=execution_authority,
             )
         return PublishableRunAttestation.create(
             suite_authority_sha256=suite.commitment_sha256,
@@ -240,7 +250,12 @@ class PublishableRunOrchestrator:
         prepared: PreparedPublishableOfficialCases,
         suite: SchedulerSuiteAuthority,
         runtime: PublishableRunRuntimeCapabilities,
+        execution_authority: PublishableExecutionAuthority,
     ) -> PublishableProductionComposition:
+        _require_publishable_execution_authority(
+            execution_authority,
+            suite=suite,
+        )
         return self.composition_opener(
             mode=mode,
             suite=suite,
@@ -268,12 +283,14 @@ class PublishableRunOrchestrator:
         runtime: PublishableRunRuntimeCapabilities,
         seal: SchedulerSuiteSeal,
         statistics: object,
+        execution_authority: PublishableExecutionAuthority,
     ) -> None:
         reopened = self._open(
             mode=PublishableProductionOpenMode.RESUME,
             prepared=prepared,
             suite=suite,
             runtime=runtime,
+            execution_authority=execution_authority,
         )
         step = reopened.runner.run_bounded(max_dispatches=1)
         if (
@@ -288,6 +305,35 @@ class PublishableRunOrchestrator:
             or seal.extraction_operation_count != PUBLISHABLE_SUITE_EXTRACTION_OPERATION_COUNT
         ):
             _fail("publishable_run_exact_reopen_failed")
+
+
+def _issue_publishable_execution_authority() -> PublishableExecutionAuthority:
+    """Reject the active candidate before filesystem or provider capabilities."""
+
+    try:
+        return require_active_publishable_execution_authority(
+            publishable_production_composition.publishable_production_execution_orchestration_authority()
+        )
+    except PublishableExecutionPolicyError:
+        _fail("publishable_run_execution_profile_blocked")
+    except Exception:
+        _fail("publishable_run_execution_profile_blocked")
+
+
+def _require_publishable_execution_authority(
+    authority: PublishableExecutionAuthority,
+    *,
+    suite: SchedulerSuiteAuthority,
+) -> None:
+    """Rebind the admission before every production composition open."""
+
+    try:
+        publishable_production_composition.require_publishable_production_execution_authority(
+            authority,
+            suite=suite,
+        )
+    except Exception:
+        _fail("publishable_run_execution_authority_invalid")
 
 
 def _drive(

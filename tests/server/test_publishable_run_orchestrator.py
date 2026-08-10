@@ -35,6 +35,22 @@ from publishable_run_outer_test_support import (
 )
 
 
+@pytest.fixture(autouse=True)
+def _admitted_execution_contract_test(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Keep lifecycle tests below the separately covered static profile gate."""
+
+    monkeypatch.setattr(
+        orchestrator_module,
+        "_issue_publishable_execution_authority",
+        object,
+    )
+    monkeypatch.setattr(
+        orchestrator_module,
+        "_require_publishable_execution_authority",
+        lambda *_arguments, **_keywords: None,
+    )
+
+
 def test_invalid_adapter_session_is_closed_before_rejection(tmp_path: Path) -> None:
     files = private_run_files(tmp_path)
 

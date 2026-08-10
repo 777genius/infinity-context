@@ -12,6 +12,9 @@ from infinity_context_server.publishable_durable_scheduler import (
     SchedulerStepDisposition,
 )
 from infinity_context_server.publishable_durable_scheduler import publishable_run_cli as cli_module
+from infinity_context_server.publishable_durable_scheduler import (
+    publishable_run_orchestrator as orchestrator_module,
+)
 from infinity_context_server.publishable_durable_scheduler.publishable_run_attestation import (
     PublishableRunAttestation,
     verify_publishable_run_attestation,
@@ -44,6 +47,22 @@ from publishable_run_outer_test_support import (
 )
 
 _CRASHED_PROVIDER_PREFIX = 137
+
+
+@pytest.fixture(autouse=True)
+def _admitted_execution_contract_test(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Exercise CLI lifecycle below the separately covered static profile gate."""
+
+    monkeypatch.setattr(
+        orchestrator_module,
+        "_issue_publishable_execution_authority",
+        object,
+    )
+    monkeypatch.setattr(
+        orchestrator_module,
+        "_require_publishable_execution_authority",
+        lambda *_arguments, **_keywords: None,
+    )
 
 
 def test_cli_crash_restart_and_exact_resume_emit_one_authenticated_public_receipt(

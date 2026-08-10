@@ -19,11 +19,29 @@ from infinity_context_server.features.subscription_runtime_bridge import (
 from infinity_context_server.features.subscription_runtime_bridge.process_contracts import (
     BridgeFleetReadinessReceipt,
 )
+from infinity_context_server.memory_comparison_publishable_go_readiness import (
+    PUBLISHABLE_PRODUCTION_ORCHESTRATION_SCHEMA_VERSION,
+    PublishableExecutionAuthority,
+    PublishableExecutionOrchestrationAuthority,
+    PublishableExecutionPolicyError,
+    require_active_publishable_execution_authority,
+    require_publishable_execution_authority_binding,
+    reviewed_publishable_execution_binding,
+)
+from infinity_context_server.memory_comparison_publishable_methodology import (
+    PUBLISHABLE_PRIORITY_METHODOLOGY_V4_COMMITMENT_SHA256,
+    PUBLISHABLE_PRIORITY_METHODOLOGY_V4_ID,
+)
+from infinity_context_server.memory_comparison_publishable_profile import (
+    PUBLISHABLE_PRIORITY_PROFILE_V4_COMMITMENT_SHA256,
+    PUBLISHABLE_PRIORITY_PROFILE_V4_ID,
+)
 from infinity_context_server.processes.publishable_full_extraction_suite import (
     PublishableExtractionSuiteReadback,
 )
 from infinity_context_server.publishable_durable_scheduler.contracts import (
     SCHEDULER_ORDERED_BACKEND_ROLES,
+    SCHEDULER_PAID_GO_READY,
     SchedulerBackendAuthority,
     SchedulerCallStage,
     SchedulerSuiteAuthority,
@@ -31,6 +49,10 @@ from infinity_context_server.publishable_durable_scheduler.contracts import (
 )
 from infinity_context_server.publishable_durable_scheduler.runner_contracts import (
     RUNNER_PAGE_SIZE,
+    SCHEDULER_PRODUCTION_BRIDGE_ADAPTER_READY,
+    SCHEDULER_RUNNER_PAID_GO_READY,
+    SCHEDULER_RUNNER_PUBLISHABLE,
+    SCHEDULER_RUNNER_READINESS_BLOCKERS,
     SchedulerRunnerError,
     SchedulerRunStoreSpec,
     SchedulerSuiteSealStoreSpec,
@@ -39,6 +61,9 @@ from infinity_context_server.publishable_durable_scheduler.runner_contracts impo
 from infinity_context_server.publishable_durable_scheduler.runner_request_composition import (
     SchedulerOfficialCaseReaderPort,
     SchedulerRetrievalEvidenceReaderPort,
+)
+from infinity_context_server.publishable_durable_scheduler.sqlite_contracts import (
+    SQLITE_SCHEDULER_PAID_GO_READY,
 )
 from infinity_context_server.publishable_durable_scheduler.sqlite_store import (
     SQLiteDurableSchedulerStore,
@@ -69,6 +94,74 @@ PUBLISHABLE_PRODUCTION_COMPOSITION_SCHEMA = (
 PUBLISHABLE_PRODUCTION_RUNTIME_PROVENANCE_SCHEMA = (
     "memory-comparison-publishable-production-runtime-provenance.v1"
 )
+
+
+def publishable_production_execution_orchestration_authority() -> (
+    PublishableExecutionOrchestrationAuthority
+):
+    """Commit every static paid-execution fact exposed by this composition."""
+
+    return PublishableExecutionOrchestrationAuthority(
+        schema_version=PUBLISHABLE_PRODUCTION_COMPOSITION_SCHEMA,
+        profile_id=PUBLISHABLE_PRIORITY_PROFILE_V4_ID,
+        profile_commitment_sha256=PUBLISHABLE_PRIORITY_PROFILE_V4_COMMITMENT_SHA256,
+        methodology_id=PUBLISHABLE_PRIORITY_METHODOLOGY_V4_ID,
+        methodology_commitment_sha256=(PUBLISHABLE_PRIORITY_METHODOLOGY_V4_COMMITMENT_SHA256),
+        scheduler_paid_go_ready=SCHEDULER_PAID_GO_READY,
+        runner_paid_go_ready=SCHEDULER_RUNNER_PAID_GO_READY,
+        durable_store_paid_go_ready=SQLITE_SCHEDULER_PAID_GO_READY,
+        production_bridge_adapter_ready=SCHEDULER_PRODUCTION_BRIDGE_ADAPTER_READY,
+        publishable=SCHEDULER_RUNNER_PUBLISHABLE,
+        readiness_blockers=SCHEDULER_RUNNER_READINESS_BLOCKERS,
+    )
+
+
+def require_publishable_production_execution_authority(
+    authority: PublishableExecutionAuthority,
+    *,
+    suite: SchedulerSuiteAuthority,
+) -> None:
+    """Recompute and bind one static admission to the exact production suite."""
+
+    try:
+        if (
+            PUBLISHABLE_PRODUCTION_COMPOSITION_SCHEMA
+            != PUBLISHABLE_PRODUCTION_ORCHESTRATION_SCHEMA_VERSION
+            or type(suite) is not SchedulerSuiteAuthority
+        ):
+            raise TypeError
+        orchestration = publishable_production_execution_orchestration_authority()
+        active_authority = require_active_publishable_execution_authority(orchestration)
+        require_publishable_execution_authority_binding(
+            authority,
+            orchestration=orchestration,
+            review=reviewed_publishable_execution_binding(),
+            suite_methodology_sha256=suite.methodology_sha256,
+        )
+        if authority.commitment_sha256 != active_authority.commitment_sha256:
+            raise TypeError
+    except PublishableExecutionPolicyError:
+        _fail("publishable_production_execution_authority_invalid")
+    except Exception:
+        _fail("publishable_production_execution_authority_invalid")
+
+
+def _require_active_publishable_production_execution(
+    suite: SchedulerSuiteAuthority,
+) -> None:
+    """Recompute static readiness at the non-bypassable composition root."""
+
+    try:
+        orchestration = publishable_production_execution_orchestration_authority()
+        authority = require_active_publishable_execution_authority(orchestration)
+        require_publishable_execution_authority_binding(
+            authority,
+            orchestration=orchestration,
+            review=reviewed_publishable_execution_binding(),
+            suite_methodology_sha256=suite.methodology_sha256,
+        )
+    except Exception:
+        _fail("publishable_production_execution_authority_invalid")
 
 
 class PublishableProductionOpenMode(StrEnum):
@@ -299,6 +392,7 @@ def open_publishable_production_composition(
     bridge journal in pages capped by ``RUNNER_PAGE_SIZE``.
     """
 
+    _require_active_publishable_production_execution(suite)
     if (
         type(mode) is not PublishableProductionOpenMode
         or type(suite) is not SchedulerSuiteAuthority
@@ -566,4 +660,6 @@ __all__ = (
     "PublishableProductionRuntimeProvenance",
     "build_publishable_production_runtime_provenance",
     "open_publishable_production_composition",
+    "publishable_production_execution_orchestration_authority",
+    "require_publishable_production_execution_authority",
 )
