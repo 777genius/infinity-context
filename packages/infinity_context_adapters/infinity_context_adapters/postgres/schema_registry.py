@@ -11,6 +11,8 @@ _SCHEMA_MODULES = (
     "infinity_context_adapters.postgres.feature_models",
     "infinity_context_adapters.postgres.temporal_models",
     "infinity_context_adapters.postgres.outbox_models",
+    "infinity_context_adapters.postgres.projection_receipt_models",
+    "infinity_context_adapters.postgres.strict_v4_preparation_models",
 )
 
 

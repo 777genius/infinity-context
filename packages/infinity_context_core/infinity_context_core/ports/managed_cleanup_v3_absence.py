@@ -16,11 +16,11 @@ from infinity_context_core.ports.managed_cleanup_v3_recovery import (
     ManagedCleanupV3InventoryTerminal,
 )
 
-ABSENCE_PASS_SCHEMA: Final = "memory-comparison-paged-cleanup-absence-pass.v3"
-DELETION_RECEIPT_SCHEMA: Final = "memory-comparison-paged-cleanup-deletion-receipt.v3"
-TERMINAL_EVIDENCE_SCHEMA: Final = "memory-comparison-paged-cleanup-terminal-evidence.v3"
-EMPTY_EXHAUSTIVE_SCAN_ROOT_SHA256: Final = commitment("absence-empty-scan/v3", [])
-EMPTY_GLOBAL_READBACK_ROOT_SHA256: Final = commitment("absence-empty-global/v3", [])
+ABSENCE_PASS_SCHEMA: Final = "memory-comparison-paged-cleanup-absence-pass.v4"
+DELETION_RECEIPT_SCHEMA: Final = "memory-comparison-paged-cleanup-deletion-receipt.v4"
+TERMINAL_EVIDENCE_SCHEMA: Final = "memory-comparison-paged-cleanup-terminal-evidence.v4"
+EMPTY_EXHAUSTIVE_SCAN_ROOT_SHA256: Final = commitment("absence-empty-scan/v4", [])
+EMPTY_GLOBAL_READBACK_ROOT_SHA256: Final = commitment("absence-empty-global/v4", [])
 
 
 @final
@@ -56,7 +56,7 @@ class ManagedCleanupV3DeletionReceipt:
         if (
             self.schema_version != DELETION_RECEIPT_SCHEMA
             or self.lane not in {"qdrant", "graphiti"}
-            or self.receipt_sha256 != commitment("deletion-receipt/v3", body)
+            or self.receipt_sha256 != commitment("deletion-receipt/v4", body)
         ):
             raise ManagedCleanupV3Error("managed_cleanup_v3_deletion_receipt_invalid")
 
@@ -122,7 +122,7 @@ class ManagedCleanupV3AbsencePass:
             or self.global_expected_readback_count != 0
             or self.global_expected_readback_root_sha256 != EMPTY_GLOBAL_READBACK_ROOT_SHA256
             or self.unknown_foreign_malformed_count != 0
-            or self.pass_sha256 != commitment("absence-pass/v3", body)
+            or self.pass_sha256 != commitment("absence-pass/v4", body)
         ):
             raise ManagedCleanupV3Error("managed_cleanup_v3_absence_pass_invalid")
 
@@ -240,7 +240,7 @@ class ManagedCleanupV3TerminalEvidence:
                 inventory=self.inventory,
             )
             or len({item.fresh_snapshot_nonce_sha256 for item in passes}) != 4
-            or self.terminal_sha256 != commitment("terminal-evidence/v3", body)
+            or self.terminal_sha256 != commitment("terminal-evidence/v4", body)
         ):
             raise ManagedCleanupV3Error("managed_cleanup_v3_terminal_evidence_invalid")
 

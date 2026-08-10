@@ -46,6 +46,7 @@ async def upgrade_schema(engine: AsyncEngine) -> SchemaUpgradeResult:
         raise RuntimeError("Versioned schema upgrade requires PostgreSQL")
     migrations = _load_migrations()
     async with engine.begin() as connection:
+        await connection.execute(text("SET LOCAL search_path = public, pg_catalog"))
         await connection.execute(text(f"SELECT pg_advisory_xact_lock({_ADVISORY_LOCK_ID})"))
         await _ensure_history_table(connection)
         applied_history = await _load_history(connection)

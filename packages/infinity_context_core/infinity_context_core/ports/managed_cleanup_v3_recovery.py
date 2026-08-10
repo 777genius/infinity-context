@@ -14,14 +14,14 @@ from infinity_context_core.ports.managed_cleanup_v3_contracts import (
 )
 
 INVENTORY_PAGE_SIZE: Final = 512
-INVENTORY_CURSOR_SCHEMA: Final = "memory-comparison-paged-cleanup-inventory-cursor.v3"
-INVENTORY_PAGE_SCHEMA: Final = "memory-comparison-paged-cleanup-inventory-page.v3"
-INVENTORY_TERMINAL_SCHEMA: Final = "memory-comparison-paged-cleanup-inventory-terminal.v3"
-ABSENCE_PASS_SCHEMA: Final = "memory-comparison-paged-cleanup-absence-pass.v3"
-DELETION_RECEIPT_SCHEMA: Final = "memory-comparison-paged-cleanup-deletion-receipt.v3"
-TERMINAL_EVIDENCE_SCHEMA: Final = "memory-comparison-paged-cleanup-terminal-evidence.v3"
-EMPTY_EXHAUSTIVE_SCAN_ROOT_SHA256: Final = commitment("absence-empty-scan/v3", [])
-EMPTY_GLOBAL_READBACK_ROOT_SHA256: Final = commitment("absence-empty-global/v3", [])
+INVENTORY_CURSOR_SCHEMA: Final = "memory-comparison-paged-cleanup-inventory-cursor.v4"
+INVENTORY_PAGE_SCHEMA: Final = "memory-comparison-paged-cleanup-inventory-page.v4"
+INVENTORY_TERMINAL_SCHEMA: Final = "memory-comparison-paged-cleanup-inventory-terminal.v4"
+ABSENCE_PASS_SCHEMA: Final = "memory-comparison-paged-cleanup-absence-pass.v4"
+DELETION_RECEIPT_SCHEMA: Final = "memory-comparison-paged-cleanup-deletion-receipt.v4"
+TERMINAL_EVIDENCE_SCHEMA: Final = "memory-comparison-paged-cleanup-terminal-evidence.v4"
+EMPTY_EXHAUSTIVE_SCAN_ROOT_SHA256: Final = commitment("absence-empty-scan/v4", [])
+EMPTY_GLOBAL_READBACK_ROOT_SHA256: Final = commitment("absence-empty-global/v4", [])
 INVENTORY_KINDS: Final = (
     "memory_scopes",
     "memory_threads",
@@ -66,7 +66,7 @@ class ManagedCleanupV3InventoryCursor:
         if (
             self.schema_version != INVENTORY_CURSOR_SCHEMA
             or self.kind not in INVENTORY_KINDS
-            or self.cursor_sha256 != commitment("inventory-cursor/v3", body)
+            or self.cursor_sha256 != commitment("inventory-cursor/v4", body)
         ):
             raise ManagedCleanupV3Error("managed_cleanup_v3_inventory_cursor_invalid")
 
@@ -151,7 +151,7 @@ class ManagedCleanupV3InventoryPage:
                     or self.output_cursor.last_canonical_key_sha256 != keys[-1]
                 )
             )
-            or self.page_sha256 != commitment("inventory-page/v3", body)
+            or self.page_sha256 != commitment("inventory-page/v4", body)
         ):
             raise ManagedCleanupV3Error("managed_cleanup_v3_inventory_page_invalid")
 
@@ -245,7 +245,7 @@ class ManagedCleanupV3InventoryTerminal:
             or tuple(item.row_count for item in receipts) != expected_counts
             or self.expected_qdrant_identity_count != chunks
             or self.expected_graphiti_identity_count != facts
-            or self.terminal_sha256 != commitment("inventory-terminal/v3", body)
+            or self.terminal_sha256 != commitment("inventory-terminal/v4", body)
         ):
             raise ManagedCleanupV3Error("managed_cleanup_v3_inventory_terminal_invalid")
 

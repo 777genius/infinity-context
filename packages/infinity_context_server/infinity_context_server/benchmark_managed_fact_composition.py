@@ -7,6 +7,9 @@ from infinity_context_core.application.benchmark_managed_write_admission import 
     ManagedBenchmarkFactMutationBlocker,
     ManagedBenchmarkRememberFactAdmission,
 )
+from infinity_context_core.ports.managed_benchmark_strict_v4_write import (
+    ManagedBenchmarkStrictV4FactAuthorityPort,
+)
 
 
 def build_managed_memory_fact_use_cases(
@@ -15,6 +18,7 @@ def build_managed_memory_fact_use_cases(
     memory_fact_uow_factory: object,
     clock: object,
     ids: object,
+    strict_v4_fact_authority: ManagedBenchmarkStrictV4FactAuthorityPort | None = None,
 ) -> tuple[
     memory_facts_feature.MemoryFactLifecycleUseCases,
     memory_facts_feature.MemoryFactTemporalUseCases,
@@ -22,6 +26,7 @@ def build_managed_memory_fact_use_cases(
     lifecycle = memory_facts_feature.MemoryFactLifecycleUseCases(
         remember_fact=ManagedBenchmarkRememberFactAdmission(
             uow_factory=benchmark_uow_factory,
+            strict_v4_authority=strict_v4_fact_authority,
             inner=memory_facts_feature.RememberFactHandler(
                 uow_factory=memory_fact_uow_factory,
                 clock=clock,

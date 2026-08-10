@@ -6,17 +6,15 @@ import hashlib
 from dataclasses import dataclass
 from typing import final
 
-from infinity_context_core.application.document_fragments import (
-    DocumentFragment,
-    fragment_document_text,
-)
+from infinity_context_core.application.document_fragments import fragment_document_text
 from infinity_context_core.ports.benchmark_managed_ingest import (
-    managed_benchmark_document_fragment_descriptor,
-    managed_benchmark_document_operation_material,
-    managed_benchmark_fact_operation_material,
-    managed_benchmark_fact_source_ref_descriptor,
     managed_benchmark_infinity_operation_sha256,
-    managed_benchmark_text_sha256,
+)
+from infinity_context_core.ports.managed_cleanup_v3_contracts import (
+    memory_scope_external_ref_sha256 as cleanup_v4_scope_external_ref_sha256,
+)
+from infinity_context_core.ports.managed_cleanup_v3_contracts import (
+    thread_external_ref_sha256 as cleanup_v4_thread_external_ref_sha256,
 )
 
 from infinity_context_server.memory_comparison_canonical_source_hash import (
@@ -25,18 +23,17 @@ from infinity_context_server.memory_comparison_canonical_source_hash import (
 )
 from infinity_context_server.memory_comparison_conversation_ingestion import (
     conversation_documents,
-    sanitize_source_refs,
 )
-from infinity_context_server.memory_comparison_http_ingest_request import source_reference_payload
 from infinity_context_server.memory_comparison_managed_corpus_projection import (
     _reconstruct_managed_corpus_case,
 )
 from infinity_context_server.memory_comparison_managed_plan_builder import (
     ManagedPublicRunProjection,
 )
-from infinity_context_server.public_benchmark_models import (
-    BenchmarkDocumentInput,
-    BenchmarkMemoryInput,
+from infinity_context_server.memory_comparison_managed_v5_operation_material import (
+    managed_v5_infinity_document_operation_material,
+    managed_v5_infinity_fact_operation_material,
+    managed_v5_infinity_fragment_descriptor,
 )
 
 
@@ -71,8 +68,11 @@ class ManagedV5InfinitySourceDescriptor:
 @dataclass(frozen=True, slots=True)
 class ManagedV5InfinityCorpusCleanupProjection:
     corpus_id: str
+    thread_external_ref: str
     scope_external_ref_sha256: str
     thread_external_ref_sha256: str
+    cleanup_v4_scope_external_ref_sha256: str
+    cleanup_v4_thread_external_ref_sha256: str
     sources: tuple[ManagedV5InfinitySourceDescriptor, ...]
 
     def __post_init__(self) -> None:
@@ -82,8 +82,14 @@ class ManagedV5InfinityCorpusCleanupProjection:
         if (
             type(self.corpus_id) is not str
             or not self.corpus_id
+            or type(self.thread_external_ref) is not str
+            or not self.thread_external_ref
             or self.scope_external_ref_sha256 != _text_sha(self.corpus_id)
-            or not _sha(self.thread_external_ref_sha256)
+            or self.thread_external_ref_sha256 != _text_sha(self.thread_external_ref)
+            or self.cleanup_v4_scope_external_ref_sha256
+            != cleanup_v4_scope_external_ref_sha256(self.corpus_id)
+            or self.cleanup_v4_thread_external_ref_sha256
+            != cleanup_v4_thread_external_ref_sha256(self.thread_external_ref)
             or type(self.sources) is not tuple
             or not self.sources
             or any(type(item) is not ManagedV5InfinitySourceDescriptor for item in self.sources)
@@ -151,7 +157,7 @@ def project_managed_v5_infinity_cleanup(
 
     if type(projection) is not ManagedPublicRunProjection:
         _fail("managed_v5_infinity_cleanup_projection_invalid")
-    by_corpus: dict[str, tuple[str, tuple[ManagedV5InfinitySourceDescriptor, ...]]] = {}
+    by_corpus: dict[str, tuple[str, str, tuple[ManagedV5InfinitySourceDescriptor, ...]]] = {}
     order: list[str] = []
     for case in projection.cases:
         try:
@@ -205,7 +211,7 @@ def project_managed_v5_infinity_cleanup(
         if rebuilt.memory_scope_external_ref != case.corpus_id:
             _fail("managed_v5_infinity_cleanup_scope_mismatch")
         thread_sha = _text_sha(rebuilt.thread_external_ref)
-        current = (thread_sha, sources)
+        current = (rebuilt.thread_external_ref, thread_sha, sources)
         existing = by_corpus.get(case.corpus_id)
         if existing is None:
             by_corpus[case.corpus_id] = current
@@ -215,7 +221,15 @@ def project_managed_v5_infinity_cleanup(
     return ManagedV5InfinityCleanupProjection(
         tuple(
             ManagedV5InfinityCorpusCleanupProjection(
-                key, _text_sha(key), by_corpus[key][0], by_corpus[key][1]
+                corpus_id=key,
+                thread_external_ref=by_corpus[key][0],
+                scope_external_ref_sha256=_text_sha(key),
+                thread_external_ref_sha256=by_corpus[key][1],
+                cleanup_v4_scope_external_ref_sha256=(cleanup_v4_scope_external_ref_sha256(key)),
+                cleanup_v4_thread_external_ref_sha256=(
+                    cleanup_v4_thread_external_ref_sha256(by_corpus[key][0])
+                ),
+                sources=by_corpus[key][2],
             )
             for key in order
         )
@@ -224,61 +238,6 @@ def project_managed_v5_infinity_cleanup(
 
 def _text_sha(value: str) -> str:
     return hashlib.sha256(value.encode("utf-8")).hexdigest()
-
-
-def managed_v5_infinity_fact_operation_material(
-    memory: BenchmarkMemoryInput,
-) -> dict[str, object]:
-    identity = memory_source_hash(memory)
-    source_ref = source_reference_payload(
-        source_type="memory_comparison_benchmark",
-        source_id=identity.source_id,
-        quote_preview=memory.text,
-    )
-    return managed_benchmark_fact_operation_material(
-        source_external_id_sha256=_text_sha(identity.source_id),
-        content_sha256=identity.source_sha256,
-        kind=memory.kind,
-        classification="internal",
-        source_refs=(
-            managed_benchmark_fact_source_ref_descriptor(
-                source_type=str(source_ref["source_type"]),
-                source_id=str(source_ref["source_id"]),
-                quote_preview=str(source_ref["quote_preview"]),
-            ),
-        ),
-    )
-
-
-def managed_v5_infinity_document_operation_material(
-    document: BenchmarkDocumentInput,
-    *,
-    fragments: tuple[DocumentFragment, ...] | None = None,
-) -> dict[str, object]:
-    identity = document_source_hash(document)
-    rendered = fragment_document_text(document.text) if fragments is None else fragments
-    return managed_benchmark_document_operation_material(
-        source_external_id_sha256=_text_sha(identity.source_id),
-        content_sha256=identity.source_sha256,
-        title_sha256=managed_benchmark_text_sha256(document.title),
-        source_type=document.source_type,
-        classification=document.classification,
-        fragments=tuple(managed_v5_infinity_fragment_descriptor(item) for item in rendered),
-        source_refs=tuple(sanitize_source_refs(document.source_refs)),
-    )
-
-
-def managed_v5_infinity_fragment_descriptor(fragment: DocumentFragment) -> dict[str, object]:
-    return managed_benchmark_document_fragment_descriptor(
-        sequence=fragment.sequence,
-        char_start=fragment.char_start,
-        char_end=fragment.char_end,
-        kind=fragment.kind.value,
-        text=fragment.text,
-        node_kind=fragment.node_kind,
-        heading=fragment.heading,
-        ordinal_in_heading=fragment.ordinal_in_heading,
-    )
 
 
 def _sha(value: object) -> bool:

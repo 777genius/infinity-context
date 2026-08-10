@@ -26,6 +26,11 @@ from infinity_context_core.ports.managed_cleanup_v3_contracts import (
     build_context,
     canonical_bytes,
     commitment,
+    corpus_identity_sha256,
+    fragment_commitments,
+    memory_scope_external_ref_sha256,
+    source_ref_commitments,
+    thread_external_ref_sha256,
 )
 from infinity_context_core.ports.managed_cleanup_v3_inventory_verifier import (
     ManagedCleanupV3InventoryStreamVerifier,
@@ -93,7 +98,7 @@ def _context(profile_id: str):
         space_slug="benchmark-space-" + "a" * 48,
         cleanup_target_authority_sha256=_sha("cleanup-target"),
         qdrant_authority_sha256=commitment(
-            "lane-authority/v3",
+            "lane-authority/v4",
             {
                 "lane": "qdrant",
                 "target_commitment_sha256": q_target,
@@ -103,7 +108,7 @@ def _context(profile_id: str):
         qdrant_target_commitment_sha256=q_target,
         qdrant_policy_commitment_sha256=q_policy,
         graphiti_authority_sha256=commitment(
-            "lane-authority/v3",
+            "lane-authority/v4",
             {
                 "lane": "graphiti",
                 "target_commitment_sha256": g_target,
@@ -122,35 +127,82 @@ def _context(profile_id: str):
 
 
 def _operation(profile_id: str, sequence: int) -> ManagedCleanupV3Operation:
+    operation_count = int(PROFILE_ORACLES[profile_id]["operation_count"])
+    corpus_count = int(PROFILE_ORACLES[profile_id]["corpus_count"])
+    corpus_index = sequence * corpus_count // operation_count
     if profile_id == LOCOMO_PROFILE:
-        lane, messages, fragments, pair = "fact", 1, (), None
+        lane, messages, fragment_material, pair = "fact", 1, (), None
+        source_refs = (
+            {
+                "source_type": "locomo",
+                "source_id_sha256": _sha(("fact-source-ref", sequence)),
+            },
+        )
     else:
         lane = "document"
         messages = 2 if sequence < 122_394 else 1
         count = 3 if sequence < 117_752 else 2
-        fragments = tuple(_sha(("fragment", sequence, index)) for index in range(count))
+        fragment_material = tuple(
+            {
+                "sequence": index,
+                "text_sha256": _sha(("fragment", sequence, index)),
+                "char_start": index * 10,
+                "char_end": index * 10 + 10,
+                "kind": "conversation",
+                "node_kind": "paragraph",
+            }
+            for index in range(count)
+        )
         pair = _sha(("original-pair", sequence))
+        source_refs = tuple(
+            {
+                "source_type": "longmemeval",
+                "source_id_sha256": _sha(("source-ref", sequence, index)),
+                "ordinal": index,
+            }
+            for index in range(messages + 2)
+        )
+    source_refs_sha, source_ref_descriptors, source_ref_root = source_ref_commitments(source_refs)
+    fragments_sha, fragments, fragment_root = fragment_commitments(fragment_material)
+    scope_sha = memory_scope_external_ref_sha256(f"benchmark-corpus:{corpus_index}")
+    thread_sha = thread_external_ref_sha256(f"benchmark-thread:{corpus_index}")
     body = {
-        "schema_version": "memory-comparison-paged-cleanup-operation.v3",
+        "schema_version": "memory-comparison-paged-cleanup-operation.v4",
         "sequence": sequence,
         "lane": lane,
-        "corpus_identity_sha256": _sha(("corpus", sequence // 256)),
+        "corpus_identity_sha256": corpus_identity_sha256(
+            lane=lane,
+            memory_scope_external_ref_sha256=scope_sha,
+            thread_external_ref_sha256=thread_sha,
+        ),
+        "memory_scope_external_ref_sha256": scope_sha,
+        "thread_external_ref_sha256": thread_sha,
         "source_identity_sha256": _sha(("source", sequence)),
         "source_content_sha256": _sha(("content", sequence)),
         "operation_commitment_sha256": _sha(("infinity-operation", sequence)),
         "a1_operation_sha256": _sha(("a1-operation", sequence)),
         "original_pair_identity_sha256": pair,
         "valid_message_count": messages,
+        "source_refs_sha256": source_refs_sha,
+        "ordered_source_ref_descriptor_sha256": list(source_ref_descriptors),
+        "source_ref_root_sha256": source_ref_root,
+        "fragments_sha256": fragments_sha,
         "ordered_fragment_descriptor_sha256": list(fragments),
-        "fragment_root_sha256": commitment("fragment-root/v1", list(fragments)),
+        "fragment_root_sha256": fragment_root,
     }
     return ManagedCleanupV3Operation(
         **{
-            key: tuple(value) if key == "ordered_fragment_descriptor_sha256" else value
+            key: tuple(value)
+            if key
+            in {
+                "ordered_source_ref_descriptor_sha256",
+                "ordered_fragment_descriptor_sha256",
+            }
+            else value
             for key, value in body.items()
             if key != "schema_version"
         },
-        operation_sha256=commitment("operation/v3", body),
+        operation_sha256=commitment("operation/v4", body),
     )
 
 
@@ -162,11 +214,17 @@ def _wrong_source_operation(profile_id: str, sequence: int) -> ManagedCleanupV3O
     body["source_content_sha256"] = _sha("wrong-source")
     return ManagedCleanupV3Operation(
         **{
-            key: tuple(value) if key == "ordered_fragment_descriptor_sha256" else value
+            key: tuple(value)
+            if key
+            in {
+                "ordered_source_ref_descriptor_sha256",
+                "ordered_fragment_descriptor_sha256",
+            }
+            else value
             for key, value in body.items()
             if key != "schema_version"
         },
-        operation_sha256=commitment("operation/v3", body),
+        operation_sha256=commitment("operation/v4", body),
     )
 
 
@@ -260,7 +318,7 @@ class _Stage:
         assert len(self.claimed) == self.expected
         self.published = tuple(self.page_sha)
         body = {
-            "schema_version": "memory-comparison-paged-cleanup-store-receipt.v3",
+            "schema_version": "memory-comparison-paged-cleanup-store-receipt.v4",
             "context_sha256": self.context,
             "terminal_commitment_sha256": authority.terminal_commitment_sha256,
             "page_count": authority.page_count,
@@ -271,7 +329,7 @@ class _Stage:
             terminal_commitment_sha256=authority.terminal_commitment_sha256,
             page_count=authority.page_count,
             committed=True,
-            receipt_sha256=commitment("store-receipt/v3", body),
+            receipt_sha256=commitment("store-receipt/v4", body),
         )
         if self.lose_commit_response:
             self.lose_commit_response = False
@@ -321,10 +379,103 @@ def test_full_profile_streams_are_exact_and_bounded(
     assert authority.operation_count == count
     assert authority.page_count >= expected_pages
     assert authority.fragment_count == int(PROFILE_ORACLES[profile_id]["fragment_count"])
+    assert authority.corpus_thread_identity_count == int(
+        PROFILE_ORACLES[profile_id]["corpus_count"]
+    )
+    assert authority.document_source_ref_count == int(
+        PROFILE_ORACLES[profile_id]["document_source_ref_count"]
+    )
     assert authority.valid_message_count == int(PROFILE_ORACLES[profile_id]["valid_message_count"])
     assert receipt.committed is True
     assert store.stage.published == authority.ordered_page_sha256
     assert store.stage.max_page_bytes <= PAGE_CANONICAL_BYTES_CAP
+    with pytest.raises(ManagedCleanupV3Error, match="authority_invalid"):
+        replace(
+            authority,
+            schema_version="memory-comparison-paged-cleanup-authority.v3",
+        )
+
+
+def test_thread_and_exact_document_source_ref_material_are_terminal_bound() -> None:
+    operation = _operation(LONGMEMEVAL_PROFILE, 0)
+    assert len(operation.ordered_source_ref_descriptor_sha256) == 4
+    assert operation.source_ref_root_sha256 == commitment(
+        "source-ref-root/v4", list(operation.ordered_source_ref_descriptor_sha256)
+    )
+    with pytest.raises(ManagedCleanupV3Error, match="operation_invalid"):
+        replace(operation, ordered_source_ref_descriptor_sha256=(_sha("missing"),))
+    with pytest.raises(ManagedCleanupV3Error, match="operation_invalid"):
+        replace(operation, thread_external_ref_sha256=_sha("other-thread"))
+
+
+def test_hash_only_source_ref_commitments_preserve_exact_order() -> None:
+    first = {"source_type": "pair", "source_id_sha256": _sha("pair")}
+    second = {"source_type": "session", "source_id_sha256": _sha("session")}
+    forward = source_ref_commitments((first, second))
+    reverse = source_ref_commitments((second, first))
+
+    assert forward != reverse
+    assert len(forward[1]) == 2
+    assert "canonical_json" not in _operation(LONGMEMEVAL_PROFILE, 0).payload()
+
+
+def test_operation_rejects_boolean_valid_message_count() -> None:
+    operation = _operation(LOCOMO_PROFILE, 0)
+    body = operation.payload(False)
+    body["valid_message_count"] = True
+
+    with pytest.raises(ManagedCleanupV3Error, match="count_invalid"):
+        ManagedCleanupV3Operation(
+            **{
+                key: tuple(value)
+                if key
+                in {
+                    "ordered_source_ref_descriptor_sha256",
+                    "ordered_fragment_descriptor_sha256",
+                }
+                else value
+                for key, value in body.items()
+                if key != "schema_version"
+            },
+            operation_sha256=commitment("operation/v4", body),
+        )
+
+
+def test_corpus_identity_rejects_divergent_thread() -> None:
+    context = _context(LOCOMO_PROFILE)
+
+    def operations():
+        for index in range(5_882):
+            operation = _operation(LOCOMO_PROFILE, index)
+            if index == 1:
+                body = operation.payload(False)
+                body["thread_external_ref_sha256"] = _sha("divergent-thread")
+                yield ManagedCleanupV3Operation(
+                    **{
+                        key: tuple(value)
+                        if key
+                        in {
+                            "ordered_source_ref_descriptor_sha256",
+                            "ordered_fragment_descriptor_sha256",
+                        }
+                        else value
+                        for key, value in body.items()
+                        if key != "schema_version"
+                    },
+                    operation_sha256=commitment("operation/v4", body),
+                )
+            else:
+                yield operation
+
+    store = _Store()
+    with pytest.raises(ManagedCleanupV3Error, match="operation_invalid"):
+        build_managed_cleanup_v3_authority(
+            context=context,
+            operations=operations(),
+            a1_authority=_a1_authority(context, 5_882),
+            store=store,
+        )
+    assert store.stage.published == ()
 
 
 def test_late_count_reorder_duplicate_and_a1_tamper_abort_unpublished() -> None:
@@ -402,7 +553,7 @@ def _inventory(context):
         for kind, count in zip(INVENTORY_KINDS, counts, strict=True)
     )
     values = {
-        "schema_version": "memory-comparison-paged-cleanup-inventory-terminal.v3",
+        "schema_version": "memory-comparison-paged-cleanup-inventory-terminal.v4",
         "profile_id": context.profile_id,
         "context_sha256": context.context_sha256,
         "authority_terminal_sha256": _sha("authority"),
@@ -426,7 +577,7 @@ def _inventory(context):
             if key not in {"schema_version", "kind_receipts"}
         },
         kind_receipts=receipts,
-        terminal_sha256=commitment("inventory-terminal/v3", values),
+        terminal_sha256=commitment("inventory-terminal/v4", values),
     )
 
 
@@ -447,7 +598,7 @@ def _absence(
         target = context.graphiti_target_commitment_sha256
         policy = context.graphiti_policy_commitment_sha256
     body = {
-        "schema_version": "memory-comparison-paged-cleanup-absence-pass.v3",
+        "schema_version": "memory-comparison-paged-cleanup-absence-pass.v4",
         "lane": lane,
         "pass_index": index,
         "authority_terminal_sha256": _sha("authority"),
@@ -469,7 +620,7 @@ def _absence(
     }
     return ManagedCleanupV3AbsencePass(
         **{key: value for key, value in body.items() if key != "schema_version"},
-        pass_sha256=commitment("absence-pass/v3", body),
+        pass_sha256=commitment("absence-pass/v4", body),
     )
 
 
@@ -482,7 +633,7 @@ def _deletion(lane: str, inventory):
         secondary = inventory.expected_graphiti_uuid_root_sha256
         count = inventory.expected_graphiti_identity_count
     body = {
-        "schema_version": "memory-comparison-paged-cleanup-deletion-receipt.v3",
+        "schema_version": "memory-comparison-paged-cleanup-deletion-receipt.v4",
         "lane": lane,
         "authority_terminal_sha256": _sha("authority"),
         "inventory_terminal_sha256": inventory.terminal_sha256,
@@ -494,7 +645,7 @@ def _deletion(lane: str, inventory):
     }
     return ManagedCleanupV3DeletionReceipt(
         **{key: value for key, value in body.items() if key != "schema_version"},
-        receipt_sha256=commitment("deletion-receipt/v3", body),
+        receipt_sha256=commitment("deletion-receipt/v4", body),
     )
 
 
@@ -502,7 +653,7 @@ def test_inventory_cursor_and_two_fresh_pass_chain_are_exact() -> None:
     context = _context(LOCOMO_PROFILE)
     inventory = _inventory(context)
     cursor_body = {
-        "schema_version": "memory-comparison-paged-cleanup-inventory-cursor.v3",
+        "schema_version": "memory-comparison-paged-cleanup-inventory-cursor.v4",
         "snapshot_sha256": _sha("snapshot"),
         "kind": "chunks",
         "last_canonical_key_sha256": _sha("last"),
@@ -510,10 +661,10 @@ def test_inventory_cursor_and_two_fresh_pass_chain_are_exact() -> None:
     }
     cursor = ManagedCleanupV3InventoryCursor(
         **{key: value for key, value in cursor_body.items() if key != "schema_version"},
-        cursor_sha256=commitment("inventory-cursor/v3", cursor_body),
+        cursor_sha256=commitment("inventory-cursor/v4", cursor_body),
     )
     page_body = {
-        "schema_version": "memory-comparison-paged-cleanup-inventory-page.v3",
+        "schema_version": "memory-comparison-paged-cleanup-inventory-page.v4",
         "authority_terminal_sha256": _sha("authority"),
         "snapshot_sha256": _sha("snapshot"),
         "kind": "chunks",
@@ -538,7 +689,7 @@ def test_inventory_cursor_and_two_fresh_pass_chain_are_exact() -> None:
         ordered_primary_target_identity_sha256=(),
         ordered_secondary_target_identity_sha256=(),
         exhausted=False,
-        page_sha256=commitment("inventory-page/v3", page_body),
+        page_sha256=commitment("inventory-page/v4", page_body),
     )
     q1 = _absence("qdrant", 1, context, inventory)
     q2 = _absence("qdrant", 2, context, inventory, q1.pass_sha256)
@@ -547,7 +698,7 @@ def test_inventory_cursor_and_two_fresh_pass_chain_are_exact() -> None:
     q_delete = _deletion("qdrant", inventory)
     g_delete = _deletion("graphiti", inventory)
     body = {
-        "schema_version": "memory-comparison-paged-cleanup-terminal-evidence.v3",
+        "schema_version": "memory-comparison-paged-cleanup-terminal-evidence.v4",
         "authority_terminal_sha256": _sha("authority"),
         "context_sha256": context.context_sha256,
         "inventory_terminal_sha256": inventory.terminal_sha256,
@@ -566,7 +717,7 @@ def test_inventory_cursor_and_two_fresh_pass_chain_are_exact() -> None:
         graphiti_deletion=g_delete,
         qdrant_passes=(q1, q2),
         graphiti_passes=(g1, g2),
-        terminal_sha256=commitment("terminal-evidence/v3", body),
+        terminal_sha256=commitment("terminal-evidence/v4", body),
     )
     with pytest.raises(ManagedCleanupV3Error):
         replace(q2, fresh_snapshot_nonce_sha256=q1.fresh_snapshot_nonce_sha256)
@@ -609,7 +760,7 @@ def _inventory_pages(kind: str, count: int):
         output = None
         if not exhausted:
             cursor_body = {
-                "schema_version": "memory-comparison-paged-cleanup-inventory-cursor.v3",
+                "schema_version": "memory-comparison-paged-cleanup-inventory-cursor.v4",
                 "snapshot_sha256": _sha("snapshot"),
                 "kind": kind,
                 "last_canonical_key_sha256": keys[-1],
@@ -617,10 +768,10 @@ def _inventory_pages(kind: str, count: int):
             }
             output = ManagedCleanupV3InventoryCursor(
                 **{k: v for k, v in cursor_body.items() if k != "schema_version"},
-                cursor_sha256=commitment("inventory-cursor/v3", cursor_body),
+                cursor_sha256=commitment("inventory-cursor/v4", cursor_body),
             )
         body = {
-            "schema_version": "memory-comparison-paged-cleanup-inventory-page.v3",
+            "schema_version": "memory-comparison-paged-cleanup-inventory-page.v4",
             "authority_terminal_sha256": _sha("authority"),
             "snapshot_sha256": _sha("snapshot"),
             "kind": kind,
@@ -646,15 +797,15 @@ def _inventory_pages(kind: str, count: int):
                 ordered_primary_target_identity_sha256=primary,
                 ordered_secondary_target_identity_sha256=secondary,
                 exhausted=exhausted,
-                page_sha256=commitment("inventory-page/v3", body),
+                page_sha256=commitment("inventory-page/v4", body),
             )
         )
-        row_page_sha.append(commitment("inventory-row-page/v3", list(rows)))
+        row_page_sha.append(commitment("inventory-row-page/v4", list(rows)))
         if primary:
-            primary_page_sha.append(commitment("inventory-primary-target-page/v3", list(primary)))
+            primary_page_sha.append(commitment("inventory-primary-target-page/v4", list(primary)))
         if secondary:
             secondary_page_sha.append(
-                commitment("inventory-secondary-target-page/v3", list(secondary))
+                commitment("inventory-secondary-target-page/v4", list(secondary))
             )
         cursor = output
     return pages, row_page_sha, primary_page_sha, secondary_page_sha
@@ -676,7 +827,7 @@ def test_inventory_stream_verifier_enforces_full_cursor_coverage_and_roots() -> 
         snapshot_sha256=_sha("snapshot"),
     )
     receipts = []
-    qdrant = commitment("inventory-empty-qdrant/v3", [])
+    qdrant = commitment("inventory-empty-qdrant/v4", [])
     graphiti_name = graphiti_uuid = ""
     for kind, count in zip(INVENTORY_KINDS, counts, strict=True):
         pages, row_pages, primary_pages, secondary_pages = _inventory_pages(kind, count)
@@ -687,17 +838,17 @@ def test_inventory_stream_verifier_enforces_full_cursor_coverage_and_roots() -> 
                 kind,
                 count,
                 len(pages),
-                _page_root("inventory-empty-rows/v3", row_pages),
+                _page_root("inventory-empty-rows/v4", row_pages),
             )
         )
         if kind == "qdrant_target_identities":
-            qdrant = _page_root("inventory-empty-qdrant/v3", row_pages)
+            qdrant = _page_root("inventory-empty-qdrant/v4", row_pages)
         if kind == "graphiti_target_names":
-            graphiti_name = _page_root("inventory-empty-graphiti-name/v3", row_pages)
+            graphiti_name = _page_root("inventory-empty-graphiti-name/v4", row_pages)
         if kind == "graphiti_target_uuids":
-            graphiti_uuid = _page_root("inventory-empty-graphiti-uuid/v3", row_pages)
+            graphiti_uuid = _page_root("inventory-empty-graphiti-uuid/v4", row_pages)
     values = {
-        "schema_version": "memory-comparison-paged-cleanup-inventory-terminal.v3",
+        "schema_version": "memory-comparison-paged-cleanup-inventory-terminal.v4",
         "profile_id": context.profile_id,
         "context_sha256": context.context_sha256,
         "authority_terminal_sha256": _sha("authority"),
@@ -721,7 +872,7 @@ def test_inventory_stream_verifier_enforces_full_cursor_coverage_and_roots() -> 
             if key not in {"schema_version", "kind_receipts"}
         },
         kind_receipts=tuple(receipts),
-        terminal_sha256=commitment("inventory-terminal/v3", values),
+        terminal_sha256=commitment("inventory-terminal/v4", values),
     )
     assert verifier.finalize(terminal) is terminal
 

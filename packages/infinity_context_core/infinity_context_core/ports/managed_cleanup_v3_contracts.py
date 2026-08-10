@@ -10,12 +10,15 @@ from types import MappingProxyType
 from typing import Final, final
 
 from infinity_context_core.domain.errors import MemoryValidationError
+from infinity_context_core.ports.benchmark_managed_ingest import (
+    managed_benchmark_sequence_sha256,
+)
 
-CONTEXT_SCHEMA: Final = "memory-comparison-paged-cleanup-context.v3"
-OPERATION_SCHEMA: Final = "memory-comparison-paged-cleanup-operation.v3"
-PAGE_SCHEMA: Final = "memory-comparison-paged-cleanup-page.v3"
-AUTHORITY_SCHEMA: Final = "memory-comparison-paged-cleanup-authority.v3"
-STORE_RECEIPT_SCHEMA: Final = "memory-comparison-paged-cleanup-store-receipt.v3"
+CONTEXT_SCHEMA: Final = "memory-comparison-paged-cleanup-context.v4"
+OPERATION_SCHEMA: Final = "memory-comparison-paged-cleanup-operation.v4"
+PAGE_SCHEMA: Final = "memory-comparison-paged-cleanup-page.v4"
+AUTHORITY_SCHEMA: Final = "memory-comparison-paged-cleanup-authority.v4"
+STORE_RECEIPT_SCHEMA: Final = "memory-comparison-paged-cleanup-store-receipt.v4"
 LOCOMO_PROFILE: Final = "mem0-locomo-top50-v1"
 LONGMEMEVAL_PROFILE: Final = "mem0-longmemeval-top50-v1"
 PAGE_OPERATION_CAP: Final = 256
@@ -23,7 +26,7 @@ PAGE_CANONICAL_BYTES_CAP: Final = 256 * 1024
 
 _SHA = re.compile(r"^[0-9a-f]{64}$")
 _ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:-]{0,239}$")
-_D = b"managed-cleanup-v3/"
+_D = b"managed-cleanup-v4/"
 
 
 class ManagedCleanupV3Error(MemoryValidationError):
@@ -70,6 +73,7 @@ _PROFILE_ORACLES = {
         "omitted_source_identity_count": 0,
         "omitted_source_identity_root_sha256": commitment("omitted-source/v1", []),
         "fragment_count": 0,
+        "document_source_ref_count": 0,
     },
     LONGMEMEVAL_PROFILE: {
         "dataset_sha256": "d6f21ea9d60a0d56f34a05b609c79c88a451d2ae03597821ea3d5a9678c3a442",
@@ -85,6 +89,7 @@ _PROFILE_ORACLES = {
             "f4106215d618a016b4d18bdb734437a64d6329ff49db8a4eb5661e359d3408a9"
         ),
         "fragment_count": 366440,
+        "document_source_ref_count": 495426,
     },
 }
 PROFILE_ORACLES: Final = MappingProxyType(
@@ -104,18 +109,20 @@ CHUNKER_POLICY_SHA256: Final = commitment(
     },
 )
 PROJECTOR_POLICY_SHA256: Final = commitment(
-    "projector-policy/v1",
+    "projector-policy/v2",
     {
         "source": "pinned official dataset -> managed corpus projection",
         "locomo": "one exact admitted fact per official turn",
         "longmemeval": "one document per nonempty original pair slot",
         "longmemeval_message_rule": "retain 1 or 2 valid messages; skip only fully invalid slot",
         "fragment_policy_sha256": CHUNKER_POLICY_SHA256,
+        "thread_external_ref": "exact per-corpus sha256 identity",
+        "source_refs": "ordered exact descriptor sha256 sequence and aggregate sha256",
         "oracles": _PROFILE_ORACLES,
     },
 )
 LIMITS_POLICY_SHA256: Final = commitment(
-    "limits/v1",
+    "limits/v2",
     {
         "profiles": _PROFILE_ORACLES,
         "page_operation_cap": PAGE_OPERATION_CAP,
@@ -177,10 +184,10 @@ class ManagedCleanupV3Context:
             or _ID.fullmatch(self.space_id) is None
             or type(self.space_slug) is not str
             or _ID.fullmatch(self.space_slug) is None
-            or self.context_sha256 != commitment("context/v3", values)
+            or self.context_sha256 != commitment("context/v4", values)
             or self.qdrant_authority_sha256
             != commitment(
-                "lane-authority/v3",
+                "lane-authority/v4",
                 {
                     "lane": "qdrant",
                     "target_commitment_sha256": self.qdrant_target_commitment_sha256,
@@ -189,7 +196,7 @@ class ManagedCleanupV3Context:
             )
             or self.graphiti_authority_sha256
             != commitment(
-                "lane-authority/v3",
+                "lane-authority/v4",
                 {
                     "lane": "graphiti",
                     "target_commitment_sha256": self.graphiti_target_commitment_sha256,
@@ -208,7 +215,7 @@ class ManagedCleanupV3Context:
 
 def build_context(**values: object) -> ManagedCleanupV3Context:
     body = {"schema_version": CONTEXT_SCHEMA, **values}
-    return ManagedCleanupV3Context(**values, context_sha256=commitment("context/v3", body))  # type: ignore[arg-type]
+    return ManagedCleanupV3Context(**values, context_sha256=commitment("context/v4", body))  # type: ignore[arg-type]
 
 
 @final
@@ -217,12 +224,18 @@ class ManagedCleanupV3Operation:
     sequence: int
     lane: str
     corpus_identity_sha256: str
+    memory_scope_external_ref_sha256: str
+    thread_external_ref_sha256: str
     source_identity_sha256: str
     source_content_sha256: str
     operation_commitment_sha256: str
     a1_operation_sha256: str
     original_pair_identity_sha256: str | None
     valid_message_count: int
+    source_refs_sha256: str
+    ordered_source_ref_descriptor_sha256: tuple[str, ...]
+    source_ref_root_sha256: str
+    fragments_sha256: str
     ordered_fragment_descriptor_sha256: tuple[str, ...]
     fragment_root_sha256: str
     operation_sha256: str
@@ -230,30 +243,51 @@ class ManagedCleanupV3Operation:
 
     def __post_init__(self) -> None:
         exact_int(self.sequence)
+        exact_int(self.valid_message_count, minimum=1)
         for value in (
             self.corpus_identity_sha256,
+            self.memory_scope_external_ref_sha256,
+            self.thread_external_ref_sha256,
             self.source_identity_sha256,
             self.source_content_sha256,
             self.operation_commitment_sha256,
             self.a1_operation_sha256,
+            self.source_refs_sha256,
+            self.source_ref_root_sha256,
+            self.fragments_sha256,
             self.fragment_root_sha256,
         ):
             digest(value)
+        source_ref_descriptors = self.ordered_source_ref_descriptor_sha256
         fragments = self.ordered_fragment_descriptor_sha256
         if self.original_pair_identity_sha256 is not None:
             digest(self.original_pair_identity_sha256)
         if (
             self.schema_version != OPERATION_SCHEMA
             or self.lane not in {"fact", "document"}
+            or self.corpus_identity_sha256
+            != corpus_identity_sha256(
+                lane=self.lane,
+                memory_scope_external_ref_sha256=self.memory_scope_external_ref_sha256,
+                thread_external_ref_sha256=self.thread_external_ref_sha256,
+            )
+            or type(source_ref_descriptors) is not tuple
+            or any(
+                type(item) is not str or _SHA.fullmatch(item) is None
+                for item in source_ref_descriptors
+            )
+            or self.source_ref_root_sha256
+            != commitment("source-ref-root/v4", list(source_ref_descriptors))
             or type(fragments) is not tuple
             or any(type(item) is not str or _SHA.fullmatch(item) is None for item in fragments)
             or len(set(fragments)) != len(fragments)
-            or self.fragment_root_sha256 != commitment("fragment-root/v1", list(fragments))
+            or self.fragment_root_sha256 != commitment("fragment-root/v4", list(fragments))
             or (
                 self.lane == "fact"
                 and (
                     self.original_pair_identity_sha256 is not None
                     or self.valid_message_count != 1
+                    or len(source_ref_descriptors) != 1
                     or fragments
                 )
             )
@@ -262,19 +296,101 @@ class ManagedCleanupV3Operation:
                 and (
                     self.original_pair_identity_sha256 is None
                     or self.valid_message_count not in {1, 2}
+                    or len(source_ref_descriptors) != self.valid_message_count + 2
                     or not fragments
                 )
             )
-            or self.operation_sha256 != commitment("operation/v3", self.payload(False))
+            or self.operation_sha256 != commitment("operation/v4", self.payload(False))
         ):
             raise ManagedCleanupV3Error("managed_cleanup_v3_operation_invalid")
 
     def payload(self, include_commitment: bool = True) -> dict[str, object]:
         value = {name: getattr(self, name) for name in self.__dataclass_fields__}
+        value["ordered_source_ref_descriptor_sha256"] = list(
+            self.ordered_source_ref_descriptor_sha256
+        )
         value["ordered_fragment_descriptor_sha256"] = list(self.ordered_fragment_descriptor_sha256)
         if not include_commitment:
             value.pop("operation_sha256")
         return value
+
+
+def thread_external_ref_sha256(value: object) -> str:
+    """Commit the exact non-empty external thread reference, not a database id."""
+
+    if type(value) is not str or not value:
+        raise ManagedCleanupV3Error("managed_cleanup_v3_thread_external_ref_invalid")
+    return commitment("thread-external-ref/v4", {"thread_external_ref": value})
+
+
+def source_ref_descriptor_sha256(value: object) -> str:
+    if type(value) is not dict or not value or any(type(key) is not str for key in value):
+        raise ManagedCleanupV3Error("managed_cleanup_v3_source_ref_invalid")
+    return commitment("source-ref-descriptor/v4", value)
+
+
+def source_ref_commitments(
+    value: object,
+) -> tuple[str, tuple[str, ...], str]:
+    """Build the exact managed aggregate plus ordered hash-only descriptors."""
+
+    if type(value) not in {tuple, list} or any(type(item) is not dict for item in value):
+        raise ManagedCleanupV3Error("managed_cleanup_v3_source_ref_invalid")
+    descriptors = tuple(source_ref_descriptor_sha256(item) for item in value)
+    return (
+        managed_benchmark_sequence_sha256(value),  # type: ignore[arg-type]
+        descriptors,
+        commitment("source-ref-root/v4", list(descriptors)),
+    )
+
+
+def fragment_descriptor_sha256(value: object) -> str:
+    if type(value) is not dict or not value or any(type(key) is not str for key in value):
+        raise ManagedCleanupV3Error("managed_cleanup_v3_fragment_invalid")
+    return commitment("fragment-descriptor/v4", value)
+
+
+def fragment_commitments(
+    value: object,
+) -> tuple[str, tuple[str, ...], str]:
+    """Build the managed aggregate and exact ordered fragment commitments."""
+
+    if type(value) not in {tuple, list} or any(type(item) is not dict for item in value):
+        raise ManagedCleanupV3Error("managed_cleanup_v3_fragment_invalid")
+    descriptors = tuple(fragment_descriptor_sha256(item) for item in value)
+    return (
+        managed_benchmark_sequence_sha256(value),  # type: ignore[arg-type]
+        descriptors,
+        commitment("fragment-root/v4", list(descriptors)),
+    )
+
+
+def memory_scope_external_ref_sha256(value: object) -> str:
+    """Commit the exact non-empty memory-scope external reference."""
+
+    if type(value) is not str or not value:
+        raise ManagedCleanupV3Error("managed_cleanup_v3_corpus_external_ref_invalid")
+    return commitment("memory-scope-external-ref/v4", {"memory_scope_external_ref": value})
+
+
+def corpus_identity_sha256(
+    *,
+    lane: object,
+    memory_scope_external_ref_sha256: object,
+    thread_external_ref_sha256: object,
+) -> str:
+    if lane not in {"fact", "document"}:
+        raise ManagedCleanupV3Error("managed_cleanup_v3_corpus_identity_invalid")
+    scope = digest(memory_scope_external_ref_sha256)
+    thread = digest(thread_external_ref_sha256)
+    return commitment(
+        "corpus-identity/v4",
+        {
+            "lane": lane,
+            "memory_scope_external_ref_sha256": scope,
+            "thread_external_ref_sha256": thread,
+        },
+    )
 
 
 @final
@@ -301,7 +417,7 @@ class ManagedCleanupV3Page:
             or tuple(item.sequence for item in self.operations)
             != tuple(range(self.start_sequence, self.end_sequence_exclusive))
             or self.end_sequence_exclusive != self.start_sequence + len(self.operations)
-            or self.page_sha256 != commitment("page/v3", self.payload(False))
+            or self.page_sha256 != commitment("page/v4", self.payload(False))
             or len(canonical_bytes(self.payload())) > PAGE_CANONICAL_BYTES_CAP
         ):
             raise ManagedCleanupV3Error("managed_cleanup_v3_page_invalid")
@@ -347,6 +463,10 @@ class ManagedCleanupV3Authority:
     original_pair_slot_count: int
     fully_invalid_pair_slot_count: int
     fragment_count: int
+    corpus_thread_identity_count: int
+    corpus_thread_identity_root_sha256: str
+    document_source_ref_count: int
+    document_source_ref_root_sha256: str
     page_count: int
     ordered_page_sha256: tuple[str, ...]
     pages_merkle_root_sha256: str
@@ -361,6 +481,14 @@ class ManagedCleanupV3Authority:
 
     def __post_init__(self) -> None:
         oracle = profile_oracle(self.profile_id)
+        exact_int(self.operation_count, minimum=1)
+        exact_int(self.valid_message_count, minimum=1)
+        exact_int(self.original_pair_slot_count)
+        exact_int(self.fully_invalid_pair_slot_count)
+        exact_int(self.fragment_count)
+        exact_int(self.corpus_thread_identity_count, minimum=1)
+        exact_int(self.document_source_ref_count)
+        exact_int(self.page_count, minimum=1)
         pages = self.ordered_page_sha256
         for value in (
             self.context_sha256,
@@ -368,6 +496,8 @@ class ManagedCleanupV3Authority:
             self.a1_operation_stream_root_sha256,
             self.cleanup_operation_stream_root_sha256,
             self.omitted_source_identity_root_sha256,
+            self.corpus_thread_identity_root_sha256,
+            self.document_source_ref_root_sha256,
         ):
             digest(value)
         if (
@@ -376,6 +506,8 @@ class ManagedCleanupV3Authority:
             or not pages
             or any(type(x) is not str or _SHA.fullmatch(x) is None for x in pages)
             or self.page_count != len(pages)
+            or self.corpus_thread_identity_count != oracle["corpus_count"]
+            or self.document_source_ref_count != oracle["document_source_ref_count"]
             or self.pages_merkle_root_sha256 != merkle_root(pages)
             or any(
                 getattr(self, key) != oracle[key]
@@ -390,7 +522,7 @@ class ManagedCleanupV3Authority:
             or self.projector_policy_sha256 != PROJECTOR_POLICY_SHA256
             or self.chunker_policy_sha256 != CHUNKER_POLICY_SHA256
             or self.limits_policy_sha256 != LIMITS_POLICY_SHA256
-            or self.terminal_commitment_sha256 != commitment("authority/v3", self.payload(False))
+            or self.terminal_commitment_sha256 != commitment("authority/v4", self.payload(False))
         ):
             raise ManagedCleanupV3Error("managed_cleanup_v3_authority_invalid")
 
@@ -426,7 +558,7 @@ class ManagedCleanupV3StoreReceipt:
         if (
             self.schema_version != STORE_RECEIPT_SCHEMA
             or self.committed is not True
-            or self.receipt_sha256 != commitment("store-receipt/v3", body)
+            or self.receipt_sha256 != commitment("store-receipt/v4", body)
         ):
             raise ManagedCleanupV3Error("managed_cleanup_v3_store_receipt_invalid")
 
@@ -440,13 +572,20 @@ __all__ = tuple(
     in {
         "build_context",
         "canonical_bytes",
+        "corpus_identity_sha256",
+        "fragment_commitments",
+        "fragment_descriptor_sha256",
         "commitment",
         "merkle_root",
+        "memory_scope_external_ref_sha256",
         "profile_oracle",
         "PAGE_OPERATION_CAP",
         "PAGE_CANONICAL_BYTES_CAP",
         "LOCOMO_PROFILE",
         "LONGMEMEVAL_PROFILE",
         "PROFILE_ORACLES",
+        "source_ref_descriptor_sha256",
+        "source_ref_commitments",
+        "thread_external_ref_sha256",
     }
 )

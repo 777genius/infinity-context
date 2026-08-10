@@ -14,10 +14,16 @@ from infinity_context_core.application.benchmark_managed_write_admission import 
     ManagedBenchmarkEnsureScopeAdmission,
     ManagedBenchmarkFactMutationBlocker,
     ManagedBenchmarkRememberFactAdmission,
+    require_managed_document_admission,
 )
-from infinity_context_core.application.dto import EnsureScopeCommand
+from infinity_context_core.application.dto import EnsureScopeCommand, IngestDocumentCommand
 from infinity_context_core.application.dto_workspace import CreateMemoryScopeCommand
-from infinity_context_core.domain.entities import LifecycleStatus, SpaceId
+from infinity_context_core.domain.entities import (
+    LifecycleStatus,
+    MemoryScopeId,
+    SpaceId,
+    ThreadId,
+)
 from infinity_context_core.domain.errors import MemoryConflictError
 from infinity_context_core.features.memory_facts.application.commands import RememberFactCommand
 from infinity_context_core.features.memory_facts.domain import (
@@ -29,6 +35,13 @@ from infinity_context_core.ports.benchmark_managed_ingest import (
     managed_benchmark_fact_source_ref_descriptor,
     managed_benchmark_infinity_operation_sha256,
     managed_benchmark_text_sha256,
+)
+from infinity_context_core.ports.managed_benchmark_strict_v4_document_write import (
+    ManagedBenchmarkStrictV4DocumentAdmission,
+)
+from infinity_context_core.ports.managed_benchmark_strict_v4_write import (
+    ManagedBenchmarkStrictV4CorpusAdmission,
+    ManagedBenchmarkStrictV4FactAdmission,
 )
 
 RUN = "a" * 64
@@ -45,6 +58,35 @@ class _Inner:
     async def execute(self, command: RememberFactCommand) -> object:
         self.calls += 1
         return command
+
+
+class _StrictAuthority:
+    def __init__(self) -> None:
+        self.claims = []
+        self.corpus_claims = []
+
+    def admit_fact(self, claim):
+        self.claims.append(claim)
+        return ManagedBenchmarkStrictV4FactAdmission(
+            operation_sha256="d" * 64,
+            idempotency_key=f"managed-benchmark-fact-v4-{'e' * 64}",
+        )
+
+    def admit_corpus(self, claim):
+        self.corpus_claims.append(claim)
+        return ManagedBenchmarkStrictV4CorpusAdmission("f" * 64)
+
+
+class _StrictDocumentAuthority:
+    def __init__(self) -> None:
+        self.claims = []
+
+    def admit_document(self, claim):
+        self.claims.append(claim)
+        return ManagedBenchmarkStrictV4DocumentAdmission(
+            operation_sha256="1" * 64,
+            idempotency_key=f"managed-benchmark-document-v4-{'2' * 64}",
+        )
 
 
 class _DocumentUow:
@@ -161,6 +203,54 @@ def _record(command: RememberFactCommand) -> object:
     )
 
 
+def _strict_record() -> object:
+    return SimpleNamespace(
+        run_id_sha256=RUN,
+        binding_commitment_sha256=BINDING,
+        infinity_target_identity_sha256=TARGET,
+        space_id=SPACE,
+        space_slug=SLUG,
+        state="active",
+        projection_cleanup_state="unsealed",
+        cleanup_plan_state="recovery_blocked",
+        cleanup_plan_json=None,
+        cleanup_plan_sha256=None,
+    )
+
+
+def test_strict_v4_fact_admission_uses_narrow_authority_and_overrides_caller_key() -> None:
+    asyncio.run(_strict_v4_fact_admission_contract())
+
+
+async def _strict_v4_fact_admission_contract() -> None:
+    command = _command()
+    inner = _Inner()
+    authority = _StrictAuthority()
+    admission = ManagedBenchmarkRememberFactAdmission(
+        lambda: _Uow(_strict_record()),
+        inner,
+        strict_v4_authority=authority,
+    )
+
+    result = await admission.execute(replace(command, idempotency_key="caller-drift"))
+    assert result.idempotency_key == f"managed-benchmark-fact-v4-{'e' * 64}"
+    assert inner.calls == 1
+    assert len(authority.claims) == 1
+    claim = authority.claims[0]
+    assert claim.run_id_sha256 == RUN
+    assert claim.binding_commitment_sha256 == BINDING
+    assert claim.infinity_target_identity_sha256 == TARGET
+    assert claim.space_id == SPACE
+    assert claim.space_slug == SLUG
+    assert claim.memory_scope_external_ref == "corpus-1"
+    assert claim.thread_external_ref == "thread-1"
+    assert claim.source_identity_sha256 == managed_benchmark_text_sha256("source-1")
+
+    blocked = ManagedBenchmarkRememberFactAdmission(lambda: _Uow(_strict_record()), _Inner())
+    with pytest.raises(MemoryConflictError, match="strict-v4 authority"):
+        await blocked.execute(command)
+
+
 def test_fact_admission_allows_exact_replay_and_rejects_drift_before_inner() -> None:
     asyncio.run(_fact_admission_contract())
 
@@ -189,6 +279,53 @@ async def _fact_admission_contract() -> None:
         with pytest.raises(MemoryConflictError, match="is not admitted"):
             await admission.execute(changed)
     assert inner.calls == 2
+
+
+def test_strict_v4_document_admission_uses_narrow_expected_index_authority() -> None:
+    asyncio.run(_strict_v4_document_admission_contract())
+
+
+async def _strict_v4_document_admission_contract() -> None:
+    command = IngestDocumentCommand(
+        space_id=SpaceId(SPACE),
+        memory_scope_id=MemoryScopeId("scope-1"),
+        thread_id=ThreadId("thread-1"),
+        title="LongMemEval session",
+        text="A durable LongMemEval session with enough content for one fragment.",
+        source_type="longmemeval",
+        source_external_id="longmemeval-source-1",
+        classification="internal",
+        chunk_metadata={
+            "source_refs": [
+                {
+                    "source_type": "longmemeval",
+                    "source_id_sha256": "3" * 64,
+                }
+            ]
+        },
+    )
+    authority = _StrictDocumentAuthority()
+    key = await require_managed_document_admission(
+        uow=_Uow(_strict_record()),
+        command=command,
+        strict_v4_authority=authority,
+    )
+
+    assert key == f"managed-benchmark-document-v4-{'2' * 64}"
+    assert len(authority.claims) == 1
+    claim = authority.claims[0]
+    assert claim.run_id_sha256 == RUN
+    assert claim.space_id == SPACE
+    assert claim.memory_scope_external_ref == "corpus-1"
+    assert claim.thread_external_ref == "thread-1"
+    assert claim.ordered_source_ref_descriptor_sha256
+    assert claim.ordered_fragment_descriptor_sha256
+
+    with pytest.raises(MemoryConflictError, match="strict-v4 document authority"):
+        await require_managed_document_admission(
+            uow=_Uow(_strict_record()),
+            command=command,
+        )
 
 
 def test_managed_fact_and_document_mutations_reject_before_inner() -> None:
@@ -266,3 +403,37 @@ async def _managed_scope_creation_contract() -> None:
     with pytest.raises(MemoryConflictError, match="scope creation"):
         await create.execute(replace(admitted, external_ref="foreign-corpus"))
     assert create_inner.calls == 1
+
+
+def test_strict_v4_scope_pair_uses_authenticated_corpus_authority() -> None:
+    asyncio.run(_strict_v4_scope_pair_contract())
+
+
+async def _strict_v4_scope_pair_contract() -> None:
+    exact = EnsureScopeCommand(
+        space_slug=SLUG,
+        memory_scope_external_ref="corpus-1",
+        thread_external_ref="thread-1",
+    )
+    inner = _Inner()
+    authority = _StrictAuthority()
+    guard = ManagedBenchmarkEnsureScopeAdmission(
+        lambda: _Uow(_strict_record()),
+        inner,
+        strict_v4_authority=authority,
+    )
+    assert await guard.execute(exact) is exact
+    assert inner.calls == 1
+    assert len(authority.corpus_claims) == 1
+    claim = authority.corpus_claims[0]
+    assert claim.run_id_sha256 == RUN
+    assert claim.binding_commitment_sha256 == BINDING
+    assert claim.infinity_target_identity_sha256 == TARGET
+    assert claim.space_id == SPACE
+    assert claim.space_slug == SLUG
+    assert claim.memory_scope_external_ref == "corpus-1"
+    assert claim.thread_external_ref == "thread-1"
+
+    blocked = ManagedBenchmarkEnsureScopeAdmission(lambda: _Uow(_strict_record()), _Inner())
+    with pytest.raises(MemoryConflictError, match="strict-v4 authority"):
+        await blocked.execute(exact)

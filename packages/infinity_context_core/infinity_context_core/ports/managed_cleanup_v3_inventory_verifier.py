@@ -114,7 +114,7 @@ class ManagedCleanupV3InventoryStreamVerifier:
             or (not page.exhausted and len(keys) != INVENTORY_PAGE_SIZE)
         ):
             raise ManagedCleanupV3Error("managed_cleanup_v3_inventory_sequence_invalid")
-        self._row_pages.append(commitment("inventory-row-page/v3", list(page.ordered_row_sha256)))
+        self._row_pages.append(commitment("inventory-row-page/v4", list(page.ordered_row_sha256)))
         self._row_count += len(keys)
         self._last_key = keys[-1] if keys else self._last_key
         self._cursor_sha = None if page.output_cursor is None else page.output_cursor.cursor_sha256
@@ -128,18 +128,18 @@ class ManagedCleanupV3InventoryStreamVerifier:
                 kind=kind,
                 row_count=self._row_count,
                 page_count=self._page_index,
-                ordered_rows_root_sha256=_root("inventory-empty-rows/v3", self._row_pages),
+                ordered_rows_root_sha256=_root("inventory-empty-rows/v4", self._row_pages),
             )
         )
         if kind == "qdrant_target_identities":
-            self._target_roots["qdrant"] = _root("inventory-empty-qdrant/v3", self._row_pages)
+            self._target_roots["qdrant"] = _root("inventory-empty-qdrant/v4", self._row_pages)
         if kind == "graphiti_target_names":
             self._target_roots["graphiti_name"] = _root(
-                "inventory-empty-graphiti-name/v3", self._row_pages
+                "inventory-empty-graphiti-name/v4", self._row_pages
             )
         if kind == "graphiti_target_uuids":
             self._target_roots["graphiti_uuid"] = _root(
-                "inventory-empty-graphiti-uuid/v3", self._row_pages
+                "inventory-empty-graphiti-uuid/v4", self._row_pages
             )
         self._kind_index += 1
         self._page_index = self._row_count = 0
@@ -153,12 +153,12 @@ class ManagedCleanupV3InventoryStreamVerifier:
         if not self._finished or type(terminal) is not ManagedCleanupV3InventoryTerminal:
             raise ManagedCleanupV3Error("managed_cleanup_v3_inventory_coverage_incomplete")
         terminal.__post_init__()
-        qdrant = self._target_roots.get("qdrant", commitment("inventory-empty-qdrant/v3", []))
+        qdrant = self._target_roots.get("qdrant", commitment("inventory-empty-qdrant/v4", []))
         graphiti_name = self._target_roots.get(
-            "graphiti_name", commitment("inventory-empty-graphiti-name/v3", [])
+            "graphiti_name", commitment("inventory-empty-graphiti-name/v4", [])
         )
         graphiti_uuid = self._target_roots.get(
-            "graphiti_uuid", commitment("inventory-empty-graphiti-uuid/v3", [])
+            "graphiti_uuid", commitment("inventory-empty-graphiti-uuid/v4", [])
         )
         if (
             terminal.profile_id != self._context.profile_id

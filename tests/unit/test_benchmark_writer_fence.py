@@ -34,6 +34,7 @@ SEALED_FENCE_MIGRATION = MIGRATIONS / "0019_managed_benchmark_sealed_fence.sql"
 CLEANUP_COMPLETION_MIGRATION = MIGRATIONS / "0020_benchmark_cleanup_completion.sql"
 CLEANUP_PLAN_MIGRATION = MIGRATIONS / "0033_benchmark_cleanup_plan.sql"
 GENERATED_TOMBSTONE_FENCE_MIGRATION = MIGRATIONS / "0034_benchmark_generated_tombstone_fence.sql"
+STRICT_V4_FENCE_MIGRATION = MIGRATIONS / "0037_strict_v4_fact_writer.sql"
 FENCE_SQLSTATE = BENCHMARK_WRITER_FENCE_SQLSTATE
 FENCE_CONSTRAINT = BENCHMARK_WRITER_FENCE_CONSTRAINT
 FENCED_TABLES = tuple(table for table, _update_columns in BENCHMARK_WRITER_FENCE_TABLES)
@@ -86,12 +87,21 @@ def test_latest_migration_fails_closed_after_projection_manifest_seal() -> None:
 
 
 def test_runtime_installer_statements_do_not_drift_from_latest_migration() -> None:
-    migration_sql = _normalize_sql(GENERATED_TOMBSTONE_FENCE_MIGRATION.read_text(encoding="utf-8"))
+    migration_sql = _normalize_sql(STRICT_V4_FENCE_MIGRATION.read_text(encoding="utf-8"))
     cleanup_plan_sql = _normalize_sql(CLEANUP_PLAN_MIGRATION.read_text(encoding="utf-8"))
 
-    assert len(BENCHMARK_WRITER_FENCE_STATEMENTS) == 37
+    assert len(BENCHMARK_WRITER_FENCE_STATEMENTS) == 93
     assert BENCHMARK_WRITER_FENCE_FUNCTION in migration_sql
     assert _normalize_sql(BENCHMARK_WRITER_FENCE_STATEMENTS[0]) in migration_sql
+    for statement in BENCHMARK_WRITER_FENCE_STATEMENTS[-20:]:
+        assert _normalize_sql(statement) in migration_sql
+    assert "length(receipt.idempotency_key) = 90" in migration_sql
+    assert "length(NEW.idempotency_key) <> 90" in migration_sql
+    assert "idempotency_key) = 89" not in migration_sql
+    assert "idempotency_key) <> 89" not in migration_sql
+    assert "@> pg_catalog.jsonb_build_array(NEW.message_key)" in migration_sql
+    assert "benchmark fact outbox receipt identity is missing" in migration_sql
+    assert "benchmark fact outbox receipt link is missing" in migration_sql
     assert "registry_cleanup_plan_state" in migration_sql
     assert "cleanup_plan_state = 'sealed'" in migration_sql
     assert "AND TG_OP = 'INSERT'" in migration_sql
@@ -104,7 +114,7 @@ def test_runtime_installer_statements_do_not_drift_from_latest_migration() -> No
 
 @pytest.mark.parametrize(
     ("dialect_name", "expected_statement_count"),
-    [("postgresql", 37), ("sqlite", 0)],
+    [("postgresql", 93), ("sqlite", 0)],
 )
 def test_create_schema_writer_fence_helper_is_postgres_only(
     dialect_name: str,

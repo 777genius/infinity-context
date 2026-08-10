@@ -148,6 +148,12 @@ from infinity_context_core.ports.clock import ClockPort
 from infinity_context_core.ports.extraction import ExtractionLimits
 from infinity_context_core.ports.graph_evidence import GraphProjectionEvidencePort
 from infinity_context_core.ports.ids import IdGeneratorPort
+from infinity_context_core.ports.managed_benchmark_strict_v4_document_write import (
+    ManagedBenchmarkStrictV4DocumentAuthorityPort,
+)
+from infinity_context_core.ports.managed_benchmark_strict_v4_write import (
+    ManagedBenchmarkStrictV4FactAuthorityPort,
+)
 from infinity_context_core.ports.projection_fence import ProjectionFencePort
 from infinity_context_core.ports.unit_of_work import UnitOfWorkFactoryPort
 from infinity_context_core.ports.vector_projection_evidence import VectorProjectionEvidencePort
@@ -312,7 +318,12 @@ class Container:
         await self.engine.dispose()
 
 
-def build_container(settings: Settings | None = None) -> Container:
+def build_container(
+    settings: Settings | None = None,
+    *,
+    strict_v4_fact_authority: ManagedBenchmarkStrictV4FactAuthorityPort | None = None,
+    strict_v4_document_authority: ManagedBenchmarkStrictV4DocumentAuthorityPort | None = None,
+) -> Container:
     resolved_settings = settings or Settings()
     resolved_settings.validate_for_startup()
     clock = SystemClock()
@@ -368,6 +379,7 @@ def build_container(settings: Settings | None = None) -> Container:
             memory_fact_uow_factory=memory_fact_uow_factory,
             clock=clock,
             ids=memory_fact_ids,
+            strict_v4_fact_authority=strict_v4_fact_authority,
         )
     )
     derived_providers = derived_provider_composition.build_derived_provider_bundle(
@@ -533,6 +545,7 @@ def build_container(settings: Settings | None = None) -> Container:
     ensure_scope = ManagedBenchmarkEnsureScopeAdmission(
         uow_factory=uow_factory,
         inner=EnsureScopeUseCase(uow_factory=uow_factory, clock=clock),
+        strict_v4_authority=strict_v4_fact_authority,
     )
     ingest_episode = IngestEpisodeUseCase(
         uow_factory=uow_factory,
@@ -541,7 +554,12 @@ def build_container(settings: Settings | None = None) -> Container:
         classifier=RuleBasedMemoryClassifier(),
         auto_suggestions_enabled=resolved_settings.policy_mode.value == "suggestions",
     )
-    ingest_document = IngestDocumentUseCase(uow_factory=uow_factory, clock=clock, ids=ids)
+    ingest_document = IngestDocumentUseCase(
+        uow_factory=uow_factory,
+        clock=clock,
+        ids=ids,
+        strict_v4_authority=strict_v4_document_authority,
+    )
     extraction_limits = ExtractionLimits(
         max_bytes=resolved_settings.extraction_max_bytes,
         max_pages=resolved_settings.extraction_max_pages,

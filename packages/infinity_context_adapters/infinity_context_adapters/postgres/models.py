@@ -126,6 +126,7 @@ class MemoryScopeRow(Base):
     __tablename__ = "memory_scopes"
     __table_args__ = (
         UniqueConstraint("space_id", "external_ref", name="uq_memory_scope_external_ref"),
+        Index("ix_memory_scopes_space_id_id", "space_id", "id"),
     )
     id: Mapped[str] = mapped_column(String(80), primary_key=True)
     space_id: Mapped[str] = mapped_column(
@@ -179,6 +180,7 @@ class MemoryThreadRow(Base):
             "space_id", "memory_scope_id", "external_ref", name="uq_thread_external_ref"
         ),
         Index("ix_memory_threads_scope_status", "space_id", "memory_scope_id", "status"),
+        Index("ix_memory_threads_space_scope_id", "space_id", "memory_scope_id", "id"),
     )
     id: Mapped[str] = mapped_column(String(80), primary_key=True)
     space_id: Mapped[str] = mapped_column(String(80), nullable=False)
@@ -877,6 +879,18 @@ from infinity_context_adapters.postgres.benchmark_run_models import (  # noqa: E
 )
 from infinity_context_adapters.postgres.outbox_models import (  # noqa: E402
     MemoryOutboxRow,  # noqa: F401
+)
+from infinity_context_adapters.postgres.projection_receipt_models import (  # noqa: E402
+    MemoryCleanupInventoryKeyRow,  # noqa: F401
+    MemoryCleanupInventoryMaterializationRow,  # noqa: F401
+    MemoryCleanupV3ContextAuthorityRow,  # noqa: F401
+    MemoryProjectionReceiptClaimRow,  # noqa: F401
+    MemoryProjectionReceiptIdentityLinkRow,  # noqa: F401
+    MemoryProjectionResultReceiptRow,  # noqa: F401
+    MemoryProjectionTargetIdentityRow,  # noqa: F401
+)
+from infinity_context_adapters.postgres.strict_v4_preparation_models import (  # noqa: E402
+    MemoryComparisonStrictV4PreparationRow,  # noqa: F401
 )
 from infinity_context_adapters.postgres.temporal_models import (  # noqa: E402
     MemoryFactTemporalDecisionRow,  # noqa: F401

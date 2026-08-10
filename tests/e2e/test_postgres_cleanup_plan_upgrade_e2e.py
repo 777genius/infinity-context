@@ -41,8 +41,12 @@ async def _assert_cleanup_plan_upgrade(database_url: str) -> None:
             assert upgrade.applied == (
                 "0033_benchmark_cleanup_plan",
                 "0034_benchmark_generated_tombstone_fence",
+                "0035_projection_result_receipts",
+                "0036_memory_comparison_strict_v4_preparations",
+                "0038_strict_v4_document_writer",
             )
             await _assert_cleanup_plan_schema(engine)
+            await _assert_projection_receipt_schema(engine)
             await _assert_cleanup_plan_coupling(engine)
         finally:
             await engine.dispose()
@@ -115,6 +119,136 @@ async def _assert_cleanup_plan_schema(engine) -> None:
             )
         )
         assert data_type == "jsonb"
+
+
+async def _assert_projection_receipt_schema(engine) -> None:
+    expected_columns = {
+        "memory_cleanup_v3_context_authorities": {
+            "run_id_sha256",
+            "context_sha256",
+            "authority_terminal_sha256",
+            "context_json",
+            "authority_json",
+            "registration_sha256",
+            "registration_mac_sha256",
+            "registered_at",
+        },
+        "memory_projection_receipt_claims": {
+            "outbox_id",
+            "run_id_sha256",
+            "context_sha256",
+            "worker_authority_sha256",
+            "projection_key_sha256",
+            "operation",
+            "expected_identities_sha256",
+            "claim_token_sha256",
+            "generation",
+            "state",
+            "lease_expires_at",
+            "created_at",
+            "updated_at",
+        },
+        "memory_projection_result_receipts": {
+            "outbox_id",
+            "run_id_sha256",
+            "context_sha256",
+            "lane",
+            "operation",
+            "result_state",
+            "space_id",
+            "memory_scope_id",
+            "thread_id",
+            "aggregate_type",
+            "aggregate_id",
+            "aggregate_version",
+            "target_authority_sha256",
+            "worker_authority_sha256",
+            "outbox_event_commitment_sha256",
+            "identity_count",
+            "ordered_identity_root_sha256",
+            "lineage_root_sha256",
+            "provider_completed_at",
+            "persisted_at",
+            "receipt_sha256",
+            "receipt_mac_sha256",
+        },
+        "memory_projection_target_identities": {
+            "run_id_sha256",
+            "kind",
+            "identity_sha256",
+            "identity_commitment_sha256",
+            "canonical_source_id",
+            "physical_identity",
+            "lineage_root_sha256",
+            "target_authority_sha256",
+            "identity_mac_sha256",
+            "created_at",
+        },
+        "memory_projection_receipt_identity_links": {
+            "outbox_id",
+            "run_id_sha256",
+            "kind",
+            "identity_sha256",
+            "identity_commitment_sha256",
+            "ordinal",
+        },
+    }
+    async with engine.connect() as connection:
+        for table_name, columns in expected_columns.items():
+            observed = set(
+                (
+                    await connection.execute(
+                        text(
+                            "SELECT column_name FROM information_schema.columns "
+                            "WHERE table_schema = current_schema() "
+                            "AND table_name = :table_name"
+                        ),
+                        {"table_name": table_name},
+                    )
+                ).scalars()
+            )
+            assert observed == columns
+        constraints = set(
+            (
+                await connection.execute(
+                    text(
+                        "SELECT conname FROM pg_constraint "
+                        "WHERE connamespace = current_schema()::regnamespace "
+                        "AND conrelid IN ("
+                        "'memory_cleanup_v3_context_authorities'::regclass, "
+                        "'memory_projection_receipt_claims'::regclass, "
+                        "'memory_projection_result_receipts'::regclass, "
+                        "'memory_projection_target_identities'::regclass, "
+                        "'memory_projection_receipt_identity_links'::regclass)"
+                    )
+                )
+            ).scalars()
+        )
+    assert {
+        "uq_cleanup_v3_context_authority_run_context",
+        "ck_projection_context_authority_digests",
+        "fk_projection_receipt_claim_context",
+        "ck_projection_receipt_claim_digests",
+        "ck_projection_receipt_claim_state",
+        "fk_projection_receipt_context_authority",
+        "ck_projection_receipt_identity_count",
+        "ck_projection_receipt_lane",
+        "ck_projection_receipt_operation",
+        "ck_projection_receipt_result_state",
+        "ck_projection_receipt_operation_result",
+        "ck_projection_receipt_digests",
+        "uq_projection_receipt_outbox_run",
+        "uq_projection_receipt_canonical_job",
+        "ck_projection_identity_physical_value",
+        "ck_projection_identity_digests",
+        "ck_projection_identity_kind",
+        "uq_projection_identity_authenticated",
+        "fk_projection_receipt_link_identity",
+        "fk_projection_receipt_link_receipt",
+        "ck_projection_receipt_link_ordinal",
+        "ck_projection_receipt_link_digests",
+        "uq_projection_receipt_link_ordinal",
+    } <= constraints
 
 
 async def _assert_cleanup_plan_coupling(engine) -> None:

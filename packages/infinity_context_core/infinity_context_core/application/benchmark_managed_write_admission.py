@@ -27,6 +27,20 @@ from infinity_context_core.ports.benchmark_managed_ingest import (
     managed_benchmark_text_sha256,
 )
 from infinity_context_core.ports.benchmark_runs import is_managed_benchmark_space_id
+from infinity_context_core.ports.managed_benchmark_strict_v4_document_write import (
+    ManagedBenchmarkStrictV4DocumentAuthorityPort,
+    ManagedBenchmarkStrictV4DocumentClaim,
+)
+from infinity_context_core.ports.managed_benchmark_strict_v4_write import (
+    ManagedBenchmarkStrictV4CorpusAuthorityPort,
+    ManagedBenchmarkStrictV4CorpusClaim,
+    ManagedBenchmarkStrictV4FactAuthorityPort,
+    ManagedBenchmarkStrictV4FactClaim,
+)
+from infinity_context_core.ports.managed_cleanup_v3_contracts import (
+    fragment_commitments,
+    source_ref_commitments,
+)
 from infinity_context_core.ports.unit_of_work import UnitOfWorkFactoryPort, UnitOfWorkPort
 
 
@@ -44,57 +58,48 @@ class ManagedBenchmarkRememberFactAdmission:
 
     uow_factory: UnitOfWorkFactoryPort
     inner: RememberFactExecutor
+    strict_v4_authority: ManagedBenchmarkStrictV4FactAuthorityPort | None = None
 
     async def execute(self, command: RememberFactCommand) -> RememberFactResult:
         if is_managed_benchmark_space_id(command.scope.space_id):
+            source_refs = [
+                managed_benchmark_fact_source_ref_descriptor(
+                    source_type=ref.source_type,
+                    source_id=ref.source_id,
+                    chunk_id=ref.chunk_id,
+                    char_start=ref.char_start,
+                    char_end=ref.char_end,
+                    quote_preview=ref.quote_preview,
+                    page_number=ref.page_number,
+                    time_start_ms=ref.time_start_ms,
+                    time_end_ms=ref.time_end_ms,
+                    bbox=ref.bbox,
+                )
+                for ref in command.source_refs
+            ]
+            if len(command.source_refs) != 1:
+                _reject("fact source reference")
+            source_id_sha = managed_benchmark_text_sha256(command.source_refs[0].source_id)
+            classification = (
+                command.quality.classification.value if command.quality is not None else "internal"
+            )
+            material = managed_benchmark_fact_operation_material(
+                source_external_id_sha256=source_id_sha,
+                content_sha256=managed_benchmark_text_sha256(command.text),
+                kind=command.kind,
+                classification=classification,
+                source_refs=source_refs,
+            )
             async with self.uow_factory() as uow:
-                corpus = await _managed_corpus(
+                admission = await _managed_fact_admission(
                     uow,
-                    space_id=command.scope.space_id,
-                    memory_scope_id=command.scope.memory_scope_id,
-                    thread_id=command.scope.thread_id,
-                    lane="fact",
-                )
-                source_refs = [
-                    managed_benchmark_fact_source_ref_descriptor(
-                        source_type=ref.source_type,
-                        source_id=ref.source_id,
-                        chunk_id=ref.chunk_id,
-                        char_start=ref.char_start,
-                        char_end=ref.char_end,
-                        quote_preview=ref.quote_preview,
-                        page_number=ref.page_number,
-                        time_start_ms=ref.time_start_ms,
-                        time_end_ms=ref.time_end_ms,
-                        bbox=ref.bbox,
-                    )
-                    for ref in command.source_refs
-                ]
-                if len(command.source_refs) != 1:
-                    _reject("fact source reference")
-                source_id_sha = managed_benchmark_text_sha256(command.source_refs[0].source_id)
-                classification = (
-                    command.quality.classification.value
-                    if command.quality is not None
-                    else "internal"
-                )
-                material = managed_benchmark_fact_operation_material(
-                    source_external_id_sha256=source_id_sha,
-                    content_sha256=managed_benchmark_text_sha256(command.text),
-                    kind=command.kind,
-                    classification=classification,
+                    command=command,
+                    source_id_sha256=source_id_sha,
                     source_refs=source_refs,
+                    material=material,
+                    strict_v4_authority=self.strict_v4_authority,
                 )
-                operation_sha = _require_operation(corpus.value, source_id_sha, material)
-                command = replace(
-                    command,
-                    idempotency_key=_managed_fact_idempotency_key(
-                        run_id_sha256=corpus.run_id_sha256,
-                        cleanup_plan_sha256=corpus.cleanup_plan_sha256,
-                        operation_sha256=operation_sha,
-                        source_id_sha256=source_id_sha,
-                    ),
-                )
+            command = replace(command, idempotency_key=admission.idempotency_key)
         return await self.inner.execute(command)
 
 
@@ -147,6 +152,7 @@ class ManagedBenchmarkEnsureScopeAdmission:
 
     uow_factory: UnitOfWorkFactoryPort
     inner: MutationExecutor
+    strict_v4_authority: ManagedBenchmarkStrictV4CorpusAuthorityPort | None = None
 
     async def execute(self, command: object) -> object:
         space_slug = getattr(command, "space_slug", None)
@@ -154,21 +160,38 @@ class ManagedBenchmarkEnsureScopeAdmission:
             async with self.uow_factory() as uow:
                 record = await uow.benchmark_runs.get_by_space_slug(space_slug)
                 if record is not None:
-                    plan = _validated_active_plan(record)
                     scope_ref = getattr(command, "memory_scope_external_ref", None)
                     thread_ref = getattr(command, "thread_external_ref", None)
                     if type(scope_ref) is not str or type(thread_ref) is not str:
                         _reject("scope creation")
-                    scope_sha = managed_benchmark_text_sha256(scope_ref)
-                    thread_sha = managed_benchmark_text_sha256(thread_ref)
-                    matches = tuple(
-                        item
-                        for item in plan["corpora"]
-                        if item["memory_scope_external_ref_sha256"] == scope_sha
-                        and item["thread_external_ref_sha256"] == thread_sha
-                    )
-                    if len(matches) != 1:
-                        _reject("scope creation")
+                    if _is_strict_v4_record(record):
+                        if self.strict_v4_authority is None:
+                            _reject("strict-v4 authority")
+                        self.strict_v4_authority.admit_corpus(
+                            ManagedBenchmarkStrictV4CorpusClaim(
+                                run_id_sha256=record.run_id_sha256,
+                                binding_commitment_sha256=record.binding_commitment_sha256,
+                                infinity_target_identity_sha256=(
+                                    record.infinity_target_identity_sha256
+                                ),
+                                space_id=record.space_id,
+                                space_slug=record.space_slug,
+                                memory_scope_external_ref=scope_ref,
+                                thread_external_ref=thread_ref,
+                            )
+                        )
+                    else:
+                        plan = _validated_active_plan(record)
+                        scope_sha = managed_benchmark_text_sha256(scope_ref)
+                        thread_sha = managed_benchmark_text_sha256(thread_ref)
+                        matches = tuple(
+                            item
+                            for item in plan["corpora"]
+                            if item["memory_scope_external_ref_sha256"] == scope_sha
+                            and item["thread_external_ref_sha256"] == thread_sha
+                        )
+                        if len(matches) != 1:
+                            _reject("scope creation")
         return await self.inner.execute(command)
 
 
@@ -204,6 +227,12 @@ class _ManagedCorpusAdmission:
     cleanup_plan_sha256: str
 
 
+@dataclass(frozen=True, slots=True)
+class _ManagedFactAdmission:
+    operation_sha256: str
+    idempotency_key: str
+
+
 def _validated_active_plan(record: object) -> dict[str, object]:
     if (
         record is None
@@ -224,18 +253,85 @@ def _validated_active_plan(record: object) -> dict[str, object]:
     ).value
 
 
+async def _managed_fact_admission(
+    uow: UnitOfWorkPort,
+    *,
+    command: RememberFactCommand,
+    source_id_sha256: str,
+    source_refs: list[dict[str, object]],
+    material: dict[str, object],
+    strict_v4_authority: ManagedBenchmarkStrictV4FactAuthorityPort | None,
+) -> _ManagedFactAdmission:
+    record = await uow.benchmark_runs.get_by_space_id(command.scope.space_id)
+    if _is_strict_v4_record(record):
+        if strict_v4_authority is None:
+            _reject("strict-v4 authority")
+        scope, thread = await _active_scope_thread(
+            uow,
+            space_id=command.scope.space_id,
+            memory_scope_id=command.scope.memory_scope_id,
+            thread_id=command.scope.thread_id,
+        )
+        source_refs_sha, ordered_source_refs, source_ref_root = source_ref_commitments(source_refs)
+        claim = ManagedBenchmarkStrictV4FactClaim(
+            run_id_sha256=record.run_id_sha256,
+            binding_commitment_sha256=record.binding_commitment_sha256,
+            infinity_target_identity_sha256=record.infinity_target_identity_sha256,
+            space_id=record.space_id,
+            space_slug=record.space_slug,
+            memory_scope_external_ref=scope.external_ref,
+            thread_external_ref=thread.external_ref,
+            source_identity_sha256=source_id_sha256,
+            source_content_sha256=str(material["content_sha256"]),
+            operation_commitment_sha256=managed_benchmark_infinity_operation_sha256(material),
+            source_refs_sha256=source_refs_sha,
+            source_ref_root_sha256=source_ref_root,
+            ordered_source_ref_descriptor_sha256=ordered_source_refs,
+        )
+        assert strict_v4_authority is not None
+        admitted = strict_v4_authority.admit_fact(claim)
+        return _ManagedFactAdmission(
+            operation_sha256=admitted.operation_sha256,
+            idempotency_key=admitted.idempotency_key,
+        )
+    corpus = await _managed_corpus(
+        uow,
+        space_id=command.scope.space_id,
+        memory_scope_id=command.scope.memory_scope_id,
+        thread_id=command.scope.thread_id,
+        lane="fact",
+    )
+    operation_sha = _require_operation(corpus.value, source_id_sha256, material)
+    return _ManagedFactAdmission(
+        operation_sha256=operation_sha,
+        idempotency_key=_managed_fact_idempotency_key(
+            run_id_sha256=corpus.run_id_sha256,
+            cleanup_plan_sha256=corpus.cleanup_plan_sha256,
+            operation_sha256=operation_sha,
+            source_id_sha256=source_id_sha256,
+        ),
+    )
+
+
+def _is_strict_v4_record(record: object) -> bool:
+    return bool(
+        record is not None
+        and getattr(record, "state", None) == "active"
+        and getattr(record, "projection_cleanup_state", None) == "unsealed"
+        and getattr(record, "cleanup_plan_state", None) == "recovery_blocked"
+        and getattr(record, "cleanup_plan_json", None) is None
+        and getattr(record, "cleanup_plan_sha256", None) is None
+    )
+
+
 async def require_managed_document_admission(
-    *, uow: UnitOfWorkPort, command: IngestDocumentCommand
+    *,
+    uow: UnitOfWorkPort,
+    command: IngestDocumentCommand,
+    strict_v4_authority: ManagedBenchmarkStrictV4DocumentAuthorityPort | None = None,
 ) -> str | None:
     if not is_managed_benchmark_space_id(str(command.space_id)):
         return None
-    corpus = await _managed_corpus(
-        uow,
-        space_id=str(command.space_id),
-        memory_scope_id=str(command.memory_scope_id),
-        thread_id=str(command.thread_id) if command.thread_id is not None else None,
-        lane="document",
-    )
     metadata = command.chunk_metadata
     raw_refs = metadata.get("source_refs", []) if type(metadata) is dict else []
     if type(raw_refs) is not list or any(type(item) is not dict for item in raw_refs):
@@ -263,6 +359,45 @@ async def require_managed_document_admission(
         source_refs=raw_refs,
         fragments=fragments,
     )
+    record = await uow.benchmark_runs.get_by_space_id(str(command.space_id))
+    if _is_strict_v4_record(record):
+        if strict_v4_authority is None:
+            _reject("strict-v4 document authority")
+        scope, thread = await _active_scope_thread(
+            uow,
+            space_id=str(command.space_id),
+            memory_scope_id=str(command.memory_scope_id),
+            thread_id=str(command.thread_id) if command.thread_id is not None else None,
+        )
+        source_refs_sha, ordered_source_refs, source_ref_root = source_ref_commitments(raw_refs)
+        fragments_sha, ordered_fragments, fragment_root = fragment_commitments(fragments)
+        claim = ManagedBenchmarkStrictV4DocumentClaim(
+            run_id_sha256=record.run_id_sha256,
+            binding_commitment_sha256=record.binding_commitment_sha256,
+            infinity_target_identity_sha256=record.infinity_target_identity_sha256,
+            space_id=record.space_id,
+            space_slug=record.space_slug,
+            memory_scope_external_ref=scope.external_ref,
+            thread_external_ref=thread.external_ref,
+            source_identity_sha256=source_id_sha,
+            source_content_sha256=str(material["content_sha256"]),
+            operation_commitment_sha256=managed_benchmark_infinity_operation_sha256(material),
+            source_refs_sha256=source_refs_sha,
+            source_ref_root_sha256=source_ref_root,
+            ordered_source_ref_descriptor_sha256=ordered_source_refs,
+            fragments_sha256=fragments_sha,
+            fragment_root_sha256=fragment_root,
+            ordered_fragment_descriptor_sha256=ordered_fragments,
+        )
+        assert strict_v4_authority is not None
+        return strict_v4_authority.admit_document(claim).idempotency_key
+    corpus = await _managed_corpus(
+        uow,
+        space_id=str(command.space_id),
+        memory_scope_id=str(command.memory_scope_id),
+        thread_id=str(command.thread_id) if command.thread_id is not None else None,
+        lane="document",
+    )
     operation_sha = _require_operation(corpus.value, source_id_sha, material)
     return _managed_operation_idempotency_key(
         domain="document",
@@ -283,17 +418,12 @@ async def _managed_corpus(
 ) -> _ManagedCorpusAdmission:
     record = await uow.benchmark_runs.get_by_space_id(space_id)
     plan = _validated_active_plan(record)
-    scope = await uow.scope.get_memory_scope(memory_scope_id)
-    thread = await uow.scope.get_thread(thread_id) if thread_id is not None else None
-    if (
-        scope is None
-        or str(scope.space_id) != space_id
-        or scope.status != LifecycleStatus.ACTIVE
-        or thread is None
-        or str(thread.memory_scope_id) != memory_scope_id
-        or thread.status != LifecycleStatus.ACTIVE
-    ):
-        _reject("scope")
+    scope, thread = await _active_scope_thread(
+        uow,
+        space_id=space_id,
+        memory_scope_id=memory_scope_id,
+        thread_id=thread_id,
+    )
     scope_sha = managed_benchmark_text_sha256(scope.external_ref)
     thread_sha = managed_benchmark_text_sha256(thread.external_ref)
     matches = [
@@ -310,6 +440,23 @@ async def _managed_corpus(
         run_id_sha256=record.run_id_sha256,
         cleanup_plan_sha256=record.cleanup_plan_sha256,
     )
+
+
+async def _active_scope_thread(
+    uow: UnitOfWorkPort, *, space_id: str, memory_scope_id: str, thread_id: str | None
+) -> tuple[object, object]:
+    scope = await uow.scope.get_memory_scope(memory_scope_id)
+    thread = await uow.scope.get_thread(thread_id) if thread_id is not None else None
+    if (
+        scope is None
+        or str(scope.space_id) != space_id
+        or scope.status != LifecycleStatus.ACTIVE
+        or thread is None
+        or str(thread.memory_scope_id) != memory_scope_id
+        or thread.status != LifecycleStatus.ACTIVE
+    ):
+        _reject("scope")
+    return scope, thread
 
 
 def _require_operation(

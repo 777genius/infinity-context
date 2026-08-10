@@ -80,6 +80,7 @@ _LOCK = threading.RLock()
 MANAGED_CANARY_MAX_CASES = 8
 _OFFICIAL_DIRECT_TRANSPORT = "httpx-direct-tls-no-env-v1"
 _CREDENTIAL_BINDING = re.compile(r"^sha256:[0-9a-f]{64}$")
+_SHA256 = re.compile(r"^[0-9a-f]{64}$")
 
 
 @final
@@ -142,6 +143,8 @@ class ManagedPublicRunProjection:
 
     cases: tuple[ManagedRunCase, ...]
     bindings: FullComparisonRunBindings
+    case_manifest_sha256: str
+    publishable_profile_commitment_sha256: str
 
     def __post_init__(self) -> None:
         if (
@@ -149,6 +152,10 @@ class ManagedPublicRunProjection:
             or not self.cases
             or any(type(item) is not ManagedRunCase for item in self.cases)
             or type(self.bindings) is not FullComparisonRunBindings
+            or type(self.case_manifest_sha256) is not str
+            or _SHA256.fullmatch(self.case_manifest_sha256) is None
+            or type(self.publishable_profile_commitment_sha256) is not str
+            or _SHA256.fullmatch(self.publishable_profile_commitment_sha256) is None
         ):
             raise ManagedRunError("managed public run projection is invalid")
 
@@ -294,7 +301,14 @@ def _managed_public_run_material(
         methodology=methodology,
         selected_cases=selected_cases,
         case_manifest=manifest,
-        projection=ManagedPublicRunProjection(managed_cases, bindings),
+        projection=ManagedPublicRunProjection(
+            managed_cases,
+            bindings,
+            execution_case_manifest_sha256(manifest),
+            hashlib.sha256(
+                _canonical_json(public_full_comparison_profile(trusted_profile))
+            ).hexdigest(),
+        ),
     )
 
 

@@ -12,6 +12,10 @@ from infinity_context_core.ports.benchmark_cleanup_plan import (
 from infinity_context_core.ports.benchmark_managed_ingest import (
     managed_benchmark_infinity_operation_sha256,
 )
+from infinity_context_core.ports.managed_cleanup_v3_contracts import (
+    memory_scope_external_ref_sha256,
+    thread_external_ref_sha256,
+)
 from infinity_context_server.memory_comparison_conversation_ingestion import (
     conversation_documents,
 )
@@ -31,7 +35,17 @@ from infinity_context_server.memory_comparison_managed_v5_infinity_cleanup_proje
     ManagedV5InfinitySourceDescriptor,
     managed_v5_infinity_document_operation_material,
     managed_v5_infinity_fact_operation_material,
+    managed_v5_infinity_fragment_descriptor,
     project_managed_v5_infinity_cleanup,
+)
+from infinity_context_server.memory_comparison_managed_v5_operation_material import (
+    managed_v5_infinity_document_operation_material as shared_document_operation_material,
+)
+from infinity_context_server.memory_comparison_managed_v5_operation_material import (
+    managed_v5_infinity_fact_operation_material as shared_fact_operation_material,
+)
+from infinity_context_server.memory_comparison_managed_v5_operation_material import (
+    managed_v5_infinity_fragment_descriptor as shared_fragment_descriptor,
 )
 from infinity_context_server.public_benchmark_models import BenchmarkDocumentInput
 
@@ -71,6 +85,14 @@ def test_exact_infinity_lane_projection_counts_and_distinct_refs(
     assert result.expected_chunk_count == chunks
     corpus = result.corpora[0]
     assert corpus.scope_external_ref_sha256 != corpus.thread_external_ref_sha256
+    assert corpus.cleanup_v4_scope_external_ref_sha256 == memory_scope_external_ref_sha256(
+        corpus.corpus_id
+    )
+    assert corpus.cleanup_v4_thread_external_ref_sha256 == thread_external_ref_sha256(
+        corpus.thread_external_ref
+    )
+    assert corpus.cleanup_v4_scope_external_ref_sha256 != corpus.scope_external_ref_sha256
+    assert corpus.cleanup_v4_thread_external_ref_sha256 != corpus.thread_external_ref_sha256
     assert all(
         source.expected_chunk_count == 0 for source in corpus.sources if source.lane == "fact"
     )
@@ -119,6 +141,36 @@ def test_operation_commitment_binds_fact_kind_and_document_request_semantics() -
     assert len({original_document, changed_title, changed_type}) == 3
 
 
+def test_legacy_operation_material_api_reexports_exact_shared_formulas() -> None:
+    assert managed_v5_infinity_fact_operation_material is shared_fact_operation_material
+    assert managed_v5_infinity_document_operation_material is shared_document_operation_material
+    assert managed_v5_infinity_fragment_descriptor is shared_fragment_descriptor
+
+
+def test_shared_operation_material_preserves_legacy_golden_commitments() -> None:
+    locomo = _projection(
+        "mem0-locomo-top50-v1",
+        "managed-locomo-sandbox.json",
+        ("sandbox-locomo-1:qa:1",),
+    ).cases[0]
+    memory = _reconstruct(locomo).memories[0]
+    assert (
+        managed_benchmark_infinity_operation_sha256(shared_fact_operation_material(memory))
+        == "c4df1e7b37905bc01e07f20375d51065847a6545e2e02b95ea7562394072ad3b"
+    )
+
+    longmem = _projection(
+        "mem0-longmemeval-top50-v1",
+        "managed-longmemeval-sandbox.json",
+        ("sandbox-longmem-multi",),
+    ).cases[0]
+    document = conversation_documents(_reconstruct(longmem))[0]
+    assert (
+        managed_benchmark_infinity_operation_sha256(shared_document_operation_material(document))
+        == "bdf51a5d855f25688331687123eaa8a38da638450f8319406befc16c883dab73"
+    )
+
+
 @pytest.mark.parametrize(("length", "expected_fragments"), ((1_201, 2), (76_719, 71)))
 def test_document_operation_binds_exact_fragment_count(
     length: int, expected_fragments: int
@@ -151,10 +203,35 @@ def test_document_content_hash_collision_with_distinct_sources_is_rejected() -> 
     )
     with pytest.raises(ManagedV5InfinityCleanupProjectionError, match="corpus_invalid"):
         ManagedV5InfinityCorpusCleanupProjection(
-            corpus_id,
-            hashlib.sha256(corpus_id.encode()).hexdigest(),
-            hashlib.sha256(b"thread-1").hexdigest(),
-            sources,
+            corpus_id=corpus_id,
+            thread_external_ref="thread-1",
+            scope_external_ref_sha256=hashlib.sha256(corpus_id.encode()).hexdigest(),
+            thread_external_ref_sha256=hashlib.sha256(b"thread-1").hexdigest(),
+            cleanup_v4_scope_external_ref_sha256=memory_scope_external_ref_sha256(corpus_id),
+            cleanup_v4_thread_external_ref_sha256=thread_external_ref_sha256("thread-1"),
+            sources=sources,
+        )
+
+
+def test_cleanup_v4_digests_cannot_reuse_legacy_plain_sha() -> None:
+    corpus_id = "corpus-1"
+    thread = "thread-1"
+    source = ManagedV5InfinitySourceDescriptor(
+        "fact",
+        hashlib.sha256(b"source").hexdigest(),
+        hashlib.sha256(b"content").hexdigest(),
+        0,
+        hashlib.sha256(b"operation").hexdigest(),
+    )
+    with pytest.raises(ManagedV5InfinityCleanupProjectionError, match="corpus_invalid"):
+        ManagedV5InfinityCorpusCleanupProjection(
+            corpus_id=corpus_id,
+            thread_external_ref=thread,
+            scope_external_ref_sha256=hashlib.sha256(corpus_id.encode()).hexdigest(),
+            thread_external_ref_sha256=hashlib.sha256(thread.encode()).hexdigest(),
+            cleanup_v4_scope_external_ref_sha256=hashlib.sha256(corpus_id.encode()).hexdigest(),
+            cleanup_v4_thread_external_ref_sha256=hashlib.sha256(thread.encode()).hexdigest(),
+            sources=(source,),
         )
 
 

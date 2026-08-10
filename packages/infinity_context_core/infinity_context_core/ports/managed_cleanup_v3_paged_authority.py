@@ -88,7 +88,7 @@ def _page(
     operations: tuple[ManagedCleanupV3Operation, ...],
 ) -> ManagedCleanupV3Page:
     body = {
-        "schema_version": "memory-comparison-paged-cleanup-page.v3",
+        "schema_version": "memory-comparison-paged-cleanup-page.v4",
         "context_sha256": context_sha256,
         "page_index": page_index,
         "start_sequence": start_sequence,
@@ -101,7 +101,7 @@ def _page(
         start_sequence=start_sequence,
         end_sequence_exclusive=start_sequence + len(operations),
         operations=operations,
-        page_sha256=commitment("page/v3", body),
+        page_sha256=commitment("page/v4", body),
     )
 
 
@@ -115,7 +115,7 @@ def _fits(
     if len(operations) > PAGE_OPERATION_CAP:
         return False
     empty_payload = {
-        "schema_version": "memory-comparison-paged-cleanup-page.v3",
+        "schema_version": "memory-comparison-paged-cleanup-page.v4",
         "context_sha256": context_sha256,
         "page_index": page_index,
         "start_sequence": start_sequence,
@@ -156,7 +156,7 @@ def cleanup_operation_stream_root(*, profile_id: str, operation_sha256: Iterable
         if len(current) == _CLEANUP_STREAM_PAGE_SIZE:
             pages.append(
                 commitment(
-                    "operation-stream-page/v3",
+                    "operation-stream-page/v4",
                     {"page_index": len(pages), "ordered_operation_sha256": current},
                 )
             )
@@ -166,7 +166,7 @@ def cleanup_operation_stream_root(*, profile_id: str, operation_sha256: Iterable
     if current:
         pages.append(
             commitment(
-                "operation-stream-page/v3",
+                "operation-stream-page/v4",
                 {"page_index": len(pages), "ordered_operation_sha256": current},
             )
         )
@@ -179,12 +179,15 @@ def _authority(
     *,
     valid_messages: int,
     fragments: int,
+    corpus_thread_identities: tuple[str, ...],
+    document_source_ref_count: int,
+    document_source_ref_root_sha256: str,
     a1_root: str,
     cleanup_root: str,
 ) -> ManagedCleanupV3Authority:
     oracle = profile_oracle(context.profile_id)
     body = {
-        "schema_version": "memory-comparison-paged-cleanup-authority.v3",
+        "schema_version": "memory-comparison-paged-cleanup-authority.v4",
         "profile_id": context.profile_id,
         "context_sha256": context.context_sha256,
         "a1_terminal_commitment_sha256": context.a1_terminal_commitment_sha256,
@@ -193,6 +196,12 @@ def _authority(
         "original_pair_slot_count": oracle["original_pair_slot_count"],
         "fully_invalid_pair_slot_count": oracle["fully_invalid_pair_slot_count"],
         "fragment_count": fragments,
+        "corpus_thread_identity_count": len(corpus_thread_identities),
+        "corpus_thread_identity_root_sha256": commitment(
+            "corpus-scope-thread-identity-root/v4", list(corpus_thread_identities)
+        ),
+        "document_source_ref_count": document_source_ref_count,
+        "document_source_ref_root_sha256": document_source_ref_root_sha256,
         "page_count": len(page_sha256),
         "ordered_page_sha256": list(page_sha256),
         "pages_merkle_root_sha256": merkle_root(page_sha256),
@@ -209,7 +218,7 @@ def _authority(
             for key, value in body.items()
             if key != "schema_version"
         },
-        terminal_commitment_sha256=commitment("authority/v3", body),
+        terminal_commitment_sha256=commitment("authority/v4", body),
     )  # type: ignore[arg-type]
 
 
@@ -253,6 +262,15 @@ def build_managed_cleanup_v3_authority(
         a1_pages: list[str] = []
         cleanup_items: list[str] = []
         cleanup_pages: list[str] = []
+        corpus_thread_identities: list[str] = []
+        document_source_ref_items: list[str] = []
+        document_source_ref_pages: list[str] = []
+        current_corpus: str | None = None
+        current_lane: str | None = None
+        current_memory_scope_external_ref_sha256: str | None = None
+        current_thread_external_ref_sha256: str | None = None
+        closed_corpora: set[str] = set()
+        document_source_ref_count = 0
         sequence = valid_messages = fragments = 0
 
         def flush_page() -> None:
@@ -279,7 +297,7 @@ def build_managed_cleanup_v3_authority(
                 return
             cleanup_pages.append(
                 commitment(
-                    "operation-stream-page/v3",
+                    "operation-stream-page/v4",
                     {
                         "page_index": len(cleanup_pages),
                         "ordered_operation_sha256": cleanup_items,
@@ -288,12 +306,72 @@ def build_managed_cleanup_v3_authority(
             )
             cleanup_items = []
 
+        def flush_document_source_refs() -> None:
+            nonlocal document_source_ref_items
+            if not document_source_ref_items:
+                return
+            document_source_ref_pages.append(
+                commitment(
+                    "document-source-ref-page/v4",
+                    {
+                        "page_index": len(document_source_ref_pages),
+                        "ordered_identity_sha256": document_source_ref_items,
+                    },
+                )
+            )
+            document_source_ref_items = []
+
         for operation in iterator:
             if type(operation) is not ManagedCleanupV3Operation:
                 raise ManagedCleanupV3Error("managed_cleanup_v3_operation_invalid")
             operation.__post_init__()
             if sequence >= expected or operation.sequence != sequence:
                 raise ManagedCleanupV3Error("managed_cleanup_v3_sequence_invalid")
+            if operation.corpus_identity_sha256 != current_corpus:
+                if operation.corpus_identity_sha256 in closed_corpora:
+                    raise ManagedCleanupV3Error("managed_cleanup_v3_corpus_order_invalid")
+                if current_corpus is not None:
+                    closed_corpora.add(current_corpus)
+                current_corpus = operation.corpus_identity_sha256
+                current_lane = operation.lane
+                current_memory_scope_external_ref_sha256 = (
+                    operation.memory_scope_external_ref_sha256
+                )
+                current_thread_external_ref_sha256 = operation.thread_external_ref_sha256
+                corpus_thread_identities.append(
+                    commitment(
+                        "corpus-scope-thread-identity/v4",
+                        {
+                            "lane": current_lane,
+                            "corpus_identity_sha256": current_corpus,
+                            "memory_scope_external_ref_sha256": (
+                                current_memory_scope_external_ref_sha256
+                            ),
+                            "thread_external_ref_sha256": (current_thread_external_ref_sha256),
+                        },
+                    )
+                )
+            elif (
+                operation.lane != current_lane
+                or operation.memory_scope_external_ref_sha256
+                != current_memory_scope_external_ref_sha256
+                or operation.thread_external_ref_sha256 != current_thread_external_ref_sha256
+            ):
+                raise ManagedCleanupV3Error("managed_cleanup_v3_thread_identity_invalid")
+            if operation.lane == "document":
+                document_source_ref_count += len(operation.ordered_source_ref_descriptor_sha256)
+                document_source_ref_items.append(
+                    commitment(
+                        "document-source-ref-identity/v4",
+                        {
+                            "source_identity_sha256": operation.source_identity_sha256,
+                            "source_ref_count": len(operation.ordered_source_ref_descriptor_sha256),
+                            "source_refs_sha256": operation.source_refs_sha256,
+                        },
+                    )
+                )
+                if len(document_source_ref_items) == _CLEANUP_STREAM_PAGE_SIZE:
+                    flush_document_source_refs()
             candidate = (*page_items, operation)
             operation_size = len(canonical_bytes(operation.payload()))
             candidate_sizes = (*page_item_sizes, operation_size)
@@ -332,6 +410,7 @@ def build_managed_cleanup_v3_authority(
         flush_page()
         flush_a1()
         flush_cleanup()
+        flush_document_source_refs()
         a1_root = a1_merkle_root(tuple(a1_pages))
         if a1_root != a1_authority.pages_merkle_root_sha256:
             raise ManagedCleanupV3Error("managed_cleanup_v3_a1_stream_mismatch")
@@ -343,6 +422,13 @@ def build_managed_cleanup_v3_authority(
             tuple(pages),
             valid_messages=valid_messages,
             fragments=fragments,
+            corpus_thread_identities=tuple(corpus_thread_identities),
+            document_source_ref_count=document_source_ref_count,
+            document_source_ref_root_sha256=(
+                merkle_root(tuple(document_source_ref_pages))
+                if document_source_ref_pages
+                else commitment("document-source-ref-empty/v4", [])
+            ),
             a1_root=a1_root,
             cleanup_root=cleanup_root,
         )
