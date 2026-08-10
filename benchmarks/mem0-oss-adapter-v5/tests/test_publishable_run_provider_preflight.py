@@ -168,10 +168,14 @@ class _Lane:
 def _build_lane(
     tmp_path: Path,
     *,
-    requested_mode: str = "create",
+    project: str = "publishable-test-lane-a",
+    generation: int = 7,
+    identity_offset: int = 0,
+    observed_at_unix_ns: int | None = None,
+    requested_mode: str = "reopen",
     retained_launch_mode: str = "create",
+    runtime_root_secret: bytes = b"provider-free-runtime-attestation-root-v1",
 ) -> _Lane:
-    project = "publishable-test-lane-a"
     lane_root = _private_directory(tmp_path / project)
     state_root = _private_directory(tmp_path / "provider-state")
     attestation_directory = _private_directory(lane_root / "runtime-attestations")
@@ -226,16 +230,16 @@ def _build_lane(
             codex_executable_sha256=_CODEX_EXECUTABLE,
         )
         process = ProcessIdentity(
-            pid=41_000 + index,
-            start_ticks=900_000 + index,
-            pgid=41_000 + index,
+            pid=41_000 + identity_offset + index,
+            start_ticks=900_000 + identity_offset + index,
+            pgid=41_000 + identity_offset + index,
             boot_id=f"00000000-0000-4000-8000-{index + 1:012d}",
         )
         pending = PendingLaunchMetadata.issue(
             account_name=account,
             bridge_id=bridge.bridge_id,
-            generation=7,
-            launch_id=_sha(f"launch-{index}"),
+            generation=generation,
+            launch_id=_sha(f"launch-{identity_offset}-{index}"),
             mode=retained_launch_mode,
             process=process,
             runtime_authority_sha256=runtime.commitment_sha256,
@@ -266,7 +270,7 @@ def _build_lane(
                 "bridge_port": 8891 + index,
                 "bridge_readiness": readiness_payload,
                 "bridge_readiness_sha256": _json_sha(readiness_payload),
-                "controller_pid": 51_000 + index,
+                "controller_pid": 51_000 + identity_offset + index,
                 "project_name": project,
                 "schema_version": _CONTROL_SCHEMA,
             },
@@ -283,7 +287,6 @@ def _build_lane(
         launches.append(launch)
 
     readiness = BridgeFleetReadinessReceipt(pool=pool, launches=tuple(launches))
-    runtime_root_secret = b"provider-free-runtime-attestation-root-v1"
     output_key = _key("output-cipher")
     secrets: dict[str, object] = {
         "bridge_journal_authentication_key_hex": _key("bridge-journal").hex(),
@@ -347,6 +350,7 @@ def _build_lane(
                 "lane_project_name": project,
                 "maximum_age_seconds": 300,
                 "public_endpoint": endpoint,
+                "required_fleet_mode": "reopen",
                 "runtime_attestation_directory": str(attestation_directory),
             },
             "authority": {
@@ -398,7 +402,7 @@ def _build_lane(
             {
                 "account_name": launch.pending.account_name,
                 "bridge_id": bridge.bridge_id,
-                "controller_pid": 51_000 + index,
+                "controller_pid": 51_000 + identity_offset + index,
                 "generation": launch.pending.generation,
                 "launch_mode": launch.pending.mode,
                 "process": launch.pending.process.public_payload(),
@@ -414,9 +418,9 @@ def _build_lane(
     services = {
         name: {
             "bind_mounts_sha256": _sha(f"mounts-{name}"),
-            "container_id": _sha(f"container-{name}"),
+            "container_id": _sha(f"container-{identity_offset}-{name}"),
             "image_id": _QDRANT_IMAGE if name == "publishable-qdrant" else _ADAPTER_IMAGE,
-            "pid": 61_000 + index,
+            "pid": 61_000 + identity_offset + index,
         }
         for index, name in enumerate(
             (
@@ -445,7 +449,9 @@ def _build_lane(
             "host_port": endpoint_port,
             "relayed_adapter_port": 19_091,
         },
-        "observed_at_unix_ns": time.time_ns(),
+        "observed_at_unix_ns": (
+            time.time_ns() if observed_at_unix_ns is None else observed_at_unix_ns
+        ),
         "project_name": project,
         "qdrant_image_id": _QDRANT_IMAGE,
         "qdrant_ports": {"grpc": 6335, "http": 6334},
@@ -644,7 +650,7 @@ def test_real_parser_and_factory_open_complete_preflight_before_downstream(
     session.close()
 
 
-def test_reopen_attestation_accepts_retained_create_launches(
+def test_paid_fleet_reopen_is_independent_of_fresh_scheduler_create(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -658,7 +664,7 @@ def test_reopen_attestation_accepts_retained_create_launches(
     readiness = run_provider_preflight.preflight_run_provider(
         config=config,
         secrets=secrets,
-        mode=PublishableProductionOpenMode.RESUME,
+        mode=PublishableProductionOpenMode.CREATE,
     )
     assert tuple(item.pending.mode for item in readiness.launches) == (
         "create",
@@ -669,7 +675,7 @@ def test_reopen_attestation_accepts_retained_create_launches(
 
 
 def test_producer_receipt_is_consumed_by_the_real_receipt_verifiers(tmp_path: Path) -> None:
-    lane = _build_lane(tmp_path)
+    lane = _build_lane(tmp_path, retained_launch_mode="reopen")
     payload = lane.attestation_payload
     fleet_payload = payload["fleet"]
     services_payload = payload["services"]
@@ -730,7 +736,7 @@ def test_producer_receipt_is_consumed_by_the_real_receipt_verifiers(tmp_path: Pa
         directory=lane.attestation_directory,
         authentication_key_file=acceptance_secret,
         expected_project=str(payload["project_name"]),
-        expected_mode="create",
+        expected_mode="reopen",
         expected_commitment=receipt.sha256,
         expected_uid=acceptance_secret.stat().st_uid,
         expected_gid=acceptance_secret.stat().st_gid,
@@ -769,7 +775,7 @@ def test_hostile_runtime_evidence_fails_before_any_downstream_open(
         lane.replace_attestation(stale)
     elif attack == "cross_mode_attestation":
         foreign = copy.deepcopy(lane.attestation_payload)
-        foreign["fleet"]["requested_mode"] = "reopen"
+        foreign["fleet"]["requested_mode"] = "create"
         lane.replace_attestation(foreign)
     elif attack == "divergent_attestation":
         divergent = copy.deepcopy(lane.attestation_payload)

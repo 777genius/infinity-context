@@ -97,7 +97,10 @@ def preflight_run_provider(
 ) -> BridgeFleetReadinessReceipt:
     """Bind current lane, fleet, source, runtime, and endpoint before session open."""
 
-    expected_mode = _expected_fleet_mode(mode)
+    expected_mode = _expected_fleet_mode(
+        mode,
+        required_fleet_mode=config.runtime_attestation.required_fleet_mode,
+    )
     try:
         verified = _verified_fleet(config, secrets)
         _verify_runtime_authorities(config, verified)
@@ -121,13 +124,11 @@ def preflight_run_provider(
         _fail("publishable_run_provider_runtime_preflight_failed")
 
 
-def _expected_fleet_mode(mode: object) -> str:
+def _expected_fleet_mode(mode: object, *, required_fleet_mode: str) -> str:
     value = getattr(mode, "value", None)
-    if value == "create":
-        return "create"
-    if value == "resume":
-        return "reopen"
-    _fail("publishable_run_provider_mode_invalid")
+    if value not in {"create", "resume"} or required_fleet_mode != "reopen":
+        _fail("publishable_run_provider_mode_invalid")
+    return required_fleet_mode
 
 
 def _verified_fleet(
@@ -312,43 +313,63 @@ def _verify_lane_attestation(
         paths = tuple(sorted(directory.iterdir()))
     except Exception:
         _fail("publishable_run_provider_runtime_attestation_directory_invalid")
-    if not paths:
+    runtime_paths = _runtime_attestation_paths(paths)
+    if not runtime_paths:
         _fail("publishable_run_provider_runtime_attestation_missing")
     receipts = tuple(
         _read_lane_attestation(
             path,
             authentication_key=secrets.runtime_attestation_root_secret,
         )
-        for path in paths
+        for path in runtime_paths
     )
     now_ns = time.time_ns()
-    latest_ns = max(_observed_ns(item) for item in receipts)
-    latest = tuple(item for item in receipts if _observed_ns(item) == latest_ns)
+    observed = tuple(_observed_ns(item) for item in receipts)
+    latest_ns = max(observed)
+    latest = tuple(
+        item for item, timestamp in zip(receipts, observed, strict=True) if timestamp == latest_ns
+    )
+    expected_fleet = _expected_fleet_payload(verified, expected_mode=expected_mode)
+    current = tuple(
+        item
+        for item in receipts
+        if item.get("project_name") == config.runtime_attestation.lane_project_name
+        and item.get("fleet") == expected_fleet
+    )
+    if not current:
+        _fail("publishable_run_provider_runtime_attestation_stale_or_cross_mode")
+    current_latest_ns = max(_observed_ns(item) for item in current)
+    current_latest = tuple(item for item in current if _observed_ns(item) == current_latest_ns)
     maximum_age_ns = config.runtime_attestation.maximum_age_seconds * 1_000_000_000
     if (
         len(latest) != 1
-        or latest_ns > now_ns + 1_000_000_000
-        or now_ns - latest_ns > maximum_age_ns
-        or _fleet_payload(latest[0]).get("requested_mode") != expected_mode
+        or len(current_latest) != 1
+        or latest[0] is not current_latest[0]
+        or current_latest_ns > now_ns + 1_000_000_000
+        or now_ns - current_latest_ns > maximum_age_ns
     ):
         _fail("publishable_run_provider_runtime_attestation_stale_or_cross_mode")
-    recent_same_mode = tuple(
-        item
-        for item in receipts
-        if _fleet_payload(item).get("requested_mode") == expected_mode
-        and now_ns - _observed_ns(item) <= maximum_age_ns
-    )
-    bindings = {_canonical_sha256(_without_observation(item)) for item in recent_same_mode}
-    if not recent_same_mode or len(bindings) != 1:
+    bindings = {_canonical_sha256(_without_observation(item)) for item in current}
+    if len(bindings) != 1:
         _fail("publishable_run_provider_runtime_attestation_divergent")
     _cross_check_lane_attestation(
-        latest[0],
+        current_latest[0],
         config=config,
         secrets=secrets,
         verified=verified,
         expected_mode=expected_mode,
     )
     return paths
+
+
+def _runtime_attestation_paths(paths: tuple[Path, ...]) -> tuple[Path, ...]:
+    selected: list[Path] = []
+    for path in paths:
+        if _ATTESTATION_NAME.fullmatch(path.name) is not None:
+            selected.append(path)
+        elif path.name.startswith(_ATTESTATION_PREFIX):
+            _fail("publishable_run_provider_runtime_attestation_file_invalid")
+    return tuple(selected)
 
 
 def _read_lane_attestation(
@@ -668,7 +689,7 @@ def _require_attestation_directory_unchanged(
         _fail("publishable_run_provider_runtime_attestation_directory_invalid")
     if observed != expected_paths:
         _fail("publishable_run_provider_runtime_attestation_changed_during_preflight")
-    for path in observed:
+    for path in _runtime_attestation_paths(observed):
         _read_lane_attestation(path, authentication_key=authentication_key)
 
 
@@ -723,13 +744,6 @@ def _observed_ns(value: dict[str, object]) -> int:
     if type(observed) is not int or observed <= 0:
         _fail("publishable_run_provider_runtime_attestation_time_invalid")
     return observed
-
-
-def _fleet_payload(value: dict[str, object]) -> dict[str, object]:
-    fleet = value.get("fleet")
-    if type(fleet) is not dict:
-        _fail("publishable_run_provider_runtime_attestation_mismatch")
-    return fleet
 
 
 def _without_observation(value: dict[str, object]) -> dict[str, object]:

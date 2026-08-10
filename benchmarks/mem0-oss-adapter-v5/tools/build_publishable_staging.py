@@ -35,6 +35,7 @@ INTERNAL_LANE_PORTS = staging_contracts.INTERNAL_LANE_PORTS
 PINNED_DOCKER_HOST = staging_contracts.PINNED_DOCKER_HOST
 PROTECTED_ACCOUNT_I_AUTH_ROOT = staging_contracts.PROTECTED_ACCOUNT_I_AUTH_ROOT
 PROTECTED_R16_ROOT = staging_contracts.PROTECTED_R16_ROOT
+REQUIRED_PAID_FLEET_MODE = staging_contracts.REQUIRED_PAID_FLEET_MODE
 RUNTIME_PIN_SHA256 = staging_contracts.RUNTIME_PIN_SHA256
 SOURCE_COMMIT_SHA256 = staging_contracts.SOURCE_COMMIT_SHA256
 SOURCE_MANIFEST_SHA256 = staging_contracts.SOURCE_MANIFEST_SHA256
@@ -61,11 +62,13 @@ class StagingCommands:
             ("attest_reopen", self.attest_reopen),
             ("run_2040", self.run_2040),
         )
+        initial = [{"command": shlex.join(command), "name": name} for name, command in ordered]
+        recovery = [{"command": shlex.join(command), "name": name} for name, command in ordered[1:]]
         return {
             **{name: shlex.join(command) for name, command in ordered},
-            "operator_order": [
-                {"command": shlex.join(command), "name": name} for name, command in ordered
-            ],
+            "crash_reopen_resume_order": recovery,
+            "initial_paid_create_order": initial,
+            "operator_order": initial,
         }
 
 
@@ -354,6 +357,7 @@ def _run_payload(
                     "lane_project_name": template.project_name,
                     "maximum_age_seconds": runtime["attestation_max_age_seconds"],
                     "public_endpoint": endpoint,
+                    "required_fleet_mode": runtime["required_fleet_mode"],
                     "runtime_attestation_directory": str(
                         lane_root / template.private_directory_names["attestation_dir"]
                     ),
@@ -539,9 +543,12 @@ def _validate_run_payload(value: dict[str, object], *, run_root: Path) -> None:
     runtime = adapter["runtime"]
     suite = adapter["suite"]
     authority = runtime.get("authority") if type(runtime) is dict else None
+    attestation = runtime.get("attestation") if type(runtime) is dict else None
     if (
         type(authority) is not dict
+        or type(attestation) is not dict
         or type(suite) is not dict
+        or attestation.get("required_fleet_mode") != REQUIRED_PAID_FLEET_MODE
         or authority.get("runtime_pin_sha256") != RUNTIME_PIN_SHA256
         or authority.get("source_manifest_sha256") != SOURCE_MANIFEST_SHA256
         or suite.get("source_commit_sha256") != SOURCE_COMMIT_SHA256

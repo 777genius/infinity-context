@@ -81,10 +81,12 @@ is a collision and is never read or overwritten.
 ## Review and provision
 
 Expect the builder's single JSON result to report `STAGED_SECRET_FREE`, four
-fully quoted commands, and an explicit `operator_order` list. Review both generated configs and confirm that the
-secrets path named by `secrets_path_not_created` does not exist. Populate the
-authority layout referenced by the lane config using reviewed immutable public
-artifacts.
+fully quoted commands, and explicit `initial_paid_create_order` and
+`crash_reopen_resume_order` lists. `operator_order` is the same initial paid
+order retained for compatibility. Review both generated configs and confirm
+that the secrets path named by `secrets_path_not_created` does not exist.
+Populate the authority layout referenced by the lane config using reviewed
+immutable public artifacts.
 
 The run config's adapter object is the exact seven-section production provider
 contract. Its reviewed runtime pin, source-commit digest, source manifest,
@@ -145,9 +147,19 @@ provider authenticates a fresh challenge response and the exact create/reopen
 host receipt before it opens extraction, official cases, retrieval, or a live
 session.
 
+The generated provider authority sets `required_fleet_mode` to `reopen`.
+That lowercase Docker fleet mode is independent of the outer scheduler mode.
+Acceptance has already initialized the bind-backed bridge state, so the first
+paid run uses fleet `reopen` while the empty scheduler roots select scheduler
+`CREATE`. A nonterminal crash leaves the scheduler roots present; the same run
+command then selects scheduler `RESUME`, again against a newly attested fleet
+`reopen` generation.
+
 ## Exact command order
 
 Use the commands emitted by the builder without editing their paths or flags:
+
+Initial paid scheduler `CREATE` uses `initial_paid_create_order`:
 
 1. Run `acceptance` once on fresh staged state. It owns the complete
    provider-free lifecycle: exact-project empty gate, cached-only
@@ -156,13 +168,19 @@ Use the commands emitted by the builder without editing their paths or flags:
    attestation, and exact-project teardown in `finally`. It then verifies zero
    exact-project containers, networks, and volumes. It never runs Docker prune,
    removes another project, builds, pulls, or calls a provider.
-2. `start_reopen` starts the accepted bind-backed state with fleet mode
-   `reopen`. Acceptance has already initialized that state, so do not use
-   `create` afterward.
-3. `attest_reopen` proves the reopened paid-run lane before dispatch.
+2. `start_reopen` starts the accepted bind-backed state as the first paid fleet
+   generation. Acceptance has already initialized that state, so fleet
+   `create` is invalid afterward.
+3. `attest_reopen` writes the exact current paid fleet receipt before dispatch.
 4. `run_2040` is the only command carrying `--allow-live`; run it only after
-   explicit paid-run approval and secret provisioning. After an interruption,
-   repeat `start_reopen`, `attest_reopen`, and the unchanged `run_2040` command.
+   explicit paid-run approval and secret provisioning. With empty scheduler
+   roots, this invocation opens scheduler `CREATE`.
+
+After a nonterminal interruption, use `crash_reopen_resume_order`: run the same
+`start_reopen`, `attest_reopen`, and unchanged `run_2040` commands. The new host
+receipt must match the current bridge generation, controller/process PIDs, and
+container identities; the existing scheduler roots make the last command open
+scheduler `RESUME`.
 
 Stop on any nonzero result. Never substitute account-i, r16, their paths, their
 ports, their container IDs, or their credentials into the new lane.
@@ -177,6 +195,15 @@ is the acceptance command itself. The lane has no historical or concurrent
 provider-call counter, so the result reports that broader counter as
 `NOT_AVAILABLE` instead of inventing one. The result also records immutable
 host-attestation commitments and the final zero-resource inventory.
+
+The lane evidence directory is append-only across these phases. It retains
+content-addressed `runtime-attestation-*`, `provider-attestation-*`, and
+`docker-acceptance-*` files. Paid preflight snapshots the complete directory,
+HMAC-authenticates the exact runtime filename namespace, and selects only the
+unique fresh receipt whose project, required fleet mode, and complete fleet
+identity match the live authenticated controls. Historical acceptance and paid
+generations remain audit evidence; they are never treated as the current paid
+generation, and unrelated or stale receipts cannot make preflight pass.
 
 Record `acceptance_driver.package_closure_sha256` with the acceptance result.
 It is a path-independent digest of the installed `publishable_mem0_v5` package,

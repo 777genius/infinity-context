@@ -225,6 +225,7 @@ def test_builds_exact_secret_free_lane_and_2040_configs_with_private_modes(
         "lane_project_name": "mem0-v5-publishable-staging-r17-6f2c",
         "maximum_age_seconds": 300,
         "public_endpoint": "http://127.0.0.1:29192",
+        "required_fleet_mode": "reopen",
         "runtime_attestation_directory": str(
             bundle.output_root
             / "mem0-v5-publishable-staging-r17-6f2c"
@@ -322,6 +323,7 @@ def test_generated_config_passes_real_outer_loader_and_production_provider_parse
     )
 
     assert provider_config.runtime_attestation.endpoint == "http://127.0.0.1:29192"
+    assert provider_config.runtime_attestation.required_fleet_mode == "reopen"
     assert provider_config.suite.mem0_base_url == provider_config.runtime_attestation.endpoint
     assert provider_config.runtime_authority.source_manifest_sha256 == SOURCE_MANIFEST_SHA256
     assert repr(provider_secrets) == "RunProviderSecrets(<redacted>)"
@@ -400,38 +402,39 @@ def test_commands_are_exact_for_acceptance_reopen_attest_and_run(tmp_path: Path)
     )
     assert bundle.commands.start_reopen[-2:] == ("--fleet-mode", "reopen")
     assert bundle.commands.attest_reopen[-2:] == ("--fleet-mode", "reopen")
+    initial_order = [
+        {
+            "command": f"infinity-context-publishable-mem0-v5 acceptance --config {lane}",
+            "name": "acceptance",
+        },
+        {
+            "command": (
+                f"infinity-context-publishable-mem0-v5 start --config {lane} --fleet-mode reopen"
+            ),
+            "name": "start_reopen",
+        },
+        {
+            "command": (
+                f"infinity-context-publishable-mem0-v5 attest --config {lane} --fleet-mode reopen"
+            ),
+            "name": "attest_reopen",
+        },
+        {
+            "command": (
+                f"infinity-context-publishable-run --private-root {run_root} "
+                f"--config {run_config} --secrets {secrets} --allow-live"
+            ),
+            "name": "run_2040",
+        },
+    ]
     assert bundle.commands.payload() == {
         "acceptance": f"infinity-context-publishable-mem0-v5 acceptance --config {lane}",
         "attest_reopen": (
             f"infinity-context-publishable-mem0-v5 attest --config {lane} --fleet-mode reopen"
         ),
-        "operator_order": [
-            {
-                "command": f"infinity-context-publishable-mem0-v5 acceptance --config {lane}",
-                "name": "acceptance",
-            },
-            {
-                "command": (
-                    f"infinity-context-publishable-mem0-v5 start --config {lane} "
-                    "--fleet-mode reopen"
-                ),
-                "name": "start_reopen",
-            },
-            {
-                "command": (
-                    f"infinity-context-publishable-mem0-v5 attest --config {lane} "
-                    "--fleet-mode reopen"
-                ),
-                "name": "attest_reopen",
-            },
-            {
-                "command": (
-                    f"infinity-context-publishable-run --private-root {run_root} "
-                    f"--config {run_config} --secrets {secrets} --allow-live"
-                ),
-                "name": "run_2040",
-            },
-        ],
+        "crash_reopen_resume_order": initial_order[1:],
+        "initial_paid_create_order": initial_order,
+        "operator_order": initial_order,
         "run_2040": (
             f"infinity-context-publishable-run --private-root {run_root} "
             f"--config {run_config} --secrets {secrets} --allow-live"
@@ -598,6 +601,7 @@ def test_rejects_current_runtime_pin_cross_wired_to_stale_source_before_writing(
         ("suite", "infinity_base_url", "http://credential@127.0.0.1:29292"),
         ("suite", "infinity_base_url", "http://127.0.0.1:29192"),
         ("runtime", "attestation_max_age_seconds", 7_201),
+        ("runtime", "required_fleet_mode", "create"),
         ("runtime", "maximum_bridge_request_bytes", 1_023),
         ("runtime", "maximum_ciphertext_bytes", 1_023),
         ("runtime", "runtime_pin_name", "nested/runtime-pin.json"),
@@ -797,6 +801,11 @@ def test_cli_reports_only_secret_free_paths_and_exact_commands(
         "attest_reopen",
         "run_2040",
     ]
+    assert payload["commands"]["initial_paid_create_order"] == payload["commands"]["operator_order"]
+    assert (
+        payload["commands"]["crash_reopen_resume_order"]
+        == payload["commands"]["operator_order"][1:]
+    )
     assert "start_create" not in payload["commands"]
     assert "attest_create" not in payload["commands"]
     assert not Path(payload["secrets_path_not_created"]).exists()

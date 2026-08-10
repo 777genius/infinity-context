@@ -271,7 +271,7 @@ class FakeProviderProbe:
             self.create_path.write_bytes(b"{}\n")
         immutable = write_immutable_json(
             directory=self.config.paths.attestation_dir,
-            prefix="fake-provider-",
+            prefix="provider-attestation-",
             payload={
                 "fleet_mode": fleet_mode,
                 "runtime_attestation_sha256": runtime_attestation_sha256,
@@ -300,7 +300,7 @@ class FakeProviderProbe:
         require_immutable_json_unchanged(
             evidence.immutable,
             directory=self.config.paths.attestation_dir,
-            prefix="fake-provider-",
+            prefix="provider-attestation-",
         )
         return evidence
 

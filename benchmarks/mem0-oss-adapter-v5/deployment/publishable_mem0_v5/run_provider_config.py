@@ -15,6 +15,7 @@ from infinity_context_server.publishable_durable_scheduler.publishable_run_contr
 
 RUN_PROVIDER_CONFIG_SCHEMA = "publishable-mem0-infinity-run-provider.v2"
 RUN_PROVIDER_SECRETS_SCHEMA = "publishable-mem0-infinity-run-provider-secrets.v2"
+REQUIRED_PAID_FLEET_MODE = "reopen"
 
 _SHA256 = re.compile(r"[0-9a-f]{64}\Z")
 _IDENTIFIER = re.compile(r"[A-Za-z0-9][A-Za-z0-9._:-]{0,199}\Z")
@@ -59,6 +60,7 @@ class RuntimeAttestationConfig:
     endpoint_timeout_seconds: float
     lane_project_name: str
     maximum_age_seconds: int
+    required_fleet_mode: str
 
 
 @final
@@ -327,6 +329,7 @@ def _runtime_attestation(value: object) -> RuntimeAttestationConfig:
             "lane_project_name",
             "maximum_age_seconds",
             "public_endpoint",
+            "required_fleet_mode",
             "runtime_attestation_directory",
         },
         "runtime_attestation",
@@ -337,6 +340,7 @@ def _runtime_attestation(value: object) -> RuntimeAttestationConfig:
         endpoint_timeout_seconds=_seconds(item["endpoint_timeout_seconds"]),
         lane_project_name=_identifier(item["lane_project_name"]),
         maximum_age_seconds=_integer(item["maximum_age_seconds"], minimum=1),
+        required_fleet_mode=_required_paid_fleet_mode(item["required_fleet_mode"]),
     )
 
 
@@ -505,6 +509,12 @@ def _seconds(value: object) -> float:
     return float(value)
 
 
+def _required_paid_fleet_mode(value: object) -> str:
+    if value != REQUIRED_PAID_FLEET_MODE:
+        _fail("publishable_run_provider_config_invalid")
+    return REQUIRED_PAID_FLEET_MODE
+
+
 def _key(value: object, *, exact: int | None = None) -> bytes:
     if type(value) is not str or len(value) % 2:
         _fail("publishable_run_provider_secrets_invalid")
@@ -533,6 +543,7 @@ def _fail(code: str) -> None:
 
 
 __all__ = (
+    "REQUIRED_PAID_FLEET_MODE",
     "RUN_PROVIDER_CONFIG_SCHEMA",
     "RUN_PROVIDER_SECRETS_SCHEMA",
     "FleetBridgeConfig",

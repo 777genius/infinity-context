@@ -14,6 +14,7 @@ from uuid import UUID
 
 TEMPLATE_SCHEMA: Final = "publishable-mem0-v5-operator-staging-template.v2"
 PINNED_DOCKER_HOST: Final = "unix:///run/infinity-locomo-docker/docker.sock"
+REQUIRED_PAID_FLEET_MODE: Final = "reopen"
 RUNTIME_PIN_SHA256: Final = "6976b4507071d95bc0df1cb91c56d5c5932fbc5ed1a76475126be05f91e8a15c"
 SOURCE_COMMIT_SHA1: Final = "cf7ed782226118cec3eb520e322ebe024c2f332e"
 SOURCE_COMMIT_SHA256: Final = "16c40bb404f71f22d7c5a569b084dcb110a9b01164909261aa0b403ac34c27da"
@@ -436,6 +437,7 @@ def _provider(value: object) -> dict[str, dict[str, object]]:
             "maximum_bridge_request_bytes",
             "maximum_ciphertext_bytes",
             "output_cipher_key_id",
+            "required_fleet_mode",
             "runtime_pin_name",
             "runtime_pin_sha256",
             "runtime_route_binding_sha256",
@@ -473,6 +475,8 @@ def _provider(value: object) -> dict[str, dict[str, object]]:
         fail("operator_staging_provider_dataset_path_invalid")
     _require_simple_name(_string(retrieval["database_name"], "retrieval_database_name"))
     _require_simple_name(_string(runtime["runtime_pin_name"], "runtime_pin_name"))
+    if runtime["required_fleet_mode"] != REQUIRED_PAID_FLEET_MODE:
+        fail("operator_staging_required_fleet_mode_invalid")
     for mapping in (official, retrieval, runtime, suite):
         for key, item in mapping.items():
             if key.endswith("_sha256"):
@@ -641,6 +645,7 @@ __all__ = (
     "PINNED_DOCKER_HOST",
     "PROTECTED_ACCOUNT_I_AUTH_ROOT",
     "PROTECTED_R16_ROOT",
+    "REQUIRED_PAID_FLEET_MODE",
     "RUNTIME_PIN_SHA256",
     "SOURCE_COMMIT_SHA1",
     "SOURCE_COMMIT_SHA256",
