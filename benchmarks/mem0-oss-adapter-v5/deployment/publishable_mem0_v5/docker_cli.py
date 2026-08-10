@@ -26,10 +26,15 @@ SERVICES: Final = (
 )
 
 _CONTAINER_ID = re.compile(r"^[0-9a-f]{64}$")
+_NETWORK_ID = re.compile(r"^[0-9a-f]{64}$")
 _IMAGE_ID = re.compile(r"^sha256:[0-9a-f]{64}$")
+_VOLUME_NAME = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]{0,254}$")
 _COMMAND_TIMEOUT_SECONDS = 180.0
+_COMPOSE_WAIT_TIMEOUT_SECONDS = 120
+_COMPOSE_STOP_TIMEOUT_SECONDS = 30
 _MAX_OUTPUT_BYTES = 16 * 1024 * 1024
 _MAX_RUNNING_CONTAINERS = 4096
+_MAX_PROJECT_RESOURCES = 4096
 _INSPECT_BATCH_SIZE = 128
 
 
@@ -52,6 +57,14 @@ class SubprocessCommandRunner:
 
     timeout_seconds: float = _COMMAND_TIMEOUT_SECONDS
 
+    def __post_init__(self) -> None:
+        if (
+            isinstance(self.timeout_seconds, bool)
+            or not isinstance(self.timeout_seconds, int | float)
+            or not 0.001 <= float(self.timeout_seconds) <= _COMMAND_TIMEOUT_SECONDS
+        ):
+            raise DockerCliError("publishable_docker_timeout_invalid")
+
     def run(
         self,
         arguments: tuple[str, ...],
@@ -68,7 +81,9 @@ class SubprocessCommandRunner:
                 shell=False,
                 timeout=self.timeout_seconds,
             )
-        except (OSError, subprocess.TimeoutExpired) as exc:
+        except subprocess.TimeoutExpired as exc:
+            raise DockerCliError("publishable_docker_command_timeout") from exc
+        except OSError as exc:
             raise DockerCliError("publishable_docker_command_unavailable") from exc
         if completed.returncode != 0:
             raise DockerCliError("publishable_docker_command_failed")
@@ -90,8 +105,26 @@ class CachedImages:
             raise DockerCliError("publishable_cached_image_id_invalid")
 
 
+@dataclass(frozen=True, slots=True)
+class ProjectResources:
+    containers: tuple[str, ...]
+    networks: tuple[str, ...]
+    volumes: tuple[str, ...]
+
+    @property
+    def empty(self) -> bool:
+        return not self.containers and not self.networks and not self.volumes
+
+    def payload(self) -> dict[str, int]:
+        return {
+            "containers": len(self.containers),
+            "networks": len(self.networks),
+            "volumes": len(self.volumes),
+        }
+
+
 class DockerCli:
-    """Only the exact read/start operations admitted by this deployment."""
+    """Exact cached start, controlled stop, teardown, and inspection operations."""
 
     def __init__(
         self,
@@ -159,7 +192,80 @@ class DockerCli:
             "never",
             "--no-build",
             "--wait",
+            "--wait-timeout",
+            str(_COMPOSE_WAIT_TIMEOUT_SECONDS),
             mode=mode,
+        )
+
+    def stop(self, *, mode: str) -> None:
+        """Request a bounded controlled stop while retaining bind-backed state."""
+
+        self._run_compose(
+            "stop",
+            "--timeout",
+            str(_COMPOSE_STOP_TIMEOUT_SECONDS),
+            mode=mode,
+        )
+
+    def require_stopped(self, *, mode: str) -> None:
+        """Require every exact service container to be stopped, not removed."""
+
+        containers = self.inspect_containers(self.container_ids(mode=mode))
+        for value in containers.values():
+            state = value.get("State")
+            if (
+                not isinstance(state, Mapping)
+                or state.get("Running") is not False
+                or state.get("Status") != "exited"
+            ):
+                raise DockerCliError("publishable_compose_controlled_stop_invalid")
+
+    def teardown(self, *, mode: str) -> None:
+        """Remove only the configured exact Compose project's Docker resources."""
+
+        self._run_compose(
+            "down",
+            "--timeout",
+            str(_COMPOSE_STOP_TIMEOUT_SECONDS),
+            "--volumes",
+            "--remove-orphans",
+            mode=mode,
+        )
+
+    def project_resources(self) -> ProjectResources:
+        """List only resources carrying this exact Compose project label."""
+
+        label = f"label=com.docker.compose.project={self._config.project_name}"
+        calls = (
+            (
+                "containers",
+                ("container", "ls", "--all", "--quiet", "--no-trunc", "--filter", label),
+                _CONTAINER_ID,
+            ),
+            (
+                "networks",
+                ("network", "ls", "--quiet", "--no-trunc", "--filter", label),
+                _NETWORK_ID,
+            ),
+            (
+                "volumes",
+                ("volume", "ls", "--quiet", "--filter", label),
+                _VOLUME_NAME,
+            ),
+        )
+        inventories: dict[str, tuple[str, ...]] = {}
+        failures: list[DockerCliError] = []
+        for kind, arguments, pattern in calls:
+            try:
+                inventories[kind] = self._resource_names(self._run(*arguments), pattern=pattern)
+            except DockerCliError as exc:
+                failures.append(exc)
+        if failures:
+            raise DockerCliError("publishable_project_inventory_failed") from failures[0]
+        return ProjectResources(
+            containers=inventories["containers"],
+            networks=inventories["networks"],
+            volumes=inventories["volumes"],
         )
 
     def container_ids(self, *, mode: str) -> dict[str, str]:
@@ -295,6 +401,20 @@ class DockerCli:
         )
 
     @staticmethod
+    def _resource_names(raw: bytes, *, pattern: re.Pattern[str]) -> tuple[str, ...]:
+        try:
+            values = tuple(raw.decode("ascii", "strict").splitlines())
+        except UnicodeDecodeError as exc:
+            raise DockerCliError("publishable_project_inventory_invalid") from exc
+        if (
+            len(values) > _MAX_PROJECT_RESOURCES
+            or len(set(values)) != len(values)
+            or any(pattern.fullmatch(value) is None for value in values)
+        ):
+            raise DockerCliError("publishable_project_inventory_invalid")
+        return values
+
+    @staticmethod
     def _json(raw: bytes) -> object:
         try:
             return json.loads(raw)
@@ -311,5 +431,6 @@ __all__ = (
     "CommandRunner",
     "DockerCli",
     "DockerCliError",
+    "ProjectResources",
     "SubprocessCommandRunner",
 )

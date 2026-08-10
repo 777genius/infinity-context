@@ -75,8 +75,8 @@ is a collision and is never read or overwritten.
 
 ## Review and provision
 
-Expect the builder's single JSON result to report `STAGED_SECRET_FREE` and five
-fully quoted commands. Review both generated configs and confirm that the
+Expect the builder's single JSON result to report `STAGED_SECRET_FREE`, four
+fully quoted commands, and an explicit `operator_order` list. Review both generated configs and confirm that the
 secrets path named by `secrets_path_not_created` does not exist. Populate the
 authority layout referenced by the lane config using reviewed immutable public
 artifacts.
@@ -99,12 +99,49 @@ transcript.
 
 Use the commands emitted by the builder without editing their paths or flags:
 
-1. `start_create` starts the cached-only lane with fleet mode `create`.
-2. `attest_create` proves the created lane with the same fleet mode.
-3. `run_2040` is the only command carrying `--allow-live`; run it only after
-   the explicit paid-run approval and secret provisioning.
-4. After an interruption, use `start_reopen`, then `attest_reopen`, then the
-   unchanged `run_2040` command. Do not use `create` for recovery.
+1. Run `acceptance` once on fresh staged state. It owns the complete
+   provider-free lifecycle: exact-project empty gate, cached-only
+   `create`, immutable runtime and source-attestation readback, controlled stop
+   with bind-state identity preservation, cached-only `reopen`, second
+   attestation, and exact-project teardown in `finally`. It then verifies zero
+   exact-project containers, networks, and volumes. It never runs Docker prune,
+   removes another project, builds, pulls, or calls a provider.
+2. `start_reopen` starts the accepted bind-backed state with fleet mode
+   `reopen`. Acceptance has already initialized that state, so do not use
+   `create` afterward.
+3. `attest_reopen` proves the reopened paid-run lane before dispatch.
+4. `run_2040` is the only command carrying `--allow-live`; run it only after
+   explicit paid-run approval and secret provisioning. After an interruption,
+   repeat `start_reopen`, `attest_reopen`, and the unchanged `run_2040` command.
 
 Stop on any nonzero result. Never substitute account-i, r16, their paths, their
 ports, their container IDs, or their credentials into the new lane.
+Run only one acceptance invocation for a project at a time, with no concurrent
+Docker mutation of that project.
+
+The acceptance result is `ACCEPTED_PROVIDER_FREE` only when the fixed command
+performs no provider-dispatch operation, both authenticated
+`/v5/runtime/attest` probes verify their HMAC and exact `provider_calls: 0`
+contract, and the attested startup readiness remains provider-free. This scope
+is the acceptance command itself. The lane has no historical or concurrent
+provider-call counter, so the result reports that broader counter as
+`NOT_AVAILABLE` instead of inventing one. The result also records immutable
+host-attestation commitments and the final zero-resource inventory.
+
+Record `acceptance_driver.package_closure_sha256` with the acceptance result.
+It is a path-independent digest of the installed `publishable_mem0_v5` package,
+which must match the configured deployment copy before mutation and again
+before the report is written. `deployment_authority` separately records the
+existing authenticated full deployment closure (including its HMAC) and the
+instance-specific deployment-input commitment. `adapter_source_commit_sha1`
+and `adapter_source_tree_sha1` identify the deployed adapter, not this driver.
+The installed package does not contain an authoritative Git revision, so
+`acceptance_driver.git_commit.status` is honestly
+`NOT_EMBEDDED_IN_INSTALLED_ARTIFACT`; do not substitute ambient Git metadata.
+
+Authenticated empty-state proof is deliberately reported as
+`NOT_RUN_REQUIRES_AUTHORITATIVE_RUN_ADMISSION`. The clean-state endpoint is a
+one-shot, run-bound capability that requires the official admission,
+credential binding, authority, and complete scope inventory. Inventing those
+values here would mutate and contaminate the accepted state; the official run
+must compose and persist that proof at its pre-dispatch boundary.

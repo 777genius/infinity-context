@@ -42,19 +42,23 @@ load_staging_template = staging_contracts.load_staging_template
 
 @dataclass(frozen=True, slots=True)
 class StagingCommands:
-    start_create: tuple[str, ...]
-    attest_create: tuple[str, ...]
-    run_2040: tuple[str, ...]
+    acceptance: tuple[str, ...]
     start_reopen: tuple[str, ...]
     attest_reopen: tuple[str, ...]
+    run_2040: tuple[str, ...]
 
-    def payload(self) -> dict[str, str]:
+    def payload(self) -> dict[str, object]:
+        ordered = (
+            ("acceptance", self.acceptance),
+            ("start_reopen", self.start_reopen),
+            ("attest_reopen", self.attest_reopen),
+            ("run_2040", self.run_2040),
+        )
         return {
-            "attest_create": shlex.join(self.attest_create),
-            "attest_reopen": shlex.join(self.attest_reopen),
-            "run_2040": shlex.join(self.run_2040),
-            "start_create": shlex.join(self.start_create),
-            "start_reopen": shlex.join(self.start_reopen),
+            **{name: shlex.join(command) for name, command in ordered},
+            "operator_order": [
+                {"command": shlex.join(command), "name": name} for name, command in ordered
+            ],
         }
 
 
@@ -310,8 +314,14 @@ def _commands(
         )
 
     return StagingCommands(
-        start_create=lane("start", "create"),
-        attest_create=lane("attest", "create"),
+        acceptance=(
+            "infinity-context-publishable-mem0-v5",
+            "acceptance",
+            "--config",
+            str(lane_config_path),
+        ),
+        start_reopen=lane("start", "reopen"),
+        attest_reopen=lane("attest", "reopen"),
         run_2040=(
             "infinity-context-publishable-run",
             "--private-root",
@@ -322,8 +332,6 @@ def _commands(
             str(secrets_path),
             "--allow-live",
         ),
-        start_reopen=lane("start", "reopen"),
-        attest_reopen=lane("attest", "reopen"),
     )
 
 

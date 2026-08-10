@@ -322,13 +322,15 @@ def test_docker_start_command_is_cached_only_and_never_builds(tmp_path: Path) ->
     docker.start(mode="reopen")
     assert cached == CachedImages(config.adapter_image_id, _QDRANT_ID)
     start = runner.calls[-1][0]
-    assert start[-6:] == (
+    assert start[-8:] == (
         "up",
         "--detach",
         "--pull",
         "never",
         "--no-build",
         "--wait",
+        "--wait-timeout",
+        "120",
     )
     assert "build" not in start and "pull" not in start
     environment = config.compose_environment(config_file=config_file, fleet_mode="reopen")

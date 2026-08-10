@@ -239,28 +239,18 @@ def test_generated_run_config_resolves_exact_installed_factory_provider_free(
     assert type(resolved[0]) is Mem0InfinityPublishableRunDependencyFactory
 
 
-def test_commands_are_exact_for_create_attest_run_and_reopen(tmp_path: Path) -> None:
+def test_commands_are_exact_for_acceptance_reopen_attest_and_run(tmp_path: Path) -> None:
     bundle = _build(tmp_path)
     lane = str(bundle.lane_config_path)
     run_root = str(bundle.run_private_root)
     run_config = str(bundle.run_config_path)
     secrets = str(bundle.secrets_path)
 
-    assert bundle.commands.start_create == (
+    assert bundle.commands.acceptance == (
         "infinity-context-publishable-mem0-v5",
-        "start",
+        "acceptance",
         "--config",
         lane,
-        "--fleet-mode",
-        "create",
-    )
-    assert bundle.commands.attest_create == (
-        "infinity-context-publishable-mem0-v5",
-        "attest",
-        "--config",
-        lane,
-        "--fleet-mode",
-        "create",
     )
     assert bundle.commands.run_2040 == (
         "infinity-context-publishable-run",
@@ -275,18 +265,40 @@ def test_commands_are_exact_for_create_attest_run_and_reopen(tmp_path: Path) -> 
     assert bundle.commands.start_reopen[-2:] == ("--fleet-mode", "reopen")
     assert bundle.commands.attest_reopen[-2:] == ("--fleet-mode", "reopen")
     assert bundle.commands.payload() == {
-        "attest_create": (
-            f"infinity-context-publishable-mem0-v5 attest --config {lane} --fleet-mode create"
-        ),
+        "acceptance": f"infinity-context-publishable-mem0-v5 acceptance --config {lane}",
         "attest_reopen": (
             f"infinity-context-publishable-mem0-v5 attest --config {lane} --fleet-mode reopen"
         ),
+        "operator_order": [
+            {
+                "command": f"infinity-context-publishable-mem0-v5 acceptance --config {lane}",
+                "name": "acceptance",
+            },
+            {
+                "command": (
+                    f"infinity-context-publishable-mem0-v5 start --config {lane} "
+                    "--fleet-mode reopen"
+                ),
+                "name": "start_reopen",
+            },
+            {
+                "command": (
+                    f"infinity-context-publishable-mem0-v5 attest --config {lane} "
+                    "--fleet-mode reopen"
+                ),
+                "name": "attest_reopen",
+            },
+            {
+                "command": (
+                    f"infinity-context-publishable-run --private-root {run_root} "
+                    f"--config {run_config} --secrets {secrets} --allow-live"
+                ),
+                "name": "run_2040",
+            },
+        ],
         "run_2040": (
             f"infinity-context-publishable-run --private-root {run_root} "
             f"--config {run_config} --secrets {secrets} --allow-live"
-        ),
-        "start_create": (
-            f"infinity-context-publishable-mem0-v5 start --config {lane} --fleet-mode create"
         ),
         "start_reopen": (
             f"infinity-context-publishable-mem0-v5 start --config {lane} --fleet-mode reopen"
@@ -442,6 +454,14 @@ def test_cli_reports_only_secret_free_paths_and_exact_commands(
     assert payload["commands"]["run_2040"].endswith(
         "/publishable-run-2040.secrets.json --allow-live"
     )
+    assert [item["name"] for item in payload["commands"]["operator_order"]] == [
+        "acceptance",
+        "start_reopen",
+        "attest_reopen",
+        "run_2040",
+    ]
+    assert "start_create" not in payload["commands"]
+    assert "attest_create" not in payload["commands"]
     assert not Path(payload["secrets_path_not_created"]).exists()
 
 
