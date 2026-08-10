@@ -1,13 +1,16 @@
 from __future__ import annotations
 
+import asyncio
 import hashlib
 import json
 from pathlib import Path
+from typing import Any
 
+import fastapi.dependencies.utils as fastapi_dependencies
+import fastapi.routing as fastapi_routing
+import httpx
 import pytest
-from fastapi.testclient import TestClient
 from mem0.memory.storage import SQLiteManager
-
 from mem0_oss_adapter_v5.app import create_app
 from mem0_oss_adapter_v5.clean_state import verify_clean_state_response
 from mem0_oss_adapter_v5.composition import V5AdapterService
@@ -36,6 +39,33 @@ _TOKEN = "t" * 32
 _KEY = b"clean-state-result-key" * 2
 _RUNTIME_SOURCE = hashlib.sha256(b"runtime-source").hexdigest()
 _EMPTY = hashlib.sha256(b"").hexdigest()
+
+
+class _DirectAsgiClient:
+    """Exercise the ASGI boundary without managed-environment cross-thread wakeups."""
+
+    def __init__(self, app: object) -> None:
+        self._app = app
+
+    def post(self, url: str, **kwargs: object) -> httpx.Response:
+        async def request() -> httpx.Response:
+            transport = httpx.ASGITransport(app=self._app)  # type: ignore[arg-type]
+            async with httpx.AsyncClient(
+                transport=transport,
+                base_url="http://testserver",
+            ) as client:
+                return await client.post(url, **kwargs)  # type: ignore[arg-type]
+
+        return asyncio.run(request())
+
+
+@pytest.fixture(autouse=True)
+def _run_sync_fastapi_calls_inline(monkeypatch: pytest.MonkeyPatch) -> None:
+    async def call(func: Any, *args: object, **kwargs: object) -> object:
+        return func(*args, **kwargs)
+
+    monkeypatch.setattr(fastapi_routing, "run_in_threadpool", call)
+    monkeypatch.setattr(fastapi_dependencies, "run_in_threadpool", call)
 
 
 def _sha(value: str) -> str:
@@ -321,7 +351,7 @@ def _rig(tmp_path: Path, *, backend: object | None = None):
         projection=runtime_authority,
         root_secret=b"a" * 32,
     )
-    client = TestClient(
+    client = _DirectAsgiClient(
         create_app(
             service=service,
             bearer_token=_TOKEN,

@@ -6,7 +6,7 @@ from dataclasses import replace
 from pathlib import Path
 
 import pytest
-
+from publishable_mem0_v5.config import load_lane_config
 from tools.build_publishable_staging import (
     OperatorStagingError,
     StagingPublicInputs,
@@ -29,6 +29,11 @@ def _public_inputs(
         adapter_image_id="sha256:" + "a" * 64,
         codex_executable_sha256="d" * 64,
         bridge_account_binding_sha256=("1" * 64, "2" * 64, "3" * 64),
+        config_hmac_sha256="4" * 64,
+        deployment_closure_sha256="5" * 64,
+        deployment_closure_hmac_sha256="6" * 64,
+        server_closure_sha256="7" * 64,
+        server_closure_hmac_sha256="8" * 64,
         account_i_pid=99101,
         account_i_start_ticks=812345,
         account_i_boot_id="11111111-1111-4111-8111-111111111111",
@@ -60,7 +65,15 @@ def test_builds_exact_secret_free_lane_and_2040_configs_with_private_modes(
     lane = json.loads(bundle.lane_config_path.read_bytes())
     run = json.loads(bundle.run_config_path.read_bytes())
 
-    assert lane["schema_version"] == "publishable-mem0-v5-isolated-lane.v1"
+    assert lane["schema_version"] == "publishable-mem0-v5-isolated-lane.v2"
+    assert lane["bind_mount_authority"] == {
+        "config_hmac_sha256": "4" * 64,
+        "deployment_closure_hmac_sha256": "6" * 64,
+        "deployment_closure_sha256": "5" * 64,
+        "server_closure_hmac_sha256": "8" * 64,
+        "server_closure_sha256": "7" * 64,
+    }
+    assert load_lane_config(bundle.lane_config_path).public_payload() == lane
     assert lane["project_name"] == "mem0-v5-publishable-staging-r17-6f2c"
     assert lane["host_adapter_port"] == 29192
     assert lane["docker_host"] == (
@@ -329,6 +342,16 @@ def test_cli_reports_only_secret_free_paths_and_exact_commands(
         "sha256:" + "a" * 64,
         "--codex-executable-sha256",
         "d" * 64,
+        "--config-hmac-sha256",
+        "4" * 64,
+        "--deployment-closure-sha256",
+        "5" * 64,
+        "--deployment-closure-hmac-sha256",
+        "6" * 64,
+        "--server-closure-sha256",
+        "7" * 64,
+        "--server-closure-hmac-sha256",
+        "8" * 64,
     ]
     for binding in ("1" * 64, "2" * 64, "3" * 64):
         argv.extend(("--bridge-binding-sha256", binding))

@@ -17,7 +17,6 @@ from infinity_context_server.features.subscription_runtime_bridge import (
     BridgeJournal,
     BridgePoolAuthority,
     HmacJournalIntegrity,
-    HttpxOneShotBridgeTransport,
     OutputCipherKey,
 )
 from infinity_context_server.features.subscription_runtime_bridge.process_contracts import (
@@ -72,6 +71,7 @@ from infinity_context_server.publishable_durable_scheduler.runner_official_reque
     SCHEDULER_OFFICIAL_REQUEST_MAX_OUTPUT_TOKENS,
 )
 
+from .bridge_dispatch import HttpxRelayBridgeTransport
 from .run_provider_config import (
     RunProviderConfig,
     RunProviderSecrets,
@@ -247,7 +247,8 @@ class _ProductionRunSession:
                 ),
                 maximum_ciphertext_bytes=self.config.maximum_ciphertext_bytes,
             )
-            transport = HttpxOneShotBridgeTransport(
+            transport = HttpxRelayBridgeTransport(
+                relay_origin=self.config.suite.mem0_base_url,
                 maximum_request_bytes=self.config.maximum_bridge_request_bytes,
                 connect_timeout_seconds=self.config.bridge_connect_timeout_seconds,
                 read_timeout_seconds=self.config.bridge_read_timeout_seconds,

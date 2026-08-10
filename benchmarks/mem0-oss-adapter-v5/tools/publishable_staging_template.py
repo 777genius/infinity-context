@@ -97,6 +97,11 @@ class StagingPublicInputs:
     adapter_image_id: str
     codex_executable_sha256: str
     bridge_account_binding_sha256: tuple[str, str, str]
+    config_hmac_sha256: str
+    deployment_closure_sha256: str
+    deployment_closure_hmac_sha256: str
+    server_closure_sha256: str
+    server_closure_hmac_sha256: str
     account_i_pid: int
     account_i_start_ticks: int
     account_i_boot_id: str
@@ -115,6 +120,14 @@ class StagingPublicInputs:
             fail("operator_staging_bridge_bindings_invalid")
         for binding in bindings:
             require_sha256(binding, "bridge_binding")
+        for value, label in (
+            (self.config_hmac_sha256, "config_hmac"),
+            (self.deployment_closure_sha256, "deployment_closure"),
+            (self.deployment_closure_hmac_sha256, "deployment_closure_hmac"),
+            (self.server_closure_sha256, "server_closure"),
+            (self.server_closure_hmac_sha256, "server_closure_hmac"),
+        ):
+            require_sha256(value, label)
         if type(self.account_i_pid) is not int or self.account_i_pid <= 1:
             fail("operator_staging_account_i_pid_invalid")
         if type(self.account_i_start_ticks) is not int or self.account_i_start_ticks <= 0:

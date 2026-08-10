@@ -366,19 +366,42 @@ def attest_secret_cross_wire(
     expected_uid: int = CONTAINER_UID,
     expected_gid: int = CONTAINER_GID,
 ) -> str:
-    """Bind adapter runtime credentials to bridge one without returning secrets."""
+    """Bind adapter credentials to bridge one and prove fleet-wide secret separation."""
 
     if type(config) is not PublishableLaneConfig:
         _fail("publishable_preflight_config_invalid")
     adapter = config.paths.adapter_secret_dir
-    primary = config.paths.fleet_auth_dir / config.bridges[0].account_name
-    for path, label in ((adapter, "adapter_secret_root"), (primary, "primary_auth_root")):
+    bridge_auth_roots = tuple(
+        config.paths.fleet_auth_dir / account.account_name for account in config.bridges
+    )
+    primary = bridge_auth_roots[0]
+    for path, label in (
+        (adapter, "adapter_secret_root"),
+        *((path, "bridge_auth_root") for path in bridge_auth_roots),
+    ):
         _require_private_directory(
             path,
             label,
             expected_uid=expected_uid,
             expected_gid=expected_gid,
         )
+
+    isolated_secrets = tuple(
+        _read_private_file(
+            auth_root / name,
+            "bridge_isolated_secret",
+            expected_uid=expected_uid,
+            expected_gid=expected_gid,
+        )
+        for auth_root in bridge_auth_roots
+        for name in (
+            "ingress-api-key.secret",
+            "attestation-hmac.secret",
+            "launcher-receipt.key",
+        )
+    )
+    if len(set(isolated_secrets)) != len(isolated_secrets):
+        _fail("publishable_preflight_bridge_secret_reuse")
 
     pairs = (
         (adapter / "runtime-bearer", primary / "ingress-api-key.secret"),

@@ -9,8 +9,20 @@ import socket
 from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import Final
+from urllib.parse import urlsplit
 
-from .config import BRIDGE_PORTS
+import httpx
+from infinity_context_server.features.subscription_runtime_bridge.contracts import (
+    BridgeTransportError,
+)
+
+from .config import (
+    ADAPTER_PORT,
+    BRIDGE_PORTS,
+    QDRANT_GRPC_PORT,
+    QDRANT_HTTP_PORT,
+    RELAY_PORT,
+)
 
 DISPATCH_SCHEMA: Final = "publishable-mem0-v5-bridge-dispatch.v1"
 DISPATCH_ROUTE: Final = "/v1/chat/completions"
@@ -27,6 +39,13 @@ _SHA256 = re.compile(r"[0-9a-f]{64}\Z")
 _MAX_BEARER_BYTES = 8192
 _MAX_REQUEST_BYTES = 16 * 1024 * 1024
 _MAX_HEADER_BYTES = 64 * 1024
+_FORBIDDEN_RELAY_PORTS = {
+    ADAPTER_PORT,
+    QDRANT_GRPC_PORT,
+    QDRANT_HTTP_PORT,
+    RELAY_PORT,
+    *BRIDGE_PORTS,
+}
 _HEADER_NAME = re.compile(rb"[!#$%&'*+.^_`|~0-9A-Za-z-]+\Z")
 _FORWARDED_HEADERS = (
     "accept",
@@ -63,6 +82,127 @@ class ParsedRequestHead:
     version: str
     headers: Mapping[str, str]
     body_prefix: bytes
+
+
+class HttpxRelayBridgeTransport:
+    """Dispatch one selected bridge call through the lane's only host relay."""
+
+    __slots__ = (
+        "_connect_timeout_seconds",
+        "_maximum_request_bytes",
+        "_read_timeout_seconds",
+        "_relay_origin",
+        "_transport",
+        "_write_timeout_seconds",
+    )
+
+    def __init__(
+        self,
+        *,
+        relay_origin: str,
+        maximum_request_bytes: int,
+        connect_timeout_seconds: float = 5.0,
+        read_timeout_seconds: float = 300.0,
+        write_timeout_seconds: float = 30.0,
+        transport: httpx.BaseTransport | None = None,
+    ) -> None:
+        if (
+            type(maximum_request_bytes) is not int
+            or not 1 <= maximum_request_bytes <= _MAX_REQUEST_BYTES
+        ):
+            raise BridgeTransportError("bridge_http_request_limit_invalid")
+        for value in (
+            connect_timeout_seconds,
+            read_timeout_seconds,
+            write_timeout_seconds,
+        ):
+            if type(value) not in {int, float} or not 0 < value <= 3600:
+                raise BridgeTransportError("bridge_http_timeout_invalid")
+        self._relay_origin = _relay_origin(relay_origin)
+        self._maximum_request_bytes = maximum_request_bytes
+        self._connect_timeout_seconds = float(connect_timeout_seconds)
+        self._read_timeout_seconds = float(read_timeout_seconds)
+        self._write_timeout_seconds = float(write_timeout_seconds)
+        self._transport = transport
+
+    def post_once(
+        self,
+        *,
+        origin: str,
+        route: str,
+        bearer_token: str,
+        request_body: bytes,
+        maximum_response_bytes: int,
+    ) -> bytes:
+        if (
+            type(request_body) is not bytes
+            or not request_body
+            or len(request_body) > self._maximum_request_bytes
+        ):
+            raise BridgeTransportError("bridge_http_request_size_invalid")
+        if type(maximum_response_bytes) is not int or maximum_response_bytes < 1:
+            raise BridgeTransportError("bridge_http_response_limit_invalid")
+        if route != DISPATCH_ROUTE:
+            raise BridgeTransportError("bridge_http_route_invalid")
+        bridge_port = _bridge_origin_port(origin)
+        try:
+            dispatch_headers = build_dispatch_headers(
+                bridge_port=bridge_port,
+                bearer_token=bearer_token,
+                request_body=request_body,
+            )
+        except BridgeDispatchError as exc:
+            raise BridgeTransportError("bridge_http_bearer_invalid") from exc
+        timeout = httpx.Timeout(
+            connect=self._connect_timeout_seconds,
+            read=self._read_timeout_seconds,
+            write=self._write_timeout_seconds,
+            pool=self._connect_timeout_seconds,
+        )
+        transport = self._transport or httpx.HTTPTransport(retries=0)
+        try:
+            with (
+                httpx.Client(
+                    transport=transport,
+                    timeout=timeout,
+                    follow_redirects=False,
+                    trust_env=False,
+                ) as client,
+                client.stream(
+                    "POST",
+                    f"{self._relay_origin}{DISPATCH_ROUTE}",
+                    headers={
+                        "Accept": "application/json",
+                        "Accept-Encoding": "identity",
+                        "Authorization": f"Bearer {bearer_token}",
+                        "Content-Type": "application/json",
+                        **dispatch_headers,
+                    },
+                    content=request_body,
+                ) as response,
+            ):
+                if response.status_code != 200:
+                    raise BridgeTransportError("bridge_http_status_invalid")
+                content_length = response.headers.get("content-length")
+                if content_length is not None:
+                    try:
+                        declared = int(content_length, 10)
+                    except ValueError as exc:
+                        raise BridgeTransportError("bridge_http_content_length_invalid") from exc
+                    if declared < 0 or declared > maximum_response_bytes:
+                        raise BridgeTransportError("bridge_http_response_too_large")
+                content = bytearray()
+                for chunk in response.iter_raw():
+                    content.extend(chunk)
+                    if len(content) > maximum_response_bytes:
+                        raise BridgeTransportError("bridge_http_response_too_large")
+                if not content:
+                    raise BridgeTransportError("bridge_http_response_empty")
+                return bytes(content)
+        except BridgeTransportError:
+            raise
+        except httpx.HTTPError as exc:
+            raise BridgeTransportError("bridge_http_transport_failed") from exc
 
 
 def build_dispatch_headers(
@@ -253,6 +393,44 @@ def render_upstream_request(
     return "\r\n".join((*lines, "", "")).encode("ascii") + request_body
 
 
+def _bridge_origin_port(value: object) -> int:
+    port = _loopback_origin_port(value, code="bridge_http_origin_invalid")
+    if port not in BRIDGE_PORTS:
+        raise BridgeTransportError("bridge_http_origin_invalid")
+    return port
+
+
+def _relay_origin(value: object) -> str:
+    port = _loopback_origin_port(value, code="bridge_http_relay_origin_invalid")
+    if port in _FORBIDDEN_RELAY_PORTS:
+        raise BridgeTransportError("bridge_http_relay_origin_invalid")
+    return f"http://127.0.0.1:{port}"
+
+
+def _loopback_origin_port(value: object, *, code: str) -> int:
+    if type(value) is not str or len(value) > 256:
+        raise BridgeTransportError(code)
+    try:
+        split = urlsplit(value)
+        port = split.port
+    except (TypeError, ValueError) as exc:
+        raise BridgeTransportError(code) from exc
+    if (
+        split.scheme != "http"
+        or split.hostname != "127.0.0.1"
+        or split.username is not None
+        or split.password is not None
+        or split.path
+        or split.query
+        or split.fragment
+        or type(port) is not int
+        or not 1024 <= port <= 65535
+        or value != f"http://127.0.0.1:{port}"
+    ):
+        raise BridgeTransportError(code)
+    return port
+
+
 def _signature_material(port: int, body_sha256: str) -> bytes:
     return _DOMAIN + f"POST\0{DISPATCH_ROUTE}\0{port}\0{body_sha256}".encode("ascii")
 
@@ -315,6 +493,7 @@ __all__ = (
     "DISPATCH_SCHEMA",
     "DISPATCH_SCHEMA_HEADER",
     "BridgeDispatchError",
+    "HttpxRelayBridgeTransport",
     "ParsedRequestHead",
     "authenticate_dispatch",
     "build_dispatch_headers",

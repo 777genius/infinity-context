@@ -34,7 +34,7 @@ _ACTIVE_FILE = "active.json"
 _READINESS_FILE = "readiness.json"
 _RUNTIME_AUTHORITY_FILE = "runtime-authority.json"
 _CONTROL_FILE = ".controller-readiness.json"
-_CONTROL_SCHEMA = "publishable-mem0-v5-fleet-controller-readiness.v1"
+_CONTROL_SCHEMA = "publishable-mem0-v5-bridge-controller-readiness.v2"
 _EXPECTED_LOOPBACK_PORTS = (6334, 6335, 8891, 8892, 8893, 19091, 19191)
 _IPV4_LOOPBACK_HEX = "0100007F"
 
@@ -52,6 +52,7 @@ class NamespaceEvidence(Protocol):
 class BridgeRuntimeIdentity:
     account_name: str
     bridge_id: str
+    controller_pid: int
     generation: int
     launch_mode: str
     process: Mapping[str, object]
@@ -62,6 +63,7 @@ class BridgeRuntimeIdentity:
         return {
             "account_name": self.account_name,
             "bridge_id": self.bridge_id,
+            "controller_pid": self.controller_pid,
             "generation": self.generation,
             "launch_mode": self.launch_mode,
             "process": dict(self.process),
@@ -73,7 +75,6 @@ class BridgeRuntimeIdentity:
 @dataclass(frozen=True, slots=True)
 class FleetRuntimeEvidence:
     requested_mode: str
-    controller_pid: int
     pool_authority_sha256: str
     fleet_readiness_sha256: str
     bridges: tuple[
@@ -85,7 +86,6 @@ class FleetRuntimeEvidence:
     def payload(self) -> dict[str, object]:
         return {
             "bridges": [item.payload() for item in self.bridges],
-            "controller_pid": self.controller_pid,
             "fleet_readiness_sha256": self.fleet_readiness_sha256,
             "pool_authority_sha256": self.pool_authority_sha256,
             "requested_mode": self.requested_mode,
@@ -194,13 +194,34 @@ def attest_fleet_readiness(
     *,
     fleet_mode: str,
     anchor_netns: NamespaceEvidence,
-    anchor_pidns: NamespaceEvidence,
+    bridge_pidns: tuple[NamespaceEvidence, NamespaceEvidence, NamespaceEvidence],
     expected_uid: int,
     expected_gid: int,
 ) -> FleetRuntimeEvidence:
     """Verify all launch receipts with distinct launcher keys and bind control state."""
 
-    if type(config) is not PublishableLaneConfig or fleet_mode not in {"create", "reopen"}:
+    if (
+        type(config) is not PublishableLaneConfig
+        or fleet_mode not in {"create", "reopen"}
+        or type(bridge_pidns) is not tuple
+        or len(bridge_pidns) != len(BRIDGE_PORTS)
+    ):
+        _fail("publishable_attestation_fleet_input_invalid")
+    try:
+        network_identity = (anchor_netns.device, anchor_netns.inode)
+        pid_identities = tuple((item.device, item.inode) for item in bridge_pidns)
+    except AttributeError:
+        _fail("publishable_attestation_fleet_input_invalid")
+    if (
+        any(
+            type(item) is not int or item < 0
+            for identity in (network_identity, *pid_identities)
+            for item in identity
+        )
+        or network_identity[1] == 0
+        or any(identity[1] == 0 for identity in pid_identities)
+        or len(set(pid_identities)) != len(BRIDGE_PORTS)
+    ):
         _fail("publishable_attestation_fleet_input_invalid")
     authorities = tuple(
         BridgeAuthority(
@@ -218,64 +239,38 @@ def attest_fleet_readiness(
     )
     receipts: list[BridgeLaunchReceipt] = []
     identities: list[BridgeRuntimeIdentity] = []
+    launcher_key_sha256s: list[str] = []
     try:
-        for account, authority in zip(config.bridges, authorities, strict=True):
-            receipt, identity = _attest_bridge_readiness(
+        for account_index, (account, authority, bridge_port, pidns) in enumerate(
+            zip(config.bridges, authorities, BRIDGE_PORTS, bridge_pidns, strict=True)
+        ):
+            receipt, identity, launcher_key_sha256 = _attest_bridge_readiness(
                 config,
+                account_index=account_index,
                 account_name=account.account_name,
                 bridge_id=account.bridge_id,
+                bridge_port=bridge_port,
                 authority=authority,
+                anchor_netns=anchor_netns,
+                bridge_pidns=pidns,
                 expected_uid=expected_uid,
                 expected_gid=expected_gid,
             )
             receipts.append(receipt)
             identities.append(identity)
+            launcher_key_sha256s.append(launcher_key_sha256)
     except (BridgeProcessError, ValueError, TypeError, KeyError) as exc:
         raise RuntimeIntegrityError("publishable_attestation_fleet_receipt_invalid") from exc
-    if len({item.process["pid"] for item in identities}) != 3:
-        _fail("publishable_attestation_fleet_process_identity_duplicate")
+    if len(set(launcher_key_sha256s)) != len(BRIDGE_PORTS):
+        _fail("publishable_attestation_fleet_launcher_key_reuse")
     fleet_receipt = BridgeFleetReadinessReceipt(
         pool=pool,
         launches=tuple(receipts),  # type: ignore[arg-type]
     )
     public_readiness = fleet_receipt.public_payload()
-    control = _read_private_json(
-        config.paths.fleet_state_dir / _CONTROL_FILE,
-        expected_uid=expected_uid,
-        expected_gid=expected_gid,
-    )
-    if set(control) != {
-        "anchor_namespace_sha256",
-        "bridge_ports",
-        "controller_pid",
-        "fleet_readiness",
-        "fleet_readiness_sha256",
-        "project_name",
-        "schema_version",
-    }:
-        _fail("publishable_attestation_fleet_control_invalid")
-    namespace_sha256 = hashlib.sha256(
-        (
-            f"net:{anchor_netns.device}:{anchor_netns.inode};"
-            f"pid:{anchor_pidns.device}:{anchor_pidns.inode}"
-        ).encode("ascii")
-    ).hexdigest()
     readiness_sha256 = hashlib.sha256(_canonical_json(public_readiness)).hexdigest()
-    controller_pid = control.get("controller_pid")
-    if (
-        control.get("schema_version") != _CONTROL_SCHEMA
-        or control.get("project_name") != config.project_name
-        or control.get("anchor_namespace_sha256") != namespace_sha256
-        or control.get("bridge_ports") != list(BRIDGE_PORTS)
-        or type(controller_pid) is not int
-        or controller_pid <= 1
-        or control.get("fleet_readiness") != public_readiness
-        or not hmac.compare_digest(str(control.get("fleet_readiness_sha256")), readiness_sha256)
-    ):
-        _fail("publishable_attestation_fleet_control_mismatch")
     return FleetRuntimeEvidence(
         requested_mode=fleet_mode,
-        controller_pid=controller_pid,
         pool_authority_sha256=pool.commitment_sha256,
         fleet_readiness_sha256=readiness_sha256,
         bridges=tuple(identities),  # type: ignore[arg-type]
@@ -285,16 +280,21 @@ def attest_fleet_readiness(
 def _attest_bridge_readiness(
     config: PublishableLaneConfig,
     *,
+    account_index: int,
     account_name: str,
     bridge_id: str,
+    bridge_port: int,
     authority: BridgeAuthority,
+    anchor_netns: NamespaceEvidence,
+    bridge_pidns: NamespaceEvidence,
     expected_uid: int,
     expected_gid: int,
-) -> tuple[BridgeLaunchReceipt, BridgeRuntimeIdentity]:
-    state_root = config.paths.fleet_state_dir / account_name
+) -> tuple[BridgeLaunchReceipt, BridgeRuntimeIdentity, str]:
+    state_base = config.paths.fleet_state_dir / account_name
+    state_root = state_base / "current"
     auth_root = config.paths.fleet_auth_dir / account_name
     lifecycle = state_root / _LIFECYCLE_ROOT
-    for path in (state_root, auth_root, lifecycle):
+    for path in (state_base, state_root, auth_root, lifecycle):
         _require_private_directory(path, expected_uid, expected_gid)
     key = _read_private_bytes(
         auth_root / "launcher-receipt.key",
@@ -315,13 +315,12 @@ def _attest_bridge_readiness(
         _fail("publishable_attestation_fleet_generation_invalid")
     generation_root = lifecycle / f"generation-{generation:07d}"
     _require_private_directory(generation_root, expected_uid, expected_gid)
-    readiness = BridgeLaunchReceipt.from_payload(
-        _read_private_json(
-            generation_root / _READINESS_FILE,
-            expected_uid=expected_uid,
-            expected_gid=expected_gid,
-        )
+    readiness_payload = _read_private_json(
+        generation_root / _READINESS_FILE,
+        expected_uid=expected_uid,
+        expected_gid=expected_gid,
     )
+    readiness = BridgeLaunchReceipt.from_payload(readiness_payload)
     readiness.verify(key)
     if readiness.pending.public_payload() != active:
         _fail("publishable_attestation_fleet_active_mismatch")
@@ -343,6 +342,51 @@ def _attest_bridge_readiness(
         authority=authority,
         expected_sha256=readiness.runtime_authority_sha256,
     )
+    control_path = state_base / _CONTROL_FILE
+    control = _read_private_json(
+        control_path,
+        expected_uid=expected_uid,
+        expected_gid=expected_gid,
+    )
+    expected_control_keys = {
+        "account_index",
+        "account_name",
+        "anchor_namespace_sha256",
+        "bridge_id",
+        "bridge_port",
+        "bridge_readiness",
+        "bridge_readiness_sha256",
+        "controller_pid",
+        "project_name",
+        "schema_version",
+    }
+    public_readiness = readiness.public_payload()
+    readiness_sha256 = hashlib.sha256(_canonical_json(public_readiness)).hexdigest()
+    namespace_sha256 = hashlib.sha256(
+        (
+            f"net:{anchor_netns.device}:{anchor_netns.inode};"
+            f"pid:{bridge_pidns.device}:{bridge_pidns.inode}"
+        ).encode("ascii")
+    ).hexdigest()
+    controller_pid = control.get("controller_pid")
+    if (
+        set(control) != expected_control_keys
+        or control.get("schema_version") != _CONTROL_SCHEMA
+        or control.get("project_name") != config.project_name
+        or control.get("account_index") != account_index
+        or control.get("account_name") != account_name
+        or control.get("bridge_id") != bridge_id
+        or control.get("bridge_port") != bridge_port
+        or control.get("anchor_namespace_sha256") != namespace_sha256
+        or type(controller_pid) is not int
+        or controller_pid <= 1
+        or control.get("bridge_readiness") != public_readiness
+        or not hmac.compare_digest(
+            str(control.get("bridge_readiness_sha256")),
+            readiness_sha256,
+        )
+    ):
+        _fail("publishable_attestation_fleet_control_mismatch")
     if (
         _read_private_json(
             active_path,
@@ -352,14 +396,28 @@ def _attest_bridge_readiness(
         != active
     ):
         _fail("publishable_attestation_fleet_active_changed")
-    return readiness, BridgeRuntimeIdentity(
-        account_name=account_name,
-        bridge_id=bridge_id,
-        generation=generation,
-        launch_mode=readiness.pending.mode,
-        process=readiness.pending.process.public_payload(),
-        runtime_authority_sha256=readiness.runtime_authority_sha256,
-        readiness_receipt_sha256=readiness.commitment_sha256,
+    if (
+        _read_private_json(
+            control_path,
+            expected_uid=expected_uid,
+            expected_gid=expected_gid,
+        )
+        != control
+    ):
+        _fail("publishable_attestation_fleet_control_changed")
+    return (
+        readiness,
+        BridgeRuntimeIdentity(
+            account_name=account_name,
+            bridge_id=bridge_id,
+            controller_pid=controller_pid,
+            generation=generation,
+            launch_mode=readiness.pending.mode,
+            process=readiness.pending.process.public_payload(),
+            runtime_authority_sha256=readiness.runtime_authority_sha256,
+            readiness_receipt_sha256=readiness.commitment_sha256,
+        ),
+        hashlib.sha256(key).hexdigest(),
     )
 
 

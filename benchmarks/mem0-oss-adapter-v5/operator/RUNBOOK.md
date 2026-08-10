@@ -27,10 +27,12 @@ the observation as data and requires the fence roots to remain exactly:
 /mnt/volume_ams3_1784742570542/infinity-context/live-canaries/mem0-v5-live-d7bf1ac4-r16
 ```
 
-The three bridge binding values are public SHA-256 commitments, not keys. The
-adapter image ID, executable digest, fence identity, and occupied ports are also
-public inputs. Never pass a bearer value, API key, HMAC key, password, or other
-credential to this builder.
+The three bridge binding values, configuration HMAC, and deployment/server
+closure digests and HMACs are public SHA-256 commitments, not keys. Prepare and
+review those five bind-mount authority values through the approved offline
+authority workflow. The adapter image ID, executable digest, fence identity,
+and occupied ports are also public inputs. Never pass a bearer value, API key,
+HMAC key, password, or other credential to this builder.
 
 From the repository root, run the builder once with absolute private and public
 roots. Repeat each `--account-i-protected-host-port`,
@@ -47,6 +49,11 @@ python benchmarks/mem0-oss-adapter-v5/tools/build_publishable_staging.py \
   --bridge-binding-sha256 "$PUBLIC_BRIDGE_BINDING_A_SHA256" \
   --bridge-binding-sha256 "$PUBLIC_BRIDGE_BINDING_B_SHA256" \
   --bridge-binding-sha256 "$PUBLIC_BRIDGE_BINDING_C_SHA256" \
+  --config-hmac-sha256 "$PUBLIC_CONFIG_HMAC_SHA256" \
+  --deployment-closure-sha256 "$PUBLIC_DEPLOYMENT_CLOSURE_SHA256" \
+  --deployment-closure-hmac-sha256 "$PUBLIC_DEPLOYMENT_CLOSURE_HMAC_SHA256" \
+  --server-closure-sha256 "$PUBLIC_SERVER_CLOSURE_SHA256" \
+  --server-closure-hmac-sha256 "$PUBLIC_SERVER_CLOSURE_HMAC_SHA256" \
   --account-i-pid "$ACCOUNT_I_R16_PID" \
   --account-i-start-ticks "$ACCOUNT_I_R16_START_TICKS" \
   --account-i-boot-id "$ACCOUNT_I_R16_BOOT_ID" \

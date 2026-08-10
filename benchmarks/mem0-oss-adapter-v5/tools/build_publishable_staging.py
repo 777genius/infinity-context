@@ -23,7 +23,7 @@ if __package__:
 else:
     import publishable_staging_template as staging_contracts
 
-LANE_CONFIG_SCHEMA = "publishable-mem0-v5-isolated-lane.v1"
+LANE_CONFIG_SCHEMA = "publishable-mem0-v5-isolated-lane.v2"
 RUN_CONFIG_SCHEMA = "memory-comparison-publishable-run-config.v1"
 EXPECTED_CASE_COUNT = staging_contracts.EXPECTED_CASE_COUNT
 EXPECTED_EVALUATION_CALL_COUNT = staging_contracts.EXPECTED_EVALUATION_CALL_COUNT
@@ -218,6 +218,13 @@ def _lane_payload(
             "state_root": str(template.fence_state_root),
         },
         "adapter_image_id": public_inputs.adapter_image_id,
+        "bind_mount_authority": {
+            "config_hmac_sha256": public_inputs.config_hmac_sha256,
+            "deployment_closure_hmac_sha256": (public_inputs.deployment_closure_hmac_sha256),
+            "deployment_closure_sha256": public_inputs.deployment_closure_sha256,
+            "server_closure_hmac_sha256": public_inputs.server_closure_hmac_sha256,
+            "server_closure_sha256": public_inputs.server_closure_sha256,
+        },
         "bridges": [
             {
                 "account_binding_hmac_sha256": binding,
@@ -329,6 +336,7 @@ def _validate_lane_payload(
     expected = {
         "account_i_r16_fence",
         "adapter_image_id",
+        "bind_mount_authority",
         "bridges",
         "docker_host",
         "host_adapter_port",
@@ -491,6 +499,11 @@ def _parser() -> argparse.ArgumentParser:
     parser.add_argument("--adapter-image-id", required=True)
     parser.add_argument("--codex-executable-sha256", required=True)
     parser.add_argument("--bridge-binding-sha256", required=True, action="append")
+    parser.add_argument("--config-hmac-sha256", required=True)
+    parser.add_argument("--deployment-closure-sha256", required=True)
+    parser.add_argument("--deployment-closure-hmac-sha256", required=True)
+    parser.add_argument("--server-closure-sha256", required=True)
+    parser.add_argument("--server-closure-hmac-sha256", required=True)
     parser.add_argument("--account-i-pid", required=True, type=int)
     parser.add_argument("--account-i-start-ticks", required=True, type=int)
     parser.add_argument("--account-i-boot-id", required=True)
@@ -510,6 +523,11 @@ def main(argv: Sequence[str] | None = None) -> int:
             adapter_image_id=arguments.adapter_image_id,
             codex_executable_sha256=arguments.codex_executable_sha256,
             bridge_account_binding_sha256=tuple(arguments.bridge_binding_sha256),
+            config_hmac_sha256=arguments.config_hmac_sha256,
+            deployment_closure_sha256=arguments.deployment_closure_sha256,
+            deployment_closure_hmac_sha256=arguments.deployment_closure_hmac_sha256,
+            server_closure_sha256=arguments.server_closure_sha256,
+            server_closure_hmac_sha256=arguments.server_closure_hmac_sha256,
             account_i_pid=arguments.account_i_pid,
             account_i_start_ticks=arguments.account_i_start_ticks,
             account_i_boot_id=arguments.account_i_boot_id,

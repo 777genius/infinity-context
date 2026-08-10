@@ -20,7 +20,7 @@ from uuid import UUID
 CONFIG_SCHEMA: Final = "publishable-mem0-v5-isolated-lane.v2"
 CONFIG_AUTHENTICATION_SCHEMA: Final = "publishable-mem0-v5-config-authentication.v1"
 DEPLOYMENT_AUTHORITY_KEY_NAME: Final = "deployment-authority-hmac.secret"
-COMPOSE_SHA256: Final = "dd0ffa9d9e1216f302d88a80e0fd8fe052410b250aad2227f947dab00daee4e6"
+COMPOSE_SHA256: Final = "93a9f46a4a0ac1ee6c37a16e60bf30bfbd5dd58d4b2ef01fc474d2cd7a01809c"
 QDRANT_IMAGE: Final = (
     "qdrant/qdrant:v1.18.3@sha256:ecc81d662bb9bb734db879b94461eb44be38604fc259491d478ad7e673238a0d"
 )
@@ -352,18 +352,14 @@ class PublishableLaneConfig:
             "MEM0_V5_PUBLISHABLE_ADAPTER_IMAGE_ID": self.adapter_image_id,
             "MEM0_V5_PUBLISHABLE_ADAPTER_SECRET_DIR": str(self.paths.adapter_secret_dir),
             "MEM0_V5_PUBLISHABLE_ADAPTER_STATE_DIR": str(self.paths.adapter_state_dir),
-            "MEM0_V5_PUBLISHABLE_ATTESTATION_DIR": str(self.paths.attestation_dir),
             "MEM0_V5_PUBLISHABLE_CODEX_EXECUTABLE_SOURCE": str(self.runtime.codex_executable),
             "MEM0_V5_PUBLISHABLE_CONFIG_FILE": str(config_file),
             "MEM0_V5_PUBLISHABLE_DEPLOYMENT_DIR": str(self.paths.deployment_dir),
-            "MEM0_V5_PUBLISHABLE_FLEET_AUTH_DIR": str(self.paths.fleet_auth_dir),
             "MEM0_V5_PUBLISHABLE_FLEET_MODE": fleet_mode,
-            "MEM0_V5_PUBLISHABLE_FLEET_STATE_DIR": str(self.paths.fleet_state_dir),
             "MEM0_V5_PUBLISHABLE_HOST_ADAPTER_PORT": str(self.host_adapter_port),
             "MEM0_V5_PUBLISHABLE_INPUT_DIR": str(self.paths.input_dir),
             "MEM0_V5_PUBLISHABLE_NODE_EXECUTABLE_SOURCE": str(self.runtime.node_executable),
             "MEM0_V5_PUBLISHABLE_PHASE_C_AUTHORITY_DIR": str(self.paths.phase_c_authority_dir),
-            "MEM0_V5_PUBLISHABLE_PRIMARY_ACCOUNT": self.bridges[0].account_name,
             "MEM0_V5_PUBLISHABLE_QDRANT_STATE_DIR": str(self.paths.qdrant_state_dir),
             "MEM0_V5_PUBLISHABLE_RUNTIME_AUTHORITY_DIR": str(self.runtime.runtime_root),
             "MEM0_V5_PUBLISHABLE_SERVER_PACKAGE_DIR": str(self.paths.server_package_dir),

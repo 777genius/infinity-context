@@ -48,6 +48,11 @@ from .runtime_integrity import (
 ATTESTATION_SCHEMA: Final = "publishable-mem0-v5-runtime-attestation.v2"
 ATTESTATION_FILE_PREFIX: Final = "runtime-attestation-"
 _MAX_COMPOSE_BYTES = 512 * 1024
+_BRIDGE_SERVICES: Final = (
+    "publishable-bridge-a",
+    "publishable-bridge-b",
+    "publishable-bridge-c",
+)
 
 
 class RuntimeAttestationError(RuntimeError):
@@ -181,12 +186,13 @@ def attest_runtime_lane(
     running_containers = docker.inspect_running_containers()
     network = docker.inspect_network()
     _attest_network(network, config=config, anchor_id=container_ids[SERVICES[0]])
-    expected_mounts = _mount_policy(config, deployment_before)
+    expected_mounts = _mount_policy(config, docker.config_file)
 
     anchor_id = container_ids["publishable-relay-anchor"]
     service_identities: dict[str, ServiceRuntimeIdentity] = {}
     namespace: NamespaceIdentity | None = None
     anchor_pidns: NamespaceIdentity | None = None
+    pid_namespaces: dict[str, NamespaceIdentity] = {}
     lane_pids: set[int] = set()
     for service in SERVICES:
         value = containers[service]
@@ -213,8 +219,9 @@ def attest_runtime_lane(
             anchor_pidns = pidns
         elif netns != namespace:
             _fail("publishable_attestation_netns_mismatch")
-        if service == "publishable-bridge-fleet" and pidns != anchor_pidns:
-            _fail("publishable_attestation_fleet_pidns_mismatch")
+        if pidns in pid_namespaces.values():
+            _fail("publishable_attestation_pidns_collision")
+        pid_namespaces[service] = pidns
         service_identities[service] = identity
 
     assert namespace is not None and anchor_pidns is not None
@@ -241,7 +248,7 @@ def attest_runtime_lane(
             config,
             fleet_mode=fleet_mode,
             anchor_netns=namespace,
-            anchor_pidns=anchor_pidns,
+            bridge_pidns=tuple(pid_namespaces[name] for name in _BRIDGE_SERVICES),
             expected_uid=expected_uid,
             expected_gid=expected_gid,
         )
@@ -270,7 +277,7 @@ def attest_runtime_lane(
             config,
             fleet_mode=fleet_mode,
             anchor_netns=namespace,
-            anchor_pidns=anchor_pidns,
+            bridge_pidns=tuple(pid_namespaces[name] for name in _BRIDGE_SERVICES),
             expected_uid=expected_uid,
             expected_gid=expected_gid,
         )
@@ -426,13 +433,8 @@ def _attest_container(
     else:
         network_valid = _container_mode_matches(network_mode, anchor_id)
         networks_valid = not _mapping(network, "Networks")
-    expected_pid_mode = service == "publishable-bridge-fleet"
     pid_mode = host.get("PidMode")
-    pid_mode_valid = (
-        _container_mode_matches(pid_mode, anchor_id)
-        if expected_pid_mode
-        else pid_mode in (None, "")
-    )
+    pid_mode_valid = pid_mode in (None, "")
     security = host.get("SecurityOpt")
     health = state.get("Health")
     if (
@@ -500,6 +502,19 @@ def _attest_command_and_environment(
     config: PublishableLaneConfig,
     fleet_mode: str,
 ) -> None:
+    bridge_commands = {
+        service: [
+            "python",
+            "-m",
+            "publishable_mem0_v5.fleet_controller",
+            "serve",
+            "--mode",
+            fleet_mode,
+            "--account-index",
+            str(index),
+        ]
+        for index, service in enumerate(_BRIDGE_SERVICES)
+    }
     expected_commands = {
         "publishable-relay-anchor": [
             "python",
@@ -507,14 +522,7 @@ def _attest_command_and_environment(
             "publishable_mem0_v5.relay",
             "serve",
         ],
-        "publishable-bridge-fleet": [
-            "python",
-            "-m",
-            "publishable_mem0_v5.fleet_controller",
-            "serve",
-            "--mode",
-            fleet_mode,
-        ],
+        **bridge_commands,
         "publishable-adapter": [
             "uvicorn",
             "mem0_oss_adapter_v5.composition:build_app_from_environment",
@@ -542,6 +550,14 @@ def _attest_command_and_environment(
         "ollama" in f"{key}={item}".casefold() for key, item in values.items()
     ):
         _fail("publishable_attestation_environment_invalid")
+    bridge_environment = {
+        "PYTHONPATH": "/opt/publishable/deployment:/opt/publishable/server",
+        "HOME": "/run/publishable-bridge-state/current",
+        "XDG_CACHE_HOME": "/run/publishable-bridge-state/current/cache",
+        "XDG_CONFIG_HOME": "/run/publishable-bridge-state/current/config",
+        "XDG_DATA_HOME": "/run/publishable-bridge-state/current/data",
+        "XDG_STATE_HOME": "/run/publishable-bridge-state/current/xdg-state",
+    }
     required = {
         "publishable-relay-anchor": {
             "PYTHONPATH": "/opt/publishable/deployment",
@@ -551,10 +567,7 @@ def _attest_command_and_environment(
             "QDRANT__SERVICE__HTTP_PORT": str(QDRANT_HTTP_PORT),
             "QDRANT__SERVICE__GRPC_PORT": str(QDRANT_GRPC_PORT),
         },
-        "publishable-bridge-fleet": {
-            "MEM0_V5_PUBLISHABLE_FLEET_PORTS": ",".join(map(str, BRIDGE_PORTS)),
-            "MEM0_V5_PUBLISHABLE_PRIMARY_ACCOUNT": config.bridges[0].account_name,
-        },
+        **{service: bridge_environment for service in _BRIDGE_SERVICES},
         "publishable-adapter": {
             "MEM0_V5_QDRANT_ORIGIN": f"http://127.0.0.1:{QDRANT_HTTP_PORT}",
             "MEM0_V5_RUNTIME_TRANSPORT_ORIGIN_FILE": ("/run/secrets/runtime-transport-origin"),
@@ -652,6 +665,25 @@ def _mount_policy(
     config_file: Path,
 ) -> dict[str, dict[str, tuple[str, bool]]]:
     paths = config.paths
+    bridge_mounts = {
+        service: {
+            "/run/publishable-config/config.json": (str(config_file), False),
+            "/run/publishable-bridge-state": (
+                str(paths.fleet_state_dir / account.account_name),
+                True,
+            ),
+            "/run/publishable-bridge-auth": (
+                str(paths.fleet_auth_dir / account.account_name),
+                False,
+            ),
+            "/opt/publishable/runtime": (str(config.runtime.runtime_root), False),
+            "/opt/publishable/bin/node": (str(config.runtime.node_executable), False),
+            "/opt/publishable/bin/codex": (str(config.runtime.codex_executable), False),
+            "/opt/publishable/server": (str(paths.server_package_dir), False),
+            "/opt/publishable/deployment": (str(paths.deployment_dir), False),
+        }
+        for service, account in zip(_BRIDGE_SERVICES, config.bridges, strict=True)
+    }
     return {
         "publishable-relay-anchor": {
             "/opt/publishable/deployment": (str(paths.deployment_dir), False),
@@ -659,20 +691,7 @@ def _mount_policy(
         "publishable-qdrant": {
             "/qdrant/storage": (str(paths.qdrant_state_dir), True),
         },
-        "publishable-bridge-fleet": {
-            "/run/publishable-config/config.json": (str(config_file), False),
-            "/run/publishable-fleet/state": (str(paths.fleet_state_dir), True),
-            "/run/publishable-fleet/auth": (str(paths.fleet_auth_dir), False),
-            "/run/publishable-attestation": (str(paths.attestation_dir), True),
-            "/opt/publishable/runtime": (str(config.runtime.runtime_root), False),
-            "/opt/publishable/source/phase-c": (str(paths.phase_c_authority_dir), False),
-            "/run/source-authority": (str(paths.source_authority_dir), False),
-            "/run/source-authority-pin": (str(paths.source_authority_pin_dir), False),
-            "/opt/publishable/bin/node": (str(config.runtime.node_executable), False),
-            "/opt/publishable/bin/codex": (str(config.runtime.codex_executable), False),
-            "/opt/publishable/server": (str(paths.server_package_dir), False),
-            "/opt/publishable/deployment": (str(paths.deployment_dir), False),
-        },
+        **bridge_mounts,
         "publishable-adapter": {
             "/run/mem0-v5-input": (str(paths.input_dir), False),
             "/run/mem0-v5-state": (str(paths.adapter_state_dir), True),
