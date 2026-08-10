@@ -53,7 +53,7 @@
     "project_name": "mem0-v5-publishable-staging-r17-6f2c"
   },
   "run_2040": {
-    "dependency_provider": "mem0-oss-v5",
+    "dependency_provider": "mem0-infinity-production-v1",
     "expected_case_count": 2040,
     "expected_evaluation_call_count": 8160,
     "expected_extraction_operation_count": 130226,

@@ -4,9 +4,18 @@ import json
 import stat
 from dataclasses import replace
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
+from infinity_context_server.publishable_durable_scheduler import publishable_run_cli
+from infinity_context_server.publishable_durable_scheduler.publishable_run_contracts import (
+    PUBLISHABLE_RUN_SECRETS_SCHEMA,
+)
 from publishable_mem0_v5.config import load_lane_config
+from publishable_mem0_v5.run_provider import (
+    PUBLISHABLE_MEM0_INFINITY_PROVIDER_NAME,
+    Mem0InfinityPublishableRunDependencyFactory,
+)
 
 from tools.build_publishable_staging import (
     OperatorStagingError,
@@ -137,7 +146,7 @@ def test_builds_exact_secret_free_lane_and_2040_configs_with_private_modes(
                 / "runtime-attestations-r17-6f2c"
             ),
         },
-        "dependency_provider": "mem0-oss-v5",
+        "dependency_provider": "mem0-infinity-production-v1",
         "max_dispatches_per_batch": 64,
         "publication_key_id": "publishable-staging-r17-6f2c-publication-2040",
         "schema_version": "memory-comparison-publishable-run-config.v1",
@@ -180,6 +189,54 @@ def test_builds_exact_secret_free_lane_and_2040_configs_with_private_modes(
     assert all(_mode(path) == 0o700 for path in directories)
     assert "publishable-run-2040.secrets.json" not in bundle.run_config_path.read_text()
     assert "credentials" not in bundle.run_config_path.read_text().casefold()
+
+
+def test_generated_run_config_resolves_exact_installed_factory_provider_free(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    bundle = _build(tmp_path)
+    run = json.loads(bundle.run_config_path.read_bytes())
+    assert (
+        run["dependency_provider"]
+        == PUBLISHABLE_MEM0_INFINITY_PROVIDER_NAME
+        == "mem0-infinity-production-v1"
+    )
+
+    secrets = {
+        "adapter": {},
+        "keys": {
+            "official_case_authentication_key_hex": "1" * 64,
+            "locomo_scheduler_authentication_key_hex": "2" * 64,
+            "longmemeval_scheduler_authentication_key_hex": "3" * 64,
+            "suite_seal_authentication_key_hex": "4" * 64,
+            "publication_receipt_authentication_key_hex": "5" * 64,
+        },
+        "schema_version": PUBLISHABLE_RUN_SECRETS_SCHEMA,
+    }
+    bundle.secrets_path.write_text(json.dumps(secrets))
+    bundle.secrets_path.chmod(0o600)
+    resolved: list[object] = []
+
+    class ProviderFreeOrchestrator:
+        def __init__(self, *, dependency_factory: object) -> None:
+            resolved.append(dependency_factory)
+
+        def run(self, **_arguments: object) -> SimpleNamespace:
+            return SimpleNamespace(
+                payload=lambda: {"publishable": True},
+                publishable=True,
+            )
+
+    monkeypatch.setattr(publishable_run_cli, "PublishableRunOrchestrator", ProviderFreeOrchestrator)
+
+    assert publishable_run_cli.main(bundle.commands.run_2040[1:]) == 0
+    captured = capsys.readouterr()
+    assert captured.err == ""
+    assert json.loads(captured.out) == {"publishable": True}
+    assert len(resolved) == 1
+    assert type(resolved[0]) is Mem0InfinityPublishableRunDependencyFactory
 
 
 def test_commands_are_exact_for_create_attest_run_and_reopen(tmp_path: Path) -> None:
