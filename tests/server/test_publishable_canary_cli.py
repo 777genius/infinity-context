@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import importlib.metadata
 import json
+import subprocess
+import sysconfig
 import tomllib
 from pathlib import Path
 from types import SimpleNamespace
@@ -256,3 +258,23 @@ def test_installed_metadata_loads_publishable_canary_console_script() -> None:
     assert len(matches) == 1
     assert matches[0].value == _ENTRY_POINT
     assert matches[0].load() is cli.main
+
+
+def test_installed_console_script_exposes_fixed_four_call_canary() -> None:
+    scripts_directory = sysconfig.get_path("scripts")
+    assert type(scripts_directory) is str
+    launcher = Path(scripts_directory) / "infinity-context-publishable-canary"
+
+    completed = subprocess.run(
+        (str(launcher), "--help"),
+        check=False,
+        capture_output=True,
+        text=True,
+        timeout=120,
+    )
+
+    assert completed.returncode == 0
+    assert completed.stderr == ""
+    help_text = " ".join(completed.stdout.split())
+    assert "exactly 4 live provider calls" in help_text
+    assert "authenticated terminal replay performs zero provider calls" in help_text

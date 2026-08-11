@@ -48,7 +48,7 @@ def _parser() -> argparse.ArgumentParser:
         action="store_true",
         help=(
             "Acknowledge exactly 4 live provider calls on first execution; "
-            "an authenticated replay dispatches zero calls."
+            "authenticated terminal replay performs zero provider calls."
         ),
     )
     return parser
