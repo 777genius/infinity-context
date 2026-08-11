@@ -5,6 +5,11 @@ from __future__ import annotations
 import ast
 from pathlib import Path
 
+from feature_owned_vertical_slice_config import (
+    NON_VERTICAL_SLICE_SUPPORT_COMPONENTS_BY_ROOT,
+    TRANSITIONAL_CORE_FEATURE_INTERNAL_IMPORTS,
+)
+
 REPO_ROOT = Path(__file__).resolve().parents[2]
 CORE_FEATURE_ROOT = (
     REPO_ROOT / "packages" / "infinity_context_core" / "infinity_context_core" / "features"
@@ -42,26 +47,6 @@ ADR_PATH = REPO_ROOT / "docs" / "adr" / "ADR-0007-feature-owned-vertical-slices.
 SERVER_ROOT = REPO_ROOT / "packages" / "infinity_context_server" / "infinity_context_server"
 SERVER_API_ROOT = SERVER_ROOT / "api"
 SERVER_FEATURE_ROOT = SERVER_ROOT / "features"
-INTERNAL_POLICY_ADAPTER_IMPORTS = {
-    (
-        "packages/infinity_context_core/infinity_context_core/application/"
-        "context_packer_selection.py",
-        "infinity_context_core.features.context_building.application.coverage_reservation_selector",
-    ),
-    (
-        "packages/infinity_context_core/infinity_context_core/application/"
-        "context_packer_selection.py",
-        "infinity_context_core.features.context_building.domain.evidence_obligations",
-    ),
-    (
-        "tests/unit/test_context_coverage_reservation_selector.py",
-        "infinity_context_core.features.context_building.application.coverage_reservation_selector",
-    ),
-    (
-        "tests/unit/test_context_coverage_reservation_selector.py",
-        "infinity_context_core.features.context_building.domain.evidence_obligations",
-    ),
-}
 SERVER_OUTBOX_WORKER_PATH = SERVER_ROOT / "worker.py"
 SERVER_PROCESS_ROOT = SERVER_ROOT / "processes"
 SERVER_COMPOSITION_MODULES = (SERVER_ROOT / "composition.py",)
@@ -112,6 +97,10 @@ def _feature_dirs(root: str) -> list[Path]:
     return sorted(
         child for child in path.iterdir() if child.is_dir() and not child.name.startswith("_")
     )
+
+
+def _vertical_slice_feature_dirs(root: str) -> list[Path]:
+    return [path for path in _feature_dirs(root) if path.name in FEATURE_IDS]
 
 
 def _feature_modules(root: Path) -> list[Path]:
@@ -389,11 +378,25 @@ def test_feature_owned_architecture_decision_is_documented() -> None:
 def test_feature_directories_use_known_feature_ids() -> None:
     unexpected: list[str] = []
     for root in FEATURE_ROOTS:
+        known_ids = FEATURE_IDS | NON_VERTICAL_SLICE_SUPPORT_COMPONENTS_BY_ROOT.get(
+            root, frozenset()
+        )
         for path in _feature_dirs(root):
-            if path.name not in FEATURE_IDS:
+            if path.name not in known_ids:
                 unexpected.append(str(path.relative_to(REPO_ROOT)))
 
     assert unexpected == []
+
+
+def test_non_vertical_slice_support_classifications_are_bounded_and_current() -> None:
+    invalid: list[str] = []
+    for root, component_ids in NON_VERTICAL_SLICE_SUPPORT_COMPONENTS_BY_ROOT.items():
+        for component_id in component_ids:
+            path = REPO_ROOT / root / component_id
+            if component_id in FEATURE_IDS or not path.is_dir():
+                invalid.append(str(path.relative_to(REPO_ROOT)))
+
+    assert invalid == []
 
 
 def test_contract_feature_modules_use_known_feature_ids() -> None:
@@ -485,7 +488,9 @@ def test_sdk_and_mcp_payload_helpers_depend_on_feature_public_contracts() -> Non
 
 def test_core_feature_capsules_expose_public_api_when_created() -> None:
     missing_public_api: list[str] = []
-    for path in _feature_dirs("packages/infinity_context_core/infinity_context_core/features"):
+    for path in _vertical_slice_feature_dirs(
+        "packages/infinity_context_core/infinity_context_core/features"
+    ):
         if not (path / "public.py").exists():
             missing_public_api.append(str(path.relative_to(REPO_ROOT)))
 
@@ -903,11 +908,21 @@ def test_target_core_feature_external_imports_use_public_api() -> None:
                 if _matches_module_prefix(imported, (public_api,)):
                     continue
                 rel = path.relative_to(REPO_ROOT)
-                if (rel.as_posix(), imported) in INTERNAL_POLICY_ADAPTER_IMPORTS:
+                if (rel.as_posix(), imported) in TRANSITIONAL_CORE_FEATURE_INTERNAL_IMPORTS:
                     continue
                 violations.append(f"{rel}: imports {imported}")
 
     assert violations == []
+
+
+def test_transitional_core_feature_import_classifications_are_current() -> None:
+    stale: list[str] = []
+    for relative_path, imported in sorted(TRANSITIONAL_CORE_FEATURE_INTERNAL_IMPORTS):
+        path = REPO_ROOT / relative_path
+        if not path.is_file() or imported not in _import_targets(path):
+            stale.append(f"{relative_path}: imports {imported}")
+
+    assert stale == []
 
 
 def test_core_feature_capsule_layers_do_not_import_legacy_layer_first_core() -> None:
@@ -915,7 +930,7 @@ def test_core_feature_capsule_layers_do_not_import_legacy_layer_first_core() -> 
         return
 
     violations: list[str] = []
-    for feature_dir in _feature_dirs(str(CORE_FEATURE_ROOT.relative_to(REPO_ROOT))):
+    for feature_dir in _vertical_slice_feature_dirs(str(CORE_FEATURE_ROOT.relative_to(REPO_ROOT))):
         for path in feature_dir.rglob("*.py"):
             for imported in _imports(path):
                 if _is_allowed_core_feature_import(feature_dir.name, path, imported):
