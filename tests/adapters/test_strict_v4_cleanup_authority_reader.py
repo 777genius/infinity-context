@@ -28,6 +28,27 @@ READBACK_AUTH = ProjectionReceiptAuthenticator(b"cleanup-reader-test-key" * 2)
 WHEN = datetime(2026, 8, 9, tzinfo=UTC)
 
 
+class _AlternateReadbackAuthenticator:
+    def __init__(self, delegate: ProjectionReceiptAuthenticator) -> None:
+        self._delegate = delegate
+        self.calls: list[tuple[str, str]] = []
+
+    @property
+    def authority_sha256(self) -> str:
+        return self._delegate.authority_sha256
+
+    def sign(self, domain: str, payload_sha256: str) -> str:
+        self.calls.append((domain, payload_sha256))
+        return self._delegate.sign(domain, payload_sha256)
+
+
+class _VerifyOnlyReadbackAuthenticator:
+    authority_sha256 = READBACK_AUTH.authority_sha256
+
+    def verify(self, _domain: str, _payload_sha256: str, _mac_sha256: str) -> bool:
+        return True
+
+
 class _Transaction:
     def __init__(self) -> None:
         self.committed = False
@@ -128,7 +149,13 @@ def _rows(receipt):
     return registration, writer_row, writer
 
 
-def _read(receipt, registration, writer_row, monkeypatch):
+def _read(
+    receipt,
+    registration,
+    writer_row,
+    monkeypatch,
+    readback_authenticator=READBACK_AUTH,
+):
     monkeypatch.setattr(
         "infinity_context_adapters.postgres.strict_v4_cleanup_authority."
         "authenticate_strict_v4_preparation_receipt",
@@ -162,7 +189,7 @@ def _read(receipt, registration, writer_row, monkeypatch):
             connect=connect,
             recover_preparation=recover,
             preparation_authenticator=PREP_AUTH,
-            readback_authenticator=READBACK_AUTH,
+            readback_authenticator=readback_authenticator,
             authentication_key_id="cleanup-key",
         ).read_registered_strict_v4(receipt.run_id_sha256)
     )
@@ -181,6 +208,40 @@ def test_reader_binds_recovered_receipt_registration_and_sealed_writer(monkeypat
     assert recovery_calls == 1
     assert connection.tx.committed and connection.closed
     assert connection.events == ["capability", "transaction", "read", "read", "close"]
+
+
+def test_reader_accepts_structural_readback_authenticator(monkeypatch) -> None:
+    receipt = _receipt()
+    registration, writer_row, _writer = _rows(receipt)
+    alternate = _AlternateReadbackAuthenticator(READBACK_AUTH)
+
+    readback, connection, recovery_calls = _read(
+        receipt,
+        registration,
+        writer_row,
+        monkeypatch,
+        readback_authenticator=alternate,
+    )
+
+    assert readback is not None
+    assert readback.authentication_authority_sha256 == READBACK_AUTH.authority_sha256
+    assert alternate.calls == [("strict-v4-cleanup-authority-readback", readback.readback_sha256)]
+    assert recovery_calls == 1
+    assert connection.tx.committed and connection.closed
+
+
+def test_reader_rejects_nonconforming_readback_authenticator_at_composition() -> None:
+    async def unused():
+        raise AssertionError("invalid authentication reached production I/O")
+
+    with pytest.raises(ProjectionReceiptError, match="cleanup_readback_capability_invalid"):
+        AsyncPostgresStrictV4CleanupAuthorityReader(
+            connect=unused,
+            recover_preparation=unused,
+            preparation_authenticator=PREP_AUTH,
+            readback_authenticator=_VerifyOnlyReadbackAuthenticator(),  # type: ignore[arg-type]
+            authentication_key_id="cleanup-key",
+        )
 
 
 def test_reader_rejects_post_seal_registration_timestamp_tamper(monkeypatch) -> None:

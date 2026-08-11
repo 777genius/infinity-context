@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Awaitable, Callable
 from datetime import datetime
-from typing import Any
+from typing import Any, cast
 
 from infinity_context_core.features.projection_receipts import (
     ProjectionReceiptAuthenticator,
@@ -20,6 +20,7 @@ from infinity_context_core.features.projection_receipts.strict_v4_writer_authori
 )
 from infinity_context_core.ports.managed_cleanup_v3_contracts import canonical_bytes
 from infinity_context_core.ports.managed_cleanup_v4_authority import (
+    ManagedCleanupV4ReceiptAuthenticatorPort,
     StrictV4CleanupAuthorityReadback,
     StrictV4CleanupAuthorityReadPort,
     build_strict_v4_cleanup_authority_readback,
@@ -64,14 +65,14 @@ class AsyncPostgresStrictV4CleanupAuthorityReader(StrictV4CleanupAuthorityReadPo
         connect: Callable[[], Awaitable[Any]],
         recover_preparation: Callable[[], Awaitable[StrictV4PreparationReceipt]],
         preparation_authenticator: ProjectionReceiptAuthenticator,
-        readback_authenticator: ProjectionReceiptAuthenticator,
+        readback_authenticator: ManagedCleanupV4ReceiptAuthenticatorPort,
         authentication_key_id: str,
     ) -> None:
         if (
             not callable(connect)
             or not callable(recover_preparation)
             or type(preparation_authenticator) is not ProjectionReceiptAuthenticator
-            or type(readback_authenticator) is not ProjectionReceiptAuthenticator
+            or not _is_cleanup_receipt_authenticator(readback_authenticator)
             or type(authentication_key_id) is not str
             or not authentication_key_id
         ):
@@ -197,6 +198,21 @@ def _assert_writer_row(row: Any, receipt: Any, writer: StrictV4WriterAuthority) 
         or canonical_bytes(preparation) != canonical_bytes(receipt.payload())
     ):
         raise ProjectionReceiptError("projection_receipt.cleanup_readback_writer_invalid")
+
+
+def _is_cleanup_receipt_authenticator(value: object) -> bool:
+    capability = cast(ManagedCleanupV4ReceiptAuthenticatorPort, value)
+    try:
+        authority_sha256 = capability.authority_sha256
+        signer = capability.sign
+    except Exception:
+        return False
+    return (
+        callable(signer)
+        and type(authority_sha256) is str
+        and len(authority_sha256) == 64
+        and all(character in "0123456789abcdef" for character in authority_sha256)
+    )
 
 
 __all__ = (

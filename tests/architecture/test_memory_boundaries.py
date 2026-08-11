@@ -18,8 +18,14 @@ def _imports(path: Path) -> set[str]:
     for node in ast.walk(tree):
         if isinstance(node, ast.Import):
             imported.update(alias.name for alias in node.names)
-        elif isinstance(node, ast.ImportFrom) and node.module:
-            imported.add(node.module)
+        elif isinstance(node, ast.ImportFrom):
+            if node.module:
+                imported.add(node.module)
+                imported.update(
+                    f"{node.module}.{alias.name}" for alias in node.names if alias.name != "*"
+                )
+            elif node.level:
+                imported.update(alias.name for alias in node.names)
     return imported
 
 
@@ -29,6 +35,20 @@ def _assert_no_imports(package: str, forbidden_roots: set[str]) -> None:
         for imported in sorted(_imports(path)):
             root = imported.split(".", 1)[0]
             if root in forbidden_roots:
+                rel = path.relative_to(REPO_ROOT)
+                violations.append(f"{rel}: imports {imported}")
+
+    assert not violations, "Forbidden architecture imports:\n" + "\n".join(violations)
+
+
+def _assert_no_import_prefixes(package: str, forbidden_prefixes: set[str]) -> None:
+    violations: list[str] = []
+    for path in _python_files(package):
+        for imported in sorted(_imports(path)):
+            if any(
+                imported == prefix or imported.startswith(f"{prefix}.")
+                for prefix in forbidden_prefixes
+            ):
                 rel = path.relative_to(REPO_ROOT)
                 violations.append(f"{rel}: imports {imported}")
 
@@ -63,6 +83,25 @@ def test_memory_core_has_no_infrastructure_dependencies() -> None:
             "sqlalchemy",
         },
     )
+
+
+def test_memory_core_ports_do_not_depend_on_application_or_features() -> None:
+    _assert_no_import_prefixes(
+        "packages/infinity_context_core/infinity_context_core/ports",
+        {
+            "application",
+            "features",
+            "infinity_context_core.application",
+            "infinity_context_core.features",
+        },
+    )
+
+
+def test_import_parser_expands_from_import_members(tmp_path: Path) -> None:
+    source = tmp_path / "forbidden_port_import.py"
+    source.write_text("from infinity_context_core import features\n", encoding="utf-8")
+
+    assert "infinity_context_core.features" in _imports(source)
 
 
 def test_memory_adapters_do_not_depend_on_api_or_mcp_layers() -> None:

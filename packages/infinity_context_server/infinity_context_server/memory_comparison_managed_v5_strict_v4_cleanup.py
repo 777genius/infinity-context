@@ -23,6 +23,7 @@ from infinity_context_core.ports.managed_cleanup_v3_absence import (
     ManagedCleanupV3TerminalEvidence,
 )
 from infinity_context_core.ports.managed_cleanup_v4_authority import (
+    ManagedCleanupV4ReceiptAuthenticatorPort,
     StrictV4CleanupAuthorityResolver,
 )
 
@@ -121,7 +122,7 @@ async def recover_strict_v4_cleanup(
 
 async def _authority(
     journal: SQLiteManagedCleanupV4Journal,
-    authenticator: ProjectionReceiptAuthenticator,
+    authenticator: ManagedCleanupV4ReceiptAuthenticatorPort,
 ):
     return await StrictV4CleanupAuthorityResolver(
         run_id_sha256=journal.run_id_sha256,

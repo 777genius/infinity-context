@@ -2,15 +2,16 @@
 
 from __future__ import annotations
 
+import hmac
 from dataclasses import dataclass
-from typing import Final, Literal, Protocol, final
+from typing import Final, Literal, Protocol, cast, final
 
-from infinity_context_core.features.projection_receipts import ProjectionReceiptAuthenticator
 from infinity_context_core.ports.managed_cleanup_v3_contracts import commitment, digest
 from infinity_context_core.ports.managed_cleanup_v4_authority import (
     CleanupAuthorityKind,
     ManagedCleanupV4Authority,
     ManagedCleanupV4AuthorityError,
+    ManagedCleanupV4ReceiptAuthenticatorPort,
 )
 
 INITIATION_SCHEMA: Final = "memory-comparison-cleanup-initiation.v4"
@@ -203,7 +204,7 @@ async def initiate_managed_cleanup_v4(
     *,
     authority: ManagedCleanupV4Authority,
     lifecycle: ManagedCleanupV4LifecyclePort,
-    authenticator: ProjectionReceiptAuthenticator,
+    authenticator: ManagedCleanupV4ReceiptAuthenticatorPort,
     authentication_key_id: str,
 ) -> ManagedCleanupV4Transition:
     _authority(authority)
@@ -253,7 +254,7 @@ async def complete_managed_cleanup_v4(
     authority: ManagedCleanupV4Authority,
     terminal_bindings: ManagedCleanupV4TerminalBindings,
     lifecycle: ManagedCleanupV4LifecyclePort,
-    authenticator: ProjectionReceiptAuthenticator,
+    authenticator: ManagedCleanupV4ReceiptAuthenticatorPort,
     authentication_key_id: str,
 ) -> ManagedCleanupV4Transition:
     _authority(authority)
@@ -345,18 +346,20 @@ def build_cleanup_v4_terminal_bindings(
 def build_cleanup_v4_initiation_receipt(
     authority: ManagedCleanupV4Authority,
     *,
-    authenticator: ProjectionReceiptAuthenticator,
+    authenticator: ManagedCleanupV4ReceiptAuthenticatorPort,
     authentication_key_id: str,
 ) -> ManagedCleanupV4InitiationReceipt:
     _authority(authority)
-    _authentication(authenticator, authentication_key_id)
+    capability, authentication_authority_sha256 = _authentication(
+        authenticator, authentication_key_id
+    )
     values = {
         "schema_version": INITIATION_SCHEMA,
         "run_id_sha256": authority.run_id_sha256,
         "authority_kind": authority.kind,
         "authority_sha256": authority.authority_sha256,
         "authentication_key_id": authentication_key_id,
-        "authentication_authority_sha256": authenticator.authority_sha256,
+        "authentication_authority_sha256": authentication_authority_sha256,
         "state": "cleanup_pending",
     }
     receipt_sha256 = commitment("cleanup-initiation/v4", values)
@@ -365,10 +368,10 @@ def build_cleanup_v4_initiation_receipt(
         authority_kind=authority.kind,
         authority_sha256=authority.authority_sha256,
         authentication_key_id=authentication_key_id,
-        authentication_authority_sha256=authenticator.authority_sha256,
+        authentication_authority_sha256=authentication_authority_sha256,
         state="cleanup_pending",
         receipt_sha256=receipt_sha256,
-        receipt_mac_sha256=authenticator.sign("cleanup-initiation", receipt_sha256),
+        receipt_mac_sha256=_sign(capability, "cleanup-initiation", receipt_sha256),
     )
 
 
@@ -377,11 +380,13 @@ def build_cleanup_v4_terminal_receipt(
     initiation: ManagedCleanupV4InitiationReceipt,
     bindings: ManagedCleanupV4TerminalBindings,
     *,
-    authenticator: ProjectionReceiptAuthenticator,
+    authenticator: ManagedCleanupV4ReceiptAuthenticatorPort,
     authentication_key_id: str,
 ) -> ManagedCleanupV4TerminalReceipt:
     _authority(authority)
-    _authentication(authenticator, authentication_key_id)
+    capability, authentication_authority_sha256 = _authentication(
+        authenticator, authentication_key_id
+    )
     if initiation != build_cleanup_v4_initiation_receipt(
         authority,
         authenticator=authenticator,
@@ -395,7 +400,7 @@ def build_cleanup_v4_terminal_receipt(
         "authority_kind": authority.kind,
         "authority_sha256": authority.authority_sha256,
         "authentication_key_id": authentication_key_id,
-        "authentication_authority_sha256": authenticator.authority_sha256,
+        "authentication_authority_sha256": authentication_authority_sha256,
         "cleanup_initiation_receipt_sha256": initiation.receipt_sha256,
         "terminal_bindings": bindings.payload(),
         "state": "cleanup_complete",
@@ -406,19 +411,19 @@ def build_cleanup_v4_terminal_receipt(
         authority_kind=authority.kind,
         authority_sha256=authority.authority_sha256,
         authentication_key_id=authentication_key_id,
-        authentication_authority_sha256=authenticator.authority_sha256,
+        authentication_authority_sha256=authentication_authority_sha256,
         cleanup_initiation_receipt_sha256=initiation.receipt_sha256,
         terminal_bindings=bindings,
         state="cleanup_complete",
         receipt_sha256=receipt_sha256,
-        receipt_mac_sha256=authenticator.sign("cleanup-terminal", receipt_sha256),
+        receipt_mac_sha256=_sign(capability, "cleanup-terminal", receipt_sha256),
     )
 
 
 def authenticate_cleanup_v4_initiation_receipt(
     receipt: ManagedCleanupV4InitiationReceipt,
     *,
-    authenticator: ProjectionReceiptAuthenticator,
+    authenticator: ManagedCleanupV4ReceiptAuthenticatorPort,
     authentication_key_id: str,
 ) -> None:
     if type(receipt) is not ManagedCleanupV4InitiationReceipt:
@@ -438,7 +443,7 @@ def authenticate_cleanup_v4_initiation_receipt(
 def authenticate_cleanup_v4_terminal_receipt(
     receipt: ManagedCleanupV4TerminalReceipt,
     *,
-    authenticator: ProjectionReceiptAuthenticator,
+    authenticator: ManagedCleanupV4ReceiptAuthenticatorPort,
     authentication_key_id: str,
 ) -> None:
     if type(receipt) is not ManagedCleanupV4TerminalReceipt:
@@ -471,7 +476,7 @@ def _terminal_matches_authority(
     terminal: ManagedCleanupV4TerminalReceipt,
     authority: ManagedCleanupV4Authority,
     *,
-    authenticator: ProjectionReceiptAuthenticator,
+    authenticator: ManagedCleanupV4ReceiptAuthenticatorPort,
     authentication_key_id: str,
 ) -> None:
     if type(terminal) is not ManagedCleanupV4TerminalReceipt:
@@ -497,25 +502,51 @@ def _authenticate_receipt(
     receipt_mac_sha256: str,
     *,
     domain: str,
-    authenticator: ProjectionReceiptAuthenticator,
+    authenticator: ManagedCleanupV4ReceiptAuthenticatorPort,
     authentication_key_id: str,
 ) -> None:
-    _authentication(authenticator, authentication_key_id)
+    capability, authentication_authority_sha256 = _authentication(
+        authenticator, authentication_key_id
+    )
     if (
         receipt_key_id != authentication_key_id
-        or authority_sha256 != authenticator.authority_sha256
-        or not authenticator.verify(domain, receipt_sha256, receipt_mac_sha256)
+        or authority_sha256 != authentication_authority_sha256
     ):
+        _fail("managed_cleanup_v4_receipt_authentication_invalid")
+    expected_mac_sha256 = _sign(capability, domain, receipt_sha256)
+    if not hmac.compare_digest(expected_mac_sha256, receipt_mac_sha256):
         _fail("managed_cleanup_v4_receipt_authentication_invalid")
 
 
 def _authentication(
-    authenticator: ProjectionReceiptAuthenticator, authentication_key_id: str
-) -> None:
-    if type(authenticator) is not ProjectionReceiptAuthenticator or not _key_id(
-        authentication_key_id
-    ):
+    value: object, authentication_key_id: object
+) -> tuple[ManagedCleanupV4ReceiptAuthenticatorPort, str]:
+    if not _key_id(authentication_key_id):
         _fail("managed_cleanup_v4_authentication_invalid")
+    capability = cast(ManagedCleanupV4ReceiptAuthenticatorPort, value)
+    try:
+        authority_sha256 = capability.authority_sha256
+        signer = capability.sign
+        digest(authority_sha256)
+    except Exception as exc:
+        raise ManagedCleanupV4AuthorityError("managed_cleanup_v4_authentication_invalid") from exc
+    if not callable(signer):
+        _fail("managed_cleanup_v4_authentication_invalid")
+    return capability, cast(str, authority_sha256)
+
+
+def _sign(
+    authenticator: ManagedCleanupV4ReceiptAuthenticatorPort,
+    domain: str,
+    payload_sha256: str,
+) -> str:
+    try:
+        digest(payload_sha256)
+        mac_sha256 = authenticator.sign(domain, payload_sha256)
+        digest(mac_sha256)
+    except Exception as exc:
+        raise ManagedCleanupV4AuthorityError("managed_cleanup_v4_authentication_invalid") from exc
+    return mac_sha256
 
 
 def _key_id(value: object) -> bool:

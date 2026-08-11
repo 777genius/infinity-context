@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import ast
 import asyncio
+import hashlib
+import hmac
 import subprocess
 import sys
 from dataclasses import replace
@@ -15,7 +17,10 @@ from infinity_context_core.application.use_cases.managed_cleanup_v4_legacy_autho
 from infinity_context_core.application.use_cases.managed_cleanup_v4_lifecycle import (
     ManagedCleanupV4InitiationReceipt,
     ManagedCleanupV4TerminalReceipt,
+    authenticate_cleanup_v4_initiation_receipt,
+    build_cleanup_v4_initiation_receipt,
     build_cleanup_v4_terminal_bindings,
+    build_cleanup_v4_terminal_receipt,
     complete_managed_cleanup_v4,
     initiate_managed_cleanup_v4,
 )
@@ -39,7 +44,8 @@ INVENTORY = "4" * 64
 QDRANT = ("5" * 64, "6" * 64)
 GRAPHITI = ("7" * 64, "8" * 64)
 COGNEE = "9" * 64
-AUTH = ProjectionReceiptAuthenticator(b"managed-cleanup-v4-test-key-material")
+AUTH_SECRET = b"managed-cleanup-v4-test-key-material"
+AUTH = ProjectionReceiptAuthenticator(AUTH_SECRET)
 AUTH_ARGS = {"authenticator": AUTH, "authentication_key_id": "cleanup-test-key"}
 EVIDENCE_ARGS = {
     "preparation_receipt_sha256": "a" * 64,
@@ -49,6 +55,46 @@ EVIDENCE_ARGS = {
     "writer_authority_sha256": "e" * 64,
     "writer_authority_mac_sha256": "f" * 64,
 }
+
+
+class _AlternateCleanupAuthenticator:
+    """Independent structural implementation of the production HMAC contract."""
+
+    def __init__(self, secret: bytes) -> None:
+        self._secret = secret
+        self.calls: list[tuple[str, str]] = []
+
+    @property
+    def authority_sha256(self) -> str:
+        return hashlib.sha256(
+            b"infinity-context:projection-receipt-worker-authority:v1:" + self._secret
+        ).hexdigest()
+
+    def sign(self, domain: str, payload_sha256: str) -> str:
+        self.calls.append((domain, payload_sha256))
+        message = f"infinity-context:{domain}:v1:{payload_sha256}".encode()
+        return hmac.new(self._secret, message, hashlib.sha256).hexdigest()
+
+
+class _WrongDomainAuthenticator:
+    authority_sha256 = AUTH.authority_sha256
+
+    def __init__(self) -> None:
+        self.verify_calls = 0
+
+    def sign(self, domain: str, payload_sha256: str) -> str:
+        return AUTH.sign(f"attacker-{domain}", payload_sha256)
+
+    def verify(self, _domain: str, _payload_sha256: str, _mac_sha256: str) -> bool:
+        self.verify_calls += 1
+        return True
+
+
+class _VerifyOnlyAuthenticator:
+    authority_sha256 = AUTH.authority_sha256
+
+    def verify(self, _domain: str, _payload_sha256: str, _mac_sha256: str) -> bool:
+        return True
 
 
 class _StrictReaderWithLegacyTrap:
@@ -145,6 +191,120 @@ def test_strict_resolver_uses_only_registered_a2_and_expected_index() -> None:
     assert reader.legacy_calls == 0
 
 
+def test_structural_authenticator_preserves_exact_readback_hash_and_mac() -> None:
+    alternate = _AlternateCleanupAuthenticator(AUTH_SECRET)
+    concrete = build_strict_v4_cleanup_authority_readback(
+        run_id_sha256=RUN,
+        context_sha256=CONTEXT,
+        a2_terminal_sha256=A2,
+        expected_index_terminal_sha256=A2,
+        **EVIDENCE_ARGS,
+        **AUTH_ARGS,
+    )
+    structural = build_strict_v4_cleanup_authority_readback(
+        run_id_sha256=RUN,
+        context_sha256=CONTEXT,
+        a2_terminal_sha256=A2,
+        expected_index_terminal_sha256=A2,
+        **EVIDENCE_ARGS,
+        authenticator=alternate,
+        authentication_key_id="cleanup-test-key",
+    )
+
+    assert structural == concrete
+    assert structural.authentication_authority_sha256 == (
+        "74cf6917520fa6776240fc136f9c25ad03c91f679354c17aa95c75099f8f9e50"
+    )
+    assert structural.readback_sha256 == (
+        "a17fad3357313b19760e9df125b21cd481044d8297aa32f66ad37bec1448640d"
+    )
+    assert structural.readback_mac_sha256 == (
+        "978e2769abc48c1b9f0f356906034c81473b523e853994fe277085b506cd4a93"
+    )
+    assert (
+        _run(
+            StrictV4CleanupAuthorityResolver(
+                run_id_sha256=RUN,
+                reader=_StrictReaderWithLegacyTrap(structural),
+                authenticator=alternate,
+                authentication_key_id="cleanup-test-key",
+            ).resolve()
+        )
+        == _strict()
+    )
+    assert alternate.calls == [
+        ("strict-v4-cleanup-authority-readback", structural.readback_sha256),
+        ("strict-v4-cleanup-authority-readback", structural.readback_sha256),
+    ]
+
+
+def test_malicious_always_true_verifier_cannot_bypass_exact_domain_mac() -> None:
+    readback = build_strict_v4_cleanup_authority_readback(
+        run_id_sha256=RUN,
+        context_sha256=CONTEXT,
+        a2_terminal_sha256=A2,
+        expected_index_terminal_sha256=A2,
+        **EVIDENCE_ARGS,
+        **AUTH_ARGS,
+    )
+    malicious = _WrongDomainAuthenticator()
+
+    with pytest.raises(
+        ManagedCleanupV4AuthorityError,
+        match="strict_readback_authentication_invalid",
+    ):
+        _run(
+            StrictV4CleanupAuthorityResolver(
+                run_id_sha256=RUN,
+                reader=_StrictReaderWithLegacyTrap(readback),
+                authenticator=malicious,
+                authentication_key_id="cleanup-test-key",
+            ).resolve()
+        )
+
+    assert malicious.verify_calls == 0
+
+
+def test_foreign_authentication_bindings_are_rejected_before_signing() -> None:
+    readback = build_strict_v4_cleanup_authority_readback(
+        run_id_sha256=RUN,
+        context_sha256=CONTEXT,
+        a2_terminal_sha256=A2,
+        expected_index_terminal_sha256=A2,
+        **EVIDENCE_ARGS,
+        **AUTH_ARGS,
+    )
+    cases = (
+        (_AlternateCleanupAuthenticator(AUTH_SECRET), "foreign-cleanup-key"),
+        (_AlternateCleanupAuthenticator(b"foreign-cleanup-authentication-key"), "cleanup-test-key"),
+    )
+
+    for alternate, authentication_key_id in cases:
+        with pytest.raises(
+            ManagedCleanupV4AuthorityError,
+            match="strict_readback_authentication_invalid",
+        ):
+            _run(
+                StrictV4CleanupAuthorityResolver(
+                    run_id_sha256=RUN,
+                    reader=_StrictReaderWithLegacyTrap(readback),
+                    authenticator=alternate,
+                    authentication_key_id=authentication_key_id,
+                ).resolve()
+            )
+        assert alternate.calls == []
+
+
+def test_verify_only_authenticator_is_rejected_as_nonconforming() -> None:
+    with pytest.raises(ManagedCleanupV4AuthorityError, match="authentication_invalid"):
+        StrictV4CleanupAuthorityResolver(
+            run_id_sha256=RUN,
+            reader=_StrictReaderWithLegacyTrap(None),
+            authenticator=_VerifyOnlyAuthenticator(),  # type: ignore[arg-type]
+            authentication_key_id="cleanup-test-key",
+        )
+
+
 @pytest.mark.parametrize("value", [None, "missing"])
 def test_strict_resolver_rejects_missing_readback(value: object) -> None:
     with pytest.raises(ManagedCleanupV4AuthorityError, match="strict_authority_missing"):
@@ -238,6 +398,11 @@ def test_strict_authority_import_graph_excludes_legacy_v2_plan_contract() -> Non
         "infinity_context_core.application.use_cases.managed_cleanup_v4_legacy_authority"
         not in imports
     )
+    assert not any(
+        imported == "infinity_context_core.features"
+        or imported.startswith("infinity_context_core.features.")
+        for imported in imports
+    )
     script = """
 import sys
 from infinity_context_core.ports.managed_cleanup_v4_authority import (
@@ -248,6 +413,7 @@ assert (
     'infinity_context_core.application.use_cases.managed_cleanup_v4_legacy_authority'
     not in sys.modules
 )
+assert 'infinity_context_core.features.projection_receipts' not in sys.modules
 """
     subprocess.run([sys.executable, "-c", script], check=True)
 
@@ -299,6 +465,84 @@ def test_lifecycle_allows_only_exact_pending_then_complete_transitions() -> None
     assert terminal.terminal_bindings.qdrant_absence_pass_sha256 == QDRANT
     assert terminal.terminal_bindings.graphiti_absence_pass_sha256 == GRAPHITI
     assert terminal.terminal_bindings.cognee_evidence_sha256 == COGNEE
+
+
+def test_lifecycle_accepts_structural_authenticator_without_receipt_changes() -> None:
+    lifecycle = _Lifecycle()
+    authority = _strict()
+    alternate = _AlternateCleanupAuthenticator(AUTH_SECRET)
+
+    transition = _run(
+        initiate_managed_cleanup_v4(
+            authority=authority,
+            lifecycle=lifecycle,
+            authenticator=alternate,
+            authentication_key_id="cleanup-test-key",
+        )
+    )
+
+    assert transition.receipt == build_cleanup_v4_initiation_receipt(
+        authority,
+        **AUTH_ARGS,
+    )
+    assert isinstance(transition.receipt, ManagedCleanupV4InitiationReceipt)
+    assert transition.receipt.receipt_sha256 == (
+        "4c3010434a7260e0919a93034f3348ba455aa30c768f09a10c8d1ff4bbf7c4c0"
+    )
+    assert transition.receipt.receipt_mac_sha256 == (
+        "f5383b593f57fa29416816339ec2e0c487116cc328832d77f5c493681f9c408b"
+    )
+    completion = _run(
+        complete_managed_cleanup_v4(
+            authority=authority,
+            terminal_bindings=_bindings(),
+            lifecycle=lifecycle,
+            authenticator=alternate,
+            authentication_key_id="cleanup-test-key",
+        )
+    )
+    assert completion.receipt == build_cleanup_v4_terminal_receipt(
+        authority,
+        transition.receipt,
+        _bindings(),
+        **AUTH_ARGS,
+    )
+    assert isinstance(completion.receipt, ManagedCleanupV4TerminalReceipt)
+    assert completion.receipt.receipt_sha256 == (
+        "4450689b4926da3df92869a8ff3e0b53b12737c3b25ec55a0c3265f0331dd246"
+    )
+    assert completion.receipt.receipt_mac_sha256 == (
+        "498c3e5915fced94d29f3603f227175ef17fd0660530d8ded9ce91d0a339b059"
+    )
+    assert [domain for domain, _payload in alternate.calls] == [
+        "cleanup-initiation",
+        "cleanup-initiation",
+        "cleanup-initiation",
+        "cleanup-initiation",
+        "cleanup-initiation",
+        "cleanup-terminal",
+        "cleanup-terminal",
+    ]
+
+
+def test_lifecycle_rejects_foreign_bindings_before_signing() -> None:
+    receipt = build_cleanup_v4_initiation_receipt(_strict(), **AUTH_ARGS)
+    cases = (
+        (_AlternateCleanupAuthenticator(AUTH_SECRET), "foreign-cleanup-key"),
+        (_AlternateCleanupAuthenticator(b"foreign-cleanup-authentication-key"), "cleanup-test-key"),
+    )
+
+    for alternate, authentication_key_id in cases:
+        with pytest.raises(
+            ManagedCleanupV4AuthorityError,
+            match="receipt_authentication_invalid",
+        ):
+            authenticate_cleanup_v4_initiation_receipt(
+                receipt,
+                authenticator=alternate,
+                authentication_key_id=authentication_key_id,
+            )
+        assert alternate.calls == []
 
 
 def test_cross_kind_replay_and_ordered_absence_tamper_are_rejected() -> None:

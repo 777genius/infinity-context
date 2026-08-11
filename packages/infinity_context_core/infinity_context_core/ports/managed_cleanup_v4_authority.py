@@ -2,11 +2,11 @@
 
 from __future__ import annotations
 
+import hmac
 from dataclasses import dataclass
-from typing import Final, Literal, Protocol, final
+from typing import Final, Literal, Protocol, cast, final
 
 from infinity_context_core.domain.errors import MemoryValidationError
-from infinity_context_core.features.projection_receipts import ProjectionReceiptAuthenticator
 from infinity_context_core.ports.managed_cleanup_v3_contracts import commitment, digest
 
 CleanupAuthorityKind = Literal["legacy_v2_plan", "strict_v4_a2"]
@@ -156,6 +156,15 @@ class ManagedCleanupV4AuthorityResolverPort(Protocol):
     async def resolve(self) -> ManagedCleanupV4Authority: ...
 
 
+class ManagedCleanupV4ReceiptAuthenticatorPort(Protocol):
+    """Opaque signing capability used by cleanup-v4 receipt boundaries."""
+
+    @property
+    def authority_sha256(self) -> str: ...
+
+    def sign(self, domain: str, payload_sha256: str) -> str: ...
+
+
 @final
 class StrictV4CleanupAuthorityResolver:
     """Resolve strict authority without accepting or touching a legacy loader."""
@@ -165,19 +174,17 @@ class StrictV4CleanupAuthorityResolver:
         *,
         run_id_sha256: str,
         reader: StrictV4CleanupAuthorityReadPort,
-        authenticator: ProjectionReceiptAuthenticator,
+        authenticator: ManagedCleanupV4ReceiptAuthenticatorPort,
         authentication_key_id: str,
     ) -> None:
         _digest(run_id_sha256)
         if not callable(getattr(reader, "read_registered_strict_v4", None)):
             _fail("managed_cleanup_v4_strict_port_invalid")
-        if type(authenticator) is not ProjectionReceiptAuthenticator or not _key_id(
-            authentication_key_id
-        ):
-            _fail("managed_cleanup_v4_authentication_invalid")
+        capability, authority_sha256 = _authentication(authenticator, authentication_key_id)
         self._run_id_sha256 = run_id_sha256
         self._reader = reader
-        self._authenticator = authenticator
+        self._authenticator = capability
+        self._authentication_authority_sha256 = authority_sha256
         self._authentication_key_id = authentication_key_id
 
     async def resolve(self) -> ManagedCleanupV4Authority:
@@ -189,6 +196,7 @@ class StrictV4CleanupAuthorityResolver:
             readback,
             authenticator=self._authenticator,
             authentication_key_id=self._authentication_key_id,
+            authentication_authority_sha256=self._authentication_authority_sha256,
         )
         if readback.run_id_sha256 != self._run_id_sha256:
             _fail("managed_cleanup_v4_strict_readback_invalid")
@@ -256,13 +264,10 @@ def build_strict_v4_cleanup_authority_readback(
     registration_mac_sha256: str,
     writer_authority_sha256: str,
     writer_authority_mac_sha256: str,
-    authenticator: ProjectionReceiptAuthenticator,
+    authenticator: ManagedCleanupV4ReceiptAuthenticatorPort,
     authentication_key_id: str,
 ) -> StrictV4CleanupAuthorityReadback:
-    if type(authenticator) is not ProjectionReceiptAuthenticator or not _key_id(
-        authentication_key_id
-    ):
-        _fail("managed_cleanup_v4_authentication_invalid")
+    capability, authority_sha256 = _authentication(authenticator, authentication_key_id)
     body = {
         "schema_version": STRICT_V4_READBACK_SCHEMA,
         "run_id_sha256": run_id_sha256,
@@ -276,14 +281,14 @@ def build_strict_v4_cleanup_authority_readback(
         "writer_authority_sha256": writer_authority_sha256,
         "writer_authority_mac_sha256": writer_authority_mac_sha256,
         "authentication_key_id": authentication_key_id,
-        "authentication_authority_sha256": authenticator.authority_sha256,
+        "authentication_authority_sha256": authority_sha256,
     }
     readback_sha256 = commitment("strict-v4-cleanup-readback/v1", body)
     return StrictV4CleanupAuthorityReadback(
         **{key: value for key, value in body.items() if key != "schema_version"},
         readback_sha256=readback_sha256,
-        readback_mac_sha256=authenticator.sign(
-            "strict-v4-cleanup-authority-readback", readback_sha256
+        readback_mac_sha256=_sign(
+            capability, "strict-v4-cleanup-authority-readback", readback_sha256
         ),
     )
 
@@ -291,22 +296,32 @@ def build_strict_v4_cleanup_authority_readback(
 def authenticate_strict_v4_cleanup_authority_readback(
     readback: StrictV4CleanupAuthorityReadback,
     *,
-    authenticator: ProjectionReceiptAuthenticator,
+    authenticator: ManagedCleanupV4ReceiptAuthenticatorPort,
     authentication_key_id: str,
+    authentication_authority_sha256: str | None = None,
 ) -> None:
     if type(readback) is not StrictV4CleanupAuthorityReadback:
         _fail("managed_cleanup_v4_strict_authority_missing")
     readback.__post_init__()
+    capability, capability_authority_sha256 = _authentication(authenticator, authentication_key_id)
+    if authentication_authority_sha256 is not None:
+        try:
+            digest(authentication_authority_sha256)
+        except MemoryValidationError:
+            _fail("managed_cleanup_v4_authentication_invalid")
+        if capability_authority_sha256 != authentication_authority_sha256:
+            _fail("managed_cleanup_v4_authentication_invalid")
     if (
-        type(authenticator) is not ProjectionReceiptAuthenticator
-        or readback.authentication_key_id != authentication_key_id
-        or readback.authentication_authority_sha256 != authenticator.authority_sha256
-        or not authenticator.verify(
-            "strict-v4-cleanup-authority-readback",
-            readback.readback_sha256,
-            readback.readback_mac_sha256,
-        )
+        readback.authentication_key_id != authentication_key_id
+        or readback.authentication_authority_sha256 != capability_authority_sha256
     ):
+        _fail("managed_cleanup_v4_strict_readback_authentication_invalid")
+    expected_mac_sha256 = _sign(
+        capability,
+        "strict-v4-cleanup-authority-readback",
+        readback.readback_sha256,
+    )
+    if not hmac.compare_digest(expected_mac_sha256, readback.readback_mac_sha256):
         _fail("managed_cleanup_v4_strict_readback_authentication_invalid")
 
 
@@ -343,6 +358,36 @@ def _key_id(value: object) -> bool:
         and value[0].isalnum()
         and all(character.isalnum() or character in "._:-" for character in value)
     )
+
+
+def _authentication(
+    value: object, authentication_key_id: object
+) -> tuple[ManagedCleanupV4ReceiptAuthenticatorPort, str]:
+    if not _key_id(authentication_key_id):
+        _fail("managed_cleanup_v4_authentication_invalid")
+    capability = cast(ManagedCleanupV4ReceiptAuthenticatorPort, value)
+    try:
+        authority_sha256 = capability.authority_sha256
+        signer = capability.sign
+        digest(authority_sha256)
+    except Exception as exc:
+        raise ManagedCleanupV4AuthorityError("managed_cleanup_v4_authentication_invalid") from exc
+    if not callable(signer):
+        _fail("managed_cleanup_v4_authentication_invalid")
+    return capability, cast(str, authority_sha256)
+
+
+def _sign(
+    authenticator: ManagedCleanupV4ReceiptAuthenticatorPort,
+    domain: str,
+    payload_sha256: str,
+) -> str:
+    try:
+        mac_sha256 = authenticator.sign(domain, payload_sha256)
+        digest(mac_sha256)
+    except Exception as exc:
+        raise ManagedCleanupV4AuthorityError("managed_cleanup_v4_authentication_invalid") from exc
+    return mac_sha256
 
 
 def _digest(value: object) -> str:
