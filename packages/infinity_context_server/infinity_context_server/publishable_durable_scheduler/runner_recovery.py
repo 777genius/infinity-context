@@ -68,6 +68,7 @@ def reconcile_expired_intent(
             call=call,
             manifest_call=manifest_call,
             rendered=render_request(manifest_call),
+            readback_policy_sha256=readback_policy_sha256,
         )
         readback = reconciliation.lookup(envelope)
         if type(readback) is not SchedulerDispatchReadback:
@@ -161,6 +162,7 @@ def _recovery_envelope(
     call: SchedulerCallState,
     manifest_call: SchedulerLogicalCall,
     rendered: SchedulerRenderedRequest,
+    readback_policy_sha256: str,
 ) -> SchedulerDispatchEnvelope:
     request_sha256 = bound_request_sha256(
         suite_authority_sha256=suite.commitment_sha256,
@@ -182,6 +184,7 @@ def _recovery_envelope(
             "lease_id": call.lease_id,
             "logical_call_id": call.logical_call_id,
             "private_answer_policy_sha256": rendered.private_answer_policy_sha256,
+            "readback_policy_sha256": readback_policy_sha256,
             "renderer_policy_sha256": rendered.renderer_policy_sha256,
             "request_sha256": request_sha256,
             "run_authority_sha256": run.commitment_sha256,

@@ -11,6 +11,7 @@ from .attestation import (
     verify_runtime_response,
 )
 from .contracts import (
+    AuthenticatedPreDispatchAbsence,
     BridgeAuthority,
     BridgeCallBinding,
     BridgeIntent,
@@ -46,7 +47,9 @@ class TerminalBridgeCall:
             raise BridgeJournalError("bridge_terminal_call_invalid")
 
 
-BridgeAdapterOutcome = NotFound | OutcomeUnknown | TerminalBridgeCall
+BridgeAdapterOutcome = (
+    AuthenticatedPreDispatchAbsence | NotFound | OutcomeUnknown | TerminalBridgeCall
+)
 
 
 class BoundPrivateOutput:
@@ -173,6 +176,10 @@ class SubscriptionRuntimeBridgeAdapter:
             raise BridgeJournalError("bridge_journal_terminal_readback_invalid")
         return self._expose(terminal, transport_dispatched=True)
 
+    @property
+    def journal_generation_sha256(self) -> str:
+        return self._journal.generation_sha256
+
     def lookup_outcome(self, intent_id: str) -> BridgeAdapterOutcome:
         """Read authenticated state only; this method has no transport path."""
 
@@ -189,6 +196,20 @@ class SubscriptionRuntimeBridgeAdapter:
             return None
         return self._expose(outcome, transport_dispatched=False)
 
+    def lookup_pre_dispatch(self, binding: BridgeCallBinding) -> BridgeAdapterOutcome:
+        """Read an exact call or return authenticated same-generation absence."""
+
+        return self._expose(
+            self._journal.lookup_pre_dispatch(binding),
+            transport_dispatched=False,
+        )
+
+    def authenticate_pre_dispatch_absence(
+        self,
+        proof: AuthenticatedPreDispatchAbsence,
+    ) -> bool:
+        return self._journal.authenticate_pre_dispatch_absence(proof)
+
     def _expose(
         self,
         outcome: BridgeOutcome,
@@ -196,6 +217,10 @@ class SubscriptionRuntimeBridgeAdapter:
         transport_dispatched: bool,
     ) -> BridgeAdapterOutcome:
         if isinstance(outcome, NotFound):
+            return outcome
+        if isinstance(outcome, AuthenticatedPreDispatchAbsence):
+            if not self._journal.authenticate_pre_dispatch_absence(outcome):
+                raise BridgeJournalError("bridge_pre_dispatch_absence_unauthenticated")
             return outcome
         selected = self._assert_pool_binding(outcome.intent)
         if isinstance(outcome, OutcomeUnknown):

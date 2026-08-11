@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import hmac
+import secrets
 import sqlite3
 import threading
 from collections.abc import Iterator
@@ -16,6 +17,7 @@ from typing import Self
 
 from .contracts import (
     AuthenticatedBridgeResult,
+    AuthenticatedPreDispatchAbsence,
     BridgeCallBinding,
     BridgeDivergenceError,
     BridgeIntent,
@@ -94,6 +96,7 @@ class BridgeJournal:
         "_connection",
         "_descriptor",
         "_integrity",
+        "_journal_generation_sha256",
         "_lock",
         "_path",
         "_pending_checkpoint",
@@ -111,6 +114,7 @@ class BridgeJournal:
         self._connection = connection
         self._descriptor = descriptor
         self._integrity = integrity
+        self._journal_generation_sha256: str | None = None
         self._lock = threading.RLock()
         self._closed = False
         self._checkpoint: tuple[int, str] | None = None
@@ -123,14 +127,15 @@ class BridgeJournal:
             configure_connection(connection)
             create_schema(connection)
             fingerprint = expected_schema_fingerprint()
-            root = integrity.digest(b"bridge-journal-root-v1\0" + fingerprint.encode("ascii"))
+            generation = secrets.token_hex(32)
+            root = _root_hmac(integrity, fingerprint, generation)
             connection.execute("BEGIN IMMEDIATE")
             connection.execute(
                 """INSERT INTO bridge_journal_metadata (
                        singleton, schema_version, schema_fingerprint_sha256,
-                       event_count, head_hmac_sha256
-                   ) VALUES (1, ?, ?, 0, ?)""",
-                (SCHEMA_VERSION, fingerprint, root),
+                       journal_generation_sha256, event_count, head_hmac_sha256
+                   ) VALUES (1, ?, ?, ?, 0, ?)""",
+                (SCHEMA_VERSION, fingerprint, generation, root),
             )
             written = connection.execute(
                 "SELECT * FROM bridge_journal_metadata WHERE singleton = 1"
@@ -139,6 +144,7 @@ class BridgeJournal:
                 written is None
                 or written["schema_version"] != SCHEMA_VERSION
                 or written["schema_fingerprint_sha256"] != fingerprint
+                or written["journal_generation_sha256"] != generation
                 or written["event_count"] != 0
                 or written["head_hmac_sha256"] != root
             ):
@@ -217,6 +223,53 @@ class BridgeJournal:
                 raise BridgeJournalError("bridge_journal_intent_readback_invalid")
         fsync_private_sqlite(self._path, self._descriptor)
         return IntentClaim(True, OutcomeUnknown(intent))
+
+    @property
+    def generation_sha256(self) -> str:
+        """Return the authenticated immutable identity of this journal generation."""
+
+        with self._lock, self._transaction(immediate=False):
+            generation = self._journal_generation_sha256
+            if generation is None:
+                raise BridgeJournalError("bridge_journal_generation_missing")
+            return generation
+
+    def lookup_pre_dispatch(
+        self,
+        binding: BridgeCallBinding,
+    ) -> AuthenticatedPreDispatchAbsence | OutcomeUnknown | TerminalOutcome:
+        """Atomically read an exact intent or prove its logical call was never observed."""
+
+        if not isinstance(binding, BridgeCallBinding):
+            raise BridgeJournalError("bridge_journal_lookup_binding_invalid")
+        with self._lock, self._transaction(immediate=False):
+            # Absence depends on every authenticated row still being present;
+            # a cached metadata head alone cannot prove a target row was not deleted.
+            self._validate_integrity()
+            return self._pre_dispatch_outcome(binding)
+
+    def authenticate_pre_dispatch_absence(
+        self,
+        proof: AuthenticatedPreDispatchAbsence,
+    ) -> bool:
+        """Re-read current state before accepting a journal-bound absence proof."""
+
+        try:
+            if type(proof) is not AuthenticatedPreDispatchAbsence:
+                return False
+            with self._lock, self._transaction(immediate=False):
+                self._validate_integrity()
+                current = self._pre_dispatch_outcome(proof.binding)
+                return (
+                    type(current) is AuthenticatedPreDispatchAbsence
+                    and hmac.compare_digest(
+                        current.proof_hmac_sha256,
+                        proof.proof_hmac_sha256,
+                    )
+                    and current == proof
+                )
+        except Exception:
+            return False
 
     def record_result(
         self,
@@ -398,11 +451,19 @@ class BridgeJournal:
             metadata["singleton"] != 1
             or metadata["schema_version"] != SCHEMA_VERSION
             or metadata["schema_fingerprint_sha256"] != fingerprint
+            or not _is_sha256(metadata["journal_generation_sha256"])
             or type(metadata["event_count"]) is not int
             or metadata["event_count"] < 0
         ):
             raise BridgeJournalError("bridge_journal_metadata_invalid")
-        head = self._integrity.digest(b"bridge-journal-root-v1\0" + fingerprint.encode("ascii"))
+        generation = metadata["journal_generation_sha256"]
+        if (
+            self._journal_generation_sha256 is not None
+            and generation != self._journal_generation_sha256
+        ):
+            raise BridgeJournalError("bridge_journal_generation_changed")
+        self._journal_generation_sha256 = generation
+        head = _root_hmac(self._integrity, fingerprint, generation)
         observed_count = 0
         events = merge(self._authenticated_intent_events(), self._authenticated_result_events())
         for expected_sequence, (sequence, row_hmac) in enumerate(events, start=1):
@@ -421,12 +482,15 @@ class BridgeJournal:
         if checkpoint is None:
             raise BridgeJournalError("bridge_journal_checkpoint_missing")
         metadata = self._connection.execute(
-            "SELECT event_count, head_hmac_sha256 FROM bridge_journal_metadata WHERE singleton = 1"
+            """SELECT journal_generation_sha256, event_count, head_hmac_sha256
+               FROM bridge_journal_metadata WHERE singleton = 1"""
         ).fetchone()
         if metadata is None:
             raise BridgeJournalError("bridge_journal_checkpoint_changed")
-        if metadata["event_count"] != checkpoint[0] or not _safe_hmac_equal(
-            metadata["head_hmac_sha256"], checkpoint[1]
+        if (
+            metadata["journal_generation_sha256"] != self._journal_generation_sha256
+            or metadata["event_count"] != checkpoint[0]
+            or not _safe_hmac_equal(metadata["head_hmac_sha256"], checkpoint[1])
         ):
             # A second authenticated process may have appended events.  Accept
             # the new head only after a complete chain audit; forged or rolled
@@ -438,10 +502,12 @@ class BridgeJournal:
         if expected is None:
             raise BridgeJournalError("bridge_journal_checkpoint_missing")
         metadata = self._connection.execute(
-            "SELECT event_count, head_hmac_sha256 FROM bridge_journal_metadata WHERE singleton = 1"
+            """SELECT journal_generation_sha256, event_count, head_hmac_sha256
+               FROM bridge_journal_metadata WHERE singleton = 1"""
         ).fetchone()
         if (
             metadata is None
+            or metadata["journal_generation_sha256"] != self._journal_generation_sha256
             or metadata["event_count"] != expected[0]
             or not _safe_hmac_equal(metadata["head_hmac_sha256"], expected[1])
         ):
@@ -476,6 +542,41 @@ class BridgeJournal:
         if row is None:
             return OutcomeUnknown(intent)
         return TerminalOutcome(intent, self._authenticated_result(row))
+
+    def _pre_dispatch_outcome(
+        self,
+        binding: BridgeCallBinding,
+    ) -> AuthenticatedPreDispatchAbsence | OutcomeUnknown | TerminalOutcome:
+        exact_row = self._connection.execute(
+            "SELECT * FROM bridge_intents WHERE intent_id = ?",
+            (binding.intent_id,),
+        ).fetchone()
+        if exact_row is not None:
+            intent = self._authenticated_intent(exact_row)
+            if intent.binding != binding:
+                raise BridgeDivergenceError("bridge_journal_intent_divergence")
+            return self._outcome_for(intent)
+        logical_row = self._connection.execute(
+            "SELECT * FROM bridge_intents WHERE logical_call_id = ?",
+            (binding.logical_call_id,),
+        ).fetchone()
+        if logical_row is not None:
+            self._authenticated_intent(logical_row)
+            raise BridgeDivergenceError("bridge_journal_logical_call_divergence")
+        generation = self._journal_generation_sha256
+        if generation is None:
+            raise BridgeJournalError("bridge_journal_generation_missing")
+        material = {
+            "binding": binding.public_payload(),
+            "journal_generation_sha256": generation,
+        }
+        return AuthenticatedPreDispatchAbsence(
+            binding=binding,
+            journal_generation_sha256=generation,
+            proof_hmac_sha256=self._integrity.digest(
+                b"bridge-pre-dispatch-absence-v1\0" + canonical_json_bytes(material)
+            ),
+        )
 
     def _next_event(self) -> tuple[int, str]:
         metadata = self._connection.execute(
@@ -657,6 +758,27 @@ def _event_sequence(row: sqlite3.Row) -> int:
 
 def _safe_hmac_equal(value: object, expected: str) -> bool:
     return isinstance(value, str) and len(value) == 64 and hmac.compare_digest(value, expected)
+
+
+def _is_sha256(value: object) -> bool:
+    return (
+        type(value) is str
+        and len(value) == 64
+        and all(character in "0123456789abcdef" for character in value)
+    )
+
+
+def _root_hmac(
+    integrity: HmacJournalIntegrity,
+    fingerprint: str,
+    generation_sha256: str,
+) -> str:
+    return integrity.digest(
+        b"bridge-journal-root-v2\0"
+        + fingerprint.encode("ascii")
+        + b"\0"
+        + generation_sha256.encode("ascii")
+    )
 
 
 __all__ = (

@@ -1,18 +1,24 @@
 from __future__ import annotations
 
 import hashlib
+import sqlite3
 from dataclasses import replace
 from pathlib import Path
 
 import pytest
 from infinity_context_server.features.subscription_runtime_bridge import (
+    AuthenticatedPreDispatchAbsence,
     BridgeAuthority,
     BridgeDivergenceError,
     BridgeJournal,
     BridgePoolAuthority,
     HmacJournalIntegrity,
+    OutcomeUnknown,
     SubscriptionRuntimeBridgeAdapter,
     canonical_openai_request_body,
+)
+from infinity_context_server.features.subscription_runtime_bridge.request_contract import (
+    derive_bridge_intent,
 )
 from infinity_context_server.publishable_durable_scheduler import (
     scheduler_subscription_bridge_adapter as scheduler_bridge_adapter,
@@ -197,7 +203,7 @@ def test_exact_benchmark_backend_answer_judge_translation_and_private_redaction(
     journal.close()
 
 
-def test_known_terminal_crash_recovery_missing_and_reopen_add_zero_transport_calls(
+def test_known_terminal_crash_recovery_and_pre_dispatch_absence_add_zero_transport_calls(
     tmp_path: Path,
     authority,
 ) -> None:
@@ -234,7 +240,7 @@ def test_known_terminal_crash_recovery_missing_and_reopen_add_zero_transport_cal
         payload=_request(prompt="never-dispatched"),
     )
     missing = reopened.lookup(absent)
-    assert missing.disposition is SchedulerDispatchReadbackDisposition.AMBIGUOUS
+    assert missing.disposition is SchedulerDispatchReadbackDisposition.TERMINAL_ABSENT
     assert missing.outcome is None
     assert reopened.authenticate(readback=missing, envelope=absent)
     assert len(transport.calls) == calls_after_dispatch
@@ -260,9 +266,8 @@ def test_output_token_crosswire_fails_before_intent_or_transport(
     assert journal.statistics().event_count == 0
     assert journal.statistics().intent_count == 0
     assert journal.statistics().result_count == 0
-    missing = seam.lookup(envelope)
-    assert missing.disposition is SchedulerDispatchReadbackDisposition.AMBIGUOUS
-    assert seam.authenticate(readback=missing, envelope=envelope)
+    with pytest.raises(SchedulerRunnerError, match="intent_crosswire"):
+        seam.lookup(envelope)
     journal.close()
 
 
@@ -354,6 +359,171 @@ def test_runner_known_terminal_recovery_and_unknown_freeze_never_redispatch(
         unknown_seam.invoke_once(unknown_envelope)
     assert crash_transport.calls == 1
     unknown_journal.close()
+
+
+def test_authenticated_pre_dispatch_absence_is_exact_reopenable_and_tamper_evident(
+    tmp_path: Path,
+) -> None:
+    readiness = bridge_fleet_readiness()
+    pool = readiness.pool
+    suite, runs, manifests, _ = official_suite_and_manifests(readiness)
+    call = manifests[0].shards[0].calls[0]
+    envelope_binding = scheduler_bridge_adapter.bridge_call_binding(
+        _envelope(
+            suite,
+            runs[0],
+            call,
+            payload=_request(prompt="authenticated-absence"),
+        )
+    )
+    database = tmp_path / "bridge" / "journal.sqlite3"
+    journal = BridgeJournal.create(
+        database,
+        integrity=HmacJournalIntegrity(BRIDGE_JOURNAL_KEY),
+    )
+    proof = journal.lookup_pre_dispatch(envelope_binding)
+    assert type(proof) is AuthenticatedPreDispatchAbsence
+    assert journal.authenticate_pre_dispatch_absence(proof)
+    assert proof.journal_generation_sha256 == journal.generation_sha256
+    assert not journal.authenticate_pre_dispatch_absence(
+        replace(proof, proof_hmac_sha256=sha("forged-absence-proof"))
+    )
+    generation = journal.generation_sha256
+    journal.close()
+
+    reopened = BridgeJournal.open(
+        database,
+        integrity=HmacJournalIntegrity(BRIDGE_JOURNAL_KEY),
+    )
+    assert reopened.generation_sha256 == generation
+    assert reopened.authenticate_pre_dispatch_absence(proof)
+    divergent_binding = replace(envelope_binding, intent_id=sha("divergent-intent"))
+    _, divergent_intent = derive_bridge_intent(
+        pool=pool,
+        binding=divergent_binding,
+        request_body=_request(prompt="authenticated-absence"),
+        maximum_request_bytes=4 * 1024 * 1024,
+    )
+    assert reopened.record_intent(divergent_intent).dispatch_granted is True
+    assert isinstance(reopened.lookup_outcome(divergent_binding.intent_id), OutcomeUnknown)
+    with pytest.raises(BridgeDivergenceError, match="logical_call_divergence"):
+        reopened.lookup_pre_dispatch(envelope_binding)
+    reopened.close()
+
+    connection = sqlite3.connect(database)
+    try:
+        connection.execute(
+            "UPDATE bridge_journal_metadata SET journal_generation_sha256 = ?",
+            (sha("tampered-generation"),),
+        )
+        connection.commit()
+    finally:
+        connection.close()
+    with pytest.raises(RuntimeError):
+        BridgeJournal.open(database, integrity=HmacJournalIntegrity(BRIDGE_JOURNAL_KEY))
+
+
+def test_runner_recovers_same_generation_pre_dispatch_gap_and_replay_calls_once(
+    tmp_path: Path,
+    authority,
+) -> None:
+    readiness, (suite, runs, manifests, _) = authority
+    specs = run_store_specs(tmp_path / "scheduler", suite, runs, manifests)
+    journal, transport, seam = _seam(tmp_path / "bridge", readiness, suite)
+    interrupted = _runner(suite, specs, seam, now=2_000)
+    envelope = _seed_dispatch_intent(interrupted)
+    assert transport.calls == []
+    generation = journal.generation_sha256
+    journal.close()
+
+    reopened_journal, _, reopened_seam = _seam(
+        tmp_path / "bridge",
+        readiness,
+        suite,
+        transport=transport,
+        reopen=True,
+    )
+    assert reopened_journal.generation_sha256 == generation
+    recovered = _runner(suite, specs, reopened_seam, now=3_000)
+    ready = recovered._entries[0].store.read_call(envelope.logical_call_id)
+    assert ready.phase is SchedulerCallPhase.PLANNED
+    assert ready.attempt_count == 1
+    assert ready.terminal_evidence_sha256 is not None
+    committed = recovered.run_next()
+    assert committed.disposition is SchedulerStepDisposition.COMMITTED
+    assert committed.provider_dispatches == 1
+    assert len(transport.calls) == 1
+    reopened_journal.close()
+
+    replay_journal, _, replay_seam = _seam(
+        tmp_path / "bridge",
+        readiness,
+        suite,
+        transport=transport,
+        reopen=True,
+    )
+    replay = _runner(suite, specs, replay_seam, now=4_000)
+    replayed_call = replay._entries[0].store.read_call(envelope.logical_call_id)
+    assert replayed_call.phase is SchedulerCallPhase.COMMITTED
+    assert replayed_call.attempt_count == 2
+    assert len(transport.calls) == 1
+    replay_journal.close()
+
+
+def test_pre_dispatch_recovery_wrong_generation_and_logical_divergence_freeze(
+    tmp_path: Path,
+    authority,
+) -> None:
+    readiness, (suite, runs, manifests, _) = authority
+    wrong_specs = run_store_specs(tmp_path / "wrong-scheduler", suite, runs, manifests)
+    old_journal, _, old_seam = _seam(tmp_path / "old-bridge", readiness, suite)
+    old_runner = _runner(suite, wrong_specs, old_seam, now=2_000)
+    _seed_dispatch_intent(old_runner)
+    old_journal.close()
+
+    wrong_journal, wrong_transport, wrong_seam = _seam(
+        tmp_path / "wrong-bridge",
+        readiness,
+        suite,
+    )
+    wrong_generation = _runner(suite, wrong_specs, wrong_seam, now=3_000)
+    assert wrong_generation._entries[0].store.read_run().phase is (
+        SchedulerRunPhase.FROZEN_OUTCOME_UNKNOWN
+    )
+    assert wrong_transport.calls == []
+    wrong_journal.close()
+
+    divergent_specs = run_store_specs(
+        tmp_path / "divergent-scheduler",
+        suite,
+        runs,
+        manifests,
+    )
+    divergent_journal, divergent_transport, divergent_seam = _seam(
+        tmp_path / "divergent-bridge",
+        readiness,
+        suite,
+    )
+    divergent_runner = _runner(suite, divergent_specs, divergent_seam, now=2_000)
+    expected = _seed_dispatch_intent(divergent_runner)
+    observed = replace(expected, intent_sha256=sha("observed-divergent-intent"))
+    divergent_seam.invoke_once(observed)
+    assert len(divergent_transport.calls) == 1
+    divergent_journal.close()
+
+    reopened_journal, _, reopened_seam = _seam(
+        tmp_path / "divergent-bridge",
+        readiness,
+        suite,
+        transport=divergent_transport,
+        reopen=True,
+    )
+    divergent = _runner(suite, divergent_specs, reopened_seam, now=3_000)
+    assert divergent._entries[0].store.read_run().phase is (
+        SchedulerRunPhase.FROZEN_OUTCOME_UNKNOWN
+    )
+    assert len(divergent_transport.calls) == 1
+    reopened_journal.close()
 
 
 @pytest.mark.parametrize(
@@ -516,7 +686,7 @@ def test_official_composition_suite_seal_replay_and_synthetic_2040_traversal(
     assert composition.scheduler_bridge.policy_sha256 == (
         scheduler_bridge_adapter.SCHEDULER_SUBSCRIPTION_BRIDGE_RECEIPT_POLICY_SHA256
     )
-    assert composition.scheduler_bridge.readback_policy_sha256 == (
+    assert composition.scheduler_bridge.readback_policy_sha256 != (
         scheduler_bridge_adapter.SCHEDULER_SUBSCRIPTION_BRIDGE_READBACK_POLICY_SHA256
     )
     assert composition.runner.production_bridge_adapter_ready is True
@@ -773,6 +943,7 @@ def _seed_dispatch_intent(runner) -> SchedulerDispatchEnvelope:
             "lease_id": lease_id,
             "logical_call_id": call.logical_call_id,
             "private_answer_policy_sha256": rendered.private_answer_policy_sha256,
+            "readback_policy_sha256": runner._outcome_readback_policy_sha256,
             "renderer_policy_sha256": rendered.renderer_policy_sha256,
             "request_sha256": request_sha256,
             "run_authority_sha256": entry.run.commitment_sha256,

@@ -290,6 +290,36 @@ class NotFound:
 
 
 @dataclass(frozen=True, slots=True)
+class AuthenticatedPreDispatchAbsence:
+    """Journal-authenticated proof that an exact logical call was never observed."""
+
+    binding: BridgeCallBinding
+    journal_generation_sha256: str
+    proof_hmac_sha256: str
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.binding, BridgeCallBinding):
+            raise BridgeJournalError("bridge_pre_dispatch_absence_binding_invalid")
+        _require_sha256(
+            self.journal_generation_sha256,
+            "journal_generation",
+            BridgeJournalError,
+        )
+        _require_sha256(
+            self.proof_hmac_sha256,
+            "pre_dispatch_absence_hmac",
+            BridgeJournalError,
+        )
+
+    def public_payload(self) -> dict[str, object]:
+        return {
+            "binding": self.binding.public_payload(),
+            "journal_generation_sha256": self.journal_generation_sha256,
+            "proof_hmac_sha256": self.proof_hmac_sha256,
+        }
+
+
+@dataclass(frozen=True, slots=True)
 class OutcomeUnknown:
     intent: BridgeIntent
 
@@ -300,7 +330,7 @@ class TerminalOutcome:
     result: AuthenticatedBridgeResult
 
 
-BridgeOutcome = NotFound | OutcomeUnknown | TerminalOutcome
+BridgeOutcome = AuthenticatedPreDispatchAbsence | NotFound | OutcomeUnknown | TerminalOutcome
 
 
 class BridgeSecretCapability(Protocol):
@@ -387,6 +417,7 @@ def _require_safe_token_count(
 
 __all__ = (
     "AuthenticatedBridgeResult",
+    "AuthenticatedPreDispatchAbsence",
     "BridgeAuthority",
     "BridgeAuthorityError",
     "BridgeCallBinding",

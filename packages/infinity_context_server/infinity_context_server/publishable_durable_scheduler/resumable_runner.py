@@ -490,6 +490,7 @@ class PublishableResumableEvaluationRunner:
                 "lease_id": lease_id,
                 "logical_call_id": call.logical_call_id,
                 "private_answer_policy_sha256": rendered.private_answer_policy_sha256,
+                "readback_policy_sha256": self._outcome_readback_policy_sha256,
                 "renderer_policy_sha256": rendered.renderer_policy_sha256,
                 "request_sha256": request_sha256,
                 "run_authority_sha256": entry.run.commitment_sha256,

@@ -608,6 +608,11 @@ def _require_call_journal_binding(*, store, state, outcome: object) -> None:
         if outcome is not None:
             _fail("publishable_production_bundle_journal_divergent")
         return
+    if state.phase is SchedulerCallPhase.DISPATCH_INTENT and outcome is None:
+        # A hard death may occur after the scheduler fsync and before the bridge
+        # observes the call.  The runner's generation-bound reconciliation will
+        # authenticate this exact absence after lease expiry.
+        return
     if state.phase not in {
         SchedulerCallPhase.DISPATCH_INTENT,
         SchedulerCallPhase.COMMITTED,

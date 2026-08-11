@@ -10,6 +10,10 @@ from importlib import import_module
 from typing import Final
 
 _EXPORTS: Final = {
+    "AuthenticatedPreDispatchAbsence": (
+        "contracts",
+        "AuthenticatedPreDispatchAbsence",
+    ),
     "Aes256GcmOutputCipher": ("aes_gcm_output_cipher", "Aes256GcmOutputCipher"),
     "AuthenticatedBridgeResult": ("contracts", "AuthenticatedBridgeResult"),
     "BoundPrivateOutput": ("service", "BoundPrivateOutput"),

@@ -398,6 +398,7 @@ def _seed_runner_intent(
             "lease_id": lease_id,
             "logical_call_id": call.logical_call_id,
             "private_answer_policy_sha256": rendered.private_answer_policy_sha256,
+            "readback_policy_sha256": runner._outcome_readback_policy_sha256,
             "renderer_policy_sha256": rendered.renderer_policy_sha256,
             "request_sha256": request_sha256,
             "run_authority_sha256": entry.run.commitment_sha256,
@@ -645,9 +646,9 @@ def test_runner_unexpired_foreign_lease_blocks_without_status_or_dispatch(
 ) -> None:
     prepared = built_runs()
     suite = prepared[0]
-    runner, _, _, _ = _runner_open(tmp_path, prepared)
-    call = _seed_runner_intent(runner)
     reconciliation = _RunnerReconciliation(SchedulerDispatchReadbackDisposition.FOUND)
+    runner, _, _, _ = _runner_open(tmp_path, prepared, reconciliation=reconciliation)
+    call = _seed_runner_intent(runner)
     boundary = _RunnerBoundary(suite.bridge_boot.commitment_sha256)
     resumed, _, _, _ = _runner_open(
         tmp_path,
@@ -667,9 +668,9 @@ def test_runner_expired_known_outcome_commits_from_status_without_dispatch(
 ) -> None:
     prepared = built_runs()
     suite = prepared[0]
-    runner, _, _, _ = _runner_open(tmp_path, prepared)
-    call = _seed_runner_intent(runner)
     reconciliation = _RunnerReconciliation(SchedulerDispatchReadbackDisposition.FOUND)
+    runner, _, _, _ = _runner_open(tmp_path, prepared, reconciliation=reconciliation)
+    call = _seed_runner_intent(runner)
     boundary = _RunnerBoundary(suite.bridge_boot.commitment_sha256)
     resumed, _, _, verifier = _runner_open(
         tmp_path,
@@ -701,9 +702,9 @@ def test_runner_expired_unknown_freezes_and_reopen_never_redispatches(
 ) -> None:
     prepared = built_runs()
     suite = prepared[0]
-    runner, _, _, _ = _runner_open(tmp_path, prepared)
-    _seed_runner_intent(runner)
     reconciliation = _RunnerReconciliation(SchedulerDispatchReadbackDisposition.AMBIGUOUS)
+    runner, _, _, _ = _runner_open(tmp_path, prepared, reconciliation=reconciliation)
+    _seed_runner_intent(runner)
 
     replay = _RunnerBoundary(suite.bridge_boot.commitment_sha256)
     resumed, _, _, _ = _runner_open(

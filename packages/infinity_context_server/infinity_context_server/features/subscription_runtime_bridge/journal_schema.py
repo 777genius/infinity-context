@@ -8,7 +8,7 @@ import sqlite3
 from .contracts import BridgeJournalError
 from .json_boundary import canonical_json_bytes
 
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2
 APPLICATION_ID = 0x49434252
 
 SCHEMA = (
@@ -16,6 +16,7 @@ SCHEMA = (
         singleton INTEGER NOT NULL PRIMARY KEY CHECK (singleton = 1),
         schema_version INTEGER NOT NULL,
         schema_fingerprint_sha256 TEXT NOT NULL,
+        journal_generation_sha256 TEXT NOT NULL,
         event_count INTEGER NOT NULL,
         head_hmac_sha256 TEXT NOT NULL
     ) WITHOUT ROWID""",

@@ -7,6 +7,7 @@ import hmac
 from typing import final
 
 from infinity_context_server.features.subscription_runtime_bridge import (
+    AuthenticatedPreDispatchAbsence,
     BridgeAuthority,
     BridgeCallBinding,
     BridgeIntent,
@@ -46,7 +47,7 @@ from infinity_context_server.publishable_durable_scheduler.runner_contracts impo
 )
 
 SCHEDULER_SUBSCRIPTION_BRIDGE_ADAPTER_SCHEMA_VERSION = (
-    "memory-comparison-scheduler-subscription-bridge.v2"
+    "memory-comparison-scheduler-subscription-bridge.v3"
 )
 SCHEDULER_SUBSCRIPTION_BRIDGE_IMPLEMENTATION_SHA256 = commitment(
     "subscription-runtime-scheduler-bridge-implementation",
@@ -57,7 +58,7 @@ SCHEDULER_SUBSCRIPTION_BRIDGE_IMPLEMENTATION_SHA256 = commitment(
         "pre_dispatch_validation": (
             "hmac-launch-receipts-and-canonical-request-runtime-completion-limit"
         ),
-        "readback": "subscription-runtime-bridge-lookup-outcome",
+        "readback": "generation-bound-exact-logical-call-lookup",
         "runtime_provenance": "hmac-verified-exact-fleet-readiness-derived-pool-and-boot",
         "schema_version": SCHEDULER_SUBSCRIPTION_BRIDGE_ADAPTER_SCHEMA_VERSION,
         "state_revalidation": "suite-and-pool-authorities-on-every-operation",
@@ -76,11 +77,12 @@ SCHEDULER_SUBSCRIPTION_BRIDGE_RECEIPT_POLICY_SHA256 = commitment(
 SCHEDULER_SUBSCRIPTION_BRIDGE_READBACK_POLICY_SHA256 = commitment(
     "subscription-runtime-scheduler-bridge-readback-policy",
     {
-        "ambiguous": "durable-intent-without-terminal-result",
-        "authentication": "exact-current-bridge-journal-reread",
+        "ambiguous": "authenticated-observed-intent-without-terminal-result",
+        "authentication": "exact-current-generation-bound-bridge-journal-reread",
         "found": "authenticated-terminal-result",
         "schema_version": SCHEDULER_SUBSCRIPTION_BRIDGE_ADAPTER_SCHEMA_VERSION,
-        "not_found": "ambiguous-journal-generation-or-intent-unknown",
+        "pre_dispatch_absence": "authenticated-exact-intent-and-logical-call-absence",
+        "unbound_not_found": "ambiguous",
         "transport_calls": 0,
     },
 )
@@ -209,9 +211,11 @@ class SchedulerSubscriptionBridgeAdapter:
         "_fleet_readiness",
         "_fleet_readiness_snapshot",
         "_keys",
+        "_journal_generation_sha256",
         "_pool",
         "_pool_snapshot",
         "_run_authorities",
+        "_readback_policy_sha256",
         "_suite",
         "_suite_snapshot",
     )
@@ -249,6 +253,17 @@ class SchedulerSubscriptionBridgeAdapter:
         self._pool_snapshot = canonical_json(pool.public_payload())
         self._bridge = bridge
         self._keys = keys
+        self._journal_generation_sha256 = bridge.journal_generation_sha256
+        if not is_sha256(self._journal_generation_sha256):
+            _fail("scheduler_subscription_bridge_journal_generation_invalid")
+        self._readback_policy_sha256 = commitment(
+            "subscription-runtime-scheduler-bridge-readback-authority",
+            {
+                "journal_generation_sha256": self._journal_generation_sha256,
+                "policy_sha256": SCHEDULER_SUBSCRIPTION_BRIDGE_READBACK_POLICY_SHA256,
+                "schema_version": SCHEDULER_SUBSCRIPTION_BRIDGE_ADAPTER_SCHEMA_VERSION,
+            },
+        )
 
     @property
     def bridge_boot_authority_sha256(self) -> str:
@@ -276,7 +291,7 @@ class SchedulerSubscriptionBridgeAdapter:
 
     @property
     def readback_policy_sha256(self) -> str:
-        return SCHEDULER_SUBSCRIPTION_BRIDGE_READBACK_POLICY_SHA256
+        return self._readback_policy_sha256
 
     def __repr__(self) -> str:
         return (
@@ -374,7 +389,8 @@ class SchedulerSubscriptionBridgeAdapter:
         self,
         envelope: SchedulerDispatchEnvelope,
     ) -> SchedulerDispatchReadback:
-        bridge_outcome = self._bridge.lookup_outcome(envelope.intent_sha256)
+        self._require_bridge_intent(envelope, self._preflight_intent(envelope))
+        bridge_outcome = self._bridge.lookup_pre_dispatch(bridge_call_binding(envelope))
         outcome: SchedulerDispatchOutcome | None = None
         if isinstance(bridge_outcome, TerminalBridgeCall):
             disposition = SchedulerDispatchReadbackDisposition.FOUND
@@ -391,6 +407,18 @@ class SchedulerSubscriptionBridgeAdapter:
                     canonical_json(bridge_outcome.intent.public_payload())
                 ).hexdigest(),
                 "kind": "outcome_unknown",
+            }
+        elif isinstance(bridge_outcome, AuthenticatedPreDispatchAbsence):
+            if (
+                bridge_outcome.binding != bridge_call_binding(envelope)
+                or bridge_outcome.journal_generation_sha256 != self._journal_generation_sha256
+                or not self._bridge.authenticate_pre_dispatch_absence(bridge_outcome)
+            ):
+                _fail("scheduler_subscription_bridge_pre_dispatch_absence_unauthenticated")
+            disposition = SchedulerDispatchReadbackDisposition.TERMINAL_ABSENT
+            bridge_state = {
+                "absence": bridge_outcome.public_payload(),
+                "kind": "authenticated_pre_dispatch_absence",
             }
         elif isinstance(bridge_outcome, NotFound):
             if bridge_outcome.intent_id != envelope.intent_sha256:
@@ -500,6 +528,7 @@ class SchedulerSubscriptionBridgeAdapter:
             or current_boot != self._suite.bridge_boot
             or canonical_json(self._pool.public_payload()) != self._pool_snapshot
             or self._pool.commitment_sha256 != self._suite.bridge_boot.runtime_authority_sha256
+            or self._bridge.journal_generation_sha256 != self._journal_generation_sha256
         ):
             _fail("scheduler_subscription_bridge_envelope_crosswire")
 
