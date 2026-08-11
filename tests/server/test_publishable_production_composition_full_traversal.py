@@ -26,6 +26,9 @@ from infinity_context_server.publishable_durable_scheduler import (
     scheduler_subscription_bridge_adapter,
     scheduler_subscription_bridge_composition,
 )
+from infinity_context_server.publishable_durable_scheduler import (
+    publishable_production_composition as production_composition,
+)
 from infinity_context_server.publishable_durable_scheduler.paired_outcome_contracts import (
     EXPECTED_PAIRED_OUTCOME_COUNT,
 )
@@ -121,9 +124,21 @@ def test_real_launcher_receipts_reject_crosswired_key_and_accept_exact_launch_ke
         runtime_processes.stop_all(reason="launcher-key-regression-complete")
 
 
+@pytest.fixture
+def _admitted_execution_contract_test(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Exercise the traversal below the separately covered production gate."""
+
+    monkeypatch.setattr(
+        production_composition,
+        "_require_active_publishable_production_execution",
+        lambda _suite: None,
+    )
+
+
 def test_production_composition_traverses_exact_2040_pairs_and_replays_with_zero_calls(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
+    _admitted_execution_contract_test: None,
 ) -> None:
     process_spec = build_fleet_spec(tmp_path / "runtime-processes")
     process_harness = FakeProcessHarness()
