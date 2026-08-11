@@ -19,6 +19,19 @@ from infinity_context_server.features.subscription_runtime_bridge.process_files 
     write_private_json_once,
     write_private_json_replace,
 )
+from infinity_context_server.memory_comparison_publishable_canary_methodology import (
+    PUBLISHABLE_CANARY_METHODOLOGY_COMMITMENT_SHA256,
+)
+from infinity_context_server.memory_comparison_publishable_canary_profile import (
+    PUBLISHABLE_CANARY_EXPECTED_PROVIDER_CALL_COUNT,
+    PUBLISHABLE_CANARY_PROFILE_COMMITMENT_SHA256,
+)
+from infinity_context_server.memory_comparison_publishable_methodology import (
+    PUBLISHABLE_PRIORITY_METHODOLOGY_V4_COMMITMENT_SHA256,
+)
+from infinity_context_server.memory_comparison_publishable_profile import (
+    PUBLISHABLE_PRIORITY_PROFILE_V4_COMMITMENT_SHA256,
+)
 from infinity_context_server.publishable_durable_scheduler.contracts import canonical_json
 
 PUBLISHABLE_CANARY_ACTIVATION_EVIDENCE_SCHEMA_VERSION = (
@@ -33,7 +46,6 @@ PUBLISHABLE_CANARY_ACTIVATION_EVIDENCE_HMAC_DOMAIN = (
 PUBLISHABLE_CANARY_CALL_SCOPE_DOMAIN = (
     "memory-comparison/publishable-one-case-canary/call-scope/sha256/v1"
 )
-PUBLISHABLE_CANARY_EXPECTED_PROVIDER_CALL_COUNT = 4
 PUBLISHABLE_CANARY_ACTIVATION_EVIDENCE_BYTES_LIMIT = 32 * 1024
 
 _PREPARED = "prepared"
@@ -124,7 +136,15 @@ class CanaryActivationEvidenceBindings:
     paired_path_authority_sha256: str
 
     def __post_init__(self) -> None:
-        if any(not _is_sha256(value) for value in self.material().values()):
+        if (
+            any(not _is_sha256(value) for value in self.material().values())
+            or self.canary_profile_sha256 != PUBLISHABLE_CANARY_PROFILE_COMMITMENT_SHA256
+            or self.canary_methodology_sha256 != PUBLISHABLE_CANARY_METHODOLOGY_COMMITMENT_SHA256
+            or self.target_publishable_profile_sha256
+            != PUBLISHABLE_PRIORITY_PROFILE_V4_COMMITMENT_SHA256
+            or self.target_publishable_methodology_sha256
+            != PUBLISHABLE_PRIORITY_METHODOLOGY_V4_COMMITMENT_SHA256
+        ):
             _fail("publishable_canary_activation_evidence_bindings_invalid")
 
     @classmethod
@@ -143,29 +163,21 @@ class CanaryActivationEvidenceBindings:
     def material(self) -> dict[str, str]:
         return {
             "canary_authority_sha256": self.canary_authority_sha256,
-            "canary_composition_authority_sha256": (
-                self.canary_composition_authority_sha256
-            ),
+            "canary_composition_authority_sha256": (self.canary_composition_authority_sha256),
             "canary_methodology_sha256": self.canary_methodology_sha256,
             "canary_profile_sha256": self.canary_profile_sha256,
             "extraction_suite_readback_sha256": self.extraction_suite_readback_sha256,
             "fleet_authority_sha256": self.fleet_authority_sha256,
             "input_authority_sha256": self.input_authority_sha256,
-            "official_case_authority_root_sha256": (
-                self.official_case_authority_root_sha256
-            ),
+            "official_case_authority_root_sha256": (self.official_case_authority_root_sha256),
             "paired_path_authority_sha256": self.paired_path_authority_sha256,
             "retrieval_authority_root_sha256": self.retrieval_authority_root_sha256,
             "run_authority_sha256": self.run_authority_sha256,
             "runtime_provenance_sha256": self.runtime_provenance_sha256,
             "selected_case_authority_sha256": self.selected_case_authority_sha256,
-            "selected_extraction_authority_sha256": (
-                self.selected_extraction_authority_sha256
-            ),
+            "selected_extraction_authority_sha256": (self.selected_extraction_authority_sha256),
             "suite_authority_sha256": self.suite_authority_sha256,
-            "target_publishable_methodology_sha256": (
-                self.target_publishable_methodology_sha256
-            ),
+            "target_publishable_methodology_sha256": (self.target_publishable_methodology_sha256),
             "target_publishable_profile_sha256": self.target_publishable_profile_sha256,
         }
 
@@ -422,8 +434,10 @@ def parse_publishable_canary_activation_evidence(
 ) -> PublishableCanaryActivationEvidence:
     """Parse only bounded, canonical bytes for this canary schema."""
 
-    if type(raw) is not bytes or not raw or (
-        len(raw) > PUBLISHABLE_CANARY_ACTIVATION_EVIDENCE_BYTES_LIMIT
+    if (
+        type(raw) is not bytes
+        or not raw
+        or (len(raw) > PUBLISHABLE_CANARY_ACTIVATION_EVIDENCE_BYTES_LIMIT)
     ):
         _fail("publishable_canary_activation_evidence_parse_invalid")
     try:
@@ -647,8 +661,7 @@ def _validate_body(body: dict[str, object]) -> None:
     )
     if (
         set(body) != _BODY_KEYS
-        or body.get("schema_version")
-        != PUBLISHABLE_CANARY_ACTIVATION_EVIDENCE_SCHEMA_VERSION
+        or body.get("schema_version") != PUBLISHABLE_CANARY_ACTIVATION_EVIDENCE_SCHEMA_VERSION
         or body.get("expected_provider_call_count")
         != PUBLISHABLE_CANARY_EXPECTED_PROVIDER_CALL_COUNT
         or type(body.get("expected_provider_call_count")) is not int
@@ -687,8 +700,7 @@ def _validate_body(body: dict[str, object]) -> None:
         )
     elif state == _COMPLETE:
         valid_state = (
-            measured_counts
-            == (PUBLISHABLE_CANARY_EXPECTED_PROVIDER_CALL_COUNT,) * 3
+            measured_counts == (PUBLISHABLE_CANARY_EXPECTED_PROVIDER_CALL_COUNT,) * 3
             and len(receipt_hashes) == PUBLISHABLE_CANARY_EXPECTED_PROVIDER_CALL_COUNT
             and _is_sha256(body.get("paired_outcome_evidence_sha256"))
             and body["provider_accounting_complete"] is True

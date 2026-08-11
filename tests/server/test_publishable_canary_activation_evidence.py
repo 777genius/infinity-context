@@ -10,6 +10,18 @@ from dataclasses import FrozenInstanceError, replace
 from pathlib import Path
 
 import pytest
+from infinity_context_server.memory_comparison_publishable_canary_methodology import (
+    PUBLISHABLE_CANARY_METHODOLOGY_COMMITMENT_SHA256,
+)
+from infinity_context_server.memory_comparison_publishable_canary_profile import (
+    PUBLISHABLE_CANARY_PROFILE_COMMITMENT_SHA256,
+)
+from infinity_context_server.memory_comparison_publishable_methodology import (
+    PUBLISHABLE_PRIORITY_METHODOLOGY_V4_COMMITMENT_SHA256,
+)
+from infinity_context_server.memory_comparison_publishable_profile import (
+    PUBLISHABLE_PRIORITY_PROFILE_V4_COMMITMENT_SHA256,
+)
 from infinity_context_server.publishable_durable_scheduler import (
     publishable_canary_activation_evidence as canary_evidence,
 )
@@ -21,9 +33,7 @@ from infinity_context_server.publishable_durable_scheduler.publishable_run_attes
 
 CanaryActivationEvidenceBindings = canary_evidence.CanaryActivationEvidenceBindings
 PublishableCanaryActivationEvidence = canary_evidence.PublishableCanaryActivationEvidence
-PublishableCanaryActivationEvidenceError = (
-    canary_evidence.PublishableCanaryActivationEvidenceError
-)
+PublishableCanaryActivationEvidenceError = canary_evidence.PublishableCanaryActivationEvidenceError
 PUBLISHABLE_CANARY_ACTIVATION_EVIDENCE_HMAC_DOMAIN = (
     canary_evidence.PUBLISHABLE_CANARY_ACTIVATION_EVIDENCE_HMAC_DOMAIN
 )
@@ -71,10 +81,12 @@ def _sha(seed: str) -> str:
 def _bindings(seed: str = "authority") -> CanaryActivationEvidenceBindings:
     return CanaryActivationEvidenceBindings(
         canary_authority_sha256=_sha(f"{seed}:canary-authority"),
-        canary_profile_sha256=_sha(f"{seed}:canary-profile"),
-        canary_methodology_sha256=_sha(f"{seed}:canary-methodology"),
-        target_publishable_profile_sha256=_sha(f"{seed}:target-profile-v4"),
-        target_publishable_methodology_sha256=_sha(f"{seed}:target-methodology-v4"),
+        canary_profile_sha256=PUBLISHABLE_CANARY_PROFILE_COMMITMENT_SHA256,
+        canary_methodology_sha256=PUBLISHABLE_CANARY_METHODOLOGY_COMMITMENT_SHA256,
+        target_publishable_profile_sha256=(PUBLISHABLE_PRIORITY_PROFILE_V4_COMMITMENT_SHA256),
+        target_publishable_methodology_sha256=(
+            PUBLISHABLE_PRIORITY_METHODOLOGY_V4_COMMITMENT_SHA256
+        ),
         suite_authority_sha256=_sha(f"{seed}:suite"),
         run_authority_sha256=_sha(f"{seed}:run"),
         selected_case_authority_sha256=_sha(f"{seed}:case"),
@@ -215,9 +227,10 @@ def test_complete_state_requires_and_authenticates_exact_four_call_measurements(
     assert evidence.publishable is False
     assert evidence.full_receipt_eligible is False
     assert evidence.full_profile_admission == "review_required"
-    assert "expected_provider_call_count" not in inspect.signature(
-        build_complete_canary_activation_evidence
-    ).parameters
+    assert (
+        "expected_provider_call_count"
+        not in inspect.signature(build_complete_canary_activation_evidence).parameters
+    )
 
 
 @pytest.mark.parametrize(
@@ -369,6 +382,31 @@ def test_even_resigned_complete_payload_cannot_be_partial_or_publishable(
         PublishableCanaryActivationEvidence.from_payload(payload)
 
 
+@pytest.mark.parametrize(
+    "binding_key",
+    (
+        "canary_profile_sha256",
+        "canary_methodology_sha256",
+        "target_publishable_profile_sha256",
+        "target_publishable_methodology_sha256",
+    ),
+)
+def test_even_resigned_standalone_evidence_rejects_frozen_profile_cross_wire(
+    binding_key: str,
+) -> None:
+    payload = _complete().payload()
+    bindings = payload["bindings"]
+    assert type(bindings) is dict
+    bindings[binding_key] = _sha(f"cross-wired:{binding_key}")
+    payload = _resign(payload)
+
+    with pytest.raises(
+        PublishableCanaryActivationEvidenceError,
+        match="publishable_canary_activation_evidence_payload_invalid",
+    ):
+        PublishableCanaryActivationEvidence.from_payload(payload)
+
+
 def test_schema_is_cross_parser_incompatible_with_full_publication_receipt() -> None:
     canary = _complete()
     with pytest.raises(PublishableRunAttestationError):
@@ -417,39 +455,54 @@ def test_file_lifecycle_is_prepared_then_complete_and_terminal_replay_is_exact(
             expected_authentication_key_id=_KEY_ID,
         )
 
-    assert write_publishable_canary_activation_evidence(
-        path,
-        prepared,
-        authentication_secret=_SECRET,
-        expected_authentication_key_id=_KEY_ID,
-    ) == prepared
+    assert (
+        write_publishable_canary_activation_evidence(
+            path,
+            prepared,
+            authentication_secret=_SECRET,
+            expected_authentication_key_id=_KEY_ID,
+        )
+        == prepared
+    )
     prepared_bytes = path.read_bytes()
-    assert write_publishable_canary_activation_evidence(
-        path,
-        prepared,
-        authentication_secret=_SECRET,
-        expected_authentication_key_id=_KEY_ID,
-    ) == prepared
+    assert (
+        write_publishable_canary_activation_evidence(
+            path,
+            prepared,
+            authentication_secret=_SECRET,
+            expected_authentication_key_id=_KEY_ID,
+        )
+        == prepared
+    )
     assert path.read_bytes() == prepared_bytes
 
-    assert write_publishable_canary_activation_evidence(
-        path,
-        complete,
-        authentication_secret=_SECRET,
-        expected_authentication_key_id=_KEY_ID,
-    ) == complete
+    assert (
+        write_publishable_canary_activation_evidence(
+            path,
+            complete,
+            authentication_secret=_SECRET,
+            expected_authentication_key_id=_KEY_ID,
+        )
+        == complete
+    )
     terminal_bytes = path.read_bytes()
-    assert read_publishable_canary_activation_evidence(
-        path,
-        authentication_secret=_SECRET,
-        expected_authentication_key_id=_KEY_ID,
-    ) == complete
-    assert write_publishable_canary_activation_evidence(
-        path,
-        complete,
-        authentication_secret=_SECRET,
-        expected_authentication_key_id=_KEY_ID,
-    ) == complete
+    assert (
+        read_publishable_canary_activation_evidence(
+            path,
+            authentication_secret=_SECRET,
+            expected_authentication_key_id=_KEY_ID,
+        )
+        == complete
+    )
+    assert (
+        write_publishable_canary_activation_evidence(
+            path,
+            complete,
+            authentication_secret=_SECRET,
+            expected_authentication_key_id=_KEY_ID,
+        )
+        == complete
+    )
     assert path.read_bytes() == terminal_bytes
 
     with pytest.raises(
@@ -570,9 +623,7 @@ def test_unknown_missing_wrong_types_and_mapping_subclasses_fail_closed() -> Non
         pass
 
     with pytest.raises(PublishableCanaryActivationEvidenceError):
-        PublishableCanaryActivationEvidence.from_payload(
-            PayloadSubclass(_prepared().payload())
-        )
+        PublishableCanaryActivationEvidence.from_payload(PayloadSubclass(_prepared().payload()))
 
 
 def test_evidence_is_frozen_and_never_exposes_secrets_or_private_output() -> None:
