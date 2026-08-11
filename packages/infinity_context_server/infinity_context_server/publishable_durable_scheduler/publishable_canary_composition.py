@@ -41,6 +41,9 @@ from infinity_context_server.publishable_durable_scheduler.runner_contracts impo
     SchedulerStepDisposition,
     SchedulerSuiteSealStoreSpec,
 )
+from infinity_context_server.publishable_durable_scheduler.runner_dispatch_authority import (
+    SchedulerDispatchAuthority,
+)
 from infinity_context_server.publishable_durable_scheduler.runner_request_composition import (
     SchedulerOfficialCaseReaderPort,
     SchedulerRetrievalEvidenceReaderPort,
@@ -124,6 +127,7 @@ class PublishableCanaryComposition:
     """Narrow wrapper which cannot dispatch beyond the frozen four-call prefix."""
 
     _scheduler: SchedulerSubscriptionBridgeComposition = field(repr=False)
+    _dispatch_authority: SchedulerDispatchAuthority = field(repr=False)
     _run_stores: tuple[SchedulerRunStoreSpec, SchedulerRunStoreSpec] = field(repr=False)
     _suite: SchedulerSuiteAuthority = field(repr=False)
     _journal: BridgeJournal = field(repr=False)
@@ -137,6 +141,7 @@ class PublishableCanaryComposition:
     def __post_init__(self) -> None:
         if (
             type(self._scheduler) is not SchedulerSubscriptionBridgeComposition
+            or type(self._dispatch_authority) is not SchedulerDispatchAuthority
             or type(self._run_stores) is not tuple
             or len(self._run_stores) != 2
             or any(type(item) is not SchedulerRunStoreSpec for item in self._run_stores)
@@ -149,6 +154,11 @@ class PublishableCanaryComposition:
             or type(self.open_mode) is not PublishableProductionOpenMode
             or not _sha256(self.authority_sha256)
             or self._scheduler.suite_seal_binding_policy_sha256 is not None
+            or self._dispatch_authority.ordered_calls != self.authority.ordered_calls
+            or self._scheduler.runner.dispatch_authority_sha256
+            != self._dispatch_authority.commitment_sha256
+            or self._scheduler.scheduler_bridge.dispatch_authority_sha256
+            != self._dispatch_authority.commitment_sha256
             or self.runtime_provenance.scheduler_runtime_provenance_sha256
             != self._scheduler.scheduler_bridge.scheduler_runtime_provenance_sha256
         ):
@@ -157,6 +167,10 @@ class PublishableCanaryComposition:
     @property
     def ordered_logical_call_ids(self) -> tuple[str, str, str, str]:
         return self.authority.ordered_logical_call_ids
+
+    @property
+    def dispatch_authority_sha256(self) -> str:
+        return self._dispatch_authority.commitment_sha256
 
     def measure(self) -> PublishableCanaryMeasurement:
         """Authenticate the selected rows and exact bridge-journal accounting."""
@@ -286,6 +300,10 @@ def open_publishable_canary_composition(
         suite=suite,
         bridge_fleet_readiness=bridge_fleet_readiness,
     )
+    dispatch_authority = SchedulerDispatchAuthority(
+        suite_authority_sha256=suite.commitment_sha256,
+        ordered_calls=canary_authority.ordered_calls,
+    )
     scheduler = open_scheduler_subscription_bridge_composition(
         suite=suite,
         run_stores=run_stores,
@@ -300,6 +318,7 @@ def open_publishable_canary_composition(
         clock=clock,
         lease_id_factory=lease_id_factory,
         suite_seal_store=suite_seal_store,
+        dispatch_authority=dispatch_authority,
         paired_outcome_sealing=False,
         lease_duration_ms=lease_duration_ms,
     )
@@ -310,6 +329,7 @@ def open_publishable_canary_composition(
             "activation_only": True,
             "canary_authority_sha256": canary_authority.commitment_sha256,
             "case_authority_root_sha256": official_case_authority.authority_root_sha256,
+            "dispatch_authority_sha256": dispatch_authority.commitment_sha256,
             "extraction_suite_readback_sha256": (extraction_suite.suite_readback_commitment_sha256),
             "ordered_run_authority_sha256": [item.run.commitment_sha256 for item in run_stores],
             "paired_outcome_sealing": False,
@@ -326,6 +346,7 @@ def open_publishable_canary_composition(
     )
     composition = PublishableCanaryComposition(
         _scheduler=scheduler,
+        _dispatch_authority=dispatch_authority,
         _run_stores=run_stores,
         _suite=suite,
         _journal=bridge_journal,

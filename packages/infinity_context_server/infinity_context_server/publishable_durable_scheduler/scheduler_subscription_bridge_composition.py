@@ -32,6 +32,9 @@ from infinity_context_server.publishable_durable_scheduler.runner_contracts impo
     SchedulerRunStoreSpec,
     SchedulerSuiteSealStoreSpec,
 )
+from infinity_context_server.publishable_durable_scheduler.runner_dispatch_authority import (
+    SchedulerDispatchAuthority,
+)
 from infinity_context_server.publishable_durable_scheduler.runner_official_request_renderer import (
     SCHEDULER_OFFICIAL_REQUEST_BYTES_CAP,
     PublishableOfficialRequestRenderer,
@@ -70,6 +73,8 @@ class SchedulerSubscriptionBridgeComposition:
             or type(self.renderer) is not PublishableOfficialRequestRenderer
             or type(self.scheduler_bridge) is not SchedulerSubscriptionBridgeAdapter
             or type(self.subscription_bridge) is not SubscriptionRuntimeBridgeAdapter
+            or self.runner.dispatch_authority_sha256
+            != self.scheduler_bridge.dispatch_authority_sha256
             or self.suite_seal_binding_policy_sha256
             not in (None, PUBLISHABLE_PAIRED_OUTCOME_SEALING_POLICY_SHA256)
         ):
@@ -99,6 +104,7 @@ def open_scheduler_subscription_bridge_composition(
     lease_id_factory: Callable[[], str],
     private_output_decryptor: SchedulerPrivateOutputDecryptPort | None = None,
     suite_seal_store: SchedulerSuiteSealStoreSpec | None = None,
+    dispatch_authority: SchedulerDispatchAuthority | None = None,
     paired_outcome_sealing: bool = False,
     lease_duration_ms: int = 60_000,
     maximum_request_bytes: int = SCHEDULER_OFFICIAL_REQUEST_BYTES_CAP,
@@ -114,6 +120,8 @@ def open_scheduler_subscription_bridge_composition(
         type(suite) is not SchedulerSuiteAuthority
         or type(bridge_fleet_readiness) is not BridgeFleetReadinessReceipt
         or type(bridge_journal) is not BridgeJournal
+        or dispatch_authority is not None
+        and type(dispatch_authority) is not SchedulerDispatchAuthority
         or type(paired_outcome_sealing) is not bool
         or not callable(clock)
         or not callable(lease_id_factory)
@@ -157,6 +165,7 @@ def open_scheduler_subscription_bridge_composition(
         fleet_readiness=bridge_fleet_readiness,
         bridge=subscription_bridge,
         keys=bridge_keys,
+        dispatch_authority=dispatch_authority,
     )
     if (
         type(run_stores) is not tuple
@@ -192,6 +201,7 @@ def open_scheduler_subscription_bridge_composition(
         reconciliation=scheduler_bridge,
         suite_seal_store=selected_seal_store,
         suite_seal_binding=seal_binding,
+        dispatch_authority=dispatch_authority,
         clock=clock,
         lease_id_factory=lease_id_factory,
         lease_duration_ms=lease_duration_ms,

@@ -31,6 +31,8 @@ from infinity_context_server.publishable_durable_scheduler.publishable_canary_co
     open_publishable_canary_composition,
 )
 from infinity_context_server.publishable_durable_scheduler.runner_contracts import (
+    RUNNER_PAGE_SIZE,
+    SchedulerDispatchEnvelope,
     SchedulerRunnerError,
     SchedulerSuiteSealStoreSpec,
 )
@@ -163,6 +165,80 @@ def test_canary_rejects_missing_or_crosswired_authority_before_provider(
     ):
         crossed.open(PublishableProductionOpenMode.CREATE)
     assert crossed.transport.call_count == 0
+
+
+def test_canary_internal_fifth_dispatch_fails_before_intent_or_provider(
+    tmp_path: Path,
+) -> None:
+    fixture = _fixture(tmp_path)
+    composition = fixture.open(PublishableProductionOpenMode.CREATE)
+    measurement = None
+    for _ in range(4):
+        measurement = composition.advance_one()
+    assert measurement is not None and measurement.complete
+
+    runner = composition._scheduler.runner
+    entry = runner._entries[0]
+    fifth = entry.manifest.shards[0].calls[4]
+    assert fifth.logical_call_id not in composition.ordered_logical_call_ids
+    assert runner.dispatch_authority_sha256 == composition.dispatch_authority_sha256
+    assert (
+        composition._scheduler.scheduler_bridge.dispatch_authority_sha256
+        == composition.dispatch_authority_sha256
+    )
+    fifth_envelope = SchedulerDispatchEnvelope(
+        suite_authority_sha256=composition.authority.suite_authority_sha256,
+        run_authority_sha256=fifth.run_authority_sha256,
+        bridge_boot_authority_sha256=runner._suite.bridge_boot.commitment_sha256,
+        logical_call_id=fifth.logical_call_id,
+        stage=fifth.stage,
+        ordinal=fifth.ordinal,
+        renderer_policy_sha256="1" * 64,
+        private_answer_policy_sha256="2" * 64,
+        dependency_answer_ciphertext_sha256=None,
+        request_sha256="3" * 64,
+        intent_sha256="4" * 64,
+        token_ceiling=fifth.token_ceiling,
+        dispatch_deadline_unix_ms=fifth.ordinal + 1,
+        payload=b"{}",
+    )
+
+    before_call = entry.store.read_call(fifth.logical_call_id)
+    before_run = entry.store.read_run()
+    before_events = entry.store.read_events(after_event_id=-1, limit=RUNNER_PAGE_SIZE)
+    before_journal = fixture.journal.statistics()
+    before_transport_calls = fixture.transport.call_count
+    before_case_reads = fixture.case_reader.read_count
+    before_retrieval_reads = fixture.retrieval_reader.read_count
+    before_lease_ids = fixture.lease
+
+    for attempt in (
+        lambda: runner.run_bounded(max_dispatches=1),
+        lambda: runner._dispatch(0, entry, fifth, now=2_000),
+        lambda: composition._scheduler.scheduler_bridge.invoke_once(fifth_envelope),
+    ):
+        with pytest.raises(SchedulerRunnerError) as raised:
+            attempt()
+        assert raised.value.code == "scheduler_runner_dispatch_scope_exceeded"
+        assert str(raised.value) == "scheduler_runner_dispatch_scope_exceeded"
+
+    after_call = entry.store.read_call(fifth.logical_call_id)
+    assert after_call == before_call
+    assert after_call.phase is SchedulerCallPhase.PLANNED
+    assert after_call.attempt_count == 0
+    assert after_call.request_sha256 is None
+    assert after_call.intent_sha256 is None
+    assert after_call.terminal_evidence_sha256 is None
+    assert entry.store.read_run() == before_run
+    assert entry.store.read_events(after_event_id=-1, limit=RUNNER_PAGE_SIZE) == before_events
+    assert fixture.journal.statistics() == before_journal
+    assert (before_journal.intent_count, before_journal.result_count) == (4, 4)
+    assert fixture.journal.lookup_logical_call(fifth.logical_call_id) is None
+    assert fixture.transport.call_count == before_transport_calls == 4
+    assert fixture.case_reader.read_count == before_case_reads
+    assert fixture.retrieval_reader.read_count == before_retrieval_reads
+    assert fixture.lease == before_lease_ids
+    assert composition.measure() == measurement
 
 
 class _CompositionFixture:

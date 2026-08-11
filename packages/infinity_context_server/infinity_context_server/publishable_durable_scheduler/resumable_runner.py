@@ -6,19 +6,14 @@ import hashlib
 import secrets
 import time
 from collections.abc import Callable
-from dataclasses import dataclass
 from typing import final
 
 from infinity_context_server.publishable_durable_scheduler.contracts import (
     SchedulerCallStage,
-    SchedulerRunAuthority,
     SchedulerSuiteAuthority,
     commitment,
 )
-from infinity_context_server.publishable_durable_scheduler.manifest import (
-    BuiltSchedulerManifest,
-    SchedulerLogicalCall,
-)
+from infinity_context_server.publishable_durable_scheduler.manifest import SchedulerLogicalCall
 from infinity_context_server.publishable_durable_scheduler.runner_contracts import (
     NO_EXTRACTION_TERMINAL_READ_POLICY_SHA256,
     NO_OUTCOME_READBACK_POLICY_SHA256,
@@ -53,6 +48,11 @@ from infinity_context_server.publishable_durable_scheduler.runner_contracts impo
     dispatch_intent_sha256,
     is_sha256,
 )
+from infinity_context_server.publishable_durable_scheduler.runner_dispatch_authority import (
+    SchedulerDispatchAuthority,
+    require_scheduler_dispatch_authority,
+    scheduler_dispatch_authority_sha256,
+)
 from infinity_context_server.publishable_durable_scheduler.runner_recovery import (
     reconcile_dispatch_intent,
 )
@@ -66,6 +66,12 @@ from infinity_context_server.publishable_durable_scheduler.runner_sealing import
 from infinity_context_server.publishable_durable_scheduler.runner_suite_binding import (
     read_bound_suite_seal,
     require_exact_suite,
+)
+from infinity_context_server.publishable_durable_scheduler.runner_support import (
+    RunnerEntry,
+    failure_code,
+    manifest_call,
+    port_digest,
 )
 from infinity_context_server.publishable_durable_scheduler.sqlite_contracts import (
     ANSWER_CIPHERTEXT_BYTES_CAP,
@@ -88,15 +94,6 @@ _DEFAULT_LEASE_DURATION_MS = 60_000
 
 
 @final
-@dataclass(frozen=True, slots=True)
-class _RunEntry:
-    run: SchedulerRunAuthority
-    manifest: BuiltSchedulerManifest
-    store: SQLiteDurableSchedulerStore
-    authentication_secret: bytes
-
-
-@final
 class PublishableResumableEvaluationRunner:
     """Fail-closed coordinator for one exact frozen two-benchmark suite."""
 
@@ -109,6 +106,8 @@ class PublishableResumableEvaluationRunner:
         "_after_ordinals",
         "_boundary",
         "_clock",
+        "_dispatch_authority",
+        "_dispatch_authority_sha256",
         "_entries",
         "_extraction_read_policy_sha256",
         "_extraction_terminal_reader",
@@ -139,6 +138,7 @@ class PublishableResumableEvaluationRunner:
         reconciliation: SchedulerDispatchReconciliationPort | None = None,
         suite_seal_store: SchedulerSuiteSealStoreSpec | None = None,
         suite_seal_binding: SchedulerSuiteSealBindingPort | None = None,
+        dispatch_authority: SchedulerDispatchAuthority | None = None,
         clock: Callable[[], int] = lambda: time.time_ns() // 1_000_000,
         lease_id_factory: Callable[[], str] = lambda: secrets.token_hex(32),
         lease_duration_ms: int = _DEFAULT_LEASE_DURATION_MS,
@@ -181,34 +181,34 @@ class PublishableResumableEvaluationRunner:
         self._extraction_terminal_reader = extraction_terminal_reader
         self._reconciliation = reconciliation
         self._suite_seal_binding = suite_seal_binding
+        self._dispatch_authority = dispatch_authority
+        self._dispatch_authority_sha256 = scheduler_dispatch_authority_sha256(dispatch_authority)
         self._clock = clock
         self._lease_id_factory = lease_id_factory
         self._lease_duration_ms = lease_duration_ms
-        self._renderer_policy_sha256 = _port_digest(
+        self._renderer_policy_sha256 = port_digest(
             request_renderer,
             "renderer_policy_sha256",
         )
-        self._private_answer_policy_sha256 = _port_digest(
+        self._private_answer_policy_sha256 = port_digest(
             request_renderer,
             "private_answer_policy_sha256",
         )
         self._outcome_readback_policy_sha256 = (
             NO_OUTCOME_READBACK_POLICY_SHA256
             if reconciliation is None
-            else _port_digest(reconciliation, "readback_policy_sha256")
+            else port_digest(reconciliation, "readback_policy_sha256")
         )
         self._extraction_read_policy_sha256 = (
             NO_EXTRACTION_TERMINAL_READ_POLICY_SHA256
             if extraction_terminal_reader is None
-            else _port_digest(extraction_terminal_reader, "read_policy_sha256")
+            else port_digest(extraction_terminal_reader, "read_policy_sha256")
         )
         self._suite_seal_binding_policy_sha256 = (
-            None
-            if suite_seal_binding is None
-            else _port_digest(suite_seal_binding, "policy_sha256")
+            None if suite_seal_binding is None else port_digest(suite_seal_binding, "policy_sha256")
         )
         self._require_composition_binding()
-        entries: list[_RunEntry] = []
+        entries: list[RunnerEntry] = []
         for spec in run_stores:
             store = SQLiteDurableSchedulerStore(
                 spec.database_path,
@@ -220,7 +220,7 @@ class PublishableResumableEvaluationRunner:
             )
             store.verify()
             entries.append(
-                _RunEntry(
+                RunnerEntry(
                     spec.run,
                     spec.manifest,
                     store,
@@ -258,6 +258,7 @@ class PublishableResumableEvaluationRunner:
         reconciliation: SchedulerDispatchReconciliationPort | None = None,
         suite_seal_store: SchedulerSuiteSealStoreSpec | None = None,
         suite_seal_binding: SchedulerSuiteSealBindingPort | None = None,
+        dispatch_authority: SchedulerDispatchAuthority | None = None,
         clock: Callable[[], int] = lambda: time.time_ns() // 1_000_000,
         lease_id_factory: Callable[[], str] = lambda: secrets.token_hex(32),
         lease_duration_ms: int = _DEFAULT_LEASE_DURATION_MS,
@@ -274,6 +275,7 @@ class PublishableResumableEvaluationRunner:
             reconciliation=reconciliation,
             suite_seal_store=suite_seal_store,
             suite_seal_binding=suite_seal_binding,
+            dispatch_authority=dispatch_authority,
             clock=clock,
             lease_id_factory=lease_id_factory,
             lease_duration_ms=lease_duration_ms,
@@ -286,6 +288,10 @@ class PublishableResumableEvaluationRunner:
     @property
     def evaluation_call_count(self) -> int:
         return PUBLISHABLE_SUITE_EVALUATION_CALL_COUNT
+
+    @property
+    def dispatch_authority_sha256(self) -> str | None:
+        return self._dispatch_authority_sha256
 
     def run_next(self) -> SchedulerStepResult:
         """Dispatch at most one provider call, or report a durable stop state."""
@@ -423,11 +429,17 @@ class PublishableResumableEvaluationRunner:
     def _dispatch(
         self,
         entry_index: int,
-        entry: _RunEntry,
+        entry: RunnerEntry,
         call: SchedulerLogicalCall,
         *,
         now: int,
     ) -> SchedulerStepResult:
+        require_scheduler_dispatch_authority(
+            self._dispatch_authority,
+            suite_authority_sha256=self._suite.commitment_sha256,
+            run_authority_sha256=entry.run.commitment_sha256,
+            call=call,
+        )
         rendered = self._render_request(entry, call)
         payload = rendered.payload
         if self._boundary.preflight(payload=payload, token_ceiling=call.token_ceiling) is not None:
@@ -498,6 +510,12 @@ class PublishableResumableEvaluationRunner:
                 "token_ceiling": call.token_ceiling,
             }
         )
+        require_scheduler_dispatch_authority(
+            self._dispatch_authority,
+            suite_authority_sha256=self._suite.commitment_sha256,
+            run_authority_sha256=entry.run.commitment_sha256,
+            call=call,
+        )
         entry.store.record_dispatch_intent(
             call.logical_call_id,
             lease_id=lease_id,
@@ -554,6 +572,12 @@ class PublishableResumableEvaluationRunner:
         )
         receipt_sha256: str | None = None
         try:
+            require_scheduler_dispatch_authority(
+                self._dispatch_authority,
+                suite_authority_sha256=self._suite.commitment_sha256,
+                run_authority_sha256=entry.run.commitment_sha256,
+                call=call,
+            )
             outcome = self._boundary.invoke_once(envelope)
             self._require_outcome(outcome, envelope=envelope, call=call)
             receipt_sha256 = outcome.receipt.commitment_sha256
@@ -570,7 +594,7 @@ class PublishableResumableEvaluationRunner:
                 entry,
                 logical_call_id=call.logical_call_id,
                 intent_sha256=intent_sha256,
-                failure_code=_failure_code(primary),
+                failure_code=failure_code(primary),
             )
             if resolved.phase is SchedulerCallPhase.COMMITTED:
                 self._after_ordinals[entry_index] = call.ordinal
@@ -658,7 +682,7 @@ class PublishableResumableEvaluationRunner:
 
     def _resolve_ambiguous_dispatch(
         self,
-        entry: _RunEntry,
+        entry: RunnerEntry,
         *,
         logical_call_id: str,
         intent_sha256: str,
@@ -707,7 +731,7 @@ class PublishableResumableEvaluationRunner:
 
     def _render_request(
         self,
-        entry: _RunEntry,
+        entry: RunnerEntry,
         call: SchedulerLogicalCall,
     ) -> SchedulerRenderedRequest:
         capability = None
@@ -748,7 +772,7 @@ class PublishableResumableEvaluationRunner:
     def _next_planned(
         self,
         entry_index: int,
-        entry: _RunEntry,
+        entry: RunnerEntry,
     ) -> tuple[SchedulerLogicalCall | None, bool]:
         after = self._after_ordinals[entry_index]
         while True:
@@ -761,7 +785,7 @@ class PublishableResumableEvaluationRunner:
                     after = state.ordinal
                     continue
                 if state.phase is SchedulerCallPhase.PLANNED:
-                    call = _manifest_call(entry.manifest, state.ordinal)
+                    call = manifest_call(entry.manifest, state.ordinal)
                     if call.logical_call_id != state.logical_call_id:
                         _fail("scheduler_runner_manifest_state_drift")
                     if call.stage is SchedulerCallStage.JUDGE:
@@ -790,7 +814,7 @@ class PublishableResumableEvaluationRunner:
 
     def _recover_inflight(
         self,
-        entry: _RunEntry,
+        entry: RunnerEntry,
         *,
         now: int,
         reconcile_unexpired: bool = False,
@@ -800,6 +824,15 @@ class PublishableResumableEvaluationRunner:
         if run.phase is not SchedulerRunPhase.ACTIVE or logical_call_id is None:
             return
         call = entry.store.read_call(logical_call_id)
+        authorized_call = manifest_call(entry.manifest, call.ordinal)
+        if authorized_call.logical_call_id != call.logical_call_id:
+            _fail("scheduler_runner_manifest_state_drift")
+        require_scheduler_dispatch_authority(
+            self._dispatch_authority,
+            suite_authority_sha256=self._suite.commitment_sha256,
+            run_authority_sha256=entry.run.commitment_sha256,
+            call=authorized_call,
+        )
         if call.phase is SchedulerCallPhase.DISPATCH_INTENT:
             lease_expires = call.lease_expires_unix_ms
             if call.intent_sha256 is None or lease_expires is None:
@@ -892,6 +925,7 @@ class PublishableResumableEvaluationRunner:
                 if self._extraction_terminal_reader is None
                 else self._extraction_terminal_reader.read_policy_sha256
             )
+            boundary_dispatch_authority = getattr(self._boundary, "dispatch_authority_sha256", None)
             seal_binding_policy = (
                 None if self._suite_seal_binding is None else self._suite_seal_binding.policy_sha256
             )
@@ -899,6 +933,9 @@ class PublishableResumableEvaluationRunner:
             _fail("scheduler_runner_composition_binding_invalid")
         if (
             self._suite.commitment_sha256 != self._suite_authority_sha256
+            or scheduler_dispatch_authority_sha256(self._dispatch_authority)
+            != self._dispatch_authority_sha256
+            or boundary_dispatch_authority != self._dispatch_authority_sha256
             or commitment("suite", self._suite.material()) != self._suite_authority_sha256
             or commitment("bridge-boot", self._suite.bridge_boot.material())
             != self._suite.bridge_boot.commitment_sha256
@@ -940,31 +977,6 @@ class PublishableResumableEvaluationRunner:
         ):
             _fail("scheduler_runner_lease_id_invalid")
         return value
-
-
-def _manifest_call(manifest: BuiltSchedulerManifest, ordinal: int) -> SchedulerLogicalCall:
-    try:
-        shard = manifest.shards[ordinal // 256]
-        call = shard.calls[ordinal - shard.start_ordinal]
-    except (IndexError, TypeError):
-        _fail("scheduler_runner_manifest_call_missing")
-    return call
-
-
-def _failure_code(error: BaseException) -> str:
-    if isinstance(error, SchedulerRunnerError):
-        return error.code
-    return "scheduler_runner_dispatch_boundary_failed"
-
-
-def _port_digest(port: object, name: str) -> str:
-    try:
-        value = getattr(port, name)
-    except Exception:
-        _fail("scheduler_runner_composition_binding_invalid")
-    if not is_sha256(value):
-        _fail("scheduler_runner_composition_binding_invalid")
-    return value
 
 
 def _fail(code: str) -> None:

@@ -45,6 +45,10 @@ from infinity_context_server.publishable_durable_scheduler.runner_contracts impo
     SchedulerRunnerError,
     is_sha256,
 )
+from infinity_context_server.publishable_durable_scheduler.runner_dispatch_authority import (
+    SchedulerDispatchAuthority,
+    scheduler_dispatch_authority_sha256,
+)
 
 SCHEDULER_SUBSCRIPTION_BRIDGE_ADAPTER_SCHEMA_VERSION = (
     "memory-comparison-scheduler-subscription-bridge.v3"
@@ -208,6 +212,8 @@ class SchedulerSubscriptionBridgeAdapter:
 
     __slots__ = (
         "_bridge",
+        "_dispatch_authority",
+        "_dispatch_authority_sha256",
         "_fleet_readiness",
         "_fleet_readiness_snapshot",
         "_keys",
@@ -227,11 +233,14 @@ class SchedulerSubscriptionBridgeAdapter:
         fleet_readiness: BridgeFleetReadinessReceipt,
         bridge: SubscriptionRuntimeBridgeAdapter,
         keys: BridgeSecretCapability,
+        dispatch_authority: SchedulerDispatchAuthority | None = None,
     ) -> None:
         if (
             type(suite) is not SchedulerSuiteAuthority
             or type(fleet_readiness) is not BridgeFleetReadinessReceipt
             or type(bridge) is not SubscriptionRuntimeBridgeAdapter
+            or dispatch_authority is not None
+            and type(dispatch_authority) is not SchedulerDispatchAuthority
         ):
             _fail("scheduler_subscription_bridge_composition_invalid")
         pool = verify_fleet_launch_receipts(fleet_readiness, keys)
@@ -252,6 +261,8 @@ class SchedulerSubscriptionBridgeAdapter:
         self._pool = pool
         self._pool_snapshot = canonical_json(pool.public_payload())
         self._bridge = bridge
+        self._dispatch_authority = dispatch_authority
+        self._dispatch_authority_sha256 = scheduler_dispatch_authority_sha256(dispatch_authority)
         self._keys = keys
         self._journal_generation_sha256 = bridge.journal_generation_sha256
         if not is_sha256(self._journal_generation_sha256):
@@ -292,6 +303,10 @@ class SchedulerSubscriptionBridgeAdapter:
     @property
     def readback_policy_sha256(self) -> str:
         return self._readback_policy_sha256
+
+    @property
+    def dispatch_authority_sha256(self) -> str | None:
+        return self._dispatch_authority_sha256
 
     def __repr__(self) -> str:
         return (
@@ -504,6 +519,8 @@ class SchedulerSubscriptionBridgeAdapter:
         if type(envelope) is not SchedulerDispatchEnvelope:
             _fail("scheduler_subscription_bridge_envelope_invalid")
         SchedulerDispatchEnvelope.__post_init__(envelope)
+        if self._dispatch_authority is not None:
+            self._dispatch_authority.require_envelope_authorized(envelope)
         self._require_runtime_binding()
         if (
             envelope.suite_authority_sha256 != self._suite.commitment_sha256
@@ -522,6 +539,8 @@ class SchedulerSubscriptionBridgeAdapter:
         if (
             canonical_json(self._suite.material()) != self._suite_snapshot
             or self._suite.commitment_sha256 != commitment("suite", self._suite.material())
+            or scheduler_dispatch_authority_sha256(self._dispatch_authority)
+            != self._dispatch_authority_sha256
             or canonical_json(self._fleet_readiness.public_payload())
             != self._fleet_readiness_snapshot
             or current_pool != self._pool
