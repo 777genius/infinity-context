@@ -13,7 +13,6 @@ from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
 
-
 REPOSITORY_ROOT = Path(__file__).resolve().parents[1]
 CONFIG_PATH = REPOSITORY_ROOT / ".github" / "benchmark-provider-free-tests.toml"
 
@@ -158,8 +157,7 @@ def select_node_ids(
         selected_for_path = [
             node
             for node in nodes
-            if not _has_forbidden_test_name(node, forbidden_terms)
-            and node not in deferred_node_ids
+            if not _has_forbidden_test_name(node, forbidden_terms) and node not in deferred_node_ids
         ]
         if not selected_for_path:
             raise CollectionGuardError(

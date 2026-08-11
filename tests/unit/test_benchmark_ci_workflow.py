@@ -12,7 +12,6 @@ from scripts.run_provider_free_benchmark_ci import (
     select_node_ids,
 )
 
-
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 WORKFLOW = PROJECT_ROOT / ".github" / "workflows" / "infinity-context-ci.yml"
 RUNNER = PROJECT_ROOT / "scripts" / "run_provider_free_benchmark_ci.py"
@@ -50,13 +49,11 @@ def test_benchmark_job_is_mandatory_locked_and_provider_free() -> None:
     assert "uv lock --check" in job
     assert "uv lock --directory benchmarks/mem0-oss-adapter-v5 --check" in job
     assert "uv sync --extra dev --frozen" in job
-    assert (
-        "uv sync --directory benchmarks/mem0-oss-adapter-v5 --group dev --frozen" in job
-    )
+    assert "uv sync --directory benchmarks/mem0-oss-adapter-v5 --group dev --frozen" in job
     assert "uv run --frozen --no-sync python" in job
     assert "uv run --directory benchmarks/mem0-oss-adapter-v5 --frozen --no-sync" in job
     assert "run_provider_free_benchmark_ci.py root" in job
-    assert "run_provider_free_benchmark_ci.py\" mem0-v5" in job
+    assert 'run_provider_free_benchmark_ci.py" mem0-v5' in job
 
     for name in (
         "OPENAI_API_KEY",
@@ -210,9 +207,7 @@ def test_collection_guard_requires_each_path_and_filters_overclaims() -> None:
         "e2e/tests/two.py::test_fake_receipt",
     )
     assert selection.name_guard_excluded_node_ids == ("tests/one.py::test_paid_contract",)
-    assert selection.deferred_node_ids == (
-        "e2e/tests/two.py::test_synthetic_2040_contract",
-    )
+    assert selection.deferred_node_ids == ("e2e/tests/two.py::test_synthetic_2040_contract",)
     assert selection.selected_counts_by_path == {
         "tests/one.py": 1,
         "e2e/tests/two.py": 1,
