@@ -72,6 +72,7 @@ class ServerBenchmarkProjectionAbsence:
             binding_commitment_sha256=record.binding_commitment_sha256,
             infinity_target_identity_sha256=record.infinity_target_identity_sha256,
             space_id=record.space_id,
+            cleanup_plan_sha256=record.cleanup_plan_sha256,
         )
 
     async def _delete_qdrant(
