@@ -348,7 +348,42 @@ def test_focused_capture_exact_resume_seal_reopen_and_tamper(
     with pytest.raises(SchedulerRetrievalCaptureError, match="resume_boundary_invalid"):
         service.capture_through(3)
 
-    terminal = service.capture()
+    expected_infinity = _SyntheticBackend(
+        "infinity-context",
+        retrieval_scopes[0].backends[0].target_identity_sha256,
+    )
+    expected_mem0 = _SyntheticBackend(
+        "mem0",
+        retrieval_scopes[0].backends[1].target_identity_sha256,
+    )
+    expected_service = SQLiteSchedulerRetrievalCaptureService(
+        tmp_path / "expected-retrieval-evidence.sqlite3",
+        plan=plan,
+        case_reader=case_reader,
+        backends=(expected_infinity, expected_mem0),
+        authentication_key=_KEY,
+    )
+    expected_terminal = expected_service.capture()
+    wrong_root = _sha("wrong-retrieval-authority")
+    with pytest.raises(SchedulerRetrievalCaptureError, match="expected_authority_mismatch"):
+        service.capture(expected_authority_root_sha256=wrong_root)
+    calls_after_mismatch = len(infinity.calls), len(mem0.calls)
+    with sqlite3.connect(retrieval_path) as connection:
+        assert connection.execute(
+            "SELECT terminal_json,terminal_mac FROM authority_meta"
+        ).fetchone() == (None, None)
+        assert connection.execute(
+            "SELECT count(*) FROM retrieval_groups WHERE sealed_mac IS NOT NULL"
+        ).fetchone() == (0,)
+        assert connection.execute(
+            "SELECT count(*) FROM retrieval_rows WHERE sealed_mac IS NOT NULL"
+        ).fetchone() == (0,)
+    sealed_progress = service.read_progress(
+        expected_authority_root_sha256=expected_terminal.authority_root_sha256,
+    )
+    terminal = sealed_progress.terminal
+    assert terminal == expected_terminal
+    assert (len(infinity.calls), len(mem0.calls)) == calls_after_mismatch
     calls_after_seal = len(infinity.calls), len(mem0.calls)
     successful_calls_after_seal = (
         len(infinity.successful_calls),
@@ -371,7 +406,9 @@ def test_focused_capture_exact_resume_seal_reopen_and_tamper(
         * case_count
     )
 
-    assert service.capture() == terminal
+    assert service.capture(
+        expected_authority_root_sha256=terminal.authority_root_sha256,
+    ) == terminal
     assert (len(infinity.calls), len(mem0.calls)) == calls_after_seal
     assert (
         len(infinity.successful_calls),
@@ -381,6 +418,15 @@ def test_focused_capture_exact_resume_seal_reopen_and_tamper(
         maximum = connection.execute("SELECT MAX(group_count) FROM authority_pages").fetchone()[0]
         assert maximum == 1
         assert maximum <= capture_contracts.SCHEDULER_RETRIEVAL_CAPTURE_PAGE_GROUP_LIMIT
+        terminal_meta = connection.execute(
+            "SELECT terminal_json,terminal_mac FROM authority_meta"
+        ).fetchone()
+    with pytest.raises(SchedulerRetrievalCaptureError, match="expected_authority_mismatch"):
+        service.read_progress(expected_authority_root_sha256=wrong_root)
+    with sqlite3.connect(retrieval_path) as connection:
+        assert connection.execute(
+            "SELECT terminal_json,terminal_mac FROM authority_meta"
+        ).fetchone() == terminal_meta
 
     reader = retrieval_authority.SQLiteSchedulerRetrievalEvidenceReader.open(
         retrieval_path,

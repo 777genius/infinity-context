@@ -102,15 +102,24 @@ class SchedulerRetrievalCaptureComposition:
         ):
             _fail("scheduler_retrieval_capture_composition_invalid")
 
-    def capture(self) -> SealedSchedulerRetrievalEvidence:
-        progress = self.capture_through(self.plan.group_count)
+    def capture(
+        self, *, expected_authority_root_sha256: str | None = None
+    ) -> SealedSchedulerRetrievalEvidence:
+        progress = self.capture_through(
+            self.plan.group_count,
+            expected_authority_root_sha256=expected_authority_root_sha256,
+        )
         terminal = progress.terminal
         if terminal is None:  # pragma: no cover - exact total boundary requires a terminal
             _fail("scheduler_retrieval_capture_terminal_invalid")
         reader = SQLiteSchedulerRetrievalEvidenceReader.open(
             self.path,
             authentication_key=self.authentication_key,
-            authority_root_sha256=terminal.authority_root_sha256,
+            authority_root_sha256=(
+                terminal.authority_root_sha256
+                if expected_authority_root_sha256 is None
+                else expected_authority_root_sha256
+            ),
             case_authority_root_sha256=self.plan.case_authority_root_sha256,
         )
         try:
@@ -123,10 +132,18 @@ class SchedulerRetrievalCaptureComposition:
             reader.close()
             raise
 
-    def capture_through(self, end_sequence: int) -> SchedulerRetrievalCaptureProgress:
+    def capture_through(
+        self,
+        end_sequence: int,
+        *,
+        expected_authority_root_sha256: str | None = None,
+    ) -> SchedulerRetrievalCaptureProgress:
         """Capture to one exact authenticated cursor without crossing it."""
 
-        progress = self.service.capture_through(end_sequence)
+        progress = self.service.capture_through(
+            end_sequence,
+            expected_authority_root_sha256=expected_authority_root_sha256,
+        )
         if not verify_scheduler_retrieval_capture_progress(
             progress,
             plan=self.plan,
@@ -135,10 +152,14 @@ class SchedulerRetrievalCaptureComposition:
             _fail("scheduler_retrieval_capture_progress_authentication_invalid")
         return progress
 
-    def read_progress(self) -> SchedulerRetrievalCaptureProgress:
+    def read_progress(
+        self, *, expected_authority_root_sha256: str | None = None
+    ) -> SchedulerRetrievalCaptureProgress:
         """Authenticate the current cursor without calling either backend."""
 
-        progress = self.service.read_progress()
+        progress = self.service.read_progress(
+            expected_authority_root_sha256=expected_authority_root_sha256,
+        )
         if not verify_scheduler_retrieval_capture_progress(
             progress,
             plan=self.plan,

@@ -102,7 +102,7 @@ PublishableFullExtractionSuiteConfiguration = (
 _INFINITY_URL = "http://127.0.0.1:31771"
 _MEM0_URL = "http://127.0.0.1:31772"
 _RETRIEVAL_KEY = b"publishable-input-retrieval-test-key-v1"
-_EXPECTED_RETRIEVAL_ROOT = "68b34a99dce1434443d278156dfbdb7b98f862d093def6a7bd96319e60614a97"
+_EXPECTED_RETRIEVAL_ROOT = "f5db4c9226d3a760aaebdc554fb2e23dcd5af1fbf5344f135cd6d47228d95dd8"
 _TERMINAL_KEYS = (
     b"publishable-input-locomo-terminal-key-v1",
     b"publishable-input-longmemeval-terminal-key-v1",
@@ -616,6 +616,13 @@ def test_exact_official_input_preparation_resumes_replays_and_detects_sqlite_tam
     assert mismatch.value.code == "publishable_input_retrieval_terminal_invalid"
     assert calls.total == SCHEDULER_RETRIEVAL_CAPTURE_GROUP_COUNT
     assert not any(path.exists() for path in resumed_after_crash.terminal_paths)
+    with sqlite3.connect(resumed_after_crash.session.retrieval_database_path) as connection:
+        assert connection.execute(
+            "SELECT terminal_json,terminal_mac FROM authority_meta"
+        ).fetchone() == (None, None)
+        assert connection.execute(
+            "SELECT count(*) FROM retrieval_groups WHERE sealed_mac IS NOT NULL"
+        ).fetchone() == (0,)
     composition.close()
 
     authenticated = _open_test_session(
@@ -632,6 +639,7 @@ def test_exact_official_input_preparation_resumes_replays_and_detects_sqlite_tam
     assert complete.paid_go_ready is False
     assert complete.extraction_committed_receipt_count == 130_226
     assert complete.retrieval_group_count == 4_080
+    assert complete.retrieval_authority_root_sha256 == _EXPECTED_RETRIEVAL_ROOT
     assert complete.subscription_step_count == 0
     assert state.advance_call_count == 130_226
     assert calls.infinity == calls.mem0 == PUBLISHABLE_SUITE_CASE_COUNT

@@ -58,6 +58,7 @@ from infinity_context_server.publishable_durable_scheduler.retrieval_capture_com
 from infinity_context_server.publishable_durable_scheduler.retrieval_capture_contracts import (
     SCHEDULER_RETRIEVAL_CAPTURE_GROUP_COUNT,
     SchedulerRetrievalBackendPort,
+    SchedulerRetrievalCaptureError,
 )
 from infinity_context_server.publishable_durable_scheduler.runner_contracts import (
     PUBLISHABLE_SUITE_CASE_COUNT,
@@ -192,7 +193,14 @@ class PublishableInputPreparationComposition:
             self._require_capability_bindings()
             if self._runtime_switch_required:
                 _fail("publishable_input_runtime_switch_reopen_required")
-            retrieval_progress = self._retrieval.read_progress()
+            try:
+                retrieval_progress = self._retrieval.read_progress(
+                    expected_authority_root_sha256=self._expected_retrieval_root,
+                )
+            except SchedulerRetrievalCaptureError as error:
+                if error.code == "scheduler_retrieval_capture_expected_authority_mismatch":
+                    _fail("publishable_input_retrieval_terminal_invalid")
+                raise
             retrieval_count = retrieval_progress.next_sequence
             workers = (self._extraction.locomo, self._extraction.longmemeval)
             terminals = [worker.read_terminal() for worker in workers]
@@ -271,7 +279,14 @@ class PublishableInputPreparationComposition:
                 readback=readback,
             )
             self._require_capability_bindings()
-            sealed_retrieval = self._retrieval.capture()
+            try:
+                sealed_retrieval = self._retrieval.capture(
+                    expected_authority_root_sha256=self._expected_retrieval_root,
+                )
+            except SchedulerRetrievalCaptureError as error:
+                if error.code == "scheduler_retrieval_capture_expected_authority_mismatch":
+                    _fail("publishable_input_retrieval_terminal_invalid")
+                raise
             try:
                 terminal = sealed_retrieval.terminal
                 if (

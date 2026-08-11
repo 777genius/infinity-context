@@ -11,6 +11,7 @@ from typing import final
 
 from infinity_context_server.publishable_durable_scheduler.contracts import canonical_json
 from infinity_context_server.publishable_durable_scheduler.official_authority_contracts import (
+    SchedulerOfficialAuthorityError,
     SchedulerRetrievalEvidenceAuthorityPage,
     SchedulerRetrievalEvidenceAuthorityRow,
     SchedulerRetrievalEvidenceAuthorityTerminal,
@@ -150,24 +151,37 @@ class SQLiteSchedulerRetrievalCaptureService:
         self._backends = backends
         self._authentication_key = authentication_key
 
-    def capture(self) -> SchedulerRetrievalEvidenceAuthorityTerminal:
+    def capture(
+        self, *, expected_authority_root_sha256: str | None = None
+    ) -> SchedulerRetrievalEvidenceAuthorityTerminal:
         """Resume at the next committed result, or create and seal a new authority."""
 
-        progress = self.capture_through(SCHEDULER_RETRIEVAL_CAPTURE_GROUP_COUNT)
+        progress = self.capture_through(
+            SCHEDULER_RETRIEVAL_CAPTURE_GROUP_COUNT,
+            expected_authority_root_sha256=expected_authority_root_sha256,
+        )
         terminal = progress.terminal
         if terminal is None:  # pragma: no cover - exact total boundary requires a terminal
             _fail("scheduler_retrieval_capture_terminal_invalid")
         return terminal
 
-    def read_progress(self) -> SchedulerRetrievalCaptureProgress:
+    def read_progress(
+        self, *, expected_authority_root_sha256: str | None = None
+    ) -> SchedulerRetrievalCaptureProgress:
         """Authenticate the durable cursor without issuing a retrieval call."""
 
+        _validate_expected_authority_root(expected_authority_root_sha256)
         self._verify_live_bindings()
         builder = self._open_builder()
         try:
             sequence = builder.next_sequence
             terminal = (
-                builder.finalize() if sequence == SCHEDULER_RETRIEVAL_CAPTURE_GROUP_COUNT else None
+                _finalize_expected(
+                    builder,
+                    expected_authority_root_sha256=expected_authority_root_sha256,
+                )
+                if sequence == SCHEDULER_RETRIEVAL_CAPTURE_GROUP_COUNT
+                else None
             )
             progress = _capture_progress(
                 plan=self._plan,
@@ -185,7 +199,12 @@ class SQLiteSchedulerRetrievalCaptureService:
         finally:
             builder.close()
 
-    def capture_through(self, end_sequence: int) -> SchedulerRetrievalCaptureProgress:
+    def capture_through(
+        self,
+        end_sequence: int,
+        *,
+        expected_authority_root_sha256: str | None = None,
+    ) -> SchedulerRetrievalCaptureProgress:
         """Capture through one exact durable cursor, without crossing that boundary."""
 
         if (
@@ -193,6 +212,7 @@ class SQLiteSchedulerRetrievalCaptureService:
             or not 0 <= end_sequence <= SCHEDULER_RETRIEVAL_CAPTURE_GROUP_COUNT
         ):
             _fail("scheduler_retrieval_capture_end_sequence_invalid")
+        _validate_expected_authority_root(expected_authority_root_sha256)
         self._verify_live_bindings()
         builder = self._open_builder()
         try:
@@ -212,7 +232,10 @@ class SQLiteSchedulerRetrievalCaptureService:
                 sequence = next_sequence
             terminal = None
             if sequence == SCHEDULER_RETRIEVAL_CAPTURE_GROUP_COUNT:
-                terminal = builder.finalize()
+                terminal = _finalize_expected(
+                    builder,
+                    expected_authority_root_sha256=expected_authority_root_sha256,
+                )
                 if (
                     type(terminal) is not SchedulerRetrievalEvidenceAuthorityTerminal
                     or terminal.group_count != SCHEDULER_RETRIEVAL_CAPTURE_GROUP_COUNT
@@ -413,6 +436,26 @@ def _progress_hmac(material: dict[str, object], *, authentication_key: bytes) ->
         _CAPTURE_PROGRESS_MAC_DOMAIN + canonical_json(material),
         hashlib.sha256,
     ).hexdigest()
+
+
+def _finalize_expected(
+    builder: SQLiteSchedulerRetrievalEvidenceAuthorityBuilder,
+    *,
+    expected_authority_root_sha256: str | None,
+) -> SchedulerRetrievalEvidenceAuthorityTerminal:
+    try:
+        return builder.finalize(
+            expected_authority_root_sha256=expected_authority_root_sha256,
+        )
+    except SchedulerOfficialAuthorityError as error:
+        if error.code == "scheduler_retrieval_evidence_authority_root_mismatch":
+            _fail("scheduler_retrieval_capture_expected_authority_mismatch")
+        raise
+
+
+def _validate_expected_authority_root(value: str | None) -> None:
+    if value is not None and not _sha256(value):
+        _fail("scheduler_retrieval_capture_expected_authority_invalid")
 
 
 def _sha256(value: object) -> bool:

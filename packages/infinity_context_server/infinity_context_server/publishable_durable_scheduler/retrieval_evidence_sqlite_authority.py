@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hmac
 import os
 import sqlite3
 from pathlib import Path
@@ -257,7 +258,17 @@ class SQLiteSchedulerRetrievalEvidenceAuthorityBuilder:
                     )
             self._handle.verify_bound()
 
-    def finalize(self) -> SchedulerRetrievalEvidenceAuthorityTerminal:
+    def finalize(
+        self, *, expected_authority_root_sha256: str | None = None
+    ) -> SchedulerRetrievalEvidenceAuthorityTerminal:
+        expected_root = (
+            None
+            if expected_authority_root_sha256 is None
+            else require_digest(
+                expected_authority_root_sha256,
+                code="scheduler_retrieval_evidence_authority_root_invalid",
+            )
+        )
         with self._handle.serialized():
             self._handle.verify_bound()
             connection = self._handle.connection
@@ -265,9 +276,19 @@ class SQLiteSchedulerRetrievalEvidenceAuthorityBuilder:
                 existing = self._verify_meta()
                 if existing is not None:
                     _verify_retrieval_state(self, require_complete=True, terminal=existing)
+                    if expected_root is not None and not hmac.compare_digest(
+                        existing.authority_root_sha256,
+                        expected_root,
+                    ):
+                        _fail("scheduler_retrieval_evidence_authority_root_mismatch")
                     return existing
                 state = _verify_retrieval_state(self, require_complete=True)
                 terminal = build_terminal(self._auth, self._configuration_sha256, state)
+                if expected_root is not None and not hmac.compare_digest(
+                    terminal.authority_root_sha256,
+                    expected_root,
+                ):
+                    _fail("scheduler_retrieval_evidence_authority_root_mismatch")
                 _seal_groups(self, terminal.authority_root_sha256)
                 payload = terminal_payload(terminal)
                 terminal_json = canonical_text(payload)
