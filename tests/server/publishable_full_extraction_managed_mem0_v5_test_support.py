@@ -429,9 +429,8 @@ class _CleanupBinding:
 
 
 class _Response:
-    status_code = 200
-
-    def __init__(self, payload: dict[str, object]) -> None:
+    def __init__(self, payload: dict[str, object], *, status_code: int = 200) -> None:
+        self.status_code = status_code
         self._content = canonical(payload)
 
     def read_bounded(self, maximum_bytes: int) -> bytes:
@@ -447,6 +446,8 @@ class RecordingHttpTransport:
         self.calls: list[dict[str, object]] = []
         self.tamper_binding_hmac = False
         self.tamper_admission_runtime = False
+        self.status_unavailable = False
+        self.dispatch_operator_action_required = False
 
     def request(self, method: str, url: str, **kwargs: Any) -> _Response:
         body = json.loads(kwargs["content"])
@@ -502,6 +503,13 @@ class RecordingHttpTransport:
                     **unsigned,
                     "request_binding_hmac_sha256": signature,
                 }
+            )
+        if url.endswith("/v5/operations/status") and self.status_unavailable:
+            return _Response({"detail": "status_unavailable"}, status_code=503)
+        if url.endswith("/v5/operations/dispatch") and self.dispatch_operator_action_required:
+            return _Response(
+                {"detail": "dispatch_recovery_operator_action_required"},
+                status_code=503,
             )
         if url.endswith(("/v5/operations/dispatch", "/v5/operations/status")):
             return _Response(

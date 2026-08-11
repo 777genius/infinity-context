@@ -33,6 +33,7 @@ from infinity_context_server.processes.publishable_full_extraction_contracts imp
     PublishableExtractionCommand,
     PublishableExtractionOneShotPort,
     PublishableExtractionOperationReceiptIssuerPort,
+    PublishableExtractionRecoveryError,
     PublishableExtractionRunAuthority,
     PublishableExtractionRunTerminal,
     PublishableExtractionWorkerError,
@@ -51,7 +52,7 @@ from infinity_context_server.resumable_operation_journal.domain import (
 
 @final
 class PublishableFullExtractionWorker:
-    """Dispatch at most one pending operation per call and reconcile by status only."""
+    """Dispatch one operation and reconcile through an exact idempotent probe."""
 
     __slots__ = (
         "_authority",
@@ -81,7 +82,7 @@ class PublishableFullExtractionWorker:
             or type(stores) is not OpenedPublishableExtractionStores
             or any(
                 not callable(getattr(boundary, name, None))
-                for name in ("dispatch_once", "lookup_outcome")
+                for name in ("dispatch_once", "lookup_outcome", "recover_once")
             )
             or any(
                 not callable(getattr(runtime_receipt_verifier, name, None))
@@ -172,7 +173,7 @@ class PublishableFullExtractionWorker:
             )
 
     def reconcile_one(self) -> PublishableExtractionAdvance:
-        """Resolve one outcome-unknown operation through status; never dispatch."""
+        """Resolve unknown state by status, then the boundary's explicit safe probe."""
 
         with self._lock:
             self._require_open()
@@ -200,7 +201,10 @@ class PublishableFullExtractionWorker:
                 self._mark_first_unknown(checkpoint)
                 receipt = self._verified_receipts.get(identity.ordinal)
                 if receipt is None:
-                    payload = self._boundary.lookup_outcome(command=command)
+                    try:
+                        payload = self._boundary.lookup_outcome(command=command)
+                    except Exception:
+                        payload = self._boundary.recover_once(command=command)
                     receipt = self._verify_runtime_receipt(
                         payload=payload,
                         command=command,
@@ -208,6 +212,10 @@ class PublishableFullExtractionWorker:
                     )
                     self._verified_receipts[identity.ordinal] = receipt
                 checkpoint = self._commit_verified(identity, receipt)
+            except PublishableExtractionRecoveryError as exc:
+                if exc.code == "operator_action_required":
+                    _fail("extraction_recovery_operator_action_required")
+                _fail("extraction_outcome_reconciliation_failed")
             except BaseException:
                 _fail("extraction_outcome_reconciliation_failed")
             if checkpoint.facts.outcome_unknown_count:

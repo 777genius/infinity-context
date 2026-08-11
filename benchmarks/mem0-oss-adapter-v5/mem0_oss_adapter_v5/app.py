@@ -54,6 +54,7 @@ _SAFE_SERVICE_ERRORS = frozenset(
         "corpus_not_found",
         "dispatch_conflict",
         "dispatch_failed",
+        "dispatch_recovery_operator_action_required",
         "manifest_invalid",
         "operation_not_found",
         "operation_cleaned",

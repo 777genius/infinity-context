@@ -317,6 +317,24 @@ class _CrashAfterHttpDispatch:
     def lookup_outcome(self, *, command: object) -> object:
         return self.adapter.lookup_outcome(command=command)  # type: ignore[arg-type]
 
+    def recover_once(self, *, command: object) -> object:
+        return self.adapter.recover_once(command=command)  # type: ignore[arg-type]
+
+
+class _CrashBeforeHttpDispatch:
+    def __init__(self, adapter: PublishableManagedMem0V5HttpAdapter) -> None:
+        self.adapter = adapter
+
+    def dispatch_once(self, *, command: object) -> object:
+        del command
+        raise RuntimeError("simulated process loss before HTTP dispatch")
+
+    def lookup_outcome(self, *, command: object) -> object:
+        return self.adapter.lookup_outcome(command=command)  # type: ignore[arg-type]
+
+    def recover_once(self, *, command: object) -> object:
+        return self.adapter.recover_once(command=command)  # type: ignore[arg-type]
+
 
 def _open_worker(
     *,
@@ -408,6 +426,77 @@ def test_crash_after_http_success_reconciles_by_status_without_duplicate_dispatc
     assert reconciled.operation_ordinal == 0
     assert sum(str(item["url"]).endswith("/status") for item in transport.calls) == 1
     assert sum(str(item["url"]).endswith("/dispatch") for item in transport.calls) == 1
+    reopened.close()
+
+
+def test_crash_before_http_dispatch_reopens_through_exact_recovery_probe(
+    locomo_run: SyntheticRun,
+    tmp_path: Path,
+) -> None:
+    transport = RecordingHttpTransport(locomo_run)
+    adapter = _adapter(locomo_run, transport)
+    state = tmp_path / "predispatch-private-state"
+    first = _open_worker(
+        run=locomo_run,
+        state_directory=state,
+        boundary=_CrashBeforeHttpDispatch(adapter),
+        runtime_verifier=_RuntimeVerifier(locomo_run),
+    )
+    with pytest.raises(
+        PublishableExtractionWorkerError,
+        match="extraction_dispatch_outcome_unknown",
+    ):
+        first.advance_one()
+    first.close()
+    assert not any(str(item["url"]).endswith("/dispatch") for item in transport.calls)
+
+    transport.status_unavailable = True
+    reopened = _open_worker(
+        run=locomo_run,
+        state_directory=state,
+        boundary=adapter,
+        runtime_verifier=_RuntimeVerifier(locomo_run),
+    )
+    assert reopened.advance_one().phase is PublishableExtractionAdvancePhase.RECONCILIATION_REQUIRED
+    reconciled = reopened.reconcile_one()
+    assert reconciled.phase is PublishableExtractionAdvancePhase.OPERATION_COMMITTED
+    assert sum(str(item["url"]).endswith("/status") for item in transport.calls) == 1
+    assert sum(str(item["url"]).endswith("/dispatch") for item in transport.calls) == 1
+    reopened.close()
+
+
+def test_ambiguous_recovery_probe_surfaces_operator_action_without_receipt(
+    locomo_run: SyntheticRun,
+    tmp_path: Path,
+) -> None:
+    transport = RecordingHttpTransport(locomo_run)
+    adapter = _adapter(locomo_run, transport)
+    state = tmp_path / "ambiguous-private-state"
+    first = _open_worker(
+        run=locomo_run,
+        state_directory=state,
+        boundary=_CrashBeforeHttpDispatch(adapter),
+        runtime_verifier=_RuntimeVerifier(locomo_run),
+    )
+    with pytest.raises(PublishableExtractionWorkerError):
+        first.advance_one()
+    first.close()
+
+    transport.status_unavailable = True
+    transport.dispatch_operator_action_required = True
+    reopened = _open_worker(
+        run=locomo_run,
+        state_directory=state,
+        boundary=adapter,
+        runtime_verifier=_RuntimeVerifier(locomo_run),
+    )
+    with pytest.raises(
+        PublishableExtractionWorkerError,
+        match="extraction_recovery_operator_action_required",
+    ):
+        reopened.reconcile_one()
+    assert sum(str(item["url"]).endswith("/dispatch") for item in transport.calls) == 1
+    assert reopened.advance_one().phase is PublishableExtractionAdvancePhase.RECONCILIATION_REQUIRED
     reopened.close()
 
 

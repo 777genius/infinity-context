@@ -37,6 +37,9 @@ PUBLISHABLE_INPUT_CLI_SCHEMA = "memory-comparison-publishable-input-cli.v1"
 PUBLISHABLE_INPUT_CLI_SUCCESS = 0
 PUBLISHABLE_INPUT_CLI_FAILURE = 2
 PUBLISHABLE_INPUT_CLI_INCOMPLETE = 3
+_EXTRACTION_RECOVERY_OPERATOR_CODE = (
+    "publishable_input_extraction_recovery_operator_action_required"
+)
 
 CompositionOpener = Callable[..., Awaitable[PublishableInputPreparationComposition]]
 
@@ -165,6 +168,16 @@ def main(
             separators=(",", ":"),
             sort_keys=True,
         )
+    except PublishableInputPreparationError as exc:
+        print(
+            _failure_json(
+                extraction_recovery_operator_action_required=(
+                    exc.code == _EXTRACTION_RECOVERY_OPERATOR_CODE
+                )
+            ),
+            file=sys.stderr,
+        )
+        return PUBLISHABLE_INPUT_CLI_FAILURE
     except (Exception, KeyboardInterrupt):
         print(_failure_json(), file=sys.stderr)
         return PUBLISHABLE_INPUT_CLI_FAILURE
@@ -258,13 +271,22 @@ def _close_session(session: object) -> None:
             close()
 
 
-def _failure_json() -> str:
+def _failure_json(*, extraction_recovery_operator_action_required: bool = False) -> str:
+    payload = {
+        "ok": False,
+        "reason_code": (
+            _EXTRACTION_RECOVERY_OPERATOR_CODE
+            if extraction_recovery_operator_action_required
+            else "publishable_input_preparation_failed"
+        ),
+        "schema_version": PUBLISHABLE_INPUT_CLI_SCHEMA,
+    }
+    if extraction_recovery_operator_action_required:
+        payload["operator_action"] = (
+            "stop-retain-private-state-and-escalate-manual-receipt-reconciliation"
+        )
     return json.dumps(
-        {
-            "ok": False,
-            "reason_code": "publishable_input_preparation_failed",
-            "schema_version": PUBLISHABLE_INPUT_CLI_SCHEMA,
-        },
+        payload,
         allow_nan=False,
         ensure_ascii=True,
         separators=(",", ":"),

@@ -26,6 +26,7 @@ from infinity_context_server.processes.publishable_full_extraction_contracts imp
     PublishableExtractionAdvance,
     PublishableExtractionAdvancePhase,
     PublishableExtractionRunTerminal,
+    PublishableExtractionWorkerError,
 )
 from infinity_context_server.processes.publishable_full_extraction_suite import (
     PUBLISHABLE_EXTRACTION_BENCHMARKS,
@@ -660,6 +661,10 @@ def _advance(worker: _ExtractionWorkerPort) -> PublishableExtractionAdvance:
         result = worker.advance_one()
     except PublishableInputPreparationError:
         raise
+    except PublishableExtractionWorkerError as exc:
+        if exc.code == "extraction_recovery_operator_action_required":
+            _fail("publishable_input_extraction_recovery_operator_action_required")
+        _fail("publishable_input_extraction_advance_failed")
     except Exception:
         _fail("publishable_input_extraction_advance_failed")
     if type(result) is not PublishableExtractionAdvance:
@@ -672,6 +677,10 @@ def _reconcile(worker: _ExtractionWorkerPort) -> PublishableExtractionAdvance:
         result = worker.reconcile_one()
     except PublishableInputPreparationError:
         raise
+    except PublishableExtractionWorkerError as exc:
+        if exc.code == "extraction_recovery_operator_action_required":
+            _fail("publishable_input_extraction_recovery_operator_action_required")
+        _fail("publishable_input_extraction_reconciliation_failed")
     except Exception:
         _fail("publishable_input_extraction_reconciliation_failed")
     if type(result) is not PublishableExtractionAdvance:

@@ -34,11 +34,13 @@ from infinity_context_server.memory_comparison_mem0_oss_v5_contracts import (
     Mem0OssFullRunAdmission,
     canonical_sha256,
 )
+from infinity_context_server.memory_comparison_mem0_oss_v5_http import Mem0V5HttpError
 from infinity_context_server.memory_comparison_target_identity import (
     mem0_runtime_target_identity_sha256,
 )
 from infinity_context_server.processes.publishable_full_extraction_contracts import (
     PublishableExtractionCommand,
+    PublishableExtractionRecoveryError,
     PublishableExtractionRunAuthority,
 )
 from infinity_context_server.resumable_operation_journal.domain import sha256_commitment
@@ -172,6 +174,23 @@ class PublishableManagedMem0V5HttpAdapter:
             operation_id_sha256=command.operation_id_sha256,
             admission=self._admission,
         )
+
+    def recover_once(self, *, command: PublishableExtractionCommand) -> object:
+        """Probe the exact dispatch key; adapter HMAC state gates any provider call."""
+
+        unit = self._bound_unit(command)
+        self._ensure_admitted()
+        try:
+            return self._lane.dispatch(
+                authority=self._manifest,
+                unit=unit,
+                operation_id_sha256=command.operation_id_sha256,
+                admission=self._admission,
+            )
+        except Mem0V5HttpError as exc:
+            if exc.code == "mem0_v5_dispatch_recovery_operator_action_required":
+                raise PublishableExtractionRecoveryError("operator_action_required") from None
+            raise
 
     def _ensure_admitted(self) -> None:
         with self._admission_lock:

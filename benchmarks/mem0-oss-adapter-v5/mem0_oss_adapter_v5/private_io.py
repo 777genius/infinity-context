@@ -60,4 +60,31 @@ def atomic_private_write(path: Path, content: bytes) -> None:
             os.unlink(temporary)
 
 
-__all__ = ("atomic_private_write", "private_directory", "read_private_bytes", "read_private_json")
+def ensure_private_file_durable(path: Path) -> None:
+    """Flush one already-written private file and its directory before promotion."""
+
+    if not path.is_absolute() or path.is_symlink() or not path.is_file():
+        raise ValueError("adapter_configuration_invalid")
+    flags = os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0)
+    descriptor = os.open(path, flags)
+    try:
+        file_stat = os.fstat(descriptor)
+        if not stat.S_ISREG(file_stat.st_mode) or file_stat.st_mode & (stat.S_IRWXG | stat.S_IRWXO):
+            raise ValueError("adapter_configuration_invalid")
+        os.fsync(descriptor)
+    finally:
+        os.close(descriptor)
+    directory = os.open(path.parent, os.O_RDONLY | getattr(os, "O_DIRECTORY", 0))
+    try:
+        os.fsync(directory)
+    finally:
+        os.close(directory)
+
+
+__all__ = (
+    "atomic_private_write",
+    "ensure_private_file_durable",
+    "private_directory",
+    "read_private_bytes",
+    "read_private_json",
+)

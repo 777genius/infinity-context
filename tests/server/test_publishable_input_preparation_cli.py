@@ -12,6 +12,7 @@ from infinity_context_server.publishable_input_preparation.cli import (
 )
 from infinity_context_server.publishable_input_preparation.contracts import (
     OpenedPublishableInputPreparationSession,
+    PublishableInputPreparationError,
     PublishableInputPreparationPhase,
     PublishableInputPreparationProviderInputs,
     PublishableInputPreparationResult,
@@ -218,6 +219,57 @@ def test_cli_returns_distinct_incomplete_status_and_fixed_recovery_ceiling(
     assert payload["retrieval_group_count"] == 3_080
     assert payload["subscription_step_count"] == 17
     assert payload["extraction_boundary_operation_upper_bound"] == 130_226 + 17
+
+
+def test_cli_surfaces_explicit_extraction_recovery_operator_action(
+    tmp_path: Path,
+    capsys,
+) -> None:
+    files = private_run_files(tmp_path)
+    input_config, input_secrets = _provider_files(files)
+    composition = _Composition(_result(complete=False))
+
+    def fail_closed(*, max_subscription_steps: int):
+        assert max_subscription_steps == 1
+        raise PublishableInputPreparationError(
+            "publishable_input_extraction_recovery_operator_action_required"
+        )
+
+    composition.dispatch_subscription_phase = fail_closed  # type: ignore[method-assign]
+
+    async def open_composition(**_arguments):
+        return composition
+
+    status = main(
+        [
+            "--private-root",
+            str(files.root),
+            "--config",
+            str(files.config_path),
+            "--secrets",
+            str(files.secrets_path),
+            "--input-provider-config",
+            str(input_config),
+            "--input-provider-secrets",
+            str(input_secrets),
+            "--max-extraction-steps",
+            "1",
+            "--allow-subscription-dispatch",
+        ],
+        dependency_factory=_Factory(),
+        composition_opener=open_composition,
+    )
+
+    captured = capsys.readouterr()
+    assert status == PUBLISHABLE_INPUT_CLI_FAILURE
+    assert captured.out == ""
+    assert json.loads(captured.err) == {
+        "ok": False,
+        "operator_action": ("stop-retain-private-state-and-escalate-manual-receipt-reconciliation"),
+        "reason_code": "publishable_input_extraction_recovery_operator_action_required",
+        "schema_version": "memory-comparison-publishable-input-cli.v1",
+    }
+    assert composition.closed is True
 
 
 def test_publishable_input_command_is_installed() -> None:

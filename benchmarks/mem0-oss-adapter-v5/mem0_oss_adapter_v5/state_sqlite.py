@@ -16,7 +16,7 @@ from enum import StrEnum
 from pathlib import Path
 
 _SHA256 = re.compile(r"^[0-9a-f]{64}$")
-_SCHEMA_VERSION = 2
+_SCHEMA_VERSION = 3
 _CREATE_OPERATIONS = """CREATE TABLE IF NOT EXISTS operations_v2 (
   unit_identity_sha256 TEXT PRIMARY KEY,
   request_sha256 TEXT NOT NULL,
@@ -41,6 +41,12 @@ _CREATE_OPERATIONS = """CREATE TABLE IF NOT EXISTS operations_v2 (
 ) STRICT"""
 _CREATE_META = """CREATE TABLE IF NOT EXISTS adapter_state_meta (
   singleton INTEGER PRIMARY KEY CHECK(singleton = 1),
+  schema_version INTEGER NOT NULL CHECK(schema_version = 3),
+  structural_fingerprint TEXT NOT NULL,
+  schema_hmac TEXT NOT NULL
+) STRICT"""
+_CREATE_META_V2 = """CREATE TABLE IF NOT EXISTS adapter_state_meta (
+  singleton INTEGER PRIMARY KEY CHECK(singleton = 1),
   schema_version INTEGER NOT NULL CHECK(schema_version = 2),
   structural_fingerprint TEXT NOT NULL,
   schema_hmac TEXT NOT NULL
@@ -55,6 +61,13 @@ _EXPECTED_TABLES = {
     "adapter_state_meta": _stored_sql(_CREATE_META),
     "operations_v2": _stored_sql(_CREATE_OPERATIONS),
 }
+_V2_EXPECTED_TABLES = {
+    "adapter_state_meta": _stored_sql(_CREATE_META_V2),
+    "operations_v2": _stored_sql(_CREATE_OPERATIONS),
+}
+_V2_STRUCTURAL_FINGERPRINT = hashlib.sha256(
+    json.dumps(_V2_EXPECTED_TABLES, sort_keys=True, separators=(",", ":")).encode()
+).hexdigest()
 STRUCTURAL_FINGERPRINT = hashlib.sha256(
     json.dumps(_EXPECTED_TABLES, sort_keys=True, separators=(",", ":")).encode()
 ).hexdigest()
@@ -95,6 +108,7 @@ class OperationRecord:
 @dataclass(frozen=True, slots=True)
 class RecoveryReport:
     retryable_reserved: tuple[str, ...]
+    retryable_dispatched: tuple[str, ...]
     resumable_receipt_durable: tuple[str, ...]
     resumable_storage_verified: tuple[str, ...]
     outcome_unknown: tuple[str, ...]
@@ -105,6 +119,7 @@ class SqliteOperationState:
 
     def __init__(self, path: Path, *, hmac_key: bytes) -> None:
         self._path = _prepare_private_path(path)
+        existed_before_open = self._path.exists()
         if not isinstance(hmac_key, bytes) or len(hmac_key) < 32:
             raise ValueError("state HMAC key must contain at least 32 bytes")
         self._hmac_key = hmac_key
@@ -122,10 +137,21 @@ class SqliteOperationState:
                 raise StateError("operation state requires SQLite DELETE journal mode")
             self._connection.execute("PRAGMA synchronous=FULL")
             self._connection.execute("PRAGMA foreign_keys=ON")
-            self._connection.execute(_CREATE_OPERATIONS)
-            self._connection.execute(_CREATE_META)
             os.chmod(self._path, stat.S_IRUSR | stat.S_IWUSR)
-            self._initialize_and_verify_schema()
+            existing_tables = self._user_table_names()
+            if existed_before_open:
+                if existing_tables != set(_EXPECTED_TABLES):
+                    raise StateTamperedError("operation state schema authentication failed")
+                self._migrate_authenticated_v2()
+                self._verify_schema()
+            else:
+                if existing_tables:
+                    raise StateTamperedError(
+                        "operation state appeared concurrently during initialization"
+                    )
+                self._connection.execute(_CREATE_OPERATIONS)
+                self._connection.execute(_CREATE_META)
+                self._initialize_and_verify_schema()
             self.verify_all()
         except Exception:
             self._connection.close()
@@ -172,9 +198,27 @@ class SqliteOperationState:
         )
 
     def mark_dispatched(self, unit_identity_sha256: str) -> OperationRecord:
+        """Durably record pre-transport intent and authenticated call absence."""
+
         return self._transition(
             unit_identity_sha256, OperationState.RESERVED, OperationState.DISPATCHED
         )
+
+    def claim_provider_call(self, unit_identity_sha256: str) -> OperationRecord:
+        """Atomically claim the one physical provider call before transport begins."""
+
+        identity = _digest(unit_identity_sha256, "unit identity")
+        with self._transaction():
+            current = self._get_in_transaction(identity)
+            if current.state is not OperationState.DISPATCHED:
+                raise StateError(
+                    f"provider call claim requires DISPATCHED, got {current.state.value}"
+                )
+            if current.outcome_unknown:
+                raise StateError("physical provider call was already claimed")
+            updated = dataclass_replace(current, outcome_unknown=True)
+            self._write_record(updated, expected=current)
+        return updated
 
     def mark_receipt_durable(
         self, unit_identity_sha256: str, receipt_sha256: str
@@ -184,7 +228,8 @@ class SqliteOperationState:
             OperationState.DISPATCHED,
             OperationState.RECEIPT_DURABLE,
             runtime_receipt_sha256=_digest(receipt_sha256, "runtime receipt"),
-            require_known_outcome=True,
+            require_provider_call_claim=True,
+            clear_provider_call_claim=True,
         )
 
     def mark_storage_verified(
@@ -242,8 +287,6 @@ class SqliteOperationState:
             }
             if current.state not in allowed:
                 raise StateError("operation state cannot enter abort cleanup")
-            if current.state is OperationState.DISPATCHED and not current.outcome_unknown:
-                raise StateError("known dispatched operation cannot enter abort cleanup")
             updated = dataclass_replace(
                 current,
                 state=OperationState.ABORT_CLEANED,
@@ -276,17 +319,18 @@ class SqliteOperationState:
         return tuple(by_identity[identity] for identity in identities)
 
     def recover(self) -> RecoveryReport:
-        """Quarantine dispatched operations; never make a provider call retryable."""
+        """Classify authenticated pre-call absence separately from ambiguous calls."""
 
-        with self._transaction():
-            records = self._all_in_transaction()
-            for record in records:
-                if record.state is OperationState.DISPATCHED and not record.outcome_unknown:
-                    quarantined = dataclass_replace(record, outcome_unknown=True)
-                    self._write_record(quarantined, expected=record)
+        with self._lock:
+            self._verify_schema()
             records = self._all_in_transaction()
         return RecoveryReport(
             retryable_reserved=_identities(records, OperationState.RESERVED),
+            retryable_dispatched=tuple(
+                record.unit_identity_sha256
+                for record in records
+                if record.state is OperationState.DISPATCHED and not record.outcome_unknown
+            ),
             resumable_receipt_durable=_identities(records, OperationState.RECEIPT_DURABLE),
             resumable_storage_verified=_identities(records, OperationState.STORAGE_VERIFIED),
             outcome_unknown=tuple(
@@ -324,7 +368,8 @@ class SqliteOperationState:
         runtime_receipt_sha256: str | None = None,
         storage_commitment_sha256: str | None = None,
         tombstone_commitment_sha256: str | None = None,
-        require_known_outcome: bool = False,
+        require_provider_call_claim: bool = False,
+        clear_provider_call_claim: bool = False,
     ) -> OperationRecord:
         identity = _digest(identity_value, "unit identity")
         with self._transaction():
@@ -335,8 +380,8 @@ class SqliteOperationState:
                     f"got {current.state.value}"
                 )
                 raise StateError(message)
-            if require_known_outcome and current.outcome_unknown:
-                raise StateError("outcome-unknown dispatch cannot accept a late receipt")
+            if require_provider_call_claim and not current.outcome_unknown:
+                raise StateError("receipt requires an authenticated provider call claim")
             updated = dataclass_replace(
                 current,
                 state=next_state,
@@ -347,6 +392,7 @@ class SqliteOperationState:
                 tombstone_commitment_sha256=(
                     tombstone_commitment_sha256 or current.tombstone_commitment_sha256
                 ),
+                outcome_unknown=(False if clear_provider_call_claim else current.outcome_unknown),
             )
             self._write_record(updated, expected=current)
         return updated
@@ -452,6 +498,84 @@ class SqliteOperationState:
                 (_SCHEMA_VERSION, STRUCTURAL_FINGERPRINT, schema_hmac),
             )
         self._verify_schema()
+
+    def _user_table_names(self) -> set[str]:
+        try:
+            return {
+                str(row[0])
+                for row in self._connection.execute(
+                    "SELECT name FROM sqlite_master "
+                    "WHERE type = 'table' AND name NOT LIKE 'sqlite_%'"
+                ).fetchall()
+            }
+        except sqlite3.Error as exc:
+            raise StateTamperedError("operation state schema authentication failed") from exc
+
+    def _migrate_authenticated_v2(self) -> None:
+        """Conservatively migrate authentic v2 rows without inferring call absence."""
+
+        try:
+            meta = self._connection.execute(
+                "SELECT schema_version, structural_fingerprint, schema_hmac FROM adapter_state_meta"
+            ).fetchall()
+        except sqlite3.Error as exc:
+            raise StateTamperedError("operation state schema authentication failed") from exc
+        if not meta or meta[0][0] != 2:
+            return
+        self._connection.execute("BEGIN IMMEDIATE")
+        try:
+            meta = self._connection.execute(
+                "SELECT schema_version, structural_fingerprint, schema_hmac FROM adapter_state_meta"
+            ).fetchall()
+            rows = self._connection.execute(
+                "SELECT type, name, sql FROM sqlite_master ORDER BY type, name"
+            ).fetchall()
+            tables = {
+                name: " ".join(str(sql).split())
+                for kind, name, sql in rows
+                if kind == "table" and not str(name).startswith("sqlite_")
+            }
+            unexpected = [
+                (kind, name)
+                for kind, name, sql in rows
+                if kind in {"trigger", "view"} or (kind == "index" and sql is not None)
+            ]
+            expected_hmac = _hmac(
+                self._hmac_key,
+                {"schema_version": 2, "fingerprint": _V2_STRUCTURAL_FINGERPRINT},
+            )
+            if (
+                tables != _V2_EXPECTED_TABLES
+                or unexpected
+                or len(meta) != 1
+                or meta[0][:2] != (2, _V2_STRUCTURAL_FINGERPRINT)
+                or not isinstance(meta[0][2], str)
+                or not hmac.compare_digest(meta[0][2], expected_hmac)
+            ):
+                raise StateTamperedError("operation state schema authentication failed")
+            records = self._all_in_transaction()
+            for record in records:
+                if record.state is OperationState.DISPATCHED and not record.outcome_unknown:
+                    self._write_record(
+                        dataclass_replace(record, outcome_unknown=True),
+                        expected=record,
+                    )
+            self._connection.execute("DROP TABLE adapter_state_meta")
+            self._connection.execute(_CREATE_META)
+            schema_hmac = _hmac(
+                self._hmac_key,
+                {"schema_version": _SCHEMA_VERSION, "fingerprint": STRUCTURAL_FINGERPRINT},
+            )
+            self._connection.execute(
+                "INSERT INTO adapter_state_meta VALUES (1, ?, ?, ?)",
+                (_SCHEMA_VERSION, STRUCTURAL_FINGERPRINT, schema_hmac),
+            )
+            self._connection.execute("COMMIT")
+        except Exception as exc:
+            self._connection.execute("ROLLBACK")
+            if isinstance(exc, StateTamperedError):
+                raise
+            raise StateTamperedError("authenticated v2 migration failed") from exc
 
     def _verify_schema(self) -> None:
         rows = self._connection.execute(
@@ -593,7 +717,7 @@ def _validate_record_semantics(record: OperationRecord) -> None:
             raise ValueError("abort cleanup receipt evidence differs from origin")
         if (record.storage_commitment_sha256 is not None) != requires_storage:
             raise ValueError("abort cleanup storage evidence differs from origin")
-        if record.outcome_unknown != (origin is OperationState.DISPATCHED):
+        if record.outcome_unknown and origin is not OperationState.DISPATCHED:
             raise ValueError("abort cleanup dispatch outcome differs from origin")
         return
     if record.abort_origin_state is not None or record.abort_result_sha256 is not None:

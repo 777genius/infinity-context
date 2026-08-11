@@ -49,6 +49,17 @@ class PublishableExtractionWorkerError(RuntimeError):
         super().__init__(code)
 
 
+class PublishableExtractionRecoveryError(RuntimeError):
+    """Fail-closed result of an explicit exact-idempotent recovery probe."""
+
+    __slots__ = ("code",)
+
+    def __init__(self, code: str) -> None:
+        safe = code if code == "operator_action_required" else "dispatch_recovery_failed"
+        self.code = safe
+        super().__init__(safe)
+
+
 class PublishableExtractionAdvancePhase(StrEnum):
     OPERATION_COMMITTED = "operation_committed"
     RECONCILIATION_REQUIRED = "reconciliation_required"
@@ -178,11 +189,13 @@ class PublishableExtractionCommand:
 
 
 class PublishableExtractionOneShotPort(Protocol):
-    """Outer adapter performs no implicit retry and status never dispatches."""
+    """Status is read-only; recovery explicitly probes the exact dispatch key."""
 
     def dispatch_once(self, *, command: PublishableExtractionCommand) -> object: ...
 
     def lookup_outcome(self, *, command: PublishableExtractionCommand) -> object: ...
+
+    def recover_once(self, *, command: PublishableExtractionCommand) -> object: ...
 
 
 class PublishableExtractionOperationReceiptIssuerPort(Protocol):
@@ -393,6 +406,7 @@ __all__ = (
     "PublishableExtractionCommand",
     "PublishableExtractionOneShotPort",
     "PublishableExtractionOperationReceiptIssuerPort",
+    "PublishableExtractionRecoveryError",
     "PublishableExtractionRunAuthority",
     "PublishableExtractionRunTerminal",
     "PublishableExtractionWorkerError",

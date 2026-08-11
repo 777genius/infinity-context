@@ -45,7 +45,8 @@ class _Runtime:
     def __init__(self) -> None:
         self.calls = 0
 
-    def extract(self, request, intent):
+    def extract(self, request, intent, *, before_dispatch, persist_result):
+        before_dispatch(intent)
         self.calls += 1
         memory = ExtractionMemory(
             id="0",
@@ -53,12 +54,14 @@ class _Runtime:
             attributed_to="user",
             linked_memory_ids=(),
         )
-        return RuntimeExtractionResult(
+        result = RuntimeExtractionResult(
             intent=intent,
             memories=(memory,),
             receipt=_issued_receipt(request.request_body_sha256),
             output_text_sha256=_sha("output"),
         )
+        persist_result(result)
+        return result
 
 
 def _issued_receipt(request_body_sha256: str):

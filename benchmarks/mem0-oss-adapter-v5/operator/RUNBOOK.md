@@ -222,3 +222,33 @@ one-shot, run-bound capability that requires the official admission,
 credential binding, authority, and complete scope inventory. Inventing those
 values here would mutate and contaminate the accepted state; the official run
 must compose and persist that proof at its pre-dispatch boundary.
+
+## Extraction dispatch recovery
+
+An adapter response with detail
+`dispatch_recovery_operator_action_required` means the authenticated state
+proves that the physical provider call was claimed, but no exact verified
+result is durable. Do not replay `run_2040`, the operation dispatch request, or
+the provider completion. The pinned e904 route has no authenticated status API
+that can reconstruct the missing output, and its receipt alone is not the
+output authority.
+
+The outer input-preparation CLI surfaces the same stop condition as reason code
+`publishable_input_extraction_recovery_operator_action_required` and operator
+action `stop-retain-private-state-and-escalate-manual-receipt-reconciliation`.
+
+Stop the run, retain the private SQLite database, result directory, scheduler
+journal, and provider receipts for audit, then invoke only the run's
+authenticated abort/cleanup procedure using its already-bound operation
+inventory. Escalate for manual receipt reconciliation before starting a new
+run. Never edit the state bit, copy another operation's result, treat a 404 as
+provider absence, or synthesize an empty extraction result.
+
+Normal automated reopen is narrower than manual replay: the full-extraction
+worker first performs read-only status and may then issue one explicit
+operation-bound recovery probe. The adapter authenticates its durable state
+before that probe can reach the provider. A proven pre-call absence permits the
+single original call, a durable result is returned without a call, and a
+claimed operation without a result returns the operator-action error above.
+Authenticated schema-v2 `DISPATCHED` rows migrate as claimed/ambiguous; they
+never acquire a fabricated pre-call-absence proof.

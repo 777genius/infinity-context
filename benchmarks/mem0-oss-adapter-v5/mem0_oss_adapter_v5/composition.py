@@ -1,11 +1,9 @@
 from __future__ import annotations
 
 import hashlib
-import hmac
 import threading
-from dataclasses import asdict, dataclass
+from dataclasses import asdict
 from pathlib import Path
-from typing import Protocol
 
 from mem0_oss_adapter_v5.admission_evidence import bind_admission, bind_cleanup_authority
 from mem0_oss_adapter_v5.app import AdapterServiceError
@@ -30,9 +28,17 @@ from mem0_oss_adapter_v5.domain import (
     ExtractionMemory,
     OperationDispatchIntent,
     RuntimeExtractionResult,
-    canonical_json_bytes,
     canonical_sha256,
 )
+from mem0_oss_adapter_v5.durable_result import (
+    DurableResult as _DurableResult,
+)
+from mem0_oss_adapter_v5.durable_result import (
+    ReceiptAuthority as _ReceiptAuthority,
+)
+from mem0_oss_adapter_v5.durable_result import digest as _digest
+from mem0_oss_adapter_v5.durable_result import encode_result as _encode_result
+from mem0_oss_adapter_v5.durable_result import parse_result as _parse_result
 from mem0_oss_adapter_v5.evidence_composition import V5EvidenceComposition
 from mem0_oss_adapter_v5.evidence_contracts import ExpectedMemoryCommitment
 from mem0_oss_adapter_v5.extraction_contract import build_extraction_request
@@ -60,6 +66,9 @@ from mem0_oss_adapter_v5.mem0_storage import (
     independent_snapshot,
 )
 from mem0_oss_adapter_v5.private_io import atomic_private_write as _atomic_private_write
+from mem0_oss_adapter_v5.private_io import (
+    ensure_private_file_durable as _ensure_private_file_durable,
+)
 from mem0_oss_adapter_v5.private_io import private_directory as _private_directory
 from mem0_oss_adapter_v5.private_io import read_private_json as _read_private_json
 from mem0_oss_adapter_v5.request_binding import (
@@ -81,28 +90,6 @@ from mem0_oss_adapter_v5.subscription_runtime import (
 )
 
 _EMPTY_SHA256 = hashlib.sha256(b"").hexdigest()
-
-
-class _ReceiptAuthority(Protocol):
-    def verify(self, **kwargs: object) -> str: ...
-
-
-@dataclass(frozen=True, slots=True)
-class _DurableReceipt:
-    model: RuntimeReceiptV2
-    receipt_sha256: str
-
-    def public_payload(self) -> dict[str, object]:
-        return self.model.model_dump(mode="json", exclude_none=True)
-
-
-@dataclass(frozen=True, slots=True)
-class _DurableResult:
-    intent: OperationDispatchIntent
-    memories: tuple[ExtractionMemory, ...]
-    receipt: _DurableReceipt
-    output_text_sha256: str
-    commitment_sha256: str
 
 
 class V5AdapterService:
@@ -226,26 +213,97 @@ class V5AdapterService:
             if record.state is OperationState.ADMITTED:
                 self._state.reserve(unit.unit_identity_sha256)
                 record = self._state.get(unit.unit_identity_sha256)
-            if record.state is not OperationState.RESERVED:
+            if record.state is OperationState.DISPATCHED:
+                self._resume_unit(unit)
+                record = self._state.get(unit.unit_identity_sha256)
+                if record.state in {
+                    OperationState.RECEIPT_DURABLE,
+                    OperationState.STORAGE_VERIFIED,
+                    OperationState.COMMITTED,
+                }:
+                    self._resume_unit(unit)
+                    return _envelope(
+                        self._read_result(
+                            request.operation_id_sha256,
+                            expected=unit,
+                            record=self._state.get(unit.unit_identity_sha256),
+                        )
+                    )
+                if record.outcome_unknown:
+                    raise AdapterServiceError(
+                        "dispatch_recovery_operator_action_required",
+                        status_code=503,
+                    )
+            if record.state not in {OperationState.RESERVED, OperationState.DISPATCHED}:
                 raise AdapterServiceError("dispatch_conflict")
             extraction = self._extraction_request(unit)
             intent = _intent(request)
             if extraction.request_body_sha256 != request.request_body_sha256:
                 raise AdapterServiceError("request_binding_invalid", status_code=400)
-            self._state.mark_dispatched(unit.unit_identity_sha256)
+            if record.state is OperationState.RESERVED:
+                self._state.mark_dispatched(unit.unit_identity_sha256)
             try:
-                result = self._runtime.extract(extraction, intent)
+                returned = self._runtime.extract(
+                    extraction,
+                    intent,
+                    before_dispatch=lambda observed: self._claim_provider_call(
+                        unit,
+                        expected=intent,
+                        observed=observed,
+                    ),
+                    persist_result=lambda result: self._persist_runtime_result(
+                        unit,
+                        expected=intent,
+                        result=result,
+                    ),
+                )
             except SubscriptionRuntimeError as exc:
-                if exc.outcome.redispatch_allowed:
+                record = self._state.get(unit.unit_identity_sha256)
+                if not record.outcome_unknown and (
+                    exc.outcome is None or exc.outcome.redispatch_allowed
+                ):
                     raise AdapterServiceError("dispatch_failed", status_code=503) from None
-                raise AdapterServiceError("status_unavailable", status_code=503) from None
-            self._write_result(result)
-            self._state.mark_receipt_durable(
-                unit.unit_identity_sha256,
-                result.receipt.receipt_sha256,
-            )
+                raise AdapterServiceError(
+                    "dispatch_recovery_operator_action_required",
+                    status_code=503,
+                ) from None
+            except Exception:
+                record = self._state.get(unit.unit_identity_sha256)
+                code = (
+                    "dispatch_recovery_operator_action_required"
+                    if record.outcome_unknown
+                    else "dispatch_failed"
+                )
+                raise AdapterServiceError(code, status_code=503) from None
+            try:
+                durable = self._read_result(
+                    request.operation_id_sha256,
+                    expected=unit,
+                    record=self._state.get(unit.unit_identity_sha256),
+                )
+                returned_commitment = returned.commitment_sha256
+            except Exception:
+                raise AdapterServiceError(
+                    "dispatch_recovery_operator_action_required",
+                    status_code=503,
+                ) from None
+            if returned_commitment != durable.commitment_sha256:
+                raise AdapterServiceError(
+                    "dispatch_recovery_operator_action_required",
+                    status_code=503,
+                )
+            try:
+                self._state.mark_receipt_durable(
+                    unit.unit_identity_sha256,
+                    durable.receipt.receipt_sha256,
+                )
+            except Exception:
+                raise AdapterServiceError(
+                    "dispatch_recovery_operator_action_required",
+                    status_code=503,
+                ) from None
             self._resume_unit(unit)
-            return _envelope(result)
+            return _envelope(durable)
 
     def status(self, request: StatusRequest, *, idempotency_key: str) -> RuntimeReceiptEnvelope:
         del idempotency_key
@@ -255,11 +313,19 @@ class V5AdapterService:
             record = self._state.get(unit.unit_identity_sha256)
             if record.state in {OperationState.CLEANED, OperationState.ABORT_CLEANED}:
                 raise AdapterServiceError("operation_cleaned", status_code=410)
+            if record.state is OperationState.DISPATCHED:
+                self._resume_unit(unit)
+                record = self._state.get(unit.unit_identity_sha256)
             if record.state not in {
                 OperationState.RECEIPT_DURABLE,
                 OperationState.STORAGE_VERIFIED,
                 OperationState.COMMITTED,
             }:
+                if record.state is OperationState.DISPATCHED and record.outcome_unknown:
+                    raise AdapterServiceError(
+                        "dispatch_recovery_operator_action_required",
+                        status_code=503,
+                    )
                 raise AdapterServiceError("status_unavailable", status_code=503)
             return _envelope(
                 self._read_result(
@@ -696,19 +762,75 @@ class V5AdapterService:
             except Exception:
                 raise AdapterServiceError("storage_verification_failed") from None
 
+    def _claim_provider_call(
+        self,
+        unit: _InputUnit,
+        *,
+        expected: OperationDispatchIntent,
+        observed: OperationDispatchIntent,
+    ) -> None:
+        if type(observed) is not OperationDispatchIntent or observed != expected:
+            raise AdapterServiceError(
+                "dispatch_recovery_operator_action_required",
+                status_code=503,
+            )
+        record = self._state.get(unit.unit_identity_sha256)
+        if (
+            record.state is not OperationState.DISPATCHED
+            or record.outcome_unknown
+            or record.request_sha256 != expected.request_body_sha256
+            or self._result_path(expected.operation_id_sha256).exists()
+        ):
+            raise AdapterServiceError(
+                "dispatch_recovery_operator_action_required",
+                status_code=503,
+            )
+        self._state.claim_provider_call(unit.unit_identity_sha256)
+
+    def _persist_runtime_result(
+        self,
+        unit: _InputUnit,
+        *,
+        expected: OperationDispatchIntent,
+        result: RuntimeExtractionResult,
+    ) -> None:
+        if type(result) is not RuntimeExtractionResult or result.intent != expected:
+            raise AdapterServiceError(
+                "dispatch_recovery_operator_action_required",
+                status_code=503,
+            )
+        record = self._state.get(unit.unit_identity_sha256)
+        if (
+            record.state is not OperationState.DISPATCHED
+            or not record.outcome_unknown
+            or record.request_sha256 != expected.request_body_sha256
+        ):
+            raise AdapterServiceError(
+                "dispatch_recovery_operator_action_required",
+                status_code=503,
+            )
+        path = self._result_path(expected.operation_id_sha256)
+        if not path.exists():
+            self._write_result(result)
+        durable = self._read_result(
+            expected.operation_id_sha256,
+            expected=unit,
+            record=record,
+        )
+        if durable.commitment_sha256 != result.commitment_sha256:
+            raise AdapterServiceError(
+                "dispatch_recovery_operator_action_required",
+                status_code=503,
+            )
+
     def _result_path(self, operation_id: str) -> Path:
         return self._receipt_directory / f"{_digest(operation_id)}.json"
 
     def _write_result(self, result: RuntimeExtractionResult) -> None:
-        payload = _result_payload(result)
-        signature = hmac.new(
-            self._result_hmac_key,
-            canonical_json_bytes(payload),
-            hashlib.sha256,
-        ).hexdigest()
-        signed = {**payload, "result_file_hmac_sha256": signature}
-        encoded = canonical_json_bytes(signed)
-        _atomic_private_write(self._result_path(result.intent.operation_id_sha256), encoded)
+        _atomic_private_write(
+            self._result_path(result.intent.operation_id_sha256),
+            _encode_result(result, hmac_key=self._result_hmac_key),
+        )
 
     def _read_result(
         self,
@@ -717,16 +839,21 @@ class V5AdapterService:
         expected: _InputUnit,
         record: OperationRecord | None = None,
     ) -> _DurableResult:
-        payload = _read_private_json(self._result_path(operation_id), maximum_bytes=1_048_576)
-        extraction = self._extraction_request(expected)
-        result = _parse_result(
-            payload,
-            hmac_key=self._result_hmac_key,
-            receipt_authority=self._receipt_authority,
-            request=extraction,
-            expected_account_binding_hmac_sha256=self._expected_account_binding,
-            expected_base_instructions_sha256=self._expected_base_instructions,
-        )
+        try:
+            payload = _read_private_json(self._result_path(operation_id), maximum_bytes=1_048_576)
+            extraction = self._extraction_request(expected)
+            result = _parse_result(
+                payload,
+                hmac_key=self._result_hmac_key,
+                receipt_authority=self._receipt_authority,
+                request=extraction,
+                expected_account_binding_hmac_sha256=self._expected_account_binding,
+                expected_base_instructions_sha256=self._expected_base_instructions,
+            )
+        except AdapterServiceError:
+            raise
+        except Exception:
+            raise AdapterServiceError("status_unavailable", status_code=503) from None
         if (
             result.intent.operation_id_sha256 != operation_id
             or result.intent.unit_identity_sha256 != expected.unit_identity_sha256
@@ -751,8 +878,21 @@ class V5AdapterService:
         record = self._state.get(unit.unit_identity_sha256)
         operation_id = self._operation_id(unit)
         if record.state is OperationState.DISPATCHED:
-            if not self._result_path(operation_id).exists():
+            result_path = self._result_path(operation_id)
+            if not result_path.exists():
                 return
+            if not record.outcome_unknown:
+                raise AdapterServiceError(
+                    "dispatch_recovery_operator_action_required",
+                    status_code=503,
+                )
+            try:
+                _ensure_private_file_durable(result_path)
+            except Exception:
+                raise AdapterServiceError(
+                    "dispatch_recovery_operator_action_required",
+                    status_code=503,
+                ) from None
             result = self._read_result(operation_id, expected=unit, record=record)
             self._state.mark_receipt_durable(
                 unit.unit_identity_sha256,
@@ -812,141 +952,7 @@ def _envelope(result: RuntimeExtractionResult | _DurableResult) -> RuntimeReceip
     )
 
 
-def _result_payload(result: RuntimeExtractionResult) -> dict[str, object]:
-    receipt = RuntimeReceiptV2.model_validate(result.receipt.public_payload())
-    return {
-        "schema_version": "mem0-oss-adapter-v5.durable-result.v1",
-        "intent": result.intent.commitment_payload(),
-        "memories": [
-            {
-                "id": item.id,
-                "text": item.text,
-                "attributed_to": item.attributed_to,
-                "linked_memory_ids": list(item.linked_memory_ids),
-            }
-            for item in result.memories
-        ],
-        "runtime_receipt": receipt.model_dump(mode="json", exclude_none=True),
-        "output_text_sha256": result.output_text_sha256,
-        "result_commitment_sha256": result.commitment_sha256,
-    }
-
-
-def _parse_result(
-    value: object,
-    *,
-    hmac_key: bytes,
-    receipt_authority: _ReceiptAuthority,
-    request: object,
-    expected_account_binding_hmac_sha256: str,
-    expected_base_instructions_sha256: str,
-) -> _DurableResult:
-    root = _exact_object(
-        value,
-        {
-            "schema_version",
-            "intent",
-            "memories",
-            "runtime_receipt",
-            "output_text_sha256",
-            "result_commitment_sha256",
-            "result_file_hmac_sha256",
-        },
-    )
-    signature = _digest(root["result_file_hmac_sha256"])
-    unsigned = {key: item for key, item in root.items() if key != "result_file_hmac_sha256"}
-    expected_signature = hmac.new(
-        hmac_key,
-        canonical_json_bytes(unsigned),
-        hashlib.sha256,
-    ).hexdigest()
-    if not hmac.compare_digest(signature, expected_signature):
-        raise AdapterServiceError("status_unavailable", status_code=503)
-    if root["schema_version"] != "mem0-oss-adapter-v5.durable-result.v1":
-        raise AdapterServiceError("status_unavailable", status_code=503)
-    intent = OperationDispatchIntent(
-        **_exact_object(root["intent"], set(DispatchRequest.model_fields))
-    )
-    memories_raw = root["memories"]
-    if type(memories_raw) is not list:
-        raise AdapterServiceError("status_unavailable", status_code=503)
-    memories = tuple(
-        ExtractionMemory(
-            id=_safe_text(item["id"]),
-            text=_safe_text(item["text"], maximum=16_384),
-            attributed_to=_safe_text(item["attributed_to"]),
-            linked_memory_ids=tuple(item["linked_memory_ids"]),
-        )
-        for raw in memories_raw
-        for item in (_exact_object(raw, {"id", "text", "attributed_to", "linked_memory_ids"}),)
-    )
-    try:
-        receipt_model = RuntimeReceiptV2.model_validate(root["runtime_receipt"])
-        receipt_payload = receipt_model.model_dump(
-            mode="json",
-            exclude_none=True,
-        )
-    except Exception:
-        raise AdapterServiceError("status_unavailable", status_code=503) from None
-    try:
-        verified_receipt_sha256 = receipt_authority.verify(
-            receipt=receipt_payload,
-            intent=intent,
-            request=request,
-            expected_account_binding_hmac_sha256=expected_account_binding_hmac_sha256,
-            expected_base_instructions_sha256=expected_base_instructions_sha256,
-            reasoning_effort="high",
-            service_tier="default",
-        )
-    except Exception:
-        raise AdapterServiceError("status_unavailable", status_code=503) from None
-    receipt_sha256 = canonical_sha256(receipt_payload)
-    if verified_receipt_sha256 != receipt_sha256:
-        raise AdapterServiceError("status_unavailable", status_code=503)
-    output_text_sha256 = _digest(root["output_text_sha256"])
-    commitment = canonical_sha256(
-        {
-            "intent": intent.commitment_payload(),
-            "memories": [item.commitment_payload() for item in memories],
-            "output_text_sha256": output_text_sha256,
-            "runtime_receipt_sha256": receipt_sha256,
-        }
-    )
-    result = _DurableResult(
-        intent=intent,
-        memories=memories,
-        receipt=_DurableReceipt(receipt_model, receipt_sha256),
-        output_text_sha256=output_text_sha256,
-        commitment_sha256=commitment,
-    )
-    if result.commitment_sha256 != root["result_commitment_sha256"]:
-        raise AdapterServiceError("status_unavailable", status_code=503)
-    return result
-
-
 def build_app_from_environment():
     from mem0_oss_adapter_v5.bootstrap import build_app_from_environment as build
 
     return build()
-
-
-def _exact_object(value: object, keys: set[str]) -> dict[str, object]:
-    if type(value) is not dict or set(value) != keys:
-        raise ValueError("exact_object_invalid")
-    return value
-
-
-def _digest(value: object) -> str:
-    if (
-        type(value) is not str
-        or len(value) != 64
-        or any(c not in "0123456789abcdef" for c in value)
-    ):
-        raise ValueError("digest_invalid")
-    return value
-
-
-def _safe_text(value: object, *, maximum: int = 512) -> str:
-    if type(value) is not str or not value or value != value.strip() or len(value) > maximum:
-        raise ValueError("text_invalid")
-    return value

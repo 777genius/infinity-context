@@ -79,6 +79,62 @@ def test_state_auditor_verifies_hmac_and_rejects_tamper(tmp_path) -> None:
         )
 
 
+def test_state_auditor_accepts_authenticated_operator_abort_terminal(tmp_path) -> None:
+    path = tmp_path / "aborted-operations.sqlite3"
+    key = b"k" * 32
+    connection = sqlite3.connect(path)
+    connection.execute(_CREATE_OPERATIONS)
+    connection.execute(_CREATE_META)
+    connection.execute(
+        "INSERT INTO adapter_state_meta VALUES (1, ?, ?, ?)",
+        (
+            _SCHEMA_VERSION,
+            _STRUCTURAL_FINGERPRINT,
+            _hmac(
+                key,
+                {
+                    "schema_version": _SCHEMA_VERSION,
+                    "fingerprint": _STRUCTURAL_FINGERPRINT,
+                },
+            ),
+        ),
+    )
+    payload = {
+        "abort_origin_state": "DISPATCHED",
+        "abort_result_sha256": "5" * 64,
+        "outcome_unknown": True,
+        "request_sha256": "2" * 64,
+        "runtime_receipt_sha256": None,
+        "state": "ABORT_CLEANED",
+        "storage_commitment_sha256": None,
+        "tombstone_commitment_sha256": "4" * 64,
+        "unit_identity_sha256": "1" * 64,
+    }
+    connection.execute(
+        "INSERT INTO operations_v2 VALUES (?, ?, ?, NULL, NULL, ?, ?, ?, 1, ?)",
+        (
+            "1" * 64,
+            "2" * 64,
+            "ABORT_CLEANED",
+            "4" * 64,
+            "DISPATCHED",
+            "5" * 64,
+            _hmac(key, payload),
+        ),
+    )
+    connection.commit()
+    connection.close()
+    os.chmod(path, 0o600)
+
+    evidence = IndependentStateAuditor(path=path, hmac_key=key).audit(
+        expected_identity="1" * 64,
+        expected_request_sha256="2" * 64,
+        expected_state="ABORT_CLEANED",
+    )
+    assert evidence.abort_origin_state == "DISPATCHED"
+    assert evidence.outcome_unknown is True
+
+
 class _Qdrant:
     collection = "mem0_oss_v5"
     entity_collection = "mem0_oss_v5_entities"

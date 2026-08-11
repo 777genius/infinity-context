@@ -12,14 +12,18 @@ from pydantic import ValidationError
 from test_app import _receipt
 from test_mem0_storage_cleanup import FakeMem0Backend
 
+import mem0_oss_adapter_v5.composition as composition_module
 from mem0_oss_adapter_v5.app import AdapterServiceError
 from mem0_oss_adapter_v5.composition import (
     SealedInputManifest,
     V5AdapterService,
     _atomic_private_write,
+    _intent,
 )
 from mem0_oss_adapter_v5.domain import (
     ExtractionMemory,
+    RuntimeCallDisposition,
+    RuntimeCallOutcome,
     RuntimeExtractionResult,
     _issue_sanitized_runtime_receipt,
     canonical_json_bytes,
@@ -36,7 +40,10 @@ from mem0_oss_adapter_v5.mem0_storage import Mem0StorageAdapter, independent_sna
 from mem0_oss_adapter_v5.runtime_attestation import V5RuntimeAuthorityProjection
 from mem0_oss_adapter_v5.source_authority import _issue_verified_source_authority
 from mem0_oss_adapter_v5.state_sqlite import OperationState, SqliteOperationState
-from mem0_oss_adapter_v5.subscription_runtime import SUBSCRIPTION_RUNTIME_ROUTE_SHA256
+from mem0_oss_adapter_v5.subscription_runtime import (
+    SUBSCRIPTION_RUNTIME_ROUTE_SHA256,
+    SubscriptionRuntimeError,
+)
 
 
 def _sha(value: str) -> str:
@@ -52,8 +59,21 @@ class _Runtime:
     def __init__(self) -> None:
         self.calls = 0
 
-    def extract(self, request, intent) -> RuntimeExtractionResult:
+    def extract(
+        self,
+        request,
+        intent,
+        *,
+        before_dispatch,
+        persist_result,
+    ) -> RuntimeExtractionResult:
+        before_dispatch(intent)
         self.calls += 1
+        result = self._result(request, intent)
+        persist_result(result)
+        return result
+
+    def _result(self, request, intent) -> RuntimeExtractionResult:
         payload = _receipt(request.request_body_sha256)
         receipt = _issue_sanitized_runtime_receipt(
             payload,
@@ -65,6 +85,77 @@ class _Runtime:
             receipt=receipt,
             output_text_sha256=_sha("output"),
         )
+
+
+class _HardDeath(BaseException):
+    """Uncatchable orchestration cut used before opening a fresh process state."""
+
+
+class _BoundaryRuntime(_Runtime):
+    def __init__(self, phase: str | None, paid_operations) -> None:
+        super().__init__()
+        self.phase = phase
+        self.paid_operations = paid_operations
+
+    def _cut(self, phase: str) -> None:
+        if self.phase == phase:
+            raise _HardDeath
+
+    def extract(
+        self,
+        request,
+        intent,
+        *,
+        before_dispatch,
+        persist_result,
+    ) -> RuntimeExtractionResult:
+        self._cut("before_claim")
+        before_dispatch(intent)
+        self._cut("after_claim")
+        self.calls += 1
+        self.paid_operations.append(intent.operation_id_sha256)
+        result = self._result(request, intent)
+        self._cut("after_provider_before_result")
+        persist_result(result)
+        self._cut("after_result_durable")
+        return result
+
+
+class _ProcessDeathRuntime(_BoundaryRuntime):
+    def _cut(self, phase: str) -> None:
+        if self.phase == phase:
+            os._exit(91)
+
+
+class _PaidOperationFile:
+    def __init__(self, path) -> None:
+        self.path = path
+
+    def append(self, operation_id: str) -> None:
+        descriptor = os.open(self.path, os.O_CREAT | os.O_APPEND | os.O_WRONLY, 0o600)
+        with os.fdopen(descriptor, "wb", buffering=0) as stream:
+            stream.write(f"{operation_id}\n".encode())
+            os.fsync(stream.fileno())
+
+    def entries(self) -> tuple[str, ...]:
+        return tuple(self.path.read_text().splitlines()) if self.path.exists() else ()
+
+
+class _PersistenceWrappingRuntime(_Runtime):
+    """Match production's attempted-call error after its durable sink rejects."""
+
+    def extract(self, request, intent, *, before_dispatch, persist_result):
+        before_dispatch(intent)
+        self.calls += 1
+        result = self._result(request, intent)
+        try:
+            persist_result(result)
+        except Exception:
+            raise SubscriptionRuntimeError(
+                "mem0_v5_subscription_result_persistence_failed",
+                outcome=RuntimeCallOutcome(intent, RuntimeCallDisposition.OUTCOME_UNKNOWN),
+            ) from None
+        return result
 
 
 class _Storage:
@@ -195,14 +286,48 @@ def _service(tmp_path, manifest, state, runtime, storage) -> V5AdapterService:
     )
 
 
+def _reopen(
+    tmp_path,
+    context: _Context,
+    *,
+    runtime: _Runtime,
+    storage=None,
+) -> _Context:
+    context.state.close()
+    state = SqliteOperationState(tmp_path / "state.sqlite3", hmac_key=b"h" * 32)
+    selected_storage = context.storage if storage is None else storage
+    service = _service(
+        tmp_path,
+        context.service._manifest,
+        state,
+        runtime,
+        selected_storage,
+    )
+    service.admit(context.admission, idempotency_key=_sha("reopen-admit"))
+    return _Context(
+        state,
+        runtime,
+        selected_storage,
+        service,
+        context.admission,
+        context.dispatch,
+        context.unit_identity,
+    )
+
+
 def _provider_result(context: _Context) -> RuntimeExtractionResult:
     unit = context.service._manifest.units[0]
     request = context.service._extraction_request(unit)
     intent = context.service._bound_unit(context.dispatch)
     del intent
-    from mem0_oss_adapter_v5.composition import _intent
-
-    return context.runtime.extract(request, _intent(context.dispatch))
+    return context.runtime.extract(
+        request,
+        _intent(context.dispatch),
+        before_dispatch=lambda _intent_snapshot: context.state.claim_provider_call(
+            context.unit_identity
+        ),
+        persist_result=lambda _result: None,
+    )
 
 
 def test_crash_after_durable_file_resumes_without_second_provider_call(tmp_path) -> None:
@@ -264,6 +389,387 @@ def test_tampered_durable_result_fails_before_state_promotion(tmp_path) -> None:
         context.service.admit(context.admission, idempotency_key=_sha("tampered"))
     assert context.runtime.calls == 1
     assert context.state.get(context.unit_identity).state is OperationState.DISPATCHED
+    context.state.close()
+
+
+def test_unclaimed_result_path_contradiction_blocks_provider_with_zero_calls(tmp_path) -> None:
+    context = _context(tmp_path)
+    context.state.reserve(context.unit_identity)
+    context.state.mark_dispatched(context.unit_identity)
+    path = context.service._result_path(context.dispatch.operation_id_sha256)
+    path.write_bytes(b"{}")
+    os.chmod(path, 0o600)
+
+    with pytest.raises(
+        AdapterServiceError,
+        match="dispatch_recovery_operator_action_required",
+    ):
+        context.service.dispatch(context.dispatch, idempotency_key=_sha("contradictory-result"))
+    record = context.state.get(context.unit_identity)
+    assert record.state is OperationState.DISPATCHED
+    assert record.outcome_unknown is False
+    assert context.runtime.calls == 0
+    context.state.close()
+
+
+def test_provider_output_binding_rejects_locally_authenticated_contradiction(tmp_path) -> None:
+    context = _context(tmp_path)
+    context.state.reserve(context.unit_identity)
+    context.state.mark_dispatched(context.unit_identity)
+    result = _provider_result(context)
+    context.service._write_result(result)
+    path = context.service._result_path(context.dispatch.operation_id_sha256)
+    payload = json.loads(path.read_text())
+    payload["output_text_sha256"] = _sha("contradict-provider-output")
+    payload["result_commitment_sha256"] = canonical_sha256(
+        {
+            "intent": payload["intent"],
+            "memories": [
+                {
+                    "attributed_to": item["attributed_to"],
+                    "id": item["id"],
+                    "linked_memory_ids": item["linked_memory_ids"],
+                    "text_sha256": _sha(item["text"]),
+                }
+                for item in payload["memories"]
+            ],
+            "output_text_sha256": payload["output_text_sha256"],
+            "runtime_receipt_sha256": canonical_sha256(payload["runtime_receipt"]),
+        }
+    )
+    unsigned = {key: value for key, value in payload.items() if key != "result_file_hmac_sha256"}
+    payload["result_file_hmac_sha256"] = hmac.new(
+        b"r" * 32,
+        canonical_json_bytes(unsigned),
+        hashlib.sha256,
+    ).hexdigest()
+    _atomic_private_write(path, canonical_json_bytes(payload))
+
+    with pytest.raises(AdapterServiceError, match="status_unavailable"):
+        context.service._read_result(
+            context.dispatch.operation_id_sha256,
+            expected=context.service._manifest.units[0],
+            record=context.state.get(context.unit_identity),
+        )
+    assert context.state.get(context.unit_identity).state is OperationState.DISPATCHED
+    context.state.close()
+
+
+def test_replace_without_directory_sync_never_promotes_in_failing_dispatch(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    context = _context(tmp_path)
+    runtime = _PersistenceWrappingRuntime()
+    context.runtime = runtime
+    context.service._runtime = runtime
+
+    def replace_then_fail(path, content):
+        path.write_bytes(content)
+        os.chmod(path, 0o600)
+        raise OSError("simulated directory fsync failure")
+
+    monkeypatch.setattr(composition_module, "_atomic_private_write", replace_then_fail)
+    with pytest.raises(
+        AdapterServiceError,
+        match="dispatch_recovery_operator_action_required",
+    ):
+        context.service.dispatch(context.dispatch, idempotency_key=_sha("fsync-failure"))
+    record = context.state.get(context.unit_identity)
+    assert record.state is OperationState.DISPATCHED
+    assert record.outcome_unknown is True
+    assert runtime.calls == 1
+    assert context.storage.persisted is False
+
+    def sync_still_fails(_path):
+        raise OSError("durability still unavailable")
+
+    monkeypatch.setattr(composition_module, "_ensure_private_file_durable", sync_still_fails)
+    with pytest.raises(
+        AdapterServiceError,
+        match="dispatch_recovery_operator_action_required",
+    ):
+        context.service.status(
+            StatusRequest(
+                admission_commitment_sha256=context.admission.admission_commitment_sha256,
+                operation_id_sha256=context.dispatch.operation_id_sha256,
+            ),
+            idempotency_key=_sha("fsync-status"),
+        )
+    assert context.state.get(context.unit_identity).state is OperationState.DISPATCHED
+
+
+def test_hard_death_before_provider_claim_reopens_authenticated_absence_exactly_once(
+    tmp_path,
+) -> None:
+    context = _context(tmp_path)
+    paid_operations: list[str] = []
+    context.runtime = _BoundaryRuntime("before_claim", paid_operations)
+    context.service._runtime = context.runtime
+
+    with pytest.raises(_HardDeath):
+        context.service.dispatch(context.dispatch, idempotency_key=_sha("first-dispatch"))
+    pre_dispatch = context.state.get(context.unit_identity)
+    assert pre_dispatch.state is OperationState.DISPATCHED
+    assert pre_dispatch.outcome_unknown is False
+    assert paid_operations == []
+
+    reopened = _reopen(
+        tmp_path,
+        context,
+        runtime=_BoundaryRuntime(None, paid_operations),
+    )
+    first = reopened.service.dispatch(
+        reopened.dispatch,
+        idempotency_key=_sha("exact-replay"),
+    )
+    second = reopened.service.dispatch(
+        reopened.dispatch,
+        idempotency_key=_sha("terminal-replay"),
+    )
+    assert first == second
+    assert paid_operations == [reopened.dispatch.operation_id_sha256]
+    assert reopened.state.get(reopened.unit_identity).state is OperationState.COMMITTED
+    reopened.state.close()
+
+
+def test_hard_death_after_runtime_result_sink_reopens_terminal_with_zero_calls(
+    tmp_path,
+) -> None:
+    context = _context(tmp_path)
+    paid_operations: list[str] = []
+    context.runtime = _BoundaryRuntime("after_result_durable", paid_operations)
+    context.service._runtime = context.runtime
+
+    with pytest.raises(_HardDeath):
+        context.service.dispatch(context.dispatch, idempotency_key=_sha("first-dispatch"))
+    assert context.service._result_path(context.dispatch.operation_id_sha256).exists()
+    claimed = context.state.get(context.unit_identity)
+    assert claimed.state is OperationState.DISPATCHED
+    assert claimed.outcome_unknown is True
+
+    reopened_runtime = _BoundaryRuntime("before_claim", paid_operations)
+    reopened = _reopen(tmp_path, context, runtime=reopened_runtime)
+    assert reopened.state.get(reopened.unit_identity).state is OperationState.COMMITTED
+    recovered = reopened.service.status(
+        StatusRequest(
+            admission_commitment_sha256=(reopened.admission.admission_commitment_sha256),
+            operation_id_sha256=reopened.dispatch.operation_id_sha256,
+        ),
+        idempotency_key=_sha("recovered-status"),
+    )
+    replayed = reopened.service.dispatch(
+        reopened.dispatch,
+        idempotency_key=_sha("recovered-replay"),
+    )
+    assert recovered == replayed
+    assert paid_operations == [reopened.dispatch.operation_id_sha256]
+    assert reopened_runtime.calls == 0
+    reopened.state.close()
+
+
+@pytest.mark.parametrize(
+    ("phase", "expected_paid_calls"),
+    (("after_claim", 0), ("after_provider_before_result", 1)),
+)
+def test_hard_death_without_exact_result_requires_operator_abort_and_never_redispatches(
+    tmp_path,
+    phase: str,
+    expected_paid_calls: int,
+) -> None:
+    context = _context(tmp_path)
+    backend = FakeMem0Backend()
+    storage = Mem0StorageAdapter(backend)
+    context.storage = storage  # type: ignore[assignment]
+    context.service._storage = storage
+    paid_operations: list[str] = []
+    context.runtime = _BoundaryRuntime(phase, paid_operations)
+    context.service._runtime = context.runtime
+
+    with pytest.raises(_HardDeath):
+        context.service.dispatch(context.dispatch, idempotency_key=_sha("first-dispatch"))
+    assert len(paid_operations) == expected_paid_calls
+    assert not context.service._result_path(context.dispatch.operation_id_sha256).exists()
+
+    trap = _BoundaryRuntime(None, paid_operations)
+    reopened = _reopen(tmp_path, context, runtime=trap, storage=storage)
+    for suffix in ("one", "two"):
+        with pytest.raises(
+            AdapterServiceError,
+            match="dispatch_recovery_operator_action_required",
+        ):
+            reopened.service.dispatch(
+                reopened.dispatch,
+                idempotency_key=_sha(f"blocked-dispatch-{suffix}"),
+            )
+        with pytest.raises(
+            AdapterServiceError,
+            match="dispatch_recovery_operator_action_required",
+        ):
+            reopened.service.status(
+                StatusRequest(
+                    admission_commitment_sha256=(reopened.admission.admission_commitment_sha256),
+                    operation_id_sha256=reopened.dispatch.operation_id_sha256,
+                ),
+                idempotency_key=_sha(f"blocked-status-{suffix}"),
+            )
+    assert len(paid_operations) == expected_paid_calls
+    assert trap.calls == 0
+    assert reopened.state.get(reopened.unit_identity).state is OperationState.DISPATCHED
+    assert backend.vectors == {}
+    abort = _cleanup_request(reopened, aborting=True)
+    reopened.service.cleanup(abort, idempotency_key=_sha("operator-abort"))
+    assert reopened.state.get(reopened.unit_identity).state is OperationState.ABORT_CLEANED
+    reopened.state.close()
+
+
+@pytest.mark.parametrize(
+    ("phase", "operator_required"),
+    (
+        ("before_claim", False),
+        ("after_claim", True),
+        ("after_provider_before_result", True),
+        ("after_result_durable", False),
+    ),
+)
+def test_os_exit_preserves_exact_call_gate(tmp_path, phase: str, operator_required: bool) -> None:
+    context = _context(tmp_path)
+    paid = _PaidOperationFile(tmp_path / "paid-operations.log")
+    child = os.fork()
+    if child == 0:
+        try:
+            context.state.close()
+            state = SqliteOperationState(tmp_path / "state.sqlite3", hmac_key=b"h" * 32)
+            service = _service(
+                tmp_path,
+                context.service._manifest,
+                state,
+                _ProcessDeathRuntime(phase, paid),
+                context.storage,
+            )
+            service.admit(context.admission, idempotency_key=_sha("child-admit"))
+            service.dispatch(context.dispatch, idempotency_key=_sha("child-dispatch"))
+        except BaseException:
+            os._exit(92)
+        os._exit(93)
+    _, status = os.waitpid(child, 0)
+    assert os.WIFEXITED(status) and os.WEXITSTATUS(status) == 91
+    reopened = _reopen(tmp_path, context, runtime=_ProcessDeathRuntime(None, paid))
+    if operator_required:
+        with pytest.raises(AdapterServiceError, match="operator_action_required"):
+            reopened.service.dispatch(reopened.dispatch, idempotency_key=_sha("replay"))
+    else:
+        reopened.service.dispatch(reopened.dispatch, idempotency_key=_sha("replay"))
+    expected_calls = 0 if phase == "after_claim" else 1
+    assert paid.entries() == (reopened.dispatch.operation_id_sha256,) * expected_calls
+    reopened.state.close()
+
+
+@pytest.mark.parametrize(
+    "boundary",
+    (
+        "receipt_before_state",
+        "receipt_durable",
+        "storage_persisted",
+        "storage_verified",
+        "committed",
+    ),
+)
+def test_hard_death_at_each_local_result_boundary_reopens_without_provider_replay(
+    tmp_path,
+    monkeypatch,
+    boundary: str,
+) -> None:
+    context = _context(tmp_path)
+    paid_operations: list[str] = []
+    context.runtime = _BoundaryRuntime(None, paid_operations)
+    context.service._runtime = context.runtime
+
+    if boundary == "receipt_before_state":
+
+        def cut_before_receipt(*_args, **_kwargs):
+            raise _HardDeath
+
+        monkeypatch.setattr(context.state, "mark_receipt_durable", cut_before_receipt)
+    elif boundary == "storage_persisted":
+        original = context.storage.persist
+
+        def cut_after_storage(**kwargs):
+            original(**kwargs)
+            raise _HardDeath
+
+        monkeypatch.setattr(context.storage, "persist", cut_after_storage)
+    else:
+        method_name = {
+            "receipt_durable": "mark_receipt_durable",
+            "storage_verified": "mark_storage_verified",
+            "committed": "commit",
+        }[boundary]
+        original = getattr(context.state, method_name)
+
+        def cut_after_state(*args, **kwargs):
+            original(*args, **kwargs)
+            raise _HardDeath
+
+        monkeypatch.setattr(context.state, method_name, cut_after_state)
+
+    with pytest.raises(_HardDeath):
+        context.service.dispatch(context.dispatch, idempotency_key=_sha("cut-dispatch"))
+    reopened_runtime = _BoundaryRuntime("before_claim", paid_operations)
+    reopened = _reopen(tmp_path, context, runtime=reopened_runtime)
+    assert reopened.state.get(reopened.unit_identity).state is OperationState.COMMITTED
+    reopened.service.dispatch(reopened.dispatch, idempotency_key=_sha("cut-replay"))
+    assert paid_operations == [reopened.dispatch.operation_id_sha256]
+    assert reopened_runtime.calls == 0
+    reopened.state.close()
+
+
+def test_cross_operation_result_and_callback_are_rejected_without_replay(tmp_path) -> None:
+    context = _context(tmp_path)
+    context.state.reserve(context.unit_identity)
+    context.state.mark_dispatched(context.unit_identity)
+    expected_intent = _intent(context.dispatch)
+    foreign_intent = _intent(
+        context.dispatch.model_copy(update={"operation_id_sha256": _sha("foreign-operation")})
+    )
+    with pytest.raises(
+        AdapterServiceError,
+        match="dispatch_recovery_operator_action_required",
+    ):
+        context.service._claim_provider_call(
+            context.service._manifest.units[0],
+            expected=expected_intent,
+            observed=foreign_intent,
+        )
+    assert context.state.get(context.unit_identity).outcome_unknown is False
+    assert context.runtime.calls == 0
+    context.state.claim_provider_call(context.unit_identity)
+    result = context.runtime._result(
+        context.service._extraction_request(context.service._manifest.units[0]),
+        expected_intent,
+    )
+    with pytest.raises(
+        AdapterServiceError,
+        match="dispatch_recovery_operator_action_required",
+    ):
+        context.service._persist_runtime_result(
+            context.service._manifest.units[0],
+            expected=foreign_intent,
+            result=result,
+        )
+    assert context.runtime.calls == 0
+
+    context.service._write_result(result)
+    source = context.service._result_path(context.dispatch.operation_id_sha256)
+    crossed = context.service._result_path(foreign_intent.operation_id_sha256)
+    crossed.write_bytes(source.read_bytes())
+    os.chmod(crossed, 0o600)
+    with pytest.raises(AdapterServiceError, match="status_unavailable"):
+        context.service._read_result(
+            foreign_intent.operation_id_sha256,
+            expected=context.service._manifest.units[0],
+        )
+    assert context.runtime.calls == 0
     context.state.close()
 
 
@@ -432,6 +938,7 @@ def test_abort_inventory_matches_only_operations_the_runner_began(tmp_path) -> N
         {"operations": [operation]}
     )
     context.state.mark_dispatched(context.unit_identity)
+    context.state.claim_provider_call(context.unit_identity)
     context.state.recover()
     operation["state"] = "reconciliation_required"
     unknown = context.service._run_commitments(True)
@@ -459,6 +966,7 @@ def test_direct_abort_recovers_lost_dispatch_before_inventory_binding(tmp_path) 
     context.service._storage = Mem0StorageAdapter(FakeMem0Backend())
     context.state.reserve(context.unit_identity)
     context.state.mark_dispatched(context.unit_identity)
+    context.state.claim_provider_call(context.unit_identity)
     unit = context.service._manifest.units[0]
     operation = {
         "operation_id_sha256": context.dispatch.operation_id_sha256,

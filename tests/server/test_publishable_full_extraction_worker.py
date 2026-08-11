@@ -36,6 +36,7 @@ from infinity_context_server.processes.publishable_full_extraction_worker import
     OpenedPublishableExtractionStores,
     PublishableExtractionAdvancePhase,
     PublishableExtractionCommand,
+    PublishableExtractionRecoveryError,
     PublishableExtractionRunAuthority,
     PublishableExtractionWorkerError,
     PublishableFullExtractionWorker,
@@ -267,6 +268,10 @@ class _RecordingLedger:
 class _Boundary:
     dispatch_ordinals: list[int] = field(default_factory=list)
     lookup_ordinals: list[int] = field(default_factory=list)
+    recovery_ordinals: list[int] = field(default_factory=list)
+    lookup_fails: bool = False
+    lookup_hard_death: bool = False
+    operator_action_required: bool = False
 
     def dispatch_once(self, *, command: PublishableExtractionCommand) -> object:
         self.dispatch_ordinals.append(command.ordinal)
@@ -274,6 +279,16 @@ class _Boundary:
 
     def lookup_outcome(self, *, command: PublishableExtractionCommand) -> object:
         self.lookup_ordinals.append(command.ordinal)
+        if self.lookup_hard_death:
+            raise KeyboardInterrupt
+        if self.lookup_fails:
+            raise RuntimeError("simulated unavailable status")
+        return command
+
+    def recover_once(self, *, command: PublishableExtractionCommand) -> object:
+        self.recovery_ordinals.append(command.ordinal)
+        if self.operator_action_required:
+            raise PublishableExtractionRecoveryError("operator_action_required")
         return command
 
 
@@ -560,6 +575,98 @@ def test_durable_intent_crash_freezes_until_explicit_lookup(tmp_path: Path) -> N
     assert reconciled.phase is PublishableExtractionAdvancePhase.SEALED
     assert boundary.dispatch_ordinals == []
     assert boundary.lookup_ordinals == [0]
+    worker.close()
+
+
+def test_authenticated_absence_probe_recovers_outer_unknown_without_blind_replay(
+    tmp_path: Path,
+) -> None:
+    authority = _authority(1, run_id="authenticated-absence-probe")
+    journal, service = _journal(tmp_path)
+    service.initialize(authority.journal_identity, authority.operation_manifest)
+    operation = authority.operation_manifest.operations[0]
+    request_hash = authority.runtime_receipt_authority.operations[0].request_body_sha256
+    service.prepare_dispatch(operation, request_hash)
+    boundary = _Boundary(lookup_fails=True)
+    worker = PublishableFullExtractionWorker(
+        authority=authority,
+        stores=_stores(
+            service=_journal_service_for(journal),
+            journal=journal,
+            ledger=_RecordingLedger(),
+            expected=_ExpectedOperations(authority),
+        ),
+        boundary=boundary,
+        runtime_receipt_verifier=_RuntimeVerifier(),
+    )
+
+    assert worker.advance_one().phase is PublishableExtractionAdvancePhase.RECONCILIATION_REQUIRED
+    assert worker.reconcile_one().phase is PublishableExtractionAdvancePhase.SEALED
+    assert boundary.dispatch_ordinals == []
+    assert boundary.lookup_ordinals == [0]
+    assert boundary.recovery_ordinals == [0]
+    worker.close()
+
+
+def test_ambiguous_recovery_probe_requires_explicit_operator_action(tmp_path: Path) -> None:
+    authority = _authority(1, run_id="ambiguous-operator-action")
+    journal, service = _journal(tmp_path)
+    service.initialize(authority.journal_identity, authority.operation_manifest)
+    operation = authority.operation_manifest.operations[0]
+    request_hash = authority.runtime_receipt_authority.operations[0].request_body_sha256
+    service.prepare_dispatch(operation, request_hash)
+    boundary = _Boundary(lookup_fails=True, operator_action_required=True)
+    worker = PublishableFullExtractionWorker(
+        authority=authority,
+        stores=_stores(
+            service=_journal_service_for(journal),
+            journal=journal,
+            ledger=_RecordingLedger(),
+            expected=_ExpectedOperations(authority),
+        ),
+        boundary=boundary,
+        runtime_receipt_verifier=_RuntimeVerifier(),
+    )
+
+    with pytest.raises(
+        PublishableExtractionWorkerError,
+        match="extraction_recovery_operator_action_required",
+    ):
+        worker.reconcile_one()
+    snapshot = worker.advance_one()
+    assert snapshot.phase is PublishableExtractionAdvancePhase.RECONCILIATION_REQUIRED
+    assert boundary.dispatch_ordinals == []
+    assert boundary.recovery_ordinals == [0]
+    worker.close()
+
+
+def test_lookup_hard_death_never_enters_recovery_dispatch_probe(tmp_path: Path) -> None:
+    authority = _authority(1, run_id="lookup-hard-death")
+    journal, service = _journal(tmp_path)
+    service.initialize(authority.journal_identity, authority.operation_manifest)
+    operation = authority.operation_manifest.operations[0]
+    request_hash = authority.runtime_receipt_authority.operations[0].request_body_sha256
+    service.prepare_dispatch(operation, request_hash)
+    boundary = _Boundary(lookup_hard_death=True)
+    worker = PublishableFullExtractionWorker(
+        authority=authority,
+        stores=_stores(
+            service=_journal_service_for(journal),
+            journal=journal,
+            ledger=_RecordingLedger(),
+            expected=_ExpectedOperations(authority),
+        ),
+        boundary=boundary,
+        runtime_receipt_verifier=_RuntimeVerifier(),
+    )
+
+    with pytest.raises(
+        PublishableExtractionWorkerError,
+        match="extraction_outcome_reconciliation_failed",
+    ):
+        worker.reconcile_one()
+    assert boundary.lookup_ordinals == [0]
+    assert boundary.recovery_ordinals == []
     worker.close()
 
 
