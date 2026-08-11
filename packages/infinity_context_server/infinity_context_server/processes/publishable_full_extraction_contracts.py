@@ -34,7 +34,7 @@ from infinity_context_server.resumable_operation_journal.service import (
 )
 
 PUBLISHABLE_EXTRACTION_WORKER_SCHEMA = "publishable-full-extraction-worker.v1"
-PUBLISHABLE_EXTRACTION_TERMINAL_SCHEMA = "publishable-full-extraction-terminal.v1"
+PUBLISHABLE_EXTRACTION_TERMINAL_SCHEMA = "publishable-full-extraction-terminal.v2"
 MANAGED_MEM0_EXTRACTION_NAMESPACE = "managed_mem0_v5_production"
 MANAGED_MEM0_EXTRACTION_OPERATION_KIND = "managed_mem0_v5_extraction"
 
@@ -67,6 +67,7 @@ class PublishableExtractionRunAuthority:
     preparation_receipt_sha256: str
     dataset_sha256: str
     a2_terminal_commitment_sha256: str
+    scheduler_bridge_runtime_authority_sha256: str
 
     def __post_init__(self) -> None:
         identity = self.journal_identity
@@ -84,6 +85,7 @@ class PublishableExtractionRunAuthority:
                     self.preparation_receipt_sha256,
                     self.dataset_sha256,
                     self.a2_terminal_commitment_sha256,
+                    self.scheduler_bridge_runtime_authority_sha256,
                 )
             )
             or identity.operation_namespace != MANAGED_MEM0_EXTRACTION_NAMESPACE
@@ -257,6 +259,7 @@ class PublishableExtractionRunTerminal:
     a1_terminal_commitment_sha256: str
     a1_manifest_context_sha256: str
     runtime_binding_commitment_sha256: str
+    scheduler_bridge_runtime_authority_sha256: str
     preparation_receipt_sha256: str
     dataset_sha256: str
     a2_terminal_commitment_sha256: str
@@ -278,6 +281,7 @@ class PublishableExtractionRunTerminal:
             self.a1_terminal_commitment_sha256,
             self.a1_manifest_context_sha256,
             self.runtime_binding_commitment_sha256,
+            self.scheduler_bridge_runtime_authority_sha256,
             self.preparation_receipt_sha256,
             self.dataset_sha256,
             self.a2_terminal_commitment_sha256,
@@ -329,6 +333,9 @@ class PublishableExtractionRunTerminal:
             "a1_terminal_commitment_sha256": self.a1_terminal_commitment_sha256,
             "a1_manifest_context_sha256": self.a1_manifest_context_sha256,
             "runtime_binding_commitment_sha256": self.runtime_binding_commitment_sha256,
+            "scheduler_bridge_runtime_authority_sha256": (
+                self.scheduler_bridge_runtime_authority_sha256
+            ),
             "expected_receipt_count": self.expected_receipt_count,
             "preparation_receipt_sha256": self.preparation_receipt_sha256,
             "dataset_sha256": self.dataset_sha256,

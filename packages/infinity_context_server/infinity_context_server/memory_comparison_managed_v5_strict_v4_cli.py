@@ -355,6 +355,12 @@ class _RunMaterial:
     dataset_bytes: bytes
 
 
+# Public operator-material aliases.  The CLI and production compositions intentionally
+# share these exact hardened readers instead of growing subtly different file rules.
+StrictV4FileKeyIdentityAuthority = _FileKeyIdentityAuthority
+StrictV4RunMaterial = _RunMaterial
+
+
 def _run_material(args: argparse.Namespace) -> _RunMaterial:
     request = _request(args.request)
     profile_id = _text(request, "profile_id")
@@ -390,6 +396,55 @@ def _run_material(args: argparse.Namespace) -> _RunMaterial:
         manifest=manifest,
         dataset_bytes=dataset,
     )
+
+
+def load_strict_v4_run_material(
+    *, request_path: Path, dataset_path: Path, keyring_path: Path
+) -> StrictV4RunMaterial:
+    """Load one exact full-run projection through the CLI's hardened readers."""
+
+    return _run_material(
+        argparse.Namespace(
+            request=request_path,
+            dataset=dataset_path,
+            keyring=keyring_path,
+        )
+    )
+
+
+def read_strict_v4_receipt_key(path: Path) -> bytes:
+    """Read an owner-only receipt authentication capability."""
+
+    return _secret(path)
+
+
+def read_strict_v4_postgres_dsn(path: Path) -> str:
+    """Read an owner-only registration capability without accepting inline DSNs."""
+
+    return _postgres_dsn(path)
+
+
+def open_strict_v4_preparation_receipt_store(
+    path: Path,
+) -> SQLiteStrictV4PreparationReceiptStore:
+    """Open an existing strict-v4 receipt; never create a missing authority."""
+
+    return SQLiteStrictV4PreparationReceiptStore.open(_absolute(path))
+
+
+def canonical_strict_v4_path(path: Path) -> Path:
+    """Require an absolute, normalized operator path."""
+
+    return _absolute(path)
+
+
+def build_strict_v4_registration_port(
+    dsn: str,
+    authenticator: ProjectionReceiptAuthenticator,
+) -> AsyncPostgresCleanupV4ContextAuthorityRegistry:
+    """Build the canonical strict-v4 registration/readback adapter."""
+
+    return _registry(dsn, authenticator)
 
 
 def _pair_binding(material: _RunMaterial) -> tuple[Path, str, bytes]:
@@ -547,7 +602,7 @@ async def _seal(args: argparse.Namespace) -> dict[str, object]:
 
 
 def _validate_execution_material(
-    material: _ProjectorMaterial,
+    material: _ProjectorMaterial | _RunMaterial,
     receipt: StrictV4PreparationReceipt,
 ) -> str:
     inputs = StrictV4FullPreparationInputs(**material.preparation)
@@ -581,6 +636,15 @@ def _validate_execution_material(
     ):
         raise ValueError("strict-v4 execution binding is invalid")
     return inputs.space_slug
+
+
+def validate_strict_v4_execution_material(
+    material: StrictV4RunMaterial,
+    receipt: StrictV4PreparationReceipt,
+) -> str:
+    """Cross-check public request preparation fields against a recovered receipt."""
+
+    return _validate_execution_material(material, receipt)
 
 
 async def _execute_facts(args: argparse.Namespace) -> dict[str, object]:
@@ -680,4 +744,15 @@ def main(argv: Sequence[str] | None = None) -> int:
     return 0
 
 
-__all__ = ("main",)
+__all__ = (
+    "StrictV4FileKeyIdentityAuthority",
+    "StrictV4RunMaterial",
+    "build_strict_v4_registration_port",
+    "canonical_strict_v4_path",
+    "load_strict_v4_run_material",
+    "main",
+    "open_strict_v4_preparation_receipt_store",
+    "read_strict_v4_postgres_dsn",
+    "read_strict_v4_receipt_key",
+    "validate_strict_v4_execution_material",
+)

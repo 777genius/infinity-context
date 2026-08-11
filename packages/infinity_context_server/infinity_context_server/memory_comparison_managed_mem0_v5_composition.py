@@ -24,9 +24,6 @@ from infinity_context_server.memory_comparison_managed_mem0_v5_clean_state_http 
     ManagedMem0V5HttpCleanStateSnapshotFactory,
     preflight_managed_mem0_v5_clean_state_request,
 )
-from infinity_context_server.memory_comparison_managed_mem0_v5_cleanup_binding import (
-    ManagedMem0V5ServiceCleanupBinding,
-)
 from infinity_context_server.memory_comparison_managed_mem0_v5_cleanup_readback import (
     ManagedMem0V5CleanupPassTwoAdapter,
 )
@@ -39,11 +36,15 @@ from infinity_context_server.memory_comparison_managed_mem0_v5_dispatch_guard im
     AtomicJournalManagedMem0V5SingleDispatchGuard,
     ManagedMem0V5SingleDispatchGuardPort,
 )
+from infinity_context_server.memory_comparison_managed_mem0_v5_extraction_composition import (
+    ManagedMem0V5ExtractionCapabilities,
+    compose_managed_mem0_v5_extraction_runtime,
+    issue_managed_mem0_v5_extraction_capabilities,
+)
 from infinity_context_server.memory_comparison_managed_mem0_v5_head_sqlite import (
     SQLiteManagedMem0V5CheckpointHead,
 )
 from infinity_context_server.memory_comparison_managed_mem0_v5_http_lane import (
-    HmacSha256ManagedMem0V5EvidenceVerifier,
     ManagedMem0V5HttpLane,
 )
 from infinity_context_server.memory_comparison_managed_mem0_v5_lane import (
@@ -81,7 +82,6 @@ from infinity_context_server.memory_comparison_managed_mem0_v5_transport_evidenc
 )
 from infinity_context_server.memory_comparison_managed_mem0_v5_verifiers import (
     ManagedMem0V5CleanupBridgeVerifier,
-    ManagedMem0V5StorageBridgeVerifier,
 )
 from infinity_context_server.memory_comparison_managed_run_contract import (
     ManagedRunCase,
@@ -105,9 +105,8 @@ from infinity_context_server.memory_comparison_mem0_oss_v5_observed_receipt impo
     Mem0V5ObservedExtractionReceiptVerifier,
     require_mem0_v5_observed_extraction_receipt_boundary,
 )
-from infinity_context_server.memory_comparison_mem0_oss_v5_run import Mem0OssFullRunService
 
-_COMPOSITION_RUNTIME_LOCK = threading.Lock()
+_COMPOSITION_RUNTIME_LOCK = threading.RLock()
 
 
 @dataclass(slots=True)
@@ -117,6 +116,7 @@ class _CompositionRuntime:
     lane: ManagedMem0V5HttpLane
     origin: str
     receipt_authority: Mem0V5ReceiptAuthority | Mem0V5ObservedExtractionReceiptAuthority
+    receipt_verifier: Mem0V5RuntimeReceiptVerifier | Mem0V5ObservedExtractionReceiptVerifier
     storage_verifier: ManagedMem0V5StorageWitnessVerifierPort
     cleanup_readback: ManagedMem0V5CleanupPassTwoAdapter
     paired_runtime_issued: bool = False
@@ -509,49 +509,21 @@ def compose_managed_mem0_v5(
         else load_managed_mem0_v5_credentials(credential_paths)
     )
     with credential_context as credentials:
-        witness_issuer, witness_verifier = create_managed_mem0_v5_storage_witness_authority()
-        evidence_verifier = HmacSha256ManagedMem0V5EvidenceVerifier(
-            key_capability=credentials.evidence_key,
-            storage_witness_issuer=witness_issuer,
-        )
-        if request.credential_binding_sha256 != evidence_verifier.key_commitment_sha256:
-            raise ManagedRunError("managed Mem0 v5 composition credential binding differs")
-
-        receipt_secret = credentials.receipt_secret.consume()
-        if type(receipt_authority) is Mem0V5ReceiptAuthority:
-            receipt_verifier = Mem0V5RuntimeReceiptVerifier(
-                boundary=runtime_receipt_boundary,
-                runtime_binding=trusted_runtime_binding,
-                receipt_secret=receipt_secret,
-                authority=receipt_authority,
-            )
-        else:
-            receipt_verifier = Mem0V5ObservedExtractionReceiptVerifier._for_preflighted_composition(
-                boundary=runtime_receipt_boundary,
-                runtime_binding=trusted_runtime_binding,
-                receipt_secret=receipt_secret,
-                authority=receipt_authority,
-            )
-        if not callable(getattr(receipt_verifier, "mark_outcome_unknown", None)):
-            raise ManagedRunError("managed Mem0 v5 receipt recovery marker is unavailable")
-        service = Mem0OssFullRunService(
-            manifest_port=projector,
-            receipt_port=receipt_verifier,
-            storage_port=ManagedMem0V5StorageBridgeVerifier(
-                authority=authority,
-                storage_witness_verifier=witness_verifier,
-            ),
-            cleanup_port=ManagedMem0V5CleanupBridgeVerifier(),
-        )
-        lane = ManagedMem0V5HttpLane(
+        runtime = compose_managed_mem0_v5_extraction_runtime(
+            authority=preflight.authority,
+            admission=preflight.admission,
+            projector=projector,
+            request=request,
             origin=origin,
-            bearer_capability=credentials.bearer_token,
             timeout_seconds=timeout_seconds,
-            evidence_verifier=evidence_verifier,
-            dispatch_binding=evidence_verifier,
-            cleanup_binding=ManagedMem0V5ServiceCleanupBinding(service=service),
+            runtime_receipt_boundary=runtime_receipt_boundary,
+            trusted_runtime_binding=trusted_runtime_binding,
+            receipt_authority=receipt_authority,
+            credentials=credentials,
             dispatch_guard=dispatch_guard,
             transport=transport,
+            runtime_receipt_verifier_factory=Mem0V5RuntimeReceiptVerifier,
+            observed_receipt_verifier_factory=Mem0V5ObservedExtractionReceiptVerifier,
         )
         signer = HmacSha256ManagedMem0V5CheckpointSigner(
             key=credentials.checkpoint_signing_key.consume()
@@ -568,8 +540,8 @@ def compose_managed_mem0_v5(
             ),
         )
         coordinator = ManagedMem0V5LaneCoordinator(
-            service=service,
-            lane_port=lane,
+            service=runtime.service,
+            lane_port=runtime.lane,
             progress_port=progress,
         )
 
@@ -577,16 +549,91 @@ def compose_managed_mem0_v5(
     _register_composition_runtime(
         composition,
         admission=preflight.admission,
-        lane=lane,
+        lane=runtime.lane,
         origin=origin,
         receipt_authority=receipt_authority,
-        storage_verifier=witness_verifier,
+        receipt_verifier=runtime.receipt_verifier,
+        storage_verifier=runtime.storage_verifier,
         cleanup_readback=ManagedMem0V5CleanupPassTwoAdapter(
-            cleanup_port=lane._control,
+            cleanup_port=runtime.lane._control,
             verification_port=ManagedMem0V5CleanupBridgeVerifier(),
         ),
     )
     return composition
+
+
+def compose_managed_mem0_v5_extraction_capabilities(
+    *,
+    cases: tuple[ManagedRunCase, ...],
+    current_date: str,
+    request: Mem0OssAdmissionRequest,
+    origin: str,
+    timeout_seconds: float,
+    state_paths: ManagedMem0V5StatePaths,
+    credential_paths: ManagedMem0V5CredentialPaths,
+    runtime_receipt_boundary: object,
+    trusted_runtime_binding: object,
+    receipt_authority: Mem0V5ObservedExtractionReceiptAuthority,
+    credential_capabilities: ManagedMem0V5CredentialCapabilities | None = None,
+    dispatch_guard: ManagedMem0V5SingleDispatchGuardPort | None = None,
+    transport: Mem0V5TransportPort | None = None,
+) -> ManagedMem0V5ExtractionCapabilities:
+    """Build only the extraction HTTP lane, without checkpoint state or network I/O."""
+
+    if (
+        type(receipt_authority) is not Mem0V5ObservedExtractionReceiptAuthority
+        or credential_capabilities is not None
+        and type(credential_capabilities) is not ManagedMem0V5CredentialCapabilities
+    ):
+        raise ManagedRunError("managed Mem0 v5 extraction composition input is invalid")
+    preflight = preflight_managed_mem0_v5(
+        cases=cases,
+        current_date=current_date,
+        request=request,
+        origin=origin,
+        timeout_seconds=timeout_seconds,
+        state_paths=state_paths,
+        credential_paths=credential_paths,
+        runtime_receipt_boundary=runtime_receipt_boundary,
+        trusted_runtime_binding=trusted_runtime_binding,
+        receipt_authority=receipt_authority,
+        dispatch_guard=dispatch_guard,
+        transport=transport,
+    )
+    preflight_managed_mem0_v5_clean_state_request(
+        authority=preflight.authority,
+        admission=preflight.admission,
+    )
+    credential_context = (
+        credential_capabilities
+        if credential_capabilities is not None
+        else load_managed_mem0_v5_credentials(credential_paths)
+    )
+    with credential_context as credentials:
+        runtime = compose_managed_mem0_v5_extraction_runtime(
+            authority=preflight.authority,
+            admission=preflight.admission,
+            projector=ManagedMem0V5ManifestProjector(),
+            request=request,
+            origin=origin,
+            timeout_seconds=timeout_seconds,
+            runtime_receipt_boundary=runtime_receipt_boundary,
+            trusted_runtime_binding=trusted_runtime_binding,
+            receipt_authority=receipt_authority,
+            credentials=credentials,
+            dispatch_guard=dispatch_guard,
+            transport=transport,
+            runtime_receipt_verifier_factory=Mem0V5RuntimeReceiptVerifier,
+            observed_receipt_verifier_factory=Mem0V5ObservedExtractionReceiptVerifier,
+        )
+    if type(runtime.receipt_verifier) is not Mem0V5ObservedExtractionReceiptVerifier:
+        raise ManagedRunError("managed Mem0 v5 extraction capabilities are unavailable")
+    return issue_managed_mem0_v5_extraction_capabilities(
+        owner=runtime,
+        admission=runtime.admission,
+        lane=runtime.lane,
+        receipt_verifier=runtime.receipt_verifier,
+    )
 
 
 def _register_composition_runtime(
@@ -596,6 +643,7 @@ def _register_composition_runtime(
     lane: ManagedMem0V5HttpLane,
     origin: str,
     receipt_authority: Mem0V5ReceiptAuthority | Mem0V5ObservedExtractionReceiptAuthority,
+    receipt_verifier: Mem0V5RuntimeReceiptVerifier | Mem0V5ObservedExtractionReceiptVerifier,
     storage_verifier: ManagedMem0V5StorageWitnessVerifierPort,
     cleanup_readback: ManagedMem0V5CleanupPassTwoAdapter,
 ) -> None:
@@ -615,6 +663,7 @@ def _register_composition_runtime(
             lane,
             origin,
             receipt_authority,
+            receipt_verifier,
             storage_verifier,
             cleanup_readback,
         )
@@ -626,6 +675,26 @@ def _composition_runtime(
     with _COMPOSITION_RUNTIME_LOCK:
         runtime = _composition_runtime_locked(composition)
         return runtime.admission, runtime.lane
+
+
+def managed_mem0_v5_extraction_capabilities(
+    composition: ManagedMem0V5Composition,
+) -> ManagedMem0V5ExtractionCapabilities:
+    """Expose only the existing attested extraction lane and verifier."""
+
+    with _COMPOSITION_RUNTIME_LOCK:
+        runtime = _composition_runtime_locked(composition)
+        if (
+            type(runtime.receipt_authority) is not Mem0V5ObservedExtractionReceiptAuthority
+            or type(runtime.receipt_verifier) is not Mem0V5ObservedExtractionReceiptVerifier
+        ):
+            raise ManagedRunError("managed Mem0 v5 extraction capabilities are unavailable")
+        return issue_managed_mem0_v5_extraction_capabilities(
+            owner=composition,
+            admission=runtime.admission,
+            lane=runtime.lane,
+            receipt_verifier=runtime.receipt_verifier,
+        )
 
 
 def _composition_runtime_locked(composition: object) -> _CompositionRuntime:
@@ -882,9 +951,13 @@ __all__ = (
     "ManagedMem0V5CleanStateSnapshotFactoryPort",
     "ManagedMem0V5Composition",
     "ManagedMem0V5DurableCleanStateFactoryPort",
+    "ManagedMem0V5ExtractionCapabilities",
     "ManagedMem0V5PairedRuntimeBundle",
     "ManagedMem0V5Preflight",
     "ManagedMem0V5StatePaths",
     "compose_managed_mem0_v5",
+    "compose_managed_mem0_v5_extraction_capabilities",
+    "create_managed_mem0_v5_storage_witness_authority",
+    "managed_mem0_v5_extraction_capabilities",
     "preflight_managed_mem0_v5",
 )

@@ -24,6 +24,7 @@ PublishableFullExtractionCompositionError = (
 PublishableFullExtractionRunConfiguration = (
     run_composition.PublishableFullExtractionRunConfiguration
 )
+publishable_full_extraction_state_paths = run_composition.publishable_full_extraction_state_paths
 
 
 @final
@@ -64,6 +65,8 @@ class PublishableFullExtractionSuiteConfiguration:
         ):
             if len(set(values)) != len(values):
                 _fail("publishable_extraction_suite_run_cross_wire")
+        if len({item.scheduler_bridge_runtime_authority_sha256 for item in configurations}) != 1:
+            _fail("publishable_extraction_suite_runtime_cross_wire")
 
 
 @final
@@ -153,4 +156,5 @@ __all__ = (
     "PublishableFullExtractionSuite",
     "PublishableFullExtractionSuiteConfiguration",
     "build_publishable_full_extraction_suite",
+    "publishable_full_extraction_state_paths",
 )

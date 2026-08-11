@@ -142,7 +142,8 @@ def _terminal(
         "ingestion_root_sha256": _sha(f"ingestion:{index}"),
         "a1_terminal_commitment_sha256": _sha(f"a1-terminal:{index}"),
         "a1_manifest_context_sha256": _sha(f"a1-context:{index}"),
-        "runtime_binding_commitment_sha256": suite.bridge_boot.runtime_authority_sha256,
+        "runtime_binding_commitment_sha256": _sha(f"phase-c-runtime:{index}"),
+        "scheduler_bridge_runtime_authority_sha256": (suite.bridge_boot.runtime_authority_sha256),
         "expected_receipt_count": receipt_count,
         "dataset_sha256": run.binding.dataset_sha256,
     }
@@ -190,6 +191,9 @@ def _terminal(
         a1_terminal_commitment_sha256=context.a1_terminal_commitment_sha256,
         a1_manifest_context_sha256=context.a1_manifest_context_sha256,
         runtime_binding_commitment_sha256=context.runtime_binding_commitment_sha256,
+        scheduler_bridge_runtime_authority_sha256=(
+            str(values["scheduler_bridge_runtime_authority_sha256"])
+        ),
         preparation_receipt_sha256=_sha(f"preparation:{index}"),
         dataset_sha256=str(values["dataset_sha256"]),
         a2_terminal_commitment_sha256=_sha(f"a2-terminal:{index}"),
@@ -206,10 +210,16 @@ def _readback(
     specs: tuple[SchedulerRunStoreSpec, SchedulerRunStoreSpec],
     *,
     locomo_overrides: dict[str, object] | None = None,
+    longmemeval_overrides: dict[str, object] | None = None,
 ) -> PublishableExtractionSuiteReadback:
     return PublishableExtractionSuiteReadback(
         locomo_terminal=_terminal(suite, specs[0], 0, overrides=locomo_overrides),
-        longmemeval_terminal=_terminal(suite, specs[1], 1),
+        longmemeval_terminal=_terminal(
+            suite,
+            specs[1],
+            1,
+            overrides=longmemeval_overrides,
+        ),
     )
 
 
@@ -228,17 +238,33 @@ def test_converts_exact_readback_and_authenticates_with_each_store_secret(
         extraction_adapter.PUBLISHABLE_EXTRACTION_SUITE_TERMINAL_READ_POLICY_SHA256
     )
     assert adapter.read_policy_sha256 == (
-        "0a208b3ea2f9fc8da10c11cc41b4e28912e379e7355433e6cb97986312e3b772"
+        "8ade5efffac4fdceb535a0f2a75c9edb9c42be9357937e62629ba5fa2fcedc38"
     )
     for index, spec in enumerate(specs):
         authenticated = adapter.read_terminal(run=spec.run)
         source = (readback.locomo_terminal, readback.longmemeval_terminal)[index]
+        projected = authenticated.evidence.terminal
         assert authenticated.run_authority_sha256 == spec.run.commitment_sha256
-        assert authenticated.evidence.terminal is source.ledger_terminal
+        assert projected is not source.ledger_terminal
+        assert projected.receipt_count == source.ledger_terminal.receipt_count
+        assert projected.page_count == source.ledger_terminal.page_count
+        assert (
+            projected.receipt_pages_root_sha256 == source.ledger_terminal.receipt_pages_root_sha256
+        )
+        assert projected.total_tokens == source.ledger_terminal.total_tokens
         assert authenticated.evidence.context.profile_id == source.profile_id
         assert authenticated.evidence.context.run_id_sha256 == source.run_id_sha256
         assert authenticated.evidence.context.binding_commitment_sha256 == (
             source.binding_commitment_sha256
+        )
+        assert source.runtime_binding_commitment_sha256 != (
+            suite.bridge_boot.runtime_authority_sha256
+        )
+        assert authenticated.evidence.context.runtime_binding_commitment_sha256 == (
+            suite.bridge_boot.runtime_authority_sha256
+        )
+        assert projected.context_commitment_sha256 == (
+            authenticated.evidence.context.commitment_sha256
         )
         assert verify_authenticated_extraction_terminal(
             authenticated,
@@ -257,7 +283,6 @@ def test_converts_exact_readback_and_authenticates_with_each_store_secret(
         {"binding_commitment_sha256": _sha("foreign-binding")},
         {"dataset_sha256": _sha("foreign-dataset")},
         {"methodology_commitment_sha256": _sha("foreign-methodology")},
-        {"runtime_binding_commitment_sha256": _sha("foreign-runtime")},
     ],
 )
 def test_rejects_valid_source_terminal_cross_wired_to_scheduler_authority(
@@ -266,6 +291,29 @@ def test_rejects_valid_source_terminal_cross_wired_to_scheduler_authority(
 ) -> None:
     suite, specs = scheduler_authority
     readback = _readback(suite, specs, locomo_overrides=overrides)
+
+    with pytest.raises(
+        SchedulerRunnerError,
+        match="scheduler_extraction_terminal_adapter_terminal_divergent",
+    ):
+        extraction_adapter.PublishableExtractionSuiteTerminalAdapter(
+            suite=suite,
+            run_stores=specs,
+            readback=readback,
+        )
+
+
+def test_rejects_shared_scheduler_bridge_runtime_cross_wire(scheduler_authority) -> None:
+    suite, specs = scheduler_authority
+    overrides = {
+        "scheduler_bridge_runtime_authority_sha256": _sha("foreign-scheduler-bridge-runtime")
+    }
+    readback = _readback(
+        suite,
+        specs,
+        locomo_overrides=overrides,
+        longmemeval_overrides=overrides,
+    )
 
     with pytest.raises(
         SchedulerRunnerError,

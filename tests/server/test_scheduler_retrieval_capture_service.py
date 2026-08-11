@@ -47,6 +47,7 @@ from infinity_context_server.publishable_durable_scheduler.retrieval_capture_con
 )
 from infinity_context_server.publishable_durable_scheduler.retrieval_capture_service import (
     SQLiteSchedulerRetrievalCaptureService,
+    verify_scheduler_retrieval_capture_progress,
 )
 from infinity_context_server.publishable_durable_scheduler.runner_request_composition import (
     SCHEDULER_OFFICIAL_ANSWER_CUTOFF,
@@ -318,6 +319,35 @@ def test_focused_capture_exact_resume_seal_reopen_and_tamper(
         assert connection.execute("SELECT COUNT(*) FROM retrieval_groups").fetchone()[0] == 1
 
     mem0.fail_at = None
+    progress = service.capture_through(4)
+    assert progress.next_sequence == 4
+    assert progress.expected_group_count == group_count
+    assert progress.complete is False
+    assert progress.terminal is None
+    assert verify_scheduler_retrieval_capture_progress(
+        progress,
+        plan=plan,
+        authentication_key=_KEY,
+    )
+    assert not verify_scheduler_retrieval_capture_progress(
+        progress,
+        plan=plan,
+        authentication_key=_OTHER_KEY,
+    )
+    boundary_calls = len(infinity.calls), len(mem0.calls)
+    assert service.read_progress() == progress
+    assert (len(infinity.calls), len(mem0.calls)) == boundary_calls
+    assert service.capture_through(4) == progress
+    assert (len(infinity.calls), len(mem0.calls)) == boundary_calls
+    tampered_progress = replace(progress, authentication_hmac_sha256="0" * 64)
+    assert not verify_scheduler_retrieval_capture_progress(
+        tampered_progress,
+        plan=plan,
+        authentication_key=_KEY,
+    )
+    with pytest.raises(SchedulerRetrievalCaptureError, match="resume_boundary_invalid"):
+        service.capture_through(3)
+
     terminal = service.capture()
     calls_after_seal = len(infinity.calls), len(mem0.calls)
     successful_calls_after_seal = (

@@ -220,6 +220,7 @@ def build_locomo_run() -> SyntheticRun:
         preparation_receipt_sha256=sha("preparation"),
         dataset_sha256=str(oracle["dataset_sha256"]),
         a2_terminal_commitment_sha256=sha("a2-terminal"),
+        scheduler_bridge_runtime_authority_sha256=sha("scheduler-bridge-runtime"),
     )
     expected = expected_runtime_authority(
         receipt_authority=receipt_authority,
@@ -445,6 +446,7 @@ class RecordingHttpTransport:
         self.runtime_receipt = runtime_receipt or {}
         self.calls: list[dict[str, object]] = []
         self.tamper_binding_hmac = False
+        self.tamper_admission_runtime = False
 
     def request(self, method: str, url: str, **kwargs: Any) -> _Response:
         body = json.loads(kwargs["content"])
@@ -453,6 +455,20 @@ class RecordingHttpTransport:
         headers = kwargs["headers"]
         assert headers["Authorization"] == "Bearer publishable-test-bearer-token-value"
         assert headers["X-Request-Commitment-SHA256"] == canonical_sha256(body)
+        if url.endswith("/v5/runs/admit"):
+            return _Response(
+                {
+                    "admission_commitment_sha256": self.run.admission.commitment_sha256,
+                    "runtime_binding_commitment_sha256": (
+                        sha("tampered-admission-runtime")
+                        if self.tamper_admission_runtime
+                        else (
+                            self.run.expected_runtime.subscription_runtime_binding_commitment_sha256
+                        )
+                    ),
+                    "accepted": True,
+                }
+            )
         if url.endswith("/v5/operations/request-binding"):
             operation_id = str(body["operation_id_sha256"])
             ordinal = next(

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import hmac
+import threading
 from typing import final
 
 from infinity_context_core.ports.managed_cleanup_v3_contracts import PROFILE_ORACLES
@@ -86,7 +87,10 @@ class PublishableManagedMem0V5HttpAdapter:
 
     __slots__ = (
         "_admission",
+        "_admission_lock",
+        "_admitted",
         "_authority",
+        "_expected_runtime_binding_sha256",
         "_lane",
         "_manifest",
         "_projector",
@@ -134,7 +138,12 @@ class PublishableManagedMem0V5HttpAdapter:
         self._authority = authority
         self._manifest = manifest
         self._admission = admission
+        self._admission_lock = threading.RLock()
+        self._admitted = False
         self._lane = lane
+        self._expected_runtime_binding_sha256 = (
+            expected_runtime.subscription_runtime_binding_commitment_sha256
+        )
         self._projector = PinnedMem0V5ExtractionRequestProjector()
         self._run_identity_commitment_sha256 = sha256_commitment(
             authority.journal_identity.commitment_payload()
@@ -144,6 +153,7 @@ class PublishableManagedMem0V5HttpAdapter:
         """Perform exactly one HTTP dispatch attempt."""
 
         unit = self._bound_unit(command)
+        self._ensure_admitted()
         return self._lane.dispatch(
             authority=self._manifest,
             unit=unit,
@@ -155,12 +165,34 @@ class PublishableManagedMem0V5HttpAdapter:
         """Read durable status; this method cannot dispatch."""
 
         unit = self._bound_unit(command)
+        self._ensure_admitted()
         return self._lane.status(
             authority=self._manifest,
             unit=unit,
             operation_id_sha256=command.operation_id_sha256,
             admission=self._admission,
         )
+
+    def _ensure_admitted(self) -> None:
+        with self._admission_lock:
+            if self._admitted:
+                return
+            try:
+                receipt = self._lane.admit(
+                    authority=self._manifest,
+                    admission=self._admission,
+                )
+                valid = (
+                    receipt.admission_commitment_sha256 == self._admission.commitment_sha256
+                    and receipt.runtime_binding_commitment_sha256
+                    == self._expected_runtime_binding_sha256
+                    and receipt.accepted is True
+                )
+            except Exception:
+                _fail("publishable_mem0_v5_admission_failed")
+            if not valid:
+                _fail("publishable_mem0_v5_admission_cross_wire")
+            self._admitted = True
 
     def _bound_unit(self, command: object) -> ManagedMem0V5SourceUnit:
         if type(command) is not PublishableExtractionCommand:

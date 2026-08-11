@@ -35,6 +35,7 @@ from infinity_context_server.publishable_durable_scheduler.publishable_run_offic
     PreparedPublishableOfficialCases,
 )
 from infinity_context_server.publishable_durable_scheduler.retrieval_capture_contracts import (
+    SchedulerRetrievalBackendPort,
     SchedulerRetrievalCaptureError,
     SchedulerRetrievalCapturePlan,
 )
@@ -43,7 +44,9 @@ from infinity_context_server.publishable_durable_scheduler.retrieval_capture_htt
     Mem0SchedulerRetrievalAdapter,
 )
 from infinity_context_server.publishable_durable_scheduler.retrieval_capture_service import (
+    SchedulerRetrievalCaptureProgress,
     SQLiteSchedulerRetrievalCaptureService,
+    verify_scheduler_retrieval_capture_progress,
 )
 
 from .retrieval_evidence_sqlite_authority import SQLiteSchedulerRetrievalEvidenceReader
@@ -100,7 +103,10 @@ class SchedulerRetrievalCaptureComposition:
             _fail("scheduler_retrieval_capture_composition_invalid")
 
     def capture(self) -> SealedSchedulerRetrievalEvidence:
-        terminal = self.service.capture()
+        progress = self.capture_through(self.plan.group_count)
+        terminal = progress.terminal
+        if terminal is None:  # pragma: no cover - exact total boundary requires a terminal
+            _fail("scheduler_retrieval_capture_terminal_invalid")
         reader = SQLiteSchedulerRetrievalEvidenceReader.open(
             self.path,
             authentication_key=self.authentication_key,
@@ -117,6 +123,30 @@ class SchedulerRetrievalCaptureComposition:
             reader.close()
             raise
 
+    def capture_through(self, end_sequence: int) -> SchedulerRetrievalCaptureProgress:
+        """Capture to one exact authenticated cursor without crossing it."""
+
+        progress = self.service.capture_through(end_sequence)
+        if not verify_scheduler_retrieval_capture_progress(
+            progress,
+            plan=self.plan,
+            authentication_key=self.authentication_key,
+        ):
+            _fail("scheduler_retrieval_capture_progress_authentication_invalid")
+        return progress
+
+    def read_progress(self) -> SchedulerRetrievalCaptureProgress:
+        """Authenticate the current cursor without calling either backend."""
+
+        progress = self.service.read_progress()
+        if not verify_scheduler_retrieval_capture_progress(
+            progress,
+            plan=self.plan,
+            authentication_key=self.authentication_key,
+        ):
+            _fail("scheduler_retrieval_capture_progress_authentication_invalid")
+        return progress
+
     def __repr__(self) -> str:
         return (
             "SchedulerRetrievalCaptureComposition("
@@ -131,8 +161,9 @@ def compose_scheduler_retrieval_capture(
     suite: SchedulerSuiteAuthority,
     official_cases: PreparedPublishableOfficialCases,
     infinity_backend: InfinityContextHttpComparisonBackend,
-    mem0_backend: Mem0HttpComparisonBackend,
     authentication_key: bytes,
+    mem0_backend: Mem0HttpComparisonBackend | None = None,
+    mem0_retrieval_backend: SchedulerRetrievalBackendPort | None = None,
 ) -> SchedulerRetrievalCaptureComposition:
     """Bind prepared official cases to the two exact ordered HTTP targets."""
 
@@ -160,7 +191,15 @@ def compose_scheduler_retrieval_capture(
         case_authority_root_sha256=official_cases.terminal.authority_root_sha256,
     )
     infinity = InfinityContextSchedulerRetrievalAdapter(infinity_backend)
-    mem0 = Mem0SchedulerRetrievalAdapter(mem0_backend)
+    if (mem0_backend is None) == (mem0_retrieval_backend is None):
+        _fail("scheduler_retrieval_capture_composition_invalid")
+    mem0: SchedulerRetrievalBackendPort
+    if mem0_backend is not None:
+        mem0 = Mem0SchedulerRetrievalAdapter(mem0_backend)
+    elif mem0_retrieval_backend is not None:
+        mem0 = mem0_retrieval_backend
+    else:  # pragma: no cover - guarded by the exclusive-or validation above
+        _fail("scheduler_retrieval_capture_composition_invalid")
     service = SQLiteSchedulerRetrievalCaptureService(
         selected_path,
         plan=plan,
@@ -240,6 +279,7 @@ def _fail(code: str) -> None:
 
 
 __all__ = (
+    "SchedulerRetrievalCaptureProgress",
     "SchedulerRetrievalCaptureComposition",
     "SealedSchedulerRetrievalEvidence",
     "compose_scheduler_retrieval_capture",

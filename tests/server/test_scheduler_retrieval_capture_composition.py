@@ -334,6 +334,23 @@ def test_focused_composition_seals_reopens_and_replays_without_provider_calls(
         mem0_backend=mem0,
         authentication_key=_RETRIEVAL_KEY,
     )
+    progress = composition.capture_through(4)
+    assert progress.next_sequence == 4
+    assert progress.expected_group_count == 6
+    assert progress.complete is False
+    assert progress.terminal is None
+    assert tuple(role for role, _payload in calls) == (
+        "infinity-context",
+        "mem0",
+        "infinity-context",
+        "mem0",
+    )
+    boundary_call_count = len(calls)
+    assert composition.read_progress() == progress
+    assert len(calls) == boundary_call_count
+    assert composition.capture_through(4) == progress
+    assert len(calls) == boundary_call_count
+
     sealed = composition.capture()
     try:
         assert sealed.terminal.group_count == 6

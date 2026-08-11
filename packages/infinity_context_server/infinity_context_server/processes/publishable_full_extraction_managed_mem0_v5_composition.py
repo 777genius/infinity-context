@@ -86,6 +86,20 @@ _JOURNAL_FILE = "publishable-extraction-journal-v4.sqlite3"
 _LEDGER_FILE = "publishable-extraction-ledger-v1.sqlite3"
 
 
+def publishable_full_extraction_state_paths(
+    state_directory: Path,
+) -> tuple[Path, Path]:
+    """Return the exact durable journal and ledger paths owned by one worker."""
+
+    if (
+        not isinstance(state_directory, Path)
+        or not state_directory.is_absolute()
+        or state_directory == Path(state_directory.anchor)
+    ):
+        _fail("publishable_extraction_state_directory_invalid")
+    return state_directory / _JOURNAL_FILE, state_directory / _LEDGER_FILE
+
+
 class PublishableFullExtractionCompositionError(RuntimeError):
     """Stable production-composition failure without secret or path reflection."""
 
@@ -112,6 +126,7 @@ class PublishableFullExtractionRunConfiguration:
     expected_runtime: ManagedMem0V5ExpectedRuntimeAuthority
     runtime_attestation: VerifiedManagedMem0V5RuntimeAttestationValidation = field(repr=False)
     runtime_target_identity_sha256: str
+    scheduler_bridge_runtime_authority_sha256: str
     state_directory: Path
     journal_hmac_key: bytes = field(repr=False)
     operation_receipt_hmac_key: bytes = field(repr=False)
@@ -134,7 +149,8 @@ class PublishableFullExtractionRunConfiguration:
         if (
             any(type(value) is not expected for value, expected in nominal)
             or not _sha(self.runtime_target_identity_sha256)
-            or type(self.state_directory) is not Path
+            or not _sha(self.scheduler_bridge_runtime_authority_sha256)
+            or not isinstance(self.state_directory, Path)
             or not self.state_directory.is_absolute()
             or self.state_directory == Path(self.state_directory.anchor)
             or any(
@@ -173,10 +189,7 @@ class PublishableFullExtractionRunConfiguration:
                 _fail("publishable_extraction_state_directory_invalid")
             if info.st_uid != os.getuid():
                 _fail("publishable_extraction_state_directory_invalid")
-        state_files = {
-            self.state_directory / _JOURNAL_FILE,
-            self.state_directory / _LEDGER_FILE,
-        }
+        state_files = set(publishable_full_extraction_state_paths(self.state_directory))
         preparation_files = {
             Path(self.preparation_receipt.a1_path),
             Path(self.preparation_receipt.a2_path),
@@ -259,6 +272,9 @@ def build_publishable_full_extraction_run(
         preparation_receipt_sha256=receipt.receipt_sha256,
         dataset_sha256=receipt.dataset_sha256,
         a2_terminal_commitment_sha256=receipt.a2_authority.terminal_commitment_sha256,
+        scheduler_bridge_runtime_authority_sha256=(
+            configuration.scheduler_bridge_runtime_authority_sha256
+        ),
     )
     _require_runtime_verifier_binding(configuration, context.runtime_binding_commitment_sha256)
     boundary = PublishableManagedMem0V5HttpAdapter(
@@ -332,6 +348,9 @@ def _run_identity(
                 configuration.expected_runtime.public_payload()
             ),
             "runtime_target_identity_sha256": (configuration.runtime_target_identity_sha256),
+            "scheduler_bridge_runtime_authority_sha256": (
+                configuration.scheduler_bridge_runtime_authority_sha256
+            ),
             "extraction_implementation_sha256": MEM0_V5_EXTRACTION_IMPLEMENTATION_SHA256,
         }
     )
@@ -421,12 +440,15 @@ def _open_stores(
             configuration.preparation_receipt.a1_path,
             authentication_key=a1_key,
         )
+        journal_path, ledger_path = publishable_full_extraction_state_paths(
+            configuration.state_directory
+        )
         journal_store = SQLiteOperationJournal(
-            configuration.state_directory / _JOURNAL_FILE,
+            journal_path,
             private_directory=configuration.state_directory,
         )
         ledger = SQLiteManagedFullRunExtractionLedger.open_or_create(
-            configuration.state_directory / _LEDGER_FILE,
+            ledger_path,
             authentication_key=configuration.ledger_hmac_key,
         )
         signer = HmacSha256OperationJournalSigner(
@@ -485,4 +507,5 @@ __all__ = (
     "PublishableFullExtractionCompositionError",
     "PublishableFullExtractionRunConfiguration",
     "build_publishable_full_extraction_run",
+    "publishable_full_extraction_state_paths",
 )

@@ -2,10 +2,14 @@
 
 from __future__ import annotations
 
+import hashlib
+import hmac
 import os
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import final
 
+from infinity_context_server.publishable_durable_scheduler.contracts import canonical_json
 from infinity_context_server.publishable_durable_scheduler.official_authority_contracts import (
     SchedulerRetrievalEvidenceAuthorityPage,
     SchedulerRetrievalEvidenceAuthorityRow,
@@ -28,6 +32,58 @@ from infinity_context_server.publishable_durable_scheduler.runner_request_compos
 from .retrieval_evidence_sqlite_authority import (
     SQLiteSchedulerRetrievalEvidenceAuthorityBuilder,
 )
+from .retrieval_evidence_sqlite_schema import terminal_payload
+
+_CAPTURE_PROGRESS_SCHEMA = "scheduler-retrieval-capture-progress.v1"
+_CAPTURE_PROGRESS_MAC_DOMAIN = b"infinity-context/scheduler-retrieval-capture-progress/v1\0"
+
+
+@final
+@dataclass(frozen=True, slots=True)
+class SchedulerRetrievalCaptureProgress:
+    """Authenticated durable cursor for one exact retrieval-capture plan."""
+
+    capture_identity_sha256: str
+    case_authority_root_sha256: str
+    next_sequence: int
+    expected_group_count: int
+    terminal: SchedulerRetrievalEvidenceAuthorityTerminal | None = field(repr=False)
+    authentication_hmac_sha256: str
+
+    def __post_init__(self) -> None:
+        complete = self.next_sequence == self.expected_group_count
+        if (
+            not _sha256(self.capture_identity_sha256)
+            or not _sha256(self.case_authority_root_sha256)
+            or type(self.next_sequence) is not int
+            or type(self.expected_group_count) is not int
+            or self.expected_group_count != SCHEDULER_RETRIEVAL_CAPTURE_GROUP_COUNT
+            or not 0 <= self.next_sequence <= self.expected_group_count
+            or not _sha256(self.authentication_hmac_sha256)
+            or complete != (self.terminal is not None)
+        ):
+            _fail("scheduler_retrieval_capture_progress_invalid")
+        if self.terminal is not None:
+            try:
+                self.terminal.__post_init__()
+            except Exception:
+                _fail("scheduler_retrieval_capture_progress_invalid")
+            if self.terminal.group_count != self.expected_group_count:
+                _fail("scheduler_retrieval_capture_progress_invalid")
+
+    @property
+    def complete(self) -> bool:
+        return self.next_sequence == self.expected_group_count
+
+    def material(self) -> dict[str, object]:
+        return {
+            "capture_identity_sha256": self.capture_identity_sha256,
+            "case_authority_root_sha256": self.case_authority_root_sha256,
+            "expected_group_count": self.expected_group_count,
+            "next_sequence": self.next_sequence,
+            "schema_version": _CAPTURE_PROGRESS_SCHEMA,
+            "terminal": None if self.terminal is None else terminal_payload(self.terminal),
+        }
 
 
 @final
@@ -97,13 +153,53 @@ class SQLiteSchedulerRetrievalCaptureService:
     def capture(self) -> SchedulerRetrievalEvidenceAuthorityTerminal:
         """Resume at the next committed result, or create and seal a new authority."""
 
+        progress = self.capture_through(SCHEDULER_RETRIEVAL_CAPTURE_GROUP_COUNT)
+        terminal = progress.terminal
+        if terminal is None:  # pragma: no cover - exact total boundary requires a terminal
+            _fail("scheduler_retrieval_capture_terminal_invalid")
+        return terminal
+
+    def read_progress(self) -> SchedulerRetrievalCaptureProgress:
+        """Authenticate the durable cursor without issuing a retrieval call."""
+
         self._verify_live_bindings()
         builder = self._open_builder()
         try:
             sequence = builder.next_sequence
-            if sequence > SCHEDULER_RETRIEVAL_CAPTURE_GROUP_COUNT:
+            terminal = (
+                builder.finalize() if sequence == SCHEDULER_RETRIEVAL_CAPTURE_GROUP_COUNT else None
+            )
+            progress = _capture_progress(
+                plan=self._plan,
+                next_sequence=sequence,
+                terminal=terminal,
+                authentication_key=self._authentication_key,
+            )
+            if not verify_scheduler_retrieval_capture_progress(
+                progress,
+                plan=self._plan,
+                authentication_key=self._authentication_key,
+            ):
+                _fail("scheduler_retrieval_capture_progress_authentication_invalid")
+            return progress
+        finally:
+            builder.close()
+
+    def capture_through(self, end_sequence: int) -> SchedulerRetrievalCaptureProgress:
+        """Capture through one exact durable cursor, without crossing that boundary."""
+
+        if (
+            type(end_sequence) is not int
+            or not 0 <= end_sequence <= SCHEDULER_RETRIEVAL_CAPTURE_GROUP_COUNT
+        ):
+            _fail("scheduler_retrieval_capture_end_sequence_invalid")
+        self._verify_live_bindings()
+        builder = self._open_builder()
+        try:
+            sequence = builder.next_sequence
+            if sequence > end_sequence:
                 _fail("scheduler_retrieval_capture_resume_boundary_invalid")
-            while sequence < SCHEDULER_RETRIEVAL_CAPTURE_GROUP_COUNT:
+            while sequence < end_sequence:
                 page = self._capture_page(
                     page_index=sequence,
                     start_sequence=sequence,
@@ -114,14 +210,28 @@ class SQLiteSchedulerRetrievalCaptureService:
                 if next_sequence != sequence + 1:
                     _fail("scheduler_retrieval_capture_progress_invalid")
                 sequence = next_sequence
-            terminal = builder.finalize()
-            if (
-                type(terminal) is not SchedulerRetrievalEvidenceAuthorityTerminal
-                or terminal.group_count != SCHEDULER_RETRIEVAL_CAPTURE_GROUP_COUNT
-                or terminal.page_count != SCHEDULER_RETRIEVAL_CAPTURE_GROUP_COUNT
+            terminal = None
+            if sequence == SCHEDULER_RETRIEVAL_CAPTURE_GROUP_COUNT:
+                terminal = builder.finalize()
+                if (
+                    type(terminal) is not SchedulerRetrievalEvidenceAuthorityTerminal
+                    or terminal.group_count != SCHEDULER_RETRIEVAL_CAPTURE_GROUP_COUNT
+                    or terminal.page_count != SCHEDULER_RETRIEVAL_CAPTURE_GROUP_COUNT
+                ):
+                    _fail("scheduler_retrieval_capture_terminal_invalid")
+            progress = _capture_progress(
+                plan=self._plan,
+                next_sequence=sequence,
+                terminal=terminal,
+                authentication_key=self._authentication_key,
+            )
+            if not verify_scheduler_retrieval_capture_progress(
+                progress,
+                plan=self._plan,
+                authentication_key=self._authentication_key,
             ):
-                _fail("scheduler_retrieval_capture_terminal_invalid")
-            return terminal
+                _fail("scheduler_retrieval_capture_progress_authentication_invalid")
+            return progress
         finally:
             builder.close()
 
@@ -238,8 +348,87 @@ class SQLiteSchedulerRetrievalCaptureService:
         return "SQLiteSchedulerRetrievalCaptureService(<private-composition>)"
 
 
+def verify_scheduler_retrieval_capture_progress(
+    progress: object,
+    *,
+    plan: SchedulerRetrievalCapturePlan,
+    authentication_key: bytes,
+) -> bool:
+    """Verify that a progress cursor belongs to the exact plan and HMAC key."""
+
+    try:
+        if (
+            type(progress) is not SchedulerRetrievalCaptureProgress
+            or type(plan) is not SchedulerRetrievalCapturePlan
+            or type(authentication_key) is not bytes
+            or not 32 <= len(authentication_key) <= 1024
+        ):
+            return False
+        progress.__post_init__()
+        plan.__post_init__()
+        if (
+            progress.capture_identity_sha256 != plan.capture_identity_sha256
+            or progress.case_authority_root_sha256 != plan.case_authority_root_sha256
+            or progress.expected_group_count != plan.group_count
+        ):
+            return False
+        expected = _progress_hmac(progress.material(), authentication_key=authentication_key)
+        return hmac.compare_digest(expected, progress.authentication_hmac_sha256)
+    except Exception:
+        return False
+
+
+def _capture_progress(
+    *,
+    plan: SchedulerRetrievalCapturePlan,
+    next_sequence: int,
+    terminal: SchedulerRetrievalEvidenceAuthorityTerminal | None,
+    authentication_key: bytes,
+) -> SchedulerRetrievalCaptureProgress:
+    values = {
+        "capture_identity_sha256": plan.capture_identity_sha256,
+        "case_authority_root_sha256": plan.case_authority_root_sha256,
+        "next_sequence": next_sequence,
+        "expected_group_count": plan.group_count,
+        "terminal": terminal,
+    }
+    unsigned = SchedulerRetrievalCaptureProgress(
+        **values,
+        authentication_hmac_sha256="0" * 64,
+    )
+    return SchedulerRetrievalCaptureProgress(
+        **values,
+        authentication_hmac_sha256=_progress_hmac(
+            unsigned.material(),
+            authentication_key=authentication_key,
+        ),
+    )
+
+
+def _progress_hmac(material: dict[str, object], *, authentication_key: bytes) -> str:
+    if type(authentication_key) is not bytes or not 32 <= len(authentication_key) <= 1024:
+        _fail("scheduler_retrieval_capture_progress_authentication_invalid")
+    return hmac.new(
+        authentication_key,
+        _CAPTURE_PROGRESS_MAC_DOMAIN + canonical_json(material),
+        hashlib.sha256,
+    ).hexdigest()
+
+
+def _sha256(value: object) -> bool:
+    return (
+        type(value) is str
+        and len(value) == 64
+        and all(character in "0123456789abcdef" for character in value)
+    )
+
+
 def _fail(code: str) -> None:
     raise SchedulerRetrievalCaptureError(code)
 
 
-__all__ = ("SQLiteSchedulerRetrievalCaptureService",)
+__all__ = (
+    "SQLiteSchedulerRetrievalCaptureService",
+    "SchedulerRetrievalCaptureProgress",
+    "verify_scheduler_retrieval_capture_progress",
+)

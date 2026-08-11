@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import hashlib
 import hmac
 from pathlib import Path
 
@@ -10,10 +9,7 @@ from infinity_context_core.ports.managed_full_run_extraction_ledger import (
     FULL_RUN_EXTRACTION_LEDGER_SCHEMA,
     ManagedFullRunExtractionTerminal,
 )
-from infinity_context_server.features.subscription_runtime_bridge.json_boundary import (
-    canonical_json_bytes,
-    exact_object,
-)
+from infinity_context_server.features.subscription_runtime_bridge.json_boundary import exact_object
 from infinity_context_server.features.subscription_runtime_bridge.process_files import (
     read_private_json,
 )
@@ -24,13 +20,17 @@ from infinity_context_server.processes.publishable_full_extraction_contracts imp
 from infinity_context_server.processes.publishable_full_extraction_suite import (
     PublishableExtractionSuiteReadback,
 )
+from infinity_context_server.processes.publishable_full_extraction_terminal_seal import (
+    PUBLISHABLE_EXTRACTION_TERMINAL_SEAL_BYTES_LIMIT,
+    PUBLISHABLE_EXTRACTION_TERMINAL_SEAL_SCHEMA,
+    extraction_terminal_seal_hmac,
+)
 from infinity_context_server.publishable_durable_scheduler.publishable_run_contracts import (
     PublishableRunError,
 )
 
-EXTRACTION_TERMINAL_SEAL_SCHEMA = "publishable-full-extraction-terminal-seal.v1"
-_MAX_TERMINAL_BYTES = 128 * 1024
-_MAC_DOMAIN = b"infinity-context/publishable-run/extraction-terminal-seal/v1\0"
+EXTRACTION_TERMINAL_SEAL_SCHEMA = PUBLISHABLE_EXTRACTION_TERMINAL_SEAL_SCHEMA
+_MAX_TERMINAL_BYTES = PUBLISHABLE_EXTRACTION_TERMINAL_SEAL_BYTES_LIMIT
 
 
 def open_sealed_extraction_suite(
@@ -58,20 +58,6 @@ def open_sealed_extraction_suite(
         )
     except Exception:
         _fail("publishable_run_provider_extraction_invalid")
-
-
-def extraction_terminal_seal_hmac(
-    terminal_payload: dict[str, object], *, authentication_key: bytes
-) -> str:
-    """Return the writer-side MAC for an exact terminal payload."""
-
-    if type(authentication_key) is not bytes or len(authentication_key) < 32:
-        _fail("publishable_run_provider_extraction_invalid")
-    return hmac.new(
-        authentication_key,
-        _MAC_DOMAIN + canonical_json_bytes(terminal_payload),
-        hashlib.sha256,
-    ).hexdigest()
 
 
 def _read_terminal(path: Path, *, authentication_key: bytes) -> PublishableExtractionRunTerminal:
@@ -121,6 +107,7 @@ def _terminal(value: dict[str, object]) -> PublishableExtractionRunTerminal:
             "profile_id",
             "run_id_sha256",
             "runtime_binding_commitment_sha256",
+            "scheduler_bridge_runtime_authority_sha256",
             "schema_version",
             "terminal_commitment_sha256",
         }
@@ -142,6 +129,9 @@ def _terminal(value: dict[str, object]) -> PublishableExtractionRunTerminal:
         a1_terminal_commitment_sha256=item["a1_terminal_commitment_sha256"],
         a1_manifest_context_sha256=item["a1_manifest_context_sha256"],
         runtime_binding_commitment_sha256=item["runtime_binding_commitment_sha256"],
+        scheduler_bridge_runtime_authority_sha256=(
+            item["scheduler_bridge_runtime_authority_sha256"]
+        ),
         preparation_receipt_sha256=item["preparation_receipt_sha256"],
         dataset_sha256=item["dataset_sha256"],
         a2_terminal_commitment_sha256=item["a2_terminal_commitment_sha256"],

@@ -59,7 +59,7 @@ class InfinityContextSchedulerRetrievalAdapter:
         self, *, request: SchedulerBackendRetrievalRequest
     ) -> SchedulerBackendRetrievalResult:
         self._require_request(request, backend_index=0)
-        case = _gold_blind_case(request)
+        case = gold_blind_retrieval_case(request)
         try:
             result = self._backend.search(
                 case,
@@ -127,7 +127,7 @@ class Mem0SchedulerRetrievalAdapter:
         self, *, request: SchedulerBackendRetrievalRequest
     ) -> SchedulerBackendRetrievalResult:
         self._require_request(request, backend_index=1)
-        case = _gold_blind_case(request)
+        case = gold_blind_retrieval_case(request)
         try:
             result = self._backend.search(
                 case,
@@ -163,9 +163,13 @@ class Mem0SchedulerRetrievalAdapter:
         return "Mem0SchedulerRetrievalAdapter(<target-bound>)"
 
 
-def _gold_blind_case(request: SchedulerBackendRetrievalRequest) -> PublicBenchmarkCase:
+def gold_blind_retrieval_case(
+    request: SchedulerBackendRetrievalRequest,
+) -> PublicBenchmarkCase:
     """Project only fields required by the two existing exact search calls."""
 
+    if type(request) is not SchedulerBackendRetrievalRequest:
+        _fail("scheduler_backend_retrieval_request_invalid")
     return PublicBenchmarkCase(
         benchmark=request.case_key.benchmark.value,
         case_id=request.case_key.case_id,
@@ -219,4 +223,5 @@ def _fail(code: str) -> None:
 __all__ = (
     "InfinityContextSchedulerRetrievalAdapter",
     "Mem0SchedulerRetrievalAdapter",
+    "gold_blind_retrieval_case",
 )

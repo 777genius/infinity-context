@@ -101,12 +101,14 @@ def test_exact_dispatch_and_status_use_auth_and_separate_idempotency(
     assert dispatched.operation_id_sha256 == command.operation_id_sha256
     assert status.operation_id_sha256 == command.operation_id_sha256
     assert [str(item["url"]).rsplit("/", 1)[-1] for item in transport.calls] == [
+        "admit",
         "request-binding",
         "dispatch",
         "status",
         "request-binding",
     ]
     expected_keys = (
+        idempotency_key("admit", locomo_run.admission.commitment_sha256),
         idempotency_key("request-binding", command.operation_id_sha256),
         idempotency_key("dispatch", command.operation_id_sha256),
         idempotency_key("status", command.operation_id_sha256),
@@ -171,8 +173,26 @@ def test_request_binding_hmac_tamper_never_reaches_dispatch(
     ):
         adapter.dispatch_once(command=locomo_run.command(2))
 
+    assert len(transport.calls) == 2
+    assert str(transport.calls[0]["url"]).endswith("/v5/runs/admit")
+    assert str(transport.calls[1]["url"]).endswith("/v5/operations/request-binding")
+
+
+def test_admission_runtime_crosswire_never_reaches_dispatch(
+    locomo_run: SyntheticRun,
+) -> None:
+    transport = RecordingHttpTransport(locomo_run)
+    transport.tamper_admission_runtime = True
+    adapter = _adapter(locomo_run, transport)
+
+    with pytest.raises(
+        PublishableManagedMem0V5HttpAdapterError,
+        match="publishable_mem0_v5_admission_cross_wire",
+    ):
+        adapter.dispatch_once(command=locomo_run.command(2))
+
     assert len(transport.calls) == 1
-    assert str(transport.calls[0]["url"]).endswith("/v5/operations/request-binding")
+    assert str(transport.calls[0]["url"]).endswith("/v5/runs/admit")
 
 
 def test_attestation_target_crosswire_rejected_without_http(

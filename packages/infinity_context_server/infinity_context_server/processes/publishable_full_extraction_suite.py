@@ -17,7 +17,7 @@ from infinity_context_server.processes.publishable_full_extraction_worker import
     PublishableExtractionRunTerminal,
 )
 
-PUBLISHABLE_EXTRACTION_SUITE_SCHEMA = "publishable-full-extraction-suite.v1"
+PUBLISHABLE_EXTRACTION_SUITE_SCHEMA = "publishable-full-extraction-suite.v2"
 PUBLISHABLE_EXTRACTION_HANDOFF_SCHEMA = "publishable-full-extraction-handoff.v1"
 PUBLISHABLE_EXTRACTION_BENCHMARKS = (
     (
@@ -126,6 +126,8 @@ class PublishableExtractionSuiteReadback:
         ):
             if len(set(values)) != len(values):
                 _fail("extraction_suite_cross_wire")
+        if len({item.scheduler_bridge_runtime_authority_sha256 for item in terminals}) != 1:
+            _fail("extraction_suite_cross_wire")
         if self.global_publishable is not False or self.paid_go_ready is not False:
             _fail("extraction_suite_readiness_invalid")
         commitment = canonical_sha256(self.body())
@@ -157,6 +159,9 @@ class PublishableExtractionSuiteReadback:
             "ordered_extraction_terminal_commitment_sha256": [
                 item.terminal_commitment_sha256 for item in terminals
             ],
+            "scheduler_bridge_runtime_authority_sha256": (
+                terminals[0].scheduler_bridge_runtime_authority_sha256
+            ),
             "ordered_ledger_terminal_commitment_sha256": [
                 item.ledger_terminal.terminal_commitment_sha256 for item in terminals
             ],
@@ -211,6 +216,7 @@ def _validate_terminal(
         terminal.a1_terminal_commitment_sha256,
         terminal.a1_manifest_context_sha256,
         terminal.runtime_binding_commitment_sha256,
+        terminal.scheduler_bridge_runtime_authority_sha256,
         terminal.preparation_receipt_sha256,
         terminal.dataset_sha256,
         terminal.a2_terminal_commitment_sha256,

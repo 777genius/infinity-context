@@ -759,6 +759,9 @@ class PublishableFullExtractionWorker:
             a1_terminal_commitment_sha256=context.a1_terminal_commitment_sha256,
             a1_manifest_context_sha256=context.a1_manifest_context_sha256,
             runtime_binding_commitment_sha256=context.runtime_binding_commitment_sha256,
+            scheduler_bridge_runtime_authority_sha256=(
+                authority.scheduler_bridge_runtime_authority_sha256
+            ),
             preparation_receipt_sha256=authority.preparation_receipt_sha256,
             dataset_sha256=authority.dataset_sha256,
             a2_terminal_commitment_sha256=authority.a2_terminal_commitment_sha256,

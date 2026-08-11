@@ -308,7 +308,7 @@ def _synthetic_extraction_run_terminal(
         ingestion_root_sha256=sha(f"full-traversal-ingestion:{index}"),
         a1_terminal_commitment_sha256=sha(f"full-traversal-a1-terminal:{index}"),
         a1_manifest_context_sha256=sha(f"full-traversal-a1-context:{index}"),
-        runtime_binding_commitment_sha256=suite.bridge_boot.runtime_authority_sha256,
+        runtime_binding_commitment_sha256=sha(f"full-traversal-phase-c-runtime:{index}"),
         expected_receipt_count=receipt_count,
     )
     page_count = (
@@ -343,6 +343,7 @@ def _synthetic_extraction_run_terminal(
         a1_terminal_commitment_sha256=context.a1_terminal_commitment_sha256,
         a1_manifest_context_sha256=context.a1_manifest_context_sha256,
         runtime_binding_commitment_sha256=context.runtime_binding_commitment_sha256,
+        scheduler_bridge_runtime_authority_sha256=(suite.bridge_boot.runtime_authority_sha256),
         preparation_receipt_sha256=sha(f"full-traversal-preparation:{index}"),
         dataset_sha256=run.binding.dataset_sha256,
         a2_terminal_commitment_sha256=sha(f"full-traversal-a2-terminal:{index}"),

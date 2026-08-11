@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import hmac
+from dataclasses import replace
 from typing import final
 
 from infinity_context_core.ports.managed_full_run_extraction_ledger import (
@@ -37,7 +38,7 @@ from infinity_context_server.publishable_durable_scheduler.runner_suite_binding 
     require_exact_suite,
 )
 
-_READ_POLICY_SCHEMA = "publishable-extraction-suite-scheduler-read-policy.v1"
+_READ_POLICY_SCHEMA = "publishable-extraction-suite-scheduler-read-policy.v2"
 PUBLISHABLE_EXTRACTION_SUITE_TERMINAL_READ_POLICY_SHA256 = commitment(
     "extraction-suite-terminal-read-policy",
     {
@@ -47,6 +48,7 @@ PUBLISHABLE_EXTRACTION_SUITE_TERMINAL_READ_POLICY_SHA256 = commitment(
             for profile_id, count in PUBLISHABLE_EXTRACTION_BENCHMARKS
         ],
         "policy_schema_version": _READ_POLICY_SCHEMA,
+        "runtime_projection": "authenticated-phase-c-to-scheduler-bridge-v1",
         "source_schema_version": PUBLISHABLE_EXTRACTION_SUITE_SCHEMA,
         "source_terminal_schema_version": PUBLISHABLE_EXTRACTION_TERMINAL_SCHEMA,
         "validated_bindings": [
@@ -56,6 +58,7 @@ PUBLISHABLE_EXTRACTION_SUITE_TERMINAL_READ_POLICY_SHA256 = commitment(
             "dataset_sha256",
             "methodology_commitment_sha256",
             "runtime_binding_commitment_sha256",
+            "scheduler_bridge_runtime_authority_sha256",
             "expected_receipt_count",
             "ledger_context_commitment_sha256",
         ],
@@ -191,10 +194,10 @@ def _authenticate_slot(
     expected_receipt_count: int,
 ) -> SchedulerAuthenticatedExtractionTerminal:
     run = spec.run
-    context = _context_from_terminal(terminal)
-    ledger_terminal = terminal.ledger_terminal
+    source_context = _context_from_terminal(terminal)
+    source_terminal = terminal.ledger_terminal
     try:
-        ManagedFullRunExtractionTerminal.__post_init__(ledger_terminal)
+        ManagedFullRunExtractionTerminal.__post_init__(source_terminal)
     except Exception:
         _fail("scheduler_extraction_terminal_adapter_terminal_invalid")
     if (
@@ -204,16 +207,35 @@ def _authenticate_slot(
         or terminal.binding_commitment_sha256 != run.binding.binding_commitment_sha256
         or terminal.dataset_sha256 != run.binding.dataset_sha256
         or terminal.methodology_commitment_sha256 != suite.methodology_sha256
-        or terminal.runtime_binding_commitment_sha256 != suite.bridge_boot.runtime_authority_sha256
+        or terminal.scheduler_bridge_runtime_authority_sha256
+        != suite.bridge_boot.runtime_authority_sha256
         or terminal.expected_receipt_count != expected_receipt_count
-        or context.expected_receipt_count != expected_receipt_count
-        or terminal.ledger_context_commitment_sha256 != context.commitment_sha256
-        or ledger_terminal.context_commitment_sha256 != context.commitment_sha256
-        or ledger_terminal.receipt_count != expected_receipt_count
+        or source_context.expected_receipt_count != expected_receipt_count
+        or terminal.ledger_context_commitment_sha256 != source_context.commitment_sha256
+        or source_terminal.context_commitment_sha256 != source_context.commitment_sha256
+        or source_terminal.receipt_count != expected_receipt_count
         or terminal.paid_go_ready is not False
         or terminal.terminal_commitment_sha256 != canonical_sha256(terminal.body())
     ):
         _fail("scheduler_extraction_terminal_adapter_terminal_divergent")
+    context = replace(
+        source_context,
+        runtime_binding_commitment_sha256=(terminal.scheduler_bridge_runtime_authority_sha256),
+    )
+    projected_body = {
+        **source_terminal.body(),
+        "context_commitment_sha256": context.commitment_sha256,
+    }
+    ledger_terminal = ManagedFullRunExtractionTerminal(
+        context_commitment_sha256=context.commitment_sha256,
+        receipt_count=source_terminal.receipt_count,
+        page_count=source_terminal.page_count,
+        receipt_pages_root_sha256=source_terminal.receipt_pages_root_sha256,
+        prompt_tokens=source_terminal.prompt_tokens,
+        completion_tokens=source_terminal.completion_tokens,
+        total_tokens=source_terminal.total_tokens,
+        terminal_commitment_sha256=canonical_sha256(projected_body),
+    )
     evidence = SchedulerExtractionTerminalEvidence(
         context=context,
         terminal=ledger_terminal,

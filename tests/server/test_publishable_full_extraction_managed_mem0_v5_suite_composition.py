@@ -58,6 +58,7 @@ def _run_configuration(
             request=SimpleNamespace(expected_operation_count=operation_count)
         ),
         "runtime_receipt_authority": SimpleNamespace(operations=_SizedOperations(operation_count)),
+        "scheduler_bridge_runtime_authority_sha256": "c" * 64,
         "state_directory": state_directory,
     }
     for name, value in values.items():

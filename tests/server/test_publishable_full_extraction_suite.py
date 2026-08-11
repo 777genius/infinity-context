@@ -80,6 +80,7 @@ def _terminal(
         a1_terminal_commitment_sha256=context.a1_terminal_commitment_sha256,
         a1_manifest_context_sha256=context.a1_manifest_context_sha256,
         runtime_binding_commitment_sha256=(context.runtime_binding_commitment_sha256),
+        scheduler_bridge_runtime_authority_sha256=_sha("scheduler-bridge-runtime"),
         preparation_receipt_sha256=_sha(f"{seed}:preparation"),
         dataset_sha256=_sha(f"{seed}:dataset"),
         a2_terminal_commitment_sha256=_sha(f"{seed}:a2-terminal"),

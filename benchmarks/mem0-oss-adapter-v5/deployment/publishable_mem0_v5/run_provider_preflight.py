@@ -31,6 +31,8 @@ from infinity_context_server.memory_comparison_managed_mem0_v5_runtime_attestati
     _AUTH_DOMAIN,
     _IDEMPOTENCY_DOMAIN,
     REQUEST_SCHEMA,
+    ManagedMem0V5ExpectedRuntimeAuthority,
+    VerifiedManagedMem0V5RuntimeAttestationValidation,
     _verify_and_issue,
     expected_managed_mem0_v5_runtime_authority_from_pin,
     managed_mem0_v5_runtime_validation_is_publishable,
@@ -87,6 +89,28 @@ class _ControlSnapshot:
 class _VerifiedFleet:
     readiness: BridgeFleetReadinessReceipt
     controls: tuple[_ControlSnapshot, _ControlSnapshot, _ControlSnapshot]
+
+
+@final
+@dataclass(frozen=True, slots=True)
+class PublishableRunRuntimeValidation:
+    """One run-id-bound provider-free runtime validation."""
+
+    expected_authority: ManagedMem0V5ExpectedRuntimeAuthority
+    validation: VerifiedManagedMem0V5RuntimeAttestationValidation
+    target_identity_sha256: str
+
+    def __post_init__(self) -> None:
+        if (
+            type(self.expected_authority) is not ManagedMem0V5ExpectedRuntimeAuthority
+            or type(self.validation) is not VerifiedManagedMem0V5RuntimeAttestationValidation
+            or not _sha(self.target_identity_sha256)
+            or not managed_mem0_v5_runtime_validation_is_publishable(
+                self.validation,
+                required_runtime_mode="oss",
+            )
+        ):
+            _fail("publishable_run_provider_endpoint_attestation_invalid")
 
 
 def preflight_run_provider(
@@ -559,6 +583,33 @@ def _verify_endpoint_runtime_authority(
     config: RunProviderConfig,
     secrets: RunProviderSecrets,
 ) -> None:
+    verify_publishable_run_runtime_authority(
+        config=config,
+        secrets=secrets,
+        run_id=config.suite.suite_id,
+    )
+
+
+def verify_publishable_run_runtime_authority(
+    *,
+    config: RunProviderConfig,
+    secrets: RunProviderSecrets,
+    run_id: str,
+) -> PublishableRunRuntimeValidation:
+    """Verify the local v5 runtime against one exact extraction run id."""
+
+    if (
+        type(config) is not RunProviderConfig
+        or type(secrets) is not RunProviderSecrets
+        or type(run_id) is not str
+        or run_id
+        not in {
+            config.suite.suite_id,
+            config.suite.locomo_run_id,
+            config.suite.longmemeval_run_id,
+        }
+    ):
+        _fail("publishable_run_provider_endpoint_attestation_invalid")
     authority = config.runtime_authority
     expected = expected_managed_mem0_v5_runtime_authority_from_pin(
         runtime_pin_file=authority.runtime_pin_path,
@@ -586,7 +637,7 @@ def _verify_endpoint_runtime_authority(
     request = {
         "schema_version": REQUEST_SCHEMA,
         "target_origin_sha256": target,
-        "run_id_sha256": hashlib.sha256(config.suite.suite_id.encode()).hexdigest(),
+        "run_id_sha256": hashlib.sha256(run_id.encode()).hexdigest(),
         "probe_nonce_sha256": nonce,
         "validity_seconds": 60,
     }
@@ -608,6 +659,11 @@ def _verify_endpoint_runtime_authority(
         required_runtime_mode="oss",
     ):
         _fail("publishable_run_provider_endpoint_attestation_invalid")
+    return PublishableRunRuntimeValidation(
+        expected_authority=expected,
+        validation=verified,
+        target_identity_sha256=target,
+    )
 
 
 def _post_runtime_attestation(
@@ -799,4 +855,8 @@ def _fail(code: str) -> None:
     raise PublishableRunError(code) from None
 
 
-__all__ = ("preflight_run_provider",)
+__all__ = (
+    "PublishableRunRuntimeValidation",
+    "preflight_run_provider",
+    "verify_publishable_run_runtime_authority",
+)

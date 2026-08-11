@@ -148,6 +148,7 @@ def _authority(
         preparation_receipt_sha256=_sha(f"{run_id}:preparation"),
         dataset_sha256=_sha(f"{run_id}:dataset"),
         a2_terminal_commitment_sha256=_sha(f"{run_id}:a2-terminal"),
+        scheduler_bridge_runtime_authority_sha256=_sha("scheduler-bridge-runtime"),
     )
 
 
