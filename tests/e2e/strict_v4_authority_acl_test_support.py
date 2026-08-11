@@ -65,6 +65,7 @@ async def assert_upgrade_normalizes_all_authority_acls(database_url: str) -> Non
             result = await upgrade_schema(engine)
             assert result.applied == (
                 "0036_memory_comparison_strict_v4_preparations",
+                "0037_strict_v4_fact_writer",
                 "0038_strict_v4_document_writer",
             )
         finally:

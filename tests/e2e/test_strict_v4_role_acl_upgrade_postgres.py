@@ -94,6 +94,7 @@ async def _scenario(database_url: str) -> None:
             result = await upgrade_schema(engine)
             assert result.applied == (
                 "0036_memory_comparison_strict_v4_preparations",
+                "0037_strict_v4_fact_writer",
                 "0038_strict_v4_document_writer",
             )
         finally:
@@ -362,7 +363,7 @@ async def _non_schema_owner_scenario(database_url: str) -> None:
             ) == ["shadow_marker"]
             assert await admin.fetchval(
                 """
-                SELECT count(*)=38
+                SELECT count(*)=39
                 FROM public.infinity_context_schema_migrations
                 """
             )

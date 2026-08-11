@@ -43,6 +43,7 @@ async def _assert_cleanup_plan_upgrade(database_url: str) -> None:
                 "0034_benchmark_generated_tombstone_fence",
                 "0035_projection_result_receipts",
                 "0036_memory_comparison_strict_v4_preparations",
+                "0037_strict_v4_fact_writer",
                 "0038_strict_v4_document_writer",
             )
             await _assert_cleanup_plan_schema(engine)

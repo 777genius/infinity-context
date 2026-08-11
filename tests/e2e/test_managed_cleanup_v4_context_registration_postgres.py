@@ -1,4 +1,4 @@
-"""Fresh PostgreSQL 18 gate for provider-free context registration."""
+"""Fresh supported-PostgreSQL gate for provider-free context registration."""
 
 from __future__ import annotations
 
@@ -22,7 +22,7 @@ WHEN = datetime(2026, 8, 9, tzinfo=UTC)
 AUTHENTICATOR = ProjectionReceiptAuthenticator(b"v" * 32)
 
 
-def test_context_registration_on_fresh_postgres_18() -> None:
+def test_context_registration_on_fresh_supported_postgres() -> None:
     database_url = os.getenv("INFINITY_CONTEXT_TEST_POSTGRES_URL")
     if not database_url:
         pytest.skip("INFINITY_CONTEXT_TEST_POSTGRES_URL is not configured")
@@ -52,7 +52,7 @@ async def _scenario(database_url: str) -> None:
         connection = await database.connect()
         try:
             version = int(await connection.fetchval("SHOW server_version_num"))
-            assert 180000 <= version < 190000
+            assert 160000 <= version < 190000
             await connection.execute(
                 """
                 INSERT INTO memory_spaces(id,slug,name,status,created_at,updated_at)

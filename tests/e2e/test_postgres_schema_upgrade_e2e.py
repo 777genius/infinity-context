@@ -53,7 +53,7 @@ async def _assert_clean_and_legacy_upgrade(database_url: str) -> None:
             assert clean.legacy_baseline is False
             assert clean.current == "0038_strict_v4_document_writer"
             assert clean.applied[0] == "0001_core_facts"
-            assert sorted(len(result.applied) for result in clean_results) == [0, 38]
+            assert sorted(len(result.applied) for result in clean_results) == [0, 39]
             assert (await upgrade_schema(engine)).applied == ()
             await _assert_head_schema(engine)
         finally:
