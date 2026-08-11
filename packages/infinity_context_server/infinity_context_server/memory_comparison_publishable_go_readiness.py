@@ -44,7 +44,7 @@ PUBLISHABLE_EXECUTABLE_IMPLEMENTATION_STATUS = "executable"
 # the exact paired-outcome sealing policy.  Three paid-go authorities remain
 # false, so the matching active v4 candidate is authenticated but cannot be admitted.
 PUBLISHABLE_REVIEWED_ORCHESTRATION_COMMITMENT_SHA256 = (
-    "7a6370eeb64e449712dad6d585774b074fd8432191a4fef1c1a2831cedd50aa8"
+    "0b886fa112c672a2f23ad4227586fb97b45a76e6b6e86ee3d5abedae93a09051"
 )
 
 _TOKEN = object()
