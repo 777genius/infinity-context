@@ -84,6 +84,7 @@ infinity-context-managed-v5-recover = "infinity_context_server.memory_comparison
 infinity-context-managed-strict-v4-prepare = "infinity_context_server.memory_comparison_managed_v5_strict_v4_cli:main"
 infinity-context-managed-strict-v4-cleanup = "infinity_context_server.memory_comparison_managed_v5_strict_v4_cleanup_cli:main"
 infinity-context-publishable-inputs = "infinity_context_server.publishable_input_preparation.cli:main"
+infinity-context-publishable-canary = "infinity_context_server.publishable_durable_scheduler.publishable_canary_cli:main"
 infinity-context-publishable-run = "infinity_context_server.publishable_durable_scheduler.publishable_run_cli:main"
 infinity-context-publishable-mem0-v5 = "publishable_mem0_v5.cli:main"
 infinity-context-mcp = "infinity_context_mcp.server:main"
