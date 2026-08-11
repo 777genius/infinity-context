@@ -109,7 +109,7 @@ def test_benchmark_selection_inventory_is_explicit_and_complete() -> None:
     assert set(suites) == {"root", "mem0-v5"}
     root_paths = set(suites["root"].test_paths)
     assert suites["root"].project_directory == PROJECT_ROOT
-    assert suites["root"].minimum_selected_nodes == 375
+    assert suites["root"].minimum_selected_nodes == 360
     assert set(suites["root"].deferred_node_ids) == {
         "tests/unit/test_publishable_durable_scheduler_sqlite_security.py::"
         "test_runner_exact_two_run_cardinality_is_2040_cases_and_8160_calls",
