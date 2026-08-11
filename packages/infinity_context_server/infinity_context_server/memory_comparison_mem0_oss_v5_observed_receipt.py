@@ -415,7 +415,10 @@ class Mem0V5ObservedExtractionReceiptVerifier(RuntimeReceiptVerificationPort):
         operation = self._operation_index.get(context.operation_id_sha256)
         if type(operation) is not Mem0V5ObservedExtractionOperationAuthority:
             _fail("mem0_v5_runtime_receipt_invalid")
-        if not self._operation_state_is_exact(operation):
+        if (
+            context.operation_id_sha256 != operation.operation_id_sha256
+            or not self._operation_state_is_exact(operation)
+        ):
             _fail("mem0_v5_runtime_receipt_state_invalid")
         if (
             context.admission_commitment_sha256 != authority.admission_commitment_sha256
