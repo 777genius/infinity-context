@@ -6,6 +6,12 @@ on:
       - main
   pull_request:
   workflow_dispatch:
+    inputs:
+      synthetic_2040:
+        description: Run the optional long synthetic 2,040-case scheduler contracts
+        required: false
+        default: false
+        type: boolean
 
 permissions:
   contents: read
@@ -62,3 +68,112 @@ jobs:
         env:
           FILE_SIZE_BASE_REF: ${{ github.event_name == 'pull_request' && format('origin/{0}', github.base_ref) || github.event_name == 'push' && github.event.before || '' }}
         run: make infinity-context-test-quality
+
+  benchmark-contracts:
+    name: Provider-free benchmark contracts
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+
+    env:
+      HF_HUB_OFFLINE: "1"
+      TRANSFORMERS_OFFLINE: "1"
+      MEM0_TELEMETRY: "false"
+      MEM0_TELEMETRY_SAMPLE_RATE: "0"
+      QDRANT__TELEMETRY_DISABLED: "true"
+      PYTEST_DISABLE_PLUGIN_AUTOLOAD: "1"
+      PYTHONHASHSEED: "0"
+      OPENAI_API_KEY: ""
+      MEMORY_OPENAI_API_KEY: ""
+      MEMORY_AGENT_BENCH_OPENAI_API_KEY: ""
+      MEM0_API_KEY: ""
+      ANTHROPIC_API_KEY: ""
+      GOOGLE_API_KEY: ""
+      GEMINI_API_KEY: ""
+      COHERE_API_KEY: ""
+      VOYAGE_API_KEY: ""
+      AZURE_OPENAI_API_KEY: ""
+      AWS_ACCESS_KEY_ID: ""
+      AWS_SECRET_ACCESS_KEY: ""
+      AWS_SESSION_TOKEN: ""
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7.0.1
+
+      - name: Set up Python
+        uses: actions/setup-python@v7.0.0
+        with:
+          python-version: "3.11.15"
+
+      - name: Install pinned uv
+        run: python -m pip install --disable-pip-version-check "uv==0.11.28"
+
+      - name: Verify dependency locks
+        run: |
+          uv lock --check
+          uv lock --directory benchmarks/mem0-oss-adapter-v5 --check
+
+      - name: Install locked test dependencies
+        run: |
+          uv sync --extra dev --frozen
+          uv sync --directory benchmarks/mem0-oss-adapter-v5 --group dev --frozen
+
+      - name: Run root benchmark contracts
+        run: >-
+          uv run --frozen --no-sync python
+          scripts/run_provider_free_benchmark_ci.py root
+
+      - name: Run nested mem0 v5 and E2E contracts
+        run: >-
+          uv run --directory benchmarks/mem0-oss-adapter-v5 --frozen --no-sync
+          python "${GITHUB_WORKSPACE}/scripts/run_provider_free_benchmark_ci.py" mem0-v5
+
+  benchmark-synthetic-2040:
+    name: Optional synthetic 2040 benchmark contracts
+    if: github.event_name == 'workflow_dispatch' && inputs.synthetic_2040
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    env:
+      HF_HUB_OFFLINE: "1"
+      TRANSFORMERS_OFFLINE: "1"
+      MEM0_TELEMETRY: "false"
+      MEM0_TELEMETRY_SAMPLE_RATE: "0"
+      QDRANT__TELEMETRY_DISABLED: "true"
+      PYTEST_DISABLE_PLUGIN_AUTOLOAD: "1"
+      PYTHONHASHSEED: "0"
+      OPENAI_API_KEY: ""
+      MEMORY_OPENAI_API_KEY: ""
+      MEMORY_AGENT_BENCH_OPENAI_API_KEY: ""
+      MEM0_API_KEY: ""
+      ANTHROPIC_API_KEY: ""
+      GOOGLE_API_KEY: ""
+      GEMINI_API_KEY: ""
+      COHERE_API_KEY: ""
+      VOYAGE_API_KEY: ""
+      AZURE_OPENAI_API_KEY: ""
+      AWS_ACCESS_KEY_ID: ""
+      AWS_SECRET_ACCESS_KEY: ""
+      AWS_SESSION_TOKEN: ""
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7.0.1
+
+      - name: Set up Python
+        uses: actions/setup-python@v7.0.0
+        with:
+          python-version: "3.11.15"
+
+      - name: Install pinned uv
+        run: python -m pip install --disable-pip-version-check "uv==0.11.28"
+
+      - name: Install locked root test dependencies
+        run: |
+          uv lock --check
+          uv sync --extra dev --frozen
+
+      - name: Run deferred synthetic 2040 contracts
+        run: >-
+          uv run --frozen --no-sync python
+          scripts/run_provider_free_benchmark_ci.py root --deferred-only

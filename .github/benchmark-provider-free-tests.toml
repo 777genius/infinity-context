@@ -1,0 +1,70 @@
+schema_version = 1
+
+# Existing test names containing these terms overstate what a provider-free CI
+# run proves. The runner collects them for visibility but never executes them.
+forbidden_node_terms = ["full", "production", "paid"]
+
+[suites.root]
+project_directory = "."
+# Audited quick gate: 375 cases; additions are allowed, regressions require review.
+minimum_selected_nodes = 375
+deferred_node_ids = [
+  "tests/unit/test_publishable_durable_scheduler_sqlite_security.py::test_runner_exact_two_run_cardinality_is_2040_cases_and_8160_calls",
+  "tests/server/test_publishable_scheduler_official_request_renderer.py::test_fake_2040_case_manifest_traversal_keeps_reads_one_case_bounded",
+  "tests/server/test_scheduler_official_sqlite_authorities.py::test_bounded_2040_case_streaming_build_and_indexed_read_traversal",
+  "tests/server/test_scheduler_subscription_bridge_composition.py::test_official_composition_suite_seal_replay_and_synthetic_2040_traversal",
+]
+test_paths = [
+  "tests/unit/test_publishable_durable_scheduler_manifest.py",
+  "tests/unit/test_publishable_durable_scheduler_state.py",
+  "tests/unit/test_publishable_durable_scheduler_sqlite.py",
+  "tests/unit/test_publishable_durable_scheduler_sqlite_security.py",
+  "tests/unit/test_publishable_durable_scheduler_v2.py",
+  "tests/unit/test_publishable_durable_scheduler_v2_security.py",
+  "tests/server/test_scheduler_subscription_bridge_composition.py",
+  "tests/server/test_scheduler_retrieval_capture_service.py",
+  "tests/server/test_scheduler_retrieval_capture_composition.py",
+  "tests/server/test_scheduler_retrieval_capture_http_adapters.py",
+  "tests/server/test_scheduler_paired_outcome_contracts.py",
+  "tests/server/test_publishable_scheduler_official_request_renderer.py",
+  "tests/server/test_scheduler_official_sqlite_authorities.py",
+  "tests/server/test_publishable_run_attestation.py",
+  "tests/server/test_subscription_runtime_bridge_provider_receipt_replay.py",
+  "tests/server/test_publishable_canary_activation_evidence.py",
+  "tests/server/test_publishable_canary_cli.py",
+  "tests/server/test_publishable_canary_composition.py",
+  "tests/server/test_publishable_canary_orchestrator.py",
+  "tests/unit/test_publishable_canary_authority.py",
+  "tests/architecture/test_cognitive_memory_boundaries.py",
+  "tests/architecture/test_feature_owned_vertical_slices.py",
+  "tests/architecture/test_file_size_boundaries.py",
+  "tests/architecture/test_mem0_v5_live_micro_canary_topology.py",
+  "tests/architecture/test_memory_boundaries.py",
+  "tests/architecture/test_memory_comparison_provider_boundaries.py",
+  "tests/architecture/test_publishable_checkpoint_journal_boundaries.py",
+  "tests/architecture/test_resumable_operation_journal_boundaries.py",
+]
+
+[suites.mem0-v5]
+project_directory = "benchmarks/mem0-oss-adapter-v5"
+# Audited selection: 47 package cases plus 144 E2E cases, less one name-guarded case.
+minimum_selected_nodes = 190
+deferred_node_ids = []
+test_paths = [
+  # This is the package's documented provider-boundary contract selection.
+  "tests/test_composition_provider_free.py",
+  "tests/test_package_import_boundary.py",
+  "tests/test_publishable_input_provider.py",
+  "tests/test_publishable_provider_attestation.py",
+  "tests/test_publishable_run_provider_http.py",
+  "tests/test_publishable_run_provider_preflight.py",
+  "e2e/tests/test_contracts_http.py",
+  "e2e/tests/test_fake_receipt.py",
+  "e2e/tests/test_independent_auditors.py",
+  "e2e/tests/test_lifecycle.py",
+  "e2e/tests/test_namespace_attestation.py",
+  "e2e/tests/test_namespace_compose_contract.py",
+  "e2e/tests/test_namespace_runner.py",
+  "e2e/tests/test_package_import_boundary.py",
+  "e2e/tests/test_scenario_fail_closed.py",
+]
