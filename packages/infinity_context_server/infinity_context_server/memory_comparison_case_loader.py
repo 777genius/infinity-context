@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import math
 from collections.abc import Mapping, Sequence
 from pathlib import Path
 from typing import NoReturn
@@ -31,20 +32,40 @@ def load_memory_comparison_cases(
     *,
     locomo_ingest_mode: str,
 ) -> tuple[PublicBenchmarkCase, ...]:
-    if locomo_ingest_mode not in {
-        LOCOMO_INGEST_RICH_DOCUMENTS,
-        LOCOMO_INGEST_OFFICIAL_TURNS,
-    }:
-        raise BenchmarkValidationError(f"Unsupported LoCoMo ingest mode: {locomo_ingest_mode}")
+    """Load cases from a path for compatibility with existing callers."""
+
+    _validate_locomo_ingest_mode(locomo_ingest_mode)
     if not dataset_path.exists():
         raise BenchmarkValidationError(f"Dataset does not exist: {dataset_path}")
+    return load_memory_comparison_cases_from_bytes(
+        dataset_path.read_bytes(),
+        locomo_ingest_mode=locomo_ingest_mode,
+    )
+
+
+def load_memory_comparison_cases_from_bytes(
+    dataset_bytes: bytes,
+    *,
+    locomo_ingest_mode: str,
+) -> tuple[PublicBenchmarkCase, ...]:
+    """Normalize cases from one caller-authenticated immutable byte snapshot."""
+
+    _validate_locomo_ingest_mode(locomo_ingest_mode)
     cases = cases_from_payload(
-        parse_memory_comparison_dataset_bytes(dataset_path.read_bytes()),
+        parse_memory_comparison_dataset_bytes(dataset_bytes),
         locomo_ingest_mode=locomo_ingest_mode,
     )
     if not cases:
         raise BenchmarkValidationError("Dataset does not contain benchmark cases")
     return cases
+
+
+def _validate_locomo_ingest_mode(locomo_ingest_mode: str) -> None:
+    if locomo_ingest_mode not in {
+        LOCOMO_INGEST_RICH_DOCUMENTS,
+        LOCOMO_INGEST_OFFICIAL_TURNS,
+    }:
+        raise BenchmarkValidationError(f"Unsupported LoCoMo ingest mode: {locomo_ingest_mode}")
 
 
 def parse_memory_comparison_dataset_bytes(dataset_bytes: bytes) -> object:
@@ -73,6 +94,7 @@ def _strict_json_loads(value: str) -> object:
         value,
         object_pairs_hook=_unique_json_object,
         parse_constant=_reject_json_constant,
+        parse_float=_finite_json_float,
     )
 
 
@@ -87,6 +109,13 @@ def _unique_json_object(pairs: list[tuple[str, object]]) -> dict[str, object]:
 
 def _reject_json_constant(value: str) -> NoReturn:
     raise _StrictDatasetJsonError(f"non-finite JSON constant: {value}")
+
+
+def _finite_json_float(value: str) -> float:
+    result = float(value)
+    if not math.isfinite(result):
+        raise _StrictDatasetJsonError("non-finite JSON number")
+    return result
 
 
 def cases_from_payload(

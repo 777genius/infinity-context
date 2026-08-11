@@ -24,7 +24,7 @@ from infinity_context_server.features.subscription_runtime_bridge.process_contra
     BridgeFleetReadinessReceipt,
 )
 from infinity_context_server.memory_comparison_case_loader import (
-    load_memory_comparison_cases,
+    load_memory_comparison_cases_from_bytes,
 )
 from infinity_context_server.memory_comparison_locomo_cases import (
     LOCOMO_INGEST_OFFICIAL_TURNS,
@@ -149,14 +149,10 @@ class _OfficialCaseProjection:
             ("locomo", LOCOMO_PROFILE.case_count, config.locomo_dataset),
             ("longmemeval", LONGMEMEVAL_PROFILE.case_count, config.longmemeval_dataset),
         ):
-            _verify_dataset_file(source.path, expected_sha256=source.sha256)
-            try:
-                cases = load_memory_comparison_cases(
-                    source.path,
-                    locomo_ingest_mode=LOCOMO_INGEST_OFFICIAL_TURNS,
-                )
-            except Exception:
-                _fail("publishable_run_provider_official_cases_invalid")
+            cases = _load_authenticated_dataset_cases(
+                source.path,
+                expected_sha256=source.sha256,
+            )
             if (
                 len(cases) != expected_count
                 or any(type(item) is not PublicBenchmarkCase for item in cases)
@@ -485,34 +481,89 @@ def _open_journal(
     return BridgeJournal.create(path, integrity=integrity)
 
 
-def _verify_dataset_file(path: Path, *, expected_sha256: str) -> None:
-    digest = hashlib.sha256()
-    total = 0
-    flags = os.O_RDONLY | getattr(os, "O_CLOEXEC", 0) | getattr(os, "O_NOFOLLOW", 0)
+def _load_authenticated_dataset_cases(
+    path: Path,
+    *,
+    expected_sha256: str,
+) -> tuple[PublicBenchmarkCase, ...]:
+    descriptor: int | None = None
+    cases: tuple[PublicBenchmarkCase, ...]
+    flags = (
+        os.O_RDONLY
+        | getattr(os, "O_CLOEXEC", 0)
+        | getattr(os, "O_NOFOLLOW", 0)
+        | getattr(os, "O_NONBLOCK", 0)
+    )
     try:
         before = path.lstat()
         descriptor = os.open(path, flags)
-        try:
-            opened = os.fstat(descriptor)
-            if (
-                stat.S_ISLNK(before.st_mode)
-                or not stat.S_ISREG(opened.st_mode)
-                or (before.st_dev, before.st_ino) != (opened.st_dev, opened.st_ino)
-                or opened.st_nlink != 1
-                or opened.st_mode & 0o022
-            ):
-                raise OSError
-            while chunk := os.read(descriptor, 1024 * 1024):
-                total += len(chunk)
-                if total > _MAX_DATASET_BYTES:
-                    raise OSError
-                digest.update(chunk)
-        finally:
-            os.close(descriptor)
-    except OSError:
+        opened = os.fstat(descriptor)
+        if (
+            not stat.S_ISREG(before.st_mode)
+            or _dataset_file_identity(before) != _dataset_file_identity(opened)
+            or opened.st_nlink != 1
+            or opened.st_mode & 0o022
+            or not 1 <= opened.st_size <= _MAX_DATASET_BYTES
+        ):
+            raise OSError
+
+        snapshot = _read_dataset_snapshot(descriptor)
+        if (
+            len(snapshot) != opened.st_size
+            or hashlib.sha256(snapshot).hexdigest() != expected_sha256
+        ):
+            raise OSError
+
+        cases = load_memory_comparison_cases_from_bytes(
+            snapshot,
+            locomo_ingest_mode=LOCOMO_INGEST_OFFICIAL_TURNS,
+        )
+        final = os.fstat(descriptor)
+        after = path.lstat()
+        if not (
+            _dataset_file_identity(opened)
+            == _dataset_file_identity(final)
+            == _dataset_file_identity(after)
+        ):
+            raise OSError
+    except Exception:
         _fail("publishable_run_provider_official_cases_invalid")
-    if total == 0 or digest.hexdigest() != expected_sha256:
-        _fail("publishable_run_provider_official_cases_invalid")
+    finally:
+        if descriptor is not None:
+            try:
+                os.close(descriptor)
+            except OSError:
+                _fail("publishable_run_provider_official_cases_invalid")
+    return cases
+
+
+def _read_dataset_snapshot(descriptor: int) -> bytes:
+    chunks: list[bytes] = []
+    total = 0
+    while True:
+        maximum_chunk_bytes = min(1024 * 1024, _MAX_DATASET_BYTES - total + 1)
+        chunk = os.read(descriptor, maximum_chunk_bytes)
+        if not chunk:
+            break
+        chunks.append(chunk)
+        total += len(chunk)
+        if total > _MAX_DATASET_BYTES:
+            raise OSError
+    return b"".join(chunks)
+
+
+def _dataset_file_identity(value: os.stat_result) -> tuple[int, ...]:
+    return (
+        value.st_dev,
+        value.st_ino,
+        value.st_mode,
+        value.st_nlink,
+        value.st_uid,
+        value.st_gid,
+        value.st_size,
+        value.st_mtime_ns,
+        value.st_ctime_ns,
+    )
 
 
 def _case_alias(case: PublicBenchmarkCase) -> str:
