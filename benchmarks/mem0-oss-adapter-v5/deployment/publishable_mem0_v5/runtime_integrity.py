@@ -28,6 +28,10 @@ from infinity_context_server.features.subscription_runtime_bridge.process_contra
 
 from .config import BASE_INSTRUCTIONS_SHA256, BRIDGE_PORTS, RELAY_PORT, PublishableLaneConfig
 from .docker_cli import SERVICES
+from .project_lifecycle_inventory import (
+    ProjectLifecycleInventoryError,
+    inspect_project_lifecycle,
+)
 
 _MAX_FLEET_METADATA_BYTES = 256 * 1024
 _LIFECYCLE_ROOT = ".infinity-context-bridge-launcher"
@@ -98,6 +102,44 @@ class FleetRuntimeEvidence:
         return {
             "bridges": [item.payload() for item in self.bridges],
             "fleet_readiness_sha256": self.fleet_readiness_sha256,
+            "pool_authority_sha256": self.pool_authority_sha256,
+            "requested_mode": self.requested_mode,
+        }
+
+
+@dataclass(frozen=True, slots=True)
+class ProjectBridgeRuntimeEvidence:
+    """Project-local lifecycle evidence with no host process identity fields."""
+
+    account_name: str
+    bridge_id: str
+    lifecycle_inventory_sha256: str
+    runtime_authority_sha256: str
+
+    def payload(self) -> dict[str, object]:
+        return {
+            "account_name": self.account_name,
+            "bridge_id": self.bridge_id,
+            "lifecycle_inventory_sha256": self.lifecycle_inventory_sha256,
+            "runtime_authority_sha256": self.runtime_authority_sha256,
+        }
+
+
+@dataclass(frozen=True, slots=True)
+class ProjectFleetRuntimeEvidence:
+    requested_mode: str
+    pool_authority_sha256: str
+    fleet_evidence_sha256: str
+    bridges: tuple[
+        ProjectBridgeRuntimeEvidence,
+        ProjectBridgeRuntimeEvidence,
+        ProjectBridgeRuntimeEvidence,
+    ]
+
+    def payload(self) -> dict[str, object]:
+        return {
+            "bridges": [item.payload() for item in self.bridges],
+            "fleet_evidence_sha256": self.fleet_evidence_sha256,
             "pool_authority_sha256": self.pool_authority_sha256,
             "requested_mode": self.requested_mode,
         }
@@ -346,6 +388,118 @@ def attest_fleet_readiness(
     )
 
 
+def attest_project_fleet_evidence(
+    config: PublishableLaneConfig,
+    *,
+    fleet_mode: str,
+    expected_uid: int,
+    expected_gid: int,
+) -> ProjectFleetRuntimeEvidence:
+    """Commit project authority and opaque lifecycle metadata without process observation."""
+
+    if (
+        type(config) is not PublishableLaneConfig
+        or fleet_mode not in {"create", "reopen"}
+        or type(expected_uid) is not int
+        or expected_uid < 0
+        or type(expected_gid) is not int
+        or expected_gid < 0
+    ):
+        _fail("publishable_attestation_fleet_input_invalid")
+    authorities = tuple(
+        BridgeAuthority(
+            bridge_id=item.bridge_id,
+            origin=f"http://127.0.0.1:{port}",
+            account_binding_hmac_sha256=item.account_binding_hmac_sha256,
+            public_model="gpt-5.6-sol",
+            base_instructions_sha256=BASE_INSTRUCTIONS_SHA256,
+        )
+        for item, port in zip(config.bridges, BRIDGE_PORTS, strict=True)
+    )
+    pool = BridgePoolAuthority(
+        pool_id=f"{config.project_name}-runtime-pool",
+        bridges=authorities,
+    )
+    identities: list[ProjectBridgeRuntimeEvidence] = []
+    runtime_authority_sha256s: list[str] = []
+    lifecycle_inventory_sha256s: list[str] = []
+    try:
+        for account, authority in zip(config.bridges, authorities, strict=True):
+            identity = _attest_project_bridge_evidence(
+                config,
+                account_name=account.account_name,
+                bridge_id=account.bridge_id,
+                authority=authority,
+                expected_uid=expected_uid,
+                expected_gid=expected_gid,
+            )
+            identities.append(identity)
+            runtime_authority_sha256s.append(identity.runtime_authority_sha256)
+            lifecycle_inventory_sha256s.append(identity.lifecycle_inventory_sha256)
+    except (BridgeProcessError, ValueError, TypeError, KeyError) as exc:
+        raise RuntimeIntegrityError("publishable_attestation_fleet_receipt_invalid") from exc
+    if len(set(runtime_authority_sha256s)) != len(BRIDGE_PORTS):
+        _fail("publishable_attestation_fleet_runtime_authority_reuse")
+    if len(set(lifecycle_inventory_sha256s)) != len(BRIDGE_PORTS):
+        _fail("publishable_attestation_fleet_lifecycle_inventory_reuse")
+    project_bridges = tuple(identities)
+    evidence_sha256 = hashlib.sha256(
+        _canonical_json(
+            {
+                "bridges": [item.payload() for item in project_bridges],
+                "pool_authority_sha256": pool.commitment_sha256,
+                "requested_mode": fleet_mode,
+            }
+        )
+    ).hexdigest()
+    return ProjectFleetRuntimeEvidence(
+        requested_mode=fleet_mode,
+        pool_authority_sha256=pool.commitment_sha256,
+        fleet_evidence_sha256=evidence_sha256,
+        bridges=project_bridges,  # type: ignore[arg-type]
+    )
+
+
+def _attest_project_bridge_evidence(
+    config: PublishableLaneConfig,
+    *,
+    account_name: str,
+    bridge_id: str,
+    authority: BridgeAuthority,
+    expected_uid: int,
+    expected_gid: int,
+) -> ProjectBridgeRuntimeEvidence:
+    state_base = config.paths.fleet_state_dir / account_name
+    state_root = state_base / "current"
+    lifecycle = state_root / _LIFECYCLE_ROOT
+    for path in (state_base, state_root, lifecycle):
+        _require_private_directory(path, expected_uid, expected_gid)
+    runtime_authority = _read_private_json(
+        lifecycle / _RUNTIME_AUTHORITY_FILE,
+        expected_uid=expected_uid,
+        expected_gid=expected_gid,
+    )
+    runtime_authority_sha256 = _runtime_authority_commitment(
+        runtime_authority,
+        config=config,
+        account_name=account_name,
+        authority=authority,
+    )
+    try:
+        lifecycle_inventory_sha256 = inspect_project_lifecycle(
+            lifecycle,
+            expected_uid=expected_uid,
+            expected_gid=expected_gid,
+        )
+    except ProjectLifecycleInventoryError as exc:
+        raise RuntimeIntegrityError(str(exc)) from exc
+    return ProjectBridgeRuntimeEvidence(
+        account_name=account_name,
+        bridge_id=bridge_id,
+        lifecycle_inventory_sha256=lifecycle_inventory_sha256,
+        runtime_authority_sha256=runtime_authority_sha256,
+    )
+
 def _attest_bridge_readiness(
     config: PublishableLaneConfig,
     *,
@@ -498,6 +652,23 @@ def _attest_runtime_authority(
     authority: BridgeAuthority,
     expected_sha256: str,
 ) -> None:
+    actual_sha256 = _runtime_authority_commitment(
+        value,
+        config=config,
+        account_name=account_name,
+        authority=authority,
+    )
+    if not hmac.compare_digest(actual_sha256, expected_sha256):
+        _fail("publishable_attestation_runtime_authority_mismatch")
+
+
+def _runtime_authority_commitment(
+    value: Mapping[str, object],
+    *,
+    config: PublishableLaneConfig,
+    account_name: str,
+    authority: BridgeAuthority,
+) -> str:
     dynamic = {
         "auth_root_identity_sha256",
         "private_material_binding_hmac_sha256",
@@ -532,9 +703,7 @@ def _attest_runtime_authority(
         _fail("publishable_attestation_runtime_authority_invalid")
     if any(not _sha256(value.get(name)) for name in dynamic):
         _fail("publishable_attestation_runtime_authority_invalid")
-    actual_sha256 = hashlib.sha256(_canonical_json(value)).hexdigest()
-    if not hmac.compare_digest(actual_sha256, expected_sha256):
-        _fail("publishable_attestation_runtime_authority_mismatch")
+    return hashlib.sha256(_canonical_json(value)).hexdigest()
 
 
 def _read_listener_table(path: Path, *, family: str) -> list[dict[str, object]]:
@@ -698,9 +867,12 @@ def _fail(code: str) -> None:
 __all__ = (
     "BridgeRuntimeIdentity",
     "FleetRuntimeEvidence",
+    "ProjectBridgeRuntimeEvidence",
+    "ProjectFleetRuntimeEvidence",
     "RuntimeIntegrityError",
     "attest_anchor_container_inventory",
     "attest_fleet_readiness",
+    "attest_project_fleet_evidence",
     "attest_relay_reachability",
     "attest_socket_bindings",
 )

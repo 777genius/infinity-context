@@ -74,6 +74,7 @@ def test_generated_production_order_composes_acceptance_paid_create_and_crash_re
         "acceptance",
         "start_reopen",
         "attest_reopen",
+        "prepare_inputs",
         "run_2040",
     ]
     assert [item["name"] for item in commands["crash_reopen_resume_order"]] == [

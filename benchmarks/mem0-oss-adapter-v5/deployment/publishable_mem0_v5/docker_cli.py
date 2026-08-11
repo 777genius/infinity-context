@@ -9,6 +9,7 @@ import subprocess
 from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path
+from types import MappingProxyType
 from typing import Any, Final, Protocol
 
 from .config import QDRANT_IMAGE, PublishableLaneConfig
@@ -36,6 +37,35 @@ _MAX_OUTPUT_BYTES = 16 * 1024 * 1024
 _MAX_RUNNING_CONTAINERS = 4096
 _MAX_PROJECT_RESOURCES = 4096
 _INSPECT_BATCH_SIZE = 128
+_PROJECT_CONTAINER_FORMAT = (
+    '{"Config":{"Cmd":{{json .Config.Cmd}},"Env":{{json .Config.Env}},'
+    '"Image":{{json .Config.Image}},"Labels":{{json .Config.Labels}},'
+    '"User":{{json .Config.User}}},"HostConfig":{'
+    '"CapAdd":{{json .HostConfig.CapAdd}},"CapDrop":{{json .HostConfig.CapDrop}},'
+    '"NetworkMode":{{json .HostConfig.NetworkMode}},"PidMode":{{json .HostConfig.PidMode}},'
+    '"PortBindings":{{json .HostConfig.PortBindings}},'
+    '"Privileged":{{json .HostConfig.Privileged}},'
+    '"PublishAllPorts":{{json .HostConfig.PublishAllPorts}},'
+    '"ReadonlyRootfs":{{json .HostConfig.ReadonlyRootfs}},'
+    '"SecurityOpt":{{json .HostConfig.SecurityOpt}}},"Id":{{json .Id}},'
+    '"Image":{{json .Image}},"Mounts":{{json .Mounts}},'
+    '"NetworkSettings":{"Networks":{{json .NetworkSettings.Networks}},'
+    '"Ports":{{json .NetworkSettings.Ports}}},"State":{'
+    '"Health":{"Status":{{json .State.Health.Status}}},'
+    '"Running":{{json .State.Running}},"Status":{{json .State.Status}}}}'
+)
+_PROJECT_CONTAINER_IDENTITY_FORMAT = (
+    '{"Id":{{json .Id}},"Labels":{{json .Config.Labels}}}'
+)
+_PROJECT_NETWORK_FORMAT = (
+    '{"Attachable":{{json .Attachable}},"ConfigOnly":{{json .ConfigOnly}},'
+    '"Containers":{{json .Containers}},"Driver":{{json .Driver}},"Id":{{json .Id}},'
+    '"Ingress":{{json .Ingress}},"Internal":{{json .Internal}},'
+    '"Labels":{{json .Labels}},"Name":{{json .Name}},"Scope":{{json .Scope}}}'
+)
+_PROJECT_VOLUME_FORMAT = (
+    '{"Labels":{{json .Labels}},"Name":{{json .Name}}}'
+)
 
 
 class DockerCliError(RuntimeError):
@@ -123,6 +153,33 @@ class ProjectResources:
         }
 
 
+@dataclass(frozen=True, slots=True)
+class ProjectInspection:
+    """Immutable exact-project identities and their inspected Docker payloads."""
+
+    project_name: str
+    container_ids: Mapping[str, str]
+    containers: Mapping[str, Mapping[str, Any]]
+    network_id: str
+    network: Mapping[str, Any]
+    resources: ProjectResourceObservation
+
+    def __post_init__(self) -> None:
+        object.__setattr__(self, "container_ids", MappingProxyType(dict(self.container_ids)))
+        object.__setattr__(self, "containers", MappingProxyType(dict(self.containers)))
+        object.__setattr__(self, "network", MappingProxyType(dict(self.network)))
+
+
+@dataclass(frozen=True, slots=True)
+class ProjectResourceObservation:
+    """One adapter-issued snapshot of only exact Compose-project resources."""
+
+    project_name: str
+    containers: tuple[str, ...]
+    networks: tuple[str, ...]
+    volumes: tuple[str, ...]
+
+
 class DockerCli:
     """Exact cached start, controlled stop, teardown, and inspection operations."""
 
@@ -144,6 +201,7 @@ class DockerCli:
         self._config_file_path = config_file
         self._runner = runner or SubprocessCommandRunner()
         self._docker = str(docker_binary)
+        self._project_observations: dict[int, ProjectResourceObservation] = {}
         self._environment = {
             "DOCKER_HOST": config.docker_host,
             "LANG": "C.UTF-8",
@@ -220,6 +278,20 @@ class DockerCli:
             ):
                 raise DockerCliError("publishable_compose_controlled_stop_invalid")
 
+    def require_project_stopped(self, *, mode: str) -> None:
+        """Verify exact project containers through the process-free projection."""
+
+        containers = self.inspect_project_containers(self.container_ids(mode=mode))
+        self._require_project_container_labels(containers)
+        for value in containers.values():
+            state = value.get("State")
+            if (
+                not isinstance(state, Mapping)
+                or state.get("Running") is not False
+                or state.get("Status") != "exited"
+            ):
+                raise DockerCliError("publishable_compose_controlled_stop_invalid")
+
     def teardown(self, *, mode: str) -> None:
         """Remove only the configured exact Compose project's Docker resources."""
 
@@ -268,6 +340,163 @@ class DockerCli:
             volumes=inventories["volumes"],
         )
 
+    def inspect_project(self, *, mode: str) -> ProjectInspection:
+        """Inspect only the complete, unambiguous exact Compose project."""
+
+        container_ids = self.container_ids(mode=mode)
+        resources = self.observe_project_resources()
+        if (
+            set(resources.containers) != set(container_ids.values())
+            or len(resources.networks) != 1
+            or resources.volumes
+        ):
+            raise DockerCliError("publishable_project_runtime_inventory_invalid")
+
+        containers = self.inspect_project_containers(container_ids)
+        self._require_project_container_labels(containers)
+        network_id = resources.networks[0]
+        network = self._inspect_network_id(network_id)
+        self._require_project_network_identity(network, network_id=network_id)
+        final_resources = self.observe_project_resources()
+        if final_resources != resources:
+            raise DockerCliError("publishable_project_runtime_inventory_changed")
+        return ProjectInspection(
+            project_name=self._config.project_name,
+            container_ids=container_ids,
+            containers=containers,
+            network_id=network_id,
+            network=network,
+            resources=final_resources,
+        )
+
+    def observe_project_resources(self) -> ProjectResourceObservation:
+        """Bind an exact, label-scoped resource snapshot to this adapter instance."""
+
+        first = self.project_resources()
+        self._require_observed_project_labels(first)
+        second = self.project_resources()
+        if second != first:
+            raise DockerCliError("publishable_project_inventory_changed")
+        self._require_observed_project_labels(second)
+        final = self.project_resources()
+        if final != second:
+            raise DockerCliError("publishable_project_inventory_changed")
+        observation = ProjectResourceObservation(
+            project_name=self._config.project_name,
+            containers=final.containers,
+            networks=final.networks,
+            volumes=final.volumes,
+        )
+        self._project_observations[id(observation)] = observation
+        return observation
+
+    def require_project_absent(
+        self,
+        *observed: ProjectResourceObservation,
+    ) -> ProjectResources:
+        """Prove label-scoped zero and absence of every prior exact Docker ID."""
+
+        if not observed or any(not self._valid_project_observation(item) for item in observed):
+            raise DockerCliError("publishable_project_absence_input_invalid")
+        container_ids = tuple(
+            dict.fromkeys(
+                identifier for observation in observed for identifier in observation.containers
+            )
+        )
+        network_ids = tuple(
+            dict.fromkeys(
+                identifier for observation in observed for identifier in observation.networks
+            )
+        )
+        volume_names = tuple(
+            dict.fromkeys(name for observation in observed for name in observation.volumes)
+        )
+
+        failures: list[DockerCliError] = []
+        resources: ProjectResources | None = None
+        try:
+            initial = self.project_resources()
+            if not initial.empty:
+                failures.append(DockerCliError("publishable_project_resources_remain"))
+        except DockerCliError as exc:
+            failures.append(exc)
+
+        for identifier in container_ids:
+            try:
+                values = self._resource_names(
+                    self._run(
+                        "container",
+                        "ls",
+                        "--all",
+                        "--quiet",
+                        "--no-trunc",
+                        "--filter",
+                        f"id={identifier}",
+                    ),
+                    pattern=_CONTAINER_ID,
+                )
+                if values:
+                    failures.append(DockerCliError("publishable_project_container_id_remains"))
+            except DockerCliError as exc:
+                failures.append(exc)
+        for identifier in network_ids:
+            try:
+                networks = self._resource_names(
+                    self._run(
+                        "network",
+                        "ls",
+                        "--quiet",
+                        "--no-trunc",
+                        "--filter",
+                        f"id={identifier}",
+                    ),
+                    pattern=_NETWORK_ID,
+                )
+                if networks:
+                    failures.append(DockerCliError("publishable_project_network_id_remains"))
+            except DockerCliError as exc:
+                failures.append(exc)
+        for name in volume_names:
+            try:
+                volumes = self._resource_names(
+                    self._run(
+                        "volume",
+                        "ls",
+                        "--quiet",
+                        "--filter",
+                        f"name=^{re.escape(name)}$",
+                    ),
+                    pattern=_VOLUME_NAME,
+                )
+                if volumes:
+                    failures.append(DockerCliError("publishable_project_volume_name_remains"))
+            except DockerCliError as exc:
+                failures.append(exc)
+        try:
+            resources = self.project_resources()
+            if not resources.empty:
+                failures.append(DockerCliError("publishable_project_resources_remain"))
+        except DockerCliError as exc:
+            failures.append(exc)
+        if failures or resources is None:
+            raise DockerCliError("publishable_project_absence_failed") from failures[0]
+        return resources
+
+    def _valid_project_observation(self, observed: object) -> bool:
+        return (
+            type(observed) is ProjectResourceObservation
+            and self._project_observations.get(id(observed)) is observed
+            and observed.project_name == self._config.project_name
+            and len(set(observed.containers)) == len(observed.containers)
+            and len(set(observed.networks)) == len(observed.networks)
+            and len(set(observed.volumes)) == len(observed.volumes)
+            and all(
+                _CONTAINER_ID.fullmatch(value) is not None for value in observed.containers
+            )
+            and all(_NETWORK_ID.fullmatch(value) is not None for value in observed.networks)
+            and all(_VOLUME_NAME.fullmatch(value) is not None for value in observed.volumes)
+        )
+
     def container_ids(self, *, mode: str) -> dict[str, str]:
         result: dict[str, str] = {}
         for service in SERVICES:
@@ -278,7 +507,10 @@ class DockerCli:
                 service,
                 mode=mode,
             )
-            values = raw.decode("ascii", "strict").splitlines()
+            try:
+                values = raw.decode("ascii", "strict").splitlines()
+            except UnicodeDecodeError as exc:
+                raise DockerCliError("publishable_compose_service_identity_invalid") from exc
             if len(values) != 1 or _CONTAINER_ID.fullmatch(values[0]) is None:
                 raise DockerCliError("publishable_compose_service_identity_invalid")
             result[service] = values[0]
@@ -303,6 +535,31 @@ class DockerCli:
             by_id[identifier] = item
         if set(by_id) != set(ordered):
             raise DockerCliError("publishable_container_inspect_invalid")
+        return {name: by_id[container_ids[name]] for name in SERVICES}
+
+    def inspect_project_containers(
+        self,
+        container_ids: Mapping[str, str],
+    ) -> dict[str, Mapping[str, Any]]:
+        """Read only the project fields needed for attestation, excluding process identity."""
+
+        if set(container_ids) != set(SERVICES):
+            raise DockerCliError("publishable_container_inventory_invalid")
+        ordered = tuple(container_ids[name] for name in SERVICES)
+        if len(set(ordered)) != len(SERVICES) or any(
+            _CONTAINER_ID.fullmatch(identifier) is None for identifier in ordered
+        ):
+            raise DockerCliError("publishable_container_inventory_invalid")
+        values = self._json_lines(
+            self._run(
+                "container",
+                "inspect",
+                "--format",
+                _PROJECT_CONTAINER_FORMAT,
+                *ordered,
+            )
+        )
+        by_id = self._objects_by_identity(values, expected=ordered, key="Id")
         return {name: by_id[container_ids[name]] for name in SERVICES}
 
     def inspect_network(self) -> Mapping[str, Any]:
@@ -363,6 +620,114 @@ class DockerCli:
             raise DockerCliError(f"publishable_cached_{label}_image_unavailable")
         return value[0]
 
+    def _inspect_network_id(self, network_id: str) -> Mapping[str, Any]:
+        if _NETWORK_ID.fullmatch(network_id) is None:
+            raise DockerCliError("publishable_network_identity_invalid")
+        values = self._json_lines(
+            self._run("network", "inspect", "--format", _PROJECT_NETWORK_FORMAT, network_id)
+        )
+        if len(values) != 1 or values[0].get("Id") != network_id:
+            raise DockerCliError("publishable_network_inspect_invalid")
+        return values[0]
+
+    def _require_observed_project_labels(self, resources: ProjectResources) -> None:
+        if resources.containers:
+            values = self._json_lines(
+                self._run(
+                    "container",
+                    "inspect",
+                    "--format",
+                    _PROJECT_CONTAINER_IDENTITY_FORMAT,
+                    *resources.containers,
+                )
+            )
+            containers = self._objects_by_identity(
+                values,
+                expected=resources.containers,
+                key="Id",
+            )
+            for value in containers.values():
+                self._require_exact_project_label(value.get("Labels"))
+        for network_id in resources.networks:
+            network = self._inspect_network_id(network_id)
+            self._require_exact_project_label(network.get("Labels"))
+        if resources.volumes:
+            values = self._json_lines(
+                self._run(
+                    "volume",
+                    "inspect",
+                    "--format",
+                    _PROJECT_VOLUME_FORMAT,
+                    *resources.volumes,
+                )
+            )
+            volumes = self._objects_by_identity(
+                values,
+                expected=resources.volumes,
+                key="Name",
+            )
+            for value in volumes.values():
+                self._require_exact_project_label(value.get("Labels"))
+
+    def _require_exact_project_label(self, labels: object) -> None:
+        if (
+            not isinstance(labels, Mapping)
+            or labels.get("com.docker.compose.project") != self._config.project_name
+        ):
+            raise DockerCliError("publishable_project_resource_labels_invalid")
+
+    @staticmethod
+    def _objects_by_identity(
+        values: tuple[Mapping[str, Any], ...],
+        *,
+        expected: tuple[str, ...],
+        key: str,
+    ) -> dict[str, Mapping[str, Any]]:
+        if len(values) != len(expected):
+            raise DockerCliError("publishable_project_resource_inspect_invalid")
+        result: dict[str, Mapping[str, Any]] = {}
+        for value in values:
+            identifier = value.get(key)
+            if type(identifier) is not str or identifier not in expected or identifier in result:
+                raise DockerCliError("publishable_project_resource_inspect_invalid")
+            result[identifier] = value
+        if set(result) != set(expected):
+            raise DockerCliError("publishable_project_resource_inspect_invalid")
+        return result
+
+    def _require_project_container_labels(
+        self,
+        containers: Mapping[str, Mapping[str, Any]],
+    ) -> None:
+        for service in SERVICES:
+            config = containers[service].get("Config")
+            if not isinstance(config, Mapping):
+                raise DockerCliError("publishable_project_container_labels_invalid")
+            labels = config.get("Labels")
+            if (
+                not isinstance(labels, Mapping)
+                or labels.get("com.docker.compose.project") != self._config.project_name
+                or labels.get("com.docker.compose.service") != service
+                or labels.get("com.docker.compose.container-number") != "1"
+            ):
+                raise DockerCliError("publishable_project_container_labels_invalid")
+
+    def _require_project_network_identity(
+        self,
+        network: Mapping[str, Any],
+        *,
+        network_id: str,
+    ) -> None:
+        labels = network.get("Labels")
+        if (
+            network.get("Id") != network_id
+            or network.get("Name") != self.network_name
+            or not isinstance(labels, Mapping)
+            or labels.get("com.docker.compose.project") != self._config.project_name
+            or labels.get("com.docker.compose.network") != NETWORK_KEY
+        ):
+            raise DockerCliError("publishable_project_network_identity_invalid")
+
     def _compose_prefix(self) -> tuple[str, ...]:
         return (
             "compose",
@@ -412,14 +777,47 @@ class DockerCli:
             or any(pattern.fullmatch(value) is None for value in values)
         ):
             raise DockerCliError("publishable_project_inventory_invalid")
-        return values
+        return tuple(sorted(values))
 
     @staticmethod
     def _json(raw: bytes) -> object:
         try:
-            return json.loads(raw)
-        except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+            return json.loads(
+                raw,
+                object_pairs_hook=_unique_json_object,
+                parse_constant=_reject_json_constant,
+            )
+        except (UnicodeDecodeError, ValueError) as exc:
             raise DockerCliError("publishable_docker_json_invalid") from exc
+
+    @classmethod
+    def _json_lines(cls, raw: bytes) -> tuple[Mapping[str, Any], ...]:
+        try:
+            lines = raw.decode("utf-8", "strict").splitlines()
+        except UnicodeDecodeError as exc:
+            raise DockerCliError("publishable_docker_json_invalid") from exc
+        if not lines or len(lines) > _MAX_PROJECT_RESOURCES or any(not line for line in lines):
+            raise DockerCliError("publishable_docker_json_invalid")
+        result: list[Mapping[str, Any]] = []
+        for line in lines:
+            value = cls._json(line.encode("utf-8"))
+            if not isinstance(value, Mapping):
+                raise DockerCliError("publishable_docker_json_invalid")
+            result.append(value)
+        return tuple(result)
+
+
+def _unique_json_object(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
+    result: dict[str, Any] = {}
+    for key, value in pairs:
+        if key in result:
+            raise ValueError("duplicate Docker JSON key")
+        result[key] = value
+    return result
+
+
+def _reject_json_constant(_value: str) -> None:
+    raise ValueError("invalid Docker JSON constant")
 
 
 __all__ = (
@@ -431,6 +829,8 @@ __all__ = (
     "CommandRunner",
     "DockerCli",
     "DockerCliError",
+    "ProjectInspection",
+    "ProjectResourceObservation",
     "ProjectResources",
     "SubprocessCommandRunner",
 )

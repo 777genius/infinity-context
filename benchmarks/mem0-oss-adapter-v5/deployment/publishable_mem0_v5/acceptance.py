@@ -22,11 +22,33 @@ from .acceptance_identity import (
     attest_acceptance_driver,
     require_acceptance_driver_unchanged,
 )
-from .config import CONTAINER_GID, CONTAINER_UID, PublishableLaneConfig, load_lane_config
-from .deployment import LaneDeployer, deploy
-from .docker_cli import CommandRunner, DockerCli, ProjectResources
+from .config import (
+    CONTAINER_GID,
+    CONTAINER_UID,
+    PINNED_DOCKER_HOST,
+    PublishableLaneConfig,
+    load_lane_config,
+)
+from .deployment import DeploymentOutcome, LaneDeployer, deploy
+from .docker_cli import (
+    CommandRunner,
+    DockerCli,
+    ProjectResourceObservation,
+    ProjectResources,
+)
 from .immutable_evidence import write_immutable_json
+from .inventory_scope import (
+    GLOBAL_INVENTORY_SCOPE,
+    PROJECT_INVENTORY_SCOPE,
+    InventoryScope,
+    require_inventory_scope,
+)
 from .preflight import DeploymentInputEvidence, attest_deployment_inputs
+from .project_runtime_attestation import (
+    ProjectRuntimeAttestationReadback,
+    read_project_runtime_attestation,
+    require_project_runtime_attestation_unchanged,
+)
 from .provider_attestation import (
     ProviderAttestationEvidence,
     ProviderFreeRuntimeAttestor,
@@ -34,10 +56,11 @@ from .provider_attestation import (
 )
 from .runtime_attestation import attest_compose_asset
 
-ACCEPTANCE_SCHEMA: Final = "publishable-mem0-v5-docker-acceptance.v1"
+ACCEPTANCE_SCHEMA: Final = "publishable-mem0-v5-docker-acceptance.v2"
 ACCEPTANCE_FILE_PREFIX: Final = "docker-acceptance-"
 CLEAN_STATE_STATUS: Final = "NOT_RUN_REQUIRES_AUTHORITATIVE_RUN_ADMISSION"
 DeploymentInputAttestor = Callable[..., DeploymentInputEvidence]
+AcceptanceRuntimeReadback = RuntimeAttestationReadback | ProjectRuntimeAttestationReadback
 _LIFECYCLE = (
     "create",
     "attest-create",
@@ -100,6 +123,8 @@ class DockerAcceptanceOutcome:
     adapter_source_commit_sha1: str
     adapter_source_tree_sha1: str
     phase_c_infinity_commit_sha1: str
+    inventory_scope: InventoryScope = GLOBAL_INVENTORY_SCOPE
+    docker_host: str = PINNED_DOCKER_HOST
 
     def payload(self) -> dict[str, object]:
         return {
@@ -111,6 +136,11 @@ class DockerAcceptanceOutcome:
             },
             "cleanup": {"containers": 0, "networks": 0, "volumes": 0},
             "create_attestation_sha256": self.create_attestation_sha256,
+            "docker_inventory": _docker_inventory_payload(
+                docker_host=self.docker_host,
+                project_name=self.project_name,
+                inventory_scope=self.inventory_scope,
+            ),
             "deployment_authority": {
                 "deployment_closure_hmac_sha256": self.deployment_closure_hmac_sha256,
                 "deployment_closure_sha256": self.deployment_closure_sha256,
@@ -141,9 +171,16 @@ def run_docker_acceptance(
     lane_deployer: LaneDeployer = deploy,
     runtime_probe: ProviderFreeRuntimeProbe | None = None,
     deployment_attestor: DeploymentInputAttestor = attest_deployment_inputs,
+    inventory_scope: InventoryScope = GLOBAL_INVENTORY_SCOPE,
+    expected_project_name: str | None = None,
+    expected_docker_host: str | None = None,
 ) -> DockerAcceptanceOutcome:
     """Create, attest, stop, reopen, re-attest, and exactly clean one project."""
 
+    try:
+        inventory_scope = require_inventory_scope(inventory_scope)
+    except ValueError as exc:
+        raise DockerAcceptanceError(str(exc)) from exc
     if (
         not config_file.is_absolute()
         or not proc_root.is_absolute()
@@ -152,6 +189,12 @@ def run_docker_acceptance(
     ):
         _fail("publishable_acceptance_input_invalid")
     config = load_lane_config(config_file)
+    _require_inventory_authority(
+        config,
+        inventory_scope=inventory_scope,
+        expected_project_name=expected_project_name,
+        expected_docker_host=expected_docker_host,
+    )
     authentication_key_file = config.paths.adapter_secret_dir / "runtime-attestation-secret"
     driver = attest_acceptance_driver(config)
     docker = DockerCli(config, config_file=config_file, runner=runner)
@@ -167,7 +210,17 @@ def run_docker_acceptance(
         expected_uid=expected_uid,
         expected_gid=expected_gid,
     )
-    initial = docker.project_resources()
+    project_observations: list[ProjectResourceObservation] = []
+    if inventory_scope == PROJECT_INVENTORY_SCOPE:
+        initial_observation = docker.observe_project_resources()
+        project_observations.append(initial_observation)
+        initial = ProjectResources(
+            containers=initial_observation.containers,
+            networks=initial_observation.networks,
+            volumes=initial_observation.volumes,
+        )
+    else:
+        initial = docker.project_resources()
     if not initial.empty:
         _fail("publishable_acceptance_project_not_empty")
     probe = runtime_probe or ProviderFreeRuntimeAttestor(
@@ -182,26 +235,31 @@ def run_docker_acceptance(
     primary_traceback: TracebackType | None = None
     cleanup_failure: BaseException | None = None
     cleanup: ProjectResources | None = None
-    create: RuntimeAttestationReadback | None = None
-    reopen: RuntimeAttestationReadback | None = None
+    create: AcceptanceRuntimeReadback | None = None
+    reopen: AcceptanceRuntimeReadback | None = None
     create_provider: ProviderAttestationEvidence | None = None
     reopen_provider: ProviderAttestationEvidence | None = None
     try:
         cleanup_armed = True
-        create_outcome = lane_deployer(
+        create_outcome = _deploy_lane(
+            lane_deployer,
             config_file=config_file,
             fleet_mode="create",
-            start=True,
             runner=runner,
             proc_root=proc_root,
             expected_uid=expected_uid,
             expected_gid=expected_gid,
+            inventory_scope=inventory_scope,
         )
-        create = read_runtime_attestation(
+        if inventory_scope == PROJECT_INVENTORY_SCOPE:
+            project_observations.append(docker.inspect_project(mode="create").resources)
+        create = _read_runtime_attestation(
+            inventory_scope=inventory_scope,
             path=create_outcome.attestation_file,
             directory=config.paths.attestation_dir,
             authentication_key_file=authentication_key_file,
             expected_project=config.project_name,
+            expected_docker_host=config.docker_host,
             expected_mode="create",
             expected_commitment=create_outcome.attestation_sha256,
             expected_uid=expected_uid,
@@ -213,17 +271,22 @@ def run_docker_acceptance(
             runtime_attestation_sha256=create.commitment_sha256,
         )
         docker.stop(mode="create")
-        docker.require_stopped(mode="create")
+        if inventory_scope == PROJECT_INVENTORY_SCOPE:
+            docker.require_project_stopped(mode="create")
+        else:
+            docker.require_stopped(mode="create")
         _require_state_unchanged(
             state_before,
             config,
             expected_uid=expected_uid,
             expected_gid=expected_gid,
         )
-        require_runtime_attestation_unchanged(
+        _require_runtime_attestation_unchanged(
             create,
+            inventory_scope=inventory_scope,
             directory=config.paths.attestation_dir,
             authentication_key_file=authentication_key_file,
+            expected_docker_host=config.docker_host,
             expected_uid=expected_uid,
             expected_gid=expected_gid,
         )
@@ -239,20 +302,25 @@ def run_docker_acceptance(
         )
 
         cleanup_mode = "reopen"
-        reopen_outcome = lane_deployer(
+        reopen_outcome = _deploy_lane(
+            lane_deployer,
             config_file=config_file,
             fleet_mode="reopen",
-            start=True,
             runner=runner,
             proc_root=proc_root,
             expected_uid=expected_uid,
             expected_gid=expected_gid,
+            inventory_scope=inventory_scope,
         )
-        reopen = read_runtime_attestation(
+        if inventory_scope == PROJECT_INVENTORY_SCOPE:
+            project_observations.append(docker.inspect_project(mode="reopen").resources)
+        reopen = _read_runtime_attestation(
+            inventory_scope=inventory_scope,
             path=reopen_outcome.attestation_file,
             directory=config.paths.attestation_dir,
             authentication_key_file=authentication_key_file,
             expected_project=config.project_name,
+            expected_docker_host=config.docker_host,
             expected_mode="reopen",
             expected_commitment=reopen_outcome.attestation_sha256,
             expected_uid=expected_uid,
@@ -269,17 +337,21 @@ def run_docker_acceptance(
             expected_uid=expected_uid,
             expected_gid=expected_gid,
         )
-        require_runtime_attestation_unchanged(
+        _require_runtime_attestation_unchanged(
             create,
+            inventory_scope=inventory_scope,
             directory=config.paths.attestation_dir,
             authentication_key_file=authentication_key_file,
+            expected_docker_host=config.docker_host,
             expected_uid=expected_uid,
             expected_gid=expected_gid,
         )
-        require_runtime_attestation_unchanged(
+        _require_runtime_attestation_unchanged(
             reopen,
+            inventory_scope=inventory_scope,
             directory=config.paths.attestation_dir,
             authentication_key_file=authentication_key_file,
+            expected_docker_host=config.docker_host,
             expected_uid=expected_uid,
             expected_gid=expected_gid,
         )
@@ -293,6 +365,8 @@ def run_docker_acceptance(
             cleanup_failure, cleanup = _cleanup_exact_project(
                 docker,
                 mode=cleanup_mode,
+                inventory_scope=inventory_scope,
+                project_observations=tuple(project_observations),
             )
 
     if cleanup_failure is not None:
@@ -318,17 +392,21 @@ def run_docker_acceptance(
         expected_uid=expected_uid,
         expected_gid=expected_gid,
     )
-    require_runtime_attestation_unchanged(
+    _require_runtime_attestation_unchanged(
         create,
+        inventory_scope=inventory_scope,
         directory=config.paths.attestation_dir,
         authentication_key_file=authentication_key_file,
+        expected_docker_host=config.docker_host,
         expected_uid=expected_uid,
         expected_gid=expected_gid,
     )
-    require_runtime_attestation_unchanged(
+    _require_runtime_attestation_unchanged(
         reopen,
+        inventory_scope=inventory_scope,
         directory=config.paths.attestation_dir,
         authentication_key_file=authentication_key_file,
+        expected_docker_host=config.docker_host,
         expected_uid=expected_uid,
         expected_gid=expected_gid,
     )
@@ -355,6 +433,7 @@ def run_docker_acceptance(
             reopen=reopen,
             create_provider=create_provider,
             reopen_provider=reopen_provider,
+            inventory_scope=inventory_scope,
         ),
     )
     return DockerAcceptanceOutcome(
@@ -370,6 +449,8 @@ def run_docker_acceptance(
         adapter_source_commit_sha1=create_provider.source_commit_sha1,
         adapter_source_tree_sha1=create_provider.source_tree_sha1,
         phase_c_infinity_commit_sha1=create_provider.phase_c_infinity_commit_sha1,
+        inventory_scope=inventory_scope,
+        docker_host=config.docker_host,
     )
 
 
@@ -377,25 +458,36 @@ def _cleanup_exact_project(
     docker: DockerCli,
     *,
     mode: str,
+    inventory_scope: InventoryScope,
+    project_observations: tuple[ProjectResourceObservation, ...],
 ) -> tuple[BaseException | None, ProjectResources | None]:
     failures: list[BaseException] = []
+    exact_observations = list(project_observations)
+    if inventory_scope == PROJECT_INVENTORY_SCOPE:
+        try:
+            exact_observations.append(docker.observe_project_resources())
+        except BaseException as exc:
+            failures.append(exc)
     try:
         docker.teardown(mode=mode)
     except BaseException as exc:
         failures.append(exc)
     resources: ProjectResources | None = None
     try:
-        resources = docker.project_resources()
-        if not resources.empty:
-            failures.append(DockerAcceptanceError("publishable_acceptance_cleanup_incomplete"))
+        if inventory_scope == PROJECT_INVENTORY_SCOPE and exact_observations:
+            resources = docker.require_project_absent(*exact_observations)
+        else:
+            resources = docker.project_resources()
+            if not resources.empty:
+                failures.append(DockerAcceptanceError("publishable_acceptance_cleanup_incomplete"))
     except BaseException as exc:
         failures.append(exc)
     return (failures[0] if failures else None, resources)
 
 
 def _require_lifecycle_transition(
-    create: RuntimeAttestationReadback,
-    reopen: RuntimeAttestationReadback,
+    create: AcceptanceRuntimeReadback,
+    reopen: AcceptanceRuntimeReadback,
     create_provider: ProviderAttestationEvidence,
     reopen_provider: ProviderAttestationEvidence,
 ) -> None:
@@ -409,6 +501,24 @@ def _require_lifecycle_transition(
         or create_provider.authority_identity() != reopen_provider.authority_identity()
     ):
         _fail("publishable_acceptance_reopen_identity_mismatch")
+    if (
+        type(create) is ProjectRuntimeAttestationReadback
+        and type(reopen) is ProjectRuntimeAttestationReadback
+    ):
+        if create.fleet_mode != "create" or reopen.fleet_mode != "reopen":
+            _fail("publishable_acceptance_reopen_state_mismatch")
+        for first, second in zip(create.bridges, reopen.bridges, strict=True):
+            if (
+                first.stable_identity() != second.stable_identity()
+                or first.lifecycle_inventory_sha256 == second.lifecycle_inventory_sha256
+            ):
+                _fail("publishable_acceptance_reopen_state_mismatch")
+        return
+    if (
+        type(create) is not RuntimeAttestationReadback
+        or type(reopen) is not RuntimeAttestationReadback
+    ):
+        _fail("publishable_acceptance_attestation_scope_mismatch")
     for first, second in zip(create.bridges, reopen.bridges, strict=True):
         if (
             first.stable_identity() != second.stable_identity()
@@ -476,7 +586,7 @@ def _require_state_unchanged(
 
 
 def _require_deployment_inputs(
-    attestation: RuntimeAttestationReadback,
+    attestation: AcceptanceRuntimeReadback,
     expected: DeploymentInputEvidence,
 ) -> None:
     if attestation.deployment_inputs_sha256 != expected.commitment_sha256:
@@ -508,10 +618,11 @@ def _acceptance_payload(
     driver: AcceptanceDriverIdentity,
     state: StateDirectorySnapshot,
     cleanup: ProjectResources,
-    create: RuntimeAttestationReadback,
-    reopen: RuntimeAttestationReadback,
+    create: AcceptanceRuntimeReadback,
+    reopen: AcceptanceRuntimeReadback,
     create_provider: ProviderAttestationEvidence,
     reopen_provider: ProviderAttestationEvidence,
+    inventory_scope: InventoryScope,
 ) -> dict[str, object]:
     return {
         "authenticated_empty_state": {
@@ -526,6 +637,11 @@ def _acceptance_payload(
         },
         "deployment_authority": driver.deployment_authority_payload(
             deployment_inputs_sha256=create.deployment_inputs_sha256
+        ),
+        "docker_inventory": _docker_inventory_payload(
+            docker_host=config.docker_host,
+            project_name=config.project_name,
+            inventory_scope=inventory_scope,
         ),
         "lifecycle": list(_LIFECYCLE),
         "phase_c_infinity_commit_sha1": create_provider.phase_c_infinity_commit_sha1,
@@ -550,6 +666,141 @@ def _provider_call_verification() -> dict[str, object]:
         "historical_or_concurrent_provider_call_counter": "NOT_AVAILABLE",
         "scope": "fixed acceptance command operations",
         "status": "VERIFIED_PROVIDER_FREE",
+    }
+
+
+def _require_inventory_authority(
+    config: PublishableLaneConfig,
+    *,
+    inventory_scope: InventoryScope,
+    expected_project_name: str | None,
+    expected_docker_host: str | None,
+) -> None:
+    if inventory_scope == PROJECT_INVENTORY_SCOPE:
+        if (
+            expected_project_name != config.project_name
+            or expected_docker_host != config.docker_host
+        ):
+            _fail("publishable_acceptance_project_authority_invalid")
+        return
+    if expected_project_name not in (None, config.project_name) or expected_docker_host not in (
+        None,
+        config.docker_host,
+    ):
+        _fail("publishable_acceptance_global_authority_invalid")
+
+
+def _deploy_lane(
+    lane_deployer: LaneDeployer,
+    *,
+    config_file: Path,
+    fleet_mode: str,
+    runner: CommandRunner | None,
+    proc_root: Path,
+    expected_uid: int,
+    expected_gid: int,
+    inventory_scope: InventoryScope,
+) -> DeploymentOutcome:
+    arguments: dict[str, object] = {
+        "config_file": config_file,
+        "fleet_mode": fleet_mode,
+        "start": True,
+        "runner": runner,
+        "proc_root": proc_root,
+        "expected_uid": expected_uid,
+        "expected_gid": expected_gid,
+    }
+    if inventory_scope == PROJECT_INVENTORY_SCOPE:
+        arguments["inventory_scope"] = inventory_scope
+    return lane_deployer(**arguments)
+
+
+def _read_runtime_attestation(
+    *,
+    inventory_scope: InventoryScope,
+    path: Path,
+    directory: Path,
+    authentication_key_file: Path,
+    expected_project: str,
+    expected_docker_host: str,
+    expected_mode: str,
+    expected_commitment: str,
+    expected_uid: int,
+    expected_gid: int,
+) -> AcceptanceRuntimeReadback:
+    if inventory_scope == PROJECT_INVENTORY_SCOPE:
+        return read_project_runtime_attestation(
+            path=path,
+            directory=directory,
+            authentication_key_file=authentication_key_file,
+            expected_project=expected_project,
+            expected_docker_host=expected_docker_host,
+            expected_mode=expected_mode,
+            expected_commitment=expected_commitment,
+            expected_uid=expected_uid,
+            expected_gid=expected_gid,
+        )
+    return read_runtime_attestation(
+        path=path,
+        directory=directory,
+        authentication_key_file=authentication_key_file,
+        expected_project=expected_project,
+        expected_mode=expected_mode,
+        expected_commitment=expected_commitment,
+        expected_uid=expected_uid,
+        expected_gid=expected_gid,
+    )
+
+
+def _require_runtime_attestation_unchanged(
+    evidence: AcceptanceRuntimeReadback,
+    *,
+    inventory_scope: InventoryScope,
+    directory: Path,
+    authentication_key_file: Path,
+    expected_docker_host: str,
+    expected_uid: int,
+    expected_gid: int,
+) -> AcceptanceRuntimeReadback:
+    if inventory_scope == PROJECT_INVENTORY_SCOPE:
+        if type(evidence) is not ProjectRuntimeAttestationReadback:
+            _fail("publishable_acceptance_attestation_scope_mismatch")
+        return require_project_runtime_attestation_unchanged(
+            evidence,
+            directory=directory,
+            authentication_key_file=authentication_key_file,
+            expected_docker_host=expected_docker_host,
+            expected_uid=expected_uid,
+            expected_gid=expected_gid,
+        )
+    if type(evidence) is not RuntimeAttestationReadback:
+        _fail("publishable_acceptance_attestation_scope_mismatch")
+    return require_runtime_attestation_unchanged(
+        evidence,
+        directory=directory,
+        authentication_key_file=authentication_key_file,
+        expected_uid=expected_uid,
+        expected_gid=expected_gid,
+    )
+
+
+def _docker_inventory_payload(
+    *,
+    docker_host: str,
+    project_name: str,
+    inventory_scope: InventoryScope,
+) -> dict[str, str]:
+    scoped = inventory_scope == PROJECT_INVENTORY_SCOPE
+    return {
+        "daemon_global_container_inventory": (
+            "NOT_OBSERVED_PROJECT_SCOPE" if scoped else "OBSERVED_STRICT_GLOBAL"
+        ),
+        "docker_host": docker_host,
+        "host_process_identities": (
+            "NOT_OBSERVED_PROJECT_SCOPE" if scoped else "OBSERVED_STRICT_GLOBAL"
+        ),
+        "project_name": project_name,
+        "scope": inventory_scope,
     }
 
 

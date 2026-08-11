@@ -47,25 +47,41 @@ _require_absolute_path = staging_contracts.require_absolute_path
 load_staging_template = staging_contracts.load_staging_template
 require_runtime_authority_tuple = staging_contracts.require_runtime_authority_tuple
 
+_INPUT_PROVIDER_CONFIG_FILE_NAME = "input-provider-config.json"
+_INPUT_PROVIDER_SECRETS_FILE_NAME = "input-provider-secrets.json"
+
 
 @dataclass(frozen=True, slots=True)
 class StagingCommands:
     acceptance: tuple[str, ...]
     start_reopen: tuple[str, ...]
     attest_reopen: tuple[str, ...]
+    prepare_inputs: tuple[str, ...]
     run_2040: tuple[str, ...]
 
     def payload(self) -> dict[str, object]:
-        ordered = (
+        initial_order = (
             ("acceptance", self.acceptance),
+            ("start_reopen", self.start_reopen),
+            ("attest_reopen", self.attest_reopen),
+            ("prepare_inputs", self.prepare_inputs),
+            ("run_2040", self.run_2040),
+        )
+        crash_recovery_order = (
             ("start_reopen", self.start_reopen),
             ("attest_reopen", self.attest_reopen),
             ("run_2040", self.run_2040),
         )
-        initial = [{"command": shlex.join(command), "name": name} for name, command in ordered]
-        recovery = [{"command": shlex.join(command), "name": name} for name, command in ordered[1:]]
+        initial = [
+            {"command": shlex.join(command), "name": name}
+            for name, command in initial_order
+        ]
+        recovery = [
+            {"command": shlex.join(command), "name": name}
+            for name, command in crash_recovery_order
+        ]
         return {
-            **{name: shlex.join(command) for name, command in ordered},
+            **{name: shlex.join(command) for name, command in initial_order},
             "crash_reopen_resume_order": recovery,
             "initial_paid_create_order": initial,
             "operator_order": initial,
@@ -79,12 +95,16 @@ class StagingBundle:
     run_private_root: Path
     run_config_path: Path
     secrets_path: Path
+    input_provider_config_path: Path
+    input_provider_secrets_path: Path
     commands: StagingCommands
 
     def payload(self) -> dict[str, object]:
         return {
             "commands": self.commands.payload(),
             "lane_config_path": str(self.lane_config_path),
+            "input_provider_config_path_not_created": str(self.input_provider_config_path),
+            "input_provider_secrets_path_not_created": str(self.input_provider_secrets_path),
             "run_2040_config_path": str(self.run_config_path),
             "run_2040_private_root": str(self.run_private_root),
             "secrets_path_not_created": str(self.secrets_path),
@@ -136,6 +156,8 @@ def build_staging_bundle(
     lane_config_path = output_root / template.lane_config_file_name
     run_config_path = run_root / template.run_config_file_name
     secrets_path = run_root / template.run_secrets_file_name
+    input_provider_config_path = run_root / _INPUT_PROVIDER_CONFIG_FILE_NAME
+    input_provider_secrets_path = run_root / _INPUT_PROVIDER_SECRETS_FILE_NAME
     private_paths = {
         key: lane_root / name for key, name in template.private_directory_names.items()
     }
@@ -157,6 +179,8 @@ def build_staging_bundle(
         lane_config_path,
         run_config_path,
         secrets_path,
+        input_provider_config_path,
+        input_provider_secrets_path,
         *private_paths.values(),
         run_state_root,
         *run_state_paths.values(),
@@ -200,7 +224,15 @@ def build_staging_bundle(
         run_state_root,
     )
     _preflight_private_directories(private_directories)
-    _reject_existing_paths((lane_config_path, run_config_path, secrets_path))
+    _reject_existing_paths(
+        (
+            lane_config_path,
+            run_config_path,
+            secrets_path,
+            input_provider_config_path,
+            input_provider_secrets_path,
+        )
+    )
     for directory in private_directories:
         _ensure_private_directory(directory)
     _write_private_json(lane_config_path, lane_payload)
@@ -208,9 +240,13 @@ def build_staging_bundle(
 
     commands = _commands(
         lane_config_path=lane_config_path,
+        project_name=template.project_name,
+        docker_host=template.docker_host,
         run_root=run_root,
         run_config_path=run_config_path,
         secrets_path=secrets_path,
+        input_provider_config_path=input_provider_config_path,
+        input_provider_secrets_path=input_provider_secrets_path,
     )
     return StagingBundle(
         output_root=output_root,
@@ -218,6 +254,8 @@ def build_staging_bundle(
         run_private_root=run_root,
         run_config_path=run_config_path,
         secrets_path=secrets_path,
+        input_provider_config_path=input_provider_config_path,
+        input_provider_secrets_path=input_provider_secrets_path,
         commands=commands,
     )
 
@@ -432,9 +470,13 @@ def _provider_paths(
 def _commands(
     *,
     lane_config_path: Path,
+    project_name: str,
+    docker_host: str,
     run_root: Path,
     run_config_path: Path,
     secrets_path: Path,
+    input_provider_config_path: Path,
+    input_provider_secrets_path: Path,
 ) -> StagingCommands:
     def lane(command: str, mode: str) -> tuple[str, ...]:
         return (
@@ -452,9 +494,31 @@ def _commands(
             "acceptance",
             "--config",
             str(lane_config_path),
+            "--inventory-scope",
+            "project",
+            "--project-name",
+            project_name,
+            "--docker-host",
+            docker_host,
         ),
         start_reopen=lane("start", "reopen"),
         attest_reopen=lane("attest", "reopen"),
+        prepare_inputs=(
+            "infinity-context-publishable-inputs",
+            "--private-root",
+            str(run_root),
+            "--config",
+            str(run_config_path),
+            "--secrets",
+            str(secrets_path),
+            "--input-provider-config",
+            str(input_provider_config_path),
+            "--input-provider-secrets",
+            str(input_provider_secrets_path),
+            "--max-extraction-steps",
+            str(EXPECTED_EXTRACTION_OPERATION_COUNT),
+            "--allow-subscription-dispatch",
+        ),
         run_2040=(
             "infinity-context-publishable-run",
             "--private-root",

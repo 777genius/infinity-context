@@ -33,7 +33,13 @@ dev = [
 [tool.pytest.ini_options]
 addopts = "-q"
 testpaths = ["tests"]
-pythonpath = [".", "deployment", "../../packages/infinity_context_server"]
+pythonpath = [
+  ".",
+  "deployment",
+  "../../packages/infinity_context_core",
+  "../../packages/infinity_context_server",
+  "../../packages/infinity_context_adapters",
+]
 filterwarnings = [
   "ignore:Using `httpx` with `starlette.testclient` is deprecated:starlette.exceptions.StarletteDeprecationWarning",
 ]

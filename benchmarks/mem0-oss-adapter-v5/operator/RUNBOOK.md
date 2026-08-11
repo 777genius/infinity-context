@@ -3,7 +3,8 @@
 This runbook stages one new, secret-free configuration bundle for the isolated
 publishable lane and the exact 2,040-case run. The builder only writes config;
 it does not inspect `/proc`, traverse either protected root, contact a provider,
-invoke Docker, or create `publishable-run-2040.secrets.json`.
+invoke Docker, or create the run secrets, input-provider config, or
+input-provider secrets documents.
 
 The reviewed template reserves these identities exclusively for this lane:
 
@@ -18,7 +19,10 @@ It also pins Docker authority to the benchmark-isolated daemon at
 the generated lane config's configuration HMAC, supplied through the runner's
 clean environment, and passed to Docker with an explicit `--host`. Ambient
 `DOCKER_HOST` is not authoritative. The exact Compose project name remains the
-resource-isolation boundary on that daemon.
+resource-isolation boundary on that daemon. The emitted acceptance command
+repeats both reviewed values as exact CLI authorities and selects
+`--inventory-scope project`; any cross-wire with the authenticated lane config
+fails before Docker mutation.
 
 ## Fence and public inputs
 
@@ -76,15 +80,16 @@ owned by the current user with mode `0700`, a generated config path collides,
 the staging port is internal/protected/occupied, a name is duplicated or
 reserved, or the account-i/r16 fence is incomplete. It creates all private
 directories as `0700` and both JSON configs as `0600`. An existing secrets path
-is a collision and is never read or overwritten.
+or input-provider document path is a collision and is never read or overwritten.
 
 ## Review and provision
 
-Expect the builder's single JSON result to report `STAGED_SECRET_FREE`, four
+Expect the builder's single JSON result to report `STAGED_SECRET_FREE`, five
 fully quoted commands, and explicit `initial_paid_create_order` and
 `crash_reopen_resume_order` lists. `operator_order` is the same initial paid
 order retained for compatibility. Review both generated configs and confirm
-that the secrets path named by `secrets_path_not_created` does not exist.
+that `secrets_path_not_created`, `input_provider_config_path_not_created`, and
+`input_provider_secrets_path_not_created` do not exist.
 Populate the authority layout referenced by the lane config using reviewed
 immutable public artifacts.
 
@@ -139,6 +144,36 @@ root, and contain five distinct domain-separated keys plus adapter-private
 material. Do not commit, print, or paste that file into an issue or terminal
 transcript.
 
+Provision the exact input-provider config and secrets at the two separately
+reported paths through the approved private channels. Both must be distinct
+regular current-user-owned `0600` files below the same run private root and
+must remain distinct from the run config, run secrets, scheduler state, and
+sealed input paths. The config uses
+`publishable-mem0-infinity-input-preparation.v1`; the secrets use
+`publishable-mem0-infinity-input-preparation-secrets.v1`. Supply the reviewed
+strict request, receipt, keyring, receipt-key, registration-DSN, live-config,
+timeout, and token-ceiling values without editing the emitted command. Use
+input-provider fleet mode `create` for fresh preparation or `resume` only for
+an admitted preparation recovery; these values are not the Docker lane's
+required `reopen` mode. The secrets document carries the Infinity authorization
+token and six role-separated HMAC keys. Do not reuse them with each other or
+with any run-secret role. The staging builder deliberately does not synthesize,
+read, or validate either private document.
+
+The nested project declares the repository's Core, Server, and Adapters source
+roots explicitly for pytest. From the repository root, reproduce the provider
+boundary collection without resolving or changing dependencies:
+
+```bash
+uv run --directory benchmarks/mem0-oss-adapter-v5 --frozen pytest --collect-only \
+  tests/test_package_import_boundary.py \
+  tests/test_publishable_input_provider.py \
+  tests/test_publishable_provider_attestation.py \
+  tests/test_publishable_run_provider_http.py \
+  tests/test_publishable_run_provider_preflight.py \
+  tests/test_composition_provider_free.py
+```
+
 The adapter-private material must include the distinct runtime-attestation root
 used by the adapter's `/v5/runtime/attest` challenge. It must match the lane's
 `runtime-attestation-secret` file and must not be reused as a bridge receipt,
@@ -167,23 +202,48 @@ Initial paid scheduler `CREATE` uses `initial_paid_create_order`:
    with bind-state identity preservation, cached-only `reopen`, second
    attestation, and exact-project teardown in `finally`. It then verifies zero
    exact-project containers, networks, and volumes. It never runs Docker prune,
-   removes another project, builds, pulls, or calls a provider.
+   removes another project, builds, pulls, or calls a provider. The reviewed
+   command explicitly selects project-scoped inventory, so it neither requests
+   daemon-global container inventory nor reads host `/proc` or process
+   identities. The stricter global inventory scope remains the command's
+   default for environments where those host-wide observations are allowed.
 2. `start_reopen` starts the accepted bind-backed state as the first paid fleet
    generation. Acceptance has already initialized that state, so fleet
    `create` is invalid afterward.
 3. `attest_reopen` writes the exact current paid fleet receipt before dispatch.
-4. `run_2040` is the only command carrying `--allow-live`; run it only after
+4. `prepare_inputs` invokes the installed
+   `infinity-context-publishable-inputs` entrypoint with the unchanged run
+   config and run secrets, the exact separately provisioned input-provider
+   config and secrets, the 130,226-step ceiling, and explicit
+   `--allow-subscription-dispatch`. This is paid provider work, not part of the
+   provider-free Docker acceptance. It creates and HMAC-seals both extraction
+   terminals and the authenticated retrieval authority consumed by the run.
+   Continue only after exit status `0` and JSON `complete: true`.
+5. `run_2040` is the only command carrying `--allow-live`; run it only after
    explicit paid-run approval and secret provisioning. With empty scheduler
    roots, this invocation opens scheduler `CREATE`.
+
+Input preparation is resumable and has a required LoCoMo-to-LongMemEval runtime
+boundary. Exit status `3` is an authenticated incomplete result, not permission
+to continue to `run_2040`: stop the command chain, perform the exact approved
+`operator_action` reported by the CLI, reopen the required runtime, and rerun
+the unchanged `prepare_inputs` command. Treat any other nonzero status as a
+failure. Never invoke `run_2040` merely because terminal path names exist; only
+the successful preparation result proves both terminals and retrieval authority
+were sealed and read back.
 
 After a nonterminal interruption, use `crash_reopen_resume_order`: run the same
 `start_reopen`, `attest_reopen`, and unchanged `run_2040` commands. The new host
 receipt must match the current bridge generation, controller/process PIDs, and
 container identities; the existing scheduler roots make the last command open
-scheduler `RESUME`.
+scheduler `RESUME`. This list intentionally does not repeat `prepare_inputs`:
+the paid scheduler is never created until preparation has completed. An
+interruption during input preparation uses the preparation procedure above,
+not the scheduler crash-reopen list.
 
-Stop on any nonzero result. Never substitute account-i, r16, their paths, their
-ports, their container IDs, or their credentials into the new lane.
+Except for the explicitly handled `prepare_inputs` status `3`, stop on any
+nonzero result. Never substitute account-i, r16, their paths, their ports, their
+container IDs, or their credentials into the new lane.
 Run only one acceptance invocation for a project at a time, with no concurrent
 Docker mutation of that project.
 
@@ -193,8 +253,16 @@ performs no provider-dispatch operation, both authenticated
 contract, and the attested startup readiness remains provider-free. This scope
 is the acceptance command itself. The lane has no historical or concurrent
 provider-call counter, so the result reports that broader counter as
-`NOT_AVAILABLE` instead of inventing one. The result also records immutable
-host-attestation commitments and the final zero-resource inventory.
+`NOT_AVAILABLE` instead of inventing one. Project-scoped acceptance records
+only exact-project Docker evidence and the final zero-resource inventory; it
+does not claim daemon-global container or host-process evidence. Global scope
+retains the stricter host-attestation commitments where those observations are
+permitted. The project receipt likewise does not infer an active generation or
+launch mode from PID-bearing bridge receipts that it deliberately never opens.
+It records the mode independently enforced in the exact container environment,
+opaque lifecycle-metadata commitments, and a required metadata change across
+create/reopen without presenting directory order as authenticated lifecycle
+identity.
 
 The lane evidence directory is append-only across these phases. It retains
 content-addressed `runtime-attestation-*`, `provider-attestation-*`, and

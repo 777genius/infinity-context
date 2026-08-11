@@ -15,7 +15,9 @@ from .config import DeploymentConfigError
 from .deployment import DeploymentOutcome, deploy
 from .docker_cli import DockerCliError
 from .immutable_evidence import ImmutableEvidenceError
+from .inventory_scope import GLOBAL_INVENTORY_SCOPE, INVENTORY_SCOPES
 from .preflight import DeploymentPreflightError
+from .project_runtime_attestation import ProjectRuntimeAttestationError
 from .provider_attestation import ProviderAttestationError
 from .runtime_attestation import RuntimeAttestationError
 
@@ -35,6 +37,13 @@ def _parser() -> argparse.ArgumentParser:
         help="run the provider-free create/stop/reopen/exact-cleanup lifecycle",
     )
     acceptance.add_argument("--config", type=Path, required=True)
+    acceptance.add_argument(
+        "--inventory-scope",
+        choices=INVENTORY_SCOPES,
+        default=GLOBAL_INVENTORY_SCOPE,
+    )
+    acceptance.add_argument("--project-name")
+    acceptance.add_argument("--docker-host")
     return parser
 
 
@@ -42,7 +51,12 @@ def main(argv: Sequence[str] | None = None) -> int:
     try:
         arguments = _parser().parse_args(argv)
         if arguments.command == "acceptance":
-            outcome = run_docker_acceptance(config_file=arguments.config)
+            outcome = run_docker_acceptance(
+                config_file=arguments.config,
+                inventory_scope=arguments.inventory_scope,
+                expected_project_name=arguments.project_name,
+                expected_docker_host=arguments.docker_host,
+            )
         else:
             outcome = deploy(
                 config_file=arguments.config,
@@ -58,6 +72,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         DockerCliError,
         ImmutableEvidenceError,
         ProviderAttestationError,
+        ProjectRuntimeAttestationError,
         RuntimeAttestationError,
     ) as exc:
         print(str(exc), file=os.sys.stderr)

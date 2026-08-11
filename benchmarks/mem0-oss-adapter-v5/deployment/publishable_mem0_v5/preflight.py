@@ -361,6 +361,26 @@ def attest_account_i_fence(
     )
 
 
+def configured_account_i_fence_authority_sha256(fence: AccountIR16Fence) -> str:
+    """Commit the authenticated config authority without observing host process state."""
+
+    if type(fence) is not AccountIR16Fence:
+        _fail("publishable_preflight_account_i_fence_authority_input_invalid")
+    payload = {
+        "auth_root": str(fence.auth_root),
+        "boot_id": fence.boot_id,
+        "container_ids": list(fence.container_ids),
+        "netns_inode": fence.netns_inode,
+        "pid": fence.pid,
+        "port": fence.port,
+        "protected_host_ports": list(fence.protected_host_ports),
+        "start_ticks": fence.start_ticks,
+        "state_root": str(fence.state_root),
+        "status": "CONFIGURED_AUTHORITY_NOT_RUNTIME_REOBSERVED",
+    }
+    return hashlib.sha256(_canonical_json(payload)).hexdigest()
+
+
 def attest_secret_cross_wire(
     config: PublishableLaneConfig,
     *,
@@ -755,6 +775,7 @@ __all__ = (
     "attest_deployment_inputs",
     "attest_secret_cross_wire",
     "configuration_hmac_sha256",
+    "configured_account_i_fence_authority_sha256",
     "load_runtime_attestation_key",
     "measure_file_closure",
 )

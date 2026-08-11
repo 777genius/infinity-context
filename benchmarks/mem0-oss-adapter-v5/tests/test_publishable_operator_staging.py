@@ -1,8 +1,12 @@
 from __future__ import annotations
 
 import hashlib
+import importlib.metadata
 import json
+import os
 import stat
+import subprocess
+import tomllib
 from dataclasses import replace
 from pathlib import Path
 from types import SimpleNamespace
@@ -252,7 +256,18 @@ def test_builds_exact_secret_free_lane_and_2040_configs_with_private_modes(
     assert adapter["official_cases"]["longmemeval"]["sha256"] == (
         "d6f21ea9d60a0d56f34a05b609c79c88a451d2ae03597821ea3d5a9678c3a442"
     )
+    extraction_terminal_paths = tuple(Path(path) for path in adapter["extraction"].values())
+    assert len(extraction_terminal_paths) == 2
+    assert all(not path.exists() for path in extraction_terminal_paths)
     assert not bundle.secrets_path.exists()
+    assert bundle.input_provider_config_path == (
+        bundle.run_private_root / "input-provider-config.json"
+    )
+    assert bundle.input_provider_secrets_path == (
+        bundle.run_private_root / "input-provider-secrets.json"
+    )
+    assert not bundle.input_provider_config_path.exists()
+    assert not bundle.input_provider_secrets_path.exists()
     assert _mode(bundle.lane_config_path) == 0o600
     assert _mode(bundle.run_config_path) == 0o600
     directories = (
@@ -377,18 +392,34 @@ def test_generated_run_config_resolves_exact_installed_factory_provider_free(
     assert type(resolved[0]) is Mem0InfinityPublishableRunDependencyFactory
 
 
-def test_commands_are_exact_for_acceptance_reopen_attest_and_run(tmp_path: Path) -> None:
+def test_commands_are_exact_for_acceptance_reopen_attest_prepare_and_run(
+    tmp_path: Path,
+) -> None:
     bundle = _build(tmp_path)
     lane = str(bundle.lane_config_path)
     run_root = str(bundle.run_private_root)
     run_config = str(bundle.run_config_path)
     secrets = str(bundle.secrets_path)
+    input_provider_config = str(bundle.input_provider_config_path)
+    input_provider_secrets = str(bundle.input_provider_secrets_path)
+    project = "mem0-v5-publishable-staging-r17-6f2c"
+    docker_host = "unix:///run/infinity-locomo-docker/docker.sock"
+    acceptance = (
+        f"infinity-context-publishable-mem0-v5 acceptance --config {lane} "
+        f"--inventory-scope project --project-name {project} --docker-host {docker_host}"
+    )
 
     assert bundle.commands.acceptance == (
         "infinity-context-publishable-mem0-v5",
         "acceptance",
         "--config",
         lane,
+        "--inventory-scope",
+        "project",
+        "--project-name",
+        project,
+        "--docker-host",
+        docker_host,
     )
     assert bundle.commands.run_2040 == (
         "infinity-context-publishable-run",
@@ -400,11 +431,36 @@ def test_commands_are_exact_for_acceptance_reopen_attest_and_run(tmp_path: Path)
         secrets,
         "--allow-live",
     )
+    assert bundle.commands.prepare_inputs == (
+        "infinity-context-publishable-inputs",
+        "--private-root",
+        run_root,
+        "--config",
+        run_config,
+        "--secrets",
+        secrets,
+        "--input-provider-config",
+        input_provider_config,
+        "--input-provider-secrets",
+        input_provider_secrets,
+        "--max-extraction-steps",
+        "130226",
+        "--allow-subscription-dispatch",
+    )
+    assert "--allow-live" not in bundle.commands.prepare_inputs
+    assert "--allow-subscription-dispatch" not in bundle.commands.run_2040
     assert bundle.commands.start_reopen[-2:] == ("--fleet-mode", "reopen")
     assert bundle.commands.attest_reopen[-2:] == ("--fleet-mode", "reopen")
+    prepare_inputs = (
+        f"infinity-context-publishable-inputs --private-root {run_root} "
+        f"--config {run_config} --secrets {secrets} "
+        f"--input-provider-config {input_provider_config} "
+        f"--input-provider-secrets {input_provider_secrets} "
+        "--max-extraction-steps 130226 --allow-subscription-dispatch"
+    )
     initial_order = [
         {
-            "command": f"infinity-context-publishable-mem0-v5 acceptance --config {lane}",
+            "command": acceptance,
             "name": "acceptance",
         },
         {
@@ -420,6 +476,10 @@ def test_commands_are_exact_for_acceptance_reopen_attest_and_run(tmp_path: Path)
             "name": "attest_reopen",
         },
         {
+            "command": prepare_inputs,
+            "name": "prepare_inputs",
+        },
+        {
             "command": (
                 f"infinity-context-publishable-run --private-root {run_root} "
                 f"--config {run_config} --secrets {secrets} --allow-live"
@@ -428,13 +488,14 @@ def test_commands_are_exact_for_acceptance_reopen_attest_and_run(tmp_path: Path)
         },
     ]
     assert bundle.commands.payload() == {
-        "acceptance": f"infinity-context-publishable-mem0-v5 acceptance --config {lane}",
+        "acceptance": acceptance,
         "attest_reopen": (
             f"infinity-context-publishable-mem0-v5 attest --config {lane} --fleet-mode reopen"
         ),
-        "crash_reopen_resume_order": initial_order[1:],
+        "crash_reopen_resume_order": [initial_order[1], initial_order[2], initial_order[4]],
         "initial_paid_create_order": initial_order,
         "operator_order": initial_order,
+        "prepare_inputs": prepare_inputs,
         "run_2040": (
             f"infinity-context-publishable-run --private-root {run_root} "
             f"--config {run_config} --secrets {secrets} --allow-live"
@@ -443,6 +504,57 @@ def test_commands_are_exact_for_acceptance_reopen_attest_and_run(tmp_path: Path)
             f"infinity-context-publishable-mem0-v5 start --config {lane} --fleet-mode reopen"
         ),
     }
+
+
+def test_prepare_inputs_command_resolves_one_installed_console_entrypoint() -> None:
+    expected = "infinity_context_server.publishable_input_preparation.cli:main"
+    project = tomllib.loads((ROOT.parents[1] / "pyproject.toml").read_text(encoding="utf-8"))
+    assert project["project"]["scripts"]["infinity-context-publishable-inputs"] == expected
+
+    installed = tuple(
+        importlib.metadata.entry_points(
+            group="console_scripts",
+            name="infinity-context-publishable-inputs",
+        )
+    )
+    assert len(installed) == 1
+    assert installed[0].value == expected
+
+
+def test_fresh_staging_only_emits_preparation_without_provider_or_docker_execution(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    executed: list[str] = []
+
+    def forbidden(*_args: object, **_kwargs: object) -> None:
+        executed.append("external-command")
+        raise AssertionError("staging must not execute external commands")
+
+    monkeypatch.setattr(subprocess, "run", forbidden)
+    monkeypatch.setattr(subprocess, "Popen", forbidden)
+    monkeypatch.setattr(os, "system", forbidden)
+    monkeypatch.setenv("PATH", "")
+    monkeypatch.setenv("DOCKER_HOST", "unix:///untrusted/ambient-docker.sock")
+
+    bundle = _build(tmp_path)
+    run = json.loads(bundle.run_config_path.read_bytes())
+    terminals = tuple(Path(path) for path in run["adapter"]["extraction"].values())
+    names = [item["name"] for item in bundle.commands.payload()["operator_order"]]
+
+    assert executed == []
+    assert all(not path.exists() for path in terminals)
+    assert not bundle.input_provider_config_path.exists()
+    assert not bundle.input_provider_secrets_path.exists()
+    assert not bundle.secrets_path.exists()
+    assert names == [
+        "acceptance",
+        "start_reopen",
+        "attest_reopen",
+        "prepare_inputs",
+        "run_2040",
+    ]
+    assert names.index("prepare_inputs") < names.index("run_2040")
 
 
 @pytest.mark.parametrize("mode", (0o755, 0o750, 0o711))
@@ -504,6 +616,36 @@ def test_rejects_existing_output_without_overwriting_it(tmp_path: Path) -> None:
         )
 
     assert existing.read_text() == "operator-owned-existing-config"
+
+
+@pytest.mark.parametrize(
+    "name",
+    ("input-provider-config.json", "input-provider-secrets.json"),
+)
+def test_rejects_preexisting_input_provider_document_without_overwriting(
+    tmp_path: Path,
+    name: str,
+) -> None:
+    template = load_staging_template(TEMPLATE)
+    output = tmp_path / "operator-private-r17-6f2c"
+    run_root = output / template.run_private_root_name
+    run_root.mkdir(parents=True, mode=0o700)
+    output.chmod(0o700)
+    run_root.chmod(0o700)
+    existing = run_root / name
+    existing.write_text("operator-owned-private-material")
+    existing.chmod(0o600)
+
+    with pytest.raises(OperatorStagingError, match="operator_staging_output_collision"):
+        build_staging_bundle(
+            template=template,
+            output_root=output,
+            authority_root=tmp_path / "public-authorities-r17-6f2c",
+            public_inputs=_public_inputs(),
+        )
+
+    assert existing.read_text() == "operator-owned-private-material"
+    assert not (output / template.lane_config_file_name).exists()
 
 
 def test_rejects_template_path_and_bridge_name_collisions(tmp_path: Path) -> None:
@@ -792,6 +934,16 @@ def test_cli_reports_only_secret_free_paths_and_exact_commands(
     assert captured.err == ""
     assert payload["status"] == "STAGED_SECRET_FREE"
     assert payload["secrets_path_not_created"].endswith("/publishable-run-2040.secrets.json")
+    assert payload["input_provider_config_path_not_created"].endswith(
+        "/input-provider-config.json"
+    )
+    assert payload["input_provider_secrets_path_not_created"].endswith(
+        "/input-provider-secrets.json"
+    )
+    assert payload["commands"]["prepare_inputs"].endswith(
+        "/input-provider-secrets.json --max-extraction-steps 130226 "
+        "--allow-subscription-dispatch"
+    )
     assert payload["commands"]["run_2040"].endswith(
         "/publishable-run-2040.secrets.json --allow-live"
     )
@@ -799,16 +951,21 @@ def test_cli_reports_only_secret_free_paths_and_exact_commands(
         "acceptance",
         "start_reopen",
         "attest_reopen",
+        "prepare_inputs",
         "run_2040",
     ]
     assert payload["commands"]["initial_paid_create_order"] == payload["commands"]["operator_order"]
-    assert (
-        payload["commands"]["crash_reopen_resume_order"]
-        == payload["commands"]["operator_order"][1:]
-    )
+    initial = payload["commands"]["operator_order"]
+    assert payload["commands"]["crash_reopen_resume_order"] == [
+        initial[1],
+        initial[2],
+        initial[4],
+    ]
     assert "start_create" not in payload["commands"]
     assert "attest_create" not in payload["commands"]
     assert not Path(payload["secrets_path_not_created"]).exists()
+    assert not Path(payload["input_provider_config_path_not_created"]).exists()
+    assert not Path(payload["input_provider_secrets_path_not_created"]).exists()
 
 
 def test_public_input_bindings_must_be_three_distinct_commitments() -> None:
