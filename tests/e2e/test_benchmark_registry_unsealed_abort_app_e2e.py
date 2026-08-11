@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import asyncio
 import os
-import uuid
 from collections.abc import Iterator
 from contextlib import contextmanager
 from dataclasses import replace
@@ -43,7 +42,7 @@ from infinity_context_server.derived_identity_target import (
 from infinity_context_server.main import create_app
 from infinity_context_server.worker import OutboxWorker, OutboxWorkerFilter
 from infinity_context_server_harness import PROJECT_ROOT
-from sqlalchemy.engine import make_url
+from postgres_test_database import PostgresTestDatabase
 
 RUN = "a" * 64
 BINDING = "b" * 64
@@ -136,10 +135,13 @@ def test_app_postgres_registry_abort_recovers_and_replays_when_configured(
             assert initiation["projection_cleanup"] == "blocked"
             worker = OutboxWorker(
                 client.app.state.container,
-                worker_filter=OutboxWorkerFilter(workload_classes=("projection",)),
+                worker_filter=OutboxWorkerFilter(
+                    workload_classes=("projection",),
+                    event_types=("graph.delete_fact",),
+                ),
             )
             processed = [client.portal.call(partial(worker.run_once, limit=10)) for _ in range(3)]
-            assert processed[0] >= 1
+            assert processed == [1, 0, 0]
 
             abort_payload = {
                 "schema_version": "memory-comparison-run-abort-finalize.v2",
@@ -555,37 +557,13 @@ def _isolated_postgres_database() -> Iterator[str]:
     if not database_url:
         pytest.skip("INFINITY_CONTEXT_TEST_POSTGRES_URL is not configured")
     asyncpg = pytest.importorskip("asyncpg")
-    parsed = make_url(database_url)
-    if not parsed.drivername.startswith("postgresql"):
-        pytest.skip("INFINITY_CONTEXT_TEST_POSTGRES_URL is not PostgreSQL")
-    database_name = f"abort_e2e_{uuid.uuid4().hex}"
-    admin_dsn = parsed.set(drivername="postgresql").render_as_string(hide_password=False)
-    app_url = parsed.set(
-        drivername="postgresql+asyncpg",
-        database=database_name,
-    ).render_as_string(hide_password=False)
-
-    async def create_database() -> None:
-        connection = await asyncpg.connect(admin_dsn)
-        try:
-            await connection.execute(f'CREATE DATABASE "{database_name}"')
-        finally:
-            await connection.close()
-
-    async def drop_database() -> None:
-        connection = await asyncpg.connect(admin_dsn)
-        try:
-            await connection.execute(
-                "SELECT pg_terminate_backend(pid) FROM pg_stat_activity "
-                "WHERE datname = $1 AND pid <> pg_backend_pid()",
-                database_name,
-            )
-            await connection.execute(f'DROP DATABASE IF EXISTS "{database_name}"')
-        finally:
-            await connection.close()
-
-    asyncio.run(create_database())
+    database = PostgresTestDatabase.from_url(
+        database_url,
+        prefix="abort_e2e",
+        asyncpg=asyncpg,
+    )
+    asyncio.run(database.recreate())
     try:
-        yield app_url
+        yield database.app_url
     finally:
-        asyncio.run(drop_database())
+        asyncio.run(database.drop())
