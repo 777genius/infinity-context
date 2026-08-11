@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import hashlib
+import hmac
 import os
 import stat
 import time
@@ -126,14 +127,23 @@ class Mem0InfinityPublishableRunDependencyFactory:
 
 
 @final
+@dataclass(frozen=True, slots=True, repr=False)
+class _AuthenticatedDatasetCases:
+    cases: tuple[PublicBenchmarkCase, ...]
+    observed_sha256: str
+
+
+@final
 class _OfficialCaseProjection:
-    __slots__ = ("_by_benchmark", "_identities")
+    __slots__ = ("_by_benchmark", "_identities", "_observed_dataset_sha256")
 
     def __init__(
         self,
-        cases: tuple[tuple[PublicBenchmarkCase, ...], tuple[PublicBenchmarkCase, ...]],
+        snapshots: tuple[_AuthenticatedDatasetCases, _AuthenticatedDatasetCases],
     ) -> None:
+        cases = (snapshots[0].cases, snapshots[1].cases)
         self._by_benchmark = {"locomo": cases[0], "longmemeval": cases[1]}
+        self._observed_dataset_sha256 = tuple(item.observed_sha256 for item in snapshots)
         self._identities = tuple(
             tuple(
                 SchedulerCaseAuthority(case_id=case.case_id, case_alias=_case_alias(case))
@@ -144,15 +154,16 @@ class _OfficialCaseProjection:
 
     @classmethod
     def load(cls, config: RunProviderConfig) -> _OfficialCaseProjection:
-        groups: list[tuple[PublicBenchmarkCase, ...]] = []
+        snapshots: list[_AuthenticatedDatasetCases] = []
         for expected_benchmark, expected_count, source in (
             ("locomo", LOCOMO_PROFILE.case_count, config.locomo_dataset),
             ("longmemeval", LONGMEMEVAL_PROFILE.case_count, config.longmemeval_dataset),
         ):
-            cases = _load_authenticated_dataset_cases(
+            snapshot = _load_authenticated_dataset_cases(
                 source.path,
                 expected_sha256=source.sha256,
             )
+            cases = snapshot.cases
             if (
                 len(cases) != expected_count
                 or any(type(item) is not PublicBenchmarkCase for item in cases)
@@ -160,14 +171,18 @@ class _OfficialCaseProjection:
                 or len({item.case_id for item in cases}) != len(cases)
             ):
                 _fail("publishable_run_provider_official_cases_invalid")
-            groups.append(cases)
-        return cls(tuple(groups))
+            snapshots.append(snapshot)
+        return cls((snapshots[0], snapshots[1]))
 
     @property
     def identities(
         self,
     ) -> tuple[tuple[SchedulerCaseAuthority, ...], tuple[SchedulerCaseAuthority, ...]]:
         return self._identities
+
+    @property
+    def observed_dataset_sha256(self) -> tuple[str, str]:
+        return self._observed_dataset_sha256
 
     def read_page(self, *, run, start_case_index: int, limit: int):
         try:
@@ -406,8 +421,21 @@ def _suite_from_run_authorities(
     expected_dataset_sha = tuple(
         profile["benchmarks"][item.benchmark.value]["dataset_sha256"] for item in scheduler_profiles
     )
-    if tuple(item.dataset_sha256 for item in authorities) != expected_dataset_sha:
+    authority_dataset_sha = tuple(item.dataset_sha256 for item in authorities)
+    configured_dataset_sha = (
+        config.locomo_dataset.sha256,
+        config.longmemeval_dataset.sha256,
+    )
+    observed_dataset_sha = projection.observed_dataset_sha256
+    if authority_dataset_sha != expected_dataset_sha:
         _fail("publishable_run_provider_extraction_dataset_cross_wire")
+    if not (
+        observed_dataset_sha
+        == configured_dataset_sha
+        == expected_dataset_sha
+        == authority_dataset_sha
+    ):
+        _fail("publishable_run_provider_official_dataset_cross_wire")
     backends = (
         SchedulerBackendAuthority(
             "infinity-context",
@@ -485,9 +513,9 @@ def _load_authenticated_dataset_cases(
     path: Path,
     *,
     expected_sha256: str,
-) -> tuple[PublicBenchmarkCase, ...]:
+) -> _AuthenticatedDatasetCases:
     descriptor: int | None = None
-    cases: tuple[PublicBenchmarkCase, ...]
+    authenticated: _AuthenticatedDatasetCases
     flags = (
         os.O_RDONLY
         | getattr(os, "O_CLOEXEC", 0)
@@ -508,15 +536,20 @@ def _load_authenticated_dataset_cases(
             raise OSError
 
         snapshot = _read_dataset_snapshot(descriptor)
-        if (
-            len(snapshot) != opened.st_size
-            or hashlib.sha256(snapshot).hexdigest() != expected_sha256
+        observed_sha256 = hashlib.sha256(snapshot).hexdigest()
+        if len(snapshot) != opened.st_size or not hmac.compare_digest(
+            observed_sha256, expected_sha256
         ):
             raise OSError
 
         cases = load_memory_comparison_cases_from_bytes(
             snapshot,
             locomo_ingest_mode=LOCOMO_INGEST_OFFICIAL_TURNS,
+        )
+        _reauthenticate_dataset_snapshot(
+            descriptor,
+            snapshot=snapshot,
+            expected_sha256=observed_sha256,
         )
         final = os.fstat(descriptor)
         after = path.lstat()
@@ -526,6 +559,10 @@ def _load_authenticated_dataset_cases(
             == _dataset_file_identity(after)
         ):
             raise OSError
+        authenticated = _AuthenticatedDatasetCases(
+            cases=cases,
+            observed_sha256=observed_sha256,
+        )
     except Exception:
         _fail("publishable_run_provider_official_cases_invalid")
     finally:
@@ -534,7 +571,7 @@ def _load_authenticated_dataset_cases(
                 os.close(descriptor)
             except OSError:
                 _fail("publishable_run_provider_official_cases_invalid")
-    return cases
+    return authenticated
 
 
 def _read_dataset_snapshot(descriptor: int) -> bytes:
@@ -552,6 +589,33 @@ def _read_dataset_snapshot(descriptor: int) -> bytes:
     return b"".join(chunks)
 
 
+def _reauthenticate_dataset_snapshot(
+    descriptor: int,
+    *,
+    snapshot: bytes,
+    expected_sha256: str,
+) -> None:
+    if os.lseek(descriptor, 0, os.SEEK_SET) != 0:
+        raise OSError
+    digest = hashlib.sha256()
+    total = 0
+    snapshot_view = memoryview(snapshot)
+    while True:
+        maximum_chunk_bytes = min(1024 * 1024, _MAX_DATASET_BYTES - total + 1)
+        chunk = os.read(descriptor, maximum_chunk_bytes)
+        if not chunk:
+            break
+        end = total + len(chunk)
+        if end > _MAX_DATASET_BYTES or end > len(snapshot):
+            raise OSError
+        if chunk != snapshot_view[total:end]:
+            raise OSError
+        digest.update(chunk)
+        total = end
+    if total != len(snapshot) or not hmac.compare_digest(digest.hexdigest(), expected_sha256):
+        raise OSError
+
+
 def _dataset_file_identity(value: os.stat_result) -> tuple[int, ...]:
     return (
         value.st_dev,
@@ -561,8 +625,6 @@ def _dataset_file_identity(value: os.stat_result) -> tuple[int, ...]:
         value.st_uid,
         value.st_gid,
         value.st_size,
-        value.st_mtime_ns,
-        value.st_ctime_ns,
     )
 
 
