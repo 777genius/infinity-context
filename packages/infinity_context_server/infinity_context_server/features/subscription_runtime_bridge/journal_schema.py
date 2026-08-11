@@ -8,7 +8,7 @@ import sqlite3
 from .contracts import BridgeJournalError
 from .json_boundary import canonical_json_bytes
 
-SCHEMA_VERSION = 2
+SCHEMA_VERSION = 3
 APPLICATION_ID = 0x49434252
 
 SCHEMA = (
@@ -25,6 +25,7 @@ SCHEMA = (
         event_sequence INTEGER NOT NULL,
         logical_operation TEXT NOT NULL,
         logical_call_id TEXT NOT NULL,
+        request_identity_nonce TEXT NOT NULL,
         pool_id TEXT NOT NULL,
         pool_authority_sha256 TEXT NOT NULL,
         bridge_id TEXT NOT NULL,
@@ -46,6 +47,8 @@ SCHEMA = (
         output_text_sha256 TEXT NOT NULL,
         attestation_sha256 TEXT NOT NULL,
         receipt_hmac_sha256 TEXT NOT NULL,
+        dispatch_binding_hmac_sha256 TEXT NOT NULL,
+        physical_receipt_sha256 TEXT NOT NULL,
         thread_id TEXT NOT NULL,
         turn_id TEXT NOT NULL,
         prompt_tokens INTEGER NOT NULL,
@@ -58,6 +61,8 @@ SCHEMA = (
         row_hmac_sha256 TEXT NOT NULL,
         FOREIGN KEY (intent_id) REFERENCES bridge_intents(intent_id)
     ) WITHOUT ROWID""",
+    """CREATE UNIQUE INDEX bridge_results_physical_receipt
+       ON bridge_results (physical_receipt_sha256)""",
 )
 
 

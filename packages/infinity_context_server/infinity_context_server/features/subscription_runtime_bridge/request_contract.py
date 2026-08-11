@@ -27,6 +27,7 @@ _REQUEST_OPTIONAL = frozenset(
         "temperature",
         "tool_choice",
         "tools",
+        "user",
     }
 )
 _MAX_SAFE_INTEGER = 9_007_199_254_740_991
@@ -72,6 +73,7 @@ def derive_bridge_intent(
         response_format_type=response_format_type,
         response_format_sha256=response_format_sha256,
         response_schema_sha256=response_schema_sha256,
+        request_identity_nonce=request.get("user", ""),
         output_token_limit=_output_token_limit(request),
     )
     return bridge, intent
@@ -102,6 +104,13 @@ def _validate_request(request: dict[str, Any], bridge: BridgeAuthority) -> None:
     if "response_format" in request and request["response_format"] is None:
         raise BridgeIntentError("bridge_response_format_invalid")
     _output_token_limit(request)
+    nonce = request.get("user")
+    if (
+        type(nonce) is not str
+        or len(nonce) != 64
+        or any(character not in "0123456789abcdef" for character in nonce)
+    ):
+        raise BridgeIntentError("bridge_request_identity_nonce_invalid")
 
 
 def _validate_messages(value: object) -> None:

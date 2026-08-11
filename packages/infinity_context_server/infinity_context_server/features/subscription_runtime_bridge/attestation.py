@@ -15,6 +15,7 @@ from .contracts import (
     BridgeIntent,
     BridgeReceiptError,
     TokenUsage,
+    physical_provider_receipt_sha256,
 )
 from .json_boundary import BridgeJsonError, canonical_json_bytes, exact_object, strict_json_loads
 
@@ -30,6 +31,8 @@ class VerifiedRuntimeResponse:
     output_text_sha256: str
     attestation_sha256: str
     receipt_hmac_sha256: str
+    dispatch_binding_hmac_sha256: str
+    physical_receipt_sha256: str
     thread_id: str
     turn_id: str
     usage: TokenUsage
@@ -40,6 +43,7 @@ class VerifiedRuntimeResponse:
             output_text_sha256=self.output_text_sha256,
             attestation_sha256=self.attestation_sha256,
             receipt_hmac_sha256=self.receipt_hmac_sha256,
+            dispatch_binding_hmac_sha256=self.dispatch_binding_hmac_sha256,
             thread_id=self.thread_id,
             turn_id=self.turn_id,
             usage=self.usage,
@@ -118,12 +122,25 @@ def verify_runtime_response(
         or _RUNTIME_ID.fullmatch(turn_id) is None
     ):
         raise BridgeReceiptError("bridge_runtime_execution_identity_invalid")
+    attestation_sha256 = hashlib.sha256(canonical).hexdigest()
+    physical_receipt_sha256 = physical_provider_receipt_sha256(
+        attestation_sha256=attestation_sha256,
+        receipt_hmac_sha256=receipt_hmac,
+    )
+    dispatch_binding_hmac_sha256 = _dispatch_binding_hmac_sha256(
+        authority=authority,
+        intent=intent,
+        physical_receipt_sha256=physical_receipt_sha256,
+        attestation_secret=attestation_secret,
+    )
     return VerifiedRuntimeResponse(
         output_text=output_text,
         response_body_sha256=hashlib.sha256(response_body).hexdigest(),
         output_text_sha256=output_text_sha256,
-        attestation_sha256=hashlib.sha256(canonical).hexdigest(),
+        attestation_sha256=attestation_sha256,
         receipt_hmac_sha256=receipt_hmac,
+        dispatch_binding_hmac_sha256=dispatch_binding_hmac_sha256,
+        physical_receipt_sha256=physical_receipt_sha256,
         thread_id=thread_id,
         turn_id=turn_id,
         usage=usage,
@@ -180,6 +197,20 @@ def verify_reconstructed_runtime_receipt(
     expected_receipt = hmac.new(attestation_secret, canonical, hashlib.sha256).hexdigest()
     if not hmac.compare_digest(expected_receipt, result.receipt_hmac_sha256):
         raise BridgeReceiptError("bridge_persisted_receipt_hmac_mismatch")
+    expected_physical = physical_provider_receipt_sha256(
+        attestation_sha256=result.attestation_sha256,
+        receipt_hmac_sha256=result.receipt_hmac_sha256,
+    )
+    if not hmac.compare_digest(expected_physical, result.physical_receipt_sha256):
+        raise BridgeReceiptError("bridge_persisted_physical_receipt_mismatch")
+    expected_binding = _dispatch_binding_hmac_sha256(
+        authority=authority,
+        intent=intent,
+        physical_receipt_sha256=expected_physical,
+        attestation_secret=attestation_secret,
+    )
+    if not hmac.compare_digest(expected_binding, result.dispatch_binding_hmac_sha256):
+        raise BridgeReceiptError("bridge_persisted_dispatch_binding_hmac_mismatch")
 
 
 def output_associated_data(
@@ -207,7 +238,9 @@ def output_associated_data(
             },
             "response_identity": {
                 "attestation_sha256": result.attestation_sha256,
+                "dispatch_binding_hmac_sha256": result.dispatch_binding_hmac_sha256,
                 "output_text_sha256": result.output_text_sha256,
+                "physical_receipt_sha256": result.physical_receipt_sha256,
                 "receipt_hmac_sha256": result.receipt_hmac_sha256,
                 "response_body_sha256": result.response_body_sha256,
                 "thread_id": result.thread_id,
@@ -215,6 +248,40 @@ def output_associated_data(
             },
         }
     )
+
+
+def _dispatch_binding_hmac_sha256(
+    *,
+    authority: BridgeAuthority,
+    intent: BridgeIntent,
+    physical_receipt_sha256: str,
+    attestation_secret: bytes,
+) -> str:
+    """Authenticate the provider receipt against the exact scheduler and lane authority."""
+
+    material = {
+        "physical_provider_receipt_sha256": physical_receipt_sha256,
+        "request_authority": {
+            "logical_call_id": intent.binding.logical_call_id,
+            "logical_operation": intent.binding.logical_operation,
+            "request_body_sha256": intent.request_body_sha256,
+            "request_identity_nonce": intent.request_identity_nonce,
+            "scheduler_intent_sha256": intent.binding.intent_id,
+        },
+        "runtime_lane": {
+            "account_binding_hmac_sha256": authority.account_binding_hmac_sha256,
+            "bridge_authority_sha256": intent.bridge_authority_sha256,
+            "bridge_id": intent.bridge_id,
+            "pool_authority_sha256": intent.pool_authority_sha256,
+            "pool_id": intent.pool_id,
+        },
+        "schema_version": "subscription-runtime-dispatch-binding.v1",
+    }
+    return hmac.new(
+        attestation_secret,
+        b"subscription-runtime-dispatch-binding-v1\0" + canonical_json_bytes(material),
+        hashlib.sha256,
+    ).hexdigest()
 
 
 def _validate_response_identity(response: dict[str, Any], authority: BridgeAuthority) -> str:

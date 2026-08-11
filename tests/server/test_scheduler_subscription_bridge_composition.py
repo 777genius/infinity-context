@@ -831,6 +831,7 @@ def _request(*, prompt: str, output_tokens: int = 4_096) -> bytes:
             "max_tokens": output_tokens,
             "messages": [{"content": prompt, "role": "user"}],
             "model": "gpt-5.6-sol",
+            "user": hashlib.sha256(prompt.encode()).hexdigest(),
         }
     )
 

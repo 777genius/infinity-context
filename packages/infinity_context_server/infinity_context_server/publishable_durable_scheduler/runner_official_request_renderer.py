@@ -72,10 +72,10 @@ from infinity_context_server.publishable_durable_scheduler.runner_request_compos
 )
 
 SCHEDULER_OFFICIAL_REQUEST_RENDERER_SCHEMA_VERSION = (
-    "memory-comparison-publishable-official-request-renderer.v2"
+    "memory-comparison-publishable-official-request-renderer.v3"
 )
 SCHEDULER_OFFICIAL_REQUEST_IMPLEMENTATION_CONTRACT = (
-    "provider-free-mem0-official-answer-judge-openai-chat.v2"
+    "provider-free-mem0-official-answer-judge-openai-chat.v3"
 )
 SCHEDULER_OFFICIAL_REQUEST_MODEL = "gpt-5.6-sol"
 SCHEDULER_OFFICIAL_REQUEST_REASONING_EFFORT = "high"
@@ -90,6 +90,10 @@ _IMPLEMENTATION_CONTRACT_MATERIAL = {
     "empty_system_message": "preserved",
     "gold_blind_answer": True,
     "judge_evidence": False,
+    "request_identity_nonce": (
+        "sha256-commitment-of-suite-run-bridge-boot-logical-call-and-lane-authority"
+    ),
+    "request_identity_nonce_carrier": "chat-completions.user",
     "one_case_read_per_render": True,
     "provider_io": False,
     "runtime_boot_fields_omitted_from_request": [
@@ -278,7 +282,17 @@ class PublishableOfficialRequestRenderer:
         else:
             answer, dependency_sha256 = self._decrypt_answer(context, case_key, call)
             prompt = _render_judge(case_read, answer)
-        payload = _request_payload(prompt, benchmark=case_key.benchmark, stage=call.stage)
+        payload = _request_payload(
+            prompt,
+            benchmark=case_key.benchmark,
+            stage=call.stage,
+            identity_nonce=_request_identity_nonce(
+                self._policy,
+                suite=self._suite,
+                run=run,
+                call=call,
+            ),
+        )
         encoded = _canonical_request_bytes(payload)
         self._revalidate_private_reads(case_read, retrieval_read)
         return SchedulerRenderedRequest(
@@ -589,7 +603,10 @@ def _request_payload(
     *,
     benchmark: SchedulerBenchmark,
     stage: SchedulerCallStage,
+    identity_nonce: str,
 ) -> dict[str, object]:
+    if not _is_sha256(identity_nonce):
+        _fail("scheduler_official_request_identity_nonce_invalid")
     payload: dict[str, object] = {
         "max_tokens": PUBLISHABLE_REQUESTED_MAX_OUTPUT_TOKENS,
         "messages": [
@@ -598,10 +615,35 @@ def _request_payload(
         ],
         "model": SCHEDULER_OFFICIAL_REQUEST_MODEL,
         "temperature": 0,
+        "user": identity_nonce,
     }
     if stage is SchedulerCallStage.JUDGE and benchmark is SchedulerBenchmark.LOCOMO:
         payload["response_format"] = locomo_judge_response_format()
     return payload
+
+
+def _request_identity_nonce(
+    policy: SchedulerOfficialRequestPolicy,
+    *,
+    suite: SchedulerSuiteAuthority,
+    run: SchedulerRunAuthority,
+    call: SchedulerLogicalCall,
+) -> str:
+    """Derive one stable nonce from the complete reviewed logical-lane authority."""
+
+    return commitment(
+        "official-request-identity-nonce",
+        {
+            "bridge_boot_authority_sha256": suite.bridge_boot.commitment_sha256,
+            "logical_call": call.identity_material(),
+            "logical_call_id": call.logical_call_id,
+            "private_answer_policy_sha256": policy.private_answer_policy_sha256,
+            "renderer_policy_sha256": policy.renderer_policy_sha256,
+            "run_authority_sha256": run.commitment_sha256,
+            "schema_version": SCHEDULER_OFFICIAL_REQUEST_RENDERER_SCHEMA_VERSION,
+            "suite_authority_sha256": policy.suite_authority_sha256,
+        },
+    )
 
 
 def _canonical_request_bytes(payload: dict[str, object]) -> bytes:

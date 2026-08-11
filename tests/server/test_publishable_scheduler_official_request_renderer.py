@@ -90,30 +90,30 @@ _CASE_ROOT = hashlib.sha256(b"official-case-root").hexdigest()
 _RETRIEVAL_ROOT = hashlib.sha256(b"exact-retrieval-root").hexdigest()
 _DECRYPT_POLICY = hashlib.sha256(b"authenticated-private-output-decrypt").hexdigest()
 _REQUEST_SHA256 = {
-    ("locomo", 0, "answer"): "3c9182ec0bec7281cf9e760f98c0bcb8684e88dc1888bd601489dccbd99758a0",
-    ("locomo", 0, "judge"): "bca5c26bb2dfd7583ab705a98399095f886b15972347eb4e58e57886259a8142",
-    ("locomo", 1, "answer"): "6d6d457b78dd9a1ca1c115f8f7239e2da0ea0edfa5d70eba7bc507bd79d62ba6",
-    ("locomo", 1, "judge"): "731a446114157c86140f9c686b3705397e36ea92a80f8ce935d6653cf2f64b1d",
+    ("locomo", 0, "answer"): "ba8a1d02f67e595828bb0431fb3544d0798edb459b9b3796b6688da92e31faed",
+    ("locomo", 0, "judge"): "97e77216798db8022e14a8e3634df9fddcb34805ba68f72774630e4641f335bf",
+    ("locomo", 1, "answer"): "3fc242449aa82d2dd6cba479576c8d5d332c2b80c41eca7ee8ea0b0d00298d4d",
+    ("locomo", 1, "judge"): "427f4621592e03d47d85e592d72b1082ba38875b5735a88753825a1d2a541240",
     (
         "longmemeval",
         0,
         "answer",
-    ): "d54523307698c8242dd989cd3e6d3c0aa2d0405743baceded87f236375b1aa3e",
+    ): "43a0930151238c6535f35b26a42efbcb20387477a4d653eb498b8bfdc43ac337",
     (
         "longmemeval",
         0,
         "judge",
-    ): "9afead8f88c528866accfeef3a22ff07e65658237c7a4ae8fcdfd57f9fcba1a8",
+    ): "0d70a84c1b2394a9961342ec6e3859580405ae7a4da0287674a57c495858eeab",
     (
         "longmemeval",
         1,
         "answer",
-    ): "0cc07fa8f6673abf08902b36ec82d1ca36630e74679cdcb68945b5c26fbcdf19",
+    ): "fac6bcd74b44cc1e4d74c7864f1514f23b9b76f30806cb68df83b124f62ac0cf",
     (
         "longmemeval",
         1,
         "judge",
-    ): "395f571db9eeea439f03d9b489d2acd8f3df0c3ac627a4a9ad7d07125958ccb3",
+    ): "af53c32638f02ad5f916a4bf90433eee90a23a5474c2c2553802607c9a55fc13",
 }
 
 
@@ -490,11 +490,15 @@ def test_exact_official_answer_and_judge_request_bytes(
         ],
         "model": "gpt-5.6-sol",
         "temperature": 0,
+        "user": payload["user"],
     }
     if stage is SchedulerCallStage.JUDGE and benchmark is SchedulerBenchmark.LOCOMO:
         expected["response_format"] = locomo_judge_response_format()
 
     assert rendered.payload == canonical_openai_request_body(expected)
+    assert isinstance(payload["user"], str)
+    assert len(payload["user"]) == 64
+    assert all(character in "0123456789abcdef" for character in payload["user"])
     assert rendered.payload_sha256 == _REQUEST_SHA256[(benchmark.value, backend_index, stage.value)]
     assert canonical_openai_request_body(payload) == rendered.payload
     assert "reasoning_effort" not in payload
@@ -512,6 +516,7 @@ def test_exact_official_answer_and_judge_request_bytes(
     )
     assert selected == pool.bridges[0]
     assert intent.request_body_sha256 == rendered.payload_sha256
+    assert intent.request_identity_nonce == payload["user"]
     assert intent.output_token_limit == SCHEDULER_OFFICIAL_REQUEST_MAX_OUTPUT_TOKENS
     assert rendered.renderer_policy_sha256 == renderer.renderer_policy_sha256
     assert rendered.private_answer_policy_sha256 == renderer.private_answer_policy_sha256

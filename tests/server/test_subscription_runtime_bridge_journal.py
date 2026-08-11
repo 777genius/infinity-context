@@ -51,6 +51,7 @@ def test_private_exact_schema_permissions_and_bound_destroy(tmp_path: Path) -> N
         ).fetchall()
         assert objects == [
             ("index", "bridge_intents_logical_call"),
+            ("index", "bridge_results_physical_receipt"),
             ("table", "bridge_intents"),
             ("table", "bridge_journal_metadata"),
             ("table", "bridge_results"),
@@ -104,6 +105,7 @@ def test_exact_intent_replay_and_divergence(tmp_path: Path) -> None:
         journal.record_intent(duplicate_logical_call)
     assert journal.statistics().intent_count == 1
     assert journal.statistics().result_count == 0
+    assert journal.statistics().physical_receipt_count == 0
     assert journal.statistics().event_count == 1
     journal.close()
 
@@ -119,7 +121,12 @@ def test_exact_result_replay_and_divergence(tmp_path: Path) -> None:
     with pytest.raises(BridgeDivergenceError, match="result_divergence"):
         journal.record_result(completed.readback.intent, divergent)
     statistics = journal.statistics()
-    assert (statistics.intent_count, statistics.result_count, statistics.event_count) == (1, 1, 2)
+    assert (
+        statistics.intent_count,
+        statistics.result_count,
+        statistics.physical_receipt_count,
+        statistics.event_count,
+    ) == (1, 1, 1, 2)
     journal.close()
 
 

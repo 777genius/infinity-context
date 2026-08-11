@@ -223,6 +223,7 @@ class FakeRunState:
         return BridgeJournalStatistics(
             intent_count=self.provider_count,
             result_count=self.provider_count,
+            physical_receipt_count=self.provider_count,
             event_count=self.provider_count * 2,
         )
 

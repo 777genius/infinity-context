@@ -73,15 +73,24 @@ class BridgeJournalStatistics:
 
     intent_count: int
     result_count: int
+    physical_receipt_count: int
     event_count: int
 
     def __post_init__(self) -> None:
         if (
             type(self.intent_count) is not int
             or type(self.result_count) is not int
+            or type(self.physical_receipt_count) is not int
             or type(self.event_count) is not int
-            or min(self.intent_count, self.result_count, self.event_count) < 0
+            or min(
+                self.intent_count,
+                self.result_count,
+                self.physical_receipt_count,
+                self.event_count,
+            )
+            < 0
             or self.result_count > self.intent_count
+            or self.physical_receipt_count != self.result_count
             or self.event_count != self.intent_count + self.result_count
         ):
             raise BridgeJournalError("bridge_journal_statistics_invalid")
@@ -207,11 +216,11 @@ class BridgeJournal:
             self._connection.execute(
                 """INSERT INTO bridge_intents (
                        intent_id, event_sequence, logical_operation, logical_call_id,
-                       pool_id, pool_authority_sha256, bridge_id, bridge_authority_sha256,
-                       request_body_sha256, prompt_input_sha256, response_format_type,
-                       response_format_sha256, response_schema_sha256, output_token_limit,
-                       row_hmac_sha256
-                   ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                       request_identity_nonce, pool_id, pool_authority_sha256, bridge_id,
+                       bridge_authority_sha256, request_body_sha256, prompt_input_sha256,
+                       response_format_type, response_format_sha256, response_schema_sha256,
+                       output_token_limit, row_hmac_sha256
+                   ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
                 _intent_values(intent, sequence, row_hmac),
             )
             self._advance_head(sequence, previous_head, row_hmac)
@@ -295,15 +304,24 @@ class BridgeJournal:
                 if existing != result:
                     raise BridgeDivergenceError("bridge_journal_result_divergence")
                 return TerminalOutcome(intent, existing)
+            reused_row = self._connection.execute(
+                "SELECT * FROM bridge_results WHERE physical_receipt_sha256 = ?",
+                (result.physical_receipt_sha256,),
+            ).fetchone()
+            if reused_row is not None:
+                self._authenticated_result(reused_row)
+                raise BridgeDivergenceError("bridge_journal_provider_receipt_reused")
             sequence, previous_head = self._next_event()
             row_hmac = self._result_hmac(intent.binding.intent_id, result, sequence)
             self._connection.execute(
                 """INSERT INTO bridge_results (
                        intent_id, event_sequence, response_body_sha256, output_text_sha256,
-                       attestation_sha256, receipt_hmac_sha256, thread_id, turn_id,
-                       prompt_tokens, cached_tokens, cache_write_tokens, completion_tokens,
-                       reasoning_tokens, total_tokens, encrypted_output, row_hmac_sha256
-                   ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                       attestation_sha256, receipt_hmac_sha256,
+                       dispatch_binding_hmac_sha256, physical_receipt_sha256, thread_id,
+                       turn_id, prompt_tokens, cached_tokens, cache_write_tokens,
+                       completion_tokens, reasoning_tokens, total_tokens, encrypted_output,
+                       row_hmac_sha256
+                   ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
                 _result_values(intent.binding.intent_id, result, sequence, row_hmac),
             )
             self._advance_head(sequence, previous_head, row_hmac)
@@ -357,12 +375,17 @@ class BridgeJournal:
                 "SELECT event_count FROM bridge_journal_metadata WHERE singleton = 1"
             ).fetchone()
             intents = self._connection.execute("SELECT COUNT(*) FROM bridge_intents").fetchone()
-            results = self._connection.execute("SELECT COUNT(*) FROM bridge_results").fetchone()
+            results = self._connection.execute(
+                """SELECT COUNT(*) AS result_count,
+                          COUNT(DISTINCT physical_receipt_sha256) AS physical_receipt_count
+                   FROM bridge_results"""
+            ).fetchone()
             if metadata is None or intents is None or results is None:
                 raise BridgeJournalError("bridge_journal_statistics_invalid")
             return BridgeJournalStatistics(
                 intent_count=intents[0],
-                result_count=results[0],
+                result_count=results["result_count"],
+                physical_receipt_count=results["physical_receipt_count"],
                 event_count=metadata["event_count"],
             )
 
@@ -627,7 +650,7 @@ class BridgeJournal:
 
     def _intent_hmac(self, intent: BridgeIntent, sequence: int) -> str:
         payload = {**intent.public_payload(), "event_sequence": sequence}
-        return self._integrity.digest(b"bridge-intent-row-v1\0" + canonical_json_bytes(payload))
+        return self._integrity.digest(b"bridge-intent-row-v2\0" + canonical_json_bytes(payload))
 
     def _result_hmac(
         self,
@@ -640,7 +663,7 @@ class BridgeJournal:
             "event_sequence": sequence,
             "intent_id": intent_id,
         }
-        return self._integrity.digest(b"bridge-result-row-v1\0" + canonical_json_bytes(payload))
+        return self._integrity.digest(b"bridge-result-row-v2\0" + canonical_json_bytes(payload))
 
     def _head_hmac(self, sequence: int, previous_head: str, row_hmac: str) -> str:
         try:
@@ -665,6 +688,7 @@ def _intent_values(intent: BridgeIntent, sequence: int, row_hmac: str) -> tuple[
         sequence,
         intent.binding.logical_operation,
         intent.binding.logical_call_id,
+        intent.request_identity_nonce,
         intent.pool_id,
         intent.pool_authority_sha256,
         intent.bridge_id,
@@ -686,6 +710,7 @@ def _intent_from_row(row: sqlite3.Row) -> BridgeIntent:
             logical_operation=row["logical_operation"],
             logical_call_id=row["logical_call_id"],
         ),
+        request_identity_nonce=row["request_identity_nonce"],
         pool_id=row["pool_id"],
         pool_authority_sha256=row["pool_authority_sha256"],
         bridge_id=row["bridge_id"],
@@ -713,6 +738,8 @@ def _result_values(
         result.output_text_sha256,
         result.attestation_sha256,
         result.receipt_hmac_sha256,
+        result.dispatch_binding_hmac_sha256,
+        result.physical_receipt_sha256,
         result.thread_id,
         result.turn_id,
         usage.prompt_tokens,
@@ -730,11 +757,12 @@ def _result_from_row(row: sqlite3.Row) -> AuthenticatedBridgeResult:
     encrypted = row["encrypted_output"]
     if type(encrypted) is not bytes:
         raise BridgeJournalError("bridge_journal_ciphertext_invalid")
-    return AuthenticatedBridgeResult(
+    result = AuthenticatedBridgeResult(
         response_body_sha256=row["response_body_sha256"],
         output_text_sha256=row["output_text_sha256"],
         attestation_sha256=row["attestation_sha256"],
         receipt_hmac_sha256=row["receipt_hmac_sha256"],
+        dispatch_binding_hmac_sha256=row["dispatch_binding_hmac_sha256"],
         thread_id=row["thread_id"],
         turn_id=row["turn_id"],
         usage=TokenUsage(
@@ -747,6 +775,9 @@ def _result_from_row(row: sqlite3.Row) -> AuthenticatedBridgeResult:
         ),
         encrypted_output=encrypted,
     )
+    if not _safe_hmac_equal(row["physical_receipt_sha256"], result.physical_receipt_sha256):
+        raise BridgeJournalError("bridge_journal_physical_receipt_invalid")
+    return result
 
 
 def _event_sequence(row: sqlite3.Row) -> int:
@@ -774,7 +805,7 @@ def _root_hmac(
     generation_sha256: str,
 ) -> str:
     return integrity.digest(
-        b"bridge-journal-root-v2\0"
+        b"bridge-journal-root-v3\0"
         + fingerprint.encode("ascii")
         + b"\0"
         + generation_sha256.encode("ascii")

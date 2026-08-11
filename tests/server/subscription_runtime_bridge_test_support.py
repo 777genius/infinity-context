@@ -53,12 +53,14 @@ def make_request(
     *,
     prompt: str = "private prompt",
     output_tokens: int = 32,
+    identity_nonce: str = "0" * 64,
 ) -> bytes:
     return canonical_openai_request_body(
         {
             "max_completion_tokens": output_tokens,
             "messages": [{"content": prompt, "role": "user"}],
             "model": public_model,
+            "user": identity_nonce,
         }
     )
 
@@ -166,6 +168,7 @@ class AttestedFakeTransport:
             bridge=bridge,
             request_body=request_body,
             secret=self._secrets.attestation_secret(bridge.bridge_id),
+            execution_identity=str(len(self.calls) - 1),
         )
         if self._mutate is not None:
             self._mutate(response)
@@ -179,6 +182,7 @@ def build_runtime_response(
     request_body: bytes,
     secret: bytes,
     output_text: str = "private completion",
+    execution_identity: str = "fixture",
 ) -> dict[str, Any]:
     request = json.loads(request_body)
     response_format_type, response_format_hash, schema_hash = _response_format_identity(
@@ -194,8 +198,8 @@ def build_runtime_response(
     }
     selection = {
         "account_binding_hmac_sha256": bridge.account_binding_hmac_sha256,
-        "thread_id": f"thread-{bridge.bridge_id}",
-        "turn_id": f"turn-{bridge.bridge_id}",
+        "thread_id": f"thread-{bridge.bridge_id}-{execution_identity}",
+        "turn_id": f"turn-{bridge.bridge_id}-{execution_identity}",
         "model": bridge.CODEX_MODEL,
         "model_provider": bridge.MODEL_PROVIDER,
         "reasoning_effort": bridge.REASONING_EFFORT,
@@ -241,7 +245,7 @@ def build_runtime_response(
         ).hexdigest()
     )
     return {
-        "id": "chatcmpl-public-contract",
+        "id": f"chatcmpl-public-contract-{execution_identity}",
         "object": "chat.completion",
         "created": 1_786_320_000,
         "model": bridge.CODEX_MODEL,

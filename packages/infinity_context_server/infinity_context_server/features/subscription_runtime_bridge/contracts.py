@@ -5,7 +5,7 @@ from __future__ import annotations
 import hashlib
 import ipaddress
 import re
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import ClassVar, Protocol
 from urllib.parse import urlsplit
 
@@ -165,6 +165,7 @@ class BridgeIntent:
     response_format_type: str
     response_format_sha256: str
     response_schema_sha256: str | None
+    request_identity_nonce: str
     output_token_limit: int
 
     def __post_init__(self) -> None:
@@ -176,6 +177,7 @@ class BridgeIntent:
             ("request_body", self.request_body_sha256),
             ("prompt_input", self.prompt_input_sha256),
             ("response_format", self.response_format_sha256),
+            ("request_identity_nonce", self.request_identity_nonce),
         ):
             _require_sha256(value, label, BridgeIntentError)
         if self.response_schema_sha256 is not None:
@@ -201,6 +203,7 @@ class BridgeIntent:
             "pool_id": self.pool_id,
             "prompt_input_sha256": self.prompt_input_sha256,
             "request_body_sha256": self.request_body_sha256,
+            "request_identity_nonce": self.request_identity_nonce,
             "response_format_sha256": self.response_format_sha256,
             "response_format_type": self.response_format_type,
             "response_schema_sha256": self.response_schema_sha256,
@@ -251,10 +254,12 @@ class AuthenticatedBridgeResult:
     output_text_sha256: str
     attestation_sha256: str
     receipt_hmac_sha256: str
+    dispatch_binding_hmac_sha256: str
     thread_id: str
     turn_id: str
     usage: TokenUsage
     encrypted_output: bytes
+    physical_receipt_sha256: str = field(init=False)
 
     def __post_init__(self) -> None:
         for label, value in (
@@ -262,18 +267,26 @@ class AuthenticatedBridgeResult:
             ("output_text", self.output_text_sha256),
             ("attestation", self.attestation_sha256),
             ("receipt_hmac", self.receipt_hmac_sha256),
+            ("dispatch_binding_hmac", self.dispatch_binding_hmac_sha256),
         ):
             _require_sha256(value, label, BridgeReceiptError)
         _require_identifier(self.thread_id, "thread_id", BridgeReceiptError)
         _require_identifier(self.turn_id, "turn_id", BridgeReceiptError)
         if not isinstance(self.encrypted_output, bytes) or not self.encrypted_output:
             raise BridgeReceiptError("bridge_encrypted_output_invalid")
+        physical_receipt_sha256 = physical_provider_receipt_sha256(
+            attestation_sha256=self.attestation_sha256,
+            receipt_hmac_sha256=self.receipt_hmac_sha256,
+        )
+        object.__setattr__(self, "physical_receipt_sha256", physical_receipt_sha256)
 
     def public_payload(self, *, include_ciphertext: bool = True) -> dict[str, object]:
         payload: dict[str, object] = {
             "attestation_sha256": self.attestation_sha256,
+            "dispatch_binding_hmac_sha256": self.dispatch_binding_hmac_sha256,
             "output_text_sha256": self.output_text_sha256,
             "receipt_hmac_sha256": self.receipt_hmac_sha256,
+            "physical_receipt_sha256": self.physical_receipt_sha256,
             "response_body_sha256": self.response_body_sha256,
             "thread_id": self.thread_id,
             "turn_id": self.turn_id,
@@ -363,6 +376,26 @@ class OutputCipherPort(Protocol):
     def open(self, ciphertext: bytes, *, associated_data: bytes) -> bytes: ...
 
 
+def physical_provider_receipt_sha256(
+    *,
+    attestation_sha256: str,
+    receipt_hmac_sha256: str,
+) -> str:
+    """Identify one provider-authenticated physical response independent of wrappers."""
+
+    _require_sha256(attestation_sha256, "attestation", BridgeReceiptError)
+    _require_sha256(receipt_hmac_sha256, "receipt_hmac", BridgeReceiptError)
+    return hashlib.sha256(
+        b"subscription-runtime-physical-receipt-v1\0"
+        + canonical_json_bytes(
+            {
+                "attestation_sha256": attestation_sha256,
+                "receipt_hmac_sha256": receipt_hmac_sha256,
+            }
+        )
+    ).hexdigest()
+
+
 def _require_loopback_origin(origin: object) -> None:
     if not isinstance(origin, str) or len(origin) > 256:
         raise BridgeAuthorityError("bridge_origin_invalid")
@@ -435,6 +468,7 @@ __all__ = (
     "OutcomeUnknown",
     "OutputCipherPort",
     "PrivateOutputError",
+    "physical_provider_receipt_sha256",
     "TerminalOutcome",
     "TokenUsage",
 )

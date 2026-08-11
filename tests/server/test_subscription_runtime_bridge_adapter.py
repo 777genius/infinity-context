@@ -102,7 +102,12 @@ def test_deterministic_three_bridge_shard_binds_every_intent_and_result(tmp_path
     for index in range(24):
         binding = make_binding(index)
         expected.append(pool.select(binding).bridge_id)
-        outcome = adapter.execute(binding=binding, canonical_request_body=make_request())
+        outcome = adapter.execute(
+            binding=binding,
+            canonical_request_body=make_request(
+                identity_nonce=hashlib.sha256(f"intent-{index}".encode()).hexdigest()
+            ),
+        )
         assert isinstance(outcome, TerminalBridgeCall)
         assert outcome.readback.intent.bridge_id == expected[-1]
         assert (
@@ -342,6 +347,7 @@ def test_oversized_request_never_records_or_dispatches(tmp_path: Path) -> None:
                     "max_completion_tokens": 32,
                     "messages": [{"content": "x", "role": "user"}],
                     "model": "subscription-codex",
+                    "user": "0" * 64,
                     "response_format": {
                         "json_schema": {
                             "name": "unsupported_runtime_schema",
@@ -504,6 +510,7 @@ def test_journal_authenticated_but_unsigned_result_is_never_exposed(tmp_path: Pa
         output_text_sha256=hashlib.sha256(plaintext).hexdigest(),
         attestation_sha256="b" * 64,
         receipt_hmac_sha256="c" * 64,
+        dispatch_binding_hmac_sha256="d" * 64,
         thread_id="thread-forged",
         turn_id="turn-forged",
         usage=TokenUsage(
@@ -569,8 +576,14 @@ def test_wrong_output_key_and_ciphertext_swap_reject_decryption(tmp_path: Path) 
         integrity=HmacJournalIntegrity(JOURNAL_KEY),
     )
     adapter = _adapter(pool, secrets, transport, cipher, journal)
-    first = adapter.execute(binding=make_binding(1), canonical_request_body=make_request())
-    second = adapter.execute(binding=make_binding(2), canonical_request_body=make_request())
+    first = adapter.execute(
+        binding=make_binding(1),
+        canonical_request_body=make_request(identity_nonce=hashlib.sha256(b"intent-1").hexdigest()),
+    )
+    second = adapter.execute(
+        binding=make_binding(2),
+        canonical_request_body=make_request(identity_nonce=hashlib.sha256(b"intent-2").hexdigest()),
+    )
     assert isinstance(first, TerminalBridgeCall)
     assert isinstance(second, TerminalBridgeCall)
 
@@ -627,6 +640,7 @@ def test_json_schema_response_format_hashes_are_authenticated(tmp_path: Path) ->
             "max_completion_tokens": 16,
             "messages": [{"content": "judge privately", "role": "user"}],
             "model": "subscription-codex",
+            "user": "0" * 64,
             "response_format": {
                 "json_schema": {
                     "name": "judge",
@@ -671,6 +685,7 @@ def test_runtime_utf16_schema_key_order_and_unicode_model_are_exact(tmp_path: Pa
             "max_completion_tokens": 16,
             "messages": [{"content": "judge privately", "role": "user"}],
             "model": authority.public_model,
+            "user": "0" * 64,
             "response_format": {
                 "json_schema": {
                     "name": "unicode_keys",

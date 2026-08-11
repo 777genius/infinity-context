@@ -183,6 +183,7 @@ class PublishableRunOrchestrator:
                 initial_committed != 0
                 or initial_statistics.intent_count != 0
                 or initial_statistics.result_count != 0
+                or initial_statistics.physical_receipt_count != 0
                 or initial_statistics.event_count != 0
             ):
                 _fail("publishable_run_authority_checkpoint_missing")
@@ -206,7 +207,10 @@ class PublishableRunOrchestrator:
         accounting_complete = (
             provider_dispatches >= 0
             and final_committed == initial_committed + provider_dispatches
-            and statistics.intent_count == statistics.result_count == final_committed
+            and statistics.intent_count
+            == statistics.result_count
+            == statistics.physical_receipt_count
+            == final_committed
         )
         if seal is not None:
             self._require_exact_reopen(
@@ -416,7 +420,10 @@ def _authority_checkpoint(
         provider_result_count=statistics.result_count,
         provider_call_count=statistics.intent_count,
         provider_accounting_complete=(
-            statistics.intent_count == statistics.result_count == committed_call_count
+            statistics.intent_count
+            == statistics.result_count
+            == statistics.physical_receipt_count
+            == committed_call_count
         ),
         charged_tokens=None,
         authentication_key_id=config.publication_key_id,

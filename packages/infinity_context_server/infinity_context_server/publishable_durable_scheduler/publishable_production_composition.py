@@ -593,7 +593,11 @@ def _audit_bundle(
                 break
             after = page[-1].ordinal
     statistics = journal.statistics()
-    if observed_intents != statistics.intent_count or observed_results != statistics.result_count:
+    if (
+        observed_intents != statistics.intent_count
+        or observed_results != statistics.result_count
+        or observed_results != statistics.physical_receipt_count
+    ):
         _fail("publishable_production_bundle_journal_divergent")
 
 

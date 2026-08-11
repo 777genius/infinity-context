@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import hashlib
+import json
 from dataclasses import replace
 
 from infinity_context_core.ports.managed_full_run_extraction_ledger import (
@@ -16,6 +17,9 @@ from infinity_context_server.features.subscription_runtime_bridge import (
     BridgeAuthority,
     BridgePoolAuthority,
     OutputCipherKey,
+)
+from infinity_context_server.features.subscription_runtime_bridge.contracts import (
+    physical_provider_receipt_sha256,
 )
 from infinity_context_server.features.subscription_runtime_bridge.json_boundary import (
     canonical_json_bytes,
@@ -52,6 +56,7 @@ from scheduler_subscription_bridge_composition_test_support import (
 from subscription_runtime_bridge_test_support import (
     FakeSecrets,
     build_runtime_response,
+    runtime_attestation_canonical_bytes,
 )
 
 FULL_TRAVERSAL_TRANSPORT_CALL_CAP = PUBLISHABLE_SUITE_EVALUATION_CALL_COUNT
@@ -75,19 +80,23 @@ class BoundedAttestedFakeTransport:
     __slots__ = (
         "_bridges_by_origin",
         "_secrets",
+        "authenticated_physical_receipt_sha256",
         "call_count",
         "call_count_by_bridge_id",
         "maximum_request_bytes_observed",
         "maximum_response_bytes_observed",
+        "request_identity_nonces",
     )
 
     def __init__(self, pool: BridgePoolAuthority, secrets: FakeSecrets) -> None:
         self._bridges_by_origin = {bridge.origin: bridge for bridge in pool.bridges}
         self._secrets = secrets
+        self.authenticated_physical_receipt_sha256: set[str] = set()
         self.call_count = 0
         self.call_count_by_bridge_id = {bridge.bridge_id: 0 for bridge in pool.bridges}
         self.maximum_request_bytes_observed = 0
         self.maximum_response_bytes_observed = 0
+        self.request_identity_nonces: set[str] = set()
 
     @property
     def calls(self) -> int:
@@ -116,14 +125,37 @@ class BoundedAttestedFakeTransport:
             request_body=request_body,
         )
 
-        response = canonical_json_bytes(
-            build_runtime_response(
-                bridge=bridge,
-                request_body=request_body,
-                secret=self._secrets.attestation_secret(bridge.bridge_id),
-                output_text=self._output_text(),
+        response_payload = build_runtime_response(
+            bridge=bridge,
+            request_body=request_body,
+            secret=self._secrets.attestation_secret(bridge.bridge_id),
+            output_text=self._output_text(),
+        )
+        runtime_receipt = response_payload["subscription_runtime"]
+        receipt_hmac = runtime_receipt["receipt_hmac_sha256"]
+        request_nonce = json.loads(request_body)["user"]
+        if (
+            type(receipt_hmac) is not str
+            or len(receipt_hmac) != 64
+            or type(request_nonce) is not str
+            or len(request_nonce) != 64
+        ):
+            raise AssertionError("full_traversal_physical_receipt_identity_invalid")
+        attestation = runtime_attestation_canonical_bytes(
+            selection=runtime_receipt["runtime_selection"],
+            request_identity=runtime_receipt["request_identity"],
+            output_identity=runtime_receipt["output_identity"],
+            usage=response_payload["usage"],
+            requested_tokens=runtime_receipt["output_token_limit"]["requested_tokens"],
+        )
+        self.authenticated_physical_receipt_sha256.add(
+            physical_provider_receipt_sha256(
+                attestation_sha256=hashlib.sha256(attestation).hexdigest(),
+                receipt_hmac_sha256=receipt_hmac,
             )
         )
+        self.request_identity_nonces.add(request_nonce)
+        response = canonical_json_bytes(response_payload)
         self.maximum_request_bytes_observed = max(
             self.maximum_request_bytes_observed,
             len(request_body),

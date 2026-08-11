@@ -331,7 +331,10 @@ def test_production_composition_traverses_exact_2040_pairs_and_replays_with_zero
     assert nonce_source.call_count == FULL_TRAVERSAL_NONCE_CAP == 8_160
     assert journal.statistics().intent_count == 8_160
     assert journal.statistics().result_count == 8_160
+    assert journal.statistics().physical_receipt_count == 8_160
     assert journal.statistics().event_count == 16_320
+    assert len(transport.authenticated_physical_receipt_sha256) == 8_160
+    assert len(transport.request_identity_nonces) == 8_160
 
     legacy_root = tmp_path / "legacy-unpaired-scheduler"
     copytree(tmp_path / "scheduler", legacy_root)
