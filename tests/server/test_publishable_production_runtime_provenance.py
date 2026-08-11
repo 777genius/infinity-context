@@ -24,6 +24,9 @@ from infinity_context_server.publishable_durable_scheduler import (
     open_publishable_production_composition,
 )
 from infinity_context_server.publishable_durable_scheduler import (
+    publishable_production_composition as production_composition,
+)
+from infinity_context_server.publishable_durable_scheduler import (
     scheduler_subscription_bridge_adapter as scheduler_bridge,
 )
 from scheduler_subscription_bridge_composition_test_support import (
@@ -42,6 +45,58 @@ from scheduler_subscription_bridge_full_traversal_test_support import (
     synthetic_extraction_suite_readback,
 )
 from subscription_runtime_bridge_test_support import FakeSecrets
+
+
+@pytest.fixture
+def _admitted_execution_contract_test(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Exercise provenance below the separately covered static profile gate."""
+
+    monkeypatch.setattr(
+        production_composition,
+        "_require_active_publishable_production_execution",
+        lambda _suite: None,
+    )
+
+
+def test_unadmitted_caller_rejects_before_runtime_provenance(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    readiness = bridge_fleet_readiness()
+    suite, _, _, _ = official_suite_and_manifests(readiness)
+    provenance_calls = 0
+
+    def forbidden_runtime_provenance(**_keywords: object) -> None:
+        nonlocal provenance_calls
+        provenance_calls += 1
+        raise AssertionError("unadmitted caller reached runtime provenance")
+
+    monkeypatch.setattr(
+        production_composition,
+        "build_publishable_production_runtime_provenance",
+        forbidden_runtime_provenance,
+    )
+
+    with pytest.raises(
+        SchedulerRunnerError,
+        match="publishable_production_execution_authority_invalid",
+    ):
+        open_publishable_production_composition(
+            mode=PublishableProductionOpenMode.CREATE,
+            suite=suite,
+            run_stores=(),
+            extraction_suite=object(),
+            official_case_authority=object(),
+            retrieval_capture_authority=object(),
+            output_cipher=object(),
+            bridge_keys=object(),
+            bridge_fleet_readiness=readiness,
+            bridge_transport=object(),
+            bridge_journal=object(),
+            clock=lambda: 0,
+            lease_id_factory=lambda: "must-not-open",
+        )
+
+    assert provenance_calls == 0
 
 
 def test_runtime_provenance_admission_binds_exact_backends_and_every_bridge() -> None:
@@ -81,6 +136,7 @@ def test_runtime_provenance_admission_binds_exact_backends_and_every_bridge() ->
 def test_forged_suite_boot_nonce_rejects_before_journal_or_transport(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
+    _admitted_execution_contract_test: None,
 ) -> None:
     trusted = bridge_fleet_readiness()
     suite, runs, manifests, _ = official_suite_and_manifests(trusted)
@@ -105,6 +161,7 @@ def test_forged_suite_boot_nonce_rejects_before_journal_or_transport(
 def test_compatible_foreign_fleet_rejects_before_journal_or_transport(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
+    _admitted_execution_contract_test: None,
 ) -> None:
     trusted = bridge_fleet_readiness()
     suite, runs, manifests, _ = official_suite_and_manifests(trusted)
@@ -138,6 +195,7 @@ def test_compatible_foreign_fleet_rejects_before_journal_or_transport(
 def test_account_and_port_reorder_rejects_before_journal_or_transport(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
+    _admitted_execution_contract_test: None,
 ) -> None:
     trusted = bridge_fleet_readiness()
     suite, runs, manifests, _ = official_suite_and_manifests(trusted)
@@ -171,6 +229,7 @@ def test_account_and_port_reorder_rejects_before_journal_or_transport(
 def test_matching_default_tier_fleet_and_forged_suite_are_rejected_pre_journal(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
+    _admitted_execution_contract_test: None,
 ) -> None:
     trusted = bridge_fleet_readiness()
     suite, runs, manifests, _ = official_suite_and_manifests(trusted)
