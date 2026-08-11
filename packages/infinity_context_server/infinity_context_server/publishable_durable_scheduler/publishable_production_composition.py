@@ -111,6 +111,7 @@ def publishable_production_execution_orchestration_authority() -> (
         runner_paid_go_ready=SCHEDULER_RUNNER_PAID_GO_READY,
         durable_store_paid_go_ready=SQLITE_SCHEDULER_PAID_GO_READY,
         production_bridge_adapter_ready=SCHEDULER_PRODUCTION_BRIDGE_ADAPTER_READY,
+        paired_outcome_sealing_policy_sha256=(PUBLISHABLE_PAIRED_OUTCOME_SEALING_POLICY_SHA256),
         publishable=SCHEDULER_RUNNER_PUBLISHABLE,
         readiness_blockers=SCHEDULER_RUNNER_READINESS_BLOCKERS,
     )

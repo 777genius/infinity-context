@@ -16,6 +16,7 @@ from infinity_context_server.memory_comparison_publishable_go_readiness import (
     active_publishable_execution_authorities,
     publishable_execution_methodology_authority,
     publishable_execution_profile_authority,
+    require_active_publishable_execution_authority,
     require_publishable_execution_authority,
     require_publishable_execution_authority_binding,
     reviewed_publishable_execution_binding,
@@ -32,6 +33,9 @@ from infinity_context_server.memory_comparison_publishable_profile import (
 )
 from infinity_context_server.publishable_durable_scheduler import (
     publishable_production_composition as production_composition,
+)
+from infinity_context_server.publishable_durable_scheduler.paired_outcome_production import (
+    PUBLISHABLE_PAIRED_OUTCOME_SEALING_POLICY_SHA256,
 )
 
 
@@ -59,6 +63,7 @@ def test_active_v4_false_flags_and_unresolved_capability_fail_closed() -> None:
     orchestration = (
         production_composition.publishable_production_execution_orchestration_authority()
     )
+    review = reviewed_publishable_execution_binding()
 
     assert profile.implementation_status == "contract_only"
     assert profile.execution_enabled is False
@@ -74,6 +79,12 @@ def test_active_v4_false_flags_and_unresolved_capability_fail_closed() -> None:
     assert orchestration.runner_paid_go_ready is False
     assert orchestration.durable_store_paid_go_ready is False
     assert orchestration.publishable is False
+    assert orchestration.schema_version == review.orchestration_schema_version
+    assert orchestration.commitment_sha256 == review.orchestration_commitment_sha256
+    assert (
+        orchestration.paired_outcome_sealing_policy_sha256
+        == PUBLISHABLE_PAIRED_OUTCOME_SEALING_POLICY_SHA256
+    )
 
     with pytest.raises(
         PublishableExecutionPolicyError,
@@ -83,8 +94,30 @@ def test_active_v4_false_flags_and_unresolved_capability_fail_closed() -> None:
             profile=profile,
             methodology=methodology,
             orchestration=orchestration,
-            review=reviewed_publishable_execution_binding(),
+            review=review,
         )
+
+
+def test_paired_outcome_production_authority_drift_fails_closed(monkeypatch) -> None:
+    reviewed_orchestration = (
+        production_composition.publishable_production_execution_orchestration_authority()
+    )
+    drifted_policy_sha256 = "4" * 64
+    monkeypatch.setattr(
+        production_composition,
+        "PUBLISHABLE_PAIRED_OUTCOME_SEALING_POLICY_SHA256",
+        drifted_policy_sha256,
+    )
+
+    drifted_orchestration = (
+        production_composition.publishable_production_execution_orchestration_authority()
+    )
+
+    assert drifted_orchestration.paired_outcome_sealing_policy_sha256 == drifted_policy_sha256
+    assert drifted_orchestration.commitment_sha256 != reviewed_orchestration.commitment_sha256
+    with pytest.raises(PublishableExecutionPolicyError) as raised:
+        require_active_publishable_execution_authority(drifted_orchestration)
+    assert raised.value.code == "publishable_execution_commitment_drift"
 
 
 def test_authenticated_false_execution_flag_fails_closed() -> None:
@@ -194,6 +227,7 @@ def _ready_binding(
         runner_paid_go_ready=True,
         durable_store_paid_go_ready=True,
         production_bridge_adapter_ready=True,
+        paired_outcome_sealing_policy_sha256=(PUBLISHABLE_PAIRED_OUTCOME_SEALING_POLICY_SHA256),
         publishable=False,
         readiness_blockers=(),
     )

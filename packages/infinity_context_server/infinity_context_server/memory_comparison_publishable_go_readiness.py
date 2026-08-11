@@ -36,15 +36,15 @@ from infinity_context_server.memory_comparison_publishable_profile import (
 PUBLISHABLE_EXECUTION_POLICY_SCHEMA_VERSION = "memory-comparison-publishable-execution-policy.v1"
 PUBLISHABLE_EXECUTION_REVIEW_SCHEMA_VERSION = "memory-comparison-publishable-execution-review.v1"
 PUBLISHABLE_PRODUCTION_ORCHESTRATION_SCHEMA_VERSION = (
-    "memory-comparison-publishable-production-composition.v2"
+    "memory-comparison-publishable-production-composition.v3"
 )
 PUBLISHABLE_EXECUTABLE_IMPLEMENTATION_STATUS = "executable"
 
-# Independently pinned to the current production-composition facts.  Those
-# facts intentionally include three false paid-go authorities, so the matching
-# active v4 candidate is authenticated but cannot be admitted.
+# Independently pinned to the current production-composition facts, including
+# the exact paired-outcome sealing policy.  Three paid-go authorities remain
+# false, so the matching active v4 candidate is authenticated but cannot be admitted.
 PUBLISHABLE_REVIEWED_ORCHESTRATION_COMMITMENT_SHA256 = (
-    "56bcf9a672ea1820d19da197bbca0d970a3cf4f43c80847f86f3efaeda5be09f"
+    "7a6370eeb64e449712dad6d585774b074fd8432191a4fef1c1a2831cedd50aa8"
 )
 
 _TOKEN = object()
@@ -159,6 +159,7 @@ class PublishableExecutionOrchestrationAuthority:
     runner_paid_go_ready: bool
     durable_store_paid_go_ready: bool
     production_bridge_adapter_ready: bool
+    paired_outcome_sealing_policy_sha256: str
     publishable: bool
     readiness_blockers: tuple[str, ...]
     commitment_sha256: str = field(init=False)
@@ -170,6 +171,7 @@ class PublishableExecutionOrchestrationAuthority:
             or not _digest(self.profile_commitment_sha256)
             or not _identifier(self.methodology_id)
             or not _digest(self.methodology_commitment_sha256)
+            or not _digest(self.paired_outcome_sealing_policy_sha256)
             or any(
                 type(value) is not bool
                 for value in (
@@ -195,6 +197,7 @@ class PublishableExecutionOrchestrationAuthority:
             "durable_store_paid_go_ready": self.durable_store_paid_go_ready,
             "methodology_commitment_sha256": self.methodology_commitment_sha256,
             "methodology_id": self.methodology_id,
+            "paired_outcome_sealing_policy_sha256": (self.paired_outcome_sealing_policy_sha256),
             "production_bridge_adapter_ready": self.production_bridge_adapter_ready,
             "profile_commitment_sha256": self.profile_commitment_sha256,
             "profile_id": self.profile_id,
