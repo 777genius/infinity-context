@@ -48,7 +48,8 @@ def test_symlink_mutation_and_digest_drift_are_rejected(
     with pytest.raises(ValueError, match="reviewed_node_executable_invalid"):
         subject.require_reviewed_node_executable(alias, digest)
 
-    node.write_bytes(b"mutated-node-fixture")
+    node.chmod(0o755)
+    node.write_bytes(b"mutated-node-fixture!")
     node.chmod(0o555)
     with pytest.raises(ValueError, match="reviewed_node_executable_invalid"):
         subject.require_reviewed_node_executable(node, digest)
