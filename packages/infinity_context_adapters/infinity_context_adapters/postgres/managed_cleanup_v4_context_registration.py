@@ -23,14 +23,16 @@ from infinity_context_core.ports.managed_cleanup_v3_contracts import (
     canonical_bytes,
 )
 
-from infinity_context_adapters.postgres.benchmark_writer_fence import (
-    BENCHMARK_WRITER_FENCE_FUNCTION,
-    BENCHMARK_WRITER_FENCE_TABLES,
-)
 from infinity_context_adapters.postgres.managed_cleanup_v3_json import strict_json_object
+from infinity_context_adapters.postgres.strict_v4_authority_lock_topology import (
+    assert_strict_v4_authority_lock_topology,
+)
 from infinity_context_adapters.postgres.strict_v4_database_roles import (
     STRICT_V4_REGISTRAR_ROLE,
     assert_strict_v4_runtime_capability,
+)
+from infinity_context_adapters.postgres.strict_v4_writer_fence_topology import (
+    assert_strict_v4_writer_fence_topology,
 )
 
 LOCK_TARGETS_SQL = """
@@ -48,7 +50,8 @@ WHERE run_id_sha256=$1
 """
 READ_REGISTRATION_SQL = """
 SELECT run_id_sha256, context_sha256, authority_terminal_sha256,
-       context_json::text AS context_json, authority_json::text AS authority_json,
+       context_json::pg_catalog.text AS context_json,
+       authority_json::pg_catalog.text AS authority_json,
        registration_sha256, registration_mac_sha256, registered_at
 FROM public.memory_cleanup_v3_context_authorities
 WHERE run_id_sha256=$1 OR context_sha256=$2
@@ -59,7 +62,7 @@ INSERT INTO public.memory_cleanup_v3_context_authorities (
   run_id_sha256, context_sha256, authority_terminal_sha256,
   context_json, authority_json, registration_sha256,
   registration_mac_sha256, registered_at
-) VALUES ($1,$2,$3,$4::jsonb,$5::jsonb,$6,$7,$8)
+) VALUES ($1,$2,$3,$4::pg_catalog.jsonb,$5::pg_catalog.jsonb,$6,$7,$8)
 """
 CANONICAL_ABSENCE_SQL = """
 SELECT NOT EXISTS (
@@ -72,21 +75,6 @@ SELECT NOT EXISTS (
   UNION ALL SELECT 1 FROM public.memory_idempotency_records WHERE space_id=$1
   UNION ALL SELECT 1 FROM public.memory_projection_result_receipts WHERE run_id_sha256=$2
 ) AS canonical_absent
-"""
-WRITER_FENCE_SQL = """
-WITH registry_schema AS (
-  SELECT relnamespace
-  FROM pg_catalog.pg_class
-  WHERE oid = 'public.memory_comparison_benchmark_runs'::pg_catalog.regclass
-)
-SELECT c.relname::text AS table_name, t.tgname::text AS trigger_name,
-       t.tgenabled::text AS trigger_enabled, p.proname::text AS function_name
-FROM pg_catalog.pg_trigger AS t
-JOIN pg_catalog.pg_class AS c ON c.oid=t.tgrelid
-JOIN pg_catalog.pg_proc AS p ON p.oid=t.tgfoid
-JOIN registry_schema AS registry ON registry.relnamespace=c.relnamespace
-WHERE NOT t.tgisinternal AND c.relname=ANY($1::text[])
-ORDER BY c.relname, t.tgname
 """
 
 
@@ -122,17 +110,6 @@ class StrictV4PreExecutionRegistrationPolicy:
     ) -> None:
         if not _exact_registry_identity(locked_run, context):
             raise ProjectionReceiptError("projection_receipt.context_registry_divergent")
-        expected_tables = tuple(table for table, _columns in BENCHMARK_WRITER_FENCE_TABLES)
-        rows = await connection.fetch(WRITER_FENCE_SQL, list(expected_tables))
-        observed = {
-            row["table_name"]
-            for row in rows
-            if row["trigger_name"] == f"trg_{row['table_name']}_benchmark_writer_fence"
-            and row["trigger_enabled"] == "O"
-            and row["function_name"] == BENCHMARK_WRITER_FENCE_FUNCTION
-        }
-        if observed != set(expected_tables):
-            raise ProjectionReceiptError("projection_receipt.writer_fence_invalid")
 
     async def assert_first_registration_allowed(
         self,
@@ -166,7 +143,8 @@ class AsyncPostgresCleanupV4ContextAuthorityRegistry(ContextAuthorityRegistratio
             raise ProjectionReceiptError("projection_receipt.hmac_capability_invalid")
         self._connect = connect
         self._authenticator = authenticator
-        self._phase_policy = phase_policy or StrictV4PreExecutionRegistrationPolicy()
+        self._strict_phase_policy = StrictV4PreExecutionRegistrationPolicy()
+        self._additional_phase_policy = phase_policy
 
     async def register_and_readback(
         self,
@@ -193,6 +171,11 @@ class AsyncPostgresCleanupV4ContextAuthorityRegistry(ContextAuthorityRegistratio
                 capability_role=STRICT_V4_REGISTRAR_ROLE,
                 error_code="projection_receipt.context_authority_role_invalid",
             )
+            await assert_strict_v4_authority_lock_topology(
+                connection,
+                capability_role=STRICT_V4_REGISTRAR_ROLE,
+            )
+            await assert_strict_v4_writer_fence_topology(connection)
             await connection.execute(
                 LOCK_TARGETS_SQL,
                 context.run_id_sha256,
@@ -201,11 +184,17 @@ class AsyncPostgresCleanupV4ContextAuthorityRegistry(ContextAuthorityRegistratio
             locked_run = await connection.fetchrow(READ_RUN_SQL, context.run_id_sha256)
             if locked_run is None:
                 raise ProjectionReceiptError("projection_receipt.run_missing")
-            await self._phase_policy.assert_registration_binding(
+            await self._strict_phase_policy.assert_registration_binding(
                 connection,
                 context=context,
                 locked_run=locked_run,
             )
+            if self._additional_phase_policy is not None:
+                await self._additional_phase_policy.assert_registration_binding(
+                    connection,
+                    context=context,
+                    locked_run=locked_run,
+                )
             rows = await connection.fetch(
                 READ_REGISTRATION_SQL,
                 context.run_id_sha256,
@@ -215,7 +204,13 @@ class AsyncPostgresCleanupV4ContextAuthorityRegistry(ContextAuthorityRegistratio
                 if len(rows) != 1:
                     raise ProjectionReceiptError("projection_receipt.context_authority_collision")
                 result = _registration_from_row(rows[0], created=False)
-                if result.context != context or result.authority != authority:
+                if (
+                    result.context != context
+                    or result.authority != authority
+                    or result.registration_sha256 != registration_sha256
+                    or result.registration_mac_sha256 != registration_mac_sha256
+                    or result.registered_at != registered_at
+                ):
                     raise ProjectionReceiptError("projection_receipt.context_authority_collision")
                 authenticate_context_authority_registration(
                     result,
@@ -225,11 +220,17 @@ class AsyncPostgresCleanupV4ContextAuthorityRegistry(ContextAuthorityRegistratio
                 )
                 await transaction.commit()
                 return result
-            await self._phase_policy.assert_first_registration_allowed(
+            await self._strict_phase_policy.assert_first_registration_allowed(
                 connection,
                 context=context,
                 locked_run=locked_run,
             )
+            if self._additional_phase_policy is not None:
+                await self._additional_phase_policy.assert_first_registration_allowed(
+                    connection,
+                    context=context,
+                    locked_run=locked_run,
+                )
             await connection.execute(
                 INSERT_REGISTRATION_SQL,
                 context.run_id_sha256,
@@ -249,6 +250,14 @@ class AsyncPostgresCleanupV4ContextAuthorityRegistry(ContextAuthorityRegistratio
             if row is None:
                 raise ProjectionReceiptError("projection_receipt.context_authority_missing")
             result = _registration_from_row(row, created=True)
+            if (
+                result.context != context
+                or result.authority != authority
+                or result.registration_sha256 != registration_sha256
+                or result.registration_mac_sha256 != registration_mac_sha256
+                or result.registered_at != registered_at
+            ):
+                raise ProjectionReceiptError("projection_receipt.context_authority_divergent")
             authenticate_context_authority_registration(
                 result,
                 expected_context=context,

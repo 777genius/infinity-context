@@ -32,9 +32,8 @@ INITIAL_MIGRATION = MIGRATIONS / "0017_managed_benchmark_writer_fence.sql"
 PROJECTION_MANIFEST_MIGRATION = MIGRATIONS / "0018_benchmark_projection_manifest.sql"
 SEALED_FENCE_MIGRATION = MIGRATIONS / "0019_managed_benchmark_sealed_fence.sql"
 CLEANUP_COMPLETION_MIGRATION = MIGRATIONS / "0020_benchmark_cleanup_completion.sql"
-CLEANUP_PLAN_MIGRATION = MIGRATIONS / "0033_benchmark_cleanup_plan.sql"
 GENERATED_TOMBSTONE_FENCE_MIGRATION = MIGRATIONS / "0034_benchmark_generated_tombstone_fence.sql"
-STRICT_V4_FENCE_MIGRATION = MIGRATIONS / "0037_strict_v4_fact_writer.sql"
+STRICT_V4_FENCE_MIGRATION = MIGRATIONS / "0036_memory_comparison_strict_v4_preparations.sql"
 FENCE_SQLSTATE = BENCHMARK_WRITER_FENCE_SQLSTATE
 FENCE_CONSTRAINT = BENCHMARK_WRITER_FENCE_CONSTRAINT
 FENCED_TABLES = tuple(table for table, _update_columns in BENCHMARK_WRITER_FENCE_TABLES)
@@ -88,33 +87,29 @@ def test_latest_migration_fails_closed_after_projection_manifest_seal() -> None:
 
 def test_runtime_installer_statements_do_not_drift_from_latest_migration() -> None:
     migration_sql = _normalize_sql(STRICT_V4_FENCE_MIGRATION.read_text(encoding="utf-8"))
-    cleanup_plan_sql = _normalize_sql(CLEANUP_PLAN_MIGRATION.read_text(encoding="utf-8"))
 
-    assert len(BENCHMARK_WRITER_FENCE_STATEMENTS) == 93
+    assert len(BENCHMARK_WRITER_FENCE_STATEMENTS) == 73
     assert BENCHMARK_WRITER_FENCE_FUNCTION in migration_sql
     assert _normalize_sql(BENCHMARK_WRITER_FENCE_STATEMENTS[0]) in migration_sql
-    for statement in BENCHMARK_WRITER_FENCE_STATEMENTS[-20:]:
-        assert _normalize_sql(statement) in migration_sql
-    assert "length(receipt.idempotency_key) = 90" in migration_sql
-    assert "length(NEW.idempotency_key) <> 90" in migration_sql
-    assert "idempotency_key) = 89" not in migration_sql
-    assert "idempotency_key) <> 89" not in migration_sql
-    assert "@> pg_catalog.jsonb_build_array(NEW.message_key)" in migration_sql
-    assert "benchmark fact outbox receipt identity is missing" in migration_sql
-    assert "benchmark fact outbox receipt link is missing" in migration_sql
-    assert "registry_cleanup_plan_state" in migration_sql
-    assert "cleanup_plan_state = 'sealed'" in migration_sql
-    assert "AND TG_OP = 'INSERT'" in migration_sql
-    assert "- 'updated_at' - 'thread_scope_key'" in migration_sql
-    assert "memory_fact_operation_receipts" in cleanup_plan_sql
-    assert "memory_anchors" in cleanup_plan_sql
-    assert "memory_fact_relations" in cleanup_plan_sql
-    assert "memory_context_links" in cleanup_plan_sql
+    assert "strict_v4_writer_credential BOOLEAN" in migration_sql
+    assert "strict_v4_authority_credential BOOLEAN" in migration_sql
+    assert "legacy_write_authorized AND NOT strict_v4_writer_credential" in migration_sql
+    assert "AND NOT strict_v4_authority_credential" in migration_sql
+    assert "NOT legacy_write_authorized AND strict_v4_write_authorized" in migration_sql
+    assert "TG_TABLE_NAME = 'memory_idempotency_records'" in migration_sql
+    assert "infinity_context_strict_v4_fact_writer" not in migration_sql
+    assert "infinity_context_strict_v4_document_writer" not in migration_sql
+    for table in FENCED_TABLES:
+        assert f"'{table}'" in migration_sql
+    for statement in BENCHMARK_WRITER_FENCE_STATEMENTS[1:]:
+        assert " ON public." in statement
+        if "CREATE TRIGGER" in statement:
+            assert "EXECUTE FUNCTION public." in statement
 
 
 @pytest.mark.parametrize(
     ("dialect_name", "expected_statement_count"),
-    [("postgresql", 93), ("sqlite", 0)],
+    [("postgresql", 73), ("sqlite", 0)],
 )
 def test_create_schema_writer_fence_helper_is_postgres_only(
     dialect_name: str,

@@ -22,9 +22,15 @@ from infinity_context_core.features.projection_receipts.strict_v4_writer_authori
 )
 from infinity_context_core.ports.managed_cleanup_v3_contracts import canonical_bytes
 
+from infinity_context_adapters.postgres.strict_v4_authority_lock_topology import (
+    assert_strict_v4_authority_lock_topology,
+)
 from infinity_context_adapters.postgres.strict_v4_database_roles import (
     STRICT_V4_SEALER_ROLE,
     assert_strict_v4_runtime_capability,
+)
+from infinity_context_adapters.postgres.strict_v4_writer_fence_topology import (
+    assert_strict_v4_writer_fence_topology,
 )
 
 _LOCK_TARGETS_SQL = """
@@ -42,15 +48,21 @@ WHERE run_id_sha256=$1
 """
 _READ_CONTEXT_SQL = """
 SELECT run_id_sha256, context_sha256, authority_terminal_sha256,
-       context_json::text AS context_json, authority_json::text AS authority_json,
+       context_json::pg_catalog.text AS context_json,
+       authority_json::pg_catalog.text AS authority_json,
        registration_sha256, registration_mac_sha256, registered_at
 FROM public.memory_cleanup_v3_context_authorities
 WHERE run_id_sha256=$1 OR context_sha256=$2
 ORDER BY run_id_sha256, context_sha256
 """
 _READ_AUTHORITY_SQL = """
-SELECT preparation_receipt_json::text AS preparation_receipt_json,
-       writer_authority_json::text AS writer_authority_json, state
+SELECT run_id_sha256, context_sha256, authority_terminal_sha256,
+       preparation_receipt_json::pg_catalog.text AS preparation_receipt_json,
+       preparation_receipt_sha256, preparation_receipt_mac_sha256,
+       writer_authority_json::pg_catalog.text AS writer_authority_json,
+       writer_authority_sha256, writer_authority_mac_sha256,
+       registration_sha256, registration_mac_sha256,
+       provider_calls, paid_go_ready, state, sealed_at, closed_at
 FROM public.memory_comparison_strict_v4_preparations
 WHERE run_id_sha256=$1 OR context_sha256=$2
 ORDER BY run_id_sha256, context_sha256
@@ -76,7 +88,8 @@ INSERT INTO public.memory_comparison_strict_v4_preparations (
   writer_authority_sha256, writer_authority_mac_sha256,
   registration_sha256, registration_mac_sha256,
   provider_calls, paid_go_ready, state, sealed_at, closed_at
-) VALUES ($1,$2,$3,$4::jsonb,$5,$6,$7::jsonb,$8,$9,$10,$11,0,FALSE,'sealed',$12,NULL)
+) VALUES ($1,$2,$3,$4::pg_catalog.jsonb,$5,$6,$7::pg_catalog.jsonb,
+         $8,$9,$10,$11,0,FALSE,'sealed',$12,NULL)
 """
 
 
@@ -115,6 +128,11 @@ class AsyncPostgresStrictV4WriterAuthority(StrictV4WriterAuthorityPort):
                 capability_role=STRICT_V4_SEALER_ROLE,
                 error_code="projection_receipt.writer_authority_role_invalid",
             )
+            await assert_strict_v4_authority_lock_topology(
+                connection,
+                capability_role=STRICT_V4_SEALER_ROLE,
+            )
+            await assert_strict_v4_writer_fence_topology(connection)
             await connection.execute(
                 _LOCK_TARGETS_SQL,
                 receipt.run_id_sha256,
@@ -236,9 +254,23 @@ def _read_exact(
     except (TypeError, ValueError, KeyError, json.JSONDecodeError) as exc:
         raise ProjectionReceiptError("projection_receipt.writer_authority_invalid") from exc
     if (
-        row["state"] != "sealed"
+        row["run_id_sha256"] != receipt.run_id_sha256
+        or row["context_sha256"] != receipt.a2_context.context_sha256
+        or row["authority_terminal_sha256"] != receipt.a2_authority.terminal_commitment_sha256
         or canonical_bytes(receipt_payload) != canonical_bytes(receipt.payload())
+        or row["preparation_receipt_sha256"] != receipt.receipt_sha256
+        or row["preparation_receipt_mac_sha256"] != receipt.receipt_mac_sha256
         or durable != expected
+        or row["writer_authority_sha256"] != expected.writer_authority_sha256
+        or row["writer_authority_mac_sha256"] != expected.writer_authority_mac_sha256
+        or row["registration_sha256"] != receipt.registration_sha256
+        or row["registration_mac_sha256"] != receipt.registration_mac_sha256
+        or type(row["provider_calls"]) is not int
+        or row["provider_calls"] != 0
+        or row["paid_go_ready"] is not False
+        or row["state"] != "sealed"
+        or row["sealed_at"] != expected.sealed_at
+        or row["closed_at"] is not None
     ):
         raise ProjectionReceiptError("projection_receipt.writer_authority_divergent")
     return durable

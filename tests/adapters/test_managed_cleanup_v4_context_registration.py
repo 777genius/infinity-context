@@ -13,6 +13,9 @@ from infinity_context_adapters.postgres.managed_cleanup_v4_context_registration 
     StrictV4PreExecutionRegistrationPolicy,
     _registration_from_row,
 )
+from infinity_context_adapters.postgres.strict_v4_writer_fence_topology import (
+    assert_strict_v4_writer_fence_topology,
+)
 from infinity_context_core.features.projection_receipts import (
     ProjectionReceiptAuthenticator,
     ProjectionReceiptError,
@@ -83,29 +86,76 @@ def _locked_run(**changes):
 
 
 class _FenceConnection:
-    def __init__(self, *, missing: str | None = None, absent: bool = True) -> None:
+    def __init__(
+        self,
+        *,
+        missing: str | None = None,
+        absent: bool = True,
+        tamper: tuple[str, object] | None = None,
+    ) -> None:
         self._missing = missing
         self._absent = absent
+        self._tamper = tamper
 
-    async def fetch(self, _sql, _tables):
-        return [
-            {
-                "table_name": table,
-                "trigger_name": f"trg_{table}_benchmark_writer_fence",
-                "trigger_enabled": "O",
-                "function_name": BENCHMARK_WRITER_FENCE_FUNCTION,
-            }
-            for table, _columns in BENCHMARK_WRITER_FENCE_TABLES
-            if table != self._missing
-        ]
+    async def fetch(
+        self,
+        _sql,
+        _tables,
+        _roles,
+        _safe_path,
+        _lock_body,
+        _policy_body,
+        _checker_body,
+    ):
+        rows = []
+        for table, _columns in BENCHMARK_WRITER_FENCE_TABLES:
+            if table == self._missing:
+                continue
+            for lock_stage in (True, False):
+                row = {
+                    "table_name": table,
+                    "trigger_name": (
+                        f"trg_00_{table}_benchmark_writer_lock"
+                        if lock_stage
+                        else f"trg_{table}_benchmark_writer_fence"
+                    ),
+                    "trigger_enabled": "O",
+                    "trigger_type": 31,
+                    "has_no_when_clause": True,
+                    "has_no_update_column_filter": True,
+                    "has_no_trigger_arguments": True,
+                    "function_name": (
+                        "memory_comparison_lock_benchmark_writer_target"
+                        if lock_stage
+                        else BENCHMARK_WRITER_FENCE_FUNCTION
+                    ),
+                    "security_definer": lock_stage,
+                    "function_kind": "f",
+                    "returns_trigger": True,
+                    "has_no_arguments": True,
+                    "has_safe_search_path": True,
+                    "has_exact_body": True,
+                    "checker_has_exact_kind": True,
+                    "checker_has_safe_search_path": True,
+                    "checker_has_exact_body": True,
+                    "checker_has_safe_owner": True,
+                    "checker_has_exact_acl": True,
+                    "sentinel_has_exact_before_insert_triggers": True,
+                    "capability_execute_revoked": True,
+                }
+                if self._tamper is not None and table == "memory_spaces" and lock_stage:
+                    row[self._tamper[0]] = self._tamper[1]
+                rows.append(row)
+        return rows
 
     async def fetchval(self, _sql, _space_id, _run_id):
         return self._absent
 
 
-def test_default_phase_policy_requires_schema_fence_and_pristine_rows() -> None:
+def test_topology_and_default_phase_policy_fail_closed() -> None:
     async def scenario() -> None:
         policy = StrictV4PreExecutionRegistrationPolicy()
+        await assert_strict_v4_writer_fence_topology(_FenceConnection())
         await policy.assert_registration_binding(
             _FenceConnection(), context=V3_CONTEXT, locked_run=_locked_run()
         )
@@ -113,11 +163,28 @@ def test_default_phase_policy_requires_schema_fence_and_pristine_rows() -> None:
             _FenceConnection(), context=V3_CONTEXT, locked_run=_locked_run()
         )
         with pytest.raises(ProjectionReceiptError, match="writer_fence_invalid"):
-            await policy.assert_registration_binding(
-                _FenceConnection(missing="memory_facts"),
-                context=V3_CONTEXT,
-                locked_run=_locked_run(),
-            )
+            await assert_strict_v4_writer_fence_topology(_FenceConnection(missing="memory_facts"))
+        for field, value in (
+            ("trigger_enabled", "D"),
+            ("trigger_type", 7),
+            ("has_no_when_clause", False),
+            ("has_no_update_column_filter", False),
+            ("has_no_trigger_arguments", False),
+            ("security_definer", False),
+            ("has_safe_search_path", False),
+            ("has_exact_body", False),
+            ("checker_has_exact_kind", False),
+            ("checker_has_safe_search_path", False),
+            ("checker_has_exact_body", False),
+            ("checker_has_safe_owner", False),
+            ("checker_has_exact_acl", False),
+            ("sentinel_has_exact_before_insert_triggers", False),
+            ("capability_execute_revoked", False),
+        ):
+            with pytest.raises(ProjectionReceiptError, match="writer_fence_invalid"):
+                await assert_strict_v4_writer_fence_topology(
+                    _FenceConnection(tamper=(field, value))
+                )
         with pytest.raises(ProjectionReceiptError, match="context_not_pristine"):
             await policy.assert_first_registration_allowed(
                 _FenceConnection(absent=False),

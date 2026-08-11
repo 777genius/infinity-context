@@ -11,8 +11,6 @@ from sqlalchemy.engine import make_url
 
 STRICT_V4_CAPABILITY_ROLES = (
     "infinity_context_canonical_writer",
-    "infinity_context_strict_v4_fact_writer",
-    "infinity_context_strict_v4_document_writer",
     "infinity_context_strict_v4_registrar",
     "infinity_context_strict_v4_sealer",
 )

@@ -46,8 +46,12 @@ async def upgrade_schema(engine: AsyncEngine) -> SchemaUpgradeResult:
         raise RuntimeError("Versioned schema upgrade requires PostgreSQL")
     migrations = _load_migrations()
     async with engine.begin() as connection:
-        await connection.execute(text("SET LOCAL search_path = public, pg_catalog"))
-        await connection.execute(text(f"SELECT pg_advisory_xact_lock({_ADVISORY_LOCK_ID})"))
+        # Keep the canonical creation target first while naming pg_temp last so
+        # hostile temporary objects never win unqualified legacy resolution.
+        await connection.execute(text("SET LOCAL search_path = public, pg_catalog, pg_temp"))
+        await connection.execute(
+            text(f"SELECT pg_catalog.pg_advisory_xact_lock({_ADVISORY_LOCK_ID})")
+        )
         await _ensure_history_table(connection)
         applied_history = await _load_history(connection)
         _validate_history(migrations, applied_history)
@@ -85,7 +89,7 @@ async def _ensure_history_table(connection: AsyncConnection) -> None:
     await connection.execute(
         text(
             """
-            CREATE TABLE IF NOT EXISTS infinity_context_schema_migrations (
+            CREATE TABLE IF NOT EXISTS public.infinity_context_schema_migrations (
                 migration_id VARCHAR(160) PRIMARY KEY,
                 checksum VARCHAR(64) NOT NULL,
                 execution_kind VARCHAR(32) NOT NULL,
@@ -104,7 +108,7 @@ async def _load_history(connection: AsyncConnection) -> dict[str, str]:
             text(
                 """
                 SELECT migration_id, checksum
-                FROM infinity_context_schema_migrations
+                FROM public.infinity_context_schema_migrations
                 ORDER BY migration_id
                 """
             )
@@ -142,7 +146,7 @@ async def _has_unversioned_schema(connection: AsyncConnection) -> bool:
                 SELECT EXISTS (
                     SELECT 1
                     FROM pg_catalog.pg_tables
-                    WHERE schemaname = current_schema()
+                    WHERE schemaname = 'public'
                       AND tablename <> 'infinity_context_schema_migrations'
                 )
                 """
@@ -160,7 +164,7 @@ async def _validate_legacy_baseline(connection: AsyncConnection) -> None:
                 """
                 SELECT table_name, column_name
                 FROM information_schema.columns
-                WHERE table_schema = current_schema()
+                WHERE table_schema = 'public'
                 """
             )
         )
@@ -174,19 +178,19 @@ async def _validate_legacy_baseline(connection: AsyncConnection) -> None:
             query="""
                 SELECT constraint_name
                 FROM information_schema.table_constraints
-                WHERE constraint_schema = current_schema()
+                WHERE constraint_schema = 'public'
             """,
         ),
         "indexes": await _load_catalog_names(
             connection,
-            query="SELECT indexname FROM pg_indexes WHERE schemaname = current_schema()",
+            query="SELECT indexname FROM pg_catalog.pg_indexes WHERE schemaname = 'public'",
         ),
         "triggers": await _load_catalog_names(
             connection,
             query="""
                 SELECT DISTINCT trigger_name
                 FROM information_schema.triggers
-                WHERE trigger_schema = current_schema()
+                WHERE trigger_schema = 'public'
             """,
         ),
         "functions": await _load_catalog_names(
@@ -194,12 +198,12 @@ async def _validate_legacy_baseline(connection: AsyncConnection) -> None:
             query="""
                 SELECT routine_name
                 FROM information_schema.routines
-                WHERE routine_schema = current_schema()
+                WHERE routine_schema = 'public'
             """,
         ),
         "extensions": await _load_catalog_names(
             connection,
-            query="SELECT extname FROM pg_extension",
+            query="SELECT extname FROM pg_catalog.pg_extension",
         ),
     }
     failures = [
@@ -304,7 +308,7 @@ async def _record_migration(
     await connection.execute(
         text(
             """
-            INSERT INTO infinity_context_schema_migrations (
+            INSERT INTO public.infinity_context_schema_migrations (
                 migration_id, checksum, execution_kind, applied_at
             ) VALUES (
                 :migration_id, :checksum, :execution_kind,
