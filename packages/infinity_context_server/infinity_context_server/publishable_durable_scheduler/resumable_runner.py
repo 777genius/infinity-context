@@ -54,7 +54,7 @@ from infinity_context_server.publishable_durable_scheduler.runner_contracts impo
     is_sha256,
 )
 from infinity_context_server.publishable_durable_scheduler.runner_recovery import (
-    reconcile_expired_intent,
+    reconcile_dispatch_intent,
 )
 from infinity_context_server.publishable_durable_scheduler.runner_sealing import (
     SchedulerSuiteSealBindingPort,
@@ -565,7 +565,7 @@ class PublishableResumableEvaluationRunner:
                 charged_tokens=outcome.receipt.charged_tokens,
                 answer_ciphertext=outcome.private_output_ciphertext,
             )
-        except BaseException as primary:
+        except Exception as primary:
             resolved = self._resolve_ambiguous_dispatch(
                 entry,
                 logical_call_id=call.logical_call_id,
@@ -583,8 +583,6 @@ class PublishableResumableEvaluationRunner:
                 )
             if isinstance(primary, SchedulerRunnerError):
                 raise primary from None
-            if not isinstance(primary, Exception):
-                raise
             _fail("scheduler_runner_dispatch_outcome_unknown")
         if committed.phase is not SchedulerCallPhase.COMMITTED:
             _fail("scheduler_runner_commit_invalid")
@@ -695,10 +693,10 @@ class PublishableResumableEvaluationRunner:
             )
         except SchedulerRunnerError:
             raise
-        except BaseException:
+        except Exception:
             try:
                 current = entry.store.read_call(logical_call_id)
-            except BaseException:
+            except Exception:
                 _fail("scheduler_runner_dispatch_recovery_required")
             if current.phase in (
                 SchedulerCallPhase.COMMITTED,
@@ -788,20 +786,27 @@ class PublishableResumableEvaluationRunner:
     def _recover_all_inflight(self) -> None:
         now = self._now()
         for entry in self._entries:
-            self._recover_inflight(entry, now=now)
+            self._recover_inflight(entry, now=now, reconcile_unexpired=True)
 
-    def _recover_inflight(self, entry: _RunEntry, *, now: int) -> None:
+    def _recover_inflight(
+        self,
+        entry: _RunEntry,
+        *,
+        now: int,
+        reconcile_unexpired: bool = False,
+    ) -> None:
         run = entry.store.read_run()
         logical_call_id = run.inflight_logical_call_id
         if run.phase is not SchedulerRunPhase.ACTIVE or logical_call_id is None:
             return
         call = entry.store.read_call(logical_call_id)
         if call.phase is SchedulerCallPhase.DISPATCH_INTENT:
-            if call.intent_sha256 is None or call.lease_expires_unix_ms is None:
+            lease_expires = call.lease_expires_unix_ms
+            if call.intent_sha256 is None or lease_expires is None:
                 _fail("scheduler_runner_recovery_state_invalid")
-            if now < call.lease_expires_unix_ms:
+            if now < lease_expires and not reconcile_unexpired:
                 return
-            reconcile_expired_intent(
+            reconcile_dispatch_intent(
                 suite=self._suite,
                 run=entry.run,
                 manifest=entry.manifest,

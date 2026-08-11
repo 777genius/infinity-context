@@ -1,4 +1,4 @@
-"""Expired dispatch-intent reconciliation for the resumable scheduler."""
+"""Dispatch-intent reconciliation for the resumable scheduler."""
 
 from __future__ import annotations
 
@@ -36,7 +36,7 @@ RenderRequest = Callable[[SchedulerLogicalCall], SchedulerRenderedRequest]
 RequireOutcome = Callable[..., None]
 
 
-def reconcile_expired_intent(
+def reconcile_dispatch_intent(
     *,
     suite: SchedulerSuiteAuthority,
     run: SchedulerRunAuthority,
@@ -49,16 +49,21 @@ def reconcile_expired_intent(
     render_request: RenderRequest,
     require_outcome: RequireOutcome,
 ) -> None:
-    """Resolve one expired intent; only authenticated absence permits retry."""
+    """Adopt an exact terminal; only expired authenticated absence permits retry."""
 
+    lease_expires = call.lease_expires_unix_ms
+    if call.phase is not SchedulerCallPhase.DISPATCH_INTENT or lease_expires is None:
+        _fail("scheduler_runner_recovery_state_invalid")
+    expired = now_unix_ms >= lease_expires
     if reconciliation is None:
-        _freeze(
-            suite=suite,
-            run=run,
-            store=store,
-            call=call,
-            failure_code="scheduler_runner_outcome_readback_unavailable",
-        )
+        if expired:
+            _freeze(
+                suite=suite,
+                run=run,
+                store=store,
+                call=call,
+                failure_code="scheduler_runner_outcome_readback_unavailable",
+            )
         return
     try:
         manifest_call = _manifest_call(manifest, call.ordinal)
@@ -81,7 +86,9 @@ def reconcile_expired_intent(
             or reconciliation.authenticate(readback=readback, envelope=envelope) is not True
         ):
             _fail("scheduler_runner_dispatch_readback_unauthenticated")
-    except BaseException as error:
+    except Exception as error:
+        if not expired:
+            raise SchedulerRunnerError(_failure_code(error)) from error
         _freeze(
             suite=suite,
             run=run,
@@ -107,11 +114,15 @@ def reconcile_expired_intent(
                 answer_ciphertext=outcome.private_output_ciphertext,
             )
             return
-        except BaseException as error:
+        except Exception as error:
             current = store.read_call(call.logical_call_id)
             if current.phase is SchedulerCallPhase.COMMITTED:
                 if outcome_verified and _committed_matches(store, current, outcome):
                     return
+                raise SchedulerRunnerError(
+                    "scheduler_runner_dispatch_recovery_divergent"
+                ) from error
+            if not expired:
                 raise SchedulerRunnerError(
                     "scheduler_runner_dispatch_recovery_divergent"
                 ) from error
@@ -124,6 +135,8 @@ def reconcile_expired_intent(
                 readback=readback,
             )
             return
+    if not expired:
+        return
     if readback.disposition is SchedulerDispatchReadbackDisposition.TERMINAL_ABSENT:
         try:
             store.reconcile_authenticated_terminal_absence(
@@ -134,7 +147,7 @@ def reconcile_expired_intent(
                 absence_sha256=readback.commitment_sha256,
             )
             return
-        except BaseException as error:
+        except Exception as error:
             current = store.read_call(call.logical_call_id)
             if current.phase is SchedulerCallPhase.COMMITTED:
                 return
@@ -250,7 +263,7 @@ def _freeze(
             intent_sha256=call.intent_sha256 or "",
             ambiguity_sha256=ambiguity_sha256,
         )
-    except BaseException as error:
+    except Exception as error:
         current = store.read_call(call.logical_call_id)
         if current.phase is SchedulerCallPhase.COMMITTED:
             return
@@ -302,4 +315,4 @@ def _fail(code: str) -> None:
     raise SchedulerRunnerError(code)
 
 
-__all__ = ("reconcile_expired_intent",)
+__all__ = ("reconcile_dispatch_intent",)

@@ -37,6 +37,10 @@ from infinity_context_server.publishable_durable_scheduler.runner_contracts impo
 from infinity_context_server.publishable_durable_scheduler.sqlite_store import (
     SQLiteDurableSchedulerStore,
 )
+from infinity_context_server.publishable_durable_scheduler.state_models import (
+    SchedulerCallPhase,
+    SchedulerRunPhase,
+)
 from scheduler_subscription_bridge_composition_test_support import (
     BRIDGE_JOURNAL_KEY,
     bridge_fleet_readiness,
@@ -103,6 +107,13 @@ def test_canary_crash_reopens_exact_prefix_then_terminal_replay_calls_provider_z
     monkeypatch.setattr(SQLiteDurableSchedulerStore, "commit_outcome", original_commit)
     assert interrupted is True
     assert fixture.transport.call_count == 2
+    interrupted_store = created._scheduler.runner._entries[0].store
+    interrupted_call = interrupted_store.read_call(created.ordered_logical_call_ids[1])
+    interrupted_run = interrupted_store.read_run()
+    assert interrupted_call.phase is SchedulerCallPhase.DISPATCH_INTENT
+    assert interrupted_call.attempt_count == 1
+    assert interrupted_run.phase is SchedulerRunPhase.ACTIVE
+    assert interrupted_run.inflight_logical_call_id == interrupted_call.logical_call_id
     fixture.reopen_journal()
 
     resumed = fixture.open(PublishableProductionOpenMode.RESUME)
@@ -110,6 +121,12 @@ def test_canary_crash_reopens_exact_prefix_then_terminal_replay_calls_provider_z
     assert recovered.committed_call_count == 2
     assert recovered.provider_intent_count == recovered.provider_result_count == 2
     assert fixture.transport.call_count == 2
+    recovered_call = resumed._scheduler.runner._entries[0].store.read_call(
+        resumed.ordered_logical_call_ids[1]
+    )
+    assert recovered_call.phase is SchedulerCallPhase.COMMITTED
+    assert recovered_call.attempt_count == 1
+    assert fixture.case_reader.read_count == 3
     assert resumed.advance_one().committed_call_count == 3
     complete = resumed.advance_one()
     assert complete.complete is True
@@ -118,7 +135,7 @@ def test_canary_crash_reopens_exact_prefix_then_terminal_replay_calls_provider_z
     assert len(complete.ordered_receipt_sha256) == 4
     assert complete.paired_path_evidence_sha256 is not None
     assert fixture.transport.call_count == 4
-    assert fixture.case_reader.read_count == 4
+    assert fixture.case_reader.read_count == 5
     assert fixture.retrieval_reader.read_count == 2
 
     before_replay = complete

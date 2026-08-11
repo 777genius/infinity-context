@@ -641,12 +641,17 @@ def test_runner_committed_replay_makes_zero_extra_provider_calls(tmp_path: Path)
     assert replay.calls == 0
 
 
-def test_runner_unexpired_foreign_lease_blocks_without_status_or_dispatch(
+@pytest.mark.parametrize(
+    "disposition",
+    tuple(SchedulerDispatchReadbackDisposition),
+)
+def test_runner_unexpired_reconciliation_never_redispatches(
     tmp_path: Path,
+    disposition: SchedulerDispatchReadbackDisposition,
 ) -> None:
     prepared = built_runs()
     suite = prepared[0]
-    reconciliation = _RunnerReconciliation(SchedulerDispatchReadbackDisposition.FOUND)
+    reconciliation = _RunnerReconciliation(disposition)
     runner, _, _, _ = _runner_open(tmp_path, prepared, reconciliation=reconciliation)
     call = _seed_runner_intent(runner)
     boundary = _RunnerBoundary(suite.bridge_boot.commitment_sha256)
@@ -657,10 +662,18 @@ def test_runner_unexpired_foreign_lease_blocks_without_status_or_dispatch(
         clock=_RunnerClock(2_999),
         reconciliation=reconciliation,
     )
-    result = resumed.run_next()
-    assert result.disposition is SchedulerStepDisposition.BLOCKED
-    assert result.logical_call_id == call.logical_call_id
-    assert reconciliation.calls == boundary.calls == 0
+    blocked = resumed._entries[0].store.read_call(call.logical_call_id)
+    expected = (
+        SchedulerCallPhase.COMMITTED
+        if disposition is SchedulerDispatchReadbackDisposition.FOUND
+        else SchedulerCallPhase.DISPATCH_INTENT
+    )
+    assert blocked.phase is expected
+    assert blocked.attempt_count == 1
+    if expected is SchedulerCallPhase.DISPATCH_INTENT:
+        assert resumed.run_next().disposition is SchedulerStepDisposition.BLOCKED
+    assert reconciliation.calls == 1
+    assert boundary.calls == 0
 
 
 def test_runner_expired_known_outcome_commits_from_status_without_dispatch(
