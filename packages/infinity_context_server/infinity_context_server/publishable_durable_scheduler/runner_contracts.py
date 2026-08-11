@@ -728,8 +728,6 @@ class SchedulerSuiteSeal:
             PublishableCallLedger.__post_init__(self.call_ledger)
             if self.paired_outcome is not None:
                 PairedOutcomeSealBinding.__post_init__(self.paired_outcome)
-                if self.paired_outcome.paired_superiority_criterion_met is not True:
-                    _fail("scheduler_runner_suite_seal_policy_not_met")
         except SchedulerRunnerError:
             raise
         except Exception:

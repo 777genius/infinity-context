@@ -219,7 +219,6 @@ class PublishablePairedOutcomeSealBinder:
             or binding.judge_normalization_policy_sha256 != PAIRED_JUDGE_NORMALIZATION_POLICY_SHA256
             or binding.authority_mapping_sha256 != PAIRED_AUTHORITY_MAPPING_SHA256
             or binding.paired_superiority_policy_sha256 != PAIRED_SUPERIORITY_POLICY_SHA256
-            or binding.paired_superiority_criterion_met is not True
         ):
             _fail("paired_outcome_production_seal_invalid")
 

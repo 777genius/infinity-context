@@ -27,6 +27,7 @@ from infinity_context_server.publishable_durable_scheduler.runner_contracts impo
     PUBLISHABLE_SUITE_EXTRACTION_OPERATION_COUNT,
     PUBLISHABLE_SUITE_TOTAL_CALL_COUNT,
     SUITE_SEAL_READBACK_POLICY_SHA256,
+    SchedulerRunnerError,
     SchedulerSuiteSeal,
     suite_seal_from_material,
 )
@@ -307,7 +308,10 @@ def test_one_shot_stream_is_exact_and_missing_output_fails_closed(
         )
 
 
-def test_policy_failure_authenticates_but_cannot_seal_or_publish(dataset_bindings) -> None:
+def test_policy_failure_authenticates_and_seals_but_cannot_publish(
+    tmp_path,
+    dataset_bindings,
+) -> None:
     failing_outputs = _authenticated_outputs(
         dataset_bindings,
         infinity_correct=False,
@@ -325,13 +329,35 @@ def test_policy_failure_authenticates_but_cannot_seal_or_publish(dataset_binding
         terminal,
         authentication_secret=_TERMINAL_SECRET,
     )
-    with pytest.raises(PairedOutcomeContractError, match="paired_outcome_suite_seal_crosswire"):
-        bind_paired_outcome_terminal_to_suite_seal(
-            _unbound_seal(dataset_bindings),
-            terminal=terminal,
-            terminal_authentication_secret=_TERMINAL_SECRET,
-        )
+    seal = bind_paired_outcome_terminal_to_suite_seal(
+        _unbound_seal(dataset_bindings),
+        terminal=terminal,
+        terminal_authentication_secret=_TERMINAL_SECRET,
+    )
+    assert seal.paired_outcome == terminal.seal_binding()
+    assert seal.paired_outcome.paired_superiority_criterion_met is False
+    assert suite_seal_from_material(seal.material()) == seal
 
-    unbound = _unbound_seal(dataset_bindings)
-    receipt = _publication_receipt(unbound, paired_outcome=terminal.seal_binding())
+    private = tmp_path / "negative-seal-private"
+    seal_store = SQLiteSchedulerSuiteSealStore(
+        private / "suite-seal.sqlite3",
+        private_directory=private,
+        authentication_secret=b"N" * 32,
+        suite_authority_sha256=_SUITE_SHA256,
+    )
+    assert seal_store.persist_exact(seal) == seal
+    assert seal_store.persist_exact(seal) == seal
+    assert seal_store.read() == seal
+    selective_positive_rewrite = replace(
+        seal,
+        paired_outcome=replace(
+            seal.paired_outcome,
+            paired_superiority_criterion_met=True,
+        ),
+    )
+    with pytest.raises(SchedulerRunnerError, match="scheduler_runner_suite_seal_divergent"):
+        seal_store.persist_exact(selective_positive_rewrite)
+
+    receipt = _publication_receipt(seal, paired_outcome=seal.paired_outcome)
     assert receipt.publishable is False
+    assert receipt.paired_outcome == seal.paired_outcome

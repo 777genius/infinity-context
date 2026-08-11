@@ -657,7 +657,6 @@ def bind_paired_outcome_terminal_to_suite_seal(
         or seal.ordered_run_authority_sha256 != terminal.ordered_run_authority_sha256
         or seal.case_count != PUBLISHABLE_SUITE_CASE_COUNT
         or seal.evaluation_call_count != PUBLISHABLE_SUITE_EVALUATION_CALL_COUNT
-        or terminal.paired_superiority_criterion_met is not True
     ):
         _fail("paired_outcome_suite_seal_crosswire")
     binding = terminal.seal_binding()
