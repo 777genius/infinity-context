@@ -585,6 +585,12 @@ class FreshChainLedgerPolicy:
     ) -> None:
         _exact_keys(payload, {"reason_sha256", "publishable"})
         reason = require_sha256(payload["reason_sha256"])
+        extraction = projection.stages[0]
+        authenticated_extraction_boundary = extraction.status == "succeeded" or (
+            extraction.status == "pending"
+            and extraction.dispatch_started_sha256 is not None
+            and all(record.status == "not_started" for record in projection.stages[1:])
+        )
         if (
             stage_value is not None
             or payload["publishable"] is not False
@@ -592,7 +598,7 @@ class FreshChainLedgerPolicy:
             or projection.cleanup is not None
             or projection.terminal_outcome is not None
             or projection.source_projection_commitment_sha256 is None
-            or projection.stages[0].status != "succeeded"
+            or not authenticated_extraction_boundary
         ):
             _fail("fresh_chain_local_abort_invalid")
         projection.abort_reason_sha256 = reason

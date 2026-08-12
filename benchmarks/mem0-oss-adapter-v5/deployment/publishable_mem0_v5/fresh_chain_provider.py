@@ -77,6 +77,9 @@ from infinity_context_server.publishable_durable_scheduler.publishable_run_contr
     PublishableRunError,
     PublishableRunProviderInputs,
 )
+from infinity_context_server.publishable_durable_scheduler.retrieval_capture_contracts import (
+    SCHEDULER_OFFICIAL_RETRIEVAL_LIMIT,
+)
 from infinity_context_server.publishable_durable_scheduler.runner_official_request_renderer import (
     SCHEDULER_OFFICIAL_REQUEST_BYTES_CAP,
     SCHEDULER_OFFICIAL_REQUEST_MAX_OUTPUT_TOKENS,
@@ -267,7 +270,11 @@ def _prepare_infinity_if_missing(
         mirror_memories_as_documents=False,
     )
     try:
-        result = backend.search(case, run_id=config.run.suite.locomo_run_id, top_k=10)
+        result = backend.search(
+            case,
+            run_id=config.run.suite.locomo_run_id,
+            top_k=SCHEDULER_OFFICIAL_RETRIEVAL_LIMIT,
+        )
         prepare_sealed_fresh_chain_infinity_retrieval(
             database_path=path,
             authentication_key=secrets.run.retrieval_authentication_key,

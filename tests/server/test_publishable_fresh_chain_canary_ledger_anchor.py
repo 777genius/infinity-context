@@ -11,6 +11,9 @@ import pytest
 from infinity_context_server.publishable_fresh_chain_canary.ledger import (
     FreshChainCanaryLedger,
 )
+from infinity_context_server.publishable_fresh_chain_canary.ledger_head_anchor import (
+    ANCHOR_SUFFIX,
+)
 from infinity_context_server.publishable_fresh_chain_canary.ledger_models import (
     FreshChainLedgerError,
 )
@@ -52,6 +55,19 @@ def test_external_head_anchor_rejects_same_inode_authentic_content_restore(
     assert ledger.path.stat().st_ino == identity
 
     with pytest.raises(FreshChainLedgerError, match="fresh_chain_ledger_rollback_detected"):
+        _reopen(ledger)
+
+
+def test_deleted_anchor_cannot_reauthorize_authentic_prior_ledger(tmp_path: Path) -> None:
+    ledger = _ledger(tmp_path)
+    prior = ledger.path.read_bytes()
+    _intent(ledger, "mem0_extraction", 0, _digest("4"))
+
+    ledger.path.write_bytes(prior)
+    ledger.path.chmod(0o600)
+    ledger.path.with_name(ledger.path.name + ANCHOR_SUFFIX).unlink()
+
+    with pytest.raises(FreshChainLedgerError, match="fresh_chain_ledger_anchor_missing"):
         _reopen(ledger)
 
 

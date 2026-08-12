@@ -537,9 +537,14 @@ def fresh_chain_failed_terminal_outcome_sha256(
     if (abort_reason_sha256 is None) == (len(failed_indexes) != 1):
         _fail("fresh_chain_failed_terminal_invalid")
     if abort_reason_sha256 is not None:
+        extraction = stages[0]
+        authenticated_extraction_boundary = extraction.status == "succeeded" or (
+            extraction.status == "pending"
+            and extraction.dispatch_started_sha256 is not None
+            and all(record.status == "not_started" for record in stages[1:])
+        )
         if (
-            not stages[0].terminal
-            or stages[0].status != "succeeded"
+            not authenticated_extraction_boundary
             or cleanup.namespace_commitment_sha256 != plan.namespace_commitment_sha256
         ):
             _fail("fresh_chain_failed_terminal_invalid")

@@ -131,7 +131,12 @@ class FreshChainCanaryLedger:
                         raise
                     else:
                         connection.execute("COMMIT")
-                self._anchor.synchronize(connection, count=count, head=head)
+                self._anchor.synchronize(
+                    connection,
+                    count=count,
+                    head=head,
+                    allow_create=newly_created,
+                )
         except FreshChainLedgerError:
             raise
         except (OSError, sqlite3.Error):
