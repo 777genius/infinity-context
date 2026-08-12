@@ -12,6 +12,8 @@ DECLARE
 BEGIN
     FOREACH capability_role IN ARRAY ARRAY[
         'infinity_context_canonical_writer',
+        'infinity_context_strict_v4_fact_writer',
+        'infinity_context_strict_v4_document_writer',
         'infinity_context_strict_v4_registrar',
         'infinity_context_strict_v4_sealer'
     ]
@@ -48,6 +50,8 @@ BEGIN
           ON granted_role.oid <> capability.oid
         WHERE capability.rolname IN (
             'infinity_context_canonical_writer',
+            'infinity_context_strict_v4_fact_writer',
+            'infinity_context_strict_v4_document_writer',
             'infinity_context_strict_v4_registrar',
             'infinity_context_strict_v4_sealer'
         )
@@ -68,11 +72,15 @@ REVOKE CREATE ON SCHEMA public
 
 REVOKE ALL PRIVILEGES ON SCHEMA public
     FROM infinity_context_canonical_writer,
+         infinity_context_strict_v4_fact_writer,
+         infinity_context_strict_v4_document_writer,
          infinity_context_strict_v4_registrar,
          infinity_context_strict_v4_sealer;
 
 GRANT USAGE ON SCHEMA public
     TO infinity_context_canonical_writer,
+       infinity_context_strict_v4_fact_writer,
+       infinity_context_strict_v4_document_writer,
        infinity_context_strict_v4_registrar,
        infinity_context_strict_v4_sealer;
 
@@ -84,6 +92,8 @@ BEGIN
         CROSS JOIN pg_catalog.pg_namespace AS namespace
         WHERE capability.rolname IN (
             'infinity_context_canonical_writer',
+            'infinity_context_strict_v4_fact_writer',
+            'infinity_context_strict_v4_document_writer',
             'infinity_context_strict_v4_registrar',
             'infinity_context_strict_v4_sealer'
         )
@@ -136,6 +146,8 @@ $strict_v4_schema_acl$;
 -- GRANT infinity_context_strict_v4_registrar TO <registrar_login>;
 -- GRANT infinity_context_strict_v4_sealer TO <sealer_login>;
 -- GRANT infinity_context_canonical_writer TO <canonical_writer_login>;
+-- GRANT infinity_context_strict_v4_fact_writer TO <fact_writer_login>;
+-- GRANT infinity_context_strict_v4_document_writer TO <document_writer_login>;
 -- Never grant a runtime capability role to the migration owner or to one login
 -- that also holds another strict-v4 capability.
 RESET search_path;

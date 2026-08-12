@@ -126,7 +126,8 @@ services:
     <<: *infinity-context-service
     restart: "no"
     command: >
-      sh -c "python -m infinity_context_server.db upgrade
+      sh -c "python -m infinity_context_server.db provision-strict-v4-roles
+      && python -m infinity_context_server.db upgrade
       && python -m infinity_context_server.admin seed-defaults"
 
   infinity_context_server:

@@ -15,7 +15,7 @@ class _RecordingAdmin:
         self.statements.append(statement)
 
 
-def test_test_database_restores_safe_published_writer_migration_roles() -> None:
+def test_test_database_uses_only_packaged_production_role_provisioning() -> None:
     admin = _RecordingAdmin()
     database = PostgresTestDatabase(
         asyncpg=None,
@@ -27,17 +27,19 @@ def test_test_database_restores_safe_published_writer_migration_roles() -> None:
 
     asyncio.run(database._provision_strict_v4_capability_roles(admin))
 
-    assert len(admin.statements) == 2
-    production_provisioning, compatibility = admin.statements
-    assert "strict_v4_fact_writer" not in production_provisioning
-    assert "strict_v4_document_writer" not in production_provisioning
+    assert len(admin.statements) == 1
+    (production_provisioning,) = admin.statements
     for role in (
+        "infinity_context_canonical_writer",
         "infinity_context_strict_v4_fact_writer",
         "infinity_context_strict_v4_document_writer",
+        "infinity_context_strict_v4_registrar",
+        "infinity_context_strict_v4_sealer",
     ):
-        assert role in compatibility
-    assert "NOLOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE" in compatibility
-    assert "NOREPLICATION NOBYPASSRLS" in compatibility
-    assert "FROM pg_catalog.pg_auth_members" in compatibility
-    assert "REVOKE ALL PRIVILEGES ON SCHEMA public" in compatibility
-    assert "GRANT USAGE ON SCHEMA public" in compatibility
+        assert role in production_provisioning
+    assert "NOLOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE" in production_provisioning
+    assert "NOREPLICATION NOBYPASSRLS" in production_provisioning
+    assert "pg_catalog.pg_has_role(" in production_provisioning
+    assert "strict-v4 capability roles must not inherit other roles" in production_provisioning
+    assert "REVOKE ALL PRIVILEGES ON SCHEMA public" in production_provisioning
+    assert "GRANT USAGE ON SCHEMA public" in production_provisioning

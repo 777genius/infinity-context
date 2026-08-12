@@ -14,6 +14,11 @@ def test_docker_compose_bootstraps_local_server_before_http() -> None:
 
     assert "pg_isready -U infinity_context -d infinity_context" in compose
     assert "condition: service_healthy" in compose
+    assert compose.count("python -m infinity_context_server.db provision-strict-v4-roles") == 2
+    assert (
+        compose.count("provision-strict-v4-roles && python -m infinity_context_server.db upgrade")
+        == 2
+    )
     assert "python -m infinity_context_server.db upgrade" in compose
     assert "python -m infinity_context_server.admin seed-defaults" in compose
     assert "http://127.0.0.1:7788/v1/health" in compose
@@ -319,6 +324,9 @@ def test_selfhost_compose_has_team_deployment_contract() -> None:
     assert "MEMORY_DEPLOY_PROFILE: server" in compose
     assert 'MEMORY_AUTO_CREATE_SCHEMA: "false"' in compose
     assert "infinity_context_migrate:" in compose
+    assert compose.index(
+        "python -m infinity_context_server.db provision-strict-v4-roles"
+    ) < compose.index("python -m infinity_context_server.db upgrade")
     assert "infinity_context_projection_worker:" in compose
     assert "infinity_context_extraction_worker:" in compose
     assert "--role projection" in compose

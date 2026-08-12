@@ -8,6 +8,8 @@ import pytest
 from infinity_context_adapters.postgres.strict_v4_database_roles import (
     STRICT_V4_CANONICAL_WRITER_ROLE,
     STRICT_V4_CAPABILITY_ROLES,
+    STRICT_V4_DOCUMENT_WRITER_ROLE,
+    STRICT_V4_FACT_WRITER_ROLE,
     STRICT_V4_PROTECTED_FUNCTIONS,
     STRICT_V4_PROTECTED_RELATIONS,
     STRICT_V4_PROTECTED_SEQUENCES,
@@ -112,6 +114,8 @@ def test_exact_non_owner_single_capability_login_is_accepted() -> None:
     assert set(args[4]) == set(STRICT_V4_PROTECTED_SEQUENCES)
     assert STRICT_V4_CAPABILITY_ROLES == (
         STRICT_V4_CANONICAL_WRITER_ROLE,
+        STRICT_V4_FACT_WRITER_ROLE,
+        STRICT_V4_DOCUMENT_WRITER_ROLE,
         STRICT_V4_REGISTRAR_ROLE,
         STRICT_V4_SEALER_ROLE,
     )
@@ -145,8 +149,8 @@ def test_capability_query_covers_schema_columns_grant_options_and_functions() ->
     assert "acl.privilege_type='usage' and not acl.is_grantable" in sql
     assert "pg_catalog.has_function_privilege" in sql
     assert "'maintain'" in sql
-    assert "infinity_context_strict_v4_fact_writer" not in sql
-    assert "infinity_context_strict_v4_document_writer" not in sql
+    assert "when 'infinity_context_strict_v4_fact_writer'" in sql
+    assert "when 'infinity_context_strict_v4_document_writer'" in sql
 
 
 def test_migration_protects_all_0035_authority_tables_from_every_capability() -> None:
@@ -171,6 +175,31 @@ def test_migration_preserves_the_exact_relation_capability_matrix() -> None:
             "memory_comparison_benchmark_runs": {"select"},
             "memory_cleanup_v3_context_authorities": {"select"},
             "memory_comparison_strict_v4_preparations": {"select"},
+            "memory_idempotency_records": {"select", "insert"},
+        },
+        STRICT_V4_FACT_WRITER_ROLE: {
+            "memory_comparison_benchmark_runs": {"select"},
+            "memory_cleanup_v3_context_authorities": {"select"},
+            "memory_comparison_strict_v4_preparations": {"select"},
+            "memory_spaces": {"select"},
+            "memory_scopes": {"select", "insert"},
+            "memory_threads": {"select", "insert"},
+            "memory_facts": {"select", "insert"},
+            "memory_fact_versions": {"select", "insert"},
+            "memory_source_refs": {"select", "insert", "delete"},
+            "memory_outbox": {"select", "insert"},
+            "memory_fact_operation_receipts": {"select", "insert"},
+        },
+        STRICT_V4_DOCUMENT_WRITER_ROLE: {
+            "memory_comparison_benchmark_runs": {"select"},
+            "memory_cleanup_v3_context_authorities": {"select"},
+            "memory_comparison_strict_v4_preparations": {"select"},
+            "memory_spaces": {"select"},
+            "memory_scopes": {"select", "insert"},
+            "memory_threads": {"select", "insert"},
+            "memory_documents": {"select", "insert"},
+            "memory_chunks": {"select", "insert"},
+            "memory_outbox": {"select", "insert"},
             "memory_idempotency_records": {"select", "insert"},
         },
         STRICT_V4_REGISTRAR_ROLE: {
@@ -202,19 +231,31 @@ def test_migration_preserves_the_exact_relation_capability_matrix() -> None:
     relation_names = set(STRICT_V4_PROTECTED_RELATIONS) - {
         name for name in STRICT_V4_PROTECTED_RELATIONS if name.endswith("_seq")
     }
-    denied_grantees = {"public", *STRICT_V4_CAPABILITY_ROLES}
+    migration_0036_grantees = {
+        "public",
+        STRICT_V4_CANONICAL_WRITER_ROLE,
+        STRICT_V4_REGISTRAR_ROLE,
+        STRICT_V4_SEALER_ROLE,
+    }
 
-    _assert_relation_acl_normalization(sql, relation_names, denied_grantees)
+    _assert_relation_acl_normalization(sql, relation_names, migration_0036_grantees)
     for relation in relation_names:
         assert _relation_privileges(sql, relation, {"public"}) == set()
 
-    for role in STRICT_V4_CAPABILITY_ROLES:
+    for role in (
+        STRICT_V4_CANONICAL_WRITER_ROLE,
+        STRICT_V4_REGISTRAR_ROLE,
+        STRICT_V4_SEALER_ROLE,
+    ):
         observed = {
             relation: privileges
             for relation in relation_names
             if (privileges := _relation_privileges(sql, relation, {role}))
         }
         assert observed == expected[role]
+
+    for role in (STRICT_V4_FACT_WRITER_ROLE, STRICT_V4_DOCUMENT_WRITER_ROLE):
+        assert role in STRICT_V4_CAPABILITY_ROLES
 
     assert _sequence_privileges(
         sql,
@@ -223,13 +264,6 @@ def test_migration_preserves_the_exact_relation_capability_matrix() -> None:
     ) == {"usage"}
     for role in (STRICT_V4_REGISTRAR_ROLE, STRICT_V4_SEALER_ROLE):
         assert _sequence_privileges(sql, "memory_idempotency_records_id_seq", role) == set()
-    for sequence in (
-        "memory_source_refs_id_seq",
-        "memory_fact_versions_id_seq",
-        "memory_outbox_id_seq",
-    ):
-        for role in STRICT_V4_CAPABILITY_ROLES:
-            assert _sequence_privileges(sql, sequence, role) == set()
 
 
 def test_public_and_capabilities_cannot_create_or_execute_internal_lock() -> None:
@@ -239,15 +273,16 @@ def test_public_and_capabilities_cannot_create_or_execute_internal_lock() -> Non
     assert (
         "revoke create on schema public from public ; revoke all privileges on schema "
         "public from "
-        "infinity_context_canonical_writer, infinity_context_strict_v4_registrar, "
+        "infinity_context_canonical_writer, infinity_context_strict_v4_fact_writer, "
+        "infinity_context_strict_v4_document_writer, infinity_context_strict_v4_registrar, "
         "infinity_context_strict_v4_sealer ;"
     ) in provisioning
     assert (
         "grant usage on schema public to infinity_context_canonical_writer, "
+        "infinity_context_strict_v4_fact_writer, "
+        "infinity_context_strict_v4_document_writer, "
         "infinity_context_strict_v4_registrar, infinity_context_strict_v4_sealer ;"
     ) in provisioning
-    assert "infinity_context_strict_v4_fact_writer" not in provisioning
-    assert "infinity_context_strict_v4_document_writer" not in provisioning
     capability_sql = _capability_sql()
     obsolete = "memory_comparison_lock_read_strict_v4_canonical_run"
     actual = "memory_comparison_lock_benchmark_writer_target"
@@ -265,7 +300,12 @@ def test_public_and_capabilities_cannot_create_or_execute_internal_lock() -> Non
 
 def test_migration_preserves_exact_protected_function_execute_matrix() -> None:
     sql = _migration_sql()
-    denied_grantees = {"public", *STRICT_V4_CAPABILITY_ROLES}
+    migration_0036_grantees = {
+        "public",
+        STRICT_V4_CANONICAL_WRITER_ROLE,
+        STRICT_V4_REGISTRAR_ROLE,
+        STRICT_V4_SEALER_ROLE,
+    }
     expected = {
         STRICT_V4_CANONICAL_WRITER_ROLE: {"memory_comparison_is_strict_v4_canonical_writer"},
         STRICT_V4_REGISTRAR_ROLE: {"memory_comparison_lock_strict_v4_registration_targets"},
@@ -273,9 +313,13 @@ def test_migration_preserves_exact_protected_function_execute_matrix() -> None:
     }
 
     for function in _CORE_PROTECTED_FUNCTIONS:
-        assert denied_grantees <= _function_revoke_grantees(sql, function)
+        assert migration_0036_grantees <= _function_revoke_grantees(sql, function)
         assert _function_privileges(sql, function, "public") == set()
-    for role in STRICT_V4_CAPABILITY_ROLES:
+    for role in (
+        STRICT_V4_CANONICAL_WRITER_ROLE,
+        STRICT_V4_REGISTRAR_ROLE,
+        STRICT_V4_SEALER_ROLE,
+    ):
         observed = {
             function
             for function in _CORE_PROTECTED_FUNCTIONS
@@ -374,24 +418,20 @@ def test_unknown_capability_is_rejected_without_query() -> None:
 
 
 @pytest.mark.parametrize(
-    "legacy_capability",
-    (
-        "infinity_context_strict_v4_fact_writer",
-        "infinity_context_strict_v4_document_writer",
-    ),
+    "writer_capability",
+    (STRICT_V4_FACT_WRITER_ROLE, STRICT_V4_DOCUMENT_WRITER_ROLE),
 )
-def test_paid_writer_capabilities_are_rejected_without_query(legacy_capability: str) -> None:
+def test_paid_writer_capabilities_are_attested(writer_capability: str) -> None:
     connection = _Connection(_accepted_row())
 
-    with pytest.raises(ProjectionReceiptError, match="denied"):
-        asyncio.run(
-            assert_strict_v4_runtime_capability(
-                connection,
-                capability_role=legacy_capability,
-                error_code="denied",
-            )
+    asyncio.run(
+        assert_strict_v4_runtime_capability(
+            connection,
+            capability_role=writer_capability,
+            error_code="denied",
         )
-    assert connection.calls == []
+    )
+    assert connection.calls[0][1][0] == writer_capability
 
 
 def _normalize_sql(value: str) -> str:

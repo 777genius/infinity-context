@@ -233,10 +233,10 @@ health, space/memory-scope creation, remember, update, document ingest, search,
 context and forget.
 
 The MCP smoke starts a real stdio MCP client and verifies status, search,
-remember, update and forget through MCP tools. `infinity_context_server` runs database
-upgrade and `seed-defaults` during Docker startup. The Compose file waits for
-Postgres health before starting the server and exposes a server healthcheck on
-`/v1/health`.
+remember, update and forget through MCP tools. `infinity_context_server` provisions
+the strict-v4 database roles, runs the database upgrade and applies `seed-defaults`
+during Docker startup. The Compose file waits for Postgres health before starting
+the server and exposes a server healthcheck on `/v1/health`.
 
 The plugin gate validates repo-local agent packaging for Codex, Claude, Gemini,
 OpenCode, Cursor package config and Cursor workspace config:

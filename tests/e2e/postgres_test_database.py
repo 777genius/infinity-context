@@ -18,59 +18,6 @@ STRICT_V4_CAPABILITY_ROLES = (
 )
 STRICT_V4_TEST_ROLE_PASSWORD = "strict-v4-role-boundary-test-only"
 
-_PUBLISHED_MIGRATION_COMPATIBILITY_SQL = """
-DO $strict_v4_test_migration_roles$
-DECLARE
-    compatibility_role pg_catalog.text;
-    observed pg_catalog.record;
-BEGIN
-    FOREACH compatibility_role IN ARRAY ARRAY[
-        'infinity_context_strict_v4_fact_writer',
-        'infinity_context_strict_v4_document_writer'
-    ]
-    LOOP
-        BEGIN
-            EXECUTE pg_catalog.format(
-                'CREATE ROLE %I NOLOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE '
-                'NOREPLICATION NOBYPASSRLS',
-                compatibility_role
-            );
-        EXCEPTION WHEN duplicate_object THEN
-            NULL;
-        END;
-
-        SELECT rolcanlogin, rolsuper, rolcreatedb, rolcreaterole,
-               rolreplication, rolbypassrls
-        INTO observed
-        FROM pg_catalog.pg_roles
-        WHERE rolname = compatibility_role;
-
-        IF observed.rolcanlogin OR observed.rolsuper OR observed.rolcreatedb
-           OR observed.rolcreaterole OR observed.rolreplication
-           OR observed.rolbypassrls
-           OR EXISTS (
-               SELECT 1
-               FROM pg_catalog.pg_auth_members AS membership
-               JOIN pg_catalog.pg_roles AS member ON member.oid = membership.member
-               WHERE member.rolname = compatibility_role
-           )
-        THEN
-            RAISE EXCEPTION 'unsafe strict-v4 test migration role: %', compatibility_role
-                USING ERRCODE = '42501';
-        END IF;
-    END LOOP;
-END
-$strict_v4_test_migration_roles$;
-
-REVOKE ALL PRIVILEGES ON SCHEMA public
-FROM infinity_context_strict_v4_fact_writer,
-     infinity_context_strict_v4_document_writer;
-
-GRANT USAGE ON SCHEMA public
-TO infinity_context_strict_v4_fact_writer,
-   infinity_context_strict_v4_document_writer;
-"""
-
 
 @dataclass(frozen=True, slots=True)
 class PostgresTestDatabase:
@@ -179,10 +126,6 @@ class PostgresTestDatabase:
             .read_text(encoding="utf-8")
         )
         await admin.execute(provisioning_sql)
-        # Published migrations 0037-0038 still attest these retired writer roles.
-        # Keep that compatibility authority isolated to disposable PostgreSQL tests;
-        # production provisioning intentionally owns only the three active roles.
-        await admin.execute(_PUBLISHED_MIGRATION_COMPATIBILITY_SQL)
 
 
 __all__ = ("PostgresTestDatabase",)

@@ -7,14 +7,14 @@ from typing import Any
 from infinity_context_core.features.projection_receipts import ProjectionReceiptError
 
 STRICT_V4_CANONICAL_WRITER_ROLE = "infinity_context_canonical_writer"
-# Retained as legacy identifiers for callers that have not yet removed the paid-write
-# lanes. They are deliberately not accepted by the strict-v4 runtime attestation.
 STRICT_V4_FACT_WRITER_ROLE = "infinity_context_strict_v4_fact_writer"
 STRICT_V4_DOCUMENT_WRITER_ROLE = "infinity_context_strict_v4_document_writer"
 STRICT_V4_REGISTRAR_ROLE = "infinity_context_strict_v4_registrar"
 STRICT_V4_SEALER_ROLE = "infinity_context_strict_v4_sealer"
 STRICT_V4_CAPABILITY_ROLES = (
     STRICT_V4_CANONICAL_WRITER_ROLE,
+    STRICT_V4_FACT_WRITER_ROLE,
+    STRICT_V4_DOCUMENT_WRITER_ROLE,
     STRICT_V4_REGISTRAR_ROLE,
     STRICT_V4_SEALER_ROLE,
 )
@@ -111,23 +111,35 @@ required_functions AS (
     SELECT pg_catalog.to_regprocedure(signature) AS oid
     FROM pg_catalog.unnest($4::pg_catalog.text[]) AS required(signature)
 ),
-expected_function AS (
-    SELECT CASE $1
+expected_functions AS (
+    SELECT pg_catalog.to_regprocedure(signature) AS oid
+    FROM pg_catalog.unnest(CASE $1
         WHEN 'infinity_context_canonical_writer' THEN
-            pg_catalog.to_regprocedure(
-                'public.memory_comparison_is_strict_v4_canonical_writer()'
-            )
+            ARRAY[
+                'public.memory_comparison_is_strict_v4_canonical_writer()',
+                'public.memory_comparison_is_strict_v4_document_writer()'
+            ]
+        WHEN 'infinity_context_strict_v4_fact_writer' THEN
+            ARRAY[
+                'public.memory_comparison_is_strict_v4_canonical_writer()',
+                'public.memory_comparison_is_strict_v4_document_writer()'
+            ]
+        WHEN 'infinity_context_strict_v4_document_writer' THEN
+            ARRAY[
+                'public.memory_comparison_is_strict_v4_canonical_writer()',
+                'public.memory_comparison_is_strict_v4_document_writer()'
+            ]
         WHEN 'infinity_context_strict_v4_registrar' THEN
-            pg_catalog.to_regprocedure(
+            ARRAY[
                 'public.memory_comparison_lock_strict_v4_registration_targets('
                 'pg_catalog.bpchar,pg_catalog.bpchar)'
-            )
+            ]
         WHEN 'infinity_context_strict_v4_sealer' THEN
-            pg_catalog.to_regprocedure(
+            ARRAY[
                 'public.memory_comparison_lock_strict_v4_seal_targets('
                 'pg_catalog.bpchar,pg_catalog.bpchar)'
-            )
-    END AS oid
+            ]
+    END) AS expected(signature)
 )
 SELECT current_user = session_user AS direct_login,
        role.rolcanlogin AS is_login,
@@ -308,6 +320,25 @@ SELECT current_user = session_user AS direct_login,
                                  'memory_comparison_strict_v4_preparations',
                                  'memory_idempotency_records'
                              )
+                         WHEN 'infinity_context_strict_v4_fact_writer' THEN
+                             relation.relname IN (
+                                 'memory_comparison_benchmark_runs',
+                                 'memory_cleanup_v3_context_authorities',
+                                 'memory_comparison_strict_v4_preparations',
+                                 'memory_spaces', 'memory_scopes', 'memory_threads',
+                                 'memory_facts', 'memory_fact_versions',
+                                 'memory_source_refs', 'memory_outbox',
+                                 'memory_fact_operation_receipts'
+                             )
+                         WHEN 'infinity_context_strict_v4_document_writer' THEN
+                             relation.relname IN (
+                                 'memory_comparison_benchmark_runs',
+                                 'memory_cleanup_v3_context_authorities',
+                                 'memory_comparison_strict_v4_preparations',
+                                 'memory_spaces', 'memory_scopes', 'memory_threads',
+                                 'memory_documents', 'memory_chunks',
+                                 'memory_outbox', 'memory_idempotency_records'
+                             )
                          WHEN 'infinity_context_strict_v4_registrar' THEN
                              relation.relname IN (
                                  'memory_comparison_benchmark_runs',
@@ -340,6 +371,21 @@ SELECT current_user = session_user AS direct_login,
                      OR ($1 = 'infinity_context_strict_v4_sealer'
                          AND relation.relname =
                              'memory_comparison_strict_v4_preparations')
+                     OR ($1 = 'infinity_context_strict_v4_fact_writer'
+                         AND relation.relname IN (
+                             'memory_scopes', 'memory_threads', 'memory_facts',
+                             'memory_fact_versions', 'memory_source_refs',
+                             'memory_outbox', 'memory_fact_operation_receipts'
+                         ))
+                     OR ($1 = 'infinity_context_strict_v4_document_writer'
+                         AND relation.relname IN (
+                             'memory_scopes', 'memory_threads',
+                             'memory_documents', 'memory_chunks',
+                             'memory_outbox', 'memory_idempotency_records'
+                         ))
+                 WHEN privilege.name = 'DELETE' THEN
+                     $1 = 'infinity_context_strict_v4_fact_writer'
+                     AND relation.relname = 'memory_source_refs'
                  ELSE FALSE
              END
        ) AS has_exact_effective_relation_acl
@@ -357,11 +403,22 @@ SELECT current_user = session_user AS direct_login,
              ) IS DISTINCT FROM (
                  (($1 = 'infinity_context_canonical_writer'
                    AND relation.relname = 'memory_idempotency_records_id_seq')
+                  OR ($1 = 'infinity_context_strict_v4_fact_writer'
+                      AND relation.relname IN (
+                          'memory_source_refs_id_seq',
+                          'memory_fact_versions_id_seq',
+                          'memory_outbox_id_seq'
+                      ))
+                  OR ($1 = 'infinity_context_strict_v4_document_writer'
+                      AND relation.relname IN (
+                          'memory_outbox_id_seq',
+                          'memory_idempotency_records_id_seq'
+                      ))
                  )
                  AND privilege.name = 'USAGE'
              )
        ) AS has_exact_effective_sequence_acl
-       , expected_function.oid IS NOT NULL
+       , NOT EXISTS (SELECT 1 FROM expected_functions WHERE oid IS NULL)
          AND NOT EXISTS (
            SELECT 1
            FROM protected_functions AS procedure
@@ -369,11 +426,12 @@ SELECT current_user = session_user AS direct_login,
                role.oid,
                procedure.oid,
                'EXECUTE'
-           ) IS DISTINCT FROM (procedure.oid=expected_function.oid)
+           ) IS DISTINCT FROM (
+               procedure.oid IN (SELECT oid FROM expected_functions)
+           )
        ) AS has_exact_effective_function_acl
 FROM pg_catalog.pg_roles AS role
 CROSS JOIN pg_catalog.pg_roles AS capability
-CROSS JOIN expected_function
 WHERE role.rolname=current_user
   AND capability.rolname=$1
 """

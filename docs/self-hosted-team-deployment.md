@@ -169,6 +169,7 @@ docker compose --env-file .env.selfhost -f docker-compose.selfhost.yml \
 - Do not expose Postgres, Qdrant or Neo4j directly to the internet.
 - Rotate `MEMORY_SERVICE_TOKEN` when a team member or automation loses access.
 - Keep `MEMORY_AUTO_CREATE_SCHEMA=false` in server mode; migrations run through
-  the `infinity_context_migrate` service.
+  the `infinity_context_migrate` service. That service provisions the strict-v4
+  database roles before applying migrations.
 - Scale extraction separately by increasing `infinity_context_extraction_worker`
   replicas or moving it to a larger host.
