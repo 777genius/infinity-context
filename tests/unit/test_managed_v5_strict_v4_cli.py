@@ -277,7 +277,7 @@ def test_document_projector_opens_the_created_pair_authority(
     assert observed["pair_closed"] is True
 
 
-def test_execute_documents_help_requires_distinct_document_writer_capability(
+def test_execute_documents_help_requires_canonical_writer_capability(
     capsys: pytest.CaptureFixture[str],
 ) -> None:
     parser = cli._parser()
@@ -285,7 +285,8 @@ def test_execute_documents_help_requires_distinct_document_writer_capability(
         parser.parse_args(["execute-documents", "--help"])
     assert raised.value.code == 0
     help_text = capsys.readouterr().out
-    assert "--document-writer-postgres-dsn-file" in help_text
+    assert "--canonical-writer-postgres-dsn-file" in help_text
+    assert "--document-writer-postgres-dsn-file" not in help_text
     assert "idempotently ingest" in help_text
     assert "124,344 official documents" in help_text
 
@@ -309,13 +310,51 @@ def test_execute_documents_help_requires_distinct_document_writer_capability(
     args = parser.parse_args(
         [
             *required,
-            "--document-writer-postgres-dsn-file",
-            "/document-writer.dsn",
+            "--canonical-writer-postgres-dsn-file",
+            "/canonical-writer.dsn",
         ]
     )
     assert args.command == "execute-documents"
     assert args.postgres_dsn_file == Path("/registrar.dsn")
-    assert args.document_writer_postgres_dsn_file == Path("/document-writer.dsn")
+    assert args.canonical_writer_postgres_dsn_file == Path("/canonical-writer.dsn")
+
+
+def test_execute_facts_requires_canonical_writer_capability(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    parser = cli._parser()
+    with pytest.raises(SystemExit) as raised:
+        parser.parse_args(["execute-facts", "--help"])
+    assert raised.value.code == 0
+    help_text = capsys.readouterr().out
+    assert "--canonical-writer-postgres-dsn-file" in help_text
+    assert "--fact-writer-postgres-dsn-file" not in help_text
+
+    required = [
+        "execute-facts",
+        "--request",
+        "/request.json",
+        "--dataset",
+        "/dataset.json",
+        "--receipt",
+        "/receipt.sqlite3",
+        "--postgres-dsn-file",
+        "/registrar.dsn",
+        "--receipt-key-file",
+        "/receipt.key",
+        "--keyring",
+        "/keyring.json",
+    ]
+    with pytest.raises(SystemExit):
+        parser.parse_args(required)
+    args = parser.parse_args(
+        [
+            *required,
+            "--canonical-writer-postgres-dsn-file",
+            "/canonical-writer.dsn",
+        ]
+    )
+    assert args.canonical_writer_postgres_dsn_file == Path("/canonical-writer.dsn")
 
 
 def test_secret_loader_rejects_symlink_hardlink_and_public_mode(tmp_path: Path) -> None:
@@ -431,7 +470,7 @@ async def test_seal_command_calls_recover_verify_seal_and_readback(
 
 
 @pytest.mark.anyio
-async def test_execute_facts_rebuilds_projection_and_uses_separate_writer_capability(
+async def test_execute_facts_rebuilds_projection_and_uses_canonical_writer(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     observed: dict[str, object] = {}
@@ -496,14 +535,14 @@ async def test_execute_facts_rebuilds_projection_and_uses_separate_writer_capabi
             dataset=tmp_path / "dataset.json",
             receipt=tmp_path / "receipt.sqlite3",
             postgres_dsn_file=tmp_path / "registrar.dsn",
-            fact_writer_postgres_dsn_file=tmp_path / "fact-writer.dsn",
+            canonical_writer_postgres_dsn_file=tmp_path / "canonical-writer.dsn",
             receipt_key_file=tmp_path / "receipt.key",
             keyring=tmp_path / "keyring.json",
         )
     )
     assert observed["recover"]["registration_port"] == ("registry", "registrar.dsn")
     assert observed["recover"]["expected_projector"] is Material.projector
-    assert observed["runtime_init"]["database_url"] == "fact-writer.dsn"
+    assert observed["runtime_init"]["database_url"] == "canonical-writer.dsn"
     assert observed["runtime_execute"] == {
         "projector": Material.projector,
         "space_slug": "space",
@@ -518,7 +557,7 @@ async def test_execute_facts_rebuilds_projection_and_uses_separate_writer_capabi
 
 
 @pytest.mark.anyio
-async def test_execute_documents_recovers_exact_authority_and_uses_document_writer(
+async def test_execute_documents_recovers_exact_authority_and_uses_canonical_writer(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     observed: dict[str, object] = {}
@@ -591,7 +630,7 @@ async def test_execute_documents_recovers_exact_authority_and_uses_document_writ
             dataset=tmp_path / "dataset.json",
             receipt=tmp_path / "receipt.sqlite3",
             postgres_dsn_file=tmp_path / "registrar.dsn",
-            document_writer_postgres_dsn_file=tmp_path / "document-writer.dsn",
+            canonical_writer_postgres_dsn_file=tmp_path / "canonical-writer.dsn",
             receipt_key_file=tmp_path / "receipt.key",
             keyring=tmp_path / "keyring.json",
         )
@@ -599,7 +638,7 @@ async def test_execute_documents_recovers_exact_authority_and_uses_document_writ
     assert observed["recover"]["registration_port"] == ("registry", "registrar.dsn")
     assert observed["recover"]["expected_projector"] is Material.projector
     assert observed["runtime_init"] == {
-        "database_url": "document-writer.dsn",
+        "database_url": "canonical-writer.dsn",
         "authority": observed["recovered_authority"],
     }
     assert observed["runtime_execute"] == {

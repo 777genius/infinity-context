@@ -114,19 +114,19 @@ def _parser() -> argparse.ArgumentParser:
     execute_facts.add_argument("--request", required=True, type=Path)
     execute_facts.add_argument("--dataset", required=True, type=Path)
     _common(execute_facts)
-    execute_facts.add_argument("--fact-writer-postgres-dsn-file", required=True, type=Path)
+    execute_facts.add_argument("--canonical-writer-postgres-dsn-file", required=True, type=Path)
     execute_documents = commands.add_parser(
         "execute-documents",
         help="Ingest the sealed official LongMemEval corpus through canonical handlers.",
         description=(
             "Recover the exact sealed LongMemEval authority and idempotently ingest its "
-            "124,344 official documents with a separate strict-v4 document-writer capability."
+            "124,344 official documents through the strict-v4 canonical-writer capability."
         ),
     )
     execute_documents.add_argument("--request", required=True, type=Path)
     execute_documents.add_argument("--dataset", required=True, type=Path)
     _common(execute_documents)
-    execute_documents.add_argument("--document-writer-postgres-dsn-file", required=True, type=Path)
+    execute_documents.add_argument("--canonical-writer-postgres-dsn-file", required=True, type=Path)
     return parser
 
 
@@ -666,7 +666,7 @@ async def _execute_facts(args: argparse.Namespace) -> dict[str, object]:
         )
         space_slug = _validate_execution_material(material, authority.receipt)
         runtime = StrictV4FactIngestRuntime(
-            database_url=_postgres_dsn(args.fact_writer_postgres_dsn_file),
+            database_url=_postgres_dsn(args.canonical_writer_postgres_dsn_file),
             authority=authority,
         )
         receipt = await runtime.execute(
@@ -705,7 +705,7 @@ async def _execute_documents(args: argparse.Namespace) -> dict[str, object]:
         )
         space_slug = _validate_execution_material(material, authority.receipt)
         runtime = StrictV4DocumentIngestRuntime(
-            database_url=_postgres_dsn(args.document_writer_postgres_dsn_file),
+            database_url=_postgres_dsn(args.canonical_writer_postgres_dsn_file),
             authority=authority,
         )
         receipt = await runtime.execute(
