@@ -130,6 +130,7 @@ def _mutate(database: Path, statement: str, parameters: tuple[object, ...] = ())
 def test_rejects_unsafe_directory_database_symlink_and_hardlink(tmp_path: Path, prepared) -> None:
     private = tmp_path / "private"
     private.mkdir(mode=0o755)
+    private.chmod(0o755)
     with pytest.raises(SchedulerSQLiteError, match="private_directory_unsafe"):
         _store(tmp_path, prepared)
     private.chmod(0o700)
