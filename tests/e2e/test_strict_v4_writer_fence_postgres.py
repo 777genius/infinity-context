@@ -497,6 +497,23 @@ async def _assert_strict_v4_writer_authority(database_url: str) -> None:
             assert {row["relname"] for row in observed} == {
                 table for table, _columns in BENCHMARK_WRITER_FENCE_TABLES
             }
+            assert (
+                await connection.fetchval(
+                    "SELECT to_regprocedure("
+                    "'public.memory_comparison_close_strict_v4_preparation()')"
+                )
+                is None
+            )
+            assert not await connection.fetchval(
+                """
+                SELECT EXISTS (
+                  SELECT 1
+                  FROM pg_trigger
+                  WHERE tgname='trg_benchmark_run_close_strict_v4_preparation'
+                    AND NOT tgisinternal
+                )
+                """
+            )
 
             await _seed_run(connection, suffix="strict", legacy=False)
             await _assert_fenced(
@@ -547,6 +564,11 @@ async def _assert_strict_v4_writer_authority(database_url: str) -> None:
                 suffix="strict",
                 key="xor-both",
             )
+            preparation_before_projection_cleanup = await connection.fetchrow(
+                "SELECT * FROM memory_comparison_strict_v4_preparations WHERE run_id_sha256=$1",
+                _digest("strict", "run"),
+            )
+            assert preparation_before_projection_cleanup is not None
             await connection.execute(
                 """
                 UPDATE memory_comparison_benchmark_runs
@@ -560,18 +582,19 @@ async def _assert_strict_v4_writer_authority(database_url: str) -> None:
                 _digest("strict", "run"),
                 "d" * 64,
             )
-            assert (
-                await connection.fetchval(
-                    "SELECT state FROM memory_comparison_strict_v4_preparations "
-                    "WHERE run_id_sha256=$1",
-                    _digest("strict", "run"),
-                )
-                == "closed"
+            preparation_after_projection_cleanup = await connection.fetchrow(
+                "SELECT * FROM memory_comparison_strict_v4_preparations WHERE run_id_sha256=$1",
+                _digest("strict", "run"),
             )
+            assert preparation_after_projection_cleanup is not None
+            assert dict(preparation_after_projection_cleanup) == dict(
+                preparation_before_projection_cleanup
+            )
+            assert preparation_after_projection_cleanup["state"] == "sealed"
             await _assert_fenced(
                 canonical_connection,
                 suffix="strict",
-                key="closed",
+                key="sealed-after-projection-cleanup",
             )
 
             await _seed_run(connection, suffix="legacy", legacy=True)

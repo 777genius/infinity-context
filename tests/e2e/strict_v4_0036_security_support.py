@@ -138,7 +138,7 @@ async def assert_exact_0036_acls(connection) -> None:
     )
     relation_inventory = await connection.fetch(
         """
-        SELECT relation.relname, relation.relkind
+        SELECT relation.relname, relation.relkind::pg_catalog.text AS relkind
         FROM pg_catalog.pg_class AS relation
         JOIN pg_catalog.pg_namespace AS namespace
           ON namespace.oid=relation.relnamespace
@@ -326,7 +326,8 @@ async def assert_exact_0036_acls(connection) -> None:
 async def assert_ordered_writer_triggers(connection) -> None:
     rows = await connection.fetch(
         """
-        SELECT relation.relname, trigger.tgname, trigger.tgenabled,
+        SELECT relation.relname, trigger.tgname,
+               trigger.tgenabled::pg_catalog.text AS tgenabled,
                trigger.tgtype, trigger.tgqual IS NULL AS no_when,
                trigger.tgattr = ''::pg_catalog.int2vector AS no_columns,
                trigger.tgnargs, procedure.proname, procedure.prosecdef

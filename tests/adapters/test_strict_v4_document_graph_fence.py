@@ -13,6 +13,7 @@ _MIGRATION = (
     / "packages/infinity_context_adapters/infinity_context_adapters/postgres/"
     "migrations/0038_strict_v4_document_writer.sql"
 )
+_FACT_MIGRATION = _MIGRATION.with_name("0037_strict_v4_fact_writer.sql")
 
 
 def _normalize(value: str) -> str:
@@ -37,6 +38,25 @@ def test_document_and_fact_outbox_triggers_are_exactly_lane_scoped() -> None:
     assert "deferrable initially deferred" in migration
     assert "managed-benchmark-document-v4-%" in migration
     assert "memory_comparison_is_strict_v4_document_writer" in migration
+
+
+def test_document_writer_does_not_attest_retired_preparation_closer() -> None:
+    migrations = tuple(
+        _normalize(path.read_text(encoding="utf-8")) for path in (_FACT_MIGRATION, _MIGRATION)
+    )
+
+    assert all(
+        "memory_comparison_close_strict_v4_preparation" not in migration for migration in migrations
+    )
+    document_migration = migrations[1]
+    for active_authority in (
+        "memory_comparison_enforce_strict_v4_preparation_immutable",
+        "memory_comparison_lock_benchmark_writer_target",
+        "memory_comparison_enforce_benchmark_writer_fence",
+        "memory_comparison_is_strict_v4_canonical_writer",
+        "memory_comparison_is_strict_v4_document_writer",
+    ):
+        assert active_authority in document_migration
 
 
 def test_document_writer_migration_stays_reviewable() -> None:
