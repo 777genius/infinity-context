@@ -486,6 +486,14 @@ class FreshChainCanaryRuntimeSession:
         """Durably delete after authenticated extraction, before retrieval if needed."""
         return _abort_after_extraction(self)
 
+    def has_authenticated_runtime_extraction_evidence(self) -> bool:
+        """Report only an extraction result authenticated by this open runtime."""
+
+        with self._lock:
+            self._require_open()
+            result = self._results.get(0)
+            return result is not None and result.stage == "mem0_extraction"
+
     def close(self) -> None:
         with self._lock:
             if self._closed:

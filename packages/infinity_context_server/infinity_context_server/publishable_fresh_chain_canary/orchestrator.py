@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-from contextlib import suppress
 from dataclasses import dataclass, field
 from typing import final
 
@@ -51,6 +50,10 @@ from .ledger_models import (
     RetrievalHandoff,
     TokenUsage,
 )
+from .orchestration_abort import (
+    abort_after_post_extraction_failure as _abort_after_post_extraction_failure,
+)
+from .orchestration_abort import finish_local_abort as _finish_local_abort
 
 
 @final
@@ -134,7 +137,7 @@ class FreshChainCanaryOrchestrator:
                     session=session,
                     ledger=ledger,
                     snapshot=snapshot,
-                    layout=layout,
+                    namespace_commitment_sha256=layout.namespace_commitment_sha256,
                 )
                 _fail("fresh_chain_prior_terminal_failed")
             snapshot = self._execute_calls(
@@ -162,7 +165,7 @@ class FreshChainCanaryOrchestrator:
             _abort_after_post_extraction_failure(
                 session=session,
                 ledger=ledger,
-                layout=layout,
+                namespace_commitment_sha256=layout.namespace_commitment_sha256,
                 error=error,
             )
             raise
@@ -528,78 +531,6 @@ def _record_cleanup(
         operation_count=cleanup.operation_count,
         residual_count=cleanup.residual_count,
     )
-
-
-def _abort_after_post_extraction_failure(
-    *,
-    session: FreshChainCanaryRuntimeSession,
-    ledger: FreshChainCanaryLedger,
-    layout: FreshChainLayout,
-    error: BaseException,
-) -> None:
-    """Best-effort durable abort plus mandatory namespace cleanup.
-
-    The original failure remains authoritative.  A durable abort prevents a
-    replay from retrieving or dispatching another provider call;
-    if ledger integrity itself is unavailable, cleanup is still attempted.
-    """
-
-    try:
-        snapshot = ledger.read_snapshot()
-    except BaseException:
-        with suppress(BaseException):
-            session.abort_after_extraction()
-        return
-    if snapshot.completed or snapshot.cleanup is not None:
-        return
-    extraction = snapshot.stages[0]
-    if extraction.status != "succeeded":
-        return
-    if snapshot.abort_reason_sha256 is None:
-        reason = canonical_sha256(
-            {
-                "error_code": getattr(error, "code", type(error).__name__),
-                "failure_domain": "fresh-chain-post-extraction-local-abort/v1",
-                "stage_statuses": [record.status for record in snapshot.stages],
-            }
-        )
-        try:
-            snapshot = ledger.record_local_abort(reason_sha256=reason)
-        except BaseException:
-            with suppress(BaseException):
-                session.abort_after_extraction()
-            return
-    try:
-        _finish_local_abort(
-            session=session,
-            ledger=ledger,
-            snapshot=snapshot,
-            layout=layout,
-        )
-    except BaseException:
-        # The abort event is replay-safe: the next invocation performs cleanup
-        # before any retrieval or dispatch.
-        return
-
-
-def _finish_local_abort(
-    *,
-    session: FreshChainCanaryRuntimeSession,
-    ledger: FreshChainCanaryLedger,
-    snapshot: FreshChainSnapshot,
-    layout: FreshChainLayout,
-) -> FreshChainSnapshot:
-    if snapshot.abort_reason_sha256 is None:
-        _fail("fresh_chain_local_abort_missing")
-    if snapshot.cleanup is None:
-        cleanup = session.abort_after_extraction()
-        if (
-            type(cleanup) is not FreshChainCleanupResult
-            or cleanup.namespace_commitment_sha256 != layout.namespace_commitment_sha256
-        ):
-            _fail("fresh_chain_cleanup_binding_invalid")
-        snapshot = _record_cleanup(ledger, cleanup)
-    return ledger.terminate_failed()
 
 
 def _terminal_replay(

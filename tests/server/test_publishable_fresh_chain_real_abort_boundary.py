@@ -26,8 +26,16 @@ from infinity_context_server.memory_comparison_mem0_oss_v5_http import (
 from infinity_context_server.processes.publishable_full_extraction_contracts import (
     PublishableExtractionCommand,
 )
+from infinity_context_server.publishable_fresh_chain_canary import orchestration_abort, orchestrator
 from infinity_context_server.publishable_fresh_chain_canary.contracts import (
     FreshChainLookupDisposition,
+)
+from infinity_context_server.publishable_fresh_chain_canary.ledger import (
+    FreshChainCanaryLedger,
+)
+from infinity_context_server.publishable_fresh_chain_canary.ledger_models import (
+    FreshChainLedgerError,
+    FreshChainPlan,
 )
 from infinity_context_server.publishable_fresh_chain_canary.mem0_lifecycle import (
     OperatorLocalHmacFreshChainLifecycleJournal,
@@ -243,11 +251,66 @@ def test_real_runtime_concrete_one_shot_abort_and_zero_call_terminal_replay(
 
     first = opened()
     intent = first.prepare_call(stage="mem0_extraction", prior_results=(), retrieval_handoff=None)
-    assert first.lookup(intent).disposition is FreshChainLookupDisposition.AUTHENTICATED_ABSENT
-    first.dispatch(intent)
-    assert first.abort_after_extraction().deleted
+    absence = first.lookup(intent)
+    assert absence.disposition is FreshChainLookupDisposition.AUTHENTICATED_ABSENT
+    assert absence.authenticated_absence_sha256 is not None
+    ledger = FreshChainCanaryLedger.open(
+        private / "fault-injection-ledger.sqlite3",
+        authentication_secret=hashlib.sha256(b"ledger authentication").digest(),
+        plan=FreshChainPlan(
+            run_id="real-runtime-fault-injection",
+            namespace_id=_NAMESPACE_ID,
+            namespace_commitment_sha256=_NAMESPACE_SHA,
+            source_commitment_sha256=_SOURCE_SHA,
+            common_condition_policy_sha256=_POLICY_SHA,
+            commitments={"official_case": _sha("official case")},
+        ),
+    )
+    ledger.record_source_projection_bound(
+        source_projection_commitment_sha256=_SOURCE_PROJECTION_SHA
+    )
+    ledger.record_intent(
+        "mem0_extraction",
+        intent_sha256=intent.intent_sha256,
+        request_sha256=intent.request_sha256,
+        input_authority_sha256=intent.input_authority_sha256,
+        commitments=orchestrator._intent_commitments(intent),
+    )
+    ledger.record_authenticated_pre_call_absence(
+        "mem0_extraction",
+        intent_sha256=intent.intent_sha256,
+        absence_sha256=absence.authenticated_absence_sha256,
+    )
+    ledger.record_dispatch_started(
+        "mem0_extraction",
+        intent_sha256=intent.intent_sha256,
+        authenticated_absence_sha256=absence.authenticated_absence_sha256,
+    )
+    extraction = first.dispatch(intent)
+
+    def fail_record_success(*_args: object, **_kwargs: object) -> object:
+        raise FreshChainLedgerError("injected_record_success_integrity_failure")
+
+    monkeypatch.setattr(FreshChainCanaryLedger, "record_success", fail_record_success)
+    with pytest.raises(FreshChainLedgerError, match="injected_record_success_integrity_failure"):
+        orchestrator._record_success(ledger, extraction)
+    orchestration_abort.abort_after_post_extraction_failure(
+        session=first,
+        ledger=ledger,
+        namespace_commitment_sha256=_NAMESPACE_SHA,
+        error=FreshChainLedgerError("injected_record_success_integrity_failure"),
+    )
+    snapshot = ledger.read_snapshot()
+    assert snapshot.completed and not snapshot.succeeded
+    assert snapshot.abort_reason_sha256 is not None
+    assert snapshot.cleanup is not None and snapshot.cleanup.deleted
     before_replay = tuple(calls)
 
-    assert opened().abort_after_extraction().deleted
+    orchestration_abort.abort_after_post_extraction_failure(
+        session=opened(),
+        ledger=ledger,
+        namespace_commitment_sha256=_NAMESPACE_SHA,
+        error=FreshChainLedgerError("replay"),
+    )
     assert tuple(calls) == before_replay == ("dispatch", "inspect", "cleanup")
     bridge_journal.close()

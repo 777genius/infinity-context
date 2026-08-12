@@ -23,6 +23,9 @@ from infinity_context_server.publishable_durable_scheduler.publishable_run_contr
     PublishableRunError,
     PublishableRunProviderInputs,
 )
+from infinity_context_server.publishable_durable_scheduler.retrieval_capture_contracts import (
+    SCHEDULER_OFFICIAL_RETRIEVAL_LIMIT,
+)
 from infinity_context_server.publishable_fresh_chain_canary import orchestrator
 from infinity_context_server.publishable_fresh_chain_canary.infinity_retrieval import (
     open_sealed_fresh_chain_infinity_retrieval,
@@ -119,7 +122,7 @@ def test_actual_one_case_infinity_http_wrapper_searches_once_and_seals(
 
     subject._prepare_infinity_if_missing(config=config, secrets=secrets, case=_case_value)
 
-    assert searches == [(config.run.suite.locomo_run_id, 10)]
+    assert searches == [(config.run.suite.locomo_run_id, SCHEDULER_OFFICIAL_RETRIEVAL_LIMIT)]
     assert closes == [True]
     assert len(sealed) == 1
     assert sealed[0]["case"] is _case_value

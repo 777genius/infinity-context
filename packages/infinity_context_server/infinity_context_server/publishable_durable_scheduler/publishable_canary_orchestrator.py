@@ -24,6 +24,7 @@ from infinity_context_server.memory_comparison_publishable_profile import (
     PUBLISHABLE_PRIORITY_PROFILE_V4_COMMITMENT_SHA256,
 )
 
+from .cross_layer_secret_validation import require_cross_layer_secret_distinctness
 from .publishable_canary_activation_evidence import (
     CanaryActivationEvidenceBindings,
     PublishableCanaryActivationEvidence,
@@ -55,9 +56,6 @@ from .publishable_run_contracts import (
 from .publishable_run_official_cases import (
     PreparedPublishableOfficialCases,
     prepare_publishable_official_cases,
-)
-from .publishable_run_orchestrator import (
-    _require_cross_layer_secret_distinctness,
 )
 
 PUBLISHABLE_CANARY_STATE_DIRECTORY = "one-case-canary-v1"
@@ -103,11 +101,11 @@ class PublishableCanaryOrchestrator:
         if type(config) is not PublishableRunConfig or type(secrets) is not PublishableRunSecrets:
             _fail("publishable_canary_orchestrator_inputs_invalid")
         validate_publishable_canary_static_authority()
-        _require_cross_layer_secret_distinctness(secrets)
+        require_cross_layer_secret_distinctness(secrets)
         if not config.official_case_authority_path.exists():
             _fail("publishable_canary_official_case_authority_missing")
         layout = _open_layout(config, secrets)
-        _require_cross_layer_secret_distinctness(layout.secrets)
+        require_cross_layer_secret_distinctness(layout.secrets)
         prior = _read_prior(layout)
         session = self.dependency_factory.open_session(
             inputs=PublishableRunProviderInputs(

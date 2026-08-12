@@ -26,8 +26,18 @@ class FreshChainLedgerHeadAnchor:
         self._key = key
         self._identity = identity
 
-    def synchronize(self, connection: object, *, count: int, head: str) -> None:
-        current = self._read() if os.path.lexists(self.path) else None
+    def synchronize(
+        self,
+        connection: object,
+        *,
+        count: int,
+        head: str,
+        allow_create: bool,
+    ) -> None:
+        exists = os.path.lexists(self.path)
+        if not exists and (not allow_create or count != 0):
+            _fail("fresh_chain_ledger_anchor_missing")
+        current = self._read() if exists else None
         if current is not None:
             anchored_count = current["event_count"]
             anchored_head = current["event_head_hmac"]
@@ -53,13 +63,14 @@ class FreshChainLedgerHeadAnchor:
         self._write(count=count, head=head)
 
     def write(self, *, count: int, head: str) -> None:
-        if os.path.lexists(self.path):
-            current = self._read()
-            if current["event_count"] > count or (
-                current["event_count"] == count
-                and not hmac.compare_digest(current["event_head_hmac"], head)
-            ):
-                _fail("fresh_chain_ledger_rollback_detected")
+        if not os.path.lexists(self.path):
+            _fail("fresh_chain_ledger_anchor_missing")
+        current = self._read()
+        if current["event_count"] > count or (
+            current["event_count"] == count
+            and not hmac.compare_digest(current["event_head_hmac"], head)
+        ):
+            _fail("fresh_chain_ledger_rollback_detected")
         self._write(count=count, head=head)
 
     def _read(self) -> dict[str, object]:
