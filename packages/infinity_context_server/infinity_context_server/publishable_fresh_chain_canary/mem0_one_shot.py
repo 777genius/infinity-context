@@ -16,7 +16,7 @@ import stat
 import tempfile
 import threading
 from contextlib import suppress
-from dataclasses import asdict, dataclass, replace
+from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import final
 
@@ -31,18 +31,10 @@ from infinity_context_server.memory_comparison_managed_mem0_v5_storage_witness i
     ManagedMem0V5AuthenticatedStorageWitness,
 )
 from infinity_context_server.memory_comparison_mem0_oss_v5_contracts import (
-    CleanupVerificationContext,
     Mem0OssFullRunAdmission,
     canonical_sha256,
 )
-from infinity_context_server.memory_comparison_mem0_oss_v5_evidence import (
-    Mem0OssRunSeal,
-    operation_root,
-)
-from infinity_context_server.memory_comparison_mem0_oss_v5_http import (
-    Mem0V5CleanupReceipt,
-    Mem0V5RuntimeReceiptEnvelope,
-)
+from infinity_context_server.memory_comparison_mem0_oss_v5_http import Mem0V5RuntimeReceiptEnvelope
 from infinity_context_server.memory_comparison_models import RetrievedMemory
 from infinity_context_server.processes.publishable_full_extraction_contracts import (
     PublishableExtractionCommand,
@@ -61,15 +53,13 @@ from .contracts import (
     FreshChainCleanupResult,
     FreshChainRetrievalHandoff,
 )
-from .mem0_abort_cleanup import cleanup_failed_extraction
+from .mem0_abort_cleanup import cleanup_failed_extraction, cleanup_successful_extraction
 from .mem0_lifecycle import OperatorLocalHmacFreshChainLifecycleJournal
-from .mem0_operation_evidence import operation_evidence as _operation_evidence
 from .mem0_retrieval_authority import FreshChainMem0RetrievalMaterial
 
 _JOURNAL_SCHEMA = "memory-comparison-fresh-chain-mem0-one-shot.v1"
 _ABSENCE_SCHEMA = "memory-comparison-fresh-chain-mem0-absence.v1"
 _MAX_JOURNAL_BYTES = 2 * 1024 * 1024
-_EMPTY_ROOT_SHA256 = hashlib.sha256(b"").hexdigest()
 
 
 @final
@@ -739,84 +729,76 @@ class FreshChainMem0RetrievalCleanup:
         if self._captured is None or self._storage is None:
             _fail("fresh_chain_mem0_cleanup_before_retrieval")
         extraction, _handoff = self._captured
-        evidence = _operation_evidence(
+        self._cleanup_result = cleanup_successful_extraction(
+            lane=self._lane,
+            admission=self._admission,
+            manifest=self._manifest,
             unit=self._unit,
             operation_id_sha256=self._operation_id_sha256,
+            namespace_id=self._namespace_id,
+            namespace_commitment_sha256=self._namespace_commitment_sha256,
+            source_commitment_sha256=self._source_commitment_sha256,
+            source_projection_commitment_sha256=self._source_projection_commitment_sha256,
             extraction=extraction,
             storage=self._storage,
-        )
-        root = operation_root((evidence,))
-        seal = Mem0OssRunSeal(
-            admission_commitment_sha256=self._admission.commitment_sha256,
-            operation_count=1,
-            ingestion_root_sha256=self._manifest.ingestion_root_sha256,
-            operation_root_sha256=root,
-            provider_observed_extraction_calls=1,
-            provider_observed_request_tokens=extraction.usage.prompt_tokens,
-            provider_observed_response_tokens=extraction.usage.completion_tokens,
-        )
-        context = CleanupVerificationContext(
-            admission_commitment_sha256=self._admission.commitment_sha256,
-            seal_commitment_sha256=seal.commitment_sha256,
-            operation_root_sha256=root,
-            operation_inventory_root_sha256=canonical_sha256({"operations": [evidence.payload()]}),
-            expected_operation_count=1,
             aborting=False,
+            journal=self._journal,
         )
-        cleanup_intent = {
-            "admission_commitment_sha256": self._admission.commitment_sha256,
-            "cleanup_context": asdict(context),
-            "namespace_commitment_sha256": self._namespace_commitment_sha256,
-            "namespace_id": self._namespace_id,
-            "operation_evidence": evidence.payload(),
-            "operation_id_sha256": self._operation_id_sha256,
-            "seal": asdict(seal),
-            "source_commitment_sha256": self._source_commitment_sha256,
-            "source_projection_commitment_sha256": (self._source_projection_commitment_sha256),
-        }
-        terminal = self._journal.begin_cleanup(cleanup_intent)
+        return self._cleanup_result
+
+    def abort_after_extraction(
+        self,
+        *,
+        extraction: FreshChainCallResult,
+        namespace_id: str,
+        namespace_commitment_sha256: str,
+    ) -> FreshChainCleanupResult:
+        """Clean a successful extraction without requiring retrieval capture."""
+
+        if (
+            namespace_id != self._namespace_id
+            or namespace_commitment_sha256 != self._namespace_commitment_sha256
+            or type(extraction) is not FreshChainCallResult
+            or extraction.stage != "mem0_extraction"
+            or extraction.ordinal != 0
+        ):
+            _fail("fresh_chain_mem0_abort_extraction_invalid")
+        commitments = dict(extraction.commitments)
+        if (
+            commitments.get("admission_commitment_sha256") != self._admission.commitment_sha256
+            or commitments.get("operation_id_sha256") != self._operation_id_sha256
+            or commitments.get("scope_sha256") != self._unit.scope_sha256
+            or commitments.get("unit_identity_sha256") != self._unit.unit_identity_sha256
+            or commitments.get("unit_sha256") != self._unit.unit_sha256
+            or commitments.get("source_projection_commitment_sha256")
+            != self._source_projection_commitment_sha256
+        ):
+            _fail("fresh_chain_mem0_abort_extraction_invalid")
+        if self._cleanup_result is not None:
+            return self._cleanup_result
+        terminal = self._journal.cleanup_terminal()
         if terminal is not None:
             self._cleanup_result = terminal
             return terminal
-        receipt = self._lane.cleanup(
+        storage = self._storage or self._lane.inspect_storage(
+            unit=self._unit,
+            operation_id_sha256=self._operation_id_sha256,
             admission=self._admission,
-            seal=seal,
-            aborting=False,
-            context=context,
         )
-        if (
-            type(receipt) is not Mem0V5CleanupReceipt
-            or receipt.admission_commitment_sha256 != self._admission.commitment_sha256
-            or receipt.seal_commitment_sha256 != seal.commitment_sha256
-            or receipt.operation_root_sha256 != root
-            or receipt.operation_inventory_root_sha256 != context.operation_inventory_root_sha256
-            or receipt.deleted_operation_count != 1
-            or receipt.residual_record_count != 0
-            or receipt.residual_root_sha256 != _EMPTY_ROOT_SHA256
-        ):
-            _fail("fresh_chain_mem0_cleanup_receipt_invalid")
-        receipt_payload = asdict(receipt)
-        receipt_sha256 = canonical_sha256(receipt_payload)
-        outcome_sha256 = canonical_sha256(
-            {
-                "deleted": True,
-                "receipt_sha256": receipt_sha256,
-                "residual_count": 0,
-            }
-        )
-        result = FreshChainCleanupResult(
+        self._cleanup_result = cleanup_successful_extraction(
+            lane=self._lane,
+            admission=self._admission,
+            manifest=self._manifest,
+            unit=self._unit,
+            operation_id_sha256=self._operation_id_sha256,
+            namespace_id=self._namespace_id,
             namespace_commitment_sha256=self._namespace_commitment_sha256,
-            cleanup_authority_sha256=canonical_sha256(asdict(context)),
-            receipt_id=f"mem0-cleanup:{receipt_sha256}",
-            receipt_sha256=receipt_sha256,
-            outcome_sha256=outcome_sha256,
-            deleted=True,
-            operation_count=1,
-            residual_count=0,
-        )
-        self._cleanup_result = self._journal.record_cleanup_terminal(
-            cleanup_intent=cleanup_intent,
-            result=result,
+            source_commitment_sha256=self._source_commitment_sha256,
+            source_projection_commitment_sha256=self._source_projection_commitment_sha256,
+            extraction=extraction,
+            storage=storage,
+            aborting=True,
+            journal=self._journal,
         )
         return self._cleanup_result
 

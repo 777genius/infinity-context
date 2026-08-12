@@ -6,6 +6,9 @@ from contextlib import suppress
 from dataclasses import dataclass, field
 from typing import final
 
+from infinity_context_server.publishable_durable_scheduler.cross_layer_secret_validation import (
+    require_cross_layer_secret_distinctness,
+)
 from infinity_context_server.publishable_durable_scheduler.publishable_run_contracts import (
     PublishableRunConfig,
     PublishableRunProviderInputs,
@@ -72,6 +75,7 @@ class FreshChainCanaryOrchestrator:
             _fail("fresh_chain_live_1_plus_4_authorization_required")
         if type(config) is not PublishableRunConfig or type(secrets) is not PublishableRunSecrets:
             _fail("fresh_chain_orchestrator_inputs_invalid")
+        require_cross_layer_secret_distinctness(secrets)
         layout = open_fresh_chain_layout(config, secrets)
         authority = FreshChainCanaryAuthority(
             namespace_commitment_sha256=layout.namespace_commitment_sha256,
@@ -378,8 +382,7 @@ class FreshChainCanaryOrchestrator:
                 _fail("fresh_chain_recovery_absence_conflict")
             # The genuine one-shot and subscription bridge seams authenticate
             # this exact absence only while no provider intent has been
-            # claimed.  Re-entering dispatch is therefore a recovery of the
-            # pre-claim crash window, not a blind post-call redispatch.
+            # claimed. Re-entry recovers only the pre-claim crash window.
             return self._dispatch_after_started(session, ledger, intent)
         _fail("fresh_chain_recovered_call_failed")
 
@@ -537,7 +540,7 @@ def _abort_after_post_extraction_failure(
     """Best-effort durable abort plus mandatory namespace cleanup.
 
     The original failure remains authoritative.  A durable abort prevents a
-    replay from rendering, retrieving, or dispatching another provider call;
+    replay from retrieving or dispatching another provider call;
     if ledger integrity itself is unavailable, cleanup is still attempted.
     """
 
@@ -545,7 +548,7 @@ def _abort_after_post_extraction_failure(
         snapshot = ledger.read_snapshot()
     except BaseException:
         with suppress(BaseException):
-            session.cleanup()
+            session.abort_after_extraction()
         return
     if snapshot.completed or snapshot.cleanup is not None:
         return
@@ -564,7 +567,7 @@ def _abort_after_post_extraction_failure(
             snapshot = ledger.record_local_abort(reason_sha256=reason)
         except BaseException:
             with suppress(BaseException):
-                session.cleanup()
+                session.abort_after_extraction()
             return
     try:
         _finish_local_abort(
@@ -575,7 +578,7 @@ def _abort_after_post_extraction_failure(
         )
     except BaseException:
         # The abort event is replay-safe: the next invocation performs cleanup
-        # before any rendering, retrieval, or dispatch.
+        # before any retrieval or dispatch.
         return
 
 
@@ -589,7 +592,7 @@ def _finish_local_abort(
     if snapshot.abort_reason_sha256 is None:
         _fail("fresh_chain_local_abort_missing")
     if snapshot.cleanup is None:
-        cleanup = session.cleanup()
+        cleanup = session.abort_after_extraction()
         if (
             type(cleanup) is not FreshChainCleanupResult
             or cleanup.namespace_commitment_sha256 != layout.namespace_commitment_sha256
@@ -638,6 +641,7 @@ def _require_session(
         "dispatch",
         "recover",
         "capture_retrieval",
+        "abort_after_extraction",
         "cleanup",
         "close",
     )

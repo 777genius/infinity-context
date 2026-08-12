@@ -165,6 +165,13 @@ read, or validate either private document.
 For the fresh 1+4 canary, provision the separately reported fresh-canary
 secrets file with the normal five outer run keys and the exact
 `publishable-mem0-infinity-fresh-chain-provider-secrets.v1` adapter envelope.
+Before invoking it, provision the emitted absolute
+`managed-v5-live-config-r17-6f2c.json` path through the approved authority
+channel. It must be the reviewed, current-user-owned `0600` managed-v5-live
+configuration for this lane; the staging builder intentionally neither creates
+nor reads it. Also provision its referenced private credentials and runtime
+authority files before `start_reopen`/`attest_reopen`; a missing or differently
+bound managed-v5-live configuration is a hard preflight failure.
 Its `fresh_chain` object contains a distinct `one_shot_hmac_key_hex` and the
 Infinity bearer used only by the provider-free one-case retrieval preparer;
 its `run_provider` object contains the reviewed run-provider secrets. All key

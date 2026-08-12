@@ -246,6 +246,19 @@ class _Cleanup:
             residual_count=0,
         )
 
+    def abort_after_extraction(
+        self,
+        *,
+        extraction: FreshChainCallResult,
+        namespace_id: str,
+        namespace_commitment_sha256: str,
+    ) -> FreshChainCleanupResult:
+        assert extraction.stage == "mem0_extraction"
+        return self.cleanup(
+            namespace_id=namespace_id,
+            namespace_commitment_sha256=namespace_commitment_sha256,
+        )
+
 
 class _OrderedTransport:
     def __init__(self, delegate: AttestedFakeTransport, events: list[str]) -> None:

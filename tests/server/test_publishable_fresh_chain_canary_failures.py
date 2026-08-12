@@ -168,6 +168,9 @@ class _KnownFailureSession(_Session):
             residual_count=0,
         )
 
+    def abort_after_extraction(self) -> FreshChainCleanupResult:
+        raise AssertionError("provider failure cleanup must use the failure-bound path")
+
 
 class _KnownFailureFactory(_Factory):
     def __init__(self, *, known_failure: FreshChainCallFailure | None = None) -> None:

@@ -55,6 +55,7 @@ from .ledger_models import (
     FreshChainFailureDisposition,
     provider_disposition_sha256,
 )
+from .runtime_abort import abort_after_extraction as _abort_after_extraction
 from .runtime_identity import (
     require_failure as _require_failure,
 )
@@ -140,6 +141,14 @@ class FreshChainCleanupPort(Protocol):
         failure: FreshChainCallFailure | None = None,
     ) -> FreshChainCleanupResult: ...
 
+    def abort_after_extraction(
+        self,
+        *,
+        extraction: FreshChainCallResult,
+        namespace_id: str,
+        namespace_commitment_sha256: str,
+    ) -> FreshChainCleanupResult: ...
+
 
 @final
 class FreshChainCanaryRuntimeSession:
@@ -211,7 +220,7 @@ class FreshChainCanaryRuntimeSession:
             or not _methods(renderer, ("render",))
             or not _sha(getattr(renderer, "common_condition_policy_sha256", None))
             or not _methods(retrieval, ("capture",))
-            or not _methods(cleanup, ("cleanup",))
+            or not _methods(cleanup, ("abort_after_extraction", "cleanup"))
             or type(extraction_token_ceiling) is not int
             or not SCHEDULER_OFFICIAL_REQUEST_MAX_OUTPUT_TOKENS
             <= extraction_token_ceiling
@@ -472,6 +481,10 @@ class FreshChainCanaryRuntimeSession:
                 _fail("fresh_chain_cleanup_invalid")
             self._cleanup_result = result
             return result
+
+    def abort_after_extraction(self) -> FreshChainCleanupResult:
+        """Durably delete after authenticated extraction, before retrieval if needed."""
+        return _abort_after_extraction(self)
 
     def close(self) -> None:
         with self._lock:

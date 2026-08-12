@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import hmac
 import os
 import stat
 from collections.abc import Callable
@@ -29,6 +28,9 @@ from infinity_context_server.publishable_durable_scheduler import (
 )
 from infinity_context_server.publishable_durable_scheduler.contracts import (
     SchedulerSuiteAuthority,
+)
+from infinity_context_server.publishable_durable_scheduler.cross_layer_secret_validation import (
+    require_cross_layer_secret_distinctness,
 )
 from infinity_context_server.publishable_durable_scheduler.publishable_run_attestation import (
     PublishableRunAttestation,
@@ -96,7 +98,7 @@ class PublishableRunOrchestrator:
     ) -> PublishableRunAttestation:
         if type(config) is not PublishableRunConfig or type(secrets) is not PublishableRunSecrets:
             _fail("publishable_run_orchestrator_inputs_invalid")
-        _require_cross_layer_secret_distinctness(secrets)
+        require_cross_layer_secret_distinctness(secrets)
         execution_authority = _issue_publishable_execution_authority()
         mode = _open_mode(config)
         prior_receipt = _authenticate_existing_receipt(config=config, secrets=secrets)
@@ -350,43 +352,6 @@ def _drive(
         if step.disposition is SchedulerStepDisposition.COMMITTED:
             continue
         return step.disposition
-
-
-def _require_cross_layer_secret_distinctness(secrets: PublishableRunSecrets) -> None:
-    """Reject adapter plaintext or hex material equal to any outer authority key."""
-
-    outer_keys = (
-        secrets.official_case_authentication_key,
-        *secrets.scheduler_authentication_keys,
-        secrets.suite_seal_authentication_key,
-        secrets.publication_receipt_authentication_key,
-    )
-    stack: list[object] = [secrets.adapter_secrets()]
-    while stack:
-        current = stack.pop()
-        if type(current) is dict:
-            stack.extend(current.values())
-        elif type(current) is list:
-            stack.extend(current)
-        elif type(current) is str and any(
-            _adapter_string_matches_key(current, key) for key in outer_keys
-        ):
-            _fail("publishable_run_cross_layer_secret_reuse")
-
-
-def _adapter_string_matches_key(value: str, key: bytes) -> bool:
-    try:
-        encoded = value.encode("utf-8")
-    except UnicodeEncodeError:
-        _fail("publishable_run_adapter_secrets_invalid")
-    if len(encoded) == len(key) and hmac.compare_digest(encoded, key):
-        return True
-    return (
-        len(value) == len(key) * 2
-        and value.isascii()
-        and all(character in "0123456789abcdefABCDEF" for character in value)
-        and hmac.compare_digest(value.casefold(), key.hex())
-    )
 
 
 def _authority_checkpoint(
