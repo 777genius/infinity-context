@@ -35,13 +35,15 @@ from infinity_context_server.processes.publishable_full_extraction_suite import 
 )
 from infinity_context_server.publishable_durable_scheduler import (
     publishable_extraction_terminal_adapter,
-    publishable_run_orchestrator,
 )
 from infinity_context_server.publishable_durable_scheduler.contracts import (
     LOCOMO_PROFILE,
     LONGMEMEVAL_PROFILE,
     SchedulerSuiteAuthority,
     commitment,
+)
+from infinity_context_server.publishable_durable_scheduler.cross_layer_secret_validation import (
+    require_cross_layer_secret_distinctness,
 )
 from infinity_context_server.publishable_durable_scheduler.publishable_run_contracts import (
     PublishableRunConfig,
@@ -519,7 +521,7 @@ def _validate_authentication_keys(
     session: OpenedPublishableInputPreparationSession,
 ) -> None:
     try:
-        publishable_run_orchestrator._require_cross_layer_secret_distinctness(secrets)
+        require_cross_layer_secret_distinctness(secrets)
         outer = (
             secrets.official_case_authentication_key,
             *secrets.scheduler_authentication_keys,
