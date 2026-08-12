@@ -26,6 +26,7 @@ else:
 LANE_CONFIG_SCHEMA = "publishable-mem0-v5-isolated-lane.v2"
 RUN_CONFIG_SCHEMA = "memory-comparison-publishable-run-config.v1"
 RUN_PROVIDER_CONFIG_SCHEMA = "publishable-mem0-infinity-run-provider.v2"
+FRESH_PROVIDER_CONFIG_SCHEMA = "publishable-mem0-infinity-fresh-chain-provider.v1"
 BRIDGE_PORTS = (8891, 8892, 8893)
 EXPECTED_CASE_COUNT = staging_contracts.EXPECTED_CASE_COUNT
 EXPECTED_EVALUATION_CALL_COUNT = staging_contracts.EXPECTED_EVALUATION_CALL_COUNT
@@ -58,6 +59,7 @@ class StagingCommands:
     attest_reopen: tuple[str, ...]
     prepare_inputs: tuple[str, ...]
     run_2040: tuple[str, ...]
+    fresh_canary: tuple[str, ...]
 
     def payload(self) -> dict[str, object]:
         initial_order = (
@@ -73,15 +75,14 @@ class StagingCommands:
             ("run_2040", self.run_2040),
         )
         initial = [
-            {"command": shlex.join(command), "name": name}
-            for name, command in initial_order
+            {"command": shlex.join(command), "name": name} for name, command in initial_order
         ]
         recovery = [
-            {"command": shlex.join(command), "name": name}
-            for name, command in crash_recovery_order
+            {"command": shlex.join(command), "name": name} for name, command in crash_recovery_order
         ]
         return {
             **{name: shlex.join(command) for name, command in initial_order},
+            "fresh_canary": shlex.join(self.fresh_canary),
             "crash_reopen_resume_order": recovery,
             "initial_paid_create_order": initial,
             "operator_order": initial,
@@ -97,6 +98,8 @@ class StagingBundle:
     secrets_path: Path
     input_provider_config_path: Path
     input_provider_secrets_path: Path
+    fresh_config_path: Path
+    fresh_secrets_path: Path
     commands: StagingCommands
 
     def payload(self) -> dict[str, object]:
@@ -107,6 +110,8 @@ class StagingBundle:
             "input_provider_secrets_path_not_created": str(self.input_provider_secrets_path),
             "run_2040_config_path": str(self.run_config_path),
             "run_2040_private_root": str(self.run_private_root),
+            "fresh_canary_config_path": str(self.fresh_config_path),
+            "fresh_canary_secrets_path_not_created": str(self.fresh_secrets_path),
             "secrets_path_not_created": str(self.secrets_path),
             "status": "STAGED_SECRET_FREE",
         }
@@ -158,6 +163,8 @@ def build_staging_bundle(
     secrets_path = run_root / template.run_secrets_file_name
     input_provider_config_path = run_root / _INPUT_PROVIDER_CONFIG_FILE_NAME
     input_provider_secrets_path = run_root / _INPUT_PROVIDER_SECRETS_FILE_NAME
+    fresh_config_path = run_root / "fresh-chain-1-plus-4.json"
+    fresh_secrets_path = run_root / "fresh-chain-1-plus-4.secrets.json"
     private_paths = {
         key: lane_root / name for key, name in template.private_directory_names.items()
     }
@@ -181,6 +188,8 @@ def build_staging_bundle(
         secrets_path,
         input_provider_config_path,
         input_provider_secrets_path,
+        fresh_config_path,
+        fresh_secrets_path,
         *private_paths.values(),
         run_state_root,
         *run_state_paths.values(),
@@ -213,6 +222,11 @@ def build_staging_bundle(
         public_inputs=public_inputs,
         run_state_paths=run_state_paths,
     )
+    fresh_payload = _fresh_run_payload(
+        run_payload=run_payload,
+        run_root=run_root,
+        authority_root=authority_root,
+    )
     _validate_lane_payload(lane_payload, template=template, public_inputs=public_inputs)
     _validate_run_payload(run_payload, run_root=run_root)
 
@@ -231,12 +245,15 @@ def build_staging_bundle(
             secrets_path,
             input_provider_config_path,
             input_provider_secrets_path,
+            fresh_config_path,
+            fresh_secrets_path,
         )
     )
     for directory in private_directories:
         _ensure_private_directory(directory)
     _write_private_json(lane_config_path, lane_payload)
     _write_private_json(run_config_path, run_payload)
+    _write_private_json(fresh_config_path, fresh_payload)
 
     commands = _commands(
         lane_config_path=lane_config_path,
@@ -247,6 +264,8 @@ def build_staging_bundle(
         secrets_path=secrets_path,
         input_provider_config_path=input_provider_config_path,
         input_provider_secrets_path=input_provider_secrets_path,
+        fresh_config_path=fresh_config_path,
+        fresh_secrets_path=fresh_secrets_path,
     )
     return StagingBundle(
         output_root=output_root,
@@ -256,8 +275,48 @@ def build_staging_bundle(
         secrets_path=secrets_path,
         input_provider_config_path=input_provider_config_path,
         input_provider_secrets_path=input_provider_secrets_path,
+        fresh_config_path=fresh_config_path,
+        fresh_secrets_path=fresh_secrets_path,
         commands=commands,
     )
+
+
+def _fresh_run_payload(
+    *, run_payload: dict[str, object], run_root: Path, authority_root: Path
+) -> dict[str, object]:
+    adapter = run_payload["adapter"]
+    if type(adapter) is not dict:
+        _fail("operator_staging_fresh_canary_config_invalid")
+    state_root = run_root / "fresh-chain-state-r17-6f2c"
+    return {
+        "adapter": {
+            "fresh_chain": {
+                "current_date": "2026-08-12",
+                "infinity_retrieval_database_path": str(
+                    state_root / "sealed-infinity-one-case.sqlite3"
+                ),
+                "managed_v5_live_config_path": str(
+                    authority_root / "managed-v5-live-config-r17-6f2c.json"
+                ),
+                "operator_extraction_ceiling": 16384,
+                "operator_total_ceiling": 131072,
+                "request_timeout_seconds": 30,
+            },
+            "run_provider": adapter,
+            "schema_version": FRESH_PROVIDER_CONFIG_SCHEMA,
+        },
+        "dependency_provider": run_payload["dependency_provider"],
+        "max_dispatches_per_batch": 5,
+        "publication_key_id": "fresh-chain-activation-only-r17-6f2c",
+        "schema_version": RUN_CONFIG_SCHEMA,
+        "state": {
+            "longmemeval_scheduler_database_path": str(state_root / "unused-longmemeval.sqlite3"),
+            "locomo_scheduler_database_path": str(state_root / "unused-locomo.sqlite3"),
+            "official_case_authority_path": str(state_root / "unused-official.sqlite3"),
+            "publication_receipt_path": str(state_root / "activation-evidence.json"),
+            "suite_seal_database_path": str(state_root / "unused-suite-seal.sqlite3"),
+        },
+    }
 
 
 def _lane_payload(
@@ -477,6 +536,8 @@ def _commands(
     secrets_path: Path,
     input_provider_config_path: Path,
     input_provider_secrets_path: Path,
+    fresh_config_path: Path,
+    fresh_secrets_path: Path,
 ) -> StagingCommands:
     def lane(command: str, mode: str) -> tuple[str, ...]:
         return (
@@ -528,6 +589,16 @@ def _commands(
             "--secrets",
             str(secrets_path),
             "--allow-live",
+        ),
+        fresh_canary=(
+            "infinity-context-publishable-fresh-chain-canary",
+            "--private-root",
+            str(run_root),
+            "--config",
+            str(fresh_config_path),
+            "--secrets",
+            str(fresh_secrets_path),
+            "--allow-live-1-plus-4",
         ),
     )
 

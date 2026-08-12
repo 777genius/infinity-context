@@ -119,6 +119,7 @@ def test_builds_exact_secret_free_lane_and_2040_configs_with_private_modes(
     bundle = _build(tmp_path)
     lane = json.loads(bundle.lane_config_path.read_bytes())
     run = json.loads(bundle.run_config_path.read_bytes())
+    fresh = json.loads(bundle.fresh_config_path.read_bytes())
 
     assert lane["schema_version"] == "publishable-mem0-v5-isolated-lane.v2"
     assert lane["bind_mount_authority"] == {
@@ -260,6 +261,15 @@ def test_builds_exact_secret_free_lane_and_2040_configs_with_private_modes(
     assert len(extraction_terminal_paths) == 2
     assert all(not path.exists() for path in extraction_terminal_paths)
     assert not bundle.secrets_path.exists()
+    assert not bundle.fresh_secrets_path.exists()
+    assert fresh["max_dispatches_per_batch"] == 5
+    assert fresh["adapter"]["schema_version"] == (
+        "publishable-mem0-infinity-fresh-chain-provider.v1"
+    )
+    assert fresh["adapter"]["fresh_chain"]["infinity_retrieval_database_path"].endswith(
+        "/sealed-infinity-one-case.sqlite3"
+    )
+    assert "publishable" not in fresh or fresh.get("publishable") is False
     assert bundle.input_provider_config_path == (
         bundle.run_private_root / "input-provider-config.json"
     )
@@ -402,6 +412,8 @@ def test_commands_are_exact_for_acceptance_reopen_attest_prepare_and_run(
     secrets = str(bundle.secrets_path)
     input_provider_config = str(bundle.input_provider_config_path)
     input_provider_secrets = str(bundle.input_provider_secrets_path)
+    fresh_config = str(bundle.fresh_config_path)
+    fresh_secrets = str(bundle.fresh_secrets_path)
     project = "mem0-v5-publishable-staging-r17-6f2c"
     docker_host = "unix:///run/infinity-locomo-docker/docker.sock"
     acceptance = (
@@ -458,6 +470,20 @@ def test_commands_are_exact_for_acceptance_reopen_attest_prepare_and_run(
         f"--input-provider-secrets {input_provider_secrets} "
         "--max-extraction-steps 130226 --allow-subscription-dispatch"
     )
+    fresh_canary = (
+        f"infinity-context-publishable-fresh-chain-canary --private-root {run_root} "
+        f"--config {fresh_config} --secrets {fresh_secrets} --allow-live-1-plus-4"
+    )
+    assert bundle.commands.fresh_canary == (
+        "infinity-context-publishable-fresh-chain-canary",
+        "--private-root",
+        run_root,
+        "--config",
+        fresh_config,
+        "--secrets",
+        fresh_secrets,
+        "--allow-live-1-plus-4",
+    )
     initial_order = [
         {
             "command": acceptance,
@@ -493,6 +519,7 @@ def test_commands_are_exact_for_acceptance_reopen_attest_prepare_and_run(
             f"infinity-context-publishable-mem0-v5 attest --config {lane} --fleet-mode reopen"
         ),
         "crash_reopen_resume_order": [initial_order[1], initial_order[2], initial_order[4]],
+        "fresh_canary": fresh_canary,
         "initial_paid_create_order": initial_order,
         "operator_order": initial_order,
         "prepare_inputs": prepare_inputs,
@@ -934,15 +961,12 @@ def test_cli_reports_only_secret_free_paths_and_exact_commands(
     assert captured.err == ""
     assert payload["status"] == "STAGED_SECRET_FREE"
     assert payload["secrets_path_not_created"].endswith("/publishable-run-2040.secrets.json")
-    assert payload["input_provider_config_path_not_created"].endswith(
-        "/input-provider-config.json"
-    )
+    assert payload["input_provider_config_path_not_created"].endswith("/input-provider-config.json")
     assert payload["input_provider_secrets_path_not_created"].endswith(
         "/input-provider-secrets.json"
     )
     assert payload["commands"]["prepare_inputs"].endswith(
-        "/input-provider-secrets.json --max-extraction-steps 130226 "
-        "--allow-subscription-dispatch"
+        "/input-provider-secrets.json --max-extraction-steps 130226 --allow-subscription-dispatch"
     )
     assert payload["commands"]["run_2040"].endswith(
         "/publishable-run-2040.secrets.json --allow-live"

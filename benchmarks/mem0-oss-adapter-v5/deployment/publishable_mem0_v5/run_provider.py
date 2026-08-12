@@ -125,6 +125,13 @@ class Mem0InfinityPublishableRunDependencyFactory:
             bridge_keys=bridge_keys,
         )
 
+    def open_fresh_chain_session(self, **kwargs: object):
+        """Delegate the fixed 1+4 canary to its cohesive production composer."""
+
+        from .fresh_chain_provider import open_fresh_chain_session
+
+        return open_fresh_chain_session(**kwargs)
+
 
 @final
 @dataclass(frozen=True, slots=True, repr=False)

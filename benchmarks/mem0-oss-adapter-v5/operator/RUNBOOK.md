@@ -84,12 +84,14 @@ or input-provider document path is a collision and is never read or overwritten.
 
 ## Review and provision
 
-Expect the builder's single JSON result to report `STAGED_SECRET_FREE`, five
+Expect the builder's single JSON result to report `STAGED_SECRET_FREE`, the five
 fully quoted commands, and explicit `initial_paid_create_order` and
 `crash_reopen_resume_order` lists. `operator_order` is the same initial paid
-order retained for compatibility. Review both generated configs and confirm
+order retained for compatibility. It also reports the separately authorized
+`fresh_canary` command. Review all generated configs and confirm
 that `secrets_path_not_created`, `input_provider_config_path_not_created`, and
-`input_provider_secrets_path_not_created` do not exist.
+`input_provider_secrets_path_not_created` do not exist. Confirm the reported
+`fresh_canary_secrets_path_not_created` does not exist either.
 Populate the authority layout referenced by the lane config using reviewed
 immutable public artifacts.
 
@@ -160,6 +162,16 @@ token and six role-separated HMAC keys. Do not reuse them with each other or
 with any run-secret role. The staging builder deliberately does not synthesize,
 read, or validate either private document.
 
+For the fresh 1+4 canary, provision the separately reported fresh-canary
+secrets file with the normal five outer run keys and the exact
+`publishable-mem0-infinity-fresh-chain-provider-secrets.v1` adapter envelope.
+Its `fresh_chain` object contains a distinct `one_shot_hmac_key_hex` and the
+Infinity bearer used only by the provider-free one-case retrieval preparer;
+its `run_provider` object contains the reviewed run-provider secrets. All key
+and bearer roles must be distinct. The file must be current-user-owned `0600`
+under the reported `0700` private root. Readiness still requires successful
+`start_reopen` and `attest_reopen` before this command.
+
 The nested project declares the repository's Core, Server, and Adapters source
 roots explicitly for pytest. From the repository root, reproduce the provider
 boundary collection without resolving or changing dependencies:
@@ -193,6 +205,22 @@ command then selects scheduler `RESUME`, again against a newly attested fleet
 ## Exact command order
 
 Use the commands emitted by the builder without editing their paths or flags:
+
+The explicitly test-only fresh canary does not run `prepare_inputs` and never
+prepares the 2,040-case authority. After `start_reopen` and `attest_reopen`, run
+the emitted command exactly:
+
+```text
+infinity-context-publishable-fresh-chain-canary --private-root <reported-run-root> --config <reported-fresh-config> --secrets <reported-fresh-secrets> --allow-live-1-plus-4
+```
+
+Before the one extraction and four evaluation calls, that command creates or
+authenticates a separate sealed retrieval authority containing exactly two
+structural groups for `conv-26:qa:1`: the genuine Infinity result and an empty
+Mem0 pairing row. This preparation makes no subscription-runtime or Mem0
+provider call. The result remains `publishable=false` activation evidence. On
+any post-extraction failure it durably aborts, deletes the fresh namespace, and
+terminal replay performs no provider calls.
 
 Initial paid scheduler `CREATE` uses `initial_paid_create_order`:
 
