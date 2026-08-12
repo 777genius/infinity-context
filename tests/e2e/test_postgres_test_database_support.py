@@ -3,8 +3,9 @@
 from __future__ import annotations
 
 import asyncio
+from importlib.resources import files
 
-from postgres_test_database import PostgresTestDatabase
+from postgres_test_database import STRICT_V4_CAPABILITY_ROLES, PostgresTestDatabase
 
 
 class _RecordingAdmin:
@@ -15,7 +16,7 @@ class _RecordingAdmin:
         self.statements.append(statement)
 
 
-def test_test_database_restores_safe_published_writer_migration_roles() -> None:
+def test_test_database_executes_exact_production_role_provisioning_once() -> None:
     admin = _RecordingAdmin()
     database = PostgresTestDatabase(
         asyncpg=None,
@@ -27,17 +28,29 @@ def test_test_database_restores_safe_published_writer_migration_roles() -> None:
 
     asyncio.run(database._provision_strict_v4_capability_roles(admin))
 
-    assert len(admin.statements) == 2
-    production_provisioning, compatibility = admin.statements
-    assert "strict_v4_fact_writer" not in production_provisioning
-    assert "strict_v4_document_writer" not in production_provisioning
+    expected = (
+        files("infinity_context_adapters.postgres")
+        .joinpath("provisioning", "strict_v4_roles.sql")
+        .read_text(encoding="utf-8")
+    )
+    assert admin.statements == [expected]
+
+    for role in (
+        "infinity_context_canonical_writer",
+        "infinity_context_strict_v4_registrar",
+        "infinity_context_strict_v4_sealer",
+    ):
+        assert role in expected
     for role in (
         "infinity_context_strict_v4_fact_writer",
         "infinity_context_strict_v4_document_writer",
     ):
-        assert role in compatibility
-    assert "NOLOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE" in compatibility
-    assert "NOREPLICATION NOBYPASSRLS" in compatibility
-    assert "FROM pg_catalog.pg_auth_members" in compatibility
-    assert "REVOKE ALL PRIVILEGES ON SCHEMA public" in compatibility
-    assert "GRANT USAGE ON SCHEMA public" in compatibility
+        assert role not in expected
+
+
+def test_runtime_capabilities_are_exactly_the_three_production_roles() -> None:
+    assert STRICT_V4_CAPABILITY_ROLES == (
+        "infinity_context_canonical_writer",
+        "infinity_context_strict_v4_registrar",
+        "infinity_context_strict_v4_sealer",
+    )

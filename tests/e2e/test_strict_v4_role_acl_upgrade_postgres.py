@@ -1,4 +1,4 @@
-"""Fresh PostgreSQL proof that 0036 removes hostile inherited ACLs."""
+"""Fresh PostgreSQL proof that strict-v4 normalizes hostile ACLs."""
 
 from __future__ import annotations
 
@@ -17,6 +17,11 @@ ROLES = (
     "infinity_context_strict_v4_registrar",
     "infinity_context_strict_v4_sealer",
 )
+RETIRED_ROLES = (
+    "infinity_context_strict_v4_fact_writer",
+    "infinity_context_strict_v4_document_writer",
+)
+CANONICAL_WRITER = ROLES[0]
 ALL_TABLE_PRIVILEGES = (
     "SELECT",
     "INSERT",
@@ -25,6 +30,51 @@ ALL_TABLE_PRIVILEGES = (
     "TRUNCATE",
     "REFERENCES",
     "TRIGGER",
+)
+
+_S = frozenset({"SELECT"})
+_SI = frozenset({"SELECT", "INSERT"})
+_SID = frozenset({"SELECT", "INSERT", "DELETE"})
+_NONE = frozenset()
+
+EXPECTED_TABLE_ACL = {
+    "memory_comparison_benchmark_runs": (_S, _S, _S),
+    "memory_cleanup_v3_context_authorities": (_S, _SI, _S),
+    "memory_comparison_strict_v4_preparations": (_S, _NONE, _SI),
+    "memory_spaces": (_S, _NONE, _NONE),
+    "memory_scopes": (_SI, _S, _S),
+    "memory_threads": (_SI, _S, _S),
+    "memory_facts": (_SI, _S, _S),
+    "memory_episodes": (_NONE, _NONE, _NONE),
+    "memory_documents": (_SI, _S, _S),
+    "memory_chunks": (_SI, _S, _S),
+    "memory_fact_operation_receipts": (_SI, _S, _S),
+    "memory_idempotency_records": (_SI, _S, _S),
+    "memory_anchors": (_NONE, _NONE, _NONE),
+    "memory_assets": (_NONE, _NONE, _NONE),
+    "memory_asset_extraction_jobs": (_NONE, _NONE, _NONE),
+    "memory_fact_relations": (_NONE, _NONE, _NONE),
+    "memory_fact_temporal_decisions": (_NONE, _NONE, _NONE),
+    "memory_suggestions": (_NONE, _NONE, _NONE),
+    "memory_captures": (_NONE, _NONE, _NONE),
+    "memory_context_links": (_NONE, _NONE, _NONE),
+    "memory_context_link_suggestions": (_NONE, _NONE, _NONE),
+    "memory_projection_result_receipts": (_NONE, _S, _S),
+    "memory_projection_receipt_claims": (_NONE, _NONE, _NONE),
+    "memory_projection_target_identities": (_NONE, _NONE, _NONE),
+    "memory_projection_receipt_identity_links": (_NONE, _NONE, _NONE),
+    "memory_cleanup_inventory_materializations": (_NONE, _NONE, _NONE),
+    "memory_cleanup_inventory_keys": (_NONE, _NONE, _NONE),
+    "memory_source_refs": (_SID, _NONE, _NONE),
+    "memory_fact_versions": (_SI, _NONE, _NONE),
+    "memory_outbox": (_SI, _NONE, _NONE),
+}
+
+SEQUENCES = (
+    "memory_source_refs_id_seq",
+    "memory_fact_versions_id_seq",
+    "memory_outbox_id_seq",
+    "memory_idempotency_records_id_seq",
 )
 
 
@@ -54,27 +104,25 @@ async def _scenario(database_url: str) -> None:
         await _install_versioned_schema_through(database, "0035_")
         connection = await database.connect()
         try:
+            await _assert_retired_roles_absent(connection)
             await connection.execute("GRANT CREATE ON SCHEMA public TO PUBLIC")
             for role in ROLES:
                 await connection.execute(f"GRANT CREATE ON SCHEMA public TO {role}")
-            for table in (
-                "memory_comparison_benchmark_runs",
-                "memory_cleanup_v3_context_authorities",
-                "memory_idempotency_records",
-                "memory_projection_result_receipts",
-                "memory_source_refs",
-                "memory_fact_versions",
-                "memory_outbox",
-            ):
+            for table in EXPECTED_TABLE_ACL:
+                if not await connection.fetchval(
+                    "SELECT pg_catalog.to_regclass($1) IS NOT NULL",
+                    f"public.{table}",
+                ):
+                    continue
                 await connection.execute(f"GRANT ALL ON public.{table} TO PUBLIC")
                 for role in ROLES:
                     await connection.execute(f"GRANT ALL ON public.{table} TO {role}")
-            for sequence in (
-                "memory_idempotency_records_id_seq",
-                "memory_source_refs_id_seq",
-                "memory_fact_versions_id_seq",
-                "memory_outbox_id_seq",
-            ):
+            for sequence in SEQUENCES:
+                if not await connection.fetchval(
+                    "SELECT pg_catalog.to_regclass($1) IS NOT NULL",
+                    f"public.{sequence}",
+                ):
+                    continue
                 await connection.execute(f"GRANT ALL ON SEQUENCE public.{sequence} TO PUBLIC")
                 for role in ROLES:
                     await connection.execute(f"GRANT ALL ON SEQUENCE public.{sequence} TO {role}")
@@ -102,6 +150,7 @@ async def _scenario(database_url: str) -> None:
 
         connection = await database.connect()
         try:
+            await _assert_retired_roles_absent(connection)
             for role in ROLES:
                 assert await connection.fetchval(
                     "SELECT pg_catalog.has_schema_privilege($1, 'public', 'USAGE')",
@@ -123,163 +172,36 @@ async def _scenario(database_url: str) -> None:
                 )
                 """
             )
-            await _assert_exact(
-                connection,
-                grantee="PUBLIC",
-                table="memory_cleanup_v3_context_authorities",
-                expected=frozenset(),
-            )
-            for table in (
-                "memory_comparison_benchmark_runs",
-                "memory_idempotency_records",
-            ):
+            for table, expected_by_role in EXPECTED_TABLE_ACL.items():
                 await _assert_exact(
                     connection,
                     grantee="PUBLIC",
                     table=table,
-                    expected=frozenset(),
+                    expected=_NONE,
                 )
-            for role in ROLES:
-                await _assert_exact(
-                    connection,
-                    grantee=role,
-                    table="memory_comparison_benchmark_runs",
-                    expected=frozenset({"SELECT"}),
-                )
-            await _assert_exact(
-                connection,
-                grantee=ROLES[0],
-                table="memory_cleanup_v3_context_authorities",
-                expected=frozenset({"SELECT"}),
-            )
-            await _assert_exact(
-                connection,
-                grantee=ROLES[1],
-                table="memory_cleanup_v3_context_authorities",
-                expected=frozenset({"SELECT", "INSERT"}),
-            )
-            await _assert_sequence_exact(
-                connection,
-                grantee="PUBLIC",
-                expected=frozenset(),
-            )
-            await _assert_sequence_exact(
-                connection,
-                grantee=ROLES[0],
-                expected=frozenset({"USAGE"}),
-            )
-            for role in ROLES[1:]:
-                await _assert_sequence_exact(
-                    connection,
-                    grantee=role,
-                    expected=frozenset(),
-                )
-            await _assert_canonical_sequence_inventory(connection)
-            await _assert_exact(
-                connection,
-                grantee=ROLES[2],
-                table="memory_cleanup_v3_context_authorities",
-                expected=frozenset({"SELECT"}),
-            )
-            await _assert_exact(
-                connection,
-                grantee=ROLES[0],
-                table="memory_idempotency_records",
-                expected=frozenset({"SELECT", "INSERT"}),
-            )
-            for role in ROLES[1:]:
-                await _assert_exact(
-                    connection,
-                    grantee=role,
-                    table="memory_idempotency_records",
-                    expected=frozenset({"SELECT"}),
-                )
-            for table in (
-                "memory_source_refs",
-                "memory_fact_versions",
-                "memory_outbox",
-            ):
-                for grantee in ("PUBLIC", *ROLES):
+                for role, expected in zip(ROLES, expected_by_role, strict=True):
                     await _assert_exact(
                         connection,
-                        grantee=grantee,
+                        grantee=role,
                         table=table,
-                        expected=frozenset(),
+                        expected=expected,
                     )
-            for sequence in (
-                "memory_source_refs_id_seq",
-                "memory_fact_versions_id_seq",
-                "memory_outbox_id_seq",
-            ):
-                for grantee in ("PUBLIC", *ROLES):
+
+            for sequence in SEQUENCES:
+                await _assert_sequence_exact(
+                    connection,
+                    grantee="PUBLIC",
+                    sequence=sequence,
+                    expected=_NONE,
+                )
+                for role in ROLES:
                     await _assert_sequence_exact(
                         connection,
-                        grantee=grantee,
+                        grantee=role,
                         sequence=sequence,
-                        expected=frozenset(),
+                        expected=frozenset({"USAGE"}) if role == CANONICAL_WRITER else _NONE,
                     )
-            await _assert_exact(
-                connection,
-                grantee="PUBLIC",
-                table="memory_projection_result_receipts",
-                expected=frozenset(),
-            )
-            await _assert_exact(
-                connection,
-                grantee=ROLES[0],
-                table="memory_projection_result_receipts",
-                expected=frozenset(),
-            )
-            for role in ROLES[1:]:
-                await _assert_exact(
-                    connection,
-                    grantee=role,
-                    table="memory_projection_result_receipts",
-                    expected=frozenset({"SELECT"}),
-                )
-            for table in (
-                "memory_spaces",
-                "memory_scopes",
-                "memory_threads",
-                "memory_facts",
-                "memory_episodes",
-                "memory_documents",
-                "memory_chunks",
-                "memory_fact_operation_receipts",
-                "memory_anchors",
-                "memory_assets",
-                "memory_asset_extraction_jobs",
-                "memory_fact_relations",
-                "memory_fact_temporal_decisions",
-                "memory_suggestions",
-                "memory_captures",
-                "memory_context_links",
-                "memory_context_link_suggestions",
-            ):
-                await _assert_exact(
-                    connection,
-                    grantee=ROLES[0],
-                    table=table,
-                    expected=frozenset(),
-                )
-            await _assert_exact(
-                connection,
-                grantee=ROLES[0],
-                table="memory_comparison_strict_v4_preparations",
-                expected=frozenset({"SELECT"}),
-            )
-            await _assert_exact(
-                connection,
-                grantee=ROLES[1],
-                table="memory_comparison_strict_v4_preparations",
-                expected=frozenset(),
-            )
-            await _assert_exact(
-                connection,
-                grantee=ROLES[2],
-                table="memory_comparison_strict_v4_preparations",
-                expected=frozenset({"SELECT", "INSERT"}),
-            )
+            await _assert_canonical_sequence_inventory(connection)
         finally:
             await connection.close()
     finally:
@@ -403,6 +325,13 @@ async def _assert_exact(connection, *, grantee: str, table: str, expected) -> No
             )
         }
     assert observed == expected
+
+
+async def _assert_retired_roles_absent(connection) -> None:
+    assert not await connection.fetchval(
+        "SELECT EXISTS (SELECT 1 FROM pg_catalog.pg_roles WHERE rolname=ANY($1::text[]))",
+        list(RETIRED_ROLES),
+    )
 
 
 async def _assert_sequence_exact(

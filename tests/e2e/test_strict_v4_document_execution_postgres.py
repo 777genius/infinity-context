@@ -152,11 +152,11 @@ async def _assert_authenticated_document_execution(
             suffix="sealer",
         )
         runtime_roles.append(sealer_role)
-        document_role = await database.create_runtime_role(
-            capability_role="infinity_context_strict_v4_document_writer",
-            suffix="document_writer",
+        canonical_writer_role = await database.create_runtime_role(
+            capability_role="infinity_context_canonical_writer",
+            suffix="canonical_writer",
         )
-        runtime_roles.append(document_role)
+        runtime_roles.append(canonical_writer_role)
         await _insert_pristine_run(database, inputs, projection, run_id)
         phase("runtime-roles-and-run-ready")
 
@@ -220,7 +220,7 @@ async def _assert_authenticated_document_execution(
         phase("document-authority-recovered")
         try:
             runtime_url = make_url(database.app_url).set(
-                username=document_role,
+                username=canonical_writer_role,
                 password=STRICT_V4_TEST_ROLE_PASSWORD,
             )
             runtime_engine = build_async_engine(runtime_url.render_as_string(hide_password=False))

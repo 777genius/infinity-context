@@ -61,18 +61,18 @@ def test_strict_v4_writer_authority_on_fresh_postgres_when_configured() -> None:
     asyncio.run(_assert_strict_v4_writer_authority(database_url))
 
 
-def test_strict_v4_fact_writer_executes_exact_production_graph_when_configured() -> None:
+def test_strict_v4_canonical_writer_executes_exact_fact_graph_when_configured() -> None:
     database_url = os.getenv("INFINITY_CONTEXT_TEST_POSTGRES_URL")
     if not database_url:
         pytest.skip("INFINITY_CONTEXT_TEST_POSTGRES_URL is not configured")
-    asyncio.run(_assert_strict_v4_fact_writer_graph(database_url))
+    asyncio.run(_assert_strict_v4_canonical_fact_graph(database_url))
 
 
-def test_strict_v4_document_writer_executes_exact_production_graph_when_configured() -> None:
+def test_strict_v4_canonical_writer_executes_exact_document_graph_when_configured() -> None:
     database_url = os.getenv("INFINITY_CONTEXT_TEST_POSTGRES_URL")
     if not database_url:
         pytest.skip("INFINITY_CONTEXT_TEST_POSTGRES_URL is not configured")
-    asyncio.run(_assert_strict_v4_document_writer_graph(database_url))
+    asyncio.run(_assert_strict_v4_canonical_document_graph(database_url))
 
 
 class _ExactFactAuthority:
@@ -124,7 +124,7 @@ class _ExactDocumentAuthority:
         )
 
 
-async def _assert_strict_v4_document_writer_graph(database_url: str) -> None:
+async def _assert_strict_v4_canonical_document_graph(database_url: str) -> None:
     asyncpg = pytest.importorskip("asyncpg")
     database = PostgresTestDatabase.from_url(
         database_url,
@@ -149,8 +149,8 @@ async def _assert_strict_v4_document_writer_graph(database_url: str) -> None:
             await admin.close()
 
         runtime_role = await database.create_runtime_role(
-            capability_role="infinity_context_strict_v4_document_writer",
-            suffix="document_writer",
+            capability_role="infinity_context_canonical_writer",
+            suffix="canonical_document_writer",
         )
         runtime_url = make_url(database.app_url).set(
             username=runtime_role,
@@ -239,6 +239,16 @@ async def _assert_strict_v4_document_writer_graph(database_url: str) -> None:
         assert outbox["event_type"] == "vector.upsert_chunk"
         assert outbox["status"] == "pending"
         assert json.loads(outbox["payload_json"])["chunk_id"] == str(first.chunks[0].id)
+
+        runtime = await database.connect_as_runtime_role(runtime_role)
+        try:
+            await _assert_document_graph_rejects_fact_payload(
+                runtime,
+                chunk_id=str(first.chunks[0].id),
+                fact_id="opposite-fact-payload",
+            )
+        finally:
+            await runtime.close()
     finally:
         if engine is not None:
             await engine.dispose()
@@ -283,7 +293,7 @@ async def _seed_strict_document_run(connection) -> None:
     await _seal_strict(connection, suffix="document")
 
 
-async def _assert_strict_v4_fact_writer_graph(database_url: str) -> None:
+async def _assert_strict_v4_canonical_fact_graph(database_url: str) -> None:
     asyncpg = pytest.importorskip("asyncpg")
     database = PostgresTestDatabase.from_url(
         database_url,
@@ -308,8 +318,8 @@ async def _assert_strict_v4_fact_writer_graph(database_url: str) -> None:
             await admin.close()
 
         runtime_role = await database.create_runtime_role(
-            capability_role="infinity_context_strict_v4_fact_writer",
-            suffix="fact_writer",
+            capability_role="infinity_context_canonical_writer",
+            suffix="canonical_fact_writer",
         )
         runtime_url = make_url(database.app_url).set(
             username=runtime_role,
@@ -420,6 +430,16 @@ async def _assert_strict_v4_fact_writer_graph(database_url: str) -> None:
             outbox["status"],
         ) == ("fact", 1, "fact.created", "pending")
         assert json.loads(outbox["payload_json"])["space_id"] == _fact_space()
+
+        runtime = await database.connect_as_runtime_role(runtime_role)
+        try:
+            await _assert_fact_graph_rejects_document_payload(
+                runtime,
+                fact_id=str(first.fact.identity.fact_id),
+                chunk_id="opposite-document-payload",
+            )
+        finally:
+            await runtime.close()
     finally:
         if engine is not None:
             await engine.dispose()
@@ -462,6 +482,72 @@ async def _seed_strict_fact_run(connection) -> None:
     )
     await _seed_context(connection, suffix="fact")
     await _seal_strict(connection, suffix="fact")
+
+
+async def _assert_fact_graph_rejects_document_payload(
+    connection,
+    *,
+    fact_id: str,
+    chunk_id: str,
+) -> None:
+    asyncpg = pytest.importorskip("asyncpg")
+    transaction = connection.transaction()
+    await transaction.start()
+    try:
+        with pytest.raises(asyncpg.CheckViolationError) as rejected:
+            await connection.execute(
+                """
+                INSERT INTO memory_outbox(
+                  event_type,aggregate_type,aggregate_id,aggregate_version,
+                  payload_json,status,attempt_count,next_attempt_at,
+                  created_at,updated_at,workload_class,message_key)
+                VALUES(
+                  'fact.created','fact',$1,1,
+                  pg_catalog.jsonb_build_object('chunk_id',$2::text),
+                  'pending',0,clock_timestamp(),clock_timestamp(),clock_timestamp(),
+                  'projection',$3)
+                """,
+                fact_id,
+                chunk_id,
+                f"opposite-document-{_digest('fact', 'opposite')}",
+            )
+        assert rejected.value.constraint_name == ("ck_memory_comparison_benchmark_run_writer_fence")
+    finally:
+        await transaction.rollback()
+
+
+async def _assert_document_graph_rejects_fact_payload(
+    connection,
+    *,
+    chunk_id: str,
+    fact_id: str,
+) -> None:
+    asyncpg = pytest.importorskip("asyncpg")
+    transaction = connection.transaction()
+    await transaction.start()
+    try:
+        with pytest.raises(asyncpg.CheckViolationError) as rejected:
+            await connection.execute(
+                """
+                INSERT INTO memory_outbox(
+                  event_type,aggregate_type,aggregate_id,aggregate_version,
+                  payload_json,status,attempt_count,next_attempt_at,
+                  created_at,updated_at,workload_class,message_key)
+                VALUES(
+                  'vector.upsert_chunk','chunk',$1,NULL,
+                  pg_catalog.jsonb_build_object(
+                    'fact_id',$2::text,'space_id',$3::text,'version',1),
+                  'pending',0,clock_timestamp(),clock_timestamp(),clock_timestamp(),
+                  'projection',$4)
+                """,
+                chunk_id,
+                fact_id,
+                _document_space(),
+                f"opposite-fact-{_digest('document', 'opposite')}",
+            )
+        assert rejected.value.constraint_name == ("ck_memory_comparison_benchmark_run_writer_fence")
+    finally:
+        await transaction.rollback()
 
 
 async def _assert_strict_v4_writer_authority(database_url: str) -> None:

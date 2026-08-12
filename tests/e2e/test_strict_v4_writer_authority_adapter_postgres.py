@@ -17,7 +17,6 @@ from infinity_context_adapters.postgres.managed_strict_v4_preparation_receipt im
 )
 from infinity_context_adapters.postgres.strict_v4_database_roles import (
     STRICT_V4_CANONICAL_WRITER_ROLE,
-    STRICT_V4_FACT_WRITER_ROLE,
     STRICT_V4_REGISTRAR_ROLE,
     STRICT_V4_SEALER_ROLE,
     assert_strict_v4_runtime_capability,
@@ -111,7 +110,6 @@ async def _assert_real_adapter(database_url: str, dataset: Path, tmp_path: Path)
     )
     await database.recreate()
     canonical_role = ""
-    fact_writer_role = ""
     registrar_role = ""
     sealer_role = ""
     try:
@@ -123,10 +121,6 @@ async def _assert_real_adapter(database_url: str, dataset: Path, tmp_path: Path)
         canonical_role = await database.create_runtime_role(
             capability_role="infinity_context_canonical_writer",
             suffix="canonical",
-        )
-        fact_writer_role = await database.create_runtime_role(
-            capability_role=STRICT_V4_FACT_WRITER_ROLE,
-            suffix="fact_writer",
         )
         registrar_role = await database.create_runtime_role(
             capability_role="infinity_context_strict_v4_registrar",
@@ -204,9 +198,6 @@ async def _assert_real_adapter(database_url: str, dataset: Path, tmp_path: Path)
         async def canonical_connect():
             return await database.connect_as_runtime_role(canonical_role)
 
-        async def fact_writer_connect():
-            return await database.connect_as_runtime_role(fact_writer_role)
-
         await _assert_direct_login_acls_rejected(
             database,
             role_capabilities=(
@@ -215,12 +206,6 @@ async def _assert_real_adapter(database_url: str, dataset: Path, tmp_path: Path)
                     STRICT_V4_CANONICAL_WRITER_ROLE,
                     canonical_connect,
                     "canonical-direct-acl",
-                ),
-                (
-                    fact_writer_role,
-                    STRICT_V4_FACT_WRITER_ROLE,
-                    fact_writer_connect,
-                    "fact-writer-direct-acl",
                 ),
                 (
                     registrar_role,
@@ -249,7 +234,6 @@ async def _assert_real_adapter(database_url: str, dataset: Path, tmp_path: Path)
             database,
             role_capabilities=(
                 (canonical_role, STRICT_V4_CANONICAL_WRITER_ROLE, canonical_connect),
-                (fact_writer_role, STRICT_V4_FACT_WRITER_ROLE, fact_writer_connect),
                 (registrar_role, STRICT_V4_REGISTRAR_ROLE, raw_registrar_connect),
                 (sealer_role, STRICT_V4_SEALER_ROLE, raw_seal_connect),
             ),
@@ -337,8 +321,8 @@ async def _assert_real_adapter(database_url: str, dataset: Path, tmp_path: Path)
         finally:
             await connection.close()
 
-        fact_writer_url = make_url(database.app_url).set(
-            username=fact_writer_role,
+        canonical_writer_url = make_url(database.app_url).set(
+            username=canonical_role,
             password=STRICT_V4_TEST_ROLE_PASSWORD,
         )
         store = SQLiteStrictV4PreparationReceiptStore.open(tmp_path / "receipt.sqlite3")
@@ -353,7 +337,7 @@ async def _assert_real_adapter(database_url: str, dataset: Path, tmp_path: Path)
                 expected_projector=projector,
             )
             runtime = StrictV4FactIngestRuntime(
-                database_url=fact_writer_url.render_as_string(hide_password=False),
+                database_url=canonical_writer_url.render_as_string(hide_password=False),
                 authority=fact_authority,
             )
             first_ingest = await runtime.execute(
@@ -447,9 +431,7 @@ async def _assert_real_adapter(database_url: str, dataset: Path, tmp_path: Path)
             ).seal_and_readback(receipt=receipt, authority=divergent)
     finally:
         await database.drop()
-        roles = tuple(
-            role for role in (canonical_role, fact_writer_role, registrar_role, sealer_role) if role
-        )
+        roles = tuple(role for role in (canonical_role, registrar_role, sealer_role) if role)
         await database.drop_runtime_roles(*roles)
 
 
