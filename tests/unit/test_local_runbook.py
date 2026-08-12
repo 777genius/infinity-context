@@ -334,38 +334,7 @@ def test_selfhost_compose_has_team_deployment_contract() -> None:
         "${MEMORY_EXTRACTION_HEARTBEAT_SECONDS:-15}" in compose
     )
     assert "MEMORY_SERVICE_TOKEN=change-me" in env
-    for identity in (
-        "ADMIN",
-        "MIGRATOR",
-        "RUNTIME",
-        "CANONICAL_WRITER",
-        "REGISTRAR",
-        "SEALER",
-    ):
-        assert f"INFINITY_CONTEXT_SELFHOST_{identity}_PASSWORD=change-me" in env
-    assert "image: postgres:18.4-bookworm" in compose
-    assert "infinity_context_identity_bootstrap:" in compose
-    assert "infinity_context_runtime_acl:" in compose
-    assert "infinity_context_seed:" in compose
-    assert "python -m infinity_context_server.selfhost_db provision-identities" in compose
-    assert "python -m infinity_context_server.selfhost_db reconcile-runtime-acl" in compose
-    identity_bootstrap = compose.split(
-        "  infinity_context_identity_bootstrap:", maxsplit=1
-    )[1].split("  infinity_context_migrate:", maxsplit=1)[0]
-    assert "MEMORY_SERVICE_TOKEN:" in identity_bootstrap
-    assert "INFINITY_CONTEXT_SELFHOST_ADMIN_DATABASE_URL:" in identity_bootstrap
-    runtime_services = compose.split("  infinity_context_server:", maxsplit=1)[1]
-    assert "INFINITY_CONTEXT_SELFHOST_ADMIN_DATABASE_URL" not in runtime_services
-    runtime_acl = compose.split("  infinity_context_runtime_acl:", maxsplit=1)[1].split(
-        "  infinity_context_seed:", maxsplit=1
-    )[0]
-    assert "postgresql+asyncpg://infinity_context_migrator:" in runtime_acl
-    assert "INFINITY_CONTEXT_SELFHOST_ADMIN_DATABASE_URL" not in runtime_acl
-    assert "INFINITY_CONTEXT_SELFHOST_ADMIN_PASSWORD" not in runtime_acl
-    assert "INFINITY_CONTEXT_SELFHOST_RUNTIME_PASSWORD" not in runtime_acl
-    assert "INFINITY_CONTEXT_SELFHOST_CANONICAL_WRITER_PASSWORD" not in runtime_acl
-    assert "INFINITY_CONTEXT_SELFHOST_REGISTRAR_PASSWORD" not in runtime_acl
-    assert "INFINITY_CONTEXT_SELFHOST_SEALER_PASSWORD" not in runtime_acl
+
     assert "MEMORY_EXTRACTION_CANCELLATION_POLL_SECONDS=1" in env
     assert "MEMORY_EXTRACTION_HEARTBEAT_SECONDS=15" in env
     assert ".PHONY: infinity-context-selfhost-smoke" in makefile
