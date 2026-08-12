@@ -14,6 +14,8 @@ from infinity_context_adapters.postgres.managed_cleanup_v4_context_registration 
     _registration_from_row,
 )
 from infinity_context_adapters.postgres.strict_v4_writer_fence_topology import (
+    _WRITER_POLICY_BODY_0036,
+    _assert_strict_v4_writer_fence_topology_0036_compat,
     assert_strict_v4_writer_fence_topology,
 )
 from infinity_context_core.features.projection_receipts import (
@@ -106,6 +108,13 @@ class _FenceConnection:
         _lock_body,
         _policy_body,
         _checker_body,
+        _checker_path,
+        _checker_roles,
+        _sentinel_names,
+        _sentinel_functions,
+        _sentinel_types,
+        _document_policy_body,
+        _requires_document_policy,
     ):
         rows = []
         for table, _columns in BENCHMARK_WRITER_FENCE_TABLES:
@@ -131,6 +140,7 @@ class _FenceConnection:
                     ),
                     "security_definer": lock_stage,
                     "function_kind": "f",
+                    "function_has_exact_kind": True,
                     "returns_trigger": True,
                     "has_no_arguments": True,
                     "has_safe_search_path": True,
@@ -141,7 +151,9 @@ class _FenceConnection:
                     "checker_has_safe_owner": True,
                     "checker_has_exact_acl": True,
                     "sentinel_has_exact_before_insert_triggers": True,
-                    "capability_execute_revoked": True,
+                    "document_policy_is_exact": True,
+                    "function_has_safe_owner": True,
+                    "function_has_exact_acl": True,
                 }
                 if self._tamper is not None and table == "memory_spaces" and lock_stage:
                     row[self._tamper[0]] = self._tamper[1]
@@ -179,7 +191,10 @@ def test_topology_and_default_phase_policy_fail_closed() -> None:
             ("checker_has_safe_owner", False),
             ("checker_has_exact_acl", False),
             ("sentinel_has_exact_before_insert_triggers", False),
-            ("capability_execute_revoked", False),
+            ("document_policy_is_exact", False),
+            ("function_has_exact_kind", False),
+            ("function_has_safe_owner", False),
+            ("function_has_exact_acl", False),
         ):
             with pytest.raises(ProjectionReceiptError, match="writer_fence_invalid"):
                 await assert_strict_v4_writer_fence_topology(
@@ -209,3 +224,44 @@ def test_topology_and_default_phase_policy_fail_closed() -> None:
             )
 
     asyncio.run(scenario())
+
+
+def test_topology_query_pins_final_profile_without_auto_downgrade() -> None:
+    class CapturingConnection(_FenceConnection):
+        async def fetch(self, sql, *parameters):
+            assert "JOIN canonical_checker ON canonical_checker.prosrc=expected.body" in sql
+            assert "pg_catalog.cardinality(expected.execute_roles)" in sql
+            assert "pg_catalog.array_agg(function.oid" in sql
+            assert "pg_catalog.array_agg(candidate.tgname" in sql
+            assert "to_regprocedure('public.' || name || '()')" in sql
+            assert sql.count("function_schema.nspname='public'") == 1
+            assert "procedure.provolatile='v'" in sql
+            assert "language.lanname='plpgsql'" in sql
+            assert "function.provolatile='v'" in sql
+            assert "function_language.lanname='plpgsql'" in sql
+            assert "acl.grantee<>procedure.proowner" in sql
+            assert "acl.grantee=procedure.proowner" in sql
+            assert "acl.grantee<>function.proowner" in sql
+            assert "benchmark_writer_target' THEN $4" in sql
+            assert "ELSE $5" in sql
+            assert parameters[2] == "search_path=pg_catalog, public, pg_temp"
+            assert "infinity_context_strict_v4_document_writer" in parameters[5]
+            assert parameters[6] == "search_path=pg_catalog, public"
+            assert parameters[7][-1] == "infinity_context_strict_v4_document_writer"
+            assert parameters[8][-2] == ("trg_memory_idempotency_benchmark_document_policy")
+            assert parameters[9][-2] == ("memory_comparison_enforce_benchmark_document_idempotency")
+            return await super().fetch(sql, *parameters)
+
+    asyncio.run(assert_strict_v4_writer_fence_topology(CapturingConnection()))
+
+
+def test_0036_profile_requires_explicit_selection() -> None:
+    class CapturingConnection(_FenceConnection):
+        async def fetch(self, sql, *parameters):
+            assert "infinity_context_strict_v4_fact_writer" not in parameters[5]
+            assert parameters[4] == _WRITER_POLICY_BODY_0036
+            assert parameters[6] == "search_path=pg_catalog, public, pg_temp"
+            assert parameters[7] == ["infinity_context_canonical_writer"]
+            return await super().fetch(sql, *parameters)
+
+    asyncio.run(_assert_strict_v4_writer_fence_topology_0036_compat(CapturingConnection()))

@@ -5,11 +5,20 @@ from __future__ import annotations
 import hashlib
 
 import pytest
+from infinity_context_adapters.postgres import (
+    managed_cleanup_v4_context_registration as registration_adapter,
+)
+from infinity_context_adapters.postgres import (
+    strict_v4_writer_authority as writer_adapter,
+)
 from infinity_context_adapters.postgres.managed_cleanup_v4_context_registration import (
     AsyncPostgresCleanupV4ContextAuthorityRegistry,
 )
 from infinity_context_adapters.postgres.strict_v4_writer_authority import (
     AsyncPostgresStrictV4WriterAuthority,
+)
+from infinity_context_adapters.postgres.strict_v4_writer_fence_topology import (
+    _assert_strict_v4_writer_fence_topology_0036_compat,
 )
 from infinity_context_core.features.projection_receipts import (
     ProjectionReceiptAuthenticator,
@@ -28,6 +37,36 @@ def _digest(field: str) -> str:
 
 
 async def assert_adapter_seal_replay(
+    *,
+    asyncpg,
+    owner,
+    canonical,
+    registrar_connect,
+    sealer_connect,
+) -> None:
+    """Replay isolated 0036 while keeping production adapters pinned to final 0038."""
+
+    with pytest.MonkeyPatch.context() as monkeypatch:
+        monkeypatch.setattr(
+            registration_adapter,
+            "assert_strict_v4_writer_fence_topology",
+            _assert_strict_v4_writer_fence_topology_0036_compat,
+        )
+        monkeypatch.setattr(
+            writer_adapter,
+            "assert_strict_v4_writer_fence_topology",
+            _assert_strict_v4_writer_fence_topology_0036_compat,
+        )
+        await _assert_adapter_seal_replay_0036(
+            asyncpg=asyncpg,
+            owner=owner,
+            canonical=canonical,
+            registrar_connect=registrar_connect,
+            sealer_connect=sealer_connect,
+        )
+
+
+async def _assert_adapter_seal_replay_0036(
     *,
     asyncpg,
     owner,
