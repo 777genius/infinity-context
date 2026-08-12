@@ -83,7 +83,10 @@ class PostgresTestDatabase:
             await admin.execute(
                 f"CREATE ROLE \"{role}\" LOGIN PASSWORD '{STRICT_V4_TEST_ROLE_PASSWORD}'"
             )
-            await admin.execute(f'GRANT {capability_role} TO "{role}"')
+            await admin.execute(
+                f'GRANT {capability_role} TO "{role}" '
+                "WITH INHERIT TRUE, SET FALSE, ADMIN FALSE"
+            )
         finally:
             await admin.close()
         return role

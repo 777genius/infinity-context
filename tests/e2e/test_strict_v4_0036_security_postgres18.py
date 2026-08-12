@@ -27,6 +27,7 @@ from strict_v4_0036_security_support import (
     PROTECTED_SEQUENCES,
     PROVISIONING_SQL,
     apply_0036,
+    apply_0037_0038,
     assert_capability_roles_are_safe,
     assert_exact_0036_acls,
     assert_ordered_writer_triggers,
@@ -169,6 +170,33 @@ async def _hostile_scenario(database_url: str) -> None:
                     )
 
             await _revoke_direct_login_acls(admin, runtime_roles=runtime_roles)
+
+            async def registrar_connect():
+                connection = await database.connect_as_runtime_role(registrar)
+                await _install_runtime_temp_shadows(connection)
+                return connection
+
+            async def sealer_connect():
+                connection = await database.connect_as_runtime_role(sealer)
+                await _install_runtime_temp_shadows(connection)
+                return connection
+
+            await assert_adapter_seal_replay(
+                asyncpg=asyncpg,
+                owner=migrator_connection,
+                canonical=runtime_connections[canonical],
+                registrar_connect=registrar_connect,
+                sealer_connect=sealer_connect,
+            )
+            await _assert_writer_authority_fence(
+                asyncpg,
+                owner=migrator_connection,
+                canonical=runtime_connections[canonical],
+                registrar=runtime_connections[registrar],
+                sealer=runtime_connections[sealer],
+            )
+
+            await apply_0037_0038(migrator_connection)
             for runtime_role, capability in role_capabilities:
                 await assert_strict_v4_runtime_capability(
                     runtime_connections[runtime_role],
@@ -208,30 +236,6 @@ async def _hostile_scenario(database_url: str) -> None:
                 registrar_connection=runtime_connections[registrar],
             )
 
-            async def registrar_connect():
-                connection = await database.connect_as_runtime_role(registrar)
-                await _install_runtime_temp_shadows(connection)
-                return connection
-
-            async def sealer_connect():
-                connection = await database.connect_as_runtime_role(sealer)
-                await _install_runtime_temp_shadows(connection)
-                return connection
-
-            await assert_adapter_seal_replay(
-                asyncpg=asyncpg,
-                owner=migrator_connection,
-                canonical=runtime_connections[canonical],
-                registrar_connect=registrar_connect,
-                sealer_connect=sealer_connect,
-            )
-            await _assert_writer_authority_fence(
-                asyncpg,
-                owner=migrator_connection,
-                canonical=runtime_connections[canonical],
-                registrar=runtime_connections[registrar],
-                sealer=runtime_connections[sealer],
-            )
         finally:
             for connection in runtime_connections.values():
                 await connection.close()
@@ -591,16 +595,8 @@ async def _assert_wrong_capability_privilege_rejected(
 async def _assert_set_role_rejected(*, role_capabilities, connections) -> None:
     for runtime_role, capability in role_capabilities:
         connection = connections[runtime_role]
-        await connection.execute(f"SET ROLE {quote_identifier(capability)}")
-        try:
-            with pytest.raises(ProjectionReceiptError, match=_ROLE_ERROR):
-                await assert_strict_v4_runtime_capability(
-                    connection,
-                    capability_role=capability,
-                    error_code=_ROLE_ERROR,
-                )
-        finally:
-            await connection.execute("RESET ROLE")
+        with pytest.raises(pytest.importorskip("asyncpg").InsufficientPrivilegeError):
+            await connection.execute(f"SET ROLE {quote_identifier(capability)}")
 
 
 async def _assert_multicap_rejected(

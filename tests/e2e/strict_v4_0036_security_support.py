@@ -22,6 +22,12 @@ _POSTGRES_ROOT = (
 MIGRATION_0036_SQL = (
     _POSTGRES_ROOT / "migrations/0036_memory_comparison_strict_v4_preparations.sql"
 ).read_text(encoding="utf-8")
+MIGRATION_0037_SQL = (
+    _POSTGRES_ROOT / "migrations/0037_strict_v4_fact_writer.sql"
+).read_text(encoding="utf-8")
+MIGRATION_0038_SQL = (
+    _POSTGRES_ROOT / "migrations/0038_strict_v4_document_writer.sql"
+).read_text(encoding="utf-8")
 PROVISIONING_SQL = (_POSTGRES_ROOT / "provisioning/strict_v4_roles.sql").read_text(encoding="utf-8")
 
 CORE_PROTECTED_FUNCTIONS = (
@@ -88,6 +94,19 @@ async def apply_0036(connection) -> None:
     await transaction.start()
     try:
         await connection.execute(MIGRATION_0036_SQL)
+    except BaseException:
+        await transaction.rollback()
+        raise
+    await transaction.commit()
+
+
+async def apply_0037_0038(connection) -> None:
+    transaction = connection.transaction()
+    await transaction.start()
+    try:
+        await connection.execute("SET LOCAL search_path=public, pg_catalog")
+        await connection.execute(MIGRATION_0037_SQL)
+        await connection.execute(MIGRATION_0038_SQL)
     except BaseException:
         await transaction.rollback()
         raise
