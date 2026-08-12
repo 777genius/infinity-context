@@ -102,10 +102,7 @@ DECLARE
     registry_cleanup_plan_state VARCHAR(40);
     registry_run_id CHAR(64);
     strict_authorized BOOLEAN := FALSE;
-    fact_writer BOOLEAN := public.memory_comparison_is_strict_v4_canonical_writer()
-        AND pg_catalog.pg_has_role(
-            current_user, 'infinity_context_strict_v4_fact_writer', 'MEMBER'
-        );
+    fact_writer BOOLEAN := public.memory_comparison_is_strict_v4_canonical_writer();
 BEGIN
     IF TG_TABLE_NAME = 'memory_outbox' THEN
         IF TG_OP = 'DELETE' THEN
@@ -221,12 +218,7 @@ LANGUAGE plpgsql
 SET search_path = pg_catalog, public, pg_temp
 AS $$
 BEGIN
-    IF NOT (
-        public.memory_comparison_is_strict_v4_canonical_writer()
-        AND pg_catalog.pg_has_role(
-            current_user, 'infinity_context_strict_v4_fact_writer', 'MEMBER'
-        )
-    ) THEN
+    IF NOT public.memory_comparison_is_strict_v4_canonical_writer() THEN
         RETURN NEW;
     END IF;
     IF NEW.aggregate_type <> 'fact' OR NOT EXISTS (
@@ -307,12 +299,7 @@ LANGUAGE plpgsql
 SET search_path = pg_catalog, public, pg_temp
 AS $$
 BEGIN
-    IF NOT (
-        public.memory_comparison_is_strict_v4_canonical_writer()
-        AND pg_catalog.pg_has_role(
-            current_user, 'infinity_context_strict_v4_fact_writer', 'MEMBER'
-        )
-    ) THEN
+    IF NOT public.memory_comparison_is_strict_v4_canonical_writer() THEN
         RETURN NEW;
     END IF;
     IF EXISTS (

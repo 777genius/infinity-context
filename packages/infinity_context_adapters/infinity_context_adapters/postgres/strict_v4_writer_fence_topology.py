@@ -17,8 +17,6 @@ from infinity_context_adapters.postgres.benchmark_writer_fence import (
 )
 from infinity_context_adapters.postgres.strict_v4_database_roles import (
     STRICT_V4_CANONICAL_WRITER_ROLE,
-    STRICT_V4_DOCUMENT_WRITER_ROLE,
-    STRICT_V4_FACT_WRITER_ROLE,
     STRICT_V4_REGISTRAR_ROLE,
     STRICT_V4_SEALER_ROLE,
 )
@@ -28,8 +26,6 @@ _SAFE_SEARCH_PATH = "search_path=pg_catalog, public, pg_temp"
 _FINAL_SAFE_SEARCH_PATH = "search_path=pg_catalog, public"
 _ALL_WRITER_FENCE_ROLES = (
     STRICT_V4_CANONICAL_WRITER_ROLE,
-    STRICT_V4_FACT_WRITER_ROLE,
-    STRICT_V4_DOCUMENT_WRITER_ROLE,
     STRICT_V4_REGISTRAR_ROLE,
     STRICT_V4_SEALER_ROLE,
 )
@@ -51,7 +47,7 @@ def _migration_checker_body(migration_name: str) -> str:
     return match.group(1)
 
 
-_CHECKER_BODY_0038 = _migration_checker_body("0038_strict_v4_document_writer.sql")
+_CHECKER_BODY_0037 = _migration_checker_body("0037_strict_v4_fact_writer.sql")
 
 
 def _migration_function_body(migration_name: str, function_name: str) -> str:
@@ -106,15 +102,11 @@ _LEGACY_0036_PROFILE = _Profile(
     (31, 31),
     False,
 )
-_FINAL_0038_PROFILE = _Profile(
-    _CHECKER_BODY_0038,
+_FINAL_PROFILE = _Profile(
+    _CHECKER_BODY_0037,
     _FINAL_SAFE_SEARCH_PATH,
     _WRITER_POLICY_BODY_0037,
-    (
-        "infinity_context_canonical_writer",
-        "infinity_context_strict_v4_fact_writer",
-        "infinity_context_strict_v4_document_writer",
-    ),
+    ("infinity_context_canonical_writer",),
     (
         "trg_00_memory_idempotency_records_benchmark_writer_lock",
         "trg_memory_idempotency_benchmark_document_policy",
@@ -341,7 +333,7 @@ ORDER BY relation.relname, trigger.tgname
 async def assert_strict_v4_writer_fence_topology(connection: Any) -> None:
     """Require the exact lock-first and invoker-policy stages on every table."""
 
-    await _assert_strict_v4_writer_fence_topology(connection, profile=_FINAL_0038_PROFILE)
+    await _assert_strict_v4_writer_fence_topology(connection, profile=_FINAL_PROFILE)
 
 
 async def _assert_strict_v4_writer_fence_topology_0036_compat(connection: Any) -> None:

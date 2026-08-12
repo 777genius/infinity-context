@@ -66,7 +66,6 @@ STRICT_V4_PROTECTED_FUNCTIONS = (
     "memory_comparison_enforce_benchmark_fact_child_fence",
     "memory_comparison_enforce_benchmark_fact_receipt",
     "memory_comparison_verify_benchmark_fact_outbox_receipt",
-    "memory_comparison_is_strict_v4_document_writer",
     "memory_comparison_lock_benchmark_document_child_target",
     "memory_comparison_enforce_benchmark_document_child_fence",
     "memory_comparison_enforce_benchmark_document_idempotency",
@@ -306,7 +305,12 @@ SELECT current_user = session_user AS direct_login,
                                  'memory_comparison_benchmark_runs',
                                  'memory_cleanup_v3_context_authorities',
                                  'memory_comparison_strict_v4_preparations',
-                                 'memory_idempotency_records'
+                                 'memory_spaces', 'memory_scopes',
+                                 'memory_threads', 'memory_facts',
+                                 'memory_fact_versions', 'memory_source_refs',
+                                 'memory_documents', 'memory_chunks',
+                                 'memory_fact_operation_receipts',
+                                 'memory_idempotency_records', 'memory_outbox'
                              )
                          WHEN 'infinity_context_strict_v4_registrar' THEN
                              relation.relname IN (
@@ -333,13 +337,22 @@ SELECT current_user = session_user AS direct_login,
                      END
                  WHEN privilege.name = 'INSERT' THEN
                      ($1 = 'infinity_context_canonical_writer'
-                         AND relation.relname = 'memory_idempotency_records')
+                         AND relation.relname IN (
+                             'memory_scopes', 'memory_threads', 'memory_facts',
+                             'memory_fact_versions', 'memory_source_refs',
+                             'memory_documents', 'memory_chunks',
+                             'memory_fact_operation_receipts',
+                             'memory_idempotency_records', 'memory_outbox'
+                         ))
                      OR ($1 = 'infinity_context_strict_v4_registrar'
                          AND relation.relname =
                              'memory_cleanup_v3_context_authorities')
                      OR ($1 = 'infinity_context_strict_v4_sealer'
                          AND relation.relname =
                              'memory_comparison_strict_v4_preparations')
+                 WHEN privilege.name = 'DELETE' THEN
+                     $1 = 'infinity_context_canonical_writer'
+                     AND relation.relname = 'memory_source_refs'
                  ELSE FALSE
              END
        ) AS has_exact_effective_relation_acl
@@ -355,9 +368,13 @@ SELECT current_user = session_user AS direct_login,
                  relation.oid,
                  privilege.name
              ) IS DISTINCT FROM (
-                 (($1 = 'infinity_context_canonical_writer'
-                   AND relation.relname = 'memory_idempotency_records_id_seq')
-                 )
+                 ($1 = 'infinity_context_canonical_writer'
+                  AND relation.relname IN (
+                      'memory_source_refs_id_seq',
+                      'memory_fact_versions_id_seq',
+                      'memory_outbox_id_seq',
+                      'memory_idempotency_records_id_seq'
+                  ))
                  AND privilege.name = 'USAGE'
              )
        ) AS has_exact_effective_sequence_acl

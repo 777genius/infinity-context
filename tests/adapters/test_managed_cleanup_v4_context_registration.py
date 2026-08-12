@@ -245,9 +245,15 @@ def test_topology_query_pins_final_profile_without_auto_downgrade() -> None:
             assert "benchmark_writer_target' THEN $4" in sql
             assert "ELSE $5" in sql
             assert parameters[2] == "search_path=pg_catalog, public, pg_temp"
-            assert "infinity_context_strict_v4_document_writer" in parameters[5]
+            assert parameters[1] == [
+                "infinity_context_canonical_writer",
+                "infinity_context_strict_v4_registrar",
+                "infinity_context_strict_v4_sealer",
+            ]
+            assert "infinity_context_strict_v4_fact_writer" not in parameters[5]
+            assert "infinity_context_strict_v4_document_writer" not in parameters[5]
             assert parameters[6] == "search_path=pg_catalog, public"
-            assert parameters[7][-1] == "infinity_context_strict_v4_document_writer"
+            assert parameters[7] == ["infinity_context_canonical_writer"]
             assert parameters[8][-2] == ("trg_memory_idempotency_benchmark_document_policy")
             assert parameters[9][-2] == ("memory_comparison_enforce_benchmark_document_idempotency")
             return await super().fetch(sql, *parameters)

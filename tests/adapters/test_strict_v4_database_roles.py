@@ -25,6 +25,8 @@ _POSTGRES_ROOT = (
 _STRICT_V4_MIGRATION = (
     _POSTGRES_ROOT / "migrations/0036_memory_comparison_strict_v4_preparations.sql"
 )
+_STRICT_V4_FACT_MIGRATION = _POSTGRES_ROOT / "migrations/0037_strict_v4_fact_writer.sql"
+_STRICT_V4_DOCUMENT_MIGRATION = _POSTGRES_ROOT / "migrations/0038_strict_v4_document_writer.sql"
 _PROVISIONING_SQL = _POSTGRES_ROOT / "provisioning/strict_v4_roles.sql"
 _MIGRATION_0035_AUTHORITY_TABLES = {
     "memory_projection_receipt_claims",
@@ -147,6 +149,71 @@ def test_capability_query_covers_schema_columns_grant_options_and_functions() ->
     assert "'maintain'" in sql
     assert "infinity_context_strict_v4_fact_writer" not in sql
     assert "infinity_context_strict_v4_document_writer" not in sql
+
+
+def test_final_canonical_capability_is_the_union_of_fact_and_document_writes() -> None:
+    sql = _capability_sql()
+
+    for relation in (
+        "memory_facts",
+        "memory_fact_versions",
+        "memory_source_refs",
+        "memory_fact_operation_receipts",
+        "memory_documents",
+        "memory_chunks",
+        "memory_outbox",
+        "memory_idempotency_records",
+    ):
+        assert f"'{relation}'" in sql
+    for sequence in (
+        "memory_source_refs_id_seq",
+        "memory_fact_versions_id_seq",
+        "memory_outbox_id_seq",
+        "memory_idempotency_records_id_seq",
+    ):
+        assert f"'{sequence}'" in sql
+    assert "privilege.name = 'delete'" in sql
+    assert "relation.relname = 'memory_source_refs'" in sql
+    assert "memory_comparison_is_strict_v4_document_writer" not in sql
+
+
+def test_final_migrations_grant_the_attested_canonical_union() -> None:
+    sql = _normalize_sql(
+        "\n".join(
+            (
+                _STRICT_V4_FACT_MIGRATION.read_text(encoding="utf-8"),
+                _STRICT_V4_DOCUMENT_MIGRATION.read_text(encoding="utf-8"),
+            )
+        )
+    )
+    expected = {
+        "memory_comparison_benchmark_runs": {"select"},
+        "memory_cleanup_v3_context_authorities": {"select"},
+        "memory_comparison_strict_v4_preparations": {"select"},
+        "memory_spaces": {"select"},
+        "memory_scopes": {"select", "insert"},
+        "memory_threads": {"select", "insert"},
+        "memory_facts": {"select", "insert"},
+        "memory_fact_versions": {"select", "insert"},
+        "memory_source_refs": {"select", "insert", "delete"},
+        "memory_documents": {"select", "insert"},
+        "memory_chunks": {"select", "insert"},
+        "memory_fact_operation_receipts": {"select", "insert"},
+        "memory_idempotency_records": {"select", "insert"},
+        "memory_outbox": {"select", "insert"},
+    }
+
+    observed = {
+        relation: privileges
+        for relation in STRICT_V4_PROTECTED_RELATIONS
+        if not relation.endswith("_seq")
+        and (privileges := _relation_privileges(sql, relation, {STRICT_V4_CANONICAL_WRITER_ROLE}))
+    }
+    assert observed == expected
+    for sequence in STRICT_V4_PROTECTED_SEQUENCES:
+        assert _sequence_privileges(sql, sequence, STRICT_V4_CANONICAL_WRITER_ROLE) == {"usage"}
+    assert "strict_v4_fact_writer" not in sql
+    assert "strict_v4_document_writer" not in sql
 
 
 def test_migration_protects_all_0035_authority_tables_from_every_capability() -> None:

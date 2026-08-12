@@ -1,38 +1,5 @@
--- Enable the least-privilege strict-v4 canonical fact writer.
-DO $fact_writer_precondition$
-DECLARE
-    role_row RECORD;
-BEGIN
-    SELECT rolcanlogin, rolsuper, rolcreatedb, rolcreaterole,
-           rolreplication, rolbypassrls
-    INTO role_row
-    FROM pg_catalog.pg_roles
-    WHERE rolname = 'infinity_context_strict_v4_fact_writer';
-    IF role_row IS NULL
-       OR role_row.rolcanlogin OR role_row.rolsuper OR role_row.rolcreatedb
-       OR role_row.rolcreaterole OR role_row.rolreplication
-       OR role_row.rolbypassrls
-       OR pg_catalog.has_schema_privilege(
-           'infinity_context_strict_v4_fact_writer', 'public', 'CREATE'
-       )
-       OR NOT pg_catalog.has_schema_privilege(
-           'infinity_context_strict_v4_fact_writer', 'public', 'USAGE'
-       )
-       OR EXISTS (
-           SELECT 1 FROM pg_catalog.pg_roles AS inherited
-           WHERE inherited.rolname <> 'infinity_context_strict_v4_fact_writer'
-             AND pg_catalog.pg_has_role(
-                 'infinity_context_strict_v4_fact_writer',
-                 inherited.oid,
-                 'MEMBER'
-             )
-       )
-    THEN
-        RAISE EXCEPTION 'unsafe strict-v4 fact-writer capability role'
-            USING ERRCODE = '42501';
-    END IF;
-END
-$fact_writer_precondition$;
+-- Extend the active canonical writer with the strict-v4 fact graph lane.
+-- The capability role itself is provisioned and validated by migration 0036.
 
 REVOKE ALL ON
     public.memory_comparison_benchmark_runs,
@@ -65,14 +32,14 @@ REVOKE ALL ON
     public.memory_source_refs,
     public.memory_fact_versions,
     public.memory_outbox
-FROM infinity_context_strict_v4_fact_writer;
+FROM infinity_context_canonical_writer;
 
 REVOKE ALL ON SEQUENCE
     public.memory_source_refs_id_seq,
     public.memory_fact_versions_id_seq,
     public.memory_outbox_id_seq,
     public.memory_idempotency_records_id_seq
-FROM infinity_context_strict_v4_fact_writer;
+FROM infinity_context_canonical_writer;
 
 GRANT SELECT ON
     public.memory_comparison_benchmark_runs,
@@ -82,63 +49,61 @@ GRANT SELECT ON
     public.memory_scopes,
     public.memory_threads,
     public.memory_facts,
+    public.memory_documents,
+    public.memory_chunks,
     public.memory_fact_versions,
     public.memory_source_refs,
     public.memory_outbox,
-    public.memory_fact_operation_receipts
-TO infinity_context_strict_v4_fact_writer;
+    public.memory_fact_operation_receipts,
+    public.memory_idempotency_records
+TO infinity_context_canonical_writer;
 
 GRANT INSERT ON
     public.memory_scopes,
     public.memory_threads,
     public.memory_facts,
+    public.memory_documents,
+    public.memory_chunks,
     public.memory_fact_versions,
     public.memory_source_refs,
     public.memory_outbox,
-    public.memory_fact_operation_receipts
-TO infinity_context_strict_v4_fact_writer;
+    public.memory_fact_operation_receipts,
+    public.memory_idempotency_records
+TO infinity_context_canonical_writer;
 
 GRANT DELETE ON public.memory_source_refs
-TO infinity_context_strict_v4_fact_writer;
+TO infinity_context_canonical_writer;
 
 GRANT USAGE ON SEQUENCE
     public.memory_source_refs_id_seq,
     public.memory_fact_versions_id_seq,
-    public.memory_outbox_id_seq
-TO infinity_context_strict_v4_fact_writer;
+    public.memory_outbox_id_seq,
+    public.memory_idempotency_records_id_seq
+TO infinity_context_canonical_writer;
 
 CREATE OR REPLACE FUNCTION memory_comparison_is_strict_v4_canonical_writer()
 RETURNS BOOLEAN
-LANGUAGE sql
-STABLE
-SECURITY INVOKER
+LANGUAGE sql STABLE SECURITY INVOKER
 SET search_path = pg_catalog, public
 AS $$
 SELECT COALESCE((
     SELECT current_user = session_user
        AND role.rolcanlogin
-       AND NOT role.rolsuper
-       AND NOT role.rolbypassrls
-       AND NOT role.rolcreatedb
-       AND NOT role.rolcreaterole
-       AND NOT role.rolreplication
-       AND NOT pg_catalog.has_schema_privilege(role.oid, 'public', 'CREATE')
-       AND (
-           pg_catalog.pg_has_role(
-               role.oid, 'infinity_context_canonical_writer', 'MEMBER'
-           ) <> pg_catalog.pg_has_role(
-               role.oid, 'infinity_context_strict_v4_fact_writer', 'MEMBER'
-           )
-       )
+       AND NOT role.rolsuper AND NOT role.rolbypassrls AND NOT role.rolcreatedb
+       AND NOT role.rolcreaterole AND NOT role.rolreplication
+       AND NOT capability.rolcanlogin AND NOT capability.rolsuper AND NOT capability.rolbypassrls
+       AND NOT capability.rolcreatedb AND NOT capability.rolcreaterole AND NOT capability.rolreplication
+       AND pg_catalog.has_schema_privilege(role.oid, 'public', 'USAGE') AND NOT pg_catalog.has_schema_privilege(role.oid, 'public', 'CREATE')
+       AND pg_catalog.pg_has_role(role.oid, capability.oid, 'MEMBER')
        AND NOT EXISTS (
            SELECT 1
            FROM pg_catalog.pg_roles AS granted_role
            WHERE granted_role.oid <> role.oid
-             AND granted_role.rolname NOT IN (
-                 'infinity_context_canonical_writer',
-                 'infinity_context_strict_v4_fact_writer'
-             )
+             AND granted_role.rolname <> 'infinity_context_canonical_writer'
              AND pg_catalog.pg_has_role(role.oid, granted_role.oid, 'MEMBER')
+       )
+       AND NOT EXISTS (
+           SELECT 1 FROM pg_catalog.pg_auth_members AS membership WHERE membership.member = role.oid AND membership.admin_option
        )
        AND NOT EXISTS (
            SELECT 1
@@ -194,7 +159,11 @@ SELECT COALESCE((
                  'memory_comparison_lock_benchmark_fact_child_target',
                  'memory_comparison_enforce_benchmark_fact_child_fence',
                  'memory_comparison_enforce_benchmark_fact_receipt',
-                 'memory_comparison_verify_benchmark_fact_outbox_receipt'
+                 'memory_comparison_verify_benchmark_fact_outbox_receipt',
+                 'memory_comparison_lock_benchmark_document_child_target',
+                 'memory_comparison_enforce_benchmark_document_child_fence',
+                 'memory_comparison_enforce_benchmark_document_idempotency',
+                 'memory_comparison_verify_benchmark_document_receipt'
              ]::text[])
              AND pg_catalog.pg_has_role(role.oid, procedure.proowner, 'MEMBER')
        )
@@ -228,7 +197,7 @@ SELECT COALESCE((
                  'memory_outbox_id_seq',
                  'memory_idempotency_records_id_seq'
              ]::text[])
-             AND acl.grantee = role.oid
+             AND (acl.grantee = role.oid OR (acl.grantee = capability.oid AND acl.is_grantable))
        )
        AND NOT EXISTS (
            SELECT 1
@@ -264,12 +233,27 @@ SELECT COALESCE((
        )
        AND NOT EXISTS (
            SELECT 1
+           FROM pg_catalog.pg_attribute AS attribute
+           JOIN pg_catalog.pg_class AS relation ON relation.oid = attribute.attrelid
+           JOIN pg_catalog.pg_namespace AS namespace
+             ON namespace.oid = relation.relnamespace
+           CROSS JOIN LATERAL pg_catalog.aclexplode(attribute.attacl) AS acl
+           WHERE namespace.nspname = 'public'
+             AND relation.relname IN (
+                 'memory_comparison_benchmark_runs', 'memory_cleanup_v3_context_authorities', 'memory_comparison_strict_v4_preparations',
+                 'memory_spaces', 'memory_scopes', 'memory_threads', 'memory_facts', 'memory_episodes', 'memory_documents', 'memory_chunks',
+                 'memory_fact_operation_receipts', 'memory_idempotency_records', 'memory_source_refs', 'memory_fact_versions', 'memory_outbox'
+             )
+             AND attribute.attnum > 0 AND NOT attribute.attisdropped AND acl.grantee IN (0, role.oid, capability.oid)
+       )
+       AND NOT EXISTS (
+           SELECT 1
            FROM pg_catalog.pg_class AS relation
            JOIN pg_catalog.pg_namespace AS namespace
              ON namespace.oid = relation.relnamespace
            CROSS JOIN LATERAL pg_catalog.unnest(ARRAY[
                'SELECT', 'INSERT', 'UPDATE', 'DELETE',
-               'TRUNCATE', 'REFERENCES', 'TRIGGER'
+               'TRUNCATE', 'REFERENCES', 'TRIGGER', 'MAINTAIN'
            ]::text[]) AS privilege(name)
            WHERE namespace.nspname = 'public'
              AND relation.relname = ANY(ARRAY[
@@ -299,38 +283,32 @@ SELECT COALESCE((
                  privilege.name
              ) IS DISTINCT FROM CASE
                  WHEN privilege.name = 'SELECT' THEN
-                     (pg_catalog.pg_has_role(
+                     pg_catalog.pg_has_role(
                          role.oid, 'infinity_context_canonical_writer', 'MEMBER'
-                      ) AND relation.relname IN (
-                          'memory_comparison_benchmark_runs',
-                          'memory_cleanup_v3_context_authorities',
-                          'memory_comparison_strict_v4_preparations',
-                          'memory_idempotency_records'
-                      )) OR (pg_catalog.pg_has_role(
-                         role.oid, 'infinity_context_strict_v4_fact_writer', 'MEMBER'
-                      ) AND relation.relname IN (
+                     ) AND relation.relname IN (
                           'memory_comparison_benchmark_runs',
                           'memory_cleanup_v3_context_authorities',
                           'memory_comparison_strict_v4_preparations',
                           'memory_spaces', 'memory_scopes', 'memory_threads',
                           'memory_facts', 'memory_fact_versions',
                           'memory_source_refs', 'memory_outbox',
-                          'memory_fact_operation_receipts'
-                      ))
+                          'memory_fact_operation_receipts',
+                          'memory_documents', 'memory_chunks',
+                          'memory_idempotency_records'
+                     )
                  WHEN privilege.name = 'INSERT' THEN
-                     (pg_catalog.pg_has_role(
+                     pg_catalog.pg_has_role(
                          role.oid, 'infinity_context_canonical_writer', 'MEMBER'
-                      ) AND relation.relname = 'memory_idempotency_records')
-                     OR (pg_catalog.pg_has_role(
-                         role.oid, 'infinity_context_strict_v4_fact_writer', 'MEMBER'
-                      ) AND relation.relname IN (
+                     ) AND relation.relname IN (
                           'memory_scopes', 'memory_threads', 'memory_facts',
                           'memory_fact_versions', 'memory_source_refs',
-                          'memory_outbox', 'memory_fact_operation_receipts'
-                      ))
+                          'memory_outbox', 'memory_fact_operation_receipts',
+                          'memory_documents', 'memory_chunks',
+                          'memory_idempotency_records'
+                     )
                  WHEN privilege.name = 'DELETE' THEN
                      pg_catalog.pg_has_role(
-                         role.oid, 'infinity_context_strict_v4_fact_writer', 'MEMBER'
+                         role.oid, 'infinity_context_canonical_writer', 'MEMBER'
                      ) AND relation.relname = 'memory_source_refs'
                  ELSE FALSE
              END
@@ -356,16 +334,14 @@ SELECT COALESCE((
                  relation.oid,
                  privilege.name
              ) IS DISTINCT FROM (
-                 ((pg_catalog.pg_has_role(
+                 (pg_catalog.pg_has_role(
                       role.oid, 'infinity_context_canonical_writer', 'MEMBER'
-                   ) AND relation.relname = 'memory_idempotency_records_id_seq')
-                  OR (pg_catalog.pg_has_role(
-                      role.oid, 'infinity_context_strict_v4_fact_writer', 'MEMBER'
                   ) AND relation.relname IN (
                       'memory_source_refs_id_seq',
                       'memory_fact_versions_id_seq',
-                      'memory_outbox_id_seq'
-                  )))
+                      'memory_outbox_id_seq',
+                      'memory_idempotency_records_id_seq'
+                  ))
                  AND privilege.name = 'USAGE'
              )
        )
@@ -374,8 +350,17 @@ SELECT COALESCE((
            FROM pg_catalog.pg_namespace AS namespace
            CROSS JOIN LATERAL pg_catalog.aclexplode(namespace.nspacl) AS acl
            WHERE namespace.nspname = 'public'
-             AND acl.grantee = role.oid
+             AND (acl.grantee = role.oid OR (acl.grantee = capability.oid AND acl.is_grantable))
        )
+       AND (
+           SELECT pg_catalog.count(*)
+           FROM pg_catalog.pg_namespace AS namespace
+           CROSS JOIN LATERAL pg_catalog.aclexplode(namespace.nspacl) AS acl
+           WHERE namespace.nspname = 'public'
+             AND acl.grantee = capability.oid
+             AND acl.privilege_type = 'USAGE'
+             AND NOT acl.is_grantable
+       ) = 1
        AND NOT EXISTS (
            SELECT 1
            FROM pg_catalog.pg_proc AS procedure
@@ -384,19 +369,16 @@ SELECT COALESCE((
            CROSS JOIN LATERAL pg_catalog.aclexplode(procedure.proacl) AS acl
            WHERE namespace.nspname = 'public'
              AND procedure.proname = ANY(ARRAY[
-                 'memory_comparison_is_strict_v4_canonical_writer',
-                 'memory_comparison_enforce_benchmark_writer_fence',
-                 'memory_cleanup_enforce_v3_context_authority_immutable',
-                 'memory_comparison_lock_strict_v4_registration_targets',
-                 'memory_comparison_lock_strict_v4_seal_targets',
-                 'memory_comparison_enforce_strict_v4_preparation_immutable',
-                 'memory_comparison_lock_benchmark_writer_target',
-                 'memory_comparison_lock_benchmark_fact_child_target',
-                 'memory_comparison_enforce_benchmark_fact_child_fence',
-                 'memory_comparison_enforce_benchmark_fact_receipt',
-                 'memory_comparison_verify_benchmark_fact_outbox_receipt'
+                 'memory_comparison_is_strict_v4_canonical_writer', 'memory_comparison_enforce_benchmark_writer_fence',
+                 'memory_cleanup_enforce_v3_context_authority_immutable', 'memory_comparison_lock_strict_v4_registration_targets',
+                 'memory_comparison_lock_strict_v4_seal_targets', 'memory_comparison_enforce_strict_v4_preparation_immutable',
+                 'memory_comparison_lock_benchmark_writer_target', 'memory_comparison_lock_benchmark_fact_child_target',
+                 'memory_comparison_enforce_benchmark_fact_child_fence', 'memory_comparison_enforce_benchmark_fact_receipt',
+                 'memory_comparison_verify_benchmark_fact_outbox_receipt', 'memory_comparison_lock_benchmark_document_child_target',
+                 'memory_comparison_enforce_benchmark_document_child_fence', 'memory_comparison_enforce_benchmark_document_idempotency',
+                 'memory_comparison_verify_benchmark_document_receipt'
              ]::text[])
-             AND acl.grantee = role.oid
+             AND (acl.grantee = role.oid OR (acl.grantee = capability.oid AND acl.is_grantable))
        )
        AND NOT EXISTS (
            SELECT 1
@@ -421,24 +403,59 @@ SELECT COALESCE((
                  'memory_comparison_lock_benchmark_fact_child_target',
                  'memory_comparison_enforce_benchmark_fact_child_fence',
                  'memory_comparison_enforce_benchmark_fact_receipt',
-                 'memory_comparison_verify_benchmark_fact_outbox_receipt'
+                 'memory_comparison_verify_benchmark_fact_outbox_receipt',
+                 'memory_comparison_lock_benchmark_document_child_target',
+                 'memory_comparison_enforce_benchmark_document_child_fence',
+                 'memory_comparison_enforce_benchmark_document_idempotency',
+                 'memory_comparison_verify_benchmark_document_receipt'
              ]::text[])
              AND acl.grantee = 0
        )
+       AND NOT EXISTS (
+           SELECT 1
+           FROM pg_catalog.pg_proc AS procedure
+           JOIN pg_catalog.pg_namespace AS namespace
+             ON namespace.oid = procedure.pronamespace
+           WHERE namespace.nspname = 'public'
+             AND procedure.proname = ANY(ARRAY[
+                 'memory_comparison_is_strict_v4_canonical_writer',
+                 'memory_comparison_enforce_benchmark_writer_fence',
+                 'memory_cleanup_enforce_v3_context_authority_immutable',
+                 'memory_comparison_lock_strict_v4_registration_targets',
+                 'memory_comparison_lock_strict_v4_seal_targets',
+                 'memory_comparison_enforce_strict_v4_preparation_immutable',
+                 'memory_comparison_lock_benchmark_writer_target',
+                 'memory_comparison_lock_benchmark_fact_child_target',
+                 'memory_comparison_enforce_benchmark_fact_child_fence',
+                 'memory_comparison_enforce_benchmark_fact_receipt',
+                 'memory_comparison_verify_benchmark_fact_outbox_receipt',
+                 'memory_comparison_lock_benchmark_document_child_target',
+                 'memory_comparison_enforce_benchmark_document_child_fence',
+                 'memory_comparison_enforce_benchmark_document_idempotency',
+                 'memory_comparison_verify_benchmark_document_receipt'
+             ]::text[])
+             AND pg_catalog.has_function_privilege(
+                 role.oid, procedure.oid, 'EXECUTE'
+             ) IS DISTINCT FROM (
+                 procedure.oid = pg_catalog.to_regprocedure(
+                     'public.memory_comparison_is_strict_v4_canonical_writer()'
+                 )
+             )
+       )
     FROM pg_catalog.pg_roles AS role
+    CROSS JOIN pg_catalog.pg_roles AS capability
     WHERE role.rolname = current_user
+      AND capability.rolname = 'infinity_context_canonical_writer'
 ), FALSE)
 $$;
 
 REVOKE ALL ON FUNCTION memory_comparison_is_strict_v4_canonical_writer()
     FROM PUBLIC,
          infinity_context_canonical_writer,
-         infinity_context_strict_v4_fact_writer,
          infinity_context_strict_v4_registrar,
          infinity_context_strict_v4_sealer;
 GRANT EXECUTE ON FUNCTION memory_comparison_is_strict_v4_canonical_writer()
-    TO infinity_context_canonical_writer,
-       infinity_context_strict_v4_fact_writer;
+    TO infinity_context_canonical_writer;
 
 CREATE OR REPLACE FUNCTION memory_comparison_lock_benchmark_writer_target()
 RETURNS TRIGGER
@@ -484,7 +501,6 @@ $$;
 REVOKE ALL ON FUNCTION memory_comparison_lock_benchmark_writer_target()
     FROM PUBLIC,
          infinity_context_canonical_writer,
-         infinity_context_strict_v4_fact_writer,
          infinity_context_strict_v4_registrar,
          infinity_context_strict_v4_sealer;
 
@@ -610,7 +626,6 @@ $$;
 REVOKE ALL ON FUNCTION memory_comparison_enforce_benchmark_writer_fence()
     FROM PUBLIC,
          infinity_context_canonical_writer,
-         infinity_context_strict_v4_fact_writer,
          infinity_context_strict_v4_registrar,
          infinity_context_strict_v4_sealer;
 
@@ -705,10 +720,7 @@ DECLARE
     registry_cleanup_plan_state VARCHAR(40);
     registry_run_id CHAR(64);
     strict_authorized BOOLEAN := FALSE;
-    fact_writer BOOLEAN := public.memory_comparison_is_strict_v4_canonical_writer()
-        AND pg_catalog.pg_has_role(
-            current_user, 'infinity_context_strict_v4_fact_writer', 'MEMBER'
-        );
+    fact_writer BOOLEAN := public.memory_comparison_is_strict_v4_canonical_writer();
 BEGIN
     IF TG_TABLE_NAME = 'memory_outbox' THEN
         IF TG_OP = 'DELETE' THEN
@@ -822,12 +834,7 @@ LANGUAGE plpgsql
 SET search_path = pg_catalog, public, pg_temp
 AS $$
 BEGIN
-    IF NOT (
-        public.memory_comparison_is_strict_v4_canonical_writer()
-        AND pg_catalog.pg_has_role(
-            current_user, 'infinity_context_strict_v4_fact_writer', 'MEMBER'
-        )
-    ) THEN
+    IF NOT public.memory_comparison_is_strict_v4_canonical_writer() THEN
         RETURN NEW;
     END IF;
     IF EXISTS (
@@ -854,12 +861,7 @@ LANGUAGE plpgsql
 SET search_path = pg_catalog, public, pg_temp
 AS $$
 BEGIN
-    IF NOT (
-        public.memory_comparison_is_strict_v4_canonical_writer()
-        AND pg_catalog.pg_has_role(
-            current_user, 'infinity_context_strict_v4_fact_writer', 'MEMBER'
-        )
-    ) THEN
+    IF NOT public.memory_comparison_is_strict_v4_canonical_writer() THEN
         RETURN NEW;
     END IF;
     IF NEW.aggregate_type <> 'fact' OR NOT EXISTS (
@@ -978,7 +980,6 @@ REVOKE ALL ON FUNCTION
     public.memory_comparison_verify_benchmark_fact_outbox_receipt()
 FROM PUBLIC,
      infinity_context_canonical_writer,
-     infinity_context_strict_v4_fact_writer,
      infinity_context_strict_v4_registrar,
      infinity_context_strict_v4_sealer;
 
@@ -992,5 +993,4 @@ TO infinity_context_strict_v4_sealer;
 
 GRANT EXECUTE ON FUNCTION
     public.memory_comparison_is_strict_v4_canonical_writer()
-TO infinity_context_canonical_writer,
-   infinity_context_strict_v4_fact_writer;
+TO infinity_context_canonical_writer;

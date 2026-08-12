@@ -83,7 +83,7 @@ DECLARE
     registry_cleanup_plan_state VARCHAR(40);
     registry_run_id CHAR(64);
     strict_authorized BOOLEAN := FALSE;
-    document_writer BOOLEAN := public.memory_comparison_is_strict_v4_document_writer();
+    canonical_writer BOOLEAN := public.memory_comparison_is_strict_v4_canonical_writer();
 BEGIN
     IF TG_TABLE_NAME = 'memory_outbox' THEN
         IF TG_OP = 'DELETE' THEN
@@ -115,8 +115,8 @@ BEGIN
     FROM public.memory_comparison_benchmark_runs AS benchmark_run
     WHERE benchmark_run.space_id = target_space_id;
     IF registry_state IS NULL THEN
-        IF document_writer THEN
-            RAISE EXCEPTION 'strict-v4 document writer cannot mutate an unmanaged child'
+        IF canonical_writer THEN
+            RAISE EXCEPTION 'strict-v4 canonical writer cannot mutate an unmanaged document child'
                 USING ERRCODE = '23514',
                       CONSTRAINT = 'ck_memory_comparison_benchmark_run_writer_fence';
         END IF;
@@ -138,13 +138,13 @@ BEGIN
           AND preparation.registration_sha256 = context_authority.registration_sha256
           AND preparation.registration_mac_sha256 = context_authority.registration_mac_sha256
     ) INTO strict_authorized;
-    IF TG_OP = 'INSERT' AND NOT document_writer AND NOT strict_authorized
+    IF TG_OP = 'INSERT' AND NOT canonical_writer AND NOT strict_authorized
         AND registry_state = 'active' AND registry_projection_state = 'unsealed'
         AND registry_cleanup_plan_state = 'sealed'
     THEN
         RETURN NEW;
     END IF;
-    IF TG_OP = 'INSERT' AND document_writer AND strict_authorized
+    IF TG_OP = 'INSERT' AND canonical_writer AND strict_authorized
         AND registry_state = 'active' AND registry_projection_state = 'unsealed'
     THEN
         IF TG_TABLE_NAME = 'memory_chunks' THEN
@@ -188,7 +188,12 @@ LANGUAGE plpgsql
 SET search_path = pg_catalog, public, pg_temp
 AS $$
 BEGIN
-    IF NOT public.memory_comparison_is_strict_v4_document_writer() THEN
+    IF NOT public.memory_comparison_is_strict_v4_canonical_writer() THEN
+        RETURN NEW;
+    END IF;
+    IF NEW.result_type <> 'document'
+       AND NEW.key NOT LIKE 'managed-benchmark-document-v4-%'
+    THEN
         RETURN NEW;
     END IF;
     IF NOT EXISTS (
@@ -221,7 +226,7 @@ LANGUAGE plpgsql
 SET search_path = pg_catalog, public, pg_temp
 AS $$
 BEGIN
-    IF NOT public.memory_comparison_is_strict_v4_document_writer() THEN
+    IF NOT public.memory_comparison_is_strict_v4_canonical_writer() THEN
         RETURN NEW;
     END IF;
     IF NOT EXISTS (
