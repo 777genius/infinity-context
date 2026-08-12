@@ -13,6 +13,7 @@ from contextlib import contextmanager, suppress
 from pathlib import Path
 from typing import Final, final
 
+from .ledger_head_anchor import FreshChainLedgerHeadAnchor
 from .ledger_models import (
     FreshChainFailureDisposition,
     FreshChainLedgerError,
@@ -84,7 +85,7 @@ _STRUCTURAL_FINGERPRINT: Final = hashlib.sha256(
 class FreshChainCanaryLedger:
     """One private append-only ledger sealed with an operator-local HMAC key."""
 
-    __slots__ = ("_authentication_secret", "_identity", "_path", "_plan", "_policy")
+    __slots__ = ("_anchor", "_authentication_secret", "_identity", "_path", "_plan", "_policy")
 
     def __init__(
         self,
@@ -111,19 +112,26 @@ class FreshChainCanaryLedger:
         newly_created, self._identity = self._prepare_private_storage(
             require_existing=require_existing
         )
+        self._anchor = FreshChainLedgerHeadAnchor(
+            path,
+            key=self._authentication_secret,
+            identity=self._identity,
+        )
         try:
             with self._connection() as connection:
                 if newly_created:
                     self._initialize(connection)
+                    projection, count, head = self._load_verified(connection)
                 else:
                     connection.execute("BEGIN")
                     try:
-                        self._load_verified(connection)
+                        projection, count, head = self._load_verified(connection)
                     except BaseException:
                         _rollback(connection)
                         raise
                     else:
                         connection.execute("COMMIT")
+                self._anchor.synchronize(connection, count=count, head=head)
         except FreshChainLedgerError:
             raise
         except (OSError, sqlite3.Error):
@@ -494,6 +502,7 @@ class FreshChainCanaryLedger:
                     raise
                 else:
                     connection.execute("COMMIT")
+            self._anchor.write(count=sequence, head=event_hmac)
             return self._snapshot(next_projection, sequence, event_hmac)
         except FreshChainLedgerError:
             raise
@@ -789,9 +798,17 @@ class FreshChainCanaryLedger:
         self._assert_surfaces()
         _require_private_file(self._path, expected_identity=self._identity)
         connection: sqlite3.Connection | None = None
+        descriptor: int | None = None
         try:
+            descriptor = os.open(
+                self._path,
+                os.O_RDWR | os.O_NOFOLLOW | getattr(os, "O_CLOEXEC", 0),
+            )
+            opened = os.fstat(descriptor)
+            if (opened.st_dev, opened.st_ino) != self._identity:
+                _fail("fresh_chain_ledger_private_storage_invalid")
             connection = sqlite3.connect(
-                f"file:{self._path}?mode=rw",
+                f"file:/proc/self/fd/{descriptor}?mode=rw",
                 uri=True,
                 isolation_level=None,
                 timeout=10.0,
@@ -809,6 +826,8 @@ class FreshChainCanaryLedger:
         finally:
             if connection is not None:
                 connection.close()
+            if descriptor is not None:
+                os.close(descriptor)
             _require_private_file(self._path, expected_identity=self._identity)
             self._assert_surfaces()
 

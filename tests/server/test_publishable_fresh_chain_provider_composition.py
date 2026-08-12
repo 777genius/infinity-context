@@ -84,6 +84,49 @@ def test_provider_free_preparer_seals_only_the_fixed_infinity_case(tmp_path: Pat
         opened.close()
 
 
+def test_actual_one_case_infinity_http_wrapper_searches_once_and_seals(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    config = _config()
+    config.infinity_retrieval_database_path = tmp_path / "one-case-http.sqlite3"
+    secrets = SimpleNamespace(
+        infinity_auth_token="private-bearer-value",
+        run=SimpleNamespace(retrieval_authentication_key=hashlib.sha256(b"retrieval").digest()),
+    )
+    memories = (RetrievedMemory(text="one HTTP result", rank=0, score=0.9),)
+    searches: list[tuple[str, int]] = []
+    closes: list[bool] = []
+    sealed: list[dict[str, object]] = []
+
+    def search(_self: object, case: PublicBenchmarkCase, *, run_id: str, top_k: int):
+        assert case is _case_value
+        searches.append((run_id, top_k))
+        return SimpleNamespace(memories=memories)
+
+    _case_value = _case()
+    monkeypatch.setattr(subject.InfinityContextHttpComparisonBackend, "search", search)
+    monkeypatch.setattr(
+        subject.InfinityContextHttpComparisonBackend,
+        "close",
+        lambda _self: closes.append(True),
+    )
+    monkeypatch.setattr(
+        subject,
+        "prepare_sealed_fresh_chain_infinity_retrieval",
+        lambda **kwargs: sealed.append(kwargs),
+    )
+
+    subject._prepare_infinity_if_missing(config=config, secrets=secrets, case=_case_value)
+
+    assert searches == [(config.run.suite.locomo_run_id, 10)]
+    assert closes == [True]
+    assert len(sealed) == 1
+    assert sealed[0]["case"] is _case_value
+    assert sealed[0]["infinity_memories"] == memories
+    assert sealed[0]["database_path"] == config.infinity_retrieval_database_path
+
+
 def _private_directory(path: Path) -> Path:
     path.mkdir(mode=0o700, parents=True)
     os.chmod(path, 0o700)

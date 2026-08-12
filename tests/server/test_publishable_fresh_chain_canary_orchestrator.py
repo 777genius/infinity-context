@@ -271,6 +271,20 @@ class _Session:
             residual_count=0,
         )
 
+    def abort_after_extraction(self) -> FreshChainCleanupResult:
+        self.events.append("abort_after_extraction")
+        self.cleanup_count += 1
+        return FreshChainCleanupResult(
+            namespace_commitment_sha256=self.namespace_commitment_sha256,
+            cleanup_authority_sha256=_sha("abort-cleanup-authority"),
+            receipt_id="abort-cleanup:0",
+            receipt_sha256=_sha("abort-cleanup-receipt"),
+            outcome_sha256=_sha("abort-cleanup-outcome"),
+            deleted=True,
+            operation_count=1,
+            residual_count=0,
+        )
+
     def close(self) -> None:
         self.closed = True
 

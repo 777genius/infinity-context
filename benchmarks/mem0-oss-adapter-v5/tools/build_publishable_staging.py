@@ -169,6 +169,7 @@ def build_staging_bundle(
         key: lane_root / name for key, name in template.private_directory_names.items()
     }
     run_state_root = run_root / template.run_state_directory_name
+    fresh_state_root = run_root / "fresh-chain-state-r17-6f2c"
     run_state_paths = {
         key: run_state_root / name for key, name in template.run_state_file_names.items()
     }
@@ -192,6 +193,7 @@ def build_staging_bundle(
         fresh_secrets_path,
         *private_paths.values(),
         run_state_root,
+        fresh_state_root,
         *run_state_paths.values(),
         *authority_paths.values(),
         source_pin_file,
@@ -236,6 +238,7 @@ def build_staging_bundle(
         *private_paths.values(),
         run_root,
         run_state_root,
+        fresh_state_root,
     )
     _preflight_private_directories(private_directories)
     _reject_existing_paths(

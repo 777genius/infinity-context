@@ -196,6 +196,18 @@ class OperatorLocalHmacFreshChainLifecycleJournal:
                 _fail("fresh_chain_mem0_lifecycle_cleanup_replay_conflict")
             return terminal
 
+    def cleanup_terminal(self) -> FreshChainCleanupResult | None:
+        """Return an authenticated terminal cleanup without provider readback."""
+
+        with self._lock:
+            if not self._path.exists() and not self._path.is_symlink():
+                return None
+            cleanup = self._read()["cleanup"]
+            if cleanup is None:
+                return None
+            _intent, terminal = _cleanup(cleanup)
+            return terminal
+
     def record_cleanup_terminal(
         self,
         *,
