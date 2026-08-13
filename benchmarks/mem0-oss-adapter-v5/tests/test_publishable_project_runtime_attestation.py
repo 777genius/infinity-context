@@ -450,6 +450,8 @@ def test_project_readback_rejects_reauthenticated_mismatched_fleet_commitment(
         directory=config.paths.attestation_dir,
         prefix=PROJECT_ATTESTATION_FILE_PREFIX,
         payload={**unsigned, "attestation_hmac_sha256": authentication},
+        expected_uid=os.geteuid(),
+        expected_gid=os.getegid(),
     )
 
     with pytest.raises(
@@ -496,6 +498,8 @@ def test_project_readback_rejects_reauthenticated_wrong_isolation_authority(
         directory=config.paths.attestation_dir,
         prefix=PROJECT_ATTESTATION_FILE_PREFIX,
         payload={**unsigned, "attestation_hmac_sha256": authentication},
+        expected_uid=os.geteuid(),
+        expected_gid=os.getegid(),
     )
     with pytest.raises(
         project_runtime_attestation.ProjectRuntimeAttestationError,
@@ -610,6 +614,8 @@ class _ProjectReceiptLaneDeployer:
             directory=config.paths.attestation_dir,
             prefix=PROJECT_ATTESTATION_FILE_PREFIX,
             payload={**unsigned, "attestation_hmac_sha256": authentication},
+            expected_uid=os.geteuid(),
+            expected_gid=os.getegid(),
         )
         return DeploymentOutcome(
             attestation_file=receipt.path,

@@ -310,6 +310,8 @@ class ProviderFreeRuntimeAttestor:
                 "runtime_attestation_sha256": runtime_attestation_sha256,
                 "schema_version": _EVIDENCE_SCHEMA,
             },
+            expected_uid=self._expected_uid,
+            expected_gid=self._expected_gid,
         )
         return self._evidence(immutable)
 
@@ -323,6 +325,8 @@ class ProviderFreeRuntimeAttestor:
             evidence.immutable,
             directory=self._config.paths.attestation_dir,
             prefix=_EVIDENCE_PREFIX,
+            expected_uid=self._expected_uid,
+            expected_gid=self._expected_gid,
         )
         observed = self._evidence(immutable)
         secret = self._read_secret()

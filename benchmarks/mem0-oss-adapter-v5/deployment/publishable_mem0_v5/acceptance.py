@@ -453,6 +453,8 @@ def run_docker_acceptance(
             reopen_provider=reopen_provider,
             inventory_scope=inventory_scope,
         ),
+        expected_uid=expected_uid,
+        expected_gid=expected_gid,
     )
     return DockerAcceptanceOutcome(
         acceptance_file=report.path,

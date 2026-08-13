@@ -132,6 +132,8 @@ def read_runtime_attestation(
         path=path,
         directory=directory,
         prefix=ATTESTATION_FILE_PREFIX,
+        expected_uid=expected_uid,
+        expected_gid=expected_gid,
     )
     if immutable.commitment_sha256 != expected_commitment:
         _fail("publishable_acceptance_attestation_commitment_mismatch")
@@ -216,6 +218,8 @@ def require_runtime_attestation_unchanged(
         evidence.immutable,
         directory=directory,
         prefix=ATTESTATION_FILE_PREFIX,
+        expected_uid=expected_uid,
+        expected_gid=expected_gid,
     )
     observed = read_runtime_attestation(
         path=evidence.path,

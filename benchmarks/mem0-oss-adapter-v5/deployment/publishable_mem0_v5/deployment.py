@@ -120,6 +120,8 @@ def deploy(
             project_attestation,
             config.paths.attestation_dir,
             authentication_key=attestation_key,
+            expected_uid=expected_uid,
+            expected_gid=expected_gid,
         )
         receipt_path = project_receipt.path
         receipt_sha256 = project_receipt.commitment_sha256
@@ -139,6 +141,8 @@ def deploy(
             attestation,
             config.paths.attestation_dir,
             authentication_key=attestation_key,
+            expected_uid=expected_uid,
+            expected_gid=expected_gid,
         )
         receipt_path = receipt.path
         receipt_sha256 = receipt.sha256

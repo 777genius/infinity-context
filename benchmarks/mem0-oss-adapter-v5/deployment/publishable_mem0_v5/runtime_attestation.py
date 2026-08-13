@@ -26,6 +26,7 @@ from .config import (
     PublishableLaneConfig,
 )
 from .docker_cli import NETWORK_KEY, SERVICES, CachedImages, DockerCli
+from .immutable_evidence import ImmutableEvidenceError, write_immutable_json
 from .preflight import (
     AccountIFenceEvidence,
     DeploymentInputEvidence,
@@ -378,6 +379,8 @@ def write_runtime_attestation(
     directory: Path,
     *,
     authentication_key: bytes,
+    expected_uid: int,
+    expected_gid: int,
 ) -> WrittenRuntimeAttestation:
     """Authenticate and durably create one content-addressed attestation file."""
 
@@ -394,7 +397,6 @@ def write_runtime_attestation(
         _fail("publishable_attestation_write_input_invalid")
     if not key_text or key_text != key_text.strip():
         _fail("publishable_attestation_write_input_invalid")
-    _require_private_directory(directory)
     unsigned = attestation.payload()
     authentication = hmac.new(
         authentication_key,
@@ -402,28 +404,20 @@ def write_runtime_attestation(
         hashlib.sha256,
     ).hexdigest()
     payload = {**unsigned, "attestation_hmac_sha256": authentication}
-    canonical = _canonical_json(payload)
-    commitment_sha256 = hashlib.sha256(canonical).hexdigest()
-    destination = directory / (f"{ATTESTATION_FILE_PREFIX}{commitment_sha256}.json")
-    raw = canonical + b"\n"
-    flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_CLOEXEC | getattr(os, "O_NOFOLLOW", 0)
-    previous_umask = os.umask(0o077)
-    descriptor: int | None = None
     try:
-        descriptor = os.open(destination, flags, 0o600)
-        _write_all(descriptor, raw)
-        os.fsync(descriptor)
-    except FileExistsError:
-        if destination.read_bytes() != raw:
-            _fail("publishable_attestation_existing_file_mismatch")
-    except OSError as exc:
+        immutable = write_immutable_json(
+            directory=directory,
+            prefix=ATTESTATION_FILE_PREFIX,
+            payload=payload,
+            expected_uid=expected_uid,
+            expected_gid=expected_gid,
+        )
+    except ImmutableEvidenceError as exc:
         raise RuntimeAttestationError("publishable_attestation_write_failed") from exc
-    finally:
-        os.umask(previous_umask)
-        if descriptor is not None:
-            os.close(descriptor)
-    _fsync_directory(directory)
-    return WrittenRuntimeAttestation(path=destination, sha256=commitment_sha256)
+    return WrittenRuntimeAttestation(
+        path=immutable.path,
+        sha256=immutable.commitment_sha256,
+    )
 
 
 def _attest_network(

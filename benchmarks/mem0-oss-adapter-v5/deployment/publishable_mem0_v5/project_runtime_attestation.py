@@ -307,6 +307,8 @@ def write_project_runtime_attestation(
     directory: Path,
     *,
     authentication_key: bytes,
+    expected_uid: int,
+    expected_gid: int,
 ) -> ImmutableJsonEvidence:
     """Authenticate and durably create a scope-distinct project receipt."""
 
@@ -333,6 +335,8 @@ def write_project_runtime_attestation(
         directory=directory,
         prefix=PROJECT_ATTESTATION_FILE_PREFIX,
         payload={**unsigned, "attestation_hmac_sha256": authentication},
+        expected_uid=expected_uid,
+        expected_gid=expected_gid,
     )
 
 
@@ -361,6 +365,8 @@ def read_project_runtime_attestation(
         path=path,
         directory=directory,
         prefix=PROJECT_ATTESTATION_FILE_PREFIX,
+        expected_uid=expected_uid,
+        expected_gid=expected_gid,
     )
     if immutable.commitment_sha256 != expected_commitment:
         _fail("publishable_project_attestation_commitment_mismatch")
@@ -469,6 +475,8 @@ def require_project_runtime_attestation_unchanged(
         evidence.immutable,
         directory=directory,
         prefix=PROJECT_ATTESTATION_FILE_PREFIX,
+        expected_uid=expected_uid,
+        expected_gid=expected_gid,
     )
     observed = read_project_runtime_attestation(
         path=evidence.path,

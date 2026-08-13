@@ -547,6 +547,8 @@ def test_full_runtime_attestation_binds_image_netns_mount_user_and_port(
         attestation,
         config.paths.attestation_dir,
         authentication_key=key,
+        expected_uid=os.geteuid(),
+        expected_gid=os.getegid(),
     )
     payload = json.loads(receipt.path.read_bytes())
     unsigned = attestation.payload()
@@ -564,6 +566,8 @@ def test_full_runtime_attestation_binds_image_netns_mount_user_and_port(
             attestation,
             config.paths.attestation_dir,
             authentication_key=key,
+            expected_uid=os.geteuid(),
+            expected_gid=os.getegid(),
         )
         == receipt
     )
@@ -572,6 +576,8 @@ def test_full_runtime_attestation_binds_image_netns_mount_user_and_port(
             attestation,
             config.paths.attestation_dir,
             authentication_key=b"short",
+            expected_uid=os.geteuid(),
+            expected_gid=os.getegid(),
         )
     assert any("exec" in call[0] for call in runner.calls)
 

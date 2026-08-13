@@ -4,6 +4,7 @@ import copy
 import hashlib
 import hmac
 import json
+import os
 import time
 from dataclasses import dataclass
 from pathlib import Path
@@ -720,6 +721,8 @@ def test_producer_receipt_is_consumed_by_the_real_receipt_verifiers(tmp_path: Pa
         attestation,
         lane.attestation_directory,
         authentication_key=lane.runtime_root_secret,
+        expected_uid=os.geteuid(),
+        expected_gid=os.getegid(),
     )
 
     written_payload = run_provider_preflight._read_lane_attestation(

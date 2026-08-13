@@ -234,6 +234,8 @@ class FakeLaneDeployer:
             directory=config.paths.attestation_dir,
             prefix=ATTESTATION_FILE_PREFIX,
             payload=payload,
+            expected_uid=int(values["expected_uid"]),
+            expected_gid=int(values["expected_gid"]),
         )
         if mode == "create":
             self.create_path = immutable.path
@@ -250,10 +252,14 @@ class FakeProviderProbe:
         *,
         crash_on_create: bool = False,
         tamper_on_reopen: bool = False,
+        expected_uid: int | None = None,
+        expected_gid: int | None = None,
     ) -> None:
         self.config = config
         self.crash_on_create = crash_on_create
         self.tamper_on_reopen = tamper_on_reopen
+        self.expected_uid = os.geteuid() if expected_uid is None else expected_uid
+        self.expected_gid = os.getegid() if expected_gid is None else expected_gid
         self.calls: list[tuple[str, str]] = []
         self.create_path: Path | None = None
 
@@ -276,6 +282,8 @@ class FakeProviderProbe:
                 "fleet_mode": fleet_mode,
                 "runtime_attestation_sha256": runtime_attestation_sha256,
             },
+            expected_uid=self.expected_uid,
+            expected_gid=self.expected_gid,
         )
         if fleet_mode == "create":
             self.create_path = immutable.path
@@ -301,6 +309,8 @@ class FakeProviderProbe:
             evidence.immutable,
             directory=self.config.paths.attestation_dir,
             prefix="provider-attestation-",
+            expected_uid=self.expected_uid,
+            expected_gid=self.expected_gid,
         )
         return evidence
 
@@ -395,6 +405,44 @@ def test_acceptance_owns_exact_provider_free_lifecycle_and_cleans_project(
     assert len(inventory_calls) == 6
     expected_filter = f"label=com.docker.compose.project={config.project_name}"
     assert all(arguments[-1] == expected_filter for arguments in inventory_calls)
+
+
+@pytest.mark.skipif(os.geteuid() != 0, reason="mapped-owner propagation requires root")
+def test_acceptance_propagates_mapped_owner_to_all_immutable_receipts(
+    tmp_path: Path,
+) -> None:
+    expected_uid = 65534
+    expected_gid = 65534
+    config, proc_root, config_file = _acceptance_config(tmp_path)
+    for root, directories, files in os.walk(tmp_path):
+        for name in (*directories, *files):
+            os.chown(Path(root) / name, expected_uid, expected_gid)
+    runner = FakeDockerRunner()
+    deployer = FakeLaneDeployer()
+    probe = FakeProviderProbe(
+        config,
+        expected_uid=expected_uid,
+        expected_gid=expected_gid,
+    )
+
+    outcome = run_docker_acceptance(
+        config_file=config_file,
+        runner=runner,
+        proc_root=proc_root,
+        expected_uid=expected_uid,
+        expected_gid=expected_gid,
+        lane_deployer=deployer,
+        runtime_probe=probe,
+        deployment_attestor=_fake_deployment_attestor,
+    )
+
+    receipts = tuple(config.paths.attestation_dir.glob("*.json"))
+    assert len(receipts) == 5
+    assert outcome.acceptance_file in receipts
+    assert all(
+        (path.stat().st_uid, path.stat().st_gid) == (expected_uid, expected_gid)
+        for path in receipts
+    )
 
 
 def test_preexisting_exact_project_is_refused_without_cleanup(tmp_path: Path) -> None:
