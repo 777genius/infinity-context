@@ -615,6 +615,12 @@ def _attest_command_and_environment(
             "MEM0_V5_RUNTIME_AUTHORITY_DIR": "/opt/publishable/runtime",
             "MEM0_V5_RUNTIME_REPO": "/opt/publishable/runtime/repo",
             "MEM0_V5_RUNTIME_TRANSPORT_ORIGIN_FILE": ("/run/secrets/runtime-transport-origin"),
+            "MEM0_V5_SOURCE_AUTHORITY_MANIFEST_FILE": (
+                "/run/source-authority-pin/manifest.json"
+            ),
+            "MEM0_V5_SOURCE_AUTHORITY_MANIFEST_SHA256_FILE": (
+                "/run/source-authority-pin/manifest.sha256"
+            ),
             "HF_HUB_OFFLINE": "1",
             "TRANSFORMERS_OFFLINE": "1",
         },

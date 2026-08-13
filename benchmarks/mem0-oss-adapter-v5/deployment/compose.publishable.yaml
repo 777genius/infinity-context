@@ -350,7 +350,7 @@ services:
       MEM0_V5_RUNTIME_AUTHORITY_DIR: /opt/publishable/runtime
       MEM0_V5_RUNTIME_REPO: /opt/publishable/runtime/repo
       MEM0_V5_NODE_EXECUTABLE: /opt/publishable/bin/node
-      MEM0_V5_SOURCE_AUTHORITY_MANIFEST_FILE: /run/source-authority/manifest.json
+      MEM0_V5_SOURCE_AUTHORITY_MANIFEST_FILE: /run/source-authority-pin/manifest.json
       MEM0_V5_SOURCE_AUTHORITY_MANIFEST_SHA256_FILE: /run/source-authority-pin/manifest.sha256
       MEM0_V5_PHASE_C_AUTHORITY_DIR: /opt/publishable/source/phase-c
       HOME: /run/mem0-v5-state

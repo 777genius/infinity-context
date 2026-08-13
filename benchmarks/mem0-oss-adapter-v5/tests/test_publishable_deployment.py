@@ -171,6 +171,30 @@ def test_compose_is_exact_cached_only_anchor_namespace_contract() -> None:
     adapter = services["publishable-adapter"]
     assert adapter["command"][adapter["command"].index("--port") + 1] == "19091"
     assert adapter["environment"]["MEM0_V5_QDRANT_ORIGIN"] == "http://127.0.0.1:6334"
+    assert adapter["environment"]["MEM0_V5_SOURCE_AUTHORITY_MANIFEST_FILE"] == (
+        "/run/source-authority-pin/manifest.json"
+    )
+    assert adapter["environment"]["MEM0_V5_SOURCE_AUTHORITY_MANIFEST_SHA256_FILE"] == (
+        "/run/source-authority-pin/manifest.sha256"
+    )
+    adapter_mounts = {item["target"]: item for item in adapter["volumes"]}
+    assert adapter_mounts["/run/source-authority"]["source"] == (
+        "${MEM0_V5_PUBLISHABLE_SOURCE_AUTHORITY_DIR:?set immutable source authority directory}"
+    )
+    assert adapter_mounts["/run/source-authority-pin"]["source"] == (
+        "${MEM0_V5_PUBLISHABLE_SOURCE_AUTHORITY_PIN_DIR:?set immutable source pin directory}"
+    )
+    assert adapter_mounts["/run/source-authority-pin/manifest.sha256"]["source"] == (
+        "${MEM0_V5_PUBLISHABLE_SOURCE_AUTHORITY_PIN_SHA256_FILE:?set immutable source pin digest}"
+    )
+    assert all(
+        adapter_mounts[target]["read_only"]
+        for target in (
+            "/run/source-authority",
+            "/run/source-authority-pin",
+            "/run/source-authority-pin/manifest.sha256",
+        )
+    )
     lowered = COMPOSE.read_text().lower()
     assert "ollama" not in lowered
     assert "network_mode: host" not in lowered
@@ -586,7 +610,16 @@ def test_runtime_attestation_rejects_fake_internal_health_when_host_relay_is_unr
 
 
 @pytest.mark.parametrize(
-    "difference", ["image", "netns", "mount", "user", "port", "authority_environment"]
+    "difference",
+    [
+        "image",
+        "netns",
+        "mount",
+        "user",
+        "port",
+        "authority_environment",
+        "source_authority_environment",
+    ],
 )
 def test_runtime_attestation_rejects_each_runtime_difference(
     tmp_path: Path,
@@ -611,6 +644,13 @@ def test_runtime_attestation_rejects_each_runtime_difference(
     elif difference == "authority_environment":
         adapter["Config"]["Env"].remove("MEM0_V5_RUNTIME_AUTHORITY_DIR=/opt/publishable/runtime")
         adapter["Config"]["Env"].append("MEM0_V5_RUNTIME_AUTHORITY_DIR=/host/runtime")
+    elif difference == "source_authority_environment":
+        adapter["Config"]["Env"].remove(
+            "MEM0_V5_SOURCE_AUTHORITY_MANIFEST_FILE=/run/source-authority-pin/manifest.json"
+        )
+        adapter["Config"]["Env"].append(
+            "MEM0_V5_SOURCE_AUTHORITY_MANIFEST_FILE=/run/source-authority/manifest.json"
+        )
     else:
         adapter["HostConfig"]["PortBindings"] = {
             "19091/tcp": [{"HostIp": "0.0.0.0", "HostPort": "19091"}]
