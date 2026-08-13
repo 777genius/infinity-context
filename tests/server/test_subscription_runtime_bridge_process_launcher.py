@@ -14,6 +14,7 @@ from infinity_context_server.features.subscription_runtime_bridge.process_contra
     CODEX_EXECUTABLE_MAX_BYTES,
     BridgeProcessError,
     GracefulStopMetadata,
+    ProcessIdentity,
 )
 from infinity_context_server.processes.subscription_runtime_bridge_process_composition import (
     create_new_subscription_runtime_bridge_processes,
@@ -374,3 +375,65 @@ def test_account_i_pid_collision_is_never_terminated_or_signaled(
     assert harness.control.identity(ACCOUNT_I_PID) is not None
     assert not spec.account_i_fence.state_root.exists()
     assert not spec.account_i_fence.auth_root.exists()
+
+
+@pytest.mark.parametrize("protected_pid", (False, True, 0, 1))
+def test_invalid_optional_protected_pid_rejected_before_any_side_effect(
+    tmp_path: Path,
+    protected_pid: object,
+) -> None:
+    item = build_fleet_spec(tmp_path).processes[0]
+
+    class Bomb:
+        def __getattr__(self, name: str) -> object:
+            raise AssertionError(f"side effect before validation: {name}")
+
+    with pytest.raises(BridgeProcessError, match="protected_pid_invalid"):
+        process_launcher._start_generation(  # noqa: SLF001
+            item,
+            lock=Bomb(),  # type: ignore[arg-type]
+            generation=1,
+            mode="create",
+            protected_pid=protected_pid,  # type: ignore[arg-type]
+            control=Bomb(),  # type: ignore[arg-type]
+        )
+
+
+def test_none_protected_pid_preserves_identity_and_current_pgid_guards() -> None:
+    identity = ProcessIdentity(
+        pid=99111,
+        start_ticks=123,
+        pgid=99111,
+        boot_id="11111111-1111-1111-1111-111111111111",
+    )
+
+    class Process:
+        pid = identity.pid
+
+        @staticmethod
+        def poll() -> None:
+            return None
+
+    class Control:
+        @staticmethod
+        def identity(pid: int) -> ProcessIdentity:
+            assert pid == identity.pid
+            return identity
+
+        @staticmethod
+        def current_pgid() -> int:
+            return 777
+
+    assert process_launcher._await_process_identity(  # noqa: SLF001
+        Process(), Control(), None  # type: ignore[arg-type]
+    ) == identity
+
+    class SameGroup(Control):
+        @staticmethod
+        def current_pgid() -> int:
+            return identity.pgid
+
+    with pytest.raises(BridgeProcessError, match="session_isolation_failed"):
+        process_launcher._await_process_identity(  # noqa: SLF001
+            Process(), SameGroup(), None  # type: ignore[arg-type]
+        )

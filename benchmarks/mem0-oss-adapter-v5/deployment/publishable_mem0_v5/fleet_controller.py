@@ -32,7 +32,7 @@ from infinity_context_server.features.subscription_runtime_bridge.process_files 
     verify_private_file,
 )
 
-from .config import PublishableLaneConfig, load_lane_config
+from .config import PublishableLaneConfig, load_runtime_lane_config
 from .fleet_spec import (
     CONTAINER_BRIDGE_STATE_BASE,
     AnchorNamespaceEvidence,
@@ -116,14 +116,18 @@ class _ProductionBridgeFactory:
                     lock=lock,
                     generation=1,
                     mode="create",
-                    protected_pid=spec.account_i_fence.pid,
+                    protected_pid=(
+                        spec.account_i_fence.pid if spec.account_i_fence is not None else None
+                    ),
                     control=control,
                 )
                 if mode == "create"
                 else process_launcher._reopen_or_restart(
                     item,
                     lock=lock,
-                    protected_pid=spec.account_i_fence.pid,
+                    protected_pid=(
+                        spec.account_i_fence.pid if spec.account_i_fence is not None else None
+                    ),
                     control=control,
                 )
             )
@@ -174,7 +178,7 @@ def serve(
 ) -> None:
     """Own one account runtime until normal stop or a controller failure."""
 
-    config = load_lane_config(config_file)
+    config = load_runtime_lane_config(config_file)
     namespace = attest_anchor_namespace(config)
     spec = build_isolated_bridge_spec(config, account_index=account_index)
     _remove_stale_control_file()
@@ -211,7 +215,7 @@ def serve(
 def health(config_file: Path, *, account_index: int) -> None:
     """Provider-free health for one controller receipt and one bridge GET."""
 
-    config = load_lane_config(config_file)
+    config = load_runtime_lane_config(config_file)
     namespace = attest_anchor_namespace(config)
     spec = build_isolated_bridge_spec(config, account_index=account_index)
     payload = _read_control_file()

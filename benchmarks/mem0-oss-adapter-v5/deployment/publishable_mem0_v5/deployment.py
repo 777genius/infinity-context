@@ -6,7 +6,13 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 
-from .config import CONTAINER_GID, CONTAINER_UID, DeploymentConfigError, load_lane_config
+from .config import (
+    CONTAINER_GID,
+    CONTAINER_UID,
+    DeploymentConfigError,
+    load_lane_config,
+    load_provider_free_project_lane_config,
+)
 from .docker_cli import CommandRunner, DockerCli
 from .inventory_scope import (
     GLOBAL_INVENTORY_SCOPE,
@@ -63,7 +69,16 @@ def deploy(
         raise DeploymentConfigError(str(exc)) from exc
     if not config_file.is_absolute() or fleet_mode not in {"create", "reopen"}:
         raise DeploymentConfigError("publishable_deploy_input_invalid")
-    config = load_lane_config(config_file)
+    config = (
+        load_provider_free_project_lane_config(config_file)
+        if inventory_scope == PROJECT_INVENTORY_SCOPE
+        else load_lane_config(config_file)
+    )
+    if inventory_scope == PROJECT_INVENTORY_SCOPE:
+        if config.project_isolation_authority is None or config.account_i_r16_fence is not None:
+            raise DeploymentConfigError("publishable_deploy_scope_authority_mismatch")
+    elif config.account_i_r16_fence is None or config.project_isolation_authority is not None:
+        raise DeploymentConfigError("publishable_deploy_scope_authority_mismatch")
     docker = DockerCli(config, config_file=config_file, runner=runner)
     attest_compose_asset(docker.compose_file)
     deployment = attest_deployment_inputs(

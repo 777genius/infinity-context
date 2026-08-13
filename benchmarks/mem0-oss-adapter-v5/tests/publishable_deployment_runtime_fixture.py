@@ -21,6 +21,7 @@ from publishable_mem0_v5.config import (
     BindMountAuthorityConfig,
     BridgeAccountConfig,
     LanePaths,
+    ProjectIsolationAuthority,
     PublishableLaneConfig,
     RuntimeAuthorityConfig,
 )
@@ -386,6 +387,7 @@ def build_config(
     tmp_path: Path,
     *,
     deployment_dir: Path | None = None,
+    project_scope: bool = False,
 ) -> tuple[PublishableLaneConfig, Path]:
     project = "mem0-v5-publishable-testlane"
     run_root = tmp_path / project
@@ -473,7 +475,14 @@ def build_config(
         paths=paths,
         runtime=runtime,
         bridges=bridges,
-        account_i_r16_fence=fence,
+        account_i_r16_fence=None if project_scope else fence,
+        project_isolation_authority=(
+            ProjectIsolationAuthority(
+                inventory_scope="project", project_name=project,
+                docker_host=PINNED_DOCKER_HOST, pid_mode="private",
+                daemon_global_observation=False, host_process_observation=False,
+            ) if project_scope else None
+        ),
     )
     _namespace_fixture(proc_root)
     return config, proc_root

@@ -115,11 +115,15 @@ class RunningBridgeProcess:
         spec: BridgeProcessSpec,
         authority: RuntimeProcessAuthority,
         readiness: BridgeLaunchReceipt,
-        protected_pid: int,
+        protected_pid: int | None,
         control: ProcessControlPort,
         popen: subprocess.Popen[bytes] | None,
         reopened: bool,
     ) -> None:
+        if protected_pid is not None and (
+            type(protected_pid) is not int or protected_pid <= 1
+        ):
+            _fail("bridge_process_protected_pid_invalid")
         self._spec = spec
         self.authority = authority
         self.readiness = readiness
@@ -390,9 +394,11 @@ def _start_generation(
     lock: _StateLock,
     generation: int,
     mode: Literal["create", "reopen"],
-    protected_pid: int,
+    protected_pid: int | None,
     control: ProcessControlPort,
 ) -> RunningBridgeProcess:
+    if protected_pid is not None and (type(protected_pid) is not int or protected_pid <= 1):
+        _fail("bridge_process_protected_pid_invalid")
     material = _load_private_material(spec)
     authority = _runtime_authority(spec, material)
     _store_or_verify_authority(lock.lifecycle_root, authority, create=mode == "create")
@@ -425,7 +431,7 @@ def _start_generation(
     try:
         identity = _await_process_identity(process, control, protected_pid)
     except BaseException:
-        if process.pid != protected_pid:
+        if protected_pid is None or process.pid != protected_pid:
             with suppress(OSError):
                 process.terminate()
             with suppress(subprocess.TimeoutExpired):
@@ -476,9 +482,11 @@ def _reopen_or_restart(
     spec: BridgeProcessSpec,
     *,
     lock: _StateLock,
-    protected_pid: int,
+    protected_pid: int | None,
     control: ProcessControlPort,
 ) -> RunningBridgeProcess:
+    if protected_pid is not None and (type(protected_pid) is not int or protected_pid <= 1):
+        _fail("bridge_process_protected_pid_invalid")
     material = _load_private_material(spec)
     authority = _runtime_authority(spec, material)
     _store_or_verify_authority(lock.lifecycle_root, authority, create=False)
@@ -767,7 +775,7 @@ def _probe_health_once(spec: BridgeProcessSpec) -> RuntimeHealthEvidence:
 def _await_process_identity(
     process: subprocess.Popen[bytes],
     control: ProcessControlPort,
-    protected_pid: int,
+    protected_pid: int | None,
 ) -> ProcessIdentity:
     if process.pid == protected_pid:
         _fail("bridge_process_account_i_pid_collision")
@@ -815,7 +823,7 @@ def _record_observed_exit(
 def _terminate_failed_start(
     process: subprocess.Popen[bytes],
     identity: ProcessIdentity,
-    protected_pid: int,
+    protected_pid: int | None,
     control: ProcessControlPort,
 ) -> None:
     if identity.pid == protected_pid or identity.pgid == protected_pid:

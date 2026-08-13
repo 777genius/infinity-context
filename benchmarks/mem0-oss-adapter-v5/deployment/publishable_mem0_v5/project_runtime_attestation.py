@@ -33,7 +33,6 @@ from .inventory_scope import PROJECT_INVENTORY_SCOPE
 from .preflight import (
     DeploymentInputEvidence,
     attest_deployment_inputs,
-    configured_account_i_fence_authority_sha256,
 )
 from .runtime_attestation import (
     _attest_command_and_environment,
@@ -52,9 +51,9 @@ from .runtime_integrity import (
     attest_relay_reachability,
 )
 
-PROJECT_ATTESTATION_SCHEMA: Final = "publishable-mem0-v5-project-runtime-attestation.v1"
+PROJECT_ATTESTATION_SCHEMA: Final = "publishable-mem0-v5-project-runtime-attestation.v2"
 PROJECT_ATTESTATION_FILE_PREFIX: Final = "project-runtime-attestation-"
-PROJECT_ATTESTATION_HMAC_DOMAIN: Final = b"publishable-mem0-v5/project-runtime-attestation/v1\0"
+PROJECT_ATTESTATION_HMAC_DOMAIN: Final = b"publishable-mem0-v5/project-runtime-attestation/v2\0"
 _OBSERVATION_STATUS: Final = "NOT_OBSERVED_PROJECT_SCOPE"
 _FLEET_KEYS: Final = {
     "bridges",
@@ -73,7 +72,7 @@ _TOP_LEVEL_KEYS: Final = {
     "attestation_hmac_sha256",
     "bridge_ports",
     "compose_sha256",
-    "configured_account_i_fence_authority_sha256",
+    "project_isolation_authority_sha256",
     "deployment_inputs_sha256",
     "docker_authority",
     "fleet",
@@ -134,7 +133,7 @@ class ProjectRuntimeAttestation:
     observed_at_unix_ns: int
     adapter_image_id: str
     qdrant_image_id: str
-    configured_account_i_fence_authority_sha256: str
+    project_isolation_authority_sha256: str
     secret_cross_wire_sha256: str
     deployment_inputs_sha256: str
     project_resources: Mapping[str, object]
@@ -148,9 +147,7 @@ class ProjectRuntimeAttestation:
             "adapter_image_id": self.adapter_image_id,
             "bridge_ports": list(BRIDGE_PORTS),
             "compose_sha256": self.compose_sha256,
-            "configured_account_i_fence_authority_sha256": (
-                self.configured_account_i_fence_authority_sha256
-            ),
+            "project_isolation_authority_sha256": self.project_isolation_authority_sha256,
             "deployment_inputs_sha256": self.deployment_inputs_sha256,
             "docker_authority": {
                 "docker_host": self.docker_host,
@@ -185,6 +182,7 @@ class ProjectRuntimeAttestationReadback:
     project_name: str
     fleet_mode: str
     deployment_inputs_sha256: str
+    project_isolation_authority_sha256: str
     bind_mounts: tuple[tuple[str, str], ...]
     bridges: tuple[
         ProjectBridgeLifecycleEvidence,
@@ -235,8 +233,9 @@ def attest_project_runtime_lane(
         _fail("publishable_project_attestation_cached_image_changed")
 
     first = docker.inspect_project(mode=fleet_mode)
-    if set(first.container_ids.values()) & set(config.account_i_r16_fence.container_ids):
-        _fail("publishable_project_attestation_protected_container_collision")
+    authority = config.project_isolation_authority
+    if authority is None:
+        _fail("publishable_project_attestation_project_authority_required")
     services = _attest_project_inspection(
         first,
         config=config,
@@ -292,9 +291,7 @@ def attest_project_runtime_lane(
         observed_at_unix_ns=time.time_ns(),
         adapter_image_id=cached_images.adapter_image_id,
         qdrant_image_id=cached_images.qdrant_image_id,
-        configured_account_i_fence_authority_sha256=(
-            configured_account_i_fence_authority_sha256(config.account_i_r16_fence)
-        ),
+        project_isolation_authority_sha256=authority.commitment_sha256,
         secret_cross_wire_sha256=secret_cross_wire_sha256,
         deployment_inputs_sha256=deployment_before.commitment_sha256,
         project_resources=_project_resources(first),
@@ -348,12 +345,17 @@ def read_project_runtime_attestation(
     expected_docker_host: str,
     expected_mode: str,
     expected_commitment: str,
+    expected_project_isolation_authority_sha256: str,
     expected_uid: int,
     expected_gid: int,
 ) -> ProjectRuntimeAttestationReadback:
     """Authenticate exact scoped authority, resources, project, and lifecycle mode."""
 
-    if expected_mode not in {"create", "reopen"} or not _sha256(expected_commitment):
+    if (
+        expected_mode not in {"create", "reopen"}
+        or not _sha256(expected_commitment)
+        or not _sha256(expected_project_isolation_authority_sha256)
+    ):
         _fail("publishable_project_attestation_read_input_invalid")
     immutable = read_immutable_json(
         path=path,
@@ -378,7 +380,7 @@ def read_project_runtime_attestation(
             _sha256(payload.get(key))
             for key in (
                 "attestation_hmac_sha256",
-                "configured_account_i_fence_authority_sha256",
+                "project_isolation_authority_sha256",
                 "deployment_inputs_sha256",
                 "relay_reachability_sha256",
                 "secret_cross_wire_sha256",
@@ -392,6 +394,11 @@ def read_project_runtime_attestation(
         expected_uid=expected_uid,
         expected_gid=expected_gid,
     )
+    observed_authority = str(payload["project_isolation_authority_sha256"])
+    if not hmac.compare_digest(
+        observed_authority, expected_project_isolation_authority_sha256
+    ):
+        _fail("publishable_project_attestation_isolation_authority_mismatch")
     services = _services(payload.get("services"))
     resources = payload.get("project_resources")
     expected_ids = {name: services[name]["container_id"] for name in SERVICES}
@@ -439,6 +446,7 @@ def read_project_runtime_attestation(
         project_name=expected_project,
         fleet_mode=expected_mode,
         deployment_inputs_sha256=str(payload["deployment_inputs_sha256"]),
+        project_isolation_authority_sha256=observed_authority,
         bind_mounts=tuple((name, str(services[name]["bind_mounts_sha256"])) for name in SERVICES),
         bridges=bridges,  # type: ignore[arg-type]
     )
@@ -470,6 +478,9 @@ def require_project_runtime_attestation_unchanged(
         expected_docker_host=expected_docker_host,
         expected_mode=evidence.fleet_mode,
         expected_commitment=evidence.commitment_sha256,
+        expected_project_isolation_authority_sha256=(
+            evidence.project_isolation_authority_sha256
+        ),
         expected_uid=expected_uid,
         expected_gid=expected_gid,
     )

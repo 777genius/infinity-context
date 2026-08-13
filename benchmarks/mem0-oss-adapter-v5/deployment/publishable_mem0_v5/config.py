@@ -7,6 +7,7 @@ into Compose arguments, logs, or attestations.
 
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import re
@@ -18,6 +19,7 @@ from typing import Any, Final
 from uuid import UUID
 
 CONFIG_SCHEMA: Final = "publishable-mem0-v5-isolated-lane.v2"
+PROJECT_CONFIG_SCHEMA: Final = "publishable-mem0-v5-project-lane.v1"
 CONFIG_AUTHENTICATION_SCHEMA: Final = "publishable-mem0-v5-config-authentication.v1"
 PINNED_DOCKER_HOST: Final = "unix:///run/infinity-locomo-docker/docker.sock"
 DEPLOYMENT_AUTHORITY_KEY_NAME: Final = "deployment-authority-hmac.secret"
@@ -244,6 +246,44 @@ class AccountIR16Fence:
 
 
 @dataclass(frozen=True, slots=True)
+class ProjectIsolationAuthority:
+    """Explicit project-only isolation contract, containing no host PID authority."""
+
+    inventory_scope: str
+    project_name: str
+    docker_host: str
+    pid_mode: str
+    daemon_global_observation: bool
+    host_process_observation: bool
+
+    def __post_init__(self) -> None:
+        if (
+            self.inventory_scope != "project"
+            or _PROJECT.fullmatch(self.project_name) is None
+            or self.docker_host != PINNED_DOCKER_HOST
+            or self.pid_mode not in {"private", "empty"}
+            or self.daemon_global_observation is not False
+            or self.host_process_observation is not False
+        ):
+            _fail("publishable_lane_project_isolation_authority_invalid")
+
+    def payload(self) -> dict[str, object]:
+        return {
+            "daemon_global_observation": False,
+            "docker_host": self.docker_host,
+            "host_process_observation": False,
+            "inventory_scope": "project",
+            "pid_mode": self.pid_mode,
+            "project_name": self.project_name,
+        }
+
+    @property
+    def commitment_sha256(self) -> str:
+        raw = json.dumps(self.payload(), sort_keys=True, separators=(",", ":")).encode()
+        return hashlib.sha256(raw).hexdigest()
+
+
+@dataclass(frozen=True, slots=True)
 class PublishableLaneConfig:
     """Complete reviewed public authority for one new isolated lane."""
 
@@ -256,7 +296,8 @@ class PublishableLaneConfig:
     paths: LanePaths
     runtime: RuntimeAuthorityConfig
     bridges: tuple[BridgeAccountConfig, BridgeAccountConfig, BridgeAccountConfig]
-    account_i_r16_fence: AccountIR16Fence
+    account_i_r16_fence: AccountIR16Fence | None = None
+    project_isolation_authority: ProjectIsolationAuthority | None = None
 
     def __post_init__(self) -> None:
         if _PROJECT.fullmatch(self.project_name) is None or _reserved(self.project_name):
@@ -266,14 +307,23 @@ class PublishableLaneConfig:
         if _IMAGE_ID.fullmatch(self.adapter_image_id) is None:
             _fail("publishable_lane_adapter_image_id_invalid")
         _require_port(self.host_adapter_port, "host_adapter")
+        if (self.account_i_r16_fence is None) == (self.project_isolation_authority is None):
+            _fail("publishable_lane_exactly_one_isolation_authority_required")
+        if self.project_isolation_authority is not None and (
+            self.project_isolation_authority.project_name != self.project_name
+            or self.project_isolation_authority.docker_host != self.docker_host
+        ):
+            _fail("publishable_lane_project_isolation_authority_cross_wire")
+        protected_ports = () if self.account_i_r16_fence is None else (
+            self.account_i_r16_fence.port, *self.account_i_r16_fence.protected_host_ports
+        )
         forbidden = {
             ADAPTER_PORT,
             QDRANT_HTTP_PORT,
             QDRANT_GRPC_PORT,
             RELAY_PORT,
             *BRIDGE_PORTS,
-            self.account_i_r16_fence.port,
-            *self.account_i_r16_fence.protected_host_ports,
+            *protected_ports,
         }
         if self.host_adapter_port in forbidden:
             _fail("publishable_lane_host_adapter_port_collision")
@@ -292,7 +342,7 @@ class PublishableLaneConfig:
             _fail("publishable_lane_bridge_id_duplicate")
         if len({item.account_binding_hmac_sha256 for item in self.bridges}) != 3:
             _fail("publishable_lane_bridge_binding_duplicate")
-        if self.account_i_r16_fence.port in BRIDGE_PORTS:
+        if self.account_i_r16_fence is not None and self.account_i_r16_fence.port in BRIDGE_PORTS:
             _fail("publishable_lane_account_i_internal_port_collision")
 
     def authentication_payload(self) -> dict[str, object]:
@@ -319,7 +369,7 @@ class PublishableLaneConfig:
             )
             for name in self.runtime.__dataclass_fields__
         }
-        fence = {
+        fence = None if self.account_i_r16_fence is None else {
             "auth_root": str(self.account_i_r16_fence.auth_root),
             "boot_id": self.account_i_r16_fence.boot_id,
             "container_ids": list(self.account_i_r16_fence.container_ids),
@@ -330,8 +380,7 @@ class PublishableLaneConfig:
             "start_ticks": self.account_i_r16_fence.start_ticks,
             "state_root": str(self.account_i_r16_fence.state_root),
         }
-        return {
-            "account_i_r16_fence": fence,
+        result = {
             "adapter_image_id": self.adapter_image_id,
             "bind_mount_authority": self.bind_mount_authority.payload(),
             "bridges": [
@@ -347,9 +396,18 @@ class PublishableLaneConfig:
             "paths": paths,
             "project_name": self.project_name,
             "runtime": runtime,
-            "schema_version": CONFIG_SCHEMA,
+            "schema_version": (
+                CONFIG_SCHEMA if fence is not None else PROJECT_CONFIG_SCHEMA
+            ),
             "source_manifest_sha256": self.source_manifest_sha256,
         }
+        if fence is not None:
+            result["account_i_r16_fence"] = fence
+        else:
+            result["project_isolation_authority"] = (
+                self.project_isolation_authority.payload()
+            )
+        return result
 
     def compose_environment(self, *, config_file: Path, fleet_mode: str) -> MappingProxyType:
         """Render the only environment admitted to the fixed Compose asset."""
@@ -439,6 +497,82 @@ def load_lane_config(path: Path) -> PublishableLaneConfig:
         bridges=bridges,
         account_i_r16_fence=_parse_fence(root["account_i_r16_fence"]),
     )
+
+
+def load_provider_free_project_lane_config(path: Path) -> PublishableLaneConfig:
+    """Read the distinct project-only schema without accepting production v2."""
+
+    _require_absolute_path(path, "config_file")
+    raw = _read_config_bytes(path)
+    try:
+        value = json.loads(raw, object_pairs_hook=_unique_object)
+    except (UnicodeDecodeError, json.JSONDecodeError, DeploymentConfigError) as exc:
+        raise DeploymentConfigError("publishable_lane_config_json_invalid") from exc
+    root = _object(value, {
+        "schema_version", "project_name", "adapter_image_id", "host_adapter_port",
+        "docker_host", "source_manifest_sha256", "bind_mount_authority", "paths",
+        "runtime", "bridges", "project_isolation_authority",
+    }, "root")
+    if root["schema_version"] != PROJECT_CONFIG_SCHEMA:
+        _fail("publishable_lane_project_config_schema_invalid")
+    project = _object(root["project_isolation_authority"], {
+        "inventory_scope", "project_name", "docker_host", "pid_mode",
+        "daemon_global_observation", "host_process_observation",
+    }, "project_isolation_authority")
+    bridges_value = root["bridges"]
+    if type(bridges_value) is not list or len(bridges_value) != 3:
+        _fail("publishable_lane_requires_three_bridges")
+    return PublishableLaneConfig(
+        project_name=_string(root["project_name"], "project_name"),
+        adapter_image_id=_string(root["adapter_image_id"], "adapter_image_id"),
+        host_adapter_port=_integer(root["host_adapter_port"], "host_adapter_port"),
+        docker_host=_string(root["docker_host"], "docker_host"),
+        source_manifest_sha256=_string(root["source_manifest_sha256"], "source_manifest_sha256"),
+        bind_mount_authority=_parse_bind_mount_authority(root["bind_mount_authority"]),
+        paths=_parse_paths(root["paths"]), runtime=_parse_runtime(root["runtime"]),
+        bridges=tuple(_parse_bridge(item) for item in bridges_value),
+        project_isolation_authority=ProjectIsolationAuthority(
+            inventory_scope=_string(
+                project["inventory_scope"], "project_isolation_authority.inventory_scope"
+            ),
+            project_name=_string(
+                project["project_name"], "project_isolation_authority.project_name"
+            ),
+            docker_host=_string(
+                project["docker_host"], "project_isolation_authority.docker_host"
+            ),
+            pid_mode=_string(
+                project["pid_mode"], "project_isolation_authority.pid_mode"
+            ),
+            daemon_global_observation=_exact_false(
+                project["daemon_global_observation"],
+                "project_isolation_authority.daemon_global_observation",
+            ),
+            host_process_observation=_exact_false(
+                project["host_process_observation"],
+                "project_isolation_authority.host_process_observation",
+            ),
+        ),
+    )
+
+
+def load_runtime_lane_config(path: Path) -> PublishableLaneConfig:
+    """Dispatch only by the exact declared schema used inside lane containers."""
+
+    _require_absolute_path(path, "config_file")
+    raw = _read_config_bytes(path)
+    try:
+        value = json.loads(raw, object_pairs_hook=_unique_object)
+    except (UnicodeDecodeError, json.JSONDecodeError, DeploymentConfigError) as exc:
+        raise DeploymentConfigError("publishable_lane_config_json_invalid") from exc
+    if type(value) is not dict or type(value.get("schema_version")) is not str:
+        _fail("publishable_lane_config_schema_invalid")
+    schema = value["schema_version"]
+    if schema == CONFIG_SCHEMA:
+        return load_lane_config(path)
+    if schema == PROJECT_CONFIG_SCHEMA:
+        return load_provider_free_project_lane_config(path)
+    _fail("publishable_lane_config_schema_invalid")
 
 
 def _parse_paths(value: object) -> LanePaths:
@@ -646,6 +780,12 @@ def _integer(value: object, label: str) -> int:
     return value
 
 
+def _exact_false(value: object, label: str) -> bool:
+    if value is not False:
+        _fail(f"publishable_lane_{label}_invalid")
+    return False
+
+
 def _require_port(value: object, label: str) -> None:
     if type(value) is not int or not 1024 <= value <= 65535:
         _fail(f"publishable_lane_{label}_port_invalid")
@@ -701,6 +841,7 @@ __all__ = (
     "CONTAINER_UID",
     "DEPLOYMENT_AUTHORITY_KEY_NAME",
     "PINNED_DOCKER_HOST",
+    "PROJECT_CONFIG_SCHEMA",
     "PROTECTED_ACCOUNT_I_AUTH_ROOT",
     "PROTECTED_R16_ROOT",
     "QDRANT_GRPC_PORT",
@@ -713,6 +854,9 @@ __all__ = (
     "SOURCE_MANIFEST_SHA256",
     "BindMountAuthorityConfig",
     "DeploymentConfigError",
+    "ProjectIsolationAuthority",
     "PublishableLaneConfig",
     "load_lane_config",
+    "load_provider_free_project_lane_config",
+    "load_runtime_lane_config",
 )

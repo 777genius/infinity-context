@@ -28,6 +28,7 @@ from .config import (
     PINNED_DOCKER_HOST,
     PublishableLaneConfig,
     load_lane_config,
+    load_provider_free_project_lane_config,
 )
 from .deployment import DeploymentOutcome, LaneDeployer, deploy
 from .docker_cli import (
@@ -188,7 +189,16 @@ def run_docker_acceptance(
         or not callable(deployment_attestor)
     ):
         _fail("publishable_acceptance_input_invalid")
-    config = load_lane_config(config_file)
+    config = (
+        load_provider_free_project_lane_config(config_file)
+        if inventory_scope == PROJECT_INVENTORY_SCOPE
+        else load_lane_config(config_file)
+    )
+    if inventory_scope == PROJECT_INVENTORY_SCOPE:
+        if config.project_isolation_authority is None or config.account_i_r16_fence is not None:
+            _fail("publishable_acceptance_scope_authority_mismatch")
+    elif config.account_i_r16_fence is None or config.project_isolation_authority is not None:
+        _fail("publishable_acceptance_scope_authority_mismatch")
     _require_inventory_authority(
         config,
         inventory_scope=inventory_scope,
@@ -262,6 +272,10 @@ def run_docker_acceptance(
             expected_docker_host=config.docker_host,
             expected_mode="create",
             expected_commitment=create_outcome.attestation_sha256,
+            expected_project_isolation_authority_sha256=(
+                config.project_isolation_authority.commitment_sha256
+                if config.project_isolation_authority is not None else None
+            ),
             expected_uid=expected_uid,
             expected_gid=expected_gid,
         )
@@ -323,6 +337,10 @@ def run_docker_acceptance(
             expected_docker_host=config.docker_host,
             expected_mode="reopen",
             expected_commitment=reopen_outcome.attestation_sha256,
+            expected_project_isolation_authority_sha256=(
+                config.project_isolation_authority.commitment_sha256
+                if config.project_isolation_authority is not None else None
+            ),
             expected_uid=expected_uid,
             expected_gid=expected_gid,
         )
@@ -725,6 +743,7 @@ def _read_runtime_attestation(
     expected_docker_host: str,
     expected_mode: str,
     expected_commitment: str,
+    expected_project_isolation_authority_sha256: str | None,
     expected_uid: int,
     expected_gid: int,
 ) -> AcceptanceRuntimeReadback:
@@ -737,6 +756,9 @@ def _read_runtime_attestation(
             expected_docker_host=expected_docker_host,
             expected_mode=expected_mode,
             expected_commitment=expected_commitment,
+            expected_project_isolation_authority_sha256=(
+                expected_project_isolation_authority_sha256 or ""
+            ),
             expected_uid=expected_uid,
             expected_gid=expected_gid,
         )

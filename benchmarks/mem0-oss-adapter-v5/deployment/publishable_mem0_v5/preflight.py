@@ -21,6 +21,7 @@ from .config import (
     AccountIR16Fence,
     PublishableLaneConfig,
     load_lane_config,
+    load_provider_free_project_lane_config,
 )
 
 _ADAPTER_RUNTIME_ORIGIN: Final = "http://127.0.0.1:8891"
@@ -251,7 +252,12 @@ def attest_deployment_inputs(
         maximum_bytes=256 * 1024,
         executable=False,
     )
-    if load_lane_config(config_file) != config:
+    reload_config = (
+        load_provider_free_project_lane_config(config_file)
+        if config.project_isolation_authority is not None
+        else load_lane_config(config_file)
+    )
+    if reload_config != config:
         _fail("publishable_preflight_config_changed_after_load")
     config_hmac = configuration_hmac_sha256(config, authority_key)
     if not hmac.compare_digest(
@@ -310,9 +316,8 @@ def attest_deployment_inputs(
     if len(resolved) != 6:
         _fail("publishable_preflight_critical_paths_overlap")
     fence = config.account_i_r16_fence
-    if config.host_adapter_port in {
-        fence.port,
-        *fence.protected_host_ports,
+    if fence is not None and config.host_adapter_port in {
+        fence.port, *fence.protected_host_ports,
     }:
         _fail("publishable_preflight_host_relay_port_fence_collision")
     return DeploymentInputEvidence(

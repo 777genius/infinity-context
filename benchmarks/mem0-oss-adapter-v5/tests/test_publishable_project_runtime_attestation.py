@@ -32,7 +32,6 @@ from publishable_mem0_v5.runtime_integrity import (
 from test_publishable_deployment import DEPLOYMENT, _config, _deployment_evidence
 from test_publishable_docker_acceptance import (
     FakeProviderProbe,
-    _acceptance_config,
     _fake_deployment_attestor,
 )
 
@@ -40,6 +39,21 @@ from tests.publishable_deployment_runtime_fixture import (
     runtime_inventory,
     write_cross_wire,
 )
+
+
+def _acceptance_config(tmp_path: Path):
+    config, proc_root = _config(tmp_path, deployment_dir=DEPLOYMENT, project_scope=True)
+    key = config.paths.adapter_secret_dir / "runtime-attestation-secret"
+    key.write_bytes(b"runtime-attestation-root-" * 2)
+    key.chmod(0o600)
+    for account in config.bridges:
+        path = config.paths.fleet_state_dir / account.account_name
+        path.mkdir(mode=0o700)
+        path.chmod(0o700)
+    config_file = tmp_path / "lane-config.json"
+    config_file.write_bytes(_json(config.public_payload()))
+    config_file.chmod(0o600)
+    return config, proc_root, config_file
 
 _QDRANT_ID = "sha256:" + "d" * 64
 _NETWORK_ID = "e" * 64
@@ -156,16 +170,18 @@ def test_project_deploy_never_observes_proc_or_unrelated_daemon_containers(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    config, _proc_fixture = _config(tmp_path, deployment_dir=DEPLOYMENT)
+    config, _proc_fixture = _config(tmp_path, deployment_dir=DEPLOYMENT, project_scope=True)
     config_file = tmp_path / "lane-config.json"
-    config_file.write_text("reviewed-config-fixture")
+    config_file.write_bytes(_json(config.public_payload()))
     write_cross_wire(config)
     containers, network = runtime_inventory(config, config_file, tmp_path / "unused-proc")
     runner = ProjectRuntimeRunner(config=config, containers=containers, network=network)
     deployment_before = _deployment_evidence(config, config_file)
     fleet = _fleet(config, mode="reopen")
 
-    monkeypatch.setattr(deployment, "load_lane_config", lambda _path: config)
+    monkeypatch.setattr(
+        deployment, "load_provider_free_project_lane_config", lambda _path: config
+    )
     monkeypatch.setattr(
         deployment,
         "attest_deployment_inputs",
@@ -211,6 +227,9 @@ def test_project_deploy_never_observes_proc_or_unrelated_daemon_containers(
         expected_docker_host=config.docker_host,
         expected_mode="reopen",
         expected_commitment=outcome.attestation_sha256,
+        expected_project_isolation_authority_sha256=(
+            config.project_isolation_authority.commitment_sha256
+        ),
         expected_uid=os.geteuid(),
         expected_gid=os.getegid(),
     )
@@ -445,6 +464,54 @@ def test_project_readback_rejects_reauthenticated_mismatched_fleet_commitment(
             expected_docker_host=config.docker_host,
             expected_mode="reopen",
             expected_commitment=receipt.commitment_sha256,
+            expected_project_isolation_authority_sha256=(
+                config.project_isolation_authority.commitment_sha256
+            ),
+            expected_uid=os.geteuid(),
+            expected_gid=os.getegid(),
+        )
+
+
+def test_project_readback_rejects_reauthenticated_wrong_isolation_authority(
+    tmp_path: Path,
+) -> None:
+    config, _proc_fixture, config_file = _acceptance_config(tmp_path)
+    containers, network = runtime_inventory(config, config_file, tmp_path / "fixture-proc")
+    runner = ProjectRuntimeRunner(config=config, containers=containers, network=network)
+    unsigned = _project_receipt_payload(
+        config,
+        runner=runner,
+        mode="reopen",
+        generation=2,
+        deployment_inputs_sha256=_deployment_evidence(config, config_file).commitment_sha256,
+    )
+    unsigned["project_isolation_authority_sha256"] = "f" * 64
+    key_file = config.paths.adapter_secret_dir / "runtime-attestation-secret"
+    authentication = hmac.new(
+        key_file.read_bytes(),
+        PROJECT_ATTESTATION_HMAC_DOMAIN + _json(unsigned),
+        hashlib.sha256,
+    ).hexdigest()
+    receipt = write_immutable_json(
+        directory=config.paths.attestation_dir,
+        prefix=PROJECT_ATTESTATION_FILE_PREFIX,
+        payload={**unsigned, "attestation_hmac_sha256": authentication},
+    )
+    with pytest.raises(
+        project_runtime_attestation.ProjectRuntimeAttestationError,
+        match="publishable_project_attestation_isolation_authority_mismatch",
+    ):
+        read_project_runtime_attestation(
+            path=receipt.path,
+            directory=config.paths.attestation_dir,
+            authentication_key_file=key_file,
+            expected_project=config.project_name,
+            expected_docker_host=config.docker_host,
+            expected_mode="reopen",
+            expected_commitment=receipt.commitment_sha256,
+            expected_project_isolation_authority_sha256=(
+                config.project_isolation_authority.commitment_sha256
+            ),
             expected_uid=os.geteuid(),
             expected_gid=os.getegid(),
         )
@@ -676,7 +743,9 @@ def _project_receipt_payload(
         "adapter_image_id": config.adapter_image_id,
         "bridge_ports": [8891, 8892, 8893],
         "compose_sha256": "1" * 64,
-        "configured_account_i_fence_authority_sha256": "2" * 64,
+        "project_isolation_authority_sha256": (
+        config.project_isolation_authority.commitment_sha256
+        ),
         "deployment_inputs_sha256": deployment_inputs_sha256,
         "docker_authority": {
             "docker_host": config.docker_host,

@@ -66,7 +66,7 @@ class IsolatedBridgeSpec:
     account_index: int
     pool_id: str
     process: BridgeProcessSpec
-    account_i_fence: AccountIRuntimeFence
+    account_i_fence: AccountIRuntimeFence | None
 
     def __post_init__(self) -> None:
         if (
@@ -74,7 +74,10 @@ class IsolatedBridgeSpec:
             or self.account_index not in range(len(BRIDGE_PORTS))
             or not self.pool_id
             or type(self.process) is not BridgeProcessSpec
-            or type(self.account_i_fence) is not AccountIRuntimeFence
+            or (
+                self.account_i_fence is not None
+                and type(self.account_i_fence) is not AccountIRuntimeFence
+            )
         ):
             _fail("publishable_bridge_spec_invalid")
         if self.process.port != BRIDGE_PORTS[self.account_index]:
@@ -101,7 +104,10 @@ def attest_anchor_namespace(
         _fail("publishable_fleet_anchor_netns_mismatch")
     if (own_pid.st_dev, own_pid.st_ino) != (anchor_pid.st_dev, anchor_pid.st_ino):
         _fail("publishable_fleet_anchor_pidns_mismatch")
-    if own_net.st_ino == config.account_i_r16_fence.netns_inode:
+    if (
+        config.account_i_r16_fence is not None
+        and own_net.st_ino == config.account_i_r16_fence.netns_inode
+    ):
         _fail("publishable_fleet_account_i_netns_collision")
     if proc_root == Path("/proc") and os.getpid() == 1:
         _fail("publishable_fleet_controller_is_anchor")
@@ -189,11 +195,15 @@ def build_isolated_bridge_spec(
             codex_executable=CONTAINER_CODEX_EXECUTABLE,
             codex_executable_sha256=config.runtime.codex_executable_sha256,
         ),
-        account_i_fence=AccountIRuntimeFence(
-            pid=fence.pid,
-            port=fence.port,
-            state_root=fence.state_root,
-            auth_root=fence.auth_root,
+        account_i_fence=(
+            AccountIRuntimeFence(
+                pid=fence.pid,
+                port=fence.port,
+                state_root=fence.state_root,
+                auth_root=fence.auth_root,
+            )
+            if fence is not None
+            else None
         ),
     )
 
