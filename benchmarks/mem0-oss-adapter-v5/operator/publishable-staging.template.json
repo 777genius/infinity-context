@@ -21,7 +21,7 @@
     "server_package_dir_name": "infinity-context-server-r17-6f2c",
     "source_authority_dir_name": "mem0-v5-source-authority-r17-6f2c",
     "source_authority_pin_dir_name": "mem0-v5-source-pin-r17-6f2c",
-    "source_manifest_sha256": "83cd1a1f081cd0c8e1f5f270577061ab18f8927aacd16b7554fd3e750c062a4c"
+    "source_manifest_sha256": "4293c131829fc9bdf56b5bf77459c0ec528f99ebb898ba27553f718301788d79"
   },
   "lane": {
     "bridge_accounts": [
@@ -82,7 +82,7 @@
       "output_cipher_key_id": "publishable-r17-6f2c-output-v1",
       "required_fleet_mode": "reopen",
       "runtime_pin_name": "mem0-v5-runtime-pin-r17-6f2c.json",
-      "runtime_pin_sha256": "6976b4507071d95bc0df1cb91c56d5c5932fbc5ed1a76475126be05f91e8a15c",
+      "runtime_pin_sha256": "3637ce6c0b6b7f3b0b88bd3e8083178c7fc85df70869e89f958a35ae85709474",
       "runtime_route_binding_sha256": "aaff3d27c7ca1b964a86355622e87b2bbd7841722dbcff782292ea02e1fa0935",
       "runtime_source_sha256": "6c0bfa587ea52cea8b3cfff75980836ffa157efcc3f074ce97faa55d9bed4695",
       "subscription_runtime_binding_commitment_sha256": "9636a031655ad158b5864217ca400ee6d6d294fdd799757296f38f7c926786fa"
@@ -94,7 +94,7 @@
       "locomo_run_id": "publishable-r17-6f2c-locomo-1985",
       "longmemeval_run_id": "publishable-r17-6f2c-longmemeval-55",
       "publication_bundle_sha256": "202a3937be09587681f60dc31ee60aa87f4af743fe63a4879eb9c424e853f7b1",
-      "source_commit_sha256": "16c40bb404f71f22d7c5a569b084dcb110a9b01164909261aa0b403ac34c27da",
+      "source_commit_sha256": "301bf3f836375b564392d9964969337149219438329536f1790f3ab0c850455f",
       "suite_id": "publishable-mem0-v5-r17-6f2c-suite-2040"
     }
   },

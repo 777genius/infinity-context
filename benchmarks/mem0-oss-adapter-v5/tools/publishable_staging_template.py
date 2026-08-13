@@ -15,10 +15,10 @@ from uuid import UUID
 TEMPLATE_SCHEMA: Final = "publishable-mem0-v5-operator-staging-template.v2"
 PINNED_DOCKER_HOST: Final = "unix:///run/infinity-locomo-docker/docker.sock"
 REQUIRED_PAID_FLEET_MODE: Final = "reopen"
-RUNTIME_PIN_SHA256: Final = "6976b4507071d95bc0df1cb91c56d5c5932fbc5ed1a76475126be05f91e8a15c"
-SOURCE_COMMIT_SHA1: Final = "cf7ed782226118cec3eb520e322ebe024c2f332e"
-SOURCE_COMMIT_SHA256: Final = "16c40bb404f71f22d7c5a569b084dcb110a9b01164909261aa0b403ac34c27da"
-SOURCE_MANIFEST_SHA256: Final = "83cd1a1f081cd0c8e1f5f270577061ab18f8927aacd16b7554fd3e750c062a4c"
+RUNTIME_PIN_SHA256: Final = "3637ce6c0b6b7f3b0b88bd3e8083178c7fc85df70869e89f958a35ae85709474"
+SOURCE_COMMIT_SHA1: Final = "a7c4e9e56a9e2779cce6edef917368dab23056d0"
+SOURCE_COMMIT_SHA256: Final = "301bf3f836375b564392d9964969337149219438329536f1790f3ab0c850455f"
+SOURCE_MANIFEST_SHA256: Final = "4293c131829fc9bdf56b5bf77459c0ec528f99ebb898ba27553f718301788d79"
 PROTECTED_ACCOUNT_I_AUTH_ROOT: Final = Path("/var/data/codex-home/live-codex-auth/account-i")
 PROTECTED_R16_ROOT: Final = Path(
     "/mnt/volume_ams3_1784742570542/infinity-context/live-canaries/mem0-v5-live-d7bf1ac4-r16"

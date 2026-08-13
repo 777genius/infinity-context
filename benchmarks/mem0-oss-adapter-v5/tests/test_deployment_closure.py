@@ -27,7 +27,7 @@ from tools.generate_source_authority import (
 ROOT = Path(__file__).resolve().parents[1]
 REPOSITORY = ROOT.parents[1]
 FROZEN_V4_TREE = "5d640f4ea0164f18a5e8cff2bd5469b1e7eea201"
-LIVE_SOURCE_COMMIT = "cf7ed782226118cec3eb520e322ebe024c2f332e"
+LIVE_SOURCE_COMMIT = "a7c4e9e56a9e2779cce6edef917368dab23056d0"
 
 
 def test_complete_v4_tree_and_working_bytes_remain_exact() -> None:
@@ -174,6 +174,14 @@ def test_pin_b_reproduces_live_v2_archive_and_verifies_exact_staged_closure(
         "manifest_sha256": manifest_sha256,
         "tree_sha1": committed["source_tree_sha1"],
     }
+    head_generated, _ = source_manifest(
+        REPOSITORY,
+        "HEAD",
+        PhaseCAuthority(**phase),
+    )
+    assert head_generated["files"] == committed["files"]
+    assert head_generated["closure_algorithm"] == committed["closure_algorithm"]
+    assert head_generated["closure_sha256"] == committed["closure_sha256"]
     assert {item["path"] for item in committed["files"]}.issuperset(
         {
             "mem0_oss_adapter_v5/evidence_contracts.py",

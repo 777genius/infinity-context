@@ -102,10 +102,10 @@ unchanged between review and execution. The one tracked runtime/source tuple for
 this staging generation is:
 
 ```text
-runtime-pin.json SHA-256    6976b4507071d95bc0df1cb91c56d5c5932fbc5ed1a76475126be05f91e8a15c
-source manifest SHA-256     83cd1a1f081cd0c8e1f5f270577061ab18f8927aacd16b7554fd3e750c062a4c
-source commit SHA-1         cf7ed782226118cec3eb520e322ebe024c2f332e
-SHA-256(commit SHA-1 ASCII) 16c40bb404f71f22d7c5a569b084dcb110a9b01164909261aa0b403ac34c27da
+runtime-pin.json SHA-256    3637ce6c0b6b7f3b0b88bd3e8083178c7fc85df70869e89f958a35ae85709474
+source manifest SHA-256     4293c131829fc9bdf56b5bf77459c0ec528f99ebb898ba27553f718301788d79
+source commit SHA-1         a7c4e9e56a9e2779cce6edef917368dab23056d0
+SHA-256(commit SHA-1 ASCII) 301bf3f836375b564392d9964969337149219438329536f1790f3ab0c850455f
 ```
 
 The template loader, builder revalidation, and generated lane-config loader all
