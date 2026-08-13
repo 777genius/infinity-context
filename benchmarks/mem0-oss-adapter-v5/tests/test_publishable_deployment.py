@@ -116,6 +116,23 @@ def test_compose_is_exact_cached_only_anchor_namespace_contract() -> None:
     assert services["publishable-relay-anchor"]["ports"] == [
         "127.0.0.1:${MEM0_V5_PUBLISHABLE_HOST_ADAPTER_PORT:?set loopback host adapter port}:19191"
     ]
+    anchor = services["publishable-relay-anchor"]
+    assert anchor["environment"]["PYTHONPATH"] == (
+        "/opt/publishable/deployment:/opt/publishable/server"
+    )
+    assert {
+        item["target"]: (item["source"], item["read_only"])
+        for item in anchor["volumes"]
+    } == {
+        "/opt/publishable/deployment": (
+            "${MEM0_V5_PUBLISHABLE_DEPLOYMENT_DIR:?set immutable deployment directory}",
+            True,
+        ),
+        "/opt/publishable/server": (
+            "${MEM0_V5_PUBLISHABLE_SERVER_PACKAGE_DIR:?set immutable server package directory}",
+            True,
+        ),
+    }
     assert [name for name, item in services.items() if "ports" in item] == [
         "publishable-relay-anchor"
     ]

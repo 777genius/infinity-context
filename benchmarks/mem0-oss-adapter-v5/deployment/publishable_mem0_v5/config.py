@@ -23,7 +23,7 @@ PROJECT_CONFIG_SCHEMA: Final = "publishable-mem0-v5-project-lane.v1"
 CONFIG_AUTHENTICATION_SCHEMA: Final = "publishable-mem0-v5-config-authentication.v1"
 PINNED_DOCKER_HOST: Final = "unix:///run/infinity-locomo-docker/docker.sock"
 DEPLOYMENT_AUTHORITY_KEY_NAME: Final = "deployment-authority-hmac.secret"
-COMPOSE_SHA256: Final = "064cc0d6edb2353d928dc2b6c9b7e1524348658fb5c85d0efdcf6dd3e9178c37"
+COMPOSE_SHA256: Final = "fb4eb9589ef36b0b79096511efcf813882d94309543cbb2ff6fdc84fca6d2ab7"
 QDRANT_IMAGE: Final = (
     "qdrant/qdrant:v1.18.3@sha256:ecc81d662bb9bb734db879b94461eb44be38604fc259491d478ad7e673238a0d"
 )

@@ -14,11 +14,15 @@ services:
     cpus: 0.5
     environment:
       PYTHONDONTWRITEBYTECODE: "1"
-      PYTHONPATH: /opt/publishable/deployment
+      PYTHONPATH: /opt/publishable/deployment:/opt/publishable/server
     volumes:
       - type: bind
         source: ${MEM0_V5_PUBLISHABLE_DEPLOYMENT_DIR:?set immutable deployment directory}
         target: /opt/publishable/deployment
+        read_only: true
+      - type: bind
+        source: ${MEM0_V5_PUBLISHABLE_SERVER_PACKAGE_DIR:?set immutable server package directory}
+        target: /opt/publishable/server
         read_only: true
     tmpfs:
       - /tmp:size=16m,mode=1770,uid=65532,gid=65532

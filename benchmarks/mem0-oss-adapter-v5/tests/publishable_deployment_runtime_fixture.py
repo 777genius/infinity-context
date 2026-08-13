@@ -62,6 +62,7 @@ def runtime_inventory(
     mounts = {
         "publishable-relay-anchor": {
             "/opt/publishable/deployment": (paths.deployment_dir, False),
+            "/opt/publishable/server": (paths.server_package_dir, False),
         },
         "publishable-qdrant": {"/qdrant/storage": (paths.qdrant_state_dir, True)},
         "publishable-adapter": {
@@ -129,7 +130,9 @@ def runtime_inventory(
             str(index),
         ]
     environments = {
-        "publishable-relay-anchor": ["PYTHONPATH=/opt/publishable/deployment"],
+        "publishable-relay-anchor": [
+            "PYTHONPATH=/opt/publishable/deployment:/opt/publishable/server"
+        ],
         "publishable-qdrant": [
             "QDRANT__SERVICE__HOST=127.0.0.1",
             "QDRANT__SERVICE__HTTP_PORT=6334",
