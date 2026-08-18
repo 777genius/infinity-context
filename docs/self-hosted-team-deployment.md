@@ -32,8 +32,13 @@ openssl rand -hex 32
 Start the default small-team stack:
 
 ```bash
-docker compose --env-file .env.selfhost -f docker-compose.selfhost.yml up -d --build
+make infinity-context-selfhost-up
 ```
+
+The target first generates a source manifest from the clean Git checkout. The image verifies
+that manifest before installation and exposes serving identity only for this attested build.
+An image built directly without the generated manifest remains usable, but intentionally does
+not claim a service revision or a qualified embedding profile.
 
 Check health:
 
@@ -95,7 +100,7 @@ disabled. To run the full provider shape, set the relevant values in
 `.env.selfhost`, including `MEMORY_OPENAI_API_KEY` or `OPENAI_API_KEY`, then run:
 
 ```bash
-docker compose --env-file .env.selfhost -f docker-compose.selfhost.yml --profile full up -d --build
+make infinity-context-selfhost-up-full
 ```
 
 Minimum full-mode flags:
