@@ -18,6 +18,13 @@ RUN apt-get update \
 
 COPY pyproject.toml README.md LICENSE ./
 COPY packages ./packages
+COPY scripts/build_manifest.py ./scripts/build_manifest.py
+COPY build /opt/infinity-context/source-build
+
+RUN if [ -f /opt/infinity-context/source-build/infinity-context-source-manifest.json ]; then \
+        python scripts/build_manifest.py verify --repo /app \
+            --manifest /opt/infinity-context/source-build/infinity-context-source-manifest.json; \
+    fi
 
 RUN python -m pip install --upgrade pip setuptools wheel \
     && case ",${INFINITY_CONTEXT_EXTRAS}," in \
@@ -31,6 +38,12 @@ RUN python -m pip install --upgrade pip setuptools wheel \
         python -m pip install ".[${INFINITY_CONTEXT_EXTRAS}]"; \
     else \
         python -m pip install .; \
+    fi
+
+
+RUN if [ -f /opt/infinity-context/source-build/infinity-context-source-manifest.json ]; then \
+        python -c \
+        "from pathlib import Path; from infinity_context_server.build_identity import write_installed_build_identity; write_installed_build_identity(source_manifest=Path('/opt/infinity-context/source-build/infinity-context-source-manifest.json'), output_path=Path('/opt/infinity-context/build-identity.json'))"; \
     fi
 
 RUN useradd --create-home --home-dir /home/memo --shell /usr/sbin/nologin memo \

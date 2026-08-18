@@ -30,6 +30,7 @@ class CaptureMode(StrEnum):
 
 class Settings(BaseSettings):
     service_name: str = "infinity-context"
+    service_build_identity_path: str | None = "/opt/infinity-context/build-identity.json"
     deploy_profile: DeployProfile = DeployProfile.LOCAL
     database_url: str = (
         "postgresql+asyncpg://infinity_context:infinity_context@127.0.0.1:54329/infinity_context"
@@ -145,6 +146,10 @@ class Settings(BaseSettings):
     embeddings_enabled: bool = False
     embeddings_provider: str = "noop"
     embeddings_model: str = "text-embedding-3-small"
+    embeddings_model_revision: str | None = None
+    embeddings_runtime_build_revision: str | None = None
+    embeddings_runtime_info_url: str | None = None
+    embeddings_base_url: str | None = None
     embeddings_dimensions: int = Field(default=1536, ge=1, le=8192)
     openai_api_key: str | None = None
     legacy_client_enabled: bool = False
@@ -188,16 +193,13 @@ class Settings(BaseSettings):
         if self.qdrant_enabled and not self.embeddings_enabled:
             raise RuntimeError("MEMORY_QDRANT_ENABLED requires MEMORY_EMBEDDINGS_ENABLED")
         if self.qdrant_hybrid_sparse_enabled and not self.qdrant_enabled:
-            raise RuntimeError(
-                "MEMORY_QDRANT_HYBRID_SPARSE_ENABLED requires MEMORY_QDRANT_ENABLED"
-            )
+            raise RuntimeError("MEMORY_QDRANT_HYBRID_SPARSE_ENABLED requires MEMORY_QDRANT_ENABLED")
         if (
             self.qdrant_hybrid_sparse_enabled
             and self.qdrant_dense_vector_name == self.qdrant_sparse_vector_name
         ):
             raise RuntimeError(
-                "MEMORY_QDRANT_DENSE_VECTOR_NAME and MEMORY_QDRANT_SPARSE_VECTOR_NAME "
-                "must differ"
+                "MEMORY_QDRANT_DENSE_VECTOR_NAME and MEMORY_QDRANT_SPARSE_VECTOR_NAME must differ"
             )
         if self.embeddings_enabled and self.embeddings_provider != "openai":
             raise RuntimeError(

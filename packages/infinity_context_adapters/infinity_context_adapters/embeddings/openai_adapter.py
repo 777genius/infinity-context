@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import asyncio
 import inspect
+from collections.abc import Callable
 
 from infinity_context_core.ports.adapters import AdapterCapabilities, EmbeddingResult, PortStatus
 
@@ -14,18 +16,24 @@ class OpenAIEmbeddingAdapter:
         self,
         *,
         api_key: str | None,
+        base_url: str | None = None,
         model: str,
         dimensions: int,
+        runtime_verifier: Callable[[], None] | None = None,
     ) -> None:
         self._api_key = api_key
+        self._base_url = base_url
         self._model = model
         self._dimensions = dimensions
+        self._runtime_verifier = runtime_verifier
 
     async def capabilities(self) -> AdapterCapabilities:
         if not self._api_key:
             return self._disabled("missing_api_key")
         client = None
         try:
+            if self._runtime_verifier is not None:
+                await asyncio.to_thread(self._runtime_verifier)
             client = await self._client()
         except Exception:
             return self._disabled("openai_sdk_missing")
@@ -48,6 +56,8 @@ class OpenAIEmbeddingAdapter:
             return EmbeddingResult.degraded("embeddings.missing_api_key", retryable=False)
         client = None
         try:
+            if self._runtime_verifier is not None:
+                await asyncio.to_thread(self._runtime_verifier)
             client = await self._client()
             response = await client.embeddings.create(
                 model=self._model,
@@ -74,9 +84,14 @@ class OpenAIEmbeddingAdapter:
             await _close_client(client)
 
     async def _client(self):
+        import httpx
         from openai import AsyncOpenAI
 
-        return AsyncOpenAI(api_key=self._api_key)
+        return AsyncOpenAI(
+            api_key=self._api_key,
+            base_url=self._base_url,
+            http_client=httpx.AsyncClient(follow_redirects=False),
+        )
 
     def _disabled(self, reason: str) -> AdapterCapabilities:
         return AdapterCapabilities(

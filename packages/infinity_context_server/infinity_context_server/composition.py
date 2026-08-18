@@ -20,7 +20,6 @@ from infinity_context_adapters.features.memory_facts import (
 )
 from infinity_context_adapters.local_blob import LocalBlobStorage
 from infinity_context_adapters.noop import (
-    NoopEmbeddingAdapter,
     NoopGraphMemoryAdapter,
     NoopVectorMemoryAdapter,
     SystemClock,
@@ -165,6 +164,7 @@ from infinity_context_server.derived_identity_evidence import (
     graphiti_target_commitment_sha256,
 )
 from infinity_context_server.derived_projection_policy import derived_projection_lane_policies
+from infinity_context_server.embedding_composition import build_embedding_adapter
 from infinity_context_server.metrics import RuntimeMetrics
 from infinity_context_server.provider_budget import QueryEmbeddingBudgetAdapter
 from infinity_context_server.provider_circuit import (
@@ -173,6 +173,10 @@ from infinity_context_server.provider_circuit import (
     CircuitBreakingVectorMemoryAdapter,
     ProviderCircuitBreaker,
 )
+from infinity_context_server.serving_profile import (
+    VerifiedServingProfile,
+    build_verified_serving_profile,
+)
 
 SUPPORTED_POLICY_MODES = ("disabled", "manual_only", "suggestions", "active_context")
 
@@ -180,6 +184,7 @@ SUPPORTED_POLICY_MODES = ("disabled", "manual_only", "suggestions", "active_cont
 @dataclass(frozen=True)
 class Container:
     settings: Settings
+    serving_profile: VerifiedServingProfile
     engine: AsyncEngine
     clock: ClockPort
     ids: IdGeneratorPort
@@ -319,6 +324,7 @@ class Container:
 def build_container(settings: Settings | None = None) -> Container:
     resolved_settings = settings or Settings()
     resolved_settings.validate_for_startup()
+    serving_profile = build_verified_serving_profile(resolved_settings)
     clock = SystemClock()
     ids = UuidIdGenerator()
     engine = build_async_engine(resolved_settings.database_url)
@@ -423,7 +429,7 @@ def build_container(settings: Settings | None = None) -> Container:
         ),
         lane_policies=derived_lane_policies,
     )
-    raw_embeddings = _build_embedding_adapter(resolved_settings)
+    raw_embeddings = build_embedding_adapter(resolved_settings, serving_profile)
     provider_circuits = (
         _provider_circuit("qdrant", "vector", clock, resolved_settings),
         _provider_circuit("graphiti", "graph", clock, resolved_settings),
@@ -753,6 +759,7 @@ def build_container(settings: Settings | None = None) -> Container:
     runtime_metrics = RuntimeMetrics()
     return Container(
         settings=resolved_settings,
+        serving_profile=serving_profile,
         engine=engine,
         clock=clock,
         ids=ids,
@@ -946,20 +953,6 @@ def _build_graph_projection_evidence(
         neo4j_user=settings.graphiti_neo4j_user,
         neo4j_password=settings.graphiti_neo4j_password,
     )
-
-
-def _build_embedding_adapter(settings: Settings) -> MemoryAdapterPort:
-    if not settings.embeddings_enabled:
-        return NoopEmbeddingAdapter(name="embeddings")
-    if settings.embeddings_provider == "openai":
-        from infinity_context_adapters.embeddings import OpenAIEmbeddingAdapter
-
-        return OpenAIEmbeddingAdapter(
-            api_key=settings.openai_api_key,
-            model=settings.embeddings_model,
-            dimensions=settings.embeddings_dimensions,
-        )
-    return NoopEmbeddingAdapter(name="embeddings")
 
 
 def _build_capture_extractor(settings: Settings) -> MemoryExtractorPort:

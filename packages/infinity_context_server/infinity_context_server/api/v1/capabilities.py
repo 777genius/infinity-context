@@ -21,10 +21,14 @@ async def capabilities(
     container: Annotated[Container, Depends(get_container)],
 ) -> dict[str, Any]:
     result = await container.get_capabilities.execute()
+    serving_identity = container.serving_profile
     return {
         "api_version": "v1",
         "server_version": "0.1.0",
         "service_name": result.service_name,
+        "service_revision": serving_identity.service_revision,
+        "embedding_profile_id": serving_identity.embedding_profile_id,
+        "embedding_profile_digest_sha256": serving_identity.embedding_profile_digest_sha256,
         "deploy_profile": result.deploy_profile,
         "policy_mode": result.policy_mode,
         "adapters": {adapter.name: asdict(adapter) for adapter in result.adapters},

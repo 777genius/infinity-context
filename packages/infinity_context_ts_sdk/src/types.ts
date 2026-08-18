@@ -249,6 +249,9 @@ export interface InfinityContextCapabilities extends JsonObject {
   readonly api_version?: string;
   readonly server_version?: string;
   readonly service_name?: string;
+  readonly service_revision?: string | null;
+  readonly embedding_profile_id?: string | null;
+  readonly embedding_profile_digest_sha256?: `sha256:${string}` | null;
   readonly deploy_profile?: string;
   readonly enabled_adapters?: string[];
   readonly supports_qdrant?: boolean;
