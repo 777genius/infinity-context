@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import re
 from datetime import datetime
-from typing import Protocol
+from typing import Literal, Protocol
 
 from infinity_context_core.application import BuildContextQuery, ConsistencyMode
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
@@ -44,6 +44,7 @@ class ContextRequest(BaseModel):
     tags_any: list[str] = Field(default_factory=list, max_length=10)
     tags_all: list[str] = Field(default_factory=list, max_length=10)
     tags_none: list[str] = Field(default_factory=list, max_length=10)
+    project_anchor_policy: Literal["required", "advisory"] = "required"
 
 
 class BenchmarkContextRequest(ContextRequest):
@@ -104,6 +105,7 @@ def build_legacy_context_query_from_request(
         tags_none=_normalize_tags(request.tags_none),
         selection_mode=selection_mode,
         selection_item_limit=selection_item_limit,
+        project_anchor_policy=request.project_anchor_policy,
     )
 
 

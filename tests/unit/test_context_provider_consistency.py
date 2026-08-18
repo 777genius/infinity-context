@@ -4812,8 +4812,8 @@ def test_wrong_memory_scope_vector_hit_is_dropped(tmp_path: Path) -> None:
                 BuildContextQuery(
                     space_id=SpaceId("space_client_app"),
                     memory_scope_ids=(MemoryScopeId("memory_scope_default"),),
-                    query="unrelated vector query",
-                    token_budget=512,
+                    query="What did we decide about Project Atlas?",
+                    token_budget=512, project_anchor_policy="advisory",
                 )
             )
         )

@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, Literal
 
 from infinity_context_contracts.features.context_building import BuildContextRequestDto
 from infinity_context_contracts.features.document_ingestion import IngestDocumentRequestDto
@@ -185,6 +185,7 @@ def context_body(
     tags_any: list[str] | None = None,
     tags_all: list[str] | None = None,
     tags_none: list[str] | None = None,
+    project_anchor_policy: Literal["required", "advisory"] | None = None,
 ) -> dict[str, Any]:
     payload = scope_payload or context_scope_payload(
         space_id=space_id,
@@ -195,7 +196,7 @@ def context_body(
         memory_scope_external_refs=memory_scope_external_refs,
         thread_external_ref=thread_external_ref,
     )
-    return _context_payload_from_contract(
+    payload = _context_payload_from_contract(
         BuildContextRequestDto(
             **payload,
             query=query,
@@ -213,6 +214,9 @@ def context_body(
             tags_none=tags_none or (),
         )
     )
+    if project_anchor_policy is not None:
+        payload["project_anchor_policy"] = project_anchor_policy
+    return payload
 
 
 def context_scope_body(
