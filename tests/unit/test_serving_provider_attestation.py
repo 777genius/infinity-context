@@ -163,6 +163,28 @@ def test_qdrant_wrong_distance_is_not_published_as_healthy() -> None:
     ) == (None, None)
 
 
+def test_missing_qdrant_collection_keeps_profile_unpublished() -> None:
+    class Client:
+        async def collection_exists(self, _name: str) -> bool:
+            return False
+
+        async def close(self) -> None:
+            return None
+
+    async def client_factory():
+        return Client(), SimpleNamespace()
+
+    adapter = QdrantVectorMemoryAdapter(
+        url="http://qdrant.test",
+        collection_name="chunks",
+        vector_size=3,
+    )
+    adapter._client = client_factory  # type: ignore[method-assign]
+    capabilities = asyncio.run(adapter.capabilities())
+    assert capabilities.healthy is False
+    assert capabilities.degraded_reason == "qdrant.collection_unverified"
+
+
 async def _fake_client():
     class Client:
         embeddings = SimpleNamespace(create=lambda **_kwargs: _embedding_response())

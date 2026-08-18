@@ -265,6 +265,8 @@ def test_source_manifest_rejects_dirty_or_changed_inputs(
     (tmp_path / "scripts").mkdir()
     (tmp_path / "docker").mkdir()
     (tmp_path / "Dockerfile").write_text("FROM scratch\n")
+    (tmp_path / "LICENSE").write_text("license\n")
+    (tmp_path / "README.md").write_text("readme\n")
     (tmp_path / "docker" / "infinity-context-entrypoint.sh").write_text("#!/bin/sh\n")
     (tmp_path / "pyproject.toml").write_text("[project]\n")
     (tmp_path / "scripts" / "build_manifest.py").write_text("trusted\n")
@@ -292,5 +294,10 @@ def test_source_manifest_rejects_dirty_or_changed_inputs(
     (tmp_path / "packages" / "code.py").unlink()
     build_manifest.generate(tmp_path, manifest)
     (tmp_path / "docker" / "infinity-context-entrypoint.sh").write_text("changed\n")
+    with pytest.raises(RuntimeError, match="does not match"):
+        build_manifest.verify(tmp_path, manifest)
+    (tmp_path / "docker" / "infinity-context-entrypoint.sh").write_text("#!/bin/sh\n")
+    build_manifest.generate(tmp_path, manifest)
+    (tmp_path / "README.md").write_text("changed\n")
     with pytest.raises(RuntimeError, match="does not match"):
         build_manifest.verify(tmp_path, manifest)

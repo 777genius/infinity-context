@@ -14,6 +14,8 @@ SCHEMA = "infinity-context.source-build.v1"
 GIT_SHA = re.compile(r"^[a-f0-9]{40}$")
 ROOTS = (
     "Dockerfile",
+    "LICENSE",
+    "README.md",
     "docker/infinity-context-entrypoint.sh",
     "pyproject.toml",
     "packages",

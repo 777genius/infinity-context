@@ -166,6 +166,17 @@ class QdrantVectorMemoryAdapter:
                         supports_filters=True,
                         degraded_reason="qdrant.hybrid_schema_mismatch",
                     )
+            else:
+                return AdapterCapabilities(
+                    name="qdrant",
+                    enabled=True,
+                    healthy=False,
+                    supports_upsert=False,
+                    supports_delete=False,
+                    supports_search=False,
+                    supports_filters=False,
+                    degraded_reason="qdrant.collection_unverified",
+                )
         except QdrantHybridUnsupportedError:
             return AdapterCapabilities(
                 name="qdrant",
