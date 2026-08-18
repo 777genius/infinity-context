@@ -12,6 +12,8 @@ def test_selfhost_build_has_explicit_attested_entrypoint() -> None:
 
     assert "COPY build /opt/infinity-context/source-build" in dockerfile
     assert "if [ -f /opt/infinity-context/source-build/" in dockerfile
+    assert "find /app -type d -name '*.egg-info'" in dockerfile
+    assert "cd / && python -c" in dockerfile
     assert "infinity-context-selfhost-up: infinity-context-source-manifest" in makefile
     assert "make infinity-context-selfhost-up" in runbook
 
