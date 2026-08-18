@@ -30,6 +30,11 @@ class VerifiedServingProfile:
         if self.runtime_probe is not None:
             self.runtime_probe.verify()
 
+    def runtime_session(self):
+        if self.runtime_probe is None:
+            raise RuntimeError("verified runtime session is unavailable")
+        return self.runtime_probe.verified_session()
+
 
 def build_verified_serving_profile(settings: Settings) -> VerifiedServingProfile:
     build = verify_installed_build_identity(settings.service_build_identity_path)
@@ -56,8 +61,11 @@ def build_verified_serving_profile(settings: Settings) -> VerifiedServingProfile
     if not isinstance(info_url, str) or not isinstance(base_url, str):
         raise RuntimeError("embedding runtime info and inference URLs are required")
     probe = TeiProbe.create(
-        model_id=settings.embeddings_model, model_sha=model_sha, build_sha=runtime_sha,
-        inference_base_url=base_url, info_url=info_url,
+        model_id=settings.embeddings_model,
+        model_sha=model_sha,
+        build_sha=runtime_sha,
+        inference_base_url=base_url,
+        info_url=info_url,
     )
     observed = probe.verify()
     if settings.qdrant_hybrid_sparse_enabled:
@@ -73,7 +81,6 @@ def build_verified_serving_profile(settings: Settings) -> VerifiedServingProfile
     }
     if settings.qdrant_enabled:
         canonical["vector_index"] = {
-            "dense_vector_name": settings.qdrant_dense_vector_name,
             "distance_metric": "cosine",
         }
     encoded = json.dumps(canonical, ensure_ascii=True, separators=(",", ":"), sort_keys=True)

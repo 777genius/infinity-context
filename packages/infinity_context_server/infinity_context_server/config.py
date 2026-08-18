@@ -2,7 +2,7 @@
 
 from enum import StrEnum
 
-from pydantic import Field, model_validator
+from pydantic import Field, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -170,6 +170,19 @@ class Settings(BaseSettings):
         env_file=".env",
         extra="ignore",
     )
+
+    @field_validator(
+        "embeddings_model_revision",
+        "embeddings_runtime_build_revision",
+        "embeddings_runtime_info_url",
+        "embeddings_base_url",
+        mode="before",
+    )
+    @classmethod
+    def empty_embedding_identity_value_is_unset(cls, value: object) -> object:
+        if value == "":
+            return None
+        return value
 
     @model_validator(mode="after")
     def apply_auto_memory_mode_alias(self) -> "Settings":

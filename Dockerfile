@@ -17,8 +17,10 @@ RUN apt-get update \
     && rm -rf /var/lib/apt/lists/*
 
 COPY pyproject.toml README.md LICENSE ./
+COPY Dockerfile ./Dockerfile
 COPY packages ./packages
 COPY scripts/build_manifest.py ./scripts/build_manifest.py
+COPY docker/infinity-context-entrypoint.sh ./docker/infinity-context-entrypoint.sh
 COPY build /opt/infinity-context/source-build
 
 RUN if [ -f /opt/infinity-context/source-build/infinity-context-source-manifest.json ]; then \

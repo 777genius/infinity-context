@@ -22,13 +22,14 @@ async def capabilities(
 ) -> dict[str, Any]:
     result = await container.get_capabilities.execute()
     serving_identity = container.serving_profile
+    profile_id, profile_digest = _public_embedding_profile(container, result)
     return {
         "api_version": "v1",
         "server_version": "0.1.0",
         "service_name": result.service_name,
         "service_revision": serving_identity.service_revision,
-        "embedding_profile_id": serving_identity.embedding_profile_id,
-        "embedding_profile_digest_sha256": serving_identity.embedding_profile_digest_sha256,
+        "embedding_profile_id": profile_id,
+        "embedding_profile_digest_sha256": profile_digest,
         "deploy_profile": result.deploy_profile,
         "policy_mode": result.policy_mode,
         "adapters": {adapter.name: asdict(adapter) for adapter in result.adapters},
@@ -98,13 +99,23 @@ async def capabilities(
                     "limit_per_month": (container.settings.plan_media_analysis_seconds_per_month),
                     "free_default_seconds": 10 * 60 * 60,
                     "free_default_hours": 10,
-                }
+                },
             },
         },
         "supported_policy_modes": list(result.supported_policy_modes),
         "supported_embedding_models": [container.settings.embeddings_model],
         "limits": result.limits,
     }
+
+
+def _public_embedding_profile(container: Container, result: Any) -> tuple[str | None, str | None]:
+    profile = container.serving_profile
+    if container.settings.qdrant_enabled and not any(
+        adapter.name == "qdrant" and adapter.enabled and adapter.healthy
+        for adapter in result.adapters
+    ):
+        return None, None
+    return profile.embedding_profile_id, profile.embedding_profile_digest_sha256
 
 
 def _capability_payload(capability: Any) -> dict[str, Any]:

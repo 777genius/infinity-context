@@ -8,6 +8,7 @@ import importlib
 import importlib.metadata
 import json
 import re
+import sys
 from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
 from typing import Any, Protocol
@@ -17,6 +18,12 @@ _DIGEST = re.compile(r"^sha256:[a-f0-9]{64}$")
 _SOURCE_SCHEMA = "infinity-context.source-build.v1"
 _INSTALLED_SCHEMA = "infinity-context.installed-build.v1"
 _MAX_BYTES = 16_384
+_RUNTIME_PACKAGES = (
+    "infinity_context_adapters",
+    "infinity_context_contracts",
+    "infinity_context_core",
+    "infinity_context_server",
+)
 
 
 class Distribution(Protocol):
@@ -38,12 +45,18 @@ def installed_distribution_digest(distribution: Distribution | None = None) -> s
     try:
         installed = distribution or importlib.metadata.distribution("infinity-context")
         root = Path(installed.locate_file("")).resolve(strict=True)
-        imported = Path(importlib.import_module("infinity_context_server").__file__ or "").resolve(
-            strict=True
+        installation_root = Path(sys.prefix).resolve(strict=True)
+        imported = tuple(
+            Path(importlib.import_module(name).__file__ or "").resolve(strict=True)
+            for name in _RUNTIME_PACKAGES
         )
     except (importlib.metadata.PackageNotFoundError, FileNotFoundError) as exc:
         raise RuntimeError("installed infinity-context distribution is unavailable") from exc
-    if not root.is_dir() or not imported.is_relative_to(root):
+    if (
+        not root.is_dir()
+        or not root.is_relative_to(installation_root)
+        or any(not path.is_relative_to(root) for path in imported)
+    ):
         raise RuntimeError("infinity-context server import is outside installed distribution")
     recorded = installed.files
     if recorded is None:
@@ -51,27 +64,27 @@ def installed_distribution_digest(distribution: Distribution | None = None) -> s
     files: list[tuple[str, Path]] = []
     names: set[str] = set()
     paths: set[Path] = set()
-    imported_recorded = False
+    imported_recorded: set[Path] = set()
     for item in recorded:
         raw = str(item).replace("\\", "/")
         relative = PurePosixPath(raw)
-        if relative.is_absolute() or ".." in relative.parts:
-            raise RuntimeError("installed RECORD contains an out-of-root path")
-        name = relative.as_posix()
+        if relative.is_absolute():
+            raise RuntimeError("installed RECORD contains an absolute path")
         try:
             path = Path(installed.locate_file(item)).resolve(strict=True)
         except FileNotFoundError as exc:
             raise RuntimeError("installed RECORD file is unavailable") from exc
-        if not path.is_file() or not path.is_relative_to(root):
-            raise RuntimeError("installed RECORD file resolves outside distribution")
+        if not path.is_file() or not path.is_relative_to(installation_root):
+            raise RuntimeError("installed RECORD file resolves outside installation prefix")
+        name = path.relative_to(installation_root).as_posix()
         if not name or name in names or path in paths:
             raise RuntimeError("installed RECORD contains duplicate or aliased files")
         names.add(name)
         paths.add(path)
         files.append((name, path))
-        imported_recorded |= path == imported
-    if not files or not imported_recorded:
-        raise RuntimeError("imported server module is absent from installed RECORD")
+        imported_recorded.update(candidate for candidate in imported if path == candidate)
+    if not files or imported_recorded != set(imported):
+        raise RuntimeError("imported runtime module is absent from installed RECORD")
     digest = hashlib.sha256()
     for name, path in sorted(files):
         digest.update(name.encode())
@@ -107,7 +120,9 @@ def verify_installed_build_identity(path_text: str | None) -> BuildIdentity | No
     except FileNotFoundError:
         return None
     required = {
-        "schema_version", "service_revision", "source_tree_digest_sha256",
+        "schema_version",
+        "service_revision",
+        "source_tree_digest_sha256",
         "installed_distribution_digest_sha256",
     }
     if set(payload) != required or payload.get("schema_version") != _INSTALLED_SCHEMA:

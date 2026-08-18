@@ -20,6 +20,8 @@ def build_embedding_adapter(
             base_url=profile.inference_base_url,
             model=settings.embeddings_model,
             dimensions=settings.embeddings_dimensions,
-            runtime_verifier=profile.verify_runtime,
+            runtime_session_factory=(
+                profile.runtime_session if profile.runtime_probe is not None else None
+            ),
         )
     return NoopEmbeddingAdapter(name="embeddings")
