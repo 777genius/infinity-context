@@ -67,12 +67,52 @@ def test_http_request_maps_advisory_policy_and_rejects_unknown_values() -> None:
         ContextRequest(query="Project Atlas decision", project_anchor_policy="unknown")
 
 
-def _item(item_id: str, text: str) -> ContextItem:
+@pytest.mark.parametrize(
+    ("query", "reasons", "expected_status"),
+    (
+        (
+            "Which hamster was discussed for Project Atlas?",
+            ("object_kind_species_mismatch",),
+            "dropped_object_kind_mismatch",
+        ),
+        (
+            "Did Maria mention the deadline for Project Atlas?",
+            ("relation_requirement_missing_relation",),
+            "dropped_relation_requirement_mismatch",
+        ),
+        (
+            "How many Project Atlas deadlines were agreed?",
+            ("explicit_answer_shape_missing",),
+            "dropped_missing_count_answer_shape",
+        ),
+    ),
+)
+def test_advisory_project_anchor_keeps_other_requirement_guards_strict(
+    query: str,
+    reasons: tuple[str, ...],
+    expected_status: str,
+) -> None:
+    guarded, diagnostics = _apply_explicit_requirement_guard(
+        query=query,
+        query_anchor_intent=build_query_anchor_intent(query),
+        items=(_item("unsafe_candidate", "Generic meeting text.", reasons=reasons),),
+        project_anchor_policy="advisory",
+    )
+
+    assert guarded == ()
+    assert diagnostics["requirement_guard_status"] == expected_status
+    assert diagnostics["requirement_guard_items_dropped"] == 1
+
+
+def _item(item_id: str, text: str, *, reasons: tuple[str, ...] = ()) -> ContextItem:
     return ContextItem(
         item_id=item_id,
         item_type="chunk",
         text=text,
         score=0.8,
         source_refs=(SourceRef(source_type="meeting_turn", source_id=item_id),),
-        diagnostics={"retrieval_source": "vector_chunks"},
+        diagnostics={
+            "retrieval_source": "vector_chunks",
+            "provenance": {"deterministic_rerank_reasons": list(reasons)},
+        },
     )
