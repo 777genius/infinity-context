@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, Literal
 
 import httpx
 
@@ -596,6 +596,7 @@ class InfinityContextClient(
         tags_any: list[str] | None = None,
         tags_all: list[str] | None = None,
         tags_none: list[str] | None = None,
+        project_anchor_policy: Literal["required", "advisory"] | None = None,
     ) -> dict[str, Any]:
         scope_payload = read_scope.to_payload() if read_scope is not None else None
         return self._request(
@@ -623,6 +624,7 @@ class InfinityContextClient(
                 tags_any=tags_any,
                 tags_all=tags_all,
                 tags_none=tags_none,
+                project_anchor_policy=project_anchor_policy,
             ),
         )
 
@@ -650,6 +652,7 @@ class InfinityContextClient(
         tags_any: list[str] | None = None,
         tags_all: list[str] | None = None,
         tags_none: list[str] | None = None,
+        project_anchor_policy: Literal["required", "advisory"] | None = None,
     ) -> ContextBundle:
         return context_bundle_from_response(
             self.build_context(
@@ -674,6 +677,7 @@ class InfinityContextClient(
                 tags_any=tags_any,
                 tags_all=tags_all,
                 tags_none=tags_none,
+                project_anchor_policy=project_anchor_policy,
             )
         )
 
@@ -701,6 +705,7 @@ class InfinityContextClient(
         tags_any: list[str] | None = None,
         tags_all: list[str] | None = None,
         tags_none: list[str] | None = None,
+        project_anchor_policy: Literal["required", "advisory"] | None = None,
     ) -> dict[str, Any]:
         scope_payload = read_scope.to_payload() if read_scope is not None else None
         return self._request(
@@ -728,6 +733,7 @@ class InfinityContextClient(
                 tags_any=tags_any,
                 tags_all=tags_all,
                 tags_none=tags_none,
+                project_anchor_policy=project_anchor_policy,
             ),
         )
 

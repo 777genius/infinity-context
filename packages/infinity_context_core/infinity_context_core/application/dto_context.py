@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import datetime
+from typing import Literal
 
 from infinity_context_core.domain.entities import (
     MemoryScopeId,
@@ -59,6 +60,7 @@ class BuildContextQuery:
     tags_none: tuple[str, ...] = ()
     selection_mode: str = "prompt_context"
     selection_item_limit: int | None = None
+    project_anchor_policy: Literal["required", "advisory"] = "required"
 
 
 @dataclass(frozen=True)
