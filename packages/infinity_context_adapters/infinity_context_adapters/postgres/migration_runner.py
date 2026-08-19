@@ -78,21 +78,25 @@ async def upgrade_schema(engine: AsyncEngine) -> SchemaUpgradeResult:
     applied: list[str] = []
     legacy_baseline = False
 
-    async with engine.connect() as lock_connection:
-        await lock_connection.execute(text(f"SELECT pg_advisory_lock({_ADVISORY_LOCK_ID})"))
-        await lock_connection.commit()
+    async with engine.connect() as raw_lock_connection:
+        lock_connection = await raw_lock_connection.execution_options(
+            isolation_level="AUTOCOMMIT"
+        )
+        await lock_connection.exec_driver_sql(
+            f"SELECT pg_advisory_lock({_ADVISORY_LOCK_ID})"
+        )
         try:
-            async with lock_connection.begin():
-                await _ensure_history_table(lock_connection)
-                applied_history = await _load_history(lock_connection)
+            async with engine.begin() as work_connection:
+                await _ensure_history_table(work_connection)
+                applied_history = await _load_history(work_connection)
                 _validate_history(migrations, applied_history)
                 legacy_baseline = not applied_history and await _has_unversioned_schema(
-                    lock_connection
+                    work_connection
                 )
                 if legacy_baseline:
-                    await _validate_legacy_baseline(lock_connection)
-                    await _record_legacy_baseline(lock_connection, migrations)
-                    applied_history = await _load_history(lock_connection)
+                    await _validate_legacy_baseline(work_connection)
+                    await _record_legacy_baseline(work_connection, migrations)
+                    applied_history = await _load_history(work_connection)
 
                 first_online = _first_pending_nontransactional(
                     migrations,
@@ -101,7 +105,7 @@ async def upgrade_schema(engine: AsyncEngine) -> SchemaUpgradeResult:
                 prefix = migrations if first_online is None else migrations[:first_online]
                 applied.extend(
                     await _apply_transactional_pending(
-                        lock_connection,
+                        work_connection,
                         prefix,
                         applied_history,
                     )
@@ -112,27 +116,26 @@ async def upgrade_schema(engine: AsyncEngine) -> SchemaUpgradeResult:
                 if migration.migration_id in applied_history:
                     continue
                 if migration.transactional:
-                    async with lock_connection.begin():
-                        await _execute_transactional(lock_connection, migration)
+                    async with engine.begin() as work_connection:
+                        await _execute_transactional(work_connection, migration)
                         await _record_migration(
-                            lock_connection,
+                            work_connection,
                             migration,
                             execution_kind="applied",
                         )
                 else:
                     await _execute_nontransactional(engine, migration)
-                    async with lock_connection.begin():
+                    async with engine.begin() as work_connection:
                         await _record_migration(
-                            lock_connection,
+                            work_connection,
                             migration,
                             execution_kind="applied",
                         )
                 applied.append(migration.migration_id)
         finally:
-            if lock_connection.in_transaction():
-                await lock_connection.rollback()
-            await lock_connection.execute(text(f"SELECT pg_advisory_unlock({_ADVISORY_LOCK_ID})"))
-            await lock_connection.commit()
+            await lock_connection.exec_driver_sql(
+                f"SELECT pg_advisory_unlock({_ADVISORY_LOCK_ID})"
+            )
 
     return SchemaUpgradeResult(
         applied=tuple(applied),
