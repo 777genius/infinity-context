@@ -151,19 +151,29 @@ export class DocumentsClient {
   }
 
   listScopeDocuments(input: ListScopeDocumentsInput): Promise<PaginatedEnvelope<DocumentRecord[]>> {
-    const scope = singleScopePayload(input);
+    const scope = normalizedDocumentListScope(input);
     validateSingleScopePayload(scope);
     requireExplicitScope(scope);
+    const status = normalizeOptionalText(input.status, "status", 40) ?? "active";
+    if (status !== "active" && status !== "deleted") {
+      throw new ValueError("status must be active or deleted");
+    }
+    const sourceExternalId = normalizeOptionalText(input.sourceExternalId, "sourceExternalId", 240);
+    const cursor = normalizeOptionalText(input.cursor, "cursor", 1000);
+    const limit = input.limit ?? 100;
+    if (!Number.isInteger(limit) || limit < 1 || limit > 500) {
+      throw new ValueError("limit must be an integer between 1 and 500");
+    }
     return this.http.request<PaginatedEnvelope<DocumentRecord[]>>({
       method: "GET",
       path: "/v1/documents",
       ...requestControls(input),
       params: withoutUndefined({
         ...scope,
-        status: input.status === undefined ? "active" : input.status,
-        source_external_id: input.sourceExternalId,
-        limit: input.limit ?? 100,
-        cursor: input.cursor,
+        status,
+        source_external_id: sourceExternalId,
+        limit,
+        cursor,
       }),
     });
   }
@@ -200,4 +210,41 @@ function requireExplicitScope(scope: JsonObject): void {
       "listScopeDocuments requires spaceId + memoryScopeId or spaceSlug + memoryScopeExternalRef",
     );
   }
+}
+
+function normalizedDocumentListScope(input: ListScopeDocumentsInput): JsonObject {
+  return withoutUndefined({
+    space_id: normalizeOptionalText(input.spaceId, "spaceId", 80),
+    memory_scope_id: normalizeOptionalText(input.memoryScopeId, "memoryScopeId", 80),
+    thread_id: normalizeOptionalText(input.threadId, "threadId", 80),
+    space_slug: normalizeOptionalText(input.spaceSlug, "spaceSlug", 160),
+    memory_scope_external_ref: normalizeOptionalText(
+      input.memoryScopeExternalRef,
+      "memoryScopeExternalRef",
+      200,
+    ),
+    thread_external_ref: normalizeOptionalText(
+      input.threadExternalRef,
+      "threadExternalRef",
+      200,
+    ),
+  });
+}
+
+function normalizeOptionalText(
+  value: string | undefined,
+  name: string,
+  maxLength: number,
+): string | undefined {
+  if (value === undefined) {
+    return undefined;
+  }
+  const normalized = value.trim();
+  if (normalized.length === 0) {
+    throw new ValueError(`${name} must not be blank`);
+  }
+  if (normalized.length > maxLength) {
+    throw new ValueError(`${name} must be at most ${maxLength} characters`);
+  }
+  return normalized;
 }

@@ -14,6 +14,7 @@ export interface CursorPaginationOptions extends RequestControls {
   readonly startCursor?: string;
   readonly pageLimit?: number;
   readonly maxItems?: number;
+  readonly maxPages?: number;
 }
 
 export type CursorPageLoader<TItem> = (
@@ -24,15 +25,23 @@ export async function* iterateCursorItems<TItem>(
   loadPage: CursorPageLoader<TItem>,
   options: CursorPaginationOptions = {},
 ): AsyncGenerator<TItem, void, void> {
+  const maxPages = options.maxPages ?? 100;
+  requirePositiveInteger(maxPages, "maxPages");
+
   let cursor = options.startCursor;
   let yielded = 0;
+  let loadedPages = 0;
   const seenCursors = new Set<string>();
   if (cursor) {
     seenCursors.add(cursor);
   }
 
   for (;;) {
+    if (loadedPages >= maxPages) {
+      throw new TypeError(`Pagination exceeded maxPages (${maxPages})`);
+    }
     const page = await loadPage(cursorPageRequest(cursor, options.pageLimit, options));
+    loadedPages += 1;
     if (!Array.isArray(page.data)) {
       throw new TypeError("Paginated response data must be an array");
     }
@@ -86,4 +95,10 @@ export function cursorPageRequest(
     ...(controls.signal !== undefined ? { signal: controls.signal } : {}),
     ...(controls.timeoutMs !== undefined ? { timeoutMs: controls.timeoutMs } : {}),
   };
+}
+
+function requirePositiveInteger(value: number, name: string): void {
+  if (!Number.isInteger(value) || value < 1) {
+    throw new TypeError(`${name} must be a positive integer`);
+  }
 }

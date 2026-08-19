@@ -1370,13 +1370,13 @@ describe("InfinityContextClient", () => {
     });
 
     const page = await client.documents.listScopeDocuments({
-      spaceSlug: "social-monitor:tenant:workspace",
-      memoryScopeExternalRef: "topic:ai-agents:meetings",
-      threadExternalRef: "meeting:42",
+      spaceSlug: "  social-monitor:tenant:workspace  ",
+      memoryScopeExternalRef: "  topic:ai-agents:meetings  ",
+      threadExternalRef: "  meeting:42  ",
       status: "deleted",
-      sourceExternalId: "meeting:42:turn:7",
+      sourceExternalId: "  meeting:42:turn:7  ",
       limit: 25,
-      cursor: "opaque_cursor_1",
+      cursor: "  opaque_cursor_1  ",
     });
 
     expect(page).toEqual({ data: [document], next_cursor: "opaque_cursor_2" });
@@ -1478,6 +1478,85 @@ describe("InfinityContextClient", () => {
     );
     expect(transport.requests).toHaveLength(0);
   });
+
+  it("rejects invalid scoped-document query bounds before transport", () => {
+    const transport = new RecordingTransport([]);
+    const client = new InfinityContextClient({
+      baseUrl: "http://memory.test",
+      transport,
+      retryPolicy: { maxAttempts: 1 },
+    });
+    const scope = {
+      spaceSlug: "social-monitor:tenant:workspace",
+      memoryScopeExternalRef: "topic:ai-agents:meetings",
+    };
+
+    for (const input of [
+      { ...scope, sourceExternalId: " " },
+      { ...scope, cursor: " " },
+      { ...scope, sourceExternalId: "x".repeat(241) },
+      { ...scope, cursor: "x".repeat(1001) },
+      { ...scope, limit: 0 },
+      { ...scope, limit: 501 },
+      { ...scope, limit: 1.5 },
+      { ...scope, spaceSlug: "x".repeat(161) },
+      { ...scope, memoryScopeExternalRef: "x".repeat(201) },
+    ]) {
+      expect(() => client.documents.listScopeDocuments(input)).toThrow();
+    }
+    expect(transport.requests).toHaveLength(0);
+  });
+
+  it("stops unique-cursor pagination at the configured page bound", async () => {
+    const transport = new RecordingTransport(
+      Array.from({ length: 3 }, (_, index) =>
+        jsonResponse({
+          data: [documentRecord(`doc_${index + 1}`)],
+          next_cursor: `unique_cursor_${index + 1}`,
+        }),
+      ),
+    );
+    const client = new InfinityContextClient({
+      baseUrl: "http://memory.test",
+      transport,
+      retryPolicy: { maxAttempts: 1 },
+    });
+
+    await expect(
+      client.documents.listAllScopeDocuments(
+        {
+          spaceSlug: "social-monitor:tenant:workspace",
+          memoryScopeExternalRef: "topic:ai-agents:meetings",
+        },
+        { maxPages: 3 },
+      ),
+    ).rejects.toThrow("Pagination exceeded maxPages (3)");
+    expect(transport.requests).toHaveLength(3);
+  });
+  it("applies the default page bound to an endless stream of unique cursors", async () => {
+    const transport = new RecordingTransport(
+      Array.from({ length: 100 }, (_, index) =>
+        jsonResponse({
+          data: [documentRecord(`doc_${index + 1}`)],
+          next_cursor: `unique_default_cursor_${index + 1}`,
+        }),
+      ),
+    );
+    const client = new InfinityContextClient({
+      baseUrl: "http://memory.test",
+      transport,
+      retryPolicy: { maxAttempts: 1 },
+    });
+
+    await expect(
+      client.documents.listAllScopeDocuments({
+        spaceSlug: "social-monitor:tenant:workspace",
+        memoryScopeExternalRef: "topic:ai-agents:meetings",
+      }),
+    ).rejects.toThrow("Pagination exceeded maxPages (100)");
+    expect(transport.requests).toHaveLength(100);
+  });
+
 
   it("rejects malformed scoped-document pagination envelopes", async () => {
     const transport = new RecordingTransport([
