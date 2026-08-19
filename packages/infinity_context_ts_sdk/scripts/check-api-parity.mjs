@@ -26,17 +26,28 @@ const requiredServerEndpoints = [...serverEndpoints].filter((endpoint) => !allow
 const missing = requiredServerEndpoints
   .filter((endpoint) => !sdkEndpoints.has(endpoint))
   .sort();
+const unknownSdkEndpoints = [...sdkEndpoints]
+  .filter((endpoint) => !serverEndpoints.has(endpoint))
+  .sort();
 
-if (missing.length > 0) {
+if (missing.length > 0 || unknownSdkEndpoints.length > 0) {
   console.error("TypeScript SDK API parity check failed.");
-  console.error("Missing SDK endpoints:");
-  for (const endpoint of missing) {
-    console.error(`  - ${endpoint}`);
+  if (missing.length > 0) {
+    console.error("Missing SDK endpoints:");
+    for (const endpoint of missing) {
+      console.error(`  - ${endpoint}`);
+    }
+  }
+  if (unknownSdkEndpoints.length > 0) {
+    console.error("SDK endpoints missing from the server API:");
+    for (const endpoint of unknownSdkEndpoints) {
+      console.error(`  - ${endpoint}`);
+    }
   }
   process.exitCode = 1;
 } else {
   console.log(
-    `API parity ok: ${sdkEndpoints.size} SDK endpoints cover ${requiredServerEndpoints.length} required server endpoints ` +
+    `Bidirectional API parity ok: ${sdkEndpoints.size} SDK endpoints match ${requiredServerEndpoints.length} required server endpoints ` +
       `(${allowedExceptions.length} active documented exception).`,
   );
 }

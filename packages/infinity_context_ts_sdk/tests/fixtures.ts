@@ -145,6 +145,8 @@ export function documentRecord(id: string) {
   return {
     id,
     title: `${id} title`,
+    source_type: "document",
+    source_external_id: `${id}.md`,
     status: "active",
   };
 }

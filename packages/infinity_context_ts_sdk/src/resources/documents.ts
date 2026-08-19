@@ -41,7 +41,10 @@ export interface ProcessDocumentInput extends RequestControls {
 }
 
 export interface ListScopeDocumentsInput extends SingleScopeInput, RequestControls {
+  readonly status?: "active" | "deleted";
+  readonly sourceExternalId?: string;
   readonly limit?: number;
+  readonly cursor?: string;
 }
 
 export class DocumentsClient {
@@ -146,12 +149,38 @@ export class DocumentsClient {
     });
   }
 
-  listScopeDocuments(input: ListScopeDocumentsInput): Promise<ApiEnvelope<DocumentRecord[]>> {
-    return this.http.request<ApiEnvelope<DocumentRecord[]>>({
+  listScopeDocuments(input: ListScopeDocumentsInput): Promise<PaginatedEnvelope<DocumentRecord[]>> {
+    return this.http.request<PaginatedEnvelope<DocumentRecord[]>>({
       method: "GET",
       path: "/v1/documents",
       ...requestControls(input),
-      params: withoutUndefined({ ...scopeQuery(input), limit: input.limit ?? 100 }),
+      params: withoutUndefined({
+        ...scopeQuery(input),
+        status: input.status === undefined ? "active" : input.status,
+        source_external_id: input.sourceExternalId,
+        limit: input.limit ?? 100,
+        cursor: input.cursor,
+      }),
     });
+  }
+
+  iterateScopeDocuments(
+    input: Omit<ListScopeDocumentsInput, "cursor" | "limit">,
+    options: CursorPaginationOptions = {},
+  ): AsyncIterable<DocumentRecord> {
+    return iterateCursorItems<DocumentRecord>(
+      (page) => this.listScopeDocuments({ ...input, ...page }),
+      options,
+    );
+  }
+
+  listAllScopeDocuments(
+    input: Omit<ListScopeDocumentsInput, "cursor" | "limit">,
+    options: CursorPaginationOptions = {},
+  ): Promise<readonly DocumentRecord[]> {
+    return collectCursorItems<DocumentRecord>(
+      (page) => this.listScopeDocuments({ ...input, ...page }),
+      options,
+    );
   }
 }

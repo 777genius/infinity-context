@@ -26,9 +26,23 @@ export async function* iterateCursorItems<TItem>(
 ): AsyncGenerator<TItem, void, void> {
   let cursor = options.startCursor;
   let yielded = 0;
+  const seenCursors = new Set<string>();
+  if (cursor) {
+    seenCursors.add(cursor);
+  }
 
   for (;;) {
     const page = await loadPage(cursorPageRequest(cursor, options.pageLimit, options));
+    if (!Array.isArray(page.data)) {
+      throw new TypeError("Paginated response data must be an array");
+    }
+    if (
+      page.next_cursor !== undefined &&
+      page.next_cursor !== null &&
+      typeof page.next_cursor !== "string"
+    ) {
+      throw new TypeError("Paginated response next_cursor must be a string or null");
+    }
     for (const item of page.data) {
       if (options.maxItems !== undefined && yielded >= options.maxItems) {
         return;
@@ -37,10 +51,15 @@ export async function* iterateCursorItems<TItem>(
       yielded += 1;
     }
 
-    cursor = page.next_cursor ?? undefined;
-    if (!cursor || page.data.length === 0) {
+    const nextCursor = page.next_cursor ?? undefined;
+    if (!nextCursor || page.data.length === 0) {
       return;
     }
+    if (seenCursors.has(nextCursor)) {
+      throw new TypeError("Paginated response cursor did not advance");
+    }
+    seenCursors.add(nextCursor);
+    cursor = nextCursor;
   }
 }
 

@@ -70,6 +70,8 @@ export interface FactRecord extends JsonObject {
 export interface DocumentRecord extends JsonObject {
   readonly id: string;
   readonly title: string;
+  readonly source_type: string;
+  readonly source_external_id: string;
   readonly status: string;
 }
 
