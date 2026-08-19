@@ -4,19 +4,16 @@ from __future__ import annotations
 
 import asyncio
 import sqlite3
+from contextlib import closing
 from pathlib import Path
 from typing import Any
 
-import pytest
 from fastapi.testclient import TestClient
-from infinity_context_core.domain.errors import MemoryForbiddenError
 from infinity_context_server.admin import token_create
-from infinity_context_server.api.auth import _ensure_repository_token_endpoint_isolated
 from infinity_context_server.auth_tokens import ActiveServiceToken
 from infinity_context_server.config import DeployProfile, Settings
 from infinity_context_server.db import upgrade
 from infinity_context_server.main import create_app
-from starlette.requests import Request
 
 ROOT_HEADERS = {"Authorization": "Bearer root-token"}
 
@@ -123,7 +120,7 @@ def test_list_documents_keyset_pagination_has_no_duplicates_or_skips_on_ties(
     database_path = tmp_path / "memory.db"
     with _make_client(database_path) as client:
         documents = [_ingest(client, f"PAGE_{index}") for index in range(5)]
-        with sqlite3.connect(database_path) as connection:
+        with closing(sqlite3.connect(database_path)) as connection, connection:
             connection.execute(
                 "UPDATE memory_documents SET updated_at = ? WHERE id IN (?, ?, ?, ?, ?)",
                 (
@@ -365,23 +362,44 @@ def test_database_scoped_token_cannot_cross_space_or_memory_scope(
         assert "OTHER_SPACE_PRIVATE_MARKER" not in response.text
 
 
-def test_repository_scoped_token_is_denied_by_the_document_collection_route() -> None:
-    request = Request({"type": "http", "method": "GET", "path": "/v1/documents", "headers": []})
-    repository_token = ActiveServiceToken(
-        token_id="repository-token",
-        space_id="space",
-        memory_scope_ids=frozenset({"scope"}),
-        permissions=frozenset({"memory:read"}),
-        repository_id="repository",
-        code_scope_id="code-scope",
-    )
+def test_repository_scoped_token_is_denied_by_the_document_collection_route(
+    tmp_path: Path,
+    monkeypatch: Any,
+) -> None:
+    async def repository_token(*_args: Any, **_kwargs: Any) -> ActiveServiceToken:
+        return ActiveServiceToken(
+            token_id="repository-token",
+            space_id=str(target["space_id"]),
+            memory_scope_ids=frozenset({str(target["memory_scope_id"])}),
+            permissions=frozenset({"memory:read"}),
+            repository_id="repository",
+            code_scope_id="code-scope",
+        )
 
-    with pytest.raises(MemoryForbiddenError, match="without repository isolation"):
-        _ensure_repository_token_endpoint_isolated(request, repository_token)
+    with _make_client(tmp_path / "memory.db") as client:
+        target = _ingest(client, "REPOSITORY_TOKEN_PRIVATE_MARKER")
+        monkeypatch.setattr(
+            "infinity_context_server.api.auth.get_active_db_token",
+            repository_token,
+        )
+        response = client.get(
+            "/v1/documents",
+            params={
+                "space_id": target["space_id"],
+                "memory_scope_id": target["memory_scope_id"],
+                "thread_id": target["thread_id"],
+            },
+            headers={"Authorization": "Bearer repository-token-secret"},
+        )
+
+    assert response.status_code == 403, response.text
+    assert response.json()["error"]["code"] == "memory.forbidden"
+    assert "REPOSITORY_TOKEN_PRIVATE_MARKER" not in response.text
 
 
 def test_openapi_describes_scoped_document_listing_contract(tmp_path: Path) -> None:
-    body = _make_client(tmp_path / "memory.db").app.openapi()
+    with _make_client(tmp_path / "memory.db") as client:
+        body = client.app.openapi()
     operation = body["paths"]["/v1/documents"]["get"]
     parameters = {item["name"]: item for item in operation["parameters"]}
 

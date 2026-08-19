@@ -159,7 +159,7 @@ export class DocumentsClient {
       throw new ValueError("status must be active");
     }
     const sourceExternalId = normalizeOptionalText(input.sourceExternalId, "sourceExternalId", 240);
-    const cursor = normalizeOptionalText(input.cursor, "cursor", 1000);
+    const cursor = validateOpaqueCursor(input.cursor);
     const limit = input.limit ?? 100;
     if (!Number.isInteger(limit) || limit < 1 || limit > 500) {
       throw new ValueError("limit must be an integer between 1 and 500");
@@ -247,4 +247,17 @@ function normalizeOptionalText(
     throw new ValueError(`${name} must be at most ${maxLength} characters`);
   }
   return normalized;
+}
+
+function validateOpaqueCursor(value: string | undefined): string | undefined {
+  if (value === undefined) {
+    return undefined;
+  }
+  if (value.trim().length === 0) {
+    throw new ValueError("cursor must not be blank");
+  }
+  if (value.length > 1000) {
+    throw new ValueError("cursor must be at most 1000 characters");
+  }
+  return value;
 }
