@@ -141,6 +141,30 @@ def test_list_documents_keyset_pagination_has_no_duplicates_or_skips_on_ties(
     assert len(seen) == len(set(seen)) == 5
 
 
+def test_list_documents_cursor_is_stable_when_newer_row_arrives_between_pages(
+    tmp_path: Path,
+) -> None:
+    database_path = tmp_path / "memory.db"
+    with _make_client(database_path) as client:
+        original = [_ingest(client, f"MUTATION_ORIGINAL_{index}") for index in range(5)]
+        first_page = _list(client, limit=2)
+        assert first_page.status_code == 200, first_page.text
+        cursor = first_page.json()["next_cursor"]
+        assert cursor
+
+        inserted = _ingest(client, "MUTATION_INSERTED_AFTER_CURSOR")
+        seen = [item["id"] for item in first_page.json()["data"]]
+        while cursor is not None:
+            page = _list(client, limit=2, cursor=cursor)
+            assert page.status_code == 200, page.text
+            seen.extend(item["id"] for item in page.json()["data"])
+            cursor = page.json()["next_cursor"]
+
+    assert set(seen) == {item["id"] for item in original}
+    assert len(seen) == len(set(seen)) == len(original)
+    assert inserted["id"] not in seen
+
+
 def test_list_documents_cursor_is_opaque_bound_to_kind_scope_and_filters(
     tmp_path: Path,
 ) -> None:
