@@ -7,8 +7,12 @@ migration executed by the existing Infinity Context migration runner.
 
 - Run exactly one migration service during rollout. The runner also holds the
   Infinity Context session advisory lock. A second conforming runner polls for
-  at most 60 seconds, without retaining a transaction snapshot that could block
-  `CREATE INDEX CONCURRENTLY`, and then fails if the first runner is still active.
+  at most 60 seconds total, including every lock query, without retaining a
+  transaction snapshot that could block `CREATE INDEX CONCURRENTLY`. The runner
+  issues no lock query after that deadline and fails if the first runner is
+  still active. A timed-out, cancelled, or failed acquisition
+  discards its physical connection because PostgreSQL may have acquired the
+  session lock before the driver returned control.
 - The migration service must use a direct PostgreSQL connection. Transaction
   poolers cannot preserve the session advisory lock.
 - Each `CREATE INDEX CONCURRENTLY` statement runs in autocommit mode and outside

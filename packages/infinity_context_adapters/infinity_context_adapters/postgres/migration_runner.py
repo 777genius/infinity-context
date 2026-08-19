@@ -84,8 +84,10 @@ async def upgrade_schema(engine: AsyncEngine) -> SchemaUpgradeResult:
 
     async with engine.connect() as raw_lock_connection:
         lock_connection = await raw_lock_connection.execution_options(isolation_level="AUTOCOMMIT")
-        await _acquire_advisory_lock(lock_connection)
+        lock_acquired = False
         try:
+            await _acquire_advisory_lock(lock_connection)
+            lock_acquired = True
             async with engine.begin() as work_connection:
                 await _ensure_history_table(work_connection)
                 applied_history = await _load_history(work_connection)
@@ -133,7 +135,13 @@ async def upgrade_schema(engine: AsyncEngine) -> SchemaUpgradeResult:
                         )
                 applied.append(migration.migration_id)
         finally:
-            await lock_connection.exec_driver_sql(f"SELECT pg_advisory_unlock({_ADVISORY_LOCK_ID})")
+            if lock_acquired:
+                await _release_advisory_lock(lock_connection)
+            else:
+                # A cancelled/failed driver call can have acquired the session lock
+                # before control returned to us. Never let that physical connection
+                # return alive to the pool when acquisition has an ambiguous result.
+                await _invalidate_connection(lock_connection)
 
     return SchemaUpgradeResult(
         applied=tuple(applied),
@@ -146,16 +154,58 @@ async def _acquire_advisory_lock(connection: AsyncConnection) -> None:
     """Poll without retaining the transaction snapshot needed by online DDL."""
 
     deadline = monotonic() + _ADVISORY_LOCK_TIMEOUT_SECONDS
-    while not await connection.scalar(
-        text("SELECT pg_try_advisory_lock(:lock_id)"),
-        {"lock_id": _ADVISORY_LOCK_ID},
-    ):
+    while True:
         remaining = deadline - monotonic()
         if remaining <= 0:
-            raise TimeoutError(
-                "Timed out waiting for the PostgreSQL schema migration advisory lock"
-            )
+            raise _advisory_lock_timeout()
+        try:
+            async with asyncio.timeout(remaining):
+                acquired = await connection.scalar(
+                    text("SELECT pg_try_advisory_lock(:lock_id)"),
+                    {"lock_id": _ADVISORY_LOCK_ID},
+                )
+        except TimeoutError as exc:
+            raise _advisory_lock_timeout() from exc
+        if acquired:
+            return
+        remaining = deadline - monotonic()
+        if remaining <= 0:
+            raise _advisory_lock_timeout()
         await asyncio.sleep(min(_ADVISORY_LOCK_POLL_SECONDS, remaining))
+
+
+def _advisory_lock_timeout() -> TimeoutError:
+    return TimeoutError("Timed out waiting for the PostgreSQL schema migration advisory lock")
+
+
+async def _release_advisory_lock(connection: AsyncConnection) -> None:
+    """Release a known-held lock, discarding the connection on ambiguity."""
+
+    try:
+        released = await connection.scalar(
+            text("SELECT pg_advisory_unlock(:lock_id)"),
+            {"lock_id": _ADVISORY_LOCK_ID},
+        )
+        if not released:
+            raise RuntimeError("PostgreSQL schema migration advisory lock was not held")
+    except BaseException:
+        await _invalidate_connection(connection)
+        raise
+
+
+async def _invalidate_connection(connection: AsyncConnection) -> None:
+    """Finish pool invalidation even when the calling task is cancelled."""
+
+    invalidation = asyncio.create_task(connection.invalidate())
+    cancellation: asyncio.CancelledError | None = None
+    while not invalidation.done():
+        try:
+            await asyncio.shield(invalidation)
+        except asyncio.CancelledError as exc:
+            cancellation = exc
+    invalidation.result()
+    if cancellation is not None:
+        raise cancellation
 
 
 def _load_migrations() -> tuple[_Migration, ...]:

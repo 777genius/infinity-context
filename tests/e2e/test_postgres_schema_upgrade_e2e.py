@@ -58,6 +58,18 @@ async def _assert_clean_and_legacy_upgrade(database_url: str) -> None:
             assert clean.applied[0] == "0001_core_facts"
             assert sorted(len(result.applied) for result in clean_results) == [0, 34]
             assert (await upgrade_schema(engine)).applied == ()
+            async with engine.connect() as connection:
+                assert (
+                    await connection.scalar(
+                        text(
+                            "SELECT count(*) FROM pg_catalog.pg_locks "
+                            "WHERE locktype = 'advisory' AND database = "
+                            "(SELECT oid FROM pg_catalog.pg_database "
+                            "WHERE datname = current_database())"
+                        )
+                    )
+                    == 0
+                )
             await _assert_head_schema(engine)
         finally:
             await engine.dispose()
