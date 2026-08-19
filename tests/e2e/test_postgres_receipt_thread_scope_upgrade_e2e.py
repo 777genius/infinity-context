@@ -64,12 +64,15 @@ async def _assert_receipt_and_thread_scope_upgrade(database_url: str) -> None:
             ):
                 await upgrade_schema(engine)
             async with engine.connect() as connection:
-                assert await connection.scalar(
-                    text(
-                        "SELECT migration_id FROM infinity_context_schema_migrations "
-                        "ORDER BY migration_id DESC LIMIT 1"
+                assert (
+                    await connection.scalar(
+                        text(
+                            "SELECT migration_id FROM infinity_context_schema_migrations "
+                            "ORDER BY migration_id DESC LIMIT 1"
+                        )
                     )
-                ) == "0031_receipt_snapshot_identity"
+                    == "0031_receipt_snapshot_identity"
+                )
         finally:
             await engine.dispose()
 
