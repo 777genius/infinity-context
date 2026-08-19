@@ -1,4 +1,8 @@
-CREATE INDEX IF NOT EXISTS ix_memory_documents_scope_status_page
+-- infinity-context: no-transaction
+-- infinity-context: recover-index ix_memory_documents_scope_status_page
+-- infinity-context: recover-index ix_memory_documents_scope_thread_status_page
+-- infinity-context: recover-index ix_memory_documents_scope_thread_source_page
+CREATE INDEX CONCURRENTLY IF NOT EXISTS ix_memory_documents_scope_status_page
   ON memory_documents (
     space_id,
     memory_scope_id,
@@ -7,7 +11,8 @@ CREATE INDEX IF NOT EXISTS ix_memory_documents_scope_status_page
     id DESC
   );
 
-CREATE INDEX IF NOT EXISTS ix_memory_documents_scope_thread_status_page
+-- infinity-context: statement-break
+CREATE INDEX CONCURRENTLY IF NOT EXISTS ix_memory_documents_scope_thread_status_page
   ON memory_documents (
     space_id,
     memory_scope_id,
@@ -17,7 +22,8 @@ CREATE INDEX IF NOT EXISTS ix_memory_documents_scope_thread_status_page
     id DESC
   );
 
-CREATE INDEX IF NOT EXISTS ix_memory_documents_scope_thread_source_page
+-- infinity-context: statement-break
+CREATE INDEX CONCURRENTLY IF NOT EXISTS ix_memory_documents_scope_thread_source_page
   ON memory_documents (
     space_id,
     memory_scope_id,

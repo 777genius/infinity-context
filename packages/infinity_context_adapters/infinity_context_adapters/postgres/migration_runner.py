@@ -1,7 +1,8 @@
-"""Ordered, transactional PostgreSQL forward-migration runner."""
+"""Ordered PostgreSQL forward migrations with explicit online-DDL support."""
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass
 from datetime import datetime
 from hashlib import sha256
@@ -18,6 +19,9 @@ from infinity_context_adapters.postgres.legacy_schema_manifest import (
 _MIGRATIONS_DIRECTORY = Path(__file__).with_name("migrations")
 _LEGACY_BASELINE_PREFIX = "0022_"
 _ADVISORY_LOCK_ID = 4_916_625_310_112_023_308
+_NON_TRANSACTIONAL_HEADER = "-- infinity-context: no-transaction"
+_STATEMENT_BREAK = "-- infinity-context: statement-break"
+_RECOVER_INDEX_PREFIX = "-- infinity-context: recover-index "
 _PUBLISHED_CHECKSUM_ALIASES: dict[str, frozenset[str]] = {
     "0030_suggestion_receipt_tenant_integrity": frozenset(
         {"4d936c3d49f76028eec009a1b1e8ee2bcf214b2b4a03e7ac120bad5321aa3064"}
@@ -37,27 +41,101 @@ class _Migration:
     migration_id: str
     checksum: str
     sql: str
+    transactional: bool = True
+
+    def statements(self) -> tuple[str, ...]:
+        if self.transactional:
+            return (self.sql,)
+        body = self.sql.removeprefix(_NON_TRANSACTIONAL_HEADER).strip()
+        statements = tuple(
+            statement.strip() for statement in body.split(_STATEMENT_BREAK) if statement.strip()
+        )
+        if not statements:
+            raise RuntimeError(
+                f"Nontransactional PostgreSQL migration is empty: {self.migration_id}"
+            )
+        return statements
+
+    def recoverable_indexes(self) -> tuple[str, ...]:
+        names = tuple(
+            line.removeprefix(_RECOVER_INDEX_PREFIX).strip()
+            for line in self.sql.splitlines()
+            if line.startswith(_RECOVER_INDEX_PREFIX)
+        )
+        if len(set(names)) != len(names):
+            raise RuntimeError(f"Duplicate recoverable index in migration: {self.migration_id}")
+        if any(re.fullmatch(r"[a-z][a-z0-9_]{0,62}", name) is None for name in names):
+            raise RuntimeError(f"Invalid recoverable index in migration: {self.migration_id}")
+        return names
 
 
 async def upgrade_schema(engine: AsyncEngine) -> SchemaUpgradeResult:
-    """Apply packaged migrations once, failing closed on drift or history gaps."""
+    """Apply packaged migrations once, including online DDL, under one writer lock."""
 
     if engine.dialect.name != "postgresql":
         raise RuntimeError("Versioned schema upgrade requires PostgreSQL")
     migrations = _load_migrations()
-    async with engine.begin() as connection:
-        await connection.execute(text(f"SELECT pg_advisory_xact_lock({_ADVISORY_LOCK_ID})"))
-        await _ensure_history_table(connection)
-        applied_history = await _load_history(connection)
-        _validate_history(migrations, applied_history)
-        legacy_baseline = not applied_history and await _has_unversioned_schema(connection)
-        if legacy_baseline:
-            await _validate_legacy_baseline(connection)
-            await _record_legacy_baseline(connection, migrations)
-            applied_history = await _load_history(connection)
-        applied = await _apply_pending(connection, migrations, applied_history)
+    applied: list[str] = []
+    legacy_baseline = False
+
+    async with engine.connect() as lock_connection:
+        await lock_connection.execute(text(f"SELECT pg_advisory_lock({_ADVISORY_LOCK_ID})"))
+        await lock_connection.commit()
+        try:
+            async with lock_connection.begin():
+                await _ensure_history_table(lock_connection)
+                applied_history = await _load_history(lock_connection)
+                _validate_history(migrations, applied_history)
+                legacy_baseline = not applied_history and await _has_unversioned_schema(
+                    lock_connection
+                )
+                if legacy_baseline:
+                    await _validate_legacy_baseline(lock_connection)
+                    await _record_legacy_baseline(lock_connection, migrations)
+                    applied_history = await _load_history(lock_connection)
+
+                first_online = _first_pending_nontransactional(
+                    migrations,
+                    applied_history,
+                )
+                prefix = migrations if first_online is None else migrations[:first_online]
+                applied.extend(
+                    await _apply_transactional_pending(
+                        lock_connection,
+                        prefix,
+                        applied_history,
+                    )
+                )
+
+            start = len(migrations) if first_online is None else first_online
+            for migration in migrations[start:]:
+                if migration.migration_id in applied_history:
+                    continue
+                if migration.transactional:
+                    async with lock_connection.begin():
+                        await _execute_transactional(lock_connection, migration)
+                        await _record_migration(
+                            lock_connection,
+                            migration,
+                            execution_kind="applied",
+                        )
+                else:
+                    await _execute_nontransactional(engine, migration)
+                    async with lock_connection.begin():
+                        await _record_migration(
+                            lock_connection,
+                            migration,
+                            execution_kind="applied",
+                        )
+                applied.append(migration.migration_id)
+        finally:
+            if lock_connection.in_transaction():
+                await lock_connection.rollback()
+            await lock_connection.execute(text(f"SELECT pg_advisory_unlock({_ADVISORY_LOCK_ID})"))
+            await lock_connection.commit()
+
     return SchemaUpgradeResult(
-        applied=applied,
+        applied=tuple(applied),
         legacy_baseline=legacy_baseline,
         current=migrations[-1].migration_id,
     )
@@ -72,6 +150,9 @@ def _load_migrations() -> tuple[_Migration, ...]:
             migration_id=path.stem,
             checksum=sha256(path.read_bytes()).hexdigest(),
             sql=path.read_text(encoding="utf-8"),
+            transactional=not path.read_text(encoding="utf-8").startswith(
+                _NON_TRANSACTIONAL_HEADER
+            ),
         )
         for path in paths
     )
@@ -276,21 +357,103 @@ def _legacy_baseline_id(migrations: tuple[_Migration, ...]) -> str:
     return matches[0]
 
 
-async def _apply_pending(
+def _first_pending_nontransactional(
+    migrations: tuple[_Migration, ...],
+    history: dict[str, str],
+) -> int | None:
+    for index, migration in enumerate(migrations):
+        if migration.migration_id not in history and not migration.transactional:
+            return index
+    return None
+
+
+async def _apply_transactional_pending(
     connection: AsyncConnection,
     migrations: tuple[_Migration, ...],
     history: dict[str, str],
 ) -> tuple[str, ...]:
     applied: list[str] = []
-    raw_connection = await connection.get_raw_connection()
-    driver_connection = raw_connection.driver_connection
     for migration in migrations:
         if migration.migration_id in history:
             continue
-        await driver_connection.execute(migration.sql)
+        if not migration.transactional:
+            raise RuntimeError(
+                f"Nontransactional migration entered transactional phase: {migration.migration_id}"
+            )
+        await _execute_transactional(connection, migration)
         await _record_migration(connection, migration, execution_kind="applied")
         applied.append(migration.migration_id)
     return tuple(applied)
+
+
+async def _execute_transactional(
+    connection: AsyncConnection,
+    migration: _Migration,
+) -> None:
+    raw_connection = await connection.get_raw_connection()
+    await raw_connection.driver_connection.execute(migration.sql)
+
+
+async def _execute_nontransactional(
+    engine: AsyncEngine,
+    migration: _Migration,
+) -> None:
+    recoverable_indexes = migration.recoverable_indexes()
+    async with engine.connect() as connection:
+        autocommit = await connection.execution_options(isolation_level="AUTOCOMMIT")
+        invalid_indexes = await _invalid_indexes(autocommit, recoverable_indexes)
+        for index_name in invalid_indexes:
+            await autocommit.exec_driver_sql(f'DROP INDEX CONCURRENTLY IF EXISTS "{index_name}"')
+        for statement in migration.statements():
+            await autocommit.exec_driver_sql(statement)
+        incomplete = await _invalid_or_missing_indexes(
+            autocommit,
+            recoverable_indexes,
+        )
+        if incomplete:
+            raise RuntimeError(
+                f"Online PostgreSQL migration left an invalid or missing index: {incomplete[0]}"
+            )
+
+
+async def _invalid_indexes(
+    connection: AsyncConnection,
+    index_names: tuple[str, ...],
+) -> tuple[str, ...]:
+    states = await _index_validity(connection, index_names)
+    return tuple(name for name in index_names if states.get(name) is False)
+
+
+async def _invalid_or_missing_indexes(
+    connection: AsyncConnection,
+    index_names: tuple[str, ...],
+) -> tuple[str, ...]:
+    states = await _index_validity(connection, index_names)
+    return tuple(name for name in index_names if states.get(name) is not True)
+
+
+async def _index_validity(
+    connection: AsyncConnection,
+    index_names: tuple[str, ...],
+) -> dict[str, bool]:
+    if not index_names:
+        return {}
+    quoted = ", ".join(f"'{name}'" for name in index_names)
+    rows = (
+        await connection.exec_driver_sql(
+            f"""
+            SELECT index_class.relname, index_state.indisvalid
+            FROM pg_catalog.pg_index AS index_state
+            JOIN pg_catalog.pg_class AS index_class
+              ON index_class.oid = index_state.indexrelid
+            JOIN pg_catalog.pg_namespace AS index_namespace
+              ON index_namespace.oid = index_class.relnamespace
+            WHERE index_namespace.nspname = current_schema()
+              AND index_class.relname IN ({quoted})
+            """
+        )
+    ).all()
+    return {str(name): bool(valid) for name, valid in rows}
 
 
 async def _record_migration(
