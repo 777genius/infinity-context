@@ -5,8 +5,9 @@ import {
   type CursorPaginationOptions,
   type PaginatedEnvelope,
 } from "../pagination.js";
-import { scopeQuery, singleScopePayload, withoutUndefined, type SingleScopeInput } from "../payload.js";
+import { singleScopePayload, withoutUndefined, type SingleScopeInput } from "../payload.js";
 import type { ApiEnvelope, DocumentRecord, JsonObject, SourceRef } from "../types.js";
+import { validateSingleScopePayload, ValueError } from "../payload.js";
 
 export interface ListDocumentChunksInput extends RequestControls {
   readonly limit?: number;
@@ -150,12 +151,15 @@ export class DocumentsClient {
   }
 
   listScopeDocuments(input: ListScopeDocumentsInput): Promise<PaginatedEnvelope<DocumentRecord[]>> {
+    const scope = singleScopePayload(input);
+    validateSingleScopePayload(scope);
+    requireExplicitScope(scope);
     return this.http.request<PaginatedEnvelope<DocumentRecord[]>>({
       method: "GET",
       path: "/v1/documents",
       ...requestControls(input),
       params: withoutUndefined({
-        ...scopeQuery(input),
+        ...scope,
         status: input.status === undefined ? "active" : input.status,
         source_external_id: input.sourceExternalId,
         limit: input.limit ?? 100,
@@ -181,6 +185,19 @@ export class DocumentsClient {
     return collectCursorItems<DocumentRecord>(
       (page) => this.listScopeDocuments({ ...input, ...page }),
       options,
+    );
+  }
+}
+
+function requireExplicitScope(scope: JsonObject): void {
+  const hasCanonicalScope =
+    typeof scope.space_id === "string" && typeof scope.memory_scope_id === "string";
+  const hasExternalScope =
+    typeof scope.space_slug === "string" &&
+    typeof scope.memory_scope_external_ref === "string";
+  if (!hasCanonicalScope && !hasExternalScope) {
+    throw new ValueError(
+      "listScopeDocuments requires spaceId + memoryScopeId or spaceSlug + memoryScopeExternalRef",
     );
   }
 }

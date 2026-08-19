@@ -17,12 +17,92 @@ const allowedMissing = new Map([
   ],
 ]);
 
+const reviewedServerOnlyEndpoints = new Map([
+  [
+    "DELETE /v1/internal/memory-comparison/runs/{param}",
+    {
+      owner: "memory-comparison",
+      reason: "Internal benchmark lifecycle API is not part of the public TypeScript SDK.",
+    },
+  ],
+  [
+    "GET /v1/internal/memory-comparison/runs/{param}/cleanup",
+    {
+      owner: "memory-comparison",
+      reason: "Internal benchmark cleanup API is not part of the public TypeScript SDK.",
+    },
+  ],
+  [
+    "POST /v1/code-repositories/resolve",
+    { owner: "code-memory", reason: "Code-memory administration has no public SDK resource yet." },
+  ],
+  [
+    "POST /v1/code-repositories/{param}/scopes",
+    { owner: "code-memory", reason: "Code-memory administration has no public SDK resource yet." },
+  ],
+  [
+    "POST /v1/context/benchmark-search",
+    { owner: "context", reason: "Benchmark-only search is intentionally excluded from the public SDK." },
+  ],
+  [
+    "POST /v1/diagnostics/derived-evidence/graphiti/delete",
+    { owner: "diagnostics", reason: "Destructive internal diagnostics have no public SDK resource." },
+  ],
+  [
+    "POST /v1/diagnostics/derived-evidence/presence",
+    { owner: "diagnostics", reason: "Internal derived-evidence diagnostics have no public SDK resource." },
+  ],
+  [
+    "POST /v1/diagnostics/derived-evidence/qdrant/delete",
+    { owner: "diagnostics", reason: "Destructive internal diagnostics have no public SDK resource." },
+  ],
+  [
+    "POST /v1/facts/reinstate-supersession",
+    { owner: "memory-facts", reason: "Advanced fact-governance operations are not yet exposed by the SDK." },
+  ],
+  ...[
+    "POST /v1/facts/{param}/confirm",
+    "POST /v1/facts/{param}/dispute",
+    "POST /v1/facts/{param}/end-validity",
+    "POST /v1/facts/{param}/supersede",
+  ].map((endpoint) => [
+    endpoint,
+    {
+      owner: "memory-facts",
+      reason: "Advanced fact-governance operations are not yet exposed by the SDK.",
+    },
+  ]),
+  [
+    "POST /v1/internal/memory-comparison/runs",
+    {
+      owner: "memory-comparison",
+      reason: "Internal benchmark lifecycle API is not part of the public TypeScript SDK.",
+    },
+  ],
+  ...[
+    "POST /v1/internal/memory-comparison/runs/{param}/cleanup/abort/finalize",
+    "POST /v1/internal/memory-comparison/runs/{param}/cleanup/finalize",
+    "PUT /v1/internal/memory-comparison/runs/{param}/projection-manifest",
+  ].map((endpoint) => [
+    endpoint,
+    {
+      owner: "memory-comparison",
+      reason: "Internal benchmark lifecycle API is not part of the public TypeScript SDK.",
+    },
+  ]),
+]);
+
 const serverEndpoints = readServerEndpoints(serverApiDir);
 const sdkEndpoints = readSdkEndpoints(sdkSrcDir);
 const allowedExceptions = [...serverEndpoints].filter(
   (endpoint) => allowedMissing.has(endpoint) && !sdkEndpoints.has(endpoint),
 );
-const requiredServerEndpoints = [...serverEndpoints].filter((endpoint) => !allowedMissing.has(endpoint));
+const requiredServerEndpoints = [...serverEndpoints].filter(
+  (endpoint) => !allowedMissing.has(endpoint) && !reviewedServerOnlyEndpoints.has(endpoint),
+);
+const staleReviewedGaps = [...reviewedServerOnlyEndpoints].filter(
+  ([endpoint]) => !serverEndpoints.has(endpoint) || sdkEndpoints.has(endpoint),
+);
 const missing = requiredServerEndpoints
   .filter((endpoint) => !sdkEndpoints.has(endpoint))
   .sort();
@@ -30,7 +110,7 @@ const unknownSdkEndpoints = [...sdkEndpoints]
   .filter((endpoint) => !serverEndpoints.has(endpoint))
   .sort();
 
-if (missing.length > 0 || unknownSdkEndpoints.length > 0) {
+if (missing.length > 0 || unknownSdkEndpoints.length > 0 || staleReviewedGaps.length > 0) {
   console.error("TypeScript SDK API parity check failed.");
   if (missing.length > 0) {
     console.error("Missing SDK endpoints:");
@@ -44,11 +124,17 @@ if (missing.length > 0 || unknownSdkEndpoints.length > 0) {
       console.error(`  - ${endpoint}`);
     }
   }
+  if (staleReviewedGaps.length > 0) {
+    console.error("Reviewed server-only endpoint entries that are no longer active gaps:");
+    for (const [endpoint, policy] of staleReviewedGaps) {
+      console.error(`  - ${endpoint} [owner=${policy.owner}; reason=${policy.reason}]`);
+    }
+  }
   process.exitCode = 1;
 } else {
   console.log(
     `Bidirectional API parity ok: ${sdkEndpoints.size} SDK endpoints match ${requiredServerEndpoints.length} required server endpoints ` +
-      `(${allowedExceptions.length} active documented exception).`,
+      `(${allowedExceptions.length} schema exception, ${reviewedServerOnlyEndpoints.size} reviewed server-only gaps).`,
   );
 }
 

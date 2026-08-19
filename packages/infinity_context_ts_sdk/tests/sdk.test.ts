@@ -1455,6 +1455,30 @@ describe("InfinityContextClient", () => {
     );
   });
 
+  it("rejects an absent or incomplete document scope before transport", async () => {
+    const transport = new RecordingTransport([]);
+    const client = new InfinityContextClient({
+      baseUrl: "http://memory.test",
+      transport,
+      retryPolicy: { maxAttempts: 1 },
+    });
+
+    expect(
+      () => client.documents.listScopeDocuments({ limit: 1 }),
+    ).toThrow(
+      "listScopeDocuments requires spaceId + memoryScopeId or spaceSlug + memoryScopeExternalRef",
+    );
+    expect(
+      () => client.documents.listScopeDocuments({
+        spaceSlug: "social-monitor:tenant:workspace",
+        limit: 1,
+      }),
+    ).toThrow(
+      "listScopeDocuments requires spaceId + memoryScopeId or spaceSlug + memoryScopeExternalRef",
+    );
+    expect(transport.requests).toHaveLength(0);
+  });
+
   it("rejects malformed scoped-document pagination envelopes", async () => {
     const transport = new RecordingTransport([
       jsonResponse({ data: { id: "not-an-array" }, next_cursor: 42 }),
