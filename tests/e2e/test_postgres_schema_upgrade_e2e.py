@@ -51,9 +51,9 @@ async def _assert_clean_and_legacy_upgrade(database_url: str) -> None:
             clean_results = await asyncio.gather(upgrade_schema(engine), upgrade_schema(engine))
             clean = next(result for result in clean_results if result.applied)
             assert clean.legacy_baseline is False
-            assert clean.current == "0032_receipt_and_thread_scope_integrity"
+            assert clean.current == "0033_document_scope_listing_indexes"
             assert clean.applied[0] == "0001_core_facts"
-            assert sorted(len(result.applied) for result in clean_results) == [0, 33]
+            assert sorted(len(result.applied) for result in clean_results) == [0, 34]
             assert (await upgrade_schema(engine)).applied == ()
             await _assert_head_schema(engine)
         finally:
@@ -78,7 +78,7 @@ async def _assert_clean_and_legacy_upgrade(database_url: str) -> None:
             legacy = await upgrade_schema(engine)
             assert legacy.legacy_baseline is True
             assert legacy.applied[0].startswith("0023_")
-            assert legacy.current == "0032_receipt_and_thread_scope_integrity"
+            assert legacy.current == "0033_document_scope_listing_indexes"
             await _assert_head_schema(engine)
             await _assert_cross_scope_audit_reference_rejected(engine)
         finally:
@@ -217,7 +217,8 @@ async def _install_versioned_schema_through(
     raw = await database.connect()
     try:
         for path in paths:
-            await raw.execute(path.read_text(encoding="utf-8"))
+            for statement in _raw_migration_statements(path):
+                await raw.execute(statement)
         await raw.execute(
             """
             CREATE TABLE infinity_context_schema_migrations (
@@ -248,9 +249,21 @@ async def _install_legacy_schema(database: PostgresTestDatabase) -> None:
         for path in sorted(_MIGRATIONS.glob("*.sql")):
             if path.name.startswith("0023_"):
                 break
-            await raw.execute(path.read_text(encoding="utf-8"))
+            for statement in _raw_migration_statements(path):
+                await raw.execute(statement)
     finally:
         await raw.close()
+
+
+def _raw_migration_statements(path: Path) -> tuple[str, ...]:
+    sql = path.read_text(encoding="utf-8")
+    marker = "-- infinity-context: no-transaction"
+    separator = "-- infinity-context: statement-break"
+    if not sql.lstrip().startswith(marker):
+        return (sql,)
+    statements = tuple(statement.strip() for statement in sql.split(separator) if statement.strip())
+    assert len(statements) > 1, f"{path.name} declares no-transaction without separators"
+    return statements
 
 
 async def _install_metadata_legacy_schema(database: PostgresTestDatabase) -> None:
