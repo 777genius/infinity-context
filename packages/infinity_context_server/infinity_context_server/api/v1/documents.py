@@ -52,12 +52,31 @@ class IngestDocumentRequest(document_ingestion_server.LegacyIngestDocumentReques
     """Legacy /v1 request body; fields live in the document_ingestion seam."""
 
 
+class DocumentRecordResponse(BaseModel):
+    """Stable document record shared by OpenAPI and the official SDK."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    id: str
+    space_id: str
+    memory_scope_id: str
+    thread_id: str | None
+    title: str
+    source_type: str
+    source_external_id: str
+    content_hash: str
+    classification: str
+    status: str
+    created_at: str
+    updated_at: str
+
+
 class DocumentListResponse(BaseModel):
     """Stable paginated response envelope for exact-scope document listing."""
 
     model_config = ConfigDict(extra="forbid")
 
-    data: list[dict[str, Any]]
+    data: list[DocumentRecordResponse]
     next_cursor: str | None
 
 
