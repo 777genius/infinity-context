@@ -117,6 +117,14 @@ async def list_documents(
     limit: Annotated[int, Query(ge=1, le=500)] = 100,
     cursor: Annotated[str | None, Query(max_length=1000)] = None,
 ) -> dict[str, Any]:
+    _require_explicit_document_list_scope(
+        space_id=space_id,
+        memory_scope_id=memory_scope_id,
+        thread_id=thread_id,
+        space_slug=space_slug,
+        memory_scope_external_ref=memory_scope_external_ref,
+        thread_external_ref=thread_external_ref,
+    )
     if status_filter not in {"active", "deleted"}:
         raise MemoryValidationError("Document status must be active or deleted")
     decoded_cursor = decode_cursor(cursor, kind="documents")
@@ -178,6 +186,31 @@ async def list_documents(
         ],
         "next_cursor": next_cursor,
     }
+
+
+def _require_explicit_document_list_scope(
+    *,
+    space_id: str | None,
+    memory_scope_id: str | None,
+    thread_id: str | None,
+    space_slug: str | None,
+    memory_scope_external_ref: str | None,
+    thread_external_ref: str | None,
+) -> None:
+    uses_canonical = any((space_id, memory_scope_id, thread_id))
+    uses_external = any((space_slug, memory_scope_external_ref, thread_external_ref))
+    if uses_canonical and uses_external:
+        raise MemoryValidationError("Use either canonical ids or external scope refs, not both")
+    if uses_canonical:
+        if not space_id or not memory_scope_id:
+            raise MemoryValidationError(
+                "space_id and memory_scope_id are required with canonical scope"
+            )
+        return
+    if not uses_external or not space_slug or not memory_scope_external_ref:
+        raise MemoryValidationError(
+            "space_slug and memory_scope_external_ref are required with external scope"
+        )
 
 
 def _document_list_fingerprint(
