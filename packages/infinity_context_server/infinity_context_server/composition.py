@@ -90,6 +90,7 @@ from infinity_context_core.application import (
     ListContextLinkSuggestionsUseCase,
     ListContextLinksUseCase,
     ListDocumentChunksUseCase,
+    ListDocumentsUseCase,
     ListFactRelationsUseCase,
     ListFactsUseCase,
     ListFactVersionsUseCase,
@@ -263,6 +264,7 @@ class Container:
     ingest_episode: IngestEpisodeUseCase
     ingest_document: IngestDocumentUseCase
     get_document: GetDocumentUseCase
+    list_documents: ListDocumentsUseCase
     list_document_chunks: ListDocumentChunksUseCase
     process_document: ProcessDocumentUseCase
     delete_document: DeleteDocumentUseCase
@@ -652,6 +654,7 @@ def build_container(settings: Settings | None = None) -> Container:
     split_anchor = SplitAnchorUseCase(uow_factory=uow_factory, clock=clock, ids=ids)
     backfill_anchors = BackfillAnchorsUseCase(uow_factory=uow_factory, clock=clock, ids=ids)
     get_document = GetDocumentUseCase(uow_factory=uow_factory)
+    list_documents = ListDocumentsUseCase(uow_factory=uow_factory)
     list_document_chunks = ListDocumentChunksUseCase(uow_factory=uow_factory)
     process_document = ProcessDocumentUseCase(uow_factory=uow_factory)
     delete_document = DeleteDocumentUseCase(uow_factory=uow_factory, clock=clock)
@@ -842,6 +845,7 @@ def build_container(settings: Settings | None = None) -> Container:
         ingest_episode=ingest_episode,
         ingest_document=ingest_document,
         get_document=get_document,
+        list_documents=list_documents,
         list_document_chunks=list_document_chunks,
         process_document=process_document,
         delete_document=delete_document,

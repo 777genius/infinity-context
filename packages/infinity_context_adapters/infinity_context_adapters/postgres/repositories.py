@@ -351,6 +351,46 @@ class PostgresDocumentRepository(DocumentRepositoryPort):
         ).scalars()
         return [document_row_to_domain(row) for row in rows]
 
+    async def list_exact_scope(
+        self,
+        *,
+        space_id: str,
+        memory_scope_id: str,
+        thread_id: str | None,
+        status: str,
+        limit: int,
+        source_external_id: str | None,
+        cursor_updated_at: datetime | None,
+        cursor_id: str | None,
+    ) -> list[MemoryDocument]:
+        conditions = [
+            MemoryDocumentRow.space_id == space_id,
+            MemoryDocumentRow.memory_scope_id == memory_scope_id,
+            MemoryDocumentRow.thread_id == thread_id
+            if thread_id is not None
+            else MemoryDocumentRow.thread_id.is_(None),
+            MemoryDocumentRow.status == status,
+        ]
+        if source_external_id is not None:
+            conditions.append(MemoryDocumentRow.source_external_id == source_external_id)
+        if cursor_updated_at is not None and cursor_id is not None:
+            conditions.append(
+                or_(
+                    MemoryDocumentRow.updated_at < cursor_updated_at,
+                    (MemoryDocumentRow.updated_at == cursor_updated_at)
+                    & (MemoryDocumentRow.id < cursor_id),
+                )
+            )
+        rows = (
+            await self._session.execute(
+                select(MemoryDocumentRow)
+                .where(*conditions)
+                .order_by(MemoryDocumentRow.updated_at.desc(), MemoryDocumentRow.id.desc())
+                .limit(limit)
+            )
+        ).scalars()
+        return [document_row_to_domain(row) for row in rows]
+
     async def soft_delete_with_chunks(
         self,
         *,

@@ -403,6 +403,33 @@ class MemoryDocumentRow(Base):
             postgresql_where=thread_id.is_not(None) & (status != "deleted"),
         ),
         Index("ix_memory_documents_scope_status", "space_id", "memory_scope_id", "status"),
+        Index(
+            "ix_memory_documents_scope_status_page",
+            "space_id",
+            "memory_scope_id",
+            "status",
+            updated_at.desc(),
+            id.desc(),
+        ),
+        Index(
+            "ix_memory_documents_scope_thread_status_page",
+            "space_id",
+            "memory_scope_id",
+            "thread_id",
+            "status",
+            updated_at.desc(),
+            id.desc(),
+        ),
+        Index(
+            "ix_memory_documents_scope_thread_source_page",
+            "space_id",
+            "memory_scope_id",
+            "thread_id",
+            "source_external_id",
+            "status",
+            updated_at.desc(),
+            id.desc(),
+        ),
     )
 
 

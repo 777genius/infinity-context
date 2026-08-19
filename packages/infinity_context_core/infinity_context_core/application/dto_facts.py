@@ -230,6 +230,18 @@ class GetDocumentQuery:
 
 
 @dataclass(frozen=True)
+class ListDocumentsQuery:
+    space_id: SpaceId
+    memory_scope_id: MemoryScopeId
+    thread_id: ThreadId | None
+    limit: int
+    status: str = "active"
+    source_external_id: str | None = None
+    cursor_updated_at: datetime | None = None
+    cursor_id: str | None = None
+
+
+@dataclass(frozen=True)
 class ListDocumentChunksQuery:
     document_id: str
     limit: int
@@ -240,6 +252,11 @@ class ListDocumentChunksQuery:
 @dataclass(frozen=True)
 class DocumentQueryResult:
     document: MemoryDocument
+
+
+@dataclass(frozen=True)
+class DocumentsQueryResult:
+    documents: tuple[MemoryDocument, ...]
 
 
 @dataclass(frozen=True)
