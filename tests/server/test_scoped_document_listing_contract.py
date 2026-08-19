@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import sqlite3
 from pathlib import Path
 from typing import Any
@@ -9,9 +10,11 @@ from typing import Any
 import pytest
 from fastapi.testclient import TestClient
 from infinity_context_core.domain.errors import MemoryForbiddenError
+from infinity_context_server.admin import token_create
 from infinity_context_server.api.auth import _ensure_repository_token_endpoint_isolated
 from infinity_context_server.auth_tokens import ActiveServiceToken
 from infinity_context_server.config import DeployProfile, Settings
+from infinity_context_server.db import upgrade
 from infinity_context_server.main import create_app
 from starlette.requests import Request
 
@@ -230,6 +233,84 @@ def test_list_documents_missing_scope_and_auth_do_not_leak_or_create(
         partial_external_scope,
     ):
         assert marker not in response.text
+
+
+def test_database_scoped_token_cannot_cross_space_or_memory_scope(
+    tmp_path: Path,
+    monkeypatch: Any,
+) -> None:
+    database_path = tmp_path / "scoped-token.db"
+    database_url = f"sqlite+aiosqlite:///{database_path}"
+    monkeypatch.setenv("MEMORY_DEPLOY_PROFILE", "test")
+    monkeypatch.setenv("MEMORY_DATABASE_URL", database_url)
+    monkeypatch.setenv("MEMORY_SERVICE_TOKEN", "root-token")
+    asyncio.run(upgrade())
+
+    with _make_client(database_path) as client:
+        allowed = _ingest(
+            client,
+            "ALLOWED_TOKEN_MARKER",
+            space="token-space",
+            memory_scope="allowed",
+        )
+        other_scope = _ingest(
+            client,
+            "OTHER_SCOPE_PRIVATE_MARKER",
+            space="token-space",
+            memory_scope="private",
+        )
+        other_space = _ingest(
+            client,
+            "OTHER_SPACE_PRIVATE_MARKER",
+            space="private-space",
+            memory_scope="private",
+        )
+
+    scoped = asyncio.run(
+        token_create(
+            space_id=allowed["space_id"],
+            memory_scope_ids=(allowed["memory_scope_id"],),
+            description="document listing scoped token",
+            permissions=("memory:read",),
+        )
+    )
+    scoped_headers = {"Authorization": f"Bearer {scoped['token']}"}
+    with _make_client(database_path) as client:
+        same_scope = client.get(
+            "/v1/documents",
+            params={
+                "space_id": allowed["space_id"],
+                "memory_scope_id": allowed["memory_scope_id"],
+                "thread_id": allowed["thread_id"],
+            },
+            headers=scoped_headers,
+        )
+        cross_scope = client.get(
+            "/v1/documents",
+            params={
+                "space_id": other_scope["space_id"],
+                "memory_scope_id": other_scope["memory_scope_id"],
+                "thread_id": other_scope["thread_id"],
+            },
+            headers=scoped_headers,
+        )
+        cross_space = client.get(
+            "/v1/documents",
+            params={
+                "space_id": other_space["space_id"],
+                "memory_scope_id": other_space["memory_scope_id"],
+                "thread_id": other_space["thread_id"],
+            },
+            headers=scoped_headers,
+        )
+
+    assert same_scope.status_code == 200, same_scope.text
+    assert _external_ids(same_scope) == ["ALLOWED_TOKEN_MARKER"]
+    for response in (cross_scope, cross_space):
+        assert response.status_code == 403, response.text
+        assert response.json()["error"]["code"] == "memory.forbidden"
+        assert "OTHER_SCOPE_PRIVATE_MARKER" not in response.text
+        assert "OTHER_SPACE_PRIVATE_MARKER" not in response.text
 
 
 def test_repository_scoped_token_is_denied_by_the_document_collection_route() -> None:
