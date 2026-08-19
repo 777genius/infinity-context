@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import inspect
 from pathlib import Path
 
@@ -86,13 +87,58 @@ def test_online_runner_uses_session_lock_autocommit_and_invalid_index_recovery()
     upgrade_source = inspect.getsource(migration_runner.upgrade_schema)
     online_source = inspect.getsource(migration_runner._execute_nontransactional)
 
-    assert "pg_advisory_lock" in upgrade_source
+    assert "_acquire_advisory_lock" in upgrade_source
     assert "pg_advisory_xact_lock" not in upgrade_source
     assert "pg_advisory_unlock" in upgrade_source
+    assert "pg_try_advisory_lock" in inspect.getsource(migration_runner._acquire_advisory_lock)
     assert 'isolation_level="AUTOCOMMIT"' in online_source
     assert "DROP INDEX CONCURRENTLY IF EXISTS" in online_source
     assert "_invalid_or_missing_indexes" in online_source
     assert "Online PostgreSQL migration left an invalid or missing index" in online_source
+
+
+def test_advisory_lock_wait_polls_without_one_long_running_statement(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class Connection:
+        def __init__(self) -> None:
+            self.results = iter((False, False, True))
+            self.calls: list[tuple[object, object]] = []
+
+        async def scalar(self, statement: object, parameters: object) -> bool:
+            self.calls.append((statement, parameters))
+            return next(self.results)
+
+    connection = Connection()
+    sleeps: list[float] = []
+
+    async def fake_sleep(seconds: float) -> None:
+        sleeps.append(seconds)
+
+    monkeypatch.setattr(migration_runner.asyncio, "sleep", fake_sleep)
+    monkeypatch.setattr(migration_runner, "monotonic", lambda: 1.0)
+
+    asyncio.run(migration_runner._acquire_advisory_lock(connection))  # type: ignore[arg-type]
+
+    assert len(connection.calls) == 3
+    assert all("pg_try_advisory_lock" in str(call[0]) for call in connection.calls)
+    assert sleeps == [0.1, 0.1]
+
+
+def test_advisory_lock_wait_has_a_hard_deadline(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class Connection:
+        async def scalar(self, statement: object, parameters: object) -> bool:
+            return False
+
+    ticks = iter((10.0, 70.0))
+    monkeypatch.setattr(migration_runner, "monotonic", lambda: next(ticks))
+
+    with pytest.raises(TimeoutError, match="schema migration advisory lock"):
+        asyncio.run(
+            migration_runner._acquire_advisory_lock(Connection())  # type: ignore[arg-type]
+        )
 
 
 def test_document_listing_index_sql_and_runbook_preserve_online_recovery_contract() -> None:

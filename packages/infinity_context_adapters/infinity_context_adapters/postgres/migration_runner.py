@@ -2,11 +2,13 @@
 
 from __future__ import annotations
 
+import asyncio
 import re
 from dataclasses import dataclass
 from datetime import datetime
 from hashlib import sha256
 from pathlib import Path
+from time import monotonic
 
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncConnection, AsyncEngine
@@ -19,6 +21,8 @@ from infinity_context_adapters.postgres.legacy_schema_manifest import (
 _MIGRATIONS_DIRECTORY = Path(__file__).with_name("migrations")
 _LEGACY_BASELINE_PREFIX = "0022_"
 _ADVISORY_LOCK_ID = 4_916_625_310_112_023_308
+_ADVISORY_LOCK_POLL_SECONDS = 0.1
+_ADVISORY_LOCK_TIMEOUT_SECONDS = 60.0
 _NON_TRANSACTIONAL_HEADER = "-- infinity-context: no-transaction"
 _STATEMENT_BREAK = "-- infinity-context: statement-break"
 _RECOVER_INDEX_PREFIX = "-- infinity-context: recover-index "
@@ -79,12 +83,8 @@ async def upgrade_schema(engine: AsyncEngine) -> SchemaUpgradeResult:
     legacy_baseline = False
 
     async with engine.connect() as raw_lock_connection:
-        lock_connection = await raw_lock_connection.execution_options(
-            isolation_level="AUTOCOMMIT"
-        )
-        await lock_connection.exec_driver_sql(
-            f"SELECT pg_advisory_lock({_ADVISORY_LOCK_ID})"
-        )
+        lock_connection = await raw_lock_connection.execution_options(isolation_level="AUTOCOMMIT")
+        await _acquire_advisory_lock(lock_connection)
         try:
             async with engine.begin() as work_connection:
                 await _ensure_history_table(work_connection)
@@ -133,15 +133,29 @@ async def upgrade_schema(engine: AsyncEngine) -> SchemaUpgradeResult:
                         )
                 applied.append(migration.migration_id)
         finally:
-            await lock_connection.exec_driver_sql(
-                f"SELECT pg_advisory_unlock({_ADVISORY_LOCK_ID})"
-            )
+            await lock_connection.exec_driver_sql(f"SELECT pg_advisory_unlock({_ADVISORY_LOCK_ID})")
 
     return SchemaUpgradeResult(
         applied=tuple(applied),
         legacy_baseline=legacy_baseline,
         current=migrations[-1].migration_id,
     )
+
+
+async def _acquire_advisory_lock(connection: AsyncConnection) -> None:
+    """Poll without retaining the transaction snapshot needed by online DDL."""
+
+    deadline = monotonic() + _ADVISORY_LOCK_TIMEOUT_SECONDS
+    while not await connection.scalar(
+        text("SELECT pg_try_advisory_lock(:lock_id)"),
+        {"lock_id": _ADVISORY_LOCK_ID},
+    ):
+        remaining = deadline - monotonic()
+        if remaining <= 0:
+            raise TimeoutError(
+                "Timed out waiting for the PostgreSQL schema migration advisory lock"
+            )
+        await asyncio.sleep(min(_ADVISORY_LOCK_POLL_SECONDS, remaining))
 
 
 def _load_migrations() -> tuple[_Migration, ...]:

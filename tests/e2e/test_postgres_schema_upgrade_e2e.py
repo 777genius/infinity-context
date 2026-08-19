@@ -48,7 +48,10 @@ async def _assert_clean_and_legacy_upgrade(database_url: str) -> None:
         await database.recreate()
         engine = build_async_engine(database.app_url)
         try:
-            clean_results = await asyncio.gather(upgrade_schema(engine), upgrade_schema(engine))
+            clean_results = await asyncio.wait_for(
+                asyncio.gather(upgrade_schema(engine), upgrade_schema(engine)),
+                timeout=20,
+            )
             clean = next(result for result in clean_results if result.applied)
             assert clean.legacy_baseline is False
             assert clean.current == "0033_document_scope_listing_indexes"
