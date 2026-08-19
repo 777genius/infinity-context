@@ -203,7 +203,6 @@ def test_scoped_service_token_cannot_cross_space_or_use_unscoped_routes(
     monkeypatch.setenv("MEMORY_DATABASE_URL", f"sqlite+aiosqlite:///{tmp_path / 'scoped.db'}")
     monkeypatch.setenv("MEMORY_SERVICE_TOKEN", "root-token")
     asyncio.run(upgrade())
-
     app = create_app(
         Settings(
             deploy_profile=DeployProfile.TEST,
@@ -249,7 +248,6 @@ def test_scoped_service_token_cannot_cross_space_or_use_unscoped_routes(
             },
             headers=root_headers,
         ).json()["data"]
-
     scoped = asyncio.run(token_create(space_id=space_a["id"], description="scope-a token"))
     scoped_headers = {"Authorization": f"Bearer {scoped['token']}"}
     with TestClient(app) as client:
@@ -263,16 +261,19 @@ def test_scoped_service_token_cannot_cross_space_or_use_unscoped_routes(
             params={"space_id": space_b["id"], "memory_scope_id": memory_scope_b["id"]},
             headers=scoped_headers,
         )
+        cross_space_context = client.post("/v1/context", json={
+            "space_id": space_b["id"], "memory_scope_ids": [memory_scope_b["id"]],
+            "query": "Project Atlas SCOPED_TOKEN_LEAK_MARKER?",
+            "project_anchor_policy": "advisory"}, headers=scoped_headers)
         cross_space_by_id = client.get(f"/v1/facts/{fact_b['id']}", headers=scoped_headers)
         capabilities = client.get("/v1/capabilities", headers=scoped_headers)
         unscoped = client.get("/v1/spaces", headers=scoped_headers)
-
     assert same_space.status_code == 200
-    assert cross_space.status_code == 403
+    assert cross_space.status_code == cross_space_context.status_code == 403
     assert cross_space.json()["error"]["code"] == "memory.forbidden"
     assert cross_space_by_id.status_code == 403
     assert capabilities.status_code == 200
-    assert "SCOPED_TOKEN_LEAK_MARKER" not in cross_space_by_id.text
+    assert "SCOPED_TOKEN_LEAK_MARKER" not in cross_space_by_id.text + cross_space_context.text
     assert unscoped.status_code == 403
 
 
@@ -284,7 +285,6 @@ def test_service_token_permissions_are_enforced(
     monkeypatch.setenv("MEMORY_DATABASE_URL", f"sqlite+aiosqlite:///{tmp_path / 'perms.db'}")
     monkeypatch.setenv("MEMORY_SERVICE_TOKEN", "root-token")
     asyncio.run(upgrade())
-
     app = create_app(
         Settings(
             deploy_profile=DeployProfile.TEST,

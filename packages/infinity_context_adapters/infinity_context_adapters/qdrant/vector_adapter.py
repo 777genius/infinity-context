@@ -39,6 +39,10 @@ class QdrantDimensionMismatchError(RuntimeError):
     pass
 
 
+class QdrantDistanceMismatchError(RuntimeError):
+    pass
+
+
 class QdrantHybridSchemaMismatchError(RuntimeError):
     pass
 
@@ -130,6 +134,25 @@ class QdrantVectorMemoryAdapter:
                         degraded_reason="qdrant.dimension_mismatch",
                     )
                 if (
+                    _vector_distance_from_collection(
+                        collection,
+                        vector_name=self._dense_vector_name
+                        if self._hybrid_sparse_enabled
+                        else None,
+                    )
+                    != "cosine"
+                ):
+                    return AdapterCapabilities(
+                        name="qdrant",
+                        enabled=True,
+                        healthy=False,
+                        supports_upsert=False,
+                        supports_delete=True,
+                        supports_search=False,
+                        supports_filters=True,
+                        degraded_reason="qdrant.distance_mismatch",
+                    )
+                if (
                     self._hybrid_sparse_enabled
                     and collection is not None
                     and (
@@ -147,6 +170,17 @@ class QdrantVectorMemoryAdapter:
                         supports_filters=True,
                         degraded_reason="qdrant.hybrid_schema_mismatch",
                     )
+            else:
+                return AdapterCapabilities(
+                    name="qdrant",
+                    enabled=True,
+                    healthy=False,
+                    supports_upsert=False,
+                    supports_delete=False,
+                    supports_search=False,
+                    supports_filters=False,
+                    degraded_reason="qdrant.collection_unverified",
+                )
         except QdrantHybridUnsupportedError:
             return AdapterCapabilities(
                 name="qdrant",
@@ -218,6 +252,8 @@ class QdrantVectorMemoryAdapter:
             return VectorWriteResult.ok(len(points))
         except QdrantDimensionMismatchError:
             return VectorWriteResult.degraded("qdrant.dimension_mismatch", retryable=False)
+        except QdrantDistanceMismatchError:
+            return VectorWriteResult.degraded("qdrant.distance_mismatch", retryable=False)
         except QdrantHybridSchemaMismatchError:
             return VectorWriteResult.degraded("qdrant.hybrid_schema_mismatch", retryable=False)
         except QdrantHybridUnsupportedError:
@@ -354,6 +390,8 @@ class QdrantVectorMemoryAdapter:
             return VectorSearchResult.ok(candidates)
         except QdrantDimensionMismatchError:
             return VectorSearchResult.degraded("qdrant.dimension_mismatch", retryable=False)
+        except QdrantDistanceMismatchError:
+            return VectorSearchResult.degraded("qdrant.distance_mismatch", retryable=False)
         except QdrantHybridSchemaMismatchError:
             return VectorSearchResult.degraded("qdrant.hybrid_schema_mismatch", retryable=False)
         except QdrantHybridUnsupportedError:
@@ -454,6 +492,14 @@ class QdrantVectorMemoryAdapter:
             )
             if existing_size is not None and existing_size != self._vector_size:
                 raise QdrantDimensionMismatchError
+            if (
+                _vector_distance_from_collection(
+                    collection,
+                    vector_name=self._dense_vector_name if self._hybrid_sparse_enabled else None,
+                )
+                != "cosine"
+            ):
+                raise QdrantDistanceMismatchError
             if (
                 self._hybrid_sparse_enabled
                 and collection is not None
@@ -602,6 +648,42 @@ def _vector_size_from_vectors(vectors: object, *, vector_name: str | None = None
             if nested_size is not None:
                 return nested_size
     return None
+
+
+def _vector_distance_from_collection(
+    collection: object | None,
+    *,
+    vector_name: str | None = None,
+) -> str | None:
+    if collection is None:
+        return None
+    config = getattr(collection, "config", None)
+    params = getattr(config, "params", None)
+    vectors = getattr(params, "vectors", None)
+    return _vector_distance_from_vectors(vectors, vector_name=vector_name)
+
+
+def _vector_distance_from_vectors(
+    vectors: object,
+    *,
+    vector_name: str | None = None,
+) -> str | None:
+    if vectors is None:
+        return None
+    if vector_name is not None:
+        named_vectors = _mapping_from_object(vectors)
+        if named_vectors is None or vector_name not in named_vectors:
+            return None
+        return _vector_distance_from_vectors(named_vectors[vector_name])
+    distance = getattr(vectors, "distance", None)
+    if distance is None:
+        kwargs = getattr(vectors, "kwargs", None)
+        if isinstance(kwargs, dict):
+            distance = kwargs.get("distance")
+    if distance is None:
+        return None
+    value = getattr(distance, "value", distance)
+    return str(value).split(".")[-1].lower()
 
 
 def _sparse_vector_exists(collection: object, vector_name: str) -> bool:

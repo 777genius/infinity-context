@@ -26,6 +26,7 @@ export interface BuildContextInput extends ContextScopeInput {
   readonly tagsAny?: readonly string[];
   readonly tagsAll?: readonly string[];
   readonly tagsNone?: readonly string[];
+  readonly projectAnchorPolicy?: "required" | "advisory";
 }
 
 export interface BuildDigestInput extends ContextScopeInput {
@@ -124,6 +125,7 @@ function contextPayload(input: BuildContextInput): JsonObject {
     tags_any: input.tagsAny,
     tags_all: input.tagsAll,
     tags_none: input.tagsNone,
+    project_anchor_policy: input.projectAnchorPolicy,
   }) as JsonObject;
 }
 

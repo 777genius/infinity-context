@@ -167,6 +167,7 @@ from infinity_context_server import (
 from infinity_context_server import processes as server_processes
 from infinity_context_server.config import CaptureMode, MemoryPolicyMode, Settings
 from infinity_context_server.derived_identity_evidence import DerivedIdentityEvidenceCoordinator
+from infinity_context_server.embedding_composition import build_embedding_adapter
 from infinity_context_server.metrics import RuntimeMetrics
 from infinity_context_server.provider_budget import QueryEmbeddingBudgetAdapter
 from infinity_context_server.provider_circuit import (
@@ -175,6 +176,10 @@ from infinity_context_server.provider_circuit import (
     CircuitBreakingVectorMemoryAdapter,
     ProviderCircuitBreaker,
 )
+from infinity_context_server.serving_profile import (
+    VerifiedServingProfile,
+    build_verified_serving_profile,
+)
 
 SUPPORTED_POLICY_MODES = ("disabled", "manual_only", "suggestions", "active_context")
 
@@ -182,6 +187,7 @@ SUPPORTED_POLICY_MODES = ("disabled", "manual_only", "suggestions", "active_cont
 @dataclass(frozen=True)
 class Container:
     settings: Settings
+    serving_profile: VerifiedServingProfile
     engine: AsyncEngine
     clock: ClockPort
     ids: IdGeneratorPort
@@ -326,6 +332,7 @@ def build_container(
 ) -> Container:
     resolved_settings = settings or Settings()
     resolved_settings.validate_for_startup()
+    serving_profile = build_verified_serving_profile(resolved_settings)
     clock = SystemClock()
     ids = UuidIdGenerator()
     engine = build_async_engine(resolved_settings.database_url)
@@ -390,7 +397,7 @@ def build_container(
     vector_projection_evidence = derived_providers.vector_evidence
     graph_projection_evidence = derived_providers.graph_evidence
     derived_identity_evidence = derived_providers.identity_evidence
-    raw_embeddings = derived_provider_composition.build_embedding_adapter(resolved_settings)
+    raw_embeddings = build_embedding_adapter(resolved_settings, serving_profile)
     provider_circuits = (
         derived_provider_composition.build_provider_circuit(
             "qdrant", "vector", clock, resolved_settings
@@ -755,6 +762,7 @@ def build_container(
     runtime_metrics = RuntimeMetrics()
     return Container(
         settings=resolved_settings,
+        serving_profile=serving_profile,
         engine=engine,
         clock=clock,
         ids=ids,

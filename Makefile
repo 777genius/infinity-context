@@ -555,14 +555,18 @@ infinity-context-selfhost-config:
 	$(PYTHON) scripts/selfhost_smoke.py --env-file "$(SELFHOST_ENV)" --validate-env-only
 	$(SELFHOST_COMPOSE) config >/dev/null
 
+.PHONY: infinity-context-source-manifest
+infinity-context-source-manifest:
+	$(PYTHON) scripts/build_manifest.py generate
+
 .PHONY: infinity-context-selfhost-up
-infinity-context-selfhost-up:
+infinity-context-selfhost-up: infinity-context-source-manifest
 	@test -f "$(SELFHOST_ENV)" || (echo "Copy .env.selfhost.example to $(SELFHOST_ENV) and replace change-me values."; exit 1)
 	$(PYTHON) scripts/selfhost_smoke.py --env-file "$(SELFHOST_ENV)" --validate-env-only
 	$(SELFHOST_COMPOSE) up -d --build
 
 .PHONY: infinity-context-selfhost-up-full
-infinity-context-selfhost-up-full:
+infinity-context-selfhost-up-full: infinity-context-source-manifest
 	@test -f "$(SELFHOST_ENV)" || (echo "Copy .env.selfhost.example to $(SELFHOST_ENV) and replace change-me values."; exit 1)
 	$(PYTHON) scripts/selfhost_smoke.py --env-file "$(SELFHOST_ENV)" --validate-env-only
 	$(SELFHOST_COMPOSE) --profile full up -d --build

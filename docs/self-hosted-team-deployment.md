@@ -44,6 +44,11 @@ The make target validates that all seven secrets are non-placeholder and unique.
 The identity bootstrap repeats the same fail-closed validation, so direct Compose
 startup cannot bypass it.
 
+The target first generates a source manifest from the clean Git checkout. The image verifies
+that manifest before installation and exposes serving identity only for this attested build.
+An image built directly without the generated manifest remains usable, but intentionally does
+not claim a service revision or a qualified embedding profile.
+
 On a fresh database Compose executes this fail-closed chain before serving
 traffic:
 

@@ -2383,7 +2383,6 @@ def test_sdk_context_search_and_documents_support_external_scope() -> None:
         token="test-token",
         transport=httpx.MockTransport(handler),
     )
-
     client.ingest_document(
         space_slug="client-app",
         memory_scope_external_ref="default",
@@ -2423,8 +2422,8 @@ def test_sdk_context_search_and_documents_support_external_scope() -> None:
         consistency_mode="best_effort",
         max_conflicting_suggestions=3,
         include_stale=True,
+        project_anchor_policy="advisory",
     )
-
     assert [f"{method} {path}" for method, path, _body in seen] == [
         "POST /v1/documents",
         "POST /v1/context",
@@ -2443,6 +2442,7 @@ def test_sdk_context_search_and_documents_support_external_scope() -> None:
     assert seen[2][2]["consistency_mode"] == "best_effort"
     assert seen[2][2]["max_conflicting_suggestions"] == 3
     assert seen[2][2]["include_stale"] is True
+    assert seen[2][2]["project_anchor_policy"] == "advisory"
     assert "memory_scope_ids" not in seen[2][2]
 
 

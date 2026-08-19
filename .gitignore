@@ -6,7 +6,8 @@ node_modules/
 .pytest_cache/
 .ruff_cache/
 dist/
-build/
+build/*
+!build/.keep
 *.egg-info/
 .env
 .env.local

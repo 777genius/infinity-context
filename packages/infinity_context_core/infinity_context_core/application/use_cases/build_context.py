@@ -895,7 +895,7 @@ class BuildContextUseCase:
         guarded_items, requirement_guard_diagnostics = _apply_explicit_requirement_guard(
             query=query.query,
             query_anchor_intent=query_anchor_intent,
-            items=candidate_items,
+            items=candidate_items, project_anchor_policy=query.project_anchor_policy,
         )
         diagnostics.update(requirement_guard_diagnostics)
         diagnostics.update(

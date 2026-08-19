@@ -138,6 +138,7 @@ def _apply_explicit_requirement_guard(
     query: str,
     query_anchor_intent: QueryAnchorIntent,
     items: tuple[ContextItem, ...],
+    project_anchor_policy: str = "required",
 ) -> tuple[tuple[ContextItem, ...], dict[str, object]]:
     coverage = context_requirement_coverage(
         query=query,
@@ -155,11 +156,12 @@ def _apply_explicit_requirement_guard(
         "requirement_guard_relation_mismatch_drop_count": 0,
         "requirement_guard_count_answer_shape_missing_drop_count": 0,
     }
-    if (
+    project_anchor_missing = (
         "project" in requested_anchor_kinds
         and "project" in missing_anchor_kinds
         and _requires_explicit_project_anchor(query_anchor_intent)
-    ):
+    )
+    if project_anchor_missing and project_anchor_policy != "advisory":
         diagnostics.update(
             {
                 "requirement_guard_status": "dropped_missing_project_anchor",
@@ -167,6 +169,13 @@ def _apply_explicit_requirement_guard(
             }
         )
         return (), diagnostics
+    if project_anchor_missing:
+        diagnostics.update(
+            {
+                "requirement_guard_project_anchor_policy": project_anchor_policy,
+                "requirement_guard_project_anchor_missing": True,
+            }
+        )
     kept_items = tuple(item for item in items if not _has_object_kind_mismatch(item))
     object_kind_mismatch_drop_count = len(items) - len(kept_items)
     if object_kind_mismatch_drop_count > 0:
@@ -236,7 +245,9 @@ def _apply_explicit_requirement_guard(
             diagnostics["requirement_guard_count_answer_shape_missing_drop_count"] = len(items)
             diagnostics["requirement_guard_status"] = "dropped_missing_count_answer_shape"
             return (), diagnostics
-    diagnostics["requirement_guard_status"] = "satisfied"
+    diagnostics["requirement_guard_status"] = (
+        "advisory_missing_project_anchor" if project_anchor_missing else "satisfied"
+    )
     return items, diagnostics
 
 

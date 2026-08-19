@@ -78,7 +78,6 @@ describe("InfinityContextClient", () => {
       transport,
       retryPolicy: { maxAttempts: 1 },
     });
-
     await client.context.buildContext({
       query: "daily digest preferences",
       readScope: ReadScope.external({
@@ -86,9 +85,9 @@ describe("InfinityContextClient", () => {
         memoryScopeExternalRefs: ["workspace-global", "user:user_1"],
       }),
       signal: controller.signal,
+      projectAnchorPolicy: "advisory",
       headers: { "x-trace-id": "trace_1" },
     });
-
     const requestSignal = transport.requests[0]?.signal;
     expect(requestSignal).toBeDefined();
     expect(requestSignal?.aborted).toBe(false);
@@ -98,6 +97,7 @@ describe("InfinityContextClient", () => {
     expect(transport.requests[0]?.headers.get("x-trace-id")).toBe("trace_1");
     expect(transport.bodies[0]).not.toHaveProperty("headers");
     expect(transport.bodies[0]).not.toHaveProperty("signal");
+    expect(transport.bodies[0]).toMatchObject({ project_anchor_policy: "advisory" });
   });
 
   it("passes per-request controls through operational resource clients", async () => {
