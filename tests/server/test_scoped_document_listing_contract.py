@@ -97,6 +97,9 @@ def test_list_documents_is_exactly_scoped_and_defaults_to_active(tmp_path: Path)
         thread_page = _list(client)
         global_page = _list(client, thread=None)
         deleted_page = _list(client, status="deleted")
+        deleted_by_id = client.get(
+            f"/v1/documents/{deleted['id']}", headers=ROOT_HEADERS
+        )
         source_page = _list(client, source_external_id="TARGET_THREAD_A")
         missing_source_page = _list(client, source_external_id="TARGET_THREAD")
 
@@ -106,7 +109,10 @@ def test_list_documents_is_exactly_scoped_and_defaults_to_active(tmp_path: Path)
     assert thread_page.json()["data"][0]["id"] == target["id"]
     assert _external_ids(global_page) == ["GLOBAL_SENTINEL"]
     assert global_page.json()["data"][0]["id"] == global_sentinel["id"]
-    assert _external_ids(deleted_page) == ["DELETED_TARGET"]
+    assert deleted_page.status_code == 400, deleted_page.text
+    assert "DELETED_TARGET" not in deleted_page.text
+    assert deleted_by_id.status_code == 200, deleted_by_id.text
+    assert deleted_by_id.json()["data"]["status"] == "deleted"
     assert _external_ids(source_page) == ["TARGET_THREAD_A"]
     assert missing_source_page.json() == {"data": [], "next_cursor": None}
 
@@ -186,7 +192,6 @@ def test_list_documents_cursor_is_opaque_bound_to_kind_scope_and_filters(
             _list(client, cursor=wrong_kind_cursor),
             _list(client, memory_scope="other", cursor=cursor),
             _list(client, cursor=cursor, source_external_id="CURSOR_A"),
-            _list(client, cursor=cursor, status="deleted"),
         )
 
     for response in responses:
@@ -289,6 +294,16 @@ def test_database_scoped_token_cannot_cross_space_or_memory_scope(
             space="private-space",
             memory_scope="private",
         )
+        tombstone = _ingest(
+            client,
+            "SAME_SCOPE_DELETED_PRIVATE_MARKER",
+            space="token-space",
+            memory_scope="allowed",
+        )
+        deleted_response = client.delete(
+            f"/v1/documents/{tombstone['id']}", headers=ROOT_HEADERS
+        )
+        assert deleted_response.status_code == 200, deleted_response.text
 
     scoped = asyncio.run(
         token_create(
@@ -327,9 +342,22 @@ def test_database_scoped_token_cannot_cross_space_or_memory_scope(
             },
             headers=scoped_headers,
         )
+        deleted_status = client.get(
+            "/v1/documents",
+            params={
+                "space_id": allowed["space_id"],
+                "memory_scope_id": allowed["memory_scope_id"],
+                "thread_id": allowed["thread_id"],
+                "status": "deleted",
+            },
+            headers=scoped_headers,
+        )
 
     assert same_scope.status_code == 200, same_scope.text
     assert _external_ids(same_scope) == ["ALLOWED_TOKEN_MARKER"]
+    assert "SAME_SCOPE_DELETED_PRIVATE_MARKER" not in same_scope.text
+    assert deleted_status.status_code == 400, deleted_status.text
+    assert "SAME_SCOPE_DELETED_PRIVATE_MARKER" not in deleted_status.text
     for response in (cross_scope, cross_space):
         assert response.status_code == 403, response.text
         assert response.json()["error"]["code"] == "memory.forbidden"
@@ -377,6 +405,7 @@ def test_openapi_describes_scoped_document_listing_contract(tmp_path: Path) -> N
         "title": "Limit",
     }
     assert parameters["status"]["schema"]["default"] == "active"
+    assert parameters["status"]["schema"]["const"] == "active"
 
     response_schema = operation["responses"]["200"]["content"]["application/json"]["schema"]
     if "$ref" in response_schema:

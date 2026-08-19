@@ -1373,7 +1373,7 @@ describe("InfinityContextClient", () => {
       spaceSlug: "  social-monitor:tenant:workspace  ",
       memoryScopeExternalRef: "  topic:ai-agents:meetings  ",
       threadExternalRef: "  meeting:42  ",
-      status: "deleted",
+      status: "active",
       sourceExternalId: "  meeting:42:turn:7  ",
       limit: 25,
       cursor: "  opaque_cursor_1  ",
@@ -1387,7 +1387,7 @@ describe("InfinityContextClient", () => {
         "space_slug=social-monitor%3Atenant%3Aworkspace&" +
         "memory_scope_external_ref=topic%3Aai-agents%3Ameetings&" +
         "thread_external_ref=meeting%3A42&" +
-        "status=deleted&" +
+        "status=active&" +
         "source_external_id=meeting%3A42%3Aturn%3A7&" +
         "limit=25&" +
         "cursor=opaque_cursor_1",
@@ -1492,6 +1492,7 @@ describe("InfinityContextClient", () => {
     };
 
     for (const input of [
+      { ...scope, status: "deleted" as "active" },
       { ...scope, sourceExternalId: " " },
       { ...scope, cursor: " " },
       { ...scope, sourceExternalId: "x".repeat(241) },

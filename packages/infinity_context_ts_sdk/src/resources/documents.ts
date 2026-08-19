@@ -42,7 +42,7 @@ export interface ProcessDocumentInput extends RequestControls {
 }
 
 export interface ListScopeDocumentsInput extends SingleScopeInput, RequestControls {
-  readonly status?: "active" | "deleted";
+  readonly status?: "active";
   readonly sourceExternalId?: string;
   readonly limit?: number;
   readonly cursor?: string;
@@ -155,8 +155,8 @@ export class DocumentsClient {
     validateSingleScopePayload(scope);
     requireExplicitScope(scope);
     const status = normalizeOptionalText(input.status, "status", 40) ?? "active";
-    if (status !== "active" && status !== "deleted") {
-      throw new ValueError("status must be active or deleted");
+    if (status !== "active") {
+      throw new ValueError("status must be active");
     }
     const sourceExternalId = normalizeOptionalText(input.sourceExternalId, "sourceExternalId", 240);
     const cursor = normalizeOptionalText(input.cursor, "cursor", 1000);

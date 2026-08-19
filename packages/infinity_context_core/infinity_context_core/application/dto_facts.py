@@ -242,8 +242,8 @@ class ListDocumentsQuery:
     cursor_id: str | None = None
 
     def __post_init__(self) -> None:
-        if self.status not in {"active", "deleted"}:
-            raise MemoryValidationError("Document status must be active or deleted")
+        if self.status != "active":
+            raise MemoryValidationError("Document status must be active")
         if not 1 <= self.limit <= 501:
             raise MemoryValidationError("Document list limit must be between 1 and 501")
         if self.source_external_id is not None:

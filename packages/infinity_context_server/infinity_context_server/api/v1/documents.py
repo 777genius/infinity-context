@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import json
-from typing import Annotated, Any
+from typing import Annotated, Any, Literal
 
 from fastapi import APIRouter, Depends, Header, Query, Response, status
 from infinity_context_core.application import (
@@ -139,7 +139,7 @@ async def list_documents(
     thread_external_ref: Annotated[
         str | None, Query(min_length=1, max_length=200)
     ] = None,
-    status_filter: Annotated[str, Query(alias="status", max_length=40)] = "active",
+    status_filter: Annotated[Literal["active"], Query(alias="status")] = "active",
     source_external_id: Annotated[
         str | None, Query(min_length=1, max_length=240)
     ] = None,
@@ -154,8 +154,6 @@ async def list_documents(
         memory_scope_external_ref=memory_scope_external_ref,
         thread_external_ref=thread_external_ref,
     )
-    if status_filter not in {"active", "deleted"}:
-        raise MemoryValidationError("Document status must be active or deleted")
     decoded_cursor = decode_cursor(cursor, kind="documents")
     scope = await resolve_existing_single_scope(
         container,
