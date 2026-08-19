@@ -1,5 +1,6 @@
 """Typed OpenAPI contract for document listing pages."""
 
+from fastapi.testclient import TestClient
 from infinity_context_server.config import DeployProfile, Settings
 from infinity_context_server.main import create_app
 
@@ -13,7 +14,8 @@ def test_document_listing_openapi_has_typed_record_and_page_fields() -> None:
             embeddings_enabled=False,
         )
     )
-    schemas = app.openapi()["components"]["schemas"]
+    with TestClient(app):
+        schemas = app.openapi()["components"]["schemas"]
     record = schemas["DocumentRecordResponse"]
     page = schemas["DocumentListResponse"]
 
