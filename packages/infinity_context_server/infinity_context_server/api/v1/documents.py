@@ -18,6 +18,7 @@ from infinity_context_core.application import (
     IngestDocumentCommand as LegacyIngestDocumentCommand,
 )
 from infinity_context_core.domain.errors import MemoryValidationError
+from pydantic import BaseModel, ConfigDict
 
 from infinity_context_server.api.auth import require_service_token
 from infinity_context_server.api.dependencies import get_container
@@ -49,6 +50,15 @@ chunk_to_response = document_ingestion_server.chunk_to_response
 
 class IngestDocumentRequest(document_ingestion_server.LegacyIngestDocumentRequest):
     """Legacy /v1 request body; fields live in the document_ingestion seam."""
+
+
+class DocumentListResponse(BaseModel):
+    """Stable paginated response envelope for exact-scope document listing."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    data: list[dict[str, Any]]
+    next_cursor: str | None
 
 
 @router.post("", status_code=status.HTTP_201_CREATED)
@@ -97,7 +107,7 @@ async def ingest_document(
     }
 
 
-@router.get("")
+@router.get("", response_model=DocumentListResponse)
 async def list_documents(
     container: Annotated[Container, Depends(get_container)],
     space_id: Annotated[str | None, Query(min_length=1, max_length=80)] = None,
