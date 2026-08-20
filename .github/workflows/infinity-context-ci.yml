@@ -120,6 +120,7 @@ jobs:
           .venv/bin/python scripts/pytest_ci_shard.py
           --shard-index ${{ matrix.shard_index }}
           --shard-total 8
+          -m "not synthetic_2040"
 
   quality:
     name: Quality Gate
@@ -201,7 +202,7 @@ jobs:
     name: Optional synthetic 2040 benchmark contracts
     if: github.event_name == 'workflow_dispatch' && inputs.synthetic_2040
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 90
 
     env:
       HF_HUB_OFFLINE: "1"

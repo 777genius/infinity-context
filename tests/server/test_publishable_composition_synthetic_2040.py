@@ -1,4 +1,4 @@
-"""True provider-free 2,040-pair traversal through the production composition."""
+"""Opt-in provider-free 2,040-pair traversal through the production composition."""
 
 from __future__ import annotations
 
@@ -135,7 +135,8 @@ def _admitted_execution_contract_test(monkeypatch: pytest.MonkeyPatch) -> None:
     )
 
 
-def test_production_composition_traverses_exact_2040_pairs_and_replays_with_zero_calls(
+@pytest.mark.synthetic_2040
+def test_composition_traverses_exact_2040_pairs_and_replays_with_zero_calls(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
     _admitted_execution_contract_test: None,

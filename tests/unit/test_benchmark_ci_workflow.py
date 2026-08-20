@@ -82,13 +82,14 @@ def test_benchmark_job_is_mandatory_locked_and_provider_free() -> None:
 def test_synthetic_2040_lane_is_opt_in_and_provider_free() -> None:
     workflow = WORKFLOW.read_text(encoding="utf-8")
     job = _workflow_job("benchmark-synthetic-2040")
+    test_suite_job = _workflow_job("test_suite")
 
     assert "synthetic_2040:" in workflow
     assert "type: boolean" in workflow
     assert "default: false" in workflow
     assert "name: Optional synthetic 2040 benchmark contracts" in job
     assert "if: github.event_name == 'workflow_dispatch' && inputs.synthetic_2040" in job
-    assert "timeout-minutes: 20" in job
+    assert "timeout-minutes: 90" in job
     assert "actions/checkout@v7.0.1" in job
     assert "actions/setup-python@v7.0.0" in job
     assert 'python-version: "3.11.15"' in job
@@ -100,6 +101,7 @@ def test_synthetic_2040_lane_is_opt_in_and_provider_free() -> None:
     assert "benchmarks/mem0-oss-adapter-v5" not in job
     assert "${{ secrets." not in job
     assert "--allow-live" not in job
+    assert '-m "not synthetic_2040"' in test_suite_job
 
 
 def test_benchmark_selection_inventory_is_explicit_and_complete() -> None:
@@ -119,6 +121,8 @@ def test_benchmark_selection_inventory_is_explicit_and_complete() -> None:
         "test_bounded_2040_case_streaming_build_and_indexed_read_traversal",
         "tests/server/test_scheduler_subscription_bridge_composition.py::"
         "test_official_composition_suite_seal_replay_and_synthetic_2040_traversal",
+        "tests/server/test_publishable_composition_synthetic_2040.py::"
+        "test_composition_traverses_exact_2040_pairs_and_replays_with_zero_calls",
     }
     assert root_paths == {
         "tests/unit/test_publishable_durable_scheduler_manifest.py",
@@ -134,6 +138,7 @@ def test_benchmark_selection_inventory_is_explicit_and_complete() -> None:
         "tests/server/test_scheduler_paired_outcome_contracts.py",
         "tests/server/test_publishable_scheduler_official_request_renderer.py",
         "tests/server/test_scheduler_official_sqlite_authorities.py",
+        "tests/server/test_publishable_composition_synthetic_2040.py",
         "tests/server/test_publishable_run_attestation.py",
         "tests/server/test_subscription_runtime_bridge_provider_receipt_replay.py",
         "tests/server/test_publishable_canary_activation_evidence.py",

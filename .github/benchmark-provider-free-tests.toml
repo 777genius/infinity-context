@@ -14,6 +14,7 @@ deferred_node_ids = [
   "tests/server/test_publishable_scheduler_official_request_renderer.py::test_fake_2040_case_manifest_traversal_keeps_reads_one_case_bounded",
   "tests/server/test_scheduler_official_sqlite_authorities.py::test_bounded_2040_case_streaming_build_and_indexed_read_traversal",
   "tests/server/test_scheduler_subscription_bridge_composition.py::test_official_composition_suite_seal_replay_and_synthetic_2040_traversal",
+  "tests/server/test_publishable_composition_synthetic_2040.py::test_composition_traverses_exact_2040_pairs_and_replays_with_zero_calls",
 ]
 test_paths = [
   "tests/unit/test_publishable_durable_scheduler_manifest.py",
@@ -29,6 +30,7 @@ test_paths = [
   "tests/server/test_scheduler_paired_outcome_contracts.py",
   "tests/server/test_publishable_scheduler_official_request_renderer.py",
   "tests/server/test_scheduler_official_sqlite_authorities.py",
+  "tests/server/test_publishable_composition_synthetic_2040.py",
   "tests/server/test_publishable_run_attestation.py",
   "tests/server/test_subscription_runtime_bridge_provider_receipt_replay.py",
   "tests/server/test_publishable_canary_activation_evidence.py",
