@@ -109,7 +109,7 @@ jobs:
 
       - name: Run full test suite shard
         run: >-
-          python scripts/pytest_ci_shard.py
+          .venv/bin/python scripts/pytest_ci_shard.py
           --shard-index ${{ matrix.shard_index }}
           --shard-total 4
 
