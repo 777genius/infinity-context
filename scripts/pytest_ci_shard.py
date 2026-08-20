@@ -19,11 +19,17 @@ def validate_shard(*, shard_index: int, shard_total: int) -> None:
         )
 
 
+def shard_key_for_nodeid(nodeid: str) -> str:
+    """Keep every test from one module in the same shard."""
+    return nodeid.partition("::")[0]
+
+
 def shard_index_for_nodeid(nodeid: str, *, shard_total: int) -> int:
-    """Return a stable shard for a pytest node ID."""
+    """Return a stable module-level shard for a pytest node ID."""
     if shard_total < 1:
         raise ValueError("shard_total must be at least 1")
-    digest = hashlib.sha256(nodeid.encode("utf-8")).digest()
+    shard_key = shard_key_for_nodeid(nodeid)
+    digest = hashlib.sha256(shard_key.encode("utf-8")).digest()
     return int.from_bytes(digest[:8], byteorder="big") % shard_total
 
 

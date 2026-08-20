@@ -17,47 +17,64 @@ def test_shard_assignment_is_stable() -> None:
     )
 
     assert [
-        shard_index_for_nodeid(nodeid, shard_total=4) for nodeid in nodeids
-    ] == [3, 2, 2]
+        shard_index_for_nodeid(nodeid, shard_total=8) for nodeid in nodeids
+    ] == [5, 5, 3]
 
 
 def test_shards_are_exhaustive_and_exclusive() -> None:
-    nodeids = tuple(f"tests/unit/test_example.py::test_case[{index}]" for index in range(500))
+    nodeids = tuple(
+        f"tests/unit/test_example_{module}.py::test_case[{case}]"
+        for module in range(125)
+        for case in range(4)
+    )
     shards = tuple(
         select_nodeids_for_shard(
             nodeids,
             shard_index=shard_index,
-            shard_total=4,
+            shard_total=8,
         )
-        for shard_index in range(4)
+        for shard_index in range(8)
     )
 
     assert sorted(nodeid for shard in shards for nodeid in shard) == sorted(nodeids)
     assert sum(len(shard) for shard in shards) == len(nodeids)
     for shard_index, shard in enumerate(shards):
         assert all(
-            shard_index_for_nodeid(nodeid, shard_total=4) == shard_index
+            shard_index_for_nodeid(nodeid, shard_total=8) == shard_index
             for nodeid in shard
         )
 
 
+def test_tests_from_same_module_stay_together() -> None:
+    nodeids = tuple(f"tests/unit/test_example.py::test_case[{index}]" for index in range(50))
+
+    assignments = {shard_index_for_nodeid(nodeid, shard_total=8) for nodeid in nodeids}
+
+    assert len(assignments) == 1
+
+
 def test_selector_preserves_collection_order() -> None:
-    nodeids = tuple(f"test_module.py::test_case[{index}]" for index in range(20))
+    nodeids = tuple(f"test_module_{index}.py::test_case" for index in range(20))
 
     selected = select_nodeids_for_shard(
         nodeids,
         shard_index=2,
-        shard_total=4,
+        shard_total=8,
     )
 
-    assert selected == tuple(nodeid for nodeid in nodeids if nodeid in selected)
+    assert selected
+    assert selected == tuple(
+        nodeid
+        for nodeid in nodeids
+        if shard_index_for_nodeid(nodeid, shard_total=8) == 2
+    )
 
 
 @pytest.mark.parametrize(
     ("shard_index", "shard_total"),
     [
-        (-1, 4),
-        (4, 4),
+        (-1, 8),
+        (8, 8),
         (0, 0),
     ],
 )
