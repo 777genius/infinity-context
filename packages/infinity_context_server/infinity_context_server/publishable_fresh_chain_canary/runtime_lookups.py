@@ -2,7 +2,8 @@
 
 from __future__ import annotations
 
-from infinity_context_server.features.subscription_runtime_bridge import BridgeCallBinding
+from infinity_context_runtime_bridge import BridgeCallBinding
+
 from infinity_context_server.memory_comparison_mem0_oss_v5_contracts import (
     RuntimeReceiptVerificationContext,
 )

@@ -8,7 +8,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from types import SimpleNamespace
 
-from infinity_context_server.features.subscription_runtime_bridge import (
+from infinity_context_runtime_bridge import (
     BridgeJournal,
     BridgeJournalStatistics,
     HmacJournalIntegrity,

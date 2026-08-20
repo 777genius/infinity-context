@@ -5,9 +5,10 @@ from __future__ import annotations
 import hashlib
 from typing import Protocol, final
 
-from infinity_context_server.features.subscription_runtime_bridge.request_contract import (
+from infinity_context_runtime_bridge.request_contract import (
     canonical_openai_request_body,
 )
+
 from infinity_context_server.memory_comparison_mem0_official_prompt_renderer import (
     Mem0OfficialPrompt,
     render_mem0_official_answer_prompt,

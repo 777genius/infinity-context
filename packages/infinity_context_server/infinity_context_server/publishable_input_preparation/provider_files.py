@@ -4,11 +4,11 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from infinity_context_server.features.subscription_runtime_bridge.json_boundary import (
+from infinity_context_runtime_bridge.json_boundary import (
     canonical_json_bytes,
     strict_json_loads,
 )
-from infinity_context_server.features.subscription_runtime_bridge.secure_secret_file import (
+from infinity_context_runtime_bridge.secure_secret_file import (
     SecureSecretFileReader,
 )
 

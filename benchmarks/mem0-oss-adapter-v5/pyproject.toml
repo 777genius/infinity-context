@@ -42,6 +42,7 @@ pythonpath = [
   "deployment",
   "../../packages/infinity_context_core",
   "../../packages/infinity_context_server",
+  "../../packages/infinity_context_runtime_bridge",
   "../../packages/infinity_context_adapters",
 ]
 filterwarnings = [

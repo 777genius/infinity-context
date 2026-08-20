@@ -8,13 +8,13 @@ import weakref
 from dataclasses import FrozenInstanceError, replace
 
 import pytest
-from infinity_context_server.features.subscription_runtime_bridge import (
+from infinity_context_runtime_bridge import (
     BridgeAuthority,
     BridgeCallBinding,
     BridgePoolAuthority,
     canonical_openai_request_body,
 )
-from infinity_context_server.features.subscription_runtime_bridge.request_contract import (
+from infinity_context_runtime_bridge.request_contract import (
     derive_bridge_intent,
 )
 from infinity_context_server.memory_comparison_mem0_official_prompt_renderer import (

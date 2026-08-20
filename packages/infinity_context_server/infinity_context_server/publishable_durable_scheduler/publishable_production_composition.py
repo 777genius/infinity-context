@@ -8,7 +8,7 @@ from dataclasses import dataclass, field
 from enum import StrEnum
 from typing import final
 
-from infinity_context_server.features.subscription_runtime_bridge import (
+from infinity_context_runtime_bridge import (
     Aes256GcmOutputCipher,
     BridgeJournal,
     BridgeSecretCapability,
@@ -16,9 +16,10 @@ from infinity_context_server.features.subscription_runtime_bridge import (
     OutcomeUnknown,
     TerminalBridgeCall,
 )
-from infinity_context_server.features.subscription_runtime_bridge.process_contracts import (
+from infinity_context_runtime_bridge.process_contracts import (
     BridgeFleetReadinessReceipt,
 )
+
 from infinity_context_server.memory_comparison_publishable_go_readiness import (
     PUBLISHABLE_PRODUCTION_ORCHESTRATION_SCHEMA_VERSION,
     PublishableExecutionAuthority,

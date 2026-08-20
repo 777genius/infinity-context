@@ -5,7 +5,7 @@ from dataclasses import FrozenInstanceError, replace
 from pathlib import Path
 
 import pytest
-from infinity_context_server.features.subscription_runtime_bridge import (
+from infinity_context_runtime_bridge import (
     AuthenticatedBridgeResult,
     BridgeAuthority,
     BridgeAuthorityError,
@@ -22,10 +22,10 @@ from infinity_context_server.features.subscription_runtime_bridge import (
     TokenUsage,
     canonical_openai_request_body,
 )
-from infinity_context_server.features.subscription_runtime_bridge.attestation import (
+from infinity_context_runtime_bridge.attestation import (
     output_associated_data,
 )
-from infinity_context_server.features.subscription_runtime_bridge.request_contract import (
+from infinity_context_runtime_bridge.request_contract import (
     derive_bridge_intent,
 )
 from subscription_runtime_bridge_test_support import (

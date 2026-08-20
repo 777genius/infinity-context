@@ -7,13 +7,14 @@ import re
 import stat
 from pathlib import Path
 
-from infinity_context_server.features.subscription_runtime_bridge.json_boundary import (
+from infinity_context_runtime_bridge.json_boundary import (
     exact_object,
     strict_json_loads,
 )
-from infinity_context_server.features.subscription_runtime_bridge.secure_secret_file import (
+from infinity_context_runtime_bridge.secure_secret_file import (
     SecureSecretFileReader,
 )
+
 from infinity_context_server.publishable_durable_scheduler.publishable_run_contracts import (
     PUBLISHABLE_RUN_CONFIG_BYTES_LIMIT,
     PUBLISHABLE_RUN_CONFIG_SCHEMA,

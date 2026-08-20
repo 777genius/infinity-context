@@ -4,7 +4,7 @@ import hashlib
 from pathlib import Path
 
 import pytest
-from infinity_context_server.features.subscription_runtime_bridge import (
+from infinity_context_runtime_bridge import (
     BridgeDivergenceError,
     BridgeJournal,
     BridgeReceiptError,
@@ -14,10 +14,10 @@ from infinity_context_server.features.subscription_runtime_bridge import (
     TerminalBridgeCall,
     canonical_openai_request_body,
 )
-from infinity_context_server.features.subscription_runtime_bridge.json_boundary import (
+from infinity_context_runtime_bridge.json_boundary import (
     canonical_json_bytes,
 )
-from infinity_context_server.features.subscription_runtime_bridge.request_contract import (
+from infinity_context_runtime_bridge.request_contract import (
     derive_bridge_intent,
 )
 from subscription_runtime_bridge_test_support import (

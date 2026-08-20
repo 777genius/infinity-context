@@ -3,16 +3,12 @@
 from __future__ import annotations
 
 # ADR-0007 defines business feature ids mirrored across deployable packages. These
-# two namespaces instead own bounded cross-feature runtime support and therefore do
-# not have the domain/application/ports shape required of a core feature capsule.
-# Keeping the classification root-specific prevents either name from becoming a
-# blanket feature id in another package.
+# namespaces instead own bounded cross-feature support and therefore do not have the
+# domain/application/ports shape required of a core feature capsule. External runtime
+# integration is intentionally not listed: ADR-0008 moved it out of the server package.
 NON_VERTICAL_SLICE_SUPPORT_COMPONENTS_BY_ROOT = {
     "packages/infinity_context_core/infinity_context_core/features": frozenset(
         {"projection_receipts"}
-    ),
-    "packages/infinity_context_server/infinity_context_server/features": frozenset(
-        {"subscription_runtime_bridge"}
     ),
 }
 

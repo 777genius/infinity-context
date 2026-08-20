@@ -250,7 +250,7 @@ fi
 export INFINITY_CONTEXT_HOME="${PREFIX}"
 export INFINITY_CONTEXT_REPO_ROOT="\${repo_root}"
 export PATH="${PREFIX}/bin:\${PATH}"
-infinity_context_pythonpath="\${repo_root}/packages/infinity_context_core:\${repo_root}/packages/infinity_context_server:\${repo_root}/packages/infinity_context_adapters:\${repo_root}/packages/infinity_context_contracts:\${repo_root}/packages/infinity_context_sdk:\${repo_root}/packages/infinity_context_obsidian:\${repo_root}/packages/infinity_context_mcp:\${repo_root}/packages/infinity_context_cli"
+infinity_context_pythonpath="\${repo_root}/packages/infinity_context_core:\${repo_root}/packages/infinity_context_server:\${repo_root}/packages/infinity_context_runtime_bridge:\${repo_root}/packages/infinity_context_adapters:\${repo_root}/packages/infinity_context_contracts:\${repo_root}/packages/infinity_context_sdk:\${repo_root}/packages/infinity_context_obsidian:\${repo_root}/packages/infinity_context_mcp:\${repo_root}/packages/infinity_context_cli"
 if [ -n "\${PYTHONPATH:-}" ]; then
   export PYTHONPATH="\${infinity_context_pythonpath}:\${PYTHONPATH}"
 else

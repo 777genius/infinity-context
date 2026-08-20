@@ -6,14 +6,14 @@ from dataclasses import replace
 from pathlib import Path
 
 import pytest
-from infinity_context_server.features.subscription_runtime_bridge import (
+from infinity_context_runtime_bridge import (
     Aes256GcmOutputCipher,
     BridgeAuthority,
     BridgeJournal,
     BridgePoolAuthority,
     HmacJournalIntegrity,
 )
-from infinity_context_server.features.subscription_runtime_bridge.process_contracts import (
+from infinity_context_runtime_bridge.process_contracts import (
     BridgeFleetReadinessReceipt,
 )
 from infinity_context_server.publishable_durable_scheduler import (

@@ -16,7 +16,7 @@ x-infinity-context-server-common: &infinity-context-server-common
 
 x-infinity-context-server-base-env: &infinity-context-server-base-env
   MEMORY_DEPLOY_PROFILE: local
-  PYTHONPATH: /app/packages/infinity_context_core:/app/packages/infinity_context_server:/app/packages/infinity_context_adapters:/app/packages/infinity_context_sdk:/app/packages/infinity_context_mcp:/app/packages/infinity_context_cli:/app/packages/infinity_context_obsidian
+  PYTHONPATH: /app/packages/infinity_context_core:/app/packages/infinity_context_server:/app/packages/infinity_context_runtime_bridge:/app/packages/infinity_context_adapters:/app/packages/infinity_context_sdk:/app/packages/infinity_context_mcp:/app/packages/infinity_context_cli:/app/packages/infinity_context_obsidian
   MEMORY_SERVICE_BUILD_IDENTITY_PATH: /run/infinity-context/unattested-local-build.json
   MEMORY_DATABASE_URL: postgresql+asyncpg://infinity_context:infinity_context@infinity_context_postgres:5432/infinity_context
   MEMORY_AUTO_CREATE_SCHEMA: "true"

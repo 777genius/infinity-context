@@ -836,6 +836,7 @@ def _python_env(repo_root: Path, extra: dict[str, str]) -> dict[str, str]:
         "packages/infinity_context_core",
         "packages/infinity_context_adapters",
         "packages/infinity_context_server",
+        "packages/infinity_context_runtime_bridge",
         "packages/infinity_context_sdk",
         "packages/infinity_context_cli",
         "packages/infinity_context_obsidian",

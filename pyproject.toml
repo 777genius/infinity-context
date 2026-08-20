@@ -110,6 +110,7 @@ Changelog = "https://github.com/777genius/infinity-context/releases"
 where = [
   "packages/infinity_context_core",
   "packages/infinity_context_server",
+  "packages/infinity_context_runtime_bridge",
   "packages/infinity_context_adapters",
   "packages/infinity_context_contracts",
   "packages/infinity_context_sdk",
@@ -141,6 +142,7 @@ pythonpath = [
   ".",
   "packages/infinity_context_core",
   "packages/infinity_context_server",
+  "packages/infinity_context_runtime_bridge",
   "packages/infinity_context_adapters",
   "packages/infinity_context_contracts",
   "packages/infinity_context_sdk",

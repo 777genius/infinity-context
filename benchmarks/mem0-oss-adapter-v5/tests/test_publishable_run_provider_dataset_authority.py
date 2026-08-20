@@ -10,7 +10,7 @@ from infinity_context_core.ports.managed_full_run_extraction_ledger import (
     ManagedFullRunExtractionTerminal,
     canonical_sha256,
 )
-from infinity_context_server.features.subscription_runtime_bridge.json_boundary import (
+from infinity_context_runtime_bridge.json_boundary import (
     canonical_json_bytes,
 )
 from infinity_context_server.processes.publishable_full_extraction_contracts import (

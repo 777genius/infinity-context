@@ -15,13 +15,13 @@ from typing import final
 from infinity_context_core.features.projection_receipts.strict_v4_preparation import (
     StrictV4PreparationReceipt,
 )
-from infinity_context_server.features.subscription_runtime_bridge import (
+from infinity_context_runtime_bridge import (
     Aes256GcmOutputCipher,
     BridgeJournal,
     HmacJournalIntegrity,
     OutputCipherKey,
 )
-from infinity_context_server.features.subscription_runtime_bridge.process_contracts import (
+from infinity_context_runtime_bridge.process_contracts import (
     BridgeFleetReadinessReceipt,
 )
 from infinity_context_server.memory_comparison_case_loader import (

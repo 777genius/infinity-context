@@ -6,20 +6,21 @@ from contextlib import suppress
 from dataclasses import dataclass, field
 from typing import final
 
-from infinity_context_server.features.subscription_runtime_bridge.contracts import (
+from infinity_context_runtime_bridge.contracts import (
     BridgePoolAuthority,
 )
-from infinity_context_server.features.subscription_runtime_bridge.process_contracts import (
+from infinity_context_runtime_bridge.process_contracts import (
     BridgeFleetReadinessReceipt,
     BridgeFleetSpec,
     GracefulStopMetadata,
 )
-from infinity_context_server.features.subscription_runtime_bridge.process_control import (
+from infinity_context_runtime_bridge.process_control import (
     ProcessControlPort,
 )
-from infinity_context_server.features.subscription_runtime_bridge.process_launcher import (
+from infinity_context_runtime_bridge.process_launcher import (
     ProductionBridgeFleet,
 )
+
 from infinity_context_server.publishable_durable_scheduler import (
     scheduler_subscription_bridge_adapter as scheduler_bridge,
 )

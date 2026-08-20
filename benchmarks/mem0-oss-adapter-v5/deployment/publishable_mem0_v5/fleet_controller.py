@@ -18,15 +18,15 @@ from pathlib import Path
 from secrets import token_hex
 from typing import Final, Literal, Protocol
 
-from infinity_context_server.features.subscription_runtime_bridge import process_launcher
-from infinity_context_server.features.subscription_runtime_bridge.process_contracts import (
+from infinity_context_runtime_bridge import process_launcher
+from infinity_context_runtime_bridge.process_contracts import (
     BridgeLaunchReceipt,
     BridgeProcessError,
 )
-from infinity_context_server.features.subscription_runtime_bridge.process_control import (
+from infinity_context_runtime_bridge.process_control import (
     LinuxProcessControl,
 )
-from infinity_context_server.features.subscription_runtime_bridge.process_files import (
+from infinity_context_runtime_bridge.process_files import (
     StateLock,
     verify_private_directory,
     verify_private_file,

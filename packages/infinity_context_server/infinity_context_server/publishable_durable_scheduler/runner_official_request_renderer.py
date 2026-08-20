@@ -7,9 +7,10 @@ import json
 from dataclasses import dataclass, field
 from typing import final
 
-from infinity_context_server.features.subscription_runtime_bridge.request_contract import (
+from infinity_context_runtime_bridge.request_contract import (
     canonical_openai_request_body,
 )
+
 from infinity_context_server.memory_comparison_mem0_official_prompt_renderer import (
     MEM0_BENCHMARK_UPSTREAM_COMMIT,
     MEM0_OFFICIAL_PROMPT_FILE_SHA256,

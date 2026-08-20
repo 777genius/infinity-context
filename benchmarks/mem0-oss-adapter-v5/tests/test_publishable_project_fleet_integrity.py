@@ -6,8 +6,8 @@ import os
 from pathlib import Path
 
 import pytest
-from infinity_context_server.features.subscription_runtime_bridge.contracts import BridgeAuthority
-from infinity_context_server.features.subscription_runtime_bridge.process_contracts import (
+from infinity_context_runtime_bridge.contracts import BridgeAuthority
+from infinity_context_runtime_bridge.process_contracts import (
     RuntimeProcessAuthority,
 )
 from publishable_mem0_v5 import runtime_integrity

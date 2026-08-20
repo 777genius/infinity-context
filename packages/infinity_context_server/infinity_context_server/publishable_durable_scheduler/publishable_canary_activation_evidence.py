@@ -14,11 +14,12 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import final
 
-from infinity_context_server.features.subscription_runtime_bridge.process_files import (
+from infinity_context_runtime_bridge.process_files import (
     read_private_json,
     write_private_json_once,
     write_private_json_replace,
 )
+
 from infinity_context_server.memory_comparison_publishable_canary_methodology import (
     PUBLISHABLE_CANARY_METHODOLOGY_COMMITMENT_SHA256,
 )

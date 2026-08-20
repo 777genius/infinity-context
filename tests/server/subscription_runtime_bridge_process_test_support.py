@@ -9,11 +9,11 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-from infinity_context_server.features.subscription_runtime_bridge import process_launcher
-from infinity_context_server.features.subscription_runtime_bridge.contracts import (
+from infinity_context_runtime_bridge import process_launcher
+from infinity_context_runtime_bridge.contracts import (
     BridgeAuthority,
 )
-from infinity_context_server.features.subscription_runtime_bridge.process_contracts import (
+from infinity_context_runtime_bridge.process_contracts import (
     AccountIRuntimeFence,
     BridgeFleetSpec,
     BridgePrivateFiles,

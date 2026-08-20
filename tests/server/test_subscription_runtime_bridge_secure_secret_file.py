@@ -4,10 +4,10 @@ import os
 from pathlib import Path
 
 import pytest
-from infinity_context_server.features.subscription_runtime_bridge import (
+from infinity_context_runtime_bridge import (
     secure_secret_file as subject,
 )
-from infinity_context_server.features.subscription_runtime_bridge.secure_secret_file import (
+from infinity_context_runtime_bridge.secure_secret_file import (
     SecureSecretFileError,
     SecureSecretFileReader,
 )

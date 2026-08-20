@@ -6,7 +6,7 @@ import hashlib
 import hmac
 from typing import Final
 
-from infinity_context_server.features.subscription_runtime_bridge.json_boundary import (
+from infinity_context_runtime_bridge.json_boundary import (
     canonical_json_bytes,
 )
 

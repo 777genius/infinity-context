@@ -13,11 +13,11 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Protocol
 
-from infinity_context_server.features.subscription_runtime_bridge.contracts import (
+from infinity_context_runtime_bridge.contracts import (
     BridgeAuthority,
     BridgePoolAuthority,
 )
-from infinity_context_server.features.subscription_runtime_bridge.process_contracts import (
+from infinity_context_runtime_bridge.process_contracts import (
     PROVIDER_RECEIPT_SCHEMA,
     RUNTIME_PROCESS_AUTHORITY_SCHEMA,
     BridgeFleetReadinessReceipt,

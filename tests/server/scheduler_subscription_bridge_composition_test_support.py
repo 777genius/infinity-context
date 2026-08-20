@@ -12,11 +12,11 @@ from infinity_context_core.ports.managed_full_run_extraction_ledger import (
     ManagedFullRunExtractionTerminal,
     canonical_sha256,
 )
-from infinity_context_server.features.subscription_runtime_bridge import (
+from infinity_context_runtime_bridge import (
     BridgeAuthority,
     BridgePoolAuthority,
 )
-from infinity_context_server.features.subscription_runtime_bridge.process_contracts import (
+from infinity_context_runtime_bridge.process_contracts import (
     BridgeFleetReadinessReceipt,
     BridgeLaunchReceipt,
     PendingLaunchMetadata,

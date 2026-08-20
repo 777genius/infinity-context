@@ -5,7 +5,7 @@ import os
 from pathlib import Path
 
 import pytest
-from infinity_context_server.features.subscription_runtime_bridge import (
+from infinity_context_runtime_bridge import (
     OUTPUT_CIPHER_KEYRING_SCHEMA,
     Aes256GcmOutputCipher,
     FileOutputCipherKeyringSpec,
@@ -14,10 +14,10 @@ from infinity_context_server.features.subscription_runtime_bridge import (
     output_cipher_key_commitment_sha256,
     output_cipher_keyring_commitment_sha256,
 )
-from infinity_context_server.features.subscription_runtime_bridge import (
+from infinity_context_runtime_bridge import (
     secure_secret_file as secure_file_module,
 )
-from infinity_context_server.features.subscription_runtime_bridge.json_boundary import (
+from infinity_context_runtime_bridge.json_boundary import (
     canonical_json_bytes,
 )
 

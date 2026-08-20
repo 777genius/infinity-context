@@ -12,7 +12,7 @@ from typing import Final
 from urllib.parse import urlsplit
 
 import httpx
-from infinity_context_server.features.subscription_runtime_bridge.contracts import (
+from infinity_context_runtime_bridge.contracts import (
     BridgeTransportError,
 )
 

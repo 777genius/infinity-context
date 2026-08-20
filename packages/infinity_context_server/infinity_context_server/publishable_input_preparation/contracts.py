@@ -17,10 +17,10 @@ from infinity_context_core.features.projection_receipts import (
 from infinity_context_core.features.projection_receipts.strict_v4_preparation import (
     StrictV4PreparationReceiptPort,
 )
-
-from infinity_context_server.features.subscription_runtime_bridge.json_boundary import (
+from infinity_context_runtime_bridge.json_boundary import (
     strict_json_loads,
 )
+
 from infinity_context_server.memory_comparison_http import InfinityContextHttpComparisonBackend
 from infinity_context_server.processes import (
     publishable_full_extraction_managed_mem0_v5_suite_composition as extraction_composition,

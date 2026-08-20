@@ -6,7 +6,7 @@ import hashlib
 import hmac
 from typing import final
 
-from infinity_context_server.features.subscription_runtime_bridge import (
+from infinity_context_runtime_bridge import (
     AuthenticatedPreDispatchAbsence,
     BridgeAuthority,
     BridgeCallBinding,
@@ -18,12 +18,13 @@ from infinity_context_server.features.subscription_runtime_bridge import (
     SubscriptionRuntimeBridgeAdapter,
     TerminalBridgeCall,
 )
-from infinity_context_server.features.subscription_runtime_bridge.process_contracts import (
+from infinity_context_runtime_bridge.process_contracts import (
     BridgeFleetReadinessReceipt,
 )
-from infinity_context_server.features.subscription_runtime_bridge.request_contract import (
+from infinity_context_runtime_bridge.request_contract import (
     derive_bridge_intent,
 )
+
 from infinity_context_server.memory_comparison_publishable_methodology import (
     SUBSCRIPTION_RUNTIME_BASE_INSTRUCTIONS_SHA256,
 )

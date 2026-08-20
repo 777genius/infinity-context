@@ -20,6 +20,7 @@ def test_pytest_imports_exact_infinity_context_source_packages() -> None:
         "deployment",
         "../../packages/infinity_context_core",
         "../../packages/infinity_context_server",
+        "../../packages/infinity_context_runtime_bridge",
         "../../packages/infinity_context_adapters",
     ]
 
@@ -27,6 +28,7 @@ def test_pytest_imports_exact_infinity_context_source_packages() -> None:
         ("infinity_context_core", "infinity_context_core"),
         ("infinity_context_server", "infinity_context_server"),
         ("infinity_context_adapters", "infinity_context_adapters"),
+        ("infinity_context_runtime_bridge", "infinity_context_runtime_bridge"),
     ):
         package = importlib.import_module(package_name)
         assert Path(package.__file__).resolve() == (

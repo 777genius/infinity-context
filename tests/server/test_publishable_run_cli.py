@@ -7,7 +7,7 @@ from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
-from infinity_context_server.features.subscription_runtime_bridge import BridgeJournal
+from infinity_context_runtime_bridge import BridgeJournal
 from infinity_context_server.publishable_durable_scheduler import (
     SchedulerStepDisposition,
 )
@@ -294,6 +294,10 @@ def test_root_distribution_registers_publishable_run_console_script() -> None:
         project = tomllib.load(stream)
     with (project_root / "packages/infinity_context_server/pyproject.toml").open("rb") as stream:
         server_project = tomllib.load(stream)
+    with (
+        project_root / "packages/infinity_context_runtime_bridge/pyproject.toml"
+    ).open("rb") as stream:
+        runtime_bridge_project = tomllib.load(stream)
     with (project_root / "uv.lock").open("rb") as stream:
         lock = tomllib.load(stream)
 
@@ -304,7 +308,11 @@ def test_root_distribution_registers_publishable_run_console_script() -> None:
         PUBLISHABLE_MEM0_INFINITY_PROVIDER_NAME
     ] == ("publishable_mem0_v5.run_provider:Mem0InfinityPublishableRunDependencyFactory")
     assert "cryptography==50.0.0" in project["project"]["dependencies"]
-    assert "cryptography>=50.0.0,<51.0.0" in server_project["project"]["dependencies"]
+    assert "infinity-context-runtime-bridge==0.1.0" in server_project["project"]["dependencies"]
+    assert "cryptography>=50.0.0,<51.0.0" not in server_project["project"]["dependencies"]
+    assert "cryptography>=50.0.0,<51.0.0" in runtime_bridge_project["project"][
+        "dependencies"
+    ]
     cryptography = tuple(
         package for package in lock["package"] if package["name"] == "cryptography"
     )

@@ -5,7 +5,7 @@ from dataclasses import replace
 from pathlib import Path
 
 import pytest
-from infinity_context_server.features.subscription_runtime_bridge import BridgeJournal
+from infinity_context_runtime_bridge import BridgeJournal
 from infinity_context_server.publishable_durable_scheduler import (
     PublishableProductionOpenMode,
 )

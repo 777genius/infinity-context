@@ -8,15 +8,15 @@ import json
 from collections.abc import Callable
 from typing import Any
 
-from infinity_context_server.features.subscription_runtime_bridge import (
+from infinity_context_runtime_bridge import (
     BridgeAuthority,
     BridgeCallBinding,
     BridgePoolAuthority,
 )
-from infinity_context_server.features.subscription_runtime_bridge.json_boundary import (
+from infinity_context_runtime_bridge.json_boundary import (
     canonical_json_bytes,
 )
-from infinity_context_server.features.subscription_runtime_bridge.request_contract import (
+from infinity_context_runtime_bridge.request_contract import (
     canonical_openai_request_body,
 )
 

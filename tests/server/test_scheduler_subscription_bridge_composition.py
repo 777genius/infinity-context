@@ -6,7 +6,7 @@ from dataclasses import replace
 from pathlib import Path
 
 import pytest
-from infinity_context_server.features.subscription_runtime_bridge import (
+from infinity_context_runtime_bridge import (
     AuthenticatedPreDispatchAbsence,
     BridgeAuthority,
     BridgeDivergenceError,
@@ -17,7 +17,7 @@ from infinity_context_server.features.subscription_runtime_bridge import (
     SubscriptionRuntimeBridgeAdapter,
     canonical_openai_request_body,
 )
-from infinity_context_server.features.subscription_runtime_bridge.request_contract import (
+from infinity_context_runtime_bridge.request_contract import (
     derive_bridge_intent,
 )
 from infinity_context_server.publishable_durable_scheduler import (

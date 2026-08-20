@@ -15,7 +15,7 @@ from collections.abc import Callable
 from contextlib import suppress
 from typing import Protocol, final
 
-from infinity_context_server.features.subscription_runtime_bridge import (
+from infinity_context_runtime_bridge import (
     AuthenticatedPreDispatchAbsence,
     BridgeIntent,
     NotFound,
@@ -23,6 +23,7 @@ from infinity_context_server.features.subscription_runtime_bridge import (
     SubscriptionRuntimeBridgeAdapter,
     TerminalBridgeCall,
 )
+
 from infinity_context_server.memory_comparison_mem0_oss_v5_contracts import (
     Mem0OssReceiptDisposition,
     RuntimeReceiptVerificationPort,

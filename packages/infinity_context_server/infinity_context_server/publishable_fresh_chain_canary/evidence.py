@@ -9,14 +9,14 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import final
 
-from infinity_context_server.features.subscription_runtime_bridge.json_boundary import (
+from infinity_context_runtime_bridge.json_boundary import (
     BridgeJsonError,
     strict_json_loads,
 )
-from infinity_context_server.features.subscription_runtime_bridge.process_contracts import (
+from infinity_context_runtime_bridge.process_contracts import (
     BridgeProcessError,
 )
-from infinity_context_server.features.subscription_runtime_bridge.process_files import (
+from infinity_context_runtime_bridge.process_files import (
     read_private_file,
     verify_private_directory,
     write_private_json_once,

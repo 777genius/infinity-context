@@ -7,7 +7,7 @@ from pathlib import Path
 from shutil import copytree
 
 import pytest
-from infinity_context_server.features.subscription_runtime_bridge import (
+from infinity_context_runtime_bridge import (
     Aes256GcmOutputCipher,
     BridgeJournal,
     HmacJournalIntegrity,

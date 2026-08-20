@@ -9,8 +9,8 @@ import subprocess
 from pathlib import Path
 
 import pytest
-from infinity_context_server.features.subscription_runtime_bridge import process_launcher
-from infinity_context_server.features.subscription_runtime_bridge.process_contracts import (
+from infinity_context_runtime_bridge import process_launcher
+from infinity_context_runtime_bridge.process_contracts import (
     CODEX_EXECUTABLE_MAX_BYTES,
     BridgeProcessError,
     GracefulStopMetadata,

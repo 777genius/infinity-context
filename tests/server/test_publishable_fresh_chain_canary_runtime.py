@@ -5,7 +5,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 import pytest
-from infinity_context_server.features.subscription_runtime_bridge import (
+from infinity_context_runtime_bridge import (
     BridgeJournal,
     HmacJournalIntegrity,
     SubscriptionRuntimeBridgeAdapter,

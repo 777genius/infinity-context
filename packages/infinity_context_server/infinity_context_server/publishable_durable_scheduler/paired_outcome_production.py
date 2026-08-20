@@ -6,10 +6,11 @@ import hashlib
 from collections.abc import Iterator
 from typing import final
 
-from infinity_context_server.features.subscription_runtime_bridge import (
+from infinity_context_runtime_bridge import (
     SubscriptionRuntimeBridgeAdapter,
     TerminalBridgeCall,
 )
+
 from infinity_context_server.memory_comparison_full_methodology import longmemeval_type
 from infinity_context_server.memory_comparison_paired_superiority_policy import (
     PAIRED_SUPERIORITY_POLICY_SHA256,

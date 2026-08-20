@@ -5,10 +5,11 @@ from __future__ import annotations
 import hashlib
 from typing import final
 
-from infinity_context_server.features.subscription_runtime_bridge import (
+from infinity_context_runtime_bridge import (
     SubscriptionRuntimeBridgeAdapter,
     TerminalBridgeCall,
 )
+
 from infinity_context_server.publishable_durable_scheduler.contracts import (
     SchedulerSuiteAuthority,
     commitment,

@@ -8,7 +8,7 @@ from contextlib import suppress
 from datetime import UTC, datetime
 from pathlib import Path
 
-from infinity_context_server.features.subscription_runtime_bridge import (
+from infinity_context_runtime_bridge import (
     Aes256GcmOutputCipher,
     SubscriptionRuntimeBridgeAdapter,
 )

@@ -3,12 +3,12 @@ from __future__ import annotations
 from collections.abc import Callable
 
 import pytest
-from infinity_context_server.features.subscription_runtime_bridge import (
+from infinity_context_runtime_bridge import (
     Aes256GcmOutputCipher,
     OutputCipherError,
     OutputCipherKey,
 )
-from infinity_context_server.features.subscription_runtime_bridge import (
+from infinity_context_runtime_bridge import (
     aes_gcm_output_cipher as cipher_module,
 )
 

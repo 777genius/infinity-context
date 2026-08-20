@@ -13,11 +13,11 @@ import pytest
 from infinity_context_server import (
     memory_comparison_managed_mem0_v5_runtime_attestation as managed_attestation,
 )
-from infinity_context_server.features.subscription_runtime_bridge import (
+from infinity_context_runtime_bridge import (
     BridgeAuthority,
     BridgePoolAuthority,
 )
-from infinity_context_server.features.subscription_runtime_bridge.process_contracts import (
+from infinity_context_runtime_bridge.process_contracts import (
     BridgeFleetReadinessReceipt,
     BridgeLaunchReceipt,
     PendingLaunchMetadata,

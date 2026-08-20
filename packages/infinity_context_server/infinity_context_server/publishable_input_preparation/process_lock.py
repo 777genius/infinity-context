@@ -10,7 +10,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import final
 
-from infinity_context_server.features.subscription_runtime_bridge.process_files import (
+from infinity_context_runtime_bridge.process_files import (
     verify_private_directory,
 )
 

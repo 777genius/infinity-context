@@ -6,16 +6,17 @@ from collections.abc import Callable
 from dataclasses import dataclass, field
 from typing import final
 
-from infinity_context_server.features.subscription_runtime_bridge import (
+from infinity_context_runtime_bridge import (
     BridgeJournal,
     BridgeSecretCapability,
     BridgeTransportPort,
     OutputCipherPort,
     SubscriptionRuntimeBridgeAdapter,
 )
-from infinity_context_server.features.subscription_runtime_bridge.process_contracts import (
+from infinity_context_runtime_bridge.process_contracts import (
     BridgeFleetReadinessReceipt,
 )
+
 from infinity_context_server.publishable_durable_scheduler.contracts import (
     SchedulerSuiteAuthority,
 )

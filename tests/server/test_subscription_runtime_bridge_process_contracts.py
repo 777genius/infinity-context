@@ -6,18 +6,18 @@ from dataclasses import replace
 from pathlib import Path
 
 import pytest
-from infinity_context_server.features.subscription_runtime_bridge import process_control
-from infinity_context_server.features.subscription_runtime_bridge.contracts import (
+from infinity_context_runtime_bridge import process_control
+from infinity_context_runtime_bridge.contracts import (
     BridgeAuthority,
 )
-from infinity_context_server.features.subscription_runtime_bridge.process_contracts import (
+from infinity_context_runtime_bridge.process_contracts import (
     AccountIRuntimeFence,
     BridgeFleetSpec,
     BridgeProcessError,
     ProcessIdentity,
     RuntimeProcessAuthority,
 )
-from infinity_context_server.features.subscription_runtime_bridge.process_control import (
+from infinity_context_runtime_bridge.process_control import (
     LinuxProcessControl,
 )
 from infinity_context_server.memory_comparison_publishable_methodology import (
