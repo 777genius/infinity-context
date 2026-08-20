@@ -10,9 +10,6 @@ from dataclasses import dataclass
 from pathlib import Path
 
 import pytest
-from infinity_context_server import (
-    memory_comparison_managed_mem0_v5_runtime_attestation as managed_attestation,
-)
 from infinity_context_runtime_bridge import (
     BridgeAuthority,
     BridgePoolAuthority,
@@ -24,6 +21,9 @@ from infinity_context_runtime_bridge.process_contracts import (
     ProcessIdentity,
     RuntimeHealthEvidence,
     RuntimeProcessAuthority,
+)
+from infinity_context_server import (
+    memory_comparison_managed_mem0_v5_runtime_attestation as managed_attestation,
 )
 from infinity_context_server.memory_comparison_publishable_methodology import (
     SUBSCRIPTION_RUNTIME_BASE_INSTRUCTIONS_SHA256,
