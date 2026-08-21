@@ -16,10 +16,17 @@ BRIDGE_ROOT = (
     / "infinity_context_runtime_bridge"
     / "infinity_context_runtime_bridge"
 )
-SERVER_DEBT_MAX_FILES = 453
-SERVER_DEBT_MAX_LINES = 203_124
+SERVER_DEBT_MAX_FILES = 483
+SERVER_DEBT_MAX_LINES = 212_528
 CORE_DEBT_MAX_FILES = 21
 CORE_DEBT_MAX_LINES = 7_205
+SERVER_DEBT_MARKERS = ("benchmark", "memory_comparison", "publishable_")
+CORE_DEBT_MARKERS = (
+    "benchmark",
+    "managed_cleanup",
+    "managed_mem0",
+    "memory_comparison",
+)
 
 
 def _imports(path: Path) -> set[str]:
@@ -37,28 +44,28 @@ def _line_count(paths: tuple[Path, ...]) -> int:
     return sum(len(path.read_bytes().splitlines()) for path in paths)
 
 
-def _server_benchmark_debt() -> tuple[Path, ...]:
+def _benchmark_debt(root: Path, markers: tuple[str, ...]) -> tuple[Path, ...]:
+    """Classify debt by every relative path component, including top-level modules."""
+
     return tuple(
         sorted(
             path
-            for path in SERVER_ROOT.rglob("*.py")
+            for path in root.rglob("*.py")
             if any(
-                part.startswith(("memory_comparison", "publishable_"))
-                for part in path.relative_to(SERVER_ROOT).parts
+                marker in part
+                for part in path.relative_to(root).parts
+                for marker in markers
             )
         )
     )
 
 
+def _server_benchmark_debt() -> tuple[Path, ...]:
+    return _benchmark_debt(SERVER_ROOT, SERVER_DEBT_MARKERS)
+
+
 def _core_benchmark_debt() -> tuple[Path, ...]:
-    markers = ("benchmark", "managed_cleanup", "managed_mem0", "memory_comparison")
-    return tuple(
-        sorted(
-            path
-            for path in CORE_ROOT.rglob("*.py")
-            if any(marker in path.name for marker in markers)
-        )
-    )
+    return _benchmark_debt(CORE_ROOT, CORE_DEBT_MARKERS)
 
 
 def test_external_runtime_bridge_is_not_owned_by_product_server() -> None:
@@ -97,6 +104,10 @@ def test_core_does_not_depend_on_runtime_or_server_details() -> None:
 def test_benchmark_debt_cannot_grow_inside_product_packages() -> None:
     server = _server_benchmark_debt()
     core = _core_benchmark_debt()
+    server_paths = {path.relative_to(SERVER_ROOT).as_posix() for path in server}
+    assert "benchmark_run_composition.py" in server_paths
+    assert "official_public_benchmark.py" in server_paths
+    assert "publishable_durable_scheduler/resumable_runner.py" in server_paths
     assert len(server) <= SERVER_DEBT_MAX_FILES
     assert _line_count(server) <= SERVER_DEBT_MAX_LINES
     assert len(core) <= CORE_DEBT_MAX_FILES

@@ -33,6 +33,7 @@ def _benchmark_job() -> str:
 
 def test_benchmark_job_is_mandatory_locked_and_provider_free() -> None:
     job = _benchmark_job()
+    quality_job = _workflow_job("quality")
     runner = RUNNER.read_text(encoding="utf-8")
 
     assert "name: Provider-free benchmark contracts" in job
@@ -77,6 +78,12 @@ def test_benchmark_job_is_mandatory_locked_and_provider_free() -> None:
     assert '"-ra"' in runner
     assert "*selected_node_ids" in runner
     assert "minimum_selected_nodes" in runner
+    assert "- benchmark-contracts" in quality_job
+    assert (
+        "BENCHMARK_CONTRACTS_RESULT: ${{ needs.benchmark-contracts.result }}"
+        in quality_job
+    )
+    assert 'test "$BENCHMARK_CONTRACTS_RESULT" = "success"' in quality_job
 
 
 def test_synthetic_2040_lane_is_opt_in_and_provider_free() -> None:

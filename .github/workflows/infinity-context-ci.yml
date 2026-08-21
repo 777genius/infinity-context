@@ -186,18 +186,21 @@ jobs:
       - static_and_evals
       - test_suite
       - selfhost-postgres-upgrade
+      - benchmark-contracts
     runs-on: ubuntu-latest
     timeout-minutes: 5
     env:
       STATIC_AND_EVALS_RESULT: ${{ needs.static_and_evals.result }}
       TEST_SUITE_RESULT: ${{ needs.test_suite.result }}
       SELFHOST_POSTGRES_UPGRADE_RESULT: ${{ needs.selfhost-postgres-upgrade.result }}
+      BENCHMARK_CONTRACTS_RESULT: ${{ needs.benchmark-contracts.result }}
     steps:
       - name: Verify all quality jobs passed
         run: |
           test "$STATIC_AND_EVALS_RESULT" = "success"
           test "$TEST_SUITE_RESULT" = "success"
           test "$SELFHOST_POSTGRES_UPGRADE_RESULT" = "success"
+          test "$BENCHMARK_CONTRACTS_RESULT" = "success"
 
   benchmark-contracts:
     name: Provider-free benchmark contracts
