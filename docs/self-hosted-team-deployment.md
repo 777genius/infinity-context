@@ -190,7 +190,8 @@ Example Postgres dump:
 ```bash
 docker compose --env-file .env.selfhost -f docker-compose.selfhost.yml \
   exec -T infinity_context_postgres \
-  pg_dump -U infinity_context_admin infinity_context > infinity-context-postgres.sql
+  pg_dump -U infinity_context_admin --format=custom --no-owner --no-acl \
+  infinity_context > infinity-context-postgres.dump
 ```
 
 ### Upgrading an existing Postgres 16 volume
@@ -199,14 +200,21 @@ The self-hosted compose file pins PostgreSQL 18.4. PostgreSQL data directories
 cannot be opened by a different major version, so Compose never attempts an
 in-place automatic upgrade. Before changing an existing PostgreSQL 16 stack:
 
-1. Keep the old image running and create a complete logical dump with `pg_dump`
-   or `pg_dumpall`. Back up the asset volume separately.
+1. Keep the old image running and create a complete custom-format logical dump
+   with `pg_dump --no-owner --no-acl`. Do not restore cluster-global roles from
+   `pg_dumpall`; the new split identities are provisioned independently. Back up
+   the asset volume separately.
 2. Stop the stack without `-v`; retain the old named volume until restore has
    been verified.
 3. Start PostgreSQL 18 with a new empty volume and the new distinct identity
    secrets.
-4. Restore the dump with an administrative connection, then run the identity,
-   migration and ACL bootstrap chain.
+4. Restore with `pg_restore --no-owner --no-acl` through the new administrative
+   connection, then run the identity, migration and ACL bootstrap chain. The
+   administrative bootstrap transfers only non-extension application tables,
+   sequences, views, routines and standalone types in `public` to
+   `infinity_context_migrator`. It leaves the database, schema, extensions and
+   every other schema under their existing authority and fails closed unless the
+   session owns the database and the `public` schema has the expected owner.
 5. Verify API health, `/v1/capabilities`, row counts and a backup/restore drill
    before retiring the PostgreSQL 16 volume.
 

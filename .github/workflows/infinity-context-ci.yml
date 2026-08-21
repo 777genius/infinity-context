@@ -122,22 +122,82 @@ jobs:
           --shard-total 8
           -m "not synthetic_2040"
 
+  selfhost-postgres-upgrade:
+    name: Self-host PostgreSQL 16 to 18 restore
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    services:
+      postgres16:
+        image: postgres:16-bookworm
+        env:
+          POSTGRES_USER: legacy_admin
+          POSTGRES_PASSWORD: legacy_admin
+          POSTGRES_DB: legacy_infinity_context
+        ports:
+          - 5433:5432
+        options: >-
+          --health-cmd "pg_isready -U legacy_admin -d legacy_infinity_context"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 20
+      postgres18:
+        image: postgres:18.4-bookworm
+        env:
+          POSTGRES_USER: infinity_context
+          POSTGRES_PASSWORD: infinity_context
+          POSTGRES_DB: postgres
+        ports:
+          - 5434:5432
+        options: >-
+          --health-cmd "pg_isready -U infinity_context -d postgres"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 20
+
+    env:
+      INFINITY_CONTEXT_SELFHOST_TEST_POSTGRES_URL: postgresql+asyncpg://infinity_context:infinity_context@127.0.0.1:5434/postgres
+      INFINITY_CONTEXT_SELFHOST_TEST_POSTGRES16_URL: postgresql://legacy_admin:legacy_admin@127.0.0.1:5433/legacy_infinity_context
+      INFINITY_CONTEXT_SELFHOST_TEST_PG_DUMP_IMAGE: postgres:18.4-bookworm
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.13.5"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip uv
+          uv sync --all-extras --frozen
+
+      - name: Run isolated logical restore upgrade E2E
+        run: >-
+          .venv/bin/python -m pytest -q
+          tests/e2e/test_selfhost_identity_bootstrap_postgres.py::test_pg16_logical_restore_transfers_application_ownership
+
   quality:
     name: Quality Gate
     if: always()
     needs:
       - static_and_evals
       - test_suite
+      - selfhost-postgres-upgrade
     runs-on: ubuntu-latest
     timeout-minutes: 5
     env:
       STATIC_AND_EVALS_RESULT: ${{ needs.static_and_evals.result }}
       TEST_SUITE_RESULT: ${{ needs.test_suite.result }}
+      SELFHOST_POSTGRES_UPGRADE_RESULT: ${{ needs.selfhost-postgres-upgrade.result }}
     steps:
       - name: Verify all quality jobs passed
         run: |
           test "$STATIC_AND_EVALS_RESULT" = "success"
           test "$TEST_SUITE_RESULT" = "success"
+          test "$SELFHOST_POSTGRES_UPGRADE_RESULT" = "success"
 
   benchmark-contracts:
     name: Provider-free benchmark contracts

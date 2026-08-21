@@ -23,6 +23,9 @@ SELFHOST_LOGIN_ROLES = (
 _PROVISIONING_DIRECTORY = Path(__file__).with_name("provisioning")
 _CAPABILITY_SQL_PATH = _PROVISIONING_DIRECTORY / "strict_v4_roles.sql"
 _LOGIN_SQL_PATH = _PROVISIONING_DIRECTORY / "selfhost_login_identities.sql"
+_RESTORED_OBJECT_OWNERSHIP_SQL_PATH = (
+    _PROVISIONING_DIRECTORY / "restored_object_ownership.sql"
+)
 _PASSWORD_PLACEHOLDERS = (
     "__MIGRATOR_PASSWORD__",
     "__RUNTIME_PASSWORD__",
@@ -88,12 +91,16 @@ async def _apply_identity_provisioning(
     passwords.validate()
     capability_sql = _CAPABILITY_SQL_PATH.read_text(encoding="utf-8")
     login_sql = _render_login_sql(passwords=passwords, rotate=rotate)
+    restored_object_ownership_sql = _RESTORED_OBJECT_OWNERSHIP_SQL_PATH.read_text(
+        encoding="utf-8"
+    )
     try:
         async with engine.begin() as connection:
             raw_connection = await connection.get_raw_connection()
             driver_connection = raw_connection.driver_connection
             await driver_connection.execute(capability_sql)
             await driver_connection.execute(login_sql)
+            await driver_connection.execute(restored_object_ownership_sql)
     except Exception:
         raise RuntimeError("self-host identity provisioning failed") from None
 

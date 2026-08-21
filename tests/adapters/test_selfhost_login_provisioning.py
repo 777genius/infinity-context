@@ -45,7 +45,19 @@ def test_packaged_sql_pins_exact_identity_and_membership_topology() -> None:
     assert "GRANT USAGE, CREATE ON SCHEMA public" in sql
     assert "database_owner <> SESSION_USER" in sql
     assert "schema_owner NOT IN (SESSION_USER, 'pg_database_owner')" in sql
-    assert "OWNER TO infinity_context_migrator" not in sql
+
+
+def test_restored_object_ownership_policy_is_bounded_to_application_objects() -> None:
+    sql = subject._RESTORED_OBJECT_OWNERSHIP_SQL_PATH.read_text(encoding="utf-8")
+
+    assert sql.count("OWNER TO infinity_context_migrator") == 3
+    assert "namespace.nspname = 'public'" in sql
+    assert "dependency.deptype = 'e'" in sql
+    assert "dependency.deptype IN ('e', 'i')" in sql
+    assert "ownership_dependency.deptype IN ('a', 'i')" in sql
+    assert "REASSIGN OWNED" not in sql
+    assert "ALTER DATABASE" not in sql
+    assert "ALTER SCHEMA" not in sql
 
 
 def test_render_quotes_passwords_and_keeps_rotation_explicit() -> None:
@@ -86,7 +98,7 @@ def test_password_validation_fails_without_echoing_secret(
     assert all(value not in str(error.value) for value in passwords.values() if value)
 
 
-def test_adapter_executes_capabilities_then_logins_in_one_transaction() -> None:
+def test_adapter_executes_capabilities_logins_and_ownership_in_one_transaction() -> None:
     executed: list[str] = []
 
     class Driver:
@@ -115,6 +127,7 @@ def test_adapter_executes_capabilities_then_logins_in_one_transaction() -> None:
     assert "infinity_context_canonical_writer" in executed[0]
     assert "FALSE" in executed[1]
     assert "migrator-secret" in executed[1]
+    assert "$selfhost_migrator_ownership$" in executed[2]
 
 
 def test_adapter_redacts_database_failure() -> None:

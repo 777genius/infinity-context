@@ -121,7 +121,6 @@ BEGIN
     END IF;
 END
 $selfhost_login_identities$;
-
 DO $selfhost_migrator_acl$
 DECLARE
     database_owner pg_catalog.TEXT;
