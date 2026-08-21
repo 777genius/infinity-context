@@ -15,6 +15,10 @@ from infinity_context_core.application import (
     RegisterBenchmarkRunCommand,
     SealProjectionManifestCommand,
 )
+from infinity_context_core.ports.benchmark_cleanup_plan import (
+    require_cleanup_plan_target_authority,
+    validate_managed_benchmark_cleanup_plan,
+)
 from infinity_context_core.ports.benchmark_runs import (
     BenchmarkAbortCompletionReceipt,
     BenchmarkCleanupCompletionReceipt,
@@ -27,6 +31,9 @@ from infinity_context_server.api.auth import (
 )
 from infinity_context_server.api.dependencies import get_container
 from infinity_context_server.api.policy import ensure_server_writes_enabled
+from infinity_context_server.benchmark_cleanup_target_authority import (
+    current_cleanup_target_authority,
+)
 from infinity_context_server.composition import Container
 
 router = APIRouter(
@@ -40,7 +47,7 @@ _DIGEST_PATTERN = r"^[0-9a-f]{64}$"
 class RegisterBenchmarkRunRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    schema_version: str = Field(pattern=r"^memory-comparison-run-registration\.v1$")
+    schema_version: str = Field(pattern=r"^memory-comparison-run-registration\.v2$")
     run_id_sha256: str = Field(pattern=_DIGEST_PATTERN)
     binding_commitment_sha256: str = Field(pattern=_DIGEST_PATTERN)
     infinity_target_identity_sha256: str = Field(pattern=_DIGEST_PATTERN)
@@ -49,12 +56,33 @@ class RegisterBenchmarkRunRequest(BaseModel):
         max_length=98,
         pattern=r"^memory-comparison-[a-z0-9-]{1,80}$",
     )
+    cleanup_plan: dict[str, object]
+    cleanup_plan_sha256: str = Field(pattern=_DIGEST_PATTERN)
+
+
+class CleanupTargetAuthorityRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid", strict=True)
+
+    schema_version: str = Field(pattern=r"^memory-comparison-cleanup-target-authority-request\.v1$")
+    infinity_target_identity_sha256: str = Field(pattern=_DIGEST_PATTERN)
+
+
+@router.post("/cleanup-target-authority", include_in_schema=False)
+async def prepare_cleanup_target_authority(
+    request: CleanupTargetAuthorityRequest,
+    container: Annotated[Container, Depends(get_container)],
+) -> dict[str, Any]:
+    authority = current_cleanup_target_authority(
+        container.settings,
+        infinity_target_identity_sha256=request.infinity_target_identity_sha256,
+    )
+    return {"data": authority.value}
 
 
 class CleanupBenchmarkRunRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    schema_version: str = Field(pattern=r"^memory-comparison-run-cleanup\.v1$")
+    schema_version: str = Field(pattern=r"^memory-comparison-run-cleanup\.v2$")
     binding_commitment_sha256: str = Field(pattern=_DIGEST_PATTERN)
     infinity_target_identity_sha256: str = Field(pattern=_DIGEST_PATTERN)
     space_id: str = Field(min_length=1, max_length=80)
@@ -63,19 +91,21 @@ class CleanupBenchmarkRunRequest(BaseModel):
         max_length=98,
         pattern=r"^memory-comparison-[a-z0-9-]{1,80}$",
     )
+    cleanup_plan_sha256: str = Field(pattern=_DIGEST_PATTERN)
 
 
 class FinalizeBenchmarkRunCleanupRequest(BaseModel):
     model_config = ConfigDict(extra="forbid", strict=True)
 
-    schema_version: str = Field(pattern=r"^memory-comparison-run-cleanup-finalize\.v1$")
+    schema_version: str = Field(pattern=r"^memory-comparison-run-cleanup-finalize\.v2$")
     receipt_sha256: str = Field(pattern=_DIGEST_PATTERN)
+    cleanup_plan_sha256: str = Field(pattern=_DIGEST_PATTERN)
 
 
 class FinalizeUnsealedBenchmarkAbortRequest(BaseModel):
     model_config = ConfigDict(extra="forbid", strict=True)
 
-    schema_version: str = Field(pattern=r"^memory-comparison-run-abort-finalize\.v1$")
+    schema_version: str = Field(pattern=r"^memory-comparison-run-abort-finalize\.v2$")
     binding_commitment_sha256: str = Field(pattern=_DIGEST_PATTERN)
     infinity_target_identity_sha256: str = Field(pattern=_DIGEST_PATTERN)
     space_id: str = Field(min_length=1, max_length=80)
@@ -85,6 +115,7 @@ class FinalizeUnsealedBenchmarkAbortRequest(BaseModel):
         pattern=r"^memory-comparison-[a-z0-9-]{1,80}$",
     )
     receipt_sha256: str = Field(pattern=_DIGEST_PATTERN)
+    cleanup_plan_sha256: str = Field(pattern=_DIGEST_PATTERN)
 
 
 class SealProjectionManifestRequest(BaseModel):
@@ -106,6 +137,19 @@ async def register_benchmark_run(
     ],
 ) -> dict[str, Any]:
     ensure_server_writes_enabled(container)
+    cleanup_plan = validate_managed_benchmark_cleanup_plan(
+        request.cleanup_plan,
+        request.cleanup_plan_sha256,
+        run_id_sha256=request.run_id_sha256,
+        binding_commitment_sha256=request.binding_commitment_sha256,
+        infinity_target_identity_sha256=request.infinity_target_identity_sha256,
+        space_slug=request.space_slug,
+    )
+    authority = current_cleanup_target_authority(
+        container.settings,
+        infinity_target_identity_sha256=request.infinity_target_identity_sha256,
+    )
+    require_cleanup_plan_target_authority(cleanup_plan, authority)
     result = await container.register_benchmark_run.execute(
         RegisterBenchmarkRunCommand(
             run_id_sha256=request.run_id_sha256,
@@ -113,6 +157,8 @@ async def register_benchmark_run(
             infinity_target_identity_sha256=request.infinity_target_identity_sha256,
             space_slug=request.space_slug,
             idempotency_key_sha256=_sha256(idempotency_key),
+            cleanup_plan_json=request.cleanup_plan,
+            cleanup_plan_sha256=request.cleanup_plan_sha256,
         )
     )
     if not result.created:
@@ -120,7 +166,7 @@ async def register_benchmark_run(
     record = result.record
     return {
         "data": {
-            "schema_version": "memory-comparison-run-registration-response.v1",
+            "schema_version": "memory-comparison-run-registration-response.v2",
             "authority": "infinity_canonical",
             "run_id_sha256": record.run_id_sha256,
             "binding_commitment_sha256": record.binding_commitment_sha256,
@@ -128,6 +174,8 @@ async def register_benchmark_run(
             "space_id": record.space_id,
             "space_slug": record.space_slug,
             "state": record.state,
+            "cleanup_plan_sha256": record.cleanup_plan_sha256,
+            "cleanup_plan_state": record.cleanup_plan_state,
             "created": result.created,
         }
     }
@@ -150,12 +198,14 @@ async def seal_projection_manifest(
     record = result.record
     return {
         "data": {
-            "schema_version": "memory-comparison-projection-manifest-seal-response.v1",
+            "schema_version": "memory-comparison-projection-manifest-seal-response.v2",
             "authority": "infinity_canonical",
             "run_id_sha256": record.run_id_sha256,
             "binding_commitment_sha256": record.binding_commitment_sha256,
             "infinity_target_identity_sha256": (record.infinity_target_identity_sha256),
             "projection_manifest_sha256": record.projection_manifest_sha256,
+            "cleanup_plan_sha256": record.cleanup_plan_sha256,
+            "cleanup_plan_state": record.cleanup_plan_state,
             "state": record.state,
             "projection_cleanup_state": record.projection_cleanup_state,
             "replayed": result.replayed,
@@ -174,7 +224,7 @@ async def get_benchmark_run_lifecycle(
     record = result.record
     return {
         "data": {
-            "schema_version": "memory-comparison-run-lifecycle-response.v1",
+            "schema_version": "memory-comparison-run-lifecycle-response.v2",
             "authority": "infinity_canonical",
             "run_id_sha256": record.run_id_sha256,
             "binding_commitment_sha256": record.binding_commitment_sha256,
@@ -184,6 +234,8 @@ async def get_benchmark_run_lifecycle(
             "state": record.state,
             "projection_cleanup_state": record.projection_cleanup_state,
             "projection_manifest_sha256": record.projection_manifest_sha256,
+            "cleanup_plan_sha256": record.cleanup_plan_sha256,
+            "cleanup_plan_state": record.cleanup_plan_state,
             "cleanup_receipt": _cleanup_receipt_json(record.cleanup_receipt),
             "completion_receipt": _completion_receipt_json(record.completion_receipt),
         }
@@ -209,6 +261,7 @@ async def cleanup_benchmark_run(
             space_id=request.space_id,
             space_slug=request.space_slug,
             idempotency_key_sha256=_sha256(idempotency_key),
+            cleanup_plan_sha256=request.cleanup_plan_sha256,
         )
     )
     receipt = result.receipt
@@ -261,6 +314,7 @@ async def finalize_benchmark_run_cleanup(
         FinalizeBenchmarkRunCleanupCommand(
             run_id_sha256=run_id_sha256,
             expected_cleanup_receipt_sha256=request.receipt_sha256,
+            expected_cleanup_plan_sha256=request.cleanup_plan_sha256,
             idempotency_key_sha256=_sha256(idempotency_key),
         )
     )
@@ -307,13 +361,14 @@ async def finalize_unsealed_benchmark_abort(
             space_id=request.space_id,
             space_slug=request.space_slug,
             expected_cleanup_receipt_sha256=request.receipt_sha256,
+            expected_cleanup_plan_sha256=request.cleanup_plan_sha256,
             idempotency_key_sha256=_sha256(idempotency_key),
         )
     )
     receipt = result.receipt
     return {
         "data": {
-            "schema_version": "memory-comparison-run-abort-finalize-response.v1",
+            "schema_version": "memory-comparison-run-abort-finalize-response.v2",
             "authority": "infinity_canonical",
             "run_id_sha256": receipt.run_id_sha256,
             "binding_commitment_sha256": receipt.binding_commitment_sha256,
@@ -324,7 +379,8 @@ async def finalize_unsealed_benchmark_abort(
             "disposition": receipt.disposition,
             "projection_cleanup": receipt.projection_cleanup,
             "cleanup_initiation_receipt_sha256": (receipt.cleanup_initiation_receipt_sha256),
-            "cleanup_verification_sha256": receipt.cleanup_verification_sha256,
+            "cleanup_plan_sha256": receipt.cleanup_plan_sha256,
+            "projection_absence_proof_sha256": receipt.projection_absence_proof_sha256,
             "completed_at": _rfc3339(receipt.completed_at),
             "receipt_sha256": receipt.receipt_sha256,
             "replayed": result.replayed,
@@ -377,7 +433,8 @@ def _completion_receipt_json(
             "disposition": receipt.disposition,
             "projection_cleanup": receipt.projection_cleanup,
             "cleanup_initiation_receipt_sha256": (receipt.cleanup_initiation_receipt_sha256),
-            "cleanup_verification_sha256": receipt.cleanup_verification_sha256,
+            "cleanup_plan_sha256": receipt.cleanup_plan_sha256,
+            "projection_absence_proof_sha256": receipt.projection_absence_proof_sha256,
             "completed_at": _rfc3339(receipt.completed_at),
             "receipt_sha256": receipt.receipt_sha256,
         }

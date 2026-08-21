@@ -183,6 +183,17 @@ def test_request_binding_is_write_once_and_dispatch_is_idempotent(tmp_path) -> N
         service.prepare_dispatch(operations[0], _B)
 
 
+def test_pristine_proof_authenticates_initialized_zero_dispatch_state(tmp_path) -> None:
+    service, _, identity, manifest, operations, _, _ = _fixture(tmp_path)
+    service.initialize(identity, manifest)
+    proof = service.prove_pristine(identity, manifest)
+    assert len(proof) == 64
+    assert proof == service.prove_pristine(identity, manifest)
+    service.prepare_dispatch(operations[0], _A)
+    with pytest.raises(OperationJournalError, match="not_pristine"):
+        service.prove_pristine(identity, manifest)
+
+
 def test_prepare_dispatch_batch_is_atomic_replay_exact_and_retryable(tmp_path) -> None:
     service, journal, identity, manifest, operations, _, _ = _fixture(tmp_path)
     service.initialize(identity, manifest)
@@ -524,6 +535,23 @@ def test_receipt_deletion_or_tamper_fails_closed(tmp_path, tamper) -> None:
     connection.close()
     with pytest.raises(OperationJournalError):
         service.snapshot(identity.run_id)
+
+
+def test_state_ordinal_reorder_fails_closed_before_recovery(tmp_path) -> None:
+    service, journal, identity, manifest, operations, _, _ = _fixture(tmp_path)
+    service.initialize(identity, manifest)
+    service.prepare_dispatch(operations[0], _A)
+    service.prepare_dispatch(operations[1], _B)
+
+    connection = sqlite3.connect(journal.database_path)
+    connection.execute("UPDATE operation_states SET ordinal = 99 WHERE ordinal = 0")
+    connection.execute("UPDATE operation_states SET ordinal = 0 WHERE ordinal = 1")
+    connection.execute("UPDATE operation_states SET ordinal = 1 WHERE ordinal = 99")
+    connection.commit()
+    connection.close()
+
+    with pytest.raises(OperationJournalError, match="state_row_tampered"):
+        service.recover(identity.run_id)
 
 
 def test_late_idempotent_commit_wins_before_redispatch_without_second_call(tmp_path) -> None:

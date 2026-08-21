@@ -5,11 +5,6 @@ from __future__ import annotations
 import hashlib
 import hmac
 import json
-import math
-from collections.abc import Callable
-from datetime import UTC, datetime, timedelta
-
-import httpx
 
 from infinity_context_server.memory_comparison_managed_benchmark_registry_contracts import (
     FINALIZE_ABORT_RESPONSE_SCHEMA_VERSION,
@@ -29,6 +24,11 @@ from infinity_context_server.memory_comparison_managed_benchmark_registry_contra
     digest,
     fail,
     utc_timestamp,
+)
+from infinity_context_server.memory_comparison_managed_benchmark_registry_wire_transport import (
+    fresh_io_deadline,
+    read_json_envelope,
+    remaining_io_timeout,
 )
 
 MAX_RESPONSE_BYTES = 2_000_000
@@ -51,81 +51,6 @@ _OUTBOX_KEYS = (
 )
 
 
-def remaining_io_timeout(
-    *,
-    deadline: datetime,
-    timeout_seconds: float,
-    clock: Callable[[], datetime],
-) -> float:
-    """Bound the next synchronous I/O phase without claiming total cancellation."""
-
-    remaining = (deadline.astimezone(UTC) - _clock_utc(clock)).total_seconds()
-    if not math.isfinite(remaining) or remaining <= 0:
-        fail("managed_benchmark_registry_deadline_expired")
-    return min(float(timeout_seconds), remaining)
-
-
-def fresh_io_deadline(
-    *,
-    timeout_seconds: float,
-    clock: Callable[[], datetime],
-) -> datetime:
-    """Create one fresh finite wall-clock window for a retryable operation."""
-
-    if (
-        type(timeout_seconds) not in {int, float}
-        or not math.isfinite(float(timeout_seconds))
-        or float(timeout_seconds) <= 0
-    ):
-        fail("managed_benchmark_registry_recovery_window_invalid")
-    try:
-        return _clock_utc(clock) + timedelta(seconds=float(timeout_seconds))
-    except (OverflowError, ValueError):
-        fail("managed_benchmark_registry_recovery_window_invalid")
-
-
-def read_json_envelope(
-    response: httpx.Response,
-    *,
-    deadline: datetime,
-    clock: Callable[[], datetime],
-) -> dict[str, object]:
-    """Read a bounded exact JSON envelope while enforcing the absolute deadline."""
-
-    content_type = response.headers.get("content-type", "").split(";", 1)[0].strip().lower()
-    encoding = response.headers.get("content-encoding", "").strip().lower()
-    if content_type != "application/json" or encoding not in {"", "identity"}:
-        fail("managed_benchmark_registry_response_invalid")
-    content_length = response.headers.get("content-length")
-    if content_length is not None:
-        try:
-            declared = int(content_length)
-        except ValueError:
-            fail("managed_benchmark_registry_response_invalid")
-        if declared < 0 or declared > MAX_RESPONSE_BYTES:
-            fail("managed_benchmark_registry_response_too_large")
-
-    body = bytearray()
-    iterator = iter(response.iter_bytes())
-    while True:
-        _require_before_deadline(deadline, clock)
-        try:
-            chunk = next(iterator)
-        except StopIteration:
-            break
-        body.extend(chunk)
-        if len(body) > MAX_RESPONSE_BYTES:
-            fail("managed_benchmark_registry_response_too_large")
-        _require_before_deadline(deadline, clock)
-    decoded = _decode_json(bytes(body))
-    envelope = _exact_object(
-        decoded,
-        frozenset({"data"}),
-        "managed_benchmark_registry_response_invalid",
-    )
-    return _object(envelope["data"])
-
-
 def parse_registration(
     data: object,
     *,
@@ -134,6 +59,7 @@ def parse_registration(
     binding_commitment_sha256: str,
     target_identity_sha256: str,
     space_slug: str,
+    cleanup_plan_sha256: str,
 ) -> ManagedBenchmarkRunRegistration:
     value = _exact_object(
         data,
@@ -148,6 +74,8 @@ def parse_registration(
                 "space_slug",
                 "state",
                 "created",
+                "cleanup_plan_sha256",
+                "cleanup_plan_state",
             }
         ),
         "managed_benchmark_registry_registration_response_invalid",
@@ -161,6 +89,8 @@ def parse_registration(
         or value["binding_commitment_sha256"] != binding_commitment_sha256
         or value["infinity_target_identity_sha256"] != target_identity_sha256
         or value["space_slug"] != space_slug
+        or value["cleanup_plan_sha256"] != cleanup_plan_sha256
+        or value["cleanup_plan_state"] != "sealed"
         or state not in {"active", "cleanup_pending", "cleanup_complete", "cleanup_aborted"}
         or type(created) is not bool
         or status != (201 if created else 200)
@@ -180,6 +110,8 @@ def parse_registration(
         space_slug=space_slug,
         state=state,
         created=created,
+        cleanup_plan_sha256=cleanup_plan_sha256,
+        cleanup_plan_state="sealed",
     )
 
 
@@ -199,6 +131,8 @@ def parse_projection_seal(
                 "binding_commitment_sha256",
                 "infinity_target_identity_sha256",
                 "projection_manifest_sha256",
+                "cleanup_plan_sha256",
+                "cleanup_plan_state",
                 "state",
                 "projection_cleanup_state",
                 "replayed",
@@ -208,7 +142,7 @@ def parse_projection_seal(
     )
     replayed = value["replayed"]
     if (
-        value["schema_version"] != "memory-comparison-projection-manifest-seal-response.v1"
+        value["schema_version"] != "memory-comparison-projection-manifest-seal-response.v2"
         or value["authority"] != "infinity_canonical"
         or value["run_id_sha256"] != registration.run_id_sha256
         or value["binding_commitment_sha256"] != registration.binding_commitment_sha256
@@ -433,7 +367,8 @@ def parse_abort_completion_receipt(
                 "disposition",
                 "projection_cleanup",
                 "cleanup_initiation_receipt_sha256",
-                "cleanup_verification_sha256",
+                "cleanup_plan_sha256",
+                "projection_absence_proof_sha256",
                 "completed_at",
                 "receipt_sha256",
                 "replayed",
@@ -445,8 +380,12 @@ def parse_abort_completion_receipt(
         cleanup_initiation_receipt_sha256,
         "managed_benchmark_registry_abort_response_invalid",
     )
-    verification = digest(
-        value["cleanup_verification_sha256"],
+    cleanup_plan = digest(
+        value["cleanup_plan_sha256"],
+        "managed_benchmark_registry_abort_response_invalid",
+    )
+    proof = digest(
+        value["projection_absence_proof_sha256"],
         "managed_benchmark_registry_abort_response_invalid",
     )
     receipt = digest(
@@ -470,6 +409,7 @@ def parse_abort_completion_receipt(
         or value["disposition"] != "abort_complete"
         or value["projection_cleanup"] != "unsealed_abort_complete"
         or value["cleanup_initiation_receipt_sha256"] != initiation
+        or not hmac.compare_digest(cleanup_plan, registration.cleanup_plan_sha256)
         or type(replayed) is not bool
     ):
         fail("managed_benchmark_registry_abort_response_invalid")
@@ -492,7 +432,8 @@ def parse_abort_completion_receipt(
         disposition="abort_complete",
         projection_cleanup="unsealed_abort_complete",
         cleanup_initiation_receipt_sha256=initiation,
-        cleanup_verification_sha256=verification,
+        cleanup_plan_sha256=cleanup_plan,
+        projection_absence_proof_sha256=proof,
         completed_at=completed_at,
         receipt_sha256=receipt,
         replayed=replayed,
@@ -506,6 +447,7 @@ def parse_lifecycle_snapshot(
     binding_commitment_sha256: str,
     target_identity_sha256: str,
     space_slug: str,
+    expected_cleanup_plan_sha256: str,
 ) -> ManagedBenchmarkRunLifecycleSnapshot:
     """Parse one exact server-owned lifecycle snapshot for restart recovery."""
 
@@ -521,6 +463,8 @@ def parse_lifecycle_snapshot(
                 "space_id",
                 "space_slug",
                 "state",
+                "cleanup_plan_sha256",
+                "cleanup_plan_state",
                 "projection_cleanup_state",
                 "projection_manifest_sha256",
                 "cleanup_receipt",
@@ -547,7 +491,7 @@ def parse_lifecycle_snapshot(
         "managed_benchmark_registry_lifecycle_response_invalid",
     )
     if (
-        value["schema_version"] != "memory-comparison-run-lifecycle-response.v1"
+        value["schema_version"] != "memory-comparison-run-lifecycle-response.v2"
         or value["authority"] != "infinity_canonical"
         or value["run_id_sha256"] != expected_run
         or value["binding_commitment_sha256"] != expected_binding
@@ -556,6 +500,15 @@ def parse_lifecycle_snapshot(
     ):
         fail("managed_benchmark_registry_lifecycle_response_invalid")
     manifest_value = value["projection_manifest_sha256"]
+    cleanup_plan_sha256 = digest(
+        value["cleanup_plan_sha256"],
+        "managed_benchmark_registry_lifecycle_response_invalid",
+    )
+    if value["cleanup_plan_state"] != "sealed" or cleanup_plan_sha256 != digest(
+        expected_cleanup_plan_sha256,
+        "managed_benchmark_registry_lifecycle_response_invalid",
+    ):
+        fail("managed_benchmark_registry_lifecycle_response_invalid")
     manifest = (
         None
         if manifest_value is None
@@ -573,11 +526,14 @@ def parse_lifecycle_snapshot(
     completion = _parse_persisted_completion_receipt(
         value["completion_receipt"],
         run_id_sha256=expected_run,
+        binding_commitment_sha256=expected_binding,
+        target_identity_sha256=expected_target,
         space_id=space_id,
         space_slug=expected_slug,
+        cleanup_plan_sha256=cleanup_plan_sha256,
     )
     return ManagedBenchmarkRunLifecycleSnapshot(
-        schema_version="memory-comparison-run-lifecycle-response.v1",
+        schema_version="memory-comparison-run-lifecycle-response.v2",
         authority="infinity_canonical",
         run_id_sha256=expected_run,
         binding_commitment_sha256=expected_binding,
@@ -587,6 +543,8 @@ def parse_lifecycle_snapshot(
         state=value["state"],
         projection_cleanup_state=value["projection_cleanup_state"],
         projection_manifest_sha256=manifest,
+        cleanup_plan_sha256=cleanup_plan_sha256,
+        cleanup_plan_state="sealed",
         cleanup_receipt=cleanup,
         completion_receipt=completion,
     )
@@ -666,8 +624,11 @@ def _parse_persisted_completion_receipt(
     data: object,
     *,
     run_id_sha256: str,
+    binding_commitment_sha256: str,
+    target_identity_sha256: str,
     space_id: str,
     space_slug: str,
+    cleanup_plan_sha256: str,
 ) -> ManagedBenchmarkPersistedCompletionReceipt | ManagedBenchmarkPersistedAbortReceipt | None:
     if data is None:
         return None
@@ -675,8 +636,11 @@ def _parse_persisted_completion_receipt(
         return _parse_persisted_abort_receipt(
             data,
             run_id_sha256=run_id_sha256,
+            binding_commitment_sha256=binding_commitment_sha256,
+            target_identity_sha256=target_identity_sha256,
             space_id=space_id,
             space_slug=space_slug,
+            cleanup_plan_sha256=cleanup_plan_sha256,
         )
     value = _exact_object(
         data,
@@ -745,8 +709,11 @@ def _parse_persisted_abort_receipt(
     data: object,
     *,
     run_id_sha256: str,
+    binding_commitment_sha256: str,
+    target_identity_sha256: str,
     space_id: str,
     space_slug: str,
+    cleanup_plan_sha256: str,
 ) -> ManagedBenchmarkPersistedAbortReceipt:
     value = _exact_object(
         data,
@@ -760,7 +727,8 @@ def _parse_persisted_abort_receipt(
                 "disposition",
                 "projection_cleanup",
                 "cleanup_initiation_receipt_sha256",
-                "cleanup_verification_sha256",
+                "cleanup_plan_sha256",
+                "projection_absence_proof_sha256",
                 "completed_at",
                 "receipt_sha256",
             }
@@ -772,7 +740,8 @@ def _parse_persisted_abort_receipt(
         "binding_commitment_sha256",
         "infinity_target_identity_sha256",
         "cleanup_initiation_receipt_sha256",
-        "cleanup_verification_sha256",
+        "cleanup_plan_sha256",
+        "projection_absence_proof_sha256",
         "receipt_sha256",
     )
     parsed = {
@@ -785,6 +754,9 @@ def _parse_persisted_abort_receipt(
     )
     if (
         parsed["run_id_sha256"] != run_id_sha256
+        or parsed["binding_commitment_sha256"] != binding_commitment_sha256
+        or parsed["infinity_target_identity_sha256"] != target_identity_sha256
+        or parsed["cleanup_plan_sha256"] != cleanup_plan_sha256
         or value["space_id"] != space_id
         or value["space_slug"] != space_slug
         or value["disposition"] != "abort_complete"
@@ -803,48 +775,11 @@ def _parse_persisted_abort_receipt(
         disposition="abort_complete",
         projection_cleanup="unsealed_abort_complete",
         cleanup_initiation_receipt_sha256=parsed["cleanup_initiation_receipt_sha256"],
-        cleanup_verification_sha256=parsed["cleanup_verification_sha256"],
+        cleanup_plan_sha256=parsed["cleanup_plan_sha256"],
+        projection_absence_proof_sha256=parsed["projection_absence_proof_sha256"],
         completed_at=completed_at,
         receipt_sha256=parsed["receipt_sha256"],
     )
-
-
-def _require_before_deadline(
-    deadline: datetime,
-    clock: Callable[[], datetime],
-) -> None:
-    remaining_io_timeout(deadline=deadline, timeout_seconds=float("inf"), clock=clock)
-
-
-def _clock_utc(clock: Callable[[], datetime]) -> datetime:
-    try:
-        now = clock()
-    except KeyboardInterrupt:
-        raise KeyboardInterrupt() from None
-    except SystemExit as error:
-        safe_code = error.code if type(error.code) is int or error.code is None else 1
-        raise SystemExit(safe_code) from None
-    except BaseException:
-        fail("managed_benchmark_registry_clock_failed")
-    if type(now) is not datetime or now.tzinfo is None or now.utcoffset() is None:
-        fail("managed_benchmark_registry_clock_failed")
-    return now.astimezone(UTC)
-
-
-def _decode_json(body: bytes) -> object:
-    try:
-        return json.loads(body, object_pairs_hook=_unique_object)
-    except (UnicodeDecodeError, json.JSONDecodeError):
-        fail("managed_benchmark_registry_response_invalid")
-
-
-def _unique_object(pairs: list[tuple[str, object]]) -> dict[str, object]:
-    result: dict[str, object] = {}
-    for key, value in pairs:
-        if key in result:
-            fail("managed_benchmark_registry_response_invalid")
-        result[key] = value
-    return result
 
 
 def _exact_object(value: object, keys: frozenset[str], code: str) -> dict[str, object]:

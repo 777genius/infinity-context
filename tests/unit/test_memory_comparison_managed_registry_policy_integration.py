@@ -52,4 +52,4 @@ def test_registry_policy_completes_exact_seal_cleanup_finalize_lifecycle(
     ]
     assert events.index("delegate.presence") < events.index("registry.seal")
     assert events.index("registry.begin") < events.index("delegate.canonical-delete")
-    assert events[-1] == "registry.finalize"
+    assert events.index("registry.finalize") < events.index("recovery.canonical-terminal")

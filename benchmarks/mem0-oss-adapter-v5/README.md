@@ -16,6 +16,8 @@ read-only input manifest; extraction policy remains inside the adapter.
 - rejects unknown fields, type coercion, oversized bodies, redirects, and request hash mismatch;
 - performs exactly one provider attempt during dispatch and none during request binding, status,
   evidence reads, or cleanup;
+- persists an authenticated pre-dispatch intent before granting the runtime one physical call and
+  requires the runtime to durably sink the exact verified result before reporting success;
 - returns only a commitment to the sealed `current_date` in request-binding evidence, never the
   raw date or source messages;
 - stores only sanitized receipts and commitments;
@@ -36,6 +38,20 @@ The input directory is mounted read-only; the private state directory is the onl
 The host must run the dedicated receipt-v2-capable immutable e904 runtime on port `8891`. Port
 `8890` remains the canonical logical authority route and is never used as this adapter's HTTP
 transport endpoint.
+
+The pinned e904 completion route has no authenticated operation-status or idempotent-result
+readback API. If a process dies after the physical call is claimed but before the exact verified
+result is durable, the adapter therefore returns
+`dispatch_recovery_operator_action_required` and never sends the operation again. The operator
+must stop the run, preserve the private state and provider evidence, and use the authenticated
+aborting cleanup flow; a receipt without the exact output cannot be promoted into fabricated
+memories. A same-generation authenticated pre-dispatch absence remains safe for an exact dispatch
+replay, while a durable exact result resumes locally with zero provider calls.
+The full-extraction worker always tries read-only status first, then uses the same operation-bound
+dispatch command as an explicit recovery probe. The adapter's authenticated claim bit permits a
+paid call only for proven absence; result replay makes zero calls and ambiguity returns the
+operator-action error. Authenticated v2 state is migrated conservatively: every legacy
+`DISPATCHED` row becomes ambiguous because the old schema could not prove call absence.
 
 ## Authentication key isolation
 

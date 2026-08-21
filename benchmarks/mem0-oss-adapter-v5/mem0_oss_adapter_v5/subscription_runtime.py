@@ -6,6 +6,7 @@ import hashlib
 import json
 import re
 import threading
+from collections.abc import Callable
 from typing import Any, Protocol
 from weakref import ReferenceType, ref
 
@@ -267,10 +268,15 @@ class SubscriptionRuntimeClient:
         self,
         request: ExtractionRequest,
         intent: OperationDispatchIntent,
+        *,
+        before_dispatch: Callable[[OperationDispatchIntent], None],
+        persist_result: Callable[[RuntimeExtractionResult], None],
     ) -> RuntimeExtractionResult:
         try:
             request_snapshot = snapshot_authentic_extraction_request(request)
             intent_snapshot = snapshot_authentic_dispatch_intent(intent)
+            if not callable(before_dispatch) or not callable(persist_result):
+                raise AdapterContractError("mem0_v5_subscription_callback_invalid")
             receipt_authority = _require_authority(self._receipt_authority)
             authorization = self._authorization
             expected_account_binding = self._expected_account_binding_hmac_sha256
@@ -301,9 +307,20 @@ class SubscriptionRuntimeClient:
                     intent=intent_snapshot,
                     attempted=False,
                 )
-            # Burn the operation before transport. A process crash can only recover
-            # through durable status evidence, never a blind second provider call.
+            # Burn the in-process capability before the caller durably claims the
+            # physical call. Cross-process authority comes from that callback.
             self._consumed_operations.add(intent_snapshot.operation_id_sha256)
+
+        try:
+            # Give the durability boundary its own authentic snapshot so callback
+            # mutation cannot alter the intent used by the transport or outcome.
+            before_dispatch(snapshot_authentic_dispatch_intent(intent_snapshot))
+        except Exception:
+            raise self._error(
+                "mem0_v5_subscription_dispatch_claim_failed",
+                intent=intent_snapshot,
+                attempted=False,
+            ) from None
 
         try:
             response_payload = self._post_once(
@@ -339,7 +356,16 @@ class SubscriptionRuntimeClient:
                 receipt=receipt,
                 output_text_sha256=output_sha256,
             )
-            return require_authentic_runtime_result(result)
+            authenticated = require_authentic_runtime_result(result)
+            try:
+                persist_result(authenticated)
+            except Exception:
+                raise self._error(
+                    "mem0_v5_subscription_result_persistence_failed",
+                    intent=intent_snapshot,
+                    attempted=True,
+                ) from None
+            return require_authentic_runtime_result(authenticated)
         except SubscriptionRuntimeError:
             raise
         except (AdapterContractError, TypeError, ValueError):

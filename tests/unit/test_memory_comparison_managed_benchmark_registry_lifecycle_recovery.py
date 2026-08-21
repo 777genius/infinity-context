@@ -18,6 +18,7 @@ from memory_comparison_managed_benchmark_registry_test_support import (
     _manifest,
     _persisted_cleanup,
     _persisted_completion,
+    _plan,
     _registration,
     _seal,
 )
@@ -61,6 +62,7 @@ def test_lost_delete_response_new_process_recovers_pending_and_finalizes() -> No
 
     process_a = ManagedBenchmarkRegistryHttpAdapter(_config(httpx.MockTransport(handler)))
     process_a.register(
+        cleanup_plan=_plan(),
         run_id_sha256=RUN,
         binding_commitment_sha256=BINDING,
         space_slug=SPACE_SLUG,
@@ -75,6 +77,7 @@ def test_lost_delete_response_new_process_recovers_pending_and_finalizes() -> No
 
     process_b = ManagedBenchmarkRegistryHttpAdapter(_config(httpx.MockTransport(handler)))
     replay = process_b.register(
+        cleanup_plan=_plan(),
         run_id_sha256=RUN,
         binding_commitment_sha256=BINDING,
         space_slug=SPACE_SLUG,
@@ -133,6 +136,7 @@ def test_lost_finalize_response_new_process_recovers_terminal_and_closes() -> No
 
     process_a = ManagedBenchmarkRegistryHttpAdapter(_config(httpx.MockTransport(handler)))
     process_a.register(
+        cleanup_plan=_plan(),
         run_id_sha256=RUN,
         binding_commitment_sha256=BINDING,
         space_slug=SPACE_SLUG,
@@ -148,6 +152,7 @@ def test_lost_finalize_response_new_process_recovers_terminal_and_closes() -> No
 
     process_b = ManagedBenchmarkRegistryHttpAdapter(_config(httpx.MockTransport(handler)))
     replay = process_b.register(
+        cleanup_plan=_plan(),
         run_id_sha256=RUN,
         binding_commitment_sha256=BINDING,
         space_slug=SPACE_SLUG,
@@ -183,6 +188,7 @@ def test_active_registration_replay_gets_sealed_snapshot_before_cleanup() -> Non
 
     adapter = ManagedBenchmarkRegistryHttpAdapter(_config(httpx.MockTransport(handler)))
     adapter.register(
+        cleanup_plan=_plan(),
         run_id_sha256=RUN,
         binding_commitment_sha256=BINDING,
         space_slug=SPACE_SLUG,
@@ -212,6 +218,7 @@ def test_cleanup_blocked_snapshot_cannot_finalize() -> None:
 
     adapter = ManagedBenchmarkRegistryHttpAdapter(_config(httpx.MockTransport(handler)))
     snapshot = adapter.recover_lifecycle(
+        cleanup_plan_sha256=_plan().sha256,
         run_id_sha256=RUN,
         binding_commitment_sha256=BINDING,
         space_slug=SPACE_SLUG,
@@ -246,6 +253,7 @@ def test_legacy_blocked_snapshot_preserves_pending_receipt_but_cannot_finalize()
 
     adapter = ManagedBenchmarkRegistryHttpAdapter(_config(httpx.MockTransport(handler)))
     snapshot = adapter.recover_lifecycle(
+        cleanup_plan_sha256=_plan().sha256,
         run_id_sha256=RUN,
         binding_commitment_sha256=BINDING,
         space_slug=SPACE_SLUG,
@@ -294,6 +302,7 @@ def test_legacy_blocked_snapshot_rejects_all_other_mismatches(tamper: str) -> No
     adapter = ManagedBenchmarkRegistryHttpAdapter(_config(httpx.MockTransport(handler)))
     with pytest.raises(ManagedBenchmarkRegistryHttpError) as caught:
         adapter.recover_lifecycle(
+            cleanup_plan_sha256=_plan().sha256,
             run_id_sha256=RUN,
             binding_commitment_sha256=BINDING,
             space_slug=SPACE_SLUG,
@@ -324,6 +333,7 @@ def test_lifecycle_snapshot_binding_and_receipt_mismatch_fail_closed(
     adapter = ManagedBenchmarkRegistryHttpAdapter(_config(httpx.MockTransport(handler)))
     with pytest.raises(ManagedBenchmarkRegistryHttpError) as caught:
         adapter.recover_lifecycle(
+            cleanup_plan_sha256=_plan().sha256,
             run_id_sha256=RUN,
             binding_commitment_sha256=BINDING,
             space_slug=SPACE_SLUG,
@@ -355,6 +365,7 @@ def test_registration_replay_rejects_snapshot_identity_or_state_regression(
     adapter = ManagedBenchmarkRegistryHttpAdapter(_config(httpx.MockTransport(handler)))
     with pytest.raises(ManagedBenchmarkRegistryHttpError) as caught:
         adapter.register(
+            cleanup_plan=_plan(),
             run_id_sha256=RUN,
             binding_commitment_sha256=BINDING,
             space_slug=SPACE_SLUG,
@@ -378,6 +389,7 @@ def test_unknown_get_recovery_retries_only_exact_binding() -> None:
     adapter = ManagedBenchmarkRegistryHttpAdapter(_config(httpx.MockTransport(handler)))
     with pytest.raises(ManagedBenchmarkRegistryHttpError) as lost:
         adapter.recover_lifecycle(
+            cleanup_plan_sha256=_plan().sha256,
             run_id_sha256=RUN,
             binding_commitment_sha256=BINDING,
             space_slug=SPACE_SLUG,
@@ -386,6 +398,7 @@ def test_unknown_get_recovery_retries_only_exact_binding() -> None:
 
     with pytest.raises(ManagedBenchmarkRegistryHttpError) as mismatch:
         adapter.recover_lifecycle(
+            cleanup_plan_sha256=_plan().sha256,
             run_id_sha256=RUN,
             binding_commitment_sha256="c" * 64,
             space_slug=SPACE_SLUG,
@@ -394,6 +407,7 @@ def test_unknown_get_recovery_retries_only_exact_binding() -> None:
     assert calls == 1
 
     snapshot = adapter.recover_lifecycle(
+        cleanup_plan_sha256=_plan().sha256,
         run_id_sha256=RUN,
         binding_commitment_sha256=BINDING,
         space_slug=SPACE_SLUG,

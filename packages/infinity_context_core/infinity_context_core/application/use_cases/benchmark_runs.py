@@ -15,10 +15,11 @@ from infinity_context_core.application.dto_benchmark_runs import (
     FinalizeBenchmarkRunCleanupResult,
     GetBenchmarkRunLifecycleQuery,
     GetBenchmarkRunLifecycleResult,
-    RegisterBenchmarkRunCommand,
-    RegisterBenchmarkRunResult,
     SealProjectionManifestCommand,
     SealProjectionManifestResult,
+)
+from infinity_context_core.application.use_cases.benchmark_cleanup_plan import (
+    RegisterBenchmarkRunUseCase,
 )
 from infinity_context_core.application.use_cases.benchmark_unsealed_abort import (
     FinalizeUnsealedBenchmarkAbortUseCase,
@@ -63,76 +64,6 @@ _CANONICAL_ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:-]{0,239}$")
 _GRAPH_ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:-]{0,511}$")
 
 
-class RegisterBenchmarkRunUseCase:
-    def __init__(self, *, uow_factory: UnitOfWorkFactoryPort, clock: ClockPort) -> None:
-        self._uow_factory = uow_factory
-        self._clock = clock
-
-    async def execute(self, command: RegisterBenchmarkRunCommand) -> RegisterBenchmarkRunResult:
-        _validate_registration(command)
-        fingerprint = _fingerprint(
-            "register",
-            command.run_id_sha256,
-            command.binding_commitment_sha256,
-            command.infinity_target_identity_sha256,
-            command.space_slug,
-            command.idempotency_key_sha256,
-        )
-        existing = await self._load_existing(
-            command.run_id_sha256,
-            command.idempotency_key_sha256,
-        )
-        if existing is not None:
-            return _registration_replay(existing, fingerprint)
-
-        now = self._clock.now()
-        record = BenchmarkRunRegistryRecord(
-            run_id_sha256=command.run_id_sha256,
-            binding_commitment_sha256=command.binding_commitment_sha256,
-            infinity_target_identity_sha256=command.infinity_target_identity_sha256,
-            space_id=f"benchmark-space-{command.run_id_sha256[:48]}",
-            space_slug=command.space_slug,
-            idempotency_key_sha256=command.idempotency_key_sha256,
-            registration_fingerprint_sha256=fingerprint,
-            state="active",
-            projection_manifest_json=None,
-            projection_manifest_sha256=None,
-            projection_cleanup_state="unsealed",
-            cleanup_fingerprint_sha256=None,
-            cleanup_receipt=None,
-            finalization_fingerprint_sha256=None,
-            completion_receipt=None,
-            completed_at=None,
-            created_at=now,
-            updated_at=now,
-        )
-        try:
-            async with self._uow_factory() as uow:
-                await uow.benchmark_runs.add(record)
-                await uow.commit()
-        except MemoryConflictError:
-            concurrent = await self._load_existing(
-                command.run_id_sha256,
-                command.idempotency_key_sha256,
-            )
-            if concurrent is None:
-                raise
-            return _registration_replay(concurrent, fingerprint)
-        return RegisterBenchmarkRunResult(record=record, created=True)
-
-    async def _load_existing(
-        self,
-        run_id_sha256: str,
-        idempotency_key_sha256: str,
-    ) -> BenchmarkRunRegistryRecord | None:
-        async with self._uow_factory() as uow:
-            by_run = await uow.benchmark_runs.get_by_run_id_sha256(run_id_sha256)
-            by_key = await uow.benchmark_runs.get_by_idempotency_key_sha256(idempotency_key_sha256)
-        if by_run is not None and by_key is not None and by_run != by_key:
-            raise MemoryConflictError("Benchmark registration identity conflicted")
-        return by_run or by_key
-
-
 class SealProjectionManifestUseCase:
     def __init__(self, *, uow_factory: UnitOfWorkFactoryPort, clock: ClockPort) -> None:
         self._uow_factory = uow_factory
@@ -155,12 +86,15 @@ class SealProjectionManifestUseCase:
             )
             if record is None:
                 raise MemoryNotFoundError("Benchmark run not found")
+            if record.cleanup_plan_state != "sealed" or record.cleanup_plan_sha256 is None:
+                raise MemoryConflictError("Benchmark cleanup plan capability is unavailable")
             _require_projection_manifest_binding(
                 manifest,
                 run_id_sha256=record.run_id_sha256,
                 binding_commitment_sha256=record.binding_commitment_sha256,
                 infinity_target_identity_sha256=record.infinity_target_identity_sha256,
                 space_id=record.space_id,
+                cleanup_plan_sha256=record.cleanup_plan_sha256,
             )
             if record.projection_manifest_json is not None:
                 if (
@@ -207,6 +141,7 @@ class CleanupBenchmarkRunUseCase:
             command.space_id,
             command.space_slug,
             command.idempotency_key_sha256,
+            command.cleanup_plan_sha256,
         )
         async with self._uow_factory() as uow:
             record = await uow.benchmark_runs.get_by_run_id_sha256(
@@ -215,6 +150,8 @@ class CleanupBenchmarkRunUseCase:
             )
             if record is None:
                 raise MemoryNotFoundError("Benchmark run not found")
+            if record.cleanup_plan_state != "sealed" or record.cleanup_plan_sha256 is None:
+                raise MemoryConflictError("Benchmark cleanup plan capability is unavailable")
             _require_cleanup_binding(record, command)
             if record.cleanup_receipt is not None:
                 if record.cleanup_fingerprint_sha256 != fingerprint:
@@ -284,13 +221,18 @@ class FinalizeBenchmarkRunCleanupUseCase:
             "finalize_cleanup",
             command.run_id_sha256,
             command.expected_cleanup_receipt_sha256,
+            command.expected_cleanup_plan_sha256,
             command.idempotency_key_sha256,
         )
         record = await self._load(command.run_id_sha256)
         replay = _finalization_replay(record, fingerprint)
         if replay is not None:
             return replay
-        _require_finalization_candidate(record, command.expected_cleanup_receipt_sha256)
+        _require_finalization_candidate(
+            record,
+            command.expected_cleanup_receipt_sha256,
+            command.expected_cleanup_plan_sha256,
+        )
 
         proof = await self._projection_absence.prove_absence(record=record)
         proof_sha256 = _validated_projection_cleanup_proof(record, proof)
@@ -308,6 +250,7 @@ class FinalizeBenchmarkRunCleanupUseCase:
             _require_finalization_candidate(
                 locked,
                 command.expected_cleanup_receipt_sha256,
+                command.expected_cleanup_plan_sha256,
             )
             if _pending_registry_identity(locked) != _pending_registry_identity(record):
                 raise MemoryConflictError("Benchmark cleanup changed during finalization")
@@ -339,6 +282,16 @@ class FinalizeBenchmarkRunCleanupUseCase:
 
 
 def _require_lifecycle_snapshot_consistent(record: BenchmarkRunRegistryRecord) -> None:
+    cleanup_plan_pair = (
+        record.cleanup_plan_json is not None,
+        record.cleanup_plan_sha256 is not None,
+    )
+    if cleanup_plan_pair[0] != cleanup_plan_pair[1]:
+        raise MemoryConflictError("Benchmark lifecycle snapshot is inconsistent")
+    if (record.cleanup_plan_state == "sealed") != cleanup_plan_pair[0]:
+        raise MemoryConflictError("Benchmark lifecycle snapshot is inconsistent")
+    if record.cleanup_plan_state not in {"sealed", "recovery_blocked"}:
+        raise MemoryConflictError("Benchmark lifecycle snapshot is inconsistent")
     manifest_pair = (
         record.projection_manifest_json is not None,
         record.projection_manifest_sha256 is not None,
@@ -488,6 +441,7 @@ def _finalization_replay(
 def _require_finalization_candidate(
     record: BenchmarkRunRegistryRecord,
     expected_cleanup_receipt_sha256: str,
+    expected_cleanup_plan_sha256: str,
 ) -> None:
     if (
         record.state != "cleanup_pending"
@@ -495,6 +449,9 @@ def _require_finalization_candidate(
         or record.projection_manifest_json is None
         or record.projection_manifest_sha256 is None
         or record.cleanup_receipt is None
+        or record.cleanup_plan_state != "sealed"
+        or record.cleanup_plan_json is None
+        or record.cleanup_plan_sha256 is None
     ):
         raise MemoryConflictError("Benchmark cleanup is not finalizable")
     if not hmac.compare_digest(
@@ -502,6 +459,11 @@ def _require_finalization_candidate(
         expected_cleanup_receipt_sha256,
     ):
         raise MemoryConflictError("Benchmark cleanup initiation receipt conflicted")
+    if not hmac.compare_digest(
+        record.cleanup_plan_sha256,
+        expected_cleanup_plan_sha256,
+    ):
+        raise MemoryConflictError("Benchmark cleanup plan conflicted")
 
 
 def _pending_registry_identity(record: BenchmarkRunRegistryRecord) -> tuple[object, ...]:
@@ -511,6 +473,7 @@ def _pending_registry_identity(record: BenchmarkRunRegistryRecord) -> tuple[obje
         record.state,
         record.projection_cleanup_state,
         record.projection_manifest_sha256,
+        record.cleanup_plan_sha256,
         record.cleanup_fingerprint_sha256,
         receipt.receipt_sha256 if receipt is not None else None,
         record.updated_at,
@@ -554,16 +517,8 @@ def _validated_projection_cleanup_proof(
 def _validate_finalization(command: FinalizeBenchmarkRunCleanupCommand) -> None:
     _digest(command.run_id_sha256)
     _digest(command.expected_cleanup_receipt_sha256)
+    _digest(command.expected_cleanup_plan_sha256)
     _digest(command.idempotency_key_sha256)
-
-
-def _registration_replay(
-    record: BenchmarkRunRegistryRecord,
-    fingerprint: str,
-) -> RegisterBenchmarkRunResult:
-    if record.registration_fingerprint_sha256 != fingerprint:
-        raise MemoryConflictError("Benchmark registration fingerprint conflicted")
-    return RegisterBenchmarkRunResult(record=record, created=False)
 
 
 def _authoritative_cleanup_state(
@@ -583,12 +538,14 @@ def _require_cleanup_binding(
         record.infinity_target_identity_sha256,
         record.space_id,
         record.space_slug,
+        record.cleanup_plan_sha256,
     )
     actual = (
         command.binding_commitment_sha256,
         command.infinity_target_identity_sha256,
         command.space_id,
         command.space_slug,
+        command.cleanup_plan_sha256,
     )
     if actual != expected:
         raise MemoryConflictError("Benchmark cleanup binding conflicted")
@@ -602,6 +559,7 @@ def validate_projection_manifest(
     binding_commitment_sha256: str,
     infinity_target_identity_sha256: str,
     space_id: str,
+    cleanup_plan_sha256: str | None = None,
 ) -> dict[str, object]:
     """Validate a canonical manifest, its digest, and its registry binding."""
 
@@ -612,6 +570,7 @@ def validate_projection_manifest(
         binding_commitment_sha256=binding_commitment_sha256,
         infinity_target_identity_sha256=infinity_target_identity_sha256,
         space_id=space_id,
+        cleanup_plan_sha256=cleanup_plan_sha256,
     )
     return manifest
 
@@ -634,45 +593,37 @@ def _require_projection_manifest_binding(
     binding_commitment_sha256: str,
     infinity_target_identity_sha256: str,
     space_id: str,
+    cleanup_plan_sha256: str | None,
 ) -> None:
     expected = (
         run_id_sha256,
         binding_commitment_sha256,
         infinity_target_identity_sha256,
         space_id,
+        cleanup_plan_sha256,
     )
     actual = (
         manifest["run_id_sha256"],
         manifest["binding_commitment_sha256"],
         manifest["infinity_target_identity_sha256"],
         manifest["space_id"],
+        manifest["cleanup_plan_sha256"],
     )
     if actual != expected:
         raise MemoryConflictError("Projection manifest binding conflicted")
 
 
-def _validate_registration(command: RegisterBenchmarkRunCommand) -> None:
+def _validate_cleanup(command: CleanupBenchmarkRunCommand) -> None:
     for value in (
         command.run_id_sha256,
         command.binding_commitment_sha256,
         command.infinity_target_identity_sha256,
         command.idempotency_key_sha256,
+        command.cleanup_plan_sha256,
     ):
         _digest(value)
     if _SPACE_SLUG.fullmatch(command.space_slug) is None:
         raise MemoryValidationError("Benchmark space slug is invalid")
-
-
-def _validate_cleanup(command: CleanupBenchmarkRunCommand) -> None:
-    _validate_registration(
-        RegisterBenchmarkRunCommand(
-            run_id_sha256=command.run_id_sha256,
-            binding_commitment_sha256=command.binding_commitment_sha256,
-            infinity_target_identity_sha256=command.infinity_target_identity_sha256,
-            space_slug=command.space_slug,
-            idempotency_key_sha256=command.idempotency_key_sha256,
-        )
-    )
     if not command.space_id or len(command.space_id) > 80:
         raise MemoryValidationError("Benchmark space id is invalid")
 
@@ -704,6 +655,7 @@ def _validated_projection_manifest(value: object) -> dict[str, object]:
         "binding_commitment_sha256",
         "infinity_target_identity_sha256",
         "space_id",
+        "cleanup_plan_sha256",
         "scopes",
     }:
         raise MemoryValidationError("Projection manifest envelope is invalid")
@@ -714,6 +666,7 @@ def _validated_projection_manifest(value: object) -> dict[str, object]:
         "run_id_sha256",
         "binding_commitment_sha256",
         "infinity_target_identity_sha256",
+        "cleanup_plan_sha256",
     ):
         _digest(value[key])
     _canonical_id(value["space_id"])

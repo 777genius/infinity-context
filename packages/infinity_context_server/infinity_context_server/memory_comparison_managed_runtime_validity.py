@@ -31,11 +31,11 @@ from infinity_context_server.memory_comparison_managed_mem0_runtime_authority im
     _ManagedMem0RuntimeDeadlineLease,
     _retire_managed_mem0_runtime_deadline_lease,
 )
-from infinity_context_server.memory_comparison_mem0_runtime_attestation import (
-    _verified_mem0_runtime_attestation_validation_is_issued,
+from infinity_context_server.memory_comparison_managed_runtime_validation import (
+    managed_runtime_validation_is_issued,
+    managed_runtime_validation_payload_fingerprint_sha256,
 )
 
-_PUBLIC_RUNTIME_VALIDATION_MAX_AGE_SECONDS = 120
 _SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
 _POLICY_MARKER = object()
 _POLICY_KEY = secrets.token_bytes(32)
@@ -320,11 +320,11 @@ class _ValidationData:
 
 
 def _validation_data(value: object) -> _ValidationData | None:
-    if not _verified_mem0_runtime_attestation_validation_is_issued(value):
+    if not managed_runtime_validation_is_issued(value):
         return None
     try:
         payload = value.payload
-        fingerprint = value._payload_fingerprint_sha256
+        fingerprint = managed_runtime_validation_payload_fingerprint_sha256(value)
     except (AttributeError, TypeError):
         return None
     if (
@@ -345,7 +345,7 @@ def _validation_matches_policy(
     return bool(
         data.payload.get("status") == "valid"
         and data.payload.get("eligible") is True
-        and data.payload.get("max_age_seconds") == _PUBLIC_RUNTIME_VALIDATION_MAX_AGE_SECONDS
+        and _bounded_public_max_age(data.payload.get("max_age_seconds")) is not None
         and isinstance(attestation, Mapping)
         and attestation.get("run_id_sha256") == policy.run_id_sha256
         and attestation.get("probe_nonce_sha256") == policy.probe_nonce_sha256
@@ -370,7 +370,7 @@ def _validation_matches_claim(
     return bool(
         data.payload.get("status") == "valid"
         and data.payload.get("eligible") is True
-        and data.payload.get("max_age_seconds") == _PUBLIC_RUNTIME_VALIDATION_MAX_AGE_SECONDS
+        and _bounded_public_max_age(data.payload.get("max_age_seconds")) is not None
         and isinstance(attestation, Mapping)
         and attestation.get("run_id_sha256") == hashlib.sha256(run_id.encode()).hexdigest()
         and attestation.get("probe_nonce_sha256") == probe_nonce_sha256
@@ -389,7 +389,7 @@ def _validation_material_matches_policy(data: _ValidationData, material: object)
     return bool(
         data.payload.get("status") == "valid"
         and data.payload.get("eligible") is True
-        and data.payload.get("max_age_seconds") == _PUBLIC_RUNTIME_VALIDATION_MAX_AGE_SECONDS
+        and _bounded_public_max_age(data.payload.get("max_age_seconds")) is not None
         and isinstance(attestation, Mapping)
         and attestation.get("run_id_sha256") == run_id_sha256
         and attestation.get("probe_nonce_sha256") == probe_nonce_sha256
@@ -510,6 +510,16 @@ def _validation_instant(value: object) -> datetime | None:
 
 
 def _bounded_max_age(value: object) -> int | None:
+    if (
+        isinstance(value, bool)
+        or not isinstance(value, int)
+        or not 1 <= value <= MANAGED_LIVE_RUNTIME_VALIDATION_MAX_AGE_SECONDS
+    ):
+        return None
+    return value
+
+
+def _bounded_public_max_age(value: object) -> int | None:
     if (
         isinstance(value, bool)
         or not isinstance(value, int)

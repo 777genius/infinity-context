@@ -1,11 +1,15 @@
 from __future__ import annotations
 
+import asyncio
 import hashlib
 import json
 from pathlib import Path
+from typing import Any
 
+import fastapi.dependencies.utils as fastapi_dependencies
+import fastapi.routing as fastapi_routing
+import httpx
 import pytest
-from fastapi.testclient import TestClient
 from mem0.memory.storage import SQLiteManager
 
 from mem0_oss_adapter_v5.app import create_app
@@ -20,6 +24,10 @@ from mem0_oss_adapter_v5.mem0_storage import (
     StorageScope,
     independent_snapshot,
 )
+from mem0_oss_adapter_v5.runtime_attestation import (
+    V5RuntimeAttestationAuthority,
+    V5RuntimeAuthorityProjection,
+)
 from mem0_oss_adapter_v5.sealed_manifest import SealedInputManifest
 from mem0_oss_adapter_v5.source_authority import _issue_verified_source_authority
 from mem0_oss_adapter_v5.state_sqlite import SqliteOperationState
@@ -32,6 +40,33 @@ _TOKEN = "t" * 32
 _KEY = b"clean-state-result-key" * 2
 _RUNTIME_SOURCE = hashlib.sha256(b"runtime-source").hexdigest()
 _EMPTY = hashlib.sha256(b"").hexdigest()
+
+
+class _DirectAsgiClient:
+    """Exercise the ASGI boundary without managed-environment cross-thread wakeups."""
+
+    def __init__(self, app: object) -> None:
+        self._app = app
+
+    def post(self, url: str, **kwargs: object) -> httpx.Response:
+        async def request() -> httpx.Response:
+            transport = httpx.ASGITransport(app=self._app)  # type: ignore[arg-type]
+            async with httpx.AsyncClient(
+                transport=transport,
+                base_url="http://testserver",
+            ) as client:
+                return await client.post(url, **kwargs)  # type: ignore[arg-type]
+
+        return asyncio.run(request())
+
+
+@pytest.fixture(autouse=True)
+def _run_sync_fastapi_calls_inline(monkeypatch: pytest.MonkeyPatch) -> None:
+    async def call(func: Any, *args: object, **kwargs: object) -> object:
+        return func(*args, **kwargs)
+
+    monkeypatch.setattr(fastapi_routing, "run_in_threadpool", call)
+    monkeypatch.setattr(fastapi_dependencies, "run_in_threadpool", call)
 
 
 def _sha(value: str) -> str:
@@ -241,21 +276,24 @@ def _rig(tmp_path: Path, *, backend: object | None = None):
     )
     runtime_binding = _sha("runtime-binding")
     runtime_route = _sha("runtime-route")
+    runtime_authority = V5RuntimeAuthorityProjection.issue(
+        source_authority=source_authority,
+        subscription_runtime_binding_commitment_sha256=runtime_binding,
+        runtime_source_sha256=_RUNTIME_SOURCE,
+        runtime_route_binding_sha256=runtime_route,
+        runtime_transport_origin_sha256=SUBSCRIPTION_RUNTIME_TRANSPORT_ORIGIN_SHA256,
+        expected_account_binding_hmac_sha256=_sha("account"),
+        expected_base_instructions_sha256=_sha("base-instructions"),
+    )
     service = V5AdapterService(
         manifest=manifest,
         state=state,
         runtime=runtime,
         receipt_authority=_UnusedReceiptAuthority(),
-        expected_account_binding_hmac_sha256=_sha("account"),
-        expected_base_instructions_sha256=_sha("base-instructions"),
         storage=Mem0StorageAdapter(backend),
         receipt_directory=tmp_path / "receipts",
         result_hmac_key=_KEY,
-        source_authority=source_authority,
-        runtime_binding_commitment_sha256=runtime_binding,
-        runtime_source_sha256=_RUNTIME_SOURCE,
-        runtime_route_binding_sha256=runtime_route,
-        runtime_transport_origin_sha256=SUBSCRIPTION_RUNTIME_TRANSPORT_ORIGIN_SHA256,
+        runtime_authority=runtime_authority,
     )
     implementation_runtime = source_authority.binding_commitment(
         route_sha256=SUBSCRIPTION_RUNTIME_ROUTE_SHA256,
@@ -310,7 +348,17 @@ def _rig(tmp_path: Path, *, backend: object | None = None):
         "runtime_binding_commitment_sha256": implementation_runtime,
         "scopes": _scopes(admission, units),
     }
-    client = TestClient(create_app(service=service, bearer_token=_TOKEN))
+    runtime_attestation = V5RuntimeAttestationAuthority(
+        projection=runtime_authority,
+        root_secret=b"a" * 32,
+    )
+    client = _DirectAsgiClient(
+        create_app(
+            service=service,
+            bearer_token=_TOKEN,
+            runtime_attestation_authority=runtime_attestation,
+        )
+    )
     admit = {
         "admission_commitment_sha256": admission,
         "ingestion_manifest_sha256": unsigned["ingestion_manifest_sha256"],
@@ -498,7 +546,7 @@ def test_managed_runner_client_crosses_real_fastapi_service_and_sqlite_boundary(
     assert verified == scopes
     first_readbacks = len(backend.list_calls)
 
-    with pytest.raises(Mem0V5HttpError, match="remote_failed"):
+    with pytest.raises(Mem0V5HttpError, match="response_rejected"):
         port.clean_state(request)
 
     assert first_readbacks == len(units) == len(backend.list_calls)

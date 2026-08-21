@@ -2,9 +2,18 @@ from __future__ import annotations
 
 import pytest
 from infinity_context_server.memory_comparison_managed_v5_extraction_budget import (
+    MANAGED_V5_FULL_ANSWER_JUDGE_CALL_COUNT,
+    MANAGED_V5_FULL_ANSWER_JUDGE_REQUESTED_OUTPUT_TOKEN_RESERVATION,
+    MANAGED_V5_REQUESTED_OUTPUT_TOKENS_PER_CALL,
     ManagedV5ExtractionBudgetError,
     ManagedV5ExtractionReservationUnit,
     ManagedV5ExtractionTokenBudget,
+)
+from infinity_context_server.memory_comparison_publishable_profile import (
+    PUBLISHABLE_FULL_ANSWER_JUDGE_CALL_BUDGET,
+    PUBLISHABLE_FULL_ANSWER_JUDGE_REQUESTED_OUTPUT_TOKEN_RESERVATION,
+    public_publishable_comparison_profile,
+    publishable_priority_comparison_profile_v4,
 )
 
 
@@ -62,8 +71,48 @@ def test_answer_judge_remainder_is_rejected_before_readiness_when_too_large() ->
         ManagedV5ExtractionTokenBudget.reserve(
             _units(1),
             operator_extraction_token_ceiling=5000,
-            operator_total_token_ceiling=2_005_001,
+            operator_total_token_ceiling=(
+                5_000 + MANAGED_V5_FULL_ANSWER_JUDGE_REQUESTED_OUTPUT_TOKEN_RESERVATION + 1
+            ),
         )
+
+
+def test_full_answer_judge_requested_output_reservation_is_the_exact_cap() -> None:
+    extraction_ceiling = 5_000
+    full_reservation = 8_160 * 4_096
+    budget = ManagedV5ExtractionTokenBudget.reserve(
+        _units(1),
+        operator_extraction_token_ceiling=extraction_ceiling,
+        operator_total_token_ceiling=extraction_ceiling + full_reservation,
+    )
+
+    assert MANAGED_V5_FULL_ANSWER_JUDGE_CALL_COUNT == 8_160
+    assert MANAGED_V5_FULL_ANSWER_JUDGE_CALL_COUNT == PUBLISHABLE_FULL_ANSWER_JUDGE_CALL_BUDGET
+    assert MANAGED_V5_REQUESTED_OUTPUT_TOKENS_PER_CALL == 4_096
+    assert (
+        MANAGED_V5_FULL_ANSWER_JUDGE_REQUESTED_OUTPUT_TOKEN_RESERVATION
+        == PUBLISHABLE_FULL_ANSWER_JUDGE_REQUESTED_OUTPUT_TOKEN_RESERVATION
+        == full_reservation
+        == 33_423_360
+    )
+    assert budget.answer_judge_reserved_token_ceiling == full_reservation
+    assert budget.public_payload()["output_limit_enforcement"] == (
+        "requested_not_provider_verified"
+    )
+    priority_reservation = public_publishable_comparison_profile(
+        publishable_priority_comparison_profile_v4()
+    )["full_run_requested_output_token_reservation"]
+    assert priority_reservation["answer_judge_requested_output_tokens"] == full_reservation
+    assert priority_reservation["output_limit_enforcement"] == "requested_not_provider_enforced"
+    assert priority_reservation["hard_token_budget_claimed"] is False
+
+    with pytest.raises(ManagedV5ExtractionBudgetError) as caught:
+        ManagedV5ExtractionTokenBudget.reserve(
+            _units(1),
+            operator_extraction_token_ceiling=extraction_ceiling,
+            operator_total_token_ceiling=extraction_ceiling + full_reservation + 1,
+        )
+    assert caught.value.code == "managed_v5_extraction_token_budget_invalid"
 
 
 def test_observed_receipt_tokens_are_bounded_by_operator_extraction_cap() -> None:

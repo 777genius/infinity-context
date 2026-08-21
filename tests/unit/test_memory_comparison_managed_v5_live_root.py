@@ -74,6 +74,9 @@ from infinity_context_server.memory_comparison_managed_v5_live_private_dependenc
     ManagedV5LivePrivateDependencyMaterial,
     ManagedV5RegistryRecoveryEnvelope,
 )
+from infinity_context_server.memory_comparison_managed_v5_live_recovery_observer import (
+    ManagedV5LiveRecoveryObserver,
+)
 from infinity_context_server.memory_comparison_managed_v5_production_runner import (
     ManagedV5ProductionRecoveryRequiredError,
     ManagedV5ProductionRunnerError,
@@ -104,6 +107,8 @@ def _registration(*, created: bool) -> ManagedBenchmarkRunRegistration:
         space_slug="memory-comparison-run-1",
         state="active",
         created=created,
+        cleanup_plan_sha256="4" * 64,
+        cleanup_plan_state="sealed",
     )
 
 
@@ -665,6 +670,7 @@ def test_factory_activation_compensation_preserves_primary_or_recovery(
         mem0_credential_capabilities=object.__new__(ManagedMem0V5CredentialCapabilities),
         benchmark_registry=registry,
         benchmark_registration=registration,
+        recovery_observer=object.__new__(ManagedV5LiveRecoveryObserver),
     )
     activated = SimpleNamespace(
         operation_manifest=SimpleNamespace(commitment_sha256="b" * 64, operations=(object(),)),

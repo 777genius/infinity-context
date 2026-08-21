@@ -5,7 +5,7 @@ COMPOSE_PROJECT_NAME ?= infinity_context
 export COMPOSE_PROJECT_NAME
 SELFHOST_ENV ?= .env.selfhost
 SELFHOST_COMPOSE ?= $(COMPOSE) --env-file $(SELFHOST_ENV) -f docker-compose.selfhost.yml
-INFINITY_CONTEXT_PYTHONPATH ?= packages/infinity_context_core:packages/infinity_context_server:packages/infinity_context_adapters:packages/infinity_context_contracts:packages/infinity_context_sdk:packages/infinity_context_obsidian:packages/infinity_context_mcp:packages/infinity_context_cli
+INFINITY_CONTEXT_PYTHONPATH ?= packages/infinity_context_core:packages/infinity_context_server:packages/infinity_context_runtime_bridge:packages/infinity_context_adapters:packages/infinity_context_contracts:packages/infinity_context_sdk:packages/infinity_context_obsidian:packages/infinity_context_mcp:packages/infinity_context_cli
 export PYTHONPATH := $(INFINITY_CONTEXT_PYTHONPATH)$(if $(PYTHONPATH),:$(PYTHONPATH))
 FRONTEND_DIR ?= frontend
 FLUTTER ?= $(shell command -v flutter 2>/dev/null || if [ -x "$$HOME/dev/flutter/bin/flutter" ]; then echo "$$HOME/dev/flutter/bin/flutter"; elif [ -x "$$HOME/dev/projects/flutter/bin/flutter" ]; then echo "$$HOME/dev/projects/flutter/bin/flutter"; else echo flutter; fi)
@@ -552,7 +552,7 @@ infinity-context-up-full:
 .PHONY: infinity-context-selfhost-config
 infinity-context-selfhost-config:
 	@test -f "$(SELFHOST_ENV)" || (echo "Copy .env.selfhost.example to $(SELFHOST_ENV) and replace change-me values."; exit 1)
-	@! grep -Eq '^(MEMORY_SERVICE_TOKEN|MEMORY_POSTGRES_PASSWORD)=change-me' "$(SELFHOST_ENV)" || (echo "Replace MEMORY_SERVICE_TOKEN and MEMORY_POSTGRES_PASSWORD in $(SELFHOST_ENV)."; exit 1)
+	$(PYTHON) scripts/selfhost_smoke.py --env-file "$(SELFHOST_ENV)" --validate-env-only
 	$(SELFHOST_COMPOSE) config >/dev/null
 
 .PHONY: infinity-context-source-manifest
@@ -562,13 +562,13 @@ infinity-context-source-manifest:
 .PHONY: infinity-context-selfhost-up
 infinity-context-selfhost-up: infinity-context-source-manifest
 	@test -f "$(SELFHOST_ENV)" || (echo "Copy .env.selfhost.example to $(SELFHOST_ENV) and replace change-me values."; exit 1)
-	@! grep -Eq '^(MEMORY_SERVICE_TOKEN|MEMORY_POSTGRES_PASSWORD)=change-me' "$(SELFHOST_ENV)" || (echo "Replace MEMORY_SERVICE_TOKEN and MEMORY_POSTGRES_PASSWORD in $(SELFHOST_ENV)."; exit 1)
+	$(PYTHON) scripts/selfhost_smoke.py --env-file "$(SELFHOST_ENV)" --validate-env-only
 	$(SELFHOST_COMPOSE) up -d --build
 
 .PHONY: infinity-context-selfhost-up-full
 infinity-context-selfhost-up-full: infinity-context-source-manifest
 	@test -f "$(SELFHOST_ENV)" || (echo "Copy .env.selfhost.example to $(SELFHOST_ENV) and replace change-me values."; exit 1)
-	@! grep -Eq '^(MEMORY_SERVICE_TOKEN|MEMORY_POSTGRES_PASSWORD)=change-me' "$(SELFHOST_ENV)" || (echo "Replace MEMORY_SERVICE_TOKEN and MEMORY_POSTGRES_PASSWORD in $(SELFHOST_ENV)."; exit 1)
+	$(PYTHON) scripts/selfhost_smoke.py --env-file "$(SELFHOST_ENV)" --validate-env-only
 	$(SELFHOST_COMPOSE) --profile full up -d --build
 
 .PHONY: infinity-context-selfhost-down

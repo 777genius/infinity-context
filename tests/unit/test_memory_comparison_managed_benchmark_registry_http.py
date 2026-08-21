@@ -8,6 +8,7 @@ import pytest
 from infinity_context_server.memory_comparison_managed_benchmark_registry_contracts import (
     ManagedBenchmarkAbortCompletionReceipt,
     ManagedBenchmarkCleanupCompletionReceipt,
+    ManagedBenchmarkRecoveryAuthorityTransfer,
     ManagedBenchmarkRunRegistration,
 )
 from infinity_context_server.memory_comparison_managed_benchmark_registry_http import (
@@ -30,6 +31,7 @@ from memory_comparison_managed_benchmark_registry_test_support import (
     _finalize,
     _lifecycle,
     _manifest,
+    _plan,
     _registration,
     _seal,
     _target,
@@ -62,6 +64,7 @@ def test_exact_lifecycle_sends_bound_requests_and_returns_typed_receipts() -> No
         run_id_sha256=RUN,
         binding_commitment_sha256=BINDING,
         space_slug=SPACE_SLUG,
+        cleanup_plan=_plan(),
     )
     seal = adapter.seal_projection_manifest(
         projection_manifest=manifest,
@@ -73,7 +76,7 @@ def test_exact_lifecycle_sends_bound_requests_and_returns_typed_receipts() -> No
     completion = adapter.finalize_cleanup(cleanup_initiation_receipt_sha256=cleanup.receipt_sha256)
 
     assert type(registration) is ManagedBenchmarkRunRegistration
-    assert registration.schema_version == "memory-comparison-run-registration-response.v1"
+    assert registration.schema_version == "memory-comparison-run-registration-response.v2"
     assert registration.authority == "infinity_canonical"
     assert registration.state == "active"
     assert registration.space_id == SPACE_ID
@@ -114,18 +117,149 @@ def test_exact_lifecycle_sends_bound_requests_and_returns_typed_receipts() -> No
         == 3
     )
     assert json.loads(requests[0].content) == {
-        "schema_version": "memory-comparison-run-registration.v1",
+        "schema_version": "memory-comparison-run-registration.v2",
         "run_id_sha256": RUN,
         "binding_commitment_sha256": BINDING,
         "infinity_target_identity_sha256": _target(),
         "space_slug": SPACE_SLUG,
+        "cleanup_plan": _plan().value,
+        "cleanup_plan_sha256": _plan().sha256,
     }
     assert json.loads(requests[3].content) == {
-        "schema_version": "memory-comparison-run-cleanup-finalize.v1",
+        "schema_version": "memory-comparison-run-cleanup-finalize.v2",
         "receipt_sha256": cleanup.receipt_sha256,
+        "cleanup_plan_sha256": _plan().sha256,
     }
     assert TOKEN not in repr(adapter)
     assert TOKEN not in repr(adapter._config)
+
+
+@pytest.mark.parametrize(
+    ("status", "expected_code"),
+    [
+        (401, "managed_benchmark_registry_response_rejected"),
+        (403, "managed_benchmark_registry_response_rejected"),
+        (409, "managed_benchmark_registry_response_rejected"),
+        (500, "managed_benchmark_registry_response_retryable"),
+    ],
+)
+def test_recover_lifecycle_or_missing_classifies_non_404_statuses(
+    status: int,
+    expected_code: str,
+) -> None:
+    adapter = ManagedBenchmarkRegistryHttpAdapter(
+        _config(httpx.MockTransport(lambda _request: httpx.Response(status)))
+    )
+
+    with pytest.raises(ManagedBenchmarkRegistryHttpError) as caught:
+        adapter.recover_lifecycle_or_missing(
+            run_id_sha256=RUN,
+            binding_commitment_sha256=BINDING,
+            space_slug=SPACE_SLUG,
+            cleanup_plan_sha256=_plan().sha256,
+        )
+
+    assert caught.value.code == expected_code
+
+
+def test_recover_lifecycle_or_missing_returns_none_only_for_404() -> None:
+    adapter = ManagedBenchmarkRegistryHttpAdapter(
+        _config(httpx.MockTransport(lambda _request: httpx.Response(404)))
+    )
+
+    result = adapter.recover_lifecycle_or_missing(
+        run_id_sha256=RUN,
+        binding_commitment_sha256=BINDING,
+        space_slug=SPACE_SLUG,
+        cleanup_plan_sha256=_plan().sha256,
+    )
+
+    assert result is None
+    assert adapter._phase == "ready"
+
+
+def test_recovery_authority_transfer_rejects_unregistered_and_mismatch_then_closes_once() -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.method == "POST":
+            return httpx.Response(201, json=_registration())
+        raise httpx.ReadError("ambiguous cleanup response", request=request)
+
+    adapter = ManagedBenchmarkRegistryHttpAdapter(_config(httpx.MockTransport(handler)))
+    with pytest.raises(ManagedBenchmarkRegistryHttpError, match="recovery_transfer_invalid"):
+        _transfer(adapter)
+    adapter.register(
+        run_id_sha256=RUN,
+        binding_commitment_sha256=BINDING,
+        space_slug=SPACE_SLUG,
+        cleanup_plan=_plan(),
+    )
+    with pytest.raises(ManagedBenchmarkRegistryHttpError, match="request_failed"):
+        adapter.begin_cleanup()
+    assert adapter._phase == "cleanup_outcome_unknown"
+    with pytest.raises(ManagedBenchmarkRegistryHttpError, match="recovery_transfer_invalid"):
+        _transfer(adapter, cleanup_plan_sha256="f" * 64)
+    assert adapter._client.is_closed is False
+
+    receipt = _transfer(adapter)
+
+    assert type(receipt) is ManagedBenchmarkRecoveryAuthorityTransfer
+    assert receipt.prior_phase == "cleanup_outcome_unknown"
+    assert receipt.cleanup_plan_sha256 == _plan().sha256
+    assert TOKEN not in repr(receipt)
+    assert adapter._phase == "recovery_authority_transferred"
+    assert adapter.cleanup_required is False
+    assert adapter._client.is_closed is True
+    adapter.close()
+    with pytest.raises(ManagedBenchmarkRegistryHttpError, match="recovery_transfer_invalid"):
+        _transfer(adapter)
+
+
+def test_recovery_authority_transfer_accepts_ambiguous_finalize() -> None:
+    manifest = _manifest()
+    manifest_sha256 = _digest(manifest)
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path.endswith("/cleanup/finalize"):
+            raise httpx.ReadError("ambiguous finalize response", request=request)
+        if request.method == "POST":
+            return httpx.Response(201, json=_registration())
+        if request.method == "PUT":
+            return httpx.Response(200, json=_seal(manifest_sha256))
+        return httpx.Response(200, json=_cleanup())
+
+    adapter = ManagedBenchmarkRegistryHttpAdapter(_config(httpx.MockTransport(handler)))
+    adapter.register(
+        run_id_sha256=RUN,
+        binding_commitment_sha256=BINDING,
+        space_slug=SPACE_SLUG,
+        cleanup_plan=_plan(),
+    )
+    adapter.seal_projection_manifest(
+        projection_manifest=manifest,
+        projection_manifest_sha256=manifest_sha256,
+    )
+    cleanup = adapter.begin_cleanup()
+    with pytest.raises(ManagedBenchmarkRegistryHttpError, match="request_failed"):
+        adapter.finalize_cleanup(cleanup_initiation_receipt_sha256=cleanup.receipt_sha256)
+
+    receipt = _transfer(adapter)
+
+    assert receipt.prior_phase == "finalize_outcome_unknown"
+    assert adapter._client.is_closed is True
+
+
+def _transfer(
+    adapter: ManagedBenchmarkRegistryHttpAdapter,
+    *,
+    cleanup_plan_sha256: str | None = None,
+) -> ManagedBenchmarkRecoveryAuthorityTransfer:
+    return adapter.relinquish_recovery_authority(
+        run_id_sha256=RUN,
+        binding_commitment_sha256=BINDING,
+        infinity_target_identity_sha256=_target(),
+        space_slug=SPACE_SLUG,
+        cleanup_plan_sha256=cleanup_plan_sha256 or _plan().sha256,
+    )
 
 
 def test_unsealed_abort_uses_exact_binding_and_terminal_server_receipt() -> None:
@@ -143,12 +277,13 @@ def test_unsealed_abort_uses_exact_binding_and_terminal_server_receipt() -> None
             "disposition": "abort_complete",
             "projection_cleanup": "unsealed_abort_complete",
             "cleanup_initiation_receipt_sha256": cleanup_digest,
-            "cleanup_verification_sha256": "9" * 64,
+            "cleanup_plan_sha256": _plan().sha256,
+            "projection_absence_proof_sha256": "9" * 64,
             "completed_at": "2026-08-02T04:05:06.000000Z",
         }
         return {
             "data": {
-                "schema_version": "memory-comparison-run-abort-finalize-response.v1",
+                "schema_version": "memory-comparison-run-abort-finalize-response.v2",
                 "authority": "infinity_canonical",
                 **material,
                 "state": "cleanup_aborted",
@@ -170,6 +305,7 @@ def test_unsealed_abort_uses_exact_binding_and_terminal_server_receipt() -> None
         run_id_sha256=RUN,
         binding_commitment_sha256=BINDING,
         space_slug=SPACE_SLUG,
+        cleanup_plan=_plan(),
     )
     cleanup = adapter.begin_cleanup()
     completion = adapter.finalize_unsealed_abort(
@@ -178,18 +314,19 @@ def test_unsealed_abort_uses_exact_binding_and_terminal_server_receipt() -> None
 
     assert type(completion) is ManagedBenchmarkAbortCompletionReceipt
     assert completion.state == "cleanup_aborted"
-    assert completion.cleanup_verification_sha256 == "9" * 64
+    assert completion.projection_absence_proof_sha256 == "9" * 64
     assert adapter.lifecycle_state == "cleanup_aborted"
     assert adapter.cleanup_required is False
     request = requests[-1]
     assert request.url.path.endswith(f"/{RUN}/cleanup/abort/finalize")
     assert json.loads(request.content) == {
-        "schema_version": "memory-comparison-run-abort-finalize.v1",
+        "schema_version": "memory-comparison-run-abort-finalize.v2",
         "binding_commitment_sha256": BINDING,
         "infinity_target_identity_sha256": _target(),
         "space_id": SPACE_ID,
         "space_slug": SPACE_SLUG,
         "receipt_sha256": cleanup.receipt_sha256,
+        "cleanup_plan_sha256": _plan().sha256,
     }
 
 
@@ -214,6 +351,7 @@ def test_caller_supplied_idempotency_keys_are_forwarded_exactly() -> None:
         run_id_sha256=RUN,
         binding_commitment_sha256=BINDING,
         space_slug=SPACE_SLUG,
+        cleanup_plan=_plan(),
         idempotency_key="caller-register-key",
     )
     adapter.seal_projection_manifest(
@@ -279,6 +417,7 @@ def test_registration_replay_requires_http_200_and_created_false() -> None:
         run_id_sha256=RUN,
         binding_commitment_sha256=BINDING,
         space_slug=SPACE_SLUG,
+        cleanup_plan=_plan(),
     )
 
     assert result.created is False
@@ -305,12 +444,14 @@ def test_lifecycle_rejects_out_of_order_and_repeated_operations_without_io() -> 
         run_id_sha256=RUN,
         binding_commitment_sha256=BINDING,
         space_slug=SPACE_SLUG,
+        cleanup_plan=_plan(),
     )
     with pytest.raises(ManagedBenchmarkRegistryHttpError) as repeat_error:
         adapter.register(
             run_id_sha256=RUN,
             binding_commitment_sha256=BINDING,
             space_slug=SPACE_SLUG,
+            cleanup_plan=_plan(),
         )
     assert repeat_error.value.code == "managed_benchmark_registry_lifecycle_invalid"
     assert calls == 1
@@ -330,6 +471,7 @@ def test_manifest_digest_and_registry_binding_are_validated_before_http() -> Non
         run_id_sha256=RUN,
         binding_commitment_sha256=BINDING,
         space_slug=SPACE_SLUG,
+        cleanup_plan=_plan(),
     )
     manifest = _manifest()
     manifest["binding_commitment_sha256"] = "f" * 64
@@ -394,6 +536,7 @@ def test_response_status_type_shape_and_size_are_fail_closed(
             run_id_sha256=RUN,
             binding_commitment_sha256=BINDING,
             space_slug=SPACE_SLUG,
+            cleanup_plan=_plan(),
         )
 
     assert caught.value.code == expected_code

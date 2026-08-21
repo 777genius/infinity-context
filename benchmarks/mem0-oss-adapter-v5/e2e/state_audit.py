@@ -12,7 +12,7 @@ from pathlib import Path
 
 from .canonical import E2EVerificationError, canonical_bytes, require_digest
 
-_SCHEMA_VERSION = 2
+_SCHEMA_VERSION = 3
 _CREATE_OPERATIONS = """CREATE TABLE IF NOT EXISTS operations_v2 (
   unit_identity_sha256 TEXT PRIMARY KEY,
   request_sha256 TEXT NOT NULL,
@@ -37,7 +37,7 @@ _CREATE_OPERATIONS = """CREATE TABLE IF NOT EXISTS operations_v2 (
 ) STRICT"""
 _CREATE_META = """CREATE TABLE IF NOT EXISTS adapter_state_meta (
   singleton INTEGER PRIMARY KEY CHECK(singleton = 1),
-  schema_version INTEGER NOT NULL CHECK(schema_version = 2),
+  schema_version INTEGER NOT NULL CHECK(schema_version = 3),
   structural_fingerprint TEXT NOT NULL,
   schema_hmac TEXT NOT NULL
 ) STRICT"""
@@ -64,6 +64,8 @@ class OperationStateEvidence:
     runtime_receipt_sha256: str | None
     storage_commitment_sha256: str | None
     tombstone_commitment_sha256: str | None
+    abort_origin_state: str | None
+    abort_result_sha256: str | None
     outcome_unknown: bool
 
 
@@ -134,6 +136,8 @@ class IndependentStateAuditor:
             runtime_receipt_sha256=row[3],
             storage_commitment_sha256=row[4],
             tombstone_commitment_sha256=row[5],
+            abort_origin_state=row[6],
+            abort_result_sha256=row[7],
             outcome_unknown=bool(row[8]),
         )
 
@@ -180,9 +184,30 @@ class IndependentStateAuditor:
             "STORAGE_VERIFIED",
             "COMMITTED",
             "CLEANED",
+            "ABORT_CLEANED",
         }:
             raise E2EVerificationError("e2e_state_row_invalid")
-        if (
+        if state == "ABORT_CLEANED":
+            origin = payload["abort_origin_state"]
+            if origin not in {
+                "ADMITTED",
+                "RESERVED",
+                "DISPATCHED",
+                "RECEIPT_DURABLE",
+                "STORAGE_VERIFIED",
+            }:
+                raise E2EVerificationError("e2e_state_row_invalid")
+            requires_receipt = origin in {"RECEIPT_DURABLE", "STORAGE_VERIFIED"}
+            requires_storage = origin == "STORAGE_VERIFIED"
+            if (
+                payload["abort_result_sha256"] is None
+                or payload["tombstone_commitment_sha256"] is None
+                or (payload["runtime_receipt_sha256"] is not None) != requires_receipt
+                or (payload["storage_commitment_sha256"] is not None) != requires_storage
+                or (payload["outcome_unknown"] is True and origin != "DISPATCHED")
+            ):
+                raise E2EVerificationError("e2e_state_row_invalid")
+        elif (
             (payload["runtime_receipt_sha256"] is not None) != (state in receipt_states)
             or (payload["storage_commitment_sha256"] is not None) != (state in storage_states)
             or (payload["tombstone_commitment_sha256"] is not None) != (state == "CLEANED")
@@ -197,6 +222,7 @@ class IndependentStateAuditor:
             "runtime_receipt_sha256",
             "storage_commitment_sha256",
             "tombstone_commitment_sha256",
+            "abort_result_sha256",
         ):
             if payload[name] is not None:
                 require_digest(payload[name], "e2e_state_row_invalid")

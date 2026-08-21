@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import hashlib
+import hmac
+import json
 import os
 import sqlite3
 import stat
@@ -59,8 +61,13 @@ def test_exact_state_machine_and_reopen(tmp_path: Path) -> None:
     admitted = state.admit(_sha("a"), _sha("b"))
     assert admitted.state is OperationState.ADMITTED
     assert state.reserve(_sha("a")).state is OperationState.RESERVED
-    assert state.mark_dispatched(_sha("a")).state is OperationState.DISPATCHED
-    assert state.mark_receipt_durable(_sha("a"), _sha("c")).state is OperationState.RECEIPT_DURABLE
+    dispatched = state.mark_dispatched(_sha("a"))
+    assert dispatched.state is OperationState.DISPATCHED
+    assert dispatched.outcome_unknown is False
+    assert state.claim_provider_call(_sha("a")).outcome_unknown is True
+    receipt_durable = state.mark_receipt_durable(_sha("a"), _sha("c"))
+    assert receipt_durable.state is OperationState.RECEIPT_DURABLE
+    assert receipt_durable.outcome_unknown is False
     assert (
         state.mark_storage_verified(_sha("a"), _sha("d")).state is OperationState.STORAGE_VERIFIED
     )
@@ -102,7 +109,9 @@ def test_bulk_authenticated_state_snapshot_uses_one_operation_query(tmp_path: Pa
     state.close()
 
 
-def test_crash_after_dispatch_is_quarantined_and_never_redispatched(tmp_path: Path) -> None:
+def test_crash_after_pre_dispatch_intent_preserves_authenticated_call_absence(
+    tmp_path: Path,
+) -> None:
     path = _path(tmp_path)
     state = SqliteOperationState(path, hmac_key=_KEY)
     state.admit(_sha("a"), _sha("b"))
@@ -113,13 +122,43 @@ def test_crash_after_dispatch_is_quarantined_and_never_redispatched(tmp_path: Pa
     reopened = SqliteOperationState(path, hmac_key=_KEY)
     try:
         report = reopened.recover()
-        assert report.outcome_unknown == (_sha("a"),)
+        assert report.retryable_dispatched == (_sha("a"),)
+        assert report.outcome_unknown == ()
         assert report.retryable_reserved == ()
-        assert reopened.recover().outcome_unknown == (_sha("a"),)
-        with pytest.raises(StateError, match="late receipt"):
+        assert reopened.recover().retryable_dispatched == (_sha("a"),)
+        assert reopened.get(_sha("a")).outcome_unknown is False
+        with pytest.raises(StateError, match="provider call claim"):
             reopened.mark_receipt_durable(_sha("a"), _sha("c"))
         with pytest.raises(StateError, match="requires RESERVED"):
             reopened.mark_dispatched(_sha("a"))
+    finally:
+        reopened.close()
+
+
+def test_crash_after_provider_call_claim_is_ambiguous_until_receipt_reconciles(
+    tmp_path: Path,
+) -> None:
+    path = _path(tmp_path)
+    state = SqliteOperationState(path, hmac_key=_KEY)
+    state.admit(_sha("a"), _sha("b"))
+    state.reserve(_sha("a"))
+    state.mark_dispatched(_sha("a"))
+    state.claim_provider_call(_sha("a"))
+    state.close()
+
+    reopened = SqliteOperationState(path, hmac_key=_KEY)
+    try:
+        report = reopened.recover()
+        assert report.retryable_dispatched == ()
+        assert report.outcome_unknown == (_sha("a"),)
+        assert reopened.recover().outcome_unknown == (_sha("a"),)
+        with pytest.raises(StateError, match="already claimed"):
+            reopened.claim_provider_call(_sha("a"))
+        reconciled = reopened.mark_receipt_durable(_sha("a"), _sha("c"))
+        assert reconciled.state is OperationState.RECEIPT_DURABLE
+        assert reconciled.runtime_receipt_sha256 == _sha("c")
+        assert reconciled.outcome_unknown is False
+        assert reopened.recover().resumable_receipt_durable == (_sha("a"),)
     finally:
         reopened.close()
 
@@ -130,6 +169,7 @@ def test_receipt_durable_and_storage_verified_resume_without_redispatch(tmp_path
         state.admit(identity, request)
         state.reserve(identity)
         state.mark_dispatched(identity)
+        state.claim_provider_call(identity)
         state.mark_receipt_durable(identity, _sha("e"))
     state.mark_storage_verified(_sha("c"), _sha("f"))
     report = state.recover()
@@ -167,6 +207,7 @@ def test_abort_cleaned_preserves_authenticated_origin_and_durable_evidence(
         OperationState.STORAGE_VERIFIED,
     }:
         state.mark_dispatched(_sha("a"))
+        state.claim_provider_call(_sha("a"))
     if origin is OperationState.DISPATCHED:
         state.recover()
     if origin in {OperationState.RECEIPT_DURABLE, OperationState.STORAGE_VERIFIED}:
@@ -201,30 +242,38 @@ def test_abort_cleaned_preserves_authenticated_origin_and_durable_evidence(
         reopened.close()
 
 
-def test_abort_cleaned_rejects_known_dispatch_and_committed_terminals(tmp_path: Path) -> None:
+def test_abort_cleaned_accepts_pre_dispatch_absence_and_rejects_committed_terminals(
+    tmp_path: Path,
+) -> None:
     state = SqliteOperationState(_path(tmp_path), hmac_key=_KEY)
     state.admit(_sha("a"), _sha("b"))
     state.reserve(_sha("a"))
     state.mark_dispatched(_sha("a"))
-    with pytest.raises(StateError, match="known dispatched"):
+    pre_dispatch_abort = state.abort_cleaned(
+        _sha("a"),
+        cleanup_result_sha256=_sha("e"),
+        tombstone_commitment_sha256=_sha("f"),
+    )
+    assert pre_dispatch_abort.abort_origin_state is OperationState.DISPATCHED
+    assert pre_dispatch_abort.outcome_unknown is False
+
+    state.admit(_sha("1"), _sha("2"))
+    state.reserve(_sha("1"))
+    state.mark_dispatched(_sha("1"))
+    state.claim_provider_call(_sha("1"))
+    state.mark_receipt_durable(_sha("1"), _sha("3"))
+    state.mark_storage_verified(_sha("1"), _sha("4"))
+    state.commit(_sha("1"))
+    with pytest.raises(StateError, match="cannot enter"):
         state.abort_cleaned(
-            _sha("a"),
+            _sha("1"),
             cleanup_result_sha256=_sha("e"),
             tombstone_commitment_sha256=_sha("f"),
         )
-    state.mark_receipt_durable(_sha("a"), _sha("c"))
-    state.mark_storage_verified(_sha("a"), _sha("d"))
-    state.commit(_sha("a"))
+    state.clean(_sha("1"), _sha("f"))
     with pytest.raises(StateError, match="cannot enter"):
         state.abort_cleaned(
-            _sha("a"),
-            cleanup_result_sha256=_sha("e"),
-            tombstone_commitment_sha256=_sha("f"),
-        )
-    state.clean(_sha("a"), _sha("f"))
-    with pytest.raises(StateError, match="cannot enter"):
-        state.abort_cleaned(
-            _sha("a"),
+            _sha("1"),
             cleanup_result_sha256=_sha("e"),
             tombstone_commitment_sha256=_sha("f"),
         )
@@ -308,6 +357,139 @@ def test_row_tampering_and_wrong_key_fail_closed(tmp_path: Path) -> None:
         SqliteOperationState(path, hmac_key=_KEY)
     with pytest.raises(StateTamperedError, match="schema authentication"):
         SqliteOperationState(path, hmac_key=b"z" * 32)
+
+
+def test_provider_call_claim_bit_tamper_is_rejected_on_reopen(tmp_path: Path) -> None:
+    path = _path(tmp_path)
+    state = SqliteOperationState(path, hmac_key=_KEY)
+    state.admit(_sha("a"), _sha("b"))
+    state.reserve(_sha("a"))
+    state.mark_dispatched(_sha("a"))
+    state.close()
+    connection = sqlite3.connect(path)
+    try:
+        connection.execute(
+            "UPDATE operations_v2 SET outcome_unknown = 1 WHERE unit_identity_sha256 = ?",
+            (_sha("a"),),
+        )
+        connection.commit()
+    finally:
+        connection.close()
+    with pytest.raises(StateTamperedError, match="row HMAC"):
+        SqliteOperationState(path, hmac_key=_KEY)
+
+
+def _replace_meta_with_authenticated_v2(path: Path) -> None:
+    """Convert a test database to the exact pre-handshake authenticated schema."""
+
+    legacy_meta = """CREATE TABLE adapter_state_meta (
+      singleton INTEGER PRIMARY KEY CHECK(singleton = 1),
+      schema_version INTEGER NOT NULL CHECK(schema_version = 2),
+      structural_fingerprint TEXT NOT NULL,
+      schema_hmac TEXT NOT NULL
+    ) STRICT"""
+    connection = sqlite3.connect(path)
+    try:
+        connection.execute("DROP TABLE adapter_state_meta")
+        connection.execute(legacy_meta)
+        rows = connection.execute(
+            "SELECT name, sql FROM sqlite_master WHERE type = 'table' ORDER BY name"
+        ).fetchall()
+        tables = {name: " ".join(str(sql).split()) for name, sql in rows}
+        fingerprint = hashlib.sha256(
+            json.dumps(tables, sort_keys=True, separators=(",", ":")).encode()
+        ).hexdigest()
+        schema_hmac = hmac.new(
+            _KEY,
+            json.dumps(
+                {"schema_version": 2, "fingerprint": fingerprint},
+                sort_keys=True,
+                separators=(",", ":"),
+                ensure_ascii=True,
+            ).encode(),
+            hashlib.sha256,
+        ).hexdigest()
+        connection.execute(
+            "INSERT INTO adapter_state_meta VALUES (1, 2, ?, ?)",
+            (fingerprint, schema_hmac),
+        )
+        connection.commit()
+    finally:
+        connection.close()
+
+
+def test_authenticated_v2_migration_marks_legacy_dispatch_ambiguous(tmp_path: Path) -> None:
+    path = _path(tmp_path)
+    state = SqliteOperationState(path, hmac_key=_KEY)
+    state.admit(_sha("a"), _sha("b"))
+    state.reserve(_sha("a"))
+    state.mark_dispatched(_sha("a"))
+    state.admit(_sha("c"), _sha("d"))
+    state.close()
+    _replace_meta_with_authenticated_v2(path)
+
+    reopened = SqliteOperationState(path, hmac_key=_KEY)
+    assert reopened.get(_sha("a")).state is OperationState.DISPATCHED
+    assert reopened.get(_sha("a")).outcome_unknown is True
+    assert reopened.get(_sha("c")).state is OperationState.ADMITTED
+    assert reopened.recover().outcome_unknown == (_sha("a"),)
+    reopened.close()
+
+
+def test_authenticated_v2_migration_rejects_row_tamper(tmp_path: Path) -> None:
+    path = _path(tmp_path)
+    state = SqliteOperationState(path, hmac_key=_KEY)
+    state.admit(_sha("a"), _sha("b"))
+    state.close()
+    _replace_meta_with_authenticated_v2(path)
+    connection = sqlite3.connect(path)
+    try:
+        connection.execute(
+            "UPDATE operations_v2 SET request_sha256 = ? WHERE unit_identity_sha256 = ?",
+            (_sha("c"), _sha("a")),
+        )
+        connection.commit()
+    finally:
+        connection.close()
+
+    with pytest.raises(StateTamperedError, match="row HMAC"):
+        SqliteOperationState(path, hmac_key=_KEY)
+
+
+@pytest.mark.parametrize("tamper", ["delete-row", "drop-table"])
+def test_missing_schema_authentication_cannot_turn_legacy_dispatch_into_absence(
+    tmp_path: Path,
+    tamper: str,
+) -> None:
+    path = _path(tmp_path)
+    state = SqliteOperationState(path, hmac_key=_KEY)
+    state.admit(_sha("a"), _sha("b"))
+    state.reserve(_sha("a"))
+    state.mark_dispatched(_sha("a"))
+    state.close()
+    _replace_meta_with_authenticated_v2(path)
+    connection = sqlite3.connect(path)
+    try:
+        statement = (
+            "DELETE FROM adapter_state_meta"
+            if tamper == "delete-row"
+            else "DROP TABLE adapter_state_meta"
+        )
+        connection.execute(statement)
+        connection.commit()
+    finally:
+        connection.close()
+
+    with pytest.raises(StateTamperedError, match="schema authentication"):
+        SqliteOperationState(path, hmac_key=_KEY)
+
+
+def test_existing_empty_private_state_file_fails_closed(tmp_path: Path) -> None:
+    path = _path(tmp_path)
+    path.touch(mode=0o600)
+
+    with pytest.raises(StateTamperedError, match="schema authentication"):
+        SqliteOperationState(path, hmac_key=_KEY)
 
 
 def test_schema_trigger_tampering_fails_closed(tmp_path: Path) -> None:

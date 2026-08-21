@@ -296,6 +296,154 @@ class OperationRunState:
 
 @final
 @dataclass(frozen=True, slots=True)
+class OperationUnsettledState:
+    """Authenticated locator for the first dispatched or quarantined operation."""
+
+    ordinal: int
+    logical_operation_id: str
+    phase: OperationPhase
+    request_commitment_sha256: str
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.ordinal, int) or isinstance(self.ordinal, bool) or self.ordinal < 0:
+            raise OperationJournalError("operation_journal_unsettled_ordinal_invalid")
+        _digest(self.logical_operation_id, "logical_operation_id")
+        if self.phase not in (OperationPhase.DISPATCHED, OperationPhase.OUTCOME_UNKNOWN):
+            raise OperationJournalError("operation_journal_unsettled_phase_invalid")
+        _digest(self.request_commitment_sha256, "request_commitment_sha256")
+
+    def payload(self) -> dict[str, object]:
+        return {
+            "logical_operation_id": self.logical_operation_id,
+            "ordinal": self.ordinal,
+            "phase": self.phase.value,
+            "request_commitment_sha256": self.request_commitment_sha256,
+        }
+
+
+@final
+@dataclass(frozen=True, slots=True)
+class OperationJournalFacts:
+    """Exact authenticated projection facts maintained with every transition."""
+
+    expected_operation_count: int
+    pending_count: int
+    dispatched_count: int
+    committed_count: int
+    outcome_unknown_count: int
+    receipt_count: int
+    committed_prefix_count: int
+    state_commitment_sha256: str
+    receipts_commitment_sha256: str
+    first_unsettled: OperationUnsettledState | None = None
+
+    def __post_init__(self) -> None:
+        counts = (
+            self.pending_count,
+            self.dispatched_count,
+            self.committed_count,
+            self.outcome_unknown_count,
+            self.receipt_count,
+            self.committed_prefix_count,
+        )
+        if (
+            not isinstance(self.expected_operation_count, int)
+            or isinstance(self.expected_operation_count, bool)
+            or self.expected_operation_count <= 0
+            or any(
+                not isinstance(value, int) or isinstance(value, bool) or value < 0
+                for value in counts
+            )
+            or sum(counts[:4]) != self.expected_operation_count
+            or self.receipt_count != self.committed_count
+            or self.committed_prefix_count > self.committed_count
+            or self.committed_prefix_count > self.expected_operation_count
+        ):
+            raise OperationJournalError("operation_journal_checkpoint_counts_invalid")
+        _digest(self.state_commitment_sha256, "state_commitment_sha256")
+        _digest(self.receipts_commitment_sha256, "receipts_commitment_sha256")
+        unsettled_count = self.dispatched_count + self.outcome_unknown_count
+        if (self.first_unsettled is None) != (unsettled_count == 0):
+            raise OperationJournalError("operation_journal_checkpoint_unsettled_invalid")
+        if self.first_unsettled is not None and (
+            not isinstance(self.first_unsettled, OperationUnsettledState)
+            or self.first_unsettled.ordinal >= self.expected_operation_count
+        ):
+            raise OperationJournalError("operation_journal_checkpoint_unsettled_invalid")
+
+    def payload(self) -> dict[str, object]:
+        return {
+            "committed_count": self.committed_count,
+            "committed_prefix_count": self.committed_prefix_count,
+            "dispatched_count": self.dispatched_count,
+            "expected_operation_count": self.expected_operation_count,
+            "first_unsettled": (
+                self.first_unsettled.payload() if self.first_unsettled is not None else None
+            ),
+            "outcome_unknown_count": self.outcome_unknown_count,
+            "pending_count": self.pending_count,
+            "receipt_count": self.receipt_count,
+            "receipts_commitment_sha256": self.receipts_commitment_sha256,
+            "state_commitment_sha256": self.state_commitment_sha256,
+        }
+
+
+@final
+@dataclass(frozen=True, slots=True)
+class OperationJournalCheckpoint:
+    """Signed O(1) durable summary of one journal transition boundary."""
+
+    run: OperationRunState
+    facts: OperationJournalFacts
+    signer_key_id: str
+    checkpoint_sha256: str
+    signature: str
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.run, OperationRunState) or not isinstance(
+            self.facts, OperationJournalFacts
+        ):
+            raise OperationJournalError("operation_journal_checkpoint_invalid")
+        _identifier(self.signer_key_id, "signer_key_id")
+        _digest(self.checkpoint_sha256, "checkpoint_sha256")
+        if (
+            self.signer_key_id != self.run.identity.signer_key_id
+            or self.facts.expected_operation_count != self.run.identity.expected_operation_count
+            or self.checkpoint_sha256 != sha256_commitment(self.commitment_payload())
+            or not isinstance(self.signature, str)
+            or not self.signature
+        ):
+            raise OperationJournalError("operation_journal_checkpoint_invalid")
+
+    def commitment_payload(self) -> dict[str, object]:
+        return operation_checkpoint_payload(
+            run=self.run,
+            facts=self.facts,
+            signer_key_id=self.signer_key_id,
+        )
+
+
+def operation_checkpoint_payload(
+    *,
+    run: OperationRunState,
+    facts: OperationJournalFacts,
+    signer_key_id: str,
+) -> dict[str, object]:
+    return {
+        "facts": facts.payload(),
+        "run": {
+            "event_count": run.event_count,
+            "head_event_sha256": run.head_event_sha256,
+            "identity": run.identity.commitment_payload(),
+            "phase": run.phase.value,
+        },
+        "schema_version": "operation-journal-checkpoint.v1",
+        "signer_key_id": signer_key_id,
+    }
+
+
+@final
+@dataclass(frozen=True, slots=True)
 class OperationEvent:
     run_id: str
     sequence: int
@@ -344,6 +492,20 @@ class OperationEvent:
 class DispatchPreparation:
     state: OperationState
     should_dispatch: bool
+    checkpoint: OperationJournalCheckpoint | None = None
+
+
+@final
+@dataclass(frozen=True, slots=True)
+class OperationTransitionResult:
+    state: OperationState
+    checkpoint: OperationJournalCheckpoint
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.state, OperationState) or not isinstance(
+            self.checkpoint, OperationJournalCheckpoint
+        ):
+            raise OperationJournalError("operation_journal_transition_result_invalid")
 
 
 @final
@@ -352,6 +514,7 @@ class OperationResumeResult:
     run: OperationRunState
     replayable_count: int
     outcome_unknown_count: int
+    checkpoint: OperationJournalCheckpoint | None = None
 
 
 @final

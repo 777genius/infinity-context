@@ -302,6 +302,7 @@ def activate_managed_v5_production_runtime_with_factory(
             mem0_credential_capabilities=dependencies.mem0_credential_capabilities,
             benchmark_registry=dependencies.benchmark_registry,
             benchmark_registration=dependencies.benchmark_registration,
+            recovery_observer=dependencies.recovery_observer,
             infinity_derived_transport_factory=dependencies.infinity_derived_transport_factory,
             infinity_cleanup_transport_factory=dependencies.infinity_cleanup_transport_factory,
         )

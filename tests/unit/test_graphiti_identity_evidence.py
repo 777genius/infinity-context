@@ -8,6 +8,9 @@ from infinity_context_adapters.graphiti.identity_evidence import (
     Neo4jGraphitiIdentityEvidenceAdapter,
 )
 from infinity_context_adapters.graphiti.scope_identity import graphiti_group_id
+from infinity_context_core.ports.benchmark_unsealed_projection import (
+    BenchmarkUnsealedProjectionScope,
+)
 
 GROUP_ID = "memory__space-1__scope-1"
 
@@ -101,8 +104,15 @@ class _Transaction:
                     for row in self._driver.nodes
                 )
             }
+            deleted_count = len(selected)
+            if getattr(self._driver, "move_on_delete", False) and selected:
+                moved = next(iter(selected))
+                for row in self._driver.nodes:
+                    if row["uuid"] == moved:
+                        row["group_id"] = "moved-group"
+                selected.remove(moved)
             self._driver.nodes = [row for row in self._driver.nodes if row["uuid"] not in selected]
-            return _Result([{"deleted_count": len(selected)}])
+            return _Result([{"deleted_count": deleted_count}])
         return _Result(self._driver.records(query, parameters))
 
 
@@ -136,6 +146,30 @@ class _Driver:
         return self.records(query, parameters), None, None
 
     def records(self, query: str, parameters: dict[str, Any]) -> list[dict[str, Any]]:
+        if "episode.name IN $episode_names" in query:
+            names = set(parameters["episode_names"])
+            return [
+                {
+                    "uuid": row["uuid"],
+                    "group_id": row["group_id"],
+                    "episode_name": row["episode_name"],
+                }
+                for row in self.nodes
+                if row.get("episode_name") in names
+            ]
+        if "group_prefix" in parameters:
+            prefix = parameters["group_prefix"]
+            groups = {
+                value
+                for row in (*self.nodes, *self.relationships)
+                for value in (
+                    row.get("group_id"),
+                    row.get("source_group_id"),
+                    row.get("target_group_id"),
+                )
+                if isinstance(value, str) and value.startswith(prefix)
+            }
+            return [{"group_id": value} for value in sorted(groups)]
         if "node.uuid IN $identity_ids" in query:
             identities = set(parameters["identity_ids"])
             return [self._global_node(row) for row in self.nodes if row["uuid"] in identities]
@@ -227,9 +261,7 @@ def test_graphiti_inventory_enforces_total_identity_cardinality_cap() -> None:
 def test_graphiti_inventory_allows_exact_absence_for_external_delete_pass_two() -> None:
     adapter = Neo4jGraphitiIdentityEvidenceAdapter(driver=_Driver([], []))
 
-    snapshot = asyncio.run(
-        adapter.inventory_group(GROUP_ID, expected_fact_ids=("fact-1",))
-    )
+    snapshot = asyncio.run(adapter.inventory_group(GROUP_ID, expected_fact_ids=("fact-1",)))
 
     assert snapshot.empty
 
@@ -276,3 +308,127 @@ def test_graphiti_global_readback_detects_identity_moved_to_another_group() -> N
 
 def test_shared_graphiti_group_identity_preserves_writer_mapping() -> None:
     assert graphiti_group_id(" Space/A ", "scope:B") == "memory__Space_A__scope_B"
+
+
+def _recovery_scopes() -> tuple[BenchmarkUnsealedProjectionScope, ...]:
+    return (BenchmarkUnsealedProjectionScope("scope-1", None, (), ("fact-1",)),)
+
+
+def _recovery_adapter(driver: _Driver) -> Neo4jGraphitiIdentityEvidenceAdapter:
+    return Neo4jGraphitiIdentityEvidenceAdapter(driver=driver, target_commitment_sha256="a" * 64)
+
+
+def test_graphiti_recovery_deletes_present_and_accepts_empty_prefix() -> None:
+    nodes, relationships = _graph()
+    driver = _Driver(nodes, relationships)
+    receipts = asyncio.run(
+        _recovery_adapter(driver).delete_benchmark_space_two_pass(
+            space_id="space-1", scopes=_recovery_scopes()
+        )
+    )
+    assert tuple(item.pass_index for item in receipts) == (1, 2)
+    assert receipts[0].receipt_sha256 != receipts[1].receipt_sha256
+    assert not driver.nodes and not driver.relationships
+    empty = asyncio.run(
+        _recovery_adapter(_Driver([], [])).delete_benchmark_space_two_pass(
+            space_id="space-1", scopes=_recovery_scopes()
+        )
+    )
+    assert all(item.absent for item in empty)
+
+
+@pytest.mark.parametrize("failure", ["partial", "unknown_prefix"])
+def test_graphiti_recovery_blocks_partial_or_unknown_prefix(failure: str) -> None:
+    nodes, relationships = _graph()
+    if failure == "partial":
+        nodes[0]["episode_name"] = "fact:other"
+    else:
+        for row in (*nodes, *relationships):
+            for key in ("group_id", "source_group_id", "target_group_id"):
+                if key in row:
+                    row[key] = "memory__space-1__unknown"
+    adapter = _recovery_adapter(_Driver(nodes, relationships))
+    with pytest.raises(
+        GraphitiIdentityEvidenceError,
+        match="manifest|unknown group|moved to a foreign group",
+    ):
+        asyncio.run(
+            adapter.delete_benchmark_space_two_pass(space_id="space-1", scopes=_recovery_scopes())
+        )
+
+
+def test_graphiti_recovery_global_readback_blocks_moved_identity() -> None:
+    nodes, relationships = _graph()
+    driver = _Driver(nodes, relationships)
+    driver.move_on_delete = True
+    adapter = _recovery_adapter(driver)
+    with pytest.raises(GraphitiIdentityEvidenceError, match="residual|globally absent"):
+        asyncio.run(
+            adapter.delete_benchmark_space_two_pass(space_id="space-1", scopes=_recovery_scopes())
+        )
+
+
+def test_graphiti_recovery_blocks_identity_moved_before_initial_prefix_scan() -> None:
+    nodes, relationships = _graph()
+    for row in (*nodes, *relationships):
+        for key in ("group_id", "source_group_id", "target_group_id"):
+            if key in row:
+                row[key] = "foreign-group"
+    with pytest.raises(GraphitiIdentityEvidenceError, match="moved to a foreign group"):
+        asyncio.run(
+            _recovery_adapter(_Driver(nodes, relationships)).delete_benchmark_space_two_pass(
+                space_id="space-1", scopes=_recovery_scopes()
+            )
+        )
+
+
+def test_graphiti_recovery_fails_second_fresh_prefix_pass() -> None:
+    class _LatePrefixDriver(_Driver):
+        def __init__(self) -> None:
+            super().__init__([], [])
+            self.prefix_reads = 0
+
+        def records(self, query: str, parameters: dict[str, Any]) -> list[dict[str, Any]]:
+            if "group_prefix" in parameters:
+                self.prefix_reads += 1
+                if self.prefix_reads == 3:
+                    return [{"group_id": GROUP_ID}]
+            return super().records(query, parameters)
+
+    with pytest.raises(GraphitiIdentityEvidenceError, match="globally absent"):
+        asyncio.run(
+            _recovery_adapter(_LatePrefixDriver()).delete_benchmark_space_two_pass(
+                space_id="space-1", scopes=_recovery_scopes()
+            )
+        )
+
+
+def test_graphiti_recovery_final_pass_blocks_late_foreign_expected_episode() -> None:
+    class _LateExpectedEpisodeDriver(_Driver):
+        def __init__(self) -> None:
+            super().__init__([], [])
+            self.expected_name_reads = 0
+
+        def records(self, query: str, parameters: dict[str, Any]) -> list[dict[str, Any]]:
+            if "episode.name IN $episode_names" in query:
+                self.expected_name_reads += 1
+                if self.expected_name_reads == 2:
+                    self.nodes.append(
+                        {
+                            "labels": ["Episodic"],
+                            "uuid": "late-episode",
+                            "group_id": "foreign-group",
+                            "episode_name": "fact:fact-1",
+                            "entity_edges": [],
+                        }
+                    )
+            return super().records(query, parameters)
+
+    driver = _LateExpectedEpisodeDriver()
+    with pytest.raises(GraphitiIdentityEvidenceError, match="moved to a foreign group"):
+        asyncio.run(
+            _recovery_adapter(driver).delete_benchmark_space_two_pass(
+                space_id="space-1", scopes=_recovery_scopes()
+            )
+        )
+    assert driver.expected_name_reads == 2

@@ -32,6 +32,12 @@ from mem0_oss_adapter_v5.request_binding import (
     RequestBindingResponse,
     RequestBindingV2Response,
 )
+from mem0_oss_adapter_v5.runtime_attestation import (
+    ATTESTATION_PATH,
+    RuntimeAttestationError,
+    RuntimeAttestationRequest,
+    RuntimeAttestationResponse,
+)
 
 MAX_REQUEST_BODY_BYTES = 64_000
 MAX_BODY_FRAGMENTS = 256
@@ -48,6 +54,7 @@ _SAFE_SERVICE_ERRORS = frozenset(
         "corpus_not_found",
         "dispatch_conflict",
         "dispatch_failed",
+        "dispatch_recovery_operator_action_required",
         "manifest_invalid",
         "operation_not_found",
         "operation_cleaned",
@@ -110,6 +117,18 @@ class V5ApplicationService(Protocol):
     ) -> ScopedSearchResponse: ...
 
 
+class RuntimeAttestationAuthority(Protocol):
+    @property
+    def authentication_token(self) -> str: ...
+
+    def attest(
+        self,
+        request: RuntimeAttestationRequest,
+        *,
+        idempotency_key: str,
+    ) -> RuntimeAttestationResponse: ...
+
+
 class _BoundedBodyMiddleware:
     def __init__(self, app: ASGIApp) -> None:
         self._app = app
@@ -157,12 +176,23 @@ class _BoundedBodyMiddleware:
         await self._app(scope, replay, send)
 
 
-def create_app(*, service: V5ApplicationService, bearer_token: str) -> FastAPI:
+def create_app(
+    *,
+    service: V5ApplicationService,
+    bearer_token: str,
+    runtime_attestation_authority: RuntimeAttestationAuthority,
+) -> FastAPI:
     if not _valid_secret(bearer_token):
+        raise ValueError("adapter_configuration_invalid")
+    runtime_attestation_token = runtime_attestation_authority.authentication_token
+    if not _valid_secret(runtime_attestation_token) or hmac.compare_digest(
+        runtime_attestation_token.encode(), bearer_token.encode()
+    ):
         raise ValueError("adapter_configuration_invalid")
     app = FastAPI(title="Mem0 OSS benchmark adapter v5", version="5")
     app.add_middleware(_BoundedBodyMiddleware)
     authenticate = _authenticate(bearer_token)
+    authenticate_attestation = _authenticate(runtime_attestation_token)
 
     @app.exception_handler(RequestValidationError)
     async def validation_error(_request: Request, _exc: RequestValidationError) -> JSONResponse:
@@ -172,12 +202,29 @@ def create_app(*, service: V5ApplicationService, bearer_token: str) -> FastAPI:
     async def service_error(_request: Request, exc: AdapterServiceError) -> JSONResponse:
         return JSONResponse(status_code=exc.status_code, content={"detail": exc.code})
 
+    @app.exception_handler(RuntimeAttestationError)
+    async def runtime_attestation_error(
+        _request: Request, exc: RuntimeAttestationError
+    ) -> JSONResponse:
+        return JSONResponse(status_code=exc.status_code, content={"detail": exc.code})
+
     @app.get("/health", response_model=HealthResponse)
     def health() -> HealthResponse:
         return HealthResponse(
             ok=True,
             service="mem0-oss-adapter-v5",
             provider_calls="dispatch_only",
+        )
+
+    @app.post(ATTESTATION_PATH, response_model=RuntimeAttestationResponse)
+    def runtime_attestation(
+        payload: RuntimeAttestationRequest,
+        headers: Annotated[_AuthenticatedHeaders, Depends(authenticate_attestation)],
+    ) -> RuntimeAttestationResponse:
+        _verify_request_commitment(payload, headers.request_commitment_sha256)
+        return runtime_attestation_authority.attest(
+            payload,
+            idempotency_key=headers.idempotency_key,
         )
 
     @app.post("/v5/runs/admit", response_model=AdmissionReceipt)

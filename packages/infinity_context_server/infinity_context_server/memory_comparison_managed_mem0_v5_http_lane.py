@@ -41,6 +41,10 @@ from infinity_context_server.memory_comparison_managed_mem0_v5_request_binding i
     ManagedMem0V5DispatchBindingV2Port,
     ManagedMem0V5RequestBindingV2Context,
 )
+from infinity_context_server.memory_comparison_managed_mem0_v5_search_witness import (
+    ManagedMem0V5AuthenticatedSearchWitness,
+    _issue_managed_mem0_v5_authenticated_search_witness,
+)
 from infinity_context_server.memory_comparison_managed_mem0_v5_storage_witness import (
     ManagedMem0V5AuthenticatedStorageWitness,
 )
@@ -329,6 +333,24 @@ class ManagedMem0V5HttpLane:
         payload = self._post("/v5/runs/search", body, _key("search", canonical_sha256(body)))
         return self._verifier.verify_search(payload=payload, context=context)
 
+    def search_authenticated(
+        self,
+        *,
+        admission: Mem0OssFullRunAdmission,
+        corpus_id: str,
+        query: str,
+        limit: int,
+    ) -> ManagedMem0V5AuthenticatedSearchWitness:
+        """Issue opaque evidence only after the lane verifies the provider HMAC."""
+
+        receipt = self.search(
+            admission=admission,
+            corpus_id=corpus_id,
+            query=query,
+            limit=limit,
+        )
+        return _issue_managed_mem0_v5_authenticated_search_witness(receipt)
+
     def cleanup(
         self,
         *,
@@ -397,6 +419,8 @@ class ManagedMem0V5HttpLane:
         if type(content) is not bytes:  # noqa: E721 - exact transport DTO required
             raise Mem0V5HttpError("mem0_v5_http_remote_failed")
         if status != 200:
+            if status in {401, 403, 409}:
+                raise Mem0V5HttpError("mem0_v5_http_response_rejected")
             raise Mem0V5HttpError("mem0_v5_http_remote_failed")
         if not 1 <= len(content) <= _MAX_RESPONSE_BYTES:
             raise Mem0V5HttpError("mem0_v5_http_response_invalid")

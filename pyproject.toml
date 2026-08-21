@@ -28,6 +28,7 @@ requires-python = ">=3.11"
 dependencies = [
   "alembic>=1.18.4,<2.0.0",
   "asyncpg>=0.31.0,<1.0.0",
+  "cryptography==50.0.0",
   "fastapi>=0.136.3,<1.0.0",
   "greenlet>=3.5.1,<4.0.0",
   "httpx>=0.28.1,<1.0.0",
@@ -79,10 +80,24 @@ infinity-context = "infinity_context_cli.cli:main"
 infinity-context-managed-preflight = "infinity_context_server.memory_comparison_managed_preflight_cli:main"
 infinity-context-managed-production-pre-readiness = "infinity_context_server.memory_comparison_managed_production_cli:main"
 infinity-context-managed-live-canary = "infinity_context_server.memory_comparison_managed_live_cli:main"
+infinity-context-managed-v5-recover = "infinity_context_server.memory_comparison_managed_v5_recovery_bootstrap:main"
+infinity-context-managed-strict-v4-prepare = "infinity_context_server.memory_comparison_managed_v5_strict_v4_cli:main"
+infinity-context-managed-strict-v4-cleanup = "infinity_context_server.memory_comparison_managed_v5_strict_v4_cleanup_cli:main"
+infinity-context-publishable-inputs = "infinity_context_server.publishable_input_preparation.cli:main"
+infinity-context-publishable-canary = "infinity_context_server.publishable_durable_scheduler.publishable_canary_cli:main"
+infinity-context-publishable-fresh-chain-canary = "infinity_context_server.publishable_fresh_chain_canary.cli:main"
+infinity-context-publishable-run = "infinity_context_server.publishable_durable_scheduler.publishable_run_cli:main"
+infinity-context-publishable-mem0-v5 = "publishable_mem0_v5.cli:main"
 infinity-context-mcp = "infinity_context_mcp.server:main"
 infinity-context-mcp-bench = "infinity_context_mcp.bench:main"
 infinity-context-mcp-agent-bench = "infinity_context_mcp.agent_behavior_bench:main"
 infinity-context-obsidian = "infinity_context_obsidian.cli:main"
+
+[project.entry-points."infinity_context.publishable_run_dependencies"]
+mem0-infinity-production-v1 = "publishable_mem0_v5.run_provider:Mem0InfinityPublishableRunDependencyFactory"
+
+[project.entry-points."infinity_context.publishable_input_preparation_dependencies"]
+mem0-infinity-production-v1 = "publishable_mem0_v5.input_provider:Mem0InfinityPublishableInputPreparationDependencyFactory"
 
 [project.urls]
 Homepage = "https://github.com/777genius/infinity-context"
@@ -95,12 +110,14 @@ Changelog = "https://github.com/777genius/infinity-context/releases"
 where = [
   "packages/infinity_context_core",
   "packages/infinity_context_server",
+  "packages/infinity_context_runtime_bridge",
   "packages/infinity_context_adapters",
   "packages/infinity_context_contracts",
   "packages/infinity_context_sdk",
   "packages/infinity_context_mcp",
   "packages/infinity_context_cli",
   "packages/infinity_context_obsidian",
+  "benchmarks/mem0-oss-adapter-v5/deployment",
 ]
 
 [tool.setuptools.package-data]
@@ -108,6 +125,7 @@ infinity_context_adapters = [
   "extraction/prompts/*.md",
   "extraction/schemas/*.json",
   "postgres/migrations/*.sql",
+  "postgres/provisioning/*.sql",
 ]
 infinity_context_server = [
   "web/*.html",
@@ -120,16 +138,21 @@ infinity_context_obsidian = [
 
 [tool.pytest.ini_options]
 testpaths = ["tests", "packages/infinity_context_core/infinity_context_core/features"]
+markers = [
+  "synthetic_2040: opt-in provider-free synthetic 2,040-case contracts",
+]
 pythonpath = [
   ".",
   "packages/infinity_context_core",
   "packages/infinity_context_server",
+  "packages/infinity_context_runtime_bridge",
   "packages/infinity_context_adapters",
   "packages/infinity_context_contracts",
   "packages/infinity_context_sdk",
   "packages/infinity_context_mcp",
   "packages/infinity_context_cli",
   "packages/infinity_context_obsidian",
+  "benchmarks/mem0-oss-adapter-v5/deployment",
 ]
 
 [tool.ruff]

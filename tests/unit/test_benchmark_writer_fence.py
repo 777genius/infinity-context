@@ -32,9 +32,12 @@ INITIAL_MIGRATION = MIGRATIONS / "0017_managed_benchmark_writer_fence.sql"
 PROJECTION_MANIFEST_MIGRATION = MIGRATIONS / "0018_benchmark_projection_manifest.sql"
 SEALED_FENCE_MIGRATION = MIGRATIONS / "0019_managed_benchmark_sealed_fence.sql"
 CLEANUP_COMPLETION_MIGRATION = MIGRATIONS / "0020_benchmark_cleanup_completion.sql"
+GENERATED_TOMBSTONE_FENCE_MIGRATION = MIGRATIONS / "0034_benchmark_generated_tombstone_fence.sql"
+STRICT_V4_FENCE_MIGRATION = MIGRATIONS / "0036_memory_comparison_strict_v4_preparations.sql"
 FENCE_SQLSTATE = BENCHMARK_WRITER_FENCE_SQLSTATE
 FENCE_CONSTRAINT = BENCHMARK_WRITER_FENCE_CONSTRAINT
 FENCED_TABLES = tuple(table for table, _update_columns in BENCHMARK_WRITER_FENCE_TABLES)
+INITIAL_FENCED_TABLES = FENCED_TABLES[:7]
 
 
 def test_migration_installs_active_writer_fence_on_all_canonical_tables() -> None:
@@ -50,7 +53,7 @@ def test_migration_installs_active_writer_fence_on_all_canonical_tables() -> Non
     assert f"ERRCODE = '{FENCE_SQLSTATE}'" in sql
     assert f"CONSTRAINT = '{FENCE_CONSTRAINT}'" in sql
     assert sql.count("RAISE EXCEPTION") == 3
-    for table in FENCED_TABLES:
+    for table in INITIAL_FENCED_TABLES:
         assert f"DROP TRIGGER IF EXISTS trg_{table}_benchmark_writer_fence ON {table};" in sql
         assert f"CREATE TRIGGER trg_{table}_benchmark_writer_fence" in sql
     assert "BEFORE INSERT OR UPDATE OF id, status ON memory_spaces" in sql
@@ -74,8 +77,8 @@ def test_latest_migration_fails_closed_after_projection_manifest_seal() -> None:
     assert "NEW.status = 'deleted'" in sql
     assert "to_jsonb(OLD) - 'status' - 'updated_at'" in sql
     assert "to_jsonb(NEW) - 'status' - 'updated_at'" in sql
-    assert sql.count("BEFORE INSERT OR UPDATE OR DELETE") == len(FENCED_TABLES)
-    for table in FENCED_TABLES:
+    assert sql.count("BEFORE INSERT OR UPDATE OR DELETE") == len(INITIAL_FENCED_TABLES)
+    for table in INITIAL_FENCED_TABLES:
         assert f"DROP TRIGGER IF EXISTS trg_{table}_benchmark_writer_fence ON {table};" in sql
         assert f"CREATE TRIGGER trg_{table}_benchmark_writer_fence" in sql
     assert f"ERRCODE = '{FENCE_SQLSTATE}'" in sql
@@ -83,20 +86,30 @@ def test_latest_migration_fails_closed_after_projection_manifest_seal() -> None:
 
 
 def test_runtime_installer_statements_do_not_drift_from_latest_migration() -> None:
-    migration_sql = _normalize_sql(CLEANUP_COMPLETION_MIGRATION.read_text(encoding="utf-8"))
+    migration_sql = _normalize_sql(STRICT_V4_FENCE_MIGRATION.read_text(encoding="utf-8"))
 
-    assert len(BENCHMARK_WRITER_FENCE_STATEMENTS) == 15
+    assert len(BENCHMARK_WRITER_FENCE_STATEMENTS) == 73
     assert BENCHMARK_WRITER_FENCE_FUNCTION in migration_sql
     assert _normalize_sql(BENCHMARK_WRITER_FENCE_STATEMENTS[0]) in migration_sql
+    assert "strict_v4_writer_credential BOOLEAN" in migration_sql
+    assert "strict_v4_authority_credential BOOLEAN" in migration_sql
+    assert "legacy_write_authorized AND NOT strict_v4_writer_credential" in migration_sql
+    assert "AND NOT strict_v4_authority_credential" in migration_sql
+    assert "NOT legacy_write_authorized AND strict_v4_write_authorized" in migration_sql
+    assert "TG_TABLE_NAME = 'memory_idempotency_records'" in migration_sql
+    assert "infinity_context_strict_v4_fact_writer" not in migration_sql
+    assert "infinity_context_strict_v4_document_writer" not in migration_sql
     for table in FENCED_TABLES:
         assert f"'{table}'" in migration_sql
-    assert "DROP TRIGGER IF EXISTS %I ON %I.%I" in migration_sql
-    assert "CREATE TRIGGER %I BEFORE INSERT OR UPDATE OR DELETE" in migration_sql
+    for statement in BENCHMARK_WRITER_FENCE_STATEMENTS[1:]:
+        assert " ON public." in statement
+        if "CREATE TRIGGER" in statement:
+            assert "EXECUTE FUNCTION public." in statement
 
 
 @pytest.mark.parametrize(
     ("dialect_name", "expected_statement_count"),
-    [("postgresql", 15), ("sqlite", 0)],
+    [("postgresql", 73), ("sqlite", 0)],
 )
 def test_create_schema_writer_fence_helper_is_postgres_only(
     dialect_name: str,
@@ -313,6 +326,7 @@ async def _assert_real_postgres_fence(database_url: str) -> None:
         await admin.execute(INITIAL_MIGRATION.read_text(encoding="utf-8"))
         await admin.execute(PROJECTION_MANIFEST_MIGRATION.read_text(encoding="utf-8"))
         await admin.execute(SEALED_FENCE_MIGRATION.read_text(encoding="utf-8"))
+        await admin.execute(GENERATED_TOMBSTONE_FENCE_MIGRATION.read_text(encoding="utf-8"))
         writer = await asyncpg.connect(dsn)
         cleanup = await asyncpg.connect(dsn)
         await writer.execute(f'SET search_path TO "{schema}"')
@@ -344,6 +358,16 @@ async def _assert_real_postgres_fence(database_url: str) -> None:
         visible_active_facts = await asyncio.wait_for(cleanup_task, timeout=5)
         assert visible_active_facts == 1
 
+        for changed_column in ("thread_id = 'foreign'", "payload = 'changed'"):
+            with pytest.raises(asyncpg.CheckViolationError):
+                async with admin.transaction():
+                    await admin.execute(
+                        f"""
+                        UPDATE memory_facts
+                        SET status = 'deleted', {changed_column}
+                        WHERE id = 'fact-before-cleanup'
+                        """
+                    )
         with pytest.raises(asyncpg.CheckViolationError) as active_write:
             async with writer.transaction():
                 await writer.execute(
@@ -572,7 +596,7 @@ def _minimal_postgres_schema() -> str:
         );
         """
         for table in FENCED_TABLES
-        if table != "memory_spaces"
+        if table not in {"memory_spaces", "memory_facts"}
     )
     return f"""
     CREATE TABLE memory_spaces (
@@ -583,7 +607,20 @@ def _minimal_postgres_schema() -> str:
     );
     CREATE TABLE memory_comparison_benchmark_runs (
         space_id VARCHAR(80) PRIMARY KEY,
-        state VARCHAR(40) NOT NULL
+        state VARCHAR(40) NOT NULL,
+        cleanup_plan_state VARCHAR(40) NOT NULL DEFAULT 'sealed'
+    );
+    CREATE TABLE memory_facts (
+        id VARCHAR(80) PRIMARY KEY,
+        space_id VARCHAR(80) NOT NULL,
+        thread_id VARCHAR(80),
+        thread_scope_key VARCHAR(87)
+            GENERATED ALWAYS AS (
+                CASE WHEN thread_id IS NULL THEN 'global' ELSE 'thread:' || thread_id END
+            ) STORED,
+        status VARCHAR(40) NOT NULL,
+        payload VARCHAR(80),
+        updated_at TIMESTAMPTZ
     );
     {child_tables}
     """

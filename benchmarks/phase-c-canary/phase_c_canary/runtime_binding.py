@@ -5,7 +5,7 @@ from pathlib import Path
 from urllib.parse import urlsplit, urlunsplit
 from weakref import ReferenceType, ref
 
-from .authority import immutable_authority
+from .authority import AuthorityPathBindingPort, immutable_authority
 from .hashing import canonical_json_bytes, sha256_bytes, sha256_file
 from .receipt import ReceiptVerificationError
 
@@ -236,9 +236,15 @@ class PinnedRuntimeBindingService:
 
 class RuntimeBindingComposition:
     @staticmethod
-    def compose_phase_c_canary() -> PinnedRuntimeBindingService:
+    def compose_phase_c_canary(
+        *, authority_binding: AuthorityPathBindingPort | None = None
+    ) -> PinnedRuntimeBindingService:
         """Compose only the frozen authority and transport pinned by Phase C."""
-        reviewed = immutable_authority()
+        reviewed = (
+            immutable_authority()
+            if authority_binding is None
+            else immutable_authority(authority_binding=authority_binding)
+        )
         runtime_artifact = reviewed.runtime_artifact_manifest.path
         transport_route = "http://127.0.0.1:8890/v1"
         authority = _PinnedRuntimeBindingAuthority(

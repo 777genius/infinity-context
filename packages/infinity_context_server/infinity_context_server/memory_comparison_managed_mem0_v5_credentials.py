@@ -256,10 +256,14 @@ class ManagedMem0V5CredentialCapabilities(_NonExportable):
         return f"{type(self).__name__}(roles=5, closed={self._closed!r})"
 
 
+@final
 @dataclass(slots=True, repr=False)
-class _LoadedSecret:
+class ManagedMem0V5PrivateSecretSnapshot:
     value: bytearray
     identity: tuple[int, int]
+
+
+_LoadedSecret = ManagedMem0V5PrivateSecretSnapshot
 
 
 def load_managed_mem0_v5_credentials(
@@ -269,7 +273,7 @@ def load_managed_mem0_v5_credentials(
 
     if type(paths) is not ManagedMem0V5CredentialPaths:
         _fail(_UNAVAILABLE)
-    loaded: list[_LoadedSecret] = []
+    loaded: list[ManagedMem0V5PrivateSecretSnapshot] = []
     try:
         for path in paths.values():
             loaded.append(_read_private_secret(path))
@@ -287,7 +291,7 @@ def load_managed_mem0_v5_credentials(
             _wipe(item.value)
 
 
-def _read_private_secret(path: Path) -> _LoadedSecret:
+def _read_private_secret(path: Path) -> ManagedMem0V5PrivateSecretSnapshot:
     directory_fd: int | None = None
     secret_fd: int | None = None
     value = bytearray()
@@ -327,7 +331,7 @@ def _read_private_secret(path: Path) -> _LoadedSecret:
             or not _MIN_BYTES <= len(value) <= _MAX_BYTES
         ):
             _fail(_UNAVAILABLE)
-        result = _LoadedSecret(value, _identity(opened))
+        result = ManagedMem0V5PrivateSecretSnapshot(value, _identity(opened))
         completed = True
         return result
     except ManagedMem0V5CredentialError:
@@ -343,6 +347,12 @@ def _read_private_secret(path: Path) -> _LoadedSecret:
         if directory_fd is not None:
             with suppress(OSError):
                 os.close(directory_fd)
+
+
+def read_managed_mem0_v5_private_secret(path: Path) -> ManagedMem0V5PrivateSecretSnapshot:
+    """Read one immutable private secret with inode and metadata race checks."""
+
+    return _read_private_secret(path)
 
 
 def _validate_text_secret(value: bytearray) -> None:
@@ -393,6 +403,14 @@ def _wipe(value: bytearray) -> None:
     value.clear()
 
 
+def wipe_managed_mem0_v5_private_secret(value: bytearray) -> None:
+    """Zero and release mutable secret material owned by the caller."""
+
+    if type(value) is not bytearray:
+        _fail(_UNAVAILABLE)
+    _wipe(value)
+
+
 def _fail(code: str) -> None:
     raise ManagedMem0V5CredentialError(code)
 
@@ -401,10 +419,13 @@ __all__ = [
     "ManagedMem0V5CredentialCapabilities",
     "ManagedMem0V5CredentialError",
     "ManagedMem0V5CredentialPaths",
+    "ManagedMem0V5PrivateSecretSnapshot",
     "ReadOnceManagedMem0V5BearerToken",
     "ReadOnceManagedMem0V5CheckpointHeadKey",
     "ReadOnceManagedMem0V5CheckpointSigningKey",
     "ReadOnceManagedMem0V5EvidenceKey",
     "ReadOnceManagedMem0V5ReceiptSecret",
     "load_managed_mem0_v5_credentials",
+    "read_managed_mem0_v5_private_secret",
+    "wipe_managed_mem0_v5_private_secret",
 ]

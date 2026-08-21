@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import inspect
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from types import SimpleNamespace
@@ -16,8 +17,55 @@ from infinity_context_server.memory_comparison_managed_v5_extraction_budget impo
 from infinity_context_server.memory_comparison_managed_v5_live_config import (
     ManagedV5LiveConfig,
 )
+from infinity_context_server.memory_comparison_managed_v5_recovery_contracts import (
+    ManagedV5LiveRecoveryAuthority,
+)
 
 ROOT = Path(__file__).resolve().parents[2]
+
+
+def _private_stage(selected: object, probe: str, ingress: object | None = None):
+    journal = SimpleNamespace(append=lambda **_kwargs: None, close=lambda: None)
+    authority = object.__new__(ManagedV5LiveRecoveryAuthority)
+    return subject.ActivatedManagedV5LiveCliPrivateStage(
+        selected,
+        probe,
+        ingress,
+        journal,
+        authority,
+        "a" * 64,
+        lambda: datetime(2026, 8, 9, tzinfo=UTC),
+    )
+
+
+def test_v5_attestation_prevalidation_is_before_paid_readiness_in_private_stage() -> None:
+    source = inspect.getsource(subject._activate_private_stage_after_recovery_prepare)
+
+    assert source.index("runtime_port.prevalidate(") < source.index(
+        "run_readiness=lambda: readiness_claim.run("
+    )
+    assert "ManagedMem0RuntimeAttestationPort" not in source
+    assert "MEM0_V5_RUNTIME_ATTESTATION_ROOT_SECRET" not in source
+
+
+def test_failed_v5_attestation_executes_zero_paid_readiness_calls() -> None:
+    calls = {"prevalidate": 0, "readiness": 0}
+
+    def reject_attestation() -> None:
+        calls["prevalidate"] += 1
+        raise RuntimeError("tampered runtime attestation")
+
+    def paid_readiness() -> object:
+        calls["readiness"] += 1
+        return object()
+
+    with pytest.raises(RuntimeError, match="tampered runtime attestation"):
+        subject._prevalidate_before_paid_readiness(
+            prevalidate=reject_attestation,
+            run_readiness=paid_readiness,
+        )
+
+    assert calls == {"prevalidate": 1, "readiness": 0}
 
 
 class _NoPrivateReads(dict[str, str]):
@@ -144,7 +192,7 @@ def test_orchestrator_selects_exact_v5_without_legacy_fallback(
     public = object()
     provider = SimpleNamespace(close=lambda: events.append("provider.close"))
     selected = SimpleNamespace(selection=SimpleNamespace(provider=provider))
-    private = subject.ActivatedManagedV5LiveCliPrivateStage(selected, "probe-token")
+    private = _private_stage(selected, "probe-token")
     outcome = object()
 
     def prepare_public(_: object) -> object:
@@ -204,7 +252,7 @@ def test_orchestrator_does_not_double_close_runner_owned_provider(
     events: list[str] = []
     provider = SimpleNamespace(close=lambda: events.append("provider.close"))
     selected = SimpleNamespace(selection=SimpleNamespace(provider=provider))
-    private = subject.ActivatedManagedV5LiveCliPrivateStage(selected, "probe-token")
+    private = _private_stage(selected, "probe-token")
     monkeypatch.setattr(
         subject,
         "prepare_managed_v5_live_cli_public_stage",
@@ -273,11 +321,7 @@ def test_post_sealed_usage_proof_never_discards_sealed_result(
             attestation_port=SimpleNamespace(usage_attestation_required=lambda: True)
         )
     )
-    private = subject.ActivatedManagedV5LiveCliPrivateStage(
-        selected,
-        "probe-token",
-        ingress,
-    )
+    private = _private_stage(selected, "probe-token", ingress)
     public = SimpleNamespace(
         request=SimpleNamespace(
             mem0_api_url="http://127.0.0.1:19091",

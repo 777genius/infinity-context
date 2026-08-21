@@ -1,13 +1,39 @@
 from __future__ import annotations
 
+import importlib
 import re
 import subprocess
 import sys
+import tomllib
 from pathlib import Path
 
 import pytest
 
 ROOT = Path(__file__).resolve().parents[1]
+REPOSITORY_ROOT = ROOT.parents[1]
+
+
+def test_pytest_imports_exact_infinity_context_source_packages() -> None:
+    pytest_config = tomllib.loads((ROOT / "pyproject.toml").read_text())["tool"]["pytest"]
+    assert pytest_config["ini_options"]["pythonpath"] == [
+        ".",
+        "deployment",
+        "../../packages/infinity_context_core",
+        "../../packages/infinity_context_server",
+        "../../packages/infinity_context_runtime_bridge",
+        "../../packages/infinity_context_adapters",
+    ]
+
+    for package_name, package_root in (
+        ("infinity_context_core", "infinity_context_core"),
+        ("infinity_context_server", "infinity_context_server"),
+        ("infinity_context_adapters", "infinity_context_adapters"),
+        ("infinity_context_runtime_bridge", "infinity_context_runtime_bridge"),
+    ):
+        package = importlib.import_module(package_name)
+        assert Path(package.__file__).resolve() == (
+            REPOSITORY_ROOT / "packages" / package_root / package_name / "__init__.py"
+        ).resolve()
 
 
 def test_source_authority_import_needs_only_the_standard_library() -> None:

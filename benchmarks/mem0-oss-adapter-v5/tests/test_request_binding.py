@@ -14,6 +14,7 @@ from mem0_oss_adapter_v5.request_binding import (
     RequestBindingRequest,
     verify_request_binding,
 )
+from mem0_oss_adapter_v5.runtime_attestation import V5RuntimeAttestationAuthority
 from mem0_oss_adapter_v5.state_sqlite import SqliteOperationState
 
 
@@ -175,7 +176,14 @@ def _assert_service_and_http_run_state_invalid(context) -> None:
 
     body = request.model_dump(mode="json")
     response = TestClient(
-        create_app(service=context.service, bearer_token=_TOKEN),
+        create_app(
+            service=context.service,
+            bearer_token=_TOKEN,
+            runtime_attestation_authority=V5RuntimeAttestationAuthority(
+                projection=context.service._runtime_authority,
+                root_secret=b"a" * 32,
+            ),
+        ),
         raise_server_exceptions=False,
     ).post(
         "/v5/operations/request-binding",

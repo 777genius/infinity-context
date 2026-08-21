@@ -25,9 +25,6 @@ for _repository_path in (
     if str(_repository_path) not in sys.path:
         sys.path.insert(0, str(_repository_path))
 
-from infinity_context_server.memory_comparison_managed_mem0_v5_lane import (
-    ManagedMem0V5BudgetPolicy,
-)
 from infinity_context_server.memory_comparison_mem0_oss_v5_contracts import (
     Mem0OssAdmissionRequest,
     Mem0OssFullRunAdmission,
@@ -38,24 +35,52 @@ from scripts.mem0_v5_live_container_copy_contract import (
     validate_private_credentials,
     verify_container_copy_authority,
 )
+from scripts.mem0_v5_live_micro_canary_recovery import (
+    REPORT_SCHEMA,
+    LiveCanaryRecoverySession,
+    execute_micro_canary,
+    publish_report,
+)
+from scripts.mem0_v5_live_micro_canary_recovery import (
+    base_report as _base_report,
+)
 from scripts.mem0_v5_live_micro_canary_views import (
     CompositionFactory,
     CompositionView,
-    SealView,
-    SearchView,
-    TerminalView,
 )
 from scripts.mem0_v5_live_project_one_unit import OneUnitProjection, project_one_unit
+from scripts.mem0_v5_live_runtime_authority import (
+    LiveRuntimeAuthority,
+    MicroCanaryInputs,
+    require_extraction_authority,
+)
 
 _IMAGE_ID_PREFIX = "sha256:"
-_REPORT_SCHEMA = "managed-mem0-v5-live-micro-canary.v1"
-_AUTHORITY_SCHEMA = "managed-mem0-v5-live-runtime-authority.v1"
+_REPORT_SCHEMA = REPORT_SCHEMA
 _SHA256_CHARS = frozenset("0123456789abcdef")
 _MAX_AUTHORITY_BYTES = 64 * 1024
 _REVIEWED_NODE_SHA256 = "b2959781cc5a74c357ffa02367efa8a0330cbb1c9cb347732fdfaaaca381cbcd"
 _MAX_PUBLIC_IMMUTABLE_BYTES = 32 * 1024 * 1024
 _REVIEWED_NODE_SIZE_BYTES = 123_438_592
 _RUNTIME_TRANSPORT_ORIGIN = b"http://127.0.0.1:8891"
+
+
+@dataclass(frozen=True, slots=True)
+class _HostEndpointTopology:
+    adapter_port: int
+    qdrant_port: int | None
+
+    def __post_init__(self) -> None:
+        if not _is_host_port(self.adapter_port):
+            raise ValueError("mem0_v5_live_port_invalid")
+        if self.qdrant_port is not None and (
+            not _is_host_port(self.qdrant_port) or self.qdrant_port == self.adapter_port
+        ):
+            raise ValueError("mem0_v5_live_port_invalid")
+
+    @property
+    def qdrant_topology(self) -> str:
+        return "internal-only" if self.qdrant_port is None else "loopback-host"
 
 
 @dataclass(frozen=True, slots=True)
@@ -67,297 +92,6 @@ class _ProductionPublicContract:
     trusted_runtime_binding: object
     receipt_authority: object
     dispatch_guard: object
-
-
-@dataclass(frozen=True, slots=True)
-class LiveRuntimeAuthority:
-    model: str
-    reasoning_effort: str
-    service_tier: str
-    runtime_source_revision: str
-    runtime_source_sha256: str
-    runtime_base_sha256: str
-    route_binding_sha256: str
-    base_instructions_sha256: str
-    account_binding_hmac_sha256: str
-    response_format_type: str
-    response_format_sha256: str
-    response_schema_sha256: str
-    requested_output_tokens: int
-
-    @classmethod
-    def parse(cls, raw: bytes) -> LiveRuntimeAuthority:
-        try:
-            payload = json.loads(raw)
-        except (UnicodeDecodeError, json.JSONDecodeError):
-            raise ValueError("mem0_v5_live_runtime_authority_invalid") from None
-        keys = {
-            "schema_version",
-            "model",
-            "reasoning_effort",
-            "service_tier",
-            "runtime_source_revision",
-            "runtime_source_sha256",
-            "runtime_base_sha256",
-            "route_binding_sha256",
-            "base_instructions_sha256",
-            "account_binding_hmac_sha256",
-            "response_format_type",
-            "response_format_sha256",
-            "response_schema_sha256",
-            "requested_output_tokens",
-        }
-        if type(payload) is not dict or set(payload) != keys:
-            raise ValueError("mem0_v5_live_runtime_authority_invalid")
-        if payload.pop("schema_version") != _AUTHORITY_SCHEMA:
-            raise ValueError("mem0_v5_live_runtime_authority_invalid")
-        try:
-            value = cls(**payload)
-        except TypeError:
-            raise ValueError("mem0_v5_live_runtime_authority_invalid") from None
-        value.require_valid()
-        return value
-
-    def require_valid(self) -> None:
-        text = (
-            self.model,
-            self.reasoning_effort,
-            self.service_tier,
-            self.runtime_source_revision,
-            self.response_format_type,
-        )
-        digests = (
-            self.runtime_source_sha256,
-            self.runtime_base_sha256,
-            self.route_binding_sha256,
-            self.base_instructions_sha256,
-            self.account_binding_hmac_sha256,
-            self.response_format_sha256,
-            self.response_schema_sha256,
-        )
-        if (
-            any(
-                type(item) is not str or not item or item != item.strip() or len(item) > 512
-                for item in text
-            )
-            or any(not _is_sha256(item) for item in digests)
-            or self.requested_output_tokens != 4096
-        ):
-            raise ValueError("mem0_v5_live_runtime_authority_invalid")
-
-
-@dataclass(frozen=True, slots=True)
-class MicroCanaryInputs:
-    projection: OneUnitProjection
-    runtime: LiveRuntimeAuthority
-    restore_existing: bool
-    orphan_dispatch_claim: bool = False
-
-    def __post_init__(self) -> None:
-        if (
-            type(self.projection) is not OneUnitProjection
-            or type(self.runtime) is not LiveRuntimeAuthority
-            or type(self.restore_existing) is not bool
-            or type(self.orphan_dispatch_claim) is not bool
-            or self.projection.response_format_sha256 != self.runtime.response_format_sha256
-            or self.projection.response_schema_sha256 != self.runtime.response_schema_sha256
-            or self.projection.requested_output_tokens != self.runtime.requested_output_tokens
-        ):
-            raise ValueError("mem0_v5_live_inputs_invalid")
-
-
-def execute_micro_canary(
-    *,
-    inputs: MicroCanaryInputs,
-    composition_factory: CompositionFactory,
-) -> dict[str, object]:
-    """Execute at most one dispatch; every started lifecycle ends terminal."""
-
-    base = _base_report(inputs)
-    if inputs.orphan_dispatch_claim:
-        return _no_go(base, "orphan_dispatch_claim")
-    composition: CompositionView | None = None
-    terminal: TerminalView | None = None
-    seal: SealView | None = None
-    search: SearchView | None = None
-    record_count = 0
-    started = False
-    succeeded = False
-    failure = "live_micro_canary_failed"
-    try:
-        composition = composition_factory()
-        coordinator = composition.coordinator
-        if inputs.restore_existing:
-            started = True
-            checkpoint = coordinator.restore(
-                authority=composition.authority,
-                request=composition.request,
-                budget_policy=ManagedMem0V5BudgetPolicy(maximum_total_call_count=5),
-            )
-            phase = getattr(checkpoint, "run_phase", None)
-            if getattr(phase, "value", phase) == "terminal":
-                terminal = coordinator.terminal_evidence
-                failure = "run_already_terminal"
-                raise _NoGo
-            seal = coordinator.seal_restored_completed()
-        else:
-            coordinator.admit(
-                authority=composition.authority,
-                request=composition.request,
-                budget_policy=ManagedMem0V5BudgetPolicy(maximum_total_call_count=5),
-            )
-            started = True
-            try:
-                seal = coordinator.dispatch_pending()
-            except Exception:
-                recovery = composition_factory()
-                composition = recovery
-                coordinator = recovery.coordinator
-                started = True
-                try:
-                    coordinator.restore(
-                        authority=recovery.authority,
-                        request=recovery.request,
-                        budget_policy=ManagedMem0V5BudgetPolicy(maximum_total_call_count=5),
-                    )
-                    seal = coordinator.seal_restored_completed()
-                except Exception:
-                    failure = "dispatch_status_unavailable"
-                    raise _NoGo from None
-        if getattr(coordinator.budget, "total_call_count", None) != 5:
-            failure = "coordinator_budget_invalid"
-            raise _NoGo
-        observations = coordinator.storage_observations
-        record_count = sum(len(item.created_record_ids) for item in observations)
-        if record_count < 1:
-            failure = "zero_authenticated_memories"
-            raise _NoGo
-        search = coordinator.search_evidence(
-            corpus_id=inputs.projection.cases[0].corpus_id,
-            query=inputs.projection.search_query,
-            limit=10,
-        )
-        if not search.records:
-            failure = "authenticated_search_empty"
-            raise _NoGo
-        succeeded = True
-    except _NoGo:
-        pass
-    except Exception:
-        failure = "live_micro_canary_failed"
-    finally:
-        if started and composition is not None and terminal is None:
-            try:
-                terminal = (
-                    composition.coordinator.cleanup()
-                    if succeeded or seal is not None
-                    else composition.coordinator.abort()
-                )
-            except Exception:
-                terminal = None
-                succeeded = False
-                failure = "terminal_cleanup_failed"
-    if not succeeded or seal is None or search is None or terminal is None:
-        report = _no_go(base, failure)
-        if terminal is not None:
-            _attach_terminal(report, terminal)
-        return report
-    if terminal.terminal_state != "deleted":
-        report = _no_go(base, "cleanup_terminal_state_invalid")
-        _attach_terminal(report, terminal)
-        return report
-    usage = _usage(seal)
-    if usage["extraction_calls"] != 1 or usage != _usage(terminal):
-        report = _no_go(base, "terminal_usage_binding_invalid")
-        _attach_terminal(report, terminal)
-        return report
-    base.update(
-        {
-            "outcome": "GO",
-            "ok": True,
-            "failure_code": None,
-            "usage": usage,
-            "commitments": {
-                **base["commitments"],
-                "admission_commitment_sha256": seal.admission_commitment_sha256,
-                "seal_commitment_sha256": seal.commitment_sha256,
-                "operation_root_sha256": seal.operation_root_sha256,
-                "search_result_root_sha256": search.result_root_sha256,
-                "search_evidence_commitment_sha256": search.evidence_commitment_sha256,
-                "terminal_cleanup_commitment_sha256": terminal.commitment_sha256,
-            },
-            "authenticated_search_result_count": len(search.records),
-            "authenticated_storage_record_count": record_count,
-            "terminal_state": terminal.terminal_state,
-        }
-    )
-    return base
-
-
-class _NoGo(Exception):
-    pass
-
-
-def _base_report(inputs: MicroCanaryInputs) -> dict[str, object]:
-    projection = inputs.projection
-    runtime = inputs.runtime
-    return {
-        "schema_version": _REPORT_SCHEMA,
-        "completed_at_utc": datetime.now(UTC).isoformat(),
-        "ok": False,
-        "outcome": "NO-GO",
-        "failure_code": None,
-        "budget": {
-            "coordinator_full_plan_total_calls": 5,
-            "hard_dispatch_guard_max": 1,
-            "benchmark_calls_executed": 0,
-            "answer_calls_executed": 0,
-            "judge_calls_executed": 0,
-        },
-        "requested_output_tokens": 4096,
-        "requested_output_tokens_enforced": False,
-        "release": {"account": "<redacted>", "runtime": "<redacted>"},
-        "commitments": {
-            "case_file_sha256": projection.case_file_sha256,
-            "manifest_authority_commitment_sha256": (
-                projection.authority.authority_commitment_sha256
-            ),
-            "sealed_payload_sha256": projection.authority.sealed_payload_sha256,
-            "request_body_sha256": projection.request_body_sha256,
-            "response_format_sha256": projection.response_format_sha256,
-            "response_schema_sha256": projection.response_schema_sha256,
-            "account_binding_hmac_sha256": runtime.account_binding_hmac_sha256,
-            "runtime_source_sha256": runtime.runtime_source_sha256,
-            "runtime_base_sha256": runtime.runtime_base_sha256,
-            "route_binding_sha256": runtime.route_binding_sha256,
-        },
-    }
-
-
-def _no_go(report: dict[str, object], code: str) -> dict[str, object]:
-    report["ok"] = False
-    report["outcome"] = "NO-GO"
-    report["failure_code"] = code
-    return report
-
-
-def _usage(source: SealView | TerminalView) -> dict[str, int]:
-    prompt = source.provider_observed_request_tokens
-    completion = source.provider_observed_response_tokens
-    return {
-        "prompt_tokens": prompt,
-        "completion_tokens": completion,
-        "total_tokens": prompt + completion,
-        "extraction_calls": source.provider_observed_extraction_calls,
-    }
-
-
-def _attach_terminal(report: dict[str, object], terminal: TerminalView) -> None:
-    report["terminal_state"] = terminal.terminal_state
-    report["usage"] = _usage(terminal)
-    commitments = report["commitments"]
-    assert type(commitments) is dict
-    commitments["terminal_cleanup_commitment_sha256"] = terminal.commitment_sha256
 
 
 def _production_factory(
@@ -407,14 +141,20 @@ def _build_public_contract(
     from infinity_context_server.memory_comparison_managed_mem0_v5_dispatch_guard import (
         create_managed_mem0_v5_single_dispatch_guard,
     )
+    from phase_c_canary.authority import immutable_authority
     from phase_c_canary.receipt import NodePublicReceiptVerifier
     from phase_c_canary.runtime_binding import RuntimeBindingComposition
     from phase_c_canary.runtime_receipt_v2 import RuntimeReceiptV2Boundary
 
     binding = RuntimeBindingComposition.compose_phase_c_canary().issue()
+    phase_c_authority = immutable_authority()
     if (
         binding.runtime_source_sha256 != runtime.runtime_source_sha256
         or binding.route_binding_sha256 != runtime.route_binding_sha256
+        or phase_c_authority.response_format_type != runtime.response_format_type
+        or phase_c_authority.response_format_sha256 != runtime.response_format_sha256
+        or phase_c_authority.response_schema_sha256 != runtime.response_schema_sha256
+        or phase_c_authority.requested_output_tokens != runtime.requested_output_tokens
     ):
         raise ValueError("mem0_v5_live_runtime_binding_differs")
     request = Mem0OssAdmissionRequest(
@@ -461,8 +201,8 @@ def _build_public_contract(
         route_binding_sha256=runtime.route_binding_sha256,
         account_binding_hmac_sha256=runtime.account_binding_hmac_sha256,
         response_format_type=runtime.response_format_type,
-        response_format_sha256=runtime.response_format_sha256,
-        response_schema_sha256=runtime.response_schema_sha256,
+        response_format_sha256=runtime.extraction_response_format_sha256,
+        response_schema_sha256=runtime.extraction_response_schema_sha256,
         node_executable_path=str(args.node_executable),
         node_executable_sha256=args.node_executable_sha256,
         operations=(operation,),
@@ -525,6 +265,7 @@ def _preflight(
     for path in (
         args.case_file,
         args.runtime_authority_file,
+        args.extraction_contract_file,
         args.input_root / "manifest.json",
         args.input_root / "one-unit-authority.json",
         args.phase_c_package_root,
@@ -548,12 +289,9 @@ def _preflight(
             raise ValueError("mem0_v5_live_runtime_path_invalid")
     _image_id(args.adapter_image_id)
     _image_id(args.qdrant_image_id)
+    _host_endpoint_topology(args)
     if (
-        type(args.adapter_port) is not int
-        or type(args.qdrant_port) is not int
-        or args.adapter_port != 19091
-        or args.qdrant_port != 6334
-        or type(args.timeout_seconds) not in {int, float}
+        type(args.timeout_seconds) not in {int, float}
         or isinstance(args.timeout_seconds, bool)
         or not math.isfinite(args.timeout_seconds)
         or not 0.01 <= args.timeout_seconds <= 120.0
@@ -565,6 +303,11 @@ def _preflight(
         maximum_bytes=_MAX_AUTHORITY_BYTES,
     )
     runtime = LiveRuntimeAuthority.parse(raw_authority)
+    require_extraction_authority(
+        runtime=runtime,
+        contract_file=args.extraction_contract_file,
+        contract_sha256=args.extraction_contract_sha256,
+    )
     from mem0_oss_adapter_v5.extraction_contract import build_extraction_request
 
     projection = project_one_unit(
@@ -573,6 +316,7 @@ def _preflight(
         current_date=args.current_date,
         extraction_projector=build_extraction_request,
     )
+    MicroCanaryInputs(projection, runtime, False)
     _require_materialized_projection(args, projection)
     contract = _build_public_contract(args=args, projection=projection, runtime=runtime)
     secret_digests = validate_private_credentials(
@@ -580,6 +324,7 @@ def _preflight(
         runner_paths={
             "ingress-bearer": args.ingress_bearer_file,
             "result-hmac": args.evidence_key_file,
+            "runtime-attestation-secret": args.runtime_attestation_secret_file,
             "runtime-receipt-secret": args.receipt_secret_file,
             "checkpoint-signing-key": args.checkpoint_signing_key_file,
             "checkpoint-head-key": args.checkpoint_head_key_file,
@@ -631,10 +376,10 @@ def _preflight_report(
             args.dispatch_journal.exists() and not (args.state_root / "checkpoint.json").exists()
         ),
     )
-    report = _base_report(inputs)
-    adapter_ready = _tcp_probe(args.adapter_port, args.timeout_seconds)
-    qdrant_ready = _tcp_probe(args.qdrant_port, args.timeout_seconds)
-    safe = adapter_ready and qdrant_ready and not inputs.orphan_dispatch_claim
+    topology = _host_endpoint_topology(args)
+    report = _base_report(inputs, report_context=_report_context(args, topology))
+    adapter_ready, qdrant_ready = _tcp_readiness(topology, args.timeout_seconds)
+    safe = adapter_ready and qdrant_ready is not False and not inputs.orphan_dispatch_claim
     report.update(
         {
             "preflight_only": True,
@@ -642,18 +387,6 @@ def _preflight_report(
             "outcome": "GO" if safe else "NO-GO",
             "failure_code": None if safe else "tcp_or_state_preflight_failed",
             "tcp_readiness": {"adapter": adapter_ready, "qdrant": qdrant_ready},
-            "images": {
-                "adapter_image_id": args.adapter_image_id,
-                "qdrant_image_id": args.qdrant_image_id,
-            },
-        }
-    )
-    commitments = report["commitments"]
-    assert type(commitments) is dict
-    commitments.update(
-        {
-            "node_executable_sha256": args.node_executable_sha256,
-            "runtime_artifact_manifest_sha256": (args.runtime_artifact_manifest_sha256),
         }
     )
     return report
@@ -670,6 +403,8 @@ def _parse_args(argv: list[str] | None) -> argparse.Namespace:
     parser.add_argument("--one-unit-authority-sha256", required=True)
     parser.add_argument("--runtime-authority-file", required=True, type=Path)
     parser.add_argument("--runtime-authority-sha256", required=True)
+    parser.add_argument("--extraction-contract-file", required=True, type=Path)
+    parser.add_argument("--extraction-contract-sha256", required=True)
     parser.add_argument("--state-root", required=True, type=Path)
     parser.add_argument("--secret-root", required=True, type=Path)
     parser.add_argument("--report-root", required=True, type=Path)
@@ -678,6 +413,7 @@ def _parse_args(argv: list[str] | None) -> argparse.Namespace:
     parser.add_argument("--ingress-bearer-file", required=True, type=Path)
     parser.add_argument("--evidence-key-file", required=True, type=Path)
     parser.add_argument("--evidence-key-sha256", required=True)
+    parser.add_argument("--runtime-attestation-secret-file", required=True, type=Path)
     parser.add_argument("--receipt-secret-file", required=True, type=Path)
     parser.add_argument("--checkpoint-signing-key-file", required=True, type=Path)
     parser.add_argument("--checkpoint-head-key-file", required=True, type=Path)
@@ -691,54 +427,71 @@ def _parse_args(argv: list[str] | None) -> argparse.Namespace:
     parser.add_argument("--container-copy-authority-sha256", required=True)
     parser.add_argument("--adapter-image-id", required=True)
     parser.add_argument("--qdrant-image-id", required=True)
-    parser.add_argument("--adapter-port", required=True, type=int)
-    parser.add_argument("--qdrant-port", required=True, type=int)
+    parser.add_argument(
+        "--adapter-port",
+        required=True,
+        type=_parse_host_port,
+        help="explicit loopback host port for the adapter or isolated lane relay",
+    )
+    qdrant_topology = parser.add_mutually_exclusive_group(required=True)
+    qdrant_topology.add_argument(
+        "--qdrant-port",
+        type=_parse_host_port,
+        help="explicit legacy loopback host port to probe for Qdrant",
+    )
+    qdrant_topology.add_argument(
+        "--qdrant-internal-only",
+        action="store_true",
+        help="declare that Qdrant has no host-published port",
+    )
     parser.add_argument("--timeout-seconds", type=float, default=10.0)
     parser.add_argument("--preflight-only", action="store_true")
-    return parser.parse_args(argv)
+    args = parser.parse_args(argv)
+    try:
+        _host_endpoint_topology(args)
+    except ValueError as exc:
+        parser.error(str(exc))
+    return args
 
 
 def main(argv: list[str] | None = None) -> int:
     args = _parse_args(argv)
+    topology = _host_endpoint_topology(args)
+    report_context = _report_context(args, topology)
     report: dict[str, object]
     try:
         projection, runtime, contract = _preflight(args)
         if args.preflight_only:
             report = _preflight_report(args, projection, runtime)
         else:
-            if not _tcp_probe(args.adapter_port, args.timeout_seconds) or not _tcp_probe(
-                args.qdrant_port, args.timeout_seconds
-            ):
-                raise ValueError("mem0_v5_live_tcp_readiness_failed")
+            checkpoint_exists = (args.state_root / "checkpoint.json").exists()
             inputs = MicroCanaryInputs(
                 projection=projection,
                 runtime=runtime,
-                restore_existing=(args.state_root / "checkpoint.json").exists(),
-                orphan_dispatch_claim=(
-                    args.dispatch_journal.exists()
-                    and not (args.state_root / "checkpoint.json").exists()
-                ),
+                restore_existing=checkpoint_exists,
+                orphan_dispatch_claim=(args.dispatch_journal.exists() and not checkpoint_exists),
             )
-            report = execute_micro_canary(
-                inputs=inputs,
-                composition_factory=_production_factory(
-                    args=args, projection=projection, contract=contract
-                ),
+            if not checkpoint_exists:
+                adapter_ready, qdrant_ready = _tcp_readiness(topology, args.timeout_seconds)
+                if not adapter_ready or qdrant_ready is False:
+                    raise ValueError("mem0_v5_live_tcp_readiness_failed")
+            recovery_key = _read_private_file(
+                args.checkpoint_signing_key_file,
+                parent=args.secret_root,
             )
-        report["images"] = {
-            "adapter_image_id": args.adapter_image_id,
-            "qdrant_image_id": args.qdrant_image_id,
-        }
-        commitments = report.get("commitments")
-        if type(commitments) is dict:
-            commitments.update(
-                {
-                    "node_executable_sha256": args.node_executable_sha256,
-                    "runtime_artifact_manifest_sha256": (args.runtime_artifact_manifest_sha256),
-                    "container_copy_authority_sha256": (args.container_copy_authority_sha256),
-                    "evidence_key_sha256": args.evidence_key_sha256,
-                }
-            )
+            with LiveCanaryRecoverySession(
+                state_root=args.state_root,
+                checkpoint_signing_key=recovery_key,
+            ) as recovery:
+                report = execute_micro_canary(
+                    inputs=inputs,
+                    composition_factory=_production_factory(
+                        args=args, projection=projection, contract=contract
+                    ),
+                    recovery=recovery,
+                    report_context=report_context,
+                )
+        _bind_report_context(report, report_context)
     except Exception:
         report = {
             "schema_version": _REPORT_SCHEMA,
@@ -748,39 +501,49 @@ def main(argv: list[str] | None = None) -> int:
             "failure_code": "live_micro_canary_preflight_failed",
         }
     try:
-        _write_report(args.report_file, args.report_root, report)
+        published = _write_report(args.report_file, args.report_root, report)
+        if published is not None:
+            report = published
     except Exception:
         return 3
     print(json.dumps(report, sort_keys=True))
     return 0 if report.get("ok") is True else 2
 
 
-def _write_report(path: Path, root: Path, report: dict[str, object]) -> None:
-    if not path.is_absolute() or path.parent.resolve(strict=False) != root.resolve(strict=True):
-        raise ValueError("mem0_v5_live_report_path_invalid")
-    encoded = json.dumps(
-        report, sort_keys=True, separators=(",", ":"), ensure_ascii=True, allow_nan=False
-    ).encode()
-    descriptor = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
-    try:
-        view = memoryview(encoded)
-        written = 0
-        while written < len(view):
-            count = os.write(descriptor, view[written:])
-            if count <= 0:
-                raise OSError("short write")
-            written += count
-        os.fsync(descriptor)
-    finally:
-        os.close(descriptor)
-    parent = os.open(
-        root,
-        os.O_RDONLY | os.O_CLOEXEC | getattr(os, "O_DIRECTORY", 0),
-    )
-    try:
-        os.fsync(parent)
-    finally:
-        os.close(parent)
+def _report_context(args: argparse.Namespace, topology: _HostEndpointTopology) -> dict[str, object]:
+    return {
+        "images": {
+            "adapter_image_id": args.adapter_image_id,
+            "qdrant_image_id": args.qdrant_image_id,
+        },
+        "qdrant_topology": topology.qdrant_topology,
+        "commitments": {
+            "node_executable_sha256": args.node_executable_sha256,
+            "runtime_artifact_manifest_sha256": args.runtime_artifact_manifest_sha256,
+            "container_copy_authority_sha256": args.container_copy_authority_sha256,
+            "evidence_key_sha256": args.evidence_key_sha256,
+        },
+    }
+
+
+def _bind_report_context(report: dict[str, object], context: dict[str, object]) -> None:
+    expected = dict(context)
+    expected_commitments = expected.pop("commitments")
+    for key, value in expected.items():
+        existing = report.setdefault(key, value)
+        if existing != value:
+            raise ValueError("mem0_v5_live_report_context_differs")
+    commitments = report.get("commitments")
+    if type(commitments) is not dict or type(expected_commitments) is not dict:
+        raise ValueError("mem0_v5_live_report_context_differs")
+    for key, value in expected_commitments.items():
+        existing = commitments.setdefault(key, value)
+        if existing != value:
+            raise ValueError("mem0_v5_live_report_context_differs")
+
+
+def _write_report(path: Path, root: Path, report: dict[str, object]) -> dict[str, object]:
+    return publish_report(path, root, report)
 
 
 def _tcp_probe(port: int, timeout: float) -> bool:
@@ -789,6 +552,39 @@ def _tcp_probe(port: int, timeout: float) -> bool:
             return True
     except OSError:
         return False
+
+
+def _tcp_readiness(topology: _HostEndpointTopology, timeout: float) -> tuple[bool, bool | None]:
+    adapter_ready = _tcp_probe(topology.adapter_port, timeout)
+    qdrant_ready = (
+        None if topology.qdrant_port is None else _tcp_probe(topology.qdrant_port, timeout)
+    )
+    return adapter_ready, qdrant_ready
+
+
+def _host_endpoint_topology(args: argparse.Namespace) -> _HostEndpointTopology:
+    qdrant_port = getattr(args, "qdrant_port", None)
+    internal_only = getattr(args, "qdrant_internal_only", False)
+    if type(internal_only) is not bool or internal_only == (qdrant_port is not None):
+        raise ValueError("mem0_v5_live_qdrant_topology_invalid")
+    return _HostEndpointTopology(
+        adapter_port=args.adapter_port,
+        qdrant_port=qdrant_port,
+    )
+
+
+def _parse_host_port(value: str) -> int:
+    try:
+        port = int(value)
+    except ValueError as exc:
+        raise argparse.ArgumentTypeError("host port must be an integer") from exc
+    if not _is_host_port(port):
+        raise argparse.ArgumentTypeError("host port must be between 1024 and 65535")
+    return port
+
+
+def _is_host_port(value: object) -> bool:
+    return type(value) is int and 1024 <= value <= 65_535
 
 
 def _read_private_file(path: Path, *, parent: Path) -> bytes:

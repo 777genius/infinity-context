@@ -7,6 +7,7 @@ from dataclasses import replace
 from datetime import UTC, datetime
 
 import pytest
+from benchmark_cleanup_plan_fixtures import cleanup_plan_pair
 from infinity_context_core.application.dto_benchmark_runs import (
     CleanupBenchmarkRunCommand,
     FinalizeBenchmarkRunCleanupCommand,
@@ -55,10 +56,10 @@ def test_registration_is_idempotent_and_rejects_fingerprint_mismatch() -> None:
     with pytest.raises(MemoryConflictError, match="fingerprint conflicted"):
         asyncio.run(use_case.execute(replace(_registration(), idempotency_key_sha256="1" * 64)))
 
-    with pytest.raises(MemoryConflictError, match="fingerprint conflicted"):
+    with pytest.raises(MemoryConflictError, match="conflicted"):
         asyncio.run(use_case.execute(replace(_registration(), run_id_sha256="f" * 64)))
 
-    with pytest.raises(MemoryConflictError, match="fingerprint conflicted"):
+    with pytest.raises(MemoryConflictError, match="conflicted"):
         asyncio.run(
             use_case.execute(replace(_registration(), infinity_target_identity_sha256="f" * 64))
         )
@@ -77,6 +78,7 @@ def test_cleanup_without_manifest_locks_once_and_replays_blocked_receipt() -> No
         space_id=registered.space_id,
         space_slug=SLUG,
         idempotency_key_sha256=CLEANUP_KEY,
+        cleanup_plan_sha256=_cleanup_plan_sha256(),
     )
 
     first = asyncio.run(cleanup.execute(command))
@@ -119,6 +121,7 @@ def test_cleanup_replay_exposes_legacy_blocked_state_without_mutating_pending_re
         space_id=registered.space_id,
         space_slug=SLUG,
         idempotency_key_sha256=CLEANUP_KEY,
+        cleanup_plan_sha256=_cleanup_plan_sha256(),
     )
 
     first = asyncio.run(cleanup.execute(command))
@@ -186,6 +189,7 @@ def test_manifest_seal_accepts_multi_thread_scope_and_replays_exactly() -> None:
                 space_id=registered.space_id,
                 space_slug=SLUG,
                 idempotency_key_sha256=CLEANUP_KEY,
+                cleanup_plan_sha256=_cleanup_plan_sha256(),
             )
         )
     )
@@ -304,6 +308,7 @@ def test_finalization_uses_bound_internal_proof_and_replays_same_fingerprint() -
     command = FinalizeBenchmarkRunCleanupCommand(
         run_id_sha256=RUN,
         expected_cleanup_receipt_sha256=pending.cleanup_receipt.receipt_sha256,
+        expected_cleanup_plan_sha256=_cleanup_plan_sha256(),
         idempotency_key_sha256="6" * 64,
     )
 
@@ -336,6 +341,7 @@ def test_finalization_rejects_blocked_cleanup_before_provider_probe() -> None:
                 space_id=registered.space_id,
                 space_slug=SLUG,
                 idempotency_key_sha256=CLEANUP_KEY,
+                cleanup_plan_sha256=_cleanup_plan_sha256(),
             )
         )
     )
@@ -347,7 +353,9 @@ def test_finalization_rejects_blocked_cleanup_before_provider_probe() -> None:
                 clock=FakeClock(),
                 projection_absence=proof,
             ).execute(
-                FinalizeBenchmarkRunCleanupCommand(RUN, pending.receipt.receipt_sha256, "6" * 64)
+                FinalizeBenchmarkRunCleanupCommand(
+                    RUN, pending.receipt.receipt_sha256, _cleanup_plan_sha256(), "6" * 64
+                )
             )
         )
     assert proof.calls == 0
@@ -364,7 +372,10 @@ def test_finalization_rejects_false_or_stale_provider_proof() -> None:
                 projection_absence=proof,
             ).execute(
                 FinalizeBenchmarkRunCleanupCommand(
-                    RUN, pending.cleanup_receipt.receipt_sha256, "6" * 64
+                    RUN,
+                    pending.cleanup_receipt.receipt_sha256,
+                    _cleanup_plan_sha256(),
+                    "6" * 64,
                 )
             )
         )
@@ -385,7 +396,10 @@ def test_finalization_revalidates_registry_after_provider_probe() -> None:
                 projection_absence=proof,
             ).execute(
                 FinalizeBenchmarkRunCleanupCommand(
-                    RUN, pending.cleanup_receipt.receipt_sha256, "6" * 64
+                    RUN,
+                    pending.cleanup_receipt.receipt_sha256,
+                    _cleanup_plan_sha256(),
+                    "6" * 64,
                 )
             )
         )
@@ -408,20 +422,37 @@ def _pending_cleanup() -> tuple[
     )
     asyncio.run(
         CleanupBenchmarkRunUseCase(uow_factory=factory, clock=FakeClock()).execute(
-            CleanupBenchmarkRunCommand(RUN, BINDING, TARGET, registered.space_id, SLUG, CLEANUP_KEY)
+            CleanupBenchmarkRunCommand(
+                RUN,
+                BINDING,
+                TARGET,
+                registered.space_id,
+                SLUG,
+                CLEANUP_KEY,
+                _cleanup_plan_sha256(),
+            )
         )
     )
     return repository, factory, repository.record
 
 
 def _registration() -> RegisterBenchmarkRunCommand:
+    cleanup_plan, cleanup_plan_sha256 = cleanup_plan_pair(
+        run_id=RUN, binding=BINDING, target=TARGET, space_slug=SLUG
+    )
     return RegisterBenchmarkRunCommand(
         run_id_sha256=RUN,
         binding_commitment_sha256=BINDING,
         infinity_target_identity_sha256=TARGET,
         space_slug=SLUG,
         idempotency_key_sha256=REGISTER_KEY,
+        cleanup_plan_json=cleanup_plan,
+        cleanup_plan_sha256=cleanup_plan_sha256,
     )
+
+
+def _cleanup_plan_sha256() -> str:
+    return cleanup_plan_pair(run_id=RUN, binding=BINDING, target=TARGET, space_slug=SLUG)[1]
 
 
 def _manifest(space_id: str) -> dict[str, object]:
@@ -456,6 +487,7 @@ def _manifest(space_id: str) -> dict[str, object]:
         "binding_commitment_sha256": BINDING,
         "infinity_target_identity_sha256": TARGET,
         "space_id": space_id,
+        "cleanup_plan_sha256": _cleanup_plan_sha256(),
         "scopes": [scope("thread-a", "a"), scope("thread-b", "b")],
     }
 

@@ -7,7 +7,7 @@ import hmac
 import secrets
 from typing import final
 
-from infinity_context_server.memory_comparison_managed_mem0_v5_http_lane import (
+from infinity_context_server.memory_comparison_managed_mem0_v5_http_evidence import (
     ManagedMem0V5SearchReceipt,
 )
 from infinity_context_server.memory_comparison_managed_run_contract import ManagedRunError

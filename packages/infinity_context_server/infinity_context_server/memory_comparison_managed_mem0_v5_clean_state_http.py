@@ -325,10 +325,24 @@ def _expected_scopes(
     )
 
 
+def managed_mem0_v5_expected_clean_state_scopes(
+    *, authority: ManagedMem0V5ManifestAuthority, admission: Mem0OssFullRunAdmission
+) -> tuple[ManagedMem0V5CleanCorpusScope, ...]:
+    """Return the exact public corpus authority used by the clean-state request."""
+
+    if (
+        type(authority) is not ManagedMem0V5ManifestAuthority
+        or type(admission) is not Mem0OssFullRunAdmission
+    ):
+        raise ManagedRunError(_ERROR)
+    return _expected_scopes(authority, admission.commitment_sha256)
+
+
 __all__ = (
     "ManagedMem0V5HmacDurableCleanStateFactory",
     "ManagedMem0V5HttpCleanStateSnapshotFactory",
     "execute_managed_mem0_v5_clean_state",
+    "managed_mem0_v5_expected_clean_state_scopes",
     "managed_mem0_v5_clean_state_request",
     "preflight_managed_mem0_v5_clean_state_request",
 )

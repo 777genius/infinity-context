@@ -6,9 +6,7 @@ ROOT = Path(__file__).resolve().parents[2]
 def test_selfhost_build_has_explicit_attested_entrypoint() -> None:
     dockerfile = (ROOT / "Dockerfile").read_text(encoding="utf-8")
     makefile = (ROOT / "Makefile").read_text(encoding="utf-8")
-    runbook = (ROOT / "docs" / "self-hosted-team-deployment.md").read_text(
-        encoding="utf-8"
-    )
+    runbook = (ROOT / "docs" / "self-hosted-team-deployment.md").read_text(encoding="utf-8")
 
     assert "COPY build /opt/infinity-context/source-build" in dockerfile
     assert "if [ -f /opt/infinity-context/source-build/" in dockerfile

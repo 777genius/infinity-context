@@ -563,6 +563,7 @@ async def _prove_delete_scope_exists(
             binding_commitment_sha256=benchmark.binding_commitment_sha256,
             infinity_target_identity_sha256=benchmark.infinity_target_identity_sha256,
             space_id=benchmark.space_id,
+            cleanup_plan_sha256=benchmark.cleanup_plan_sha256,
         )
     except (MemoryConflictError, MemoryValidationError) as exc:
         raise MemoryValidationError(

@@ -45,7 +45,7 @@ def test_sqlite_is_strict_v4_and_materializes_manifest_in_one_batch() -> None:
     assert "return iter(events)" in source
 
 
-def test_full_replay_is_confined_to_safe_control_plane_methods() -> None:
+def test_full_recovery_is_confined_to_safe_control_plane_methods() -> None:
     tree = ast.parse((JOURNAL / "service.py").read_text())
     callers = {
         method.name
@@ -54,9 +54,57 @@ def test_full_replay_is_confined_to_safe_control_plane_methods() -> None:
         for method in node.body
         if isinstance(method, (ast.FunctionDef, ast.AsyncFunctionDef))
         for child in ast.walk(method)
-        if isinstance(child, ast.Attribute) and child.attr == "_verify_replay"
+        if isinstance(child, ast.Attribute) and child.attr == "_recover_transaction"
     }
-    assert callers == {"initialize", "resume", "seal", "snapshot"}
+    assert callers == {
+        "initialize",
+        "prove_pristine",
+        "recover",
+        "seal_with_checkpoint",
+        "snapshot",
+    }
+
+
+def test_hot_transitions_use_checkpoint_and_never_scan_full_projections() -> None:
+    tree = ast.parse((JOURNAL / "service.py").read_text())
+    forbidden = {
+        "iter_events",
+        "iter_manifest",
+        "iter_operations",
+        "iter_verified_receipts",
+        "phase_counts",
+        "receipts_commitment",
+        "state_commitment",
+    }
+    hot = {
+        "commit_with_checkpoint",
+        "current_checkpoint",
+        "prepare_dispatch",
+        "quarantine_dispatched",
+    }
+    violations: list[str] = []
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.ClassDef):
+            continue
+        for method in node.body:
+            if not isinstance(method, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                continue
+            if method.name not in hot:
+                continue
+            calls = {child.attr for child in ast.walk(method) if isinstance(child, ast.Attribute)}
+            for name in sorted(calls & forbidden):
+                violations.append(f"{method.name}: {name}")
+    assert not violations
+
+
+def test_sqlite_phase_facts_have_no_growing_count_or_group_scan() -> None:
+    source = (JOURNAL / "sqlite.py").read_text()
+    schema = (JOURNAL / "sqlite_schema.py").read_text()
+    assert "GROUP BY phase" not in source
+    assert "SELECT COUNT(*) FROM operation_receipts" not in source
+    assert "batch_size <= 512" in source
+    assert "operation_checkpoints" in schema
+    assert "operation_commitment_nodes" in schema
 
 
 def _imports(path: Path) -> set[str]:

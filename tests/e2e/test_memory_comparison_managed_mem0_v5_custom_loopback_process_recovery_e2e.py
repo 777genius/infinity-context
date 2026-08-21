@@ -42,9 +42,7 @@ HOSTING_STATE_PARENT = Path(
     )
 )
 PROCESS_TIMEOUT = 45.0
-_CLEAN_PYTEST_SUMMARY = re.compile(
-    r"^(?P<passed>[1-9][0-9]*) passed in [0-9]+(?:\.[0-9]+)?s$"
-)
+_CLEAN_PYTEST_SUMMARY = re.compile(r"^(?P<passed>[1-9][0-9]*) passed in [0-9]+(?:\.[0-9]+)?s$")
 
 
 def _free_port() -> int:
@@ -178,8 +176,8 @@ def _parse_clean_actual_adapter_summary(stdout: str) -> int:
     if match is None:
         raise AssertionError(f"unclean actual adapter pytest summary: {summary!r}")
     passed_count = int(match.group("passed"))
-    if passed_count != 39:
-        raise AssertionError(f"expected exactly 39 passed, got {passed_count}")
+    if passed_count != 40:
+        raise AssertionError(f"expected exactly 40 passed, got {passed_count}")
     return passed_count
 
 
@@ -276,14 +274,14 @@ def _assert_no_secret_leaks(root: Path, config: dict[str, object]) -> None:
     "summary",
     [
         "38 passed in 1.00s",
-        "39 passed, 1 skipped in 1.00s",
-        "1 failed, 39 passed in 1.00s",
-        "39 passed, 1 error in 1.00s",
-        "39 passed, 1 xfailed in 1.00s",
-        "39 passed, 1 xpassed in 1.00s",
-        "39 passed, 1 deselected in 1.00s",
-        "39 passed, 1 warning in 1.00s",
-        "39 passed in 1.00s\ntrailing output",
+        "40 passed, 1 skipped in 1.00s",
+        "1 failed, 40 passed in 1.00s",
+        "40 passed, 1 error in 1.00s",
+        "40 passed, 1 xfailed in 1.00s",
+        "40 passed, 1 xpassed in 1.00s",
+        "40 passed, 1 deselected in 1.00s",
+        "40 passed, 1 warning in 1.00s",
+        "40 passed in 1.00s\ntrailing output",
     ],
 )
 def test_actual_adapter_terminal_summary_parser_rejects_unclean_outcomes(
@@ -294,7 +292,7 @@ def test_actual_adapter_terminal_summary_parser_rejects_unclean_outcomes(
 
 
 def test_actual_adapter_terminal_summary_parser_accepts_exact_outcome() -> None:
-    assert _parse_clean_actual_adapter_summary("progress\n39 passed in 1.00s\n") == 39
+    assert _parse_clean_actual_adapter_summary("progress\n40 passed in 1.00s\n") == 40
 
 
 def test_managed_mem0_v5_custom_loopback_process_recovery_with_actual_adapter_gate() -> None:
@@ -397,8 +395,8 @@ def test_managed_mem0_v5_custom_loopback_process_recovery_with_actual_adapter_ga
         _assert_checkpoint_head_consistent(root)
         _capture(root, "stdout-adapter", _stop(adapter))
         paired_gate = _run_actual_adapter_gate(root)
-        assert paired_gate["outcome"] == "39 passed"
-        assert paired_gate["passed_count"] == 39
+        assert paired_gate["outcome"] == "40 passed"
+        assert paired_gate["passed_count"] == 40
         assert paired_gate["effective_pytest_addopts"] == ""
         assert paired_gate["git_head"]
         _assert_no_secret_leaks(root, config)

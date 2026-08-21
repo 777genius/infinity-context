@@ -27,6 +27,7 @@ class _LifecycleRecoveryAttempt:
     run_id_sha256: str
     binding_commitment_sha256: str
     space_slug: str
+    cleanup_plan_sha256: str
 
 
 def recover_lifecycle(
@@ -35,8 +36,52 @@ def recover_lifecycle(
     run_id_sha256: str,
     binding_commitment_sha256: str,
     space_slug: str,
+    cleanup_plan_sha256: str,
 ) -> ManagedBenchmarkRunLifecycleSnapshot:
     """Recover and install one canonical lifecycle using a fresh bounded GET."""
+
+    snapshot = _recover_lifecycle(
+        adapter,
+        run_id_sha256=run_id_sha256,
+        binding_commitment_sha256=binding_commitment_sha256,
+        space_slug=space_slug,
+        cleanup_plan_sha256=cleanup_plan_sha256,
+        allow_missing=False,
+    )
+    if snapshot is None:
+        fail("managed_benchmark_registry_response_rejected")
+    return snapshot
+
+
+def recover_lifecycle_or_missing(
+    adapter: Any,
+    *,
+    run_id_sha256: str,
+    binding_commitment_sha256: str,
+    space_slug: str,
+    cleanup_plan_sha256: str,
+) -> ManagedBenchmarkRunLifecycleSnapshot | None:
+    """Recover lifecycle, returning None only for an exact 404 response."""
+
+    return _recover_lifecycle(
+        adapter,
+        run_id_sha256=run_id_sha256,
+        binding_commitment_sha256=binding_commitment_sha256,
+        space_slug=space_slug,
+        cleanup_plan_sha256=cleanup_plan_sha256,
+        allow_missing=True,
+    )
+
+
+def _recover_lifecycle(
+    adapter: Any,
+    *,
+    run_id_sha256: str,
+    binding_commitment_sha256: str,
+    space_slug: str,
+    cleanup_plan_sha256: str,
+    allow_missing: bool,
+) -> ManagedBenchmarkRunLifecycleSnapshot | None:
 
     attempt = _LifecycleRecoveryAttempt(
         digest(run_id_sha256, "managed_benchmark_registry_recovery_invalid"),
@@ -48,6 +93,7 @@ def recover_lifecycle(
             space_slug,
             "managed_benchmark_registry_recovery_invalid",
         ),
+        digest(cleanup_plan_sha256, "managed_benchmark_registry_recovery_invalid"),
     )
     previous_phase = _reserve(adapter, attempt)
     dispatched = False
@@ -57,7 +103,7 @@ def recover_lifecycle(
         dispatched = True
 
     try:
-        data, _ = adapter._request(
+        data, status = adapter._request(
             "GET",
             f"{REGISTRY_RUNS_PATH}/{attempt.run_id_sha256}/cleanup",
             payload=None,
@@ -68,13 +114,20 @@ def recover_lifecycle(
                 clock=adapter._config.clock,
             ),
             on_dispatch=mark_dispatched,
+            missing_statuses=frozenset({404}) if allow_missing else frozenset(),
         )
+        if status == 404:
+            with adapter._lock:
+                adapter._phase = previous_phase
+                adapter._recovery_attempt = None
+            return None
         snapshot = parse_lifecycle_snapshot(
             data,
             run_id_sha256=attempt.run_id_sha256,
             binding_commitment_sha256=attempt.binding_commitment_sha256,
             target_identity_sha256=adapter._config.target_identity_sha256,
             space_slug=attempt.space_slug,
+            expected_cleanup_plan_sha256=attempt.cleanup_plan_sha256,
         )
         _bootstrap(adapter, snapshot)
     except BaseException:
@@ -86,6 +139,9 @@ def recover_lifecycle(
     if snapshot.state in {"cleanup_complete", "cleanup_aborted"}:
         adapter._close_client(suppress_failure=True)
     return snapshot
+
+
+__all__ = ("recover_lifecycle", "recover_lifecycle_or_missing")
 
 
 def _reserve(adapter: Any, attempt: _LifecycleRecoveryAttempt) -> str:
@@ -100,6 +156,7 @@ def _reserve(adapter: Any, attempt: _LifecycleRecoveryAttempt) -> str:
                 or registration.run_id_sha256 != attempt.run_id_sha256
                 or registration.binding_commitment_sha256 != attempt.binding_commitment_sha256
                 or registration.space_slug != attempt.space_slug
+                or registration.cleanup_plan_sha256 != attempt.cleanup_plan_sha256
             ):
                 fail("managed_benchmark_registry_lifecycle_invalid")
             adapter._recovery_attempt = attempt
@@ -131,6 +188,7 @@ def _bootstrap(
             != snapshot.infinity_target_identity_sha256
             or previous_registration.space_id != snapshot.space_id
             or previous_registration.space_slug != snapshot.space_slug
+            or previous_registration.cleanup_plan_sha256 != snapshot.cleanup_plan_sha256
             or state_order[snapshot.state] < state_order[previous_registration.state]
         ):
             fail("managed_benchmark_registry_lifecycle_response_invalid")
@@ -144,6 +202,8 @@ def _bootstrap(
             space_slug=snapshot.space_slug,
             state=snapshot.state,
             created=False,
+            cleanup_plan_sha256=snapshot.cleanup_plan_sha256,
+            cleanup_plan_state="sealed",
         )
         adapter._projection_manifest_sha256 = snapshot.projection_manifest_sha256
         adapter._cleanup_receipt = snapshot.cleanup_receipt

@@ -691,6 +691,9 @@ def test_postgres_projection_fence_query_uses_shared_row_lock() -> None:
 
     assert "state = 'active'" in sql
     assert "projection_cleanup_state = 'unsealed'" in sql
+    assert "cleanup_plan_state = 'sealed'" in sql
+    assert "cleanup_plan_json IS NOT NULL" in sql
+    assert "cleanup_plan_sha256 IS NOT NULL" in sql
 
 
 def test_postgres_projection_state_query_is_unlocked() -> None:
@@ -704,3 +707,6 @@ def test_postgres_projection_state_query_is_unlocked() -> None:
     assert "FOR SHARE" not in sql
     assert "state = 'active'" in sql
     assert "projection_cleanup_state = 'unsealed'" in sql
+    assert "cleanup_plan_state = 'sealed'" in sql
+    assert "cleanup_plan_json IS NOT NULL" in sql
+    assert "cleanup_plan_sha256 IS NOT NULL" in sql

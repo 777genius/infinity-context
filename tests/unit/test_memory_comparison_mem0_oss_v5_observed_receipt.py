@@ -19,7 +19,18 @@ UNIT_TEST_ROOT = Path(__file__).resolve().parent
 sys.path.insert(0, str(PHASE_C_ROOT))
 sys.path.insert(0, str(UNIT_TEST_ROOT))
 
+import infinity_context_server.memory_comparison_mem0_oss_v5_observed_receipt as observed_module  # noqa: E402
 from _phase_c_hermetic import install_hermetic_phase_c_authority  # noqa: E402
+from infinity_context_adapters.postgres.managed_full_run_extraction_sqlite_ledger import (  # noqa: E402
+    SQLiteManagedFullRunExtractionLedger,
+)
+from infinity_context_core.ports.managed_full_run_extraction_ledger import (  # noqa: E402
+    ManagedFullRunExtractionContext,
+)
+from infinity_context_server.memory_comparison_managed_full_run_extraction_ledger import (  # noqa: E402
+    ManagedFullRunExtractionDispatch,
+    ManagedFullRunExtractionLedgerService,
+)
 from infinity_context_server.memory_comparison_mem0_oss_v5_contracts import (  # noqa: E402
     Mem0OssFullRunError,
     RuntimeReceiptVerificationContext,
@@ -179,10 +190,51 @@ def _authority(binding: object) -> Mem0V5ObservedExtractionReceiptAuthority:
     )
 
 
+def _scaled_authority(
+    binding: object,
+    count: int,
+) -> Mem0V5ObservedExtractionReceiptAuthority:
+    base = _authority(binding)
+    operations = tuple(
+        Mem0V5ObservedExtractionOperationAuthority(
+            operation_id_sha256=canonical_sha256(
+                {
+                    "admission_commitment_sha256": base.admission_commitment_sha256,
+                    "unit_index": sequence,
+                    "unit_identity_sha256": _sha(f"unit-identity-{sequence}"),
+                }
+            ),
+            unit_identity_sha256=_sha(f"unit-identity-{sequence}"),
+            unit_sha256=_sha(f"unit-{sequence}"),
+            scope_sha256=_sha(f"scope-{sequence}"),
+            sequence=sequence,
+            request_body_sha256=_sha(f"request-{sequence}"),
+        )
+        for sequence in range(count)
+    )
+    return replace(base, operations=operations)
+
+
 def _operation(
     authority: Mem0V5ObservedExtractionReceiptAuthority,
 ) -> Mem0V5ObservedExtractionOperationAuthority:
     return authority.operations[0]
+
+
+class _SingleExpectedOperation:
+    def __init__(self, operation_id_sha256: str, manifest_context_sha256: str) -> None:
+        self.operation_id_sha256 = operation_id_sha256
+        self.manifest_context_sha256 = manifest_context_sha256
+
+    def read_operation_page(
+        self,
+        *,
+        manifest_context_sha256: str,
+        start_sequence: int,
+    ) -> tuple[str, ...]:
+        assert manifest_context_sha256 == self.manifest_context_sha256
+        assert start_sequence == 0
+        return (self.operation_id_sha256,)
 
 
 def _verifier(
@@ -313,7 +365,8 @@ process.stdout.write(createHmac("sha256", secret).update(bytes).digest("hex"));
 
 
 def test_actual_phase_c_boundary_accepts_observed_provider_identity_once() -> None:
-    verifier, authority = _verifier()
+    binding = _binding()
+    verifier, authority = _verifier(binding=binding)
     receipt = _sign(_unsigned_receipt(authority))
 
     result = verifier.verify_dispatch_receipt(
@@ -324,6 +377,10 @@ def test_actual_phase_c_boundary_accepts_observed_provider_identity_once() -> No
     assert result.admission_commitment_sha256 == authority.admission_commitment_sha256
     assert result.operation_id_sha256 == _operation(authority).operation_id_sha256
     assert result.provider_receipt_sha256 != _sha("")
+    assert result.sequence == 0
+    assert result.request_body_sha256 == _operation(authority).request_body_sha256
+    assert result.output_text_sha256 == _sha("provider-output")
+    assert result.runtime_binding_commitment_sha256 == binding.commitment_sha256
     assert result.request_tokens == 11
     assert result.response_tokens == 5
     with pytest.raises(Mem0V5HttpError, match="mem0_v5_runtime_receipt_replayed"):
@@ -331,6 +388,104 @@ def test_actual_phase_c_boundary_accepts_observed_provider_identity_once() -> No
             payload=_envelope(authority, receipt),
             context=_context(authority, readback=False),
         )
+
+
+def test_scaled_authority_runtime_integrity_check_is_constant_per_operation(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    binding = _binding()
+    authority = _scaled_authority(binding, 5_882)
+    verifier = Mem0V5ObservedExtractionReceiptVerifier._for_provider_free_tests(
+        boundary=RuntimeReceiptV2Boundary(_DeterministicReceiptHmacVerifier()),
+        runtime_binding=binding,
+        receipt_secret=SECRET,
+        authority=authority,
+    )
+    operation = authority.operations[-1]
+    context = RuntimeReceiptVerificationContext(
+        admission_commitment_sha256=authority.admission_commitment_sha256,
+        operation_id_sha256=operation.operation_id_sha256,
+        unit_identity_sha256=operation.unit_identity_sha256,
+        unit_sha256=operation.unit_sha256,
+        route_sha256=authority.route_binding_sha256,
+        scope_sha256=operation.scope_sha256,
+        readback_only=False,
+    )
+    original_snapshot = observed_module._operation_snapshot
+    snapshot_calls = 0
+
+    def count_snapshot(
+        selected: Mem0V5ObservedExtractionOperationAuthority,
+    ) -> tuple[object, ...]:
+        nonlocal snapshot_calls
+        snapshot_calls += 1
+        return original_snapshot(selected)
+
+    monkeypatch.setattr(observed_module, "_operation_snapshot", count_snapshot)
+    verifier.mark_outcome_unknown(context=context)
+    assert snapshot_calls == 1
+
+    object.__setattr__(operation, "request_body_sha256", _sha("tampered-request"))
+    with pytest.raises(Mem0V5HttpError, match="mem0_v5_runtime_receipt_state_invalid"):
+        verifier.mark_outcome_unknown(context=context)
+
+
+def test_actual_phase_c_receipt_flows_into_authenticated_full_run_ledger(
+    tmp_path: Path,
+) -> None:
+    binding = _binding()
+    verifier, authority = _verifier(binding=binding)
+    operation = _operation(authority)
+    receipt = _sign(_unsigned_receipt(authority))
+    ledger = SQLiteManagedFullRunExtractionLedger.create(
+        tmp_path / "observed-full-run.sqlite3",
+        authentication_key=b"l" * 32,
+    )
+    service = ManagedFullRunExtractionLedgerService(
+        ledger=ledger,
+        expected_operations=_SingleExpectedOperation(
+            operation.operation_id_sha256,
+            _sha("a1-context"),
+        ),
+        receipt_verifier=verifier,
+    )
+    service.begin(
+        ManagedFullRunExtractionContext(
+            profile_id="managed-mem0-v5-publishable",
+            run_id_sha256=_sha("run"),
+            binding_commitment_sha256=_sha("binding"),
+            methodology_commitment_sha256=_sha("methodology"),
+            admission_commitment_sha256=authority.admission_commitment_sha256,
+            ingestion_root_sha256=_sha("ingestion"),
+            a1_terminal_commitment_sha256=_sha("a1-terminal"),
+            a1_manifest_context_sha256=_sha("a1-context"),
+            runtime_binding_commitment_sha256=binding.commitment_sha256,
+            expected_receipt_count=1,
+        )
+    )
+    service.verify_dispatch_page(
+        (
+            ManagedFullRunExtractionDispatch(
+                receipt_payload=_envelope(authority, receipt),
+                verification_context=_context(authority, readback=False),
+            ),
+        )
+    )
+    terminal = service.finalize()
+    assert terminal.receipt_count == 1
+    assert terminal.page_count == 1
+    assert terminal.prompt_tokens == 11
+    assert terminal.completion_tokens == 5
+    assert terminal.total_tokens == 16
+    service.close()
+
+    reopened = SQLiteManagedFullRunExtractionLedger.open(
+        tmp_path / "observed-full-run.sqlite3",
+        authentication_key=b"l" * 32,
+    )
+    assert reopened.readback() == terminal
+    assert operation.request_body_sha256 != _sha("provider-output")
+    reopened.close()
 
 
 @_requires_pinned_runtime
@@ -509,6 +664,28 @@ def test_node_hash_drift_is_rejected_before_secret_consumption(
     binding = _binding()
     _assert_e904_binding(binding)
     authority = replace(_authority(binding), node_executable_sha256=_sha("wrong-node"))
+    secret = _SecretConsumptionProbe()
+    boundary = RuntimeReceiptV2Boundary(
+        NodePublicReceiptVerifier(RUNTIME_REPO, node_executable=NODE_EXECUTABLE)
+    )
+
+    with pytest.raises(Mem0V5HttpError, match="mem0_v5_http_configuration_invalid"):
+        Mem0V5ObservedExtractionReceiptVerifier(
+            boundary=boundary,
+            runtime_binding=binding,
+            receipt_secret=secret,  # type: ignore[arg-type]
+            authority=authority,
+        )
+    assert secret.consumed is False
+
+
+@_requires_pinned_runtime
+def test_authority_and_verifier_node_path_mismatch_is_rejected_before_secret(
+    _real_phase_c_authority: None,
+) -> None:
+    binding = _binding()
+    _assert_e904_binding(binding)
+    authority = replace(_authority(binding), node_executable_path="/different/node")
     secret = _SecretConsumptionProbe()
     boundary = RuntimeReceiptV2Boundary(
         NodePublicReceiptVerifier(RUNTIME_REPO, node_executable=NODE_EXECUTABLE)

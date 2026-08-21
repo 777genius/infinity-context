@@ -25,6 +25,10 @@ from mem0_oss_adapter_v5.request_binding import (
     RequestBindingRequest,
     verify_request_binding,
 )
+from mem0_oss_adapter_v5.runtime_attestation import (
+    V5RuntimeAttestationAuthority,
+    V5RuntimeAuthorityProjection,
+)
 from mem0_oss_adapter_v5.source_authority import _issue_verified_source_authority
 from mem0_oss_adapter_v5.state_sqlite import SqliteOperationState
 from mem0_oss_adapter_v5.subscription_runtime import (
@@ -41,7 +45,8 @@ class _Runtime:
     def __init__(self) -> None:
         self.calls = 0
 
-    def extract(self, request, intent):
+    def extract(self, request, intent, *, before_dispatch, persist_result):
+        before_dispatch(intent)
         self.calls += 1
         memory = ExtractionMemory(
             id="0",
@@ -49,12 +54,14 @@ class _Runtime:
             attributed_to="user",
             linked_memory_ids=(),
         )
-        return RuntimeExtractionResult(
+        result = RuntimeExtractionResult(
             intent=intent,
             memories=(memory,),
             receipt=_issued_receipt(request.request_body_sha256),
             output_text_sha256=_sha("output"),
         )
+        persist_result(result)
+        return result
 
 
 def _issued_receipt(request_body_sha256: str):
@@ -152,23 +159,27 @@ def test_provider_free_dispatch_persists_once_and_status_only_reads_durable_resu
     runtime_binding = _sha("runtime-binding")
     runtime_source = _sha("runtime-source")
     runtime_route = _sha("runtime-route")
+    runtime_authority = V5RuntimeAuthorityProjection.issue(
+        source_authority=source_authority,
+        subscription_runtime_binding_commitment_sha256=runtime_binding,
+        runtime_source_sha256=runtime_source,
+        runtime_route_binding_sha256=runtime_route,
+        runtime_transport_origin_sha256=SUBSCRIPTION_RUNTIME_TRANSPORT_ORIGIN_SHA256,
+        expected_account_binding_hmac_sha256=_sha("account"),
+        expected_base_instructions_sha256=_sha("base"),
+    )
     storage = _Storage()
     service = V5AdapterService(
         manifest=manifest,
         state=state,
         runtime=runtime,
         receipt_authority=_Authority(),
-        expected_account_binding_hmac_sha256=_sha("account"),
-        expected_base_instructions_sha256=_sha("base"),
         storage=storage,
         receipt_directory=tmp_path / "receipts",
         result_hmac_key=b"r" * 32,
-        source_authority=source_authority,
-        runtime_binding_commitment_sha256=runtime_binding,
-        runtime_source_sha256=runtime_source,
-        runtime_route_binding_sha256=runtime_route,
-        runtime_transport_origin_sha256=SUBSCRIPTION_RUNTIME_TRANSPORT_ORIGIN_SHA256,
+        runtime_authority=runtime_authority,
     )
+    assert service._runtime_authority is runtime_authority
     admission_sha = _sha("admission")
     admission = AdmitRequest(
         admission_commitment_sha256=admission_sha,
@@ -179,6 +190,9 @@ def test_provider_free_dispatch_persists_once_and_status_only_reads_durable_resu
     )
     admission_receipt = service.admit(admission, idempotency_key=_sha("admit"))
     assert admission_receipt.accepted is True
+    assert admission_receipt.runtime_binding_commitment_sha256 == (
+        runtime_authority.runtime_binding_commitment_sha256
+    )
     assert (
         admission_receipt.runtime_binding_commitment_sha256
         == source_authority.binding_commitment(
@@ -229,7 +243,17 @@ def test_provider_free_dispatch_persists_once_and_status_only_reads_durable_resu
     assert binding.observation_date == unit["observation_date"]
     assert verify_request_binding(binding, result_hmac_key=b"r" * 32)
     body = binding_request.model_dump(mode="json")
-    response = TestClient(create_app(service=service, bearer_token=_TOKEN)).post(
+    attestation = V5RuntimeAttestationAuthority(
+        projection=runtime_authority,
+        root_secret=b"a" * 32,
+    )
+    response = TestClient(
+        create_app(
+            service=service,
+            bearer_token=_TOKEN,
+            runtime_attestation_authority=attestation,
+        )
+    ).post(
         "/v5/operations/request-binding",
         json=body,
         headers=_headers(body),

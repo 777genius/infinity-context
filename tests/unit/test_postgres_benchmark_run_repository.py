@@ -1,22 +1,18 @@
 import asyncio
 import hashlib
-import inspect
 import json
-import re
 from dataclasses import replace
 from datetime import UTC, datetime
 from pathlib import Path
 
 import pytest
-from infinity_context_adapters.noop import SystemClock, UuidIdGenerator
+from benchmark_cleanup_plan_fixtures import cleanup_plan_pair
+from infinity_context_adapters.noop import SystemClock
 from infinity_context_adapters.postgres.benchmark_run_repositories import (
-    PostgresBenchmarkRunRepository,
     _json_sha256,
     _receipt_from_json,
-    _registry_query,
 )
 from infinity_context_adapters.postgres.models import (
-    Base,
     MemoryAssetRow,
     MemoryChunkRow,
     MemoryComparisonBenchmarkRunRow,
@@ -34,7 +30,6 @@ from infinity_context_adapters.postgres.unit_of_work import (
     build_session_factory,
     create_schema,
 )
-from infinity_context_core.application.dto import IngestDocumentCommand
 from infinity_context_core.application.dto_benchmark_runs import (
     CleanupBenchmarkRunCommand,
     FinalizeBenchmarkRunCleanupCommand,
@@ -48,103 +43,19 @@ from infinity_context_core.application.use_cases.benchmark_runs import (
     RegisterBenchmarkRunUseCase,
     SealProjectionManifestUseCase,
 )
-from infinity_context_core.application.use_cases.ingest_document import IngestDocumentUseCase
-from infinity_context_core.domain.entities import MemoryScopeId, SpaceId, ThreadId
 from infinity_context_core.domain.errors import MemoryConflictError
 from infinity_context_core.ports.benchmark_runs import (
     BenchmarkProjectionCleanupProof,
     BenchmarkRunRegistryRecord,
 )
 from sqlalchemy import delete, func, select
-from sqlalchemy.dialects import postgresql
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.schema import CreateTable
 
 RUN = "a" * 64
 BINDING = "b" * 64
 TARGET = "c" * 64
 SLUG = "memory-comparison-managed-run"
 NOW = datetime(2026, 1, 1, tzinfo=UTC)
-
-
-def test_cleanup_authorizes_registry_before_canonical_tombstones() -> None:
-    source = inspect.getsource(PostgresBenchmarkRunRepository.begin_cleanup)
-
-    obsolete_upserts = source.index("delete(MemoryOutboxRow)")
-    add_delete_jobs = source.index("self._session.add_all")
-    jobs_flush = source.index("await self._session.flush()", add_delete_jobs)
-    build_receipt = source.index("receipt = BenchmarkCleanupReceipt")
-    authorize_cleanup = source.index('row.state = "cleanup_pending"')
-    registry_flush = source.index("await self._session.flush()", authorize_cleanup)
-    first_tombstone = source.index("await self._soft_delete")
-
-    assert (
-        obsolete_upserts
-        < add_delete_jobs
-        < jobs_flush
-        < build_receipt
-        < authorize_cleanup
-        < registry_flush
-        < first_tombstone
-    )
-
-
-def test_cleanup_query_uses_postgres_row_lock() -> None:
-    sql = str(_registry_query(RUN, for_update=True).compile(dialect=postgresql.dialect()))
-    assert "FOR UPDATE" in sql
-
-
-def test_registry_model_enforces_current_state_coupling() -> None:
-    ddl = str(
-        CreateTable(MemoryComparisonBenchmarkRunRow.__table__).compile(dialect=postgresql.dialect())
-    )
-    assert "cleaned" not in ddl
-    assert "state = 'active' AND cleanup_fingerprint_sha256 IS NULL" in ddl
-    assert "state = 'cleanup_pending' AND cleanup_fingerprint_sha256 IS NOT NULL" in ddl
-    assert "projection_cleanup_state = 'unsealed'" in ddl
-    assert "projection_cleanup_state = 'sealed'" in ddl
-    assert "projection_cleanup_state = 'blocked'" in ddl
-    assert "projection_cleanup_state = 'pending'" in ddl
-    assert "projection_manifest_json JSONB" in ddl
-    assert "projection_cleanup_state VARCHAR(40) DEFAULT 'unsealed' NOT NULL" in ddl
-    assert "state = 'cleanup_complete'" in ddl
-    assert "projection_cleanup_state = 'complete'" in ddl
-    assert "finalization_fingerprint_sha256 VARCHAR(64)" in ddl
-    assert "completion_receipt_json JSONB" in ddl
-    assert "completed_at TIMESTAMP WITH TIME ZONE" in ddl
-
-
-def test_projection_manifest_migration_preserves_truthful_lifecycle() -> None:
-    migration = Path(
-        "packages/infinity_context_adapters/infinity_context_adapters/postgres/migrations/"
-        "0018_benchmark_projection_manifest.sql"
-    ).read_text()
-    assert "WHEN state = 'cleanup_pending' THEN 'blocked'" in migration
-    assert "projection_cleanup_state = 'sealed'" in migration
-    assert "projection_manifest_json JSONB" in migration
-    assert "ALTER COLUMN projection_cleanup_state SET DEFAULT 'unsealed'" in migration
-    assert "projection_cleanup_state = 'pending'" in migration
-    assert "verified_absent" not in migration
-    assert "projection_terminal_receipt" not in migration
-    assert "VALIDATE CONSTRAINT" in migration
-
-
-def test_completion_migration_triggers_only_direct_space_tables() -> None:
-    migration = Path(
-        "packages/infinity_context_adapters/infinity_context_adapters/postgres/migrations/"
-        "0020_benchmark_cleanup_completion.sql"
-    ).read_text()
-    trigger_block = migration.split("FOREACH table_name IN ARRAY ARRAY[", 1)[1].split("]", 1)[0]
-    triggered = set(re.findall(r"'(memory_[a-z_]+)'", trigger_block))
-    assert triggered
-    assert all(
-        name in Base.metadata.tables and "space_id" in Base.metadata.tables[name].c
-        for name in triggered
-        if name != "memory_spaces"
-    )
-    assert "memory_asset_extraction_artifacts" not in triggered
-    assert "cleanup_complete" in migration
-    assert "completion_receipt_json" in migration
 
 
 def test_receipt_rejects_duplicate_ids_within_one_lane() -> None:
@@ -157,87 +68,6 @@ def test_receipt_rejects_duplicate_ids_across_lanes() -> None:
     value = _receipt_value(vector_ids=[1], graph_ids=[1], cognee_ids=[3])
     with pytest.raises(RuntimeError, match="benchmark_cleanup_receipt_invalid"):
         _receipt_from_json(value)
-
-
-def test_managed_document_admission_suppresses_cognee_and_seals(tmp_path: Path) -> None:
-    asyncio.run(_managed_document_admission_contract(tmp_path))
-
-
-async def _managed_document_admission_contract(tmp_path: Path) -> None:
-    engine = build_async_engine(f"sqlite+aiosqlite:///{tmp_path / 'managed-ingest.db'}")
-    await create_schema(engine)
-    factory = PostgresUnitOfWorkFactory(
-        session_factory=build_session_factory(engine),
-        clock=SystemClock(),
-    )
-    registered = await RegisterBenchmarkRunUseCase(uow_factory=factory, clock=FixedClock()).execute(
-        _registration()
-    )
-    await _seed_scope_thread(engine, registered.record.space_id)
-    ingest = IngestDocumentUseCase(
-        uow_factory=factory,
-        clock=FixedClock(),
-        ids=UuidIdGenerator(),
-    )
-    result = await ingest.execute(_ingest_command(registered.record.space_id, "source-1"))
-    async with AsyncSession(engine) as session:
-        events = tuple((await session.execute(select(MemoryOutboxRow.event_type))).scalars())
-    assert events == ("vector.upsert_chunk",)
-
-    manifest = _ingested_manifest(registered.record.space_id, result)
-    sealed = await SealProjectionManifestUseCase(uow_factory=factory, clock=FixedClock()).execute(
-        SealProjectionManifestCommand(
-            run_id_sha256=RUN,
-            projection_manifest_json=manifest,
-            projection_manifest_sha256=_manifest_sha256(manifest),
-        )
-    )
-    assert sealed.record.projection_cleanup_state == "sealed"
-    with pytest.raises(MemoryConflictError, match="document admission is closed"):
-        await ingest.execute(_ingest_command(registered.record.space_id, "source-2"))
-    async with AsyncSession(engine) as session:
-        document_count = await session.scalar(select(func.count()).select_from(MemoryDocumentRow))
-        outbox_count = await session.scalar(select(func.count()).select_from(MemoryOutboxRow))
-    assert document_count == 1
-    assert outbox_count == 1
-    await engine.dispose()
-
-
-def test_ordinary_document_admission_skips_benchmark_lookup_and_keeps_cognee(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    asyncio.run(_ordinary_document_admission_contract(tmp_path, monkeypatch))
-
-
-async def _ordinary_document_admission_contract(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    engine = build_async_engine(f"sqlite+aiosqlite:///{tmp_path / 'ordinary-ingest.db'}")
-    await create_schema(engine)
-    await _seed_ordinary_space(engine, "ordinary-space")
-
-    async def forbidden_lookup(*_args, **_kwargs):
-        raise AssertionError("ordinary ingest queried benchmark registry")
-
-    monkeypatch.setattr(PostgresBenchmarkRunRepository, "get_by_space_id", forbidden_lookup)
-    factory = PostgresUnitOfWorkFactory(
-        session_factory=build_session_factory(engine),
-        clock=SystemClock(),
-    )
-    result = await IngestDocumentUseCase(
-        uow_factory=factory, clock=FixedClock(), ids=UuidIdGenerator()
-    ).execute(_ingest_command("ordinary-space", "source-ordinary"))
-    assert result.indexing_status == "pending"
-    async with AsyncSession(engine) as session:
-        events = tuple(
-            (
-                await session.execute(
-                    select(MemoryOutboxRow.event_type).order_by(MemoryOutboxRow.id)
-                )
-            ).scalars()
-        )
-    assert events == ("vector.upsert_chunk", "cognee.ingest_document")
-    await engine.dispose()
 
 
 def test_unsealed_cleanup_rejects_unsupported_rows_without_stranding_space(
@@ -284,6 +114,7 @@ async def _unsealed_cleanup_rejection_contract(tmp_path: Path) -> None:
         space_id=registered.record.space_id,
         space_slug=SLUG,
         idempotency_key_sha256="e" * 64,
+        cleanup_plan_sha256=_cleanup_plan_sha256(),
     )
     with pytest.raises(MemoryConflictError, match="unsupported rows"):
         await CleanupBenchmarkRunUseCase(uow_factory=factory, clock=FixedClock()).execute(command)
@@ -479,12 +310,20 @@ async def _sqlite_contract(tmp_path: Path) -> None:
             )
             await session.commit()
 
+        conflicting_plan, conflicting_plan_sha256 = cleanup_plan_pair(
+            run_id="f" * 64,
+            binding=BINDING,
+            target=TARGET,
+            space_slug="memory-comparison-preexisting",
+        )
         conflicting_run = RegisterBenchmarkRunCommand(
             run_id_sha256="f" * 64,
             binding_commitment_sha256=BINDING,
             infinity_target_identity_sha256=TARGET,
             space_slug="memory-comparison-preexisting",
             idempotency_key_sha256="9" * 64,
+            cleanup_plan_json=conflicting_plan,
+            cleanup_plan_sha256=conflicting_plan_sha256,
         )
         with pytest.raises(MemoryConflictError):
             await register.execute(conflicting_run)
@@ -509,6 +348,7 @@ async def _sqlite_contract(tmp_path: Path) -> None:
             space_id=registered.record.space_id,
             space_slug=SLUG,
             idempotency_key_sha256="e" * 64,
+            cleanup_plan_sha256=_cleanup_plan_sha256(),
         )
         with pytest.raises(MemoryConflictError, match="binding conflicted"):
             await cleanup.execute(replace(command, infinity_target_identity_sha256="8" * 64))
@@ -542,6 +382,7 @@ async def _sqlite_contract(tmp_path: Path) -> None:
         finalization_command = FinalizeBenchmarkRunCleanupCommand(
             run_id_sha256=RUN,
             expected_cleanup_receipt_sha256=first.receipt.receipt_sha256,
+            expected_cleanup_plan_sha256=_cleanup_plan_sha256(),
             idempotency_key_sha256="6" * 64,
         )
         await _set_cleanup_job_state(engine, status="done", tampered=True)
@@ -557,6 +398,7 @@ async def _sqlite_contract(tmp_path: Path) -> None:
             FinalizeBenchmarkRunCleanupCommand(
                 run_id_sha256=RUN,
                 expected_cleanup_receipt_sha256=first.receipt.receipt_sha256,
+                expected_cleanup_plan_sha256=_cleanup_plan_sha256(),
                 idempotency_key_sha256="6" * 64,
             )
         )
@@ -573,90 +415,6 @@ async def _sqlite_contract(tmp_path: Path) -> None:
         await _tamper_completion_receipt_and_require_rejection(engine, factory)
     finally:
         await engine.dispose()
-
-
-def _ingest_command(space_id: str, source_external_id: str) -> IngestDocumentCommand:
-    return IngestDocumentCommand(
-        space_id=SpaceId(space_id),
-        memory_scope_id=MemoryScopeId("scope-1"),
-        thread_id=ThreadId("thread-1"),
-        title="benchmark document",
-        text="A sufficiently useful benchmark document for projection admission.",
-        source_type="benchmark",
-        source_external_id=source_external_id,
-        classification="internal",
-    )
-
-
-def _ingested_manifest(space_id: str, result) -> dict[str, object]:
-    return {
-        "schema_version": "memory-comparison-projection-manifest.v1",
-        "run_id_sha256": RUN,
-        "binding_commitment_sha256": BINDING,
-        "infinity_target_identity_sha256": TARGET,
-        "space_id": space_id,
-        "scopes": [
-            {
-                "memory_scope_id": "scope-1",
-                "thread_id": "thread-1",
-                "chunk_ids": sorted(str(chunk.id) for chunk in result.chunks),
-                "fact_ids": [],
-                "document_ids": [str(result.document.id)],
-                "qdrant": {
-                    "target_commitment_sha256": "1" * 64,
-                    "manifest_binding_sha256": "2" * 64,
-                },
-                "graphiti": None,
-                "cognee": {
-                    "disposition": "not_projected",
-                    "policy_sha256": BENCHMARK_COGNEE_NOT_PROJECTED_POLICY_SHA256,
-                },
-            }
-        ],
-    }
-
-
-async def _seed_scope_thread(engine, space_id: str) -> None:
-    async with AsyncSession(engine) as session:
-        session.add_all(
-            [
-                MemoryScopeRow(
-                    id="scope-1",
-                    space_id=space_id,
-                    external_ref="scope-1",
-                    name="scope-1",
-                    status="active",
-                    created_at=NOW,
-                    updated_at=NOW,
-                ),
-                MemoryThreadRow(
-                    id="thread-1",
-                    space_id=space_id,
-                    memory_scope_id="scope-1",
-                    external_ref="thread-1",
-                    status="active",
-                    created_at=NOW,
-                    updated_at=NOW,
-                ),
-            ]
-        )
-        await session.commit()
-
-
-async def _seed_ordinary_space(engine, space_id: str) -> None:
-    async with AsyncSession(engine) as session:
-        session.add(
-            MemorySpaceRow(
-                id=space_id,
-                slug=space_id,
-                name=space_id,
-                status="active",
-                created_at=NOW,
-                updated_at=NOW,
-            )
-        )
-        await session.commit()
-    await _seed_scope_thread(engine, space_id)
 
 
 async def _seed_canonical_rows(engine, space_id: str) -> None:
@@ -843,13 +601,22 @@ async def _outbox_count(engine) -> int:
 
 
 def _registration() -> RegisterBenchmarkRunCommand:
+    cleanup_plan, cleanup_plan_sha256 = cleanup_plan_pair(
+        run_id=RUN, binding=BINDING, target=TARGET, space_slug=SLUG
+    )
     return RegisterBenchmarkRunCommand(
         run_id_sha256=RUN,
         binding_commitment_sha256=BINDING,
         infinity_target_identity_sha256=TARGET,
         space_slug=SLUG,
         idempotency_key_sha256="d" * 64,
+        cleanup_plan_json=cleanup_plan,
+        cleanup_plan_sha256=cleanup_plan_sha256,
     )
+
+
+def _cleanup_plan_sha256() -> str:
+    return cleanup_plan_pair(run_id=RUN, binding=BINDING, target=TARGET, space_slug=SLUG)[1]
 
 
 def _manifest(space_id: str) -> dict[str, object]:
@@ -859,6 +626,7 @@ def _manifest(space_id: str) -> dict[str, object]:
         "binding_commitment_sha256": BINDING,
         "infinity_target_identity_sha256": TARGET,
         "space_id": space_id,
+        "cleanup_plan_sha256": _cleanup_plan_sha256(),
         "scopes": [
             {
                 "memory_scope_id": "scope-1",

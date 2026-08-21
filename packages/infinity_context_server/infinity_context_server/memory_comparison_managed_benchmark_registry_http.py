@@ -3,15 +3,19 @@
 from __future__ import annotations
 
 import threading
-from collections.abc import Callable
 from contextlib import suppress
 from dataclasses import dataclass
-from datetime import datetime
 from typing import final
 
 import httpx
 from infinity_context_core.application.use_cases.benchmark_runs import (
     validate_projection_manifest,
+)
+from infinity_context_core.ports.benchmark_cleanup_plan import (
+    ManagedBenchmarkCleanupPlan,
+    ManagedBenchmarkCleanupTargetAuthority,
+    validate_managed_benchmark_cleanup_plan,
+    validate_managed_benchmark_cleanup_target_authority,
 )
 
 from infinity_context_server.memory_comparison_managed_benchmark_registry_abort_http import (
@@ -28,6 +32,7 @@ from infinity_context_server.memory_comparison_managed_benchmark_registry_contra
     ManagedBenchmarkPersistedCleanupReceipt,
     ManagedBenchmarkPersistedCompletionReceipt,
     ManagedBenchmarkProjectionSeal,
+    ManagedBenchmarkRecoveryAuthorityTransfer,
     ManagedBenchmarkRegistryHttpConfig,
     ManagedBenchmarkRegistryHttpError,
     ManagedBenchmarkRunLifecycleSnapshot,
@@ -45,14 +50,22 @@ from infinity_context_server.memory_comparison_managed_benchmark_registry_contra
 from infinity_context_server.memory_comparison_managed_benchmark_registry_recovery_http import (
     recover_lifecycle as _recover_lifecycle,
 )
+from infinity_context_server.memory_comparison_managed_benchmark_registry_recovery_http import (
+    recover_lifecycle_or_missing as _recover_lifecycle_or_missing,
+)
+from infinity_context_server.memory_comparison_managed_benchmark_registry_transfer import (
+    relinquish_recovery_authority as _relinquish_recovery_authority,
+)
+from infinity_context_server.memory_comparison_managed_benchmark_registry_transport import (
+    close_registry_transport,
+    request_registry_json,
+)
 from infinity_context_server.memory_comparison_managed_benchmark_registry_wire import (
     fresh_io_deadline,
     parse_cleanup_completion_receipt,
     parse_cleanup_receipt,
     parse_projection_seal,
     parse_registration,
-    read_json_envelope,
-    remaining_io_timeout,
 )
 
 _CLEANUP_READY_PHASES = frozenset({"registered", "sealed", "seal_outcome_unknown"})
@@ -83,6 +96,7 @@ class _RegistrationAttempt:
     binding_commitment_sha256: str
     space_slug: str
     idempotency_key: str
+    cleanup_plan_sha256: str
 
 
 @dataclass(frozen=True, slots=True)
@@ -108,7 +122,7 @@ class ManagedBenchmarkRegistryHttpAdapter:
     A successful registration grants cleanup authority immediately. If the seal PUT
     fails or an HTTP outcome cannot be verified, exact same-key recovery remains
     available through fresh bounded cleanup/recovery attempts. Nonterminal close is
-    refused with a fixed cleanup-required code, leaving the client open for recovery.
+    refused with a fixed cleanup-required code until exact recovery authority is transferred.
     """
 
     __slots__ = (
@@ -132,6 +146,7 @@ class ManagedBenchmarkRegistryHttpAdapter:
         "_registration_attempt",
         "_seal_attempt_sha256",
     )
+    _request = request_registry_json
 
     def __init__(self, config: ManagedBenchmarkRegistryHttpConfig) -> None:
         if type(config) is not ManagedBenchmarkRegistryHttpConfig:
@@ -244,6 +259,7 @@ class ManagedBenchmarkRegistryHttpAdapter:
         run_id_sha256: str,
         binding_commitment_sha256: str,
         space_slug: str,
+        cleanup_plan: ManagedBenchmarkCleanupPlan,
         idempotency_key: str | None = None,
     ) -> ManagedBenchmarkRunRegistration:
         run_id = digest(run_id_sha256, "managed_benchmark_registry_registration_invalid")
@@ -255,6 +271,19 @@ class ManagedBenchmarkRegistryHttpAdapter:
             space_slug,
             "managed_benchmark_registry_registration_invalid",
         )
+        if type(cleanup_plan) is not ManagedBenchmarkCleanupPlan:
+            fail("managed_benchmark_registry_registration_invalid")
+        try:
+            plan = validate_managed_benchmark_cleanup_plan(
+                cleanup_plan.value,
+                cleanup_plan.sha256,
+                run_id_sha256=run_id,
+                binding_commitment_sha256=binding,
+                infinity_target_identity_sha256=self._config.target_identity_sha256,
+                space_slug=slug,
+            )
+        except Exception:
+            fail("managed_benchmark_registry_registration_invalid")
         key = _validated_idempotency_key(
             idempotency_key,
             operation="register",
@@ -262,7 +291,7 @@ class ManagedBenchmarkRegistryHttpAdapter:
             binding_commitment_sha256=binding,
             target_identity_sha256=self._config.target_identity_sha256,
         )
-        attempt = _RegistrationAttempt(run_id, binding, slug, key)
+        attempt = _RegistrationAttempt(run_id, binding, slug, key, plan.sha256)
         recovering = self._reserve_registration(attempt)
         dispatched = False
 
@@ -271,15 +300,18 @@ class ManagedBenchmarkRegistryHttpAdapter:
             dispatched = True
 
         try:
-            data, status = self._request(
+            data, status = request_registry_json(
+                self,
                 "POST",
                 REGISTRY_RUNS_PATH,
                 payload={
-                    "schema_version": "memory-comparison-run-registration.v1",
+                    "schema_version": "memory-comparison-run-registration.v2",
                     "run_id_sha256": run_id,
                     "binding_commitment_sha256": binding,
                     "infinity_target_identity_sha256": self._config.target_identity_sha256,
                     "space_slug": slug,
+                    "cleanup_plan": plan.value,
+                    "cleanup_plan_sha256": plan.sha256,
                 },
                 idempotency_key=key,
                 accepted_statuses=frozenset({200, 201}),
@@ -300,6 +332,7 @@ class ManagedBenchmarkRegistryHttpAdapter:
                 binding_commitment_sha256=binding,
                 target_identity_sha256=self._config.target_identity_sha256,
                 space_slug=slug,
+                cleanup_plan_sha256=plan.sha256,
             )
         except BaseException:
             if dispatched:
@@ -326,8 +359,34 @@ class ManagedBenchmarkRegistryHttpAdapter:
                 run_id_sha256=run_id,
                 binding_commitment_sha256=binding,
                 space_slug=slug,
+                cleanup_plan_sha256=plan.sha256,
             )
         return registration
+
+    def prepare_cleanup_target_authority(self) -> ManagedBenchmarkCleanupTargetAuthority:
+        with self._lock:
+            if self._phase != "ready":
+                fail("managed_benchmark_registry_lifecycle_invalid")
+        data, _ = request_registry_json(
+            self,
+            "POST",
+            f"{REGISTRY_RUNS_PATH}/cleanup-target-authority",
+            payload={
+                "schema_version": "memory-comparison-cleanup-target-authority-request.v1",
+                "infinity_target_identity_sha256": self._config.target_identity_sha256,
+            },
+            idempotency_key=None,
+            accepted_statuses=frozenset({200}),
+            deadline=self._config.benchmark_deadline,
+            on_dispatch=lambda: None,
+        )
+        try:
+            return validate_managed_benchmark_cleanup_target_authority(
+                data,
+                infinity_target_identity_sha256=self._config.target_identity_sha256,
+            )
+        except Exception:
+            fail("managed_benchmark_registry_registration_invalid")
 
     def recover_lifecycle(
         self,
@@ -335,6 +394,7 @@ class ManagedBenchmarkRegistryHttpAdapter:
         run_id_sha256: str,
         binding_commitment_sha256: str,
         space_slug: str,
+        cleanup_plan_sha256: str,
     ) -> ManagedBenchmarkRunLifecycleSnapshot:
         """Recover one canonical lifecycle after a process restart or lost GET."""
 
@@ -343,6 +403,25 @@ class ManagedBenchmarkRegistryHttpAdapter:
             run_id_sha256=run_id_sha256,
             binding_commitment_sha256=binding_commitment_sha256,
             space_slug=space_slug,
+            cleanup_plan_sha256=cleanup_plan_sha256,
+        )
+
+    def recover_lifecycle_or_missing(
+        self,
+        *,
+        run_id_sha256: str,
+        binding_commitment_sha256: str,
+        space_slug: str,
+        cleanup_plan_sha256: str,
+    ) -> ManagedBenchmarkRunLifecycleSnapshot | None:
+        """Return None only for an authenticated exact lifecycle 404."""
+
+        return _recover_lifecycle_or_missing(
+            self,
+            run_id_sha256=run_id_sha256,
+            binding_commitment_sha256=binding_commitment_sha256,
+            space_slug=space_slug,
+            cleanup_plan_sha256=cleanup_plan_sha256,
         )
 
     def seal_projection_manifest(
@@ -364,6 +443,7 @@ class ManagedBenchmarkRegistryHttpAdapter:
                 binding_commitment_sha256=registration.binding_commitment_sha256,
                 infinity_target_identity_sha256=registration.infinity_target_identity_sha256,
                 space_id=registration.space_id,
+                cleanup_plan_sha256=registration.cleanup_plan_sha256,
             )
         except Exception:
             fail("managed_benchmark_registry_manifest_invalid")
@@ -375,7 +455,8 @@ class ManagedBenchmarkRegistryHttpAdapter:
             dispatched = True
 
         try:
-            data, _ = self._request(
+            data, _ = request_registry_json(
+                self,
                 "PUT",
                 f"{REGISTRY_RUNS_PATH}/{registration.run_id_sha256}/projection-manifest",
                 payload={
@@ -431,17 +512,19 @@ class ManagedBenchmarkRegistryHttpAdapter:
             dispatched = True
 
         try:
-            data, _ = self._request(
+            data, _ = request_registry_json(
+                self,
                 "DELETE",
                 f"{REGISTRY_RUNS_PATH}/{registration.run_id_sha256}",
                 payload={
-                    "schema_version": "memory-comparison-run-cleanup.v1",
+                    "schema_version": "memory-comparison-run-cleanup.v2",
                     "binding_commitment_sha256": registration.binding_commitment_sha256,
                     "infinity_target_identity_sha256": (
                         registration.infinity_target_identity_sha256
                     ),
                     "space_id": registration.space_id,
                     "space_slug": registration.space_slug,
+                    "cleanup_plan_sha256": registration.cleanup_plan_sha256,
                 },
                 idempotency_key=key,
                 accepted_statuses=frozenset({200}),
@@ -495,12 +578,14 @@ class ManagedBenchmarkRegistryHttpAdapter:
             dispatched = True
 
         try:
-            data, _ = self._request(
+            data, _ = request_registry_json(
+                self,
                 "POST",
                 (f"{REGISTRY_RUNS_PATH}/{registration.run_id_sha256}/cleanup/finalize"),
                 payload={
                     "schema_version": FINALIZE_CLEANUP_REQUEST_SCHEMA_VERSION,
                     "receipt_sha256": initiation_digest,
+                    "cleanup_plan_sha256": registration.cleanup_plan_sha256,
                 },
                 idempotency_key=key,
                 accepted_statuses=frozenset({200}),
@@ -552,6 +637,26 @@ class ManagedBenchmarkRegistryHttpAdapter:
             fail("managed_benchmark_registry_cleanup_required")
         self._close_client(suppress_failure=False)
 
+    def relinquish_recovery_authority(
+        self,
+        *,
+        run_id_sha256: str,
+        binding_commitment_sha256: str,
+        infinity_target_identity_sha256: str,
+        space_slug: str,
+        cleanup_plan_sha256: str,
+    ) -> ManagedBenchmarkRecoveryAuthorityTransfer:
+        """Close this client after durable transfer of its exact recovery identity."""
+
+        return _relinquish_recovery_authority(
+            self,
+            run_id_sha256=run_id_sha256,
+            binding_commitment_sha256=binding_commitment_sha256,
+            infinity_target_identity_sha256=infinity_target_identity_sha256,
+            space_slug=space_slug,
+            cleanup_plan_sha256=cleanup_plan_sha256,
+        )
+
     def __enter__(self) -> ManagedBenchmarkRegistryHttpAdapter:
         return self
 
@@ -569,62 +674,6 @@ class ManagedBenchmarkRegistryHttpAdapter:
                 self._close_client(suppress_failure=True)
             return
         self.close()
-
-    def _request(
-        self,
-        method: str,
-        path: str,
-        *,
-        payload: dict[str, object] | None,
-        idempotency_key: str | None,
-        accepted_statuses: frozenset[int],
-        deadline: datetime,
-        on_dispatch: Callable[[], None],
-    ) -> tuple[dict[str, object], int]:
-        timeout = remaining_io_timeout(
-            deadline=deadline,
-            timeout_seconds=float(self._config.timeout_seconds),
-            clock=self._config.clock,
-        )
-        headers = {"Idempotency-Key": idempotency_key} if idempotency_key else None
-        url = f"{self._config.base_url.rstrip('/')}/{path}"
-        try:
-            on_dispatch()
-            response_context = (
-                self._client.stream(
-                    method,
-                    url,
-                    headers=headers,
-                    timeout=timeout,
-                )
-                if payload is None
-                else self._client.stream(
-                    method,
-                    url,
-                    json=payload,
-                    headers=headers,
-                    timeout=timeout,
-                )
-            )
-            with response_context as response:
-                if response.status_code not in accepted_statuses:
-                    fail("managed_benchmark_registry_response_rejected")
-                data = read_json_envelope(
-                    response,
-                    deadline=deadline,
-                    clock=self._config.clock,
-                )
-                status = response.status_code
-        except ManagedBenchmarkRegistryHttpError:
-            raise
-        except KeyboardInterrupt:
-            raise KeyboardInterrupt() from None
-        except SystemExit as error:
-            safe_code = error.code if type(error.code) is int or error.code is None else 1
-            raise SystemExit(safe_code) from None
-        except BaseException:
-            fail("managed_benchmark_registry_request_failed")
-        return data, status
 
     def _registration_for(
         self,
@@ -818,23 +867,7 @@ class ManagedBenchmarkRegistryHttpAdapter:
         self._close_client(suppress_failure=True)
 
     def _close_client(self, *, suppress_failure: bool) -> None:
-        with self._lock:
-            if self._close_attempted:
-                return
-            self._close_attempted = True
-        try:
-            self._client.close()
-        except BaseException as error:
-            with self._lock:
-                self._close_warning_code = "managed_benchmark_registry_close_failed"
-            if suppress_failure:
-                return
-            if isinstance(error, KeyboardInterrupt):
-                raise KeyboardInterrupt() from None
-            if isinstance(error, SystemExit):
-                safe_code = error.code if type(error.code) is int or error.code is None else 1
-                raise SystemExit(safe_code) from None
-            fail("managed_benchmark_registry_close_failed")
+        close_registry_transport(self, suppress_failure=suppress_failure)
 
 
 __all__ = (
@@ -846,6 +879,7 @@ __all__ = (
     "ManagedBenchmarkPersistedAbortReceipt",
     "ManagedBenchmarkPersistedCompletionReceipt",
     "ManagedBenchmarkProjectionSeal",
+    "ManagedBenchmarkRecoveryAuthorityTransfer",
     "ManagedBenchmarkRunLifecycleSnapshot",
     "ManagedBenchmarkRegistryHttpAdapter",
     "ManagedBenchmarkRegistryHttpConfig",

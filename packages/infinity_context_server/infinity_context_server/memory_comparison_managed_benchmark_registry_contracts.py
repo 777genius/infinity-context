@@ -16,11 +16,11 @@ from infinity_context_server.memory_comparison_managed_preflight import (
     managed_backend_target_identity_sha256,
 )
 
-REGISTRATION_SCHEMA_VERSION = "memory-comparison-run-registration-response.v1"
-FINALIZE_CLEANUP_REQUEST_SCHEMA_VERSION = "memory-comparison-run-cleanup-finalize.v1"
+REGISTRATION_SCHEMA_VERSION = "memory-comparison-run-registration-response.v2"
+FINALIZE_CLEANUP_REQUEST_SCHEMA_VERSION = "memory-comparison-run-cleanup-finalize.v2"
 FINALIZE_CLEANUP_RESPONSE_SCHEMA_VERSION = "memory-comparison-run-cleanup-finalize-response.v1"
-FINALIZE_ABORT_REQUEST_SCHEMA_VERSION = "memory-comparison-run-abort-finalize.v1"
-FINALIZE_ABORT_RESPONSE_SCHEMA_VERSION = "memory-comparison-run-abort-finalize-response.v1"
+FINALIZE_ABORT_REQUEST_SCHEMA_VERSION = "memory-comparison-run-abort-finalize.v2"
+FINALIZE_ABORT_RESPONSE_SCHEMA_VERSION = "memory-comparison-run-abort-finalize-response.v2"
 REGISTRY_RUNS_PATH = "v1/internal/memory-comparison/runs"
 
 _SHA256 = re.compile(r"^[0-9a-f]{64}$")
@@ -119,6 +119,8 @@ class ManagedBenchmarkRunRegistration:
     space_slug: str
     state: str
     created: bool
+    cleanup_plan_sha256: str
+    cleanup_plan_state: Literal["sealed"]
 
     def __post_init__(self) -> None:
         if (
@@ -137,6 +139,7 @@ class ManagedBenchmarkRunRegistration:
                     self.run_id_sha256,
                     self.binding_commitment_sha256,
                     self.infinity_target_identity_sha256,
+                    self.cleanup_plan_sha256,
                 )
             )
             or type(self.space_id) is not str
@@ -144,12 +147,64 @@ class ManagedBenchmarkRunRegistration:
             or type(self.space_slug) is not str
             or _SPACE_SLUG.fullmatch(self.space_slug) is None
             or type(self.created) is not bool
+            or self.cleanup_plan_state != "sealed"
         ):
             fail("managed_benchmark_registry_registration_response_invalid")
 
     def __init_subclass__(cls, **kwargs: object) -> None:
         del cls, kwargs
         raise TypeError("ManagedBenchmarkRunRegistration is final")
+
+
+@final
+@dataclass(frozen=True, slots=True)
+class ManagedBenchmarkRecoveryAuthorityTransfer:
+    """Non-secret authority transfer receipt, including transport-close disposition."""
+
+    schema_version: str
+    run_id_sha256: str
+    binding_commitment_sha256: str
+    infinity_target_identity_sha256: str
+    space_slug: str
+    cleanup_plan_sha256: str
+    prior_phase: str
+    transport_close_confirmed: bool
+    transport_close_warning: str | None
+
+    def __post_init__(self) -> None:
+        if (
+            self.schema_version != "memory-comparison-benchmark-recovery-authority-transfer.v2"
+            or any(
+                type(value) is not str or _SHA256.fullmatch(value) is None
+                for value in (
+                    self.run_id_sha256,
+                    self.binding_commitment_sha256,
+                    self.infinity_target_identity_sha256,
+                    self.cleanup_plan_sha256,
+                )
+            )
+            or type(self.space_slug) is not str
+            or _SPACE_SLUG.fullmatch(self.space_slug) is None
+            or self.prior_phase
+            not in {
+                "registered",
+                "registration_outcome_unknown",
+                "sealed",
+                "seal_outcome_unknown",
+                "cleanup_outcome_unknown",
+                "pending",
+                "finalize_outcome_unknown",
+                "recovery_required",
+                "recovery_outcome_unknown",
+            }
+            or type(self.transport_close_confirmed) is not bool
+            or (
+                self.transport_close_warning
+                not in {None, "managed_benchmark_registry_transport_close_unconfirmed"}
+            )
+            or (self.transport_close_confirmed != (self.transport_close_warning is None))
+        ):
+            fail("managed_benchmark_registry_recovery_transfer_invalid")
 
 
 @final
@@ -323,7 +378,8 @@ class ManagedBenchmarkAbortCompletionReceipt:
     disposition: Literal["abort_complete"]
     projection_cleanup: Literal["unsealed_abort_complete"]
     cleanup_initiation_receipt_sha256: str
-    cleanup_verification_sha256: str
+    cleanup_plan_sha256: str
+    projection_absence_proof_sha256: str
     completed_at: str
     receipt_sha256: str
     replayed: bool
@@ -342,7 +398,8 @@ class ManagedBenchmarkAbortCompletionReceipt:
                     self.binding_commitment_sha256,
                     self.infinity_target_identity_sha256,
                     self.cleanup_initiation_receipt_sha256,
-                    self.cleanup_verification_sha256,
+                    self.cleanup_plan_sha256,
+                    self.projection_absence_proof_sha256,
                     self.receipt_sha256,
                 )
             )
@@ -462,7 +519,8 @@ class ManagedBenchmarkPersistedAbortReceipt:
     disposition: Literal["abort_complete"]
     projection_cleanup: Literal["unsealed_abort_complete"]
     cleanup_initiation_receipt_sha256: str
-    cleanup_verification_sha256: str
+    cleanup_plan_sha256: str
+    projection_absence_proof_sha256: str
     completed_at: str
     receipt_sha256: str
 
@@ -477,7 +535,8 @@ class ManagedBenchmarkPersistedAbortReceipt:
                     self.binding_commitment_sha256,
                     self.infinity_target_identity_sha256,
                     self.cleanup_initiation_receipt_sha256,
-                    self.cleanup_verification_sha256,
+                    self.cleanup_plan_sha256,
+                    self.projection_absence_proof_sha256,
                     self.receipt_sha256,
                 )
             )
@@ -516,6 +575,8 @@ class ManagedBenchmarkRunLifecycleSnapshot:
         "unsealed_abort_complete",
     ]
     projection_manifest_sha256: str | None
+    cleanup_plan_sha256: str
+    cleanup_plan_state: Literal["sealed"]
     cleanup_receipt: ManagedBenchmarkPersistedCleanupReceipt | None
     completion_receipt: (
         ManagedBenchmarkPersistedCompletionReceipt | ManagedBenchmarkPersistedAbortReceipt | None
@@ -523,7 +584,7 @@ class ManagedBenchmarkRunLifecycleSnapshot:
 
     def __post_init__(self) -> None:
         if (
-            self.schema_version != "memory-comparison-run-lifecycle-response.v1"
+            self.schema_version != "memory-comparison-run-lifecycle-response.v2"
             or self.authority != "infinity_canonical"
             or any(
                 type(value) is not str or _SHA256.fullmatch(value) is None
@@ -531,12 +592,14 @@ class ManagedBenchmarkRunLifecycleSnapshot:
                     self.run_id_sha256,
                     self.binding_commitment_sha256,
                     self.infinity_target_identity_sha256,
+                    self.cleanup_plan_sha256,
                 )
             )
             or type(self.space_id) is not str
             or _CANONICAL_ID.fullmatch(self.space_id) is None
             or type(self.space_slug) is not str
             or _SPACE_SLUG.fullmatch(self.space_slug) is None
+            or self.cleanup_plan_state != "sealed"
             or not self._valid_combination()
         ):
             fail("managed_benchmark_registry_lifecycle_response_invalid")
@@ -706,6 +769,7 @@ __all__ = (
     "ManagedBenchmarkPersistedCompletionReceipt",
     "ManagedBenchmarkPersistedAbortReceipt",
     "ManagedBenchmarkProjectionSeal",
+    "ManagedBenchmarkRecoveryAuthorityTransfer",
     "ManagedBenchmarkRunLifecycleSnapshot",
     "ManagedBenchmarkRegistryHttpConfig",
     "ManagedBenchmarkRegistryHttpError",

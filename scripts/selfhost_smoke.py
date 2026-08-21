@@ -25,6 +25,16 @@ ROOT = Path(__file__).resolve().parents[1]
 COMPOSE_FILE = ROOT / "docker-compose.selfhost.yml"
 DEFAULT_ENV_FILE = ROOT / ".env.selfhost"
 PLACEHOLDER_PREFIX = "change-me"
+SERVICE_TOKEN_ENV = "MEMORY_SERVICE_TOKEN"
+SELFHOST_SECRET_ENVS = (
+    "INFINITY_CONTEXT_SELFHOST_ADMIN_PASSWORD",
+    "INFINITY_CONTEXT_SELFHOST_MIGRATOR_PASSWORD",
+    "INFINITY_CONTEXT_SELFHOST_RUNTIME_PASSWORD",
+    "INFINITY_CONTEXT_SELFHOST_CANONICAL_WRITER_PASSWORD",
+    "INFINITY_CONTEXT_SELFHOST_REGISTRAR_PASSWORD",
+    "INFINITY_CONTEXT_SELFHOST_SEALER_PASSWORD",
+)
+REQUIRED_SECRET_ENVS = (SERVICE_TOKEN_ENV, *SELFHOST_SECRET_ENVS)
 
 
 class SmokeFailure(RuntimeError):
@@ -36,6 +46,8 @@ def main() -> int:
     env_file = args.env_file.resolve()
     env_values = _read_env_file(env_file)
     _validate_env(env_file, env_values)
+    if args.validate_env_only:
+        return 0
 
     compose = _compose_base_command(args.compose, env_file)
     if args.full:
@@ -47,7 +59,7 @@ def main() -> int:
     try:
         _run([*compose, "up", "-d", "--build"], env=env, timeout=args.compose_timeout)
         base_url = _base_url(args, env_values)
-        token = env_values["MEMORY_SERVICE_TOKEN"]
+        token = env_values[SERVICE_TOKEN_ENV]
         _wait_for_health(base_url, token, timeout_seconds=args.timeout_seconds)
         _verify_extraction_flow(base_url, token, timeout_seconds=args.timeout_seconds)
     finally:
@@ -80,6 +92,11 @@ def _parse_args() -> argparse.Namespace:
     parser.add_argument("--timeout-seconds", type=float, default=120.0)
     parser.add_argument("--compose-timeout", type=float, default=600.0)
     parser.add_argument("--base-url", default="")
+    parser.add_argument(
+        "--validate-env-only",
+        action="store_true",
+        help="Validate required self-host secrets without starting Compose.",
+    )
     return parser.parse_args()
 
 
@@ -97,20 +114,17 @@ def _read_env_file(path: Path) -> dict[str, str]:
 
 
 def _validate_env(path: Path, values: dict[str, str]) -> None:
-    missing = [
-        key
-        for key in ("MEMORY_SERVICE_TOKEN", "MEMORY_POSTGRES_PASSWORD")
-        if not values.get(key)
-    ]
+    missing = [key for key in REQUIRED_SECRET_ENVS if not values.get(key)]
     if missing:
         raise SmokeFailure(f"{path} is missing required values: {', '.join(missing)}")
     placeholders = [
-        key
-        for key in ("MEMORY_SERVICE_TOKEN", "MEMORY_POSTGRES_PASSWORD")
-        if values[key].startswith(PLACEHOLDER_PREFIX)
+        key for key in REQUIRED_SECRET_ENVS if values[key].startswith(PLACEHOLDER_PREFIX)
     ]
     if placeholders:
         raise SmokeFailure(f"Replace placeholder values in {path}: {', '.join(placeholders)}")
+    secrets = [values[key] for key in REQUIRED_SECRET_ENVS]
+    if len(set(secrets)) != len(secrets):
+        raise SmokeFailure("Self-host secrets must contain seven distinct values")
 
 
 def _compose_base_command(compose: str, env_file: Path) -> list[str]:
@@ -193,8 +207,7 @@ def _verify_extraction_flow(base_url: str, token: str, *, timeout_seconds: float
         f"{base_url}/v1/assets?{query}",
         token=token,
         body=(
-            f"{marker}: self-hosted extraction worker should ingest this text "
-            "into document chunks."
+            f"{marker}: self-hosted extraction worker should ingest this text into document chunks."
         ).encode(),
         content_type="text/plain",
         timeout=10,

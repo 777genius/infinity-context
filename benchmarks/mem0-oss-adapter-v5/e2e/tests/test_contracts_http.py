@@ -50,6 +50,10 @@ def test_fixture_materializes_exact_sealed_input(tmp_path) -> None:
     assert memory_config.is_dir() and memory_config.stat().st_mode & 0o777 == 0o700
     assert manifest_path.stat().st_mode & 0o777 == 0o400
     assert all(path.stat().st_mode & 0o777 == 0o600 for path in (root / "secrets").iterdir())
+    secret_values = {path.name: path.read_bytes() for path in (root / "secrets").iterdir()}
+    runtime_attestation_secret = secret_values.pop("runtime-attestation-secret")
+    assert runtime_attestation_secret
+    assert runtime_attestation_secret not in secret_values.values()
     assert fixture.base_instructions_sha256 == PINNED_STATELESS_BASE_SHA256
     assert (
         root / "secrets" / "base-instructions-sha256"

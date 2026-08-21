@@ -166,6 +166,23 @@ class PinnedMem0V5ExtractionRequestProjector:
         *,
         current_date: str,
     ) -> PinnedMem0V5ExtractionRequestProjection:
+        body = self.render_request_body(unit, current_date=current_date)
+        return PinnedMem0V5ExtractionRequestProjection(
+            request_body_sha256=hashlib.sha256(body).hexdigest(),
+            request_body_bytes=len(body),
+            response_format_sha256=MEM0_V5_EXTRACTION_RESPONSE_FORMAT_SHA256,
+            response_schema_sha256=MEM0_V5_EXTRACTION_SCHEMA_SHA256,
+            requested_output_tokens=MEM0_V5_EXTRACTION_MAX_TOKENS,
+        )
+
+    def render_request_body(
+        self,
+        unit: ManagedMem0V5SourceUnit,
+        *,
+        current_date: str,
+    ) -> bytes:
+        """Return the reviewed canonical bytes whose digest ``project`` binds."""
+
         if type(unit) is not ManagedMem0V5SourceUnit:
             _fail("managed_v5_live_extraction_projection_invalid")
         trusted_current_date = _iso_date(
@@ -203,13 +220,7 @@ class PinnedMem0V5ExtractionRequestProjector:
         body = _canonical_json_bytes(payload)
         if not body or len(body) > _MAX_EXTRACTION_REQUEST_BYTES:
             _fail("managed_v5_live_extraction_request_too_large")
-        return PinnedMem0V5ExtractionRequestProjection(
-            request_body_sha256=hashlib.sha256(body).hexdigest(),
-            request_body_bytes=len(body),
-            response_format_sha256=MEM0_V5_EXTRACTION_RESPONSE_FORMAT_SHA256,
-            response_schema_sha256=MEM0_V5_EXTRACTION_SCHEMA_SHA256,
-            requested_output_tokens=MEM0_V5_EXTRACTION_MAX_TOKENS,
-        )
+        return body
 
 
 def _system_prompt() -> str:

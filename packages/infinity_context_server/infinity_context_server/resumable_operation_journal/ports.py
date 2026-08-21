@@ -9,6 +9,8 @@ from typing import Protocol
 from infinity_context_server.resumable_operation_journal.domain import (
     LogicalOperationIdentity,
     OperationEvent,
+    OperationJournalCheckpoint,
+    OperationJournalFacts,
     OperationManifest,
     OperationReceipt,
     OperationRunIdentity,
@@ -68,9 +70,29 @@ class OperationJournalTransactionPort(Protocol):
 
     def get_operation(self, *, run_id: str, logical_operation_id: str) -> OperationState | None: ...
 
+    def get_authenticated_operation(
+        self,
+        *,
+        run_id: str,
+        ordinal: int,
+        facts: OperationJournalFacts,
+    ) -> OperationState | None: ...
+
     def put_operation(self, state: OperationState) -> None: ...
 
     def put_receipt(self, *, state: OperationState, verified: VerifiedOperationReceipt) -> None: ...
+
+    def apply_operation_transition(
+        self,
+        *,
+        state: OperationState,
+        verified: VerifiedOperationReceipt | None,
+        expected_facts: OperationJournalFacts,
+    ) -> OperationJournalFacts: ...
+
+    def get_checkpoint(self, *, run_id: str) -> OperationJournalCheckpoint | None: ...
+
+    def put_checkpoint(self, checkpoint: OperationJournalCheckpoint) -> None: ...
 
     def append_event(self, event: OperationEvent) -> None: ...
 
@@ -81,6 +103,15 @@ class OperationJournalTransactionPort(Protocol):
     def iter_operations(
         self, *, run_id: str, batch_size: int = 256
     ) -> Iterator[OperationState]: ...
+
+    def operation_phase_page(
+        self,
+        *,
+        run_id: str,
+        phases: tuple[str, ...],
+        after_ordinal: int = -1,
+        batch_size: int = 512,
+    ) -> tuple[OperationState, ...]: ...
 
     def iter_manifest(
         self, *, run_id: str, batch_size: int = 256

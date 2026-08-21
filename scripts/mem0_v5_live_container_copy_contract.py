@@ -16,6 +16,7 @@ ADAPTER_SECRET_NAMES = (
     "base-instructions-sha256",
     "ingress-bearer",
     "result-hmac",
+    "runtime-attestation-secret",
     "runtime-bearer",
     "runtime-receipt-secret",
     "runtime-transport-origin",
@@ -37,8 +38,18 @@ def validate_private_credentials(
         name: hashlib.sha256(read_private(secret_root / name, parent=secret_root)).hexdigest()
         for name in ADAPTER_SECRET_NAMES
     }
-    for name in ("checkpoint-signing-key", "checkpoint-head-key"):
-        read_private(runner_paths[name], parent=secret_root)
+    runner_digests = {
+        name: hashlib.sha256(read_private(path, parent=secret_root)).hexdigest()
+        for name, path in runner_paths.items()
+        if name not in adapter_digests
+    }
+    attestation_digest = adapter_digests["runtime-attestation-secret"]
+    if any(
+        digest == attestation_digest
+        for name, digest in {**adapter_digests, **runner_digests}.items()
+        if name != "runtime-attestation-secret"
+    ):
+        raise ValueError("mem0_v5_live_runtime_attestation_secret_not_distinct")
     if adapter_digests["result-hmac"] != evidence_key_sha256:
         raise ValueError("mem0_v5_live_evidence_key_commitment_differs")
     return adapter_digests

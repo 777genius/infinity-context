@@ -6,9 +6,6 @@ import json
 from pathlib import Path
 from typing import final
 
-from infinity_context_server.memory_comparison_managed_v5_live_cli_composition import (
-    ManagedV5LiveCliCompositionRequest,
-)
 from infinity_context_server.memory_comparison_managed_v5_live_config import (
     ManagedV5LiveConfig,
     ManagedV5LiveFilesystemConfig,
@@ -22,6 +19,8 @@ _FILESYSTEM_DIGEST_KEYS = frozenset(
         "runtime_authority_sha256",
         "runtime_artifact_manifest_sha256",
         "node_executable_sha256",
+        "runtime_attestation_secret_sha256",
+        "adapter_runtime_pin_sha256",
     }
 )
 _FILESYSTEM_KEYS = frozenset(
@@ -33,6 +32,7 @@ _FILESYSTEM_KEYS = frozenset(
         "dispatch_journal",
         "operation_journal",
         "durable_clean_state",
+        "recovery_journal",
         "ingress_bearer_file",
         "evidence_key_file",
         "evidence_key_sha256",
@@ -41,6 +41,9 @@ _FILESYSTEM_KEYS = frozenset(
         "checkpoint_head_key_file",
         "operation_journal_signer_secret_file",
         "durable_clean_state_hmac_secret_file",
+        "runtime_attestation_secret_file",
+        "recovery_hmac_secret_file",
+        "runtime_attestation_secret_sha256",
         "runtime_authority_file",
         "runtime_authority_sha256",
         "phase_c_package_root",
@@ -49,6 +52,9 @@ _FILESYSTEM_KEYS = frozenset(
         "runtime_artifact_manifest_sha256",
         "node_executable",
         "node_executable_sha256",
+        "adapter_runtime_pin_file",
+        "adapter_runtime_pin_sha256",
+        "recovery_report_file",
     }
 )
 
@@ -106,8 +112,12 @@ def load_managed_v5_live_cli_config(
 
 def build_managed_v5_live_cli_composition_request(
     config: object,
-) -> ManagedV5LiveCliCompositionRequest:
+) -> object:
     """Project a validated CLI config into the narrower v5 root DTO."""
+
+    from infinity_context_server.memory_comparison_managed_v5_live_cli_composition import (
+        ManagedV5LiveCliCompositionRequest,
+    )
 
     try:
         return ManagedV5LiveCliCompositionRequest(

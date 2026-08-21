@@ -238,7 +238,9 @@ def test_runner_executes_provider_free_v5_success_path_once(
         "delete:mem0:2",
     ]
     assert runtime.policy_port.terminal_completion_receipt.state == "cleanup_complete"
-    assert registry_events[-1] == "registry.finalize"
+    assert registry_events.index("registry.finalize") < registry_events.index(
+        "recovery.canonical-terminal"
+    )
     assert attestation.calls == 1
     assert runtime.owned_resources.closed is True
     assert close_calls == 1
@@ -333,7 +335,9 @@ def test_terminal_observed_verification_is_normalized_after_cleanup(
         )
     assert mem0.errors == []
     assert runtime.policy_port.terminal_completion_receipt.state == "cleanup_complete"
-    assert registry_events[-1] == "registry.finalize"
+    assert registry_events.index("registry.finalize") < registry_events.index(
+        "recovery.canonical-terminal"
+    )
     assert caught.value.code == (
         "managed_v5_production_execution_failed"
         if verifier_raises

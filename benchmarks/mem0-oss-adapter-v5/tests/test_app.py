@@ -18,6 +18,21 @@ from mem0_oss_adapter_v5.request_binding import RequestBindingResponse
 _TOKEN = "t" * 32
 
 
+class _UnusedRuntimeAttestation:
+    authentication_token = "a" * 64
+
+    def attest(self, *_args, **_kwargs):
+        raise AssertionError("runtime attestation is not expected")
+
+
+def _app(service):
+    return create_app(
+        service=service,
+        bearer_token=_TOKEN,
+        runtime_attestation_authority=_UnusedRuntimeAttestation(),
+    )
+
+
 def _sha(label: str) -> str:
     return hashlib.sha256(label.encode()).hexdigest()
 
@@ -159,6 +174,7 @@ class _FakeService:
                 "request_binding_hmac_sha256": _sha("binding-hmac"),
             }
         )
+
     def scoped_search(self, request, *, idempotency_key: str) -> ScopedSearchResponse:
         self.calls.append("scoped_search")
         results = (
@@ -199,7 +215,7 @@ def _admit_body() -> dict[str, object]:
 
 def test_endpoint_specific_exact_models_and_safe_health() -> None:
     service = _FakeService()
-    client = TestClient(create_app(service=service, bearer_token=_TOKEN))
+    client = TestClient(_app(service))
     health = client.get("/health")
     assert health.json() == {
         "ok": True,
@@ -221,7 +237,7 @@ def test_endpoint_specific_exact_models_and_safe_health() -> None:
 
 def test_auth_and_request_commitment_fail_closed_without_service_call() -> None:
     service = _FakeService()
-    client = TestClient(create_app(service=service, bearer_token=_TOKEN))
+    client = TestClient(_app(service))
     body = _admit_body()
     response = client.post("/v5/runs/admit", json=body, headers=_headers(body, token="x" * 32))
     assert response.status_code == 401
@@ -235,7 +251,7 @@ def test_auth_and_request_commitment_fail_closed_without_service_call() -> None:
 
 def test_status_is_durable_readback_and_never_dispatches_provider() -> None:
     service = _FakeService()
-    client = TestClient(create_app(service=service, bearer_token=_TOKEN))
+    client = TestClient(_app(service))
     body = {
         "admission_commitment_sha256": _sha("admission"),
         "operation_id_sha256": _sha("operation"),
@@ -249,7 +265,7 @@ def test_status_is_durable_readback_and_never_dispatches_provider() -> None:
 
 def test_request_binding_is_authenticated_exact_and_provider_free() -> None:
     service = _FakeService()
-    client = TestClient(create_app(service=service, bearer_token=_TOKEN))
+    client = TestClient(_app(service))
     body = {
         "admission_commitment_sha256": _sha("admission"),
         "operation_id_sha256": _sha("operation"),
@@ -287,7 +303,7 @@ def test_request_binding_is_authenticated_exact_and_provider_free() -> None:
 
 def test_dispatch_is_one_service_invocation_and_strict_types() -> None:
     service = _FakeService()
-    client = TestClient(create_app(service=service, bearer_token=_TOKEN))
+    client = TestClient(_app(service))
     body = {
         "admission_commitment_sha256": _sha("admission"),
         "operation_id_sha256": _sha("operation"),
@@ -310,7 +326,7 @@ def test_dispatch_is_one_service_invocation_and_strict_types() -> None:
 
 def test_cleanup_contract_is_exact_and_contains_no_secret() -> None:
     service = _FakeService()
-    client = TestClient(create_app(service=service, bearer_token=_TOKEN))
+    client = TestClient(_app(service))
     body = {
         "admission_commitment_sha256": _sha("admission"),
         "seal_commitment_sha256": None,
@@ -343,7 +359,7 @@ def test_cleanup_contract_is_exact_and_contains_no_secret() -> None:
 
 def test_oversized_body_is_rejected_before_parsing() -> None:
     service = _FakeService()
-    client = TestClient(create_app(service=service, bearer_token=_TOKEN))
+    client = TestClient(_app(service))
     response = client.post(
         "/v5/runs/admit",
         content=b"x" * 64_001,
@@ -359,7 +375,7 @@ def test_oversized_body_is_rejected_before_parsing() -> None:
 
 def test_authenticated_evidence_routes_are_strict_and_never_echo_query() -> None:
     service = _FakeService()
-    client = TestClient(create_app(service=service, bearer_token=_TOKEN))
+    client = TestClient(_app(service))
     observation = {
         "admission_commitment_sha256": _sha("admission"),
         "operation_id_sha256": _sha("operation"),

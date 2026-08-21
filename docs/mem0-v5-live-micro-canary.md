@@ -68,25 +68,31 @@ Never mount the host-runner input or secret directory into the UID 65532 adapter
 Create five distinct empty destinations: container input, container secrets,
 adapter state, Qdrant state, and a public copy-authority directory. The init
 service runs as container root with only `CHOWN`, `DAC_OVERRIDE`, and `FOWNER`,
-copies the exact manifest and eight fixed adapter secrets, re-reads and compares
+copies the exact manifest and nine fixed adapter secrets, re-reads and compares
 every SHA-256 digest, then makes the private copies and writable state owned by
 UID/GID 65532 with modes `0700`, `0400`, and `0600`. Qdrant and the adapter start
 only after init exits successfully.
 
 The host secret root contains these adapter files at mode `0600`:
 `account-binding-hmac-sha256`, `base-instructions-sha256`, `ingress-bearer`,
-`result-hmac`, `runtime-bearer`, `runtime-receipt-secret`,
-`runtime-transport-origin`, and `state-hmac`. Runner-only
+`result-hmac`, `runtime-attestation-secret`, `runtime-bearer`,
+`runtime-receipt-secret`, `runtime-transport-origin`, and `state-hmac`. Runner-only
 `checkpoint-signing-key` and `checkpoint-head-key` stay in the host secret root
-and are never copied into the adapter. If rootless ownership mapping or `chown`
-cannot produce exact UID/GID 65532, init fails and the canary remains NO-GO; do
-not relax host privacy or file modes.
+and are never copied into the adapter. Before init, provision
+`runtime-attestation-secret` as fresh random UTF-8 text between 32 and 4096 bytes
+(for example, 32 random bytes encoded as 64 lowercase hexadecimal characters),
+distinct from every other credential, with no surrounding whitespace. The init
+service copies those exact bytes for the adapter; pass the host file to the runner
+with `--runtime-attestation-secret-file`. If rootless ownership mapping or
+`chown` cannot produce exact UID/GID 65532, init fails and the canary remains
+NO-GO; do not relax host privacy or file modes.
 
 ## Preflight and live run
 
 Invoke `scripts/mem0_v5_live_micro_canary.py` first with all required immutable
 digests, image IDs, ports, credential file paths, private roots, Phase C package
 root, runtime repository, its sibling `artifact-manifest.json`, Node executable,
+the reviewed extraction-contract file and its exact SHA-256 digest,
 the public evidence-key commitment (`sha256(result-hmac)`), and the immutable
 `container-copy-authority.json` path/digest emitted by init, plus
 `--preflight-only`. The artifact manifest path
@@ -103,11 +109,20 @@ The reviewed Node executable SHA-256 is
 `b2959781cc5a74c357ffa02367efa8a0330cbb1c9cb347732fdfaaaca381cbcd`.
 The runner rejects every other digest before opening credential files.
 
-The runner and adapter use the same ingress bearer, receipt secret, and evidence
-material. In the adapter secret directory the evidence material is named
-`result-hmac`; runner arguments point `--evidence-key-file` to that host file and
-pass its public digest as `--evidence-key-sha256`. Adapter SQLite
+The runner and adapter use the same ingress bearer, receipt secret, runtime
+attestation secret, and evidence material. In the adapter secret directory the
+evidence material is named `result-hmac`; runner arguments point
+`--evidence-key-file` to that host file and pass its public digest as
+`--evidence-key-sha256`. Adapter SQLite
 state HMAC and runner checkpoint signing/head keys remain distinct.
+
+The immutable runtime authority uses schema
+`managed-mem0-v5-live-runtime-authority.v3`. Its Phase C runtime response-format
+and schema commitments are distinct from the adapter extraction response-format
+and schema commitments. The runner binds Phase C receipt/runtime evidence to the
+runtime pair and binds one-unit projection plus observed extraction receipts to
+the extraction pair. Missing, legacy, swapped, or equalized pairs are NO-GO
+before credentials, readiness, or provider access.
 
 Run the same command without `--preflight-only` only after the report says GO.
 Use a new private state root, dispatch journal, adapter state root, Qdrant state

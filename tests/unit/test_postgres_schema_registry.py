@@ -43,6 +43,7 @@ assert {{
     "memory_fact_temporal_decisions",
     "suggestion_resolution_receipts",
     "memory_outbox",
+    "memory_comparison_strict_v4_preparations",
 }} <= set(metadata.tables)
 """
     return subprocess.Popen(

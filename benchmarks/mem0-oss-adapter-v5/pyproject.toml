@@ -16,17 +16,35 @@ dependencies = [
   "uvicorn==0.52.1",
 ]
 
+[project.scripts]
+infinity-context-publishable-mem0-v5 = "publishable_mem0_v5.cli:main"
+
+[tool.setuptools.packages.find]
+where = [".", "deployment"]
+include = ["mem0_oss_adapter_v5*", "publishable_mem0_v5*"]
+
 [dependency-groups]
 dev = [
+  "infinity-context",
   "pytest==9.1.1",
   "pyyaml==6.0.3",
   "ruff==0.16.1",
 ]
 
+[tool.uv.sources]
+infinity-context = { path = "../..", editable = true }
+
 [tool.pytest.ini_options]
 addopts = "-q"
 testpaths = ["tests"]
-pythonpath = ["."]
+pythonpath = [
+  ".",
+  "deployment",
+  "../../packages/infinity_context_core",
+  "../../packages/infinity_context_server",
+  "../../packages/infinity_context_runtime_bridge",
+  "../../packages/infinity_context_adapters",
+]
 filterwarnings = [
   "ignore:Using `httpx` with `starlette.testclient` is deprecated:starlette.exceptions.StarletteDeprecationWarning",
 ]
