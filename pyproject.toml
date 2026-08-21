@@ -138,6 +138,9 @@ infinity_context_obsidian = [
 
 [tool.pytest.ini_options]
 testpaths = ["tests", "packages/infinity_context_core/infinity_context_core/features"]
+markers = [
+  "synthetic_2040: opt-in provider-free synthetic 2,040-case contracts",
+]
 pythonpath = [
   ".",
   "packages/infinity_context_core",
