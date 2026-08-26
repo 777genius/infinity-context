@@ -8,7 +8,10 @@ import sys
 import tempfile
 from pathlib import Path
 
+import pytest
 
+
+@pytest.mark.disposable_root
 def test_external_launcher_issues_envelope_and_server_composition_consumes_it() -> None:
     if os.geteuid() != 0:
         raise AssertionError(

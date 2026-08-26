@@ -142,6 +142,7 @@ infinity_context_obsidian = [
 [tool.pytest.ini_options]
 testpaths = ["tests", "packages/infinity_context_core/infinity_context_core/features"]
 markers = [
+  "disposable_root: mandatory E2E contracts requiring the disposable root CI harness",
   "synthetic_2040: opt-in provider-free synthetic 2,040-case contracts",
 ]
 pythonpath = [
