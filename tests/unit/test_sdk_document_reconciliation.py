@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import json
 import time
 from copy import deepcopy
@@ -152,19 +153,22 @@ def test_python_sdk_honors_pre_cancel_and_absolute_deadline_without_transport_ca
     assert calls == 0
 
 
-def test_python_sdk_cancellation_interrupts_blocked_transport_and_joins_watcher() -> None:
+def test_python_sdk_cancellation_cleans_up_async_request_and_client() -> None:
     entered = Event()
     released = Event()
+    closed = Event()
     cancelled = Event()
 
-    class BlockingTransport(httpx.BaseTransport):
-        def handle_request(self, _request: httpx.Request) -> httpx.Response:
+    class BlockingTransport(httpx.AsyncBaseTransport):
+        async def handle_async_request(self, _request: httpx.Request) -> httpx.Response:
             entered.set()
-            assert released.wait(1)
-            raise httpx.ReadError("closed for cancellation")
+            try:
+                await asyncio.Event().wait()
+            finally:
+                released.set()
 
-        def close(self) -> None:
-            released.set()
+        async def aclose(self) -> None:
+            closed.set()
 
     def cancel_after_entry() -> None:
         assert entered.wait(1)
@@ -180,7 +184,65 @@ def test_python_sdk_cancellation_interrupts_blocked_transport_and_joins_watcher(
 
     assert captured.value.code == "memory.request_cancelled"
     assert released.is_set()
+    assert closed.is_set()
+
+
+def test_python_sdk_simultaneous_response_and_cancellation_fails_deterministically() -> None:
+    cancelled = Event()
+
+    class RacingTransport(httpx.AsyncBaseTransport):
+        async def handle_async_request(self, _request: httpx.Request) -> httpx.Response:
+            cancelled.set()
+            return httpx.Response(200, json=_response())
+
+    with pytest.raises(InfinityContextError) as captured:
+        InfinityContextClient(transport=RacingTransport()).reconcile_exact_document(
+            **INPUT,
+            cancellation_event=cancelled,
+        )
+
+    assert captured.value.code == "memory.request_cancelled"
+
+
+def test_python_sdk_repeated_calls_close_every_private_event_loop(monkeypatch) -> None:
+    loops: list[asyncio.AbstractEventLoop] = []
+    new_event_loop = asyncio.events.new_event_loop
+
+    def tracked_event_loop() -> asyncio.AbstractEventLoop:
+        loop = new_event_loop()
+        loops.append(loop)
+        return loop
+
+    monkeypatch.setattr(asyncio.events, "new_event_loop", tracked_event_loop)
+    for _ in range(5):
+        result = InfinityContextClient(
+            transport=_response_transport(_response())
+        ).reconcile_exact_document(**INPUT)
+        assert result["data"]["state"] == "present"
+
+    assert len(loops) == 5
+    assert all(loop.is_closed() for loop in loops)
     assert not any(
-        thread.name == "infinity-bounded-read-cancellation" and thread.is_alive()
+        thread.name.startswith("infinity-bounded-read") and thread.is_alive()
         for thread in enumerate_threads()
     )
+
+
+def test_python_sdk_preserves_immediate_sync_custom_transport_compatibility() -> None:
+    calls = 0
+    closed = Event()
+
+    class SyncTransport(httpx.BaseTransport):
+        def handle_request(self, _request: httpx.Request) -> httpx.Response:
+            nonlocal calls
+            calls += 1
+            return httpx.Response(200, json=_response())
+
+        def close(self) -> None:
+            closed.set()
+
+    result = InfinityContextClient(transport=SyncTransport()).reconcile_exact_document(**INPUT)
+
+    assert result["data"]["state"] == "present"
+    assert calls == 1
+    assert closed.is_set()
