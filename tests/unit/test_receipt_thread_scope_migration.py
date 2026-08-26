@@ -2,8 +2,10 @@ from hashlib import sha256
 from pathlib import Path
 
 import pytest
+from infinity_context_adapters.postgres.migration_metadata import (
+    PUBLISHED_MIGRATION_CHECKSUMS,
+)
 from infinity_context_adapters.postgres.migration_runner import (
-    _PUBLISHED_CHECKSUM_ALIASES,
     _Migration,
     _validate_history,
 )
@@ -26,17 +28,17 @@ def test_published_receipt_migration_repair_keeps_one_explicit_checksum_alias() 
 
     for name, checksum in expected.items():
         assert sha256((_MIGRATIONS / name).read_bytes()).hexdigest() == checksum
-    assert {
-        "0030_suggestion_receipt_tenant_integrity": frozenset(
+    assert PUBLISHED_MIGRATION_CHECKSUMS["0030_suggestion_receipt_tenant_integrity"] == (
+        frozenset(
             {"4d936c3d49f76028eec009a1b1e8ee2bcf214b2b4a03e7ac120bad5321aa3064"}
         )
-    } == _PUBLISHED_CHECKSUM_ALIASES
+    )
 
 
 def test_published_checksum_alias_accepts_only_the_exact_released_digest() -> None:
     migration_id = "0030_suggestion_receipt_tenant_integrity"
     migration = _Migration(migration_id=migration_id, checksum="current", sql="")
-    released = next(iter(_PUBLISHED_CHECKSUM_ALIASES[migration_id]))
+    released = next(iter(PUBLISHED_MIGRATION_CHECKSUMS[migration_id]))
 
     _validate_history((migration,), {migration_id: released})
     with pytest.raises(RuntimeError, match="migration checksum drift"):
