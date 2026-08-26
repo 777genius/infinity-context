@@ -74,7 +74,10 @@ async def _assert_populated_upgrade(database_url: str) -> None:
         engine = build_async_engine(database.app_url)
         try:
             result = await upgrade_schema(engine)
-            assert result.applied == ("0049_reconciliation_runtime_generation",)
+            assert result.applied == (
+                "0049_reconciliation_runtime_generation",
+                "0050_locator_profile_outbox_transaction_coalescing",
+            )
             async with engine.connect() as connection:
                 legacy_operation = (
                     await connection.execute(
