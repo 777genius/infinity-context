@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import inspect
-from collections.abc import Callable, Iterable
+from collections.abc import Callable, Iterable, Mapping
 from dataclasses import dataclass
 
 from infinity_context_core.ports.adapters import (
@@ -84,6 +84,10 @@ _FUSION_RANK_CONSTANT = 60.0
 class _FusedPoint:
     payload: object
     score: float
+
+
+class QdrantCanonicalVersionError(ValueError):
+    """Raised before an unversioned derived point can be written."""
 
 
 class QdrantVectorMemoryAdapter:
@@ -283,6 +287,8 @@ class QdrantVectorMemoryAdapter:
             return VectorWriteResult.ok(len(points))
         except QdrantLocatorPayloadError:
             return VectorWriteResult.degraded("qdrant.locator_profile_invalid", retryable=False)
+        except QdrantCanonicalVersionError:
+            return VectorWriteResult.degraded("qdrant.canonical_version_invalid", retryable=False)
         except QdrantDimensionMismatchError:
             return VectorWriteResult.degraded("qdrant.dimension_mismatch", retryable=False)
         except QdrantDistanceMismatchError:
@@ -330,16 +336,21 @@ class QdrantVectorMemoryAdapter:
                 points_selector=selector,
                 wait=True,
             )
-            observed_versions = await _retrieve_canonical_versions(
-                client,
+            remaining = await client.retrieve(
                 collection_name=self._collection_name,
-                point_ids=tuple(point_ids),
+                ids=point_ids,
+                with_payload=["canonical_version"],
+                with_vectors=False,
+                consistency="all",
             )
-            for observed_version in observed_versions:
-                if observed_version == canonical_version:
-                    return VectorWriteResult.degraded(
-                        "qdrant.delete_exact_version_unproven", retryable=True
-                    )
+            diagnostic = _versioned_delete_observation_diagnostic(
+                remaining,
+                expected_point_ids=set(point_ids),
+                canonical_version=canonical_version,
+            )
+            if diagnostic is not None:
+                code, retryable = diagnostic
+                return VectorWriteResult.degraded(code, retryable=retryable)
             return VectorWriteResult.ok(len(chunk_ids))
         except Exception:
             return VectorWriteResult.degraded("qdrant.delete_failed", retryable=True)
@@ -755,6 +766,13 @@ class QdrantVectorMemoryAdapter:
                 index_profile_digest=self._index_profile_digest or "",
                 index_generation=self._index_generation or "",
             )
+        version = payload.get("canonical_version")
+        if (
+            not isinstance(version, int)
+            or isinstance(version, bool)
+            or not 1 <= version <= 9_007_199_254_740_991
+        ):
+            raise QdrantCanonicalVersionError
         return payload
 
     def _sparse_vector_for_text(self, models, text: str, *, is_query: bool):
@@ -867,6 +885,39 @@ def _sparse_embedding_values(embedding: object, field: str, *, value_type: type)
 def _points_from_response(response: object) -> tuple[object, ...]:
     points = getattr(response, "points", response)
     return tuple(points)
+
+
+def _versioned_delete_observation_diagnostic(
+    records: object,
+    *,
+    expected_point_ids: set[str],
+    canonical_version: int,
+) -> tuple[str, bool] | None:
+    """Prove the requested generation absent without accepting legacy points."""
+
+    if not isinstance(records, (list, tuple)):
+        return ("qdrant.delete_observation_failed", True)
+    observed_ids: set[str] = set()
+    for record in records:
+        point_id = str(getattr(record, "id", ""))
+        if not point_id or point_id not in expected_point_ids or point_id in observed_ids:
+            return ("qdrant.delete_observation_failed", True)
+        observed_ids.add(point_id)
+        payload = getattr(record, "payload", None)
+        if not isinstance(payload, Mapping):
+            return ("qdrant.delete_rebuild_required", False)
+        observed_version = payload.get("canonical_version")
+        if (
+            not isinstance(observed_version, int)
+            or isinstance(observed_version, bool)
+            or not 1 <= observed_version <= 9_007_199_254_740_991
+        ):
+            return ("qdrant.delete_rebuild_required", False)
+        if observed_version < canonical_version:
+            return ("qdrant.delete_rebuild_required", False)
+        if observed_version == canonical_version:
+            return ("qdrant.delete_generation_remaining", True)
+    return None
 
 
 def _fuse_result_sets(

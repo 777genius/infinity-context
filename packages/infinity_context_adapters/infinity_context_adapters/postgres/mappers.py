@@ -569,6 +569,7 @@ def chunk_row_to_domain(row: MemoryChunkRow) -> MemoryChunk:
         created_at=row.created_at,
         updated_at=row.updated_at,
         metadata=metadata,
+        canonical_version=row.retrieval_version,
     )
 
 

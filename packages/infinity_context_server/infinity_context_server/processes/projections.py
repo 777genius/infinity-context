@@ -136,16 +136,20 @@ class ProjectionOutboxProcess:
             if not embedding.vectors:
                 raise RuntimeError("Embedding adapter returned no vectors")
 
+            canonical_version = _chunk_canonical_version(chunk)
+            if canonical_version is None:
+                raise RuntimeError("canonical vector version is unavailable")
             if "_canonical_retrieval_projection" not in chunk.metadata:
-                retrieval_payload: dict[str, object] = {}
+                retrieval_payload: dict[str, object] = {
+                    "canonical_version": canonical_version,
+                }
             else:
                 raw_retrieval_payload = chunk.metadata["_canonical_retrieval_projection"]
                 if not isinstance(raw_retrieval_payload, dict):
                     raise RuntimeError("canonical retrieval projection is malformed")
                 retrieval_payload = _qdrant_safe_retrieval_payload(raw_retrieval_payload)
-                canonical_version = retrieval_payload.get("canonical_version")
-                if not isinstance(canonical_version, int) or isinstance(canonical_version, bool):
-                    raise RuntimeError("canonical retrieval version is unavailable")
+                if retrieval_payload.get("canonical_version") != canonical_version:
+                    raise RuntimeError("canonical retrieval version is divergent")
             item = VectorUpsertItem(
                 chunk_id=str(chunk.id),
                 space_id=str(chunk.space_id),
@@ -163,6 +167,25 @@ class ProjectionOutboxProcess:
             )
             result = await self._container.vector_index.upsert_chunks((item,))
             _raise_if_degraded(result.status, "vector.upsert_chunks", result.diagnostics)
+            # Canonical state may change while embedding or provider I/O is in
+            # flight.  Reconcile the generation we just wrote before allowing
+            # this event to complete; the exact delete cannot remove a newer
+            # ABA/superseding point.
+            async with self._container.uow_factory() as uow:
+                current = await uow.chunks.get_by_id(chunk_id)
+            current_version = _chunk_canonical_version(current)
+            if (
+                current is None
+                or current.status != LifecycleStatus.ACTIVE
+                or not _can_embed(current.classification)
+                or current_version != canonical_version
+            ):
+                await self._delete_vector_chunks_if_version(
+                    (chunk_id,),
+                    canonical_version=canonical_version,
+                )
+                return
+            _require_same_fenced_space(str(current.space_id), initial_space_id)
 
     async def handle_vector_delete_chunks(self, job: ClaimedOutboxJob) -> None:
         require_delete_completion = _benchmark_cleanup_requires_delete_completion(job.payload_json)
@@ -420,7 +443,8 @@ def _versioned_chunk_deletes(
     raw_versions = job.payload_json.get("chunk_versions")
     if not isinstance(raw_versions, list):
         raise OutboxProjectionError(
-            "vector.delete_chunks", "vector.delete_canonical_versions_missing"
+            "vector.delete_chunks",
+            "vector.delete_canonical_versions_rebuild_required",
         )
     versions_by_id: dict[str, int] = {}
     for item in raw_versions:
@@ -459,11 +483,8 @@ def _required_canonical_version(value: object) -> int:
 def _chunk_canonical_version(chunk: MemoryChunk | None) -> int | None:
     if chunk is None:
         return None
-    projection = chunk.metadata.get("_canonical_retrieval_projection")
-    if not isinstance(projection, dict):
-        return None
     try:
-        return _required_canonical_version(projection.get("canonical_version"))
+        return _required_canonical_version(chunk.canonical_version)
     except OutboxProjectionError:
         return None
 
