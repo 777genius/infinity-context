@@ -21,9 +21,7 @@ RUN = "a" * 64
 
 def test_registry_model_has_one_canonical_declaration() -> None:
     assert MemoryComparisonBenchmarkRunRow is CanonicalBenchmarkRunRow
-    postgres_package = Path(
-        "packages/infinity_context_adapters/infinity_context_adapters/postgres"
-    )
+    postgres_package = Path("packages/infinity_context_adapters/infinity_context_adapters/postgres")
     declarations = [
         path.name
         for path in postgres_package.glob("*.py")
