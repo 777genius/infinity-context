@@ -28,6 +28,9 @@ _STRICT_V4_MIGRATION = (
 _STRICT_V4_FACT_MIGRATION = _POSTGRES_ROOT / "migrations/0037_strict_v4_fact_writer.sql"
 _STRICT_V4_DOCUMENT_MIGRATION = _POSTGRES_ROOT / "migrations/0038_strict_v4_document_writer.sql"
 _LOCATOR_PROFILE_MIGRATION = _POSTGRES_ROOT / "migrations/0040_locator_profile_lifecycle.sql"
+_FINAL_LOCATOR_PROFILE_MIGRATION = (
+    _POSTGRES_ROOT / "migrations/0050_locator_profile_outbox_transaction_coalescing.sql"
+)
 _PROVISIONING_SQL = _POSTGRES_ROOT / "provisioning/strict_v4_roles.sql"
 _MIGRATION_0035_AUTHORITY_TABLES = {
     "memory_projection_receipt_claims",
@@ -188,6 +191,7 @@ def test_final_migrations_grant_the_attested_canonical_union() -> None:
                 _STRICT_V4_FACT_MIGRATION.read_text(encoding="utf-8"),
                 _STRICT_V4_DOCUMENT_MIGRATION.read_text(encoding="utf-8"),
                 _LOCATOR_PROFILE_MIGRATION.read_text(encoding="utf-8"),
+                _FINAL_LOCATOR_PROFILE_MIGRATION.read_text(encoding="utf-8"),
             )
         )
     )
@@ -216,7 +220,13 @@ def test_final_migrations_grant_the_attested_canonical_union() -> None:
     }
     assert observed == expected
     for sequence in STRICT_V4_PROTECTED_SEQUENCES:
-        assert _sequence_privileges(sql, sequence, STRICT_V4_CANONICAL_WRITER_ROLE) == {"usage"}
+        for grantee in {"public", *STRICT_V4_CAPABILITY_ROLES}:
+            expected_privileges = {"usage"} if grantee == STRICT_V4_CANONICAL_WRITER_ROLE else set()
+            assert _sequence_privileges(sql, sequence, grantee) == expected_privileges
+    assert _sequence_revoke_grantees(sql, "memory_locator_commit_watermark_seq") >= {
+        "public",
+        *STRICT_V4_CAPABILITY_ROLES,
+    }
     assert "strict_v4_fact_writer" not in sql
     assert "strict_v4_document_writer" not in sql
 
@@ -521,6 +531,17 @@ def _sequence_privileges(sql: str, sequence: str, grantee: str) -> set[str]:
         role_set = {item.strip() for item in roles.split(",")}
         if sequence in sequence_set and grantee in role_set:
             observed.update(item.strip() for item in privileges.split(","))
+    return observed
+
+
+def _sequence_revoke_grantees(sql: str, sequence: str) -> set[str]:
+    observed: set[str] = set()
+    for sequences, roles in re.findall(
+        r"revoke all(?: privileges)? on sequence (.+?) from (.+?) ;", sql
+    ):
+        sequence_set = {item.strip().removeprefix("public.") for item in sequences.split(",")}
+        if sequence in sequence_set:
+            observed.update(item.strip() for item in roles.split(","))
     return observed
 
 

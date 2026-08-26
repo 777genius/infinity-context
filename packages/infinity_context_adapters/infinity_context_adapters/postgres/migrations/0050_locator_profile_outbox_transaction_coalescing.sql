@@ -84,6 +84,15 @@ $$;
 
 REVOKE ALL ON FUNCTION memory_locator_profile_invalidate_outbox_evidence_v2() FROM PUBLIC;
 
+-- Repair the locator watermark sequence ACL introduced by migration 0040.
+REVOKE ALL PRIVILEGES ON SEQUENCE public.memory_locator_commit_watermark_seq
+FROM PUBLIC,
+     infinity_context_canonical_writer,
+     infinity_context_strict_v4_registrar,
+     infinity_context_strict_v4_sealer;
+GRANT USAGE ON SEQUENCE public.memory_locator_commit_watermark_seq
+TO infinity_context_canonical_writer;
+
 -- Drop every historical outbox invalidator before installing the row triggers.
 DROP TRIGGER IF EXISTS trg_locator_profile_outbox_evidence_version ON memory_outbox;
 DROP TRIGGER IF EXISTS trg_00_locator_profile_outbox_evidence_insert ON memory_outbox;
