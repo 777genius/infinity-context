@@ -37,7 +37,7 @@ def test_active_reconcile_operator_reports_bounded_continuation(monkeypatch) -> 
         lifecycle_calls.append("retire")
 
     container = SimpleNamespace(
-        locator_retrieval=SimpleNamespace(reconcile_active=reconcile_active),
+        retrieval_runtime=SimpleNamespace(reconcile_active=reconcile_active),
         retrieval_profile_lifecycle=object(),
         clock=SimpleNamespace(now=lambda: datetime(2026, 8, 25, tzinfo=UTC)),
         engine=SimpleNamespace(dispose=dispose),
@@ -98,7 +98,7 @@ def test_admin_timeout_cancels_work_and_retires_registered_generation(monkeypatc
         lifecycle_calls.append("retire")
 
     container = SimpleNamespace(
-        locator_retrieval=SimpleNamespace(reconcile_active=reconcile_active),
+        retrieval_runtime=SimpleNamespace(reconcile_active=reconcile_active),
         retrieval_profile_lifecycle=object(),
         clock=SimpleNamespace(now=lambda: datetime(2026, 8, 25, tzinfo=UTC)),
         start_retrieval_runtime=start_retrieval_runtime,

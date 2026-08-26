@@ -9,6 +9,8 @@ from infinity_context_core.domain.errors import MemoryConflictError
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from infinity_context_server import projection_delete_payload
+
 _MAX_DELETE_OUTBOX_IDS = 5_000
 
 
@@ -92,56 +94,20 @@ async def load_exact_projection_delete_events(
         raise MemoryConflictError("Relevant projection outbox work is not terminal")
 
     if event_type == "vector.delete_chunks":
-        _require_vector_job(rows, sealed_scope, space_id)
+        projection_delete_payload.require_versioned_chunk_delete_job(
+            rows,
+            aggregate_id=sealed_scope.run_id_sha256,
+            chunk_ids=list(sealed_scope.all_chunk_ids),
+            metadata={
+                "space_id": space_id,
+                "cleanup_run_id_sha256": sealed_scope.run_id_sha256,
+            },
+        )
     elif event_type == "graph.delete_fact":
         _require_graph_jobs(rows, sealed_scope, space_id)
     else:
         raise MemoryConflictError("Projection delete outbox event type is unsupported")
     return rows
-
-
-def _require_vector_job(
-    rows: list[MemoryOutboxRow],
-    sealed_scope: SealedBenchmarkDeleteScope,
-    space_id: str,
-) -> None:
-    if len(rows) != 1:
-        raise MemoryConflictError("Benchmark vector cleanup outbox proof conflicted")
-    row = rows[0]
-    payload = row.payload_json
-    versions = payload.get("chunk_versions")
-    expected_ids = list(sealed_scope.all_chunk_ids)
-    if (
-        row.event_type != "vector.delete_chunks"
-        or row.aggregate_type != "benchmark_run"
-        or row.aggregate_id != sealed_scope.run_id_sha256
-        or {key: value for key, value in payload.items() if key != "chunk_versions"}
-        != {
-            "chunk_ids": expected_ids,
-            "space_id": space_id,
-            "cleanup_run_id_sha256": sealed_scope.run_id_sha256,
-        }
-        or not _valid_chunk_versions(versions, expected_ids)
-    ):
-        raise MemoryConflictError("Benchmark cleanup outbox proof conflicted")
-
-
-def _valid_chunk_versions(value: object, chunk_ids: list[str]) -> bool:
-    if not isinstance(value, list) or len(value) != len(chunk_ids):
-        return False
-    parsed: list[str] = []
-    for item in value:
-        if (
-            not isinstance(item, dict)
-            or set(item) != {"chunk_id", "canonical_version"}
-            or not isinstance(item["chunk_id"], str)
-            or not isinstance(item["canonical_version"], int)
-            or isinstance(item["canonical_version"], bool)
-            or item["canonical_version"] <= 0
-        ):
-            return False
-        parsed.append(item["chunk_id"])
-    return parsed == chunk_ids and len(parsed) == len(set(parsed))
 
 
 def _require_graph_jobs(

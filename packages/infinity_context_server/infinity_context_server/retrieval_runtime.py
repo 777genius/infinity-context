@@ -7,6 +7,9 @@ from datetime import datetime
 from typing import Protocol
 
 from infinity_context_server.retrieval_profile_composition import ActiveReconciliationResult
+from infinity_context_server.retrieval_runtime_lifecycle import (
+    RetrievalRuntimeLifecycle as ProcessRetrievalRuntimeLifecycle,
+)
 
 
 class RetrievalRuntimeLifecycle(Protocol):
@@ -15,6 +18,23 @@ class RetrievalRuntimeLifecycle(Protocol):
     async def close_runtime(self, *, now: datetime) -> None: ...
 
     async def reconcile_active(self, *, now: datetime) -> ActiveReconciliationResult: ...
+
+
+@dataclass(frozen=True, slots=True)
+class ActiveRetrievalRuntimeLifecycle:
+    """Bind process fencing and active reconciliation behind one capability."""
+
+    process: ProcessRetrievalRuntimeLifecycle
+    reconciler: RetrievalRuntimeLifecycle
+
+    async def start_runtime(self, *, now: datetime) -> None:
+        await self.process.start(now=now)
+
+    async def close_runtime(self, *, now: datetime) -> None:
+        await self.process.close(now=now)
+
+    async def reconcile_active(self, *, now: datetime) -> ActiveReconciliationResult:
+        return await self.reconciler.reconcile_active(now=now)
 
 
 @dataclass(frozen=True, slots=True)
@@ -32,4 +52,8 @@ class DisabledRetrievalRuntimeLifecycle:
         return ActiveReconciliationResult(complete=True, renewed=False, outcome="disabled")
 
 
-__all__ = ("DisabledRetrievalRuntimeLifecycle", "RetrievalRuntimeLifecycle")
+__all__ = (
+    "ActiveRetrievalRuntimeLifecycle",
+    "DisabledRetrievalRuntimeLifecycle",
+    "RetrievalRuntimeLifecycle",
+)

@@ -14,6 +14,10 @@ from infinity_context_core.ports.benchmark_runs import BenchmarkRunRegistryRecor
 from sqlalchemy import func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from infinity_context_server.projection_delete_payload import (
+    valid_versioned_chunk_delete_payload,
+)
+
 MAX_RECOVERY_OBSOLETE_UPSERT_JOBS = MAX_CLEANUP_PLAN_RECOVERY_TOTAL_ROWS * 4
 MAX_RECOVERY_DELETE_OUTBOX_ROWS = MAX_CLEANUP_PLAN_RECOVERY_ROWS_PER_KIND + 1
 _UPSERT_EVENT_TYPES = frozenset(
@@ -154,12 +158,14 @@ def _require_delete_payloads(
     graph = [row for row in rows if row.event_type == "graph.delete_fact"]
     if vector:
         payload = vector[0].payload_json
-        versions = payload.get("chunk_versions")
-        if {key: value for key, value in payload.items() if key != "chunk_versions"} != {
-            "chunk_ids": expected_chunks,
-            "space_id": record.space_id,
-            "cleanup_run_id_sha256": record.run_id_sha256,
-        } or not _valid_chunk_versions(versions, expected_chunks):
+        if not valid_versioned_chunk_delete_payload(
+            payload,
+            chunk_ids=expected_chunks,
+            metadata={
+                "space_id": record.space_id,
+                "cleanup_run_id_sha256": record.run_id_sha256,
+            },
+        ):
             raise MemoryConflictError("Unsealed vector cleanup payload differs")
     if sorted(row.aggregate_id for row in graph) != expected_facts:
         raise MemoryConflictError("Unsealed graph cleanup payload identities differ")
@@ -171,24 +177,6 @@ def _require_delete_payloads(
         }:
             raise MemoryConflictError("Unsealed graph cleanup payload differs")
     del documents
-
-
-def _valid_chunk_versions(value: object, chunk_ids: list[str]) -> bool:
-    if not isinstance(value, list) or len(value) != len(chunk_ids):
-        return False
-    parsed: list[str] = []
-    for item in value:
-        if (
-            not isinstance(item, dict)
-            or set(item) != {"chunk_id", "canonical_version"}
-            or not isinstance(item["chunk_id"], str)
-            or not isinstance(item["canonical_version"], int)
-            or isinstance(item["canonical_version"], bool)
-            or item["canonical_version"] <= 0
-        ):
-            return False
-        parsed.append(item["chunk_id"])
-    return parsed == chunk_ids and len(parsed) == len(set(parsed))
 
 
 __all__ = (

@@ -791,12 +791,7 @@ class FakeQdrantClient:
         self.query_calls.append(_kwargs)
         points = self.query_points_by_using.get(_kwargs.get("using"))
         if points is None:
-            points = [
-                _fake_qdrant_point(
-                    chunk_id="chunk_1",
-                    score=0.9,
-                )
-            ]
+            points = [_fake_qdrant_point(chunk_id="chunk_1", score=0.9)]
         return SimpleNamespace(points=points)
 
 

@@ -94,13 +94,16 @@ from infinity_context_server.retrieval_profile_composition import (
     RetrievalProfileOutboxCoordinator,
     build_retrieval_profile_lifecycle,
 )
+from infinity_context_server.retrieval_runtime import (
+    ActiveRetrievalRuntimeLifecycle,
+    DisabledRetrievalRuntimeLifecycle,
+)
+from infinity_context_server.retrieval_runtime import (
+    RetrievalRuntimeLifecycle as RetrievalRuntimeLifecycleCapability,
+)
 from infinity_context_server.retrieval_runtime_lifecycle import (
     ProviderFreeRetrievalRuntimeLifecycle,
     RetrievalRuntimeLifecycle,
-)
-from infinity_context_server.retrieval_runtime import (
-    DisabledRetrievalRuntimeLifecycle,
-    RetrievalRuntimeLifecycle as RetrievalRuntimeLifecycleCapability,
 )
 from infinity_context_server.serving_profile import (
     VerifiedServingProfile,
@@ -205,9 +208,7 @@ class Container:
     retrieval_runtime: RetrievalRuntimeLifecycleCapability
     retrieval_profile_lifecycle: object
     retrieval_profile_outbox: RetrievalProfileOutboxCoordinator
-    retrieval_runtime_lifecycle: (
-        RetrievalRuntimeLifecycle | ProviderFreeRetrievalRuntimeLifecycle
-    )
+    retrieval_runtime_lifecycle: RetrievalRuntimeLifecycle | ProviderFreeRetrievalRuntimeLifecycle
     memory_fact_lifecycle: memory_facts_feature.MemoryFactLifecycleUseCases
     memory_fact_reads: memory_facts_feature.MemoryFactReadUseCases
     memory_fact_temporal: memory_facts_feature.MemoryFactTemporalUseCases
@@ -413,7 +414,9 @@ def build_container(
         else None
     )
     retrieval_runtime: RetrievalRuntimeLifecycleCapability = (
-        locator_retrieval if locator_retrieval is not None else DisabledRetrievalRuntimeLifecycle()
+        ActiveRetrievalRuntimeLifecycle(retrieval_runtime_lifecycle, locator_retrieval)
+        if locator_retrieval is not None
+        else DisabledRetrievalRuntimeLifecycle()
     )
     blob_storage = _build_blob_storage(resolved_settings)
     product_plan = ProductPlan.create(

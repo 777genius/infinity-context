@@ -142,9 +142,6 @@ class ProfileAwareLocatorRetrievalService:
     async def start_runtime(self, *, now: datetime) -> None:
         """Register this exact process generation before any lifecycle operation."""
 
-        if self.runtime_lifecycle is not None:
-            await self.runtime_lifecycle.start(now=now)
-            return
         owner = self.runtime_owner
         if not isinstance(owner, RuntimeFenceOwner):
             raise RuntimeError("retrieval_profile_runtime_identity_missing")
@@ -153,9 +150,6 @@ class ProfileAwareLocatorRetrievalService:
     async def close_runtime(self, *, now: datetime) -> None:
         """Retire only this generation after the process has drained its fences."""
 
-        if self.runtime_lifecycle is not None:
-            await self.runtime_lifecycle.close(now=now)
-            return
         owner = self.runtime_owner
         if not isinstance(owner, RuntimeFenceOwner):
             raise RuntimeError("retrieval_profile_runtime_identity_missing")

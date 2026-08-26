@@ -47,10 +47,7 @@ async def retrieval_profile_lifecycle_command(
                     "steps": steps,
                 }
             if target == "active":
-                reconcile_active = getattr(container.locator_retrieval, "reconcile_active", None)
-                if reconcile_active is None:
-                    raise RuntimeError("retrieval_profile_reconciliation_unavailable")
-                result = await reconcile_active(now=now)
+                result = await container.retrieval_runtime.reconcile_active(now=now)
                 response = {
                     "status": "ok" if result.complete else "pending",
                     "operation": operation,
