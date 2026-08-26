@@ -505,11 +505,11 @@ def test_noop_vector_adapter_contract_fails_closed_without_candidates() -> None:
                     text="Noop vector source text.",
                     vector=(0.1, 0.2, 0.3),
                     projection_version="v1",
+                    metadata={"canonical_version": 1},
                 ),
             )
         )
         deleted = await adapter.delete_chunks_if_version(("chunk_1",), canonical_version=1)
-
         assert capabilities.enabled is False
         assert capabilities.supports_search is False
         assert search.status == PortStatus.DEGRADED
@@ -873,6 +873,7 @@ def test_qdrant_adapter_creates_collection_before_upsert_and_search() -> None:
                     text="Qdrant projection text.",
                     vector=(0.1, 0.2, 0.3),
                     projection_version="v1",
+                    metadata={"canonical_version": 1},
                 ),
             )
         )
@@ -882,7 +883,6 @@ def test_qdrant_adapter_creates_collection_before_upsert_and_search() -> None:
             query_vector=(0.1, 0.2, 0.3),
             limit=3,
         )
-
         assert upsert.status == PortStatus.OK
         assert fake.upserts == 1
         assert search.items[0].chunk_id == "chunk_1"
@@ -978,10 +978,10 @@ def test_qdrant_hybrid_sparse_mode_creates_named_vectors_and_indexes_bm25() -> N
                     text="Project Atlas uses BM25 sparse retrieval for exact markers.",
                     vector=(0.1, 0.2, 0.3),
                     projection_version="v1",
+                    metadata={"canonical_version": 1},
                 ),
             )
         )
-
         assert upsert.status == PortStatus.OK
         create_call = fake.create_collection_calls[0]
         assert set(create_call["vectors_config"]) == {"dense"}
@@ -1085,6 +1085,7 @@ def test_qdrant_dimension_mismatch_fails_closed() -> None:
                     text="Qdrant projection text.",
                     vector=(0.1, 0.2, 0.3),
                     projection_version="v1",
+                    metadata={"canonical_version": 1},
                 ),
             )
         )
@@ -1094,7 +1095,6 @@ def test_qdrant_dimension_mismatch_fails_closed() -> None:
             query_vector=(0.1, 0.2, 0.3),
             limit=3,
         )
-
         assert capabilities.healthy is False
         assert capabilities.degraded_reason == "qdrant.dimension_mismatch"
         assert upsert.status == PortStatus.DEGRADED

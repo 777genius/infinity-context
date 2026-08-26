@@ -487,7 +487,7 @@ def test_unversioned_document_and_thread_deletes_fail_closed() -> None:
             match="vector.delete_chunks",
         ) as raised:
             asyncio.run(process.handle_vector_delete_chunks(job))
-        assert raised.value.diagnostic_code == "vector.delete_canonical_versions_missing"
+        assert raised.value.diagnostic_code == "vector.delete_canonical_versions_rebuild_required"
 
 
 def test_drained_retrieval_runtime_has_no_dynamic_or_packaged_consumer() -> None:

@@ -15,7 +15,7 @@ from infinity_context_core.features.context_building.public import (
     ProfileTombstoneDeleteAuthorization,
     RetrievalProfileIdentity,
 )
-from infinity_context_core.ports.adapters import PortStatus
+from infinity_context_core.ports.adapters import PortStatus, VectorUpsertItem
 
 
 class _Value:
@@ -34,7 +34,9 @@ class _Models:
 class _Client:
     def __init__(self) -> None:
         self.delete_calls: list[dict[str, object]] = []
-        self.current_versions: dict[str, int] = {}
+        self.current_versions: dict[str, object] = {}
+        self.delete_enabled = True
+        self.fail_observation_once = False
 
     async def collection_exists(self, collection_name: str) -> bool:
         return collection_name == "locator"
@@ -45,18 +47,26 @@ class _Client:
         conditions = selector.kwargs["filter"].kwargs["must"]
         point_ids = conditions[0].kwargs["has_id"]
         version = conditions[1].kwargs["match"].kwargs["value"]
-        for point_id in point_ids:
-            if self.current_versions.get(point_id) == version:
-                del self.current_versions[point_id]
+        if self.delete_enabled:
+            for point_id in point_ids:
+                if self.current_versions.get(point_id) == version:
+                    del self.current_versions[point_id]
 
     async def retrieve(self, **kwargs: object) -> list[SimpleNamespace]:
+        assert kwargs["with_payload"] == ["canonical_version"]
+        assert kwargs["with_vectors"] is False
+        if "consistency" in kwargs:
+            assert kwargs["consistency"] == "all"
+        if self.fail_observation_once:
+            self.fail_observation_once = False
+            raise TimeoutError("ambiguous read after completed delete")
         return [
             SimpleNamespace(
                 id=point_id,
-                payload={"canonical_version": self.current_versions[point_id]},
+                payload=({} if version is None else {"canonical_version": version}),
             )
             for point_id in kwargs["ids"]
-            if point_id in self.current_versions
+            if (version := self.current_versions.get(point_id, _MISSING)) is not _MISSING
         ]
 
     async def close(self) -> None:
@@ -80,6 +90,9 @@ class _Fence:
         return 2
 
 
+_MISSING = object()
+
+
 def test_qdrant_versioned_delete_filters_id_and_canonical_version() -> None:
     async def run() -> None:
         client = _Client()
@@ -99,6 +112,36 @@ def test_qdrant_versioned_delete_filters_id_and_canonical_version() -> None:
         assert conditions[0].kwargs["has_id"]
         assert conditions[1].kwargs["key"] == "canonical_version"
         assert conditions[1].kwargs["match"].kwargs["value"] == 7
+
+    asyncio.run(run())
+
+
+def test_qdrant_rejects_unversioned_generic_point_before_provider_access() -> None:
+    async def run() -> None:
+        adapter = QdrantVectorMemoryAdapter(
+            url="http://qdrant.test", collection_name="generic", vector_size=3
+        )
+
+        async def forbidden_client():
+            raise AssertionError("unversioned point reached provider")
+
+        adapter._client = forbidden_client  # type: ignore[method-assign]
+        result = await adapter.upsert_chunks(
+            (
+                VectorUpsertItem(
+                    chunk_id="chunk-unversioned",
+                    space_id="space",
+                    memory_scope_id="scope",
+                    thread_id=None,
+                    text="legacy point",
+                    vector=(0.1, 0.2, 0.3),
+                    projection_version="v1",
+                ),
+            )
+        )
+        assert result.status == PortStatus.DEGRADED
+        assert result.diagnostics[0].code == "qdrant.canonical_version_invalid"
+        assert result.diagnostics[0].retryable is False
 
     asyncio.run(run())
 
@@ -171,7 +214,7 @@ def test_qdrant_delete_fails_closed_when_exact_generation_remains() -> None:
 
         assert result.status == PortStatus.DEGRADED
         assert tuple(item.code for item in result.diagnostics) == (
-            "qdrant.delete_exact_version_unproven",
+            "qdrant.delete_generation_remaining",
         )
 
     asyncio.run(run())
@@ -197,8 +240,9 @@ def test_stale_delete_replay_and_reconciliation_cannot_remove_superseding_point(
         # Supersession/replay restores canonical version 5. Both a delayed event
         # and a later reconciliation pass may replay the version-4 delete.
         client.current_versions[point_id] = 5
-        await adapter.delete_chunks_if_version(("chunk-1",), canonical_version=4)
-        await adapter.delete_chunks_if_version(("chunk-1",), canonical_version=4)
+        first_stale = await adapter.delete_chunks_if_version(("chunk-1",), canonical_version=4)
+        second_stale = await adapter.delete_chunks_if_version(("chunk-1",), canonical_version=4)
+        assert first_stale.status == second_stale.status == PortStatus.OK
         assert client.current_versions[point_id] == 5
 
         await adapter.delete_chunks_if_version(("chunk-1",), canonical_version=5)
@@ -227,6 +271,29 @@ def test_qdrant_observation_reports_absent_older_equal_and_newer_generations() -
     asyncio.run(run())
 
 
+def test_legacy_unversioned_and_older_points_require_explicit_rebuild() -> None:
+    async def run() -> None:
+        client = _Client()
+        adapter = QdrantVectorMemoryAdapter(
+            url="http://qdrant.test", collection_name="locator", vector_size=3
+        )
+
+        async def fake_client():
+            return client, _Models
+
+        adapter._client = fake_client  # type: ignore[method-assign]
+        point_id = qdrant_point_id_for_chunk("chunk-legacy")
+        for observed_version in (None, 3):
+            client.current_versions[point_id] = observed_version
+            result = await adapter.delete_chunks_if_version(("chunk-legacy",), canonical_version=4)
+            assert result.status == PortStatus.DEGRADED
+            assert result.diagnostics[0].code == "qdrant.delete_rebuild_required"
+            assert result.diagnostics[0].retryable is False
+            assert point_id in client.current_versions
+
+    asyncio.run(run())
+
+
 def test_qdrant_observation_failure_is_not_absence() -> None:
     async def run() -> None:
         client = _Client()
@@ -248,5 +315,53 @@ def test_qdrant_observation_failure_is_not_absence() -> None:
             assert str(exc) == "qdrant.observe_canonical_version_failed"
         else:  # pragma: no cover
             raise AssertionError("failed provider observation was treated as absence")
+
+    asyncio.run(run())
+
+
+def test_exact_generation_must_be_observed_absent_before_completion() -> None:
+    async def run() -> None:
+        client = _Client()
+        client.delete_enabled = False
+        adapter = QdrantVectorMemoryAdapter(
+            url="http://qdrant.test", collection_name="locator", vector_size=3
+        )
+
+        async def fake_client():
+            return client, _Models
+
+        adapter._client = fake_client  # type: ignore[method-assign]
+        point_id = qdrant_point_id_for_chunk("chunk-remaining")
+        client.current_versions[point_id] = 7
+        result = await adapter.delete_chunks_if_version(("chunk-remaining",), canonical_version=7)
+        assert result.status == PortStatus.DEGRADED
+        assert result.diagnostics[0].code == "qdrant.delete_generation_remaining"
+        assert result.diagnostics[0].retryable is True
+
+    asyncio.run(run())
+
+
+def test_delete_crash_replay_reconciles_already_absent_generation() -> None:
+    async def run() -> None:
+        client = _Client()
+        client.fail_observation_once = True
+        adapter = QdrantVectorMemoryAdapter(
+            url="http://qdrant.test", collection_name="locator", vector_size=3
+        )
+
+        async def fake_client():
+            return client, _Models
+
+        adapter._client = fake_client  # type: ignore[method-assign]
+        point_id = qdrant_point_id_for_chunk("chunk-replay")
+        client.current_versions[point_id] = 9
+
+        ambiguous = await adapter.delete_chunks_if_version(("chunk-replay",), canonical_version=9)
+        assert ambiguous.status == PortStatus.DEGRADED
+        assert point_id not in client.current_versions
+
+        reconciled = await adapter.delete_chunks_if_version(("chunk-replay",), canonical_version=9)
+        assert reconciled.status == PortStatus.OK
+        assert reconciled.affected_count == 1
 
     asyncio.run(run())

@@ -349,6 +349,8 @@ def test_legacy_chunk_mapping_does_not_invent_retrieval_projection() -> None:
     mapped = chunk_row_to_domain(row)
 
     assert mapped.metadata == {"language": "", "source": "document"}
+    assert mapped.canonical_version == 1
+    assert "_canonical_retrieval_projection" not in mapped.metadata
 
 
 class _Search:
