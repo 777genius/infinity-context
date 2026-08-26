@@ -155,7 +155,7 @@ scoping at the deployment edge.
     "infinity-context": {
       "command": "/Users/belief/dev/projects/ai/infinity-context/.venv/bin/infinity-context-mcp",
       "env": {
-        "PYTHONPATH": "/Users/belief/dev/projects/ai/infinity-context/packages/infinity_context_core:/Users/belief/dev/projects/ai/infinity-context/packages/infinity_context_server:/Users/belief/dev/projects/ai/infinity-context/packages/infinity_context_adapters:/Users/belief/dev/projects/ai/infinity-context/packages/infinity_context_sdk:/Users/belief/dev/projects/ai/infinity-context/packages/infinity_context_mcp",
+        "PYTHONPATH": "/Users/belief/dev/projects/ai/infinity-context/packages/infinity_context_core:/Users/belief/dev/projects/ai/infinity-context/packages/infinity_context_server:/Users/belief/dev/projects/ai/infinity-context/packages/infinity_context_runtime_bridge:/Users/belief/dev/projects/ai/infinity-context/packages/infinity_context_adapters:/Users/belief/dev/projects/ai/infinity-context/packages/infinity_context_sdk:/Users/belief/dev/projects/ai/infinity-context/packages/infinity_context_mcp",
         "MEMORY_MCP_API_URL": "http://127.0.0.1:7788",
         "MEMORY_MCP_DEFAULT_SPACE_SLUG": "project-alpha",
         "MEMORY_MCP_DEFAULT_MEMORY_SCOPE_EXTERNAL_REF": "default",

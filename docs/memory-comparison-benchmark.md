@@ -817,10 +817,12 @@ infinity-context-managed-live-canary \
   --case-id '<official-case-id>' \
   --run-id managed-locomo-canary-001 \
   --infinity-api-url http://127.0.0.1:7788 \
-  --mem0-api-url http://127.0.0.1:8888 \
+  --mem0-api-url http://127.0.0.1:19091 \
   --subscription-runtime-url http://127.0.0.1:8890 \
-  --max-total-tokens 250000 \
+  --max-extraction-tokens 17500000 \
+  --max-total-tokens 17600000 \
   --mem0-runtime-implementation-sha256 '<reviewed-adapter-sha256>' \
+  --managed-v5-config-json /absolute/private/managed-v5.json \
   --allow-live \
   --allow-paid-llm \
   --operator-notified \
@@ -835,25 +837,33 @@ not pass `/v1` or a specific endpoint. This differs from the adapter's
 URL and therefore includes `/v1`, for example `http://127.0.0.1:19090/v1`.
 
 Required private environment values are `MEMORY_EVAL_AUTH_TOKEN` (or
-`MEMORY_SERVICE_TOKEN`), `MEM0_BENCHMARK_PROBE_TOKEN`, and
-`SUBSCRIPTION_RUNTIME_BRIDGE_BEARER_TOKEN`. `MEM0_API_KEY` is also required
-unless `--mem0-local-auth-disabled-managed` is set. That exception is accepted
-only for an explicitly listed numeric IPv4 loopback host such as
-`--allow-mem0-host 127.0.0.1`; `localhost` and IPv6 targets are rejected. In
-this keyless lane the CLI ignores an ambient `MEM0_API_KEY`; use `env -u
-MEM0_API_KEY` to make the operator intent explicit. It denotes an auth-disabled
-managed wrapper with the full runtime contract, not ordinary OSS. The CLI never
-reads an OpenAI API key.
+`MEMORY_SERVICE_TOKEN`) and `SUBSCRIPTION_RUNTIME_BRIDGE_BEARER_TOKEN`.
+`MEM0_API_KEY` is also required unless `--mem0-local-auth-disabled-managed` is
+set. That exception is accepted only for an explicitly listed numeric IPv4
+loopback host such as `--allow-mem0-host 127.0.0.1`; `localhost` and IPv6 targets
+are rejected. In this keyless lane the CLI ignores an ambient `MEM0_API_KEY`;
+use `env -u MEM0_API_KEY` to make the operator intent explicit. It denotes an
+auth-disabled managed wrapper with the full runtime contract, not ordinary OSS.
+The CLI never reads an OpenAI API key.
+
+The absolute `--managed-v5-config-json` file binds
+`runtime_attestation_secret_file` to a current-user-owned mode `0600` file below
+the mode `0700` secret root and binds `runtime_attestation_secret_sha256` to its
+exact SHA-256 digest. Provision fresh random UTF-8 text between 32 and 4096 bytes
+with no surrounding whitespace, keep it distinct from every other credential,
+and mount the same bytes into the adapter as
+`/run/secrets/runtime-attestation-secret`. The v5 CLI reads this file for the
+authenticated runtime challenge; it does not use `MEM0_BENCHMARK_PROBE_TOKEN`.
 
 The canary accepts one to eight unique cases, reserves four benchmark provider
-calls per case, performs exactly one separate readiness attempt, caps benchmark
-tokens at 2,000,000 and sets an admission deadline of at most two hours. An
-adapter request already in flight is not preempted by that deadline; it remains
-bounded by its request timeout. `--operator-notified` is an operator
-acknowledgement, not a sealed proof that binds the reviewed pre-readiness plan.
-Every run reports `publishable=false`. Any missing flag, credential, exact
-dataset binding, readiness proof, runtime attestation or cleanup evidence fails
-closed.
+calls per case, performs exactly one separate readiness attempt, requires
+separate reviewed extraction and total token ceilings, and sets an admission
+deadline of at most two hours. An adapter request already in flight is not
+preempted by that deadline; it remains bounded by its request timeout.
+`--operator-notified` is an operator acknowledgement, not a sealed proof that
+binds the reviewed pre-readiness plan. Every run reports `publishable=false`.
+Any missing flag, credential, exact dataset binding, readiness proof, runtime
+attestation or cleanup evidence fails closed.
 
 #### Paired quality proof
 

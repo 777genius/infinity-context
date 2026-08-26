@@ -133,6 +133,8 @@ def test_cli_retains_secret_free_durable_registry_recovery_state(
         space_slug="memory-comparison-run-1",
         state="active",
         created=False,
+        cleanup_plan_sha256="4" * 64,
+        cleanup_plan_state="sealed",
     )
     envelope = ManagedV5RegistryRecoveryEnvelope(
         stage="begin_cleanup",

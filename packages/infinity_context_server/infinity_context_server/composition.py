@@ -1,10 +1,10 @@
 """Composition root for infinity_context_server."""
+# ruff: noqa: F403, F405
 
 from __future__ import annotations
 
 import inspect
 from dataclasses import dataclass
-from typing import cast
 
 import infinity_context_core.features.context_building.public as context_building_feature
 import infinity_context_core.features.memory_facts.public as memory_facts_feature
@@ -19,12 +19,7 @@ from infinity_context_adapters.features.memory_facts import (
     create_postgres_memory_fact_unit_of_work_factory,
 )
 from infinity_context_adapters.local_blob import LocalBlobStorage
-from infinity_context_adapters.noop import (
-    NoopGraphMemoryAdapter,
-    NoopVectorMemoryAdapter,
-    SystemClock,
-    UuidIdGenerator,
-)
+from infinity_context_adapters.noop import SystemClock, UuidIdGenerator
 from infinity_context_adapters.postgres import (
     PostgresProjectionFence,
     PostgresUnitOfWorkFactory,
@@ -35,101 +30,20 @@ from infinity_context_adapters.postgres.context_candidates import (
     PostgresMemoryFactCandidateLookup,
     create_postgres_memory_fact_selection,
 )
-from infinity_context_adapters.s3_blob import S3BlobStorage
-from infinity_context_core.application import (
-    ApproveSuggestionUseCase,
-    BackfillAnchorsUseCase,
-    BuildContextUseCase,
-    BuildMemoryBrowserUseCase,
-    BuildMemoryDigestUseCase,
-    BuildMemoryInsightsUseCase,
-    BuildMemoryOperationsConsoleUseCase,
-    CancelAssetExtractionUseCase,
-    CheckSpaceAccessUseCase,
-    CleanupBenchmarkRunUseCase,
-    ConsolidateCaptureUseCase,
-    CreateAnchorUseCase,
-    CreateAssetUseCase,
-    CreateContextLinkUseCase,
-    CreateMemoryScopeUseCase,
-    CreateSpaceMembershipUseCase,
-    CreateSpaceUseCase,
-    CreateSuggestionsBatchUseCase,
-    CreateSuggestionUseCase,
-    CreateUserUseCase,
-    DeleteAnchorUseCase,
-    DeleteAssetUseCase,
-    DeleteContextLinkUseCase,
-    DeleteDocumentUseCase,
-    DeleteMemoryScopeUseCase,
-    DeleteThreadMemoryUseCase,
-    EnsureScopeUseCase,
-    ExpirePendingSuggestionsUseCase,
-    ExpireSuggestionUseCase,
-    ExportGraphUseCase,
-    FinalizeBenchmarkRunCleanupUseCase,
-    FinalizeUnsealedBenchmarkAbortUseCase,
-    ForgetFactUseCase,
-    GetAssetExtractionUseCase,
-    GetAssetUseCase,
-    GetBenchmarkRunLifecycleUseCase,
-    GetCapabilitiesUseCase,
-    GetCaptureUseCase,
-    GetDocumentUseCase,
-    GetFactUseCase,
-    GetSessionStatusUseCase,
-    GetUsageSummaryUseCase,
-    IngestDocumentUseCase,
-    IngestEpisodeUseCase,
-    LinkFactsUseCase,
-    ListAnchorRelationsUseCase,
-    ListAnchorsUseCase,
-    ListAssetExtractionsUseCase,
-    ListAssetsUseCase,
-    ListCapturesUseCase,
-    ListContextLinkSuggestionsUseCase,
-    ListContextLinksUseCase,
-    ListDocumentChunksUseCase,
-    ListDocumentsUseCase,
-    ListFactRelationsUseCase,
-    ListFactsUseCase,
-    ListFactVersionsUseCase,
-    ListMemoryScopesUseCase,
-    ListSpaceMembershipsUseCase,
-    ListSpacesUseCase,
-    ListSuggestionsUseCase,
-    ListUsersUseCase,
-    MergeAnchorsUseCase,
-    ProcessDocumentUseCase,
-    PurgeCaptureUseCase,
-    ReadAssetBytesUseCase,
-    ReadExtractionArtifactBytesUseCase,
-    ReceiveCaptureUseCase,
-    RegisterBenchmarkRunUseCase,
-    RejectSuggestionUseCase,
-    RelatedFactsUseCase,
-    RememberFactUseCase,
-    RequestAssetExtractionUseCase,
-    ResolveDuplicateMergeUseCase,
-    ResolveSuggestionConflictUseCase,
-    RetryAssetExtractionUseCase,
-    ReviewContextLinkSuggestionsBatchUseCase,
-    ReviewContextLinkSuggestionUseCase,
-    ReviewSuggestionsBatchUseCase,
-    RunAssetExtractionUseCase,
-    RunBlobStorageCleanupUseCase,
-    RunBlobStorageIntegrityAuditUseCase,
-    SealProjectionManifestUseCase,
-    SplitAnchorUseCase,
-    SuggestAnchorMergesUseCase,
-    SuggestContextLinksUseCase,
-    UnlinkFactRelationUseCase,
-    UpdateAnchorUseCase,
-    UpdateContextLinkUseCase,
-    UpdateFactUseCase,
-    UpdateMemoryScopeUseCase,
+from infinity_context_adapters.postgres.locator_projection_maintenance import (
+    PostgresLocatorProjectionMaintenance,
 )
+from infinity_context_adapters.postgres.projected_document_ingestion import (
+    PostgresProjectedDocumentIngestor,
+)
+from infinity_context_adapters.s3_blob import S3BlobStorage
 from infinity_context_core.application.auto_memory import RuleBasedMemoryClassifier
+from infinity_context_core.application.benchmark_managed_write_admission import (
+    ManagedBenchmarkCreateMemoryScopeAdmission,
+    ManagedBenchmarkDocumentMutationBlocker,
+    ManagedBenchmarkEnsureScopeAdmission,
+    ManagedBenchmarkFactMutationBlocker,
+)
 from infinity_context_core.application.context_packer import ContextPacker
 from infinity_context_core.application.extractor import (
     NoopMemoryExtractor,
@@ -149,23 +63,28 @@ from infinity_context_core.ports.clock import ClockPort
 from infinity_context_core.ports.extraction import ExtractionLimits
 from infinity_context_core.ports.graph_evidence import GraphProjectionEvidencePort
 from infinity_context_core.ports.ids import IdGeneratorPort
+from infinity_context_core.ports.managed_benchmark_strict_v4_document_write import (
+    ManagedBenchmarkStrictV4DocumentAuthorityPort,
+)
+from infinity_context_core.ports.managed_benchmark_strict_v4_write import (
+    ManagedBenchmarkStrictV4FactAuthorityPort,
+)
 from infinity_context_core.ports.projection_fence import ProjectionFencePort
 from infinity_context_core.ports.unit_of_work import UnitOfWorkFactoryPort
 from infinity_context_core.ports.vector_projection_evidence import VectorProjectionEvidencePort
 from sqlalchemy.ext.asyncio import AsyncEngine
 
+from infinity_context_server import (
+    benchmark_managed_fact_composition,
+    benchmark_run_composition,
+    derived_provider_composition,
+)
 from infinity_context_server import processes as server_processes
-from infinity_context_server.benchmark_projection_absence import (
-    ServerBenchmarkProjectionAbsence,
-)
-from infinity_context_server.config import CaptureMode, MemoryPolicyMode, Settings
-from infinity_context_server.derived_identity_evidence import (
-    DerivedIdentityEvidenceCoordinator,
-    SqlAlchemyProjectionReadiness,
-    graphiti_target_commitment_sha256,
-)
-from infinity_context_server.derived_projection_policy import derived_projection_lane_policies
+from infinity_context_server.composition_use_cases import *  # noqa: F403
+from infinity_context_server.config import CaptureMode, DeployProfile, MemoryPolicyMode, Settings
+from infinity_context_server.derived_identity_evidence import DerivedIdentityEvidenceCoordinator
 from infinity_context_server.embedding_composition import build_embedding_adapter
+from infinity_context_server.features.context_building import public as context_building_server
 from infinity_context_server.metrics import RuntimeMetrics
 from infinity_context_server.provider_budget import QueryEmbeddingBudgetAdapter
 from infinity_context_server.provider_circuit import (
@@ -173,6 +92,16 @@ from infinity_context_server.provider_circuit import (
     CircuitBreakingGraphMemoryAdapter,
     CircuitBreakingVectorMemoryAdapter,
     ProviderCircuitBreaker,
+)
+from infinity_context_server.retrieval_composition import build_locator_retrieval_service
+from infinity_context_server.retrieval_profile_composition import (
+    ProfileAwareLocatorRetrievalService,
+    RetrievalProfileOutboxCoordinator,
+    build_retrieval_profile_lifecycle,
+)
+from infinity_context_server.retrieval_runtime_lifecycle import (
+    ProviderFreeRetrievalRuntimeLifecycle,
+    RetrievalRuntimeLifecycle,
 )
 from infinity_context_server.serving_profile import (
     VerifiedServingProfile,
@@ -263,6 +192,7 @@ class Container:
     ensure_scope: EnsureScopeUseCase
     ingest_episode: IngestEpisodeUseCase
     ingest_document: IngestDocumentUseCase
+    projected_document_ingestion: PostgresProjectedDocumentIngestor
     get_document: GetDocumentUseCase
     list_documents: ListDocumentsUseCase
     list_document_chunks: ListDocumentChunksUseCase
@@ -271,6 +201,14 @@ class Container:
     build_context: BuildContextUseCase
     canonical_fact_selection: memory_facts_feature.MemoryFactSelectionPort
     build_canonical_fact_context: context_building_feature.BuildContextHandler
+    locator_retrieval: context_building_server.LocatorRetrievalService | None
+    locator_vector_index: VectorMemoryPort | None
+    locator_projection_maintenance: PostgresLocatorProjectionMaintenance
+    retrieval_profile_lifecycle: object
+    retrieval_profile_outbox: RetrievalProfileOutboxCoordinator
+    retrieval_runtime_lifecycle: (
+        RetrievalRuntimeLifecycle | ProviderFreeRetrievalRuntimeLifecycle
+    )
     memory_fact_lifecycle: memory_facts_feature.MemoryFactLifecycleUseCases
     memory_fact_reads: memory_facts_feature.MemoryFactReadUseCases
     memory_fact_temporal: memory_facts_feature.MemoryFactTemporalUseCases
@@ -302,12 +240,21 @@ class Container:
     runtime_metrics: RuntimeMetrics
     provider_circuits: tuple[ProviderCircuitBreaker, ...]
 
+    async def start_retrieval_runtime(self) -> None:
+        await self.retrieval_runtime_lifecycle.start(now=self.clock.now())
+
     async def aclose(self) -> None:
+        first_error: BaseException | None = None
+        try:
+            await self.retrieval_runtime_lifecycle.close(now=self.clock.now())
+        except BaseException as exc:
+            first_error = exc
         closed: set[int] = set()
         for resource in (
             *self.adapters,
             self.cognee_memory,
             self.vector_index,
+            self.locator_vector_index,
             self.graph_index,
             self.vector_projection_evidence,
             self.graph_projection_evidence,
@@ -319,11 +266,26 @@ class Container:
             if resource_id in closed:
                 continue
             closed.add(resource_id)
-            await _close_resource(resource)
-        await self.engine.dispose()
+            try:
+                await _close_resource(resource)
+            except BaseException as exc:
+                if first_error is None:
+                    first_error = exc
+        try:
+            await self.engine.dispose()
+        except BaseException as exc:
+            if first_error is None:
+                first_error = exc
+        if first_error is not None:
+            raise first_error
 
 
-def build_container(settings: Settings | None = None) -> Container:
+def build_container(
+    settings: Settings | None = None,
+    *,
+    strict_v4_fact_authority: ManagedBenchmarkStrictV4FactAuthorityPort | None = None,
+    strict_v4_document_authority: ManagedBenchmarkStrictV4DocumentAuthorityPort | None = None,
+) -> Container:
     resolved_settings = settings or Settings()
     resolved_settings.validate_for_startup()
     serving_profile = build_verified_serving_profile(resolved_settings)
@@ -374,68 +336,34 @@ def build_container(settings: Settings | None = None) -> Container:
         list_facts=memory_facts_feature.ListMemoryFactsHandler(memory_fact_read_model),
         list_versions=memory_facts_feature.ListMemoryFactVersionsHandler(memory_fact_read_model),
     )
-    memory_fact_lifecycle = memory_facts_feature.MemoryFactLifecycleUseCases(
-        remember_fact=memory_facts_feature.RememberFactHandler(
-            uow_factory=memory_fact_uow_factory,
+    memory_fact_lifecycle, memory_fact_temporal = (
+        benchmark_managed_fact_composition.build_managed_memory_fact_use_cases(
+            benchmark_uow_factory=uow_factory,
+            memory_fact_uow_factory=memory_fact_uow_factory,
             clock=clock,
             ids=memory_fact_ids,
-        ),
-        update_fact=memory_facts_feature.UpdateFactHandler(
-            uow_factory=memory_fact_uow_factory,
-            clock=clock,
-            ids=memory_fact_ids,
-        ),
-        forget_fact=memory_facts_feature.ForgetFactHandler(
-            uow_factory=memory_fact_uow_factory,
-            clock=clock,
-            ids=memory_fact_ids,
-        ),
+            strict_v4_fact_authority=strict_v4_fact_authority,
+        )
     )
-    memory_fact_temporal = memory_facts_feature.MemoryFactTemporalUseCases(
-        confirm_fact=memory_facts_feature.ConfirmFactHandler(
-            uow_factory=memory_fact_uow_factory, clock=clock, ids=memory_fact_ids
-        ),
-        end_validity=memory_facts_feature.EndFactValidityHandler(
-            uow_factory=memory_fact_uow_factory, clock=clock, ids=memory_fact_ids
-        ),
-        supersede_fact=memory_facts_feature.SupersedeFactHandler(
-            uow_factory=memory_fact_uow_factory, clock=clock, ids=memory_fact_ids
-        ),
-        dispute_facts=memory_facts_feature.DisputeFactsHandler(
-            uow_factory=memory_fact_uow_factory, clock=clock, ids=memory_fact_ids
-        ),
-        reinstate_supersession=memory_facts_feature.ReinstateSupersededFactHandler(
-            uow_factory=memory_fact_uow_factory, clock=clock, ids=memory_fact_ids
-        ),
+    derived_providers = derived_provider_composition.build_derived_provider_bundle(
+        engine=engine, settings=resolved_settings
     )
-    raw_vector = _build_vector_adapter(resolved_settings)
-    raw_graph = _build_graph_adapter(resolved_settings)
-    vector_projection_evidence = (
-        cast(VectorProjectionEvidencePort, raw_vector) if resolved_settings.qdrant_enabled else None
-    )
-    graph_projection_evidence = _build_graph_projection_evidence(resolved_settings)
-    derived_lane_policies = derived_projection_lane_policies(
-        qdrant_enabled=resolved_settings.qdrant_enabled,
-        graphiti_enabled=resolved_settings.graphiti_enabled,
-    )
-    derived_identity_evidence = DerivedIdentityEvidenceCoordinator(
-        readiness=SqlAlchemyProjectionReadiness(engine),
-        vector_evidence=vector_projection_evidence,
-        graph_evidence=graph_projection_evidence,
-        graph_target_commitment_sha256=(
-            graphiti_target_commitment_sha256(
-                neo4j_uri=resolved_settings.graphiti_neo4j_uri,
-            )
-            if graph_projection_evidence is not None
-            else None
-        ),
-        lane_policies=derived_lane_policies,
-    )
+    raw_vector = derived_providers.raw_vector
+    raw_graph = derived_providers.raw_graph
+    vector_projection_evidence = derived_providers.vector_evidence
+    graph_projection_evidence = derived_providers.graph_evidence
+    derived_identity_evidence = derived_providers.identity_evidence
     raw_embeddings = build_embedding_adapter(resolved_settings, serving_profile)
     provider_circuits = (
-        _provider_circuit("qdrant", "vector", clock, resolved_settings),
-        _provider_circuit("graphiti", "graph", clock, resolved_settings),
-        _provider_circuit("embeddings", "embeddings", clock, resolved_settings),
+        derived_provider_composition.build_provider_circuit(
+            "qdrant", "vector", clock, resolved_settings
+        ),
+        derived_provider_composition.build_provider_circuit(
+            "graphiti", "graph", clock, resolved_settings
+        ),
+        derived_provider_composition.build_provider_circuit(
+            "embeddings", "embeddings", clock, resolved_settings
+        ),
     )
     vector = CircuitBreakingVectorMemoryAdapter(raw_vector, provider_circuits[0])
     graph = CircuitBreakingGraphMemoryAdapter(raw_graph, provider_circuits[1])
@@ -445,12 +373,59 @@ def build_container(settings: Settings | None = None) -> Container:
         clock=clock,
         max_per_minute=resolved_settings.max_query_embeddings_per_minute,
     )
+    runtime_metrics = RuntimeMetrics()
+    (
+        locator_retrieval,
+        locator_vector_index,
+        locator_projection_maintenance,
+    ) = build_locator_retrieval_service(
+        session_factory=session_factory,
+        settings=resolved_settings,
+        serving_profile=serving_profile,
+        query_embeddings=query_embeddings,
+        diagnostics=runtime_metrics,
+    )
+    retrieval_profile_lifecycle, retrieval_profile_outbox = build_retrieval_profile_lifecycle(
+        session_factory=session_factory,
+        settings=resolved_settings,
+        query_embeddings=query_embeddings,
+        diagnostics=runtime_metrics,
+    )
+    provider_free_local_runtime = (
+        resolved_settings.deploy_profile in {DeployProfile.LOCAL, DeployProfile.TEST}
+        and engine.dialect.name != "postgresql"
+        and not any(
+            (
+                resolved_settings.qdrant_enabled,
+                resolved_settings.graphiti_enabled,
+                resolved_settings.embeddings_enabled,
+            )
+        )
+    )
+    retrieval_runtime_lifecycle = (
+        ProviderFreeRetrievalRuntimeLifecycle()
+        if provider_free_local_runtime
+        else RetrievalRuntimeLifecycle(
+            retrieval_profile_outbox.registry,
+            retrieval_profile_outbox.projection.runtime_owner,
+        )
+    )
+    if locator_retrieval is not None:
+        locator_retrieval = ProfileAwareLocatorRetrievalService(
+            fallback=locator_retrieval,
+            registry=retrieval_profile_outbox.registry,
+            projection=retrieval_profile_outbox.projection,
+            sessions=session_factory,
+            query_embeddings=query_embeddings,
+            runtime_lifecycle=retrieval_runtime_lifecycle,
+            runtime_owner=retrieval_profile_outbox.projection.runtime_owner,
+        )
     blob_storage = _build_blob_storage(resolved_settings)
     product_plan = ProductPlan.create(
         tier=resolved_settings.product_plan_tier,
         media_analysis_seconds_per_month=(resolved_settings.plan_media_analysis_seconds_per_month),
     )
-    cognee = _build_cognee_adapter(resolved_settings)
+    cognee = derived_provider_composition.build_cognee_adapter(resolved_settings)
     adapters: tuple[MemoryAdapterPort, ...] = (vector, graph, embeddings, cognee)
     get_capabilities = GetCapabilitiesUseCase(
         service_name=resolved_settings.service_name,
@@ -479,22 +454,24 @@ def build_container(settings: Settings | None = None) -> Container:
         },
     )
     create_space = CreateSpaceUseCase(uow_factory=uow_factory, clock=clock, ids=ids)
-    register_benchmark_run = RegisterBenchmarkRunUseCase(uow_factory=uow_factory, clock=clock)
-    seal_projection_manifest = SealProjectionManifestUseCase(uow_factory=uow_factory, clock=clock)
-    cleanup_benchmark_run = CleanupBenchmarkRunUseCase(uow_factory=uow_factory, clock=clock)
-    get_benchmark_run_lifecycle = GetBenchmarkRunLifecycleUseCase(uow_factory=uow_factory)
-    benchmark_projection_absence = ServerBenchmarkProjectionAbsence(derived_identity_evidence)
-    finalize_benchmark_run_cleanup = FinalizeBenchmarkRunCleanupUseCase(
+    benchmark_runs = benchmark_run_composition.build_benchmark_run_use_cases(
+        engine=engine,
         uow_factory=uow_factory,
         clock=clock,
-        projection_absence=benchmark_projection_absence,
+        sealed_evidence=derived_identity_evidence,
+        derived_providers=derived_providers,
     )
-    finalize_unsealed_benchmark_abort = FinalizeUnsealedBenchmarkAbortUseCase(
-        uow_factory=uow_factory,
-        clock=clock,
-    )
+    register_benchmark_run = benchmark_runs.register
+    seal_projection_manifest = benchmark_runs.seal_manifest
+    cleanup_benchmark_run = benchmark_runs.begin_cleanup
+    get_benchmark_run_lifecycle = benchmark_runs.get_lifecycle
+    finalize_benchmark_run_cleanup = benchmark_runs.finalize_sealed
+    finalize_unsealed_benchmark_abort = benchmark_runs.finalize_unsealed
     list_spaces = ListSpacesUseCase(uow_factory=uow_factory)
-    create_memory_scope = CreateMemoryScopeUseCase(uow_factory=uow_factory, clock=clock, ids=ids)
+    create_memory_scope = ManagedBenchmarkCreateMemoryScopeAdmission(
+        uow_factory=uow_factory,
+        inner=CreateMemoryScopeUseCase(uow_factory=uow_factory, clock=clock, ids=ids),
+    )
     list_memory_scopes = ListMemoryScopesUseCase(uow_factory=uow_factory)
     update_memory_scope = UpdateMemoryScopeUseCase(uow_factory=uow_factory, clock=clock)
     delete_memory_scope = DeleteMemoryScopeUseCase(uow_factory=uow_factory, clock=clock)
@@ -512,9 +489,15 @@ def build_container(settings: Settings | None = None) -> Container:
     get_fact = GetFactUseCase(uow_factory=uow_factory)
     list_fact_versions = ListFactVersionsUseCase(uow_factory=uow_factory)
     related_facts = RelatedFactsUseCase(uow_factory=uow_factory)
-    link_facts = LinkFactsUseCase(uow_factory=uow_factory, clock=clock, ids=ids)
+    link_facts = ManagedBenchmarkFactMutationBlocker(
+        inner=LinkFactsUseCase(uow_factory=uow_factory, clock=clock, ids=ids),
+        uow_factory=uow_factory,
+    )
     list_fact_relations = ListFactRelationsUseCase(uow_factory=uow_factory)
-    unlink_fact_relation = UnlinkFactRelationUseCase(uow_factory=uow_factory, clock=clock)
+    unlink_fact_relation = ManagedBenchmarkFactMutationBlocker(
+        inner=UnlinkFactRelationUseCase(uow_factory=uow_factory, clock=clock),
+        uow_factory=uow_factory,
+    )
     create_asset = CreateAssetUseCase(
         uow_factory=uow_factory,
         clock=clock,
@@ -561,9 +544,19 @@ def build_container(settings: Settings | None = None) -> Container:
     )
     update_context_link = UpdateContextLinkUseCase(uow_factory=uow_factory, clock=clock)
     delete_context_link = DeleteContextLinkUseCase(uow_factory=uow_factory, clock=clock)
-    update_fact = UpdateFactUseCase(uow_factory=uow_factory, clock=clock)
-    forget_fact = ForgetFactUseCase(uow_factory=uow_factory, clock=clock)
-    ensure_scope = EnsureScopeUseCase(uow_factory=uow_factory, clock=clock)
+    update_fact = ManagedBenchmarkFactMutationBlocker(
+        inner=UpdateFactUseCase(uow_factory=uow_factory, clock=clock),
+        uow_factory=uow_factory,
+    )
+    forget_fact = ManagedBenchmarkFactMutationBlocker(
+        inner=ForgetFactUseCase(uow_factory=uow_factory, clock=clock),
+        uow_factory=uow_factory,
+    )
+    ensure_scope = ManagedBenchmarkEnsureScopeAdmission(
+        uow_factory=uow_factory,
+        inner=EnsureScopeUseCase(uow_factory=uow_factory, clock=clock),
+        strict_v4_authority=strict_v4_fact_authority,
+    )
     ingest_episode = IngestEpisodeUseCase(
         uow_factory=uow_factory,
         clock=clock,
@@ -571,7 +564,12 @@ def build_container(settings: Settings | None = None) -> Container:
         classifier=RuleBasedMemoryClassifier(),
         auto_suggestions_enabled=resolved_settings.policy_mode.value == "suggestions",
     )
-    ingest_document = IngestDocumentUseCase(uow_factory=uow_factory, clock=clock, ids=ids)
+    ingest_document = IngestDocumentUseCase(
+        uow_factory=uow_factory,
+        clock=clock,
+        ids=ids,
+        strict_v4_authority=strict_v4_document_authority,
+    )
     extraction_limits = ExtractionLimits(
         max_bytes=resolved_settings.extraction_max_bytes,
         max_pages=resolved_settings.extraction_max_pages,
@@ -630,6 +628,11 @@ def build_container(settings: Settings | None = None) -> Container:
             asr_compute_type=resolved_settings.extraction_asr_compute_type,
         )
     )
+    projected_document_ingestion = PostgresProjectedDocumentIngestor(
+        engine=engine,
+        clock=clock,
+        ids=ids,
+    )
     run_asset_extraction = RunAssetExtractionUseCase(
         uow_factory=uow_factory,
         blob_storage=blob_storage,
@@ -656,8 +659,14 @@ def build_container(settings: Settings | None = None) -> Container:
     get_document = GetDocumentUseCase(uow_factory=uow_factory)
     list_documents = ListDocumentsUseCase(uow_factory=uow_factory)
     list_document_chunks = ListDocumentChunksUseCase(uow_factory=uow_factory)
-    process_document = ProcessDocumentUseCase(uow_factory=uow_factory)
-    delete_document = DeleteDocumentUseCase(uow_factory=uow_factory, clock=clock)
+    process_document = ManagedBenchmarkDocumentMutationBlocker(
+        uow_factory=uow_factory,
+        inner=ProcessDocumentUseCase(uow_factory=uow_factory),
+    )
+    delete_document = ManagedBenchmarkDocumentMutationBlocker(
+        uow_factory=uow_factory,
+        inner=DeleteDocumentUseCase(uow_factory=uow_factory, clock=clock),
+    )
     build_context = BuildContextUseCase(
         uow_factory=uow_factory,
         ids=ids,
@@ -721,7 +730,9 @@ def build_container(settings: Settings | None = None) -> Container:
         uow_factory=uow_factory,
         clock=clock,
         ids=ids,
-        max_pending_captures_per_memory_scope=resolved_settings.max_pending_captures_per_memory_scope,
+        max_pending_captures_per_memory_scope=(
+            resolved_settings.max_pending_captures_per_memory_scope
+        ),
     )
     get_capture = GetCaptureUseCase(uow_factory=uow_factory)
     list_captures = ListCapturesUseCase(uow_factory=uow_factory)
@@ -759,7 +770,6 @@ def build_container(settings: Settings | None = None) -> Container:
         blob_storage=blob_storage,
         clock=clock,
     )
-    runtime_metrics = RuntimeMetrics()
     return Container(
         settings=resolved_settings,
         serving_profile=serving_profile,
@@ -844,6 +854,7 @@ def build_container(settings: Settings | None = None) -> Container:
         ensure_scope=ensure_scope,
         ingest_episode=ingest_episode,
         ingest_document=ingest_document,
+        projected_document_ingestion=projected_document_ingestion,
         get_document=get_document,
         list_documents=list_documents,
         list_document_chunks=list_document_chunks,
@@ -852,6 +863,12 @@ def build_container(settings: Settings | None = None) -> Container:
         build_context=build_context,
         canonical_fact_selection=canonical_fact_selection,
         build_canonical_fact_context=build_canonical_fact_context,
+        locator_retrieval=locator_retrieval,
+        locator_vector_index=locator_vector_index,
+        locator_projection_maintenance=locator_projection_maintenance,
+        retrieval_profile_lifecycle=retrieval_profile_lifecycle,
+        retrieval_profile_outbox=retrieval_profile_outbox,
+        retrieval_runtime_lifecycle=retrieval_runtime_lifecycle,
         memory_fact_lifecycle=memory_fact_lifecycle,
         memory_fact_reads=memory_fact_reads,
         memory_fact_temporal=memory_fact_temporal,
@@ -913,52 +930,6 @@ def _build_blob_storage(settings: Settings) -> BlobStorageMaintenancePort:
     raise RuntimeError("Unsupported asset storage backend")
 
 
-def _build_vector_adapter(settings: Settings) -> MemoryAdapterPort:
-    if not settings.qdrant_enabled:
-        return NoopVectorMemoryAdapter(name="qdrant")
-    from infinity_context_adapters.qdrant import QdrantVectorMemoryAdapter
-
-    return QdrantVectorMemoryAdapter(
-        url=settings.qdrant_url,
-        api_key=settings.qdrant_api_key,
-        collection_name=settings.qdrant_collection,
-        vector_size=settings.embeddings_dimensions,
-        hybrid_sparse_enabled=settings.qdrant_hybrid_sparse_enabled,
-        sparse_model=settings.qdrant_sparse_model,
-        dense_vector_name=settings.qdrant_dense_vector_name,
-        sparse_vector_name=settings.qdrant_sparse_vector_name,
-    )
-
-
-def _build_graph_adapter(settings: Settings) -> MemoryAdapterPort:
-    if not settings.graphiti_enabled:
-        return NoopGraphMemoryAdapter(name="graphiti")
-    from infinity_context_adapters.graphiti import GraphitiGraphMemoryAdapter
-
-    return GraphitiGraphMemoryAdapter(
-        neo4j_uri=settings.graphiti_neo4j_uri,
-        neo4j_user=settings.graphiti_neo4j_user,
-        neo4j_password=settings.graphiti_neo4j_password,
-        build_indices=settings.graphiti_build_indices,
-    )
-
-
-def _build_graph_projection_evidence(
-    settings: Settings,
-) -> GraphProjectionEvidencePort | None:
-    if not settings.graphiti_enabled:
-        return None
-    from infinity_context_adapters.graphiti.identity_evidence import (
-        Neo4jGraphitiIdentityEvidenceAdapter,
-    )
-
-    return Neo4jGraphitiIdentityEvidenceAdapter(
-        neo4j_uri=settings.graphiti_neo4j_uri,
-        neo4j_user=settings.graphiti_neo4j_user,
-        neo4j_password=settings.graphiti_neo4j_password,
-    )
-
-
 def _build_capture_extractor(settings: Settings) -> MemoryExtractorPort:
     if settings.capture_extractor_provider == "noop":
         return NoopMemoryExtractor()
@@ -970,28 +941,3 @@ def _build_capture_extractor(settings: Settings) -> MemoryExtractorPort:
             model=settings.capture_extractor_model,
         )
     return RuleBasedMemoryExtractor()
-
-
-def _build_cognee_adapter(settings: Settings) -> MemoryAdapterPort:
-    from infinity_context_adapters.cognee import CogneeMemoryAdapter
-
-    return CogneeMemoryAdapter(
-        enabled=settings.cognee_enabled,
-        configured=settings.cognee_runtime_configured,
-        dataset_prefix=settings.cognee_dataset_prefix,
-    )
-
-
-def _provider_circuit(
-    adapter_name: str,
-    operation_kind: str,
-    clock: ClockPort,
-    settings: Settings,
-) -> ProviderCircuitBreaker:
-    return ProviderCircuitBreaker(
-        adapter_name=adapter_name,
-        operation_kind=operation_kind,
-        clock=clock,
-        failure_threshold=settings.provider_circuit_failure_threshold,
-        reset_after_seconds=settings.provider_circuit_reset_after_seconds,
-    )

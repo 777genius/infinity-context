@@ -6,6 +6,13 @@ from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
 
 from .._json import JsonObject, JsonValue, json_compatible
+from ._document_retrieval_projection_v1 import (
+    DOCUMENT_RETRIEVAL_PROJECTION_SCHEMA_V1,
+    DocumentRetrievalProjectionRelativeTimeIntervalV1Dto,
+    DocumentRetrievalProjectionTimeIntervalV1Dto,
+    DocumentRetrievalProjectionV1Dto,
+    decode_document_retrieval_projection_v1,
+)
 
 FEATURE_ID = "document_ingestion"
 
@@ -140,6 +147,31 @@ class IngestDocumentRequestDto:
     content_hash: str | None = None
     idempotency_key: str | None = None
     metadata: Mapping[str, JsonValue] = field(default_factory=dict)
+    retrieval_projection: DocumentRetrievalProjectionV1Dto | None = None
+
+    def __post_init__(self) -> None:
+        if self.retrieval_projection is None:
+            return
+        if not isinstance(self.retrieval_projection, DocumentRetrievalProjectionV1Dto):
+            raise ValueError("retrieval_projection has an invalid runtime type")
+        projection = self.retrieval_projection
+        object.__setattr__(
+            self,
+            "retrieval_projection",
+            DocumentRetrievalProjectionV1Dto(
+                locator=projection.locator,
+                source_key=projection.source_key,
+                projection_generation=projection.projection_generation,
+                sequence_ordinal=projection.sequence_ordinal,
+                actor_keys=tuple(projection.actor_keys),
+                time_interval=projection.time_interval,
+                relative_time_interval=projection.relative_time_interval,
+                kind=projection.kind,
+                category=projection.category,
+                tags=tuple(projection.tags),
+                schema_version=projection.schema_version,
+            ),
+        )
 
     def to_dict(self) -> JsonObject:
         return {
@@ -173,6 +205,9 @@ class IngestDocumentRequestDto:
             "content_hash": self.content_hash,
             "idempotency_key": self.idempotency_key,
             "metadata": json_compatible(self.metadata),
+            "retrieval_projection": (
+                None if self.retrieval_projection is None else self.retrieval_projection.to_dict()
+            ),
         }
 
 
@@ -181,9 +216,7 @@ class IngestDocumentResultDto:
     """Stable result wrapper for document ingestion."""
 
     document: MemoryDocumentDto
-    chunks: Sequence[DocumentChunkDto | Mapping[str, JsonValue]] = field(
-        default_factory=tuple
-    )
+    chunks: Sequence[DocumentChunkDto | Mapping[str, JsonValue]] = field(default_factory=tuple)
     created: bool = True
     indexing_status: str | None = None
 
@@ -222,9 +255,7 @@ def _document_source_to_dict(
     if not _has_source_metadata(metadata) and source_uri is None:
         return None
     return DocumentSourceDto(
-        source_type=str(
-            _source_field("source_type", metadata=metadata, default="document")
-        ),
+        source_type=str(_source_field("source_type", metadata=metadata, default="document")),
         source_external_id=_optional_source_text(
             _source_field("source_external_id", metadata=metadata)
         ),
@@ -242,10 +273,7 @@ def _document_source_to_dict(
 
 
 def _has_source_metadata(metadata: Mapping[str, JsonValue]) -> bool:
-    return any(
-        key in metadata
-        for key in ("source_type", "source_external_id", "classification")
-    )
+    return any(key in metadata for key in ("source_type", "source_external_id", "classification"))
 
 
 def _source_field(
@@ -271,6 +299,11 @@ __all__ = [
     "DocumentChunkDto",
     "DocumentIdentityDto",
     "DocumentSourceDto",
+    "DOCUMENT_RETRIEVAL_PROJECTION_SCHEMA_V1",
+    "DocumentRetrievalProjectionTimeIntervalV1Dto",
+    "DocumentRetrievalProjectionRelativeTimeIntervalV1Dto",
+    "DocumentRetrievalProjectionV1Dto",
+    "decode_document_retrieval_projection_v1",
     "IngestDocumentRequestDto",
     "IngestDocumentResultDto",
     "MemoryDocumentDto",

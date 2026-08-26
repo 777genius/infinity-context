@@ -205,6 +205,23 @@ def _client(
     )
 
 
+def _ignore_callback(_: object) -> None:
+    return None
+
+
+def _extract(
+    client: SubscriptionRuntimeClient,
+    request: object,
+    intent: OperationDispatchIntent,
+):
+    return client.extract(
+        request,
+        intent,
+        before_dispatch=_ignore_callback,
+        persist_result=_ignore_callback,
+    )
+
+
 def test_exact_request_returns_only_parsed_memories_and_sanitized_receipt() -> None:
     request, intent = _request_and_intent()
     private_output = "Alice likes tea."
@@ -224,7 +241,7 @@ def test_exact_request_returns_only_parsed_memories_and_sanitized_receipt() -> N
         )
 
     client = _client(handler)
-    result = client.extract(request, intent)
+    result = _extract(client, request, intent)
     client.close()
     assert len(seen) == 1
     assert result.memories[0].text == private_output
@@ -236,6 +253,138 @@ def test_exact_request_returns_only_parsed_memories_and_sanitized_receipt() -> N
     assert BEARER not in repr(client)
     assert result.outcome.disposition is RuntimeCallDisposition.RECEIPT_DURABLE
     assert result.outcome.redispatch_allowed is False
+
+
+def test_durable_callbacks_bracket_the_single_post_and_return() -> None:
+    request, intent = _request_and_intent()
+    events: list[str] = []
+    persisted: list[object] = []
+
+    def before_dispatch(claimed_intent: OperationDispatchIntent) -> None:
+        events.append("claim")
+        assert claimed_intent is not intent
+        assert claimed_intent.commitment_payload() == intent.commitment_payload()
+
+    def handler(_: httpx.Request) -> httpx.Response:
+        events.append("post")
+        assert events == ["claim", "post"]
+        return httpx.Response(
+            200,
+            headers={"content-type": "application/json"},
+            json=_response(request),
+        )
+
+    def persist_result(result: object) -> None:
+        events.append("persist")
+        assert events == ["claim", "post", "persist"]
+        persisted.append(require_authentic_runtime_result(result))
+
+    result = _client(handler).extract(
+        request,
+        intent,
+        before_dispatch=before_dispatch,
+        persist_result=persist_result,
+    )
+    events.append("return")
+
+    assert events == ["claim", "post", "persist", "return"]
+    assert persisted == [result]
+
+
+def test_dispatch_claim_failure_is_sanitized_and_prevents_transport() -> None:
+    request, intent = _request_and_intent()
+    private_error = "private-dispatch-claim-error"
+    attempts = 0
+    claims = 0
+
+    def handler(_: httpx.Request) -> httpx.Response:
+        nonlocal attempts
+        attempts += 1
+        return httpx.Response(500)
+
+    def fail_claim(_: OperationDispatchIntent) -> None:
+        nonlocal claims
+        claims += 1
+        raise RuntimeError(private_error)
+
+    client = _client(handler)
+    with pytest.raises(SubscriptionRuntimeError) as caught:
+        client.extract(
+            request,
+            intent,
+            before_dispatch=fail_claim,
+            persist_result=_ignore_callback,
+        )
+
+    assert caught.value.code == "mem0_v5_subscription_dispatch_claim_failed"
+    assert caught.value.outcome.disposition is RuntimeCallDisposition.NOT_DISPATCHED
+    assert caught.value.outcome.redispatch_allowed is True
+    assert private_error not in str(caught.value)
+    assert private_error not in repr(caught.value)
+    assert attempts == 0
+    assert claims == 1
+
+    with pytest.raises(SubscriptionRuntimeError, match="mem0_v5_subscription_operation_consumed"):
+        client.extract(
+            request,
+            intent,
+            before_dispatch=fail_claim,
+            persist_result=_ignore_callback,
+        )
+    assert attempts == 0
+    assert claims == 1
+
+
+def test_result_sink_failure_is_sanitized_and_replay_never_posts_again() -> None:
+    request, intent = _request_and_intent()
+    private_error = "private-result-sink-error"
+    events: list[str] = []
+    attempts = 0
+
+    def before_dispatch(_: OperationDispatchIntent) -> None:
+        events.append("claim")
+
+    def handler(_: httpx.Request) -> httpx.Response:
+        nonlocal attempts
+        attempts += 1
+        events.append("post")
+        return httpx.Response(
+            200,
+            headers={"content-type": "application/json"},
+            json=_response(request),
+        )
+
+    def fail_sink(result: object) -> None:
+        events.append("persist")
+        require_authentic_runtime_result(result)
+        raise RuntimeError(private_error)
+
+    client = _client(handler)
+    with pytest.raises(SubscriptionRuntimeError) as caught:
+        client.extract(
+            request,
+            intent,
+            before_dispatch=before_dispatch,
+            persist_result=fail_sink,
+        )
+
+    assert caught.value.code == "mem0_v5_subscription_result_persistence_failed"
+    assert caught.value.outcome.disposition is RuntimeCallDisposition.OUTCOME_UNKNOWN
+    assert caught.value.outcome.redispatch_allowed is False
+    assert private_error not in str(caught.value)
+    assert private_error not in repr(caught.value)
+    assert events == ["claim", "post", "persist"]
+    assert attempts == 1
+
+    with pytest.raises(SubscriptionRuntimeError, match="mem0_v5_subscription_operation_consumed"):
+        client.extract(
+            request,
+            intent,
+            before_dispatch=before_dispatch,
+            persist_result=fail_sink,
+        )
+    assert events == ["claim", "post", "persist"]
+    assert attempts == 1
 
 
 def test_transport_and_logical_authority_route_are_distinct_and_exact() -> None:
@@ -287,7 +436,7 @@ def test_transport_failure_is_secret_safe_outcome_unknown_and_not_retried() -> N
 
     client = _client(handler)
     with pytest.raises(SubscriptionRuntimeError) as caught:
-        client.extract(request, intent)
+        _extract(client, request, intent)
     assert caught.value.code == "mem0_v5_subscription_transport_failed"
     assert caught.value.outcome.intent.commitment_payload() == intent.commitment_payload()
     assert caught.value.outcome.intent is not intent
@@ -298,7 +447,7 @@ def test_transport_failure_is_secret_safe_outcome_unknown_and_not_retried() -> N
     assert BEARER not in str(caught.value)
     assert attempts == 1
     with pytest.raises(SubscriptionRuntimeError, match="mem0_v5_subscription_operation_consumed"):
-        client.extract(request, intent)
+        _extract(client, request, intent)
     assert attempts == 1
 
 
@@ -310,7 +459,7 @@ def test_unexpected_transport_exception_is_also_sanitized() -> None:
         raise RuntimeError(secret)
 
     with pytest.raises(SubscriptionRuntimeError) as caught:
-        _client(handler).extract(request, intent)
+        _extract(_client(handler), request, intent)
     assert caught.value.code == "mem0_v5_subscription_transport_failed"
     assert caught.value.outcome.disposition is RuntimeCallDisposition.OUTCOME_UNKNOWN
     assert secret not in str(caught.value)
@@ -327,7 +476,7 @@ def test_redirect_is_not_followed_and_is_outcome_unknown() -> None:
         return httpx.Response(307, headers={"location": "http://127.0.0.1:8891/private"})
 
     with pytest.raises(SubscriptionRuntimeError) as caught:
-        _client(handler).extract(request, intent)
+        _extract(_client(handler), request, intent)
     assert caught.value.code == "mem0_v5_subscription_http_failed"
     assert caught.value.status_code == 307
     assert caught.value.outcome.intent.commitment_payload() == intent.commitment_payload()
@@ -367,7 +516,7 @@ def test_receipt_tamper_and_private_schema_drift_fail_closed(mutation: object) -
         )
 
     with pytest.raises(SubscriptionRuntimeError) as caught:
-        _client(handler).extract(request, intent)
+        _extract(_client(handler), request, intent)
     assert caught.value.code == "mem0_v5_subscription_response_invalid"
     assert caught.value.outcome.disposition is RuntimeCallDisposition.OUTCOME_UNKNOWN
     assert "private@example.test" not in str(caught.value)
@@ -385,7 +534,7 @@ def test_malformed_extraction_output_is_sanitized_after_one_attempt() -> None:
         )
 
     with pytest.raises(SubscriptionRuntimeError) as caught:
-        _client(handler).extract(request, intent)
+        _extract(_client(handler), request, intent)
     assert caught.value.outcome.disposition is RuntimeCallDisposition.OUTCOME_UNKNOWN
     assert secret_output not in str(caught.value)
     assert secret_output not in repr(caught.value)
@@ -407,7 +556,11 @@ def test_receipt_verifier_internal_failure_is_sanitized() -> None:
         )
 
     with pytest.raises(SubscriptionRuntimeError) as caught:
-        _client(handler, authority=_authority(RaisingBoundary())).extract(request, intent)
+        _extract(
+            _client(handler, authority=_authority(RaisingBoundary())),
+            request,
+            intent,
+        )
     assert caught.value.code == "mem0_v5_subscription_response_invalid"
     assert secret not in str(caught.value)
     assert secret not in repr(caught.value)
@@ -432,7 +585,7 @@ def test_preflight_request_binding_error_does_not_attempt_transport() -> None:
         return httpx.Response(500)
 
     with pytest.raises(SubscriptionRuntimeError) as caught:
-        _client(handler).extract(request, bad_intent)
+        _extract(_client(handler), request, bad_intent)
     assert caught.value.outcome.disposition is RuntimeCallDisposition.NOT_DISPATCHED
     assert caught.value.outcome.redispatch_allowed is True
     assert attempts == 0
@@ -450,7 +603,7 @@ def test_mutated_request_and_intent_impostors_are_rejected_before_transport() ->
     client = _client(handler)
     object.__setattr__(request, "request_body_sha256", "f" * 64)
     with pytest.raises(SubscriptionRuntimeError) as caught:
-        client.extract(request, intent)
+        _extract(client, request, intent)
     assert caught.value.code == "mem0_v5_subscription_request_invalid"
     assert caught.value.outcome is None
     assert attempts == 0
@@ -458,14 +611,14 @@ def test_mutated_request_and_intent_impostors_are_rejected_before_transport() ->
     request, intent = _request_and_intent()
     object.__setattr__(intent, "operation_id_sha256", "f" * 64)
     with pytest.raises(SubscriptionRuntimeError) as caught:
-        client.extract(request, intent)
+        _extract(client, request, intent)
     assert caught.value.code == "mem0_v5_subscription_request_invalid"
     assert caught.value.outcome is None
     assert attempts == 0
 
     forged_request = object.__new__(type(request))
     with pytest.raises(SubscriptionRuntimeError, match="mem0_v5_subscription_request_invalid"):
-        client.extract(forged_request, intent)
+        _extract(client, forged_request, intent)
     assert attempts == 0
 
 
@@ -485,7 +638,7 @@ def test_safe_receipt_is_verifier_issued_and_result_mutation_is_detected() -> No
             json=_response(request),
         )
 
-    result = _client(handler).extract(request, intent)
+    result = _extract(_client(handler), request, intent)
     require_authentic_runtime_result(result)
     object.__setattr__(result, "output_text_sha256", "f" * 64)
     with pytest.raises(AdapterContractError, match="mem0_v5_runtime_result_unauthentic"):
@@ -502,7 +655,7 @@ def test_runtime_outcome_is_sealed_and_nested_mutation_fails_closed() -> None:
             json=_response(request),
         )
 
-    result = _client(handler).extract(request, intent)
+    result = _extract(_client(handler), request, intent)
     outcome = result.outcome
     require_authentic_runtime_outcome(outcome)
     assert outcome.redispatch_allowed is False
@@ -558,7 +711,7 @@ def test_dispatch_snapshots_request_and_intent_before_lock_controlled_mutation()
 
     client = _client(handler)
     object.__setattr__(client, "_lock", MutatingLock())
-    result = client.extract(request, intent)
+    result = _extract(client, request, intent)
     assert seen == [original_body]
     assert private_raced_body not in seen
     assert result.intent.operation_id_sha256 == original_operation_sha256
@@ -578,7 +731,7 @@ def test_content_type_bound_fails_closed() -> None:
         )
 
     with pytest.raises(SubscriptionRuntimeError) as caught:
-        _client(handler).extract(request, intent)
+        _extract(_client(handler), request, intent)
     assert caught.value.outcome.disposition is RuntimeCallDisposition.OUTCOME_UNKNOWN
 
 
@@ -596,6 +749,6 @@ def test_declared_response_size_bound_fails_before_body_parse() -> None:
         )
 
     with pytest.raises(SubscriptionRuntimeError) as caught:
-        _client(handler).extract(request, intent)
+        _extract(_client(handler), request, intent)
     assert caught.value.code == "mem0_v5_subscription_response_invalid"
     assert caught.value.outcome.disposition is RuntimeCallDisposition.OUTCOME_UNKNOWN

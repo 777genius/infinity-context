@@ -11,7 +11,7 @@ from enum import StrEnum
 from typing import Protocol, final
 
 MEM0_OSS_FULL_RUN_SCHEMA_VERSION = "mem0-benchmark-full-run.v5"
-MEM0_OSS_FULL_RUN_MAX_OPERATIONS = 10_000
+MEM0_OSS_FULL_RUN_MAX_OPERATIONS = 124_344
 MEM0_OSS_FULL_RUN_MAX_EVIDENCE_PAGE = 100
 MEM0_OSS_EMPTY_ROOT_SHA256 = hashlib.sha256(b"").hexdigest()
 
@@ -249,6 +249,10 @@ class RuntimeReceiptVerificationResult:
     route_sha256: str
     scope_sha256: str
     provider_receipt_sha256: str
+    sequence: int
+    request_body_sha256: str
+    output_text_sha256: str
+    runtime_binding_commitment_sha256: str
     disposition: Mem0OssReceiptDisposition
     extraction_calls: int
     retry_count: int
@@ -264,9 +268,14 @@ class RuntimeReceiptVerificationResult:
             self.route_sha256,
             self.scope_sha256,
             self.provider_receipt_sha256,
+            self.request_body_sha256,
+            self.output_text_sha256,
+            self.runtime_binding_commitment_sha256,
         )
         if (
             any(not is_sha256(value) for value in digests)
+            or type(self.sequence) is not int
+            or not 0 <= self.sequence < MEM0_OSS_FULL_RUN_MAX_OPERATIONS
             or type(self.disposition) is not Mem0OssReceiptDisposition
             or type(self.extraction_calls) is not int
             or self.extraction_calls != 1

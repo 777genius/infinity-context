@@ -33,6 +33,7 @@ from infinity_context_core.domain.errors import MemoryConflictError, MemoryInvar
 from infinity_context_core.domain.events import OutboxEvent
 from infinity_context_core.domain.idempotency import IdempotencyRecord
 from infinity_context_core.ports.auto_memory import MemoryClassifierPort, SourceProvenance
+from infinity_context_core.ports.benchmark_runs import is_managed_benchmark_space_id
 from infinity_context_core.ports.clock import ClockPort
 from infinity_context_core.ports.ids import IdGeneratorPort
 from infinity_context_core.ports.unit_of_work import (
@@ -142,6 +143,9 @@ class IngestEpisodeUseCase:
             raw_key,
         )
         async with self._uow_factory() as uow:
+            space_id = str(command.space_id)
+            if is_managed_benchmark_space_id(space_id):
+                raise MemoryConflictError("Managed benchmark episode admission is unsupported")
             existing = await uow.idempotency.find(space_id=str(command.space_id), key=key)
             if existing:
                 return await self._replay_result(

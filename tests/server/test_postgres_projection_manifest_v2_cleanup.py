@@ -34,11 +34,19 @@ from infinity_context_core.application.use_cases.benchmark_runs import (
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from tests.unit.benchmark_cleanup_plan_fixtures import cleanup_plan_pair
+
 RUN = "a" * 64
 BINDING = "b" * 64
 TARGET = "c" * 64
 SLUG = "memory-comparison-managed-run"
 NOW = datetime(2026, 1, 1, tzinfo=UTC)
+CLEANUP_PLAN, CLEANUP_PLAN_SHA256 = cleanup_plan_pair(
+    run_id=RUN,
+    binding=BINDING,
+    target=TARGET,
+    space_slug=SLUG,
+)
 
 
 def test_v2_episode_cleanup_tombstones_and_replays_idempotently(tmp_path: Path) -> None:
@@ -63,6 +71,8 @@ async def _contract(tmp_path: Path) -> None:
                 infinity_target_identity_sha256=TARGET,
                 space_slug=SLUG,
                 idempotency_key_sha256="d" * 64,
+                cleanup_plan_json=CLEANUP_PLAN,
+                cleanup_plan_sha256=CLEANUP_PLAN_SHA256,
             )
         )
         await _seed_rows(engine, registered.record.space_id)
@@ -82,6 +92,7 @@ async def _contract(tmp_path: Path) -> None:
             space_id=registered.record.space_id,
             space_slug=SLUG,
             idempotency_key_sha256="e" * 64,
+            cleanup_plan_sha256=CLEANUP_PLAN_SHA256,
         )
 
         first = await cleanup.execute(command)
@@ -203,6 +214,7 @@ def _manifest(space_id: str) -> dict[str, object]:
         "binding_commitment_sha256": BINDING,
         "infinity_target_identity_sha256": TARGET,
         "space_id": space_id,
+        "cleanup_plan_sha256": CLEANUP_PLAN_SHA256,
         "scopes": [
             {
                 "memory_scope_id": "scope-1",

@@ -1,0 +1,8 @@
+[project]
+name = "infinity-context-runtime-bridge"
+version = "0.1.0"
+requires-python = ">=3.11"
+dependencies = [
+  "cryptography>=50.0.0,<51.0.0",
+  "httpx>=0.28.1,<1.0.0",
+]

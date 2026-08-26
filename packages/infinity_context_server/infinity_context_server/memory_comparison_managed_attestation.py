@@ -27,15 +27,14 @@ from infinity_context_server.memory_comparison_full_run_evidence import (
 from infinity_context_server.memory_comparison_full_scope import (
     FULL_COMPARISON_SCOPE_CANARY,
 )
+from infinity_context_server.memory_comparison_managed_runtime_validation import (
+    managed_runtime_validation_is_publishable,
+    managed_runtime_validation_public_payload,
+    managed_runtime_validation_view,
+)
 from infinity_context_server.memory_comparison_managed_runtime_validity import (
     _managed_live_runtime_validation_terminal_allowance,
     _ManagedLiveRuntimeTerminalAllowance,
-)
-from infinity_context_server.memory_comparison_mem0_runtime_attestation import (
-    MEM0_RUNTIME_ATTESTATION_MAX_AGE_SECONDS,
-    VerifiedMem0RuntimeAttestationValidation,
-    mem0_runtime_attestation_validation_is_publishable,
-    public_mem0_runtime_attestation_validation,
 )
 from infinity_context_server.memory_comparison_provider_provenance import (
     ProviderRouteAttestation,
@@ -182,7 +181,7 @@ class _CompositionSnapshot:
 class _AttestationState:
     bindings: FullComparisonRunBindings
     ports: tuple[object, ...]
-    runtime_validation: VerifiedMem0RuntimeAttestationValidation
+    runtime_validation: object
     provider_route: ProviderRouteAttestation
     snapshot: _CompositionSnapshot
     secret: bytes
@@ -195,9 +194,7 @@ def _build_managed_attestation_api():
     states: weakref.WeakKeyDictionary[VerifiedManagedCompositionAttestation, _AttestationState] = (
         weakref.WeakKeyDictionary()
     )
-    reservations: list[
-        tuple[VerifiedMem0RuntimeAttestationValidation, ProviderRouteAttestation]
-    ] = []
+    reservations: list[tuple[object, ProviderRouteAttestation]] = []
 
     def issue(
         *,
@@ -206,7 +203,7 @@ def _build_managed_attestation_api():
         attestation_port: ManagedAttestationPort,
         ingest_port: ManagedIngestPort,
         clock: ManagedClockPort,
-        runtime_validation: VerifiedMem0RuntimeAttestationValidation,
+        runtime_validation: object,
         provider_route: ProviderRouteAttestation,
     ) -> VerifiedManagedCompositionAttestation:
         trusted = _trusted_bindings(bindings)
@@ -513,15 +510,15 @@ def _clock_now(clock: ManagedClockPort) -> datetime:
 
 def _runtime_snapshot(
     bindings: FullComparisonRunBindings,
-    validation: VerifiedMem0RuntimeAttestationValidation,
+    validation: object,
     now: datetime,
     *,
     inspection: object,
 ) -> _RuntimeSnapshot:
-    if type(validation) is not VerifiedMem0RuntimeAttestationValidation:
+    if managed_runtime_validation_view(validation) is None:
         raise ManagedCompositionAttestationError("managed runtime capability type must be exact")
-    public = public_mem0_runtime_attestation_validation(validation)
-    if not mem0_runtime_attestation_validation_is_publishable(
+    public = managed_runtime_validation_public_payload(validation)
+    if not managed_runtime_validation_is_publishable(
         validation,
         required_runtime_mode=bindings.mem0_expected_runtime_mode,
     ):
@@ -548,7 +545,7 @@ def _runtime_snapshot(
     max_age = public.get("max_age_seconds")
     validated_at = public.get("validated_at")
     checked_at = attestation.get("checked_at")
-    if type(max_age) is not int or max_age != MEM0_RUNTIME_ATTESTATION_MAX_AGE_SECONDS:
+    if type(max_age) is not int or not 1 <= max_age <= 7_200:
         raise ManagedCompositionAttestationError("managed runtime max_age_seconds is invalid")
     terminal_allowance = _managed_live_runtime_validation_terminal_allowance(validation)
     terminal_deadline_at = (
@@ -627,7 +624,7 @@ def _runtime_freshness_max_age(
 ) -> int | None:
     if inspection is _POST_CONSUME_COMPOSITION_INSPECTION:
         return None
-    public_max_age = min(max_age_seconds, MEM0_RUNTIME_ATTESTATION_MAX_AGE_SECONDS)
+    public_max_age = max_age_seconds
     if inspection is _PUBLIC_COMPOSITION_INSPECTION:
         return public_max_age
     if inspection is not _TERMINAL_COMPOSITION_INSPECTION:
@@ -649,7 +646,7 @@ def _require_composition_current(
 ) -> None:
     if inspection is _POST_CONSUME_COMPOSITION_INSPECTION:
         return
-    max_age = min(snapshot.max_age_seconds, MEM0_RUNTIME_ATTESTATION_MAX_AGE_SECONDS)
+    max_age = snapshot.max_age_seconds
     if inspection is _TERMINAL_COMPOSITION_INSPECTION:
         deadline_at = snapshot.runtime.terminal_deadline_at
         if deadline_at is not None:
@@ -819,7 +816,7 @@ def _state_commitment(
     *,
     ports: tuple[object, ...],
     bindings: FullComparisonRunBindings,
-    runtime_validation: VerifiedMem0RuntimeAttestationValidation,
+    runtime_validation: object,
     provider_route: ProviderRouteAttestation,
     nonce: str,
 ) -> str:

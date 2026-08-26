@@ -12,7 +12,7 @@ import hashlib
 import math
 import secrets
 import time
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
@@ -37,6 +37,10 @@ from infinity_context_server.memory_comparison_managed_mem0_v5_extraction_contra
     ManagedMem0V5ExtractionContractBindingError,
     require_managed_mem0_v5_extraction_contract_binding,
 )
+from infinity_context_server.memory_comparison_managed_mem0_v5_runtime_attestation import (
+    ManagedMem0V5ExpectedRuntimeAuthority,
+    expected_managed_mem0_v5_runtime_authority_from_pin,
+)
 from infinity_context_server.memory_comparison_managed_plan_builder import (
     ManagedPublicRunProjection,
     build_managed_public_run_projection,
@@ -59,9 +63,18 @@ from infinity_context_server.memory_comparison_managed_v5_live_public_compositio
     ManagedV5LivePublicComposition,
     compose_managed_v5_live_public_inputs,
 )
+from infinity_context_server.memory_comparison_managed_v5_live_recovery_prepare import (
+    ManagedV5LiveRecoveryPrepareError,
+    initialize_managed_v5_live_recovery_journal,
+    prepare_managed_v5_live_cleanup_plan,
+)
 from infinity_context_server.memory_comparison_managed_v5_live_root import (
     PreparedManagedV5LiveRun,
     prepare_managed_v5_live_run,
+)
+from infinity_context_server.memory_comparison_managed_v5_recovery_contracts import (
+    ManagedV5LiveRecoveryAuthority,
+    managed_v5_live_config_commitment_sha256,
 )
 
 _MAX_DATASET_BYTES = 402_653_184
@@ -155,6 +168,8 @@ class PreparedManagedV5LiveCliPublicStage:
     root_preparation: PreparedManagedV5LiveRun = field(repr=False)
     run_nonce_commitment_sha256: str
     runtime_probe_nonce: str = field(repr=False)
+    runtime_attestation_authority: ManagedMem0V5ExpectedRuntimeAuthority = field(repr=False)
+    recovery_authority: ManagedV5LiveRecoveryAuthority
     issued_at: datetime
     deadline: datetime
 
@@ -170,6 +185,8 @@ class PreparedManagedV5LiveCliPublicStage:
             or type(self.root_preparation) is not PreparedManagedV5LiveRun
             or not _is_sha256(self.run_nonce_commitment_sha256)
             or not _is_sha256(self.runtime_probe_nonce)
+            or type(self.runtime_attestation_authority) is not ManagedMem0V5ExpectedRuntimeAuthority
+            or type(self.recovery_authority) is not ManagedV5LiveRecoveryAuthority
             or self.issued_at.tzinfo is None
             or self.deadline <= self.issued_at
         ):
@@ -182,12 +199,20 @@ class ActivatedManagedV5LiveCliPrivateStage:
     selected: object = field(repr=False)
     mem0_probe_token: str = field(repr=False)
     mem0_ingress_authority: object | None = field(default=None, repr=False)
+    recovery_journal: object = field(default=None, repr=False)
+    recovery_authority: ManagedV5LiveRecoveryAuthority | None = field(default=None, repr=False)
+    cleanup_plan_sha256: str = field(default="", repr=False)
+    recovery_clock: object = field(default=None, repr=False)
 
     def __post_init__(self) -> None:
         if (
             self.selected is None
             or type(self.mem0_probe_token) is not str
             or not self.mem0_probe_token
+            or not callable(getattr(self.recovery_journal, "append", None))
+            or type(self.recovery_authority) is not ManagedV5LiveRecoveryAuthority
+            or not _is_sha256(self.cleanup_plan_sha256)
+            or not callable(self.recovery_clock)
         ):
             _fail("managed_v5_live_cli_private_stage_invalid")
 
@@ -262,6 +287,72 @@ def prepare_managed_v5_live_cli_public_stage(
         timeout_seconds=float(request.request_timeout_seconds),
     )
     root_preparation = prepare_managed_v5_live_run(composition.inputs)
+    trusted_binding = composition.inputs.trusted_runtime_binding
+    subscription_binding = getattr(trusted_binding, "commitment_sha256", None)
+    if not _is_sha256(subscription_binding):
+        _fail("managed_v5_live_runtime_authority_cross_wire")
+    filesystem = request.managed_v5_config.filesystem
+    extraction = extraction_contract_binding
+    runtime_attestation_authority = expected_managed_mem0_v5_runtime_authority_from_pin(
+        runtime_pin_file=filesystem.adapter_runtime_pin_file,
+        runtime_pin_sha256=filesystem.adapter_runtime_pin_sha256,
+        runtime_source_sha256=runtime_authority.runtime_source_sha256,
+        runtime_route_binding_sha256=runtime_authority.route_binding_sha256,
+        subscription_runtime_binding_commitment_sha256=subscription_binding,
+        expected_account_binding_hmac_sha256=runtime_authority.account_binding_hmac_sha256,
+        expected_base_instructions_sha256=runtime_authority.base_instructions_sha256,
+        expected_extraction_system_prompt_sha256=extraction.system_prompt_sha256,
+        expected_extraction_response_format_sha256=extraction.response_format_sha256,
+        expected_extraction_response_schema_sha256=extraction.response_schema_sha256,
+        expected_requested_output_tokens=extraction.requested_output_tokens,
+    )
+    infinity_target = next(
+        target.target_identity_sha256
+        for target in projection.bindings.backend_targets
+        if target.backend_role == "infinity-context"
+    )
+    state_paths = composition.inputs.state_paths
+    recovery_authority = ManagedV5LiveRecoveryAuthority(
+        run_id=request.run_id,
+        run_id_sha256=hashlib.sha256(request.run_id.encode("utf-8")).hexdigest(),
+        binding_commitment_sha256=projection.bindings.binding_commitment_sha256,
+        infinity_target_identity_sha256=infinity_target,
+        space_slug=_managed_space_slug(request.run_id),
+        profile_id=request.profile_id,
+        selected_case_ids=request.selected_case_ids,
+        current_date=issued_at.date().isoformat(),
+        issued_at=_rfc3339(issued_at),
+        deadline=_rfc3339(deadline),
+        run_nonce_commitment_sha256=run_nonce_commitment,
+        runtime_probe_nonce_sha256=projection.bindings.runtime_probe_nonce_sha256,
+        dataset_path=request.dataset_path,
+        dataset_sha256=hashlib.sha256(dataset_bytes).hexdigest(),
+        managed_v5_config_commitment_sha256=managed_v5_live_config_commitment_sha256(
+            config=request.managed_v5_config,
+            extraction_contract_file=request.extraction_contract_file,
+            extraction_contract_sha256=request.extraction_contract_sha256,
+        ),
+        extraction_contract_file=request.extraction_contract_file,
+        extraction_contract_sha256=request.extraction_contract_sha256,
+        infinity_origin=request.infinity_api_url,
+        mem0_origin=request.mem0_api_url,
+        max_extraction_tokens=request.max_extraction_tokens,
+        max_total_tokens=request.max_total_tokens,
+        mem0_runtime_implementation_sha256=request.mem0_runtime_implementation_sha256,
+        mem0_local_auth_disabled_managed=request.mem0_local_auth_disabled_managed,
+        mem0_oss_ingress_protected=request.mem0_oss_ingress_protected,
+        allowed_mem0_hosts=request.allowed_mem0_hosts,
+        connect_timeout_seconds=request.connect_timeout_seconds,
+        request_timeout_seconds=request.request_timeout_seconds,
+        run_timeout_seconds=request.run_timeout_seconds,
+        adapter_runtime_pin_sha256=filesystem.adapter_runtime_pin_sha256,
+        state_root=filesystem.state_root,
+        checkpoint_file=state_paths.checkpoint,
+        checkpoint_head_file=state_paths.local_checkpoint_head,
+        dispatch_journal=filesystem.dispatch_journal,
+        operation_journal=filesystem.operation_journal,
+        durable_clean_state=filesystem.durable_clean_state,
+    )
     return PreparedManagedV5LiveCliPublicStage(
         request,
         profile,
@@ -273,6 +364,8 @@ def prepare_managed_v5_live_cli_public_stage(
         root_preparation,
         run_nonce_commitment,
         runtime_probe_nonce,
+        runtime_attestation_authority,
+        recovery_authority,
         issued_at,
         deadline,
     )
@@ -287,18 +380,49 @@ def run_managed_v5_live_cli_composition(
 
     public = prepare_managed_v5_live_cli_public_stage(request)
     private = _prepare_and_activate_private_stage(public, env=env)
-    outcome = run_selected_managed_production_comparison(
-        execution_mode=MANAGED_PRODUCTION_EXECUTION_V5,
-        v5_execution=private.selected.selection,
-    )
-    result = public_managed_run(outcome)
-    return _append_required_usage_attestation(public, private, result)
+    try:
+        private.recovery_journal.append(
+            expected_authority=private.recovery_authority,
+            kind="execution_started",
+            recorded_at=_rfc3339(private.recovery_clock()),
+            details={"cleanup_plan_sha256": private.cleanup_plan_sha256},
+        )
+        outcome = run_selected_managed_production_comparison(
+            execution_mode=MANAGED_PRODUCTION_EXECUTION_V5,
+            v5_execution=private.selected.selection,
+        )
+        result = public_managed_run(outcome)
+        return _append_required_usage_attestation(public, private, result)
+    finally:
+        private.recovery_journal.close()
 
 
 def _prepare_and_activate_private_stage(
     public: PreparedManagedV5LiveCliPublicStage,
     *,
     env: Mapping[str, str],
+) -> ActivatedManagedV5LiveCliPrivateStage:
+    if type(public) is not PreparedManagedV5LiveCliPublicStage or not isinstance(env, Mapping):
+        _fail("managed_v5_live_cli_private_inputs_invalid")
+    recovery_journal, recovery_secret_sha256 = _initialize_recovery_journal(public)
+    try:
+        return _activate_private_stage_after_recovery_prepare(
+            public,
+            env=env,
+            recovery_journal=recovery_journal,
+            recovery_secret_sha256=recovery_secret_sha256,
+        )
+    except BaseException:
+        recovery_journal.close()
+        raise
+
+
+def _activate_private_stage_after_recovery_prepare(
+    public: PreparedManagedV5LiveCliPublicStage,
+    *,
+    env: Mapping[str, str],
+    recovery_journal: object,
+    recovery_secret_sha256: str,
 ) -> ActivatedManagedV5LiveCliPrivateStage:
     """Read secrets, prove readiness and activate the exact public capability."""
 
@@ -314,12 +438,14 @@ def _prepare_and_activate_private_stage(
         prepare_verified_managed_live_run,
     )
     from infinity_context_server.memory_comparison_managed_mem0_runtime_http import (
-        ManagedMem0RuntimeAttestationPort,
         ManagedUtcClockPort,
     )
     from infinity_context_server.memory_comparison_managed_mem0_v5_lane import (
         ManagedMem0V5Budget,
         ManagedMem0V5BudgetPolicy,
+    )
+    from infinity_context_server.memory_comparison_managed_mem0_v5_runtime_attestation_http import (
+        ManagedMem0V5RuntimeAttestationPort,
     )
     from infinity_context_server.memory_comparison_managed_preflight import (
         MANAGED_PREFLIGHT_PROVIDER_SUBSCRIPTION_RUNTIME,
@@ -349,7 +475,29 @@ def _prepare_and_activate_private_stage(
     except ValueError:
         _fail("subscription_runtime_url_invalid")
     infinity_token = _required_secret(env, "MEMORY_EVAL_AUTH_TOKEN", "MEMORY_SERVICE_TOKEN")
-    probe_token = _required_secret(env, "MEM0_BENCHMARK_PROBE_TOKEN")
+    cleanup_plan, cleanup_target_authority_sha256 = _prepare_cleanup_plan(
+        public,
+        infinity_token=infinity_token,
+        recovery_journal=recovery_journal,
+    )
+    from infinity_context_server.memory_comparison_managed_mem0_v5_credentials import (
+        _read_private_secret,
+        _validate_text_secret,
+        _wipe,
+    )
+
+    secret = _read_private_secret(
+        request.managed_v5_config.filesystem.runtime_attestation_secret_file
+    )
+    try:
+        _validate_text_secret(secret.value)
+        if hashlib.sha256(secret.value).hexdigest() != (
+            request.managed_v5_config.filesystem.runtime_attestation_secret_sha256
+        ):
+            _fail("managed_v5_live_runtime_attestation_secret_mismatch")
+        probe_token = bytes(secret.value).decode("utf-8")
+    finally:
+        _wipe(secret.value)
     subscription_token = _required_secret(env, "SUBSCRIPTION_RUNTIME_BRIDGE_BEARER_TOKEN")
     auth_mode = (
         MANAGED_MEM0_DATA_PLANE_AUTH_NONE
@@ -416,23 +564,37 @@ def _prepare_and_activate_private_stage(
         deadline=public.deadline,
         now=now,
     )
-    provider_probe = readiness_claim.run(model=public.runtime_authority.model, clock=clock.now)
-    admitted_at = clock.now()
-    remaining = (public.deadline - admitted_at).total_seconds()
+    prevalidated_at = clock.now()
+    remaining = (public.deadline - prevalidated_at).total_seconds()
     if not math.isfinite(remaining) or remaining <= 0.001:
         _fail("managed_v5_live_deadline_expired")
-    runtime_port = ManagedMem0RuntimeAttestationPort(
+    runtime_port = ManagedMem0V5RuntimeAttestationPort(
         base_url=request.mem0_api_url,
-        benchmark_probe_token=probe_token,
-        probe_nonce=public.runtime_probe_nonce,
+        runtime_attestation_root_secret=probe_token,
+        probe_nonce_sha256=public.projection.bindings.runtime_probe_nonce_sha256,
+        expected_authority=public.runtime_attestation_authority,
         timeout_seconds=float(request.request_timeout_seconds),
         deadline_budget_seconds=remaining - 0.001,
         monotonic_clock=time.monotonic,
         expected_implementation_sha256=request.mem0_runtime_implementation_sha256,
         allowed_target_hosts=request.allowed_mem0_hosts,
-        expected_runtime_mode=public.projection.bindings.mem0_expected_runtime_mode,
-        mem0_oss_ingress_authority=ingress_authority,
     )
+    target_identity_sha256 = next(
+        target.target_identity_sha256
+        for target in public.projection.bindings.backend_targets
+        if target.backend_role == "mem0"
+    )
+    provider_probe = _prevalidate_before_paid_readiness(
+        prevalidate=lambda: runtime_port.prevalidate(
+            run_id=request.run_id,
+            probe_nonce_sha256=public.projection.bindings.runtime_probe_nonce_sha256,
+            target_identity_sha256=target_identity_sha256,
+        ),
+        run_readiness=lambda: readiness_claim.run(
+            model=public.runtime_authority.model, clock=clock.now
+        ),
+    )
+    admitted_at = clock.now()
     admission = issue_verified_managed_live_admission(
         request=preflight_request,
         allow_live=True,
@@ -471,6 +633,11 @@ def _prepare_and_activate_private_stage(
             budget.total_call_count,
             public.public_composition.extraction_token_budget,
         ),
+        cleanup_plan=cleanup_plan,
+        cleanup_target_authority_sha256=cleanup_target_authority_sha256,
+        recovery_authority=public.recovery_authority,
+        recovery_journal=recovery_journal,
+        recovery_secret_sha256=recovery_secret_sha256,
     )
     selected = activate_managed_v5_live_run(
         public.root_preparation,
@@ -486,7 +653,59 @@ def _prepare_and_activate_private_stage(
         selected=selected,
         mem0_probe_token=probe_token,
         mem0_ingress_authority=ingress_authority,
+        recovery_journal=recovery_journal,
+        recovery_authority=public.recovery_authority,
+        cleanup_plan_sha256=cleanup_plan.sha256,
+        recovery_clock=clock.now,
     )
+
+
+def _prevalidate_before_paid_readiness(
+    *, prevalidate: Callable[[], None], run_readiness: Callable[[], object]
+) -> object:
+    """Keep the provider-paid readiness call strictly behind v5 attestation."""
+
+    prevalidate()
+    return run_readiness()
+
+
+def _initialize_recovery_journal(
+    public: PreparedManagedV5LiveCliPublicStage,
+) -> tuple[object, str]:
+    try:
+        return initialize_managed_v5_live_recovery_journal(
+            filesystem=public.request.managed_v5_config.filesystem,
+            recovery_authority=public.recovery_authority,
+        )
+    except ManagedV5LiveRecoveryPrepareError as exc:
+        _fail(exc.code)
+
+
+def _prepare_cleanup_plan(
+    public: PreparedManagedV5LiveCliPublicStage,
+    *,
+    infinity_token: str,
+    recovery_journal: object,
+) -> tuple[object, str]:
+    request = public.request
+    try:
+        return prepare_managed_v5_live_cleanup_plan(
+            infinity_api_url=request.infinity_api_url,
+            infinity_token=infinity_token,
+            infinity_target_identity_sha256=(
+                public.recovery_authority.infinity_target_identity_sha256
+            ),
+            request_timeout_seconds=float(request.request_timeout_seconds),
+            benchmark_deadline=public.deadline,
+            projection=public.projection,
+            manifest_authority=public.public_composition.manifest_authority,
+            admission=public.public_composition.admission,
+            profile_id=public.profile.profile_id,
+            run_id=request.run_id,
+            recovery_journal=recovery_journal,
+        )
+    except ManagedV5LiveRecoveryPrepareError as exc:
+        _fail(exc.code)
 
 
 def _public_backend_targets(
@@ -502,6 +721,18 @@ def _public_backend_targets(
             ("mem0", request.mem0_api_url),
         )
     )
+
+
+def _managed_space_slug(run_id: str) -> str:
+    from infinity_context_server.memory_comparison_managed_http_lifecycle import (
+        managed_http_lifecycle_space_slug,
+    )
+
+    return managed_http_lifecycle_space_slug(run_id)
+
+
+def _rfc3339(value: datetime) -> str:
+    return value.astimezone(UTC).isoformat(timespec="microseconds").replace("+00:00", "Z")
 
 
 def _required_secret(

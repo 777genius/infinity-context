@@ -9,6 +9,8 @@ from pathlib import Path
 
 import pytest
 from infinity_context_adapters.postgres import build_async_engine, upgrade_schema
+from infinity_context_adapters.postgres.migration_runner import _load_migrations
+from locator_retrieval_v2_schema_assertions import assert_locator_retrieval_v2_schema
 from postgres_schema_upgrade_receipt_fixtures import (
     seed_mismatched_operation_receipt_snapshot,
     seed_mismatched_suggestion_receipt_snapshot,
@@ -54,9 +56,13 @@ async def _assert_clean_and_legacy_upgrade(database_url: str) -> None:
             )
             clean = next(result for result in clean_results if result.applied)
             assert clean.legacy_baseline is False
-            assert clean.current == "0033_document_scope_listing_indexes"
+            assert clean.current == "0051_locator_profile_acl_search_path_hardening"
             assert clean.applied[0] == "0001_core_facts"
-            assert sorted(len(result.applied) for result in clean_results) == [0, 34]
+            canonical_migration_count = len(_load_migrations())
+            assert sorted(len(result.applied) for result in clean_results) == [
+                0,
+                canonical_migration_count,
+            ]
             assert (await upgrade_schema(engine)).applied == ()
             async with engine.connect() as connection:
                 assert (
@@ -93,7 +99,7 @@ async def _assert_clean_and_legacy_upgrade(database_url: str) -> None:
             legacy = await upgrade_schema(engine)
             assert legacy.legacy_baseline is True
             assert legacy.applied[0].startswith("0023_")
-            assert legacy.current == "0033_document_scope_listing_indexes"
+            assert legacy.current == "0051_locator_profile_acl_search_path_hardening"
             await _assert_head_schema(engine)
             await _assert_cross_scope_audit_reference_rejected(engine)
         finally:
@@ -516,6 +522,7 @@ async def _assert_head_schema(engine) -> None:
             ).scalars()
         )
         assert {"memory_assets", "memory_captures", "memory_context_links"} <= tables
+        await assert_locator_retrieval_v2_schema(connection, tables)
         fact_columns = set(
             (
                 await connection.execute(

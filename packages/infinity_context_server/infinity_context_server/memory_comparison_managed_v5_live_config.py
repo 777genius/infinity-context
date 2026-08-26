@@ -11,12 +11,24 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import final
 
-_AUTHORITY_SCHEMA = "managed-mem0-v5-live-runtime-authority.v1"
+from infinity_context_server.memory_comparison_managed_mem0_v5_extraction_projection import (
+    MEM0_V5_EXTRACTION_RESPONSE_FORMAT_SHA256,
+    MEM0_V5_EXTRACTION_SCHEMA_SHA256,
+    MEM0_V5_EXTRACTION_SYSTEM_PROMPT_SHA256,
+)
+from infinity_context_server.memory_comparison_publishable_methodology import (
+    SUBSCRIPTION_RUNTIME_BASE_INSTRUCTIONS_SHA256,
+)
+from infinity_context_server.memory_comparison_reviewed_node import (
+    require_reviewed_node_executable,
+)
+
+_AUTHORITY_SCHEMA = "managed-mem0-v5-live-runtime-authority.v3"
+_RUNTIME_RESPONSE_FORMAT_SHA256 = "812938567c7a81bac6ed3266608adf470dedc57706102e039422f695495322bf"
+_RUNTIME_RESPONSE_SCHEMA_SHA256 = "2461f7a465be82aa67751dc04e0717cde75c69b86e7db54bb306a2e3d1d4d8f0"
 _MAX_AUTHORITY_BYTES = 64 * 1024
 _MAX_PUBLIC_IMMUTABLE_BYTES = 32 * 1024 * 1024
 _MEM0_ADAPTER_ORIGIN = "http://127.0.0.1:19091"
-_REVIEWED_NODE_SHA256 = "b2959781cc5a74c357ffa02367efa8a0330cbb1c9cb347732fdfaaaca381cbcd"
-_REVIEWED_NODE_SIZE_BYTES = 123_438_592
 _SHA256_CHARS = frozenset("0123456789abcdef")
 _PRIVATE_FILE_MODE = 0o600
 _PRIVATE_ROOT_MODE = 0o700
@@ -26,12 +38,12 @@ _PUBLIC_EXECUTABLE_MODES = frozenset({0o500, 0o550, 0o555, 0o700, 0o750, 0o755})
 _PUBLIC_PYTHON_FILE_MODES = frozenset({0o400, 0o440, 0o444, 0o600, 0o640, 0o644})
 _PYTHON_IMPORT_SUFFIXES = tuple(importlib.machinery.all_suffixes())
 _REVIEWED_PHASE_C_PYTHON_TREE_SHA256 = (
-    "4a113dc4d6308da0ebf8d61cadc01a8b59afb2edbb5e9c8982b009738764d8ad"
+    "911b85ca131cea7f8150456ba122730ec768ddc2c2d6869453071aa5029cef18"
 )
 _REVIEWED_PHASE_C_PYTHON_FILES = (
     ("__init__.py", "efbde36910ac6e64f630ce91401b723ac966949ca380ba6b0275a3fb0a81e53b"),
     ("attestation.py", "dcf4b326a637f227a1fb52e8cd724009827d28021f17258d2d053c589578fcb3"),
-    ("authority.py", "2b86b4735e4abe23c3ee32c645de233ec097bac3ac3cd0df5298c3365d32c571"),
+    ("authority.py", "87fdb0887681b485522675ac9cfd17b0456341f8d402de771ad4fc0b9ffc7798"),
     ("bundle.py", "27c2fc7075c5b2b8f48eadd2d9d3576c3d1592a2f3988baafb3e59ce7d391411"),
     ("cli.py", "a1b880005a2f516c51871c6fe1ec337afbc601a9119cc42a273e68b9ac4de595"),
     ("environment.py", "a5e67c287b4eaf3b2df680a6da3be35880413fc6458f2564805328322a8af8d8"),
@@ -45,7 +57,7 @@ _REVIEWED_PHASE_C_PYTHON_FILES = (
     ("readiness.py", "7ac29fa558a7dde984275035cce804b9d0190086a51b308631ac2e312d04815c"),
     ("receipt.py", "bdaeb7f1323d9cd1c38a46954ee325063f301b7f58d5cf726744b90e4374dd6f"),
     ("receipt_aggregation.py", "b5119397a008a9f48b66b51b2723b88087b72703d73fa40250e960136abb926c"),
-    ("runtime_binding.py", "62174e6d4b35095656fd6e39a01b5e3dd9f2b4573729f106f27c6704ca657797"),
+    ("runtime_binding.py", "999501b7ed8f0ecfd96bf0b39902898fddfed2ffc226be46e9e7535463733fc6"),
     ("runtime_receipt_v2.py", "48fd63c6b2ec65de508d65795d827714eb77720c50ecafb426a5c80b5e8bf62f"),
     ("strict_schema.py", "d630a26047861bedeea7643eb3b3265260233a6414792cf79e6871b4fb26bceb"),
 )
@@ -78,10 +90,13 @@ class ManagedV5LiveRuntimeAuthority:
     runtime_base_sha256: str
     route_binding_sha256: str
     base_instructions_sha256: str
+    extraction_system_prompt_sha256: str
     account_binding_hmac_sha256: str
     response_format_type: str
     response_format_sha256: str
     response_schema_sha256: str
+    extraction_response_format_sha256: str
+    extraction_response_schema_sha256: str
     requested_output_tokens: int
 
     def __post_init__(self) -> None:
@@ -97,9 +112,12 @@ class ManagedV5LiveRuntimeAuthority:
             self.runtime_base_sha256,
             self.route_binding_sha256,
             self.base_instructions_sha256,
+            self.extraction_system_prompt_sha256,
             self.account_binding_hmac_sha256,
             self.response_format_sha256,
             self.response_schema_sha256,
+            self.extraction_response_format_sha256,
+            self.extraction_response_schema_sha256,
         )
         if (
             any(
@@ -107,6 +125,12 @@ class ManagedV5LiveRuntimeAuthority:
                 for value in text
             )
             or any(not _is_sha256(value) for value in digests)
+            or self.base_instructions_sha256 != SUBSCRIPTION_RUNTIME_BASE_INSTRUCTIONS_SHA256
+            or self.extraction_system_prompt_sha256 != MEM0_V5_EXTRACTION_SYSTEM_PROMPT_SHA256
+            or self.response_format_sha256 != _RUNTIME_RESPONSE_FORMAT_SHA256
+            or self.response_schema_sha256 != _RUNTIME_RESPONSE_SCHEMA_SHA256
+            or self.extraction_response_format_sha256 != MEM0_V5_EXTRACTION_RESPONSE_FORMAT_SHA256
+            or self.extraction_response_schema_sha256 != MEM0_V5_EXTRACTION_SCHEMA_SHA256
             or type(self.requested_output_tokens) is not int
             or self.requested_output_tokens != 4096
         ):
@@ -125,6 +149,7 @@ class ManagedV5LiveFilesystemConfig:
     dispatch_journal: Path
     operation_journal: Path
     durable_clean_state: Path
+    recovery_journal: Path
     ingress_bearer_file: Path
     evidence_key_file: Path
     evidence_key_sha256: str
@@ -133,6 +158,9 @@ class ManagedV5LiveFilesystemConfig:
     checkpoint_head_key_file: Path
     operation_journal_signer_secret_file: Path
     durable_clean_state_hmac_secret_file: Path
+    runtime_attestation_secret_file: Path
+    recovery_hmac_secret_file: Path
+    runtime_attestation_secret_sha256: str
     runtime_authority_file: Path
     runtime_authority_sha256: str
     phase_c_package_root: Path
@@ -141,6 +169,9 @@ class ManagedV5LiveFilesystemConfig:
     runtime_artifact_manifest_sha256: str
     node_executable: Path
     node_executable_sha256: str
+    adapter_runtime_pin_file: Path
+    adapter_runtime_pin_sha256: str
+    recovery_report_file: Path
     phase_c_python_tree_sha256: str = _REVIEWED_PHASE_C_PYTHON_TREE_SHA256
 
     def __post_init__(self) -> None:
@@ -152,6 +183,7 @@ class ManagedV5LiveFilesystemConfig:
             self.dispatch_journal,
             self.operation_journal,
             self.durable_clean_state,
+            self.recovery_journal,
             self.ingress_bearer_file,
             self.evidence_key_file,
             self.receipt_secret_file,
@@ -159,17 +191,23 @@ class ManagedV5LiveFilesystemConfig:
             self.checkpoint_head_key_file,
             self.operation_journal_signer_secret_file,
             self.durable_clean_state_hmac_secret_file,
+            self.runtime_attestation_secret_file,
+            self.recovery_hmac_secret_file,
             self.runtime_authority_file,
             self.phase_c_package_root,
             self.runtime_repo,
             self.runtime_artifact_manifest,
             self.node_executable,
+            self.adapter_runtime_pin_file,
+            self.recovery_report_file,
         )
         digests = (
             self.evidence_key_sha256,
             self.runtime_authority_sha256,
             self.runtime_artifact_manifest_sha256,
             self.node_executable_sha256,
+            self.runtime_attestation_secret_sha256,
+            self.adapter_runtime_pin_sha256,
             self.phase_c_python_tree_sha256,
         )
         if (
@@ -230,10 +268,13 @@ def parse_managed_v5_live_runtime_authority(
         "runtime_base_sha256",
         "route_binding_sha256",
         "base_instructions_sha256",
+        "extraction_system_prompt_sha256",
         "account_binding_hmac_sha256",
         "response_format_type",
         "response_format_sha256",
         "response_schema_sha256",
+        "extraction_response_format_sha256",
+        "extraction_response_schema_sha256",
         "requested_output_tokens",
     }
     if type(payload) is not dict or set(payload) != keys:
@@ -267,6 +308,8 @@ def validate_managed_v5_live_public_config(
         filesystem.checkpoint_head_key_file,
         filesystem.operation_journal_signer_secret_file,
         filesystem.durable_clean_state_hmac_secret_file,
+        filesystem.runtime_attestation_secret_file,
+        filesystem.recovery_hmac_secret_file,
     )
     if len(set(private_files)) != len(private_files):
         raise ManagedV5LiveConfigError("managed_v5_live_credential_paths_invalid")
@@ -281,6 +324,7 @@ def validate_managed_v5_live_public_config(
         filesystem.dispatch_journal,
         filesystem.operation_journal,
         filesystem.durable_clean_state,
+        filesystem.recovery_journal,
     )
     if len(set(state_files)) != len(state_files):
         raise ManagedV5LiveConfigError("managed_v5_live_state_paths_invalid")
@@ -295,9 +339,22 @@ def validate_managed_v5_live_public_config(
         code="managed_v5_live_durable_clean_state_invalid",
     )
     _require_optional_private_file(
+        filesystem.recovery_journal,
+        parent=filesystem.state_root,
+        code="managed_v5_live_recovery_journal_invalid",
+    )
+    _require_optional_private_file(
         filesystem.report_file,
         parent=filesystem.report_root,
         code="managed_v5_live_report_file_invalid",
+    )
+    report_files = (filesystem.report_file, filesystem.recovery_report_file)
+    if len(set(report_files)) != len(report_files):
+        raise ManagedV5LiveConfigError("managed_v5_live_report_paths_invalid")
+    _require_optional_private_file(
+        filesystem.recovery_report_file,
+        parent=filesystem.report_root,
+        code="managed_v5_live_recovery_report_file_invalid",
     )
 
     _require_public_directory(filesystem.phase_c_package_root)
@@ -316,6 +373,7 @@ def validate_managed_v5_live_public_config(
         filesystem.runtime_repo,
         filesystem.runtime_artifact_manifest,
         filesystem.node_executable,
+        filesystem.adapter_runtime_pin_file,
     )
     if any(_paths_overlap(path, root) for path in public_paths for root in roots):
         raise ManagedV5LiveConfigError("managed_v5_live_public_private_paths_overlap")
@@ -333,6 +391,13 @@ def validate_managed_v5_live_public_config(
         maximum_bytes=_MAX_PUBLIC_IMMUTABLE_BYTES,
         executable=False,
         code="managed_v5_live_runtime_artifact_invalid",
+    )
+    _read_public_immutable(
+        filesystem.adapter_runtime_pin_file,
+        filesystem.adapter_runtime_pin_sha256,
+        maximum_bytes=_MAX_AUTHORITY_BYTES,
+        executable=False,
+        code="managed_v5_live_adapter_runtime_pin_invalid",
     )
     _verify_reviewed_node(filesystem.node_executable, filesystem.node_executable_sha256)
     return parse_managed_v5_live_runtime_authority(authority_raw)
@@ -488,20 +553,9 @@ def _read_public_immutable(
 
 
 def _verify_reviewed_node(path: Path, expected_sha256: str) -> None:
-    if expected_sha256 != _REVIEWED_NODE_SHA256:
-        raise ManagedV5LiveConfigError("managed_v5_live_node_authority_invalid")
     try:
-        metadata = path.stat()
-        if metadata.st_size != _REVIEWED_NODE_SIZE_BYTES:
-            raise ValueError
-        _read_public_immutable(
-            path,
-            expected_sha256,
-            maximum_bytes=_REVIEWED_NODE_SIZE_BYTES,
-            executable=True,
-            code="managed_v5_live_node_authority_invalid",
-        )
-    except (OSError, ValueError, ManagedV5LiveConfigError):
+        require_reviewed_node_executable(path, expected_sha256)
+    except ValueError:
         raise ManagedV5LiveConfigError("managed_v5_live_node_authority_invalid") from None
 
 

@@ -7,6 +7,8 @@ from dataclasses import dataclass
 from datetime import datetime
 from typing import Literal, Protocol
 
+from infinity_context_core.ports.benchmark_cleanup_plan import ManagedBenchmarkCleanupPlan
+
 _MANAGED_BENCHMARK_SPACE_ID = re.compile(r"^benchmark-space-[0-9a-f]{48}$")
 
 
@@ -30,6 +32,7 @@ ProjectionCleanupState = Literal[
     "complete",
     "unsealed_abort_complete",
 ]
+CleanupPlanState = Literal["sealed", "recovery_blocked"]
 
 
 @dataclass(frozen=True, slots=True)
@@ -100,7 +103,8 @@ class BenchmarkAbortCompletionReceipt:
     disposition: Literal["abort_complete"]
     projection_cleanup: Literal["unsealed_abort_complete"]
     cleanup_initiation_receipt_sha256: str
-    cleanup_verification_sha256: str
+    cleanup_plan_sha256: str
+    projection_absence_proof_sha256: str
     completed_at: datetime
     receipt_sha256: str
 
@@ -125,6 +129,9 @@ class BenchmarkRunRegistryRecord:
     completed_at: datetime | None
     created_at: datetime
     updated_at: datetime
+    cleanup_plan_json: dict[str, object] | None = None
+    cleanup_plan_sha256: str | None = None
+    cleanup_plan_state: CleanupPlanState = "recovery_blocked"
 
 
 class BenchmarkProjectionAbsencePort(Protocol):
@@ -148,12 +155,19 @@ class BenchmarkRunRepositoryPort(Protocol):
         space_id: str,
     ) -> BenchmarkRunRegistryRecord | None: ...
 
+    async def get_by_space_slug(
+        self,
+        space_slug: str,
+    ) -> BenchmarkRunRegistryRecord | None: ...
+
     async def get_by_idempotency_key_sha256(
         self,
         idempotency_key_sha256: str,
     ) -> BenchmarkRunRegistryRecord | None: ...
 
     async def add(self, record: BenchmarkRunRegistryRecord) -> None: ...
+
+    async def load_cleanup_plan(self, space_id: str) -> ManagedBenchmarkCleanupPlan | None: ...
 
     async def seal_projection_manifest(
         self,
@@ -186,6 +200,7 @@ class BenchmarkRunRepositoryPort(Protocol):
         record: BenchmarkRunRegistryRecord,
         *,
         finalization_fingerprint_sha256: str,
+        projection_absence_proof_sha256: str,
         now: datetime,
     ) -> BenchmarkRunRegistryRecord: ...
 
@@ -200,6 +215,7 @@ __all__ = (
     "BenchmarkRunRegistryRecord",
     "BenchmarkRunRepositoryPort",
     "BenchmarkRunState",
+    "CleanupPlanState",
     "ProjectionCleanupState",
     "is_managed_benchmark_space_id",
 )

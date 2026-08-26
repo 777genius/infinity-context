@@ -5,6 +5,7 @@ from __future__ import annotations
 from typing import Any
 
 from infinity_context_contracts.features.document_ingestion import (
+    DocumentRetrievalProjectionV1Dto,
     IngestDocumentRequestDto,
 )
 from pydantic import BaseModel, ConfigDict, Field
@@ -31,6 +32,7 @@ class IngestDocumentHttpRequest(BaseModel):
     content_hash: str | None = Field(default=None, min_length=1, max_length=160)
     idempotency_key: str | None = Field(default=None, min_length=1, max_length=200)
     metadata: dict[str, Any] = Field(default_factory=dict)
+    retrieval_projection: dict[str, Any] | None = None
 
     def to_contract(self) -> IngestDocumentRequestDto:
         metadata = dict(self.metadata)
@@ -55,6 +57,11 @@ class IngestDocumentHttpRequest(BaseModel):
             content_hash=self.content_hash,
             idempotency_key=self.idempotency_key,
             metadata=metadata,
+            retrieval_projection=(
+                None
+                if self.retrieval_projection is None
+                else DocumentRetrievalProjectionV1Dto.from_dict(self.retrieval_projection)
+            ),
         )
 
 
@@ -95,6 +102,7 @@ class LegacyIngestDocumentRequest(BaseModel):
         default_factory=list,
         max_length=24,
     )
+    retrieval_projection: dict[str, Any] | None = None
 
 
 __all__ = (

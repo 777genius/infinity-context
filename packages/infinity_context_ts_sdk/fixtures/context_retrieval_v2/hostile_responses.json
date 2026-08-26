@@ -1,0 +1,11 @@
+{
+  "schema_version": "context-retrieval-v2-hostile-responses.v1",
+  "cases": [
+    {"id": "required_lane_unavailable_with_candidates", "path": ["provider_outcomes", 0, "status"], "value": "unavailable"},
+    {"id": "contribution_provider_weight_drift", "path": ["candidates", 0, "contributions", 0, "provider_weight_micros"], "value": 100001},
+    {"id": "contribution_query_weight_drift", "path": ["candidates", 0, "contributions", 0, "query_weight_micros"], "value": 100001},
+    {"id": "cross_source_neighbor", "path": ["candidates", 0, "neighbors", 0, "source_key"], "value": "source-family-hostile"},
+    {"id": "neighbor_distance_outside_bound", "path": ["candidates", 0, "neighbors", 0, "distance"], "value": 2},
+    {"id": "preference_weight_drift", "path": ["candidates", 0, "source_requested_weight_micros"], "value": 0}
+  ]
+}

@@ -424,6 +424,7 @@ def pythonpath() -> str:
         repo / "packages/infinity_context_core",
         repo / "packages/infinity_context_adapters",
         repo / "packages/infinity_context_server",
+        repo / "packages/infinity_context_runtime_bridge",
         repo / "packages/infinity_context_sdk",
         repo / "packages/infinity_context_obsidian",
     ]

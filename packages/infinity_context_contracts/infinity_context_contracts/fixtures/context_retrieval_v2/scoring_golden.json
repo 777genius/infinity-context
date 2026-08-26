@@ -1,0 +1,92 @@
+{
+  "ranking_policy": "weighted_rrf_canonical_preferences.v1",
+  "ranking_parameters": {
+    "rank_constant": 60,
+    "weight_scale_micros": 1000000,
+    "score_scale_picos": 1000000000000,
+    "preference_scale_micros": 1000000,
+    "max_preference_boost_micros": 250000,
+    "contribution_rounding": "round_half_even",
+    "preference_rounding": "floor",
+    "canonical_signal_match_policy": "canonical_exact_key_interval_overlap.v1"
+  },
+  "contribution_cases": [
+    {
+      "case_id": "exact_half_even_down",
+      "provider_weight_micros": 100001,
+      "query_weight_micros": 100000,
+      "total_query_weight_micros": 100000,
+      "provider_rank": 68,
+      "contribution_score_picos": 781257812
+    },
+    {
+      "case_id": "exact_half_even_up",
+      "provider_weight_micros": 100005,
+      "query_weight_micros": 100000,
+      "total_query_weight_micros": 100000,
+      "provider_rank": 324,
+      "contribution_score_picos": 260429688
+    },
+    {
+      "case_id": "minimum_weights_maximum_rank",
+      "provider_weight_micros": 100000,
+      "query_weight_micros": 100000,
+      "total_query_weight_micros": 100000,
+      "provider_rank": 1000,
+      "contribution_score_picos": 94339623
+    },
+    {
+      "case_id": "maximum_weights_minimum_rank",
+      "provider_weight_micros": 10000000,
+      "query_weight_micros": 10000000,
+      "total_query_weight_micros": 10000000,
+      "provider_rank": 1,
+      "contribution_score_picos": 163934426230
+    }
+  ],
+  "composite_cases": [
+    {
+      "case_id": "multiple_queries_providers_partial_preferences",
+      "contribution_score_picos": [5464480874, 21505376344],
+      "base_score_picos": 26969857218,
+      "source_requested_weight_micros": 1000000,
+      "source_matched_weight_micros": 1000000,
+      "actor_requested_weight_micros": 1000000,
+      "actor_matched_weight_micros": 1000000,
+      "time_requested_weight_micros": 1000000,
+      "time_matched_weight_micros": 0,
+      "preference_score_micros": 666666,
+      "preference_boost_micros": 166666,
+      "rerank_score_picos": 31464815441
+    },
+    {
+      "case_id": "no_preferences",
+      "contribution_score_picos": [16393442623],
+      "base_score_picos": 16393442623,
+      "source_requested_weight_micros": 0,
+      "source_matched_weight_micros": 0,
+      "actor_requested_weight_micros": 0,
+      "actor_matched_weight_micros": 0,
+      "time_requested_weight_micros": 0,
+      "time_matched_weight_micros": 0,
+      "preference_score_micros": 0,
+      "preference_boost_micros": 0,
+      "rerank_score_picos": 16393442623
+    },
+    {
+      "case_id": "full_preferences",
+      "contribution_score_picos": [16393442623],
+      "base_score_picos": 16393442623,
+      "source_requested_weight_micros": 100000,
+      "source_matched_weight_micros": 100000,
+      "actor_requested_weight_micros": 10000000,
+      "actor_matched_weight_micros": 10000000,
+      "time_requested_weight_micros": 1000000,
+      "time_matched_weight_micros": 1000000,
+      "preference_score_micros": 1000000,
+      "preference_boost_micros": 250000,
+      "rerank_score_picos": 20491803278
+    }
+  ],
+  "utf8_tie_order": ["é", "é", "", "𐀀"]
+}

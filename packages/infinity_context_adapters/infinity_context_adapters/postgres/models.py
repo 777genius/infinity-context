@@ -50,7 +50,6 @@ class MemoryServiceTokenRow(Base):
         ),
         Index("ix_memory_service_tokens_status", "status", "created_at"),
     )
-
     id: Mapped[str] = mapped_column(String(80), primary_key=True)
     space_id: Mapped[str | None] = mapped_column(String(80), nullable=True)
     memory_scope_ids_json: Mapped[list[str] | None] = mapped_column(json_type(), nullable=True)
@@ -72,7 +71,6 @@ class MemoryUserRow(Base):
         Index("uq_memory_user_external_ref", "external_ref", unique=True),
         Index("ix_memory_users_status", "status", "updated_at"),
     )
-
     id: Mapped[str] = mapped_column(String(80), primary_key=True)
     external_ref: Mapped[str] = mapped_column(String(200), nullable=False)
     display_name: Mapped[str] = mapped_column(String(240), nullable=False)
@@ -85,7 +83,6 @@ class MemoryUserRow(Base):
 
 class MemorySpaceRow(Base):
     __tablename__ = "memory_spaces"
-
     id: Mapped[str] = mapped_column(String(80), primary_key=True)
     slug: Mapped[str] = mapped_column(String(160), unique=True, nullable=False)
     name: Mapped[str] = mapped_column(String(240), nullable=False)
@@ -96,7 +93,6 @@ class MemorySpaceRow(Base):
 
 class MemorySpaceMembershipRow(Base):
     __tablename__ = "memory_space_memberships"
-
     id: Mapped[str] = mapped_column(String(80), primary_key=True)
     space_id: Mapped[str] = mapped_column(
         String(80),
@@ -130,8 +126,8 @@ class MemoryScopeRow(Base):
     __tablename__ = "memory_scopes"
     __table_args__ = (
         UniqueConstraint("space_id", "external_ref", name="uq_memory_scope_external_ref"),
+        Index("ix_memory_scopes_space_id_id", "space_id", "id"),
     )
-
     id: Mapped[str] = mapped_column(String(80), primary_key=True)
     space_id: Mapped[str] = mapped_column(
         String(80),
@@ -160,7 +156,6 @@ class MemoryUsageRecordRow(Base):
         ),
         Index("ix_memory_usage_space_created", "space_id", "created_at"),
     )
-
     id: Mapped[str] = mapped_column(String(80), primary_key=True)
     subject_type: Mapped[str] = mapped_column(String(40), nullable=False)
     subject_id: Mapped[str] = mapped_column(String(80), nullable=False)
@@ -185,8 +180,8 @@ class MemoryThreadRow(Base):
             "space_id", "memory_scope_id", "external_ref", name="uq_thread_external_ref"
         ),
         Index("ix_memory_threads_scope_status", "space_id", "memory_scope_id", "status"),
+        Index("ix_memory_threads_space_scope_id", "space_id", "memory_scope_id", "id"),
     )
-
     id: Mapped[str] = mapped_column(String(80), primary_key=True)
     space_id: Mapped[str] = mapped_column(String(80), nullable=False)
     memory_scope_id: Mapped[str] = mapped_column(String(80), nullable=False)
@@ -198,7 +193,6 @@ class MemoryThreadRow(Base):
 
 class MemoryAnchorRow(Base):
     __tablename__ = "memory_anchors"
-
     id: Mapped[str] = mapped_column(String(80), primary_key=True)
     space_id: Mapped[str] = mapped_column(String(80), nullable=False)
     memory_scope_id: Mapped[str] = mapped_column(String(80), nullable=False)
@@ -287,7 +281,6 @@ class MemoryFactRow(Base):
             "status",
         ),
     )
-
     id: Mapped[str] = mapped_column(String(80), primary_key=True)
     space_id: Mapped[str] = mapped_column(String(80), nullable=False)
     memory_scope_id: Mapped[str] = mapped_column(String(80), nullable=False)
@@ -349,7 +342,6 @@ class MemoryEpisodeRow(Base):
         ),
         Index("ix_memory_episodes_thread_status", "thread_id", "status"),
     )
-
     id: Mapped[str] = mapped_column(String(80), primary_key=True)
     space_id: Mapped[str] = mapped_column(String(80), nullable=False)
     memory_scope_id: Mapped[str] = mapped_column(String(80), nullable=False)
@@ -367,7 +359,6 @@ class MemoryEpisodeRow(Base):
 
 class MemoryDocumentRow(Base):
     __tablename__ = "memory_documents"
-
     id: Mapped[str] = mapped_column(String(80), primary_key=True)
     space_id: Mapped[str] = mapped_column(String(80), nullable=False)
     memory_scope_id: Mapped[str] = mapped_column(String(80), nullable=False)
@@ -378,6 +369,7 @@ class MemoryDocumentRow(Base):
     content_hash: Mapped[str] = mapped_column(String(80), nullable=False)
     classification: Mapped[str] = mapped_column(String(40), nullable=False, default="unknown")
     status: Mapped[str] = mapped_column(String(40), nullable=False, default="active")
+    retrieval_projected: Mapped[bool] = mapped_column(nullable=False, default=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     __table_args__ = (
@@ -387,8 +379,12 @@ class MemoryDocumentRow(Base):
             "memory_scope_id",
             "content_hash",
             unique=True,
-            sqlite_where=thread_id.is_(None) & (status != "deleted"),
-            postgresql_where=thread_id.is_(None) & (status != "deleted"),
+            sqlite_where=thread_id.is_(None)
+            & (status != "deleted")
+            & retrieval_projected.is_(False),
+            postgresql_where=thread_id.is_(None)
+            & (status != "deleted")
+            & retrieval_projected.is_(False),
         ),
         Index(
             "uq_document_content_hash_thread",
@@ -397,8 +393,12 @@ class MemoryDocumentRow(Base):
             "thread_id",
             "content_hash",
             unique=True,
-            sqlite_where=thread_id.is_not(None) & (status != "deleted"),
-            postgresql_where=thread_id.is_not(None) & (status != "deleted"),
+            sqlite_where=thread_id.is_not(None)
+            & (status != "deleted")
+            & retrieval_projected.is_(False),
+            postgresql_where=thread_id.is_not(None)
+            & (status != "deleted")
+            & retrieval_projected.is_(False),
         ),
         Index("ix_memory_documents_scope_status", "space_id", "memory_scope_id", "status"),
         Index(
@@ -440,7 +440,6 @@ class MemoryAssetRow(Base):
         Index("ix_memory_assets_hash_scope", "space_id", "memory_scope_id", "sha256_hex", "status"),
         Index("ix_memory_assets_thread_status", "thread_id", "status", "created_at"),
     )
-
     id: Mapped[str] = mapped_column(String(80), primary_key=True)
     space_id: Mapped[str] = mapped_column(String(80), nullable=False)
     memory_scope_id: Mapped[str] = mapped_column(String(80), nullable=False)
@@ -460,7 +459,6 @@ class MemoryAssetRow(Base):
 
 class MemoryAssetExtractionJobRow(Base):
     __tablename__ = "memory_asset_extraction_jobs"
-
     id: Mapped[str] = mapped_column(String(80), primary_key=True)
     asset_id: Mapped[str] = mapped_column(String(80), nullable=False)
     space_id: Mapped[str] = mapped_column(String(80), nullable=False)
@@ -526,7 +524,6 @@ class MemoryAssetExtractionArtifactRow(Base):
         Index("ix_asset_extraction_artifacts_job", "job_id", "artifact_type"),
         Index("ix_asset_extraction_artifacts_asset", "asset_id", "created_at"),
     )
-
     id: Mapped[str] = mapped_column(String(80), primary_key=True)
     job_id: Mapped[str] = mapped_column(String(80), nullable=False)
     asset_id: Mapped[str] = mapped_column(String(80), nullable=False)
@@ -539,45 +536,9 @@ class MemoryAssetExtractionArtifactRow(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
 
 
-class MemoryChunkRow(Base):
-    __tablename__ = "memory_chunks"
-    __table_args__ = (
-        UniqueConstraint("space_id", "memory_scope_id", "source_hash", name="uq_chunk_source_hash"),
-        CheckConstraint(
-            "(document_id IS NOT NULL) <> (episode_id IS NOT NULL)", name="ck_chunk_owner"
-        ),
-        Index("ix_memory_chunks_scope_status", "space_id", "memory_scope_id", "status"),
-        Index("ix_memory_chunks_thread_status", "thread_id", "status"),
-        Index("ix_memory_chunks_document", "document_id", "status", "sequence"),
-    )
-
-    id: Mapped[str] = mapped_column(String(80), primary_key=True)
-    space_id: Mapped[str] = mapped_column(String(80), nullable=False)
-    memory_scope_id: Mapped[str] = mapped_column(String(80), nullable=False)
-    thread_id: Mapped[str | None] = mapped_column(String(80), nullable=True)
-    document_id: Mapped[str | None] = mapped_column(String(80), nullable=True)
-    episode_id: Mapped[str | None] = mapped_column(String(80), nullable=True)
-    source_type: Mapped[str] = mapped_column(String(80), nullable=False)
-    source_external_id: Mapped[str] = mapped_column(String(240), nullable=False)
-    source_hash: Mapped[str] = mapped_column(String(80), nullable=False)
-    kind: Mapped[str] = mapped_column(String(80), nullable=False)
-    text: Mapped[str] = mapped_column(Text, nullable=False)
-    normalized_text: Mapped[str] = mapped_column(Text, nullable=False)
-    status: Mapped[str] = mapped_column(String(40), nullable=False, default="active")
-    sequence: Mapped[int] = mapped_column(Integer, nullable=False)
-    char_start: Mapped[int] = mapped_column(Integer, nullable=False)
-    char_end: Mapped[int] = mapped_column(Integer, nullable=False)
-    token_estimate: Mapped[int] = mapped_column(Integer, nullable=False)
-    classification: Mapped[str] = mapped_column(String(40), nullable=False, default="unknown")
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
-    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
-    metadata_json: Mapped[dict[str, object]] = mapped_column(json_type(), nullable=False)
-
-
 class MemorySourceRefRow(Base):
     __tablename__ = "memory_source_refs"
     __table_args__ = (Index("ix_memory_source_refs_fact", "fact_id", "fact_version"),)
-
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     fact_id: Mapped[str] = mapped_column(String(80), ForeignKey("memory_facts.id"), nullable=False)
     fact_version: Mapped[int] = mapped_column(Integer, nullable=False)
@@ -596,7 +557,6 @@ class MemorySourceRefRow(Base):
 class MemoryFactVersionRow(Base):
     __tablename__ = "memory_fact_versions"
     __table_args__ = (UniqueConstraint("fact_id", "version", name="uq_fact_version"),)
-
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     fact_id: Mapped[str] = mapped_column(String(80), ForeignKey("memory_facts.id"), nullable=False)
     version: Mapped[int] = mapped_column(Integer, nullable=False)
@@ -612,7 +572,6 @@ class MemoryFactVersionRow(Base):
 
 class MemoryFactRelationRow(Base):
     __tablename__ = "memory_fact_relations"
-
     id: Mapped[str] = mapped_column(String(80), primary_key=True)
     space_id: Mapped[str] = mapped_column(String(80), nullable=False)
     memory_scope_id: Mapped[str] = mapped_column(String(80), nullable=False)
@@ -705,7 +664,6 @@ class MemorySuggestionRow(Base):
         ),
         *pending_suggestion_fingerprint_indexes(),
     )
-
     id: Mapped[str] = mapped_column(String(80), primary_key=True)
     space_id: Mapped[str] = mapped_column(String(80), nullable=False)
     memory_scope_id: Mapped[str] = mapped_column(String(80), nullable=False)
@@ -760,7 +718,6 @@ class MemoryCaptureRow(Base):
             "created_at",
         ),
     )
-
     id: Mapped[str] = mapped_column(String(80), primary_key=True)
     space_id: Mapped[str] = mapped_column(String(80), nullable=False)
     memory_scope_id: Mapped[str] = mapped_column(String(80), nullable=False)
@@ -807,7 +764,6 @@ class MemoryCaptureRow(Base):
 
 class MemoryContextLinkRow(Base):
     __tablename__ = "memory_context_links"
-
     id: Mapped[str] = mapped_column(String(80), primary_key=True)
     space_id: Mapped[str] = mapped_column(String(80), nullable=False)
     memory_scope_id: Mapped[str] = mapped_column(String(80), nullable=False)
@@ -857,7 +813,6 @@ class MemoryContextLinkRow(Base):
 
 class MemoryContextLinkSuggestionRow(Base):
     __tablename__ = "memory_context_link_suggestions"
-
     id: Mapped[str] = mapped_column(String(80), primary_key=True)
     space_id: Mapped[str] = mapped_column(String(80), nullable=False)
     memory_scope_id: Mapped[str] = mapped_column(String(80), nullable=False)
@@ -911,7 +866,6 @@ class MemoryContextLinkSuggestionRow(Base):
 class MemoryIdempotencyRecordRow(Base):
     __tablename__ = "memory_idempotency_records"
     __table_args__ = (UniqueConstraint("space_id", "key", name="uq_idempotency_space_key"),)
-
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     space_id: Mapped[str] = mapped_column(String(80), nullable=False)
     key: Mapped[str] = mapped_column(String(240), nullable=False)
@@ -922,11 +876,47 @@ class MemoryIdempotencyRecordRow(Base):
 
 
 # Imported last to preserve the legacy public model surface.
-from infinity_context_adapters.postgres.benchmark_models import (  # noqa: E402
+from infinity_context_adapters.postgres.benchmark_run_models import (  # noqa: E402
     MemoryComparisonBenchmarkRunRow,  # noqa: F401
+)
+from infinity_context_adapters.postgres.locator_models import (  # noqa: E402
+    MemoryChunkRow,  # noqa: F401
+    MemoryDocumentProjectionReceiptRow,  # noqa: F401
+    MemoryLocatorProfileAttestationCheckpointRow,  # noqa: F401
+    MemoryLocatorProfileAttestationPageRow,  # noqa: F401
+    MemoryLocatorProfileCleanupRow,  # noqa: F401
+    MemoryLocatorProfileEvidenceVersionRow,  # noqa: F401
+    MemoryLocatorProfileLaneRow,  # noqa: F401
+    MemoryLocatorProfileMaintenanceFenceRow,  # noqa: F401
+    MemoryLocatorProfileOperatorOperationRow,  # noqa: F401
+    MemoryLocatorProfileOperatorRebuildRow,  # noqa: F401
+    MemoryLocatorProfileOperatorReceiptRow,  # noqa: F401
+    MemoryLocatorProfileProjectionReceiptRow,  # noqa: F401
+    MemoryLocatorProfileProviderMutationRow,  # noqa: F401
+    MemoryLocatorProfileQueryRow,  # noqa: F401
+    MemoryLocatorProfileReconciliationOperationRow,  # noqa: F401
+    MemoryLocatorProfileRecoveryReceiptRow,  # noqa: F401
+    MemoryLocatorProfileRow,  # noqa: F401
+    MemoryLocatorProfileTombstoneRow,  # noqa: F401
+    MemoryLocatorProfileTransitionAuditRow,  # noqa: F401
+    MemoryLocatorProjectionTombstoneRow,  # noqa: F401
+    MemoryLocatorProviderReconciliationReceiptRow,  # noqa: F401
+    MemoryLocatorRuntimeIncarnationRow,  # noqa: F401
 )
 from infinity_context_adapters.postgres.outbox_models import (  # noqa: E402
     MemoryOutboxRow,  # noqa: F401
+)
+from infinity_context_adapters.postgres.projection_receipt_models import (  # noqa: E402
+    MemoryCleanupInventoryKeyRow,  # noqa: F401
+    MemoryCleanupInventoryMaterializationRow,  # noqa: F401
+    MemoryCleanupV3ContextAuthorityRow,  # noqa: F401
+    MemoryProjectionReceiptClaimRow,  # noqa: F401
+    MemoryProjectionReceiptIdentityLinkRow,  # noqa: F401
+    MemoryProjectionResultReceiptRow,  # noqa: F401
+    MemoryProjectionTargetIdentityRow,  # noqa: F401
+)
+from infinity_context_adapters.postgres.strict_v4_preparation_models import (  # noqa: E402
+    MemoryComparisonStrictV4PreparationRow,  # noqa: F401
 )
 from infinity_context_adapters.postgres.temporal_models import (  # noqa: E402
     MemoryFactTemporalDecisionRow,  # noqa: F401

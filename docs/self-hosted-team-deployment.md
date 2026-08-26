@@ -29,16 +29,41 @@ cp .env.selfhost.example .env.selfhost
 openssl rand -hex 32
 ```
 
+Generate a separate value for the service token and for each of the six
+Postgres passwords. Do not reuse the admin password. The API and workers receive
+only the least-privileged `infinity_context_runtime` connection; the admin
+connection exists only in the short-lived identity and ACL bootstrap services.
+
 Start the default small-team stack:
 
 ```bash
 make infinity-context-selfhost-up
 ```
 
+The make target validates that all seven secrets are non-placeholder and unique.
+The identity bootstrap repeats the same fail-closed validation, so direct Compose
+startup cannot bypass it.
+
 The target first generates a source manifest from the clean Git checkout. The image verifies
 that manifest before installation and exposes serving identity only for this attested build.
 An image built directly without the generated manifest remains usable, but intentionally does
 not claim a service revision or a qualified embedding profile.
+
+On a fresh database Compose executes this fail-closed chain before serving
+traffic:
+
+```text
+Postgres health
+  -> identity bootstrap
+  -> schema migrations
+  -> runtime ACL reconciliation
+  -> default seed
+  -> API health
+  -> projection and extraction workers
+```
+
+Every step must complete successfully. Compose will not start the API after a
+failed identity, migration, ACL or seed step.
 
 Check health:
 
@@ -165,13 +190,78 @@ Example Postgres dump:
 ```bash
 docker compose --env-file .env.selfhost -f docker-compose.selfhost.yml \
   exec -T infinity_context_postgres \
-  pg_dump -U infinity_context infinity_context > infinity-context-postgres.sql
+  pg_dump -U infinity_context_admin --format=custom --no-owner --no-acl \
+  infinity_context > infinity-context-postgres.dump
 ```
+
+### Upgrading an existing Postgres 16 volume
+
+The self-hosted compose file pins PostgreSQL 18.4. PostgreSQL data directories
+cannot be opened by a different major version, so Compose never attempts an
+in-place automatic upgrade. Before changing an existing PostgreSQL 16 stack:
+
+1. Keep the old image running and create a complete custom-format logical dump
+   with `pg_dump --no-owner --no-acl`. Do not restore cluster-global roles from
+   `pg_dumpall`; the new split identities are provisioned independently. Back up
+   the asset volume separately.
+2. Stop the stack without `-v`; retain the old named volume until restore has
+   been verified.
+3. Start PostgreSQL 18 with a new empty volume and the new distinct identity
+   secrets.
+4. Restore with `pg_restore --no-owner --no-acl` through the new administrative
+   connection, then run the identity, migration and ACL bootstrap chain. The
+   administrative bootstrap transfers only non-extension application tables,
+   sequences, views, routines and standalone types in `public` to
+   `infinity_context_migrator`. It leaves the database, schema, extensions and
+   every other schema under their existing authority and fails closed unless the
+   session owns the database and the `public` schema has the expected owner.
+5. Verify API health, `/v1/capabilities`, row counts and a backup/restore drill
+   before retiring the PostgreSQL 16 volume.
+
+Do not point PostgreSQL 18 at the PostgreSQL 16 data directory. For large
+deployments, use a separately planned `pg_upgrade` procedure with rollback and
+storage headroom rather than adapting the Compose quick start.
 
 ## Production notes
 
 - Put the API behind Caddy, Nginx, Traefik or a cloud load balancer with HTTPS.
 - Do not expose Postgres, Qdrant or Neo4j directly to the internet.
+- Never pass the admin database URL to the API or either worker.
+- Rotate the five non-admin Postgres passwords as one coordinated maintenance
+  operation. Drain API traffic and stop the API and workers first:
+
+  ```bash
+  docker compose --env-file .env.selfhost -f docker-compose.selfhost.yml \
+    stop infinity_context_server infinity_context_projection_worker \
+    infinity_context_extraction_worker
+  ```
+
+  Keep the current admin password unchanged, replace all five non-admin values
+  (`MIGRATOR`, `RUNTIME`, `CANONICAL`, `REGISTRAR` and `SEALER`) in
+  `.env.selfhost`, then rotate them atomically through the supported CLI:
+
+  ```bash
+  docker compose --env-file .env.selfhost -f docker-compose.selfhost.yml \
+    run --rm --no-deps infinity_context_identity_bootstrap \
+    python -m infinity_context_server.selfhost_db rotate-passwords
+  docker compose --env-file .env.selfhost -f docker-compose.selfhost.yml \
+    run --rm --no-deps infinity_context_runtime_acl
+  docker compose --env-file .env.selfhost -f docker-compose.selfhost.yml \
+    up -d --force-recreate infinity_context_server \
+    infinity_context_projection_worker infinity_context_extraction_worker
+  ```
+
+  If the rotation command fails, keep dependent services stopped, restore the
+  previous five values in `.env.selfhost`, and investigate before restarting.
+  Do not rotate these connected identities independently while services run.
+- `python -m infinity_context_server.selfhost_db rotate-passwords` does not
+  rotate the bootstrap admin. Changing `POSTGRES_PASSWORD` or
+  `INFINITY_CONTEXT_SELFHOST_ADMIN_PASSWORD` in the env file also does not
+  change the admin password in an existing Postgres volume. Rotate the admin in
+  a separate DBA maintenance procedure using the current admin connection or a
+  trusted local Postgres socket (prefer `psql`'s `\\password` command so the new
+  value is not stored in shell history), then update the admin value in
+  `.env.selfhost` before the next bootstrap operation.
 - Rotate `MEMORY_SERVICE_TOKEN` when a team member or automation loses access.
 - Keep `MEMORY_AUTO_CREATE_SCHEMA=false` in server mode; migrations run through
   the `infinity_context_migrate` service.

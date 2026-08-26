@@ -47,6 +47,9 @@ from infinity_context_server.memory_comparison_managed_projection_manifest impor
 from infinity_context_server.memory_comparison_managed_run_contract import (
     ManagedRunCase,
 )
+from infinity_context_server.memory_comparison_managed_v5_live_recovery_observer import (
+    ManagedMem0TerminalObservation,
+)
 
 MANAGED_REGISTRY_POLICY_LIFECYCLE_ADAPTER_ID = "managed-comparison-registry-policy-lifecycle-v1"
 
@@ -87,6 +90,7 @@ class ManagedComparisonRegistryPolicyLifecycleAdapter:
         "_delete_in_flight",
         "_implementation",
         "_lock",
+        "_mem0_pass_two_receipt",
         "_next_delete",
         "_phase",
         "_projection_manifest",
@@ -96,6 +100,7 @@ class ManagedComparisonRegistryPolicyLifecycleAdapter:
         "_registry",
         "_registry_material",
         "_registry_material_sha256",
+        "_recovery_observer",
         "_source_call",
         "_terminal_receipt",
         "_terminal_receipts",
@@ -109,6 +114,7 @@ class ManagedComparisonRegistryPolicyLifecycleAdapter:
         bindings: FullComparisonRunBindings,
         cases: tuple[ManagedRunCase, ...],
         registration: ManagedBenchmarkRunRegistration,
+        recovery_observer: object,
     ) -> None:
         if type(registry) is not ManagedBenchmarkRegistryHttpAdapter:
             _fail("managed_registry_policy_registry_invalid")
@@ -122,6 +128,17 @@ class ManagedComparisonRegistryPolicyLifecycleAdapter:
             _fail("managed_registry_policy_cases_invalid")
         if type(registration) is not ManagedBenchmarkRunRegistration:
             _fail("managed_registry_policy_registration_invalid")
+        if any(
+            not callable(getattr(recovery_observer, name, None))
+            for name in (
+                "projection_manifest_persisted",
+                "registry_seal_observed",
+                "cleanup_observed",
+                "mem0_terminal_observed",
+                "canonical_terminal_observed",
+            )
+        ):
+            _fail("managed_registry_policy_recovery_observer_invalid")
         _validate_registration(bindings, registration)
         if type(delegate_capability) is not ManagedPolicyDelegateCapability:
             _fail("managed_registry_policy_delegate_invalid")
@@ -139,6 +156,7 @@ class ManagedComparisonRegistryPolicyLifecycleAdapter:
         self._registration = registration
         self._registration_commitment_sha256 = _registration_commitment_sha256(registration)
         self._registry = registry
+        self._recovery_observer = recovery_observer
         self._delegate_adapter_implementation = delegate_implementation
         self._implementation = managed_registry_policy_lifecycle_implementation_sha256(
             delegate_implementation
@@ -155,6 +173,7 @@ class ManagedComparisonRegistryPolicyLifecycleAdapter:
         self._registry_material: ManagedHttpPolicyRegistryMaterial | None = None
         self._registry_material_sha256: str | None = None
         self._next_delete = 0
+        self._mem0_pass_two_receipt: object | None = None
         self._delete_in_flight: tuple[str, str, int] | None = None
         self._lock = threading.RLock()
         self._delegate_port = trusted_delegate
@@ -237,8 +256,8 @@ class ManagedComparisonRegistryPolicyLifecycleAdapter:
                 _fail("managed_registry_policy_state_invalid")
             self._canonical_receipts = receipts
             self._projection_manifest = projection
-            self._phase = "source-sealing"
-        self._seal_registry_projection()
+            self._phase = "source-persisting"
+        self._persist_and_seal_projection(projection)
         with self._lock:
             receipts = self._canonical_receipts
             if self._phase != "source-sealed" or type(receipts) is not tuple:
@@ -258,20 +277,42 @@ class ManagedComparisonRegistryPolicyLifecycleAdapter:
         self._validate_binding(bindings)
         operation = (backend_role, target_identity_sha256, pass_index)
         first = self._reserve_delete(operation)
-        if first and self._cleanup_receipt is None:
+        if first:
             try:
-                cleanup = self._registry.begin_cleanup()
-                self._validate_cleanup_receipt(cleanup)
+                cleanup = self._cleanup_receipt
+                if cleanup is None:
+                    cleanup = self._registry.begin_cleanup()
+                    self._validate_cleanup_receipt(cleanup)
+                    with self._lock:
+                        self._cleanup_receipt = cleanup
+                        self._phase = "cleanup-observing"
+                self._recovery_observer.cleanup_observed(cleanup)
             except BaseException:
                 with self._lock:
                     self._delete_in_flight = None
-                    self._phase = "cleanup-begin-failed"
+                    self._phase = (
+                        "cleanup-begin-failed"
+                        if self._cleanup_receipt is None
+                        else "cleanup-observe-failed"
+                    )
                 raise
             with self._lock:
-                if self._phase != "cleanup-beginning" or self._delete_in_flight != operation:
+                if self._delete_in_flight != operation:
                     _fail("managed_registry_policy_state_invalid")
-                self._cleanup_receipt = cleanup
                 self._phase = "cleanup-active"
+        cached = self._mem0_pass_two_receipt if operation[0::2] == ("mem0", 2) else None
+        if cached is not None:
+            try:
+                self._observe_mem0_terminal()
+            except BaseException:
+                with self._lock:
+                    self._delete_in_flight = None
+                    self._phase = "cleanup-active"
+                raise
+            with self._lock:
+                self._delete_in_flight = None
+                self._next_delete += 1
+            return cached
         try:
             receipt = self._trusted_delegate().terminal_delete(
                 bindings=bindings,
@@ -291,6 +332,16 @@ class ManagedComparisonRegistryPolicyLifecycleAdapter:
                     else "delete-delegate-failed"
                 )
             raise
+        if operation[0::2] == ("mem0", 2):
+            with self._lock:
+                self._mem0_pass_two_receipt = receipt
+            try:
+                self._observe_mem0_terminal()
+            except BaseException:
+                with self._lock:
+                    self._delete_in_flight = None
+                    self._phase = "cleanup-active"
+                raise
         with self._lock:
             if self._delete_in_flight != operation:
                 self._phase = "terminal"
@@ -438,12 +489,22 @@ class ManagedComparisonRegistryPolicyLifecycleAdapter:
                 or sealed.projection_manifest_sha256 != projection.projection_manifest_sha256
             ):
                 _fail("managed_registry_policy_projection_seal_invalid")
+            self._recovery_observer.registry_seal_observed(projection.projection_manifest_sha256)
         except BaseException:
             self._set_phase("source-sealing", "source-seal-failed")
             raise
         with self._lock:
             self._projection_sealed = True
         self._set_phase("source-sealing", "source-sealed")
+
+    def _persist_and_seal_projection(self, projection: ManagedProjectionManifest) -> None:
+        try:
+            self._recovery_observer.projection_manifest_persisted(projection)
+        except BaseException:
+            self._set_phase("source-persisting", "source-persist-failed")
+            raise
+        self._set_phase("source-persisting", "source-sealing")
+        self._seal_registry_projection()
 
     def _reserve_delete(self, operation: tuple[str, str, int]) -> bool:
         expected = tuple(
@@ -465,9 +526,11 @@ class ManagedComparisonRegistryPolicyLifecycleAdapter:
                 {
                     "source-sealed",
                     "source-seal-failed",
+                    "source-persist-failed",
                     "source-build-failed",
                     "source-delegate-failed",
                     "cleanup-begin-failed",
+                    "cleanup-observe-failed",
                     "cleanup-active",
                 }
                 if first
@@ -479,6 +542,15 @@ class ManagedComparisonRegistryPolicyLifecycleAdapter:
             if first:
                 self._phase = "cleanup-beginning"
             return first
+
+    def _observe_mem0_terminal(self) -> None:
+        try:
+            value = self._trusted_delegate().mem0_terminal_observation
+        except Exception:
+            _fail("managed_registry_policy_mem0_terminal_observation_invalid")
+        if type(value) is not ManagedMem0TerminalObservation:
+            _fail("managed_registry_policy_mem0_terminal_observation_invalid")
+        self._recovery_observer.mem0_terminal_observed(value)
 
     def _validate_cleanup_receipt(self, receipt: object) -> None:
         if (
@@ -498,7 +570,7 @@ class ManagedComparisonRegistryPolicyLifecycleAdapter:
         receipts: tuple[object, ...],
     ) -> bool:
         with self._lock:
-            if self._phase == "finalize-failed":
+            if self._phase in {"finalize-failed", "terminal-observe-failed"}:
                 source = self._source_call
                 if (
                     type(source) is not _CanonicalSourceCall
@@ -536,6 +608,15 @@ class ManagedComparisonRegistryPolicyLifecycleAdapter:
         cleanup = self._cleanup_receipt
         if type(cleanup) is not ManagedBenchmarkCleanupReceipt:
             _fail("managed_registry_policy_cleanup_receipt_unavailable")
+        completion = self._completion_receipt
+        if type(completion) is ManagedBenchmarkCleanupCompletionReceipt:
+            try:
+                self._recovery_observer.canonical_terminal_observed(completion)
+            except BaseException:
+                self._set_phase("finalizing", "terminal-observe-failed")
+                raise
+            self._set_phase("finalizing", "cleanup-complete")
+            return
         try:
             completion = self._registry.finalize_cleanup(
                 cleanup_initiation_receipt_sha256=cleanup.receipt_sha256,
@@ -552,7 +633,12 @@ class ManagedComparisonRegistryPolicyLifecycleAdapter:
             self._completion_receipt = completion
             self._registry_material = material
             self._registry_material_sha256 = material_sha256
-            self._phase = "cleanup-complete"
+        try:
+            self._recovery_observer.canonical_terminal_observed(completion)
+        except BaseException:
+            self._set_phase("finalizing", "terminal-observe-failed")
+            raise
+        self._set_phase("finalizing", "cleanup-complete")
 
     def _registry_material_for(
         self,

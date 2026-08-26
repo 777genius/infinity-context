@@ -43,6 +43,8 @@ from infinity_context_server.worker import OutboxWorker
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from tests.unit import asset_extraction_outbox_test_support as outbox_test_support
+
 _VISION_PROVIDER_SECRET = "sk-proj-vision-secret-value1234567890"
 
 
@@ -1445,13 +1447,11 @@ def test_asset_extraction_marks_failed_and_cleans_blobs_on_artifact_storage_erro
             path for path in asset_storage_dir.glob("**/extractions/**/*") if path.is_file()
         ]
         assert extraction_files == []
-
-        retry = client.post(
-            f"/v1/asset-extractions/{extraction_id}/retry",
+        outbox_test_support.assert_manual_retry_reschedules_outbox_row(
+            client,
+            extraction_id,
             headers=auth_headers(),
         )
-        assert retry.status_code == 202, retry.text
-        assert retry.json()["data"]["status"] == "pending"
 
         retried_count = asyncio.run(OutboxWorker(client.app.state.container).run_once(limit=10))
         assert retried_count >= 1

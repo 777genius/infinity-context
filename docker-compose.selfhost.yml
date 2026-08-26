@@ -8,7 +8,6 @@ x-infinity-context-image: &infinity-context-image
 
 x-infinity-context-env: &infinity-context-env
   MEMORY_DEPLOY_PROFILE: server
-  MEMORY_DATABASE_URL: postgresql+asyncpg://infinity_context:${MEMORY_POSTGRES_PASSWORD:?Set MEMORY_POSTGRES_PASSWORD in .env.selfhost}@infinity_context_postgres:5432/infinity_context
   MEMORY_AUTO_CREATE_SCHEMA: "false"
   MEMORY_HOST: 0.0.0.0
   MEMORY_PORT: "7788"
@@ -77,6 +76,7 @@ x-infinity-context-service: &infinity-context-service
   restart: unless-stopped
   environment:
     <<: *infinity-context-env
+    MEMORY_DATABASE_URL: postgresql+asyncpg://infinity_context_runtime:${INFINITY_CONTEXT_SELFHOST_RUNTIME_PASSWORD:?Set INFINITY_CONTEXT_SELFHOST_RUNTIME_PASSWORD in .env.selfhost}@infinity_context_postgres:5432/infinity_context
   volumes:
     - infinity_context_assets:/var/lib/infinity-context/assets
   depends_on:
@@ -98,16 +98,16 @@ x-infinity-context-healthcheck: &infinity-context-healthcheck
 
 services:
   infinity_context_postgres:
-    image: postgres:16
+    image: postgres:18.4-bookworm
     restart: unless-stopped
     environment:
-      POSTGRES_USER: infinity_context
-      POSTGRES_PASSWORD: ${MEMORY_POSTGRES_PASSWORD:?Set MEMORY_POSTGRES_PASSWORD in .env.selfhost}
+      POSTGRES_USER: infinity_context_admin
+      POSTGRES_PASSWORD: ${INFINITY_CONTEXT_SELFHOST_ADMIN_PASSWORD:?Set INFINITY_CONTEXT_SELFHOST_ADMIN_PASSWORD in .env.selfhost}
       POSTGRES_DB: infinity_context
     volumes:
-      - infinity_context_postgres_data:/var/lib/postgresql/data
+      - infinity_context_postgres_data:/var/lib/postgresql
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U infinity_context -d infinity_context"]
+      test: ["CMD-SHELL", "pg_isready -U infinity_context_admin -d infinity_context"]
       interval: 5s
       timeout: 3s
       retries: 30
@@ -128,12 +128,62 @@ services:
     volumes:
       - infinity_context_neo4j_data:/data
 
-  infinity_context_migrate:
-    <<: *infinity-context-service
+  infinity_context_identity_bootstrap:
+    <<: *infinity-context-image
     restart: "no"
-    command: >
-      sh -c "python -m infinity_context_server.db upgrade
-      && python -m infinity_context_server.admin seed-defaults"
+    environment:
+      MEMORY_SERVICE_TOKEN: ${MEMORY_SERVICE_TOKEN:?Set MEMORY_SERVICE_TOKEN in .env.selfhost}
+      INFINITY_CONTEXT_SELFHOST_ADMIN_DATABASE_URL: postgresql+asyncpg://infinity_context_admin:${INFINITY_CONTEXT_SELFHOST_ADMIN_PASSWORD:?Set INFINITY_CONTEXT_SELFHOST_ADMIN_PASSWORD in .env.selfhost}@infinity_context_postgres:5432/infinity_context
+      INFINITY_CONTEXT_SELFHOST_MIGRATOR_PASSWORD: ${INFINITY_CONTEXT_SELFHOST_MIGRATOR_PASSWORD:?Set INFINITY_CONTEXT_SELFHOST_MIGRATOR_PASSWORD in .env.selfhost}
+      INFINITY_CONTEXT_SELFHOST_RUNTIME_PASSWORD: ${INFINITY_CONTEXT_SELFHOST_RUNTIME_PASSWORD:?Set INFINITY_CONTEXT_SELFHOST_RUNTIME_PASSWORD in .env.selfhost}
+      INFINITY_CONTEXT_SELFHOST_CANONICAL_WRITER_PASSWORD: ${INFINITY_CONTEXT_SELFHOST_CANONICAL_WRITER_PASSWORD:?Set INFINITY_CONTEXT_SELFHOST_CANONICAL_WRITER_PASSWORD in .env.selfhost}
+      INFINITY_CONTEXT_SELFHOST_REGISTRAR_PASSWORD: ${INFINITY_CONTEXT_SELFHOST_REGISTRAR_PASSWORD:?Set INFINITY_CONTEXT_SELFHOST_REGISTRAR_PASSWORD in .env.selfhost}
+      INFINITY_CONTEXT_SELFHOST_SEALER_PASSWORD: ${INFINITY_CONTEXT_SELFHOST_SEALER_PASSWORD:?Set INFINITY_CONTEXT_SELFHOST_SEALER_PASSWORD in .env.selfhost}
+    command: python -m infinity_context_server.selfhost_db provision-identities
+    depends_on:
+      infinity_context_postgres:
+        condition: service_healthy
+
+  infinity_context_migrate:
+    <<: *infinity-context-image
+    restart: "no"
+    environment:
+      MEMORY_DATABASE_URL: postgresql+asyncpg://infinity_context_migrator:${INFINITY_CONTEXT_SELFHOST_MIGRATOR_PASSWORD:?Set INFINITY_CONTEXT_SELFHOST_MIGRATOR_PASSWORD in .env.selfhost}@infinity_context_postgres:5432/infinity_context
+    command: python -m infinity_context_server.db upgrade
+    depends_on:
+      infinity_context_identity_bootstrap:
+        condition: service_completed_successfully
+
+  infinity_context_locator_index_bootstrap:
+    <<: *infinity-context-image
+    restart: "no"
+    environment:
+      MEMORY_DATABASE_URL: postgresql+asyncpg://infinity_context_migrator:${INFINITY_CONTEXT_SELFHOST_MIGRATOR_PASSWORD:?Set INFINITY_CONTEXT_SELFHOST_MIGRATOR_PASSWORD in .env.selfhost}@infinity_context_postgres:5432/infinity_context
+    command: python -m infinity_context_server.db bootstrap-locator-indexes
+    depends_on:
+      infinity_context_migrate:
+        condition: service_completed_successfully
+
+  infinity_context_runtime_acl:
+    <<: *infinity-context-image
+    restart: "no"
+    environment:
+      MEMORY_DATABASE_URL: postgresql+asyncpg://infinity_context_migrator:${INFINITY_CONTEXT_SELFHOST_MIGRATOR_PASSWORD:?Set INFINITY_CONTEXT_SELFHOST_MIGRATOR_PASSWORD in .env.selfhost}@infinity_context_postgres:5432/infinity_context
+    command: python -m infinity_context_server.selfhost_db reconcile-runtime-acl
+    depends_on:
+      infinity_context_locator_index_bootstrap:
+        condition: service_completed_successfully
+
+  infinity_context_seed:
+    <<: *infinity-context-image
+    restart: "no"
+    environment:
+      <<: *infinity-context-env
+      MEMORY_DATABASE_URL: postgresql+asyncpg://infinity_context_runtime:${INFINITY_CONTEXT_SELFHOST_RUNTIME_PASSWORD:?Set INFINITY_CONTEXT_SELFHOST_RUNTIME_PASSWORD in .env.selfhost}@infinity_context_postgres:5432/infinity_context
+    command: python -m infinity_context_server.admin seed-defaults
+    depends_on:
+      infinity_context_runtime_acl:
+        condition: service_completed_successfully
 
   infinity_context_server:
     <<: *infinity-context-service
@@ -143,7 +193,7 @@ services:
     depends_on:
       infinity_context_postgres:
         condition: service_healthy
-      infinity_context_migrate:
+      infinity_context_seed:
         condition: service_completed_successfully
     healthcheck: *infinity-context-healthcheck
 

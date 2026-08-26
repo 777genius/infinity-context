@@ -111,6 +111,35 @@ def create_managed_mem0_v5_single_dispatch_guard(
     return AtomicJournalManagedMem0V5SingleDispatchGuard(path)
 
 
+def managed_mem0_v5_unclaimed_dispatch_commitment(path: Path) -> str:
+    """Prove the write-once dispatch claim is absent under its private root."""
+
+    if not isinstance(path, Path) or not path.is_absolute() or path.name in {"", ".", ".."}:
+        raise ManagedRunError("managed Mem0 v5 dispatch guard path is invalid")
+    parent_fd = _open_private_parent(path.parent)
+    try:
+        try:
+            descriptor = os.open(
+                path.name,
+                os.O_RDONLY | _NOFOLLOW | _CLOEXEC | _NONBLOCK,
+                dir_fd=parent_fd,
+            )
+        except FileNotFoundError:
+            return canonical_sha256(
+                {
+                    "schema_version": "managed-mem0-v5-dispatch-unclaimed.v1",
+                    "path_sha256": canonical_sha256({"absolute_path": str(path)}),
+                }
+            )
+        except OSError:
+            raise ManagedRunError("managed Mem0 v5 dispatch guard state is invalid") from None
+        else:
+            os.close(descriptor)
+            raise ManagedRunError("managed Mem0 v5 dispatch was already claimed")
+    finally:
+        os.close(parent_fd)
+
+
 def _open_private_parent(path: Path) -> int:
     if _NOFOLLOW == 0 or _DIRECTORY == 0:
         raise ManagedRunError("managed Mem0 v5 dispatch guard storage is unavailable")
@@ -267,4 +296,5 @@ __all__ = (
     "AtomicJournalManagedMem0V5SingleDispatchGuard",
     "ManagedMem0V5SingleDispatchGuardPort",
     "create_managed_mem0_v5_single_dispatch_guard",
+    "managed_mem0_v5_unclaimed_dispatch_commitment",
 )

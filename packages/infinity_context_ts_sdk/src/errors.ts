@@ -69,6 +69,16 @@ export function networkError(cause: unknown): InfinityContextError {
   });
 }
 
+export function responseByteLimitError(statusCode: number, requestId?: string): InfinityContextError {
+  return new InfinityContextError({
+    statusCode,
+    code: "memory.response_byte_limit_exceeded",
+    message: "Infinity Context response exceeds the caller byte limit",
+    retryable: false,
+    ...(requestId !== undefined ? { requestId } : {}),
+  });
+}
+
 function errorName(cause: unknown): string | undefined {
   return typeof cause === "object" && cause !== null && "name" in cause
     ? String((cause as { readonly name?: unknown }).name)

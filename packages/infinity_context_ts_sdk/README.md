@@ -4,6 +4,33 @@ TypeScript SDK for the Infinity Context memory API.
 
 The SDK is intentionally HTTP-first. Qdrant, Graphiti, OpenAI embeddings and Postgres stay behind the Infinity Context service boundary; Node/Nest clients should depend on this SDK contract instead of importing server adapters directly.
 
+## Locator Retrieval V2 numeric boundary
+
+Retrieval V2 accepts `canonical_version` only as a positive JavaScript safe integer
+(`1..9007199254740991`). This is the largest integer domain the SDK can parse from a
+canonical JSON number and validate without identity collisions. Larger JSON integers
+are rejected; the SDK never silently rounds them. Contract C uses this same lossless
+integer boundary for canonical versions and relative intervals.
+
+Requests require `filters.sourceGenerations` with 1–100 UTF-8-sorted unique
+source-key/generation pairs. Absolute `timeInterval` and source-relative
+`relativeTimeInterval` are mutually exclusive. Query, provider and preference weights
+use exact integer micros. Contributions and base/rerank scores use exact integer picos;
+the SDK reconstructs them with BigInt intermediates and round-half-even division.
+
+`client.context.retrieve(...)` validates the full capability snapshot, renders its
+canonical recursively UTF-8-key-sorted bytes, and awaits `globalThis.crypto.subtle`
+SHA-256 verification before transport. Missing Web Crypto or a fingerprint mismatch
+makes zero retrieval calls. The public runtime has no `Buffer` or `node:crypto`
+dependency and preserves NFC/NFD distinctions.
+The synchronous `decodeContextRetrievalCapabilityV2` and
+`assertContextRetrievalCapabilityV2` helpers are explicitly structural/pin checks; call
+`verifyContextRetrievalCapabilityV2Fingerprint` for cryptographic attestation.
+
+`documents.ingestDocument({ retrievalProjection })` accepts the typed
+`document-retrieval-projection.v1` input. An absent or null value omits the wire key and
+preserves legacy request bytes; an object maps to the exact Contract C DTO.
+
 ## Install
 
 ```bash
@@ -19,15 +46,27 @@ Stable entry points:
 - `@infinity-context/sdk/proof`: full-memory proof loop and release evidence artifact gates.
 - `@infinity-context/sdk/pagination`: reusable cursor helpers.
 - `@infinity-context/sdk/workflows`: workflow facade types and classes.
+- `@infinity-context/sdk/fixtures/context_retrieval_v2/{capability,cases,document_projection,errors,request,scoring_golden,success}.json`:
+  byte-exact Contract C resources checked against the canonical contracts source and
+  again after `npm pack`.
 
 Installed binaries:
 
 - `infinity-context-full-memory-proof`: run the full-memory release proof script.
 - `infinity-context-runtime-canary`: run the non-mutating runtime canary script.
+- `infinity-context-retrieval-v2-runtime-canary`: call the live V2 route only after
+  capability fingerprint, profile and SDK-revision pins match.
 
 Both binaries support `--help` and `--version` without contacting the service.
 
-`npm run verify` also runs an architecture size gate for production SDK sources and scripts. The gate warns above 1000 lines and fails above the project hard cap of 2500 lines per file.
+`npm run verify` includes architecture, conformance, build, export, consumer-install,
+and packed-fixture gates. Touched production stays below 900 lines and tests below 1000.
+
+`npm run provenance:retrieval-v2` writes a new read-only provenance manifest with
+exclusive-create semantics. It binds the packed artifact SHA-256 and byte length to an
+identical 40-hex source, service and SDK revision plus the qualified capability
+fingerprint. The manual `Retrieval V2 SDK provenance` workflow verifies, packs and
+uploads those immutable artifacts; it does not publish or deploy them.
 
 ## Usage
 

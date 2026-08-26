@@ -255,12 +255,20 @@ class RunFixture:
             "ingress-bearer": secrets.token_hex(32),
             "state-hmac": secrets.token_hex(32),
             "result-hmac": secrets.token_hex(32),
+            "runtime-attestation-secret": secrets.token_hex(32),
             "runtime-bearer": secrets.token_hex(32),
             "runtime-receipt-secret": secrets.token_hex(32),
             "runtime-transport-origin": TRANSPORT_ORIGIN,
             "account-binding-hmac-sha256": self.account_binding_hmac_sha256,
             "base-instructions-sha256": self.base_instructions_sha256,
         }
+        attestation_secret = generated["runtime-attestation-secret"]
+        if any(
+            value == attestation_secret
+            for name, value in generated.items()
+            if name != "runtime-attestation-secret"
+        ):
+            raise ValueError("e2e_runtime_attestation_secret_not_distinct")
         atomic_private_write(
             directories["input"] / "manifest.json",
             canonical_bytes(self.manifest()),

@@ -22,6 +22,8 @@ from infinity_context_server.memory_comparison_managed_projection_manifest impor
     MANAGED_COGNEE_NOT_PROJECTED_POLICY_SHA256,
 )
 
+from tests.unit.benchmark_cleanup_plan_fixtures import cleanup_plan_pair
+
 RUN = "a" * 64
 BINDING = "b" * 64
 TARGET = "c" * 64
@@ -29,6 +31,12 @@ SPACE_ID = f"benchmark-space-{RUN[:48]}"
 SPACE_SLUG = "memory-comparison-managed-run"
 INITIATION = "d" * 64
 NOW = datetime(2026, 1, 1, tzinfo=UTC)
+CLEANUP_PLAN, CLEANUP_PLAN_SHA256 = cleanup_plan_pair(
+    run_id=RUN,
+    binding=BINDING,
+    target=TARGET,
+    space_slug=SPACE_SLUG,
+)
 
 
 def test_server_absence_reconstructs_exact_manifest_lanes() -> None:
@@ -151,6 +159,9 @@ def _record(
         idempotency_key_sha256="e" * 64,
         registration_fingerprint_sha256="f" * 64,
         state="cleanup_pending",
+        cleanup_plan_json=CLEANUP_PLAN,
+        cleanup_plan_sha256=CLEANUP_PLAN_SHA256,
+        cleanup_plan_state="sealed",
         projection_manifest_json=manifest,
         projection_manifest_sha256=_sha256(manifest),
         projection_cleanup_state="pending",
@@ -171,6 +182,7 @@ def _manifest() -> dict[str, object]:
         "binding_commitment_sha256": BINDING,
         "infinity_target_identity_sha256": TARGET,
         "space_id": SPACE_ID,
+        "cleanup_plan_sha256": CLEANUP_PLAN_SHA256,
         "scopes": [
             {
                 "memory_scope_id": "scope-1",

@@ -260,7 +260,12 @@ def test_zero_usage_crosses_fake_runtime_and_established_authority(tmp_path) -> 
         transport=httpx.MockTransport(handler),
     )
     try:
-        result = client.extract(request, intent)
+        result = client.extract(
+            request,
+            intent,
+            before_dispatch=lambda _intent: None,
+            persist_result=lambda _result: None,
+        )
     finally:
         client.close()
 

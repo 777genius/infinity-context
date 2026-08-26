@@ -36,8 +36,20 @@ from infinity_context_server.features.document_ingestion.routes import (
 
 FEATURE_ID = document_ingestion.FEATURE_ID
 
+# Keep legacy HTTP exception handling behind the server-owned feature seam. These
+# aliases intentionally preserve the core exception identities so existing
+# projected-ingestion adapters and handlers remain compatible.
+DocumentProjectionIdempotencyConflictError = (
+    document_ingestion.DocumentProjectionIdempotencyConflictError
+)
+DocumentProjectionLocatorConflictError = document_ingestion.DocumentProjectionLocatorConflictError
+DocumentProjectionOrdinalConflictError = document_ingestion.DocumentProjectionOrdinalConflictError
+
 __all__ = (
     "DocumentIngestionServerFeature",
+    "DocumentProjectionIdempotencyConflictError",
+    "DocumentProjectionLocatorConflictError",
+    "DocumentProjectionOrdinalConflictError",
     "FEATURE_ID",
     "IngestDocumentHttpRequest",
     "LegacyDocumentSourceRefRequest",

@@ -1,6 +1,6 @@
 {
   "name": "@infinity-context/sdk",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Production-grade TypeScript SDK for the Infinity Context memory API.",
   "type": "module",
   "main": "./dist/index.cjs",
@@ -8,7 +8,8 @@
   "types": "./dist/index.d.ts",
   "bin": {
     "infinity-context-full-memory-proof": "./scripts/full-memory-proof.mjs",
-    "infinity-context-runtime-canary": "./scripts/runtime-canary.mjs"
+    "infinity-context-runtime-canary": "./scripts/runtime-canary.mjs",
+    "infinity-context-retrieval-v2-runtime-canary": "./scripts/retrieval-v2-runtime-canary.mjs"
   },
   "exports": {
     ".": {
@@ -45,15 +46,22 @@
       "types": "./dist/workflows.d.ts",
       "import": "./dist/workflows.js",
       "require": "./dist/workflows.cjs"
+    },
+    "./fixtures/context_retrieval_v2/*.json": {
+      "default": "./fixtures/context_retrieval_v2/*.json"
     }
   },
   "files": [
     "dist",
+    "fixtures/context_retrieval_v2",
     "scripts/check-architecture.mjs",
     "scripts/check-consumer-install.mjs",
     "scripts/check-package-exports.mjs",
     "scripts/full-memory-proof.mjs",
     "scripts/runtime-canary.mjs",
+    "scripts/retrieval-v2-runtime-canary.mjs",
+    "scripts/retrieval-v2-runtime-canary-policy.mjs",
+    "scripts/retrieval-v2-artifact-provenance.mjs",
     "README.md"
   ],
   "sideEffects": false,
@@ -64,17 +72,22 @@
     "check:architecture": "node scripts/check-architecture.mjs",
     "build": "tsup src/index.ts src/instrumentation.ts src/pagination.ts src/runtime.ts src/canary.ts src/proof.ts src/workflows.ts --format esm,cjs --dts --sourcemap --clean",
     "check:parity": "node scripts/check-api-parity-fixtures.mjs && node scripts/check-api-parity.mjs",
+    "check:retrieval-v2-parity": "node scripts/check-retrieval-v2-parity.mjs",
     "check:exports": "node scripts/check-package-exports.mjs",
     "check:consumer": "node scripts/check-consumer-install.mjs",
     "canary:runtime": "npm run build && node scripts/runtime-canary.mjs",
+    "canary:retrieval-v2": "npm run build && node scripts/retrieval-v2-runtime-canary.mjs",
+    "provenance:retrieval-v2": "node scripts/retrieval-v2-artifact-provenance.mjs",
     "proof:full-memory": "npm run build && node scripts/full-memory-proof.mjs",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "test": "vitest run",
-    "verify": "npm run check:architecture && npm run check:parity && npm run typecheck && npm run test && npm run build && npm run check:exports && npm run check:consumer"
+    "verify": "npm run check:architecture && npm run check:retrieval-v2-parity && npm run check:parity && npm run typecheck && npm run test && npm run build && npm run check:exports && npm run check:consumer"
   },
   "dependencies": {},
   "overrides": {
-    "esbuild": "0.28.1"
+    "esbuild": "0.28.1",
+    "nanoid": "3.3.18",
+    "postcss": "8.5.26"
   },
   "devDependencies": {
     "@types/node": "^26.0.0",

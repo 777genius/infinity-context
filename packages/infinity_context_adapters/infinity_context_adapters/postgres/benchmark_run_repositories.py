@@ -11,9 +11,10 @@ from infinity_context_core.application.use_cases.benchmark_runs import (
     BENCHMARK_COGNEE_NOT_PROJECTED_POLICY_SHA256,
 )
 from infinity_context_core.domain.errors import MemoryConflictError
+from infinity_context_core.ports.benchmark_cleanup_plan import (
+    ManagedBenchmarkCleanupPlan,
+)
 from infinity_context_core.ports.benchmark_runs import (
-    BenchmarkAbortCompletionReceipt,
-    BenchmarkCleanupCompletionReceipt,
     BenchmarkCleanupCounts,
     BenchmarkCleanupReceipt,
     BenchmarkRunRegistryRecord,
@@ -23,16 +24,16 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from infinity_context_adapters.postgres.benchmark_run_completion import (
-    abort_completion_receipt_from_json,
     abort_completion_receipt_json,
     build_abort_completion_receipt,
     build_completion_receipt,
-    completion_receipt_from_json,
     completion_receipt_json,
     require_canonical_tombstones,
     require_exact_cleanup_outbox_completion,
-    same_completion_timestamp,
     unsealed_abort_cleanup_verification_sha256,
+)
+from infinity_context_adapters.postgres.benchmark_run_record_codec import (
+    benchmark_run_record_from_row as _decode_record,
 )
 from infinity_context_adapters.postgres.models import (
     MemoryAnchorRow,
@@ -89,6 +90,19 @@ class PostgresBenchmarkRunRepository:
         ).scalar_one_or_none()
         return _to_record(row) if row is not None else None
 
+    async def get_by_space_slug(
+        self,
+        space_slug: str,
+    ) -> BenchmarkRunRegistryRecord | None:
+        row = (
+            await self._session.execute(
+                select(MemoryComparisonBenchmarkRunRow).where(
+                    MemoryComparisonBenchmarkRunRow.space_slug == space_slug
+                )
+            )
+        ).scalar_one_or_none()
+        return _to_record(row) if row is not None else None
+
     async def get_by_idempotency_key_sha256(
         self,
         idempotency_key_sha256: str,
@@ -130,6 +144,9 @@ class PostgresBenchmarkRunRepository:
                 idempotency_key_sha256=record.idempotency_key_sha256,
                 registration_fingerprint_sha256=record.registration_fingerprint_sha256,
                 state=record.state,
+                cleanup_plan_json=record.cleanup_plan_json,
+                cleanup_plan_sha256=record.cleanup_plan_sha256,
+                cleanup_plan_state=record.cleanup_plan_state,
                 projection_manifest_json=None,
                 projection_manifest_sha256=None,
                 projection_cleanup_state="unsealed",
@@ -143,6 +160,14 @@ class PostgresBenchmarkRunRepository:
             )
         )
 
+    async def load_cleanup_plan(self, space_id: str) -> ManagedBenchmarkCleanupPlan | None:
+        record = await self.get_by_space_id(space_id)
+        if record is None or record.cleanup_plan_state == "recovery_blocked":
+            return None
+        if record.cleanup_plan_json is None or record.cleanup_plan_sha256 is None:
+            raise RuntimeError("benchmark_cleanup_plan_invalid")
+        return ManagedBenchmarkCleanupPlan(record.cleanup_plan_json, record.cleanup_plan_sha256)
+
     async def seal_projection_manifest(
         self,
         record: BenchmarkRunRegistryRecord,
@@ -155,6 +180,9 @@ class PostgresBenchmarkRunRepository:
         if (
             row is None
             or row.state != "active"
+            or row.cleanup_plan_state != "sealed"
+            or row.cleanup_plan_json is None
+            or row.cleanup_plan_sha256 is None
             or row.projection_cleanup_state != "unsealed"
             or row.projection_manifest_json is not None
             or row.projection_manifest_sha256 is not None
@@ -188,7 +216,14 @@ class PostgresBenchmarkRunRepository:
         now: datetime,
     ) -> BenchmarkRunRegistryRecord:
         row = await self._session.get(MemoryComparisonBenchmarkRunRow, record.run_id_sha256)
-        if row is None or row.state != "active" or row.cleanup_receipt_json is not None:
+        if (
+            row is None
+            or row.state != "active"
+            or row.cleanup_plan_state != "sealed"
+            or row.cleanup_plan_json is None
+            or row.cleanup_plan_sha256 is None
+            or row.cleanup_receipt_json is not None
+        ):
             raise MemoryConflictError("Benchmark cleanup registry lock was lost")
         if row.projection_cleanup_state not in {"unsealed", "sealed"}:
             raise MemoryConflictError("Benchmark projection cleanup state conflicted")
@@ -204,38 +239,18 @@ class PostgresBenchmarkRunRepository:
         ).scalar_one_or_none()
         if space is None or space.slug != record.space_slug or space.status != "active":
             raise MemoryConflictError("Benchmark canonical space conflicted")
-
         fact_ids = await self._ids(MemoryFactRow, record.space_id)
         document_ids = await self._ids(MemoryDocumentRow, record.space_id)
         chunk_ids = await self._ids(MemoryChunkRow, record.space_id)
         episode_ids = await self._ids(MemoryEpisodeRow, record.space_id)
         thread_ids = await self._ids(MemoryThreadRow, record.space_id)
         memory_scope_ids = await self._ids(MemoryScopeRow, record.space_id)
-        document_scopes = dict(
-            (str(document_id), str(memory_scope_id))
-            for document_id, memory_scope_id in (
-                await self._session.execute(
-                    select(MemoryDocumentRow.id, MemoryDocumentRow.memory_scope_id).where(
-                        MemoryDocumentRow.space_id == record.space_id,
-                        MemoryDocumentRow.status == "active",
-                    )
-                )
-            ).all()
+        await _require_managed_cognee_never_projected(
+            self._session,
+            cleanup_plan=record.cleanup_plan_json,
+            document_ids=document_ids,
         )
-        chunks_by_document: dict[str, list[str]] = {}
-        chunk_document_rows = (
-            await self._session.execute(
-                select(MemoryChunkRow.id, MemoryChunkRow.document_id).where(
-                    MemoryChunkRow.space_id == record.space_id,
-                    MemoryChunkRow.status == "active",
-                    MemoryChunkRow.document_id.is_not(None),
-                )
-            )
-        ).all()
-        for chunk_id, document_id in chunk_document_rows:
-            chunks_by_document.setdefault(str(document_id), []).append(str(chunk_id))
         aggregate_ids = (*fact_ids, *document_ids, *chunk_ids, *episode_ids)
-
         obsolete_jobs = 0
         if aggregate_ids:
             result = await self._session.execute(
@@ -246,7 +261,6 @@ class PostgresBenchmarkRunRepository:
                 )
             )
             obsolete_jobs = int(result.rowcount or 0)
-
         vector_jobs: list[MemoryOutboxRow] = []
         if chunk_ids:
             vector_jobs.append(
@@ -278,29 +292,9 @@ class PostgresBenchmarkRunRepository:
                 )
                 for fact_id in fact_ids
             ]
-        cognee_jobs = (
-            []
-            if record.projection_manifest_json is not None
-            else [
-                _outbox_row(
-                    event_type="cognee.forget_document",
-                    aggregate_type="benchmark_run",
-                    aggregate_id=document_id,
-                    payload={
-                        "document_id": document_id,
-                        "chunk_ids": sorted(chunks_by_document.get(document_id, [])),
-                        "space_id": record.space_id,
-                        "memory_scope_id": document_scopes[document_id],
-                        "cleanup_run_id_sha256": record.run_id_sha256,
-                    },
-                    now=now,
-                )
-                for document_id in document_ids
-            ]
-        )
+        cognee_jobs: list[MemoryOutboxRow] = []
         self._session.add_all([*vector_jobs, *graph_jobs, *cognee_jobs])
         await self._session.flush()
-
         counts = BenchmarkCleanupCounts(
             facts=len(fact_ids),
             documents=len(document_ids),
@@ -342,7 +336,6 @@ class PostgresBenchmarkRunRepository:
         row.cleanup_receipt_json = _receipt_json(receipt)
         row.updated_at = now
         await self._session.flush()
-
         await self._soft_delete(MemoryFactRow, record.space_id, now=now)
         await self._soft_delete(MemoryDocumentRow, record.space_id, now=now)
         await self._soft_delete(MemoryChunkRow, record.space_id, now=now)
@@ -350,7 +343,6 @@ class PostgresBenchmarkRunRepository:
         await self._soft_delete(MemoryThreadRow, record.space_id, now=now)
         await self._soft_delete(MemoryScopeRow, record.space_id, now=now)
         await self._soft_delete(MemorySpaceRow, record.space_id, now=now)
-
         return _to_record(row)
 
     async def finalize_cleanup(
@@ -377,7 +369,6 @@ class PostgresBenchmarkRunRepository:
         current = _to_record(row)
         if current != record or current.cleanup_receipt is None:
             raise MemoryConflictError("Benchmark cleanup finalization lock was lost")
-
         await require_canonical_tombstones(self._session, record=current)
         await require_exact_cleanup_outbox_completion(self._session, record=current)
         completion = build_completion_receipt(
@@ -399,6 +390,7 @@ class PostgresBenchmarkRunRepository:
         record: BenchmarkRunRegistryRecord,
         *,
         finalization_fingerprint_sha256: str,
+        projection_absence_proof_sha256: str,
         now: datetime,
     ) -> BenchmarkRunRegistryRecord:
         row = await self._session.get(MemoryComparisonBenchmarkRunRow, record.run_id_sha256)
@@ -417,13 +409,10 @@ class PostgresBenchmarkRunRepository:
         current = _to_record(row)
         if current != record or current.cleanup_receipt is None:
             raise MemoryConflictError("Benchmark abort finalization lock was lost")
-        verification = await unsealed_abort_cleanup_verification_sha256(
-            self._session,
-            record=current,
-        )
+        await unsealed_abort_cleanup_verification_sha256(self._session, record=current)
         completion = build_abort_completion_receipt(
             record=current,
-            cleanup_verification_sha256=verification,
+            projection_absence_proof_sha256=projection_absence_proof_sha256,
             completed_at=now,
         )
         row.state = "cleanup_aborted"
@@ -481,7 +470,6 @@ async def _require_projection_manifest_inventory(
     scopes = manifest.get("scopes")
     if type(scopes) is not list:
         raise MemoryConflictError("Projection manifest canonical inventory differs")
-
     expected: dict[type, set[tuple[str, str, str | None]]] = {
         MemoryChunkRow: set(),
         MemoryFactRow: set(),
@@ -518,7 +506,6 @@ async def _require_projection_manifest_inventory(
             expected[model].update(
                 (str(identity), memory_scope_id, thread_id) for identity in identities
             )
-
     active_scope_ids = set(
         str(value)
         for value in (
@@ -578,7 +565,6 @@ async def _require_projection_manifest_inventory(
         )
         if active_episode is not None:
             raise MemoryConflictError("Projection manifest cannot bind active episodes")
-
     for model, expected_rows in expected.items():
         actual_rows = set(
             (
@@ -700,6 +686,31 @@ async def _require_cognee_not_projected_authority(
         raise MemoryConflictError("Benchmark Cognee projection history conflicted")
 
 
+async def _require_managed_cognee_never_projected(
+    session: AsyncSession,
+    *,
+    cleanup_plan: dict[str, object],
+    document_ids: tuple[str, ...],
+) -> None:
+    if cleanup_plan.get("cognee") != {
+        "disposition": "not_projected",
+        "policy_sha256": BENCHMARK_COGNEE_NOT_PROJECTED_POLICY_SHA256,
+    }:
+        raise MemoryConflictError("Benchmark Cognee projection policy conflicted")
+    if not document_ids:
+        return
+    existing = await session.scalar(
+        select(MemoryOutboxRow.id)
+        .where(
+            MemoryOutboxRow.event_type == "cognee.ingest_document",
+            MemoryOutboxRow.aggregate_id.in_(document_ids),
+        )
+        .limit(1)
+    )
+    if existing is not None:
+        raise MemoryConflictError("Benchmark Cognee projection history conflicted")
+
+
 def _outbox_row(
     *,
     event_type: str,
@@ -727,135 +738,7 @@ def _outbox_row(
 
 
 def _to_record(row: MemoryComparisonBenchmarkRunRow) -> BenchmarkRunRegistryRecord:
-    digests = (
-        row.run_id_sha256,
-        row.binding_commitment_sha256,
-        row.infinity_target_identity_sha256,
-        row.idempotency_key_sha256,
-        row.registration_fingerprint_sha256,
-    )
-    if any(not _valid_digest(value) for value in digests):
-        raise RuntimeError("benchmark_run_registry_invalid")
-    if row.cleanup_fingerprint_sha256 is not None and not _valid_digest(
-        row.cleanup_fingerprint_sha256
-    ):
-        raise RuntimeError("benchmark_run_registry_invalid")
-    if row.finalization_fingerprint_sha256 is not None and not _valid_digest(
-        row.finalization_fingerprint_sha256
-    ):
-        raise RuntimeError("benchmark_run_registry_invalid")
-    if row.state not in {
-        "active",
-        "cleanup_pending",
-        "cleanup_complete",
-        "cleanup_aborted",
-    }:
-        raise RuntimeError("benchmark_run_registry_invalid")
-    manifest = row.projection_manifest_json
-    manifest_sha256 = row.projection_manifest_sha256
-    if (manifest is None) != (manifest_sha256 is None):
-        raise RuntimeError("benchmark_run_registry_invalid")
-    if manifest is not None and (
-        type(manifest) is not dict
-        or not _valid_digest(manifest_sha256)
-        or not hmac.compare_digest(str(manifest_sha256), _json_sha256(manifest))
-        or manifest.get("run_id_sha256") != row.run_id_sha256
-        or manifest.get("binding_commitment_sha256") != row.binding_commitment_sha256
-        or manifest.get("infinity_target_identity_sha256") != row.infinity_target_identity_sha256
-        or manifest.get("space_id") != row.space_id
-    ):
-        raise RuntimeError("benchmark_projection_manifest_invalid")
-    lifecycle = (row.state, row.projection_cleanup_state, manifest is not None)
-    if lifecycle not in {
-        ("active", "unsealed", False),
-        ("active", "sealed", True),
-        ("cleanup_pending", "blocked", False),
-        ("cleanup_pending", "pending", True),
-        ("cleanup_complete", "complete", True),
-        ("cleanup_aborted", "unsealed_abort_complete", False),
-    }:
-        raise RuntimeError("benchmark_run_registry_invalid")
-    receipt = (
-        _receipt_from_json(row.cleanup_receipt_json)
-        if row.cleanup_receipt_json is not None
-        else None
-    )
-    if row.state == "active" and (
-        row.cleanup_fingerprint_sha256 is not None or receipt is not None
-    ):
-        raise RuntimeError("benchmark_run_registry_invalid")
-    if row.state != "active" and (row.cleanup_fingerprint_sha256 is None or receipt is None):
-        raise RuntimeError("benchmark_run_registry_invalid")
-    completion = None
-    if row.completion_receipt_json is not None:
-        completion = (
-            abort_completion_receipt_from_json(row.completion_receipt_json)
-            if row.completion_receipt_json.get("disposition") == "abort_complete"
-            else completion_receipt_from_json(row.completion_receipt_json)
-        )
-    if row.state not in {"cleanup_complete", "cleanup_aborted"} and (
-        row.finalization_fingerprint_sha256 is not None
-        or completion is not None
-        or row.completed_at is not None
-    ):
-        raise RuntimeError("benchmark_run_registry_invalid")
-    if row.state in {"cleanup_complete", "cleanup_aborted"} and (
-        row.finalization_fingerprint_sha256 is None
-        or completion is None
-        or row.completed_at is None
-    ):
-        raise RuntimeError("benchmark_run_registry_invalid")
-    if receipt is not None and (
-        receipt.run_id_sha256 != row.run_id_sha256
-        or receipt.space_id != row.space_id
-        or receipt.space_slug != row.space_slug
-    ):
-        raise RuntimeError("benchmark_run_registry_invalid")
-    if completion is not None:
-        shared_invalid = (
-            completion.run_id_sha256 != row.run_id_sha256
-            or completion.space_id != row.space_id
-            or completion.space_slug != row.space_slug
-            or completion.cleanup_initiation_receipt_sha256 != receipt.receipt_sha256
-            or not same_completion_timestamp(completion.completed_at, row.completed_at)
-        )
-        if row.state == "cleanup_complete":
-            shared_invalid = shared_invalid or (
-                type(completion) is not BenchmarkCleanupCompletionReceipt
-                or completion.projection_manifest_sha256 != row.projection_manifest_sha256
-            )
-        else:
-            shared_invalid = shared_invalid or (
-                type(completion) is not BenchmarkAbortCompletionReceipt
-                or completion.binding_commitment_sha256 != row.binding_commitment_sha256
-                or completion.infinity_target_identity_sha256 != row.infinity_target_identity_sha256
-            )
-        if shared_invalid:
-            raise RuntimeError("benchmark_run_registry_invalid")
-    return BenchmarkRunRegistryRecord(
-        run_id_sha256=row.run_id_sha256,
-        binding_commitment_sha256=row.binding_commitment_sha256,
-        infinity_target_identity_sha256=row.infinity_target_identity_sha256,
-        space_id=row.space_id,
-        space_slug=row.space_slug,
-        idempotency_key_sha256=row.idempotency_key_sha256,
-        registration_fingerprint_sha256=row.registration_fingerprint_sha256,
-        state=row.state,
-        projection_manifest_json=manifest,
-        projection_manifest_sha256=manifest_sha256,
-        projection_cleanup_state=row.projection_cleanup_state,
-        cleanup_fingerprint_sha256=row.cleanup_fingerprint_sha256,
-        cleanup_receipt=receipt,
-        finalization_fingerprint_sha256=row.finalization_fingerprint_sha256,
-        completion_receipt=completion,
-        # The immutable receipt is the canonical UTC representation. SQLite
-        # drops timezone information when reloading DateTime columns, while
-        # Postgres preserves it; expose one adapter-independent value after the
-        # exact database/receipt timestamp match above has succeeded.
-        completed_at=completion.completed_at if completion is not None else None,
-        created_at=row.created_at,
-        updated_at=row.updated_at,
-    )
+    return _decode_record(row, receipt_from_json=_receipt_from_json)
 
 
 def _counts_json(counts: BenchmarkCleanupCounts) -> dict[str, int]:

@@ -6,6 +6,12 @@ on:
       - main
   pull_request:
   workflow_dispatch:
+    inputs:
+      synthetic_2040:
+        description: Run the optional long synthetic 2,040-case scheduler contracts
+        required: false
+        default: false
+        type: boolean
 
 permissions:
   contents: read
@@ -15,28 +21,10 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  quality:
-    name: Quality Gate
+  static_and_evals:
+    name: Static checks and deterministic evals
     runs-on: ubuntu-latest
-    timeout-minutes: 90
-
-    services:
-      postgres:
-        image: postgres:16
-        env:
-          POSTGRES_USER: infinity_context
-          POSTGRES_PASSWORD: infinity_context
-          POSTGRES_DB: infinity_context
-        ports:
-          - 5432:5432
-        options: >-
-          --health-cmd "pg_isready -U infinity_context -d infinity_context"
-          --health-interval 5s
-          --health-timeout 3s
-          --health-retries 20
-
-    env:
-      INFINITY_CONTEXT_TEST_POSTGRES_URL: postgresql+asyncpg://infinity_context:infinity_context@127.0.0.1:5432/infinity_context
+    timeout-minutes: 20
 
     steps:
       - name: Checkout
@@ -58,7 +46,453 @@ jobs:
           python -m pip install --upgrade pip uv
           uv sync --all-extras --frozen
 
-      - name: Run memory quality gate
+      - name: Run lint and file-size boundaries
         env:
           FILE_SIZE_BASE_REF: ${{ github.event_name == 'pull_request' && format('origin/{0}', github.base_ref) || github.event_name == 'push' && github.event.before || '' }}
-        run: make infinity-context-test-quality
+        run: make infinity-context-lint
+
+      - name: Run deterministic memory evaluations
+        run: make infinity-context-eval
+
+      - name: Scan for committed secrets
+        run: make infinity-context-secret-scan
+
+  test_suite:
+    name: Full test suite (module shard ${{ matrix.shard_number }}/8)
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - shard_index: 0
+            shard_number: 1
+          - shard_index: 1
+            shard_number: 2
+          - shard_index: 2
+            shard_number: 3
+          - shard_index: 3
+            shard_number: 4
+          - shard_index: 4
+            shard_number: 5
+          - shard_index: 5
+            shard_number: 6
+          - shard_index: 6
+            shard_number: 7
+          - shard_index: 7
+            shard_number: 8
+
+    services:
+      postgres:
+        image: postgres:18
+        env:
+          POSTGRES_USER: infinity_context
+          POSTGRES_PASSWORD: infinity_context
+          POSTGRES_DB: infinity_context
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U infinity_context -d infinity_context"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 20
+
+    env:
+      INFINITY_CONTEXT_TEST_POSTGRES_URL: postgresql+asyncpg://infinity_context:infinity_context@127.0.0.1:5432/infinity_context
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.13.5"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip uv
+          uv sync --all-extras --frozen
+
+      - name: Run full test suite shard
+        run: >-
+          .venv/bin/python scripts/pytest_ci_shard.py
+          --shard-index ${{ matrix.shard_index }}
+          --shard-total 8
+          -m "not synthetic_2040 and not disposable_root"
+
+  disposable-root-contracts:
+    name: Disposable-root identity-separation contracts
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.13.5"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip uv
+          uv sync --all-extras --frozen
+
+      - name: Prove launcher and runtime identity separation as disposable root
+        run: >-
+          sudo .venv/bin/python -m pytest -q
+          -m disposable_root
+          tests/composition/test_supervisor_trust_launcher_contract.py
+
+  selfhost-postgres-upgrade:
+    name: Self-host PostgreSQL 16 to 18 restore
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    services:
+      postgres16:
+        image: postgres:16-bookworm
+        env:
+          POSTGRES_USER: legacy_admin
+          POSTGRES_PASSWORD: legacy_admin
+          POSTGRES_DB: legacy_infinity_context
+        ports:
+          - 5433:5432
+        options: >-
+          --health-cmd "pg_isready -U legacy_admin -d legacy_infinity_context"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 20
+      postgres18:
+        image: postgres:18.4-bookworm
+        env:
+          POSTGRES_USER: infinity_context
+          POSTGRES_PASSWORD: infinity_context
+          POSTGRES_DB: postgres
+        ports:
+          - 5434:5432
+        options: >-
+          --health-cmd "pg_isready -U infinity_context -d postgres"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 20
+
+    env:
+      INFINITY_CONTEXT_SELFHOST_TEST_POSTGRES_URL: postgresql+asyncpg://infinity_context:infinity_context@127.0.0.1:5434/postgres
+      INFINITY_CONTEXT_SELFHOST_TEST_POSTGRES16_URL: postgresql://legacy_admin:legacy_admin@127.0.0.1:5433/legacy_infinity_context
+      INFINITY_CONTEXT_SELFHOST_TEST_PG_DUMP_IMAGE: postgres:18.4-bookworm
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.13.5"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip uv
+          uv sync --all-extras --frozen
+
+      - name: Run isolated logical restore upgrade E2E
+        run: >-
+          .venv/bin/python -m pytest -q
+          tests/e2e/test_selfhost_identity_bootstrap_postgres.py::test_pg16_logical_restore_transfers_application_ownership
+
+  qdrant-locator-acceptance:
+    name: Real Qdrant 16,385-point locator acceptance
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+
+    services:
+      postgres:
+        image: postgres:18
+        env:
+          POSTGRES_USER: infinity_context
+          POSTGRES_PASSWORD: infinity_context
+          POSTGRES_DB: infinity_context
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U infinity_context -d infinity_context"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 20
+          --cpus 1.5
+          --memory 2g
+      qdrant:
+        image: qdrant/qdrant:v1.18.0
+        ports:
+          - 6333:6333
+        options: >-
+          --cpus 2
+          --memory 3g
+
+    env:
+      INFINITY_CONTEXT_TEST_POSTGRES_URL: postgresql+asyncpg://infinity_context:infinity_context@127.0.0.1:5432/infinity_context
+      INFINITY_SANDBOX_QDRANT_URL: http://127.0.0.1:6333
+      INFINITY_RUN_LOCATOR_QDRANT_E2E: "1"
+      HF_HUB_OFFLINE: "1"
+      TRANSFORMERS_OFFLINE: "1"
+      PYTEST_DISABLE_PLUGIN_AUTOLOAD: "1"
+      OPENAI_API_KEY: ""
+      OPENAI_ORG_ID: ""
+      MEMORY_OPENAI_API_KEY: ""
+      MEMORY_AGENT_BENCH_OPENAI_API_KEY: ""
+      MEM0_API_KEY: ""
+      ANTHROPIC_API_KEY: ""
+      GOOGLE_API_KEY: ""
+      GEMINI_API_KEY: ""
+      COHERE_API_KEY: ""
+      VOYAGE_API_KEY: ""
+      AZURE_OPENAI_API_KEY: ""
+      AWS_ACCESS_KEY_ID: ""
+      AWS_SECRET_ACCESS_KEY: ""
+      AWS_SESSION_TOKEN: ""
+      HF_TOKEN: ""
+      HUGGINGFACE_HUB_TOKEN: ""
+      QDRANT_API_KEY: ""
+
+    steps:
+      - name: Checkout exact workflow head
+        uses: actions/checkout@v7.0.1
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          persist-credentials: false
+
+      - name: Verify exact workflow head
+        env:
+          EXPECTED_HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: test "$(git rev-parse HEAD)" = "$EXPECTED_HEAD_SHA"
+
+      - name: Set up Python
+        uses: actions/setup-python@v7.0.0
+        with:
+          python-version: "3.13.5"
+
+      - name: Install locked test dependencies
+        run: |
+          python -m pip install --disable-pip-version-check "uv==0.11.28"
+          uv sync --extra dev --extra qdrant --frozen --link-mode copy
+
+      - name: Prepare locked environment for the disposable runtime
+        run: |
+          case "$GITHUB_WORKSPACE" in
+            "$HOME"/*) ;;
+            *)
+              printf '%s\n' 'GITHUB_WORKSPACE must be a descendant of HOME' >&2
+              exit 1
+              ;;
+          esac
+          workspace_ancestor="$GITHUB_WORKSPACE"
+          while :; do
+            chmod o+x "$workspace_ancestor"
+            test "$workspace_ancestor" = "$HOME" && break
+            workspace_ancestor="$(dirname "$workspace_ancestor")"
+          done
+          chmod -R o+rX "$GITHUB_WORKSPACE/.venv"
+          if ! sudo -u nobody test -r "$GITHUB_WORKSPACE/pyproject.toml"; then
+            printf '%s\n' 'checked-out source is not readable by nobody' >&2
+            exit 1
+          fi
+          if ! sudo -u nobody test -x "$GITHUB_WORKSPACE/.venv/bin/python"; then
+            printf '%s\n' 'locked Python is not executable by nobody' >&2
+            exit 1
+          fi
+          if ! sudo -u nobody "$GITHUB_WORKSPACE/.venv/bin/python" -c \
+            "from importlib.metadata import version; assert version('qdrant-client')"; then
+            printf '%s\n' 'locked qdrant-client metadata is not readable by nobody' >&2
+            exit 1
+          fi
+
+      - name: Wait for real Qdrant
+        run: |
+          for attempt in {1..60}; do
+            if curl --fail --silent --show-error http://127.0.0.1:6333/healthz; then
+              exit 0
+            fi
+            sleep 2
+          done
+          docker logs "${{ job.services.qdrant.id }}"
+          exit 1
+
+      - name: Run mandatory provider-free locator acceptance
+        run: |
+          mkdir -p test-results
+          set +e
+          sudo \
+            --preserve-env=INFINITY_CONTEXT_TEST_POSTGRES_URL,INFINITY_SANDBOX_QDRANT_URL,INFINITY_RUN_LOCATOR_QDRANT_E2E,HF_HUB_OFFLINE,TRANSFORMERS_OFFLINE,PYTEST_DISABLE_PLUGIN_AUTOLOAD \
+            env \
+            GIT_CONFIG_COUNT=1 \
+            GIT_CONFIG_KEY_0=safe.directory \
+            GIT_CONFIG_VALUE_0="$GITHUB_WORKSPACE" \
+            timeout --signal=TERM --kill-after=30s 40m \
+            .venv/bin/python -m pytest -q \
+            --junitxml=test-results/qdrant-locator-acceptance.xml \
+            tests/e2e/test_locator_retrieval_v2_qdrant_e2e.py::test_real_qdrant_large_profile_resumes_attests_and_physically_deletes
+          acceptance_status=$?
+          set -e
+          if test ! -s test-results/qdrant-locator-acceptance.xml; then
+            printf '%s\n' \
+              '<testsuites tests="1" failures="1">' \
+              '  <testsuite name="qdrant-locator-acceptance" tests="1" failures="1">' \
+              '    <testcase name="acceptance-process">' \
+              "      <failure message=\"acceptance exited before pytest emitted JUnit (status ${acceptance_status})\"/>" \
+              '    </testcase>' \
+              '  </testsuite>' \
+              '</testsuites>' \
+              > test-results/qdrant-locator-acceptance.xml
+          fi
+          exit "$acceptance_status"
+
+      - name: Upload locator acceptance JUnit evidence
+        if: always()
+        uses: actions/upload-artifact@v7.0.1
+        with:
+          name: qdrant-locator-acceptance-junit-${{ github.event.pull_request.head.sha || github.sha }}
+          path: test-results/qdrant-locator-acceptance.xml
+          if-no-files-found: error
+          retention-days: 14
+
+  quality:
+    name: Quality Gate
+    if: always()
+    needs:
+      - static_and_evals
+      - test_suite
+      - disposable-root-contracts
+      - selfhost-postgres-upgrade
+      - qdrant-locator-acceptance
+      - benchmark-contracts
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    env:
+      STATIC_AND_EVALS_RESULT: ${{ needs.static_and_evals.result }}
+      TEST_SUITE_RESULT: ${{ needs.test_suite.result }}
+      DISPOSABLE_ROOT_CONTRACTS_RESULT: ${{ needs.disposable-root-contracts.result }}
+      SELFHOST_POSTGRES_UPGRADE_RESULT: ${{ needs.selfhost-postgres-upgrade.result }}
+      QDRANT_LOCATOR_ACCEPTANCE_RESULT: ${{ needs.qdrant-locator-acceptance.result }}
+      BENCHMARK_CONTRACTS_RESULT: ${{ needs.benchmark-contracts.result }}
+    steps:
+      - name: Verify all quality jobs passed
+        run: |
+          test "$STATIC_AND_EVALS_RESULT" = "success"
+          test "$TEST_SUITE_RESULT" = "success"
+          test "$DISPOSABLE_ROOT_CONTRACTS_RESULT" = "success"
+          test "$SELFHOST_POSTGRES_UPGRADE_RESULT" = "success"
+          test "$QDRANT_LOCATOR_ACCEPTANCE_RESULT" = "success"
+          test "$BENCHMARK_CONTRACTS_RESULT" = "success"
+
+  benchmark-contracts:
+    name: Provider-free benchmark contracts
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+
+    env:
+      HF_HUB_OFFLINE: "1"
+      TRANSFORMERS_OFFLINE: "1"
+      MEM0_TELEMETRY: "false"
+      MEM0_TELEMETRY_SAMPLE_RATE: "0"
+      QDRANT__TELEMETRY_DISABLED: "true"
+      PYTEST_DISABLE_PLUGIN_AUTOLOAD: "1"
+      PYTHONHASHSEED: "0"
+      OPENAI_API_KEY: ""
+      MEMORY_OPENAI_API_KEY: ""
+      MEMORY_AGENT_BENCH_OPENAI_API_KEY: ""
+      MEM0_API_KEY: ""
+      ANTHROPIC_API_KEY: ""
+      GOOGLE_API_KEY: ""
+      GEMINI_API_KEY: ""
+      COHERE_API_KEY: ""
+      VOYAGE_API_KEY: ""
+      AZURE_OPENAI_API_KEY: ""
+      AWS_ACCESS_KEY_ID: ""
+      AWS_SECRET_ACCESS_KEY: ""
+      AWS_SESSION_TOKEN: ""
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7.0.1
+
+      - name: Set up Python
+        uses: actions/setup-python@v7.0.0
+        with:
+          python-version: "3.11.15"
+
+      - name: Install pinned uv
+        run: python -m pip install --disable-pip-version-check "uv==0.11.28"
+
+      - name: Verify dependency locks
+        run: |
+          uv lock --check
+          uv lock --directory benchmarks/mem0-oss-adapter-v5 --check
+
+      - name: Install locked test dependencies
+        run: |
+          uv sync --extra dev --frozen
+          uv sync --directory benchmarks/mem0-oss-adapter-v5 --group dev --frozen
+
+      - name: Run root benchmark contracts
+        run: >-
+          uv run --frozen --no-sync python
+          scripts/run_provider_free_benchmark_ci.py root
+
+      - name: Run nested mem0 v5 and E2E contracts
+        run: >-
+          uv run --directory benchmarks/mem0-oss-adapter-v5 --frozen --no-sync
+          python "${GITHUB_WORKSPACE}/scripts/run_provider_free_benchmark_ci.py" mem0-v5
+
+  benchmark-synthetic-2040:
+    name: Optional synthetic 2040 benchmark contracts
+    if: github.event_name == 'workflow_dispatch' && inputs.synthetic_2040
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+
+    env:
+      HF_HUB_OFFLINE: "1"
+      TRANSFORMERS_OFFLINE: "1"
+      MEM0_TELEMETRY: "false"
+      MEM0_TELEMETRY_SAMPLE_RATE: "0"
+      QDRANT__TELEMETRY_DISABLED: "true"
+      PYTEST_DISABLE_PLUGIN_AUTOLOAD: "1"
+      PYTHONHASHSEED: "0"
+      OPENAI_API_KEY: ""
+      MEMORY_OPENAI_API_KEY: ""
+      MEMORY_AGENT_BENCH_OPENAI_API_KEY: ""
+      MEM0_API_KEY: ""
+      ANTHROPIC_API_KEY: ""
+      GOOGLE_API_KEY: ""
+      GEMINI_API_KEY: ""
+      COHERE_API_KEY: ""
+      VOYAGE_API_KEY: ""
+      AZURE_OPENAI_API_KEY: ""
+      AWS_ACCESS_KEY_ID: ""
+      AWS_SECRET_ACCESS_KEY: ""
+      AWS_SESSION_TOKEN: ""
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7.0.1
+
+      - name: Set up Python
+        uses: actions/setup-python@v7.0.0
+        with:
+          python-version: "3.11.15"
+
+      - name: Install pinned uv
+        run: python -m pip install --disable-pip-version-check "uv==0.11.28"
+
+      - name: Install locked root test dependencies
+        run: |
+          uv lock --check
+          uv sync --extra dev --frozen
+
+      - name: Run deferred synthetic 2040 contracts
+        run: >-
+          uv run --frozen --no-sync python
+          scripts/run_provider_free_benchmark_ci.py root --deferred-only

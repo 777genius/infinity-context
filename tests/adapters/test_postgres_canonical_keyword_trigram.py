@@ -3,10 +3,11 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
 import os
-import uuid
 from datetime import UTC, datetime, timedelta
+from hashlib import sha256
 from pathlib import Path
 
 import pytest
@@ -20,7 +21,7 @@ from infinity_context_adapters.postgres.canonical_retrieval_batching import (
     _keyword_batch_statement,
     _keyword_fragments,
 )
-from infinity_context_adapters.postgres.models import MemoryChunkRow
+from infinity_context_adapters.postgres.models import MemoryChunkRow, MemoryDocumentRow
 from infinity_context_adapters.postgres.repositories import (
     PostgresChunkRepository,
     _keyword_search_statement,
@@ -29,14 +30,15 @@ from infinity_context_adapters.postgres.repository_helpers import _terms
 from infinity_context_core.ports.repositories import ChunkKeywordSearch
 from sqlalchemy import text
 from sqlalchemy.dialects import postgresql
-from sqlalchemy.engine import make_url
 from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
 
-MIGRATION = (
+from tests.e2e.postgres_test_database import PostgresTestDatabase
+
+_MIGRATIONS = (
     Path(__file__).parents[2]
     / "packages/infinity_context_adapters/infinity_context_adapters/postgres/migrations"
-    / "0022_canonical_keyword_trigram.sql"
 )
+MIGRATION = _MIGRATIONS / "0022_canonical_keyword_trigram.sql"
 _LOGGER = logging.getLogger(__name__)
 
 
@@ -79,27 +81,22 @@ class _RecordingConnection:
 
 async def _assert_real_postgres_access_path(database_url: str) -> None:
     asyncpg = pytest.importorskip("asyncpg")
-    parsed = make_url(database_url)
-    if not parsed.drivername.startswith("postgresql"):
-        pytest.skip("INFINITY_CONTEXT_TEST_POSTGRES_URL is not PostgreSQL")
-    database_name = f"canonical_keyword_trgm_{uuid.uuid4().hex}"
-    admin_dsn = parsed.set(drivername="postgresql").render_as_string(hide_password=False)
-    app_url = parsed.set(
-        drivername="postgresql+asyncpg",
-        database=database_name,
-    ).render_as_string(
-        hide_password=False
-    )
-    admin = await asyncpg.connect(admin_dsn)
-    await admin.execute(f'CREATE DATABASE "{database_name}"')
-    await admin.close()
-    engine = create_async_engine(app_url)
     try:
-        await create_schema(engine)
+        database = PostgresTestDatabase.from_url(
+            database_url,
+            prefix="canonical_keyword_trgm",
+            asyncpg=asyncpg,
+        )
+    except ValueError:
+        pytest.skip("INFINITY_CONTEXT_TEST_POSTGRES_URL is not PostgreSQL")
+    await database.recreate()
+    engine = create_async_engine(database.app_url)
+    try:
+        await _install_versioned_schema_through(database, "0016_")
         now = datetime(2026, 1, 1, tzinfo=UTC)
         async with AsyncSession(engine, expire_on_commit=False) as session:
-            session.add_all(_semantic_rows(now))
-            await session.flush()
+            semantic_rows = _semantic_rows(now)
+            await _seed_pre_0039_corpus(session, semantic_rows, now)
             await session.execute(
                 text(
                     """
@@ -122,6 +119,8 @@ async def _assert_real_postgres_access_path(database_url: str) -> None:
                 {"created_at": now},
             )
             await session.commit()
+        await create_schema(engine)
+        async with AsyncSession(engine, expire_on_commit=False) as session:
             corpus_size = int(
                 (await session.execute(text("SELECT count(*) FROM memory_chunks"))).scalar_one()
             )
@@ -218,9 +217,7 @@ async def _assert_real_postgres_access_path(database_url: str) -> None:
             assert " ESCAPE E'\\\\'" in batch_sql
             assert batch_sql.count("normalized_text LIKE") > 4
 
-            await session.execute(
-                text(f"DROP INDEX {CANONICAL_KEYWORD_TRIGRAM_INDEX}")
-            )
+            await session.execute(text(f"DROP INDEX {CANONICAL_KEYWORD_TRIGRAM_INDEX}"))
             await session.execute(text("ANALYZE memory_chunks"))
             before_scalar = await _explain_analyze(session, scalar_sql)
             before_batch = await _explain_analyze(session, batch_sql)
@@ -247,16 +244,126 @@ async def _assert_real_postgres_access_path(database_url: str) -> None:
             )
     finally:
         await engine.dispose()
-        admin = await asyncpg.connect(admin_dsn)
-        try:
-            await admin.execute(
-                "SELECT pg_terminate_backend(pid) FROM pg_stat_activity "
-                "WHERE datname = $1 AND pid <> pg_backend_pid()",
-                database_name,
+        await database.drop()
+
+
+async def _install_versioned_schema_through(
+    database: PostgresTestDatabase,
+    migration_prefix: str,
+) -> None:
+    paths = tuple(
+        path for path in sorted(_MIGRATIONS.glob("*.sql")) if path.name[:5] <= migration_prefix
+    )
+    connection = await database.connect()
+    try:
+        for path in paths:
+            await connection.execute(path.read_text(encoding="utf-8"))
+        await connection.execute(
+            """
+            CREATE TABLE infinity_context_schema_migrations (
+                migration_id VARCHAR(160) PRIMARY KEY,
+                checksum VARCHAR(64) NOT NULL,
+                execution_kind VARCHAR(32) NOT NULL,
+                applied_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                CONSTRAINT ck_infinity_context_schema_migration_kind
+                    CHECK (execution_kind IN ('applied', 'legacy_baseline'))
             )
-            await admin.execute(f'DROP DATABASE IF EXISTS "{database_name}"')
-        finally:
-            await admin.close()
+            """
+        )
+        await connection.executemany(
+            """
+            INSERT INTO infinity_context_schema_migrations (
+                migration_id, checksum, execution_kind
+            ) VALUES ($1, $2, 'applied')
+            """,
+            [(path.stem, sha256(path.read_bytes()).hexdigest()) for path in paths],
+        )
+    finally:
+        await connection.close()
+
+
+async def _seed_pre_0039_corpus(
+    session: AsyncSession,
+    chunks: list[MemoryChunkRow],
+    now: datetime,
+) -> None:
+    documents = [*_document_rows(chunks, now), _filler_document(now)]
+    await session.execute(
+        text(
+            """
+            INSERT INTO memory_documents (
+                id, space_id, memory_scope_id, thread_id, title, source_type,
+                source_external_id, content_hash, classification, status,
+                created_at, updated_at
+            ) VALUES (
+                :id, :space_id, :memory_scope_id, :thread_id, :title, :source_type,
+                :source_external_id, :content_hash, :classification, :status,
+                :created_at, :updated_at
+            )
+            """
+        ),
+        [
+            {
+                "id": document.id,
+                "space_id": document.space_id,
+                "memory_scope_id": document.memory_scope_id,
+                "thread_id": document.thread_id,
+                "title": document.title,
+                "source_type": document.source_type,
+                "source_external_id": document.source_external_id,
+                "content_hash": document.content_hash,
+                "classification": document.classification,
+                "status": document.status,
+                "created_at": document.created_at,
+                "updated_at": document.updated_at,
+            }
+            for document in documents
+        ],
+    )
+    await session.execute(
+        text(
+            """
+            INSERT INTO memory_chunks (
+                id, space_id, memory_scope_id, thread_id, document_id, episode_id,
+                source_type, source_external_id, source_hash, kind, text,
+                normalized_text, status, sequence, char_start, char_end,
+                token_estimate, classification, created_at, updated_at, metadata_json
+            ) VALUES (
+                :id, :space_id, :memory_scope_id, :thread_id, :document_id, :episode_id,
+                :source_type, :source_external_id, :source_hash, :kind, :text,
+                :normalized_text, :status, :sequence, :char_start, :char_end,
+                :token_estimate, :classification, :created_at, :updated_at,
+                CAST(:metadata_json AS JSONB)
+            )
+            """
+        ),
+        [
+            {
+                "id": chunk.id,
+                "space_id": chunk.space_id,
+                "memory_scope_id": chunk.memory_scope_id,
+                "thread_id": chunk.thread_id,
+                "document_id": chunk.document_id,
+                "episode_id": chunk.episode_id,
+                "source_type": chunk.source_type,
+                "source_external_id": chunk.source_external_id,
+                "source_hash": chunk.source_hash,
+                "kind": chunk.kind,
+                "text": chunk.text,
+                "normalized_text": chunk.normalized_text,
+                "status": chunk.status,
+                "sequence": chunk.sequence,
+                "char_start": chunk.char_start,
+                "char_end": chunk.char_end,
+                "token_estimate": chunk.token_estimate,
+                "classification": chunk.classification,
+                "created_at": chunk.created_at,
+                "updated_at": chunk.updated_at,
+                "metadata_json": json.dumps(chunk.metadata_json),
+            }
+            for chunk in chunks
+        ],
+    )
 
 
 def _semantic_rows(now: datetime) -> list[MemoryChunkRow]:
@@ -314,6 +421,46 @@ def _semantic_rows(now: datetime) -> list[MemoryChunkRow]:
     ]
 
 
+def _document_rows(
+    chunks: list[MemoryChunkRow],
+    now: datetime,
+) -> list[MemoryDocumentRow]:
+    return [
+        MemoryDocumentRow(
+            id=str(chunk.document_id),
+            space_id=chunk.space_id,
+            memory_scope_id=chunk.memory_scope_id,
+            thread_id=chunk.thread_id,
+            title=f"Document for {chunk.id}",
+            source_type=chunk.source_type,
+            source_external_id=chunk.source_external_id,
+            content_hash=f"document-hash-{chunk.id}",
+            classification=chunk.classification,
+            status="active",
+            created_at=now,
+            updated_at=now,
+        )
+        for chunk in chunks
+    ]
+
+
+def _filler_document(now: datetime) -> MemoryDocumentRow:
+    return MemoryDocumentRow(
+        id="filler-document",
+        space_id="space-a",
+        memory_scope_id="scope-a",
+        thread_id=None,
+        title="Filler corpus",
+        source_type="manual",
+        source_external_id="filler-source",
+        content_hash="filler-document-hash",
+        classification="internal",
+        status="active",
+        created_at=now,
+        updated_at=now,
+    )
+
+
 def _normalize_sql(value: str) -> str:
     return " ".join(value.replace(";", "").split())
 
@@ -332,26 +479,16 @@ def _literal_postgres_sql(statement) -> str:
 
 async def _explain_analyze(session: AsyncSession, sql: str):
     return (
-        await session.execute(
-            text(f"EXPLAIN (ANALYZE, BUFFERS, FORMAT JSON) {sql}")
-        )
+        await session.execute(text(f"EXPLAIN (ANALYZE, BUFFERS, FORMAT JSON) {sql}"))
     ).scalar_one()
 
 
 def _plan_index_names(plan) -> set[str]:
-    return {
-        str(node["Index Name"])
-        for node in _plan_nodes(plan)
-        if "Index Name" in node
-    }
+    return {str(node["Index Name"]) for node in _plan_nodes(plan) if "Index Name" in node}
 
 
 def _plan_node_types(plan) -> set[str]:
-    return {
-        str(node["Node Type"])
-        for node in _plan_nodes(plan)
-        if "Node Type" in node
-    }
+    return {str(node["Node Type"]) for node in _plan_nodes(plan) if "Node Type" in node}
 
 
 def _plan_summary(plan) -> dict[str, object]:

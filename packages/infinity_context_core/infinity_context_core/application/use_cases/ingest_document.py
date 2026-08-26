@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+from infinity_context_core.application.benchmark_managed_write_admission import (
+    require_managed_document_admission,
+)
 from infinity_context_core.application.document_fragments import fragment_document_text
 from infinity_context_core.application.document_text import document_chunk_retrieval_text
 from infinity_context_core.application.dto import IngestDocumentCommand, IngestDocumentResult
@@ -21,12 +24,12 @@ from infinity_context_core.domain.entities import (
 from infinity_context_core.domain.errors import MemoryConflictError, MemoryInvariantError
 from infinity_context_core.domain.events import OutboxEvent
 from infinity_context_core.domain.idempotency import IdempotencyRecord
-from infinity_context_core.ports.benchmark_runs import (
-    BenchmarkRunRegistryRecord,
-    is_managed_benchmark_space_id,
-)
+from infinity_context_core.ports.benchmark_runs import is_managed_benchmark_space_id
 from infinity_context_core.ports.clock import ClockPort
 from infinity_context_core.ports.ids import IdGeneratorPort
+from infinity_context_core.ports.managed_benchmark_strict_v4_document_write import (
+    ManagedBenchmarkStrictV4DocumentAuthorityPort,
+)
 from infinity_context_core.ports.unit_of_work import UnitOfWorkFactoryPort
 
 
@@ -37,32 +40,44 @@ class IngestDocumentUseCase:
         uow_factory: UnitOfWorkFactoryPort,
         clock: ClockPort,
         ids: IdGeneratorPort,
+        strict_v4_authority: ManagedBenchmarkStrictV4DocumentAuthorityPort | None = None,
     ) -> None:
         self._uow_factory = uow_factory
         self._clock = clock
         self._ids = ids
+        self._strict_v4_authority = strict_v4_authority
 
     async def execute(self, command: IngestDocumentCommand) -> IngestDocumentResult:
+        managed_benchmark = is_managed_benchmark_space_id(str(command.space_id))
         body_hash = content_hash(command.text)
-        raw_key = command.idempotency_key or (
-            f"document:{command.space_id}:{command.memory_scope_id}:"
-            f"{command.source_type}:{command.source_external_id}:{body_hash}"
-        )
-        key = scoped_idempotency_key(
-            "ingest_document",
-            command.memory_scope_id,
-            command.thread_id,
-            raw_key,
-        )
 
         async with self._uow_factory() as uow:
-            space_id = str(command.space_id)
-            benchmark_run = (
-                await uow.benchmark_runs.get_by_space_id(space_id)
-                if is_managed_benchmark_space_id(space_id)
-                else None
-            )
-            managed_not_projected = _managed_document_projection_is_suppressed(benchmark_run)
+            managed_key = None
+            if managed_benchmark:
+                managed_key = await require_managed_document_admission(
+                    uow=uow,
+                    command=command,
+                    strict_v4_authority=self._strict_v4_authority,
+                )
+            if managed_key is not None and self._strict_v4_authority is not None:
+                # Preserve the authenticated authority identity as durable canonical
+                # evidence. The strict writer fence validates this exact domain prefix.
+                key = managed_key
+            else:
+                raw_key = (
+                    managed_key
+                    or command.idempotency_key
+                    or (
+                        f"document:{command.space_id}:{command.memory_scope_id}:"
+                        f"{command.source_type}:{command.source_external_id}:{body_hash}"
+                    )
+                )
+                key = scoped_idempotency_key(
+                    "ingest_document",
+                    command.memory_scope_id,
+                    command.thread_id,
+                    raw_key,
+                )
             existing = await uow.idempotency.find(space_id=str(command.space_id), key=key)
             if existing:
                 if existing.fingerprint != body_hash:
@@ -86,7 +101,7 @@ class IngestDocumentUseCase:
             )
             if existing_document is not None:
                 chunks = await uow.documents.list_chunks(str(existing_document.id))
-                if command.idempotency_key:
+                if command.idempotency_key or managed_benchmark:
                     await uow.idempotency.save(
                         IdempotencyRecord(
                             space_id=str(command.space_id),
@@ -220,7 +235,7 @@ class IngestDocumentUseCase:
                 )
             if (
                 stored_chunks
-                and not managed_not_projected
+                and not managed_benchmark
                 and _can_project_document_to_external_memory(saved_document.classification)
             ):
                 await uow.outbox.enqueue(
@@ -289,23 +304,6 @@ class IngestDocumentUseCase:
             duplicate_chunks=duplicate_chunks,
             indexing_status="pending",
         )
-
-
-def _managed_document_projection_is_suppressed(
-    benchmark_run: BenchmarkRunRegistryRecord | None,
-) -> bool:
-    if benchmark_run is None:
-        return False
-    if (
-        benchmark_run.state != "active"
-        or benchmark_run.projection_cleanup_state != "unsealed"
-        or benchmark_run.projection_manifest_json is not None
-        or benchmark_run.projection_manifest_sha256 is not None
-        or benchmark_run.cleanup_receipt is not None
-        or benchmark_run.completion_receipt is not None
-    ):
-        raise MemoryConflictError("Managed benchmark document admission is closed")
-    return True
 
 
 def _can_project_document_to_external_memory(classification: str) -> bool:

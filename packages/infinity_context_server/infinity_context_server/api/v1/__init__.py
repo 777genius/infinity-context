@@ -24,6 +24,7 @@ from infinity_context_server.api.v1.internal_memory_comparison_runs import (
 )
 from infinity_context_server.api.v1.memory_browser import router as memory_browser_router
 from infinity_context_server.api.v1.operations import router as operations_router
+from infinity_context_server.api.v1.retrieval_profiles import router as retrieval_profiles_router
 from infinity_context_server.api.v1.spaces_memory_scopes import (
     router as spaces_memory_scopes_router,
 )
@@ -36,6 +37,7 @@ router = APIRouter(prefix="/v1")
 router.include_router(health_router)
 router.include_router(capabilities_router)
 router.include_router(internal_memory_comparison_runs_router)
+router.include_router(retrieval_profiles_router)
 router.include_router(spaces_memory_scopes_router)
 router.include_router(users_router)
 router.include_router(facts_router)

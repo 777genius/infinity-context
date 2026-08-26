@@ -1,4 +1,4 @@
-import { networkError } from "./errors.js";
+import { InfinityContextError, networkError, responseByteLimitError } from "./errors.js";
 import type { JsonValue, QueryParams } from "./types.js";
 
 export type HttpMethod = "GET" | "POST" | "PATCH" | "DELETE" | "PUT";
@@ -14,6 +14,8 @@ export interface HttpRequest {
   readonly body?: HttpBody | undefined;
   readonly signal?: AbortSignal | undefined;
   readonly responseType?: "json" | "bytes" | undefined;
+  readonly maxResponseBytes?: number | undefined;
+  readonly maxErrorResponseBytes?: number | undefined;
 }
 
 export interface HttpResponse {
@@ -66,17 +68,73 @@ export class FetchTransport implements HttpTransport {
         init.signal = request.signal;
       }
       const response = await this.#fetch(request.url, init);
+      const readAsBytes = request.responseType === "bytes" ||
+        (response.status >= 400 && request.maxErrorResponseBytes !== undefined);
+      const responseBytes = readAsBytes
+        ? await readResponseBytes(
+          response,
+          response.status >= 400 ? request.maxErrorResponseBytes ?? request.maxResponseBytes : request.maxResponseBytes,
+        )
+        : undefined;
       return {
         status: response.status,
         headers: response.headers,
         body:
-          request.responseType === "bytes"
-            ? new Uint8Array(await response.arrayBuffer())
+          readAsBytes
+            ? responseBytes!
             : await response.text(),
       };
     } catch (error) {
+      if (error instanceof InfinityContextError) throw error;
       throw networkError(error);
     }
+  }
+}
+
+async function readResponseBytes(response: Response, maximum: number | undefined): Promise<Uint8Array> {
+  if (maximum === undefined) return new Uint8Array(await response.arrayBuffer());
+  if (!Number.isSafeInteger(maximum) || maximum < 0) throw new TypeError("maxResponseBytes must be a non-negative integer");
+  if (response.body === null) return new Uint8Array();
+  const reader = response.body.getReader();
+  const chunks: Uint8Array[] = [];
+  let received = 0;
+  try {
+    const contentLength = response.headers.get("content-length");
+    if (contentLength !== null && /^\d+$/u.test(contentLength) && Number(contentLength) > maximum) {
+      cancelReader(reader);
+      throw responseByteLimitError(response.status, response.headers.get("x-request-id") ?? undefined);
+    }
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      received += value.byteLength;
+      if (received > maximum) {
+        cancelReader(reader);
+        throw responseByteLimitError(response.status, response.headers.get("x-request-id") ?? undefined);
+      }
+      chunks.push(value);
+    }
+  } finally {
+    try {
+      reader.releaseLock();
+    } catch {
+      // Releasing a reader must not replace a typed byte-limit failure.
+    }
+  }
+  const output = new Uint8Array(received);
+  let offset = 0;
+  for (const chunk of chunks) {
+    output.set(chunk, offset);
+    offset += chunk.byteLength;
+  }
+  return output;
+}
+
+function cancelReader(reader: ReadableStreamDefaultReader<Uint8Array>): void {
+  try {
+    void reader.cancel("response byte limit exceeded").catch(() => undefined);
+  } catch {
+    // Cancellation is best-effort; the byte-limit failure must settle promptly.
   }
 }
 

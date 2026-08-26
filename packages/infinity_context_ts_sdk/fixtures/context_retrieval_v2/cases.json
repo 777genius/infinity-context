@@ -1,0 +1,24 @@
+{
+  "schema_version": "context-retrieval-v2-cases.v1",
+  "cases": [
+    {"id": "wire_exact_accept", "subject": "wire", "expect": "accept"},
+    {"id": "unknown_or_text_field_reject", "subject": "wire", "expect": "reject"},
+    {"id": "capability_shape_or_fingerprint_drift_reject", "subject": "capability", "expect": "reject"},
+    {"id": "required_lane_missing_unhealthy_unqualified_reject", "subject": "capability", "expect": "reject"},
+    {"id": "bounds_changed_or_response_oversize_reject", "subject": "retrieval", "expect": "unavailable"},
+    {"id": "duplicate_locator_or_identity_reject", "subject": "response", "expect": "reject"},
+    {"id": "cross_source_neighbor_reject", "subject": "neighbor", "expect": "reject"},
+    {"id": "same_source_cross_document_neighbor_accept", "subject": "neighbor", "expect": "accept"},
+    {"id": "projection_absent_not_eligible", "subject": "projection", "expect": "not_eligible"},
+    {"id": "projection_partial_unknown_or_caller_version_reject", "subject": "projection", "expect": "reject"},
+    {"id": "locator_owner_conflict_reject", "subject": "ownership", "expect": "locator_conflict"},
+    {"id": "ordinal_owner_conflict_reject", "subject": "ownership", "expect": "ordinal_conflict"},
+    {"id": "same_content_distinct_locator_accept", "subject": "ownership", "expect": "accept"},
+    {"id": "exact_projection_retry_idempotent", "subject": "ownership", "expect": "idempotent"},
+    {"id": "wrong_scope_generation_lifecycle_or_version_drop", "subject": "hydration", "expect": "drop"},
+    {"id": "profile_digest_generation_or_membership_drift_unavailable", "subject": "profile", "expect": "unavailable"},
+    {"id": "delete_both_profiles_without_serving", "subject": "lifecycle", "expect": "accepted_deferred"},
+    {"id": "legacy_ingest_and_context_search_unchanged", "subject": "legacy", "expect": "compatible"},
+    {"id": "local_locator_zero_or_multiple_owner_drop_and_reauthorize", "subject": "hydration", "expect": "drop"}
+  ]
+}

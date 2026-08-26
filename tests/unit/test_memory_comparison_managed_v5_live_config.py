@@ -4,11 +4,21 @@ import hashlib
 import json
 import os
 import shutil
-from dataclasses import replace
+from dataclasses import fields, replace
 from pathlib import Path
 
 import pytest
 from infinity_context_server import memory_comparison_managed_v5_live_config as subject
+from infinity_context_server import memory_comparison_reviewed_node as reviewed_node
+from infinity_context_server.memory_comparison_managed_mem0_v5_extraction_projection import (
+    MEM0_V5_EXTRACTION_RESPONSE_FORMAT_SHA256,
+    MEM0_V5_EXTRACTION_SCHEMA_SHA256,
+    MEM0_V5_EXTRACTION_SYSTEM_PROMPT_SHA256,
+)
+from infinity_context_server.memory_comparison_managed_v5_live_cli_config_loader import (
+    ManagedV5LiveCliConfigLoaderError,
+    load_managed_v5_live_cli_config,
+)
 from infinity_context_server.memory_comparison_managed_v5_live_config import (
     ManagedV5LiveConfig,
     ManagedV5LiveConfigError,
@@ -16,6 +26,12 @@ from infinity_context_server.memory_comparison_managed_v5_live_config import (
     ManagedV5LiveRuntimeConfig,
     parse_managed_v5_live_runtime_authority,
     validate_managed_v5_live_public_config,
+)
+from infinity_context_server.memory_comparison_managed_v5_recovery_contracts import (
+    managed_v5_live_config_commitment_sha256,
+)
+from infinity_context_server.memory_comparison_publishable_methodology import (
+    SUBSCRIPTION_RUNTIME_BASE_INSTRUCTIONS_SHA256,
 )
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -25,7 +41,7 @@ _REAL_PHASE_C_TREE_VALIDATOR = subject._validate_reviewed_phase_c_python_tree
 
 def _authority_payload() -> dict[str, object]:
     return {
-        "schema_version": "managed-mem0-v5-live-runtime-authority.v1",
+        "schema_version": "managed-mem0-v5-live-runtime-authority.v3",
         "model": "gpt-5.4-mini",
         "reasoning_effort": "medium",
         "service_tier": "priority",
@@ -33,11 +49,14 @@ def _authority_payload() -> dict[str, object]:
         "runtime_source_sha256": "1" * 64,
         "runtime_base_sha256": "2" * 64,
         "route_binding_sha256": "3" * 64,
-        "base_instructions_sha256": "4" * 64,
+        "base_instructions_sha256": SUBSCRIPTION_RUNTIME_BASE_INSTRUCTIONS_SHA256,
+        "extraction_system_prompt_sha256": MEM0_V5_EXTRACTION_SYSTEM_PROMPT_SHA256,
         "account_binding_hmac_sha256": "5" * 64,
         "response_format_type": "json_schema",
-        "response_format_sha256": "6" * 64,
-        "response_schema_sha256": "7" * 64,
+        "response_format_sha256": subject._RUNTIME_RESPONSE_FORMAT_SHA256,
+        "response_schema_sha256": subject._RUNTIME_RESPONSE_SCHEMA_SHA256,
+        "extraction_response_format_sha256": MEM0_V5_EXTRACTION_RESPONSE_FORMAT_SHA256,
+        "extraction_response_schema_sha256": MEM0_V5_EXTRACTION_SCHEMA_SHA256,
         "requested_output_tokens": 4096,
     }
 
@@ -68,6 +87,8 @@ def _config(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> ManagedV5LiveCon
         "head",
         "operation-journal-signer",
         "durable-clean-state-hmac",
+        "runtime-attestation",
+        "recovery-hmac",
     ):
         path = roots["secrets"] / name
         _write(path, ("SECRET:" + name + ":" + "x" * 64).encode(), 0o600)
@@ -88,8 +109,10 @@ def _config(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> ManagedV5LiveCon
     manifest_sha256 = _write(manifest, b'{"reviewed":true}', 0o444)
     node = public / "node"
     node_sha256 = _write(node, b"reviewed-node", 0o555)
-    monkeypatch.setattr(subject, "_REVIEWED_NODE_SHA256", node_sha256)
-    monkeypatch.setattr(subject, "_REVIEWED_NODE_SIZE_BYTES", node.stat().st_size)
+    adapter_runtime_pin = public / "adapter-runtime-pin.json"
+    adapter_runtime_pin_sha256 = _write(adapter_runtime_pin, b'{"pin":true}', 0o444)
+    monkeypatch.setattr(reviewed_node, "REVIEWED_NODE_EXECUTABLE_SHA256", node_sha256)
+    monkeypatch.setattr(reviewed_node, "REVIEWED_NODE_EXECUTABLE_SIZE_BYTES", node.stat().st_size)
 
     filesystem = ManagedV5LiveFilesystemConfig(
         state_root=roots["state"],
@@ -99,6 +122,7 @@ def _config(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> ManagedV5LiveCon
         dispatch_journal=roots["state"] / "dispatch.json",
         operation_journal=roots["state"] / "operations.sqlite3",
         durable_clean_state=roots["state"] / "durable-clean-state.json",
+        recovery_journal=roots["state"] / "recovery-journal.json",
         ingress_bearer_file=credentials["bearer"],
         evidence_key_file=credentials["evidence"],
         evidence_key_sha256="8" * 64,
@@ -107,6 +131,11 @@ def _config(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> ManagedV5LiveCon
         checkpoint_head_key_file=credentials["head"],
         operation_journal_signer_secret_file=credentials["operation-journal-signer"],
         durable_clean_state_hmac_secret_file=credentials["durable-clean-state-hmac"],
+        runtime_attestation_secret_file=credentials["runtime-attestation"],
+        recovery_hmac_secret_file=credentials["recovery-hmac"],
+        runtime_attestation_secret_sha256=hashlib.sha256(
+            credentials["runtime-attestation"].read_bytes()
+        ).hexdigest(),
         runtime_authority_file=authority,
         runtime_authority_sha256=authority_sha256,
         phase_c_package_root=phase_c,
@@ -115,6 +144,9 @@ def _config(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> ManagedV5LiveCon
         runtime_artifact_manifest_sha256=manifest_sha256,
         node_executable=node,
         node_executable_sha256=node_sha256,
+        adapter_runtime_pin_file=adapter_runtime_pin,
+        adapter_runtime_pin_sha256=adapter_runtime_pin_sha256,
+        recovery_report_file=roots["reports"] / "recovery-report.json",
     )
     return ManagedV5LiveConfig(
         filesystem=filesystem,
@@ -136,6 +168,8 @@ def test_public_validation_returns_exact_authority_without_reading_secrets(
             config.filesystem.checkpoint_head_key_file,
             config.filesystem.operation_journal_signer_secret_file,
             config.filesystem.durable_clean_state_hmac_secret_file,
+            config.filesystem.runtime_attestation_secret_file,
+            config.filesystem.recovery_hmac_secret_file,
         )
     }
     real_open = subject.os.open
@@ -148,6 +182,8 @@ def test_public_validation_returns_exact_authority_without_reading_secrets(
     authority = validate_managed_v5_live_public_config(config)
     assert authority.model == "gpt-5.4-mini"
     assert authority.route_binding_sha256 == "3" * 64
+    assert authority.base_instructions_sha256 == SUBSCRIPTION_RUNTIME_BASE_INSTRUCTIONS_SHA256
+    assert authority.extraction_system_prompt_sha256 == (MEM0_V5_EXTRACTION_SYSTEM_PROMPT_SHA256)
     assert authority.requested_output_tokens == 4096
 
 
@@ -259,6 +295,109 @@ def test_private_factory_secret_and_state_paths_are_distinct(
     assert captured.value.code == "managed_v5_live_state_paths_invalid"
 
 
+def test_recovery_paths_are_required_distinct_direct_children(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    config = _config(tmp_path, monkeypatch)
+    validate_managed_v5_live_public_config(config)
+    changes = (
+        (
+            replace(
+                config.filesystem,
+                recovery_hmac_secret_file=config.filesystem.receipt_secret_file,
+            ),
+            "managed_v5_live_credential_paths_invalid",
+        ),
+        (
+            replace(
+                config.filesystem,
+                recovery_journal=config.filesystem.dispatch_journal,
+            ),
+            "managed_v5_live_state_paths_invalid",
+        ),
+        (
+            replace(
+                config.filesystem,
+                recovery_report_file=config.filesystem.report_file,
+            ),
+            "managed_v5_live_report_paths_invalid",
+        ),
+    )
+    for filesystem, code in changes:
+        with pytest.raises(ManagedV5LiveConfigError) as captured:
+            validate_managed_v5_live_public_config(replace(config, filesystem=filesystem))
+        assert captured.value.code == code
+
+
+def test_cli_loader_requires_exact_recovery_paths(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    config = _config(tmp_path, monkeypatch)
+    filesystem = {
+        field.name: (
+            str(value)
+            if isinstance((value := getattr(config.filesystem, field.name)), Path)
+            else value
+        )
+        for field in fields(config.filesystem)
+        if field.name != "phase_c_python_tree_sha256"
+    }
+    payload = {
+        "filesystem": filesystem,
+        "runtime": {"mem0_adapter_origin": config.runtime.mem0_adapter_origin},
+        "extraction_contract_file": str(tmp_path / "contract.json"),
+        "extraction_contract_sha256": "f" * 64,
+    }
+    path = tmp_path / "config.json"
+    path.write_text(json.dumps(payload))
+    loaded, _, _ = load_managed_v5_live_cli_config(path)
+    assert loaded.filesystem.recovery_journal == config.filesystem.recovery_journal
+    assert loaded.filesystem.recovery_hmac_secret_file == (
+        config.filesystem.recovery_hmac_secret_file
+    )
+    assert loaded.filesystem.recovery_report_file == config.filesystem.recovery_report_file
+
+    del payload["filesystem"]["recovery_journal"]
+    path.write_text(json.dumps(payload))
+    with pytest.raises(ManagedV5LiveCliConfigLoaderError):
+        load_managed_v5_live_cli_config(path)
+
+
+def test_typed_config_commitment_ignores_json_format_but_binds_every_path(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    config = _config(tmp_path, monkeypatch)
+    extraction = tmp_path / "contract.json"
+    digest = "f" * 64
+    expected = managed_v5_live_config_commitment_sha256(
+        config=config,
+        extraction_contract_file=extraction,
+        extraction_contract_sha256=digest,
+    )
+    assert expected == managed_v5_live_config_commitment_sha256(
+        config=config,
+        extraction_contract_file=extraction,
+        extraction_contract_sha256=digest,
+    )
+    changed = replace(
+        config,
+        filesystem=replace(
+            config.filesystem,
+            recovery_report_file=config.filesystem.report_root / "different-report.json",
+        ),
+    )
+    assert expected != managed_v5_live_config_commitment_sha256(
+        config=changed,
+        extraction_contract_file=extraction,
+        extraction_contract_sha256=digest,
+    )
+    assert expected != managed_v5_live_config_commitment_sha256(
+        config=config,
+        extraction_contract_file=extraction,
+        extraction_contract_sha256="e" * 64,
+    )
+
+
 def test_runtime_authority_parser_is_exact_and_bounded() -> None:
     payload = _authority_payload()
     raw = json.dumps(payload).encode()
@@ -277,6 +416,96 @@ def test_runtime_authority_parser_is_exact_and_bounded() -> None:
         parse_managed_v5_live_runtime_authority(raw[:-1] + b',"model":"ambiguous"}')
     assert duplicate.value.code == "managed_v5_live_runtime_authority_invalid"
     assert duplicate.value.__cause__ is None
+
+
+@pytest.mark.parametrize(
+    "mutate",
+    (
+        lambda value: value.pop("extraction_system_prompt_sha256"),
+        lambda value: value.pop("base_instructions_sha256"),
+        lambda value: value.__setitem__("unexpected", True),
+        lambda value: value.update(
+            {
+                "base_instructions_sha256": value["extraction_system_prompt_sha256"],
+                "extraction_system_prompt_sha256": value["base_instructions_sha256"],
+            }
+        ),
+        lambda value: value.__setitem__(
+            "extraction_system_prompt_sha256", value["base_instructions_sha256"]
+        ),
+        lambda value: value.__setitem__("base_instructions_sha256", "a" * 64),
+        lambda value: value.__setitem__("extraction_system_prompt_sha256", "e" * 64),
+        lambda value: value.__setitem__(
+            "extraction_system_prompt_sha256",
+            MEM0_V5_EXTRACTION_SYSTEM_PROMPT_SHA256.upper(),
+        ),
+        lambda value: value.__setitem__(
+            "schema_version", "managed-mem0-v5-live-runtime-authority.v1"
+        ),
+    ),
+    ids=(
+        "missing-extraction",
+        "missing-base",
+        "extra",
+        "swapped",
+        "equalized",
+        "tampered-base",
+        "tampered-extraction",
+        "uppercase",
+        "legacy-v1",
+    ),
+)
+def test_runtime_authority_v3_rejects_ambiguous_instruction_digests(mutate) -> None:
+    payload = _authority_payload()
+    mutate(payload)
+    with pytest.raises(ManagedV5LiveConfigError) as captured:
+        parse_managed_v5_live_runtime_authority(json.dumps(payload).encode())
+    assert captured.value.code == "managed_v5_live_runtime_authority_invalid"
+
+
+@pytest.mark.parametrize(
+    "mutate",
+    (
+        lambda value: value.pop("extraction_response_format_sha256"),
+        lambda value: value.pop("extraction_response_schema_sha256"),
+        lambda value: value.update(
+            {
+                "response_format_sha256": value["extraction_response_format_sha256"],
+                "extraction_response_format_sha256": value["response_format_sha256"],
+            }
+        ),
+        lambda value: value.update(
+            {
+                "response_schema_sha256": value["extraction_response_schema_sha256"],
+                "extraction_response_schema_sha256": value["response_schema_sha256"],
+            }
+        ),
+        lambda value: value.__setitem__(
+            "extraction_response_format_sha256", value["response_format_sha256"]
+        ),
+        lambda value: value.__setitem__(
+            "extraction_response_schema_sha256", value["response_schema_sha256"]
+        ),
+        lambda value: value.__setitem__(
+            "schema_version", "managed-mem0-v5-live-runtime-authority.v2"
+        ),
+    ),
+    ids=(
+        "missing-extraction-format",
+        "missing-extraction-schema",
+        "swapped-format",
+        "swapped-schema",
+        "equalized-format",
+        "equalized-schema",
+        "legacy-v2",
+    ),
+)
+def test_runtime_authority_v3_rejects_ambiguous_response_digests(mutate) -> None:
+    payload = _authority_payload()
+    mutate(payload)
+    with pytest.raises(ManagedV5LiveConfigError) as captured:
+        parse_managed_v5_live_runtime_authority(json.dumps(payload).encode())
+    assert captured.value.code == "managed_v5_live_runtime_authority_invalid"
 
 
 def test_mem0_adapter_origin_has_no_permissive_fallback() -> None:

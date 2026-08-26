@@ -172,8 +172,10 @@ def test_exact_bytes_parser_accepts_pretty_json_object_and_jsonl() -> None:
         b'{"case":1,"case":2}',
         b'{"value":NaN}',
         b'{"value":Infinity}',
+        b'{"value":1e999}',
         b'{"case":1}\n{"case":2,"case":3}\n',
         b'{"case":1}\n{"value":-Infinity}\n',
+        b'{"case":1}\n{"value":-1e999}\n',
     ),
 )
 def test_exact_bytes_parser_rejects_nonexact_or_invalid_payload(payload: object) -> None:

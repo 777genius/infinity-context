@@ -38,6 +38,14 @@ from infinity_context_server.features.context_building.mappers import (
     build_context_query_from_contract,
     build_context_result_to_contract,
 )
+from infinity_context_server.features.context_building.retrieval_mappers import (
+    retrieval_request_to_core,
+    retrieval_response_to_contract,
+)
+from infinity_context_server.features.context_building.retrieval_service import (
+    LocatorRetrievalService,
+    RetrievalProfileConflict,
+)
 from infinity_context_server.features.context_building.routes import (
     create_context_building_router,
 )
@@ -56,6 +64,8 @@ __all__ = (
     "LegacyContextApiResponseMapper",
     "LegacyDigestApiResponseMapper",
     "LegacyMemoryInsightsApiResponseMapper",
+    "LocatorRetrievalService",
+    "RetrievalProfileConflict",
     "build_context_building_server_feature",
     "build_context_query_from_contract",
     "build_context_result_to_contract",
@@ -63,4 +73,6 @@ __all__ = (
     "build_legacy_context_query_from_request",
     "build_legacy_digest_query_from_request",
     "create_context_building_router",
+    "retrieval_request_to_core",
+    "retrieval_response_to_contract",
 )

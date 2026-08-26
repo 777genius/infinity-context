@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import hashlib
 import threading
 from collections.abc import Callable
 from datetime import UTC, datetime
@@ -20,7 +19,6 @@ from infinity_context_server.memory_comparison_managed_http_derived_evidence imp
     ManagedDerivedEvidenceHttpClient,
 )
 from infinity_context_server.memory_comparison_managed_http_exact_cleanup import (
-    ManagedExactCleanupObservation,
     ManagedInfinityExactCleanupCoordinator,
 )
 from infinity_context_server.memory_comparison_managed_http_execution import (
@@ -29,11 +27,9 @@ from infinity_context_server.memory_comparison_managed_http_execution import (
 from infinity_context_server.memory_comparison_managed_http_policy_material_projection import (
     ManagedHttpPolicyExactCorpusBindings,
     binding_snapshot,
-    lifecycle_implementation_sha256,
     project_cleanup_passes,
     project_corpus_material,
     project_exact_corpus_bindings,
-    project_infinity_cleanup_commitments,
     project_mem0_cleanup_commitments,
     project_validation_material,
 )
@@ -88,17 +84,25 @@ from infinity_context_server.memory_comparison_managed_run_contract import (
 from infinity_context_server.memory_comparison_managed_runner_binding import (
     ManagedRunnerCompositionBinding,
 )
+from infinity_context_server.memory_comparison_managed_v5_infinity_cleanup import (
+    project_managed_v5_infinity_cleanup,
+)
 from infinity_context_server.memory_comparison_managed_v5_ingest_identity_projector import (
     project_managed_infinity_v5_ingest_identities,
 )
+from infinity_context_server.memory_comparison_managed_v5_mem0_terminal_observation import (
+    ManagedMem0TerminalObservation,
+    run_mem0_cleanup_pass,
+)
+from infinity_context_server.memory_comparison_managed_v5_policy_identity import (
+    managed_http_policy_production_blockers,
+    managed_v5_policy_lifecycle_implementation_sha256,
+    managed_v5_retryable_delete_failure,
+    managed_v5_target_identity,
+)
 
 MANAGED_V5_POLICY_ADAPTER_ID = "managed-infinity-v5-policy-fail-closed-v1"
-_RETRYABLE_DELETE_FAILURE_CODES = frozenset(
-    {
-        "managed_http_policy_infinity_context_delete_failed",
-        "managed_v5_policy_mem0_cleanup_failed",
-    }
-)
+_retryable_delete_failure = managed_v5_retryable_delete_failure
 
 
 @final
@@ -207,6 +211,7 @@ class ManagedInfinityV5PolicyLifecycleAdapter:
         self._closed = False
         self._next_delete = 0
         self._delete_in_flight: tuple[str, str, int] | None = None
+        self._mem0_terminal_observation: ManagedMem0TerminalObservation | None = None
         self._lock = threading.RLock()
 
     @property
@@ -227,6 +232,18 @@ class ManagedInfinityV5PolicyLifecycleAdapter:
             phase=phase,
             evidence=evidence,
         )
+
+    @property
+    def mem0_terminal_observation(self) -> ManagedMem0TerminalObservation:
+        """Return only the authenticated pass-two cleanup readback evidence."""
+
+        with self._lock:
+            value = self._mem0_terminal_observation
+        if type(value) is not ManagedMem0TerminalObservation:
+            raise ManagedHttpPolicyLifecycleError(
+                "managed_v5_policy_mem0_terminal_observation_unavailable"
+            )
+        return value
 
     def issue_registry_delegate_capability(self) -> object:
         """Issue the sole exact registry authority for this open composition."""
@@ -422,7 +439,7 @@ class ManagedInfinityV5PolicyLifecycleAdapter:
                 )
             if failure is None:
                 failure = current
-            if attempt != 0 or not _retryable_delete_failure(current):
+            if attempt != 0 or not managed_v5_retryable_delete_failure(current):
                 break
             try:
                 self._ensure_deadline()
@@ -653,55 +670,14 @@ class ManagedInfinityV5PolicyLifecycleAdapter:
         target: str,
         pass_index: int,
     ) -> ManagedHttpPolicyDeleteReceiptState:
-        if not self._corpora:
-            raise ManagedHttpPolicyLifecycleError(
-                "managed_http_policy_exact_cleanup_state_unavailable"
-            )
-        observations = self._exact_cleanup.cleanup_all(
-            tuple(
-                (corpus.bundle.scope, corpus.bundle.manifest, corpus.presence)
-                for corpus in self._corpora
-            ),
+        return project_managed_v5_infinity_cleanup(
+            owner=self,
+            bindings=self._bindings,
+            corpora=self._corpora,
+            coordinator=self._exact_cleanup,
+            exact_bindings=self._exact_corpus_bindings(),
+            target=target,
             pass_index=pass_index,
-        )
-        if any(
-            type(item) is not ManagedExactCleanupObservation
-            or item.lifecycle_target_identity_sha256 != target
-            or item.corpus_id != corpus.bundle.corpus_id
-            or item.pass_index != pass_index
-            or not item.verified_absent
-            for item, corpus in zip(observations, self._corpora, strict=True)
-        ):
-            raise ManagedHttpPolicyLifecycleError(
-                "managed_http_policy_infinity_exact_cleanup_invalid"
-            )
-        commitments = project_infinity_cleanup_commitments(
-            observations,
-            target_identity_sha256=target,
-            pass_index=pass_index,
-        )
-        return ManagedHttpPolicyDeleteReceiptState(
-            self,
-            self._bindings.run_id,
-            self._bindings.binding_commitment_sha256,
-            "infinity-context",
-            target,
-            pass_index,
-            len(self._corpora),
-            sum(len(item.canonical) for item in observations),
-            True,
-            all(
-                (item.qdrant is None or item.qdrant.verified_absent)
-                and (item.graphiti is None or item.graphiti.verified_absent)
-                for item in observations
-            ),
-            self._exact_corpus_bindings().manifest_sha256,
-            self._exact_corpus_bindings().mem0_created_memory_ids,
-            self._exact_corpus_bindings().source_pairs,
-            commitments.cleanup_commitment_sha256,
-            commitments.corpus_absence_commitments,
-            commitments.exact_absence_commitment_sha256,
-            "live",
         )
 
     def _delete_mem0_v5(self, target: str, pass_index: int) -> ManagedHttpPolicyDeleteReceiptState:
@@ -710,21 +686,17 @@ class ManagedInfinityV5PolicyLifecycleAdapter:
                 "managed_http_policy_exact_cleanup_state_unavailable"
             )
         try:
-            result = (
-                self._mem0_lifecycle.cleanup_pass_one()
-                if pass_index == 1
-                else self._mem0_lifecycle.cleanup_pass_two()
-            )
-            payload = result.public_payload()
-            verified = (
-                payload.get("residual_record_count") == 0
-                and isinstance(payload.get("residual_root_sha256"), str)
-                and (pass_index != 1 or payload.get("terminal_state") == "deleted")
-            )
+            payload, observation = run_mem0_cleanup_pass(self._mem0_lifecycle, pass_index)
         except Exception:
             raise ManagedHttpPolicyLifecycleError("managed_v5_policy_mem0_cleanup_failed") from None
-        if not verified:
-            raise ManagedHttpPolicyLifecycleError("managed_v5_policy_mem0_cleanup_invalid")
+        if observation is not None:
+            with self._lock:
+                current = self._mem0_terminal_observation
+                if current is not None and current != observation:
+                    raise ManagedHttpPolicyLifecycleError(
+                        "managed_v5_policy_mem0_terminal_observation_changed"
+                    )
+                self._mem0_terminal_observation = observation
         commitments = project_mem0_cleanup_commitments(
             tuple(corpus.bundle for corpus in self._corpora),
             run_id=self._bindings.run_id,
@@ -910,40 +882,7 @@ class ManagedInfinityV5PolicyLifecycleAdapter:
             raise ManagedHttpPolicyLifecycleError("managed_http_policy_deadline_expired")
 
     def _target(self, role: str) -> str:
-        matches = tuple(
-            target.target_identity_sha256
-            for target in self._bindings.backend_targets
-            if target.backend_role == role
-        )
-        if len(matches) != 1:
-            raise ManagedHttpPolicyLifecycleError("managed_http_policy_target_binding_invalid")
-        return matches[0]
-
-
-def managed_http_policy_production_blockers(
-    cases: tuple[ManagedRunCase, ...],
-) -> tuple[str, ...]:
-    if (
-        type(cases) is not tuple
-        or not cases
-        or any(type(case) is not ManagedRunCase for case in cases)
-    ):
-        raise ManagedHttpPolicyLifecycleError("managed_http_policy_cases_invalid")
-    return ()
-
-
-def managed_v5_policy_lifecycle_implementation_sha256() -> str:
-    return hashlib.sha256(
-        (
-            "managed-infinity-v5-policy-v1\0"
-            + lifecycle_implementation_sha256()
-            + "\0exact-owner-bound-ingest\0split-v5-cleanup"
-        ).encode()
-    ).hexdigest()
-
-
-def _retryable_delete_failure(error: ManagedHttpPolicyLifecycleError) -> bool:
-    return error.code in _RETRYABLE_DELETE_FAILURE_CODES
+        return managed_v5_target_identity(self._bindings, role)
 
 
 __all__ = (

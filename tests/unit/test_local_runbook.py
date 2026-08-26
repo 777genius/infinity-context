@@ -334,7 +334,7 @@ def test_selfhost_compose_has_team_deployment_contract() -> None:
         "${MEMORY_EXTRACTION_HEARTBEAT_SECONDS:-15}" in compose
     )
     assert "MEMORY_SERVICE_TOKEN=change-me" in env
-    assert "MEMORY_POSTGRES_PASSWORD=change-me" in env
+
     assert "MEMORY_EXTRACTION_CANCELLATION_POLL_SECONDS=1" in env
     assert "MEMORY_EXTRACTION_HEARTBEAT_SECONDS=15" in env
     assert ".PHONY: infinity-context-selfhost-smoke" in makefile

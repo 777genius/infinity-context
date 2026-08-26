@@ -186,6 +186,10 @@ def prepare_environment(root: Path, port: int) -> dict[str, object]:
                 "source_id": unit.source_id,
                 "source_sha256": unit.source_sha256,
                 "corpus_id": unit.corpus_id,
+                "observation_date": unit.observation_date,
+                "observation_date_commitment_sha256": canonical_sha256(
+                    {"observation_date": unit.observation_date}
+                ),
                 "request_body_sha256": request_hashes[index],
                 "output_text_sha256": output_hashes[index],
                 "zero_memory": index == 1,
@@ -362,26 +366,26 @@ class DurableLoopbackService:
     def request_binding(self, request, *, idempotency_key: str) -> dict[str, object]:
         del idempotency_key
         unit = self._unit(request.operation_id_sha256)
-        authority = self.config["authority"]
-        unsigned = {
-            "schema_version": "mem0-oss-adapter-v5.request-binding.v1",
+        evidence = {
+            "schema_version": "mem0-oss-adapter-v5.request-binding.v2",
             "admission_commitment_sha256": request.admission_commitment_sha256,
-            "ingestion_manifest_sha256": authority["ingestion_manifest_sha256"],
-            "ingestion_root_sha256": authority["ingestion_root_sha256"],
-            "current_date_commitment_sha256": authority["current_date_commitment_sha256"],
             "operation_id_sha256": request.operation_id_sha256,
             "unit_identity_sha256": unit["unit_identity_sha256"],
             "unit_sha256": unit["unit_sha256"],
-            "scope_sha256": unit["scope_sha256"],
+            "corpus_id": unit["corpus_id"],
             "source_id": unit["source_id"],
             "source_sha256": unit["source_sha256"],
-            "sequence": unit["sequence"],
+            "observation_date": unit["observation_date"],
+            "observation_date_commitment_sha256": unit["observation_date_commitment_sha256"],
             "request_body_sha256": unit["request_body_sha256"],
-            "response_format_sha256": self.config["runtime"]["response_format_sha256"],
+        }
+        unsigned = {
+            **evidence,
+            "request_binding_evidence_sha256": canonical_sha256(evidence),
         }
         return {
             **unsigned,
-            "request_binding_hmac_sha256": self._evidence_hmac(unsigned, b"request-binding/v1"),
+            "request_binding_hmac_sha256": self._evidence_hmac(unsigned, b"request-binding/v2"),
         }
 
     def dispatch(self, request, *, idempotency_key: str) -> dict[str, object]:

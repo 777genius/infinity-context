@@ -1,0 +1,75 @@
+{
+  "endpoint": "/v1/context/retrieve",
+  "contract_version": "context-retrieval.v2",
+  "ranking_policy": "weighted_rrf_canonical_preferences.v1",
+  "ranking_parameters": {
+    "rank_constant": 60,
+    "weight_scale_micros": 1000000,
+    "score_scale_picos": 1000000000000,
+    "preference_scale_micros": 1000000,
+    "max_preference_boost_micros": 250000,
+    "contribution_rounding": "round_half_even",
+    "preference_rounding": "floor",
+    "canonical_signal_match_policy": "canonical_exact_key_interval_overlap.v1"
+  },
+  "capability_fingerprint": "522cf13b82d20b8cf8f37b6e9fb3f4dc5752e24c9802c35b0f2fc30482083fae",
+  "profile_id": "locator-v2-pairs-relative-22222222",
+  "service_revision": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  "sdk_revision": "cccccccccccccccccccccccccccccccccccccccc",
+  "attribute_schema": "document-retrieval-projection.v1",
+  "index_profile_digest": "2222222222222222222222222222222222222222222222222222222222222222",
+  "coverage": "top_k_only",
+  "supports_neighbors": true,
+  "bounds": {
+    "query_variants": [1, 6],
+    "query_characters": [1, 512],
+    "provider_lanes": [1, 4],
+    "provider_rank": [1, 1000],
+    "source_generations": [1, 100],
+    "candidate_limit": [1, 1000],
+    "result_limit": [1, 50],
+    "neighbor_radius": [0, 2],
+    "response_byte_limit": [16384, 1048576],
+    "deadline_ms": [1, 2000],
+    "weight_micros": [100000, 10000000]
+  },
+  "hard_filter_signals": [
+    "actor_keys",
+    "category",
+    "document_keys",
+    "excluded_source_keys",
+    "kinds",
+    "relative_time_interval",
+    "source_generations",
+    "tags_all",
+    "tags_any",
+    "tags_none",
+    "time_interval"
+  ],
+  "soft_preference_signals": [
+    "actor_preferences",
+    "relative_time_interval",
+    "source_preferences",
+    "time_interval"
+  ],
+  "required_provider_lanes": [
+    "postgres_keyword",
+    "qdrant_dense"
+  ],
+  "provider_lanes": [
+    {
+      "provider_id": "postgres_keyword",
+      "required": true,
+      "healthy": true,
+      "weight_micros": 1000000,
+      "profile_qualified": true
+    },
+    {
+      "provider_id": "qdrant_dense",
+      "required": true,
+      "healthy": true,
+      "weight_micros": 1000000,
+      "profile_qualified": true
+    }
+  ]
+}

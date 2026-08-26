@@ -1,11 +1,13 @@
 import asyncio
 import hashlib
 import json
+from dataclasses import replace
 from datetime import UTC, datetime
 from types import SimpleNamespace
 from typing import Literal
 
 import pytest
+from benchmark_cleanup_plan_fixtures import cleanup_plan_pair
 from fastapi import Response
 from infinity_context_core.application.dto_benchmark_runs import (
     CleanupBenchmarkRunResult,
@@ -22,6 +24,9 @@ from infinity_context_core.ports.benchmark_runs import (
 from infinity_context_server.api import auth
 from infinity_context_server.api.v1 import internal_memory_comparison_runs as api
 from infinity_context_server.auth_tokens import MEMORY_PERMISSION_ADMIN, ActiveServiceToken
+from infinity_context_server.benchmark_cleanup_target_authority import (
+    current_cleanup_target_authority,
+)
 from infinity_context_server.config import MemoryPolicyMode
 from starlette.requests import Request
 
@@ -38,8 +43,40 @@ MANIFEST = {
     "binding_commitment_sha256": BINDING,
     "infinity_target_identity_sha256": TARGET,
     "space_id": SPACE_ID,
+    "cleanup_plan_sha256": "0" * 64,
     "scopes": [],
 }
+
+
+def _registration_request() -> api.RegisterBenchmarkRunRequest:
+    settings = _settings()
+    authority = current_cleanup_target_authority(settings, infinity_target_identity_sha256=TARGET)
+    plan, _ = cleanup_plan_pair(run_id=RUN, binding=BINDING, target=TARGET, space_slug=SPACE_SLUG)
+    for lane in ("qdrant", "graphiti", "cognee"):
+        plan[lane] = authority.value[lane]
+    encoded = json.dumps(plan, sort_keys=True, separators=(",", ":")).encode()
+    cleanup_plan_sha256 = hashlib.sha256(encoded).hexdigest()
+    MANIFEST["cleanup_plan_sha256"] = cleanup_plan_sha256
+    return api.RegisterBenchmarkRunRequest(
+        schema_version="memory-comparison-run-registration.v2",
+        run_id_sha256=RUN,
+        binding_commitment_sha256=BINDING,
+        infinity_target_identity_sha256=TARGET,
+        space_slug=SPACE_SLUG,
+        cleanup_plan=plan,
+        cleanup_plan_sha256=cleanup_plan_sha256,
+    )
+
+
+def _settings() -> SimpleNamespace:
+    return SimpleNamespace(
+        policy_mode=MemoryPolicyMode.ACTIVE_CONTEXT,
+        qdrant_enabled=True,
+        qdrant_url="http://qdrant.test:6333",
+        qdrant_collection="benchmark",
+        graphiti_enabled=True,
+        graphiti_neo4j_uri="bolt://graphiti.test:7687",
+    )
 
 
 def test_hidden_api_returns_only_hashed_run_identity_and_pending_projection_state() -> None:
@@ -47,13 +84,7 @@ def test_hidden_api_returns_only_hashed_run_identity_and_pending_projection_stat
     response = Response(status_code=201)
     registration = asyncio.run(
         api.register_benchmark_run(
-            api.RegisterBenchmarkRunRequest(
-                schema_version="memory-comparison-run-registration.v1",
-                run_id_sha256=RUN,
-                binding_commitment_sha256=BINDING,
-                infinity_target_identity_sha256=TARGET,
-                space_slug=SPACE_SLUG,
-            ),
+            _registration_request(),
             response,
             container,
             "registration-secret-key",
@@ -63,11 +94,12 @@ def test_hidden_api_returns_only_hashed_run_identity_and_pending_projection_stat
         api.cleanup_benchmark_run(
             RUN,
             api.CleanupBenchmarkRunRequest(
-                schema_version="memory-comparison-run-cleanup.v1",
+                schema_version="memory-comparison-run-cleanup.v2",
                 binding_commitment_sha256=BINDING,
                 infinity_target_identity_sha256=TARGET,
                 space_id=SPACE_ID,
                 space_slug=SPACE_SLUG,
+                cleanup_plan_sha256=_registration_request().cleanup_plan_sha256,
             ),
             container,
             "cleanup-secret-key",
@@ -101,13 +133,7 @@ def test_exact_registration_replay_returns_http_200() -> None:
 
     payload = asyncio.run(
         api.register_benchmark_run(
-            api.RegisterBenchmarkRunRequest(
-                schema_version="memory-comparison-run-registration.v1",
-                run_id_sha256=RUN,
-                binding_commitment_sha256=BINDING,
-                infinity_target_identity_sha256=TARGET,
-                space_slug=SPACE_SLUG,
-            ),
+            _registration_request(),
             response,
             container,
             "registration-secret-key",
@@ -126,11 +152,12 @@ def test_cleanup_api_uses_authoritative_legacy_state_without_rewriting_receipt()
         api.cleanup_benchmark_run(
             RUN,
             api.CleanupBenchmarkRunRequest(
-                schema_version="memory-comparison-run-cleanup.v1",
+                schema_version="memory-comparison-run-cleanup.v2",
                 binding_commitment_sha256=BINDING,
                 infinity_target_identity_sha256=TARGET,
                 space_id=SPACE_ID,
                 space_slug=SPACE_SLUG,
+                cleanup_plan_sha256=_registration_request().cleanup_plan_sha256,
             ),
             container,
             "cleanup-secret-key",
@@ -167,12 +194,16 @@ def test_projection_manifest_seal_forwards_exact_command_without_manifest_leakag
     )
     assert payload == {
         "data": {
-            "schema_version": ("memory-comparison-projection-manifest-seal-response.v1"),
+            "schema_version": ("memory-comparison-projection-manifest-seal-response.v2"),
             "authority": "infinity_canonical",
             "run_id_sha256": RUN,
             "binding_commitment_sha256": BINDING,
             "infinity_target_identity_sha256": TARGET,
             "projection_manifest_sha256": MANIFEST_SHA256,
+            "cleanup_plan_sha256": (
+                container.register_benchmark_run.result.record.cleanup_plan_sha256
+            ),
+            "cleanup_plan_state": "sealed",
             "state": "active",
             "projection_cleanup_state": "sealed",
             "replayed": replayed,
@@ -308,7 +339,14 @@ class FakeContainer:
             cognee_delete_outbox_ids=(),
             receipt_sha256="f" * 64,
         )
-        self.settings = SimpleNamespace(policy_mode=MemoryPolicyMode.ACTIVE_CONTEXT)
+        registration_request = _registration_request()
+        record = replace(
+            record,
+            cleanup_plan_json=registration_request.cleanup_plan,
+            cleanup_plan_sha256=registration_request.cleanup_plan_sha256,
+            cleanup_plan_state="sealed",
+        )
+        self.settings = _settings()
         self.register_benchmark_run = FakeUseCase(
             RegisterBenchmarkRunResult(record=record, created=registration_created)
         )

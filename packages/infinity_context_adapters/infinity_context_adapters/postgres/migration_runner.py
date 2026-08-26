@@ -4,8 +4,10 @@ from __future__ import annotations
 
 import asyncio
 import re
+from contextlib import suppress
 from dataclasses import dataclass
 from datetime import datetime
+from enum import Enum, auto
 from hashlib import sha256
 from pathlib import Path
 from time import monotonic
@@ -17,20 +19,29 @@ from infinity_context_adapters.postgres.legacy_schema_manifest import (
     LEGACY_SCHEMA_MANIFESTS,
     LegacySchemaManifest,
 )
+from infinity_context_adapters.postgres.migration_metadata import (
+    is_compatible_migration_checksum,
+)
+from infinity_context_adapters.postgres.staged_locator_migrations import (
+    STAGED_MIGRATION_IDS,
+    apply_staged_locator_migration,
+)
 
 _MIGRATIONS_DIRECTORY = Path(__file__).with_name("migrations")
 _LEGACY_BASELINE_PREFIX = "0022_"
 _ADVISORY_LOCK_ID = 4_916_625_310_112_023_308
 _ADVISORY_LOCK_POLL_SECONDS = 0.1
 _ADVISORY_LOCK_TIMEOUT_SECONDS = 60.0
+_ADVISORY_LOCK_RETRY_SECONDS = 0.05
 _NON_TRANSACTIONAL_HEADER = "-- infinity-context: no-transaction"
 _STATEMENT_BREAK = "-- infinity-context: statement-break"
 _RECOVER_INDEX_PREFIX = "-- infinity-context: recover-index "
-_PUBLISHED_CHECKSUM_ALIASES: dict[str, frozenset[str]] = {
-    "0030_suggestion_receipt_tenant_integrity": frozenset(
-        {"4d936c3d49f76028eec009a1b1e8ee2bcf214b2b4a03e7ac120bad5321aa3064"}
-    ),
-}
+
+
+class _AdvisoryLockState(Enum):
+    NOT_ACQUIRED = auto()
+    ACQUISITION_UNCERTAIN = auto()
+    ACQUIRED = auto()
 
 
 @dataclass(frozen=True, slots=True)
@@ -83,6 +94,11 @@ async def upgrade_schema(engine: AsyncEngine) -> SchemaUpgradeResult:
     legacy_baseline = False
 
     async with engine.connect() as raw_lock_connection:
+        # Lightweight connection doubles and alternate adapters may expose the
+        # asyncpg driver without SQLAlchemy execution options. Keep the same
+        # bounded session-fence semantics for that boundary.
+        if not hasattr(raw_lock_connection, "execution_options"):
+            return await _upgrade_on_driver_connection(raw_lock_connection, migrations)
         lock_connection = await raw_lock_connection.execution_options(isolation_level="AUTOCOMMIT")
         lock_acquired = False
         try:
@@ -118,13 +134,22 @@ async def upgrade_schema(engine: AsyncEngine) -> SchemaUpgradeResult:
                 if migration.migration_id in applied_history:
                     continue
                 if migration.transactional:
-                    async with engine.begin() as work_connection:
-                        await _execute_transactional(work_connection, migration)
-                        await _record_migration(
-                            work_connection,
-                            migration,
-                            execution_kind="applied",
-                        )
+                    if migration.migration_id in STAGED_MIGRATION_IDS:
+                        async with engine.connect() as work_connection:
+                            await apply_staged_locator_migration(
+                                work_connection, migration_id=migration.migration_id
+                            )
+                            async with work_connection.begin():
+                                await _execute_transactional(work_connection, migration)
+                                await _record_migration(
+                                    work_connection, migration, execution_kind="applied"
+                                )
+                    else:
+                        async with engine.begin() as work_connection:
+                            await _execute_transactional(work_connection, migration)
+                            await _record_migration(
+                                work_connection, migration, execution_kind="applied"
+                            )
                 else:
                     await _execute_nontransactional(engine, migration)
                     async with engine.begin() as work_connection:
@@ -142,12 +167,80 @@ async def upgrade_schema(engine: AsyncEngine) -> SchemaUpgradeResult:
                 # before control returned to us. Never let that physical connection
                 # return alive to the pool when acquisition has an ambiguous result.
                 await _invalidate_connection(lock_connection)
-
     return SchemaUpgradeResult(
         applied=tuple(applied),
         legacy_baseline=legacy_baseline,
         current=migrations[-1].migration_id,
     )
+
+
+async def _upgrade_on_driver_connection(
+    connection: AsyncConnection,
+    migrations: tuple[_Migration, ...],
+) -> SchemaUpgradeResult:
+    raw_connection = await connection.get_raw_connection()
+    driver_connection = raw_connection.driver_connection
+    await driver_connection.execute("SET search_path = public, pg_catalog, pg_temp")
+    lock_state = _AdvisoryLockState.NOT_ACQUIRED
+    application_error: BaseException | None = None
+    try:
+        lock_state = await _acquire_driver_advisory_lock(connection, driver_connection)
+        async with connection.begin():
+            await _ensure_history_table(connection)
+            applied_history = await _load_history(connection)
+            _validate_history(migrations, applied_history)
+            legacy_baseline = not applied_history and await _has_unversioned_schema(connection)
+            if legacy_baseline:
+                await _validate_legacy_baseline(connection)
+                await _record_legacy_baseline(connection, migrations)
+                applied_history = await _load_history(connection)
+        applied = await _apply_pending(connection, migrations, applied_history)
+    except BaseException as error:
+        application_error = error
+        raise
+    finally:
+        if lock_state is _AdvisoryLockState.ACQUIRED:
+            await _release_advisory_lock(
+                connection,
+                driver_connection,
+                application_error=application_error,
+            )
+        elif lock_state is _AdvisoryLockState.ACQUISITION_UNCERTAIN:
+            await _discard_connection(connection)
+    return SchemaUpgradeResult(
+        applied=applied,
+        legacy_baseline=legacy_baseline,
+        current=migrations[-1].migration_id,
+    )
+
+
+async def _acquire_driver_advisory_lock(
+    connection: AsyncConnection, driver_connection: object
+) -> _AdvisoryLockState:
+    deadline = monotonic() + _ADVISORY_LOCK_TIMEOUT_SECONDS
+    while True:
+        remaining = deadline - monotonic()
+        if remaining <= 0:
+            raise _advisory_lock_timeout()
+        try:
+            async with asyncio.timeout(remaining):
+                acquired = bool(
+                    await driver_connection.fetchval(  # type: ignore[attr-defined]
+                        f"SELECT pg_catalog.pg_try_advisory_lock({_ADVISORY_LOCK_ID})"
+                    )
+                )
+        except TimeoutError as exc:
+            await _discard_connection(connection)
+            raise _advisory_lock_timeout() from exc
+        except BaseException:
+            await _discard_connection(connection)
+            raise
+        if acquired:
+            return _AdvisoryLockState.ACQUIRED
+        remaining = deadline - monotonic()
+        if remaining <= 0:
+            raise _advisory_lock_timeout()
+        await asyncio.sleep(min(_ADVISORY_LOCK_RETRY_SECONDS, remaining))
 
 
 async def _acquire_advisory_lock(connection: AsyncConnection) -> None:
@@ -178,8 +271,32 @@ def _advisory_lock_timeout() -> TimeoutError:
     return TimeoutError("Timed out waiting for the PostgreSQL schema migration advisory lock")
 
 
-async def _release_advisory_lock(connection: AsyncConnection) -> None:
+async def _release_advisory_lock(
+    connection: AsyncConnection,
+    driver_connection: object | None = None,
+    *,
+    application_error: BaseException | None = None,
+) -> None:
     """Release a known-held lock, discarding the connection on ambiguity."""
+
+    if driver_connection is not None:
+        cleanup_error: BaseException | None = None
+        try:
+            released = await driver_connection.fetchval(  # type: ignore[attr-defined]
+                f"SELECT pg_catalog.pg_advisory_unlock({_ADVISORY_LOCK_ID})"
+            )
+            if released is not True:
+                cleanup_error = RuntimeError(
+                    "PostgreSQL migration advisory lock was not released"
+                )
+        except BaseException as error:
+            cleanup_error = error
+        if cleanup_error is None:
+            return
+        await _discard_connection(connection)
+        if application_error is None:
+            raise cleanup_error
+        return
 
     try:
         released = await connection.scalar(
@@ -232,7 +349,7 @@ async def _ensure_history_table(connection: AsyncConnection) -> None:
     await connection.execute(
         text(
             """
-            CREATE TABLE IF NOT EXISTS infinity_context_schema_migrations (
+            CREATE TABLE IF NOT EXISTS public.infinity_context_schema_migrations (
                 migration_id VARCHAR(160) PRIMARY KEY,
                 checksum VARCHAR(64) NOT NULL,
                 execution_kind VARCHAR(32) NOT NULL,
@@ -251,7 +368,7 @@ async def _load_history(connection: AsyncConnection) -> dict[str, str]:
             text(
                 """
                 SELECT migration_id, checksum
-                FROM infinity_context_schema_migrations
+                FROM public.infinity_context_schema_migrations
                 ORDER BY migration_id
                 """
             )
@@ -269,10 +386,8 @@ def _validate_history(
     if unknown:
         raise RuntimeError(f"Unknown applied PostgreSQL migration: {unknown[0]}")
     for migration_id, checksum in history.items():
-        if known[
-            migration_id
-        ].checksum != checksum and checksum not in _PUBLISHED_CHECKSUM_ALIASES.get(
-            migration_id, frozenset()
+        if not is_compatible_migration_checksum(
+            migration_id, checksum, known[migration_id].checksum
         ):
             raise RuntimeError(f"PostgreSQL migration checksum drift: {migration_id}")
     applied_ids = tuple(history)
@@ -289,7 +404,7 @@ async def _has_unversioned_schema(connection: AsyncConnection) -> bool:
                 SELECT EXISTS (
                     SELECT 1
                     FROM pg_catalog.pg_tables
-                    WHERE schemaname = current_schema()
+                    WHERE schemaname = 'public'
                       AND tablename <> 'infinity_context_schema_migrations'
                 )
                 """
@@ -307,7 +422,7 @@ async def _validate_legacy_baseline(connection: AsyncConnection) -> None:
                 """
                 SELECT table_name, column_name
                 FROM information_schema.columns
-                WHERE table_schema = current_schema()
+                WHERE table_schema = 'public'
                 """
             )
         )
@@ -321,19 +436,19 @@ async def _validate_legacy_baseline(connection: AsyncConnection) -> None:
             query="""
                 SELECT constraint_name
                 FROM information_schema.table_constraints
-                WHERE constraint_schema = current_schema()
+                WHERE constraint_schema = 'public'
             """,
         ),
         "indexes": await _load_catalog_names(
             connection,
-            query="SELECT indexname FROM pg_indexes WHERE schemaname = current_schema()",
+            query="SELECT indexname FROM pg_catalog.pg_indexes WHERE schemaname = 'public'",
         ),
         "triggers": await _load_catalog_names(
             connection,
             query="""
                 SELECT DISTINCT trigger_name
                 FROM information_schema.triggers
-                WHERE trigger_schema = current_schema()
+                WHERE trigger_schema = 'public'
             """,
         ),
         "functions": await _load_catalog_names(
@@ -341,12 +456,12 @@ async def _validate_legacy_baseline(connection: AsyncConnection) -> None:
             query="""
                 SELECT routine_name
                 FROM information_schema.routines
-                WHERE routine_schema = current_schema()
+                WHERE routine_schema = 'public'
             """,
         ),
         "extensions": await _load_catalog_names(
             connection,
-            query="SELECT extname FROM pg_extension",
+            query="SELECT extname FROM pg_catalog.pg_extension",
         ),
     }
     failures = [
@@ -453,10 +568,43 @@ async def _apply_transactional_pending(
     return tuple(applied)
 
 
+async def _apply_pending(
+    connection: AsyncConnection,
+    migrations: tuple[_Migration, ...],
+    history: dict[str, str],
+) -> tuple[str, ...]:
+    """Apply transactional and staged migrations on one fenced connection."""
+
+    applied: list[str] = []
+    for migration in migrations:
+        if migration.migration_id in history:
+            continue
+        if not migration.transactional:
+            raise RuntimeError(
+                f"Nontransactional migration requires online runner: {migration.migration_id}"
+            )
+        if migration.migration_id in STAGED_MIGRATION_IDS:
+            await apply_staged_locator_migration(
+                connection, migration_id=migration.migration_id
+            )
+        async with connection.begin():
+            raw_connection = await connection.get_raw_connection()
+            # AsyncConnection.begin() is lazy. Force SQLAlchemy/asyncpg to start the
+            # physical transaction before bypassing SQLAlchemy for a multi-statement
+            # script, so the script and history insert share one commit boundary.
+            await connection.execute(text("SET LOCAL search_path = public, pg_catalog, pg_temp"))
+            await connection.execute(text("SELECT 1"))
+            await raw_connection.driver_connection.execute(migration.sql)
+            await _record_migration(connection, migration, execution_kind="applied")
+        applied.append(migration.migration_id)
+    return tuple(applied)
+
+
 async def _execute_transactional(
     connection: AsyncConnection,
     migration: _Migration,
 ) -> None:
+    await connection.execute(text("SET LOCAL search_path = public, pg_catalog, pg_temp"))
     raw_connection = await connection.get_raw_connection()
     await raw_connection.driver_connection.execute(migration.sql)
 
@@ -468,6 +616,7 @@ async def _execute_nontransactional(
     recoverable_indexes = migration.recoverable_indexes()
     async with engine.connect() as connection:
         autocommit = await connection.execution_options(isolation_level="AUTOCOMMIT")
+        await autocommit.exec_driver_sql("SET search_path = public, pg_catalog, pg_temp")
         invalid_indexes = await _invalid_indexes(autocommit, recoverable_indexes)
         for index_name in invalid_indexes:
             await autocommit.exec_driver_sql(f'DROP INDEX CONCURRENTLY IF EXISTS "{index_name}"')
@@ -515,7 +664,7 @@ async def _index_validity(
               ON index_class.oid = index_state.indexrelid
             JOIN pg_catalog.pg_namespace AS index_namespace
               ON index_namespace.oid = index_class.relnamespace
-            WHERE index_namespace.nspname = current_schema()
+            WHERE index_namespace.nspname = 'public'
               AND index_class.relname IN ({quoted})
             """
         )
@@ -533,7 +682,7 @@ async def _record_migration(
     await connection.execute(
         text(
             """
-            INSERT INTO infinity_context_schema_migrations (
+            INSERT INTO public.infinity_context_schema_migrations (
                 migration_id, checksum, execution_kind, applied_at
             ) VALUES (
                 :migration_id, :checksum, :execution_kind,
@@ -548,6 +697,15 @@ async def _record_migration(
             "applied_at": applied_at,
         },
     )
+
+
+async def _discard_connection(connection: AsyncConnection) -> None:
+    """Never return a session with uncertain advisory-lock state to the pool."""
+
+    with suppress(BaseException):
+        await connection.invalidate()
+    with suppress(BaseException):
+        await connection.close()
 
 
 __all__ = ("SchemaUpgradeResult", "upgrade_schema")

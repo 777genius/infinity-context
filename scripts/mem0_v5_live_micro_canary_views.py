@@ -23,6 +23,14 @@ class SearchView(Protocol):
 
 class TerminalView(Protocol):
     terminal_state: str
+    admission_commitment_sha256: str
+    seal_commitment_sha256: str | None
+    operation_root_sha256: str | None
+    operation_inventory_root_sha256: str
+    deleted_operation_count: int
+    residual_record_count: int
+    residual_root_sha256: str
+    failed_receipts: tuple[object, ...]
     commitment_sha256: str
     provider_observed_extraction_calls: int
     provider_observed_request_tokens: int

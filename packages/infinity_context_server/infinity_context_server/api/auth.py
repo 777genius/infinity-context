@@ -67,6 +67,7 @@ async def require_service_token(
     if not db_token.binding_active:
         raise MemoryForbiddenError("Service token scope is no longer active")
     request.state.authenticated_actor_id = db_token.token_id
+    request.state.active_service_token = db_token
     _ensure_permission(request, db_token)
     await _ensure_scoped_token_can_access_request(container, request, db_token)
     await _ensure_memory_scope_scoped_token_can_access_request(container, request, db_token)
@@ -251,7 +252,7 @@ def _ensure_repository_token_endpoint_isolated(
     )
     allowed = (
         (method == "GET" and path == "/v1/capabilities")
-        or (method == "POST" and path in {"/v1/context", "/v1/search"})
+        or (method == "POST" and path in {"/v1/context", "/v1/search", "/v1/context/retrieve"})
         or (method == "POST" and path == "/v1/context/benchmark-search")
         or (method == "POST" and path == "/v1/captures")
         or (method == "POST" and path == "/v1/facts")
@@ -292,7 +293,7 @@ def _required_permission(request: Request) -> str | None:
     if path.startswith("/v1/export"):
         return MEMORY_PERMISSION_ADMIN
 
-    if path in {"/v1/context", "/v1/search"}:
+    if path in {"/v1/context", "/v1/search", "/v1/context/retrieve"}:
         return MEMORY_PERMISSION_READ
 
     if path.startswith("/api/v1/interview-memory"):
@@ -410,6 +411,8 @@ async def _ensure_scoped_token_can_access_request(
 ) -> None:
     if token.space_id is None:
         return
+    if _uses_trusted_post_resolution_scope(request):
+        return
     if request.url.path.startswith("/v1/internal/memory-comparison/runs"):
         raise MemoryForbiddenError("Scoped service token cannot access unscoped endpoint")
     if _is_safe_unscoped_endpoint(request):
@@ -430,6 +433,8 @@ async def _ensure_memory_scope_scoped_token_can_access_request(
     token: ActiveServiceToken,
 ) -> None:
     if token.memory_scope_ids is None:
+        return
+    if _uses_trusted_post_resolution_scope(request):
         return
     if request.url.path.startswith("/v1/internal/memory-comparison/runs"):
         raise MemoryForbiddenError(
@@ -463,6 +468,30 @@ async def _ensure_memory_scope_scoped_token_can_access_request(
 
 def _is_safe_unscoped_endpoint(request: Request) -> bool:
     return request.method.upper() == "GET" and request.url.path == "/v1/capabilities"
+
+
+def _uses_trusted_post_resolution_scope(request: Request) -> bool:
+    return request.method.upper() == "POST" and request.url.path == "/v1/context/retrieve"
+
+
+def authorize_resolved_retrieval_scope(
+    request: Request, *, space_id: str, memory_scope_id: str
+) -> None:
+    """Authorize canonical IDs after server-side scope resolution."""
+
+    token = getattr(request.state, "active_service_token", None)
+    if token is None:
+        return
+    if not isinstance(token, ActiveServiceToken):
+        raise MemoryForbiddenError("Invalid authenticated service token context")
+    if token.repository_id is not None or token.code_scope_id is not None:
+        raise MemoryForbiddenError("Repository-scoped tokens cannot use document locator retrieval")
+    if token.space_id is not None and token.space_id != space_id:
+        raise MemoryForbiddenError("Scoped service token cannot access requested space")
+    if token.memory_scope_ids is not None and memory_scope_id not in token.memory_scope_ids:
+        raise MemoryForbiddenError(
+            "MemoryScope-scoped service token cannot access requested memory_scope"
+        )
 
 
 async def _requested_space_refs(container: Container, request: Request) -> set[str]:

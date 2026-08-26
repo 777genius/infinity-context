@@ -35,6 +35,7 @@ INITIATION = "b" * 64
 MANIFEST = "c" * 64
 PROOF = "d" * 64
 COMPLETION = "e" * 64
+PLAN = "f" * 64
 COMPLETED_AT = datetime(2026, 1, 1, 2, 3, 4, 5000, tzinfo=UTC)
 
 
@@ -55,12 +56,14 @@ def test_lifecycle_endpoint_returns_exact_persisted_recovery_shape() -> None:
         "space_id",
         "space_slug",
         "state",
+        "cleanup_plan_sha256",
+        "cleanup_plan_state",
         "projection_cleanup_state",
         "projection_manifest_sha256",
         "cleanup_receipt",
         "completion_receipt",
     }
-    assert data["schema_version"] == "memory-comparison-run-lifecycle-response.v1"
+    assert data["schema_version"] == "memory-comparison-run-lifecycle-response.v2"
     assert data["authority"] == "infinity_canonical"
     assert data["state"] == "cleanup_complete"
     assert data["projection_cleanup_state"] == "complete"
@@ -121,8 +124,9 @@ def test_finalize_endpoint_forwards_only_receipt_and_returns_persisted_completio
         api.finalize_benchmark_run_cleanup(
             RUN,
             api.FinalizeBenchmarkRunCleanupRequest(
-                schema_version="memory-comparison-run-cleanup-finalize.v1",
+                schema_version="memory-comparison-run-cleanup-finalize.v2",
                 receipt_sha256=INITIATION,
+                cleanup_plan_sha256=PLAN,
             ),
             container,
             "finalization-secret",
@@ -133,6 +137,7 @@ def test_finalize_endpoint_forwards_only_receipt_and_returns_persisted_completio
         FinalizeBenchmarkRunCleanupCommand(
             run_id_sha256=RUN,
             expected_cleanup_receipt_sha256=INITIATION,
+            expected_cleanup_plan_sha256=PLAN,
             idempotency_key_sha256=hashlib.sha256(b"finalization-secret").hexdigest(),
         )
     )
@@ -159,8 +164,9 @@ def test_finalize_endpoint_forwards_only_receipt_and_returns_persisted_completio
 def test_finalize_request_rejects_caller_provider_evidence() -> None:
     with pytest.raises(ValidationError):
         api.FinalizeBenchmarkRunCleanupRequest(
-            schema_version="memory-comparison-run-cleanup-finalize.v1",
+            schema_version="memory-comparison-run-cleanup-finalize.v2",
             receipt_sha256=INITIATION,
+            cleanup_plan_sha256=PLAN,
             qdrant_absent=True,
         )
 
@@ -276,6 +282,9 @@ def _lifecycle_record() -> BenchmarkRunRegistryRecord:
         idempotency_key_sha256="3" * 64,
         registration_fingerprint_sha256="4" * 64,
         state="cleanup_complete",
+        cleanup_plan_json={"must_not_leak": True},
+        cleanup_plan_sha256=PLAN,
+        cleanup_plan_state="sealed",
         projection_manifest_json={"must_not_leak": True},
         projection_manifest_sha256=MANIFEST,
         projection_cleanup_state="complete",

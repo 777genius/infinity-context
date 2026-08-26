@@ -181,7 +181,10 @@ def test_multimodal_ingestion_bad_inputs_limits_and_mime_review_gate_e2e(
             thread_external_ref="archive-entry-limit",
         )
 
-        _run_worker(server.env, limit=20)
+        # Fairness fencing admits one predecessor-free job per key on each claim.
+        # Run one pass per queued extraction instead of depending on old fan-out.
+        for _ in range(4):
+            _run_worker(server.env, limit=20)
         wrong_mime_extraction = _get_extraction(client, wrong_mime["extraction"]["id"])
         assert wrong_mime_extraction["status"] == "succeeded"
         assert wrong_mime_extraction["parser_name"] == "simple_text"

@@ -26,6 +26,9 @@ from infinity_context_server import (
     memory_comparison_managed_v5_live_preparation as preparation_subject,
 )
 from infinity_context_server import memory_comparison_managed_v5_production_runner as runner_subject
+from infinity_context_server import (
+    memory_comparison_managed_v5_runtime_factory as runtime_factory_subject,
+)
 from infinity_context_server.memory_comparison_bounded_httpx_transport import (
     BoundedHttpResponse,
 )
@@ -621,6 +624,12 @@ def _fixture(
         run_id_sha256=_sha(_RUN_ID),
         binding_commitment_sha256=bindings.binding_commitment_sha256,
         space_slug=space_slug,
+        cleanup_plan=registry_support._cleanup_plan(
+            run_id_sha256=_sha(_RUN_ID),
+            binding=bindings.binding_commitment_sha256,
+            target=infinity_target,
+            space_slug=space_slug,
+        ),
     )
     activated = _activate_managed_v5_public_run(
         preparation,
@@ -637,6 +646,11 @@ def _fixture(
         composition_subject,
         "load_managed_mem0_v5_credentials",
         lambda _paths: (_ for _ in ()).throw(AssertionError("credential reread")),
+    )
+    monkeypatch.setattr(
+        runtime_factory_subject,
+        "ManagedV5LiveRecoveryObserver",
+        registry_support._RecoveryObserver,
     )
     runtime = create_managed_v5_production_runtime(
         activated_preparation=activated,
@@ -660,6 +674,7 @@ def _fixture(
         mem0_credential_capabilities=sealed_credentials,
         benchmark_registry=registry,
         benchmark_registration=registration,
+        recovery_observer=registry_support._RecoveryObserver(registry_events),
         mem0_transport=mem0_transport,
         infinity_derived_transport_factory=lambda: httpx.MockTransport(infinity_handler),
         infinity_cleanup_transport_factory=lambda: httpx.MockTransport(infinity_handler),
@@ -824,7 +839,9 @@ def test_two_corpus_runtime_completes_exact_cleanup_and_closes_once(
 
     assert runtime.policy_port.terminal_completion_receipt.state == "cleanup_complete"
     assert mem0.paths.count("/v5/runs/cleanup") == 2
-    assert registry_events[-1] == "registry.finalize"
+    assert registry_events.index("registry.finalize") < registry_events.index(
+        "recovery.canonical-terminal"
+    )
     assert sum(path.startswith("/v1/facts/") for path in infinity_events) == 8
     runtime.owned_resources.close()
     runtime.owned_resources.close()

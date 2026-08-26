@@ -2,19 +2,28 @@
 
 from __future__ import annotations
 
+import re
 from collections.abc import Mapping, Sequence
 from typing import Any, final
 
+from infinity_context_core.ports.benchmark_unsealed_projection import (
+    BenchmarkProjectionPassReceipt,
+    BenchmarkUnsealedProjectionScope,
+)
 from infinity_context_core.ports.graph_evidence import (
     GraphProjectionDeleteEvidence,
     GraphProjectionDeletePass,
     GraphProjectionIdentitySnapshot,
 )
 
+from infinity_context_adapters.graphiti.recovery_evidence import (
+    delete_benchmark_space_two_pass as _delete_benchmark_space_two_pass,
+)
 from infinity_context_adapters.graphiti.scope_identity import graphiti_group_id
 
 DEFAULT_MAX_GRAPH_IDENTITIES = 50_000
 _MAX_CONFIGURED_IDENTITIES = 1_000_000
+_SHA256 = re.compile(r"^[0-9a-f]{64}$")
 
 _GROUP_NODES_QUERY = """
 MATCH (node)
@@ -106,6 +115,7 @@ class Neo4jGraphitiIdentityEvidenceAdapter:
         "_neo4j_uri",
         "_neo4j_user",
         "_owns_driver",
+        "_target_commitment_sha256",
     )
 
     def __init__(
@@ -117,6 +127,7 @@ class Neo4jGraphitiIdentityEvidenceAdapter:
         neo4j_password: str | None = None,
         database: str | None = None,
         max_identity_count: int = DEFAULT_MAX_GRAPH_IDENTITIES,
+        target_commitment_sha256: str | None = None,
     ) -> None:
         configured = (neo4j_uri, neo4j_user, neo4j_password)
         if driver is None and any(value is None or not value.strip() for value in configured):
@@ -142,6 +153,12 @@ class Neo4jGraphitiIdentityEvidenceAdapter:
         self._neo4j_password = neo4j_password
         self._database = database
         self._max_identity_count = max_identity_count
+        if (
+            target_commitment_sha256 is not None
+            and _SHA256.fullmatch(target_commitment_sha256) is None
+        ):
+            raise GraphitiIdentityEvidenceError("graphiti target commitment is invalid")
+        self._target_commitment_sha256 = target_commitment_sha256
         self._owns_driver = driver is None
         self._closed = False
 
@@ -279,6 +296,19 @@ class Neo4jGraphitiIdentityEvidenceAdapter:
             raise GraphitiIdentityEvidenceError(
                 "graphiti two-pass identity deletion failed"
             ) from None
+
+    async def delete_benchmark_space_two_pass(
+        self,
+        *,
+        space_id: str,
+        scopes: tuple[BenchmarkUnsealedProjectionScope, ...],
+    ) -> tuple[BenchmarkProjectionPassReceipt, BenchmarkProjectionPassReceipt]:
+        return await _delete_benchmark_space_two_pass(
+            self,
+            error_type=GraphitiIdentityEvidenceError,
+            space_id=space_id,
+            scopes=scopes,
+        )
 
     async def _delete_pass(
         self,

@@ -84,6 +84,7 @@ def test_ingestion_application_contracts_are_frozen_dataclasses() -> None:
                 "classification",
                 "chunking_policy",
                 "idempotency_key",
+                "retrieval_projection",
             ),
         ),
         (
@@ -155,18 +156,15 @@ def test_document_ingestion_ports_are_protocol_boundaries() -> None:
         "SourceDocumentRepositoryPort",
         "DocumentChunkRepositoryPort",
         "DocumentChunkIndexPort",
+        "DocumentRetrievalProjectionOwnershipPortV1",
     )
     for name in protocol_names:
         assert getattr(getattr(ports, name), "_is_protocol", False)
 
     for method_name in ("create", "get", "find_active_by_content_hash"):
-        assert inspect.iscoroutinefunction(
-            getattr(ports.SourceDocumentRepositoryPort, method_name)
-        )
+        assert inspect.iscoroutinefunction(getattr(ports.SourceDocumentRepositoryPort, method_name))
     for method_name in ("upsert", "list_for_document"):
-        assert inspect.iscoroutinefunction(
-            getattr(ports.DocumentChunkRepositoryPort, method_name)
-        )
+        assert inspect.iscoroutinefunction(getattr(ports.DocumentChunkRepositoryPort, method_name))
     for method_name in ("upsert_chunks", "delete_chunks"):
         assert inspect.iscoroutinefunction(getattr(ports.DocumentChunkIndexPort, method_name))
 
@@ -218,6 +216,18 @@ def test_document_ingestion_public_api_exports_application_domain_and_ports() ->
         "DocumentIngestionScope": domain,
         "DocumentIngestionUseCases": application,
         "DocumentIngestionValidationError": domain,
+        "DOCUMENT_RETRIEVAL_PROJECTION_SCHEMA_V1": domain,
+        "DocumentProjectionConflictError": domain,
+        "DocumentProjectionIdempotencyConflictError": domain,
+        "DocumentProjectionInvalidError": domain,
+        "DocumentProjectionLocatorConflictError": domain,
+        "DocumentProjectionOrdinalConflictError": domain,
+        "DocumentProjectionOwnershipClaimV1": ports,
+        "DocumentProjectionOwnershipDecisionV1": ports,
+        "DocumentRetrievalProjectionOwnershipPortV1": ports,
+        "DocumentRetrievalProjectionTimeIntervalV1": domain,
+        "DocumentRetrievalProjectionRelativeTimeIntervalV1": domain,
+        "DocumentRetrievalProjectionV1": domain,
         "DocumentTextRange": domain,
         "FEATURE_ID": domain,
         "IngestDocumentCommand": application,
@@ -328,7 +338,4 @@ def _package_context(path: Path) -> str | None:
 
 
 def _matches_prefix(imported: str, prefixes: tuple[str, ...]) -> bool:
-    return any(
-        imported == prefix or imported.startswith(f"{prefix}.")
-        for prefix in prefixes
-    )
+    return any(imported == prefix or imported.startswith(f"{prefix}.") for prefix in prefixes)

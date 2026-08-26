@@ -18,19 +18,20 @@ def test_postgres_projection_upgrade_orders_backfill_before_constraints(monkeypa
     benchmark_projection_schema._ensure_postgres_benchmark_projection_manifest_schema(connection)
 
     statements = connection.statements
-    assert len(statements) == 23
-    assert all("ADD COLUMN" in statement for statement in statements[:6])
-    assert "projection_manifest_json JSONB" in statements[0]
-    assert "completed_at TIMESTAMPTZ" in statements[5]
-    assert "UPDATE memory_comparison_benchmark_runs" in statements[6]
-    assert "WHEN state = 'cleanup_pending' THEN 'blocked'" in statements[6]
-    assert "WHEN state = 'cleanup_aborted' THEN 'unsealed_abort_complete'" in statements[6]
-    assert "SET DEFAULT 'unsealed'" in statements[7]
-    assert "SET NOT NULL" in statements[7]
-    assert all("DROP CONSTRAINT IF EXISTS" in statement for statement in statements[8:13])
-    assert all("ADD CONSTRAINT" in statement for statement in statements[13:18])
-    assert all("NOT VALID" in statement for statement in statements[13:18])
-    assert all("VALIDATE CONSTRAINT" in statement for statement in statements[18:])
+    assert len(statements) == 31
+    assert all("ADD COLUMN" in statement for statement in statements[:9])
+    assert "cleanup_plan_json JSONB" in statements[0]
+    assert "projection_manifest_json JSONB" in statements[3]
+    assert "completed_at TIMESTAMPTZ" in statements[8]
+    assert "cleanup_plan_state = 'recovery_blocked'" in statements[9]
+    assert "SET DEFAULT 'recovery_blocked'" in statements[10]
+    assert "WHEN state = 'cleanup_pending' THEN 'blocked'" in statements[11]
+    assert "WHEN state = 'cleanup_aborted' THEN 'unsealed_abort_complete'" in statements[11]
+    assert "SET DEFAULT 'unsealed'" in statements[12]
+    assert all("DROP CONSTRAINT IF EXISTS" in statement for statement in statements[13:19])
+    assert all("ADD CONSTRAINT" in statement for statement in statements[19:25])
+    assert all("NOT VALID" in statement for statement in statements[19:25])
+    assert all("VALIDATE CONSTRAINT" in statement for statement in statements[25:])
 
 
 def test_create_schema_upgrades_pre_projection_manifest_benchmark_rows(tmp_path: Path) -> None:
@@ -130,7 +131,8 @@ def test_create_schema_upgrades_pre_projection_manifest_benchmark_rows(tmp_path:
                     text(
                         """
                         SELECT run_id_sha256, projection_manifest_json,
-                               projection_manifest_sha256, projection_cleanup_state
+                               projection_manifest_sha256, projection_cleanup_state,
+                               cleanup_plan_json, cleanup_plan_sha256, cleanup_plan_state
                         FROM memory_comparison_benchmark_runs
                         ORDER BY run_id_sha256
                         """
@@ -161,13 +163,14 @@ def test_create_schema_upgrades_pre_projection_manifest_benchmark_rows(tmp_path:
     assert columns["projection_cleanup_state"]["nullable"] is False
     assert "unsealed" in str(columns["projection_cleanup_state"]["default"])
     assert {
+        "ck_memory_comparison_benchmark_run_cleanup_plan_coupling",
         "ck_memory_comparison_benchmark_run_manifest_coupling",
         "ck_memory_comparison_benchmark_run_projection_cleanup_state",
         "ck_memory_comparison_benchmark_run_projection_lifecycle",
     }.issubset(constraints)
     assert rows == [
-        ("run-active", None, None, "unsealed"),
-        ("run-cleanup", None, None, "blocked"),
+        ("run-active", None, None, "unsealed", None, None, "recovery_blocked"),
+        ("run-cleanup", None, None, "blocked", None, None, "recovery_blocked"),
     ]
 
 
@@ -192,6 +195,13 @@ def test_postgres_projection_upgrade_skips_current_schema() -> None:
 class _CurrentProjectionSchemaInspector:
     def get_columns(self, _table_name: str) -> list[dict[str, object]]:
         return [
+            {"name": "cleanup_plan_json"},
+            {"name": "cleanup_plan_sha256"},
+            {
+                "name": "cleanup_plan_state",
+                "nullable": False,
+                "default": "('recovery_blocked'::character varying)",
+            },
             {"name": "projection_manifest_json"},
             {"name": "projection_manifest_sha256"},
             {"name": "finalization_fingerprint_sha256"},
@@ -206,6 +216,10 @@ class _CurrentProjectionSchemaInspector:
 
     def get_check_constraints(self, _table_name: str) -> list[dict[str, object]]:
         return [
+            {
+                "name": "ck_memory_comparison_benchmark_run_cleanup_plan_coupling",
+                "sqltext": ("cleanup_plan_json cleanup_plan_sha256 sealed recovery_blocked"),
+            },
             {
                 "name": "ck_memory_comparison_benchmark_run_state",
                 "sqltext": "state IN ('active', 'cleanup_aborted')",
@@ -240,6 +254,9 @@ def test_postgres_projection_upgrade_replaces_0020_lifecycle_constraints(
         benchmark_projection_schema,
         "_column_names",
         lambda *_args: {
+            "cleanup_plan_json",
+            "cleanup_plan_sha256",
+            "cleanup_plan_state",
             "projection_manifest_json",
             "projection_manifest_sha256",
             "projection_cleanup_state",
@@ -256,10 +273,10 @@ def test_postgres_projection_upgrade_replaces_0020_lifecycle_constraints(
 
     statements = connection.statements
     assert not any("ADD COLUMN" in statement for statement in statements)
-    dropped = statements[2:7]
-    added = statements[7:12]
-    validated = statements[12:]
-    assert len(dropped) == len(added) == len(validated) == 5
+    dropped = statements[4:10]
+    added = statements[10:16]
+    validated = statements[16:]
+    assert len(dropped) == len(added) == len(validated) == 6
     assert any("ck_memory_comparison_benchmark_run_state" in item for item in dropped)
     assert any("cleanup_aborted" in item for item in added)
     assert any("unsealed_abort_complete" in item for item in added)

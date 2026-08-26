@@ -34,7 +34,27 @@ from infinity_context_server.derived_identity_evidence import (
 from sqlalchemy import delete
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from tests.unit.benchmark_cleanup_plan_fixtures import cleanup_plan_pair
+
 NOW = datetime(2026, 1, 1, tzinfo=UTC)
+RUN = "a" * 64
+BINDING = "b" * 64
+TARGET = "c" * 64
+SPACE_ID = f"benchmark-space-{RUN[:48]}"
+READINESS_SLUG = "memory-comparison-readiness"
+EXACT_SLUG = "memory-comparison-exact"
+READINESS_CLEANUP_PLAN, READINESS_CLEANUP_PLAN_SHA256 = cleanup_plan_pair(
+    run_id=RUN,
+    binding=BINDING,
+    target=TARGET,
+    space_slug=READINESS_SLUG,
+)
+EXACT_CLEANUP_PLAN, EXACT_CLEANUP_PLAN_SHA256 = cleanup_plan_pair(
+    run_id=RUN,
+    binding=BINDING,
+    target=TARGET,
+    space_slug=EXACT_SLUG,
+)
 
 
 def test_deleted_projection_scope_requires_cleanup_pending_registry(tmp_path: Path) -> None:
@@ -44,14 +64,14 @@ def test_deleted_projection_scope_requires_cleanup_pending_registry(tmp_path: Pa
 async def _deleted_projection_scope_contract(tmp_path: Path) -> None:
     engine = build_async_engine(f"sqlite+aiosqlite:///{tmp_path / 'readiness.db'}")
     await create_schema(engine)
-    scope = CanonicalProjectionScope("space-1", "scope-1", "thread-1")
+    scope = CanonicalProjectionScope(SPACE_ID, "scope-1", "thread-1")
     try:
         async with AsyncSession(engine) as session:
             session.add_all(
                 [
                     MemorySpaceRow(
                         id=scope.space_id,
-                        slug="memory-comparison-readiness",
+                        slug=READINESS_SLUG,
                         name="readiness",
                         status="deleted",
                         created_at=NOW,
@@ -76,14 +96,17 @@ async def _deleted_projection_scope_contract(tmp_path: Path) -> None:
                         updated_at=NOW,
                     ),
                     MemoryComparisonBenchmarkRunRow(
-                        run_id_sha256="a" * 64,
-                        binding_commitment_sha256="b" * 64,
-                        infinity_target_identity_sha256="c" * 64,
+                        run_id_sha256=RUN,
+                        binding_commitment_sha256=BINDING,
+                        infinity_target_identity_sha256=TARGET,
                         space_id=scope.space_id,
-                        space_slug="memory-comparison-readiness",
+                        space_slug=READINESS_SLUG,
                         idempotency_key_sha256="d" * 64,
                         registration_fingerprint_sha256="e" * 64,
                         state="cleanup_pending",
+                        cleanup_plan_json=READINESS_CLEANUP_PLAN,
+                        cleanup_plan_sha256=READINESS_CLEANUP_PLAN_SHA256,
+                        cleanup_plan_state="sealed",
                         projection_cleanup_state="blocked",
                         cleanup_fingerprint_sha256="f" * 64,
                         cleanup_receipt_json={"state": "cleanup_pending"},
@@ -99,9 +122,12 @@ async def _deleted_projection_scope_contract(tmp_path: Path) -> None:
             ):
                 await _prove_delete_scope_exists(session, scope)
 
-            benchmark = await session.get(MemoryComparisonBenchmarkRunRow, "a" * 64)
+            benchmark = await session.get(MemoryComparisonBenchmarkRunRow, RUN)
             assert benchmark is not None
-            manifest = _projection_manifest(scope)
+            manifest = _projection_manifest(
+                scope,
+                cleanup_plan_sha256=READINESS_CLEANUP_PLAN_SHA256,
+            )
             benchmark.projection_manifest_json = manifest
             benchmark.projection_manifest_sha256 = _manifest_sha256(manifest)
             benchmark.projection_cleanup_state = "pending"
@@ -152,6 +178,7 @@ async def _deleted_projection_scope_contract(tmp_path: Path) -> None:
                 ("binding_commitment_sha256", "9" * 64),
                 ("infinity_target_identity_sha256", "9" * 64),
                 ("space_id", "space-2"),
+                ("cleanup_plan_sha256", "9" * 64),
             ):
                 tampered = {**manifest, field: invalid_value}
                 benchmark.projection_manifest_json = tampered
@@ -200,7 +227,7 @@ def test_tombstoned_pending_graphiti_accepts_done_upsert_without_delete_job(
 async def _exact_graphiti_lane_contract(tmp_path: Path, *, deleted: bool) -> None:
     engine = build_async_engine(f"sqlite+aiosqlite:///{tmp_path / 'exact-graphiti.db'}")
     await create_schema(engine)
-    scope = CanonicalProjectionScope("space-exact", "scope-exact", "thread-exact")
+    scope = CanonicalProjectionScope(SPACE_ID, "scope-exact", "thread-exact")
     snapshot = _graph_snapshot(scope)
     manifest = _exact_projection_manifest(scope, snapshot)
     try:
@@ -225,7 +252,7 @@ def test_sealed_readiness_rejects_exact_lane_mismatches(tmp_path: Path) -> None:
 async def _sealed_readiness_mismatch_contract(tmp_path: Path) -> None:
     engine = build_async_engine(f"sqlite+aiosqlite:///{tmp_path / 'mismatch.db'}")
     await create_schema(engine)
-    scope = CanonicalProjectionScope("space-exact", "scope-exact", "thread-exact")
+    scope = CanonicalProjectionScope(SPACE_ID, "scope-exact", "thread-exact")
     snapshot = _graph_snapshot(scope)
     manifest = _exact_projection_manifest(scope, snapshot)
     readiness = SqlAlchemyProjectionReadiness(engine)
@@ -262,7 +289,7 @@ async def _sealed_readiness_mismatch_contract(tmp_path: Path) -> None:
             )
 
         async with AsyncSession(engine) as session:
-            benchmark = await session.get(MemoryComparisonBenchmarkRunRow, "a" * 64)
+            benchmark = await session.get(MemoryComparisonBenchmarkRunRow, RUN)
             assert benchmark is not None
             benchmark.projection_manifest_sha256 = "0" * 64
             await session.commit()
@@ -287,7 +314,7 @@ def test_tombstoned_graphiti_delete_job_still_must_be_terminal(tmp_path: Path) -
 async def _tombstoned_graphiti_delete_job_contract(tmp_path: Path) -> None:
     engine = build_async_engine(f"sqlite+aiosqlite:///{tmp_path / 'blocked-delete.db'}")
     await create_schema(engine)
-    scope = CanonicalProjectionScope("space-exact", "scope-exact", "thread-exact")
+    scope = CanonicalProjectionScope(SPACE_ID, "scope-exact", "thread-exact")
     snapshot = _graph_snapshot(scope)
     manifest = _exact_projection_manifest(scope, snapshot)
     try:
@@ -320,7 +347,7 @@ async def _seed_exact_readiness(
             [
                 MemorySpaceRow(
                     id=scope.space_id,
-                    slug="memory-comparison-exact",
+                    slug=EXACT_SLUG,
                     name="exact",
                     status=status,
                     created_at=NOW,
@@ -364,14 +391,17 @@ async def _seed_exact_readiness(
                     updated_at=NOW,
                 ),
                 MemoryComparisonBenchmarkRunRow(
-                    run_id_sha256="a" * 64,
-                    binding_commitment_sha256="b" * 64,
-                    infinity_target_identity_sha256="c" * 64,
+                    run_id_sha256=RUN,
+                    binding_commitment_sha256=BINDING,
+                    infinity_target_identity_sha256=TARGET,
                     space_id=scope.space_id,
-                    space_slug="memory-comparison-exact",
+                    space_slug=EXACT_SLUG,
                     idempotency_key_sha256="d" * 64,
                     registration_fingerprint_sha256="e" * 64,
                     state="cleanup_pending" if deleted else "active",
+                    cleanup_plan_json=EXACT_CLEANUP_PLAN,
+                    cleanup_plan_sha256=EXACT_CLEANUP_PLAN_SHA256,
+                    cleanup_plan_state="sealed",
                     projection_manifest_json=manifest,
                     projection_manifest_sha256=_manifest_sha256(manifest),
                     projection_cleanup_state="pending" if deleted else "sealed",
@@ -429,7 +459,10 @@ def _exact_projection_manifest(
     scope: CanonicalProjectionScope,
     snapshot: GraphProjectionIdentitySnapshot,
 ) -> dict[str, object]:
-    manifest = _projection_manifest(scope)
+    manifest = _projection_manifest(
+        scope,
+        cleanup_plan_sha256=EXACT_CLEANUP_PLAN_SHA256,
+    )
     manifest_scope = manifest["scopes"][0]
     manifest_scope["chunk_ids"] = ["chunk-1"]
     manifest_scope["fact_ids"] = ["fact-1"]
@@ -448,13 +481,18 @@ def _exact_projection_manifest(
     return manifest
 
 
-def _projection_manifest(scope: CanonicalProjectionScope) -> dict[str, object]:
+def _projection_manifest(
+    scope: CanonicalProjectionScope,
+    *,
+    cleanup_plan_sha256: str,
+) -> dict[str, object]:
     return {
         "schema_version": "memory-comparison-projection-manifest.v1",
-        "run_id_sha256": "a" * 64,
-        "binding_commitment_sha256": "b" * 64,
-        "infinity_target_identity_sha256": "c" * 64,
+        "run_id_sha256": RUN,
+        "binding_commitment_sha256": BINDING,
+        "infinity_target_identity_sha256": TARGET,
         "space_id": scope.space_id,
+        "cleanup_plan_sha256": cleanup_plan_sha256,
         "scopes": [
             {
                 "memory_scope_id": scope.memory_scope_id,

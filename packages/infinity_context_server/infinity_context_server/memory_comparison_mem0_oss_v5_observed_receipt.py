@@ -34,27 +34,18 @@ from infinity_context_server.memory_comparison_mem0_oss_v5_http import (
     Mem0V5HttpError,
     Mem0V5RuntimeReceiptEnvelope,
 )
+from infinity_context_server.memory_comparison_reviewed_node import (
+    REVIEWED_NODE_EXECUTABLE_SHA256,
+    require_reviewed_node_executable,
+)
 from infinity_context_server.memory_comparison_secret_validation import (
     is_bounded_text_secret,
 )
 
 _SAFE_TEXT = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:-]{0,511}$")
 _REQUESTED_OUTPUT_TOKENS = 4096
-_MAX_NODE_EXECUTABLE_BYTES = 256 * 1024 * 1024
 _PROVIDER_FREE_TEST_SEAL = object()
 _PREFLIGHTED_COMPOSITION_SEAL = object()
-
-
-@dataclass(frozen=True, slots=True)
-class _ReviewedNodeExecutableAuthority:
-    canonical_path: Path
-    sha256: str
-
-
-_REVIEWED_NODE_EXECUTABLE = _ReviewedNodeExecutableAuthority(
-    canonical_path=Path("/usr/local/bin/node"),
-    sha256="b2959781cc5a74c357ffa02367efa8a0330cbb1c9cb347732fdfaaaca381cbcd",
-)
 
 
 @final
@@ -183,9 +174,9 @@ class Mem0V5ObservedExtractionReceiptVerifier(RuntimeReceiptVerificationPort):
 
     __slots__ = (
         "_authority",
+        "_authority_header_snapshot",
+        "_authority_header_snapshot_identity",
         "_authority_identity",
-        "_authority_snapshot",
-        "_authority_snapshot_identity",
         "_boundary",
         "_consumed",
         "_consumed_identity",
@@ -194,6 +185,8 @@ class Mem0V5ObservedExtractionReceiptVerifier(RuntimeReceiptVerificationPort):
         "_operation_index",
         "_operation_index_identity",
         "_operations",
+        "_operation_snapshots",
+        "_operation_snapshots_identity",
         "_runtime_binding",
         "_secret",
         "_unknown",
@@ -287,9 +280,13 @@ class Mem0V5ObservedExtractionReceiptVerifier(RuntimeReceiptVerificationPort):
         self._secret = receipt_secret
         self._authority = authority
         self._authority_identity = id(authority)
-        self._authority_snapshot = _authority_snapshot(authority)
-        self._authority_snapshot_identity = id(self._authority_snapshot)
+        self._authority_header_snapshot = _authority_header_snapshot(authority)
+        self._authority_header_snapshot_identity = id(self._authority_header_snapshot)
         self._operations = authority.operations
+        self._operation_snapshots = tuple(
+            _operation_snapshot(operation) for operation in authority.operations
+        )
+        self._operation_snapshots_identity = id(self._operation_snapshots)
         self._operation_index = {
             operation.operation_id_sha256: operation for operation in authority.operations
         }
@@ -392,6 +389,10 @@ class Mem0V5ObservedExtractionReceiptVerifier(RuntimeReceiptVerificationPort):
                 route_sha256=self._authority.route_binding_sha256,
                 scope_sha256=operation.scope_sha256,
                 provider_receipt_sha256=safe.receipt_sha256,
+                sequence=safe.sequence,
+                request_body_sha256=safe.request_body_sha256,
+                output_text_sha256=safe.output_text_sha256,
+                runtime_binding_commitment_sha256=safe.runtime_binding_commitment_sha256,
                 disposition=Mem0OssReceiptDisposition.COMPLETED,
                 extraction_calls=1,
                 retry_count=0,
@@ -412,9 +413,15 @@ class Mem0V5ObservedExtractionReceiptVerifier(RuntimeReceiptVerificationPort):
         if context.readback_only is not readback:
             raise Mem0OssFullRunError("mem0_v5_receipt_context_invalid")
         operation = self._operation_index.get(context.operation_id_sha256)
+        if type(operation) is not Mem0V5ObservedExtractionOperationAuthority:
+            _fail("mem0_v5_runtime_receipt_invalid")
         if (
-            type(operation) is not Mem0V5ObservedExtractionOperationAuthority
-            or context.admission_commitment_sha256 != authority.admission_commitment_sha256
+            context.operation_id_sha256 != operation.operation_id_sha256
+            or not self._operation_state_is_exact(operation)
+        ):
+            _fail("mem0_v5_runtime_receipt_state_invalid")
+        if (
+            context.admission_commitment_sha256 != authority.admission_commitment_sha256
             or context.operation_id_sha256 != operation.operation_id_sha256
             or context.unit_identity_sha256 != operation.unit_identity_sha256
             or context.unit_sha256 != operation.unit_sha256
@@ -442,20 +449,19 @@ class Mem0V5ObservedExtractionReceiptVerifier(RuntimeReceiptVerificationPort):
     def _require_authority_state(self) -> None:
         try:
             operations = self._authority.operations
-            operation_ids = tuple(operation.operation_id_sha256 for operation in operations)
             if (
                 type(self._authority) is not Mem0V5ObservedExtractionReceiptAuthority
                 or id(self._authority) != self._authority_identity
-                or id(self._authority_snapshot) != self._authority_snapshot_identity
-                or _authority_snapshot(self._authority) != self._authority_snapshot
+                or id(self._authority_header_snapshot) != self._authority_header_snapshot_identity
+                or _authority_header_snapshot(self._authority) != self._authority_header_snapshot
                 or operations is not self._operations
+                or type(operations) is not tuple
+                or id(self._operation_snapshots) != self._operation_snapshots_identity
+                or type(self._operation_snapshots) is not tuple
+                or len(self._operation_snapshots) != len(operations)
                 or id(self._operation_index) != self._operation_index_identity
                 or type(self._operation_index) is not dict
-                or tuple(self._operation_index) != operation_ids
-                or any(
-                    self._operation_index.get(operation.operation_id_sha256) is not operation
-                    for operation in operations
-                )
+                or len(self._operation_index) != len(operations)
                 or id(self._unknown) != self._unknown_identity
                 or type(self._unknown) is not set
                 or id(self._consumed) != self._consumed_identity
@@ -465,8 +471,23 @@ class Mem0V5ObservedExtractionReceiptVerifier(RuntimeReceiptVerificationPort):
         except Exception:
             _fail("mem0_v5_runtime_receipt_state_invalid")
 
+    def _operation_state_is_exact(
+        self,
+        operation: Mem0V5ObservedExtractionOperationAuthority,
+    ) -> bool:
+        sequence = operation.sequence
+        return (
+            type(sequence) is int
+            and 0 <= sequence < len(self._operations)
+            and self._operations[sequence] is operation
+            and self._operation_index.get(operation.operation_id_sha256) is operation
+            and self._operation_snapshots[sequence] == _operation_snapshot(operation)
+        )
 
-def _authority_snapshot(authority: Mem0V5ObservedExtractionReceiptAuthority) -> tuple[object, ...]:
+
+def _authority_header_snapshot(
+    authority: Mem0V5ObservedExtractionReceiptAuthority,
+) -> tuple[object, ...]:
     return (
         authority.admission_commitment_sha256,
         authority.model,
@@ -482,19 +503,21 @@ def _authority_snapshot(authority: Mem0V5ObservedExtractionReceiptAuthority) -> 
         authority.response_format_sha256,
         authority.response_schema_sha256,
         authority.requested_output_tokens,
-        tuple(
-            (
-                type(operation),
-                id(operation),
-                operation.operation_id_sha256,
-                operation.unit_identity_sha256,
-                operation.unit_sha256,
-                operation.scope_sha256,
-                operation.sequence,
-                operation.request_body_sha256,
-            )
-            for operation in authority.operations
-        ),
+    )
+
+
+def _operation_snapshot(
+    operation: Mem0V5ObservedExtractionOperationAuthority,
+) -> tuple[object, ...]:
+    return (
+        type(operation),
+        id(operation),
+        operation.operation_id_sha256,
+        operation.unit_identity_sha256,
+        operation.unit_sha256,
+        operation.scope_sha256,
+        operation.sequence,
+        operation.request_body_sha256,
     )
 
 
@@ -558,16 +581,14 @@ def _preflight_live_boundary(
         or _sha256_file(manifest) != reviewed.runtime_artifact_manifest.sha256
     ):
         raise ValueError
-    reviewed_node = _REVIEWED_NODE_EXECUTABLE
-    if (
-        authority.node_executable_path != str(reviewed_node.canonical_path)
-        or authority.node_executable_sha256 != reviewed_node.sha256
-    ):
+    if authority.node_executable_sha256 != REVIEWED_NODE_EXECUTABLE_SHA256:
         raise ValueError
-    node = _canonical_path(verifier.node_executable, directory=False)
-    if node != reviewed_node.canonical_path:
+    node = require_reviewed_node_executable(
+        verifier.node_executable,
+        authority.node_executable_sha256,
+    )
+    if authority.node_executable_path != str(node):
         raise ValueError
-    _require_pinned_node_executable(node, reviewed_node.sha256)
     verifier._verified_module_url()
 
 
@@ -581,73 +602,6 @@ def _canonical_path(value: object, *, directory: bool) -> Path:
     if (directory and not stat.S_ISDIR(mode)) or (not directory and not stat.S_ISREG(mode)):
         raise ValueError
     return resolved
-
-
-def _require_pinned_node_executable(path: Path, expected_sha256: str) -> None:
-    before = os.stat(path, follow_symlinks=False)
-    mode = before.st_mode
-    if (
-        not stat.S_ISREG(mode)
-        or not mode & stat.S_IRUSR
-        or not mode & stat.S_IXUSR
-        or mode & (stat.S_IWGRP | stat.S_IWOTH)
-        or not 1 <= before.st_size <= _MAX_NODE_EXECUTABLE_BYTES
-        or not os.access(path, os.X_OK)
-    ):
-        raise ValueError
-    flags = (
-        os.O_RDONLY
-        | getattr(os, "O_CLOEXEC", 0)
-        | getattr(os, "O_NOFOLLOW", 0)
-        | getattr(os, "O_NONBLOCK", 0)
-    )
-    descriptor = os.open(path, flags)
-    try:
-        observed = os.fstat(descriptor)
-        stable = (
-            observed.st_dev,
-            observed.st_ino,
-            observed.st_uid,
-            observed.st_gid,
-            observed.st_mode,
-            observed.st_size,
-        ) == (
-            before.st_dev,
-            before.st_ino,
-            before.st_uid,
-            before.st_gid,
-            before.st_mode,
-            before.st_size,
-        )
-        if not stable or not stat.S_ISREG(observed.st_mode):
-            raise ValueError
-        actual_sha256 = _sha256_descriptor(descriptor, observed.st_size)
-    finally:
-        os.close(descriptor)
-    after = os.stat(path, follow_symlinks=False)
-    if (after.st_dev, after.st_ino, after.st_uid, after.st_gid, after.st_mode, after.st_size) != (
-        before.st_dev,
-        before.st_ino,
-        before.st_uid,
-        before.st_gid,
-        before.st_mode,
-        before.st_size,
-    ) or actual_sha256 != expected_sha256:
-        raise ValueError
-
-
-def _sha256_descriptor(descriptor: int, expected_size: int) -> str:
-    digest = hashlib.sha256()
-    consumed = 0
-    while consumed < expected_size:
-        chunk = os.read(descriptor, min(1024 * 1024, expected_size - consumed))
-        if not chunk:
-            raise ValueError
-        consumed += len(chunk)
-        digest.update(chunk)
-    if os.read(descriptor, 1):
-        raise ValueError
-    return digest.hexdigest()
 
 
 def _sha256_file(path: Path) -> str:

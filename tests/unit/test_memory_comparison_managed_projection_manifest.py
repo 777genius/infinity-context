@@ -5,6 +5,11 @@ import json
 from dataclasses import replace
 
 import pytest
+from benchmark_cleanup_plan_fixtures import cleanup_plan_pair
+from infinity_context_core.application.use_cases.benchmark_runs import (
+    validate_projection_manifest,
+)
+from infinity_context_core.domain.errors import MemoryConflictError
 from infinity_context_core.ports.derived_projection_policy import (
     DerivedProjectionLaneDisposition,
     derived_not_projected_policy_sha256,
@@ -83,15 +88,24 @@ def _bindings() -> FullComparisonRunBindings:
 def _registration(
     bindings: FullComparisonRunBindings,
 ) -> ManagedBenchmarkRunRegistration:
+    run_id_sha256 = hashlib.sha256(bindings.run_id.encode()).hexdigest()
+    _, cleanup_plan_sha256 = cleanup_plan_pair(
+        run_id=run_id_sha256,
+        binding=bindings.binding_commitment_sha256,
+        target=_INFINITY_TARGET,
+        space_slug="memory-comparison-managed-run-1",
+    )
     return ManagedBenchmarkRunRegistration(
-        schema_version="memory-comparison-run-registration-response.v1",
+        schema_version="memory-comparison-run-registration-response.v2",
         authority="infinity_canonical",
-        run_id_sha256=hashlib.sha256(bindings.run_id.encode()).hexdigest(),
+        run_id_sha256=run_id_sha256,
         binding_commitment_sha256=bindings.binding_commitment_sha256,
         infinity_target_identity_sha256=_INFINITY_TARGET,
         space_id=_SPACE_ID,
         space_slug="memory-comparison-managed-run-1",
         state="active",
+        cleanup_plan_sha256=cleanup_plan_sha256,
+        cleanup_plan_state="sealed",
         created=True,
     )
 
@@ -215,6 +229,7 @@ def test_builds_exact_sorted_core_manifest_and_defensive_projection() -> None:
     assert manifest["binding_commitment_sha256"] == _bindings().binding_commitment_sha256
     assert manifest["infinity_target_identity_sha256"] == _INFINITY_TARGET
     assert manifest["space_id"] == _SPACE_ID
+    assert manifest["cleanup_plan_sha256"] == _registration(_bindings()).cleanup_plan_sha256
     scopes = manifest["scopes"]
     assert isinstance(scopes, list)
     assert [item["memory_scope_id"] for item in scopes] == ["scope-a", "scope-z"]
@@ -245,6 +260,28 @@ def test_builds_exact_sorted_core_manifest_and_defensive_projection() -> None:
 
     first["chunk_ids"].append("tampered")
     assert "tampered" not in result.projection_manifest["scopes"][0]["chunk_ids"]
+
+
+def test_cleanup_plan_binding_rejects_canonically_redigested_tamper() -> None:
+    corpus, presence = _corpus("a")
+    result = _build((corpus,), (presence,))
+    manifest = result.projection_manifest
+    expected_cleanup_plan_sha256 = manifest["cleanup_plan_sha256"]
+    manifest["cleanup_plan_sha256"] = "9" * 64
+    tampered_sha256 = hashlib.sha256(
+        json.dumps(manifest, sort_keys=True, separators=(",", ":")).encode()
+    ).hexdigest()
+
+    with pytest.raises(MemoryConflictError, match="binding conflicted"):
+        validate_projection_manifest(
+            manifest,
+            tampered_sha256,
+            run_id_sha256=manifest["run_id_sha256"],
+            binding_commitment_sha256=manifest["binding_commitment_sha256"],
+            infinity_target_identity_sha256=manifest["infinity_target_identity_sha256"],
+            space_id=manifest["space_id"],
+            cleanup_plan_sha256=expected_cleanup_plan_sha256,
+        )
 
 
 def test_builds_v2_with_exact_per_scope_episode_inventory() -> None:

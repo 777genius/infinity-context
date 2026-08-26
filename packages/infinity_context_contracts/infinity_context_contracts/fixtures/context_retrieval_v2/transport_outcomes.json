@@ -1,0 +1,8 @@
+{
+  "schema": "context-retrieval-v2-transport-outcomes.v1",
+  "outcomes": [
+    {"kind": "deadline", "code": "memory.context_retrieval_deadline_exceeded", "retryable": true},
+    {"kind": "cancelled", "code": "memory.context_retrieval_cancelled", "retryable": false},
+    {"kind": "unavailable", "code": "memory.context_retrieval_unavailable", "retryable": true}
+  ]
+}

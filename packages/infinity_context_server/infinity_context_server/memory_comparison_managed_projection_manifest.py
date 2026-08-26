@@ -111,6 +111,7 @@ class ManagedProjectionManifest:
                 binding_commitment_sha256=value["binding_commitment_sha256"],
                 infinity_target_identity_sha256=value["infinity_target_identity_sha256"],
                 space_id=value["space_id"],
+                cleanup_plan_sha256=value["cleanup_plan_sha256"],
             )
         except (KeyError, MemoryConflictError, MemoryValidationError):
             raise ManagedProjectionManifestError("managed_projection_output_invalid") from None
@@ -217,6 +218,7 @@ def build_managed_projection_manifest(
         "binding_commitment_sha256": registration.binding_commitment_sha256,
         "infinity_target_identity_sha256": registration.infinity_target_identity_sha256,
         "space_id": registration.space_id,
+        "cleanup_plan_sha256": registration.cleanup_plan_sha256,
         "scopes": sorted(
             scopes,
             key=lambda item: (
@@ -234,6 +236,7 @@ def build_managed_projection_manifest(
             binding_commitment_sha256=registration.binding_commitment_sha256,
             infinity_target_identity_sha256=registration.infinity_target_identity_sha256,
             space_id=registration.space_id,
+            cleanup_plan_sha256=registration.cleanup_plan_sha256,
         )
     except (MemoryConflictError, MemoryValidationError):
         raise ManagedProjectionManifestError("managed_projection_core_validation_failed") from None

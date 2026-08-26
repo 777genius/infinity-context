@@ -50,7 +50,7 @@ from infinity_context_server.memory_comparison_managed_v5_live_config import (
     _validate_reviewed_phase_c_python_tree,
     validate_managed_v5_live_public_config,
 )
-from infinity_context_server.memory_comparison_managed_v5_live_root import (
+from infinity_context_server.memory_comparison_managed_v5_live_public_inputs import (
     ManagedV5LivePublicInputs,
 )
 from infinity_context_server.memory_comparison_managed_v5_phase_c_preload import (
@@ -64,6 +64,9 @@ from infinity_context_server.memory_comparison_mem0_oss_v5_contracts import (
 from infinity_context_server.memory_comparison_mem0_oss_v5_observed_receipt import (
     Mem0V5ObservedExtractionOperationAuthority,
     Mem0V5ObservedExtractionReceiptAuthority,
+)
+from infinity_context_server.memory_comparison_publishable_methodology import (
+    SUBSCRIPTION_RUNTIME_BASE_INSTRUCTIONS_SHA256,
 )
 
 _PHASE_C_DOMAIN = "phase_c_canary"
@@ -200,8 +203,8 @@ def compose_managed_v5_live_public_inputs(
         node_executable_path=str(config.filesystem.node_executable),
         node_executable_sha256=config.filesystem.node_executable_sha256,
         response_format_type=runtime_authority.response_format_type,
-        response_format_sha256=runtime_authority.response_format_sha256,
-        response_schema_sha256=runtime_authority.response_schema_sha256,
+        response_format_sha256=runtime_authority.extraction_response_format_sha256,
+        response_schema_sha256=runtime_authority.extraction_response_schema_sha256,
         operations=operations,
         requested_output_tokens=runtime_authority.requested_output_tokens,
     )
@@ -277,9 +280,9 @@ def _operation_authority(
 ]:
     projected = extraction_projector.project(unit, current_date=current_date)
     if (
-        projected.response_format_sha256 != runtime_authority.response_format_sha256
+        projected.response_format_sha256 != runtime_authority.extraction_response_format_sha256
         or projected.response_format_sha256 != extraction_contract_binding.response_format_sha256
-        or projected.response_schema_sha256 != runtime_authority.response_schema_sha256
+        or projected.response_schema_sha256 != runtime_authority.extraction_response_schema_sha256
         or projected.response_schema_sha256 != extraction_contract_binding.response_schema_sha256
         or projected.requested_output_tokens != runtime_authority.requested_output_tokens
         or projected.requested_output_tokens != extraction_contract_binding.requested_output_tokens
@@ -448,9 +451,11 @@ def _require_extraction_binding_authority(
         binding.implementation_domain != projector.implementation_domain
         or binding.implementation_sha256 != projector.implementation_sha256
         or binding.model != runtime_authority.model
-        or binding.system_prompt_sha256 != runtime_authority.base_instructions_sha256
-        or binding.response_format_sha256 != runtime_authority.response_format_sha256
-        or binding.response_schema_sha256 != runtime_authority.response_schema_sha256
+        or runtime_authority.base_instructions_sha256
+        != SUBSCRIPTION_RUNTIME_BASE_INSTRUCTIONS_SHA256
+        or binding.system_prompt_sha256 != runtime_authority.extraction_system_prompt_sha256
+        or binding.response_format_sha256 != runtime_authority.extraction_response_format_sha256
+        or binding.response_schema_sha256 != runtime_authority.extraction_response_schema_sha256
         or binding.requested_output_tokens != runtime_authority.requested_output_tokens
     ):
         _fail("managed_v5_live_extraction_authority_cross_wire")

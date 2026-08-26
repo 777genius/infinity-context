@@ -1,14 +1,19 @@
 from __future__ import annotations
 
 import hashlib
-import pickle
 import threading
+from dataclasses import replace
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from types import SimpleNamespace
 
 import httpx
 import pytest
+from benchmark_cleanup_plan_fixtures import cleanup_plan_pair
+from infinity_context_core.ports.benchmark_cleanup_plan import (
+    ManagedBenchmarkCleanupPlan,
+    validate_managed_benchmark_cleanup_plan,
+)
 from infinity_context_server import memory_comparison_managed_v5_live_preparation as preparation
 from infinity_context_server import (
     memory_comparison_managed_v5_live_private_dependencies as subject,
@@ -21,16 +26,7 @@ from infinity_context_server.memory_comparison_full_run_evidence import (
     _json_sha256,
 )
 from infinity_context_server.memory_comparison_managed_benchmark_registry_contracts import (
-    REGISTRATION_SCHEMA_VERSION,
     ManagedBenchmarkRegistryHttpConfig,
-    ManagedBenchmarkRunRegistration,
-)
-from infinity_context_server.memory_comparison_managed_benchmark_registry_http import (
-    ManagedBenchmarkRegistryHttpAdapter,
-)
-from infinity_context_server.memory_comparison_managed_mem0_v5_clean_state_http import (
-    ManagedMem0V5HmacDurableCleanStateFactory,
-    ManagedMem0V5HttpCleanStateSnapshotFactory,
 )
 from infinity_context_server.memory_comparison_managed_mem0_v5_credentials import (
     ManagedMem0V5CredentialCapabilities,
@@ -60,6 +56,10 @@ from infinity_context_server.memory_comparison_managed_v5_infinity_credentials i
 from infinity_context_server.memory_comparison_managed_v5_live_config import (
     ManagedV5LiveConfig,
 )
+from infinity_context_server.memory_comparison_managed_v5_recovery_journal import (
+    ManagedV5LiveRecoveryJournalStore,
+    RecoveryJournalAuthenticator,
+)
 from infinity_context_server.resumable_operation_journal.crypto import (
     HmacSha256OperationJournalSigner,
 )
@@ -75,10 +75,12 @@ from infinity_context_server.resumable_operation_journal.service import (
     ResumableOperationJournalService,
 )
 from infinity_context_server.resumable_operation_journal.sqlite import SQLiteOperationJournal
+from test_memory_comparison_managed_v5_recovery_journal import _authority
 
 _NOW = datetime(2026, 8, 8, tzinfo=UTC)
 _DEADLINE = _NOW + timedelta(minutes=5)
 _ORIGIN = "https://infinity.example.test"
+_INFINITY_ORIGIN = "http://127.0.0.1:17789"
 
 
 def _sha(value: str) -> str:
@@ -148,8 +150,10 @@ def _secret_fixture(
         "checkpoint-head",
         "operation-signer",
         "durable-hmac",
+        "runtime-attestation",
+        "recovery-hmac",
     )
-    values = [f"secret-role-{index}-".encode() + bytes([65 + index]) * 32 for index in range(7)]
+    values = [f"secret-role-{index}-".encode() + bytes([65 + index]) * 32 for index in range(9)]
     if collision is not None:
         values[collision[1]] = values[collision[0]]
     paths = tuple(secret_root / name for name in names)
@@ -168,8 +172,63 @@ def _secret_fixture(
         checkpoint_head_key_file=paths[4],
         operation_journal_signer_secret_file=paths[5],
         durable_clean_state_hmac_secret_file=paths[6],
+        runtime_attestation_secret_file=paths[7],
+        recovery_hmac_secret_file=paths[8],
+        runtime_attestation_secret_sha256=hashlib.sha256(values[7]).hexdigest(),
     )
     return filesystem, ManagedMem0V5CredentialPaths(*paths[:5])
+
+
+def _recovery_inputs(
+    tmp_path: Path,
+    *,
+    run_id: str,
+    binding: str,
+    target: str,
+    space_slug: str,
+) -> tuple[ManagedBenchmarkCleanupPlan, object, ManagedV5LiveRecoveryJournalStore, str]:
+    authority = replace(
+        _authority(tmp_path),
+        run_id=run_id,
+        run_id_sha256=_sha(run_id),
+        binding_commitment_sha256=binding,
+        infinity_target_identity_sha256=target,
+        space_slug=space_slug,
+        infinity_origin=_INFINITY_ORIGIN,
+        current_date="2026-08-08",
+        issued_at="2026-08-08T00:00:00Z",
+        deadline="2026-08-08T00:05:00Z",
+    )
+    recovery_secret = b"secret-role-8-" + b"I" * 32
+    authenticator = RecoveryJournalAuthenticator(
+        secret=recovery_secret,
+        run_id_sha256=authority.run_id_sha256,
+    )
+    store = ManagedV5LiveRecoveryJournalStore(
+        path=authority.state_root / "recovery.json",
+        state_root=authority.state_root,
+        authenticator=authenticator,
+    )
+    store.initialize(
+        authority=authority,
+        recorded_at=authority.issued_at,
+        details={"authority_sha256": authority.sha256},
+    )
+    value, digest = cleanup_plan_pair(
+        run_id=authority.run_id_sha256,
+        binding=binding,
+        target=target,
+        space_slug=space_slug,
+    )
+    cleanup_plan = validate_managed_benchmark_cleanup_plan(
+        value,
+        digest,
+        run_id_sha256=authority.run_id_sha256,
+        binding_commitment_sha256=binding,
+        infinity_target_identity_sha256=target,
+        space_slug=space_slug,
+    )
+    return cleanup_plan, authority, store, hashlib.sha256(recovery_secret).hexdigest()
 
 
 def test_production_receipt_verifier_enforces_exact_namespace_and_binding() -> None:
@@ -319,11 +378,13 @@ def test_credential_activation_binding_is_idempotent_only_for_exact_object(
         bundle._bind_activated_preparation(material(), now=_NOW)
 
 
-def test_seven_secret_snapshot_returns_sealed_one_shot_capabilities(tmp_path: Path) -> None:
+def test_nine_secret_snapshot_returns_sealed_one_shot_capabilities(tmp_path: Path) -> None:
     filesystem, paths = _secret_fixture(tmp_path)
-    credentials, signer, durable = subject._load_seven_distinct_secrets(
+    recovery_sha = hashlib.sha256(filesystem.recovery_hmac_secret_file.read_bytes()).hexdigest()
+    credentials, signer, durable = subject.load_nine_distinct_secrets(
         filesystem=filesystem,
         credential_paths=paths,
+        recovery_secret_sha256=recovery_sha,
     )
     assert type(credentials) is ManagedMem0V5CredentialCapabilities
     assert signer != durable
@@ -335,15 +396,16 @@ def test_seven_secret_snapshot_returns_sealed_one_shot_capabilities(tmp_path: Pa
 
     credentials.close()
     filesystem.operation_journal_signer_secret_file.chmod(0o640)
-    with pytest.raises(subject.ManagedV5LivePrivateDependencyError, match="secret_invalid"):
-        subject._load_seven_distinct_secrets(
+    with pytest.raises(subject.ManagedV5LiveSecretSnapshotError, match="secret_invalid"):
+        subject.load_nine_distinct_secrets(
             filesystem=filesystem,
             credential_paths=paths,
+            recovery_secret_sha256=recovery_sha,
         )
 
 
 @pytest.mark.parametrize("existing_role", range(5))
-@pytest.mark.parametrize("new_role", (5, 6))
+@pytest.mark.parametrize("new_role", (5, 6, 7, 8))
 def test_new_secret_roles_cannot_reuse_any_existing_mem0_secret(
     tmp_path: Path,
     existing_role: int,
@@ -360,10 +422,13 @@ def test_new_secret_roles_cannot_reuse_any_existing_mem0_secret(
         tmp_path,
         collision=(existing_role, new_role),
     )
-    with pytest.raises(subject.ManagedV5LivePrivateDependencyError, match="secret_reused"):
-        subject._load_seven_distinct_secrets(
+    with pytest.raises(subject.ManagedV5LiveSecretSnapshotError, match="secret_reused"):
+        subject.load_nine_distinct_secrets(
             filesystem=filesystem,
             credential_paths=paths,
+            recovery_secret_sha256=hashlib.sha256(
+                filesystem.recovery_hmac_secret_file.read_bytes()
+            ).hexdigest(),
         )
     assert network_calls == []
 
@@ -435,7 +500,7 @@ def test_typed_construction_failure_closes_loaded_credentials(
     loaded_credentials = SimpleNamespace(close=lambda: closed.append(True))
     monkeypatch.setattr(
         subject,
-        "_load_seven_distinct_secrets",
+        "load_nine_distinct_secrets",
         lambda **_values: (loaded_credentials, b"s" * 32, b"d" * 32),
     )
 
@@ -447,6 +512,15 @@ def test_typed_construction_failure_closes_loaded_credentials(
     config = object.__new__(ManagedV5LiveConfig)
     object.__setattr__(config, "filesystem", filesystem)
     object.__setattr__(config, "runtime", object())
+    cleanup_plan, recovery_authority, recovery_journal, recovery_secret_sha256 = _recovery_inputs(
+        tmp_path,
+        run_id=run_id,
+        binding=run_bindings.binding_commitment_sha256,
+        target=managed_backend_target_identity_sha256(
+            backend_role="infinity-context", base_url=_INFINITY_ORIGIN
+        ),
+        space_slug="memory-comparison-typed-failure-run",
+    )
 
     with pytest.raises(
         subject.ManagedV5LivePrivateDependencyError,
@@ -460,6 +534,11 @@ def test_typed_construction_failure_closes_loaded_credentials(
             credential_paths=credential_paths,
             run_bindings=run_bindings,
             budget_policy=ManagedMem0V5BudgetPolicy(100),
+            cleanup_plan=cleanup_plan,
+            cleanup_target_authority_sha256=_sha("cleanup-target-authority"),
+            recovery_authority=recovery_authority,
+            recovery_journal=recovery_journal,
+            recovery_secret_sha256=recovery_secret_sha256,
             deadline=_DEADLINE,
             now=_NOW,
             clock=lambda: _NOW,
@@ -530,32 +609,61 @@ def test_factory_registers_last_and_recovers_multi_operation_journal(
     )
 
     target = managed_backend_target_identity_sha256(
-        backend_role="infinity-context", base_url=_ORIGIN
+        backend_role="infinity-context", base_url=_INFINITY_ORIGIN
     )
+    space_slug = "memory-comparison-live-run"
+    filesystem, credential_paths = _secret_fixture(tmp_path)
+    cleanup_plan, recovery_authority, recovery_journal, recovery_secret_sha256 = _recovery_inputs(
+        tmp_path,
+        run_id=run_id,
+        binding=binding_sha,
+        target=target,
+        space_slug=space_slug,
+    )
+    space_id = f"benchmark-space-{descriptor.run_id_sha256[:48]}"
     network_events: list[str] = []
 
     def handler(request: httpx.Request) -> httpx.Response:
         network_events.append(request.method)
         assert (tmp_path / "state" / "operations.sqlite3").exists()
+        shared = {
+            "authority": "infinity_canonical",
+            "run_id_sha256": descriptor.run_id_sha256,
+            "binding_commitment_sha256": binding_sha,
+            "infinity_target_identity_sha256": target,
+            "space_id": space_id,
+            "space_slug": space_slug,
+            "state": "active",
+            "cleanup_plan_sha256": cleanup_plan.sha256,
+            "cleanup_plan_state": "sealed",
+        }
+        if request.method == "POST":
+            return httpx.Response(
+                201,
+                json={
+                    "data": {
+                        "schema_version": ("memory-comparison-run-registration-response.v2"),
+                        **shared,
+                        "created": True,
+                    }
+                },
+            )
         return httpx.Response(
-            201,
+            200,
             json={
                 "data": {
-                    "schema_version": "memory-comparison-run-registration-response.v1",
-                    "authority": "infinity_canonical",
-                    "run_id_sha256": descriptor.run_id_sha256,
-                    "binding_commitment_sha256": binding_sha,
-                    "infinity_target_identity_sha256": target,
-                    "space_id": "space-live-run",
-                    "space_slug": "memory-comparison-live-run",
-                    "state": "active",
-                    "created": True,
+                    "schema_version": "memory-comparison-run-lifecycle-response.v2",
+                    **shared,
+                    "projection_cleanup_state": "unsealed",
+                    "projection_manifest_sha256": None,
+                    "cleanup_receipt": None,
+                    "completion_receipt": None,
                 }
             },
         )
 
     registry_config = ManagedBenchmarkRegistryHttpConfig(
-        base_url=_ORIGIN,
+        base_url=_INFINITY_ORIGIN,
         admin_bearer_token="registry-secret",
         target_identity_sha256=target,
         timeout_seconds=30,
@@ -576,7 +684,6 @@ def test_factory_registers_last_and_recovers_multi_operation_journal(
         lambda self, *, now, clock: registry_config,
     )
 
-    filesystem, credential_paths = _secret_fixture(tmp_path)
     state_root = filesystem.state_root
     config = object.__new__(ManagedV5LiveConfig)
     object.__setattr__(config, "filesystem", filesystem)
@@ -584,6 +691,11 @@ def test_factory_registers_last_and_recovers_multi_operation_journal(
     factory = subject.ManagedV5LivePrivateDependencyFactory(
         config=config,
         budget_policy=ManagedMem0V5BudgetPolicy(maximum_total_call_count=100),
+        cleanup_plan=cleanup_plan,
+        cleanup_target_authority_sha256=_sha("cleanup-target-authority"),
+        recovery_authority=recovery_authority,
+        recovery_journal=recovery_journal,
+        recovery_secret_sha256=recovery_secret_sha256,
     )
     captured: dict[str, object] = {}
     original_create = subject.ManagedV5LivePrivateDependencyFactory.create
@@ -636,7 +748,7 @@ def test_factory_registers_last_and_recovers_multi_operation_journal(
     assert runtime_identity.policy_commitment_sha256 == (
         material.operation_policy_commitment_sha256
     )
-    assert network_events == ["POST"]
+    assert network_events == ["POST", "GET"]
     prepared = material.operation_journal.prepare_dispatch_batch(
         tuple((item, _sha(f"request-{item.ordinal}")) for item in operations)
     )
@@ -671,162 +783,3 @@ def test_factory_registers_last_and_recovers_multi_operation_journal(
     )
     assert tuple(item.should_dispatch for item in replay) == (False, False)
     material.mem0_credential_capabilities.close()
-
-
-@pytest.mark.parametrize("created", (False, True))
-@pytest.mark.parametrize("compensation_fails", (False, True))
-def test_material_construction_failure_never_orphans_registration(
-    monkeypatch: pytest.MonkeyPatch,
-    compensation_fails: bool,
-    created: bool,
-) -> None:
-    events: list[str] = []
-    registry = object.__new__(ManagedBenchmarkRegistryHttpAdapter)
-    registration = ManagedBenchmarkRunRegistration(
-        schema_version=REGISTRATION_SCHEMA_VERSION,
-        authority="infinity_canonical",
-        run_id_sha256="1" * 64,
-        binding_commitment_sha256="2" * 64,
-        infinity_target_identity_sha256="3" * 64,
-        space_id="space-1",
-        space_slug="memory-comparison-run-1",
-        state="active",
-        created=created,
-    )
-    manifest = OperationManifest((_operation("live-run", 0),))
-    receipt_authority = subject.ManagedMem0V5OperationReceiptAuthority(
-        key=b"r" * 32,
-        key_id="receipt-key-v1",
-        manifest=manifest,
-    )
-    credential_capabilities = ManagedMem0V5CredentialCapabilities(
-        tuple(bytearray(bytes([65 + index]) * 32) for index in range(5))
-    )
-    monkeypatch.setattr(
-        subject,
-        "ManagedV5LivePrivateDependencyMaterial",
-        lambda **_: (_ for _ in ()).throw(RuntimeError("injected constructor failure")),
-    )
-    monkeypatch.setattr(
-        ManagedBenchmarkRegistryHttpAdapter,
-        "cleanup_receipt",
-        property(lambda self: None),
-    )
-
-    def begin_cleanup(self):
-        events.append("registry.begin_cleanup")
-        if compensation_fails:
-            raise RuntimeError("injected compensation failure")
-        return SimpleNamespace(projection_cleanup="blocked", receipt_sha256="4" * 64)
-
-    def finalize_abort(self, **kwargs):
-        events.append("registry.finalize_unsealed_abort")
-        assert kwargs == {"cleanup_initiation_receipt_sha256": "4" * 64}
-
-    monkeypatch.setattr(ManagedBenchmarkRegistryHttpAdapter, "begin_cleanup", begin_cleanup)
-    monkeypatch.setattr(
-        ManagedBenchmarkRegistryHttpAdapter,
-        "finalize_unsealed_abort",
-        finalize_abort,
-    )
-
-    with pytest.raises(subject.ManagedV5LivePrivateDependencyError) as caught:
-        subject._material_after_registration(
-            budget_policy=ManagedMem0V5BudgetPolicy(maximum_total_call_count=10),
-            clean_state_snapshot_factory=object.__new__(ManagedMem0V5HttpCleanStateSnapshotFactory),
-            durable_clean_state_factory=object.__new__(ManagedMem0V5HmacDurableCleanStateFactory),
-            operation_journal=object.__new__(ResumableOperationJournalService),
-            operation_signer_key_id="test-signer",
-            operation_policy_commitment_sha256="a" * 64,
-            operation_receipt_authority=receipt_authority,
-            mem0_credential_capabilities=credential_capabilities,
-            benchmark_registry=registry,
-            benchmark_registration=registration,
-            infinity_derived_transport_factory=None,
-            infinity_cleanup_transport_factory=None,
-        )
-
-    assert caught.value.code == (
-        "managed_v5_live_private_dependencies_material_construction_failed"
-    )
-    assert caught.value.recovery_registry is (registry if compensation_fails else None)
-    if compensation_fails:
-        assert caught.value.recovery_envelope.stage == "begin_cleanup"
-        assert caught.value.recovery_envelope.registration is registration
-    else:
-        assert caught.value.recovery_envelope is None
-    assert events == (
-        ["registry.begin_cleanup"]
-        if compensation_fails
-        else ["registry.begin_cleanup", "registry.finalize_unsealed_abort"]
-    )
-
-
-def test_factory_closes_registry_when_registration_fails_without_recovery() -> None:
-    closed: list[bool] = []
-
-    class _Registry:
-        cleanup_required = False
-
-        def __init__(self, config: object) -> None:
-            del config
-
-        def register(self, **kwargs: object) -> object:
-            del kwargs
-            raise RuntimeError("rejected")
-
-        def close(self) -> None:
-            closed.append(True)
-
-    registry = _Registry(object())
-    with pytest.raises(subject.ManagedV5LivePrivateDependencyError) as captured:
-        subject._register_final(
-            registry,  # type: ignore[arg-type]
-            run_id_sha256="a" * 64,
-            binding_commitment_sha256="b" * 64,
-            infinity_target_identity_sha256="c" * 64,
-            space_slug="memory-comparison-live-run",
-        )
-    assert captured.value.recovery_registry is None
-    assert closed == [True]
-
-
-def test_factory_preserves_registry_when_registration_outcome_needs_recovery(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    registry = object.__new__(ManagedBenchmarkRegistryHttpAdapter)
-    monkeypatch.setattr(
-        ManagedBenchmarkRegistryHttpAdapter,
-        "cleanup_required",
-        property(lambda self: True),
-    )
-    monkeypatch.setattr(
-        ManagedBenchmarkRegistryHttpAdapter,
-        "register",
-        lambda self, **kwargs: (_ for _ in ()).throw(RuntimeError("outcome unknown")),
-    )
-    monkeypatch.setattr(
-        ManagedBenchmarkRegistryHttpAdapter,
-        "close",
-        lambda self: pytest.fail("recoverable registry must remain open"),
-    )
-    with pytest.raises(subject.ManagedV5LivePrivateDependencyError) as captured:
-        subject._register_final(
-            registry,
-            run_id_sha256="a" * 64,
-            binding_commitment_sha256="b" * 64,
-            infinity_target_identity_sha256="c" * 64,
-            space_slug="memory-comparison-live-run",
-        )
-    assert captured.value.recovery_registry is registry
-    envelope = captured.value.recovery_envelope
-    assert envelope.stage == "registration_outcome_unknown"
-    assert envelope.registration is None
-    assert envelope.cleanup_receipt is None
-    assert envelope.run_id_sha256 == "a" * 64
-    assert envelope.binding_commitment_sha256 == "b" * 64
-    assert envelope.infinity_target_identity_sha256 == "c" * 64
-    assert envelope.space_slug == "memory-comparison-live-run"
-    assert "ManagedBenchmarkRegistryHttpAdapter" not in repr(envelope)
-    with pytest.raises(TypeError, match="nonserializable"):
-        pickle.dumps(envelope)

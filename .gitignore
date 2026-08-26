@@ -12,6 +12,7 @@ build/*
 .env
 .env.local
 .env.full
+.env.selfhost
 .env.*.local
 .e2e-artifacts/
 .runtime/

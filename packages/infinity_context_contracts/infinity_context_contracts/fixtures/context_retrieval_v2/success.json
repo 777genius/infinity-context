@@ -1,0 +1,97 @@
+{
+  "contract_version": "context-retrieval.v2",
+  "ranking_policy": "weighted_rrf_canonical_preferences.v1",
+  "status": "available",
+  "capability_fingerprint": "522cf13b82d20b8cf8f37b6e9fb3f4dc5752e24c9802c35b0f2fc30482083fae",
+  "profile_id": "locator-v2-pairs-relative-22222222",
+  "coverage": "top_k_only",
+  "applied_bounds": {
+    "candidate_limit": 100,
+    "result_limit": 10,
+    "neighbor_radius": 1,
+    "response_byte_limit": 16384,
+    "deadline_ms": 900,
+    "returned_seeds": 1,
+    "returned_neighbors": 1
+  },
+  "candidates": [
+    {
+      "locator": "candidate-007",
+      "source_key": "source-family-a",
+      "document_key": "doc-007",
+      "chunk_key": "chunk-007",
+      "canonical_identity": "chunk-007",
+      "canonical_version": 1,
+      "lifecycle_status": "active",
+      "relation": "direct",
+      "distance": 0,
+      "provider_rank": 1,
+      "fused_score": 0.032522474881,
+      "base_score_picos": 32522474881,
+      "source_requested_weight_micros": 1000000,
+      "source_matched_weight_micros": 1000000,
+      "actor_requested_weight_micros": 1000000,
+      "actor_matched_weight_micros": 1000000,
+      "time_requested_weight_micros": 1000000,
+      "time_matched_weight_micros": 1000000,
+      "preference_score_micros": 1000000,
+      "preference_boost_micros": 250000,
+      "rerank_score_picos": 40653093601,
+      "matched_query_ids": ["q1"],
+      "contributions": [
+        {
+          "provider_id": "postgres_keyword",
+          "query_id": "q1",
+          "provider_rank": 1,
+          "provider_weight_micros": 1000000,
+          "query_weight_micros": 1000000,
+          "contribution_score_picos": 16393442623,
+          "provider_weight": 1.0,
+          "query_weight": 1.0,
+          "contribution": 0.016393442623,
+          "raw_score_kind": "bm25",
+          "raw_score_value": 12.5
+        },
+        {
+          "provider_id": "qdrant_dense",
+          "query_id": "q1",
+          "provider_rank": 2,
+          "provider_weight_micros": 1000000,
+          "query_weight_micros": 1000000,
+          "contribution_score_picos": 16129032258,
+          "provider_weight": 1.0,
+          "query_weight": 1.0,
+          "contribution": 0.016129032258,
+          "raw_score_kind": "similarity",
+          "raw_score_value": 0.83
+        }
+      ],
+      "neighbors": [
+        {
+          "locator": "candidate-008",
+          "source_key": "source-family-a",
+          "document_key": "doc-008",
+          "chunk_key": "chunk-008",
+          "canonical_identity": "chunk-008",
+          "canonical_version": 1,
+          "lifecycle_status": "active",
+          "relation": "neighbor",
+          "distance": 1
+        }
+      ]
+    }
+  ],
+  "provider_outcomes": [
+    {
+      "provider_id": "postgres_keyword",
+      "status": "available",
+      "reason_code": null
+    },
+    {
+      "provider_id": "qdrant_dense",
+      "status": "available",
+      "reason_code": null
+    }
+  ],
+  "degradation_reason_codes": []
+}

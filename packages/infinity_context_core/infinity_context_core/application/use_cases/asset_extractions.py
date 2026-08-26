@@ -418,7 +418,7 @@ class RetryAssetExtractionUseCase:
                 raise MemoryNotFoundError("Asset extraction job not found")
             retried = job.reset_for_retry(now=self._clock.now())
             saved = await uow.asset_extractions.save(retried)
-            await uow.outbox.enqueue(asset_extract_event(saved))
+            await uow.outbox.enqueue_or_reschedule(asset_extract_event(saved))
             await uow.commit()
         return AssetExtractionResult(job=saved, indexing_status="pending")
 

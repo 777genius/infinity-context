@@ -16,82 +16,17 @@ const allowedMissing = new Map([
     "GET /v1/healthz",
     "healthz is an include_in_schema=false liveness alias; SDK exposes system.health() for /v1/health.",
   ],
+  [
+    "POST /v1/internal/retrieval-profiles/operations",
+    "strict-admin include_in_schema=false operator lifecycle path is intentionally not public SDK surface.",
+  ],
+  [
+    "POST /v1/internal/retrieval-profiles/recoveries",
+    "strict-admin include_in_schema=false abandoned-fence recovery is intentionally not public SDK surface.",
+  ],
 ]);
 
-const reviewedServerOnlyEndpoints = new Map([
-  [
-    "DELETE /v1/internal/memory-comparison/runs/{param}",
-    {
-      owner: "memory-comparison",
-      reason: "Internal benchmark lifecycle API is not part of the public TypeScript SDK.",
-    },
-  ],
-  [
-    "GET /v1/internal/memory-comparison/runs/{param}/cleanup",
-    {
-      owner: "memory-comparison",
-      reason: "Internal benchmark cleanup API is not part of the public TypeScript SDK.",
-    },
-  ],
-  [
-    "POST /v1/code-repositories/resolve",
-    { owner: "code-memory", reason: "Code-memory administration has no public SDK resource yet." },
-  ],
-  [
-    "POST /v1/code-repositories/{param}/scopes",
-    { owner: "code-memory", reason: "Code-memory administration has no public SDK resource yet." },
-  ],
-  [
-    "POST /v1/context/benchmark-search",
-    { owner: "context", reason: "Benchmark-only search is intentionally excluded from the public SDK." },
-  ],
-  [
-    "POST /v1/diagnostics/derived-evidence/graphiti/delete",
-    { owner: "diagnostics", reason: "Destructive internal diagnostics have no public SDK resource." },
-  ],
-  [
-    "POST /v1/diagnostics/derived-evidence/presence",
-    { owner: "diagnostics", reason: "Internal derived-evidence diagnostics have no public SDK resource." },
-  ],
-  [
-    "POST /v1/diagnostics/derived-evidence/qdrant/delete",
-    { owner: "diagnostics", reason: "Destructive internal diagnostics have no public SDK resource." },
-  ],
-  [
-    "POST /v1/facts/reinstate-supersession",
-    { owner: "memory-facts", reason: "Advanced fact-governance operations are not yet exposed by the SDK." },
-  ],
-  ...[
-    "POST /v1/facts/{param}/confirm",
-    "POST /v1/facts/{param}/dispute",
-    "POST /v1/facts/{param}/end-validity",
-    "POST /v1/facts/{param}/supersede",
-  ].map((endpoint) => [
-    endpoint,
-    {
-      owner: "memory-facts",
-      reason: "Advanced fact-governance operations are not yet exposed by the SDK.",
-    },
-  ]),
-  [
-    "POST /v1/internal/memory-comparison/runs",
-    {
-      owner: "memory-comparison",
-      reason: "Internal benchmark lifecycle API is not part of the public TypeScript SDK.",
-    },
-  ],
-  ...[
-    "POST /v1/internal/memory-comparison/runs/{param}/cleanup/abort/finalize",
-    "POST /v1/internal/memory-comparison/runs/{param}/cleanup/finalize",
-    "PUT /v1/internal/memory-comparison/runs/{param}/projection-manifest",
-  ].map((endpoint) => [
-    endpoint,
-    {
-      owner: "memory-comparison",
-      reason: "Internal benchmark lifecycle API is not part of the public TypeScript SDK.",
-    },
-  ]),
-]);
+const reviewedServerOnlyEndpoints = new Map();
 
 const serverEndpoints = readServerEndpoints(serverApiDir);
 const sdkEndpoints = readSdkEndpoints(sdkSrcDir);

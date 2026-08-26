@@ -495,10 +495,14 @@ def completion_receipt_from_json(
 def build_abort_completion_receipt(
     *,
     record: BenchmarkRunRegistryRecord,
-    cleanup_verification_sha256: str,
+    projection_absence_proof_sha256: str,
     completed_at: datetime,
 ) -> BenchmarkAbortCompletionReceipt:
-    if record.cleanup_receipt is None or not _valid_digest(cleanup_verification_sha256):
+    if (
+        record.cleanup_receipt is None
+        or record.cleanup_plan_sha256 is None
+        or not _valid_digest(projection_absence_proof_sha256)
+    ):
         raise MemoryConflictError("Benchmark abort proof inputs are incomplete")
     material: dict[str, object] = {
         "run_id_sha256": record.run_id_sha256,
@@ -509,7 +513,8 @@ def build_abort_completion_receipt(
         "disposition": "abort_complete",
         "projection_cleanup": "unsealed_abort_complete",
         "cleanup_initiation_receipt_sha256": record.cleanup_receipt.receipt_sha256,
-        "cleanup_verification_sha256": cleanup_verification_sha256,
+        "cleanup_plan_sha256": record.cleanup_plan_sha256,
+        "projection_absence_proof_sha256": projection_absence_proof_sha256,
         "completed_at": _timestamp_json(completed_at),
     }
     return BenchmarkAbortCompletionReceipt(
@@ -521,7 +526,8 @@ def build_abort_completion_receipt(
         disposition="abort_complete",
         projection_cleanup="unsealed_abort_complete",
         cleanup_initiation_receipt_sha256=record.cleanup_receipt.receipt_sha256,
-        cleanup_verification_sha256=cleanup_verification_sha256,
+        cleanup_plan_sha256=record.cleanup_plan_sha256,
+        projection_absence_proof_sha256=projection_absence_proof_sha256,
         completed_at=_parse_timestamp(material["completed_at"]),
         receipt_sha256=_json_sha256(material),
     )
@@ -539,7 +545,8 @@ def abort_completion_receipt_json(
         "disposition": receipt.disposition,
         "projection_cleanup": receipt.projection_cleanup,
         "cleanup_initiation_receipt_sha256": receipt.cleanup_initiation_receipt_sha256,
-        "cleanup_verification_sha256": receipt.cleanup_verification_sha256,
+        "cleanup_plan_sha256": receipt.cleanup_plan_sha256,
+        "projection_absence_proof_sha256": receipt.projection_absence_proof_sha256,
         "completed_at": _timestamp_json(receipt.completed_at),
         "receipt_sha256": receipt.receipt_sha256,
     }
@@ -557,7 +564,8 @@ def abort_completion_receipt_from_json(
         "disposition",
         "projection_cleanup",
         "cleanup_initiation_receipt_sha256",
-        "cleanup_verification_sha256",
+        "cleanup_plan_sha256",
+        "projection_absence_proof_sha256",
         "completed_at",
         "receipt_sha256",
     }
@@ -566,7 +574,8 @@ def abort_completion_receipt_from_json(
         "binding_commitment_sha256",
         "infinity_target_identity_sha256",
         "cleanup_initiation_receipt_sha256",
-        "cleanup_verification_sha256",
+        "cleanup_plan_sha256",
+        "projection_absence_proof_sha256",
         "receipt_sha256",
     )
     if (
@@ -594,7 +603,8 @@ def abort_completion_receipt_from_json(
         disposition="abort_complete",
         projection_cleanup="unsealed_abort_complete",
         cleanup_initiation_receipt_sha256=value["cleanup_initiation_receipt_sha256"],
-        cleanup_verification_sha256=value["cleanup_verification_sha256"],
+        cleanup_plan_sha256=value["cleanup_plan_sha256"],
+        projection_absence_proof_sha256=value["projection_absence_proof_sha256"],
         completed_at=completed_at,
         receipt_sha256=value["receipt_sha256"],
     )
