@@ -81,7 +81,7 @@ from infinity_context_server import (
 )
 from infinity_context_server import processes as server_processes
 from infinity_context_server.composition_use_cases import *  # noqa: F403
-from infinity_context_server.config import CaptureMode, MemoryPolicyMode, Settings
+from infinity_context_server.config import CaptureMode, DeployProfile, MemoryPolicyMode, Settings
 from infinity_context_server.derived_identity_evidence import DerivedIdentityEvidenceCoordinator
 from infinity_context_server.embedding_composition import build_embedding_adapter
 from infinity_context_server.features.context_building import public as context_building_server
@@ -390,11 +390,15 @@ def build_container(
         query_embeddings=query_embeddings,
         diagnostics=runtime_metrics,
     )
-    provider_free_local_runtime = engine.dialect.name != "postgresql" and not any(
-        (
-            resolved_settings.qdrant_enabled,
-            resolved_settings.graphiti_enabled,
-            resolved_settings.embeddings_enabled,
+    provider_free_local_runtime = (
+        resolved_settings.deploy_profile in {DeployProfile.LOCAL, DeployProfile.TEST}
+        and engine.dialect.name != "postgresql"
+        and not any(
+            (
+                resolved_settings.qdrant_enabled,
+                resolved_settings.graphiti_enabled,
+                resolved_settings.embeddings_enabled,
+            )
         )
     )
     retrieval_runtime_lifecycle = (
