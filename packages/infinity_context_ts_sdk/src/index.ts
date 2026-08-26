@@ -220,6 +220,7 @@ export type {
   ListDocumentChunksInput,
   ListScopeDocumentsInput,
   ProcessDocumentInput,
+  ReconcileExactDocumentInput,
 } from "./resources/documents.js";
 export type {
   GetRelatedFactsInput,

@@ -1,6 +1,18 @@
 #!/usr/bin/env node
 import { readFile } from "node:fs/promises";
-import { assertRetrievalRuntimeCanary } from "./retrieval-runtime-canary-policy.mjs";
+
+const commandName = "infinity-context-retrieval-runtime-canary";
+const cliArgs = process.argv.slice(2);
+
+if (hasCliFlag(cliArgs, "--help", "-h")) {
+  printHelp(commandName);
+  process.exit(0);
+}
+
+if (hasCliFlag(cliArgs, "--version", "-v")) {
+  process.stdout.write(`${await packageVersion()}\n`);
+  process.exit(0);
+}
 
 const baseUrl = (process.env.INFINITY_CONTEXT_URL ?? "http://127.0.0.1:7788").replace(/\/$/, "");
 const token = process.env.INFINITY_CONTEXT_TOKEN;
@@ -16,6 +28,7 @@ const headers = {
   "content-type": "application/json",
   ...(token ? { authorization: `Bearer ${token}` } : {}),
 };
+const { assertRetrievalRuntimeCanary } = await import("./retrieval-runtime-canary-policy.mjs");
 const sdk = await import("../dist/index.js");
 
 const capabilityResponse = await fetch(`${baseUrl}/v1/capabilities`, { headers });
@@ -69,4 +82,27 @@ function required(name) {
   const value = process.env[name];
   if (value === undefined || value.trim() === "") throw new Error(`${name} is required`);
   return value;
+}
+
+function hasCliFlag(args, ...flags) {
+  return args.some((arg) => flags.includes(arg));
+}
+
+function printHelp(command) {
+  process.stdout.write(`Usage: ${command} [--help] [--version]
+
+Runs the pinned retrieval runtime canary against an Infinity Context service.
+
+Options:
+  -h, --help       Show this help without validating configuration or contacting the service.
+  -v, --version    Print the package version.
+`);
+}
+
+async function packageVersion() {
+  const packageJson = JSON.parse(await readFile(new URL("../package.json", import.meta.url), "utf8"));
+  if (typeof packageJson.version !== "string" || packageJson.version.length === 0) {
+    throw new Error("SDK package version is invalid");
+  }
+  return packageJson.version;
 }

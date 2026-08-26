@@ -28,6 +28,10 @@ const expectedExports = [
   ["@infinity-context/sdk", "documentRetrievalProjectionV1Payload"],
   ["@infinity-context/sdk", "retrievalRequestPayload"],
   ["@infinity-context/sdk", "validateRetrievalPreflight"],
+  ["@infinity-context/sdk", "EXACT_DOCUMENT_RECONCILIATION_CONTRACT_V1"],
+  ["@infinity-context/sdk", "EXACT_DOCUMENT_RECONCILIATION_MAX_RESPONSE_BYTES"],
+  ["@infinity-context/sdk", "assertExactDocumentReconciliationCapabilityV1"],
+  ["@infinity-context/sdk", "decodeExactDocumentReconciliationResponseV1"],
   ["@infinity-context/sdk/instrumentation", "noopInstrumentation"],
   ["@infinity-context/sdk/pagination", "iterateCursorItems"],
   ["@infinity-context/sdk/runtime", "assertFullMemoryReady"],
@@ -54,12 +58,24 @@ const expectedTypeExports = [
   "ReinstateSupersessionInput", "RegisterMemoryComparisonRunInput", "CleanupTargetAuthorityInput",
   "SealProjectionManifestInput", "CleanupMemoryComparisonRunInput",
   "FinalizeMemoryComparisonCleanupInput", "FinalizeMemoryComparisonAbortInput",
+  "ExactDocumentReconciliationCapabilityV1", "ExactDocumentReconciliationResultV1",
+  "ExactDocumentReconciliationState", "ExactDocumentVisibilityEvidence",
+  "ReconcileExactDocumentInput",
 ];
 const expectedBins = [
   ["infinity-context-full-memory-proof", "scripts/full-memory-proof.mjs"],
   ["infinity-context-runtime-canary", "scripts/runtime-canary.mjs"],
+  ["infinity-context-retrieval-runtime-canary", "scripts/retrieval-runtime-canary.mjs"],
 ];
-const contractFixtures = ["capability.json", "cases.json", "document_projection.json", "errors.json", "request.json", "scoring_golden.json", "success.json"];
+const fixtureExports = [
+  ["context_retrieval_v2", ["capability.json", "cases.json", "document_projection.json", "errors.json", "request.json", "scoring_golden.json", "success.json"]],
+  ["document_reconciliation", ["hostile_responses.json"]],
+];
+
+if (JSON.stringify(Object.keys(packageJson.bin ?? {}).sort()) !==
+    JSON.stringify(expectedBins.map(([name]) => name).sort())) {
+  throw new Error("Published package bin inventory drifted");
+}
 
 for (const [specifier, exportName] of expectedExports) {
   const esm = await import(specifier);
@@ -132,17 +148,23 @@ for (const [binName, targetPath] of expectedBins) {
   }
 }
 
-for (const name of contractFixtures) {
-  const packaged = await readFile(new URL(`../fixtures/context_retrieval_v2/${name}`, import.meta.url));
-  const specifier = `@infinity-context/sdk/fixtures/context_retrieval_v2/${name}`;
-  const esmResolved = fileURLToPath(import.meta.resolve(specifier));
-  const cjsResolved = require.resolve(specifier);
-  if (esmResolved !== cjsResolved || !packaged.equals(await readFile(esmResolved))) {
-    throw new Error(`Contract C fixture export is invalid: ${name}`);
+for (const [family, names] of fixtureExports) {
+  const exportKey = `./fixtures/${family}/*.json`;
+  if (packageJson.exports?.[exportKey]?.default !== `./fixtures/${family}/*.json`) {
+    throw new Error(`Fixture package export is missing: ${family}`);
+  }
+  for (const name of names) {
+    const packaged = await readFile(new URL(`../fixtures/${family}/${name}`, import.meta.url));
+    const specifier = `@infinity-context/sdk/fixtures/${family}/${name}`;
+    const esmResolved = fileURLToPath(import.meta.resolve(specifier));
+    const cjsResolved = require.resolve(specifier);
+    if (esmResolved !== cjsResolved || !packaged.equals(await readFile(esmResolved))) {
+      throw new Error(`Fixture export is invalid: ${family}/${name}`);
+    }
   }
 }
 
 console.log(
   `Package exports ok: ${expectedExports.length} runtime entries, ${expectedTypeExports.length} type entries, ` +
-    `${expectedBins.length} bins`,
+    `${expectedBins.length} bins and ${fixtureExports.reduce((count, [, names]) => count + names.length, 0)} fixture bytes`,
 );

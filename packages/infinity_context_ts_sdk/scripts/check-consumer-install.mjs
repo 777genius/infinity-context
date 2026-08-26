@@ -11,6 +11,15 @@ const execFileAsync = promisify(execFile);
 const packageRoot = fileURLToPath(new URL("..", import.meta.url));
 const tscPath = fileURLToPath(new URL("../node_modules/typescript/bin/tsc", import.meta.url));
 const esbuildPath = fileURLToPath(new URL("../node_modules/esbuild/bin/esbuild", import.meta.url));
+const expectedBins = [
+  "infinity-context-full-memory-proof",
+  "infinity-context-runtime-canary",
+  "infinity-context-retrieval-runtime-canary",
+];
+const fixtureExports = [
+  ["context_retrieval_v2", ["capability.json", "cases.json", "document_projection.json", "errors.json", "request.json", "scoring_golden.json", "success.json"]],
+  ["document_reconciliation", ["hostile_responses.json"]],
+];
 
 const tempRoot = await mkdtemp(join(tmpdir(), "infinity-context-sdk-consumer-"));
 
@@ -22,6 +31,28 @@ try {
     cwd: tempRoot,
     maxBuffer: 10 * 1024 * 1024,
   });
+  const installedRoot = join(tempRoot, "node_modules", "@infinity-context", "sdk");
+  const installedPackage = JSON.parse(await readFile(join(installedRoot, "package.json"), "utf8"));
+  if (JSON.stringify(Object.keys(installedPackage.bin ?? {}).sort()) !== JSON.stringify([...expectedBins].sort())) {
+    throw new Error("Installed package bin inventory drifted");
+  }
+  const binEnv = { ...process.env };
+  for (const name of [
+    "RETRIEVAL_CANARY_SPACE_ID", "RETRIEVAL_CANARY_MEMORY_SCOPE_ID", "RETRIEVAL_CAPABILITY_FINGERPRINT",
+    "RETRIEVAL_PROFILE_ID", "RETRIEVAL_SDK_REVISION", "RETRIEVAL_SERVICE_REVISION",
+    "RETRIEVAL_CANARY_EXPECTED_LOCATOR",
+  ]) delete binEnv[name];
+  for (const binName of expectedBins) {
+    const binPath = join(tempRoot, "node_modules", ".bin", binName);
+    const help = await execFileAsync(binPath, ["--help"], { cwd: tempRoot, env: binEnv });
+    if (help.stderr.trim().length > 0 || !help.stdout.includes(`Usage: ${binName}`)) {
+      throw new Error(`Installed package bin help is invalid: ${binName}`);
+    }
+    const version = await execFileAsync(binPath, ["--version"], { cwd: tempRoot, env: binEnv });
+    if (version.stderr.trim().length > 0 || version.stdout.trim() !== installedPackage.version) {
+      throw new Error(`Installed package bin version is invalid: ${binName}`);
+    }
+  }
 
   await writeFile(join(tempRoot, "consumer.ts"), consumerTypecheckSource());
   const capability = JSON.parse(await readFile(join(packageRoot, "fixtures", "context_retrieval_v2", "capability.json"), "utf8"));
@@ -75,10 +106,12 @@ try {
   runInNewContext(browserBundle, browserGlobal);
   await browserGlobal.__infinityContextBrowserSmoke;
   if (subtleCalls !== 1) throw new Error("Browser Retrieval smoke did not use Web Crypto SHA-256");
-  for (const name of ["capability.json", "cases.json", "document_projection.json", "errors.json", "request.json", "scoring_golden.json", "success.json"]) {
-    const source = await readFile(join(packageRoot, "fixtures", "context_retrieval_v2", name));
-    const packed = await readFile(join(tempRoot, "node_modules", "@infinity-context", "sdk", "fixtures", "context_retrieval_v2", name));
-    if (!source.equals(packed)) throw new Error(`Packed Contract C fixture bytes drifted: ${name}`);
+  for (const [family, names] of fixtureExports) {
+    for (const name of names) {
+      const source = await readFile(join(packageRoot, "fixtures", family, name));
+      const packed = await readFile(join(installedRoot, "fixtures", family, name));
+      if (!source.equals(packed)) throw new Error(`Packed fixture bytes drifted: ${family}/${name}`);
+    }
   }
 
   console.log(`Consumer install ok: ${artifactPath}`);
@@ -129,6 +162,11 @@ function consumerTypecheckSource() {
   type ConfirmFactInput,
   type ObserveDerivedPresenceInput,
   type RegisterMemoryComparisonRunInput,
+  type ExactDocumentReconciliationCapabilityV1,
+  type ExactDocumentReconciliationResultV1,
+  type ExactDocumentReconciliationState,
+  type ExactDocumentVisibilityEvidence,
+  type ReconcileExactDocumentInput,
 } from "@infinity-context/sdk";
 import { noopInstrumentation } from "@infinity-context/sdk/instrumentation";
 import { iterateCursorItems } from "@infinity-context/sdk/pagination";
@@ -171,6 +209,17 @@ const presenceInput: ObserveDerivedPresenceInput = {
   spaceId: "space", memoryScopeId: "scope", expectedFactIds: ["fact"],
 };
 const runInput: RegisterMemoryComparisonRunInput | undefined = undefined;
+const reconciliationCapability: ExactDocumentReconciliationCapabilityV1 = {
+  contract_version: "document-reconciliation.v1", endpoint: "/v1/documents/reconcile-exact",
+  max_deadline_ms: 10000, max_response_bytes: 65536, read_only: true,
+};
+const reconciliationInput: ReconcileExactDocumentInput = {
+  capability: reconciliationCapability, spaceId: "space", memoryScopeId: "scope",
+  sourceType: "document", sourceExternalId: "external",
+};
+const reconciliationState: ExactDocumentReconciliationState = "present";
+const reconciliationVisibility: ExactDocumentVisibilityEvidence = "accepted";
+const reconciliationResult: ExactDocumentReconciliationResultV1 | undefined = undefined;
 const retrievalScope: RetrievalScopeInput = { spaceId: "space", memoryScopeId: "scope" };
 const retrievalInput: RetrieveContextInput = {
   contractVersion: CONTEXT_RETRIEVAL_CONTRACT,
@@ -246,6 +295,7 @@ const appliedSummary: ApplyMemoryReviewPlanSummary = {
 
 void applied;
 void benchmarkInput; void repositoryInput; void factInput; void presenceInput; void runInput;
+void reconciliationInput; void reconciliationState; void reconciliationVisibility; void reconciliationResult;
 void client.context.benchmarkSearch; void client.codeRepositories.resolve;
 void client.factLifecycle.confirm; void client.derivedEvidence.observePresence;
 void client.memoryComparisonRuns.register;
@@ -267,7 +317,7 @@ void runFullMemoryProof;
 }
 
 function consumerEsmSource(capability, request, success) {
-  return `import { InfinityContextClient, CONTEXT_RETRIEVAL_CONTRACT, CONTEXT_RETRIEVAL_RANKING_POLICY, assertRetrievalCapability, decodeRetrieveContextResponse, retrievalRequestPayload, createMemoryReviewPlan } from "@infinity-context/sdk";
+  return `import { InfinityContextClient, CONTEXT_RETRIEVAL_CONTRACT, CONTEXT_RETRIEVAL_RANKING_POLICY, assertRetrievalCapability, decodeRetrieveContextResponse, retrievalRequestPayload, createMemoryReviewPlan, EXACT_DOCUMENT_RECONCILIATION_CONTRACT_V1, EXACT_DOCUMENT_RECONCILIATION_MAX_RESPONSE_BYTES, assertExactDocumentReconciliationCapabilityV1, decodeExactDocumentReconciliationResponseV1 } from "@infinity-context/sdk";
 import { MemoryWorkflows } from "@infinity-context/sdk/workflows";
 import { noopInstrumentation } from "@infinity-context/sdk/instrumentation";
 import { assertFullMemoryReady } from "@infinity-context/sdk/runtime";
@@ -289,6 +339,10 @@ for (const value of [
   runRuntimeCanary,
   runFullMemoryProof,
   iterateCursorItems,
+  EXACT_DOCUMENT_RECONCILIATION_CONTRACT_V1,
+  EXACT_DOCUMENT_RECONCILIATION_MAX_RESPONSE_BYTES,
+  assertExactDocumentReconciliationCapabilityV1,
+  decodeExactDocumentReconciliationResponseV1,
 ]) {
   if (value === undefined) {
     throw new Error("Missing ESM consumer export");
@@ -296,11 +350,12 @@ for (const value of [
 }
 const client = new InfinityContextClient();
 if (typeof client.context.retrieve !== "function") throw new Error("Missing ESM context.retrieve");
+if (typeof client.documents.reconcileExactDocument !== "function") throw new Error("Missing ESM documents.reconcileExactDocument");
 if (typeof client.context.benchmarkSearch !== "function" || typeof client.codeRepositories.resolve !== "function" ||
     typeof client.factLifecycle.confirm !== "function" || typeof client.derivedEvidence.observePresence !== "function" ||
     typeof client.memoryComparisonRuns.register !== "function") throw new Error("Missing ESM parity resource");
-if (!import.meta.resolve("@infinity-context/sdk/fixtures/context_retrieval_v2/capability.json").endsWith("/capability.json")) {
-  throw new Error("Missing ESM Contract C fixture export");
+for (const specifier of ${JSON.stringify(fixtureSpecifiers())}) {
+  if (!import.meta.resolve(specifier).endsWith(".json")) throw new Error("Missing ESM fixture export: " + specifier);
 }
 const retrievalTransport = { send: async () => ({ status: 200, headers: new Headers(), body: JSON.stringify(${JSON.stringify(success)}) }) };
 const retrievalClient = new InfinityContextClient({ transport: retrievalTransport });
@@ -313,7 +368,7 @@ if (retrievalResult.candidates.length !== 1) throw new Error("ESM context.retrie
 }
 
 function consumerCjsSource(capability, request, success) {
-  return `const { InfinityContextClient, CONTEXT_RETRIEVAL_CONTRACT, CONTEXT_RETRIEVAL_RANKING_POLICY, assertRetrievalCapability, decodeRetrieveContextResponse, retrievalRequestPayload, createMemoryReviewPlan } = require("@infinity-context/sdk");
+  return `const { InfinityContextClient, CONTEXT_RETRIEVAL_CONTRACT, CONTEXT_RETRIEVAL_RANKING_POLICY, assertRetrievalCapability, decodeRetrieveContextResponse, retrievalRequestPayload, createMemoryReviewPlan, EXACT_DOCUMENT_RECONCILIATION_CONTRACT_V1, EXACT_DOCUMENT_RECONCILIATION_MAX_RESPONSE_BYTES, assertExactDocumentReconciliationCapabilityV1, decodeExactDocumentReconciliationResponseV1 } = require("@infinity-context/sdk");
 const { MemoryWorkflows } = require("@infinity-context/sdk/workflows");
 const { noopInstrumentation } = require("@infinity-context/sdk/instrumentation");
 const { assertFullMemoryReady } = require("@infinity-context/sdk/runtime");
@@ -335,6 +390,10 @@ for (const value of [
   runRuntimeCanary,
   runFullMemoryProof,
   iterateCursorItems,
+  EXACT_DOCUMENT_RECONCILIATION_CONTRACT_V1,
+  EXACT_DOCUMENT_RECONCILIATION_MAX_RESPONSE_BYTES,
+  assertExactDocumentReconciliationCapabilityV1,
+  decodeExactDocumentReconciliationResponseV1,
 ]) {
   if (value === undefined) {
     throw new Error("Missing CJS consumer export");
@@ -342,11 +401,12 @@ for (const value of [
 }
 const client = new InfinityContextClient();
 if (typeof client.context.retrieve !== "function") throw new Error("Missing CJS context.retrieve");
+if (typeof client.documents.reconcileExactDocument !== "function") throw new Error("Missing CJS documents.reconcileExactDocument");
 if (typeof client.context.benchmarkSearch !== "function" || typeof client.codeRepositories.resolve !== "function" ||
     typeof client.factLifecycle.confirm !== "function" || typeof client.derivedEvidence.observePresence !== "function" ||
     typeof client.memoryComparisonRuns.register !== "function") throw new Error("Missing CJS parity resource");
-if (!require.resolve("@infinity-context/sdk/fixtures/context_retrieval_v2/capability.json").endsWith("capability.json")) {
-  throw new Error("Missing CJS Contract C fixture export");
+for (const specifier of ${JSON.stringify(fixtureSpecifiers())}) {
+  if (!require.resolve(specifier).endsWith(".json")) throw new Error("Missing CJS fixture export: " + specifier);
 }
 (async () => {
   const retrievalTransport = { send: async () => ({ status: 200, headers: new Headers(), body: JSON.stringify(${JSON.stringify(success)}) }) };
@@ -364,6 +424,11 @@ function consumerBrowserSource() {
   return `import { retrievalCapabilityFingerprint } from "@infinity-context/sdk";
 globalThis.__infinityContextBrowserSmoke = retrievalCapabilityFingerprint({ browser: true });
 `;
+}
+
+function fixtureSpecifiers() {
+  return fixtureExports.flatMap(([family, names]) =>
+    names.map((name) => `@infinity-context/sdk/fixtures/${family}/${name}`));
 }
 
 function retrievalPins(capability) {

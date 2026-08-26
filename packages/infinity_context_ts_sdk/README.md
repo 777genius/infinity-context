@@ -68,6 +68,8 @@ Stable entry points:
 - `@infinity-context/sdk/fixtures/context_retrieval_v2/{capability,cases,document_projection,errors,request,scoring_golden,success}.json`:
   byte-exact Contract C resources checked against the canonical contracts source and
   again after `npm pack`.
+- `@infinity-context/sdk/fixtures/document_reconciliation/hostile_responses.json`:
+  byte-exact hostile reconciliation responses checked again after `npm pack`.
 
 Installed binaries:
 
@@ -76,7 +78,8 @@ Installed binaries:
 - `infinity-context-retrieval-runtime-canary`: call the live Retrieval route only after
   capability fingerprint, profile and SDK-revision pins match.
 
-Both binaries support `--help` and `--version` without contacting the service.
+All three binaries support `--help` and `--version` without validating runtime
+configuration or contacting the service.
 
 `npm run verify` includes architecture, conformance, build, export, consumer-install,
 and packed-fixture gates. Touched production stays below 900 lines and tests below 1000.
