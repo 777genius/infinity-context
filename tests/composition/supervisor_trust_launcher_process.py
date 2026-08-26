@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import os
 import pwd
+import shutil
 import subprocess
 import sys
 from dataclasses import asdict
@@ -25,15 +26,58 @@ from infinity_context_server.build_identity import (  # noqa: E402
     repository_source_release_identity,
 )
 
+_SOURCE_DIRECTORIES = ("packages", "tests", "scripts", "docs", ".github")
+_SOURCE_FILES = ("pyproject.toml", "uv.lock")
+_IGNORED_NAMES = (
+    "__pycache__",
+    ".pytest_cache",
+    ".ruff_cache",
+    "build",
+    "dist",
+    "node_modules",
+)
+
+
+def _stage_verified_runtime_source(target: Path, release) -> Path:
+    staged_root = target / "runtime-source"
+    staged_root.mkdir(mode=0o755)
+    for name in _SOURCE_DIRECTORIES:
+        shutil.copytree(
+            ROOT / name,
+            staged_root / name,
+            symlinks=True,
+            ignore=shutil.ignore_patterns(*_IGNORED_NAMES),
+        )
+    for name in _SOURCE_FILES:
+        shutil.copy2(ROOT / name, staged_root / name)
+
+    for path in sorted(staged_root.rglob("*"), reverse=True):
+        if path.is_symlink():
+            raise RuntimeError("disposable runtime source cannot contain symlinks")
+        path.chmod(0o555 if path.is_dir() else 0o444)
+    staged_root.chmod(0o555)
+
+    observed = repository_source_release_identity(
+        staged_root,
+        service_revision=release.service_revision,
+    )
+    if observed != release:
+        raise RuntimeError("disposable runtime source release identity mismatch")
+    return staged_root
+
+
 if __name__ == "__main__":
     target = Path(sys.argv[1]).resolve()
     key_id = "deployment-supervisor-2026-08"
     generation = 41
     signing_key = Ed25519PrivateKey.generate()
     release = repository_source_release_identity(ROOT)
-    public_key = signing_key.public_key().public_bytes(
-        serialization.Encoding.Raw, serialization.PublicFormat.Raw
-    ).hex()
+    runtime_root = _stage_verified_runtime_source(target, release)
+    public_key = (
+        signing_key.public_key()
+        .public_bytes(serialization.Encoding.Raw, serialization.PublicFormat.Raw)
+        .hex()
+    )
     registry, digest = registry_document(
         registry_id="deployment-supervisor-test",
         generation=generation,
@@ -48,9 +92,11 @@ if __name__ == "__main__":
     nobody = pwd.getpwnam("nobody")
     environment = dict(os.environ)
     local_packages = os.pathsep.join(
-        str(ROOT / "packages" / package)
+        str(runtime_root / "packages" / package)
         for package in (
-            "infinity_context_server", "infinity_context_adapters", "infinity_context_core",
+            "infinity_context_server",
+            "infinity_context_adapters",
+            "infinity_context_core",
             "infinity_context_contracts",
         )
     )
@@ -64,11 +110,15 @@ if __name__ == "__main__":
             "TEST_RUNTIME_UID": str(nobody.pw_uid),
             "TEST_RUNTIME_GID": str(nobody.pw_gid),
             "TEST_RELEASE_REVISION": release.service_revision,
+            "TEST_RUNTIME_SOURCE_ROOT": str(runtime_root),
         }
     )
 
     runtime = subprocess.Popen(
-        [sys.executable, "tests/composition/supervisor_trust_runtime_process.py"],
+        [
+            sys.executable,
+            str(runtime_root / "tests/composition/supervisor_trust_runtime_process.py"),
+        ],
         stdin=subprocess.PIPE,
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
@@ -88,5 +138,7 @@ if __name__ == "__main__":
         raise SystemExit(error[-4000:])
     result = json.loads(output)
     result["launcher_pid"] = os.getpid()
+    result["launcher_uid"] = os.geteuid()
     result["runtime_pid"] = runtime.pid
+    result["source_release_verified"] = True
     print(json.dumps(result, sort_keys=True))
