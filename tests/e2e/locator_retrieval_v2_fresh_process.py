@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import asyncio
 import json
-import os
 import sys
 from datetime import UTC, datetime, timedelta
 
@@ -27,6 +26,7 @@ from infinity_context_core.features.context_building.public import (
 )
 from infinity_context_core.ports.adapters import EmbeddingResult, PortStatus
 from infinity_context_server.retrieval_profile_composition import _bounded_qdrant_attestation
+from locator_retrieval_v2_process_identity import enter_runtime_identity
 from sqlalchemy import select
 
 
@@ -85,9 +85,9 @@ async def _run(configuration: dict[str, object]) -> dict[str, object]:
         url=str(configuration["qdrant_url"]), timeout=10, trust_env=False
     )
     await preload.close()
-    os.setgroups([])
-    os.setgid(int(configuration["runtime_gid"]))
-    os.setuid(int(configuration["runtime_uid"]))
+    enter_runtime_identity(
+        int(configuration["runtime_uid"]), int(configuration["runtime_gid"])
+    )
     engine = build_async_engine(str(configuration["postgres_url"]))
     sessions = build_session_factory(engine)
     release = InstalledReleaseIdentity(**configuration["installed_release"])

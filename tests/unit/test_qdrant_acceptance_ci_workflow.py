@@ -52,6 +52,26 @@ def test_real_qdrant_acceptance_pins_services_resources_and_test_contract() -> N
     assert "--cpus 2" in job
     assert "--memory 3g" in job
     assert 'INFINITY_RUN_LOCATOR_QDRANT_E2E: "1"' in job
+    preserved_environment = (
+        "INFINITY_CONTEXT_TEST_POSTGRES_URL,"
+        "INFINITY_SANDBOX_QDRANT_URL,"
+        "INFINITY_RUN_LOCATOR_QDRANT_E2E,"
+        "HF_HUB_OFFLINE,"
+        "TRANSFORMERS_OFFLINE,"
+        "PYTEST_DISABLE_PLUGIN_AUTOLOAD"
+    )
+    assert f"sudo \\\n            --preserve-env={preserved_environment}" in job
+    scoped_git_configuration = (
+        'env \\\n'
+        '            GIT_CONFIG_COUNT=1 \\\n'
+        '            GIT_CONFIG_KEY_0=safe.directory \\\n'
+        '            GIT_CONFIG_VALUE_0="$GITHUB_WORKSPACE" \\\n'
+        "            timeout --signal=TERM --kill-after=30s 40m"
+    )
+    assert scoped_git_configuration in job
+    assert "git config --global" not in job
+    assert "git config --system" not in job
+    assert "sudo -E" not in job
     assert "timeout --signal=TERM --kill-after=30s 40m" in job
     assert (
         "test_locator_retrieval_v2_qdrant_e2e.py::"
@@ -90,3 +110,18 @@ def test_real_qdrant_acceptance_scrubs_provider_credentials() -> None:
     assert "${{ secrets." not in job
     assert 'HF_HUB_OFFLINE: "1"' in job
     assert 'TRANSFORMERS_OFFLINE: "1"' in job
+    assert "GIT_CONFIG_COUNT: " not in job
+    assert "GIT_CONFIG_KEY_0: " not in job
+    assert "GIT_CONFIG_VALUE_0: " not in job
+
+    preserve_option = re.search(r"--preserve-env=(\S+)", job)
+    assert preserve_option is not None
+    preserved_names = set(preserve_option.group(1).split(","))
+    assert preserved_names == {
+        "INFINITY_CONTEXT_TEST_POSTGRES_URL",
+        "INFINITY_SANDBOX_QDRANT_URL",
+        "INFINITY_RUN_LOCATOR_QDRANT_E2E",
+        "HF_HUB_OFFLINE",
+        "TRANSFORMERS_OFFLINE",
+        "PYTEST_DISABLE_PLUGIN_AUTOLOAD",
+    }

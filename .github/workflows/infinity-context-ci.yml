@@ -295,7 +295,13 @@ jobs:
         run: |
           mkdir -p test-results
           set +e
-          timeout --signal=TERM --kill-after=30s 40m \
+          sudo \
+            --preserve-env=INFINITY_CONTEXT_TEST_POSTGRES_URL,INFINITY_SANDBOX_QDRANT_URL,INFINITY_RUN_LOCATOR_QDRANT_E2E,HF_HUB_OFFLINE,TRANSFORMERS_OFFLINE,PYTEST_DISABLE_PLUGIN_AUTOLOAD \
+            env \
+            GIT_CONFIG_COUNT=1 \
+            GIT_CONFIG_KEY_0=safe.directory \
+            GIT_CONFIG_VALUE_0="$GITHUB_WORKSPACE" \
+            timeout --signal=TERM --kill-after=30s 40m \
             .venv/bin/python -m pytest -q \
             --junitxml=test-results/qdrant-locator-acceptance.xml \
             tests/e2e/test_locator_retrieval_v2_qdrant_e2e.py::test_real_qdrant_large_profile_resumes_attests_and_physically_deletes
