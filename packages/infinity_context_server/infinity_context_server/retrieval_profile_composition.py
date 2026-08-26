@@ -181,6 +181,7 @@ class ProfileAwareLocatorRetrievalService:
         owner = self.runtime_owner
         if not isinstance(owner, RuntimeFenceOwner):
             raise RuntimeError("retrieval_profile_reconciliation_runtime_identity_missing")
+        await self.registry.verify_registered_runtime_owner(owner)
         active = await self.registry.active()
         if active is None:
             return ActiveReconciliationResult(False, False)

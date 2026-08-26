@@ -62,16 +62,35 @@ def test_active_reconciliation_rejects_missing_identity_before_observation(monke
 
     assert registry.recorded_owner is None
     assert registry.lease.lease_id == "activation"
+    assert registry.mutations == []
 
 
-@pytest.mark.parametrize("mismatch", ("generation", "release"))
-def test_active_reconciliation_rejects_stale_identity_without_lease_renewal(
-    monkeypatch, mismatch: str
+@pytest.mark.parametrize(
+    ("mismatch", "reason"),
+    (
+        ("missing", "runtime_incarnation_missing"),
+        ("generation", "runtime_generation_mismatch"),
+        ("release", "runtime_release_identity_mismatch"),
+        ("lifecycle", "runtime_lifecycle_identity_mismatch"),
+        ("launch_token", "runtime_launch_token_reused"),
+    ),
+)
+def test_active_reconciliation_rejects_unregistered_identity_before_any_mutation(
+    monkeypatch, mismatch: str, reason: str
 ) -> None:
     registered = _owner("generation-current")
-    if mismatch == "generation":
-        presented = replace(registered, generation="generation-stale")
-    else:
+    other = _owner("generation-other")
+    if mismatch == "missing":
+        presented = _owner("generation-missing")
+        registered_owner = None
+    elif mismatch == "generation":
+        presented = replace(
+            registered,
+            generation="generation-stale",
+            launch_token="unrecoverable-launch-stale-generation",
+        )
+        registered_owner = registered
+    elif mismatch == "release":
         presented = replace(
             registered,
             installed_release=InstalledReleaseIdentity(
@@ -81,15 +100,25 @@ def test_active_reconciliation_rejects_stale_identity_without_lease_renewal(
                 "sha256:" + "3" * 64,
             ),
         )
-    registry = _Registry(registered)
+        registered_owner = registered
+    elif mismatch == "lifecycle":
+        presented = replace(registered, supervisor_key_id="test-unrecoverable-stale")
+        registered_owner = registered
+    else:
+        presented = replace(registered, launch_token=other.launch_token)
+        registered_owner = registered
+    registry = _Registry(registered_owner, other_owner=other)
     service = _service(presented, registry)
-    _accept_attestation(monkeypatch)
+    observed_operations = []
+    _accept_attestation(monkeypatch, observed_operations)
 
-    with pytest.raises(RuntimeError, match="runtime_identity_mismatch"):
+    with pytest.raises(RuntimeError, match=reason):
         asyncio.run(service.reconcile_active(now=NOW))
 
     assert registry.lease.lease_id == "activation"
     assert registry.lease.expires_at == NOW + timedelta(seconds=5)
+    assert registry.mutations == []
+    assert observed_operations == []
 
 
 def _owner(generation: str) -> RuntimeFenceOwner:
@@ -130,13 +159,35 @@ def _accept_attestation(monkeypatch, observed_operations=None) -> None:
 class _Registry:
     identity = RetrievalProfileIdentity("profile-active", "gen-active", "a" * 64, "active")
 
-    def __init__(self, registered_owner: RuntimeFenceOwner):
+    def __init__(
+        self,
+        registered_owner: RuntimeFenceOwner | None,
+        *,
+        other_owner: RuntimeFenceOwner | None = None,
+    ):
         self.registered_owner = registered_owner
+        self.other_owner = other_owner
         self.recorded_owner = None
         self.operation_ids = []
+        self.mutations = []
         self.lease = ProfileAttestationLease(
             "activation", "profile-active", "gen-active", "b" * 64, NOW, NOW + timedelta(seconds=5)
         )
+
+    async def verify_registered_runtime_owner(self, owner):
+        registered = self.registered_owner
+        if registered is None:
+            raise RuntimeError("retrieval_profile_runtime_incarnation_missing")
+        if owner.launch_token == getattr(self.other_owner, "launch_token", None):
+            raise RuntimeError("retrieval_profile_runtime_launch_token_reused")
+        if owner.instance_id != registered.instance_id:
+            raise RuntimeError("retrieval_profile_runtime_incarnation_missing")
+        if owner.generation != registered.generation:
+            raise RuntimeError("retrieval_profile_runtime_generation_mismatch")
+        if owner.installed_release != registered.installed_release:
+            raise RuntimeError("retrieval_profile_runtime_release_identity_mismatch")
+        if owner.lifecycle_identity_sha256() != registered.lifecycle_identity_sha256():
+            raise RuntimeError("retrieval_profile_runtime_lifecycle_identity_mismatch")
 
     async def active(self):
         return self.identity
@@ -145,6 +196,7 @@ class _Registry:
         return self.lease if now < self.lease.expires_at else None
 
     async def reconciliation_operation(self, profile_id):
+        self.mutations.append("reconciliation_operation")
         operation_id = f"reconcile-{len(self.operation_ids) + 1}"
         self.operation_ids.append(operation_id)
         return ProfileReconciliationOperation(
@@ -162,6 +214,7 @@ class _Registry:
         return SimpleNamespace(expected_count=0, expected_digest="e" * 64)
 
     async def update_lane(self, *_args, **_kwargs):
+        self.mutations.append("update_lane")
         return None
 
     async def activation_evidence(self, profile_id, *, now):
@@ -183,6 +236,7 @@ class _Registry:
         if runtime_owner != self.registered_owner:
             raise RuntimeError("retrieval_profile_runtime_identity_mismatch")
         assert mutation_epoch == 4
+        self.mutations.append("record_reconciliation")
         self.recorded_owner = runtime_owner
         self.lease = ProfileAttestationLease(
             operation.operation_id, "profile-active", "gen-active", "b" * 64, now, expires_at

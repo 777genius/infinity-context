@@ -55,6 +55,59 @@ class PostgresRetrievalProfileReconciliationMixin:
                 session, owner, now=now, supervisor_trust=self.supervisor_trust
             )
 
+    async def verify_registered_runtime_owner(self, owner: RuntimeFenceOwner) -> None:
+        """Verify the exact authoritative incarnation without renewing or creating it."""
+
+        owner.assert_current_process()
+        async with self.sessions() as session, session.begin():
+            await _lock_admission(session)
+            row = await session.get(
+                MemoryLocatorRuntimeIncarnationRow,
+                (owner.instance_id, owner.generation),
+                with_for_update=True,
+            )
+            if row is None:
+                launch_owner = (
+                    await session.execute(
+                        select(MemoryLocatorRuntimeIncarnationRow)
+                        .where(
+                            MemoryLocatorRuntimeIncarnationRow.launch_token == owner.launch_token
+                        )
+                        .with_for_update()
+                    )
+                ).scalar_one_or_none()
+                if launch_owner is not None:
+                    raise RuntimeError("retrieval_profile_runtime_launch_token_reused")
+                generation = await session.scalar(
+                    select(MemoryLocatorRuntimeIncarnationRow.generation)
+                    .where(MemoryLocatorRuntimeIncarnationRow.instance_id == owner.instance_id)
+                    .order_by(MemoryLocatorRuntimeIncarnationRow.registered_at.desc())
+                    .limit(1)
+                    .with_for_update()
+                )
+                if generation is not None:
+                    raise RuntimeError("retrieval_profile_runtime_generation_mismatch")
+                raise RuntimeError("retrieval_profile_runtime_incarnation_missing")
+            if row.launch_token != owner.launch_token:
+                launch_owner = (
+                    await session.execute(
+                        select(MemoryLocatorRuntimeIncarnationRow)
+                        .where(
+                            MemoryLocatorRuntimeIncarnationRow.launch_token == owner.launch_token
+                        )
+                        .with_for_update()
+                    )
+                ).scalar_one_or_none()
+                if launch_owner is not None:
+                    raise RuntimeError("retrieval_profile_runtime_launch_token_reused")
+                raise RuntimeError("retrieval_profile_runtime_lifecycle_identity_mismatch")
+            if not _runtime_release_matches(row, owner):
+                raise RuntimeError("retrieval_profile_runtime_release_identity_mismatch")
+            if not _runtime_lifecycle_matches(row, owner):
+                raise RuntimeError("retrieval_profile_runtime_lifecycle_identity_mismatch")
+            if row.sealed_dead_generation is not None:
+                raise RuntimeError("retrieval_profile_runtime_incarnation_sealed_dead")
+
     async def begin_profile_query(
         self,
         operation_id: str,
@@ -665,6 +718,36 @@ async def _lock_admission(session) -> None:
     row = await session.get(MemoryLocatorProfileMaintenanceFenceRow, True)
     if row.active:
         raise RuntimeError("retrieval_profile_maintenance_active")
+
+
+def _runtime_release_matches(row, owner: RuntimeFenceOwner) -> bool:
+    release = owner.installed_release
+    return bool(
+        row.release_revision == release.service_revision
+        and row.release_source_tree_sha256 == release.source_tree_digest_sha256
+        and row.release_installed_distribution_sha256
+        == release.installed_distribution_digest_sha256
+        and row.release_runtime_modules_sha256 == release.runtime_modules_digest_sha256
+        and row.release_identity_sha256 == release.digest()
+    )
+
+
+def _runtime_lifecycle_matches(row, owner: RuntimeFenceOwner) -> bool:
+    launch_digest = hashlib.sha256(owner.launch_payload()).hexdigest()
+    return bool(
+        row.instance_id == owner.instance_id
+        and row.generation == owner.generation
+        and row.supervisor_key_id == owner.supervisor_key_id
+        and row.supervisor_public_key == owner.supervisor_public_key
+        and row.trust_root_sha256 == owner.trust_root_sha256
+        and row.trust_registry_generation == owner.trust_registry_generation
+        and row.launch_token == owner.launch_token
+        and row.process_pid == owner.process_pid
+        and row.process_birth_identity == owner.process_birth_identity
+        and row.executable_identity == owner.executable_identity
+        and row.executable_sha256 == owner.executable_sha256
+        and row.launch_identity_sha256 == launch_digest
+    )
 
 
 async def _register_runtime(

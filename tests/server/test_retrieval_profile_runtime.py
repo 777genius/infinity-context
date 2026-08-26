@@ -724,6 +724,9 @@ class _ReconciliationRegistry:
         self.recorded = []
         self.drifted = []
 
+    async def verify_registered_runtime_owner(self, owner):
+        assert isinstance(owner, RuntimeFenceOwner)
+
     async def active(self):
         return self.identity
 
