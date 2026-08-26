@@ -22,7 +22,7 @@ def run_on_owned_loop(factory: Callable[[], Awaitable[_ResultT]]) -> _ResultT:
         except BaseException as exc:
             outcome.put((False, exc))
 
-    worker = Thread(target=run, name="infinity-sdk-owned-loop")
+    worker = Thread(target=run, name="infinity-sdk-owned-loop", daemon=False)
     worker.start()
     worker.join()
     succeeded, value = outcome.get()

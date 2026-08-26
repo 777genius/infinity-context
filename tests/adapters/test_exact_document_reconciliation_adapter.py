@@ -211,6 +211,26 @@ async def _indexed_scenario() -> None:
     await engine.dispose()
 
 
+def test_zero_active_chunks_are_present_without_live_projection_work() -> None:
+    asyncio.run(_zero_active_chunks_scenario())
+
+
+async def _zero_active_chunks_scenario() -> None:
+    engine = create_async_engine("sqlite+aiosqlite:///:memory:")
+    async with engine.begin() as connection:
+        await connection.run_sync(Base.metadata.create_all)
+    sessions = async_sessionmaker(engine, expire_on_commit=False)
+    async with sessions.begin() as session:
+        session.add(_document(1, "target"))
+
+    observation = (
+        await PostgresExactDocumentObservationAdapter(sessions).observe_exact_document(_identity())
+    )[0]
+
+    assert observation.visibility == "accepted"
+    await engine.dispose()
+
+
 def test_reconciliation_and_admission_share_every_canonical_queryability_gate() -> None:
     for mode in (
         "missing_lease",

@@ -90,11 +90,11 @@ class DocumentListResponse(BaseModel):
     next_cursor: str | None
 
 
-@router.post("/reconcile-exact")
+@router.post("/reconcile-exact", response_model=dict[str, Any])
 async def reconcile_exact_document(
     request: document_ingestion_server.ReconcileExactDocumentHttpRequest,
     container: Annotated[Container, Depends(get_container)],
-) -> dict[str, Any]:
+) -> dict[str, Any] | JSONResponse:
     if request.contract_version != EXACT_DOCUMENT_RECONCILIATION_CONTRACT_V1:
         return JSONResponse(
             status_code=status.HTTP_409_CONFLICT,

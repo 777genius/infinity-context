@@ -2,13 +2,15 @@ from __future__ import annotations
 
 import asyncio
 from types import SimpleNamespace
+from typing import get_args, get_origin, get_type_hints
 
 import infinity_context_core.features.document_ingestion.public as ingestion
 from fastapi import FastAPI
+from fastapi.responses import JSONResponse
 from fastapi.testclient import TestClient
 from infinity_context_server.api.auth import require_service_token
 from infinity_context_server.api.dependencies import get_container
-from infinity_context_server.api.v1.documents import router
+from infinity_context_server.api.v1.documents import reconcile_exact_document, router
 
 
 def _client(handler) -> TestClient:
@@ -96,3 +98,10 @@ def test_route_rejects_malformed_and_unsupported_contracts() -> None:
     )
     response = client.post("/v1/documents/reconcile-exact", json=_body(contract_version="wrong"))
     assert response.status_code == 409
+
+
+def test_route_return_annotation_includes_typed_payload_and_json_response() -> None:
+    annotation = get_type_hints(reconcile_exact_document)["return"]
+    members = get_args(annotation)
+    assert JSONResponse in members
+    assert any(get_origin(member) is dict for member in members)

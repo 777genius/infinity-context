@@ -2,6 +2,9 @@ from __future__ import annotations
 
 import asyncio
 import json
+import subprocess
+import sys
+import textwrap
 import time
 from concurrent.futures import ThreadPoolExecutor
 from copy import deepcopy
@@ -12,6 +15,7 @@ from threading import enumerate as enumerate_threads
 import httpx
 import pytest
 from infinity_context_sdk import InfinityContextClient
+from infinity_context_sdk.async_facade import run_on_owned_loop
 from infinity_context_sdk.errors import (
     InfinityContextError,
     InfinityContextTransportCapabilityError,
@@ -340,3 +344,84 @@ def test_python_sdk_concurrent_bounded_calls_join_every_owned_loop() -> None:
         thread.name == "infinity-sdk-owned-loop" and thread.is_alive()
         for thread in enumerate_threads()
     )
+
+
+def test_owned_loop_thread_is_explicitly_non_daemon_from_normal_and_daemon_callers() -> None:
+    observed: list[tuple[bool, bool]] = []
+
+    async def observe() -> bool:
+        from threading import current_thread
+
+        return current_thread().daemon
+
+    def call() -> None:
+        from threading import current_thread
+
+        observed.append((current_thread().daemon, run_on_owned_loop(observe)))
+
+    normal = Thread(target=call, daemon=False)
+    daemon = Thread(target=call, daemon=True)
+    normal.start()
+    daemon.start()
+    normal.join(1)
+    daemon.join(1)
+
+    assert sorted(observed) == [
+        (False, False),
+        (True, False),
+    ]
+    assert not normal.is_alive()
+    assert not daemon.is_alive()
+    assert not any(
+        thread.name == "infinity-sdk-owned-loop" and thread.is_alive()
+        for thread in enumerate_threads()
+    )
+
+
+@pytest.mark.parametrize("exception", [RuntimeError("failed"), asyncio.CancelledError()])
+def test_owned_loop_joins_before_propagating_exceptions(exception: BaseException) -> None:
+    async def fail() -> None:
+        raise exception
+
+    match = "failed" if isinstance(exception, RuntimeError) else None
+    with pytest.raises(type(exception), match=match):
+        run_on_owned_loop(fail)
+
+    assert not any(
+        thread.name == "infinity-sdk-owned-loop" and thread.is_alive()
+        for thread in enumerate_threads()
+    )
+
+
+def test_interpreter_waits_for_owned_loop_started_by_daemon_caller(tmp_path: Path) -> None:
+    marker = tmp_path / "owned-loop-finished"
+    script = textwrap.dedent(
+        f"""
+        import asyncio
+        from pathlib import Path
+        from threading import Event, Thread
+
+        from infinity_context_sdk.async_facade import run_on_owned_loop
+
+        started = Event()
+
+        async def finish():
+            started.set()
+            await asyncio.sleep(0.05)
+            Path({str(marker)!r}).write_text("finished", encoding="utf-8")
+
+        Thread(target=lambda: run_on_owned_loop(finish), daemon=True).start()
+        assert started.wait(1)
+        """
+    )
+
+    completed = subprocess.run(
+        [sys.executable, "-c", script],
+        check=False,
+        capture_output=True,
+        text=True,
+        timeout=2,
+    )
+
+    assert completed.returncode == 0, completed.stderr
+    assert marker.read_text(encoding="utf-8") == "finished"

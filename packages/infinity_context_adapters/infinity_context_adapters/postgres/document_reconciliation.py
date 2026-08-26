@@ -142,7 +142,7 @@ async def _visibility(session, document, active_chunks, profile):
             if all(versions.get(chunk.id) == chunk.retrieval_version for chunk in active_chunks):
                 return "indexed"
     if not active_chunks:
-        return "processing"
+        return "accepted"
     processing = (
         await session.execute(
             select(MemoryOutboxRow.id)
