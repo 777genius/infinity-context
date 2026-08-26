@@ -56,8 +56,7 @@ async def _qualify_online_indexes(database_url: str) -> None:
         await _seed_populated_clone(database)
         report = await _build_indexes_with_writes(database)
         print(
-            "document_listing_online_index_qualification="
-            + json.dumps(report, sort_keys=True),
+            "document_listing_online_index_qualification=" + json.dumps(report, sort_keys=True),
             flush=True,
         )
     finally:
