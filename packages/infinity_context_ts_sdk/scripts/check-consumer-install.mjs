@@ -53,6 +53,14 @@ try {
       throw new Error(`Installed package bin version is invalid: ${binName}`);
     }
   }
+  const installedExportGate = await execFileAsync(
+    process.execPath,
+    [join(installedRoot, "scripts", "check-package-exports.mjs")],
+    { cwd: tempRoot, env: binEnv, maxBuffer: 10 * 1024 * 1024 },
+  );
+  if (!installedExportGate.stdout.includes("Package exports ok:")) {
+    throw new Error("Installed package export inventory gate did not complete");
+  }
 
   await writeFile(join(tempRoot, "consumer.ts"), consumerTypecheckSource());
   const capability = JSON.parse(await readFile(join(packageRoot, "fixtures", "context_retrieval_v2", "capability.json"), "utf8"));
