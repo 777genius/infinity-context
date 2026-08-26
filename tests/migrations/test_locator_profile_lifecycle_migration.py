@@ -158,3 +158,18 @@ def test_release_identity_migration_is_forward_only_and_transactionally_rollback
     assert "forward-only drain boundary" in sql
     assert "Transactional migration failure rolls back" in sql
     assert "pre-0048 backup" in sql
+
+
+def test_reconciliation_generation_migration_fences_current_owner_and_operation() -> None:
+    path = Path(__file__).resolve().parents[2] / (
+        "packages/infinity_context_adapters/infinity_context_adapters/postgres/migrations/"
+        "0049_reconciliation_runtime_generation.sql"
+    )
+    sql = path.read_text()
+    assert "uq_locator_runtime_current_instance" in sql
+    assert "WHERE sealed_dead_generation IS NULL AND retired_at IS NULL" in sql
+    assert "runtime_instance_id" in sql
+    assert "runtime_generation" in sql
+    assert "lifecycle_identity_sha256" in sql
+    assert "fk_locator_reconciliation_operation_runtime" in sql
+    assert "reconciliation_drift" in sql

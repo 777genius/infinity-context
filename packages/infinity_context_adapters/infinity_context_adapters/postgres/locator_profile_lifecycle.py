@@ -313,10 +313,22 @@ class PostgresRetrievalProfileRegistry(
             if complete:
                 await self._refresh_attestation(session, row)
 
-    async def coverage(self, profile_id: str) -> ProfileCoverageAttestation:
+    async def coverage(
+        self,
+        profile_id: str,
+        *,
+        reconciliation_operation=None,
+        runtime_owner: RuntimeFenceOwner | None = None,
+    ) -> ProfileCoverageAttestation:
         async with self.sessions() as session, session.begin():
             await _lock_maintenance(session)
             await _lock_profile_evidence(session)
+            await _fence_reconciliation_write(
+                session,
+                profile_id=profile_id,
+                reconciliation_operation=reconciliation_operation,
+                runtime_owner=runtime_owner,
+            )
             row = await session.get(MemoryLocatorProfileRow, profile_id, with_for_update=True)
             if row is None:
                 raise RuntimeError("retrieval_profile_missing")
@@ -324,11 +336,22 @@ class PostgresRetrievalProfileRegistry(
             return _coverage(row)
 
     async def activation_evidence(
-        self, profile_id: str, *, now: datetime
+        self,
+        profile_id: str,
+        *,
+        now: datetime,
+        reconciliation_operation=None,
+        runtime_owner: RuntimeFenceOwner | None = None,
     ) -> ProfileActivationEvidence:
         async with self.sessions() as session, session.begin():
             await _lock_maintenance(session)
             await _lock_profile_evidence(session)
+            await _fence_reconciliation_write(
+                session,
+                profile_id=profile_id,
+                reconciliation_operation=reconciliation_operation,
+                runtime_owner=runtime_owner,
+            )
             row = await session.get(MemoryLocatorProfileRow, profile_id, with_for_update=True)
             _require_routable(row)
             await self._refresh_attestation(session, row)
@@ -745,10 +768,18 @@ class PostgresRetrievalProfileRegistry(
         checked_at: datetime,
         observed_count: int = 0,
         observed_digest: str = _EMPTY_DIGEST,
+        reconciliation_operation=None,
+        runtime_owner: RuntimeFenceOwner | None = None,
     ) -> None:
         async with self.sessions() as session, session.begin():
             await _lock_maintenance(session)
             await _lock_profile_evidence(session)
+            await _fence_reconciliation_write(
+                session,
+                profile_id=profile_id,
+                reconciliation_operation=reconciliation_operation,
+                runtime_owner=runtime_owner,
+            )
             profile = await session.get(MemoryLocatorProfileRow, profile_id, with_for_update=True)
             if profile is None:
                 raise RuntimeError("retrieval_profile_missing")
@@ -904,6 +935,33 @@ async def _lock_profile_evidence(session: AsyncSession) -> int:
     if value is None:
         raise RuntimeError("retrieval_profile_evidence_version_missing")
     return int(value)
+
+
+async def _fence_reconciliation_write(
+    session,
+    *,
+    profile_id: str,
+    reconciliation_operation,
+    runtime_owner: RuntimeFenceOwner | None,
+) -> None:
+    if reconciliation_operation is None and runtime_owner is None:
+        return
+    if reconciliation_operation is None or not isinstance(runtime_owner, RuntimeFenceOwner):
+        raise RuntimeError("retrieval_profile_reconciliation_runtime_identity_missing")
+    from infinity_context_adapters.postgres.locator_profile_reconciliation import (
+        _verify_reconciliation_operation,
+    )
+    from infinity_context_adapters.postgres.locator_runtime_identity import (
+        verify_registered_runtime,
+    )
+
+    await verify_registered_runtime(session, runtime_owner)
+    await _verify_reconciliation_operation(
+        session,
+        profile_id=profile_id,
+        operation=reconciliation_operation,
+        owner=runtime_owner,
+    )
 
 
 async def _lock_maintenance(session: AsyncSession) -> None:

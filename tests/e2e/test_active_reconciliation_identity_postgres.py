@@ -112,7 +112,9 @@ async def _assert_active_reconciliation_identity(database_url: str) -> None:
             maximum_queue_lag=timedelta(minutes=5),
             maximum_retained=1,
         )
-        operation = await registry.reconciliation_operation(identity.profile_id)
+        operation = await registry.reconciliation_operation(
+            identity.profile_id, runtime_owner=owner
+        )
         write_outcome = await registry.record_reconciliation(
             identity.profile_id,
             evidence,
@@ -132,7 +134,7 @@ async def _assert_active_reconciliation_identity(database_url: str) -> None:
             expires_at=now + timedelta(minutes=5),
             drifted=False,
         )
-        assert replay_outcome is ProfileReconciliationWriteOutcome.REPLAYED
+        assert replay_outcome is ProfileReconciliationWriteOutcome.IDEMPOTENT_REPLAY
 
         async with engine.connect() as connection:
             audit = (
@@ -155,6 +157,20 @@ async def _assert_active_reconciliation_identity(database_url: str) -> None:
             owner.installed_release.digest(),
             owner.lifecycle_identity_sha256(),
         )
+        async with engine.connect() as connection:
+            assert (
+                int(
+                    await connection.scalar(
+                        text(
+                            "SELECT count(*) FROM memory_locator_profile_transition_audit "
+                            "WHERE lease_id=:lease_id"
+                        ),
+                        {"lease_id": operation.operation_id},
+                    )
+                    or 0
+                )
+                == 1
+            )
         renewed = await registry.active_lease(now=now + timedelta(seconds=2))
         assert renewed is not None
         rejected_expiry = renewed.expires_at
@@ -210,7 +226,9 @@ async def _assert_active_reconciliation_identity(database_url: str) -> None:
                 expires_at=now + timedelta(minutes=10),
                 drifted=False,
             )
-        drift_operation = await registry.reconciliation_operation(identity.profile_id)
+        drift_operation = await registry.reconciliation_operation(
+            identity.profile_id, runtime_owner=owner
+        )
         before_stale_drift = await _lifecycle_state(engine)
         with pytest.raises(RuntimeError, match="runtime_generation_mismatch"):
             await registry.mark_reconciliation_drift(
@@ -241,22 +259,31 @@ async def _assert_active_reconciliation_identity(database_url: str) -> None:
                 expires_at=now + timedelta(minutes=10),
                 drifted=False,
             )
-        for replay_now, replay_expiry, replay_epoch in (
-            (now + timedelta(seconds=2), now + timedelta(minutes=5), 0),
-            (now + timedelta(seconds=1), now + timedelta(minutes=10), 0),
-            (now + timedelta(seconds=1), now + timedelta(minutes=5), 1),
+        for replay_now, replay_expiry in (
+            (now + timedelta(seconds=2), now + timedelta(minutes=5)),
+            (now + timedelta(seconds=1), now + timedelta(minutes=10)),
         ):
-            with pytest.raises(RuntimeError, match="reconciliation_replay_drift"):
-                await registry.record_reconciliation(
-                    identity.profile_id,
-                    evidence,
-                    operation=operation,
-                    runtime_owner=owner,
-                    now=replay_now,
-                    expires_at=replay_expiry,
-                    drifted=False,
-                    mutation_epoch=replay_epoch,
-                )
+            replay = await registry.record_reconciliation(
+                identity.profile_id,
+                evidence,
+                operation=operation,
+                runtime_owner=owner,
+                now=replay_now,
+                expires_at=replay_expiry,
+                drifted=False,
+            )
+            assert replay is ProfileReconciliationWriteOutcome.IDEMPOTENT_REPLAY
+        conflict = await registry.record_reconciliation(
+            identity.profile_id,
+            evidence,
+            operation=operation,
+            runtime_owner=owner,
+            now=now + timedelta(seconds=1),
+            expires_at=now + timedelta(minutes=5),
+            drifted=False,
+            mutation_epoch=1,
+        )
+        assert conflict is ProfileReconciliationWriteOutcome.CONFLICT
         after_rejections = await registry.active_lease(now=now + timedelta(seconds=2))
         assert after_rejections is not None
         assert after_rejections.expires_at == rejected_expiry
@@ -275,7 +302,55 @@ async def _assert_active_reconciliation_identity(database_url: str) -> None:
         await registry.retire_runtime_incarnation(owner, now=now + timedelta(seconds=3))
         await registry.register_runtime_incarnation(restarted_owner, now=now + timedelta(seconds=3))
         await registry.verify_registered_runtime_owner(restarted_owner)
-        restart_operation = await registry.reconciliation_operation(identity.profile_id)
+        before_retired_owner_writes = await _lifecycle_state(engine)
+        with pytest.raises(RuntimeError, match="runtime_incarnation_retired"):
+            await registry.coverage(
+                identity.profile_id,
+                reconciliation_operation=drift_operation,
+                runtime_owner=owner,
+            )
+        with pytest.raises(RuntimeError, match="runtime_incarnation_retired"):
+            await registry.update_lane(
+                identity.profile_id,
+                "qdrant_dense",
+                required=True,
+                healthy=False,
+                profile_qualified=False,
+                failure_code="retired-owner-must-not-write",
+                checked_at=now + timedelta(seconds=3),
+                reconciliation_operation=drift_operation,
+                runtime_owner=owner,
+            )
+        with pytest.raises(RuntimeError, match="runtime_incarnation_retired"):
+            await registry.checkpoint_attestation(
+                identity.profile_id,
+                "retired-owner-checkpoint",
+                previous_cursor=None,
+                cursor=None,
+                item_count=0,
+                digest_accumulator="0" * 64,
+                started_at=now,
+                deadline_at=now + timedelta(seconds=30),
+                now=now + timedelta(seconds=3),
+                complete=False,
+                owner_operation_id=drift_operation.operation_id,
+                reconciliation_operation=drift_operation,
+                runtime_owner=owner,
+            )
+        with pytest.raises(RuntimeError, match="operation_owner_mismatch"):
+            await registry.record_reconciliation(
+                identity.profile_id,
+                evidence,
+                operation=drift_operation,
+                runtime_owner=restarted_owner,
+                now=now + timedelta(seconds=3),
+                expires_at=now + timedelta(minutes=6),
+                drifted=False,
+            )
+        assert await _lifecycle_state(engine) == before_retired_owner_writes
+        restart_operation = await registry.reconciliation_operation(
+            identity.profile_id, runtime_owner=restarted_owner
+        )
         restart_evidence = await registry.activation_evidence(identity.profile_id, now=now)
         await registry.record_reconciliation(
             identity.profile_id,
@@ -309,7 +384,8 @@ async def _lifecycle_state(engine) -> tuple[tuple[object, ...], ...]:
         "FROM memory_locator_profile_attestation_pages "
         "ORDER BY profile_id, operation_id, page_number",
         "SELECT profile_id, operation_id, predecessor_lease_id, predecessor_generation, "
-        "created_at FROM memory_locator_profile_reconciliation_operations "
+        "runtime_instance_id, runtime_generation, lifecycle_identity_sha256, created_at "
+        "FROM memory_locator_profile_reconciliation_operations "
         "ORDER BY profile_id, operation_id",
         "SELECT profile_id, lease_id, runtime_instance_id, runtime_generation, "
         "lifecycle_identity_sha256, occurred_at "

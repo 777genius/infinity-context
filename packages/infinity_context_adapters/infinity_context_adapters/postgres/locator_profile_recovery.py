@@ -278,9 +278,7 @@ class PostgresRetrievalProfileRecoveryMixin:
                 or incarnation.sealed_dead_proof_sha256 is None
             ):
                 raise RuntimeError("retrieval_profile_recovery_dead_owner_proof_required")
-            payload["lifecycle_identity_sha256"] = _sealed_lifecycle_identity_sha256(
-                incarnation
-            )
+            payload["lifecycle_identity_sha256"] = _sealed_lifecycle_identity_sha256(incarnation)
             payload["launch_identity_sha256"] = incarnation.launch_identity_sha256
             payload["release_identity_sha256"] = incarnation.release_identity_sha256
             digest = hashlib.sha256(
@@ -361,7 +359,7 @@ class PostgresRetrievalProfileRecoveryMixin:
             if existing is not None:
                 if existing.request_fingerprint != fingerprint:
                     raise RuntimeError("retrieval_profile_recovery_idempotency_conflict")
-                return _receipt(existing)
+                return _receipt(existing, replayed=True)
             if not maintenance.active or maintenance.fence_generation != maintenance_generation:
                 raise RuntimeError("retrieval_profile_maintenance_generation_invalid")
             await session.execute(
@@ -449,6 +447,11 @@ class PostgresRetrievalProfileRecoveryMixin:
                     or provider_receipt.operation_id != operation_id
                     or provider_receipt.owner_instance_id != owner_instance_id
                     or provider_receipt.owner_generation != owner_generation
+                    or provider_receipt.launch_identity_sha256 != incarnation.launch_identity_sha256
+                    or provider_receipt.release_identity_sha256
+                    != incarnation.release_identity_sha256
+                    or provider_receipt.lifecycle_identity_sha256
+                    != _sealed_lifecycle_identity_sha256(incarnation)
                     or provider_receipt.mutation_epoch != mutation_epoch
                     or provider_receipt.stale_deadline != stale_deadline
                     or provider_receipt.consumed_by_recovery_key is not None
@@ -627,7 +630,9 @@ def _owner_matches(row, request: dict[str, object]) -> bool:
     )
 
 
-def _receipt(row: MemoryLocatorProfileRecoveryReceiptRow) -> dict[str, object]:
+def _receipt(
+    row: MemoryLocatorProfileRecoveryReceiptRow, *, replayed: bool = False
+) -> dict[str, object]:
     return {
         "idempotency_key": row.idempotency_key,
         "fence_kind": row.fence_kind,
@@ -642,6 +647,7 @@ def _receipt(row: MemoryLocatorProfileRecoveryReceiptRow) -> dict[str, object]:
         "release_identity_sha256": row.release_identity_sha256,
         "lifecycle_identity_sha256": row.lifecycle_identity_sha256,
         "outcome": "released_for_fresh_attestation",
+        "write_outcome": "idempotent_replay" if replayed else "applied",
         "recovered_at": row.recovered_at.isoformat(),
     }
 

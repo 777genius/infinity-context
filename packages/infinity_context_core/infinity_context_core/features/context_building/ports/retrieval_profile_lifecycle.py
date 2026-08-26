@@ -25,9 +25,8 @@ class InstalledReleaseIdentity:
     runtime_modules_digest_sha256: str
 
     def __post_init__(self) -> None:
-        if (
-            len(self.service_revision) != 40
-            or any(character not in "0123456789abcdef" for character in self.service_revision)
+        if len(self.service_revision) != 40 or any(
+            character not in "0123456789abcdef" for character in self.service_revision
         ):
             raise ValueError("Installed release revision must be Git SHA hex")
         for name in (
@@ -46,9 +45,7 @@ class InstalledReleaseIdentity:
 
     def payload(self) -> dict[str, str]:
         return {
-            "installed_distribution_digest_sha256": (
-                self.installed_distribution_digest_sha256
-            ),
+            "installed_distribution_digest_sha256": (self.installed_distribution_digest_sha256),
             "runtime_modules_digest_sha256": self.runtime_modules_digest_sha256,
             "service_revision": self.service_revision,
             "source_tree_digest_sha256": self.source_tree_digest_sha256,
@@ -169,13 +166,20 @@ class ProfileReconciliationOperation:
     predecessor_lease_issued_at: datetime | None
     predecessor_lease_expires_at: datetime | None
     predecessor_drifted: bool
+    runtime_instance_id: str | None = None
+    runtime_generation: str | None = None
+    lifecycle_identity_sha256: str | None = None
 
 
 class ProfileReconciliationWriteOutcome(StrEnum):
     """Truthful result of the canonical reconciliation compare-and-swap."""
 
     APPLIED = "applied"
-    REPLAYED = "replayed"
+    IDEMPOTENT_REPLAY = "idempotent_replay"
+    STALE = "stale"
+    CONFLICT = "conflict"
+    # Source compatibility for callers written against the incomplete checkpoint.
+    REPLAYED = "idempotent_replay"
 
 
 @dataclass(frozen=True, slots=True)
@@ -400,9 +404,7 @@ class RuntimeFenceOwner:
                 "launch_signature",
             }:
                 raise ValueError
-            decoded["installed_release"] = InstalledReleaseIdentity(
-                **decoded["installed_release"]
-            )
+            decoded["installed_release"] = InstalledReleaseIdentity(**decoded["installed_release"])
             return cls(**decoded)
         except (TypeError, ValueError, json.JSONDecodeError) as exc:
             raise RuntimeError("retrieval_profile_runtime_launch_invalid") from exc
@@ -487,10 +489,21 @@ class RetrievalProfileRegistryPort(Protocol):
         now: datetime,
     ) -> None: ...
 
-    async def coverage(self, profile_id: str) -> ProfileCoverageAttestation: ...
+    async def coverage(
+        self,
+        profile_id: str,
+        *,
+        reconciliation_operation: ProfileReconciliationOperation | None = None,
+        runtime_owner: RuntimeFenceOwner | None = None,
+    ) -> ProfileCoverageAttestation: ...
 
     async def activation_evidence(
-        self, profile_id: str, *, now: datetime
+        self,
+        profile_id: str,
+        *,
+        now: datetime,
+        reconciliation_operation: ProfileReconciliationOperation | None = None,
+        runtime_owner: RuntimeFenceOwner | None = None,
     ) -> ProfileActivationEvidence: ...
 
     async def issue_activation_lease(
@@ -556,6 +569,8 @@ class RetrievalProfileRegistryPort(Protocol):
         validation_accumulator: str = "0" * 64,
         provider_epoch: int = 0,
         owner_operation_id: str | None = None,
+        reconciliation_operation: ProfileReconciliationOperation | None = None,
+        runtime_owner: RuntimeFenceOwner | None = None,
     ) -> ProfileReconciliationWriteOutcome: ...
 
     async def record_reconciliation(
@@ -569,9 +584,14 @@ class RetrievalProfileRegistryPort(Protocol):
         expires_at: datetime,
         drifted: bool,
         mutation_epoch: int = 0,
-    ) -> None: ...
+    ) -> ProfileReconciliationWriteOutcome: ...
 
-    async def reconciliation_operation(self, profile_id: str) -> ProfileReconciliationOperation: ...
+    async def reconciliation_operation(
+        self,
+        profile_id: str,
+        *,
+        runtime_owner: RuntimeFenceOwner | None = None,
+    ) -> ProfileReconciliationOperation: ...
 
     async def mark_reconciliation_drift(
         self,

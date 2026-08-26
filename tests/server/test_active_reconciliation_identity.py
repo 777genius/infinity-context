@@ -71,7 +71,7 @@ def test_active_reconciliation_reports_immutable_replay_without_false_renewal(
 ) -> None:
     owner = _owner("generation-current")
     registry = _Registry(owner)
-    registry.write_outcome = ProfileReconciliationWriteOutcome.REPLAYED
+    registry.write_outcome = ProfileReconciliationWriteOutcome.IDEMPOTENT_REPLAY
     service = _service(owner, registry)
     _accept_attestation(monkeypatch)
 
@@ -79,7 +79,32 @@ def test_active_reconciliation_reports_immutable_replay_without_false_renewal(
 
     assert result.complete is True
     assert result.renewed is False
-    assert result.outcome == "replayed"
+    assert result.outcome == "idempotent_replay"
+    assert result.runtime_instance_id is None
+    assert registry.lease.lease_id == "activation"
+
+
+@pytest.mark.parametrize(
+    "write_outcome",
+    (
+        ProfileReconciliationWriteOutcome.STALE,
+        ProfileReconciliationWriteOutcome.CONFLICT,
+    ),
+)
+def test_active_reconciliation_reports_stale_and_conflict_without_claiming_effects(
+    monkeypatch, write_outcome
+) -> None:
+    owner = _owner("generation-current")
+    registry = _Registry(owner)
+    registry.write_outcome = write_outcome
+    service = _service(owner, registry)
+    _accept_attestation(monkeypatch)
+
+    result = asyncio.run(service.reconcile_active(now=NOW))
+
+    assert result.complete is False
+    assert result.renewed is False
+    assert result.outcome == write_outcome.value
     assert result.runtime_instance_id is None
     assert registry.lease.lease_id == "activation"
 
@@ -215,7 +240,8 @@ class _Registry:
     async def active_lease(self, *, now):
         return self.lease if now < self.lease.expires_at else None
 
-    async def reconciliation_operation(self, profile_id):
+    async def reconciliation_operation(self, profile_id, *, runtime_owner):
+        assert runtime_owner == self.registered_owner
         self.mutations.append("reconciliation_operation")
         operation_id = f"reconcile-{len(self.operation_ids) + 1}"
         self.operation_ids.append(operation_id)
@@ -228,16 +254,19 @@ class _Registry:
             self.lease.issued_at,
             self.lease.expires_at,
             False,
+            runtime_owner.instance_id,
+            runtime_owner.generation,
+            runtime_owner.lifecycle_identity_sha256(),
         )
 
-    async def coverage(self, profile_id):
+    async def coverage(self, profile_id, **_kwargs):
         return SimpleNamespace(expected_count=0, expected_digest="e" * 64)
 
     async def update_lane(self, *_args, **_kwargs):
         self.mutations.append("update_lane")
         return None
 
-    async def activation_evidence(self, profile_id, *, now):
+    async def activation_evidence(self, profile_id, *, now, **_kwargs):
         return SimpleNamespace()
 
     async def record_reconciliation(
@@ -258,7 +287,7 @@ class _Registry:
         assert mutation_epoch == 4
         self.mutations.append("record_reconciliation")
         self.recorded_owner = runtime_owner
-        if self.write_outcome is ProfileReconciliationWriteOutcome.REPLAYED:
+        if self.write_outcome is not ProfileReconciliationWriteOutcome.APPLIED:
             return self.write_outcome
         self.lease = ProfileAttestationLease(
             operation.operation_id, "profile-active", "gen-active", "b" * 64, now, expires_at

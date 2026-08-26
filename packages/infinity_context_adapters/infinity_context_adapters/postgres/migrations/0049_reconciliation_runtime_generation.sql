@@ -11,6 +11,23 @@ CREATE UNIQUE INDEX uq_locator_runtime_current_instance
     ON memory_locator_runtime_incarnations(instance_id)
     WHERE sealed_dead_generation IS NULL AND retired_at IS NULL;
 
+-- Operations created before this upgrade remain readable for retention, but cannot
+-- authorize a reconciliation mutation because their owner provenance is unknown.
+ALTER TABLE memory_locator_profile_reconciliation_operations
+    ADD COLUMN runtime_instance_id VARCHAR(120),
+    ADD COLUMN runtime_generation VARCHAR(120),
+    ADD COLUMN lifecycle_identity_sha256 VARCHAR(64),
+    ADD CONSTRAINT ck_locator_reconciliation_operation_owner CHECK (
+        (runtime_instance_id IS NULL AND runtime_generation IS NULL
+         AND lifecycle_identity_sha256 IS NULL)
+        OR
+        (runtime_instance_id IS NOT NULL AND runtime_generation IS NOT NULL
+         AND lifecycle_identity_sha256 ~ '^[0-9a-f]{64}$')
+    ),
+    ADD CONSTRAINT fk_locator_reconciliation_operation_runtime FOREIGN KEY (
+        runtime_instance_id, runtime_generation
+    ) REFERENCES memory_locator_runtime_incarnations(instance_id, generation);
+
 CREATE OR REPLACE FUNCTION memory_locator_runtime_dead_seal_v3()
 RETURNS trigger LANGUAGE plpgsql AS $$
 BEGIN
@@ -55,18 +72,15 @@ BEFORE UPDATE OR DELETE ON memory_locator_runtime_incarnations
 FOR EACH ROW EXECUTE FUNCTION memory_locator_runtime_dead_seal_v3();
 
 ALTER TABLE memory_locator_profile_transition_audit
-    ADD COLUMN operation VARCHAR(32),
+    ADD COLUMN operation VARCHAR(32) NOT NULL DEFAULT 'activation',
     ADD COLUMN lease_issued_at TIMESTAMPTZ,
     ADD COLUMN lease_expires_at TIMESTAMPTZ,
     ADD COLUMN requested_expires_at TIMESTAMPTZ,
     ADD COLUMN mutation_epoch BIGINT,
     ADD COLUMN reconciliation_drifted BOOLEAN;
 
-UPDATE memory_locator_profile_transition_audit SET operation = 'activation'
-WHERE operation IS NULL;
-
 ALTER TABLE memory_locator_profile_transition_audit
-    ALTER COLUMN operation SET NOT NULL,
+    ALTER COLUMN operation DROP DEFAULT,
     ADD CONSTRAINT ck_locator_transition_operation CHECK (
         operation IN ('activation', 'reconciliation', 'reconciliation_drift')
     ),

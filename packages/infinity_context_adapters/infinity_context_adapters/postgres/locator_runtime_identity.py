@@ -35,6 +35,22 @@ async def register_runtime(
         (owner.instance_id, owner.generation),
         with_for_update=True,
     )
+    current_rows = tuple(
+        (
+            await session.execute(
+                select(MemoryLocatorRuntimeIncarnationRow)
+                .where(
+                    MemoryLocatorRuntimeIncarnationRow.instance_id == owner.instance_id,
+                    MemoryLocatorRuntimeIncarnationRow.sealed_dead_generation.is_(None),
+                    MemoryLocatorRuntimeIncarnationRow.retired_at.is_(None),
+                )
+                .with_for_update()
+            )
+        ).scalars()
+    )
+    if len(current_rows) > 1:
+        raise RuntimeError("retrieval_profile_runtime_generation_ambiguous")
+    current = current_rows[0] if current_rows else None
     if row is None:
         launch_owner = (
             await session.execute(
@@ -45,15 +61,6 @@ async def register_runtime(
         ).scalar_one_or_none()
         if launch_owner is not None:
             raise RuntimeError("retrieval_profile_runtime_supervisor_conflict")
-        current = (
-            await session.execute(
-                select(MemoryLocatorRuntimeIncarnationRow).where(
-                    MemoryLocatorRuntimeIncarnationRow.instance_id == owner.instance_id,
-                    MemoryLocatorRuntimeIncarnationRow.sealed_dead_generation.is_(None),
-                    MemoryLocatorRuntimeIncarnationRow.retired_at.is_(None),
-                )
-            )
-        ).scalar_one_or_none()
         if current is not None:
             raise RuntimeError("retrieval_profile_runtime_generation_competing")
         session.add(_runtime_row(owner, now=now, launch_digest=launch_digest))
@@ -64,6 +71,8 @@ async def register_runtime(
         raise RuntimeError("retrieval_profile_runtime_incarnation_sealed_dead")
     if row.retired_at is not None:
         raise RuntimeError("retrieval_profile_runtime_incarnation_retired")
+    if current is None or current.generation != owner.generation:
+        raise RuntimeError("retrieval_profile_runtime_generation_mismatch")
     row.last_seen_at = now
 
 

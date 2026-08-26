@@ -252,12 +252,8 @@ class MemoryLocatorProfileRow(Base):
     activation_lease_expires_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True), nullable=True
     )
-    activation_evidence_version: Mapped[int] = mapped_column(
-        BigInteger, nullable=False, default=0
-    )
-    activation_mutation_epoch: Mapped[int] = mapped_column(
-        BigInteger, nullable=False, default=0
-    )
+    activation_evidence_version: Mapped[int] = mapped_column(BigInteger, nullable=False, default=0)
+    activation_mutation_epoch: Mapped[int] = mapped_column(BigInteger, nullable=False, default=0)
     reconciled_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     reconciliation_drifted: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
     provider_mutation_epoch: Mapped[int] = mapped_column(BigInteger, nullable=False, default=0)
@@ -330,6 +326,16 @@ class MemoryLocatorProfileAttestationCheckpointRow(Base):
 
 class MemoryLocatorProfileReconciliationOperationRow(Base):
     __tablename__ = "memory_locator_profile_reconciliation_operations"
+    __table_args__ = (
+        ForeignKeyConstraint(
+            ("runtime_instance_id", "runtime_generation"),
+            (
+                "memory_locator_runtime_incarnations.instance_id",
+                "memory_locator_runtime_incarnations.generation",
+            ),
+            name="fk_locator_reconciliation_operation_runtime",
+        ),
+    )
     profile_id: Mapped[str] = mapped_column(
         String(120), ForeignKey("memory_locator_profiles.profile_id"), primary_key=True
     )
@@ -344,6 +350,9 @@ class MemoryLocatorProfileReconciliationOperationRow(Base):
         DateTime(timezone=True), nullable=True
     )
     predecessor_drifted: Mapped[bool] = mapped_column(Boolean, nullable=False)
+    runtime_instance_id: Mapped[str | None] = mapped_column(String(120), nullable=True)
+    runtime_generation: Mapped[str | None] = mapped_column(String(120), nullable=True)
+    lifecycle_identity_sha256: Mapped[str | None] = mapped_column(String(64), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
 
 
@@ -413,9 +422,7 @@ class MemoryLocatorRuntimeIncarnationRow(Base):
     executable_sha256: Mapped[str] = mapped_column(String(64), nullable=False)
     release_revision: Mapped[str] = mapped_column(String(40), nullable=False)
     release_source_tree_sha256: Mapped[str] = mapped_column(String(71), nullable=False)
-    release_installed_distribution_sha256: Mapped[str] = mapped_column(
-        String(71), nullable=False
-    )
+    release_installed_distribution_sha256: Mapped[str] = mapped_column(String(71), nullable=False)
     release_runtime_modules_sha256: Mapped[str] = mapped_column(String(71), nullable=False)
     release_identity_sha256: Mapped[str] = mapped_column(String(64), nullable=False)
     launch_identity_sha256: Mapped[str] = mapped_column(String(64), nullable=False)
@@ -562,9 +569,7 @@ class MemoryLocatorProfileTransitionAuditRow(Base):
     runtime_generation: Mapped[str | None] = mapped_column(String(120), nullable=True)
     lifecycle_identity_sha256: Mapped[str | None] = mapped_column(String(64), nullable=True)
     operation: Mapped[str] = mapped_column(String(32), nullable=False)
-    lease_issued_at: Mapped[datetime | None] = mapped_column(
-        DateTime(timezone=True), nullable=True
-    )
+    lease_issued_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     lease_expires_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True), nullable=True
     )

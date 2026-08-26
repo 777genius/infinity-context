@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import hashlib
-import json
 from asyncio import timeout
 from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
@@ -42,6 +41,15 @@ from infinity_context_server.features.context_building.retrieval_service import 
     RetrievalLaneRuntime,
 )
 from infinity_context_server.processes.outbox import ClaimedOutboxJob
+from infinity_context_server.retrieval_profile_attestation import (
+    attestation_in_progress as _attestation_in_progress,
+)
+from infinity_context_server.retrieval_profile_attestation import (
+    attestation_page_evidence as _attestation_page_evidence,
+)
+from infinity_context_server.retrieval_profile_attestation import (
+    projection_item_manifest as _projection_item_manifest,
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -190,8 +198,14 @@ class ProfileAwareLocatorRetrievalService:
         current = await self.registry.active_lease(now=now)
         if current is not None and current.expires_at > now + renew_before:
             return ActiveReconciliationResult(True, False)
-        operation = await self.registry.reconciliation_operation(active.profile_id)
-        coverage = await self.registry.coverage(active.profile_id)
+        operation = await self.registry.reconciliation_operation(
+            active.profile_id, runtime_owner=owner
+        )
+        coverage = await self.registry.coverage(
+            active.profile_id,
+            reconciliation_operation=operation,
+            runtime_owner=owner,
+        )
         await self.registry.update_lane(
             active.profile_id,
             "postgres_keyword",
@@ -200,6 +214,8 @@ class ProfileAwareLocatorRetrievalService:
             profile_qualified=True,
             failure_code=None,
             checked_at=now,
+            reconciliation_operation=operation,
+            runtime_owner=owner,
         )
         try:
             count, digest, mutation_epoch = await _bounded_qdrant_attestation(
@@ -210,21 +226,23 @@ class ProfileAwareLocatorRetrievalService:
                 now=now,
                 expected_count=coverage.expected_count,
                 expected_digest=coverage.expected_digest,
+                reconciliation_operation=operation,
+                runtime_owner=owner,
             )
         except RuntimeError as exc:
             if _attestation_in_progress(exc):
                 return ActiveReconciliationResult(False, False)
-            try:
-                await self.registry.mark_reconciliation_drift(
-                    active.profile_id,
-                    operation=operation,
-                    runtime_owner=owner,
-                    now=now,
-                )
-            except RuntimeError as mark_exc:
-                if str(mark_exc) == "retrieval_profile_reconciliation_superseded":
-                    return ActiveReconciliationResult(False, False)
-                raise
+            drift_outcome = await self.registry.mark_reconciliation_drift(
+                active.profile_id,
+                operation=operation,
+                runtime_owner=owner,
+                now=now,
+            )
+            if drift_outcome in {
+                ProfileReconciliationWriteOutcome.STALE,
+                ProfileReconciliationWriteOutcome.CONFLICT,
+            }:
+                return ActiveReconciliationResult(False, False, outcome=drift_outcome.value)
             raise
         capability = await self.projection.adapter_for(active).capabilities()
         healthy = bool(
@@ -246,8 +264,15 @@ class ProfileAwareLocatorRetrievalService:
             checked_at=now,
             observed_count=count,
             observed_digest=digest,
+            reconciliation_operation=operation,
+            runtime_owner=owner,
         )
-        evidence = await self.registry.activation_evidence(active.profile_id, now=now)
+        evidence = await self.registry.activation_evidence(
+            active.profile_id,
+            now=now,
+            reconciliation_operation=operation,
+            runtime_owner=owner,
+        )
         decision = assess_profile_activation(evidence, maximum_queue_lag=timedelta(minutes=5))
         write_outcome = await self.registry.record_reconciliation(
             active.profile_id,
@@ -260,8 +285,17 @@ class ProfileAwareLocatorRetrievalService:
             mutation_epoch=mutation_epoch,
         )
         return ActiveReconciliationResult(
-            complete=decision.accepted,
-            renewed=write_outcome is ProfileReconciliationWriteOutcome.APPLIED,
+            complete=(
+                decision.accepted
+                and write_outcome
+                in {
+                    ProfileReconciliationWriteOutcome.APPLIED,
+                    ProfileReconciliationWriteOutcome.IDEMPOTENT_REPLAY,
+                }
+            ),
+            renewed=(
+                decision.accepted and write_outcome is ProfileReconciliationWriteOutcome.APPLIED
+            ),
             runtime_instance_id=(
                 owner.instance_id
                 if write_outcome is ProfileReconciliationWriteOutcome.APPLIED
@@ -754,6 +788,8 @@ async def _bounded_qdrant_attestation(
     maximum_pages: int = 32,
     maximum_bytes: int = 4 * 1024 * 1024,
     deadline: timedelta = timedelta(seconds=10),
+    reconciliation_operation=None,
+    runtime_owner: RuntimeFenceOwner | None = None,
 ) -> tuple[int, str, int]:
     """Content-address, then incrementally revalidate a bounded physical scan."""
 
@@ -849,7 +885,13 @@ async def _bounded_qdrant_attestation(
             scan_complete=completed,
             page_receipt=receipt,
             provider_epoch=provider_epoch,
-            owner_operation_id=operation_id,
+            owner_operation_id=(
+                reconciliation_operation.operation_id
+                if reconciliation_operation is not None
+                else None
+            ),
+            reconciliation_operation=reconciliation_operation,
+            runtime_owner=runtime_owner,
         )
         cursor, count, accumulator = next_cursor, next_count, next_accumulator
         scan_page_count += 1
@@ -916,7 +958,13 @@ async def _bounded_qdrant_attestation(
             validation_item_count=validation_count,
             validation_accumulator=validation_accumulator,
             provider_epoch=provider_epoch,
-            owner_operation_id=operation_id,
+            owner_operation_id=(
+                reconciliation_operation.operation_id
+                if reconciliation_operation is not None
+                else None
+            ),
+            reconciliation_operation=reconciliation_operation,
+            runtime_owner=runtime_owner,
         )
         if validated:
             if (
@@ -926,44 +974,6 @@ async def _bounded_qdrant_attestation(
                 raise RuntimeError("retrieval_profile_attestation_provider_epoch_drift")
             return count, finalize_attestation_digest(count, accumulator), provider_epoch
     raise RuntimeError("retrieval_profile_attestation_incomplete")
-
-
-def _attestation_in_progress(exc: BaseException) -> bool:
-    return str(exc) in {
-        "retrieval_profile_attestation_incomplete",
-        "retrieval_profile_attestation_deadline",
-        "retrieval_profile_attestation_byte_budget",
-        "retrieval_profile_attestation_cursor_raced",
-        "retrieval_profile_attestation_page_raced",
-        "retrieval_profile_provider_mutation_active",
-    }
-
-
-def _attestation_page_evidence(start_cursor, end_cursor, rows) -> tuple[int, str]:
-    canonical = json.dumps(
-        {
-            "end_cursor": end_cursor,
-            "rows": rows,
-            "start_cursor": start_cursor,
-        },
-        ensure_ascii=False,
-        allow_nan=False,
-        sort_keys=True,
-        separators=(",", ":"),
-    ).encode("utf-8")
-    return len(canonical), hashlib.sha256(b"qdrant-attestation-page.v1\0" + canonical).hexdigest()
-
-
-def _projection_item_manifest(items) -> list[list[object]]:
-    return [
-        [
-            item.canonical_identity,
-            item.canonical_version,
-            item.canonical_watermark,
-            item.payload_digest,
-        ]
-        for item in items
-    ]
 
 
 __all__ = (

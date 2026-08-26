@@ -262,7 +262,7 @@ class PostgresRetrievalProfileReconciliationMixin:
         expires_at: datetime,
         drifted: bool,
         mutation_epoch: int = 0,
-    ) -> None:
+    ) -> ProfileReconciliationWriteOutcome:
         if not isinstance(runtime_owner, RuntimeFenceOwner):
             raise RuntimeError("retrieval_profile_reconciliation_runtime_identity_missing")
         lifecycle_digest = runtime_owner.lifecycle_identity_sha256()
@@ -274,12 +274,9 @@ class PostgresRetrievalProfileReconciliationMixin:
             row = await session.get(MemoryLocatorProfileRow, profile_id, with_for_update=True)
             if row is None or row.state != "active":
                 raise RuntimeError("retrieval_profile_active_missing")
-            persisted = await session.get(
-                MemoryLocatorProfileReconciliationOperationRow,
-                (profile_id, operation.operation_id),
+            await _verify_reconciliation_operation(
+                session, profile_id=profile_id, operation=operation, owner=runtime_owner
             )
-            if persisted is None or _operation(persisted) != operation:
-                raise RuntimeError("retrieval_profile_reconciliation_operation_invalid")
             if row.activation_lease_id == operation.operation_id:
                 audit = await _reconciliation_audit(session, operation.operation_id)
                 if not _reconciliation_replay_matches(
@@ -289,16 +286,14 @@ class PostgresRetrievalProfileReconciliationMixin:
                     owner=runtime_owner,
                     evidence_digest=evidence.digest(),
                     lifecycle_digest=lifecycle_digest,
-                    now=now,
-                    requested_expires_at=expires_at,
                     mutation_epoch=mutation_epoch,
                     drifted=drifted,
                     audit_operation="reconciliation",
                 ):
-                    raise RuntimeError("retrieval_profile_reconciliation_replay_drift")
-                return ProfileReconciliationWriteOutcome.REPLAYED
+                    return ProfileReconciliationWriteOutcome.CONFLICT
+                return ProfileReconciliationWriteOutcome.IDEMPOTENT_REPLAY
             if not _matches_predecessor(row, operation):
-                raise RuntimeError("retrieval_profile_reconciliation_superseded")
+                return ProfileReconciliationWriteOutcome.STALE
             if not drifted:
                 active_mutations = int(
                     await session.scalar(
@@ -309,7 +304,7 @@ class PostgresRetrievalProfileReconciliationMixin:
                     or 0
                 )
                 if active_mutations or row.provider_mutation_epoch != mutation_epoch:
-                    raise RuntimeError("retrieval_profile_reconciliation_raced")
+                    return ProfileReconciliationWriteOutcome.STALE
                 current = await _reconciliation_evidence(self, session, row, now=now)
                 raced = current.digest() != evidence.digest()
             row.reconciled_at = now
@@ -348,16 +343,27 @@ class PostgresRetrievalProfileReconciliationMixin:
             await compact_reconciliation_evidence(
                 session, profile_id=profile_id, operation_id=operation.operation_id
             )
-        if raced:
-            raise RuntimeError("retrieval_profile_reconciliation_raced")
-        return ProfileReconciliationWriteOutcome.APPLIED
+        return (
+            ProfileReconciliationWriteOutcome.CONFLICT
+            if raced
+            else ProfileReconciliationWriteOutcome.APPLIED
+        )
 
-    async def reconciliation_operation(self, profile_id: str) -> ProfileReconciliationOperation:
+    async def reconciliation_operation(
+        self,
+        profile_id: str,
+        *,
+        runtime_owner: RuntimeFenceOwner | None = None,
+    ) -> ProfileReconciliationOperation:
         """Persist the exact predecessor compared by reconciliation completion."""
 
+        if not isinstance(runtime_owner, RuntimeFenceOwner):
+            raise RuntimeError("retrieval_profile_reconciliation_runtime_identity_missing")
+        lifecycle_digest = runtime_owner.lifecycle_identity_sha256()
         async with self.sessions() as session, session.begin():
             await _lock_admission(session)
             await _lock_profile_evidence(session)
+            await _verify_registered_runtime(session, runtime_owner)
             row = await session.get(MemoryLocatorProfileRow, profile_id, with_for_update=True)
             if row is None or row.state != "active":
                 raise RuntimeError("retrieval_profile_active_missing")
@@ -367,7 +373,8 @@ class PostgresRetrievalProfileReconciliationMixin:
                     f"reconcile.v3\0{row.profile_id}\0{row.generation}\0{seed}\0"
                     f"{row.activation_evidence_digest or ''}\0"
                     f"{row.activation_lease_issued_at!s}\0{row.activation_lease_expires_at!s}\0"
-                    f"{int(row.reconciliation_drifted)}"
+                    f"{int(row.reconciliation_drifted)}\0{runtime_owner.instance_id}\0"
+                    f"{runtime_owner.generation}\0{lifecycle_digest}"
                 ).encode()
             ).hexdigest()
             operation = ProfileReconciliationOperation(
@@ -379,6 +386,9 @@ class PostgresRetrievalProfileReconciliationMixin:
                 row.activation_lease_issued_at,
                 row.activation_lease_expires_at,
                 row.reconciliation_drifted,
+                runtime_owner.instance_id,
+                runtime_owner.generation,
+                lifecycle_digest,
             )
             existing = await session.get(
                 MemoryLocatorProfileReconciliationOperationRow,
@@ -395,6 +405,9 @@ class PostgresRetrievalProfileReconciliationMixin:
                         predecessor_lease_issued_at=operation.predecessor_lease_issued_at,
                         predecessor_lease_expires_at=operation.predecessor_lease_expires_at,
                         predecessor_drifted=operation.predecessor_drifted,
+                        runtime_instance_id=runtime_owner.instance_id,
+                        runtime_generation=runtime_owner.generation,
+                        lifecycle_identity_sha256=lifecycle_digest,
                         created_at=row.reconciled_at or row.created_at,
                     )
                 )
@@ -422,12 +435,9 @@ class PostgresRetrievalProfileReconciliationMixin:
             row = await session.get(MemoryLocatorProfileRow, profile_id, with_for_update=True)
             if row is None or row.state != "active":
                 raise RuntimeError("retrieval_profile_active_missing")
-            persisted = await session.get(
-                MemoryLocatorProfileReconciliationOperationRow,
-                (profile_id, operation.operation_id),
+            await _verify_reconciliation_operation(
+                session, profile_id=profile_id, operation=operation, owner=runtime_owner
             )
-            if persisted is None or _operation(persisted) != operation:
-                raise RuntimeError("retrieval_profile_reconciliation_operation_invalid")
             if row.activation_lease_id == operation.operation_id:
                 audit = await _reconciliation_audit(session, operation.operation_id)
                 if not _reconciliation_replay_matches(
@@ -437,16 +447,14 @@ class PostgresRetrievalProfileReconciliationMixin:
                     owner=runtime_owner,
                     evidence_digest=row.activation_evidence_digest or "",
                     lifecycle_digest=runtime_owner.lifecycle_identity_sha256(),
-                    now=now,
-                    requested_expires_at=now,
                     mutation_epoch=int(row.provider_mutation_epoch),
                     drifted=True,
                     audit_operation="reconciliation_drift",
                 ):
-                    raise RuntimeError("retrieval_profile_reconciliation_replay_drift")
-                return ProfileReconciliationWriteOutcome.REPLAYED
+                    return ProfileReconciliationWriteOutcome.CONFLICT
+                return ProfileReconciliationWriteOutcome.IDEMPOTENT_REPLAY
             if not _matches_predecessor(row, operation):
-                raise RuntimeError("retrieval_profile_reconciliation_superseded")
+                return ProfileReconciliationWriteOutcome.STALE
             row.reconciled_at = now
             row.reconciliation_drifted = True
             row.activation_lease_id = operation.operation_id
@@ -631,7 +639,35 @@ def _operation(row) -> ProfileReconciliationOperation:
         row.predecessor_lease_issued_at,
         row.predecessor_lease_expires_at,
         row.predecessor_drifted,
+        row.runtime_instance_id,
+        row.runtime_generation,
+        row.lifecycle_identity_sha256,
     )
+
+
+async def _verify_reconciliation_operation(
+    session,
+    *,
+    profile_id: str,
+    operation: ProfileReconciliationOperation,
+    owner: RuntimeFenceOwner,
+) -> None:
+    """Bind every reconciliation mutation to one persisted owner-scoped operation."""
+
+    if (
+        operation.profile_id != profile_id
+        or operation.runtime_instance_id != owner.instance_id
+        or operation.runtime_generation != owner.generation
+        or operation.lifecycle_identity_sha256 != owner.lifecycle_identity_sha256()
+    ):
+        raise RuntimeError("retrieval_profile_reconciliation_operation_owner_mismatch")
+    persisted = await session.get(
+        MemoryLocatorProfileReconciliationOperationRow,
+        (profile_id, operation.operation_id),
+        with_for_update=True,
+    )
+    if persisted is None or _operation(persisted) != operation:
+        raise RuntimeError("retrieval_profile_reconciliation_operation_invalid")
 
 
 def _matches_predecessor(row, operation: ProfileReconciliationOperation) -> bool:
@@ -746,8 +782,6 @@ def _reconciliation_replay_matches(
     owner: RuntimeFenceOwner,
     evidence_digest: str,
     lifecycle_digest: str,
-    now: datetime,
-    requested_expires_at: datetime,
     mutation_epoch: int,
     drifted: bool,
     audit_operation: str,
@@ -755,7 +789,8 @@ def _reconciliation_replay_matches(
     return bool(
         audit is not None
         and row.generation == operation.predecessor_generation
-        and row.activation_evidence_digest == evidence_digest
+        and row.activation_evidence_digest
+        == (operation.predecessor_evidence_digest if drifted else evidence_digest)
         and row.reconciliation_drifted == drifted
         and audit.runtime_instance_id == owner.instance_id
         and audit.runtime_generation == owner.generation
@@ -764,10 +799,8 @@ def _reconciliation_replay_matches(
         and audit.operation == audit_operation
         and audit.lease_issued_at == row.activation_lease_issued_at
         and audit.lease_expires_at == row.activation_lease_expires_at
-        and audit.requested_expires_at == requested_expires_at
         and audit.mutation_epoch == mutation_epoch
         and audit.reconciliation_drifted == drifted
-        and audit.occurred_at == now
     )
 
 
@@ -778,4 +811,7 @@ async def _lock_admission(session) -> None:
         raise RuntimeError("retrieval_profile_maintenance_active")
 
 
-__all__ = ("PostgresRetrievalProfileReconciliationMixin",)
+__all__ = (
+    "PostgresRetrievalProfileReconciliationMixin",
+    "_verify_reconciliation_operation",
+)

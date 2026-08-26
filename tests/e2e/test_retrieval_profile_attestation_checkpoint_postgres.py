@@ -15,6 +15,7 @@ from infinity_context_adapters.postgres import (
 )
 from infinity_context_core.features.context_building.public import (
     ProfileAttestationPageReceipt,
+    ProfileReconciliationWriteOutcome,
     RetrievalProfileIdentity,
     RuntimeFenceOwner,
 )
@@ -50,9 +51,7 @@ async def _assert_manifest(database_url: str) -> None:
             RetrievalProfileIdentity("profile-a", "generation-a", "a" * 64, "collection-a"),
             now=now,
         )
-        receipt = ProfileAttestationPageReceipt(
-            0, None, "cursor-256", 256, 32_768, "b" * 64
-        )
+        receipt = ProfileAttestationPageReceipt(0, None, "cursor-256", 256, 32_768, "b" * 64)
         await registry.checkpoint_attestation(
             "profile-a",
             "operation-a",
@@ -67,15 +66,47 @@ async def _assert_manifest(database_url: str) -> None:
             scan_complete=True,
             page_receipt=receipt,
         )
+        replay = await registry.checkpoint_attestation(
+            "profile-a",
+            "operation-a",
+            previous_cursor=None,
+            cursor="cursor-256",
+            item_count=256,
+            digest_accumulator="c" * 64,
+            started_at=now,
+            deadline_at=now + timedelta(seconds=10),
+            now=now + timedelta(seconds=1),
+            complete=False,
+            scan_complete=True,
+            page_receipt=receipt,
+        )
+        assert replay is ProfileReconciliationWriteOutcome.IDEMPOTENT_REPLAY
+        before_receipt_conflict = await _manifest_state(engine)
+        with pytest.raises(RuntimeError, match="attestation_cursor_raced"):
+            await registry.checkpoint_attestation(
+                "profile-a",
+                "operation-a",
+                previous_cursor=None,
+                cursor="cursor-256",
+                item_count=256,
+                digest_accumulator="c" * 64,
+                started_at=now,
+                deadline_at=now + timedelta(seconds=10),
+                now=now + timedelta(seconds=1),
+                complete=False,
+                scan_complete=True,
+                page_receipt=ProfileAttestationPageReceipt(
+                    0, None, "cursor-256", 256, 32_768, "f" * 64
+                ),
+            )
+        assert await _manifest_state(engine) == before_receipt_conflict
 
         restarted = PostgresRetrievalProfileRegistry(build_session_factory(engine))
         checkpoint = await restarted.attestation_checkpoint("profile-a", "operation-a")
         assert checkpoint is not None
         assert checkpoint.scan_complete is True
         assert checkpoint.scan_page_count == 1
-        assert await restarted.attestation_page_receipt(
-            "profile-a", "operation-a", 0
-        ) == receipt
+        assert await restarted.attestation_page_receipt("profile-a", "operation-a", 0) == receipt
 
         await restarted.checkpoint_attestation(
             "profile-a",
@@ -105,7 +136,7 @@ async def _assert_manifest(database_url: str) -> None:
                 )
             )
         for renewal in range(8):
-            operation = await restarted.reconciliation_operation("profile-a")
+            operation = await restarted.reconciliation_operation("profile-a", runtime_owner=owner)
             cursor = None
             for page_number in range(65):
                 next_cursor = None if page_number == 64 else f"cursor-{page_number + 1}"
@@ -131,6 +162,8 @@ async def _assert_manifest(database_url: str) -> None:
                         f"{page_number:064x}",
                     ),
                     owner_operation_id=operation.operation_id,
+                    reconciliation_operation=operation,
+                    runtime_owner=owner,
                 )
                 cursor = next_cursor
             await restarted.checkpoint_attestation(
@@ -149,6 +182,8 @@ async def _assert_manifest(database_url: str) -> None:
                 validation_item_count=16_385,
                 validation_accumulator="d" * 64,
                 owner_operation_id=operation.operation_id,
+                reconciliation_operation=operation,
+                runtime_owner=owner,
             )
             async with engine.connect() as connection:
                 active_rows = int(
@@ -207,3 +242,26 @@ async def _assert_manifest(database_url: str) -> None:
     finally:
         await engine.dispose()
         await database.drop()
+
+
+async def _manifest_state(engine) -> tuple[tuple[object, ...], ...]:
+    async with engine.connect() as connection:
+        checkpoint = (
+            await connection.execute(
+                text(
+                    "SELECT operation_id,cursor,item_count,digest_accumulator,complete,"
+                    "scan_page_count FROM memory_locator_profile_attestation_checkpoints "
+                    "ORDER BY operation_id"
+                )
+            )
+        ).all()
+        pages = (
+            await connection.execute(
+                text(
+                    "SELECT operation_id,page_number,item_count,byte_count,page_digest "
+                    "FROM memory_locator_profile_attestation_pages "
+                    "ORDER BY operation_id,page_number"
+                )
+            )
+        ).all()
+        return tuple(tuple(row) for row in (*checkpoint, *pages))

@@ -734,7 +734,7 @@ class _ReconciliationRegistry:
     async def active_lease(self, *, now):
         return self.lease if now < self.lease.expires_at else None
 
-    async def reconciliation_operation(self, profile_id):
+    async def reconciliation_operation(self, profile_id, *, runtime_owner):
         assert profile_id == "profile-active"
         return ProfileReconciliationOperation(
             f"reconcile-seed-{self.seed}",
@@ -745,15 +745,18 @@ class _ReconciliationRegistry:
             self.lease.issued_at,
             self.lease.expires_at,
             False,
+            runtime_owner.instance_id,
+            runtime_owner.generation,
+            runtime_owner.lifecycle_identity_sha256(),
         )
 
-    async def coverage(self, profile_id):
+    async def coverage(self, profile_id, **_kwargs):
         return SimpleNamespace(expected_count=0, expected_digest="e" * 64)
 
     async def update_lane(self, *_args, **_kwargs):
         return None
 
-    async def activation_evidence(self, profile_id, *, now):
+    async def activation_evidence(self, profile_id, *, now, **_kwargs):
         return SimpleNamespace()
 
     async def record_reconciliation(

@@ -86,17 +86,21 @@ async def _assert_exact_recovery(database_url: str, qdrant_url: str) -> None:
             )
 
         reader_deadline = datetime.now(UTC) + timedelta(seconds=30)
-        reader_process, reader_supervisor, owner, child_result, reader_trust = (
-            await _spawn_fence_writer(
-                database.app_url,
-                kind="reader",
-                profile_id=identity.profile_id,
-                operation_id="reader-abandoned",
-                stale_deadline=reader_deadline,
-                key_id="reader-process-supervisor",
-                instance_id="runtime-a",
-                generation="generation-a",
-            )
+        (
+            reader_process,
+            reader_supervisor,
+            owner,
+            child_result,
+            reader_trust,
+        ) = await _spawn_fence_writer(
+            database.app_url,
+            kind="reader",
+            profile_id=identity.profile_id,
+            operation_id="reader-abandoned",
+            stale_deadline=reader_deadline,
+            key_id="reader-process-supervisor",
+            instance_id="runtime-a",
+            generation="generation-a",
         )
         object.__setattr__(registry, "supervisor_trust", reader_trust)
         self_issued = _self_issued_current_owner(reader_trust, owner.supervisor_key_id)
@@ -200,13 +204,9 @@ async def _assert_exact_recovery(database_url: str, qdrant_url: str) -> None:
                 unrelated.wait(timeout=10)
         reader_process.terminate()
         reader_process.wait(timeout=10)
-        reader_proof = reader_supervisor.prove_exit(
-            maintenance_generation=maintenance_generation
-        )
+        reader_proof = reader_supervisor.prove_exit(maintenance_generation=maintenance_generation)
         with pytest.raises(RuntimeError, match="dead_proof_invalid"):
-            await registry.seal_dead_incarnation(
-                proof=replace(reader_proof, signature="A" * 88)
-            )
+            await registry.seal_dead_incarnation(proof=replace(reader_proof, signature="A" * 88))
         for hostile in (
             replace(reader_proof, process_pid=reader_proof.process_pid + 1),
             replace(reader_proof, process_birth_identity="swapped-birth-token"),
@@ -231,9 +231,10 @@ async def _assert_exact_recovery(database_url: str, qdrant_url: str) -> None:
         )
         receipt = await registry.recover_abandoned_fence(**request)
         assert receipt["outcome"] == "released_for_fresh_attestation"
-        assert receipt["launch_identity_sha256"] == hashlib.sha256(
-            owner.launch_payload()
-        ).hexdigest()
+        assert receipt["write_outcome"] == "applied"
+        assert (
+            receipt["launch_identity_sha256"] == hashlib.sha256(owner.launch_payload()).hexdigest()
+        )
         assert receipt["release_identity_sha256"] == owner.installed_release.digest()
         assert receipt["sealed_dead_proof_id"] == reader_proof.proof_id
         assert receipt["sealed_dead_proof_sha256"] == proof_digest
@@ -241,7 +242,8 @@ async def _assert_exact_recovery(database_url: str, qdrant_url: str) -> None:
             sealed_proof_id=reader_proof.proof_id,
             sealed_proof_sha256=proof_digest,
         )
-        assert await registry.recover_abandoned_fence(**request) == receipt
+        replayed_receipt = await registry.recover_abandoned_fence(**request)
+        assert replayed_receipt == {**receipt, "write_outcome": "idempotent_replay"}
         with pytest.raises(RuntimeError, match="recovery_idempotency_conflict"):
             await registry.recover_abandoned_fence(
                 **{**request, "reason": "changed exact recovery reason"}
@@ -269,24 +271,26 @@ async def _assert_exact_recovery(database_url: str, qdrant_url: str) -> None:
         )
         await projection.prepare_profile(identity)
         mutation_deadline = datetime.now(UTC) + timedelta(minutes=5)
-        mutation_process, mutation_supervisor, mutation_owner, child_result, mutation_trust = (
-            await _spawn_fence_writer(
-                database.app_url,
-                kind="provider_mutation",
-                profile_id=identity.profile_id,
-                operation_id="mutation-ambiguous",
-                stale_deadline=mutation_deadline,
-                key_id="mutation-process-supervisor",
-                instance_id="runtime-c",
-                generation="generation-c",
-                additional_operation_id="mutation-ambiguous-second",
-            )
+        (
+            mutation_process,
+            mutation_supervisor,
+            mutation_owner,
+            child_result,
+            mutation_trust,
+        ) = await _spawn_fence_writer(
+            database.app_url,
+            kind="provider_mutation",
+            profile_id=identity.profile_id,
+            operation_id="mutation-ambiguous",
+            stale_deadline=mutation_deadline,
+            key_id="mutation-process-supervisor",
+            instance_id="runtime-c",
+            generation="generation-c",
+            additional_operation_id="mutation-ambiguous-second",
         )
         object.__setattr__(registry, "supervisor_trust", mutation_trust)
         mutation_epoch = int(child_result["mutation_epoch"])
-        second_mutation_epoch = int(
-            child_result["mutation_epochs"]["mutation-ambiguous-second"]
-        )
+        second_mutation_epoch = int(child_result["mutation_epochs"]["mutation-ambiguous-second"])
         provider_maintenance = await registry.begin_maintenance(
             reason="drain runtimes before ambiguous provider mutation recovery"
         )
@@ -303,9 +307,7 @@ async def _assert_exact_recovery(database_url: str, qdrant_url: str) -> None:
         mutation_process.terminate()
         mutation_process.wait(timeout=10)
         await registry.seal_dead_incarnation(
-            proof=mutation_supervisor.prove_exit(
-                maintenance_generation=provider_maintenance
-            )
+            proof=mutation_supervisor.prove_exit(maintenance_generation=provider_maintenance)
         )
         with pytest.raises(ValueError, match="provider receipt"):
             await registry.recover_abandoned_fence(
@@ -375,10 +377,16 @@ async def _assert_exact_recovery(database_url: str, qdrant_url: str) -> None:
         }
         mutation_receipt = successes[0]
         assert mutation_receipt["outcome"] == "released_for_fresh_attestation"
-        winner = mutation_request if mutation_receipt["idempotency_key"] == mutation_request[
-            "idempotency_key"
-        ] else competing_request
-        assert await registry.recover_abandoned_fence(**winner) == mutation_receipt
+        assert mutation_receipt["write_outcome"] == "applied"
+        winner = (
+            mutation_request
+            if mutation_receipt["idempotency_key"] == mutation_request["idempotency_key"]
+            else competing_request
+        )
+        assert await registry.recover_abandoned_fence(**winner) == {
+            **mutation_receipt,
+            "write_outcome": "idempotent_replay",
+        }
         replayed_for_second_fence = {
             **mutation_request,
             "operation_id": "mutation-ambiguous-second",
@@ -489,7 +497,9 @@ async def _spawn_fence_writer(
     environment["PYTHONPATH"] = os.pathsep.join(
         str(root / "packages" / package)
         for package in (
-            "infinity_context_adapters", "infinity_context_core", "infinity_context_contracts"
+            "infinity_context_adapters",
+            "infinity_context_core",
+            "infinity_context_contracts",
         )
     )
     process = subprocess.Popen(
@@ -502,19 +512,29 @@ async def _spawn_fence_writer(
         env=environment,
     )
     signing_key = Ed25519PrivateKey.generate()
-    public_key = signing_key.public_key().public_bytes(
-        serialization.Encoding.Raw, serialization.PublicFormat.Raw
-    ).hex()
+    public_key = (
+        signing_key.public_key()
+        .public_bytes(serialization.Encoding.Raw, serialization.PublicFormat.Raw)
+        .hex()
+    )
     valid_from = datetime.now(UTC) - timedelta(minutes=1)
     valid_until = datetime.now(UTC) + timedelta(hours=1)
     _, root_sha256 = registry_document(
-        registry_id=f"test-registry-{key_id}", generation=1,
-        valid_from=valid_from, valid_until=valid_until, keys=((key_id, public_key),),
+        registry_id=f"test-registry-{key_id}",
+        generation=1,
+        valid_from=valid_from,
+        valid_until=valid_until,
+        keys=((key_id, public_key),),
         installed_release=_release(),
     )
     trust = SupervisorTrustRegistry(
-        f"test-registry-{key_id}", 1, valid_from, valid_until,
-        ((key_id, public_key),), _release(), root_sha256
+        f"test-registry-{key_id}",
+        1,
+        valid_from,
+        valid_until,
+        ((key_id, public_key),),
+        _release(),
+        root_sha256,
     )
     supervisor = RuntimeProcessSupervisor(
         key_id=key_id,
@@ -575,9 +595,9 @@ def _self_issued_current_owner(trust, key_id: str) -> RuntimeFenceOwner:
         "instance_id": "hostile-self-issued-runtime",
         "generation": "hostile-self-issued-generation",
         "supervisor_key_id": key_id,
-        "supervisor_public_key": key.public_key().public_bytes(
-            serialization.Encoding.Raw, serialization.PublicFormat.Raw
-        ).hex(),
+        "supervisor_public_key": key.public_key()
+        .public_bytes(serialization.Encoding.Raw, serialization.PublicFormat.Raw)
+        .hex(),
         "trust_root_sha256": trust.root_sha256,
         "trust_registry_generation": trust.generation,
         "launch_token": "hostile-self-issued-live-launch",

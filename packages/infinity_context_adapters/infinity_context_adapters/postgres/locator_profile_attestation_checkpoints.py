@@ -7,6 +7,9 @@ from datetime import datetime
 from infinity_context_core.features.context_building.public import (
     ProfileAttestationCheckpoint,
     ProfileAttestationPageReceipt,
+    ProfileReconciliationOperation,
+    ProfileReconciliationWriteOutcome,
+    RuntimeFenceOwner,
 )
 from sqlalchemy import text
 
@@ -86,13 +89,42 @@ class PostgresRetrievalProfileAttestationCheckpointMixin:
         validation_accumulator: str = "0" * 64,
         provider_epoch: int = 0,
         owner_operation_id: str | None = None,
-    ) -> None:
+        reconciliation_operation: ProfileReconciliationOperation | None = None,
+        runtime_owner: RuntimeFenceOwner | None = None,
+    ) -> ProfileReconciliationWriteOutcome:
         async with self.sessions() as session, session.begin():
             maintenance = await session.get(
                 MemoryLocatorProfileMaintenanceFenceRow, True, with_for_update=True
             )
             if maintenance is None or maintenance.active:
                 raise RuntimeError("retrieval_profile_maintenance_active")
+            reconciliation_scope = (
+                owner_operation_id,
+                reconciliation_operation,
+                runtime_owner,
+            )
+            if any(value is not None for value in reconciliation_scope):
+                if (
+                    owner_operation_id is None
+                    or reconciliation_operation is None
+                    or not isinstance(runtime_owner, RuntimeFenceOwner)
+                    or owner_operation_id != reconciliation_operation.operation_id
+                ):
+                    raise RuntimeError("retrieval_profile_reconciliation_runtime_identity_missing")
+                from infinity_context_adapters.postgres.locator_profile_reconciliation import (
+                    _verify_reconciliation_operation,
+                )
+                from infinity_context_adapters.postgres.locator_runtime_identity import (
+                    verify_registered_runtime,
+                )
+
+                await verify_registered_runtime(session, runtime_owner)
+                await _verify_reconciliation_operation(
+                    session,
+                    profile_id=profile_id,
+                    operation=reconciliation_operation,
+                    owner=runtime_owner,
+                )
             await session.execute(
                 text(
                     "SELECT aggregate_version FROM memory_locator_profile_evidence_versions "
@@ -135,8 +167,28 @@ class PostgresRetrievalProfileAttestationCheckpointMixin:
                 )
                 if page_receipt is not None:
                     session.add(_page_row(profile_id, operation_id, page_receipt))
-                return
+                return ProfileReconciliationWriteOutcome.APPLIED
             if row.cursor != previous_cursor or row.complete:
+                if _checkpoint_replay_matches(
+                    row,
+                    cursor=cursor,
+                    item_count=item_count,
+                    digest_accumulator=digest_accumulator,
+                    complete=complete,
+                    scan_complete=scan_complete,
+                    validation_cursor=validation_cursor,
+                    validation_page_number=validation_page_number,
+                    validation_item_count=validation_item_count,
+                    validation_accumulator=validation_accumulator,
+                    provider_epoch=provider_epoch,
+                    owner_operation_id=owner_operation_id,
+                ) and await _page_receipt_replay_matches(
+                    session,
+                    profile_id=profile_id,
+                    operation_id=operation_id,
+                    receipt=page_receipt,
+                ):
+                    return ProfileReconciliationWriteOutcome.IDEMPOTENT_REPLAY
                 raise RuntimeError("retrieval_profile_attestation_cursor_raced")
             if page_receipt is not None:
                 if page_receipt.page_number != row.scan_page_count:
@@ -159,6 +211,35 @@ class PostgresRetrievalProfileAttestationCheckpointMixin:
                 raise RuntimeError("retrieval_profile_attestation_provider_epoch_drift")
             if row.owner_operation_id != owner_operation_id:
                 raise RuntimeError("retrieval_profile_attestation_owner_drift")
+            return ProfileReconciliationWriteOutcome.APPLIED
+
+
+def _checkpoint_replay_matches(row, **expected) -> bool:
+    return all(getattr(row, name) == value for name, value in expected.items())
+
+
+async def _page_receipt_replay_matches(
+    session,
+    *,
+    profile_id: str,
+    operation_id: str,
+    receipt: ProfileAttestationPageReceipt | None,
+) -> bool:
+    if receipt is None:
+        return True
+    persisted = await session.get(
+        MemoryLocatorProfileAttestationPageRow,
+        (profile_id, operation_id, receipt.page_number),
+        with_for_update=True,
+    )
+    return bool(
+        persisted is not None
+        and persisted.start_cursor == receipt.start_cursor
+        and persisted.end_cursor == receipt.end_cursor
+        and persisted.item_count == receipt.item_count
+        and persisted.byte_count == receipt.byte_count
+        and persisted.page_digest == receipt.page_digest
+    )
 
 
 def _page_row(

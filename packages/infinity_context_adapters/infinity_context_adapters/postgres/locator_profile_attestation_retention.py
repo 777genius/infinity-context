@@ -6,6 +6,7 @@ from infinity_context_adapters.postgres.models import (
     MemoryLocatorProfileAttestationCheckpointRow,
     MemoryLocatorProfileAttestationPageRow,
     MemoryLocatorProfileReconciliationOperationRow,
+    MemoryLocatorProfileTransitionAuditRow,
 )
 
 
@@ -19,9 +20,7 @@ async def compact_completed_attestations_before_scan(session, *, profile_id: str
         await session.delete(stale)
 
 
-async def compact_reconciliation_evidence(
-    session, *, profile_id: str, operation_id: str
-) -> None:
+async def compact_reconciliation_evidence(session, *, profile_id: str, operation_id: str) -> None:
     """Keep one completed receipt, all in-progress proof, and two CAS receipts.
 
     With 256-point pages, a 16,385-point renewal is bounded at 67 checkpoint/page
@@ -44,9 +43,7 @@ async def compact_reconciliation_evidence(
         (
             await session.execute(
                 select(MemoryLocatorProfileReconciliationOperationRow)
-                .where(
-                    MemoryLocatorProfileReconciliationOperationRow.profile_id == profile_id
-                )
+                .where(MemoryLocatorProfileReconciliationOperationRow.profile_id == profile_id)
                 .order_by(
                     MemoryLocatorProfileReconciliationOperationRow.created_at.desc(),
                     MemoryLocatorProfileReconciliationOperationRow.operation_id.desc(),
@@ -56,9 +53,30 @@ async def compact_reconciliation_evidence(
         ).scalars()
     )
     retained_ids = {operation_id}
-    predecessor_receipt = next(
-        (item for item in operations if item.operation_id != operation_id), None
+    audited_ids = set(
+        (
+            await session.execute(
+                select(MemoryLocatorProfileTransitionAuditRow.lease_id).where(
+                    MemoryLocatorProfileTransitionAuditRow.profile_id == profile_id,
+                    MemoryLocatorProfileTransitionAuditRow.lease_id.in_(
+                        tuple(item.operation_id for item in operations)
+                    ),
+                )
+            )
+        ).scalars()
     )
+    predecessor_receipt = next(
+        (
+            item
+            for item in operations
+            if item.operation_id != operation_id and item.operation_id in audited_ids
+        ),
+        None,
+    )
+    if predecessor_receipt is None:
+        predecessor_receipt = next(
+            (item for item in operations if item.operation_id != operation_id), None
+        )
     if predecessor_receipt is not None:
         retained_ids.add(predecessor_receipt.operation_id)
     for stale in operations:
