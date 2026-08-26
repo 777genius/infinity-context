@@ -36,6 +36,9 @@ _ADVISORY_LOCK_RETRY_SECONDS = 0.05
 _NON_TRANSACTIONAL_HEADER = "-- infinity-context: no-transaction"
 _STATEMENT_BREAK = "-- infinity-context: statement-break"
 _RECOVER_INDEX_PREFIX = "-- infinity-context: recover-index "
+_INDEX_OPTION_DESC = 0x01
+_INDEX_OPTION_NULLS_FIRST = 0x02
+_KNOWN_INDEX_OPTIONS = _INDEX_OPTION_DESC | _INDEX_OPTION_NULLS_FIRST
 
 
 class _AdvisoryLockState(Enum):
@@ -772,6 +775,13 @@ async def _index_states(
                     ORDER BY key_position
                 ),
                 ARRAY(
+                    SELECT option_value
+                    FROM pg_catalog.unnest(index_state.indoption::int2[])
+                        WITH ORDINALITY AS options(option_value, key_position)
+                    WHERE key_position <= index_state.indnkeyatts
+                    ORDER BY key_position
+                ),
+                ARRAY(
                     SELECT pg_catalog.pg_get_indexdef(
                         index_state.indexrelid,
                         include_position,
@@ -807,7 +817,7 @@ async def _index_states(
             access_method=str(access_method),
             unique=bool(unique),
             predicate=None if predicate is None else str(predicate),
-            key_expressions=tuple(str(expression) for expression in key_expressions),
+            key_expressions=_ordered_key_expressions(key_expressions, key_options),
             include_expressions=tuple(str(expression) for expression in include_expressions),
         )
         for (
@@ -819,9 +829,31 @@ async def _index_states(
             unique,
             predicate,
             key_expressions,
+            key_options,
             include_expressions,
         ) in rows
     }
+
+
+def _ordered_key_expressions(
+    expressions: tuple[object, ...],
+    options: tuple[object, ...],
+) -> tuple[str, ...]:
+    if len(expressions) != len(options):
+        raise RuntimeError("PostgreSQL index key expressions and options are misaligned")
+
+    ordered: list[str] = []
+    for expression, raw_option in zip(expressions, options, strict=True):
+        option = int(raw_option)
+        if option & ~_KNOWN_INDEX_OPTIONS:
+            raise RuntimeError(f"PostgreSQL index key has unknown ordering options: {option}")
+        descending = bool(option & _INDEX_OPTION_DESC)
+        nulls_first = bool(option & _INDEX_OPTION_NULLS_FIRST)
+        suffix = " DESC" if descending else ""
+        if nulls_first != descending:
+            suffix += " NULLS FIRST" if nulls_first else " NULLS LAST"
+        ordered.append(f"{expression}{suffix}")
+    return tuple(ordered)
 
 
 def _validate_valid_index_definitions(

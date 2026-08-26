@@ -291,6 +291,7 @@ def test_valid_wrong_recoverable_index_definition_fails_without_drop(
             unique,
             predicate,
             key_expressions,
+            tuple(3 if expression.endswith(" DESC") else 0 for expression in key_expressions),
             include_expressions,
         ),
     )
@@ -306,6 +307,113 @@ def test_valid_wrong_recoverable_index_definition_fails_without_drop(
 
     assert not any("DROP INDEX" in statement for statement in connection.statements)
     assert not any("CREATE INDEX" in statement for statement in connection.statements)
+
+
+def test_existing_valid_document_listing_indexes_pass_preflight() -> None:
+    migration = next(
+        item
+        for item in migration_runner._load_migrations()
+        if item.migration_id == "0052_document_scope_listing_indexes"
+    )
+    specs = migration_runner._RECOVERABLE_INDEX_SPECS[migration.migration_id]
+    rows = tuple(
+        (
+            spec.name,
+            True,
+            "public",
+            spec.table_name,
+            spec.access_method,
+            spec.unique,
+            spec.predicate,
+            tuple(expression.removesuffix(" DESC") for expression in spec.key_expressions),
+            tuple(3 if expression.endswith(" DESC") else 0 for expression in spec.key_expressions),
+            spec.include_expressions,
+        )
+        for spec in specs
+    )
+    connection = _OnlineConnection(rows)
+
+    asyncio.run(
+        migration_runner._execute_nontransactional(
+            _OnlineEngine(connection),  # type: ignore[arg-type]
+            migration,
+        )
+    )
+
+    assert not any("DROP INDEX" in statement for statement in connection.statements)
+    assert sum("CREATE INDEX" in statement for statement in connection.statements) == 3
+
+
+@pytest.mark.parametrize(
+    ("key_expressions", "key_options", "expected"),
+    [
+        (("space_id", "updated_at"), (0, 3), ("space_id", "updated_at DESC")),
+        (("space_id",), (2,), ("space_id NULLS FIRST",)),
+        (("updated_at",), (1,), ("updated_at DESC NULLS LAST",)),
+    ],
+)
+def test_index_states_preserve_key_direction_and_null_ordering(
+    key_expressions: tuple[str, ...],
+    key_options: tuple[int, ...],
+    expected: tuple[str, ...],
+) -> None:
+    rows = (
+        (
+            "ix_memory_documents_scope_status_page",
+            True,
+            "public",
+            "memory_documents",
+            "btree",
+            False,
+            None,
+            key_expressions,
+            key_options,
+            (),
+        ),
+    )
+    connection = _OnlineConnection(rows)
+    specs = (migration_runner._RECOVERABLE_INDEX_SPECS["0052_document_scope_listing_indexes"][0],)
+
+    states = asyncio.run(
+        migration_runner._index_states(connection, specs)  # type: ignore[arg-type]
+    )
+
+    assert states["ix_memory_documents_scope_status_page"].key_expressions == expected
+
+
+@pytest.mark.parametrize(
+    ("key_expressions", "key_options", "message"),
+    [
+        (("space_id",), (), "expressions and options are misaligned"),
+        (("space_id",), (4,), "unknown ordering options"),
+    ],
+)
+def test_index_states_fail_closed_for_unrepresentable_key_options(
+    key_expressions: tuple[str, ...],
+    key_options: tuple[int, ...],
+    message: str,
+) -> None:
+    rows = (
+        (
+            "ix_memory_documents_scope_status_page",
+            True,
+            "public",
+            "memory_documents",
+            "btree",
+            False,
+            None,
+            key_expressions,
+            key_options,
+            (),
+        ),
+    )
+    connection = _OnlineConnection(rows)
+    specs = (migration_runner._RECOVERABLE_INDEX_SPECS["0052_document_scope_listing_indexes"][0],)
+
+    with pytest.raises(RuntimeError, match=message):
+        asyncio.run(
+            migration_runner._index_states(connection, specs)  # type: ignore[arg-type]
+        )
 
 
 @pytest.mark.parametrize("invalidation_fails", [False, True])
@@ -387,6 +495,8 @@ def test_online_runner_uses_session_lock_autocommit_and_invalid_index_recovery()
     assert "Online PostgreSQL migration left an invalid or missing index" in online_source
     assert "pg_catalog.pg_am" in catalog_source
     assert "indisunique" in catalog_source
+    assert "indoption::int2[]" in catalog_source
+    assert "WITH ORDINALITY" in catalog_source
     assert "pg_catalog.pg_get_expr" in catalog_source
     assert "indnkeyatts + 1" in catalog_source
 
