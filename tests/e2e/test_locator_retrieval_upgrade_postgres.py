@@ -4,17 +4,12 @@ from __future__ import annotations
 
 import asyncio
 import os
-from datetime import UTC, datetime
 
 import pytest
 from infinity_context_adapters.postgres import (
     build_async_engine,
     build_locator_retrieval_indexes,
-    build_session_factory,
     upgrade_schema,
-)
-from infinity_context_adapters.postgres.locator_projection_maintenance import (
-    PostgresLocatorProjectionMaintenance,
 )
 from postgres_test_database import PostgresTestDatabase
 from sqlalchemy import text
@@ -215,10 +210,21 @@ async def _assert_seeded_upgrade(database_url: str) -> None:
                     )
                     == 1
                 )
-            maintenance = PostgresLocatorProjectionMaintenance(build_session_factory(engine))
-            assert await maintenance.current_delete_ids(
-                ("chunk-canonical-a",), canonical_version=5
-            ) == ("chunk-canonical-a",)
+            async with engine.connect() as connection:
+                assert (
+                    await connection.scalar(
+                        text(
+                            "SELECT count(*) FROM memory_locator_projection_tombstones t "
+                            "LEFT JOIN memory_chunks c ON c.id = t.chunk_id "
+                            "WHERE t.chunk_id = 'chunk-canonical-a' "
+                            "AND t.canonical_version = 5 "
+                            "AND (c.id IS NULL OR (c.retrieval_version = 5 "
+                            "AND (c.status <> 'active' OR "
+                            "c.classification NOT IN ('public', 'internal'))))"
+                        )
+                    )
+                    == 1
+                )
             async with engine.begin() as connection:
                 await connection.execute(
                     text(
@@ -226,10 +232,20 @@ async def _assert_seeded_upgrade(database_url: str) -> None:
                         "WHERE id = 'chunk-canonical-a'"
                     )
                 )
-            assert (
-                await maintenance.current_delete_ids(("chunk-canonical-a",), canonical_version=5)
-                == ()
-            )
+            async with engine.connect() as connection:
+                assert (
+                    await connection.scalar(
+                        text(
+                            "SELECT count(*) FROM memory_locator_projection_tombstones t "
+                            "JOIN memory_chunks c ON c.id = t.chunk_id "
+                            "WHERE t.chunk_id = 'chunk-canonical-a' "
+                            "AND t.canonical_version = 5 AND c.retrieval_version = 5 "
+                            "AND (c.status <> 'active' OR "
+                            "c.classification NOT IN ('public', 'internal'))"
+                        )
+                    )
+                    == 0
+                )
             async with engine.begin() as connection:
                 await connection.execute(
                     text(
@@ -237,12 +253,14 @@ async def _assert_seeded_upgrade(database_url: str) -> None:
                         "WHERE id = 'chunk-canonical-a'"
                     )
                 )
-            await maintenance.mark_deleted(
-                "locator",
-                ("chunk-canonical-a",),
-                completed_at=datetime(2026, 1, 1, tzinfo=UTC),
-                canonical_version=6,
-            )
+            async with engine.begin() as connection:
+                await connection.execute(
+                    text(
+                        "UPDATE memory_locator_projection_tombstones "
+                        "SET locator_deleted_at = TIMESTAMPTZ '2026-01-01T00:00:00Z' "
+                        "WHERE chunk_id = 'chunk-canonical-a' AND canonical_version = 6"
+                    )
+                )
             async with engine.connect() as connection:
                 assert await connection.scalar(
                     text(

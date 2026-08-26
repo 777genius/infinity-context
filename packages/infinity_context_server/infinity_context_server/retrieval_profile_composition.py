@@ -20,9 +20,7 @@ from infinity_context_adapters.postgres.locator_retrieval import (
     PostgresCanonicalLocatorReader,
     PostgresLocatorCandidateProvider,
 )
-from infinity_context_adapters.qdrant.profile_lifecycle import (
-    QdrantRetrievalProfileProjection,
-)
+from infinity_context_adapters.qdrant.profile_lifecycle import QdrantRetrievalProfileProjection
 from infinity_context_core.features.context_building.public import (
     ProfileActivationDecision,
     ProfileAttestationPageReceipt,
@@ -72,8 +70,7 @@ class RetrievalProfileOutboxCoordinator:
         items = await self.source.items_by_ids((job.aggregate_id,))
         if not items:
             return
-        # Always write current canonical state. A stale queued upsert can repair but
-        # can never roll a derived point back to its older queued version.
+        # Write current canonical state; stale queued upserts never roll derived points back.
         await self.projection.upsert_profile(profile, items)
         try:
             await self.registry.record_projection(profile_id, items, projected_at=now)
@@ -595,9 +592,8 @@ class ComposedRetrievalProfileLifecycle:
                     expected_count=coverage.expected_count,
                     expected_digest=coverage.expected_digest,
                 )
-                qdrant_qualified = (
-                    observed_count == coverage.expected_count
-                    and observed_digest == coverage.expected_digest
+                qdrant_qualified = observed_count == coverage.expected_count and (
+                    observed_digest == coverage.expected_digest
                 )
                 if not qdrant_qualified:
                     failure_code = "qdrant_profile_attestation_mismatch"
@@ -681,9 +677,8 @@ class ComposedRetrievalProfileLifecycle:
         return await self.lifecycle.promote(exact_lease, exact_evidence, now=datetime.now(UTC))
 
     async def rollback(self, profile_id: str, *, now: datetime, operation_id: str | None = None):
-        # Rollback is an activation of a retained immutable profile. Reusing the
-        # complete qualification/lease/promotion path keeps rollback behind the
-        # same physical attestation, tombstone, fencing, CAS and atomic audit gates.
+        # Rollback activates a retained profile through the same qualification and lease
+        # path, behind the same physical attestation, tombstone, fencing, CAS and audit gates.
         decision = await self.activate(
             profile_id,
             now=now,

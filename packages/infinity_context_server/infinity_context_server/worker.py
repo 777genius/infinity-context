@@ -19,7 +19,6 @@ from infinity_context_server.composition import Container, build_container
 from infinity_context_server.config import Settings
 from infinity_context_server.processes import (
     ClaimedOutboxJob,
-    ProjectionOutboxProcess,
     build_outbox_event_dispatcher,
 )
 from infinity_context_server.storage_maintenance import run_asset_storage_maintenance
@@ -65,7 +64,6 @@ class OutboxWorker:
         self._filter = worker_filter or OutboxWorkerFilter()
         self._running_heartbeat_interval = running_heartbeat_interval or RUNNING_HEARTBEAT_INTERVAL
         self._dispatcher = build_outbox_event_dispatcher(container)
-        self._projection_maintenance = ProjectionOutboxProcess(container)
         self._runtime_started = False
 
     async def start(self) -> None:
@@ -92,10 +90,6 @@ class OutboxWorker:
             await self._container.expire_pending_suggestions.execute(limit=normalized_limit)
         if self._should_run_storage_maintenance():
             await run_asset_storage_maintenance(self._container)
-        if _should_run_projection_maintenance(self._filter):
-            await self._projection_maintenance.reconcile_vector_tombstones(
-                limit=min(max(normalized_limit, 1), 100)
-            )
         jobs = await self._claim_pending(limit=normalized_limit)
         await self._process_claimed_jobs(jobs, concurrency=concurrency)
         return len(jobs)

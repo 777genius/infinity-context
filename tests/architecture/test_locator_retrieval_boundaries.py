@@ -1,12 +1,19 @@
 from __future__ import annotations
 
 import ast
+import asyncio
 import importlib.util
 import os
 import re
 import tarfile
 import zipfile
 from pathlib import Path
+from types import SimpleNamespace
+
+from infinity_context_core.ports.adapters import VectorWriteResult
+from infinity_context_server.composition import Container
+from infinity_context_server.processes.outbox import ClaimedOutboxJob
+from infinity_context_server.processes.projections import ProjectionOutboxProcess
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 CORE_FEATURE = (
@@ -52,7 +59,15 @@ OLD_RETRIEVAL_IDENTIFIER = re.compile(
 )
 OLD_SERVING_MODULE = "infinity_context_server.serving_identity"
 REMOVED_RETRIEVAL_MODULE = "infinity_context_server.retrieval_composition"
-CURRENT_V2_NAME = re.compile(r"\bRetrieval[ _-]?V2\b|\bretrieval[_-]v2\b", re.IGNORECASE)
+REMOVED_PROJECTION_MODULE = "infinity_context_adapters.postgres.locator_projection_maintenance"
+REMOVED_PROJECTION_NAMES = {
+    "locator_projection_maintenance",
+    "locator_vector_index",
+}
+CURRENT_V2_NAME = re.compile(
+    r"\bRetrieval[ _-]?V2\b|\bretrieval[_-]v2\b|\blocator[ _-]?V2\b",
+    re.IGNORECASE,
+)
 TEXT_SUFFIXES = {
     ".cjs",
     ".cts",
@@ -68,21 +83,30 @@ TEXT_SUFFIXES = {
     ".ts",
     ".tsx",
 }
-IMMUTABLE_V2_TREE_PARTS = {
-    "docs/adr",
-    "infinity_context_adapters/postgres/maintenance",
-    "infinity_context_adapters/postgres/migrations",
-    "infinity_context_contracts/fixtures/context_retrieval_v2",
-    "infinity_context_ts_sdk/fixtures/context_retrieval_v2",
-    "tests/migrations",
-}
+IMMUTABLE_V2_PATH_PREFIXES = (
+    Path("docs/adr"),
+    Path("packages/infinity_context_adapters/infinity_context_adapters/postgres/maintenance"),
+    Path("packages/infinity_context_adapters/infinity_context_adapters/postgres/migrations"),
+    Path(
+        "packages/infinity_context_contracts/infinity_context_contracts/fixtures/context_retrieval_v2"
+    ),
+    Path("packages/infinity_context_ts_sdk/fixtures/context_retrieval_v2"),
+    Path("tests/migrations"),
+)
 IMMUTABLE_V2_LINE_MARKERS = {
     "ADR-0011-locator-retrieval-v2-boundary.md",
     "context-retrieval.v2",
+    "context-retrieval-v2-cases.v1",
+    "context-retrieval-v2-errors.v1",
     "context_retrieval_v2",
     "generic-retrieval-v2-dataset.v1",
+    "locator-v2-{self.profile_kind}-{self.index_profile_digest}",
+    "locator-v2-pairs-relative-22222222",
+    "locator-v2-reproject:",
+    "locator-v2-tombstone:",
     "pre-0046 Retrieval V2 writers",
 }
+IMMUTABLE_V2_IDENTIFIERS = {"context_retrieval_v2"}
 NEW_SOURCE_CLASSIFICATION = {
     CORE_FEATURE / "domain" / "locator_retrieval.py": "domain",
     CORE_FEATURE / "domain" / "locator_retrieval_filters.py": "domain_filters",
@@ -168,7 +192,6 @@ INTEGRATION_SOURCE_CLASSIFICATION = {
     POSTGRES_ADAPTER / "projected_document_ingestion.py": "canonical_write_adapter",
     POSTGRES_ADAPTER / "locator_models.py": "canonical_schema_adapter",
     POSTGRES_ADAPTER / "retrieval_projection_mapping.py": "projection_contract_mapping",
-    POSTGRES_ADAPTER / "locator_projection_maintenance.py": "derived_repair_adapter",
     POSTGRES_ADAPTER
     / "migrations"
     / "0039_locator_retrieval_attributes.sql": "canonical_schema_migration",
@@ -324,47 +347,76 @@ def test_current_retrieval_has_no_v2_or_old_serving_identifiers() -> None:
     for path in _current_text_files():
         relative = path.relative_to(REPO_ROOT)
         text = path.read_text(encoding="utf-8")
-        if "serving_identity" in path.name:
-            violations.append(f"{relative}:old serving filename")
-        if ("retrieval_v2" in path.name or "retrieval-v2" in path.name) and not (
-            _immutable_v2_path(relative)
-        ):
-            violations.append(f"{relative}:current V2 filename")
-        for line_number, line in enumerate(text.splitlines(), 1):
-            if "serving_identity" in line:
-                violations.append(f"{relative}:{line_number}:old serving name")
-            if CURRENT_V2_NAME.search(line) and not _immutable_v2_line(relative, line):
-                violations.append(f"{relative}:{line_number}:current V2 name")
-        if path.suffix in {".py", ".pyi"}:
-            tree = ast.parse(text, filename=str(path))
-            violations.extend(
-                f"{relative}:{name}"
-                for name in _imports(tree)
-                if name.lstrip(".") in {OLD_SERVING_MODULE, REMOVED_RETRIEVAL_MODULE}
-                or name.lstrip(".").endswith((".serving_identity", ".retrieval_composition"))
-            )
-            for node in ast.walk(tree):
-                for name in _defined_or_referenced_names(node):
-                    if OLD_RETRIEVAL_IDENTIFIER.search(name):
-                        violations.append(f"{relative}:{name}")
-                if (
-                    isinstance(node, ast.Constant)
-                    and isinstance(node.value, str)
-                    and ("serving_identity" in node.value or REMOVED_RETRIEVAL_MODULE in node.value)
-                ):
-                    violations.append(f"{relative}:dynamic old module string")
-        elif path.suffix in {".cts", ".mts", ".ts", ".tsx"} or path.name.endswith(
-            (".d.cts", ".d.ts")
-        ):
-            identifiers = re.findall(r"[A-Za-z_$][A-Za-z0-9_$]*", text)
-            violations.extend(
-                f"{relative}:{name}"
-                for name in identifiers
-                if OLD_RETRIEVAL_IDENTIFIER.search(name)
-            )
+        violations.extend(_source_boundary_violations(relative, text))
     assert violations == []
     assert not (SERVER_PACKAGE / "serving_identity.py").exists()
     assert not (SERVER_PACKAGE / "retrieval_composition.py").exists()
+    assert not (POSTGRES_ADAPTER / "locator_projection_maintenance.py").exists()
+
+
+def test_retrieval_boundary_guard_catches_python_and_typescript_mutations() -> None:
+    mutations = {
+        Path("packages/example/mutant.py"): (
+            "import importlib\n"
+            "old = importlib.import_module("
+            "'infinity_context_adapters.postgres.locator_projection_maintenance')\n"
+            "locator_vector_index = object()\n"
+            "label = 'locator-V2'\n"
+        ),
+        Path("packages/example/mutant.ts"): (
+            "const locator_projection_maintenance = {};\nconst label = 'locator-V2';\n"
+        ),
+    }
+    for relative, text in mutations.items():
+        assert _source_boundary_violations(relative, text), relative
+
+
+def test_retrieval_boundary_guard_allows_exact_frozen_fixture_identifier() -> None:
+    samples = {
+        Path("tests/example_fixture_reference.py"): (
+            "context_retrieval_v2 = 'fixtures/context_retrieval_v2/request.json'\n"
+        ),
+        Path("packages/example_fixture_reference.ts"): (
+            "const context_retrieval_v2 = 'fixtures/context_retrieval_v2/request.json';\n"
+        ),
+    }
+    for relative, text in samples.items():
+        assert _source_boundary_violations(relative, text) == [], relative
+
+
+def test_drained_projection_lane_cannot_be_dynamically_injected() -> None:
+    class Vector:
+        def __init__(self) -> None:
+            self.deleted: list[tuple[str, ...]] = []
+
+        async def delete_chunks(self, chunk_ids: tuple[str, ...]) -> VectorWriteResult:
+            self.deleted.append(chunk_ids)
+            return VectorWriteResult.ok(len(chunk_ids))
+
+    class Poison:
+        def __getattr__(self, name: str) -> object:
+            raise AssertionError(f"drained projection lane accessed: {name}")
+
+    vector = Vector()
+    container = SimpleNamespace(vector_index=vector)
+    for name in REMOVED_PROJECTION_NAMES:
+        setattr(container, name, Poison())
+    process = ProjectionOutboxProcess(container)
+    job = ClaimedOutboxJob(
+        id=1,
+        event_type="vector.delete_chunks",
+        aggregate_id="chunk-a",
+        aggregate_version=7,
+        attempt_count=0,
+        workload_class="projection",
+        fairness_key="chunk:chunk-a",
+        payload_json={"chunk_ids": ["chunk-a"]},
+    )
+
+    asyncio.run(process.handle_vector_delete_chunks(job))
+
+    assert vector.deleted == [("chunk-a",)]
+    assert REMOVED_PROJECTION_NAMES.isdisjoint(Container.__annotations__)
 
 
 def test_drained_retrieval_runtime_has_no_dynamic_or_packaged_consumer() -> None:
@@ -376,15 +428,24 @@ def test_drained_retrieval_runtime_has_no_dynamic_or_packaged_consumer() -> None
     assert "build_locator_retrieval_service" not in composition_source
     assert importlib.util.find_spec(OLD_SERVING_MODULE) is None
     assert importlib.util.find_spec(REMOVED_RETRIEVAL_MODULE) is None
+    assert importlib.util.find_spec(REMOVED_PROJECTION_MODULE) is None
 
     removed_members = {
         "infinity_context_server/serving_identity.py",
         "infinity_context_server/retrieval_composition.py",
+        "infinity_context_adapters/postgres/locator_projection_maintenance.py",
     }
     violations: list[str] = []
     for path in _current_text_files():
         text = path.read_text(encoding="utf-8")
-        if OLD_SERVING_MODULE in text or REMOVED_RETRIEVAL_MODULE in text:
+        if not _immutable_v2_path(path.relative_to(REPO_ROOT)) and any(
+            module in text
+            for module in (
+                OLD_SERVING_MODULE,
+                REMOVED_RETRIEVAL_MODULE,
+                REMOVED_PROJECTION_MODULE,
+            )
+        ):
             violations.append(f"{path.relative_to(REPO_ROOT)}:removed module consumer")
     archive_roots = (
         REPO_ROOT,
@@ -468,6 +529,70 @@ def _defined_or_referenced_names(node: ast.AST) -> tuple[str, ...]:
     return ()
 
 
+def _source_boundary_violations(relative: Path, text: str) -> list[str]:
+    violations: list[str] = []
+    if "serving_identity" in relative.name:
+        violations.append(f"{relative}:old serving filename")
+    if (
+        "retrieval_v2" in relative.name or "retrieval-v2" in relative.name
+    ) and not _immutable_v2_path(relative):
+        violations.append(f"{relative}:current V2 filename")
+    for line_number, line in enumerate(text.splitlines(), 1):
+        if "serving_identity" in line:
+            violations.append(f"{relative}:{line_number}:old serving name")
+        if any(name in line for name in REMOVED_PROJECTION_NAMES) and not _immutable_v2_path(
+            relative
+        ):
+            violations.append(f"{relative}:{line_number}:removed projection name")
+        if CURRENT_V2_NAME.search(line) and not _immutable_v2_line(relative, line):
+            violations.append(f"{relative}:{line_number}:current V2 name")
+    if relative.suffix in {".py", ".pyi"}:
+        tree = ast.parse(text, filename=str(relative))
+        removed_modules = {
+            OLD_SERVING_MODULE,
+            REMOVED_RETRIEVAL_MODULE,
+            REMOVED_PROJECTION_MODULE,
+        }
+        violations.extend(
+            f"{relative}:{name}"
+            for name in _imports(tree)
+            if name.lstrip(".") in removed_modules
+            or name.lstrip(".").endswith(
+                (
+                    ".serving_identity",
+                    ".retrieval_composition",
+                    ".locator_projection_maintenance",
+                )
+            )
+        )
+        for node in ast.walk(tree):
+            for name in _defined_or_referenced_names(node):
+                if (
+                    OLD_RETRIEVAL_IDENTIFIER.search(name)
+                    and name not in IMMUTABLE_V2_IDENTIFIERS
+                    and not _immutable_v2_path(relative)
+                ):
+                    violations.append(f"{relative}:{name}")
+            if (
+                isinstance(node, ast.Constant)
+                and isinstance(node.value, str)
+                and any(module in node.value for module in removed_modules)
+            ):
+                violations.append(f"{relative}:dynamic old module string")
+    elif relative.suffix in {".cts", ".mts", ".ts", ".tsx"} or relative.name.endswith(
+        (".d.cts", ".d.ts")
+    ):
+        identifiers = re.findall(r"[A-Za-z_$][A-Za-z0-9_$]*", text)
+        violations.extend(
+            f"{relative}:{name}"
+            for name in identifiers
+            if OLD_RETRIEVAL_IDENTIFIER.search(name)
+            and name not in IMMUTABLE_V2_IDENTIFIERS
+            and not _immutable_v2_path(relative)
+        )
+    return violations
+
+
 def _current_text_files() -> tuple[Path, ...]:
     guard = Path(__file__).resolve()
     excluded = {
@@ -495,8 +620,9 @@ def _current_text_files() -> tuple[Path, ...]:
 
 
 def _immutable_v2_path(relative: Path) -> bool:
-    value = relative.as_posix()
-    return any(part in value for part in IMMUTABLE_V2_TREE_PARTS)
+    return any(
+        relative == prefix or prefix in relative.parents for prefix in IMMUTABLE_V2_PATH_PREFIXES
+    )
 
 
 def _immutable_v2_line(relative: Path, line: str) -> bool:

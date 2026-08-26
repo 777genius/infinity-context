@@ -1,6 +1,6 @@
 import asyncio
 from contextlib import asynccontextmanager
-from datetime import UTC, datetime, timedelta, timezone
+from datetime import UTC, datetime
 from types import SimpleNamespace
 
 import pytest
@@ -9,7 +9,6 @@ from infinity_context_adapters.postgres.projection_fence import (
     _projection_fence_query,
     _projection_state_query,
 )
-from infinity_context_adapters.qdrant.vector_adapter import QdrantVectorMemoryAdapter
 from infinity_context_core.domain.entities import FactStatus, LifecycleStatus
 from infinity_context_core.ports.adapters import (
     AdapterCapabilities,
@@ -224,25 +223,6 @@ class ImmediateVectorAdapter:
         )
 
 
-class StrictLocatorAdapter:
-    locator_writes_enabled = True
-
-    def __init__(self) -> None:
-        self.payloads: list[dict[str, object]] = []
-        self._profile = QdrantVectorMemoryAdapter(
-            url="http://unused",
-            collection_name="locator-profile",
-            vector_size=2,
-            projection_version="document-retrieval-projection.v1",
-            index_profile_digest="a" * 64,
-            index_generation="b" * 64,
-        )
-
-    async def upsert_chunks(self, items) -> VectorWriteResult:
-        self.payloads.extend(self._profile._vector_payload(item) for item in items)
-        return VectorWriteResult.ok(len(items))
-
-
 def _chunk(space_id: str = "benchmark-space") -> SimpleNamespace:
     return SimpleNamespace(
         id="chunk-1",
@@ -356,54 +336,21 @@ def _job(
     )
 
 
-def test_vector_worker_preserves_legacy_upsert_without_retrieval_metadata() -> None:
-    legacy = ImmediateVectorAdapter()
-    process = _immediate_vector_process(_chunk(), legacy=legacy, locator=None)
+def test_vector_worker_preserves_standard_upsert_without_retrieval_metadata() -> None:
+    vector = ImmediateVectorAdapter()
+    process = _immediate_vector_process(_chunk(), vector=vector)
 
     asyncio.run(process.handle_vector_upsert(_job("vector")))
 
-    assert len(legacy.upserts) == 1
-    assert legacy.upserts[0].metadata == {
+    assert len(vector.upserts) == 1
+    assert vector.upserts[0].metadata == {
         "source_type": "document",
         "kind": "document",
         "classification": "internal",
     }
 
 
-def test_worker_serializes_absolute_utc_time_for_strict_locator_qdrant_payload() -> None:
-    offset = timezone(timedelta(hours=2))
-    chunk = _chunk()
-    chunk.metadata = {
-        "_canonical_retrieval_projection": {
-            "locator": "absolute-time-locator",
-            "source_key": "absolute-time-source",
-            "projection_generation": "generation-1",
-            "sequence_ordinal": 0,
-            "actor_keys": ["actor-1"],
-            "start_at": datetime(2026, 1, 1, 2, tzinfo=offset),
-            "end_at": datetime(2026, 1, 2, 5, 4, 5, tzinfo=offset),
-            "relative_start_ms": None,
-            "relative_end_ms": None,
-            "kind": "record",
-            "category": "decision",
-            "tags": ["accepted"],
-            "canonical_version": 9_007_199_254_740_991,
-        }
-    }
-    legacy = ImmediateVectorAdapter()
-    locator = StrictLocatorAdapter()
-    process = _immediate_vector_process(chunk, legacy=legacy, locator=locator)
-
-    asyncio.run(process.handle_vector_upsert(_job("vector")))
-
-    assert len(legacy.upserts) == 1
-    assert len(locator.payloads) == 1
-    assert locator.payloads[0]["canonical_version"] == 9_007_199_254_740_991
-    assert locator.payloads[0]["start_at"] == "2026-01-01T00:00:00Z"
-    assert locator.payloads[0]["end_at"] == "2026-01-02T03:04:05Z"
-
-
-def _immediate_vector_process(chunk, *, legacy, locator) -> ProjectionOutboxProcess:
+def _immediate_vector_process(chunk, *, vector) -> ProjectionOutboxProcess:
     chunks = (chunk, chunk)
     return ProjectionOutboxProcess(
         SimpleNamespace(
@@ -414,10 +361,8 @@ def _immediate_vector_process(chunk, *, legacy, locator) -> ProjectionOutboxProc
                 documents=(_document(),),
                 document_chunks=(chunk,),
             ),
-            vector_index=legacy,
-            locator_vector_index=locator,
-            locator_projection_maintenance=None,
-            embedder=legacy,
+            vector_index=vector,
+            embedder=vector,
             settings=SimpleNamespace(max_embedding_tokens_per_document=100),
         )
     )

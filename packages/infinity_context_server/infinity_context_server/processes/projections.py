@@ -71,7 +71,6 @@ class ProjectionOutboxProcess:
         }
 
     async def handle_vector_upsert(self, job: ClaimedOutboxJob) -> None:
-        await self.reconcile_vector_tombstones()
         chunk_id = str(job.payload_json.get("chunk_id") or job.aggregate_id)
         async with self._container.uow_factory() as uow:
             chunk = await uow.chunks.get_by_id(chunk_id)
@@ -131,7 +130,6 @@ class ProjectionOutboxProcess:
 
             if "_canonical_retrieval_projection" not in chunk.metadata:
                 retrieval_payload: dict[str, object] = {}
-                canonical_version = None
             else:
                 raw_retrieval_payload = chunk.metadata["_canonical_retrieval_projection"]
                 if not isinstance(raw_retrieval_payload, dict):
@@ -140,7 +138,7 @@ class ProjectionOutboxProcess:
                 canonical_version = retrieval_payload.get("canonical_version")
                 if not isinstance(canonical_version, int) or isinstance(canonical_version, bool):
                     raise RuntimeError("canonical retrieval version is unavailable")
-            legacy_item = VectorUpsertItem(
+            item = VectorUpsertItem(
                 chunk_id=str(chunk.id),
                 space_id=str(chunk.space_id),
                 memory_scope_id=str(chunk.memory_scope_id),
@@ -155,69 +153,15 @@ class ProjectionOutboxProcess:
                     **retrieval_payload,
                 },
             )
-            result = await self._container.vector_index.upsert_chunks((legacy_item,))
+            result = await self._container.vector_index.upsert_chunks((item,))
             _raise_if_degraded(result.status, "vector.upsert_chunks", result.diagnostics)
-            locator_index = getattr(self._container, "locator_vector_index", None)
-            if (
-                locator_index is not None
-                and canonical_version is not None
-                and getattr(locator_index, "locator_writes_enabled", True)
-                and all(
-                    retrieval_payload.get(key)
-                    for key in ("locator", "source_key", "projection_generation")
-                )
-            ):
-                locator_metadata = {
-                    **retrieval_payload,
-                    "kind": retrieval_payload.get("kind", chunk.kind.value),
-                    "canonical_identity": str(chunk.id),
-                    "canonical_version": canonical_version,
-                    "document_key": str(chunk.document_id or ""),
-                    "chunk_key": str(chunk.id),
-                    "lifecycle_status": "active",
-                }
-                locator_result = await locator_index.upsert_chunks(
-                    (
-                        VectorUpsertItem(
-                            chunk_id=legacy_item.chunk_id,
-                            space_id=legacy_item.space_id,
-                            memory_scope_id=legacy_item.memory_scope_id,
-                            thread_id=legacy_item.thread_id,
-                            text=legacy_item.text,
-                            vector=legacy_item.vector,
-                            projection_version="document-retrieval-projection.v1",
-                            metadata=locator_metadata,
-                        ),
-                    )
-                )
-                _raise_if_degraded(
-                    locator_result.status,
-                    "locator_vector.upsert_chunks",
-                    locator_result.diagnostics,
-                )
 
     async def handle_vector_delete_chunks(self, job: ClaimedOutboxJob) -> None:
         chunk_ids = tuple(str(value) for value in job.payload_json.get("chunk_ids", []))
         require_delete_completion = _benchmark_cleanup_requires_delete_completion(job.payload_json)
-        canonical_version = job.aggregate_version
-        if canonical_version is not None:
-            maintenance = getattr(self._container, "locator_projection_maintenance", None)
-            authorize = getattr(maintenance, "current_delete_ids", None)
-            if not callable(authorize):
-                raise OutboxProjectionError(
-                    "vector.delete_chunks",
-                    "vector.delete_version_fence_unavailable",
-                )
-            chunk_ids = await authorize(
-                chunk_ids,
-                canonical_version=canonical_version,
-            )
-            if not chunk_ids:
-                return
         await self._delete_vector_chunks(
             chunk_ids,
             require_delete_completion=require_delete_completion,
-            canonical_version=canonical_version,
         )
 
     async def handle_locator_profile_upsert(self, job: ClaimedOutboxJob) -> None:
@@ -236,167 +180,19 @@ class ProjectionOutboxProcess:
             )
         await coordinator.delete(job, now=self._container.clock.now())
 
-    async def reconcile_vector_tombstones(self, *, limit: int = 100) -> None:
-        maintenance = getattr(self._container, "locator_projection_maintenance", None)
-        if maintenance is None:
-            return
-        lanes = (
-            ("legacy", self._container.vector_index),
-            ("locator", getattr(self._container, "locator_vector_index", None)),
-        )
-        for lane, adapter in lanes:
-            if adapter is None or not callable(getattr(adapter, "locator_points_absent", None)):
-                continue
-            pending_deletes = getattr(maintenance, "pending_deletes", None)
-            if not callable(pending_deletes):
-                continue
-            candidates = await pending_deletes(lane, limit=limit)
-            for chunk_id, canonical_version in candidates:
-                chunk_ids = await maintenance.current_delete_ids(
-                    (chunk_id,), canonical_version=canonical_version
-                )
-                if not chunk_ids:
-                    continue
-                await self._delete_projection_lane(
-                    lane,
-                    adapter,
-                    chunk_ids,
-                    suppress=True,
-                    canonical_version=canonical_version,
-                )
-
     async def _delete_vector_chunks(
         self,
         chunk_ids: tuple[str, ...],
         *,
         require_delete_completion: bool = False,
-        canonical_version: int | None = None,
     ) -> None:
-        failures: list[Exception] = []
-        try:
-            await self._delete_projection_lane(
-                "legacy",
-                self._container.vector_index,
-                chunk_ids,
-                disabled_is_error=require_delete_completion,
-                canonical_version=canonical_version,
-            )
-        except Exception as exc:
-            failures.append(exc)
-        locator_index = getattr(self._container, "locator_vector_index", None)
-        if locator_index is not None:
-            try:
-                await self._delete_projection_lane(
-                    "locator",
-                    locator_index,
-                    chunk_ids,
-                    disabled_is_error=require_delete_completion,
-                    canonical_version=canonical_version,
-                )
-            except Exception as exc:
-                failures.append(exc)
-        if failures:
-            raise failures[0]
-
-    async def _delete_projection_lane(
-        self,
-        lane: str,
-        adapter,
-        chunk_ids: tuple[str, ...],
-        *,
-        disabled_is_error: bool = False,
-        suppress: bool = False,
-        canonical_version: int | None = None,
-    ) -> None:
-        try:
-            maintenance = getattr(self._container, "locator_projection_maintenance", None)
-            observe_absence = getattr(adapter, "locator_points_absent", None)
-            if suppress:
-                if not callable(observe_absence):
-                    return
-                absent = await observe_absence(chunk_ids)
-                if absent is None:
-                    return
-                if absent:
-                    if maintenance is not None:
-                        await maintenance.mark_deleted(
-                            lane,
-                            chunk_ids,
-                            completed_at=self._container.clock.now(),
-                            canonical_version=canonical_version,
-                        )
-                    return
-            try:
-                if canonical_version is None:
-                    result = await adapter.delete_chunks(chunk_ids)
-                else:
-                    delete_if_version = getattr(adapter, "delete_chunks_if_version", None)
-                    if not callable(delete_if_version):
-                        raise OutboxProjectionError(
-                            "vector.delete_chunks",
-                            "vector.delete_version_fence_unsupported",
-                        )
-                    result = await delete_if_version(chunk_ids, canonical_version=canonical_version)
-            except Exception:
-                if callable(observe_absence):
-                    absent = await observe_absence(chunk_ids)
-                    if absent:
-                        if maintenance is not None:
-                            await maintenance.mark_deleted(
-                                lane,
-                                chunk_ids,
-                                completed_at=self._container.clock.now(),
-                                canonical_version=canonical_version,
-                            )
-                        return
-                    if (
-                        maintenance is not None
-                        and callable(getattr(maintenance, "tracks", None))
-                        and await maintenance.tracks(chunk_ids)
-                    ):
-                        return
-                raise
-            operation = (
-                "vector.delete_chunks" if lane == "legacy" else "locator_vector.delete_chunks"
-            )
-            disabled = _is_disabled_projection(result.diagnostics)
-            try:
-                _raise_if_degraded(
-                    result.status,
-                    operation,
-                    result.diagnostics,
-                    disabled_is_error=disabled_is_error,
-                )
-            except Exception:
-                if callable(observe_absence):
-                    absent = await observe_absence(chunk_ids)
-                    if absent and maintenance is not None:
-                        await maintenance.mark_deleted(
-                            lane,
-                            chunk_ids,
-                            completed_at=self._container.clock.now(),
-                            canonical_version=canonical_version,
-                        )
-                        return
-                    if (
-                        maintenance is not None
-                        and callable(getattr(maintenance, "tracks", None))
-                        and await maintenance.tracks(chunk_ids)
-                    ):
-                        return
-                raise
-            if disabled:
-                return
-            if maintenance is not None:
-                await maintenance.mark_deleted(
-                    lane,
-                    chunk_ids,
-                    completed_at=self._container.clock.now(),
-                    canonical_version=canonical_version,
-                )
-        except Exception:
-            if not suppress:
-                raise
+        result = await self._container.vector_index.delete_chunks(chunk_ids)
+        _raise_if_degraded(
+            result.status,
+            "vector.delete_chunks",
+            result.diagnostics,
+            disabled_is_error=require_delete_completion,
+        )
 
     async def handle_graph_upsert(self, job: ClaimedOutboxJob) -> None:
         async with self._container.uow_factory() as uow:

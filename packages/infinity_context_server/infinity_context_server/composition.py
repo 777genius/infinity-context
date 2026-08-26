@@ -34,9 +34,6 @@ from infinity_context_adapters.postgres.context_candidates import (
 from infinity_context_adapters.postgres.document_reconciliation import (
     PostgresExactDocumentObservationAdapter,
 )
-from infinity_context_adapters.postgres.locator_projection_maintenance import (
-    PostgresLocatorProjectionMaintenance,
-)
 from infinity_context_adapters.postgres.projected_document_ingestion import (
     PostgresProjectedDocumentIngestor,
 )
@@ -201,7 +198,6 @@ class Container:
     canonical_fact_selection: memory_facts_feature.MemoryFactSelectionPort
     build_canonical_fact_context: context_building_feature.BuildContextHandler
     locator_retrieval: context_building_server.LocatorRetrievalService | None
-    locator_projection_maintenance: PostgresLocatorProjectionMaintenance
     retrieval_profile_lifecycle: object
     retrieval_profile_outbox: RetrievalProfileOutboxCoordinator
     retrieval_runtime_lifecycle: (
@@ -411,7 +407,6 @@ def build_container(
         if serving_profile.service_revision is not None
         else None
     )
-    locator_projection_maintenance = PostgresLocatorProjectionMaintenance(session_factory)
     blob_storage = _build_blob_storage(resolved_settings)
     product_plan = ProductPlan.create(
         tier=resolved_settings.product_plan_tier,
@@ -860,7 +855,6 @@ def build_container(
         canonical_fact_selection=canonical_fact_selection,
         build_canonical_fact_context=build_canonical_fact_context,
         locator_retrieval=locator_retrieval,
-        locator_projection_maintenance=locator_projection_maintenance,
         retrieval_profile_lifecycle=retrieval_profile_lifecycle,
         retrieval_profile_outbox=retrieval_profile_outbox,
         retrieval_runtime_lifecycle=retrieval_runtime_lifecycle,

@@ -102,7 +102,6 @@ class QdrantVectorMemoryAdapter:
         sparse_encoder_factory: Callable[[], object] | None = None,
         index_profile_digest: str | None = None,
         index_generation: str | None = None,
-        locator_writes_enabled: bool = True,
     ) -> None:
         self._url = url
         self._api_key = api_key
@@ -117,7 +116,6 @@ class QdrantVectorMemoryAdapter:
         self._sparse_encoder: object | None = None
         self._index_profile_digest = index_profile_digest
         self._index_generation = index_generation
-        self.locator_writes_enabled = locator_writes_enabled
         self._identity_evidence = QdrantIdentityEvidence(
             client_factory=lambda: self._client(),
             url=url,

@@ -26,18 +26,10 @@ def test_fresh_zero_job_projection_worker_registers_before_reconcile_and_retires
             del now
             events.append("close")
 
-    class Maintenance:
-        def __init__(self, _container):
-            pass
-
-        async def reconcile_vector_tombstones(self, *, limit):
-            del limit
-
     monkeypatch.setattr(
         "infinity_context_server.worker.build_outbox_event_dispatcher",
         lambda _container: SimpleNamespace(handle=None),
     )
-    monkeypatch.setattr("infinity_context_server.worker.ProjectionOutboxProcess", Maintenance)
     container = SimpleNamespace(
         locator_retrieval=Locator(),
         clock=SimpleNamespace(now=lambda: datetime(2026, 8, 26, tzinfo=UTC)),
@@ -82,18 +74,10 @@ def test_cancelled_worker_scope_retires_after_cancelled_work_cleanup(monkeypatch
             assert work_cleaned.is_set()
             events.append("close")
 
-    class Maintenance:
-        def __init__(self, _container):
-            pass
-
-        async def reconcile_vector_tombstones(self, *, limit):
-            del limit
-
     monkeypatch.setattr(
         "infinity_context_server.worker.build_outbox_event_dispatcher",
         lambda _container: SimpleNamespace(handle=None),
     )
-    monkeypatch.setattr("infinity_context_server.worker.ProjectionOutboxProcess", Maintenance)
     worker = OutboxWorker(
         SimpleNamespace(
             locator_retrieval=Locator(),

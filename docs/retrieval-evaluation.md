@@ -136,7 +136,7 @@ accepting caller-scored metrics or a retained caller digest.
 ## Residual live gates
 
 The sole package anchor is synthetic and cannot qualify a deployment. Production
-evidence still requires a mounted locator-V2 route; real Postgres canonical writes
+evidence still requires a mounted Retrieval route; real Postgres canonical writes
 and hydration; exercised lexical/vector and neighbor adapters against actual
 indexes; server-owned deadline and exact serialized-byte measurement; independently
 verified service/core revisions, capabilities, retrieval profile, and index identity;
