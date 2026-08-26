@@ -38,8 +38,8 @@ def test_profile_lifecycle_is_forward_only_after_published_0039() -> None:
         line.strip() for line in forward.splitlines() if line.lstrip().upper().startswith("DROP ")
     )
     assert drop_lines == (
-        "DROP TRIGGER trg_zz_memory_chunk_locator_watermark_bridge_v1 ON memory_chunks;",
-        "DROP FUNCTION memory_chunk_locator_watermark_mirror_v1();",
+        "DROP TRIGGER IF EXISTS trg_zz_memory_chunk_locator_watermark_bridge_v1 ON memory_chunks;",
+        "DROP FUNCTION IF EXISTS memory_chunk_locator_watermark_mirror_v1();",
     )
     assert "ADD COLUMN retrieval_commit_watermark BIGINT NOT NULL" not in forward
 
@@ -65,8 +65,19 @@ def test_profile_watermark_uses_bounded_online_backfill_and_short_cutover() -> N
         "packages/infinity_context_adapters/infinity_context_adapters/postgres/migrations",
         "0040_locator_profile_lifecycle.sql",
     ).read_text()
-    assert "CREATE TRIGGER trg_zz_memory_chunk_locator_watermark_v2" in forward
-    assert "DROP TRIGGER trg_zz_memory_chunk_locator_watermark_bridge_v1" in forward
+    final_trigger = "CREATE TRIGGER trg_zz_memory_chunk_locator_watermark_v2"
+    bridge_trigger_drop = (
+        "DROP TRIGGER IF EXISTS trg_zz_memory_chunk_locator_watermark_bridge_v1"
+    )
+    bridge_function_drop = (
+        "DROP FUNCTION IF EXISTS memory_chunk_locator_watermark_mirror_v1()"
+    )
+    assert forward.index(final_trigger) < forward.index(bridge_trigger_drop)
+    assert forward.index(bridge_trigger_drop) < forward.index(bridge_function_drop)
+    seam_sql = forward[forward.index(final_trigger) : forward.index(bridge_function_drop)]
+    transaction_boundaries = {"BEGIN;", "COMMIT;", "ROLLBACK;"}
+    seam_statements = (line.strip().upper() for line in seam_sql.splitlines())
+    assert transaction_boundaries.isdisjoint(seam_statements)
 
 
 def test_attestation_fence_migration_is_additive_and_resumable() -> None:
