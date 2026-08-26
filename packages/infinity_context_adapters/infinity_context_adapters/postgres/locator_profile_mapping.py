@@ -1,4 +1,4 @@
-"""Pure mappings shared by the Postgres Retrieval V2 profile adapters."""
+"""Pure mappings shared by the Postgres Retrieval profile adapters."""
 
 from __future__ import annotations
 

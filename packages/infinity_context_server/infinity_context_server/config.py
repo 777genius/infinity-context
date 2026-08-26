@@ -227,22 +227,19 @@ class Settings(BaseSettings):
             self.deploy_profile in {DeployProfile.CANARY, DeployProfile.SERVER}
             and self.qdrant_enabled
         )
-        if (
-            recoverable_provider_lifecycle
-            and not all(
-                (
-                    self.retrieval_runtime_launch_identity_json,
-                    self.retrieval_supervisor_trust_registry_path,
-                    self.retrieval_supervisor_trust_root_sha256,
-                    self.retrieval_supervisor_key_id,
-                    self.retrieval_supervisor_trust_registry_generation,
-                )
+        if recoverable_provider_lifecycle and not all(
+            (
+                self.retrieval_runtime_launch_identity_json,
+                self.retrieval_supervisor_trust_registry_path,
+                self.retrieval_supervisor_trust_root_sha256,
+                self.retrieval_supervisor_key_id,
+                self.retrieval_supervisor_trust_registry_generation,
             )
         ):
             raise RuntimeError(
                 "MEMORY_RETRIEVAL_RUNTIME_LAUNCH_IDENTITY_JSON and deployment-pinned "
                 "MEMORY_RETRIEVAL_SUPERVISOR_TRUST_* settings are required for recoverable "
-                "canary/server Retrieval V2 provider lifecycle fencing"
+                "canary/server Retrieval provider lifecycle fencing"
             )
         if self.retrieval_runtime_launch_identity_json:
             from infinity_context_adapters.postgres.supervisor_trust import (
@@ -262,7 +259,7 @@ class Settings(BaseSettings):
                 build = verify_installed_build_identity(self.service_build_identity_path)
                 if build is None:
                     raise RuntimeError(
-                        "recoverable Retrieval V2 lifecycle requires a verified installed build"
+                        "recoverable Retrieval lifecycle requires a verified installed build"
                     )
                 trust = load_pinned_supervisor_trust(
                     path=self.retrieval_supervisor_trust_registry_path or "",

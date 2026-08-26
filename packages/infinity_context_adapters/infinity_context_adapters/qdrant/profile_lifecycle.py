@@ -1,4 +1,4 @@
-"""Replaceable Qdrant projection targets for canonical Retrieval V2 profiles."""
+"""Replaceable Qdrant projection targets for canonical Retrieval profiles."""
 
 from __future__ import annotations
 

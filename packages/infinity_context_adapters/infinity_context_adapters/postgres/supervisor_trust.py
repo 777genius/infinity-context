@@ -1,4 +1,4 @@
-"""Deployment-pinned public authority for Retrieval V2 runtime supervisors."""
+"""Deployment-pinned public authority for Retrieval runtime supervisors."""
 
 from __future__ import annotations
 
@@ -48,8 +48,10 @@ class SupervisorTrustRegistry:
         if owner.supervisor_public_key != trusted_key:
             raise RuntimeError("retrieval_profile_supervisor_key_untrusted")
         _verify(
-            trusted_key, owner.launch_signature, owner.launch_payload(),
-            error="retrieval_profile_runtime_launch_invalid"
+            trusted_key,
+            owner.launch_signature,
+            owner.launch_payload(),
+            error="retrieval_profile_runtime_launch_invalid",
         )
 
     def verify_death_proof(self, proof, *, now: datetime) -> None:
@@ -62,8 +64,10 @@ class SupervisorTrustRegistry:
             raise RuntimeError("retrieval_profile_supervisor_trust_mismatch")
         trusted_key = self.public_key(proof.supervisor_key_id, now=now)
         _verify(
-            trusted_key, proof.signature, proof.payload(),
-            error="retrieval_profile_dead_proof_invalid"
+            trusted_key,
+            proof.signature,
+            proof.payload(),
+            error="retrieval_profile_dead_proof_invalid",
         )
 
     def provenance(self) -> dict[str, object]:
@@ -130,8 +134,13 @@ def load_pinned_supervisor_trust(
 
 
 def registry_document(
-    *, registry_id: str, generation: int, valid_from: datetime, valid_until: datetime,
-    keys: tuple[tuple[str, str], ...], installed_release: InstalledReleaseIdentity
+    *,
+    registry_id: str,
+    generation: int,
+    valid_from: datetime,
+    valid_until: datetime,
+    keys: tuple[tuple[str, str], ...],
+    installed_release: InstalledReleaseIdentity,
 ) -> tuple[bytes, str]:
     """Canonical public fixture/launcher representation; contains no private material."""
 
@@ -151,10 +160,20 @@ def registry_document(
 def _parse_registry(raw: bytes) -> SupervisorTrustRegistry:
     try:
         decoded = json.loads(raw)
-        if not isinstance(decoded, dict) or set(decoded) != {
-            "schema", "registry_id", "generation", "valid_from", "valid_until", "keys",
-            "release_identity",
-        } or decoded["schema"] != "retrieval-supervisor-trust-registry.v2":
+        if (
+            not isinstance(decoded, dict)
+            or set(decoded)
+            != {
+                "schema",
+                "registry_id",
+                "generation",
+                "valid_from",
+                "valid_until",
+                "keys",
+                "release_identity",
+            }
+            or decoded["schema"] != "retrieval-supervisor-trust-registry.v2"
+        ):
             raise ValueError
         registry_id = decoded["registry_id"]
         generation = decoded["generation"]
@@ -169,8 +188,12 @@ def _parse_registry(raw: bytes) -> SupervisorTrustRegistry:
             or len(registry_id) > 120
             or not isinstance(generation, int)
             or isinstance(generation, bool)
-            or generation < 1 or valid_from.tzinfo is None or valid_until.tzinfo is None
-            or valid_from >= valid_until or not isinstance(key_rows, list) or not key_rows
+            or generation < 1
+            or valid_from.tzinfo is None
+            or valid_until.tzinfo is None
+            or valid_from >= valid_until
+            or not isinstance(key_rows, list)
+            or not key_rows
         ):
             raise ValueError
         keys = []
@@ -179,8 +202,12 @@ def _parse_registry(raw: bytes) -> SupervisorTrustRegistry:
                 raise ValueError
             key_id, public_key = row["key_id"], row["public_key"]
             if (
-                not isinstance(key_id, str) or not key_id or key_id != key_id.strip()
-                or len(key_id) > 120 or not isinstance(public_key, str) or len(public_key) != 64
+                not isinstance(key_id, str)
+                or not key_id
+                or key_id != key_id.strip()
+                or len(key_id) > 120
+                or not isinstance(public_key, str)
+                or len(public_key) != 64
                 or any(c not in "0123456789abcdef" for c in public_key)
             ):
                 raise ValueError
@@ -191,8 +218,12 @@ def _parse_registry(raw: bytes) -> SupervisorTrustRegistry:
     except (TypeError, ValueError, json.JSONDecodeError) as exc:
         raise RuntimeError("retrieval_profile_supervisor_trust_malformed") from exc
     canonical, digest = registry_document(
-        registry_id=registry_id, generation=generation, valid_from=valid_from,
-        valid_until=valid_until, keys=tuple(keys), installed_release=release
+        registry_id=registry_id,
+        generation=generation,
+        valid_from=valid_from,
+        valid_until=valid_until,
+        keys=tuple(keys),
+        installed_release=release,
     )
     if canonical != raw:
         raise RuntimeError("retrieval_profile_supervisor_trust_noncanonical")

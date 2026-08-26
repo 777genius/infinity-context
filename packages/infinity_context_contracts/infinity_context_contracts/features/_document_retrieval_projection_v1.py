@@ -1,4 +1,4 @@
-"""Strict public DTO for the generic document Retrieval V2 projection seam."""
+"""Strict public DTO for the generic document Retrieval projection seam."""
 
 from __future__ import annotations
 
@@ -8,7 +8,7 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 
 from .._json import JsonObject
-from ._context_building_retrieval_v2_json import decode_context_retrieval_v2_json
+from ._context_building_retrieval_json import decode_context_retrieval_json
 
 DOCUMENT_RETRIEVAL_PROJECTION_SCHEMA_V1 = "document-retrieval-projection.v1"
 _PROJECTION_FIELDS = {
@@ -33,7 +33,7 @@ def _utf8_sort_key(value: str) -> bytes:
 def decode_document_retrieval_projection_v1(
     raw: bytes,
 ) -> DocumentRetrievalProjectionV1Dto:
-    return DocumentRetrievalProjectionV1Dto.from_dict(decode_context_retrieval_v2_json(raw))
+    return DocumentRetrievalProjectionV1Dto.from_dict(decode_context_retrieval_json(raw))
 
 
 @dataclass(frozen=True, slots=True)

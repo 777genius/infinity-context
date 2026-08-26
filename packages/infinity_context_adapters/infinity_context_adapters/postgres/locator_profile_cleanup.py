@@ -1,4 +1,4 @@
-"""Retired Retrieval V2 profile cleanup lifecycle."""
+"""Retired Retrieval profile cleanup lifecycle."""
 
 from __future__ import annotations
 

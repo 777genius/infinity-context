@@ -1,4 +1,4 @@
-"""Durable strict-admin idempotency receipts for Retrieval V2 profile operations."""
+"""Durable strict-admin idempotency receipts for Retrieval profile operations."""
 
 from __future__ import annotations
 

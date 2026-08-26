@@ -179,7 +179,7 @@ jobs:
           npm ci
           npm run lint
           npm run check:architecture
-          npm run check:retrieval-v2-parity
+          npm run check:retrieval-parity
           npm run check:parity
           npm run typecheck
           npm run test

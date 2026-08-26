@@ -10,8 +10,8 @@ from typing import Annotated, Any, Literal
 from fastapi import APIRouter, Depends, Header, Query, Response, status
 from fastapi.responses import JSONResponse
 from infinity_context_contracts.features.context_building import (
-    ContextRetrievalV2ErrorDto,
-    ContextRetrievalV2ErrorEnvelopeDto,
+    RetrievalErrorDto,
+    RetrievalErrorEnvelopeDto,
 )
 from infinity_context_contracts.features.document_ingestion import (
     EXACT_DOCUMENT_RECONCILIATION_CONTRACT_V1,
@@ -223,7 +223,7 @@ async def ingest_document(
 def _projection_error(
     code: str, message: str = "Document retrieval projection conflicted"
 ) -> JSONResponse:
-    envelope = ContextRetrievalV2ErrorEnvelopeDto(ContextRetrievalV2ErrorDto(code, message, False))
+    envelope = RetrievalErrorEnvelopeDto(RetrievalErrorDto(code, message, False))
     return JSONResponse(status_code=envelope.http_status, content=envelope.to_dict())
 
 

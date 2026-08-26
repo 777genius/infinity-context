@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Canonical tracked-content manifest for Retrieval V2 lifecycle evidence."""
+"""Canonical tracked-content manifest for Retrieval lifecycle evidence."""
 
 from __future__ import annotations
 

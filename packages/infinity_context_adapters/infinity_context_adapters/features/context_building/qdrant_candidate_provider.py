@@ -8,9 +8,9 @@ from typing import Protocol
 
 from infinity_context_core.features.context_building.public import (
     FEATURE_ID,
-    LocatorProviderHitV2,
-    LocatorProviderResultV2,
-    LocatorRetrievalRequestV2,
+    LocatorProviderHit,
+    LocatorProviderResult,
+    LocatorRetrievalRequest,
 )
 from infinity_context_core.ports.adapters import EmbeddingPort, PortStatus
 
@@ -38,7 +38,7 @@ class QdrantLocatorSearchPort(Protocol):
 
 @dataclass(frozen=True, slots=True)
 class QdrantContextCandidateProvider:
-    """Translate V2 filters and preserve Qdrant's raw similarity/rank."""
+    """Translate retrieval filters and preserve Qdrant's raw similarity/rank."""
 
     search: QdrantLocatorSearchPort
     embedder: EmbeddingPort
@@ -47,15 +47,15 @@ class QdrantContextCandidateProvider:
     feature_id = FEATURE_ID
 
     async def retrieve_locator_candidates(
-        self, request: LocatorRetrievalRequestV2
-    ) -> LocatorProviderResultV2:
+        self, request: LocatorRetrievalRequest
+    ) -> LocatorProviderResult:
         embeddings = await self.embedder.embed_texts(
             tuple(variant.query for variant in request.queries)
         )
         if embeddings.status != PortStatus.OK or len(embeddings.vectors) != len(request.queries):
-            return LocatorProviderResultV2(status="unavailable", reason_code="provider_unavailable")
+            return LocatorProviderResult(status="unavailable", reason_code="provider_unavailable")
         spec = translate_qdrant_locator_filters(request)
-        hits: list[LocatorProviderHitV2] = []
+        hits: list[LocatorProviderHit] = []
         for variant, vector in zip(request.queries, embeddings.vectors, strict=True):
             points = await self.search.search_locator_chunks(
                 space_id=request.scope.space_id,
@@ -77,11 +77,11 @@ class QdrantContextCandidateProvider:
                     or not isinstance(score, int | float)
                     or isinstance(score, bool)
                 ):
-                    return LocatorProviderResultV2(
+                    return LocatorProviderResult(
                         status="unqualified", reason_code="provider_unqualified"
                     )
                 hits.append(
-                    LocatorProviderHitV2(
+                    LocatorProviderHit(
                         canonical_identity=identity,
                         canonical_version=version,
                         provider_id=self.provider_id,
@@ -91,11 +91,11 @@ class QdrantContextCandidateProvider:
                         raw_score_value=float(score),
                     )
                 )
-        return LocatorProviderResultV2(status="available", hits=tuple(hits))
+        return LocatorProviderResult(status="available", hits=tuple(hits))
 
 
 def translate_qdrant_locator_filters(
-    request: LocatorRetrievalRequestV2,
+    request: LocatorRetrievalRequest,
 ) -> dict[str, object]:
     """Build an exact provider-neutral filter spec consumed by Qdrant primitives."""
 

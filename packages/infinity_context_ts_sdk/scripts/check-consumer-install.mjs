@@ -63,7 +63,7 @@ try {
   ], { cwd: tempRoot, maxBuffer: 10 * 1024 * 1024 });
   const browserBundle = await readFile(join(tempRoot, "consumer-browser.js"), "utf8");
   if (/\bnode:|\brequire\s*\(/u.test(browserBundle)) {
-    throw new Error("Browser Retrieval V2 bundle contains a Node-only runtime dependency");
+    throw new Error("Browser Retrieval bundle contains a Node-only runtime dependency");
   }
   let subtleCalls = 0;
   const browserGlobal = {
@@ -74,7 +74,7 @@ try {
   };
   runInNewContext(browserBundle, browserGlobal);
   await browserGlobal.__infinityContextBrowserSmoke;
-  if (subtleCalls !== 1) throw new Error("Browser Retrieval V2 smoke did not use Web Crypto SHA-256");
+  if (subtleCalls !== 1) throw new Error("Browser Retrieval smoke did not use Web Crypto SHA-256");
   for (const name of ["capability.json", "cases.json", "document_projection.json", "errors.json", "request.json", "scoring_golden.json", "success.json"]) {
     const source = await readFile(join(packageRoot, "fixtures", "context_retrieval_v2", name));
     const packed = await readFile(join(tempRoot, "node_modules", "@infinity-context", "sdk", "fixtures", "context_retrieval_v2", name));
@@ -111,19 +111,19 @@ function consumerTypecheckSource() {
   return `import {
   InfinityContextClient,
   ReadScope,
-  CONTEXT_RETRIEVAL_CONTRACT_V2,
-  CONTEXT_RETRIEVAL_RANKING_POLICY_V2,
-  assertContextRetrievalCapabilityV2,
-  decodeRetrieveContextV2Response,
-  retrievalV2RequestPayload,
+  CONTEXT_RETRIEVAL_CONTRACT,
+  CONTEXT_RETRIEVAL_RANKING_POLICY,
+  assertRetrievalCapability,
+  decodeRetrieveContextResponse,
+  retrievalRequestPayload,
   assertMemoryBriefQuality,
   createMemoryReviewPlan,
   createMemorySummaryLoopPlan,
   type ApplyMemoryReviewPlanResult,
   type BuildMemoryBriefInput,
   type MemoryReviewPlan,
-  type RetrievalV2ScopeInput,
-  type RetrieveContextV2Input,
+  type RetrievalScopeInput,
+  type RetrieveContextInput,
   type BenchmarkSearchInput,
   type ResolveCodeRepositoryInput,
   type ConfirmFactInput,
@@ -171,9 +171,9 @@ const presenceInput: ObserveDerivedPresenceInput = {
   spaceId: "space", memoryScopeId: "scope", expectedFactIds: ["fact"],
 };
 const runInput: RegisterMemoryComparisonRunInput | undefined = undefined;
-const retrievalScope: RetrievalV2ScopeInput = { spaceId: "space", memoryScopeId: "scope" };
-const retrievalInput: RetrieveContextV2Input = {
-  contractVersion: CONTEXT_RETRIEVAL_CONTRACT_V2,
+const retrievalScope: RetrievalScopeInput = { spaceId: "space", memoryScopeId: "scope" };
+const retrievalInput: RetrieveContextInput = {
+  contractVersion: CONTEXT_RETRIEVAL_CONTRACT,
   capabilityFingerprint: "sha256:consumer",
   profileId: "consumer-profile",
   scope: retrievalScope,
@@ -191,10 +191,10 @@ const retrievalPins = {
   profileId: "consumer-profile",
   requiredProviderLanes: ["dense"],
 } as const;
-const retrievalCapability = assertContextRetrievalCapabilityV2({ context: { retrieval: {
+const retrievalCapability = assertRetrievalCapability({ context: { retrieval: {
   endpoint: "/v1/context/retrieve",
-  contract_version: CONTEXT_RETRIEVAL_CONTRACT_V2,
-  ranking_policy: CONTEXT_RETRIEVAL_RANKING_POLICY_V2,
+  contract_version: CONTEXT_RETRIEVAL_CONTRACT,
+  ranking_policy: CONTEXT_RETRIEVAL_RANKING_POLICY,
   ranking_parameters: {
     rank_constant: 60, weight_scale_micros: 1000000, score_scale_picos: 1000000000000,
     preference_scale_micros: 1000000, max_preference_boost_micros: 250000,
@@ -250,9 +250,9 @@ void client.context.benchmarkSearch; void client.codeRepositories.resolve;
 void client.factLifecycle.confirm; void client.derivedEvidence.observePresence;
 void client.memoryComparisonRuns.register;
 void retrieval;
-void decodeRetrieveContextV2Response;
-void retrievalV2RequestPayload;
-void assertContextRetrievalCapabilityV2;
+void decodeRetrieveContextResponse;
+void retrievalRequestPayload;
+void assertRetrievalCapability;
 void brief;
 void summaryLoop;
 void scopePlan;
@@ -267,7 +267,7 @@ void runFullMemoryProof;
 }
 
 function consumerEsmSource(capability, request, success) {
-  return `import { InfinityContextClient, CONTEXT_RETRIEVAL_CONTRACT_V2, CONTEXT_RETRIEVAL_RANKING_POLICY_V2, assertContextRetrievalCapabilityV2, decodeRetrieveContextV2Response, retrievalV2RequestPayload, createMemoryReviewPlan } from "@infinity-context/sdk";
+  return `import { InfinityContextClient, CONTEXT_RETRIEVAL_CONTRACT, CONTEXT_RETRIEVAL_RANKING_POLICY, assertRetrievalCapability, decodeRetrieveContextResponse, retrievalRequestPayload, createMemoryReviewPlan } from "@infinity-context/sdk";
 import { MemoryWorkflows } from "@infinity-context/sdk/workflows";
 import { noopInstrumentation } from "@infinity-context/sdk/instrumentation";
 import { assertFullMemoryReady } from "@infinity-context/sdk/runtime";
@@ -277,11 +277,11 @@ import { iterateCursorItems } from "@infinity-context/sdk/pagination";
 
 for (const value of [
   InfinityContextClient,
-  CONTEXT_RETRIEVAL_CONTRACT_V2,
-  CONTEXT_RETRIEVAL_RANKING_POLICY_V2,
-  assertContextRetrievalCapabilityV2,
-  decodeRetrieveContextV2Response,
-  retrievalV2RequestPayload,
+  CONTEXT_RETRIEVAL_CONTRACT,
+  CONTEXT_RETRIEVAL_RANKING_POLICY,
+  assertRetrievalCapability,
+  decodeRetrieveContextResponse,
+  retrievalRequestPayload,
   createMemoryReviewPlan,
   MemoryWorkflows,
   noopInstrumentation,
@@ -313,7 +313,7 @@ if (retrievalResult.candidates.length !== 1) throw new Error("ESM context.retrie
 }
 
 function consumerCjsSource(capability, request, success) {
-  return `const { InfinityContextClient, CONTEXT_RETRIEVAL_CONTRACT_V2, CONTEXT_RETRIEVAL_RANKING_POLICY_V2, assertContextRetrievalCapabilityV2, decodeRetrieveContextV2Response, retrievalV2RequestPayload, createMemoryReviewPlan } = require("@infinity-context/sdk");
+  return `const { InfinityContextClient, CONTEXT_RETRIEVAL_CONTRACT, CONTEXT_RETRIEVAL_RANKING_POLICY, assertRetrievalCapability, decodeRetrieveContextResponse, retrievalRequestPayload, createMemoryReviewPlan } = require("@infinity-context/sdk");
 const { MemoryWorkflows } = require("@infinity-context/sdk/workflows");
 const { noopInstrumentation } = require("@infinity-context/sdk/instrumentation");
 const { assertFullMemoryReady } = require("@infinity-context/sdk/runtime");
@@ -323,11 +323,11 @@ const { iterateCursorItems } = require("@infinity-context/sdk/pagination");
 
 for (const value of [
   InfinityContextClient,
-  CONTEXT_RETRIEVAL_CONTRACT_V2,
-  CONTEXT_RETRIEVAL_RANKING_POLICY_V2,
-  assertContextRetrievalCapabilityV2,
-  decodeRetrieveContextV2Response,
-  retrievalV2RequestPayload,
+  CONTEXT_RETRIEVAL_CONTRACT,
+  CONTEXT_RETRIEVAL_RANKING_POLICY,
+  assertRetrievalCapability,
+  decodeRetrieveContextResponse,
+  retrievalRequestPayload,
   createMemoryReviewPlan,
   MemoryWorkflows,
   noopInstrumentation,
@@ -361,8 +361,8 @@ if (!require.resolve("@infinity-context/sdk/fixtures/context_retrieval_v2/capabi
 }
 
 function consumerBrowserSource() {
-  return `import { contextRetrievalCapabilityV2Fingerprint } from "@infinity-context/sdk";
-globalThis.__infinityContextBrowserSmoke = contextRetrievalCapabilityV2Fingerprint({ browser: true });
+  return `import { retrievalCapabilityFingerprint } from "@infinity-context/sdk";
+globalThis.__infinityContextBrowserSmoke = retrievalCapabilityFingerprint({ browser: true });
 `;
 }
 

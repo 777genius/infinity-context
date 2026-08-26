@@ -12,7 +12,7 @@ import {
   documentRetrievalProjectionV1Payload,
   type DocumentRetrievalProjectionV1Input,
 } from "../document-retrieval-projection.js";
-import { contextRetrievalV2ErrorDecoder } from "../retrieval-v2-errors.js";
+import { retrievalErrorDecoder } from "../retrieval-errors.js";
 import {
   EXACT_DOCUMENT_RECONCILIATION_CONTRACT_V1,
   EXACT_DOCUMENT_RECONCILIATION_MAX_RESPONSE_BYTES,
@@ -129,7 +129,7 @@ export class DocumentsClient {
       idempotencyKey: input.idempotencyKey,
       ...(input.retrievalProjection == null ? {} : {
         maxErrorResponseBytes: 1_048_576,
-        errorDecoder: contextRetrievalV2ErrorDecoder(1_048_576),
+        errorDecoder: retrievalErrorDecoder(1_048_576),
       }),
       ...requestControls(input),
       json: withoutUndefined({

@@ -1,4 +1,4 @@
-"""Composition of Retrieval V2 adapters and immutable profile inputs."""
+"""Composition of Retrieval adapters and immutable profile inputs."""
 
 from __future__ import annotations
 
@@ -11,14 +11,14 @@ from infinity_context_adapters.features.context_building.qdrant_candidate_provid
     QdrantContextCandidateProvider,
 )
 from infinity_context_adapters.postgres.locator_catalog_attestation import (
-    attest_locator_retrieval_v2_catalog,
+    attest_locator_retrieval_catalog,
 )
 from infinity_context_adapters.postgres.locator_projection_maintenance import (
     PostgresLocatorProjectionMaintenance,
 )
 from infinity_context_adapters.postgres.locator_retrieval import (
-    PostgresCanonicalLocatorReaderV2,
-    PostgresLocatorCandidateProviderV2,
+    PostgresCanonicalLocatorReader,
+    PostgresLocatorCandidateProvider,
 )
 from infinity_context_adapters.qdrant.vector_adapter import QdrantVectorMemoryAdapter
 from infinity_context_core.ports.adapters import EmbeddingPort, VectorMemoryPort
@@ -53,7 +53,7 @@ def build_locator_retrieval_service(
     lanes: list[RetrievalLaneRuntime] = [
         RetrievalLaneRuntime(
             provider_id="postgres_keyword",
-            provider=PostgresLocatorCandidateProviderV2(session_factory),
+            provider=PostgresLocatorCandidateProvider(session_factory),
             health=lambda: _postgres_health(session_factory),
             required=True,
             weight_micros=1_000_000,
@@ -203,7 +203,7 @@ def build_locator_retrieval_service(
     return (
         LocatorRetrievalService(
             lanes=tuple(lanes),
-            canonical_reader=PostgresCanonicalLocatorReaderV2(session_factory),
+            canonical_reader=PostgresCanonicalLocatorReader(session_factory),
             service_revision=service_revision,
             sdk_revision=service_revision,
             index_profile_digest=index_digest,
@@ -229,7 +229,7 @@ async def _postgres_profile_qualified(session_factory) -> bool:
         async with session_factory() as session:
             if session.bind is None or session.bind.dialect.name != "postgresql":
                 return False
-            return (await attest_locator_retrieval_v2_catalog(session)).qualified
+            return (await attest_locator_retrieval_catalog(session)).qualified
     except Exception:
         return False
 

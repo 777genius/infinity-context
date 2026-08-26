@@ -4,9 +4,9 @@ TypeScript SDK for the Infinity Context memory API.
 
 The SDK is intentionally HTTP-first. Qdrant, Graphiti, OpenAI embeddings and Postgres stay behind the Infinity Context service boundary; Node/Nest clients should depend on this SDK contract instead of importing server adapters directly.
 
-## Locator Retrieval V2 numeric boundary
+## Locator Retrieval numeric boundary
 
-Retrieval V2 accepts `canonical_version` only as a positive JavaScript safe integer
+Retrieval accepts `canonical_version` only as a positive JavaScript safe integer
 (`1..9007199254740991`). This is the largest integer domain the SDK can parse from a
 canonical JSON number and validate without identity collisions. Larger JSON integers
 are rejected; the SDK never silently rounds them. Contract C uses this same lossless
@@ -23,9 +23,9 @@ canonical recursively UTF-8-key-sorted bytes, and awaits `globalThis.crypto.subt
 SHA-256 verification before transport. Missing Web Crypto or a fingerprint mismatch
 makes zero retrieval calls. The public runtime has no `Buffer` or `node:crypto`
 dependency and preserves NFC/NFD distinctions.
-The synchronous `decodeContextRetrievalCapabilityV2` and
-`assertContextRetrievalCapabilityV2` helpers are explicitly structural/pin checks; call
-`verifyContextRetrievalCapabilityV2Fingerprint` for cryptographic attestation.
+The synchronous `decodeRetrievalCapability` and
+`assertRetrievalCapability` helpers are explicitly structural/pin checks; call
+`verifyRetrievalCapabilityFingerprint` for cryptographic attestation.
 
 `documents.ingestDocument({ retrievalProjection })` accepts the typed
 `document-retrieval-projection.v1` input. An absent or null value omits the wire key and
@@ -73,7 +73,7 @@ Installed binaries:
 
 - `infinity-context-full-memory-proof`: run the full-memory release proof script.
 - `infinity-context-runtime-canary`: run the non-mutating runtime canary script.
-- `infinity-context-retrieval-v2-runtime-canary`: call the live V2 route only after
+- `infinity-context-retrieval-runtime-canary`: call the live V2 route only after
   capability fingerprint, profile and SDK-revision pins match.
 
 Both binaries support `--help` and `--version` without contacting the service.

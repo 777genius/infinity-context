@@ -1,4 +1,4 @@
-"""Bounded production operator entry point for Retrieval V2 profile lifecycle."""
+"""Bounded production operator entry point for Retrieval profile lifecycle."""
 
 from __future__ import annotations
 

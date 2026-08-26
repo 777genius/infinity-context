@@ -15,19 +15,19 @@ import {
 } from "../payload.js";
 import type { ApiEnvelope, JsonObject } from "../types.js";
 import {
-  decodeContextRetrievalCapabilityV2,
-  decodeRetrieveContextV2ResponseBytes,
-  retrievalV2RequestPayload,
-  validateContextRetrievalPreflightV2,
-} from "../retrieval-v2.js";
+  decodeRetrievalCapability,
+  decodeRetrieveContextResponseBytes,
+  retrievalRequestPayload,
+  validateRetrievalPreflight,
+} from "../retrieval.js";
 import type {
-  ContextRetrievalCapabilityV2,
-  RequiredContextRetrievalCapabilityV2,
-  RetrieveContextV2Input,
-  RetrieveContextV2Response,
-} from "../retrieval-v2-types.js";
-import { verifyContextRetrievalCapabilityV2Fingerprint } from "../retrieval-v2-canonical.js";
-import { contextRetrievalV2ErrorDecoder } from "../retrieval-v2-errors.js";
+  RetrievalCapability,
+  RequiredRetrievalCapability,
+  RetrieveContextInput,
+  RetrieveContextResponse,
+} from "../retrieval-types.js";
+import { verifyRetrievalCapabilityFingerprint } from "../retrieval-canonical.js";
+import { retrievalErrorDecoder } from "../retrieval-errors.js";
 import { InfinityContextError } from "../errors.js";
 import { requireAllowedKeys, requireArray, requireEnum, requireInteger, requireString } from "../canonical-validation.js";
 
@@ -82,15 +82,15 @@ export class ContextClient {
   constructor(private readonly http: RequestExecutor) {}
 
   async retrieve(
-    input: RetrieveContextV2Input,
-    capability: ContextRetrievalCapabilityV2,
-    required: RequiredContextRetrievalCapabilityV2,
+    input: RetrieveContextInput,
+    capability: RetrievalCapability,
+    required: RequiredRetrievalCapability,
     controls: RequestControls = {},
-  ): Promise<RetrieveContextV2Response> {
-    const attestedCapability = decodeContextRetrievalCapabilityV2(capability);
-    validateContextRetrievalPreflightV2(input, attestedCapability, required);
-    const payload = retrievalV2RequestPayload(input);
-    await verifyContextRetrievalCapabilityV2Fingerprint(attestedCapability);
+  ): Promise<RetrieveContextResponse> {
+    const attestedCapability = decodeRetrievalCapability(capability);
+    validateRetrievalPreflight(input, attestedCapability, required);
+    const payload = retrievalRequestPayload(input);
+    await verifyRetrievalCapabilityFingerprint(attestedCapability);
     const transportTimeoutMs = Math.min(
       controls.timeoutMs ?? input.bounds.deadlineMs,
       input.bounds.deadlineMs,
@@ -105,9 +105,9 @@ export class ContextClient {
         responseType: "bytes",
         maxResponseBytes: input.bounds.responseByteLimit,
         maxErrorResponseBytes: input.bounds.responseByteLimit,
-        errorDecoder: contextRetrievalV2ErrorDecoder(input.bounds.responseByteLimit),
+        errorDecoder: retrievalErrorDecoder(input.bounds.responseByteLimit),
       });
-      return decodeRetrieveContextV2ResponseBytes(response, payload, attestedCapability);
+      return decodeRetrieveContextResponseBytes(response, payload, attestedCapability);
     } catch (error) {
       throw retrievalTransportError(error, budget.timedOut(), controls.signal?.aborted === true);
     } finally {
@@ -194,7 +194,7 @@ function retrievalCallBudget(caller: AbortSignal | undefined, timeoutMs: number)
   else caller?.addEventListener("abort", onCallerAbort, { once: true });
   const timer = setTimeout(() => {
     timedOut = true;
-    controller.abort(new DOMException("Retrieval V2 deadline exceeded", "TimeoutError"));
+    controller.abort(new DOMException("Retrieval deadline exceeded", "TimeoutError"));
   }, timeoutMs);
   timer.unref?.();
   return {
@@ -216,21 +216,21 @@ function retrievalTransportError(
     if (timedOut || error.code === "memory.request_timeout") {
       return retrievalClientError(
         "memory.context_retrieval_deadline_exceeded",
-        "Retrieval V2 request exceeded its absolute deadline",
+        "Retrieval request exceeded its absolute deadline",
         true,
       );
     }
     if (callerAborted || error.code === "memory.request_aborted") {
       return retrievalClientError(
         "memory.context_retrieval_cancelled",
-        "Retrieval V2 request was cancelled",
+        "Retrieval request was cancelled",
         false,
       );
     }
     if (error.code === "memory.network_error") {
       return retrievalClientError(
         "memory.context_retrieval_unavailable",
-        "Retrieval V2 transport is unavailable",
+        "Retrieval transport is unavailable",
         true,
       );
     }
@@ -240,9 +240,9 @@ function retrievalTransportError(
     callerAborted ? "memory.context_retrieval_cancelled" :
       timedOut ? "memory.context_retrieval_deadline_exceeded" :
         "memory.context_retrieval_unavailable",
-    callerAborted ? "Retrieval V2 request was cancelled" :
-      timedOut ? "Retrieval V2 request exceeded its absolute deadline" :
-        "Retrieval V2 transport is unavailable",
+    callerAborted ? "Retrieval request was cancelled" :
+      timedOut ? "Retrieval request exceeded its absolute deadline" :
+        "Retrieval transport is unavailable",
     !callerAborted,
   );
 }

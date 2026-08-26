@@ -1,4 +1,4 @@
-"""Strict raw-byte HTTP boundary for locator-only Retrieval V2."""
+"""Strict raw-byte HTTP boundary for locator-only Retrieval."""
 
 from __future__ import annotations
 
@@ -10,12 +10,12 @@ from typing import Annotated
 from fastapi import APIRouter, Depends, Request
 from fastapi.responses import Response
 from infinity_context_contracts.features.context_building import (
-    CONTEXT_RETRIEVAL_ERROR_SPECS_V2,
-    ContextRetrievalV2ErrorDto,
-    ContextRetrievalV2ErrorEnvelopeDto,
-    RetrieveContextV2RequestDto,
-    RetrieveContextV2ResponseDto,
-    decode_retrieve_context_v2_request,
+    CONTEXT_RETRIEVAL_ERROR_SPECS,
+    RetrievalErrorDto,
+    RetrievalErrorEnvelopeDto,
+    RetrieveContextRequestDto,
+    RetrieveContextResponseDto,
+    decode_retrieve_context_request,
 )
 from infinity_context_core.domain.errors import MemoryForbiddenError, MemoryValidationError
 
@@ -48,7 +48,7 @@ async def retrieve_context(
         async with asyncio.timeout_at(started + MAX_DEADLINE_SECONDS) as deadline_scope:
             _validate_media_headers(http_request)
             raw = await _read_raw_body(http_request)
-            dto = decode_retrieve_context_v2_request(raw)
+            dto = decode_retrieve_context_request(raw)
             deadline = started + dto.bounds.deadline_ms / 1000
             deadline_scope.reschedule(deadline)
             _check_deadline(deadline)
@@ -59,7 +59,7 @@ async def retrieve_context(
             if service is None:
                 return _error(
                     "memory.context_retrieval_unavailable",
-                    "Retrieval V2 is unavailable",
+                    "Retrieval is unavailable",
                 )
             response = await _execute_with_disconnect(
                 http_request,
@@ -72,7 +72,7 @@ async def retrieve_context(
             if len(encoded) > resolved.bounds.response_byte_limit:
                 encoded = _oversized_fallback(body)
             if len(encoded) > resolved.bounds.response_byte_limit:
-                raise RuntimeError("mandatory Retrieval V2 envelope exceeds attested limit")
+                raise RuntimeError("mandatory Retrieval envelope exceeds attested limit")
             _check_deadline(deadline)
             return Response(content=encoded, media_type="application/json")
     except asyncio.CancelledError:
@@ -80,45 +80,45 @@ async def retrieve_context(
     except TimeoutError:
         return _error(
             "memory.context_retrieval_deadline_exceeded",
-            "Retrieval V2 deadline exceeded",
+            "Retrieval deadline exceeded",
         )
     except context_building.RetrievalProfileConflict:
         return _error(
             "memory.context_retrieval_capability_mismatch",
-            "Retrieval V2 capability or profile is stale",
+            "Retrieval capability or profile is stale",
         )
     except MemoryForbiddenError:
-        return _error("memory.forbidden", "Retrieval V2 scope is forbidden")
+        return _error("memory.forbidden", "Retrieval scope is forbidden")
     except _ScopeNotFound:
         return _error(
             "memory.context_retrieval_scope_not_found",
-            "Retrieval V2 scope was not found",
+            "Retrieval scope was not found",
         )
     except _UnsupportedContract:
         return _error(
             "memory.context_retrieval_unsupported",
-            "Retrieval V2 request is unsupported",
+            "Retrieval request is unsupported",
         )
     except ValueError as exc:
         message = str(exc).casefold()
         if any(token in message for token in ("unsupported", "out of bounds", "within")):
             return _error(
                 "memory.context_retrieval_unsupported",
-                "Retrieval V2 request is unsupported",
+                "Retrieval request is unsupported",
             )
         return _error(
             "memory.context_retrieval_contract_invalid",
-            "Retrieval V2 request does not match the canonical contract",
+            "Retrieval request does not match the canonical contract",
         )
     except (UnicodeError, json.JSONDecodeError, _InvalidContract):
         return _error(
             "memory.context_retrieval_contract_invalid",
-            "Retrieval V2 request does not match the canonical contract",
+            "Retrieval request does not match the canonical contract",
         )
     except Exception:
         return _error(
             "memory.context_retrieval_unavailable",
-            "Retrieval V2 is unavailable",
+            "Retrieval is unavailable",
         )
 
 
@@ -151,8 +151,8 @@ async def _read_raw_body(request: Request) -> bytes:
 
 
 async def _resolve_scope(
-    dto: RetrieveContextV2RequestDto, container: Container
-) -> RetrieveContextV2RequestDto:
+    dto: RetrieveContextRequestDto, container: Container
+) -> RetrieveContextRequestDto:
     try:
         resolved = await resolve_existing_single_scope(
             container,
@@ -177,7 +177,7 @@ async def _resolve_scope(
     return dto
 
 
-def _authorize(http_request: Request, request: RetrieveContextV2RequestDto) -> None:
+def _authorize(http_request: Request, request: RetrieveContextRequestDto) -> None:
     authorize_resolved_retrieval_scope(
         http_request,
         space_id=request.scope.space_id,
@@ -202,7 +202,7 @@ def _authorize(http_request: Request, request: RetrieveContextV2RequestDto) -> N
             requested_code_scope_id=None,
         )
     except PermissionError as exc:
-        raise MemoryForbiddenError("Retrieval V2 scope is forbidden") from exc
+        raise MemoryForbiddenError("Retrieval scope is forbidden") from exc
 
 
 async def _execute_with_disconnect(request: Request, awaitable):
@@ -242,7 +242,7 @@ def _oversized_fallback(body: Mapping[str, object]) -> bytes:
     applied["returned_seeds"] = 0
     applied["returned_neighbors"] = 0
     fallback["applied_bounds"] = applied
-    return _compact_bytes(RetrieveContextV2ResponseDto.from_dict(fallback).to_dict())
+    return _compact_bytes(RetrieveContextResponseDto.from_dict(fallback).to_dict())
 
 
 def _compact_bytes(value: Mapping[str, object]) -> bytes:
@@ -252,10 +252,8 @@ def _compact_bytes(value: Mapping[str, object]) -> bytes:
 
 
 def _error(code: str, message: str) -> Response:
-    retryable = CONTEXT_RETRIEVAL_ERROR_SPECS_V2[code][1]
-    envelope = ContextRetrievalV2ErrorEnvelopeDto(
-        ContextRetrievalV2ErrorDto(code, message, retryable)
-    )
+    retryable = CONTEXT_RETRIEVAL_ERROR_SPECS[code][1]
+    envelope = RetrievalErrorEnvelopeDto(RetrievalErrorDto(code, message, retryable))
     return Response(
         content=_compact_bytes(envelope.to_dict()),
         status_code=envelope.http_status,
@@ -268,13 +266,11 @@ def _check_deadline(deadline: float) -> None:
         raise TimeoutError
 
 
-def assert_retrieval_v2_envelopes_fit() -> None:
-    for code, (_, retryable) in CONTEXT_RETRIEVAL_ERROR_SPECS_V2.items():
-        envelope = ContextRetrievalV2ErrorEnvelopeDto(
-            ContextRetrievalV2ErrorDto(code, "x" * 512, retryable)
-        )
+def assert_retrieval_envelopes_fit() -> None:
+    for code, (_, retryable) in CONTEXT_RETRIEVAL_ERROR_SPECS.items():
+        envelope = RetrievalErrorEnvelopeDto(RetrievalErrorDto(code, "x" * 512, retryable))
         if len(_compact_bytes(envelope.to_dict())) > MIN_RESPONSE_BYTES:
-            raise RuntimeError("mandatory Retrieval V2 error envelope is oversized")
+            raise RuntimeError("mandatory Retrieval error envelope is oversized")
     mandatory = {
         "status": "unavailable",
         "capability_fingerprint": "f" * 64,
@@ -300,7 +296,7 @@ def assert_retrieval_v2_envelopes_fit() -> None:
         "degradation_reason_codes": ["response_byte_limit_exceeded"],
     }
     if len(_compact_bytes(mandatory)) > MIN_RESPONSE_BYTES:
-        raise RuntimeError("mandatory Retrieval V2 unavailable envelope is oversized")
+        raise RuntimeError("mandatory Retrieval unavailable envelope is oversized")
 
 
 class _InvalidContract(Exception):
@@ -315,6 +311,6 @@ class _ScopeNotFound(Exception):
     pass
 
 
-assert_retrieval_v2_envelopes_fit()
+assert_retrieval_envelopes_fit()
 
-__all__ = ("assert_retrieval_v2_envelopes_fit", "router")
+__all__ = ("assert_retrieval_envelopes_fit", "router")

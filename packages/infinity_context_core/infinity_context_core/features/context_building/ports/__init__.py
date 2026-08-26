@@ -7,10 +7,10 @@ from infinity_context_core.features.context_building.ports.candidates import (
     ContextCandidateRequest,
     ContextClockPort,
 )
-from infinity_context_core.features.context_building.ports.locator_retrieval_v2 import (
-    CanonicalLocatorHydratorPortV2,
-    CanonicalLocatorReadPortV2,
-    LocatorCandidateProviderPortV2,
+from infinity_context_core.features.context_building.ports.locator_retrieval import (
+    CanonicalLocatorHydratorPort,
+    CanonicalLocatorReadPort,
+    LocatorCandidateProviderPort,
 )
 from infinity_context_core.features.context_building.ports.retrieval_profile_lifecycle import (
     CanonicalProjectionItem,
@@ -39,9 +39,9 @@ __all__ = (
     "ContextCandidateProviderPort",
     "ContextCandidateRequest",
     "ContextClockPort",
-    "CanonicalLocatorHydratorPortV2",
-    "CanonicalLocatorReadPortV2",
-    "LocatorCandidateProviderPortV2",
+    "CanonicalLocatorHydratorPort",
+    "CanonicalLocatorReadPort",
+    "LocatorCandidateProviderPort",
     "CanonicalProjectionItem",
     "CanonicalProjectionPage",
     "CanonicalProjectionSourcePort",

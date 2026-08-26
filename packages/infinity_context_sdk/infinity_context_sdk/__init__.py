@@ -7,9 +7,9 @@ from typing import Any, Literal
 
 import httpx
 from infinity_context_contracts.features.context_building import (
-    RetrievalV2CapabilityDto,
-    RetrieveContextV2RequestDto,
-    RetrieveContextV2ResponseDto,
+    RetrievalCapabilityDto,
+    RetrieveContextRequestDto,
+    RetrieveContextResponseDto,
 )
 
 import infinity_context_sdk._payloads as _payloads
@@ -31,10 +31,10 @@ from infinity_context_sdk.errors import (
 )
 from infinity_context_sdk.export import InfinityContextExportMixin
 from infinity_context_sdk.http_transport import InfinityContextHttpMixin
-from infinity_context_sdk.retrieval_v2 import (
-    InfinityContextRetrievalV2ContractError,
-    InfinityContextRetrievalV2Error,
-    InfinityContextRetrievalV2Mixin,
+from infinity_context_sdk.retrieval import (
+    InfinityRetrievalContractError,
+    InfinityRetrievalError,
+    InfinityRetrievalMixin,
 )
 from infinity_context_sdk.scopes import MemoryScope, ReadScope
 from infinity_context_sdk.temporal_facts import InfinityContextTemporalFactsMixin
@@ -45,7 +45,7 @@ from infinity_context_sdk.thread_memory import InfinityContextThreadMemoryMixin
 class InfinityContextClient(
     InfinityContextHttpMixin,
     InfinityContextDocumentReconciliationMixin,
-    InfinityContextRetrievalV2Mixin,
+    InfinityRetrievalMixin,
     InfinityContextAnchorsMixin,
     InfinityContextAssetsMixin,
     InfinityContextExportMixin,
@@ -984,11 +984,11 @@ __all__ = [
     "InfinityContextClient",
     "InfinityContextError",
     "InfinityContextTransportCapabilityError",
-    "InfinityContextRetrievalV2ContractError",
-    "InfinityContextRetrievalV2Error",
-    "RetrievalV2CapabilityDto",
-    "RetrieveContextV2RequestDto",
-    "RetrieveContextV2ResponseDto",
+    "InfinityRetrievalContractError",
+    "InfinityRetrievalError",
+    "RetrievalCapabilityDto",
+    "RetrieveContextRequestDto",
+    "RetrieveContextResponseDto",
     "MemoryScope",
     "ReadScope",
     "context_bundle_from_response",

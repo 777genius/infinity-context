@@ -1,4 +1,4 @@
-"""Lifecycle policy for the canonical Retrieval V2 projection profile registry."""
+"""Lifecycle policy for the canonical Retrieval projection profile registry."""
 
 from __future__ import annotations
 

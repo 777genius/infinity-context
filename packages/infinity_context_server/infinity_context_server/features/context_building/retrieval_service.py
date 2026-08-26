@@ -1,4 +1,4 @@
-"""Contract-C capability snapshots and Retrieval V2 execution."""
+"""Contract-C capability snapshots and Retrieval execution."""
 
 from __future__ import annotations
 
@@ -8,18 +8,18 @@ from time import perf_counter
 
 import infinity_context_core.features.context_building.public as core
 from infinity_context_contracts.features.context_building import (
-    CAPABILITY_ATTRIBUTE_SCHEMA_V2,
-    CAPABILITY_CONTRACT_VERSION_V2,
-    CAPABILITY_COVERAGE_V2,
-    CAPABILITY_ENDPOINT_V2,
-    CAPABILITY_HARD_FILTER_SIGNALS_V2,
-    CAPABILITY_RANKING_POLICY_V2,
-    CAPABILITY_SOFT_PREFERENCE_SIGNALS_V2,
-    RetrievalV2CapabilityBoundsDto,
-    RetrievalV2CapabilityDto,
-    RetrievalV2ProviderLaneCapabilityDto,
-    RetrievalV2RankingParametersDto,
-    capability_fingerprint_v2,
+    CAPABILITY_ATTRIBUTE_SCHEMA,
+    CAPABILITY_CONTRACT_VERSION,
+    CAPABILITY_COVERAGE,
+    CAPABILITY_ENDPOINT,
+    CAPABILITY_HARD_FILTER_SIGNALS,
+    CAPABILITY_RANKING_POLICY,
+    CAPABILITY_SOFT_PREFERENCE_SIGNALS,
+    RetrievalCapabilityBoundsDto,
+    RetrievalCapabilityDto,
+    RetrievalProviderLaneCapabilityDto,
+    RetrievalRankingParametersDto,
+    capability_fingerprint,
 )
 
 
@@ -30,7 +30,7 @@ class RetrievalProfileConflict(RuntimeError):
 @dataclass(frozen=True, slots=True)
 class RetrievalLaneRuntime:
     provider_id: str
-    provider: core.LocatorCandidateProviderPortV2
+    provider: core.LocatorCandidateProviderPort
     health: Callable[[], Awaitable[bool]]
     required: bool = True
     weight_micros: int = 1_000_000
@@ -46,7 +46,7 @@ class LocatorRetrievalService:
     """Capture one immutable health/capability snapshot per operation."""
 
     lanes: tuple[RetrievalLaneRuntime, ...]
-    canonical_reader: core.CanonicalLocatorReadPortV2
+    canonical_reader: core.CanonicalLocatorReadPort
     service_revision: str
     index_profile_digest: str
     profile_kind: str
@@ -55,9 +55,9 @@ class LocatorRetrievalService:
     diagnostics: object | None = None
     profile_id_override: str | None = None
 
-    async def descriptor(self) -> RetrievalV2CapabilityDto:
+    async def descriptor(self) -> RetrievalCapabilityDto:
         sdk_revision = self.sdk_revision or self.service_revision
-        lanes: list[RetrievalV2ProviderLaneCapabilityDto] = []
+        lanes: list[RetrievalProviderLaneCapabilityDto] = []
         for lane in sorted(self.lanes, key=lambda item: item.provider_id.encode("utf-8")):
             try:
                 healthy = bool(await lane.health())
@@ -70,7 +70,7 @@ class LocatorRetrievalService:
                 except Exception:
                     qualified = False
             lanes.append(
-                RetrievalV2ProviderLaneCapabilityDto(
+                RetrievalProviderLaneCapabilityDto(
                     provider_id=lane.provider_id,
                     required=lane.required,
                     healthy=healthy,
@@ -83,25 +83,25 @@ class LocatorRetrievalService:
             f"locator-v2-{self.profile_kind}-{self.index_profile_digest}"
         )
         payload = {
-            "endpoint": CAPABILITY_ENDPOINT_V2,
-            "contract_version": CAPABILITY_CONTRACT_VERSION_V2,
-            "ranking_policy": CAPABILITY_RANKING_POLICY_V2,
-            "ranking_parameters": RetrievalV2RankingParametersDto().to_dict(),
+            "endpoint": CAPABILITY_ENDPOINT,
+            "contract_version": CAPABILITY_CONTRACT_VERSION,
+            "ranking_policy": CAPABILITY_RANKING_POLICY,
+            "ranking_parameters": RetrievalRankingParametersDto().to_dict(),
             "capability_fingerprint": "0" * 64,
             "profile_id": profile_id,
             "service_revision": self.service_revision,
             "sdk_revision": sdk_revision,
-            "attribute_schema": CAPABILITY_ATTRIBUTE_SCHEMA_V2,
+            "attribute_schema": CAPABILITY_ATTRIBUTE_SCHEMA,
             "index_profile_digest": self.index_profile_digest,
-            "coverage": CAPABILITY_COVERAGE_V2,
+            "coverage": CAPABILITY_COVERAGE,
             "supports_neighbors": self.supports_neighbors,
-            "bounds": RetrievalV2CapabilityBoundsDto().to_dict(),
-            "hard_filter_signals": list(CAPABILITY_HARD_FILTER_SIGNALS_V2),
-            "soft_preference_signals": list(CAPABILITY_SOFT_PREFERENCE_SIGNALS_V2),
+            "bounds": RetrievalCapabilityBoundsDto().to_dict(),
+            "hard_filter_signals": list(CAPABILITY_HARD_FILTER_SIGNALS),
+            "soft_preference_signals": list(CAPABILITY_SOFT_PREFERENCE_SIGNALS),
             "required_provider_lanes": list(required),
             "provider_lanes": [lane.to_dict() for lane in lanes],
         }
-        payload["capability_fingerprint"] = capability_fingerprint_v2(payload)
+        payload["capability_fingerprint"] = capability_fingerprint(payload)
         record = getattr(self.diagnostics, "record", None)
         if callable(record):
             for lane in lanes:
@@ -109,11 +109,9 @@ class LocatorRetrievalService:
                     record(profile_id, f"lane_failure:{lane.provider_id}")
                 elif not lane.profile_qualified:
                     record(profile_id, f"profile_failure:{lane.provider_id}")
-        return RetrievalV2CapabilityDto.from_dict(payload)
+        return RetrievalCapabilityDto.from_dict(payload)
 
-    async def execute(
-        self, request: core.LocatorRetrievalRequestV2
-    ) -> core.LocatorRetrievalResponseV2:
+    async def execute(self, request: core.LocatorRetrievalRequest) -> core.LocatorRetrievalResponse:
         started = perf_counter()
         descriptor = await self.descriptor()
         if (
@@ -126,7 +124,7 @@ class LocatorRetrievalService:
             raise RetrievalProfileConflict("retrieval capability/profile is stale or mismatched")
         lane_by_id = {lane.provider_id: lane for lane in descriptor.provider_lanes}
         registrations = tuple(
-            core.LocatorProviderRegistrationV2(
+            core.LocatorProviderRegistration(
                 provider_id=lane.provider_id,
                 provider=lane.provider,
                 weight_micros=lane.weight_micros,
@@ -136,7 +134,7 @@ class LocatorRetrievalService:
             )
             for lane in self.lanes
         )
-        capability = core.LocatorRetrievalCapabilityV2(
+        capability = core.LocatorRetrievalCapability(
             capability_fingerprint=descriptor.capability_fingerprint,
             profile_id=descriptor.profile_id,
             supports_neighbors=descriptor.supports_neighbors,
@@ -144,7 +142,7 @@ class LocatorRetrievalService:
             sdk_revision=descriptor.sdk_revision,
             index_profile_digest=descriptor.index_profile_digest,
             provider_lanes=tuple(
-                core.LocatorProviderLaneCapabilityV2(
+                core.LocatorProviderLaneCapability(
                     lane.provider_id,
                     lane.required,
                     lane.healthy,
@@ -154,7 +152,7 @@ class LocatorRetrievalService:
                 for lane in descriptor.provider_lanes
             ),
             ranking_policy=descriptor.ranking_policy,
-            ranking_parameters=core.LocatorRankingParametersV2(
+            ranking_parameters=core.LocatorRankingParameters(
                 descriptor.ranking_parameters.rank_constant,
                 descriptor.ranking_parameters.weight_scale_micros,
                 descriptor.ranking_parameters.score_scale_picos,
@@ -166,7 +164,7 @@ class LocatorRetrievalService:
             ),
             required_provider_lanes=tuple(descriptor.required_provider_lanes),
         )
-        result = await core.RetrieveLocatorsV2(
+        result = await core.RetrieveLocators(
             providers=registrations,
             canonical_reader=self.canonical_reader,
             capability=capability,

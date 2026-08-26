@@ -1,4 +1,4 @@
-"""Canonical Postgres rows owned by locator Retrieval V2."""
+"""Canonical Postgres rows owned by locator Retrieval."""
 
 from datetime import datetime
 

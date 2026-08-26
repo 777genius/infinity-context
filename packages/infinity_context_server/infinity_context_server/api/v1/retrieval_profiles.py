@@ -1,4 +1,4 @@
-"""Strict-admin, bounded and idempotent Retrieval V2 profile operations."""
+"""Strict-admin, bounded and idempotent Retrieval profile operations."""
 
 from __future__ import annotations
 

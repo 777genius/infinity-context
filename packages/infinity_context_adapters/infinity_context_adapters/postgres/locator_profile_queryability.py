@@ -1,4 +1,4 @@
-"""Read-only canonical Retrieval V2 profile queryability policy."""
+"""Read-only canonical Retrieval profile queryability policy."""
 
 from __future__ import annotations
 

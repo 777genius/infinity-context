@@ -1,4 +1,4 @@
-"""Generic caller-owned projection descriptor for document Retrieval V2."""
+"""Generic caller-owned projection descriptor for document Retrieval."""
 
 from __future__ import annotations
 

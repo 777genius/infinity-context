@@ -1,4 +1,4 @@
-"""Exact PostgreSQL catalog attestation for the Retrieval V2 canonical schema."""
+"""Exact PostgreSQL catalog attestation for the Retrieval canonical schema."""
 
 from __future__ import annotations
 
@@ -30,7 +30,7 @@ class LocatorCatalogAttestation:
         if self.mismatches:
             mismatch = self.mismatches[0]
             raise RuntimeError(
-                "Retrieval V2 PostgreSQL catalog is not exact: "
+                "Retrieval PostgreSQL catalog is not exact: "
                 f"{mismatch.object_kind} {mismatch.object_name} "
                 f"has mismatched {mismatch.property_name}"
             )
@@ -253,8 +253,8 @@ _TRIGGERS: Final = {
 }
 
 
-async def attest_locator_retrieval_v2_catalog(connection) -> LocatorCatalogAttestation:
-    """Compare every safety-bearing Retrieval V2 object with its exact catalog shape."""
+async def attest_locator_retrieval_catalog(connection) -> LocatorCatalogAttestation:
+    """Compare every safety-bearing Retrieval object with its exact catalog shape."""
 
     mismatches: list[CatalogMismatch] = []
     index_rows = {
@@ -397,7 +397,7 @@ async def attest_locator_retrieval_v2_catalog(connection) -> LocatorCatalogAttes
     return LocatorCatalogAttestation(tuple(mismatches))
 
 
-async def lock_and_attest_locator_retrieval_v2_catalog(connection) -> None:
+async def lock_and_attest_locator_retrieval_catalog(connection) -> None:
     """Fence schema DDL for a projected write and fail closed on catalog drift."""
 
     await connection.execute(
@@ -410,7 +410,7 @@ async def lock_and_attest_locator_retrieval_v2_catalog(connection) -> None:
             "public.memory_locator_projection_tombstones IN ROW EXCLUSIVE MODE"
         )
     )
-    (await attest_locator_retrieval_v2_catalog(connection)).require_qualified()
+    (await attest_locator_retrieval_catalog(connection)).require_qualified()
 
 
 async def _column_collations(connection) -> dict[tuple[str, str], str | None]:
@@ -550,6 +550,6 @@ __all__ = (
     "CatalogMismatch",
     "LOCATOR_CATALOG_MAINTENANCE_LOCK_ID",
     "LocatorCatalogAttestation",
-    "attest_locator_retrieval_v2_catalog",
-    "lock_and_attest_locator_retrieval_v2_catalog",
+    "attest_locator_retrieval_catalog",
+    "lock_and_attest_locator_retrieval_catalog",
 )

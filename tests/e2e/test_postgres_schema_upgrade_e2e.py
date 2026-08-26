@@ -10,7 +10,7 @@ from pathlib import Path
 import pytest
 from infinity_context_adapters.postgres import build_async_engine, upgrade_schema
 from infinity_context_adapters.postgres.migration_runner import _load_migrations
-from locator_retrieval_v2_schema_assertions import assert_locator_retrieval_v2_schema
+from locator_retrieval_schema_assertions import assert_locator_retrieval_schema
 from postgres_schema_upgrade_receipt_fixtures import (
     seed_mismatched_operation_receipt_snapshot,
     seed_mismatched_suggestion_receipt_snapshot,
@@ -530,7 +530,7 @@ async def _assert_head_schema(engine) -> None:
             ).scalars()
         )
         assert {"memory_assets", "memory_captures", "memory_context_links"} <= tables
-        await assert_locator_retrieval_v2_schema(connection, tables)
+        await assert_locator_retrieval_schema(connection, tables)
         fact_columns = set(
             (
                 await connection.execute(

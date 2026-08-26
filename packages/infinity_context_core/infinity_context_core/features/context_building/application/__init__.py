@@ -28,12 +28,12 @@ from infinity_context_core.features.context_building.application.inference_evide
     inference_query_predicate,
     reserve_inference_evidence,
 )
-from infinity_context_core.features.context_building.application.locator_retrieval_v2 import (
-    LocatorProviderRegistrationV2,
-    RetrieveLocatorsV2,
+from infinity_context_core.features.context_building.application.locator_retrieval import (
+    LocatorProviderRegistration,
+    RetrieveLocators,
 )
-from infinity_context_core.features.context_building.application.locator_retrieval_v2 import (
-    _rrf_contribution_score_picos as rrf_contribution_score_picos_v2,
+from infinity_context_core.features.context_building.application.locator_retrieval import (
+    _rrf_contribution_score_picos as rrf_contribution_score_picos,
 )
 from infinity_context_core.features.context_building.application.provider_pipeline import (
     ContextCandidateProviderPipeline,
@@ -92,7 +92,7 @@ __all__ = (
     "InferenceQueryPredicate",
     "InferenceRelation",
     "InferenceReservationPressure",
-    "LocatorProviderRegistrationV2",
+    "LocatorProviderRegistration",
     "LoadContextCandidatesHandler",
     "LoadContextCandidatesQuery",
     "LoadContextCandidatesResult",
@@ -105,7 +105,7 @@ __all__ = (
     "PlanContextPipelineQuery",
     "PlanContextPipelineResult",
     "PlanContextPipelineUseCase",
-    "RetrieveLocatorsV2",
+    "RetrieveLocators",
     "RebuildPageResult",
     "ReconcileResult",
     "RetrievalProfileLifecycle",
@@ -115,6 +115,6 @@ __all__ = (
     "inference_query_predicate",
     "protected_candidate_head_keys",
     "reserve_inference_evidence",
-    "rrf_contribution_score_picos_v2",
+    "rrf_contribution_score_picos",
     "select_candidate_queries",
 )

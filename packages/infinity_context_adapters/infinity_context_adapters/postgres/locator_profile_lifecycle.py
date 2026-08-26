@@ -1,4 +1,4 @@
-"""Postgres canonical registry, rebuild source and attestation for Retrieval V2 profiles."""
+"""Postgres canonical registry, rebuild source and attestation for Retrieval profiles."""
 
 from __future__ import annotations
 

@@ -1,4 +1,4 @@
-"""Complete-operation fencing for profile-aware Retrieval V2 queries."""
+"""Complete-operation fencing for profile-aware Retrieval queries."""
 
 from __future__ import annotations
 

@@ -1,4 +1,4 @@
-"""Provider-neutral ports for one durable Retrieval V2 profile lifecycle."""
+"""Provider-neutral ports for one durable Retrieval profile lifecycle."""
 
 from __future__ import annotations
 

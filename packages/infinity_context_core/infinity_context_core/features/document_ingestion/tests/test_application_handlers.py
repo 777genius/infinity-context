@@ -118,7 +118,7 @@ def test_projected_ingest_is_single_chunk_and_exact_retry_is_idempotent() -> Non
     ownership.document_ids["locator-1"] = first.document.identity.document_id
     retry = asyncio.run(handler.execute(command))
 
-    assert first.document.retrieval_v2_eligible is True
+    assert first.document.retrieval_eligible is True
     assert len(first.chunks) == 1
     assert retry.document == first.document
     assert retry.chunks == first.chunks

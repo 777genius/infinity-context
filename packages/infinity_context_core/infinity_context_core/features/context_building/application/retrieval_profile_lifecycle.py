@@ -1,4 +1,4 @@
-"""Use cases for creating, rebuilding and activating Retrieval V2 profiles."""
+"""Use cases for creating, rebuilding and activating Retrieval profiles."""
 
 from __future__ import annotations
 

@@ -1,5 +1,5 @@
 import { InfinityContextError } from "./errors.js";
-import { assertUnicodeScalarString, compareUtf8, pythonTrim } from "./retrieval-v2-canonical.js";
+import { assertUnicodeScalarString, compareUtf8, pythonTrim } from "./retrieval-canonical.js";
 import type { JsonObject } from "./types.js";
 
 export const DOCUMENT_RETRIEVAL_PROJECTION_SCHEMA_V1 = "document-retrieval-projection.v1" as const;

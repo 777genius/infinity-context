@@ -18,7 +18,7 @@ function projection(): DocumentRetrievalProjectionV1Input {
   };
 }
 
-describe("document Retrieval V2 projection", () => {
+describe("document Retrieval projection", () => {
   it("maps the exact shared projection fixture", async () => {
     const fixture = JSON.parse(await readFile(
       new URL("../fixtures/context_retrieval_v2/document_projection.json", import.meta.url), "utf8"));

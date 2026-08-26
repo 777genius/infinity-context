@@ -1,4 +1,4 @@
-"""Supervisor-owned proof capability for crashed Retrieval V2 runtimes."""
+"""Supervisor-owned proof capability for crashed Retrieval runtimes."""
 
 from __future__ import annotations
 
@@ -93,9 +93,11 @@ class RuntimeProcessSupervisor:
         return self._owner
 
     def _issue_owner(self, *, instance_id: str | None, generation: str | None) -> RuntimeFenceOwner:
-        public_key = self._private_key.public_key().public_bytes(
-            serialization.Encoding.Raw, serialization.PublicFormat.Raw
-        ).hex()
+        public_key = (
+            self._private_key.public_key()
+            .public_bytes(serialization.Encoding.Raw, serialization.PublicFormat.Raw)
+            .hex()
+        )
         pid = int(self._process.pid)
         birth, executable, executable_sha256 = _process_identity(pid)
         values = {
@@ -113,9 +115,9 @@ class RuntimeProcessSupervisor:
             "installed_release": self._installed_release,
         }
         unsigned = RuntimeFenceOwner(**values, launch_signature="")
-        signature = base64.b64encode(
-            self._private_key.sign(unsigned.launch_payload())
-        ).decode("ascii")
+        signature = base64.b64encode(self._private_key.sign(unsigned.launch_payload())).decode(
+            "ascii"
+        )
         return RuntimeFenceOwner(**values, launch_signature=signature)
 
     def prove_exit(self, *, maintenance_generation: int) -> RuntimeDeathProof:

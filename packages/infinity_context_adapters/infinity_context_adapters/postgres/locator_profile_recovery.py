@@ -1,4 +1,4 @@
-"""Exact, auditable operator recovery for abandoned Retrieval V2 fences."""
+"""Exact, auditable operator recovery for abandoned Retrieval fences."""
 
 from __future__ import annotations
 

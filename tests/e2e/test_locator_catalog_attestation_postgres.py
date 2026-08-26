@@ -1,4 +1,4 @@
-"""Adversarial PostgreSQL catalog proof for Retrieval V2."""
+"""Adversarial PostgreSQL catalog proof for Retrieval."""
 
 from __future__ import annotations
 
@@ -13,8 +13,8 @@ from infinity_context_adapters.postgres import (
     upgrade_schema,
 )
 from infinity_context_adapters.postgres.locator_catalog_attestation import (
-    attest_locator_retrieval_v2_catalog,
-    lock_and_attest_locator_retrieval_v2_catalog,
+    attest_locator_retrieval_catalog,
+    lock_and_attest_locator_retrieval_catalog,
 )
 from infinity_context_server.retrieval_composition import (
     _postgres_profile_qualified,
@@ -56,7 +56,7 @@ async def _assert_catalog_attestation(database_url: str) -> None:
             async with engine.connect() as connection:
                 version = int(await connection.scalar(text("SHOW server_version_num")))
                 assert version // 10000 in {16, 17, 18}
-                assert (await attest_locator_retrieval_v2_catalog(connection)).qualified
+                assert (await attest_locator_retrieval_catalog(connection)).qualified
             session_factory = build_session_factory(engine)
             assert await _postgres_profile_qualified(session_factory)
 
@@ -82,7 +82,7 @@ async def _assert_catalog_attestation(database_url: str) -> None:
             await _restore_trigger(engine)
 
             async with engine.begin() as connection:
-                await lock_and_attest_locator_retrieval_v2_catalog(connection)
+                await lock_and_attest_locator_retrieval_catalog(connection)
             await _assert_exactly_one_locator_owner(database, engine)
             assert await _postgres_profile_qualified(session_factory)
         finally:
@@ -93,7 +93,7 @@ async def _assert_catalog_attestation(database_url: str) -> None:
 
 async def _assert_unqualified(engine, session_factory, kind: str, properties: set[str]) -> None:
     async with engine.begin() as connection:
-        attestation = await attest_locator_retrieval_v2_catalog(connection)
+        attestation = await attest_locator_retrieval_catalog(connection)
         assert not attestation.qualified
         relevant = {
             mismatch.property_name
@@ -102,7 +102,7 @@ async def _assert_unqualified(engine, session_factory, kind: str, properties: se
         }
         assert properties <= relevant
         with pytest.raises(RuntimeError, match="catalog is not exact"):
-            await lock_and_attest_locator_retrieval_v2_catalog(connection)
+            await lock_and_attest_locator_retrieval_catalog(connection)
     assert not await _postgres_profile_qualified(session_factory)
 
 

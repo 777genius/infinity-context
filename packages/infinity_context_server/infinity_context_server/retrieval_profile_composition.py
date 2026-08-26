@@ -1,4 +1,4 @@
-"""Server composition and outbox coordination for Retrieval V2 profiles."""
+"""Server composition and outbox coordination for Retrieval profiles."""
 
 from __future__ import annotations
 
@@ -17,7 +17,7 @@ from infinity_context_adapters.postgres.locator_profile_lifecycle import (
     PostgresRetrievalProfileRegistry,
 )
 from infinity_context_adapters.postgres.locator_retrieval import (
-    PostgresLocatorCandidateProviderV2,
+    PostgresLocatorCandidateProvider,
 )
 from infinity_context_adapters.qdrant.profile_lifecycle import (
     QdrantRetrievalProfileProjection,
@@ -372,7 +372,7 @@ class ProfileAwareLocatorRetrievalService:
             lanes=(
                 RetrievalLaneRuntime(
                     "postgres_keyword",
-                    PostgresLocatorCandidateProviderV2(self.sessions),
+                    PostgresLocatorCandidateProvider(self.sessions),
                     postgres_health,
                     True,
                 ),

@@ -38,11 +38,11 @@ export {
 } from "./diagnostics.js";
 export { InfinityContextError, redactSensitiveText } from "./errors.js";
 export {
-  CONTEXT_RETRIEVAL_V2_ERROR_SPECS,
-  contextRetrievalV2ErrorDecoder,
-  decodeContextRetrievalV2Error,
-  type ContextRetrievalV2ErrorCode,
-} from "./retrieval-v2-errors.js";
+  CONTEXT_RETRIEVAL_ERROR_SPECS,
+  retrievalErrorDecoder,
+  decodeRetrievalError,
+  type RetrievalErrorCode,
+} from "./retrieval-errors.js";
 export {
   DOCUMENT_RETRIEVAL_PROJECTION_SCHEMA_V1,
   documentRetrievalProjectionV1Payload,
@@ -65,53 +65,53 @@ export type {
   DocumentRetrievalProjectionV1Input,
 } from "./document-retrieval-projection.js";
 export {
-  assertContextRetrievalCapabilityV2,
-  decodeContextRetrievalCapabilityV2,
-  decodeContextRetrievalCapabilityV2Bytes,
+  assertRetrievalCapability,
+  decodeRetrievalCapability,
+  decodeRetrievalCapabilityBytes,
   decodeContextRetrievalCapabilitiesResponseBytes,
-  decodeRetrieveContextV2Response,
-  decodeRetrieveContextV2ResponseBytes,
-  retrievalV2RequestPayload,
-  validateContextRetrievalPreflightV2,
-} from "./retrieval-v2.js";
+  decodeRetrieveContextResponse,
+  decodeRetrieveContextResponseBytes,
+  retrievalRequestPayload,
+  validateRetrievalPreflight,
+} from "./retrieval.js";
 export {
-  canonicalContextRetrievalCapabilityV2Bytes,
-  contextRetrievalCapabilityV2Fingerprint,
-  verifyContextRetrievalCapabilityV2Fingerprint,
-} from "./retrieval-v2-canonical.js";
+  canonicalRetrievalCapabilityBytes,
+  retrievalCapabilityFingerprint,
+  verifyRetrievalCapabilityFingerprint,
+} from "./retrieval-canonical.js";
 export {
-  CONTEXT_RETRIEVAL_CONTRACT_V2,
-  CONTEXT_RETRIEVAL_RANKING_POLICY_V2,
-} from "./retrieval-v2-types.js";
+  CONTEXT_RETRIEVAL_CONTRACT,
+  CONTEXT_RETRIEVAL_RANKING_POLICY,
+} from "./retrieval-types.js";
 export type {
-  ContextRetrievalCapabilityV2,
-  RequiredContextRetrievalCapabilityV2,
-  RetrievalV2AppliedBounds,
-  RetrievalV2BoundsInput,
-  RetrievalV2Candidate,
-  RetrievalV2CapabilityBounds,
-  RetrievalV2CapabilityProviderLane,
-  RetrievalV2Contribution,
-  RetrievalV2DegradationReasonCode,
-  RetrievalV2HardFiltersInput,
-  RetrievalV2HardFilterSignal,
-  RetrievalV2Neighbor,
-  RetrievalV2ProviderOutcome,
-  RetrievalV2ProviderReasonCode,
-  RetrievalV2ProviderStatus,
-  RetrievalV2QueryInput,
-  RetrievalV2RankingParameters,
-  RetrievalV2RawScoreKind,
-  RetrievalV2ScopeInput,
-  RetrievalV2SoftPreferencesInput,
-  RetrievalV2SoftPreferenceSignal,
-  RetrievalV2TimeIntervalInput,
-  RetrievalV2RelativeTimeIntervalInput,
-  RetrievalV2SourceGenerationInput,
-  RetrievalV2WeightedKeyInput,
-  RetrieveContextV2Input,
-  RetrieveContextV2Response,
-} from "./retrieval-v2-types.js";
+  RetrievalCapability,
+  RequiredRetrievalCapability,
+  RetrievalAppliedBounds,
+  RetrievalBoundsInput,
+  RetrievalCandidate,
+  RetrievalCapabilityBounds,
+  RetrievalCapabilityProviderLane,
+  RetrievalContribution,
+  RetrievalDegradationReasonCode,
+  RetrievalHardFiltersInput,
+  RetrievalHardFilterSignal,
+  RetrievalNeighbor,
+  RetrievalProviderOutcome,
+  RetrievalProviderReasonCode,
+  RetrievalProviderStatus,
+  RetrievalQueryInput,
+  RetrievalRankingParameters,
+  RetrievalRawScoreKind,
+  RetrievalScopeInput,
+  RetrievalSoftPreferencesInput,
+  RetrievalSoftPreferenceSignal,
+  RetrievalTimeIntervalInput,
+  RetrievalRelativeTimeIntervalInput,
+  RetrievalSourceGenerationInput,
+  RetrievalWeightedKeyInput,
+  RetrieveContextInput,
+  RetrieveContextResponse,
+} from "./retrieval-types.js";
 export { runFullMemoryProof, type FullMemoryProofOptions, type FullMemoryProofReport } from "./full-memory-proof.js";
 export { InfinityContextClient } from "./infinity-context-client.js";
 export { noopInstrumentation } from "./instrumentation.js";

@@ -1,4 +1,4 @@
-"""Exact contract/core mapping for locator-only Retrieval V2."""
+"""Exact contract/core mapping for locator-only Retrieval."""
 
 from __future__ import annotations
 
@@ -6,33 +6,33 @@ from datetime import datetime
 
 import infinity_context_core.features.context_building.public as core
 from infinity_context_contracts.features.context_building import (
-    RetrievalV2AppliedBoundsDto,
-    RetrievalV2CandidateDto,
-    RetrievalV2ContributionDto,
-    RetrievalV2NeighborDto,
-    RetrievalV2ProviderOutcomeDto,
-    RetrieveContextV2RequestDto,
-    RetrieveContextV2ResponseDto,
+    RetrievalAppliedBoundsDto,
+    RetrievalCandidateDto,
+    RetrievalContributionDto,
+    RetrievalNeighborDto,
+    RetrievalProviderOutcomeDto,
+    RetrieveContextRequestDto,
+    RetrieveContextResponseDto,
 )
 
 
 def retrieval_request_to_core(
-    request: RetrieveContextV2RequestDto,
-) -> core.LocatorRetrievalRequestV2:
-    return core.LocatorRetrievalRequestV2(
+    request: RetrieveContextRequestDto,
+) -> core.LocatorRetrievalRequest:
+    return core.LocatorRetrievalRequest(
         contract_version=request.contract_version,
         capability_fingerprint=request.capability_fingerprint,
         profile_id=request.profile_id,
-        scope=core.LocatorRetrievalScopeV2(
+        scope=core.LocatorRetrievalScope(
             request.scope.space_id, request.scope.memory_scope_id, request.scope.thread_id
         ),
         queries=tuple(
-            core.LocatorQueryVariantV2(item.query_id, item.query, item.weight_micros)
+            core.LocatorQueryVariant(item.query_id, item.query, item.weight_micros)
             for item in request.queries
         ),
-        hard_filters=core.LocatorHardFiltersV2(
+        hard_filters=core.LocatorHardFilters(
             source_generations=tuple(
-                core.LocatorSourceGenerationV2(item.source_key, item.projection_generation)
+                core.LocatorSourceGeneration(item.source_key, item.projection_generation)
                 for item in request.filters.source_generations
             ),
             excluded_source_keys=tuple(request.filters.excluded_source_keys),
@@ -46,13 +46,13 @@ def retrieval_request_to_core(
             time_interval=_interval(request.filters.time_interval),
             relative_time_interval=_relative_interval(request.filters.relative_time_interval),
         ),
-        soft_preferences=core.LocatorSoftPreferencesV2(
+        soft_preferences=core.LocatorSoftPreferences(
             source_preferences=tuple(
-                core.LocatorWeightedKeyV2(item.key, item.weight_micros)
+                core.LocatorWeightedKey(item.key, item.weight_micros)
                 for item in request.soft_preferences.source_preferences
             ),
             actor_preferences=tuple(
-                core.LocatorWeightedKeyV2(item.key, item.weight_micros)
+                core.LocatorWeightedKey(item.key, item.weight_micros)
                 for item in request.soft_preferences.actor_preferences
             ),
             time_interval=_interval(request.soft_preferences.time_interval),
@@ -61,7 +61,7 @@ def retrieval_request_to_core(
             ),
             time_weight_micros=request.soft_preferences.time_weight_micros,
         ),
-        bounds=core.LocatorRetrievalBoundsV2(
+        bounds=core.LocatorRetrievalBounds(
             request.bounds.candidate_limit,
             request.bounds.result_limit,
             request.bounds.neighbor_radius,
@@ -72,13 +72,13 @@ def retrieval_request_to_core(
 
 
 def retrieval_response_to_contract(
-    response: core.LocatorRetrievalResponseV2,
-) -> RetrieveContextV2ResponseDto:
-    return RetrieveContextV2ResponseDto(
+    response: core.LocatorRetrievalResponse,
+) -> RetrieveContextResponseDto:
+    return RetrieveContextResponseDto(
         status=response.status,
         capability_fingerprint=response.capability_fingerprint,
         profile_id=response.profile_id,
-        applied_bounds=RetrievalV2AppliedBoundsDto(
+        applied_bounds=RetrievalAppliedBoundsDto(
             response.applied_bounds.candidate_limit,
             response.applied_bounds.result_limit,
             response.applied_bounds.neighbor_radius,
@@ -89,15 +89,15 @@ def retrieval_response_to_contract(
         ),
         candidates=tuple(_candidate(item) for item in response.candidates),
         provider_outcomes=tuple(
-            RetrievalV2ProviderOutcomeDto(item.provider_id, item.status, item.reason_code)
+            RetrievalProviderOutcomeDto(item.provider_id, item.status, item.reason_code)
             for item in response.provider_outcomes
         ),
         degradation_reason_codes=response.degradation_reason_codes,
     )
 
 
-def _candidate(item: core.LocatorResultCandidateV2) -> RetrievalV2CandidateDto:
-    return RetrievalV2CandidateDto(
+def _candidate(item: core.LocatorResultCandidate) -> RetrievalCandidateDto:
+    return RetrievalCandidateDto(
         locator=item.locator,
         source_key=item.source_key,
         document_key=item.document_key,
@@ -121,7 +121,7 @@ def _candidate(item: core.LocatorResultCandidateV2) -> RetrievalV2CandidateDto:
         time_matched_weight_micros=item.time_matched_weight_micros,
         matched_query_ids=item.matched_query_ids,
         contributions=tuple(
-            RetrievalV2ContributionDto(
+            RetrievalContributionDto(
                 value.provider_id,
                 value.query_id,
                 value.provider_rank,
@@ -137,7 +137,7 @@ def _candidate(item: core.LocatorResultCandidateV2) -> RetrievalV2CandidateDto:
             for value in item.contributions
         ),
         neighbors=tuple(
-            RetrievalV2NeighborDto(
+            RetrievalNeighborDto(
                 value.locator,
                 value.source_key,
                 value.document_key,
@@ -153,10 +153,10 @@ def _candidate(item: core.LocatorResultCandidateV2) -> RetrievalV2CandidateDto:
     )
 
 
-def _interval(value: object | None) -> core.LocatorTimeIntervalV2 | None:
+def _interval(value: object | None) -> core.LocatorTimeInterval | None:
     if value is None:
         return None
-    return core.LocatorTimeIntervalV2(
+    return core.LocatorTimeInterval(
         datetime.fromisoformat(value.start_at.replace("Z", "+00:00")),
         datetime.fromisoformat(value.end_at.replace("Z", "+00:00")),
     )
@@ -164,10 +164,10 @@ def _interval(value: object | None) -> core.LocatorTimeIntervalV2 | None:
 
 def _relative_interval(
     value: object | None,
-) -> core.LocatorRelativeTimeIntervalV2 | None:
+) -> core.LocatorRelativeTimeInterval | None:
     if value is None:
         return None
-    return core.LocatorRelativeTimeIntervalV2(value.start_ms, value.end_ms)
+    return core.LocatorRelativeTimeInterval(value.start_ms, value.end_ms)
 
 
 __all__ = ("retrieval_request_to_core", "retrieval_response_to_contract")

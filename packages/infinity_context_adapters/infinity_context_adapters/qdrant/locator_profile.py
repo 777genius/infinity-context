@@ -1,4 +1,4 @@
-"""Exact Qdrant payload schema and filter primitives for Retrieval V2."""
+"""Exact Qdrant payload schema and filter primitives for Retrieval."""
 
 from __future__ import annotations
 

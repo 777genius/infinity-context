@@ -1,4 +1,4 @@
-"""Explicit, non-transactional concurrent-index phase for Retrieval V2."""
+"""Explicit, non-transactional concurrent-index phase for Retrieval."""
 
 from __future__ import annotations
 
@@ -12,7 +12,7 @@ from sqlalchemy.ext.asyncio import AsyncConnection, AsyncEngine
 
 from infinity_context_adapters.postgres.locator_catalog_attestation import (
     LOCATOR_CATALOG_MAINTENANCE_LOCK_ID,
-    attest_locator_retrieval_v2_catalog,
+    attest_locator_retrieval_catalog,
 )
 from infinity_context_adapters.postgres.migration_metadata import (
     is_compatible_migration_checksum,
@@ -72,14 +72,14 @@ async def build_locator_retrieval_indexes(
                 + ("0" if statement_timeout_ms == 0 else f"'{statement_timeout_ms}ms'")
             )
         )
-        attestation = await attest_locator_retrieval_v2_catalog(connection)
+        attestation = await attest_locator_retrieval_catalog(connection)
         non_index_mismatch = next(
             (mismatch for mismatch in attestation.mismatches if mismatch.object_kind != "index"),
             None,
         )
         if non_index_mismatch is not None:
             raise RuntimeError(
-                "Unsafe Retrieval V2 catalog mismatch cannot be repaired by index "
+                "Unsafe Retrieval catalog mismatch cannot be repaired by index "
                 f"maintenance: {non_index_mismatch.object_kind} "
                 f"{non_index_mismatch.object_name}"
             )
@@ -93,7 +93,7 @@ async def build_locator_retrieval_indexes(
         )
         for statement in statements:
             await connection.execute(text(statement))
-        (await attest_locator_retrieval_v2_catalog(connection)).require_qualified()
+        (await attest_locator_retrieval_catalog(connection)).require_qualified()
         return _EXPECTED_INDEXES
     except BaseException as error:
         application_error = error
@@ -154,7 +154,7 @@ async def _require_expand_migration(connection) -> None:
     )
     expected = sha256(_MIGRATION.read_bytes()).hexdigest()
     if not is_compatible_migration_checksum(_MIGRATION_ID, observed, expected):
-        raise RuntimeError("Retrieval V2 expand migration is absent or has checksum drift")
+        raise RuntimeError("Retrieval expand migration is absent or has checksum drift")
 
 
 async def _drop_mismatched_indexes(connection, names: set[str]) -> None:

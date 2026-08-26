@@ -1,6 +1,6 @@
 import { requestControls, type RequestControls, type RequestExecutor } from "../client.js";
 import type { InfinityContextCapabilities, InfinityContextHealth } from "../types.js";
-import { decodeContextRetrievalCapabilitiesResponseBytes } from "../retrieval-v2.js";
+import { decodeContextRetrievalCapabilitiesResponseBytes } from "../retrieval.js";
 
 export class SystemClient {
   constructor(private readonly http: RequestExecutor) {}

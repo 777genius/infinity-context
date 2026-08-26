@@ -217,7 +217,7 @@ class SourceDocument:
             )
 
     @property
-    def retrieval_v2_eligible(self) -> bool:
+    def retrieval_eligible(self) -> bool:
         return self.retrieval_projection is not None
 
 

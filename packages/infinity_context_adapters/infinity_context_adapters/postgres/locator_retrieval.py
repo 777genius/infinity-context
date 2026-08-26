@@ -1,4 +1,4 @@
-"""Canonical Postgres adapters for locator-only Retrieval V2."""
+"""Canonical Postgres adapters for locator-only Retrieval."""
 
 from __future__ import annotations
 
@@ -6,12 +6,12 @@ from dataclasses import dataclass
 from uuid import uuid4
 
 from infinity_context_core.features.context_building.public import (
-    CanonicalHydrationInvariantErrorV2,
-    CanonicalLocatorCandidateV2,
-    CanonicalLocatorReadV2,
-    LocatorProviderHitV2,
-    LocatorProviderResultV2,
-    LocatorRetrievalRequestV2,
+    CanonicalHydrationInvariantError,
+    CanonicalLocatorCandidate,
+    CanonicalLocatorRead,
+    LocatorProviderHit,
+    LocatorProviderResult,
+    LocatorRetrievalRequest,
 )
 from sqlalchemy import case, func, not_, or_, select, text
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
@@ -20,16 +20,16 @@ from infinity_context_adapters.postgres.models import MemoryChunkRow
 
 
 @dataclass(frozen=True, slots=True)
-class PostgresLocatorCandidateProviderV2:
+class PostgresLocatorCandidateProvider:
     """Feature-owned lexical lane; it exposes identity/rank evidence only."""
 
     sessions: async_sessionmaker[AsyncSession]
     provider_id: str = "postgres_keyword"
 
     async def retrieve_locator_candidates(
-        self, request: LocatorRetrievalRequestV2
-    ) -> LocatorProviderResultV2:
-        hits: list[LocatorProviderHitV2] = []
+        self, request: LocatorRetrievalRequest
+    ) -> LocatorProviderResult:
+        hits: list[LocatorProviderHit] = []
         async with self.sessions() as session:
             for variant in request.queries:
                 rows = (
@@ -40,7 +40,7 @@ class PostgresLocatorCandidateProviderV2:
                     )
                 ).all()
                 hits.extend(
-                    LocatorProviderHitV2(
+                    LocatorProviderHit(
                         canonical_identity=row.id,
                         canonical_version=row.retrieval_version,
                         provider_id=self.provider_id,
@@ -51,22 +51,22 @@ class PostgresLocatorCandidateProviderV2:
                     )
                     for rank, row in enumerate(rows, start=1)
                 )
-        return LocatorProviderResultV2(status="available", hits=tuple(hits))
+        return LocatorProviderResult(status="available", hits=tuple(hits))
 
 
 @dataclass(frozen=True, slots=True)
-class PostgresCanonicalLocatorReaderV2:
+class PostgresCanonicalLocatorReader:
     """Canonical lifecycle authority with an exact final read snapshot."""
 
     sessions: async_sessionmaker[AsyncSession]
 
     async def hydrate_locator_candidates(
         self,
-        request: LocatorRetrievalRequestV2,
+        request: LocatorRetrievalRequest,
         canonical_identities: tuple[str, ...],
-    ) -> tuple[CanonicalLocatorCandidateV2, ...]:
+    ) -> tuple[CanonicalLocatorCandidate, ...]:
         if len(set(canonical_identities)) != len(canonical_identities):
-            raise CanonicalHydrationInvariantErrorV2(
+            raise CanonicalHydrationInvariantError(
                 "preliminary hydration received duplicate canonical identities"
             )
         async with self.sessions() as session, session.begin():
@@ -77,12 +77,12 @@ class PostgresCanonicalLocatorReaderV2:
 
     async def hydrate_final_locator_read(
         self,
-        request: LocatorRetrievalRequestV2,
+        request: LocatorRetrievalRequest,
         canonical_identities: tuple[str, ...],
         radius: int,
-    ) -> CanonicalLocatorReadV2:
+    ) -> CanonicalLocatorRead:
         if len(set(canonical_identities)) != len(canonical_identities):
-            raise CanonicalHydrationInvariantErrorV2(
+            raise CanonicalHydrationInvariantError(
                 "final hydration received duplicate canonical identities"
             )
         async with self.sessions() as session, session.begin():
@@ -90,13 +90,13 @@ class PostgresCanonicalLocatorReaderV2:
             snapshot = await _snapshot_token(session)
             seeds = await _load_rows(session, request, canonical_identities)
             neighbors = await _load_neighbor_rows(session, request, seeds, radius)
-            return CanonicalLocatorReadV2(
+            return CanonicalLocatorRead(
                 seeds=_canonical_rows(seeds, snapshot),
                 neighbors=_canonical_rows(neighbors, snapshot),
             )
 
 
-def _candidate_statement(request: LocatorRetrievalRequestV2, query: str):
+def _candidate_statement(request: LocatorRetrievalRequest, query: str):
     terms = tuple(dict.fromkeys(term.casefold() for term in query.split() if term))
     matches = tuple(
         func.lower(MemoryChunkRow.normalized_text).contains(term, autoescape=True) for term in terms
@@ -120,7 +120,7 @@ def _candidate_statement(request: LocatorRetrievalRequestV2, query: str):
     )
 
 
-def _hard_sql_conditions(request: LocatorRetrievalRequestV2) -> tuple[object, ...]:
+def _hard_sql_conditions(request: LocatorRetrievalRequest) -> tuple[object, ...]:
     scope = request.scope
     filters = request.hard_filters
     conditions: list[object] = [
@@ -200,7 +200,7 @@ def _hard_sql_conditions(request: LocatorRetrievalRequestV2) -> tuple[object, ..
 
 async def _load_rows(
     session: AsyncSession,
-    request: LocatorRetrievalRequestV2,
+    request: LocatorRetrievalRequest,
     identities: tuple[str, ...],
 ) -> tuple[MemoryChunkRow, ...]:
     if not identities:
@@ -218,7 +218,7 @@ async def _load_rows(
         ).scalars()
     )
     if len({row.id for row in rows}) != len(rows):
-        raise CanonicalHydrationInvariantErrorV2(
+        raise CanonicalHydrationInvariantError(
             "canonical locator query returned duplicate identities"
         )
     return rows
@@ -226,7 +226,7 @@ async def _load_rows(
 
 async def _load_neighbor_rows(
     session: AsyncSession,
-    request: LocatorRetrievalRequestV2,
+    request: LocatorRetrievalRequest,
     seeds: tuple[MemoryChunkRow, ...],
     radius: int,
 ) -> tuple[MemoryChunkRow, ...]:
@@ -292,8 +292,8 @@ async def _set_repeatable_read(session: AsyncSession) -> None:
 
 def _canonical_rows(
     rows: tuple[MemoryChunkRow, ...], snapshot: str
-) -> tuple[CanonicalLocatorCandidateV2, ...]:
-    result: list[CanonicalLocatorCandidateV2] = []
+) -> tuple[CanonicalLocatorCandidate, ...]:
+    result: list[CanonicalLocatorCandidate] = []
     for row in rows:
         if not all(
             (
@@ -305,7 +305,7 @@ def _canonical_rows(
         ):
             continue
         result.append(
-            CanonicalLocatorCandidateV2(
+            CanonicalLocatorCandidate(
                 locator=row.retrieval_locator,
                 canonical_identity=row.id,
                 canonical_version=row.retrieval_version,
@@ -342,4 +342,4 @@ def _lifecycle_status(row: MemoryChunkRow) -> str:
     return "restricted"
 
 
-__all__ = ("PostgresCanonicalLocatorReaderV2", "PostgresLocatorCandidateProviderV2")
+__all__ = ("PostgresCanonicalLocatorReader", "PostgresLocatorCandidateProvider")

@@ -31,7 +31,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession
 
 from infinity_context_adapters.postgres.locator_catalog_attestation import (
-    lock_and_attest_locator_retrieval_v2_catalog,
+    lock_and_attest_locator_retrieval_catalog,
 )
 from infinity_context_adapters.postgres.mappers import (
     chunk_row_to_domain,
@@ -62,7 +62,7 @@ class PostgresProjectedDocumentIngestor:
         async with AsyncSession(self.engine) as session:
             try:
                 async with session.begin():
-                    await lock_and_attest_locator_retrieval_v2_catalog(session)
+                    await lock_and_attest_locator_retrieval_catalog(session)
                     replay = await self._idempotent_replay(
                         session, command, projection, fingerprint
                     )

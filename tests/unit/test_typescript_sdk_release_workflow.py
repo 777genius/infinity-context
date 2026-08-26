@@ -552,4 +552,4 @@ def test_release_files_do_not_reintroduce_service_quality_or_public_api_changes(
         "capability fingerprint",
     ):
         assert forbidden not in _workflow().lower()
-    assert not (ROOT / "scripts/verify_retrieval_v2_release_qualification.py").exists()
+    assert not (ROOT / "scripts/verify_retrieval_release_qualification.py").exists()
