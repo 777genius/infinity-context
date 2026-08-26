@@ -24,7 +24,7 @@ class _RecordingConnection:
         self,
         events: list[str] | None = None,
         *,
-        lock_attempts: tuple[bool, ...] = (True,),
+        lock_attempts: tuple[bool | BaseException, ...] = (True,),
         unlock_result: bool | BaseException = True,
     ) -> None:
         self.statements: list[str] = []
@@ -67,7 +67,7 @@ class _RecordingDriver:
         self,
         events: list[str],
         *,
-        lock_attempts: tuple[bool, ...],
+        lock_attempts: tuple[bool | BaseException, ...],
         unlock_result: bool | BaseException,
     ) -> None:
         self.statements: list[str] = []
@@ -91,6 +91,9 @@ class _RecordingDriver:
             result = self._unlock_result
         else:
             result = next(self._lock_attempts)
+            if isinstance(result, BaseException):
+                self._events.append(f"raw-error:{normalized}")
+                raise result
         self._events.append(f"raw-complete:{normalized}:{result}")
         return result
 
@@ -127,7 +130,7 @@ class _Engine:
         self,
         events: list[str] | None = None,
         *,
-        lock_attempts: tuple[bool, ...] = (True,),
+        lock_attempts: tuple[bool | BaseException, ...] = (True,),
         unlock_result: bool | BaseException = True,
     ) -> None:
         self.connection = _RecordingConnection(
@@ -216,6 +219,27 @@ def test_upgrade_cancelled_while_waiting_does_not_unlock(monkeypatch) -> None:
         "SET search_path = public, pg_catalog, pg_temp",
         f"SELECT pg_catalog.pg_try_advisory_lock({migration_runner._ADVISORY_LOCK_ID})",
     ]
+    assert not engine.connection.invalidated
+    assert not engine.connection.closed
+
+
+@pytest.mark.parametrize(
+    "acquisition_error",
+    [OSError("connection lost"), asyncio.CancelledError("acquisition cancelled")],
+)
+def test_uncertain_acquisition_discards_connection(
+    monkeypatch,
+    acquisition_error: BaseException,
+) -> None:
+    migration = migration_runner._Migration("0001_test", "a" * 64, "SELECT 1")
+    monkeypatch.setattr(migration_runner, "_load_migrations", lambda: (migration,))
+    engine = _Engine(lock_attempts=(acquisition_error,))
+
+    with pytest.raises(type(acquisition_error), match=str(acquisition_error)):
+        asyncio.run(migration_runner.upgrade_schema(engine))
+
+    assert engine.connection.invalidated
+    assert engine.connection.closed
 
 
 @pytest.mark.parametrize("error_type", [RuntimeError, asyncio.CancelledError])

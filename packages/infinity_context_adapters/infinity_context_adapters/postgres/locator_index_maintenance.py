@@ -2,11 +2,13 @@
 
 from __future__ import annotations
 
+from contextlib import suppress
+from enum import Enum, auto
 from hashlib import sha256
 from pathlib import Path
 
 from sqlalchemy import text
-from sqlalchemy.ext.asyncio import AsyncEngine
+from sqlalchemy.ext.asyncio import AsyncConnection, AsyncEngine
 
 from infinity_context_adapters.postgres.locator_catalog_attestation import (
     LOCATOR_CATALOG_MAINTENANCE_LOCK_ID,
@@ -27,6 +29,12 @@ _EXPECTED_INDEXES = (
 )
 
 
+class _AdvisoryLockState(Enum):
+    NOT_ACQUIRED = auto()
+    ACQUISITION_UNCERTAIN = auto()
+    ACQUIRED = auto()
+
+
 async def build_locator_retrieval_indexes(
     engine: AsyncEngine,
     *,
@@ -42,15 +50,21 @@ async def build_locator_retrieval_indexes(
     statements = _maintenance_statements(_SQL.read_text(encoding="utf-8"))
     connection = await engine.connect()
     connection = await connection.execution_options(isolation_level="AUTOCOMMIT")
-    locked = False
+    lock_state = _AdvisoryLockState.NOT_ACQUIRED
+    application_error: BaseException | None = None
     try:
         await _require_expand_migration(connection)
+        lock_state = _AdvisoryLockState.ACQUISITION_UNCERTAIN
         acquired = await connection.scalar(
             text(f"SELECT pg_try_advisory_lock({LOCATOR_CATALOG_MAINTENANCE_LOCK_ID})")
         )
+        lock_state = (
+            _AdvisoryLockState.ACQUIRED
+            if acquired
+            else _AdvisoryLockState.NOT_ACQUIRED
+        )
         if not acquired:
             raise RuntimeError("Locator index maintenance is already running")
-        locked = True
         await connection.execute(text(f"SET lock_timeout = '{lock_timeout_ms}ms'"))
         await connection.execute(
             text(
@@ -81,11 +95,52 @@ async def build_locator_retrieval_indexes(
             await connection.execute(text(statement))
         (await attest_locator_retrieval_v2_catalog(connection)).require_qualified()
         return _EXPECTED_INDEXES
+    except BaseException as error:
+        application_error = error
+        raise
     finally:
-        if locked:
-            await connection.execute(
-                text(f"SELECT pg_advisory_unlock({LOCATOR_CATALOG_MAINTENANCE_LOCK_ID})")
+        if lock_state is _AdvisoryLockState.ACQUIRED:
+            await _release_advisory_lock(
+                connection,
+                application_error=application_error,
             )
+        elif lock_state is _AdvisoryLockState.ACQUISITION_UNCERTAIN:
+            await _discard_connection(connection)
+        else:
+            await connection.close()
+
+
+async def _release_advisory_lock(
+    connection: AsyncConnection,
+    *,
+    application_error: BaseException | None,
+) -> None:
+    cleanup_error: BaseException | None = None
+    try:
+        unlocked = await connection.scalar(
+            text(f"SELECT pg_advisory_unlock({LOCATOR_CATALOG_MAINTENANCE_LOCK_ID})")
+        )
+        if unlocked is not True:
+            cleanup_error = RuntimeError(
+                "Locator index maintenance advisory lock was not released"
+            )
+    except BaseException as error:
+        cleanup_error = error
+
+    if cleanup_error is None:
+        await connection.close()
+        return
+    await _discard_connection(connection)
+    if application_error is None:
+        raise cleanup_error
+
+
+async def _discard_connection(connection: AsyncConnection) -> None:
+    """Never pool a session whose advisory-lock state may still be acquired."""
+
+    with suppress(BaseException):
+        await connection.invalidate()
+    with suppress(BaseException):
         await connection.close()
 
 

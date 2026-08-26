@@ -6,6 +6,7 @@ import asyncio
 from contextlib import suppress
 from dataclasses import dataclass
 from datetime import datetime
+from enum import Enum, auto
 from hashlib import sha256
 from pathlib import Path
 
@@ -28,6 +29,12 @@ _MIGRATIONS_DIRECTORY = Path(__file__).with_name("migrations")
 _LEGACY_BASELINE_PREFIX = "0022_"
 _ADVISORY_LOCK_ID = 4_916_625_310_112_023_308
 _ADVISORY_LOCK_RETRY_SECONDS = 0.05
+
+
+class _AdvisoryLockState(Enum):
+    NOT_ACQUIRED = auto()
+    ACQUISITION_UNCERTAIN = auto()
+    ACQUIRED = auto()
 
 
 @dataclass(frozen=True, slots=True)
@@ -57,14 +64,20 @@ async def upgrade_schema(engine: AsyncEngine) -> SchemaUpgradeResult:
         raw_connection = await connection.get_raw_connection()
         driver_connection = raw_connection.driver_connection
         await driver_connection.execute("SET search_path = public, pg_catalog, pg_temp")
-        lock_acquired = False
+        lock_state = _AdvisoryLockState.NOT_ACQUIRED
         application_error: BaseException | None = None
         try:
-            while not lock_acquired:
+            while lock_state is not _AdvisoryLockState.ACQUIRED:
+                lock_state = _AdvisoryLockState.ACQUISITION_UNCERTAIN
                 lock_acquired = bool(
                     await driver_connection.fetchval(
                         f"SELECT pg_catalog.pg_try_advisory_lock({_ADVISORY_LOCK_ID})"
                     )
+                )
+                lock_state = (
+                    _AdvisoryLockState.ACQUIRED
+                    if lock_acquired
+                    else _AdvisoryLockState.NOT_ACQUIRED
                 )
                 if not lock_acquired:
                     await asyncio.sleep(_ADVISORY_LOCK_RETRY_SECONDS)
@@ -82,12 +95,14 @@ async def upgrade_schema(engine: AsyncEngine) -> SchemaUpgradeResult:
             application_error = error
             raise
         finally:
-            if lock_acquired:
+            if lock_state is _AdvisoryLockState.ACQUIRED:
                 await _release_advisory_lock(
                     connection,
                     driver_connection,
                     application_error=application_error,
                 )
+            elif lock_state is _AdvisoryLockState.ACQUISITION_UNCERTAIN:
+                await _discard_connection(connection)
     return SchemaUpgradeResult(
         applied=applied,
         legacy_baseline=legacy_baseline,
