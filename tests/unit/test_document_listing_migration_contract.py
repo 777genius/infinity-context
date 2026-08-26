@@ -14,7 +14,7 @@ _ROOT = Path(__file__).resolve().parents[2]
 _MIGRATION = (
     _ROOT
     / "packages/infinity_context_adapters/infinity_context_adapters/postgres/migrations"
-    / "0033_document_scope_listing_indexes.sql"
+    / "0052_document_scope_listing_indexes.sql"
 )
 _RUNBOOK = _ROOT / "docs/document-listing-index-rollout.md"
 
@@ -94,7 +94,7 @@ def test_document_listing_migration_is_explicit_nontransactional_and_split() -> 
     migration = next(
         item
         for item in migration_runner._load_migrations()
-        if item.migration_id == "0033_document_scope_listing_indexes"
+        if item.migration_id == "0052_document_scope_listing_indexes"
     )
 
     assert migration.transactional is False
@@ -104,6 +104,24 @@ def test_document_listing_migration_is_explicit_nontransactional_and_split() -> 
         "ix_memory_documents_scope_status_page",
         "ix_memory_documents_scope_thread_status_page",
         "ix_memory_documents_scope_thread_source_page",
+    )
+
+
+def test_pr57_history_through_0051_has_only_appended_0052_pending() -> None:
+    migrations = migration_runner._load_migrations()
+    pr57_migrations = migrations[:-1]
+    history = {migration.migration_id: migration.checksum for migration in pr57_migrations}
+    document_index_migrations = tuple(
+        migration.migration_id
+        for migration in migrations
+        if migration.migration_id.endswith("_document_scope_listing_indexes")
+    )
+
+    assert pr57_migrations[-1].migration_id == ("0051_locator_profile_acl_search_path_hardening")
+    assert document_index_migrations == ("0052_document_scope_listing_indexes",)
+    migration_runner._validate_history(migrations, history)
+    assert migration_runner._first_pending_out_of_transaction(migrations, history) == len(
+        pr57_migrations
     )
 
 
@@ -261,7 +279,7 @@ def test_valid_wrong_recoverable_index_definition_fails_without_drop(
     migration = next(
         item
         for item in migration_runner._load_migrations()
-        if item.migration_id == "0033_document_scope_listing_indexes"
+        if item.migration_id == "0052_document_scope_listing_indexes"
     )
     rows = (
         (

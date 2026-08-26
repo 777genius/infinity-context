@@ -96,7 +96,7 @@ class _RecoverableIndexSpec:
 
 
 _RECOVERABLE_INDEX_SPECS = {
-    "0033_document_scope_listing_indexes": (
+    "0052_document_scope_listing_indexes": (
         _RecoverableIndexSpec(
             "ix_memory_documents_scope_status_page",
             "memory_documents",

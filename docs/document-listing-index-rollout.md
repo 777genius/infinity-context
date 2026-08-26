@@ -1,6 +1,6 @@
 # Online document listing index rollout
 
-Migration `0033_document_scope_listing_indexes` is an online, forward-only
+Migration `0052_document_scope_listing_indexes` is an online, forward-only
 migration executed by the existing Infinity Context migration runner.
 
 ## Invariants
@@ -19,7 +19,7 @@ migration executed by the existing Infinity Context migration runner.
   the schema-history transaction.
 - Application instances may keep serving reads and writes during index builds.
 - Do not enable the collection scan consumer until the migration history records
-  `0033_document_scope_listing_indexes`.
+  `0052_document_scope_listing_indexes`.
 
 ## Preflight and observation
 
@@ -43,11 +43,13 @@ FROM pg_stat_activity
 WHERE query ILIKE '%memory_documents%';
 ```
 
-A populated-clone qualification must demonstrate that ordinary inserts continue
-while all three indexes build and must record wall time, maximum insert latency,
-pre/post table row count, concurrent insert count, and each final public index's
-`indisready`, `indisvalid`, and canonical `pg_get_indexdef` definition. Run the
-bounded qualification against a disposable hosted PostgreSQL 18 server with:
+A populated-clone qualification must install the exact published PR57 migration
+history through `0051` before applying `0052`, demonstrate that ordinary inserts
+continue while all three indexes build, and record wall time, maximum insert
+latency, pre/post table row count, concurrent insert count, and each final public
+index's `indisready`, `indisvalid`, and canonical `pg_get_indexdef` definition.
+Run the bounded qualification against a disposable hosted PostgreSQL 18 server
+with:
 
 ```bash
 INFINITY_CONTEXT_TEST_POSTGRES_URL="$DISPOSABLE_POSTGRES_ADMIN_URL" \
@@ -93,6 +95,6 @@ DROP INDEX CONCURRENTLY IF EXISTS ix_memory_documents_scope_thread_status_page;
 DROP INDEX CONCURRENTLY IF EXISTS ix_memory_documents_scope_status_page;
 ```
 
-After rollback, remove the `0033` history row only as part of an approved restore
+After rollback, remove the `0052` history row only as part of an approved restore
 procedure. A normal forward deployment must never edit published migration
 history.

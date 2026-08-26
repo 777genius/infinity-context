@@ -52,7 +52,7 @@ async def _qualify_online_indexes(database_url: str) -> None:
 
     try:
         await database.recreate()
-        await _install_versioned_schema_through(database, "0032_")
+        await _install_versioned_schema_through(database, "0051_")
         await _seed_populated_clone(database)
         report = await _build_indexes_with_writes(database)
         print(
@@ -103,7 +103,7 @@ async def _build_indexes_with_writes(database: PostgresTestDatabase) -> dict[str
     migration = next(
         item
         for item in _load_migrations()
-        if item.migration_id == "0033_document_scope_listing_indexes"
+        if item.migration_id == "0052_document_scope_listing_indexes"
     )
     statements = migration.statements()
     assert len(statements) == len(_INDEX_DEFINITIONS) == 3
