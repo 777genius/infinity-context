@@ -204,6 +204,125 @@ jobs:
           .venv/bin/python -m pytest -q
           tests/e2e/test_selfhost_identity_bootstrap_postgres.py::test_pg16_logical_restore_transfers_application_ownership
 
+  qdrant-locator-acceptance:
+    name: Real Qdrant 16,385-point locator acceptance
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+
+    services:
+      postgres:
+        image: postgres:18
+        env:
+          POSTGRES_USER: infinity_context
+          POSTGRES_PASSWORD: infinity_context
+          POSTGRES_DB: infinity_context
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U infinity_context -d infinity_context"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 20
+          --cpus 1.5
+          --memory 2g
+      qdrant:
+        image: qdrant/qdrant:v1.18.0
+        ports:
+          - 6333:6333
+        options: >-
+          --cpus 2
+          --memory 3g
+
+    env:
+      INFINITY_CONTEXT_TEST_POSTGRES_URL: postgresql+asyncpg://infinity_context:infinity_context@127.0.0.1:5432/infinity_context
+      INFINITY_SANDBOX_QDRANT_URL: http://127.0.0.1:6333
+      INFINITY_RUN_LOCATOR_QDRANT_E2E: "1"
+      HF_HUB_OFFLINE: "1"
+      TRANSFORMERS_OFFLINE: "1"
+      PYTEST_DISABLE_PLUGIN_AUTOLOAD: "1"
+      OPENAI_API_KEY: ""
+      OPENAI_ORG_ID: ""
+      MEMORY_OPENAI_API_KEY: ""
+      MEMORY_AGENT_BENCH_OPENAI_API_KEY: ""
+      MEM0_API_KEY: ""
+      ANTHROPIC_API_KEY: ""
+      GOOGLE_API_KEY: ""
+      GEMINI_API_KEY: ""
+      COHERE_API_KEY: ""
+      VOYAGE_API_KEY: ""
+      AZURE_OPENAI_API_KEY: ""
+      AWS_ACCESS_KEY_ID: ""
+      AWS_SECRET_ACCESS_KEY: ""
+      AWS_SESSION_TOKEN: ""
+      HF_TOKEN: ""
+      HUGGINGFACE_HUB_TOKEN: ""
+      QDRANT_API_KEY: ""
+
+    steps:
+      - name: Checkout exact workflow head
+        uses: actions/checkout@v7.0.1
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          persist-credentials: false
+
+      - name: Verify exact workflow head
+        env:
+          EXPECTED_HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: test "$(git rev-parse HEAD)" = "$EXPECTED_HEAD_SHA"
+
+      - name: Set up Python
+        uses: actions/setup-python@v7.0.0
+        with:
+          python-version: "3.13.5"
+
+      - name: Install locked test dependencies
+        run: |
+          python -m pip install --disable-pip-version-check "uv==0.11.28"
+          uv sync --extra dev --extra qdrant --frozen
+
+      - name: Wait for real Qdrant
+        run: |
+          for attempt in {1..60}; do
+            if curl --fail --silent --show-error http://127.0.0.1:6333/healthz; then
+              exit 0
+            fi
+            sleep 2
+          done
+          docker logs "${{ job.services.qdrant.id }}"
+          exit 1
+
+      - name: Run mandatory provider-free locator acceptance
+        run: |
+          mkdir -p test-results
+          set +e
+          timeout --signal=TERM --kill-after=30s 40m \
+            .venv/bin/python -m pytest -q \
+            --junitxml=test-results/qdrant-locator-acceptance.xml \
+            tests/e2e/test_locator_retrieval_v2_qdrant_e2e.py::test_real_qdrant_large_profile_resumes_attests_and_physically_deletes
+          acceptance_status=$?
+          set -e
+          if test ! -s test-results/qdrant-locator-acceptance.xml; then
+            printf '%s\n' \
+              '<testsuites tests="1" failures="1">' \
+              '  <testsuite name="qdrant-locator-acceptance" tests="1" failures="1">' \
+              '    <testcase name="acceptance-process">' \
+              "      <failure message=\"acceptance exited before pytest emitted JUnit (status ${acceptance_status})\"/>" \
+              '    </testcase>' \
+              '  </testsuite>' \
+              '</testsuites>' \
+              > test-results/qdrant-locator-acceptance.xml
+          fi
+          exit "$acceptance_status"
+
+      - name: Upload locator acceptance JUnit evidence
+        if: always()
+        uses: actions/upload-artifact@v7.0.1
+        with:
+          name: qdrant-locator-acceptance-junit-${{ github.event.pull_request.head.sha || github.sha }}
+          path: test-results/qdrant-locator-acceptance.xml
+          if-no-files-found: error
+          retention-days: 14
+
   quality:
     name: Quality Gate
     if: always()
@@ -212,6 +331,7 @@ jobs:
       - test_suite
       - disposable-root-contracts
       - selfhost-postgres-upgrade
+      - qdrant-locator-acceptance
       - benchmark-contracts
     runs-on: ubuntu-latest
     timeout-minutes: 5
@@ -220,6 +340,7 @@ jobs:
       TEST_SUITE_RESULT: ${{ needs.test_suite.result }}
       DISPOSABLE_ROOT_CONTRACTS_RESULT: ${{ needs.disposable-root-contracts.result }}
       SELFHOST_POSTGRES_UPGRADE_RESULT: ${{ needs.selfhost-postgres-upgrade.result }}
+      QDRANT_LOCATOR_ACCEPTANCE_RESULT: ${{ needs.qdrant-locator-acceptance.result }}
       BENCHMARK_CONTRACTS_RESULT: ${{ needs.benchmark-contracts.result }}
     steps:
       - name: Verify all quality jobs passed
@@ -228,6 +349,7 @@ jobs:
           test "$TEST_SUITE_RESULT" = "success"
           test "$DISPOSABLE_ROOT_CONTRACTS_RESULT" = "success"
           test "$SELFHOST_POSTGRES_UPGRADE_RESULT" = "success"
+          test "$QDRANT_LOCATOR_ACCEPTANCE_RESULT" = "success"
           test "$BENCHMARK_CONTRACTS_RESULT" = "success"
 
   benchmark-contracts:
