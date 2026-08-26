@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import os
+import re
 import tempfile
 from datetime import UTC, datetime
 from pathlib import Path
@@ -230,10 +231,19 @@ async def _assert_populated_upgrade(database_url: str) -> None:
                 await raw.close()
             with tempfile.TemporaryDirectory(prefix="locator-0046-backup-") as directory:
                 backup = str(Path(directory) / "database.dump")
-                await _run_pg("pg_dump", "--format=custom", "--file", backup, database.raw_dsn)
+                client_image = await _run_pg(
+                    "pg_dump", "--format=custom", "--file", backup, database.raw_dsn
+                )
                 await engine.dispose()
                 await database.recreate()
-                await _run_pg("pg_restore", "--no-owner", "--dbname", database.raw_dsn, backup)
+                await _run_pg(
+                    "pg_restore",
+                    "--no-owner",
+                    "--dbname",
+                    database.raw_dsn,
+                    backup,
+                    client_image=client_image,
+                )
                 restored = await database.connect()
                 try:
                     assert (
@@ -261,7 +271,10 @@ async def _assert_populated_upgrade(database_url: str) -> None:
         await database.drop()
 
 
-async def _run_pg(*arguments: str) -> None:
+async def _run_pg(*arguments: str, client_image: str | None = None) -> str | None:
+    if client_image is not None:
+        await _run_pg_in_client_container(*arguments, client_image=client_image)
+        return client_image
     process = await asyncio.create_subprocess_exec(
         *arguments,
         stdout=asyncio.subprocess.DEVNULL,
@@ -270,78 +283,66 @@ async def _run_pg(*arguments: str) -> None:
     _, stderr = await process.communicate()
     if process.returncode != 0:
         if b"server version mismatch" in stderr or b"unsupported version" in stderr:
-            await _run_pg_in_backend_container(*arguments)
-            return
+            match = re.search(rb"server version:\s*(\d+)", stderr)
+            if match is not None:
+                client_image = f"postgres:{match.group(1).decode()}"
+                await _run_pg_in_client_container(*arguments, client_image=client_image)
+                return client_image
         raise AssertionError(
             f"disposable PostgreSQL backup command failed ({arguments[0]}): "
             f"{stderr.decode(errors='replace')[:500]}"
         )
+    return None
 
 
-async def _run_pg_in_backend_container(*arguments: str) -> None:
+async def _run_pg_in_client_container(*arguments: str, client_image: str) -> None:
     dump = arguments[0] == "pg_dump"
     dsn = arguments[-1] if dump else arguments[-2]
     parsed = make_url(dsn)
-    listing = await asyncio.create_subprocess_exec(
+    container_arguments = list(arguments[1:])
+    if dump:
+        file_index = container_arguments.index("--file")
+        backup = container_arguments[file_index + 1]
+        del container_arguments[file_index : file_index + 2]
+    else:
+        backup = container_arguments.pop()
+    container_arguments[-1] = parsed.set(password=None).render_as_string(hide_password=False)
+    process_environment = os.environ.copy()
+    process_environment["PGPASSWORD"] = parsed.password or ""
+    command = (
         "docker",
-        "ps",
-        "--format",
-        "{{.ID}} {{.Ports}}",
-        stdout=asyncio.subprocess.PIPE,
-        stderr=asyncio.subprocess.PIPE,
-    )
-    stdout, _ = await listing.communicate()
-    marker = f"127.0.0.1:{parsed.port}->5432/tcp"
-    container = next(
-        (line.split()[0] for line in stdout.decode().splitlines() if marker in line), None
-    )
-    if container is None:
-        raise AssertionError("matching disposable PostgreSQL backend container was not found")
-    password = parsed.password or ""
-    common = (
-        "docker",
-        "exec",
+        "run",
+        "--rm",
+        "--network",
+        "host",
         "-i",
         "-e",
-        f"PGPASSWORD={password}",
-        container,
+        "PGPASSWORD",
+        client_image,
+        arguments[0],
+        *container_arguments,
     )
     if dump:
-        backup = arguments[arguments.index("--file") + 1]
-        command = (
-            *common,
-            "pg_dump",
-            "--format=custom",
-            "--username",
-            parsed.username or "",
-            parsed.database or "",
-        )
         process = await asyncio.create_subprocess_exec(
-            *command, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE
+            *command,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+            env=process_environment,
         )
         data, stderr = await process.communicate()
         if process.returncode == 0:
             Path(backup).write_bytes(data)
     else:
-        backup = arguments[-1]
-        command = (
-            *common,
-            "pg_restore",
-            "--no-owner",
-            "--username",
-            parsed.username or "",
-            "--dbname",
-            parsed.database or "",
-        )
         process = await asyncio.create_subprocess_exec(
             *command,
             stdin=asyncio.subprocess.PIPE,
             stdout=asyncio.subprocess.DEVNULL,
             stderr=asyncio.subprocess.PIPE,
+            env=process_environment,
         )
         _, stderr = await process.communicate(Path(backup).read_bytes())
     if process.returncode != 0:
         raise AssertionError(
-            f"containerized disposable PostgreSQL {arguments[0]} failed: "
+            f"containerized PostgreSQL client {arguments[0]} failed: "
             f"{stderr.decode(errors='replace')[:500]}"
         )
