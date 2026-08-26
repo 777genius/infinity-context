@@ -2,6 +2,9 @@ import inspect
 import re
 from pathlib import Path
 
+from infinity_context_adapters.postgres.benchmark_run_models import (
+    MemoryComparisonBenchmarkRunRow as CanonicalBenchmarkRunRow,
+)
 from infinity_context_adapters.postgres.benchmark_run_repositories import (
     PostgresBenchmarkRunRepository,
     _registry_query,
@@ -14,6 +17,19 @@ from sqlalchemy.dialects import postgresql
 from sqlalchemy.schema import CreateTable
 
 RUN = "a" * 64
+
+
+def test_registry_model_has_one_canonical_declaration() -> None:
+    assert MemoryComparisonBenchmarkRunRow is CanonicalBenchmarkRunRow
+    postgres_package = Path(
+        "packages/infinity_context_adapters/infinity_context_adapters/postgres"
+    )
+    declarations = [
+        path.name
+        for path in postgres_package.glob("*.py")
+        if "class MemoryComparisonBenchmarkRunRow(" in path.read_text()
+    ]
+    assert declarations == ["benchmark_run_models.py"]
 
 
 def test_cleanup_authorizes_registry_before_canonical_tombstones() -> None:
