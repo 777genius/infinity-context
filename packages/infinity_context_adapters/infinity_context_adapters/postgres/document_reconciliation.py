@@ -7,7 +7,7 @@ from infinity_context_core.features.document_ingestion.public import (
     ExactDocumentObservation,
     ExactDocumentObservationPort,
 )
-from sqlalchemy import select
+from sqlalchemy import and_, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from .locator_models import (
@@ -65,7 +65,14 @@ class PostgresExactDocumentObservationAdapter(ExactDocumentObservationPort):
         projection_generation = generations.pop() if len(generations) == 1 else None
         profile = await _profile(session, identity.profile_generation)
         profile_generation = profile.generation if profile is not None else None
-        visibility = await _visibility(session, document, active_chunks, profile)
+        visibility = await _visibility(
+            session,
+            identity,
+            document,
+            chunks,
+            active_chunks,
+            profile,
+        )
         idempotency_matches = await _idempotency_match(
             session, document.id, identity.scope.space_id, idempotency_key
         )
@@ -110,7 +117,7 @@ async def _profile(session, requested_generation):
     return rows[0] if len(rows) == 1 else None
 
 
-async def _visibility(session, document, active_chunks, profile):
+async def _visibility(session, identity, document, chunks, active_chunks, profile):
     if document.status in {"deleted", "superseded"}:
         return "not_queryable"
     if document.status != "active":
@@ -141,22 +148,66 @@ async def _visibility(session, document, active_chunks, profile):
             versions = {receipt.chunk_id: receipt.canonical_version for receipt in receipts}
             if all(versions.get(chunk.id) == chunk.retrieval_version for chunk in active_chunks):
                 return "indexed"
-    if not active_chunks:
-        return "accepted"
+    if await _has_live_projection_work(session, identity, document, chunks, profile):
+        return "processing"
+    return "accepted"
+
+
+async def _has_live_projection_work(session, identity, document, chunks, profile):
+    bound_chunks = [
+        chunk
+        for chunk in chunks
+        if identity.projection_generation is None
+        or chunk.retrieval_projection_generation == identity.projection_generation
+    ]
+    chunk_ids = [chunk.id for chunk in bound_chunks]
+    document_delete = and_(
+        MemoryOutboxRow.event_type == "vector.delete_chunks",
+        MemoryOutboxRow.aggregate_type == "document",
+        MemoryOutboxRow.aggregate_id == document.id,
+        MemoryOutboxRow.payload_json["document_id"].as_string() == document.id,
+    )
+    bindings = [document_delete]
+    if chunk_ids:
+        bindings.append(
+            and_(
+                MemoryOutboxRow.event_type == "vector.upsert_chunk",
+                MemoryOutboxRow.aggregate_id.in_(chunk_ids),
+                MemoryOutboxRow.payload_json["chunk_id"].as_string()
+                == MemoryOutboxRow.aggregate_id,
+            )
+        )
+        if profile is not None:
+            current_versions = or_(
+                *(
+                    and_(
+                        MemoryOutboxRow.aggregate_id == chunk.id,
+                        MemoryOutboxRow.aggregate_version == chunk.retrieval_version,
+                    )
+                    for chunk in bound_chunks
+                )
+            )
+            bindings.append(
+                and_(
+                    MemoryOutboxRow.event_type.in_(
+                        ("vector.upsert_locator_profile", "vector.delete_locator_profile")
+                    ),
+                    MemoryOutboxRow.aggregate_id.in_(chunk_ids),
+                    MemoryOutboxRow.payload_json["profile_id"].as_string() == profile.profile_id,
+                    current_versions,
+                )
+            )
     processing = (
         await session.execute(
             select(MemoryOutboxRow.id)
             .where(
-                MemoryOutboxRow.aggregate_id.in_([chunk.id for chunk in active_chunks]),
-                MemoryOutboxRow.event_type.in_(
-                    ("vector.upsert_chunk", "vector.upsert_locator_profile")
-                ),
                 MemoryOutboxRow.status.in_(("pending", "retry_pending", "running")),
+                or_(*bindings),
             )
             .limit(1)
         )
     ).scalar_one_or_none()
-    return "processing" if processing is not None else "accepted"
+    return processing is not None
 
 
 async def _idempotency_match(session, document_id, space_id, idempotency_key):
