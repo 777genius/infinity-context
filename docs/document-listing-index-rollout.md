@@ -45,7 +45,19 @@ WHERE query ILIKE '%memory_documents%';
 
 A populated-clone qualification must demonstrate that ordinary inserts continue
 while all three indexes build and must record wall time, maximum insert latency,
-table row count, and the final `indisvalid` state.
+pre/post table row count, concurrent insert count, and each final public index's
+`indisready`, `indisvalid`, and canonical `pg_get_indexdef` definition. Run the
+bounded qualification against a disposable hosted PostgreSQL 18 server with:
+
+```bash
+INFINITY_CONTEXT_TEST_POSTGRES_URL="$DISPOSABLE_POSTGRES_ADMIN_URL" \
+  .venv/bin/python -m pytest \
+  tests/e2e/test_document_listing_online_indexes_postgres18.py -q -s
+```
+
+The test creates and drops its own uniquely named database and skips when the
+environment variable is absent. Preserve the single
+`document_listing_online_index_qualification=...` JSON line as rollout evidence.
 
 ## Crash and invalid-index recovery
 
