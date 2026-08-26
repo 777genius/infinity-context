@@ -6,8 +6,11 @@ import asyncio
 import os
 
 import pytest
-from infinity_context_adapters.postgres import build_async_engine
-from infinity_context_adapters.postgres.migration_runner import _load_migrations
+from infinity_context_adapters.postgres import build_async_engine, migration_runner
+from infinity_context_adapters.postgres.staged_locator_migrations import (
+    STAGED_MIGRATION_IDS,
+    apply_staged_locator_migration,
+)
 from postgres_test_database import PostgresTestDatabase
 from sqlalchemy import text
 
@@ -27,7 +30,7 @@ async def _assert_transactional_rollback(database_url: str) -> None:
     )
     await database.recreate()
     engine = build_async_engine(database.app_url)
-    migrations = _load_migrations()
+    migrations = migration_runner._load_migrations()
     release_index = next(
         index
         for index, migration in enumerate(migrations)
@@ -37,8 +40,7 @@ async def _assert_transactional_rollback(database_url: str) -> None:
     assert release.migration_id == "0048_locator_lifecycle_release_identity"
     try:
         for migration in migrations[:release_index]:
-            async with engine.begin() as connection:
-                await _execute_script(connection, migration.sql)
+            await _apply_setup_migration(engine, migration)
         raw = await database.connect()
         transaction = raw.transaction()
         await transaction.start()
@@ -80,3 +82,20 @@ async def _assert_transactional_rollback(database_url: str) -> None:
 async def _execute_script(connection, sql: str) -> None:
     raw = await connection.get_raw_connection()
     await raw.driver_connection.execute(sql)
+
+
+async def _apply_setup_migration(engine, migration) -> None:
+    if not migration.transactional:
+        await migration_runner._execute_nontransactional(engine, migration)
+        return
+    if migration.migration_id in STAGED_MIGRATION_IDS:
+        async with engine.connect() as connection:
+            await apply_staged_locator_migration(
+                connection,
+                migration_id=migration.migration_id,
+            )
+            async with connection.begin():
+                await migration_runner._execute_transactional(connection, migration)
+        return
+    async with engine.begin() as connection:
+        await migration_runner._execute_transactional(connection, migration)

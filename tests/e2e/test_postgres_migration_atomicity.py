@@ -45,6 +45,16 @@ async def _assert_failed_history_is_atomic(
                 assert await connection.scalar(text("SELECT to_regclass('memory_spaces')")) is None
                 assert (
                     await connection.scalar(
+                        text(
+                            "SELECT to_regclass("
+                            "'public.infinity_context_schema_migrations'"
+                            ")"
+                        )
+                    )
+                    == "infinity_context_schema_migrations"
+                )
+                assert (
+                    await connection.scalar(
                         text("SELECT count(*) FROM infinity_context_schema_migrations")
                     )
                     == 0

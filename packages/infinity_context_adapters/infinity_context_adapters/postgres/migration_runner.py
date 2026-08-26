@@ -104,6 +104,9 @@ async def upgrade_schema(engine: AsyncEngine) -> SchemaUpgradeResult:
         try:
             await _acquire_advisory_lock(lock_connection)
             lock_acquired = True
+            # Commit the runner bootstrap independently from migration work. A
+            # failed first migration must roll back its DDL and history row
+            # without also removing the history table that reports that state.
             async with engine.begin() as work_connection:
                 await _ensure_history_table(work_connection)
                 applied_history = await _load_history(work_connection)
@@ -120,11 +123,13 @@ async def upgrade_schema(engine: AsyncEngine) -> SchemaUpgradeResult:
                     migrations,
                     applied_history,
                 )
-                prefix = (
-                    migrations[:out_of_transaction_boundary]
-                    if out_of_transaction_boundary is not None
-                    else migrations
-                )
+
+            prefix = (
+                migrations[:out_of_transaction_boundary]
+                if out_of_transaction_boundary is not None
+                else migrations
+            )
+            async with engine.begin() as work_connection:
                 applied.extend(
                     await _apply_transactional_pending(
                         work_connection,
