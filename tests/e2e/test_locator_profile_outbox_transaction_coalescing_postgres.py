@@ -31,7 +31,10 @@ async def _assert_upgrade_and_coalescing(database_url: str) -> None:
         engine = build_async_engine(database.app_url)
         try:
             upgrade = await upgrade_schema(engine)
-            assert upgrade.applied == ("0050_locator_profile_outbox_transaction_coalescing",)
+            assert upgrade.applied == (
+                "0050_locator_profile_outbox_transaction_coalescing",
+                "0051_locator_profile_acl_search_path_hardening",
+            )
             assert (await upgrade_schema(engine)).applied == ()
         finally:
             await engine.dispose()

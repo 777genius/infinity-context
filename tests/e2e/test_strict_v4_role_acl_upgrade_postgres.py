@@ -158,6 +158,7 @@ async def _scenario(database_url: str) -> None:
                 "0048_locator_lifecycle_release_identity",
                 "0049_reconciliation_runtime_generation",
                 "0050_locator_profile_outbox_transaction_coalescing",
+                "0051_locator_profile_acl_search_path_hardening",
             )
         finally:
             await engine.dispose()
@@ -271,10 +272,10 @@ async def _non_schema_owner_scenario(database_url: str) -> None:
         engine = build_async_engine(migrator_database.app_url)
         try:
             result = await upgrade_schema(engine)
-            assert result.current == "0050_locator_profile_outbox_transaction_coalescing"
+            assert result.current == "0051_locator_profile_acl_search_path_hardening"
             assert result.applied[0] == "0001_core_facts"
             assert result.applied[-1] == (
-                "0050_locator_profile_outbox_transaction_coalescing"
+                "0051_locator_profile_acl_search_path_hardening"
             )
         finally:
             await engine.dispose()

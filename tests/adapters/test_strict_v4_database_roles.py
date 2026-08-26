@@ -29,7 +29,7 @@ _STRICT_V4_FACT_MIGRATION = _POSTGRES_ROOT / "migrations/0037_strict_v4_fact_wri
 _STRICT_V4_DOCUMENT_MIGRATION = _POSTGRES_ROOT / "migrations/0038_strict_v4_document_writer.sql"
 _LOCATOR_PROFILE_MIGRATION = _POSTGRES_ROOT / "migrations/0040_locator_profile_lifecycle.sql"
 _FINAL_LOCATOR_PROFILE_MIGRATION = (
-    _POSTGRES_ROOT / "migrations/0050_locator_profile_outbox_transaction_coalescing.sql"
+    _POSTGRES_ROOT / "migrations/0051_locator_profile_acl_search_path_hardening.sql"
 )
 _PROVISIONING_SQL = _POSTGRES_ROOT / "provisioning/strict_v4_roles.sql"
 _MIGRATION_0035_AUTHORITY_TABLES = {

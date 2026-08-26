@@ -77,6 +77,7 @@ async def _assert_populated_upgrade(database_url: str) -> None:
             assert result.applied == (
                 "0049_reconciliation_runtime_generation",
                 "0050_locator_profile_outbox_transaction_coalescing",
+                "0051_locator_profile_acl_search_path_hardening",
             )
             async with engine.connect() as connection:
                 legacy_operation = (

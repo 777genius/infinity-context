@@ -57,6 +57,9 @@ def test_published_migration_bytes_match_head_checksums() -> None:
         "0035_projection_result_receipts.sql": (
             "a83c0c0ae930b8e677621c855426212b44621c07644ad8c86437f5346e0c40ee"
         ),
+        "0050_locator_profile_outbox_transaction_coalescing.sql": (
+            "9be1200b51bccbe50f68e935c4c227f8e8a0aefd77f0c46561d352295e5b844f"
+        ),
     }
     for name, checksum in expected.items():
         assert sha256((migrations / name).read_bytes()).hexdigest() == checksum
@@ -73,7 +76,7 @@ def test_published_ledger_prefix_continues_through_forward_locator_migration() -
     _validate_history(migrations, history)
 
     assert migrations[-1].migration_id == (
-        "0050_locator_profile_outbox_transaction_coalescing"
+        "0051_locator_profile_acl_search_path_hardening"
     )
 
 
