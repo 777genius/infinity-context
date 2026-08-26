@@ -46,10 +46,10 @@ jobs:
             exit 1
           fi
 
-          repository_json="$(gh api -H "Accept: application/vnd.github+json" \
-            "repos/${GITHUB_REPOSITORY}")"
-          if ! jq -e '(.immutable_releases == true) or (.immutable_releases_enabled == true)' \
-            <<<"${repository_json}" >/dev/null; then
+          immutable_releases="$(gh api -H "Accept: application/vnd.github+json" \
+            -H "X-GitHub-Api-Version: 2026-03-10" \
+            "repos/${GITHUB_REPOSITORY}/immutable-releases")"
+          if ! jq -e '.enabled == true' <<<"${immutable_releases}" >/dev/null; then
             echo "The GitHub API did not confirm immutable releases are enabled" >&2
             exit 1
           fi
@@ -298,6 +298,18 @@ jobs:
             --workflow-run-id "${GITHUB_RUN_ID}" \
             --workflow-sha256 "${WORKFLOW_SHA256}"
 
+      - name: Preflight GitHub CLI release verification syntax
+        shell: bash
+        run: |
+          set -euo pipefail
+          verify_help="$(gh release verify --help)"
+          grep -Fq 'gh release verify [<tag>] [flags]' <<<"${verify_help}"
+          grep -Eq -- '(^|[[:space:]])(-R, )?--repo[ =]' <<<"${verify_help}"
+          verify_asset_help="$(gh release verify-asset --help)"
+          grep -Fq 'gh release verify-asset [<tag>] <file-path> [flags]' \
+            <<<"${verify_asset_help}"
+          grep -Eq -- '(^|[[:space:]])(-R, )?--repo[ =]' <<<"${verify_asset_help}"
+
       - name: Refuse pre-existing release state and reconfirm policy
         shell: bash
         env:
@@ -307,10 +319,10 @@ jobs:
           TAG_OBJECT: ${{ needs.build.outputs.tag_object }}
         run: |
           set -euo pipefail
-          repository_json="$(gh api -H "Accept: application/vnd.github+json" \
-            "repos/${GITHUB_REPOSITORY}")"
-          jq -e '(.immutable_releases == true) or (.immutable_releases_enabled == true)' \
-            <<<"${repository_json}" >/dev/null || {
+          immutable_releases="$(gh api -H "Accept: application/vnd.github+json" \
+            -H "X-GitHub-Api-Version: 2026-03-10" \
+            "repos/${GITHUB_REPOSITORY}/immutable-releases")"
+          jq -e '.enabled == true' <<<"${immutable_releases}" >/dev/null || {
               echo "Immutable releases are not API-confirmed" >&2
               exit 1
             }

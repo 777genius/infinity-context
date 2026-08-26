@@ -20,8 +20,9 @@ replace the release bytes with another pack.
 ## Operator prerequisites
 
 Administrators must configure these controls before dispatch. The workflow checks
-what the normal GitHub API exposes and fails closed; it never changes repository
-settings or invents credentials.
+GitHub's dedicated repository immutable-releases endpoint and requires its documented
+`enabled: true` response; it fails closed and never changes repository settings or
+invents credentials.
 
 - Enable repository immutable releases.
 - Create an active tag ruleset covering `refs/tags/sdk-v*` that restricts creation,
@@ -87,10 +88,12 @@ gh run list --repo 777genius/infinity-context \
 Approve `sdk-release` only after the build job succeeds. Both build and publish jobs
 refuse any existing release or draft for the tag; reruns do not resume or repair one.
 The publish job reconfirms the tag and immutable-release setting, rehashes and
-semantically revalidates both transported files, creates one draft, uploads without
-`--clobber`, downloads and compares both assets, publishes once, and requires the
-published release to report `immutable: true`. It then runs `gh release verify` and
-`gh release verify-asset` for each exact asset.
+semantically revalidates both transported files, and first requires the installed
+`gh` to expose the exact `gh release verify [<tag>]` and
+`gh release verify-asset [<tag>] <file-path>` syntax used by the workflow, including
+`--repo`. Only then does it create one draft, upload without `--clobber`, download
+and compare both assets, publish once, and require the published release to report
+`immutable: true`. It then runs both preflighted verification commands.
 
 ## Download, verify, and cold install
 

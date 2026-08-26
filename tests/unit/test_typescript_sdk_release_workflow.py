@@ -65,14 +65,22 @@ def test_every_action_is_pinned_to_a_full_commit() -> None:
 
 def test_preflight_proves_repository_tag_rules_and_immutable_releases() -> None:
     workflow = _workflow()
+    build = _job(workflow, "build", "publish")
+    publish = _job(workflow, "publish")
     assert workflow.count("777genius/infinity-context") >= 2
     assert 'object.type' in workflow
     assert '!= "tag"' in workflow
     assert "rulesets?targets=tag" in workflow
     for rule in ('index("creation")', 'index("update")', 'index("deletion")'):
         assert rule in workflow
-    assert "immutable_releases == true" in workflow
-    assert "immutable_releases_enabled == true" in workflow
+    endpoint = '"repos/${GITHUB_REPOSITORY}/immutable-releases"'
+    assert workflow.count(endpoint) == 2
+    assert build.count(endpoint) == 1
+    assert publish.count(endpoint) == 1
+    assert workflow.count("jq -e '.enabled == true'") == 2
+    assert "immutable_releases == true" not in workflow
+    assert "immutable_releases_enabled == true" not in workflow
+    assert publish.rindex(endpoint) < publish.index('gh release create "${RELEASE_TAG}"')
     assert workflow.count("releases?per_page=100") == 2
     assert "refusing to resume" in workflow.lower()
     assert "persist-credentials: false" in workflow
@@ -162,6 +170,28 @@ def test_publication_is_create_only_verified_before_and_after_publish() -> None:
     assert "gh release delete" not in publish
     assert "isImmutable" not in publish  # REST's immutable boolean is authoritative here.
     assert "'.immutable'" in publish
+
+
+def test_verification_command_syntax_is_preflighted_before_any_release_effect() -> None:
+    publish = _job(_workflow(), "publish")
+    verify_help = "gh release verify --help"
+    verify_asset_help = "gh release verify-asset --help"
+    assert publish.count(verify_help) == 1
+    assert publish.count(verify_asset_help) == 1
+    assert "gh release verify [<tag>] [flags]" in publish
+    assert "gh release verify-asset [<tag>] <file-path> [flags]" in publish
+    assert publish.count("grep -Eq -- '(^|[[:space:]])(-R, )?--repo[ =]'") == 2
+
+    first_effect = min(
+        publish.index(command)
+        for command in (
+            'gh release create "${RELEASE_TAG}"',
+            'gh release upload "${RELEASE_TAG}"',
+            'gh release edit "${RELEASE_TAG}"',
+        )
+    )
+    assert publish.index(verify_help) < first_effect
+    assert publish.index(verify_asset_help) < first_effect
 
 
 def test_post_publication_receipt_is_not_a_release_asset() -> None:
