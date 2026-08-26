@@ -155,13 +155,18 @@ class _LocalHttpServer(AbstractContextManager["_LocalHttpServer"]):
         assert not self.thread.is_alive()
 
 
-def _client(server: _LocalHttpServer, *, timeout: float = 0.75) -> InfinityContextClient:
+def _client(
+    server: _LocalHttpServer,
+    *,
+    timeout: float = 0.75,
+    explicit_transport: bool = True,
+) -> InfinityContextClient:
     # Constructing the real transport outside the measured interval isolates the
     # socket cancellation contract from one-time platform CA discovery overhead.
     return InfinityContextClient(
         base_url=server.base_url,
         timeout=timeout,
-        transport=httpx.AsyncHTTPTransport(),
+        transport=httpx.AsyncHTTPTransport() if explicit_transport else None,
     )
 
 
@@ -223,6 +228,34 @@ def test_real_socket_phase_timeout_remains_a_secondary_cap() -> None:
         assert server.wait_for_peer_closed(1)
 
 
+@pytest.mark.parametrize("cancelled", [False, True])
+def test_default_real_socket_transport_keeps_control_bounds(cancelled: bool) -> None:
+    with _LocalHttpServer(body=None) as server:
+        client = _client(server, explicit_transport=False)
+        cancellation_event = Event() if cancelled else None
+        controller = None
+        started = time.monotonic()
+        if cancellation_event is not None:
+            controller = Thread(target=lambda: (time.sleep(0.05), cancellation_event.set()))
+            controller.start()
+        with pytest.raises(InfinityContextError) as captured:
+            client.reconcile_exact_document(
+                **INPUT,
+                cancellation_event=cancellation_event,
+                absolute_deadline=started + 0.12,
+            )
+        elapsed = time.monotonic() - started
+        if controller is not None:
+            controller.join(1)
+
+        expected = "memory.request_cancelled" if cancelled else "memory.request_deadline_exceeded"
+        assert captured.value.code == expected
+        assert elapsed < 0.3
+        assert server.wait_for_accepted(1)
+        assert server.wait_for_peer_closed(1)
+        assert controller is None or not controller.is_alive()
+
+
 def test_real_socket_response_wins_before_later_cancellation() -> None:
     with _LocalHttpServer(body=_response_body(), response_delay=0.01) as server:
         client = _client(server)
@@ -280,3 +313,12 @@ def test_real_socket_malformed_response_fails_closed_after_cleanup() -> None:
 
         assert captured.value.code == "memory.invalid_json"
         assert server.wait_for_peer_closed(1)
+
+
+def test_async_http_transport_reconciles_without_breaking_ordinary_sync_calls() -> None:
+    with _LocalHttpServer(body=_response_body()) as server:
+        client = _client(server)
+        assert client.reconcile_exact_document(**INPUT)["data"]["state"] == "present"
+        assert server.wait_for_peer_closed(1)
+        assert client.list_spaces()["data"]["state"] == "present"
+        assert server.wait_for_peer_closed(2)

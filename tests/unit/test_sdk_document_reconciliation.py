@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import json
 import time
+from concurrent.futures import ThreadPoolExecutor
 from copy import deepcopy
 from pathlib import Path
 from threading import Event, Thread
@@ -11,7 +12,10 @@ from threading import enumerate as enumerate_threads
 import httpx
 import pytest
 from infinity_context_sdk import InfinityContextClient
-from infinity_context_sdk.errors import InfinityContextError
+from infinity_context_sdk.errors import (
+    InfinityContextError,
+    InfinityContextTransportCapabilityError,
+)
 
 CAPABILITY = {
     "exact_reconciliation": {
@@ -158,6 +162,7 @@ def test_python_sdk_cancellation_cleans_up_async_request_and_client() -> None:
     released = Event()
     closed = Event()
     cancelled = Event()
+    residual_tasks: list[str] = []
 
     class BlockingTransport(httpx.AsyncBaseTransport):
         async def handle_async_request(self, _request: httpx.Request) -> httpx.Response:
@@ -168,6 +173,10 @@ def test_python_sdk_cancellation_cleans_up_async_request_and_client() -> None:
                 released.set()
 
         async def aclose(self) -> None:
+            current = asyncio.current_task()
+            residual_tasks.extend(
+                task.get_name() for task in asyncio.all_tasks() if task is not current
+            )
             closed.set()
 
     def cancel_after_entry() -> None:
@@ -185,6 +194,7 @@ def test_python_sdk_cancellation_cleans_up_async_request_and_client() -> None:
     assert captured.value.code == "memory.request_cancelled"
     assert released.is_set()
     assert closed.is_set()
+    assert residual_tasks == []
 
 
 def test_python_sdk_simultaneous_response_and_cancellation_fails_deterministically() -> None:
@@ -228,21 +238,105 @@ def test_python_sdk_repeated_calls_close_every_private_event_loop(monkeypatch) -
     )
 
 
-def test_python_sdk_preserves_immediate_sync_custom_transport_compatibility() -> None:
+def test_python_sdk_rejects_blocking_sync_transport_before_handler_call() -> None:
     calls = 0
-    closed = Event()
 
     class SyncTransport(httpx.BaseTransport):
         def handle_request(self, _request: httpx.Request) -> httpx.Response:
             nonlocal calls
             calls += 1
-            return httpx.Response(200, json=_response())
+            Event().wait()
+            raise AssertionError("indefinitely blocking handler returned")
 
-        def close(self) -> None:
-            closed.set()
+    started = time.monotonic()
+    with pytest.raises(InfinityContextTransportCapabilityError) as captured:
+        InfinityContextClient(transport=SyncTransport()).reconcile_exact_document(**INPUT)
 
-    result = InfinityContextClient(transport=SyncTransport()).reconcile_exact_document(**INPUT)
+    assert captured.value.code == "memory.transport_capability_invalid"
+    assert calls == 0
+    assert time.monotonic() - started < 0.1
+    assert not any(
+        thread.name == "infinity-sdk-owned-loop" and thread.is_alive()
+        for thread in enumerate_threads()
+    )
 
+
+def test_python_sdk_sync_transport_can_pair_with_explicit_async_transport() -> None:
+    sync_calls = 0
+
+    class SyncTransport(httpx.BaseTransport):
+        def handle_request(self, _request: httpx.Request) -> httpx.Response:
+            nonlocal sync_calls
+            sync_calls += 1
+            return httpx.Response(200, json={"data": []})
+
+    client = InfinityContextClient(
+        transport=SyncTransport(),
+        async_transport=_response_transport(_response()),
+    )
+    assert client.list_spaces() == {"data": []}
+    assert client.reconcile_exact_document(**INPUT)["data"]["state"] == "present"
+    assert sync_calls == 1
+
+
+def test_python_sdk_reconciliation_runs_from_an_active_event_loop() -> None:
+    async def call_successfully() -> dict[str, object]:
+        return InfinityContextClient(
+            transport=_response_transport(_response())
+        ).reconcile_exact_document(**INPUT)
+
+    result = asyncio.run(call_successfully())
     assert result["data"]["state"] == "present"
-    assert calls == 1
-    assert closed.is_set()
+
+
+def test_python_sdk_active_event_loop_cancellation_cleans_up() -> None:
+    entered = Event()
+    released = Event()
+    cancelled = Event()
+
+    class BlockingTransport(httpx.AsyncBaseTransport):
+        async def handle_async_request(self, _request: httpx.Request) -> httpx.Response:
+            entered.set()
+            try:
+                await asyncio.Event().wait()
+            finally:
+                released.set()
+
+    def cancel() -> None:
+        assert entered.wait(1)
+        cancelled.set()
+
+    async def call_and_cancel() -> None:
+        controller = Thread(target=cancel)
+        controller.start()
+        with pytest.raises(InfinityContextError) as captured:
+            InfinityContextClient(transport=BlockingTransport()).reconcile_exact_document(
+                **INPUT, cancellation_event=cancelled
+            )
+        controller.join(1)
+        assert captured.value.code == "memory.request_cancelled"
+        assert not controller.is_alive()
+
+    asyncio.run(call_and_cancel())
+    assert released.is_set()
+
+
+def test_python_sdk_concurrent_bounded_calls_join_every_owned_loop() -> None:
+    calls = 12
+    transport = _response_transport(_response())
+    client = InfinityContextClient(transport=transport)
+
+    with ThreadPoolExecutor(max_workers=6) as executor:
+        results = list(
+            executor.map(
+                lambda _index: client.reconcile_exact_document(**INPUT),
+                range(calls),
+            )
+        )
+
+    assert len(results) == calls
+    assert all(result["data"]["state"] == "present" for result in results)
+    assert not any(
+        thread.name == "infinity-sdk-owned-loop" and thread.is_alive()
+        for thread in enumerate_threads()
+    )

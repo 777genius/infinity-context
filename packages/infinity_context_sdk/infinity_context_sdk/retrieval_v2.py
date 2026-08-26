@@ -5,7 +5,7 @@ from __future__ import annotations
 import asyncio
 import json
 import time
-from threading import Event, Thread
+from threading import Event
 
 import httpx
 from infinity_context_contracts.features.context_building import (
@@ -18,6 +18,7 @@ from infinity_context_contracts.features.context_building import (
     decode_retrieve_context_v2_response,
 )
 
+from infinity_context_sdk.async_facade import run_on_owned_loop
 from infinity_context_sdk.errors import InfinityContextError
 
 
@@ -34,6 +35,7 @@ class InfinityContextRetrievalV2Mixin:
     token: str | None
     timeout: float
     transport: httpx.BaseTransport | httpx.AsyncBaseTransport | None
+    async_transport: httpx.AsyncBaseTransport | None
 
     def retrieve_context_v2(
         self,
@@ -48,36 +50,16 @@ class InfinityContextRetrievalV2Mixin:
             if isinstance(request, RetrieveContextV2RequestDto)
             else self.timeout
         )
-        deadline = time.monotonic() + min(self.timeout, request_budget)
-        coroutine = self._retrieve_context_v2_async(
-            request,
-            capability=capability,
-            cancellation_event=cancellation_event,
-            deadline=deadline,
+        transport = self._cancellable_async_transport()
+        return run_on_owned_loop(
+            lambda: self._retrieve_context_v2_async(
+                request,
+                capability=capability,
+                cancellation_event=cancellation_event,
+                deadline=time.monotonic() + min(self.timeout, request_budget),
+                transport=transport,
+            )
         )
-        try:
-            asyncio.get_running_loop()
-        except RuntimeError:
-            return asyncio.run(coroutine)
-        # A synchronous facade cannot nest a loop in the caller's loop. Own and
-        # join a non-daemon loop thread; cancellation still targets async sockets.
-        outcome: list[tuple[bool, object]] = []
-
-        def run_owned_loop() -> None:
-            try:
-                outcome.append((True, asyncio.run(coroutine)))
-            except BaseException as exc:
-                outcome.append((False, exc))
-
-        worker = Thread(target=run_owned_loop, name="infinity-retrieval-v2-owned-loop")
-        worker.start()
-        worker.join()
-        succeeded, value = outcome[0]
-        if succeeded:
-            assert isinstance(value, RetrieveContextV2ResponseDto)
-            return value
-        assert isinstance(value, BaseException)
-        raise value
 
     async def _retrieve_context_v2_async(
         self,
@@ -86,6 +68,7 @@ class InfinityContextRetrievalV2Mixin:
         capability: RetrievalV2CapabilityDto,
         cancellation_event: Event | None,
         deadline: float,
+        transport: httpx.AsyncBaseTransport | None,
     ) -> RetrieveContextV2ResponseDto:
         """Run one cancellable exchange and await all cancellation cleanup."""
 
@@ -117,16 +100,12 @@ class InfinityContextRetrievalV2Mixin:
         if self.token:
             headers["Authorization"] = f"Bearer {self.token}"
         maximum_bytes = canonical_request.bounds.response_byte_limit
-        if self.transport is not None and not isinstance(self.transport, httpx.AsyncBaseTransport):
-            raise _contract_error(
-                "Retrieval V2 custom transports must implement cancellable AsyncBaseTransport"
-            )
         transport_timeout = _remaining(deadline, cancellation_event)
         async with httpx.AsyncClient(
             base_url=self.base_url.rstrip("/"),
             timeout=transport_timeout,
             headers=headers,
-            transport=self.transport,
+            transport=transport,
         ) as client:
             try:
                 async with asyncio.timeout(_remaining(deadline, cancellation_event)):

@@ -17,6 +17,15 @@ and exact optional thread plus opaque `source_type` and `source_external_id`. Op
 projection and retrieval-profile generations are hard filters. The official SDK requires a
 matching capability attestation, propagates cancellation, applies a bounded deadline, limits
 response bytes, validates runtime types and never includes opaque values in validation errors.
+The synchronous Python facade performs reconciliation on one owned async loop thread and joins
+that thread after awaiting request, control-task, client and socket cleanup. This lifecycle is
+identical for normal and already-running-event-loop callers. Cancellable reconciliation receives
+only an `AsyncBaseTransport` or the default async transport. A sync-only custom `transport` fails
+with the typed `memory.transport_capability_invalid` configuration error before I/O; blocking
+sync handlers are not treated as cancellable and are never abandoned in worker threads. The
+additive `async_transport` seam can be paired with a sync `transport`; a dual-protocol HTTPX
+`MockTransport` remains compatible with both seams. An async-only legacy `transport` is ignored
+by ordinary sync methods, which use their default `BaseTransport`, while reconciliation uses it.
 
 The application returns only `present`, `processing`, `indexed`,
 `deleted_or_proven_absent`, `conflict`, or `unavailable`. `indexed` uses the same read-only

@@ -411,9 +411,15 @@ envelopes; TypeScript compares unsigned UTF-8 identity bytes and uses `BigInt` f
 scoring products. One absolute deadline covers validation, transport reads and retries;
 blocked reads are interruptible. Python owns an async HTTP exchange behind its synchronous
 facade: timeout/cancellation aborts the socket task and awaits task/client cleanup before
-returning; it never abandons a daemon watchdog thread. Both SDKs expose only the shared typed transport
-outcomes `context_retrieval_deadline_exceeded`, `context_retrieval_cancelled` and
-`context_retrieval_unavailable`.
+returning; normal callers and callers already inside an event loop use the same joined,
+non-daemon owned-loop thread lifecycle. Cancellable calls accept only a default async transport,
+an explicit `async_transport`, or a dual-protocol transport such as HTTPX `MockTransport`.
+A sync-only custom transport is rejected with `memory.transport_capability_invalid` before I/O;
+it is never moved to a worker thread or represented as killable. The ordinary synchronous SDK
+surface receives only a sync transport and falls back to its default sync transport when the
+legacy `transport` argument is async-only. Both SDKs expose the shared retrieval outcomes
+`context_retrieval_deadline_exceeded`, `context_retrieval_cancelled` and
+`context_retrieval_unavailable`; transport misconfiguration is a typed local capability error.
 
 Abandoned runtime recovery is not an operator assertion. Production startup loads a
 canonical public supervisor registry from a deployment-owned, non-substitutable path and

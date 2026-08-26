@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import json
 import time
 from pathlib import Path
@@ -15,6 +16,7 @@ from infinity_context_sdk import (
     InfinityContextClient,
     InfinityContextRetrievalV2ContractError,
     InfinityContextRetrievalV2Error,
+    InfinityContextTransportCapabilityError,
 )
 
 FIXTURES = (
@@ -171,9 +173,7 @@ def test_official_python_client_interrupts_a_blocked_read() -> None:
         base_url="https://memory.invalid",
         token="test-token",
         timeout=1,
-        transport=httpx.MockTransport(
-            lambda _request: httpx.Response(200, stream=BlockedStream())
-        ),
+        transport=httpx.MockTransport(lambda _request: httpx.Response(200, stream=BlockedStream())),
     )
     timer = __import__("threading").Timer(0.02, cancelled.set)
     timer.start()
@@ -207,9 +207,7 @@ def test_official_python_client_deadline_aborts_blocked_read_without_residual_wo
         base_url="https://memory.invalid",
         token="test-token",
         timeout=0.03,
-        transport=httpx.MockTransport(
-            lambda _request: httpx.Response(200, stream=BlockedStream())
-        ),
+        transport=httpx.MockTransport(lambda _request: httpx.Response(200, stream=BlockedStream())),
     )
     with pytest.raises(InfinityContextRetrievalV2Error) as expired:
         client.retrieve_context_v2(request, capability=capability)
@@ -220,6 +218,41 @@ def test_official_python_client_deadline_aborts_blocked_read_without_residual_wo
         for thread in __import__("threading").enumerate()
         if thread.name.startswith("infinity-retrieval-v2")
     ]
+
+
+def test_retrieval_rejects_sync_only_transport_before_handler_call() -> None:
+    request, capability = _inputs()
+    calls = 0
+
+    class BlockingSyncTransport(httpx.BaseTransport):
+        def handle_request(self, _request: httpx.Request) -> httpx.Response:
+            nonlocal calls
+            calls += 1
+            Event().wait()
+            raise AssertionError("indefinitely blocking handler returned")
+
+    with pytest.raises(InfinityContextTransportCapabilityError) as captured:
+        InfinityContextClient(transport=BlockingSyncTransport()).retrieve_context_v2(
+            request, capability=capability
+        )
+
+    assert captured.value.code == "memory.transport_capability_invalid"
+    assert calls == 0
+
+
+def test_retrieval_runs_from_an_active_event_loop_on_explicit_async_seam() -> None:
+    request, capability = _inputs()
+    success = (FIXTURES / "success.json").read_bytes()
+    client = InfinityContextClient(
+        transport=httpx.MockTransport(lambda _request: httpx.Response(200, json={"data": []})),
+        async_transport=httpx.MockTransport(lambda _request: httpx.Response(200, content=success)),
+    )
+
+    async def call() -> object:
+        return client.retrieve_context_v2(request, capability=capability)
+
+    assert asyncio.run(call()).to_dict() == json.loads(success)
+    assert client.list_spaces() == {"data": []}
 
 
 def test_official_python_and_typescript_parity_fixture_bytes_are_identical() -> None:

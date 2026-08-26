@@ -25,7 +25,10 @@ from infinity_context_sdk.context import (
 from infinity_context_sdk.document_reconciliation import (
     InfinityContextDocumentReconciliationMixin,
 )
-from infinity_context_sdk.errors import InfinityContextError
+from infinity_context_sdk.errors import (
+    InfinityContextError,
+    InfinityContextTransportCapabilityError,
+)
 from infinity_context_sdk.export import InfinityContextExportMixin
 from infinity_context_sdk.http_transport import InfinityContextHttpMixin
 from infinity_context_sdk.retrieval_v2 import (
@@ -53,6 +56,7 @@ class InfinityContextClient(
     token: str | None = None
     timeout: float = 10.0
     transport: httpx.BaseTransport | httpx.AsyncBaseTransport | None = None
+    async_transport: httpx.AsyncBaseTransport | None = None
 
     def create_space(self, *, slug: str, name: str) -> dict[str, Any]:
         return self._request(
@@ -975,6 +979,7 @@ __all__ = [
     "ContextEvidenceSelection",
     "InfinityContextClient",
     "InfinityContextError",
+    "InfinityContextTransportCapabilityError",
     "InfinityContextRetrievalV2ContractError",
     "InfinityContextRetrievalV2Error",
     "RetrievalV2CapabilityDto",

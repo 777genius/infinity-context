@@ -4,13 +4,17 @@ from __future__ import annotations
 
 import asyncio
 import time
-from collections.abc import Coroutine
 from threading import Event
 from typing import Any
 
 import httpx
 
-from infinity_context_sdk.errors import InfinityContextError, to_error
+from infinity_context_sdk.async_facade import run_on_owned_loop
+from infinity_context_sdk.errors import (
+    InfinityContextError,
+    to_error,
+    transport_capability_error,
+)
 
 
 class InfinityContextHttpMixin:
@@ -18,6 +22,7 @@ class InfinityContextHttpMixin:
     token: str | None
     timeout: float
     transport: httpx.BaseTransport | httpx.AsyncBaseTransport | None
+    async_transport: httpx.AsyncBaseTransport | None
 
     def _request(
         self,
@@ -42,7 +47,7 @@ class InfinityContextHttpMixin:
             base_url=self.base_url.rstrip("/"),
             timeout=self.timeout,
             headers=request_headers,
-            transport=self.transport,
+            transport=self._ordinary_sync_transport(),
         ) as client:
             try:
                 response = client.request(
@@ -101,7 +106,7 @@ class InfinityContextHttpMixin:
             base_url=self.base_url.rstrip("/"),
             timeout=self.timeout,
             headers=headers,
-            transport=self.transport,
+            transport=self._ordinary_sync_transport(),
         ) as client:
             try:
                 response = client.request(method, path, params=params)
@@ -136,9 +141,10 @@ class InfinityContextHttpMixin:
         )
         _check_bounded_read_control(cancellation_event, deadline)
         headers = {"Authorization": f"Bearer {self.token}"} if self.token else {}
+        cancellable_transport = self._cancellable_async_transport()
         try:
-            response = _run_async_exchange(
-                _bounded_async_exchange(
+            response = run_on_owned_loop(
+                lambda: _bounded_async_exchange(
                     method=method,
                     path=path,
                     json=json,
@@ -147,8 +153,8 @@ class InfinityContextHttpMixin:
                     phase_timeout=self.timeout,
                     deadline=deadline,
                     cancellation_event=cancellation_event,
-                    transport=self.transport,
-                ),
+                    transport=cancellable_transport,
+                )
             )
         except httpx.TimeoutException as exc:
             raise _deadline_error() from exc
@@ -193,6 +199,35 @@ class InfinityContextHttpMixin:
         _check_bounded_read_control(cancellation_event, deadline)
         return value
 
+    def _ordinary_sync_transport(self) -> httpx.BaseTransport | None:
+        transport = self.transport
+        if transport is None or isinstance(transport, httpx.BaseTransport):
+            return transport
+        if isinstance(transport, httpx.AsyncBaseTransport):
+            return None
+        raise transport_capability_error(
+            "transport must implement httpx.BaseTransport for synchronous SDK methods"
+        )
+
+    def _cancellable_async_transport(self) -> httpx.AsyncBaseTransport | None:
+        explicit = self.async_transport
+        if explicit is not None:
+            if isinstance(explicit, httpx.AsyncBaseTransport):
+                return explicit
+            raise transport_capability_error(
+                "async_transport must implement httpx.AsyncBaseTransport"
+            )
+        transport = self.transport
+        if transport is None or isinstance(transport, httpx.AsyncBaseTransport):
+            return transport
+        if isinstance(transport, httpx.BaseTransport):
+            raise transport_capability_error(
+                "cancellable SDK methods require async_transport or an httpx.AsyncBaseTransport"
+            )
+        raise transport_capability_error(
+            "transport must implement httpx.AsyncBaseTransport for cancellable SDK methods"
+        )
+
 
 async def _bounded_async_exchange(
     *,
@@ -204,16 +239,15 @@ async def _bounded_async_exchange(
     phase_timeout: float,
     deadline: float,
     cancellation_event: Event | None,
-    transport: httpx.BaseTransport | httpx.AsyncBaseTransport | None,
+    transport: httpx.AsyncBaseTransport | None,
 ) -> httpx.Response:
     """Race one async exchange against caller cancellation and a total deadline."""
 
-    async_transport = _async_transport(transport)
     client = httpx.AsyncClient(
         base_url=base_url,
         timeout=max(0.001, min(phase_timeout, deadline - time.monotonic())),
         headers=headers,
-        transport=async_transport,
+        transport=transport,
     )
     if cancellation_event is not None and cancellation_event.is_set():
         await _close_before_control_error(client, _cancellation_error())
@@ -276,59 +310,6 @@ async def _close_before_control_error(
     except BaseException as cleanup_error:
         raise error from cleanup_error
     raise error
-
-
-def _run_async_exchange(
-    coroutine: Coroutine[Any, Any, httpx.Response],
-) -> httpx.Response:
-    try:
-        asyncio.get_running_loop()
-    except RuntimeError:
-        return asyncio.run(coroutine)
-    coroutine.close()
-    raise RuntimeError(
-        "synchronous Infinity Context SDK methods cannot run inside an active event loop"
-    )
-
-
-def _async_transport(
-    transport: httpx.BaseTransport | httpx.AsyncBaseTransport | None,
-) -> httpx.AsyncBaseTransport | None:
-    if transport is None or isinstance(transport, httpx.AsyncBaseTransport):
-        return transport
-    return _SyncTransportAdapter(transport)
-
-
-class _SyncTransportAdapter(httpx.AsyncBaseTransport):
-    """Compatibility bridge for immediate synchronous SDK test transports."""
-
-    def __init__(self, transport: httpx.BaseTransport) -> None:
-        self._transport = transport
-
-    async def handle_async_request(self, request: httpx.Request) -> httpx.Response:
-        content = await request.aread()
-        sync_request = httpx.Request(
-            request.method,
-            request.url,
-            headers=request.headers,
-            content=content,
-            extensions=request.extensions,
-        )
-        response = self._transport.handle_request(sync_request)
-        try:
-            response_content = response.read()
-        finally:
-            response.close()
-        return httpx.Response(
-            response.status_code,
-            headers=response.headers,
-            content=response_content,
-            extensions=response.extensions,
-            request=request,
-        )
-
-    async def aclose(self) -> None:
-        self._transport.close()
 
 
 async def _wait_for_cancellation(cancellation_event: Event) -> None:
