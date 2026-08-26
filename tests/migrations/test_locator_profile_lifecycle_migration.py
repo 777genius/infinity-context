@@ -35,6 +35,24 @@ def test_profile_lifecycle_is_forward_only_after_published_0039() -> None:
     assert "vector.delete_locator_profile" in forward
     assert "retrieval profile identity is immutable" in forward
     assert "DROP " not in forward.upper()
+    assert "ADD COLUMN retrieval_commit_watermark BIGINT NOT NULL" not in forward
+
+
+def test_profile_watermark_uses_bounded_online_backfill_and_short_cutover() -> None:
+    helper = Path(__file__).resolve().parents[2] / (
+        "packages/infinity_context_adapters/infinity_context_adapters/postgres/"
+        "staged_locator_migrations.py"
+    )
+    staged = helper.read_text()
+    assert "_BATCH_SIZE = 2000" in staged
+    assert "FOR UPDATE SKIP LOCKED" in staged
+    assert "pg_advisory_lock" not in staged  # the runner owns the session fence
+    assert "LOCK TABLE public.memory_chunks IN ACCESS EXCLUSIVE MODE" in staged
+    assert "SET LOCAL statement_timeout = '5s'" in staged
+    assert "VALIDATE CONSTRAINT ck_memory_chunks_locator_watermark_present" in staged
+    assert "trg_00_memory_chunks_benchmark_writer_lock" in staged
+    assert "trg_memory_chunks_benchmark_writer_fence" in staged
+    assert "trg_memory_chunks_benchmark_document_child_fence" in staged
 
 
 def test_attestation_fence_migration_is_additive_and_resumable() -> None:

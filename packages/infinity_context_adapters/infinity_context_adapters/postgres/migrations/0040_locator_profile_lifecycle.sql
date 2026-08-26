@@ -3,14 +3,8 @@
 SET LOCAL lock_timeout = '1s';
 SET LOCAL statement_timeout = '5min';
 
-CREATE SEQUENCE memory_locator_commit_watermark_seq;
-REVOKE ALL PRIVILEGES ON SEQUENCE memory_locator_commit_watermark_seq FROM PUBLIC;
-GRANT USAGE ON SEQUENCE memory_locator_commit_watermark_seq
-    TO infinity_context_canonical_writer;
-
-ALTER TABLE memory_chunks
-    ADD COLUMN retrieval_commit_watermark BIGINT NOT NULL
-        DEFAULT nextval('memory_locator_commit_watermark_seq');
+-- The sequence and populated NOT NULL watermark column are created online by
+-- the staged migration runner before this transactional schema phase.
 
 CREATE TABLE memory_locator_profiles (
     profile_id VARCHAR(120) PRIMARY KEY,

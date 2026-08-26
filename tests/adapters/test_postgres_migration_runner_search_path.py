@@ -31,6 +31,12 @@ class _RecordingConnection:
         self.statements.append(_sql(statement))
         return False
 
+    def begin(self) -> _Begin:
+        return _Begin(self)
+
+    async def commit(self) -> None:
+        return None
+
 
 class _Begin:
     def __init__(self, connection: _RecordingConnection) -> None:
@@ -49,7 +55,7 @@ class _Engine:
     def __init__(self) -> None:
         self.connection = _RecordingConnection()
 
-    def begin(self) -> _Begin:
+    def connect(self) -> _Begin:
         return _Begin(self.connection)
 
 
@@ -82,8 +88,9 @@ def test_upgrade_sets_hostile_safe_search_path_before_catalog_work(monkeypatch) 
     result = asyncio.run(migration_runner.upgrade_schema(engine))
 
     assert engine.connection.statements == [
-        "SET LOCAL search_path = public, pg_catalog, pg_temp",
-        f"SELECT pg_catalog.pg_advisory_xact_lock({migration_runner._ADVISORY_LOCK_ID})",
+        "SET search_path = public, pg_catalog, pg_temp",
+        f"SELECT pg_catalog.pg_advisory_lock({migration_runner._ADVISORY_LOCK_ID})",
+        f"SELECT pg_catalog.pg_advisory_unlock({migration_runner._ADVISORY_LOCK_ID})",
     ]
     assert events == ["ensure-history", "load-history", "detect-legacy", "apply-pending"]
     assert result.applied == (migration.migration_id,)

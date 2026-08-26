@@ -4,11 +4,7 @@
 SET LOCAL lock_timeout = '1s';
 SET LOCAL statement_timeout = '5min';
 
-ALTER TABLE memory_outbox
-    ALTER COLUMN aggregate_version TYPE BIGINT;
-
-ALTER TABLE IF EXISTS memory_projection_result_receipts
-    ALTER COLUMN aggregate_version TYPE BIGINT;
+-- aggregate_version columns are converted online by the staged migration runner.
 
 ALTER TABLE memory_chunks
     ADD COLUMN IF NOT EXISTS retrieval_locator VARCHAR(256),

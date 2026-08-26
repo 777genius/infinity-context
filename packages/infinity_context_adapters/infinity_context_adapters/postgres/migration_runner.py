@@ -14,6 +14,10 @@ from infinity_context_adapters.postgres.legacy_schema_manifest import (
     LEGACY_SCHEMA_MANIFESTS,
     LegacySchemaManifest,
 )
+from infinity_context_adapters.postgres.staged_locator_migrations import (
+    STAGED_MIGRATION_IDS,
+    apply_staged_locator_migration,
+)
 
 _MIGRATIONS_DIRECTORY = Path(__file__).with_name("migrations")
 _LEGACY_BASELINE_PREFIX = "0022_"
@@ -21,6 +25,12 @@ _ADVISORY_LOCK_ID = 4_916_625_310_112_023_308
 _PUBLISHED_CHECKSUM_ALIASES: dict[str, frozenset[str]] = {
     "0030_suggestion_receipt_tenant_integrity": frozenset(
         {"4d936c3d49f76028eec009a1b1e8ee2bcf214b2b4a03e7ac120bad5321aa3064"}
+    ),
+    "0039_locator_retrieval_attributes": frozenset(
+        {"83f22c9e4087e6f4713294665a00ce99f7ffc981893702a2fbb3a575813c418d"}
+    ),
+    "0040_locator_profile_lifecycle": frozenset(
+        {"2b972527e5a2f6e99f5bd69b6eca9c22a51b8cb4902b1d4e13f7e0260138edaa"}
     ),
 }
 
@@ -45,22 +55,27 @@ async def upgrade_schema(engine: AsyncEngine) -> SchemaUpgradeResult:
     if engine.dialect.name != "postgresql":
         raise RuntimeError("Versioned schema upgrade requires PostgreSQL")
     migrations = _load_migrations()
-    async with engine.begin() as connection:
-        # Keep the canonical creation target first while naming pg_temp last so
-        # hostile temporary objects never win unqualified legacy resolution.
-        await connection.execute(text("SET LOCAL search_path = public, pg_catalog, pg_temp"))
-        await connection.execute(
-            text(f"SELECT pg_catalog.pg_advisory_xact_lock({_ADVISORY_LOCK_ID})")
-        )
-        await _ensure_history_table(connection)
-        applied_history = await _load_history(connection)
-        _validate_history(migrations, applied_history)
-        legacy_baseline = not applied_history and await _has_unversioned_schema(connection)
-        if legacy_baseline:
-            await _validate_legacy_baseline(connection)
-            await _record_legacy_baseline(connection, migrations)
-            applied_history = await _load_history(connection)
-        applied = await _apply_pending(connection, migrations, applied_history)
+    async with engine.connect() as connection:
+        # A session lock remains held across the committed backfill batches.
+        await connection.execute(text("SET search_path = public, pg_catalog, pg_temp"))
+        await connection.execute(text(f"SELECT pg_catalog.pg_advisory_lock({_ADVISORY_LOCK_ID})"))
+        await connection.commit()
+        try:
+            async with connection.begin():
+                await _ensure_history_table(connection)
+                applied_history = await _load_history(connection)
+                _validate_history(migrations, applied_history)
+                legacy_baseline = not applied_history and await _has_unversioned_schema(connection)
+                if legacy_baseline:
+                    await _validate_legacy_baseline(connection)
+                    await _record_legacy_baseline(connection, migrations)
+                    applied_history = await _load_history(connection)
+            applied = await _apply_pending(connection, migrations, applied_history)
+        finally:
+            await connection.execute(
+                text(f"SELECT pg_catalog.pg_advisory_unlock({_ADVISORY_LOCK_ID})")
+            )
+            await connection.commit()
     return SchemaUpgradeResult(
         applied=applied,
         legacy_baseline=legacy_baseline,
@@ -287,13 +302,17 @@ async def _apply_pending(
     history: dict[str, str],
 ) -> tuple[str, ...]:
     applied: list[str] = []
-    raw_connection = await connection.get_raw_connection()
-    driver_connection = raw_connection.driver_connection
     for migration in migrations:
         if migration.migration_id in history:
             continue
-        await driver_connection.execute(migration.sql)
-        await _record_migration(connection, migration, execution_kind="applied")
+        if migration.migration_id in STAGED_MIGRATION_IDS:
+            await apply_staged_locator_migration(
+                connection, migration_id=migration.migration_id
+            )
+        async with connection.begin():
+            raw_connection = await connection.get_raw_connection()
+            await raw_connection.driver_connection.execute(migration.sql)
+            await _record_migration(connection, migration, execution_kind="applied")
         applied.append(migration.migration_id)
     return tuple(applied)
 

@@ -31,7 +31,8 @@ def test_locator_migration_preserves_legacy_ineligibility_and_fences_projection(
     assert "retrieval_relative_start_ms" in sql
     assert "retrieval_version BIGINT" in sql
     assert "canonical_version BIGINT" in sql
-    assert "ALTER COLUMN aggregate_version TYPE BIGINT" in sql
+    assert "ALTER COLUMN aggregate_version TYPE BIGINT" not in sql
+    assert "converted online by the staged migration runner" in sql
     assert "CREATE INDEX" not in sql
     assert "DROP INDEX" not in sql
     assert "NOT VALID" in sql
@@ -72,6 +73,23 @@ def test_published_ledger_prefix_continues_through_forward_locator_migration() -
     _validate_history(migrations, history)
 
     assert migrations[-1].migration_id == "0049_reconciliation_runtime_generation"
+
+
+def test_pre_remediation_0039_and_0040_checksums_remain_upgrade_compatible() -> None:
+    migrations = _load_migrations()
+    history = {
+        migration.migration_id: migration.checksum
+        for migration in migrations
+        if migration.migration_id <= "0040_locator_profile_lifecycle"
+    }
+    history["0039_locator_retrieval_attributes"] = (
+        "83f22c9e4087e6f4713294665a00ce99f7ffc981893702a2fbb3a575813c418d"
+    )
+    history["0040_locator_profile_lifecycle"] = (
+        "2b972527e5a2f6e99f5bd69b6eca9c22a51b8cb4902b1d4e13f7e0260138edaa"
+    )
+
+    _validate_history(migrations, history)
 
 
 def test_locator_indexes_are_a_separately_fenced_concurrent_phase() -> None:
@@ -116,7 +134,18 @@ def test_every_version_bearing_transit_column_uses_bigint() -> None:
         "packages/infinity_context_adapters/infinity_context_adapters/postgres/migrations"
     )
     forward = (migrations / "0039_locator_retrieval_attributes.sql").read_text()
-    assert forward.count("ALTER COLUMN aggregate_version TYPE BIGINT") == 2
+    assert "ALTER COLUMN aggregate_version TYPE BIGINT" not in forward
+    staged = (
+        migrations.parent / "staged_locator_migrations.py"
+    ).read_text()
+    assert "aggregate_version_bigint" in staged
+    assert "LIMIT {_BATCH_SIZE} FOR UPDATE SKIP LOCKED" in staged
+    assert "_BATCH_SIZE = 2000" in staged
+    assert "UPDATE OF " in staged
+    assert "trg_memory_outbox_benchmark_document_child_fence" in staged
+    assert "Keep canonical guards active while excluding migration-only updates" in staged
+    assert "CREATE UNIQUE INDEX CONCURRENTLY" in staged
+    assert "UNIQUE USING INDEX" in staged
     assert "aggregate_version INTEGER" in (migrations / "0001_core_facts.sql").read_text()
     assert "aggregate_version INTEGER" in (
         migrations / "0035_projection_result_receipts.sql"
