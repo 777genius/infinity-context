@@ -42,7 +42,7 @@ async def _assert_reconciliation_converges(database_url: str) -> None:
     asyncpg = pytest.importorskip("asyncpg")
     database = PostgresTestDatabase.from_url(
         database_url,
-        prefix="active_reconciliation_orchestration",
+        prefix="active_reconciliation",
         asyncpg=asyncpg,
     )
     await database.recreate()
