@@ -108,8 +108,15 @@ async def _scenario(database_url: str) -> None:
 
                 CREATE TEMP SEQUENCE memory_locator_commit_watermark_seq START 9000;
                 CREATE TEMP TABLE memory_locator_profiles(profile_id text, state text);
+                CREATE TEMP TABLE memory_locator_projection_tombstones(
+                    chunk_id text PRIMARY KEY, canonical_version bigint,
+                    legacy_deleted_at timestamptz, locator_deleted_at timestamptz,
+                    created_at timestamptz, updated_at timestamptz
+                );
                 CREATE TEMP TABLE memory_locator_profile_tombstones(
-                    profile_id text, chunk_id text, canonical_version bigint
+                    profile_id text, chunk_id text, canonical_version bigint,
+                    completed_at timestamptz, created_at timestamptz,
+                    updated_at timestamptz, PRIMARY KEY (profile_id, chunk_id)
                 );
                 CREATE TEMP TABLE memory_outbox(
                     message_key text, event_type text, aggregate_type text,
@@ -152,9 +159,131 @@ async def _scenario(database_url: str) -> None:
             assert await raw.fetchval(
                 "SELECT count(*) FROM public.memory_outbox "
                 "WHERE event_type='vector.upsert_locator_profile' "
-                "AND aggregate_id='chunk-0051'"
+                "AND aggregate_id='chunk-0051' AND aggregate_version=1"
             ) == 1
-            assert await raw.fetchval("SELECT count(*) FROM pg_temp.memory_outbox") == 0
+
+            inserted_watermark = await raw.fetchval(
+                "SELECT retrieval_commit_watermark FROM public.memory_chunks "
+                "WHERE id='chunk-0051'"
+            )
+            await raw.execute(
+                "UPDATE public.memory_chunks SET status='archived', updated_at=now() "
+                "WHERE id='chunk-0051'"
+            )
+            ineligible = await raw.fetchrow(
+                "SELECT retrieval_version, retrieval_commit_watermark "
+                "FROM public.memory_chunks WHERE id='chunk-0051'"
+            )
+            assert tuple(ineligible) == (2, inserted_watermark + 1)
+            assert await raw.fetchval(
+                "SELECT last_value FROM public.memory_locator_commit_watermark_seq"
+            ) == ineligible["retrieval_commit_watermark"]
+            assert tuple(
+                await raw.fetchrow(
+                    "SELECT canonical_version, legacy_deleted_at IS NULL, "
+                    "locator_deleted_at IS NULL "
+                    "FROM public.memory_locator_projection_tombstones "
+                    "WHERE chunk_id='chunk-0051'"
+                )
+            ) == (2, True, True)
+            assert await raw.fetchval(
+                "SELECT canonical_version "
+                "FROM public.memory_locator_profile_tombstones "
+                "WHERE profile_id='profile-0051' AND chunk_id='chunk-0051'"
+            ) == 2
+            assert {
+                tuple(row)
+                for row in await raw.fetch(
+                    "SELECT event_type, aggregate_version FROM public.memory_outbox "
+                    "WHERE aggregate_id='chunk-0051' "
+                    "AND event_type IN "
+                    "('vector.delete_chunks','vector.delete_locator_profile')"
+                )
+            } == {
+                ("vector.delete_chunks", 2),
+                ("vector.delete_locator_profile", 2),
+            }
+
+            await raw.execute(
+                "UPDATE public.memory_chunks SET status='active', updated_at=now() "
+                "WHERE id='chunk-0051'"
+            )
+            reactivated = await raw.fetchrow(
+                "SELECT retrieval_version, retrieval_commit_watermark "
+                "FROM public.memory_chunks WHERE id='chunk-0051'"
+            )
+            assert tuple(reactivated) == (
+                ineligible["retrieval_version"] + 1,
+                ineligible["retrieval_commit_watermark"] + 1,
+            )
+            assert await raw.fetchval(
+                "SELECT last_value FROM public.memory_locator_commit_watermark_seq"
+            ) == reactivated["retrieval_commit_watermark"]
+            assert await raw.fetchval(
+                "SELECT count(*) FROM public.memory_locator_profile_tombstones "
+                "WHERE profile_id='profile-0051' AND chunk_id='chunk-0051'"
+            ) == 0
+
+            deleted_version = reactivated["retrieval_version"]
+            await raw.execute(
+                "DELETE FROM public.memory_chunks WHERE id='chunk-0051'"
+            )
+            assert await raw.fetchval(
+                "SELECT canonical_version "
+                "FROM public.memory_locator_profile_tombstones "
+                "WHERE profile_id='profile-0051' AND chunk_id='chunk-0051'"
+            ) == deleted_version
+            assert await raw.fetchval(
+                "SELECT count(*) FROM public.memory_outbox "
+                "WHERE aggregate_id='chunk-0051' "
+                "AND aggregate_version=$1 "
+                "AND event_type='vector.delete_locator_profile'",
+                deleted_version,
+            ) == 1
+            assert await raw.fetchval(
+                "SELECT last_value FROM public.memory_locator_commit_watermark_seq"
+            ) == reactivated["retrieval_commit_watermark"]
+            assert {
+                tuple(row)
+                for row in await raw.fetch(
+                    "SELECT event_type, aggregate_version FROM public.memory_outbox "
+                    "WHERE aggregate_id='chunk-0051' "
+                    "AND event_type IN "
+                    "('vector.upsert_chunk','vector.delete_chunks',"
+                    "'vector.upsert_locator_profile','vector.delete_locator_profile')"
+                )
+            } == {
+                ("vector.upsert_chunk", 1),
+                ("vector.delete_chunks", 2),
+                ("vector.upsert_chunk", 3),
+                ("vector.upsert_locator_profile", 1),
+                ("vector.delete_locator_profile", 2),
+                ("vector.upsert_locator_profile", 3),
+                ("vector.delete_locator_profile", 3),
+            }
+            assert tuple(
+                await raw.fetchrow(
+                    "SELECT canonical_version, legacy_deleted_at IS NOT NULL, "
+                    "locator_deleted_at IS NOT NULL "
+                    "FROM public.memory_locator_projection_tombstones "
+                    "WHERE chunk_id='chunk-0051'"
+                )
+            ) == (2, True, True)
+            for shadow in (
+                "memory_locator_profiles",
+                "memory_locator_projection_tombstones",
+                "memory_locator_profile_tombstones",
+                "memory_outbox",
+            ):
+                assert await raw.fetchval(
+                    f"SELECT count(*) FROM pg_temp.{shadow}"
+                ) == 0
+            assert await raw.fetchval(
+                "SELECT last_value FROM pg_temp.memory_locator_commit_watermark_seq"
+            ) == 9000
+            assert not await raw.fetchval(
+                "SELECT is_called FROM pg_temp.memory_locator_commit_watermark_seq"
+            )
         finally:
             await raw.close()
     finally:
