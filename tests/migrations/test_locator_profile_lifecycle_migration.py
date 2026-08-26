@@ -22,6 +22,7 @@ def test_profile_lifecycle_is_forward_only_after_published_0039() -> None:
         "0050_locator_profile_outbox_transaction_coalescing",
         "0051_locator_profile_acl_search_path_hardening",
         "0052_document_scope_listing_indexes",
+        "0052_reconciliation_outbox_binding_index",
     )
     sql = Path(__file__).resolve().parents[2] / (
         "packages/infinity_context_adapters/infinity_context_adapters/postgres/migrations/"
@@ -64,17 +65,19 @@ def test_profile_watermark_uses_bounded_online_backfill_and_short_cutover() -> N
     assert "trg_memory_chunks_benchmark_document_child_fence" in staged
     assert "NEW.retrieval_version IS DISTINCT FROM OLD.retrieval_version" in staged
     assert "CREATE TRIGGER trg_zz_memory_chunk_locator_watermark_bridge_v1" in staged
-    forward = Path(__file__).resolve().parents[2].joinpath(
-        "packages/infinity_context_adapters/infinity_context_adapters/postgres/migrations",
-        "0040_locator_profile_lifecycle.sql",
-    ).read_text()
+    forward = (
+        Path(__file__)
+        .resolve()
+        .parents[2]
+        .joinpath(
+            "packages/infinity_context_adapters/infinity_context_adapters/postgres/migrations",
+            "0040_locator_profile_lifecycle.sql",
+        )
+        .read_text()
+    )
     final_trigger = "CREATE TRIGGER trg_zz_memory_chunk_locator_watermark_v2"
-    bridge_trigger_drop = (
-        "DROP TRIGGER IF EXISTS trg_zz_memory_chunk_locator_watermark_bridge_v1"
-    )
-    bridge_function_drop = (
-        "DROP FUNCTION IF EXISTS memory_chunk_locator_watermark_mirror_v1()"
-    )
+    bridge_trigger_drop = "DROP TRIGGER IF EXISTS trg_zz_memory_chunk_locator_watermark_bridge_v1"
+    bridge_function_drop = "DROP FUNCTION IF EXISTS memory_chunk_locator_watermark_mirror_v1()"
     assert forward.index(final_trigger) < forward.index(bridge_trigger_drop)
     assert forward.index(bridge_trigger_drop) < forward.index(bridge_function_drop)
     seam_sql = forward[forward.index(final_trigger) : forward.index(bridge_function_drop)]
@@ -181,9 +184,9 @@ def test_linearizable_profile_outbox_invalidation_is_locator_event_scoped() -> N
     function = sql.split(
         "CREATE OR REPLACE FUNCTION memory_locator_profile_invalidate_evidence_v1()", 1
     )[1].split("REVOKE ALL ON FUNCTION", 1)[0]
-    triggers = sql.split(
-        "DROP TRIGGER IF EXISTS trg_locator_profile_outbox_evidence_version", 1
-    )[1].split("DROP TRIGGER IF EXISTS trg_locator_profile_canonical", 1)[0]
+    triggers = sql.split("DROP TRIGGER IF EXISTS trg_locator_profile_outbox_evidence_version", 1)[
+        1
+    ].split("DROP TRIGGER IF EXISTS trg_locator_profile_canonical", 1)[0]
 
     assert "IF TG_LEVEL = 'ROW' THEN" in function
     assert "IF TG_OP = 'DELETE' THEN RETURN OLD; END IF;" in function
@@ -202,10 +205,12 @@ def test_linearizable_profile_outbox_invalidation_is_locator_event_scoped() -> N
     assert triggers.count("FOR EACH ROW") == 3
     assert "FOR EACH STATEMENT" not in triggers
     assert "strict-v4 fact/document row fences" in triggers
-    assert sql.count(
-        "FOR EACH STATEMENT EXECUTE FUNCTION "
-        "memory_locator_profile_invalidate_evidence_v1();"
-    ) == 4
+    assert (
+        sql.count(
+            "FOR EACH STATEMENT EXECUTE FUNCTION memory_locator_profile_invalidate_evidence_v1();"
+        )
+        == 4
+    )
     for preserved_source in ("lane", "tombstone", "receipt", "canonical"):
         assert f"trg_locator_profile_{preserved_source}_evidence_version" in sql
 

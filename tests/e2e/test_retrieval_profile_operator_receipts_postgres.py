@@ -40,7 +40,7 @@ async def _assert_durable_receipts(database_url: str) -> None:
     provenance = _provenance()
     try:
         upgraded = await upgrade_schema(engine)
-        assert upgraded.current == "0052_document_scope_listing_indexes"
+        assert upgraded.current == "0052_reconciliation_outbox_binding_index"
         registry = PostgresRetrievalProfileRegistry(build_session_factory(engine))
         for operation in ("create", "rebuild", "attest", "activate"):
             key = f"lost-response-{operation}"

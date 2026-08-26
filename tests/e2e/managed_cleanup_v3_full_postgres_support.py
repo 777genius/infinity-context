@@ -473,7 +473,7 @@ async def create_full_postgres_harness(database_url: str, work_dir: Path) -> Ful
         engine = build_async_engine(database.app_url)
         try:
             result = await upgrade_schema(engine)
-            assert result.current == "0052_document_scope_listing_indexes"
+            assert result.current == "0052_reconciliation_outbox_binding_index"
         finally:
             await engine.dispose()
         context, authority, pages, operations = build_strict_v4_material()

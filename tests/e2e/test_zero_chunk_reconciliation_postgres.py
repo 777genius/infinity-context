@@ -4,6 +4,7 @@ import asyncio
 import os
 from datetime import UTC, datetime
 
+import infinity_context_adapters.postgres.document_reconciliation as reconciliation_adapter
 import pytest
 from infinity_context_adapters.postgres import build_async_engine, upgrade_schema
 from infinity_context_adapters.postgres.document_reconciliation import (
@@ -19,7 +20,7 @@ from infinity_context_core.features.document_ingestion.public import (
     reconcile_exact_document,
 )
 from postgres_test_database import PostgresTestDatabase
-from sqlalchemy import delete
+from sqlalchemy import delete, select, text, update
 from sqlalchemy.ext.asyncio import async_sessionmaker
 
 NOW = datetime(2026, 8, 26, tzinfo=UTC)
@@ -40,6 +41,22 @@ def test_zero_chunk_reconciliation_outbox_matrix_when_postgres_is_configured() -
     asyncio.run(_assert_outbox_matrix(database_url))
 
 
+def test_reconciliation_snapshot_is_atomic_across_commit_when_postgres_is_configured(
+    monkeypatch,
+) -> None:
+    database_url = os.getenv("INFINITY_CONTEXT_TEST_POSTGRES_URL")
+    if not database_url:
+        pytest.skip("INFINITY_CONTEXT_TEST_POSTGRES_URL is not configured")
+    asyncio.run(_assert_atomic_snapshot(database_url, monkeypatch))
+
+
+def test_active_reconciliation_binding_index_is_bounded_when_postgres_is_configured() -> None:
+    database_url = os.getenv("INFINITY_CONTEXT_TEST_POSTGRES_URL")
+    if not database_url:
+        pytest.skip("INFINITY_CONTEXT_TEST_POSTGRES_URL is not configured")
+    asyncio.run(_assert_indexed_lookup(database_url))
+
+
 async def _assert_outbox_matrix(database_url: str) -> None:
     asyncpg = pytest.importorskip("asyncpg")
     database = PostgresTestDatabase.from_url(
@@ -53,144 +70,280 @@ async def _assert_outbox_matrix(database_url: str) -> None:
         await upgrade_schema(engine)
         sessions = async_sessionmaker(engine, expire_on_commit=False)
         observer = PostgresExactDocumentObservationAdapter(sessions)
+        exact_generation = _identity(projection_generation="projection-1")
         async with sessions.begin() as session:
             session.add_all(
                 [
                     _profile("profile-current", "profile-1", "active"),
-                    _profile("profile-other", "profile-other", "retained"),
                     _document("doc-target", "target"),
                     _document("doc-other", "other"),
                 ]
             )
         async with sessions.begin() as session:
-            session.add_all(
-                [
-                    _chunk("chunk-target", "doc-target", "target", "projection-1"),
-                    _chunk("chunk-old", "doc-target", "target", "projection-old"),
-                    _chunk("chunk-other", "doc-other", "other", "projection-1"),
-                ]
-            )
+            target = _chunk("chunk-target", "doc-target", "target", "projection-1")
+            target.status = "active"
+            session.add(target)
 
-        assert await _state(observer) == ("present", "accepted")
-
-        ordinal = 0
-        for event_type in PROJECTION_EVENT_TYPES:
+        # The real 0039/0051 trigger producers emit both current-version upserts.
+        upserts = await _trigger_rows(sessions, "chunk-target", version=1)
+        assert _shape(upserts["vector.upsert_chunk"]) == (
+            "locator_chunk",
+            "chunk-target",
+            1,
+            {"chunk_id": "chunk-target"},
+        )
+        assert _shape(upserts["vector.upsert_locator_profile"]) == (
+            "locator_profile_chunk",
+            "chunk-target",
+            1,
+            {"chunk_id": "chunk-target", "profile_id": "profile-current"},
+        )
+        for event_type in ("vector.upsert_chunk", "vector.upsert_locator_profile"):
             for status in (*ACTIVE_OUTBOX_STATUSES, *TERMINAL_OUTBOX_STATUSES):
-                ordinal += 1
-                await _replace_outbox(
-                    sessions,
-                    _outbox(
-                        ordinal,
-                        event_type,
-                        status,
-                        document_id="doc-target",
-                        chunk_id="chunk-target",
-                        profile_id="profile-current",
-                    ),
-                )
+                await _select_only_status(sessions, upserts[event_type].id, status)
                 expected = (
                     ("processing", "processing")
                     if status in ACTIVE_OUTBOX_STATUSES
                     else ("present", "accepted")
                 )
-                assert await _state(observer) == expected, (event_type, status)
+                assert await _state(observer, exact_generation) == expected, (event_type, status)
 
         async with sessions.begin() as session:
             chunk = await session.get(MemoryChunkRow, "chunk-target")
             assert chunk is not None
-            chunk.status = "active"
+            chunk.status = "deleted"
 
+        # The same real trigger chain emits the reviewed locator_chunk delete shape
+        # and the profile-specific delete at the new current version.
+        deletes = await _trigger_rows(sessions, "chunk-target", version=2)
+        assert _shape(deletes["vector.delete_chunks"]) == (
+            "locator_chunk",
+            "chunk-target",
+            2,
+            {"chunk_ids": ["chunk-target"]},
+        )
+        assert _shape(deletes["vector.delete_locator_profile"]) == (
+            "locator_profile_chunk",
+            "chunk-target",
+            2,
+            {"chunk_ids": ["chunk-target"], "profile_id": "profile-current"},
+        )
+        for event_type in ("vector.delete_chunks", "vector.delete_locator_profile"):
+            for status in (*ACTIVE_OUTBOX_STATUSES, *TERMINAL_OUTBOX_STATUSES):
+                await _select_only_status(sessions, deletes[event_type].id, status)
+                expected = (
+                    ("processing", "processing")
+                    if status in ACTIVE_OUTBOX_STATUSES
+                    else ("present", "accepted")
+                )
+                assert await _state(observer, exact_generation) == expected, (event_type, status)
+
+        # A stale migration version never blocks, while the application runtime's
+        # deliberately unversioned chunk upsert remains independently recognized.
+        await _select_only_status(sessions, upserts["vector.upsert_chunk"].id, "pending")
+        assert await _state(observer, exact_generation) == ("present", "accepted")
         await _replace_outbox(
             sessions,
             _outbox(
                 100,
                 "vector.upsert_chunk",
                 "running",
-                document_id="doc-other",
-                chunk_id="chunk-other",
+                document_id="doc-target",
+                chunk_id="chunk-target",
                 profile_id="profile-current",
             ),
+        )
+        assert await _state(observer, exact_generation) == ("processing", "processing")
+
+        # Wrong document, profile and projection generation work is excluded.
+        await _replace_outbox(
+            sessions,
             _outbox(
                 101,
                 "vector.upsert_locator_profile",
-                "retry_pending",
+                "pending",
                 document_id="doc-target",
                 chunk_id="chunk-target",
                 profile_id="profile-other",
             ),
-            _outbox(
-                102,
-                "vector.delete_locator_profile",
-                "pending",
-                document_id="doc-target",
-                chunk_id="chunk-old",
-                profile_id="profile-current",
-            ),
-            _outbox(
-                103,
-                "vector.delete_chunks",
-                "dead",
-                document_id="doc-target",
-                chunk_id="chunk-target",
-                profile_id="profile-current",
-            ),
         )
-        exact_generation = _identity(projection_generation="projection-1")
+        assert await _state(observer, exact_generation) == ("present", "accepted")
+        async with sessions.begin() as session:
+            session.add(_chunk("chunk-other", "doc-other", "other", "projection-other"))
+        other = await _trigger_rows(sessions, "chunk-other", version=1)
+        await _select_only_status(sessions, other["vector.delete_chunks"].id, "running")
         assert await _state(observer, exact_generation) == ("present", "accepted")
 
+        # Preserve the application document-level delete binding at zero active chunks.
         await _replace_outbox(
             sessions,
             _outbox(
-                104,
-                "vector.upsert_chunk",
-                "running",
-                document_id="doc-target",
-                chunk_id="chunk-target",
-                profile_id="profile-current",
-            ),
-            _outbox(
-                105,
-                "vector.upsert_chunk",
-                "done",
+                102,
+                "vector.delete_chunks",
+                "retry_pending",
                 document_id="doc-target",
                 chunk_id="chunk-target",
                 profile_id="profile-current",
             ),
         )
         assert await _state(observer, exact_generation) == ("processing", "processing")
-
         await _replace_outbox(sessions)
         assert await _state(observer, exact_generation) == ("present", "accepted")
 
-        writer = sessions()
-        async with writer.begin():
-            writer.add(
-                _outbox(
-                    200,
-                    "vector.delete_chunks",
-                    "running",
-                    document_id="doc-target",
-                    chunk_id="chunk-target",
-                    profile_id="profile-current",
-                )
-            )
-            await writer.flush()
-            assert await _state(observer, exact_generation) == ("present", "accepted")
-        await writer.close()
-        assert await _state(observer, exact_generation) == ("processing", "processing")
-
-        finisher = sessions()
-        async with finisher.begin():
-            row = await finisher.get(MemoryOutboxRow, 200)
-            assert row is not None
-            row.status = "done"
-            await finisher.flush()
-            assert await _state(observer, exact_generation) == ("processing", "processing")
-        await finisher.close()
-        assert await _state(observer, exact_generation) == ("present", "accepted")
+        async with sessions() as session:
+            isolation = await session.scalar(text("SHOW transaction_isolation"))
+            read_only = await session.scalar(text("SHOW transaction_read_only"))
+        assert isolation == "read committed"
+        assert read_only == "off"
     finally:
         await engine.dispose()
         await database.drop()
+
+
+async def _assert_atomic_snapshot(database_url: str, monkeypatch) -> None:
+    asyncpg = pytest.importorskip("asyncpg")
+    database = PostgresTestDatabase.from_url(
+        database_url,
+        prefix="reconciliation_atomic_snapshot",
+        asyncpg=asyncpg,
+    )
+    await database.recreate()
+    engine = build_async_engine(database.app_url)
+    try:
+        await upgrade_schema(engine)
+        sessions = async_sessionmaker(engine, expire_on_commit=False)
+        async with sessions.begin() as session:
+            session.add_all(
+                [
+                    _profile("profile-current", "profile-1", "active"),
+                    _document("doc-target", "target"),
+                ]
+            )
+        async with sessions.begin() as session:
+            chunk = _chunk("chunk-target", "doc-target", "target", "projection-1")
+            chunk.status = "active"
+            session.add(chunk)
+        upserts = await _trigger_rows(sessions, "chunk-target", version=1)
+        target_id = upserts["vector.upsert_chunk"].id
+        await _select_only_status(sessions, target_id, "done")
+
+        reached_after_chunk_read = asyncio.Event()
+        writer_committed = asyncio.Event()
+        original_profile = reconciliation_adapter._profile
+
+        async def coordinated_profile(session, requested_generation):
+            reached_after_chunk_read.set()
+            await writer_committed.wait()
+            return await original_profile(session, requested_generation)
+
+        monkeypatch.setattr(reconciliation_adapter, "_profile", coordinated_profile)
+        observer = PostgresExactDocumentObservationAdapter(sessions)
+        observing = asyncio.create_task(
+            _state(observer, _identity(projection_generation="projection-1"))
+        )
+        await reached_after_chunk_read.wait()
+        async with sessions.begin() as writer:
+            await writer.execute(
+                update(MemoryOutboxRow)
+                .where(MemoryOutboxRow.id == target_id)
+                .values(status="pending")
+            )
+        writer_committed.set()
+
+        # The overlapping observer returns the complete pre-commit snapshot. A
+        # fresh observer returns the complete post-commit snapshot.
+        assert await observing == ("present", "accepted")
+        assert await _state(observer, _identity(projection_generation="projection-1")) == (
+            "processing",
+            "processing",
+        )
+    finally:
+        await engine.dispose()
+        await database.drop()
+
+
+async def _assert_indexed_lookup(database_url: str) -> None:
+    asyncpg = pytest.importorskip("asyncpg")
+    database = PostgresTestDatabase.from_url(
+        database_url,
+        prefix="reconciliation_binding_index",
+        asyncpg=asyncpg,
+    )
+    await database.recreate()
+    engine = build_async_engine(database.app_url)
+    try:
+        await upgrade_schema(engine)
+        async with engine.begin() as connection:
+            await connection.execute(
+                text(
+                    """
+                    INSERT INTO memory_outbox (
+                        message_key, event_type, aggregate_type, aggregate_id,
+                        aggregate_version, workload_class, fairness_key, payload_json,
+                        status, attempt_count, next_attempt_at, created_at, updated_at
+                    )
+                    SELECT
+                        'reconciliation-decoy-' || ordinal,
+                        'vector.upsert_chunk', 'locator_chunk', 'decoy-' || ordinal,
+                        1, 'projection', 'chunk:decoy-' || ordinal,
+                        jsonb_build_object('chunk_id', 'decoy-' || ordinal),
+                        CASE ordinal % 3
+                            WHEN 0 THEN 'pending'
+                            WHEN 1 THEN 'running'
+                            ELSE 'retry_pending'
+                        END,
+                        0, now(), now(), now()
+                    FROM generate_series(1, 20000) AS ordinal
+                    """
+                )
+            )
+            await connection.execute(
+                text(
+                    """
+                    INSERT INTO memory_outbox (
+                        message_key, event_type, aggregate_type, aggregate_id,
+                        aggregate_version, workload_class, fairness_key, payload_json,
+                        status, attempt_count, next_attempt_at, created_at, updated_at
+                    ) VALUES (
+                        'reconciliation-target', 'vector.delete_chunks', 'locator_chunk',
+                        'chunk-target', 7, 'projection', 'chunk:chunk-target',
+                        '{"chunk_ids":["chunk-target"]}'::jsonb,
+                        'retry_pending', 0, now(), now(), now()
+                    )
+                    """
+                )
+            )
+            await connection.execute(text("ANALYZE memory_outbox"))
+            explained = await connection.scalar(
+                text(
+                    """
+                    EXPLAIN (ANALYZE, BUFFERS, FORMAT JSON)
+                    SELECT id FROM memory_outbox
+                    WHERE status IN ('pending', 'running', 'retry_pending')
+                      AND aggregate_id = 'chunk-target'
+                      AND event_type = 'vector.delete_chunks'
+                      AND aggregate_type = 'locator_chunk'
+                      AND aggregate_version = 7
+                    LIMIT 1
+                    """
+                )
+            )
+        plan = explained[0]["Plan"]
+        nodes = tuple(_plan_nodes(plan))
+        assert "Seq Scan" not in {node["Node Type"] for node in nodes}
+        assert "ix_memory_outbox_active_reconciliation_binding" in {
+            node.get("Index Name") for node in nodes
+        }
+        assert sum(node.get("Actual Rows", 0) * node.get("Actual Loops", 1) for node in nodes) <= 4
+    finally:
+        await engine.dispose()
+        await database.drop()
+
+
+def _plan_nodes(plan):
+    yield plan
+    for child in plan.get("Plans", ()):
+        yield from _plan_nodes(child)
 
 
 async def _state(
@@ -207,6 +360,33 @@ async def _replace_outbox(sessions: async_sessionmaker, *rows: MemoryOutboxRow) 
     async with sessions.begin() as session:
         await session.execute(delete(MemoryOutboxRow))
         session.add_all(rows)
+
+
+async def _trigger_rows(sessions, chunk_id: str, *, version: int) -> dict[str, MemoryOutboxRow]:
+    async with sessions() as session:
+        rows = list(
+            (
+                await session.execute(
+                    select(MemoryOutboxRow).where(
+                        MemoryOutboxRow.aggregate_id == chunk_id,
+                        MemoryOutboxRow.aggregate_version == version,
+                    )
+                )
+            ).scalars()
+        )
+    return {row.event_type: row for row in rows}
+
+
+def _shape(row: MemoryOutboxRow) -> tuple[object, ...]:
+    return row.aggregate_type, row.aggregate_id, row.aggregate_version, row.payload_json
+
+
+async def _select_only_status(sessions, row_id: int, status: str) -> None:
+    async with sessions.begin() as session:
+        await session.execute(update(MemoryOutboxRow).values(status="done"))
+        await session.execute(
+            update(MemoryOutboxRow).where(MemoryOutboxRow.id == row_id).values(status=status)
+        )
 
 
 def _identity(**changes: str) -> ExactDocumentIdentity:

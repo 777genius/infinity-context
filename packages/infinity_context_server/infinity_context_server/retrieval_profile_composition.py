@@ -279,11 +279,7 @@ class ProfileAwareLocatorRetrievalService:
             reconciliation_operation=operation,
             runtime_owner=owner,
         )
-        # Lane evidence is canonical evidence.  Its database trigger deliberately
-        # invalidates the active lease, so the operation captured before the
-        # authorized observations is no longer the predecessor for the final CAS.
-        # Rebind after our last evidence mutation; any later, external mutation is
-        # still detected by record_reconciliation's exact predecessor comparison.
+        # Rebind after lane evidence invalidates the lease; later mutations still fail the CAS.
         operation = await self.registry.reconciliation_operation(
             active.profile_id, runtime_owner=owner
         )

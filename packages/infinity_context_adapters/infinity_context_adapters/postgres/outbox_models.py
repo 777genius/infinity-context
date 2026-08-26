@@ -2,7 +2,7 @@
 
 from datetime import datetime
 
-from sqlalchemy import BigInteger, DateTime, Index, Integer, String
+from sqlalchemy import BigInteger, DateTime, Index, Integer, String, text
 from sqlalchemy.orm import Mapped, mapped_column
 
 from infinity_context_adapters.postgres.orm import Base, json_type
@@ -18,6 +18,15 @@ class MemoryOutboxRow(Base):
             "workload_class",
             "fairness_key",
             "next_attempt_at",
+        ),
+        Index(
+            "ix_memory_outbox_active_reconciliation_binding",
+            "aggregate_id",
+            "event_type",
+            "aggregate_type",
+            "aggregate_version",
+            postgresql_where=text("status IN ('pending', 'running', 'retry_pending')"),
+            sqlite_where=text("status IN ('pending', 'running', 'retry_pending')"),
         ),
     )
 

@@ -60,6 +60,9 @@ def test_published_migration_bytes_match_head_checksums() -> None:
         "0050_locator_profile_outbox_transaction_coalescing.sql": (
             "9be1200b51bccbe50f68e935c4c227f8e8a0aefd77f0c46561d352295e5b844f"
         ),
+        "0052_reconciliation_outbox_binding_index.sql": (
+            "c365eefef764e074249f2fc09444db3c4d26e01aa7c42e1e6b6abfa6d951acc2"
+        ),
     }
     for name, checksum in expected.items():
         assert sha256((migrations / name).read_bytes()).hexdigest() == checksum
@@ -75,7 +78,7 @@ def test_published_ledger_prefix_continues_through_forward_locator_migration() -
 
     _validate_history(migrations, history)
 
-    assert migrations[-1].migration_id == "0052_document_scope_listing_indexes"
+    assert migrations[-1].migration_id == ("0052_reconciliation_outbox_binding_index")
 
 
 def test_published_locator_checksums_remain_upgrade_compatible() -> None:
@@ -141,9 +144,7 @@ def test_every_version_bearing_transit_column_uses_bigint() -> None:
     )
     forward = (migrations / "0039_locator_retrieval_attributes.sql").read_text()
     assert "ALTER COLUMN aggregate_version TYPE BIGINT" not in forward
-    staged = (
-        migrations.parent / "staged_locator_migrations.py"
-    ).read_text()
+    staged = (migrations.parent / "staged_locator_migrations.py").read_text()
     assert "aggregate_version_bigint" in staged
     assert "LIMIT {_BATCH_SIZE} FOR UPDATE SKIP LOCKED" in staged
     assert "_BATCH_SIZE = 2000" in staged

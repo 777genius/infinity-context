@@ -138,7 +138,7 @@ async def _assert_strict_v4_canonical_document_graph(database_url: str) -> None:
         migration_engine = build_async_engine(database.app_url)
         try:
             result = await upgrade_schema(migration_engine)
-            assert result.current == "0052_document_scope_listing_indexes"
+            assert result.current == "0052_reconciliation_outbox_binding_index"
         finally:
             await migration_engine.dispose()
 
@@ -307,7 +307,7 @@ async def _assert_strict_v4_canonical_fact_graph(database_url: str) -> None:
         migration_engine = build_async_engine(database.app_url)
         try:
             result = await upgrade_schema(migration_engine)
-            assert result.current == "0052_document_scope_listing_indexes"
+            assert result.current == "0052_reconciliation_outbox_binding_index"
         finally:
             await migration_engine.dispose()
 
@@ -562,7 +562,7 @@ async def _assert_strict_v4_writer_authority(database_url: str) -> None:
         engine = build_async_engine(database.app_url)
         try:
             result = await upgrade_schema(engine)
-            assert result.current == "0052_document_scope_listing_indexes"
+            assert result.current == "0052_reconciliation_outbox_binding_index"
         finally:
             await engine.dispose()
         canonical_role = await database.create_runtime_role(

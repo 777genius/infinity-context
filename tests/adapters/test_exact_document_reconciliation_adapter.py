@@ -191,12 +191,12 @@ async def _indexed_scenario() -> None:
         session.add(
             MemoryOutboxRow(
                 event_type="vector.upsert_locator_profile",
-                aggregate_type="chunk",
+                aggregate_type="locator_profile_chunk",
                 aggregate_id=chunk.id,
                 aggregate_version=4,
                 workload_class="projection",
                 fairness_key="profile:profile-id",
-                payload_json={"profile_id": "profile-id"},
+                payload_json={"chunk_id": chunk.id, "profile_id": "profile-id"},
                 status="retry_pending",
                 attempt_count=1,
                 next_attempt_at=NOW,
@@ -227,6 +227,54 @@ async def _zero_active_chunks_scenario() -> None:
         await PostgresExactDocumentObservationAdapter(sessions).observe_exact_document(_identity())
     )[0]
 
+    assert observation.visibility == "accepted"
+    assert observation.projection_generation == "projection-1"
+    await engine.dispose()
+
+
+def test_hostile_document_id_alias_cannot_cross_scope_or_thread_binding() -> None:
+    asyncio.run(_hostile_child_binding_scenario())
+
+
+async def _hostile_child_binding_scenario() -> None:
+    engine = create_async_engine("sqlite+aiosqlite:///:memory:")
+    async with engine.begin() as connection:
+        await connection.run_sync(Base.metadata.create_all)
+    sessions = async_sessionmaker(engine, expire_on_commit=False)
+    async with sessions.begin() as session:
+        document = _document(1, "target")
+        hostile = _chunk(document.id)
+        hostile.id = "hostile-cross-scope"
+        hostile.space_id = "hostile-space"
+        hostile.memory_scope_id = "hostile-scope"
+        hostile.thread_id = "hostile-thread"
+        hostile.source_hash = "hostile-source"
+        hostile.retrieval_locator = "hostile-locator"
+        hostile.retrieval_projection_generation = "hostile-generation"
+        session.add_all(
+            [
+                document,
+                hostile,
+                MemoryOutboxRow(
+                    event_type="vector.upsert_chunk",
+                    aggregate_type="chunk",
+                    aggregate_id=hostile.id,
+                    aggregate_version=None,
+                    workload_class="projection",
+                    fairness_key="hostile",
+                    payload_json={"chunk_id": hostile.id},
+                    status="running",
+                    attempt_count=0,
+                    next_attempt_at=NOW,
+                    created_at=NOW,
+                    updated_at=NOW,
+                ),
+            ]
+        )
+    observation = (
+        await PostgresExactDocumentObservationAdapter(sessions).observe_exact_document(_identity())
+    )[0]
+    assert observation.projection_generation == "projection-1"
     assert observation.visibility == "accepted"
     await engine.dispose()
 

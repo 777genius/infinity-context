@@ -58,6 +58,10 @@ class InfinityContextClient(
     transport: httpx.BaseTransport | httpx.AsyncBaseTransport | None = None
     async_transport: httpx.AsyncBaseTransport | None = None
 
+    def __post_init__(self) -> None:
+        if self.transport is None and self.async_transport is None:
+            object.__setattr__(self, "_default_ssl_context", self._prepare_default_tls())
+
     def create_space(self, *, slug: str, name: str) -> dict[str, Any]:
         return self._request(
             "POST",

@@ -74,6 +74,7 @@ async def _scenario(database_url: str) -> None:
                 "0050_locator_profile_outbox_transaction_coalescing",
                 "0051_locator_profile_acl_search_path_hardening",
                 "0052_document_scope_listing_indexes",
+                "0052_reconciliation_outbox_binding_index",
             )
             await _assert_transit_column_types(engine)
 

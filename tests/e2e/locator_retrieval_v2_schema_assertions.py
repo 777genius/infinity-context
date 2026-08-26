@@ -81,6 +81,20 @@ async def assert_locator_retrieval_v2_schema(connection, tables: set[str]) -> No
         ).scalars()
     )
     assert "retrieval_projected" in document_columns
+    outbox_indexes = set(
+        (
+            await connection.execute(
+                text(
+                    """
+                    SELECT indexname FROM pg_indexes
+                    WHERE schemaname = current_schema()
+                      AND tablename = 'memory_outbox'
+                    """
+                )
+            )
+        ).scalars()
+    )
+    assert "ix_memory_outbox_active_reconciliation_binding" in outbox_indexes
 
 
 __all__ = ("assert_locator_retrieval_v2_schema",)

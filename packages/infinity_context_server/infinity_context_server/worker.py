@@ -401,9 +401,6 @@ async def _run(args: argparse.Namespace) -> None:
     finally:
         try:
             await worker.aclose()
-    finally:
-        try:
-            await worker.aclose()
         finally:
             await container.aclose()
 

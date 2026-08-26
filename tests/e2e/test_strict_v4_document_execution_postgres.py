@@ -112,7 +112,7 @@ async def _assert_authenticated_document_execution(
         migration_engine = build_async_engine(database.app_url)
         try:
             result = await upgrade_schema(migration_engine)
-            assert result.current == "0052_document_scope_listing_indexes"
+            assert result.current == "0052_reconciliation_outbox_binding_index"
         finally:
             await migration_engine.dispose()
         phase("schema-upgraded")

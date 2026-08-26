@@ -7,7 +7,7 @@ from infinity_context_core.features.document_ingestion.public import (
     ExactDocumentObservation,
     ExactDocumentObservationPort,
 )
-from sqlalchemy import and_, or_, select
+from sqlalchemy import and_, or_, select, text
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from .locator_models import (
@@ -32,7 +32,8 @@ class PostgresExactDocumentObservationAdapter(ExactDocumentObservationPort):
         *,
         idempotency_key: str | None = None,
     ) -> tuple[ExactDocumentObservation, ...]:
-        async with self._sessions() as session:
+        async with self._sessions() as session, session.begin():
+            await _establish_snapshot(session)
             documents = list(
                 (
                     await session.execute(
@@ -54,7 +55,7 @@ class PostgresExactDocumentObservationAdapter(ExactDocumentObservationPort):
             (
                 await session.execute(
                     select(MemoryChunkRow)
-                    .where(MemoryChunkRow.document_id == document.id)
+                    .where(*_child_binding_conditions(identity, document.id))
                     .order_by(MemoryChunkRow.id)
                 )
             ).scalars()
@@ -62,7 +63,9 @@ class PostgresExactDocumentObservationAdapter(ExactDocumentObservationPort):
         active_chunks = [chunk for chunk in chunks if chunk.status == "active"]
         generations = {chunk.retrieval_projection_generation for chunk in active_chunks}
         binding_conflict = len(generations) > 1
-        projection_generation = generations.pop() if len(generations) == 1 else None
+        projection_generation = _observed_projection_generation(
+            identity, chunks, active_chunks, generations
+        )
         profile = await _profile(session, identity.profile_generation)
         profile_generation = profile.generation if profile is not None else None
         visibility = await _visibility(
@@ -85,6 +88,46 @@ class PostgresExactDocumentObservationAdapter(ExactDocumentObservationPort):
             idempotency_key_matches=idempotency_matches,
             binding_conflict=binding_conflict,
         )
+
+
+async def _establish_snapshot(session: AsyncSession) -> None:
+    """Pin every PostgreSQL observation read to one non-leaking MVCC snapshot."""
+
+    bind = session.get_bind()
+    if bind.dialect.name == "postgresql":
+        # SET TRANSACTION is deliberately the first statement in the transaction.
+        # Unlike SET SESSION, both properties end automatically with this transaction.
+        await session.execute(text("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY"))
+
+
+def _child_binding_conditions(identity: ExactDocumentIdentity, document_id: str) -> list[object]:
+    scope = identity.scope
+    return [
+        MemoryChunkRow.document_id == document_id,
+        MemoryChunkRow.space_id == scope.space_id,
+        MemoryChunkRow.memory_scope_id == scope.memory_scope_id,
+        (
+            MemoryChunkRow.thread_id.is_(None)
+            if scope.thread_id is None
+            else MemoryChunkRow.thread_id == scope.thread_id
+        ),
+    ]
+
+
+def _observed_projection_generation(identity, chunks, active_chunks, active_generations):
+    if len(active_generations) == 1:
+        return next(iter(active_generations))
+    if active_chunks:
+        return None
+    requested = identity.projection_generation
+    if requested is None:
+        return None
+    chunk_generations = {chunk.retrieval_projection_generation for chunk in chunks}
+    if not chunk_generations or requested in chunk_generations:
+        return requested
+    if len(chunk_generations) == 1:
+        return next(iter(chunk_generations))
+    return None
 
 
 def _identity_conditions(identity: ExactDocumentIdentity) -> list[object]:
@@ -160,48 +203,72 @@ async def _has_live_projection_work(session, identity, document, chunks, profile
         if identity.projection_generation is None
         or chunk.retrieval_projection_generation == identity.projection_generation
     ]
-    chunk_ids = [chunk.id for chunk in bound_chunks]
+    active_statuses = ("pending", "retry_pending", "running")
     document_delete = and_(
         MemoryOutboxRow.event_type == "vector.delete_chunks",
         MemoryOutboxRow.aggregate_type == "document",
         MemoryOutboxRow.aggregate_id == document.id,
+        MemoryOutboxRow.aggregate_version.is_(None),
         MemoryOutboxRow.payload_json["document_id"].as_string() == document.id,
     )
     bindings = [document_delete]
-    if chunk_ids:
-        bindings.append(
-            and_(
-                MemoryOutboxRow.event_type == "vector.upsert_chunk",
-                MemoryOutboxRow.aggregate_id.in_(chunk_ids),
-                MemoryOutboxRow.payload_json["chunk_id"].as_string()
-                == MemoryOutboxRow.aggregate_id,
+    for chunk in bound_chunks:
+        chunk_id = chunk.id
+        current_version = chunk.retrieval_version
+        bindings.extend(
+            (
+                # Runtime/application producers are intentionally unversioned.
+                and_(
+                    MemoryOutboxRow.event_type == "vector.upsert_chunk",
+                    MemoryOutboxRow.aggregate_type == "chunk",
+                    MemoryOutboxRow.aggregate_id == chunk_id,
+                    MemoryOutboxRow.aggregate_version.is_(None),
+                    MemoryOutboxRow.payload_json["chunk_id"].as_string() == chunk_id,
+                ),
+                # The locator migration trigger binds work to the exact current version.
+                and_(
+                    MemoryOutboxRow.event_type == "vector.upsert_chunk",
+                    MemoryOutboxRow.aggregate_type == "locator_chunk",
+                    MemoryOutboxRow.aggregate_id == chunk_id,
+                    MemoryOutboxRow.aggregate_version == current_version,
+                    MemoryOutboxRow.payload_json["chunk_id"].as_string() == chunk_id,
+                ),
+                and_(
+                    MemoryOutboxRow.event_type == "vector.delete_chunks",
+                    MemoryOutboxRow.aggregate_type == "locator_chunk",
+                    MemoryOutboxRow.aggregate_id == chunk_id,
+                    MemoryOutboxRow.aggregate_version == current_version,
+                    MemoryOutboxRow.payload_json["chunk_ids"][0].as_string() == chunk_id,
+                ),
             )
         )
         if profile is not None:
-            current_versions = or_(
-                *(
+            profile_id = profile.profile_id
+            bindings.extend(
+                (
                     and_(
-                        MemoryOutboxRow.aggregate_id == chunk.id,
-                        MemoryOutboxRow.aggregate_version == chunk.retrieval_version,
-                    )
-                    for chunk in bound_chunks
-                )
-            )
-            bindings.append(
-                and_(
-                    MemoryOutboxRow.event_type.in_(
-                        ("vector.upsert_locator_profile", "vector.delete_locator_profile")
+                        MemoryOutboxRow.event_type == "vector.upsert_locator_profile",
+                        MemoryOutboxRow.aggregate_type == "locator_profile_chunk",
+                        MemoryOutboxRow.aggregate_id == chunk_id,
+                        MemoryOutboxRow.aggregate_version == current_version,
+                        MemoryOutboxRow.payload_json["chunk_id"].as_string() == chunk_id,
+                        MemoryOutboxRow.payload_json["profile_id"].as_string() == profile_id,
                     ),
-                    MemoryOutboxRow.aggregate_id.in_(chunk_ids),
-                    MemoryOutboxRow.payload_json["profile_id"].as_string() == profile.profile_id,
-                    current_versions,
+                    and_(
+                        MemoryOutboxRow.event_type == "vector.delete_locator_profile",
+                        MemoryOutboxRow.aggregate_type == "locator_profile_chunk",
+                        MemoryOutboxRow.aggregate_id == chunk_id,
+                        MemoryOutboxRow.aggregate_version == current_version,
+                        MemoryOutboxRow.payload_json["chunk_ids"][0].as_string() == chunk_id,
+                        MemoryOutboxRow.payload_json["profile_id"].as_string() == profile_id,
+                    ),
                 )
             )
     processing = (
         await session.execute(
             select(MemoryOutboxRow.id)
             .where(
-                MemoryOutboxRow.status.in_(("pending", "retry_pending", "running")),
+                MemoryOutboxRow.status.in_(active_statuses),
                 or_(*bindings),
             )
             .limit(1)

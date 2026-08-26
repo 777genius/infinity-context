@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import ssl
 import time
 from threading import Event
 from typing import Any
@@ -23,6 +24,15 @@ class InfinityContextHttpMixin:
     timeout: float
     transport: httpx.BaseTransport | httpx.AsyncBaseTransport | None
     async_transport: httpx.AsyncBaseTransport | None
+    _default_ssl_context: ssl.SSLContext | None
+
+    @staticmethod
+    def _prepare_default_tls() -> ssl.SSLContext:
+        """Perform lazy TLS/backend discovery outside the absolute request deadline."""
+
+        context = ssl.create_default_context()
+        httpx.AsyncHTTPTransport(verify=context)
+        return context
 
     def _request(
         self,
@@ -218,7 +228,10 @@ class InfinityContextHttpMixin:
                 "async_transport must implement httpx.AsyncBaseTransport"
             )
         transport = self.transport
-        if transport is None or isinstance(transport, httpx.AsyncBaseTransport):
+        if transport is None:
+            ssl_context = getattr(self, "_default_ssl_context", None)
+            return httpx.AsyncHTTPTransport(verify=ssl_context)
+        if isinstance(transport, httpx.AsyncBaseTransport):
             return transport
         if isinstance(transport, httpx.BaseTransport):
             raise transport_capability_error(

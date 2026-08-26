@@ -62,6 +62,7 @@ async def _scenario(database_url: str) -> None:
             assert result.applied == (
                 "0051_locator_profile_acl_search_path_hardening",
                 "0052_document_scope_listing_indexes",
+                "0052_reconciliation_outbox_binding_index",
             )
         finally:
             await engine.dispose()
@@ -69,27 +70,36 @@ async def _scenario(database_url: str) -> None:
         raw = await database.connect()
         try:
             await _assert_exact_sequence_acl(raw)
-            assert await raw.fetchval(
-                """
+            assert (
+                await raw.fetchval(
+                    """
                 SELECT pg_catalog.array_to_string(proconfig, ',')
                 FROM pg_catalog.pg_proc
                 WHERE oid='public.memory_chunk_locator_watermark_v2()'::regprocedure
                 """
-            ) == "search_path=pg_catalog, public, pg_temp"
-            assert await raw.fetchval(
-                """
+                )
+                == "search_path=pg_catalog, public, pg_temp"
+            )
+            assert (
+                await raw.fetchval(
+                    """
                 SELECT pg_catalog.array_to_string(proconfig, ',')
                 FROM pg_catalog.pg_proc
                 WHERE oid='public.memory_chunk_locator_projection_events_v2()'::regprocedure
                 """
-            ) == "search_path=pg_catalog, public, pg_temp"
-            assert await raw.fetchval(
-                """
+                )
+                == "search_path=pg_catalog, public, pg_temp"
+            )
+            assert (
+                await raw.fetchval(
+                    """
                 SELECT pg_catalog.array_to_string(proconfig, ',')
                 FROM pg_catalog.pg_proc
                 WHERE oid='public.memory_chunk_locator_profile_events_v2()'::regprocedure
                 """
-            ) == "search_path=pg_catalog, public, pg_temp"
+                )
+                == "search_path=pg_catalog, public, pg_temp"
+            )
 
             await raw.execute(
                 """
@@ -146,28 +156,39 @@ async def _scenario(database_url: str) -> None:
                         'locator-0051','source-0051','projection-0051',0,'paragraph','test');
                 """
             )
-            assert await raw.fetchval(
-                "SELECT retrieval_commit_watermark FROM public.memory_chunks "
-                "WHERE id='chunk-0051'"
-            ) == 102
-            assert await raw.fetchval(
-                "SELECT last_value FROM public.memory_locator_commit_watermark_seq"
-            ) == 102
-            assert await raw.fetchval(
-                "SELECT last_value FROM pg_temp.memory_locator_commit_watermark_seq"
-            ) == 9000
+            assert (
+                await raw.fetchval(
+                    "SELECT retrieval_commit_watermark FROM public.memory_chunks "
+                    "WHERE id='chunk-0051'"
+                )
+                == 102
+            )
+            assert (
+                await raw.fetchval(
+                    "SELECT last_value FROM public.memory_locator_commit_watermark_seq"
+                )
+                == 102
+            )
+            assert (
+                await raw.fetchval(
+                    "SELECT last_value FROM pg_temp.memory_locator_commit_watermark_seq"
+                )
+                == 9000
+            )
             assert not await raw.fetchval(
                 "SELECT is_called FROM pg_temp.memory_locator_commit_watermark_seq"
             )
-            assert await raw.fetchval(
-                "SELECT count(*) FROM public.memory_outbox "
-                "WHERE event_type='vector.upsert_locator_profile' "
-                "AND aggregate_id='chunk-0051' AND aggregate_version=1"
-            ) == 1
+            assert (
+                await raw.fetchval(
+                    "SELECT count(*) FROM public.memory_outbox "
+                    "WHERE event_type='vector.upsert_locator_profile' "
+                    "AND aggregate_id='chunk-0051' AND aggregate_version=1"
+                )
+                == 1
+            )
 
             inserted_watermark = await raw.fetchval(
-                "SELECT retrieval_commit_watermark FROM public.memory_chunks "
-                "WHERE id='chunk-0051'"
+                "SELECT retrieval_commit_watermark FROM public.memory_chunks WHERE id='chunk-0051'"
             )
             await raw.execute(
                 "UPDATE public.memory_chunks SET status='archived', updated_at=now() "
@@ -178,9 +199,12 @@ async def _scenario(database_url: str) -> None:
                 "FROM public.memory_chunks WHERE id='chunk-0051'"
             )
             assert tuple(ineligible) == (2, inserted_watermark + 1)
-            assert await raw.fetchval(
-                "SELECT last_value FROM public.memory_locator_commit_watermark_seq"
-            ) == ineligible["retrieval_commit_watermark"]
+            assert (
+                await raw.fetchval(
+                    "SELECT last_value FROM public.memory_locator_commit_watermark_seq"
+                )
+                == ineligible["retrieval_commit_watermark"]
+            )
             assert tuple(
                 await raw.fetchrow(
                     "SELECT canonical_version, legacy_deleted_at IS NULL, "
@@ -189,11 +213,14 @@ async def _scenario(database_url: str) -> None:
                     "WHERE chunk_id='chunk-0051'"
                 )
             ) == (2, True, True)
-            assert await raw.fetchval(
-                "SELECT canonical_version "
-                "FROM public.memory_locator_profile_tombstones "
-                "WHERE profile_id='profile-0051' AND chunk_id='chunk-0051'"
-            ) == 2
+            assert (
+                await raw.fetchval(
+                    "SELECT canonical_version "
+                    "FROM public.memory_locator_profile_tombstones "
+                    "WHERE profile_id='profile-0051' AND chunk_id='chunk-0051'"
+                )
+                == 2
+            )
             assert {
                 tuple(row)
                 for row in await raw.fetch(
@@ -219,33 +246,46 @@ async def _scenario(database_url: str) -> None:
                 ineligible["retrieval_version"] + 1,
                 ineligible["retrieval_commit_watermark"] + 1,
             )
-            assert await raw.fetchval(
-                "SELECT last_value FROM public.memory_locator_commit_watermark_seq"
-            ) == reactivated["retrieval_commit_watermark"]
-            assert await raw.fetchval(
-                "SELECT count(*) FROM public.memory_locator_profile_tombstones "
-                "WHERE profile_id='profile-0051' AND chunk_id='chunk-0051'"
-            ) == 0
+            assert (
+                await raw.fetchval(
+                    "SELECT last_value FROM public.memory_locator_commit_watermark_seq"
+                )
+                == reactivated["retrieval_commit_watermark"]
+            )
+            assert (
+                await raw.fetchval(
+                    "SELECT count(*) FROM public.memory_locator_profile_tombstones "
+                    "WHERE profile_id='profile-0051' AND chunk_id='chunk-0051'"
+                )
+                == 0
+            )
 
             deleted_version = reactivated["retrieval_version"]
-            await raw.execute(
-                "DELETE FROM public.memory_chunks WHERE id='chunk-0051'"
+            await raw.execute("DELETE FROM public.memory_chunks WHERE id='chunk-0051'")
+            assert (
+                await raw.fetchval(
+                    "SELECT canonical_version "
+                    "FROM public.memory_locator_profile_tombstones "
+                    "WHERE profile_id='profile-0051' AND chunk_id='chunk-0051'"
+                )
+                == deleted_version
             )
-            assert await raw.fetchval(
-                "SELECT canonical_version "
-                "FROM public.memory_locator_profile_tombstones "
-                "WHERE profile_id='profile-0051' AND chunk_id='chunk-0051'"
-            ) == deleted_version
-            assert await raw.fetchval(
-                "SELECT count(*) FROM public.memory_outbox "
-                "WHERE aggregate_id='chunk-0051' "
-                "AND aggregate_version=$1 "
-                "AND event_type='vector.delete_locator_profile'",
-                deleted_version,
-            ) == 1
-            assert await raw.fetchval(
-                "SELECT last_value FROM public.memory_locator_commit_watermark_seq"
-            ) == reactivated["retrieval_commit_watermark"]
+            assert (
+                await raw.fetchval(
+                    "SELECT count(*) FROM public.memory_outbox "
+                    "WHERE aggregate_id='chunk-0051' "
+                    "AND aggregate_version=$1 "
+                    "AND event_type='vector.delete_locator_profile'",
+                    deleted_version,
+                )
+                == 1
+            )
+            assert (
+                await raw.fetchval(
+                    "SELECT last_value FROM public.memory_locator_commit_watermark_seq"
+                )
+                == reactivated["retrieval_commit_watermark"]
+            )
             assert {
                 tuple(row)
                 for row in await raw.fetch(
@@ -278,12 +318,13 @@ async def _scenario(database_url: str) -> None:
                 "memory_locator_profile_tombstones",
                 "memory_outbox",
             ):
-                assert await raw.fetchval(
-                    f"SELECT count(*) FROM pg_temp.{shadow}"
-                ) == 0
-            assert await raw.fetchval(
-                "SELECT last_value FROM pg_temp.memory_locator_commit_watermark_seq"
-            ) == 9000
+                assert await raw.fetchval(f"SELECT count(*) FROM pg_temp.{shadow}") == 0
+            assert (
+                await raw.fetchval(
+                    "SELECT last_value FROM pg_temp.memory_locator_commit_watermark_seq"
+                )
+                == 9000
+            )
             assert not await raw.fetchval(
                 "SELECT is_called FROM pg_temp.memory_locator_commit_watermark_seq"
             )
