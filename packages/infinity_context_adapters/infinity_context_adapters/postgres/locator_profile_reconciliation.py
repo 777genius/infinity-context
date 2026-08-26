@@ -747,15 +747,25 @@ async def _reconciliation_evidence(owner, session, row, *, now: datetime):
 
 
 async def _lock_profile_evidence(session) -> int:
+    dialect_name = session.get_bind().dialect.name
     value = await session.scalar(
-        text(
-            "SELECT aggregate_version FROM memory_locator_profile_evidence_versions "
-            "WHERE singleton = TRUE FOR UPDATE"
-        )
+        text(_profile_evidence_lock_sql(dialect_name))
     )
     if value is None:
         raise RuntimeError("retrieval_profile_evidence_version_missing")
     return int(value)
+
+
+def _profile_evidence_lock_sql(dialect_name: str) -> str:
+    statement = (
+        "SELECT aggregate_version FROM memory_locator_profile_evidence_versions "
+        "WHERE singleton = TRUE"
+    )
+    if dialect_name == "postgresql":
+        return f"{statement} FOR UPDATE"
+    if dialect_name == "sqlite":
+        return statement
+    raise RuntimeError("retrieval_profile_evidence_lock_dialect_unsupported")
 
 
 async def _lock_maintenance(session) -> None:

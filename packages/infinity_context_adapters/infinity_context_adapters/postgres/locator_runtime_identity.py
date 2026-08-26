@@ -142,6 +142,12 @@ async def verify_registered_runtime(session, owner: RuntimeFenceOwner):
 async def lock_runtime_instance(session, instance_id: str) -> None:
     """Serialize absent-row registration by stable identity, never by wall clock."""
 
+    dialect_name = session.get_bind().dialect.name
+    if dialect_name == "sqlite":
+        # SQLite serializes writes through its transaction-level database lock.
+        return
+    if dialect_name != "postgresql":
+        raise RuntimeError("retrieval_profile_runtime_lock_dialect_unsupported")
     await session.execute(
         text("SELECT pg_advisory_xact_lock(hashtextextended(:instance_id, 0))"),
         {"instance_id": instance_id},

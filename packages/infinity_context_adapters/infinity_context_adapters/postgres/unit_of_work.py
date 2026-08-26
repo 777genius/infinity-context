@@ -64,6 +64,9 @@ from infinity_context_adapters.postgres.repositories import (
     PostgresEpisodeRepository,
     PostgresSuggestionRepository,
 )
+from infinity_context_adapters.postgres.retrieval_v2_schema_singletons import (
+    seed_retrieval_v2_schema_singletons,
+)
 from infinity_context_adapters.postgres.schema_registry import load_schema_metadata
 from infinity_context_adapters.postgres.scope_repositories import PostgresScopeRepository
 from infinity_context_adapters.postgres.suggestion_resolution_receipts import (
@@ -602,6 +605,7 @@ def _ensure_runtime_schema(connection: Connection) -> None:
 
     _ensure_legacy_profile_schema(connection)
     load_schema_metadata().create_all(connection)
+    seed_retrieval_v2_schema_singletons(connection)
     ensure_benchmark_projection_manifest_schema(connection)
     _ensure_additive_schema_columns(connection)
     _backfill_memory_fact_temporal_columns(connection)
