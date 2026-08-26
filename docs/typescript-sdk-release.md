@@ -1,0 +1,158 @@
+# TypeScript SDK releases
+
+`@infinity-context/sdk` releases independently from the Infinity service and meeting
+quality cadence. The SDK release binds source, contracts, lockfile, build workflow,
+and one exact npm tarball. It does not qualify a service, deployment, embedding/index,
+model/runtime, corpus, or meeting outcome.
+
+An SDK release contains exactly two assets:
+
+```text
+infinity-context-sdk-X.Y.Z.tgz
+infinity-context-sdk-release-manifest.json
+```
+
+The workflow uses Node 24.18.0 and `npm ci`, runs architecture, parity, type, test,
+build, and export checks, then calls `npm pack` exactly once. The consumer smoke is
+given that same file with `check-consumer-install.mjs --artifact`; it cannot silently
+replace the release bytes with another pack.
+
+## Operator prerequisites
+
+Administrators must configure these controls before dispatch. The workflow checks
+what the normal GitHub API exposes and fails closed; it never changes repository
+settings or invents credentials.
+
+- Enable repository immutable releases.
+- Create an active tag ruleset covering `refs/tags/sdk-v*` that restricts creation,
+  update, and deletion. Release tags are existing annotated tags pointing directly to
+  a commit.
+- Create the protected `sdk-release` environment with required independent review,
+  self-review prevention, and deployment restrictions for protected SDK tags.
+- Restrict manual Actions dispatch and tag bypass authority to release operators.
+- Keep the repository identity `777genius/infinity-context` and permit the protected
+  publish job to write contents and its separate Actions receipt.
+
+The build job has `contents: read`. The protected publish job has `contents: write`
+and `actions: write` for the verification receipt. Neither job has registry, OIDC,
+provider, Discord, or service credentials.
+
+## Manifest contract
+
+`infinity-context-sdk-release-manifest.json` is canonical key-sorted JSON, has no
+timestamp, and is exclusively created. Its workflow-facing CLI accepts required flags
+only; it derives Git identities from the checkout and has no manual revision override.
+It binds:
+
+- repository name and HTTPS URL;
+- annotated release tag and tag object;
+- source commit, source tree, and Git object format;
+- package name/version (minimum 0.2.1);
+- tarball filename, byte length, SHA-256, and SHA-512 SRI;
+- `package-lock.json` SHA-256;
+- Node 24.18.0 and `node24-npm-ci-pack-once.v1` build profile;
+- a path/digest inventory of SDK TypeScript contracts and JSON fixtures, plus its
+  canonical inventory digest;
+- exact workflow path, workflow blob SHA-256, Actions run ID, and run attempt.
+
+The manifest has no service revision, capability fingerprint, qualification data,
+model/runtime/corpus identity, meeting outcome, Discord data, private evidence, or
+timestamp. Inputs and evidence must be bounded regular files under their declared
+roots. Symlinks, path escapes, duplicate-key/noncanonical JSON, unsafe numbers,
+newline output injection, and output overwrite are rejected.
+
+## Executable release runbook for 0.2.1
+
+Start from the reviewed release commit. Create and push the one protected annotated
+tag; the workflow never creates or moves it:
+
+```bash
+git status --short
+test "$(node -p "require('./packages/infinity_context_ts_sdk/package.json').version")" = 0.2.1
+git tag -a sdk-v0.2.1 -m "Infinity Context TypeScript SDK 0.2.1" <REVIEWED_COMMIT_SHA>
+git push origin refs/tags/sdk-v0.2.1
+```
+
+Dispatch only that exact tag and record the run URL:
+
+```bash
+gh workflow run .github/workflows/typescript-sdk-release.yml \
+  --repo 777genius/infinity-context \
+  --ref <DEFAULT_BRANCH> \
+  -f sdk_tag=sdk-v0.2.1
+gh run list --repo 777genius/infinity-context \
+  --workflow .github/workflows/typescript-sdk-release.yml --limit 1
+```
+
+Approve `sdk-release` only after the build job succeeds. Both build and publish jobs
+refuse any existing release or draft for the tag; reruns do not resume or repair one.
+The publish job reconfirms the tag and immutable-release setting, rehashes and
+semantically revalidates both transported files, creates one draft, uploads without
+`--clobber`, downloads and compares both assets, publishes once, and requires the
+published release to report `immutable: true`. It then runs `gh release verify` and
+`gh release verify-asset` for each exact asset.
+
+## Download, verify, and cold install
+
+The immutable release URL is a dependency: do not use a branch archive or Actions
+artifact as distribution. Download and verify the exact two assets:
+
+```bash
+mkdir -p .verify/infinity-sdk-0.2.1
+gh release download sdk-v0.2.1 --repo 777genius/infinity-context \
+  --dir .verify/infinity-sdk-0.2.1
+test "$(find .verify/infinity-sdk-0.2.1 -maxdepth 1 -type f | wc -l)" -eq 2
+gh release verify sdk-v0.2.1 --repo 777genius/infinity-context
+gh release verify-asset sdk-v0.2.1 \
+  .verify/infinity-sdk-0.2.1/infinity-context-sdk-0.2.1.tgz \
+  --repo 777genius/infinity-context
+gh release verify-asset sdk-v0.2.1 \
+  .verify/infinity-sdk-0.2.1/infinity-context-sdk-release-manifest.json \
+  --repo 777genius/infinity-context
+```
+
+Pin the immutable release URL in the consumer:
+
+```json
+{
+  "dependencies": {
+    "@infinity-context/sdk": "https://github.com/777genius/infinity-context/releases/download/sdk-v0.2.1/infinity-context-sdk-0.2.1.tgz"
+  }
+}
+```
+
+Then prove a cold, lockfile-driven install:
+
+```bash
+test "$(jq -r '.packages["node_modules/@infinity-context/sdk"].resolved' package-lock.json)" = \
+  "https://github.com/777genius/infinity-context/releases/download/sdk-v0.2.1/infinity-context-sdk-0.2.1.tgz"
+npm ci --ignore-scripts --no-audit --no-fund
+node -e 'import("@infinity-context/sdk").then(() => console.log("SDK 0.2.1 import ok"))'
+```
+
+Compare the consumer lock integrity and downloaded bytes to the manifest before
+installation. A changed tag, tree, lock, workflow, fixture, or tarball requires a new
+SDK version.
+
+## Non-recursive verification chain
+
+The pre-upload manifest cannot bind release and asset IDs that do not exist yet
+without recursively changing its own asset bytes. After publication and attestation
+verification, the workflow therefore exclusively creates
+`infinity-context-sdk-release-verification-receipt.json`. It records the release ID and
+URL, exact asset IDs/digests, run ID/attempt, and successful release/asset verification.
+It is uploaded only as a separately named Actions artifact for Discord/operations
+custody; it is not a release asset and never changes the exact two-asset policy.
+
+Downstream Discord release quality is a separate decision. It binds this immutable
+SDK release URL and receipt to the Infinity service/image, embedding/index,
+production model/runtime, three 240-meeting outcomes, and two independent reviewer
+signatures. None of that evidence belongs in or gates the SDK release manifest.
+
+## Failure and rollback policy
+
+Any pre-existing release/draft/assets, moved tag, unconfirmed rule/immutability
+setting, byte drift, extra asset, or failed attestation stops publication. Do not
+delete, resume, replace, or repair the release; investigate and use a new patch
+version. Consumer rollback means reverting to an earlier already-verified immutable
+SDK release URL and lockfile, never rewriting a tag or release.

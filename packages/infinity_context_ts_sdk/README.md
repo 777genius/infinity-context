@@ -33,9 +33,28 @@ preserves legacy request bytes; an object maps to the exact Contract C DTO.
 
 ## Install
 
-```bash
-npm install @infinity-context/sdk
+Use the versioned immutable GitHub Release asset and verification procedure in the
+[TypeScript SDK release guide](../../docs/typescript-sdk-release.md).
+
+For 0.2.1, pin the exact release URL, commit its SHA-512 integrity in
+`package-lock.json`, and use a cold `npm ci`:
+
+```json
+{
+  "dependencies": {
+    "@infinity-context/sdk": "https://github.com/777genius/infinity-context/releases/download/sdk-v0.2.1/infinity-context-sdk-0.2.1.tgz"
+  }
+}
 ```
+
+```bash
+npm ci --ignore-scripts --no-audit --no-fund
+```
+
+The SDK release proves source/tree/contracts/lock/build/exact bytes only. Downstream
+Discord qualification separately binds the immutable release URL to the deployed
+service/image, embedding/index, production model/runtime, 3x240 meeting outcomes,
+and two independent reviewer signatures.
 
 Stable entry points:
 
@@ -61,12 +80,6 @@ Both binaries support `--help` and `--version` without contacting the service.
 
 `npm run verify` includes architecture, conformance, build, export, consumer-install,
 and packed-fixture gates. Touched production stays below 900 lines and tests below 1000.
-
-`npm run provenance:retrieval-v2` writes a new read-only provenance manifest with
-exclusive-create semantics. It binds the packed artifact SHA-256 and byte length to an
-identical 40-hex source, service and SDK revision plus the qualified capability
-fingerprint. The manual `Retrieval V2 SDK provenance` workflow verifies, packs and
-uploads those immutable artifacts; it does not publish or deploy them.
 
 ## Usage
 

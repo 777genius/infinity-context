@@ -1,6 +1,6 @@
 {
   "name": "@infinity-context/sdk",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "description": "Production-grade TypeScript SDK for the Infinity Context memory API.",
   "license": "Apache-2.0",
   "repository": {
@@ -82,9 +82,9 @@
     "check:consumer": "node scripts/check-consumer-install.mjs",
     "canary:runtime": "npm run build && node scripts/runtime-canary.mjs",
     "canary:retrieval-v2": "npm run build && node scripts/retrieval-v2-runtime-canary.mjs",
-    "provenance:retrieval-v2": "node scripts/retrieval-v2-artifact-provenance.mjs",
+    "release:manifest": "node scripts/sdk-release-manifest.mjs",
     "proof:full-memory": "npm run build && node scripts/full-memory-proof.mjs",
-    "lint": "node --check scripts/check-consumer-install.mjs && node --check scripts/retrieval-v2-artifact-provenance.mjs",
+    "lint": "node --check scripts/check-consumer-install.mjs && node --check scripts/sdk-release-manifest.mjs && node --check scripts/sdk-release-receipt.mjs",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "test": "vitest run",
     "verify": "npm run check:architecture && npm run check:retrieval-v2-parity && npm run check:parity && npm run typecheck && npm run test && npm run build && npm run check:exports && npm run check:consumer"

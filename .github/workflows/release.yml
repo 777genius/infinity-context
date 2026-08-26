@@ -235,15 +235,15 @@ jobs:
           name: infinity-context-${{ needs.prepare.outputs.tag }}-checksums
           path: release-assets
 
-      - name: Create or refresh GitHub release
+      - name: Create GitHub release without replacing assets
         env:
           GH_TOKEN: ${{ github.token }}
           RELEASE_TAG: ${{ needs.prepare.outputs.tag }}
         run: |
           set -euo pipefail
           if gh release view "${RELEASE_TAG}" --repo "${GITHUB_REPOSITORY}" >/dev/null 2>&1; then
-            gh release upload "${RELEASE_TAG}" release-assets/* --clobber \
-              --repo "${GITHUB_REPOSITORY}"
+            echo "Release ${RELEASE_TAG} already exists; refusing to replace release assets." >&2
+            exit 1
           else
             gh release create "${RELEASE_TAG}" release-assets/* \
               --repo "${GITHUB_REPOSITORY}" \

@@ -1,0 +1,414 @@
+name: TypeScript SDK release
+
+on:
+  workflow_dispatch:
+    inputs:
+      sdk_tag:
+        description: Existing protected annotated sdk-vX.Y.Z tag
+        required: true
+        type: string
+
+permissions: {}
+
+concurrency:
+  group: typescript-sdk-release-${{ inputs.sdk_tag }}
+  cancel-in-progress: false
+
+jobs:
+  build:
+    name: Validate and build exact SDK bytes
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
+    outputs:
+      artifact_name: ${{ steps.source.outputs.artifact_name }}
+      commit: ${{ steps.resolve.outputs.commit }}
+      tag: ${{ steps.resolve.outputs.tag }}
+      tag_object: ${{ steps.resolve.outputs.tag_object }}
+      version: ${{ steps.source.outputs.version }}
+      workflow_sha256: ${{ steps.source.outputs.workflow_sha256 }}
+    steps:
+      - name: Resolve protected annotated tag and repository policy
+        id: resolve
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SDK_TAG: ${{ inputs.sdk_tag }}
+        run: |
+          set -euo pipefail
+          if [ "${GITHUB_REPOSITORY}" != "777genius/infinity-context" ]; then
+            echo "Release repository identity is not 777genius/infinity-context" >&2
+            exit 1
+          fi
+          if ! [[ "${SDK_TAG}" =~ ^sdk-v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "sdk_tag must use exact sdk-vX.Y.Z form" >&2
+            exit 1
+          fi
+
+          repository_json="$(gh api -H "Accept: application/vnd.github+json" \
+            "repos/${GITHUB_REPOSITORY}")"
+          if ! jq -e '(.immutable_releases == true) or (.immutable_releases_enabled == true)' \
+            <<<"${repository_json}" >/dev/null; then
+            echo "The GitHub API did not confirm immutable releases are enabled" >&2
+            exit 1
+          fi
+
+          tag_ref="$(gh api -H "Accept: application/vnd.github+json" \
+            "repos/${GITHUB_REPOSITORY}/git/ref/tags/${SDK_TAG}")"
+          if [ "$(jq -r '.object.type' <<<"${tag_ref}")" != "tag" ]; then
+            echo "${SDK_TAG} must be an existing annotated tag" >&2
+            exit 1
+          fi
+          tag_object="$(jq -r '.object.sha' <<<"${tag_ref}")"
+          tag_json="$(gh api -H "Accept: application/vnd.github+json" \
+            "repos/${GITHUB_REPOSITORY}/git/tags/${tag_object}")"
+          if [ "$(jq -r '.object.type' <<<"${tag_json}")" != "commit" ]; then
+            echo "${SDK_TAG} must directly annotate one commit" >&2
+            exit 1
+          fi
+          commit="$(jq -r '.object.sha' <<<"${tag_json}")"
+          if ! [[ "${commit}" =~ ^[0-9a-f]{40}$|^[0-9a-f]{64}$ ]]; then
+            echo "Annotated tag target is malformed" >&2
+            exit 1
+          fi
+
+          ruleset_summaries="$(gh api --paginate --slurp \
+            -H "Accept: application/vnd.github+json" \
+            "repos/${GITHUB_REPOSITORY}/rulesets?targets=tag&per_page=100")"
+          rulesets='[]'
+          while IFS= read -r ruleset_id; do
+            [ -n "${ruleset_id}" ] || continue
+            item="$(gh api -H "Accept: application/vnd.github+json" \
+              "repos/${GITHUB_REPOSITORY}/rulesets/${ruleset_id}?includes_parents=true")"
+            rulesets="$(jq --argjson item "${item}" '. + [$item]' <<<"${rulesets}")"
+          done < <(jq -r '.[][] | .id' <<<"${ruleset_summaries}")
+          if ! jq -e --arg ref "refs/tags/${SDK_TAG}" '
+            [ .[]
+              | select(.target == "tag" and .enforcement == "active")
+              | select((([.rules[].type] | index("creation")) != null) and
+                       (([.rules[].type] | index("update")) != null) and
+                       (([.rules[].type] | index("deletion")) != null))
+              | .conditions.ref_name as $names
+              | select(($names.exclude | length) == 0)
+              | select(any($names.include[]?;
+                  . == "~ALL" or . == $ref or
+                  (. == "refs/tags/sdk-v*" and ($ref | startswith("refs/tags/sdk-v")))))
+            ] | length > 0
+          ' <<<"${rulesets}" >/dev/null; then
+            echo "The GitHub API did not confirm active creation/update/deletion protection for ${SDK_TAG}" >&2
+            exit 1
+          fi
+
+          existing="$(gh api --paginate --slurp -H "Accept: application/vnd.github+json" \
+            "repos/${GITHUB_REPOSITORY}/releases?per_page=100")"
+          if jq -e --arg tag "${SDK_TAG}" 'any(.[][]; .tag_name == $tag)' \
+            <<<"${existing}" >/dev/null; then
+            echo "A release or draft already exists for ${SDK_TAG}; refusing to resume" >&2
+            exit 1
+          fi
+          {
+            echo "commit=${commit}"
+            echo "tag=${SDK_TAG}"
+            echo "tag_object=${tag_object}"
+          } >>"${GITHUB_OUTPUT}"
+
+      - name: Checkout exact tag commit
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+          ref: ${{ steps.resolve.outputs.commit }}
+
+      - name: Revalidate clean source, repository, tag, and package identity
+        id: source
+        shell: bash
+        env:
+          EXPECTED_COMMIT: ${{ steps.resolve.outputs.commit }}
+          EXPECTED_TAG_OBJECT: ${{ steps.resolve.outputs.tag_object }}
+          SDK_TAG: ${{ steps.resolve.outputs.tag }}
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD^{commit})" = "${EXPECTED_COMMIT}"
+          test "$(git rev-parse "${SDK_TAG}^{tag}")" = "${EXPECTED_TAG_OBJECT}"
+          test "$(git rev-parse "${SDK_TAG}^{commit}")" = "${EXPECTED_COMMIT}"
+          test -z "$(git status --porcelain=v1 --untracked-files=all)"
+          remote="$(git remote get-url origin | sed -E \
+            -e 's#^git@github.com:#https://github.com/#' \
+            -e 's#^git\+https://#https://#' -e 's#\.git$##')"
+          test "${remote}" = "https://github.com/${GITHUB_REPOSITORY}"
+          version="$(node -p "require('./packages/infinity_context_ts_sdk/package.json').version")"
+          node -e '
+            const parsed = process.argv.slice(1).map((x) => {
+              if (!/^(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)$/.test(x)) process.exit(1);
+              return x.split(".").map(Number);
+            });
+            const [version, floor] = parsed;
+            for (let index = 0; index < 3; index += 1) {
+              if (version[index] > floor[index]) process.exit(0);
+              if (version[index] < floor[index]) process.exit(1);
+            }
+          ' "${version}" "0.2.1"
+          test "${SDK_TAG}" = "sdk-v${version}"
+          artifact_name="infinity-context-sdk-${version}.tgz"
+          workflow_sha256="$(sha256sum .github/workflows/typescript-sdk-release.yml | cut -d' ' -f1)"
+          {
+            echo "artifact_name=${artifact_name}"
+            echo "version=${version}"
+            echo "workflow_sha256=${workflow_sha256}"
+          } >>"${GITHUB_OUTPUT}"
+
+      - name: Set up exact Node.js
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: "24.18.0"
+          cache: npm
+          cache-dependency-path: packages/infinity_context_ts_sdk/package-lock.json
+
+      - name: Install and verify SDK without packing
+        working-directory: packages/infinity_context_ts_sdk
+        run: |
+          set -euo pipefail
+          test "$(node --version)" = "v24.18.0"
+          npm ci
+          npm run lint
+          npm run check:architecture
+          npm run check:retrieval-v2-parity
+          npm run check:parity
+          npm run typecheck
+          npm run test
+          npm run build
+          npm run check:exports
+
+      - name: Pack SDK exactly once
+        id: pack
+        working-directory: packages/infinity_context_ts_sdk
+        shell: bash
+        env:
+          EXPECTED_ARTIFACT: ${{ steps.source.outputs.artifact_name }}
+        run: |
+          set -euo pipefail
+          pack_json="$(npm pack --json)"
+          artifact_name="$(jq -er \
+            'if length == 1 then .[0].filename else error("expected exactly one pack result") end' \
+            <<<"${pack_json}")"
+          test "${artifact_name}" = "${EXPECTED_ARTIFACT}"
+          test -f "${artifact_name}"
+          echo "artifact_name=${artifact_name}" >>"${GITHUB_OUTPUT}"
+
+      - name: Test the same packed tarball
+        working-directory: packages/infinity_context_ts_sdk
+        run: node scripts/check-consumer-install.mjs --artifact "${{ steps.pack.outputs.artifact_name }}"
+
+      - name: Create deterministic SDK release manifest
+        shell: bash
+        env:
+          SDK_ARTIFACT: ${{ steps.pack.outputs.artifact_name }}
+          SDK_TAG: ${{ steps.resolve.outputs.tag }}
+          WORKFLOW_SHA256: ${{ steps.source.outputs.workflow_sha256 }}
+        run: |
+          set -euo pipefail
+          mkdir release-bundle
+          cp "packages/infinity_context_ts_sdk/${SDK_ARTIFACT}" release-bundle/
+          node packages/infinity_context_ts_sdk/scripts/sdk-release-manifest.mjs \
+            --artifact "${GITHUB_WORKSPACE}/release-bundle/${SDK_ARTIFACT}" \
+            --artifact-root "${GITHUB_WORKSPACE}/release-bundle" \
+            --build-profile node24-npm-ci-pack-once.v1 \
+            --node-version 24.18.0 \
+            --output "${GITHUB_WORKSPACE}/release-bundle/infinity-context-sdk-release-manifest.json" \
+            --output-root "${GITHUB_WORKSPACE}/release-bundle" \
+            --package-root "${GITHUB_WORKSPACE}/packages/infinity_context_ts_sdk" \
+            --repository "${GITHUB_REPOSITORY}" \
+            --repository-root "${GITHUB_WORKSPACE}" \
+            --tag "${SDK_TAG}" \
+            --workflow-path .github/workflows/typescript-sdk-release.yml \
+            --workflow-run-attempt "${GITHUB_RUN_ATTEMPT}" \
+            --workflow-run-id "${GITHUB_RUN_ID}" \
+            --workflow-sha256 "${WORKFLOW_SHA256}"
+          expected="$(printf '%s\n' "${SDK_ARTIFACT}" infinity-context-sdk-release-manifest.json | sort)"
+          actual="$(find release-bundle -maxdepth 1 -type f -printf '%f\n' | sort)"
+          test "${actual}" = "${expected}"
+
+      - name: Transfer exactly two release files
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: typescript-sdk-release-${{ steps.resolve.outputs.tag }}
+          path: release-bundle/
+          if-no-files-found: error
+          include-hidden-files: false
+          overwrite: false
+          retention-days: 1
+
+  publish:
+    name: Publish protected immutable SDK release
+    needs: build
+    if: github.repository == '777genius/infinity-context'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    environment:
+      name: sdk-release
+      url: ${{ steps.publish.outputs.url }}
+    permissions:
+      actions: write
+      contents: write
+    steps:
+      - name: Checkout exact release source for semantic verification
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+          ref: ${{ needs.build.outputs.commit }}
+
+      - name: Set up exact Node.js
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: "24.18.0"
+
+      - name: Download exact two-file transport
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: typescript-sdk-release-${{ needs.build.outputs.tag }}
+          path: release-bundle
+
+      - name: Rehash and semantically revalidate transported evidence
+        shell: bash
+        env:
+          SDK_ARTIFACT: ${{ needs.build.outputs.artifact_name }}
+          SDK_TAG: ${{ needs.build.outputs.tag }}
+          WORKFLOW_SHA256: ${{ needs.build.outputs.workflow_sha256 }}
+        run: |
+          set -euo pipefail
+          test "$(node --version)" = "v24.18.0"
+          expected="$(printf '%s\n' "${SDK_ARTIFACT}" infinity-context-sdk-release-manifest.json | sort)"
+          actual="$(find release-bundle -maxdepth 1 -type f -printf '%f\n' | sort)"
+          test "${actual}" = "${expected}"
+          node packages/infinity_context_ts_sdk/scripts/sdk-release-manifest.mjs \
+            --artifact "${GITHUB_WORKSPACE}/release-bundle/${SDK_ARTIFACT}" \
+            --artifact-root "${GITHUB_WORKSPACE}/release-bundle" \
+            --build-profile node24-npm-ci-pack-once.v1 \
+            --manifest "${GITHUB_WORKSPACE}/release-bundle/infinity-context-sdk-release-manifest.json" \
+            --node-version 24.18.0 \
+            --output-root "${GITHUB_WORKSPACE}/release-bundle" \
+            --package-root "${GITHUB_WORKSPACE}/packages/infinity_context_ts_sdk" \
+            --repository "${GITHUB_REPOSITORY}" \
+            --repository-root "${GITHUB_WORKSPACE}" \
+            --tag "${SDK_TAG}" \
+            --workflow-path .github/workflows/typescript-sdk-release.yml \
+            --workflow-run-attempt "${GITHUB_RUN_ATTEMPT}" \
+            --workflow-run-id "${GITHUB_RUN_ID}" \
+            --workflow-sha256 "${WORKFLOW_SHA256}"
+
+      - name: Refuse pre-existing release state and reconfirm policy
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_COMMIT: ${{ needs.build.outputs.commit }}
+          RELEASE_TAG: ${{ needs.build.outputs.tag }}
+          TAG_OBJECT: ${{ needs.build.outputs.tag_object }}
+        run: |
+          set -euo pipefail
+          repository_json="$(gh api -H "Accept: application/vnd.github+json" \
+            "repos/${GITHUB_REPOSITORY}")"
+          jq -e '(.immutable_releases == true) or (.immutable_releases_enabled == true)' \
+            <<<"${repository_json}" >/dev/null || {
+              echo "Immutable releases are not API-confirmed" >&2
+              exit 1
+            }
+          ref="$(gh api -H "Accept: application/vnd.github+json" \
+            "repos/${GITHUB_REPOSITORY}/git/ref/tags/${RELEASE_TAG}")"
+          test "$(jq -r '.object.type' <<<"${ref}")" = tag
+          test "$(jq -r '.object.sha' <<<"${ref}")" = "${TAG_OBJECT}"
+          target="$(gh api -H "Accept: application/vnd.github+json" \
+            "repos/${GITHUB_REPOSITORY}/git/tags/${TAG_OBJECT}" | jq -r '.object.sha')"
+          test "${target}" = "${RELEASE_COMMIT}"
+          existing="$(gh api --paginate --slurp -H "Accept: application/vnd.github+json" \
+            "repos/${GITHUB_REPOSITORY}/releases?per_page=100")"
+          if jq -e --arg tag "${RELEASE_TAG}" 'any(.[][]; .tag_name == $tag)' \
+            <<<"${existing}" >/dev/null; then
+            echo "A release or draft already exists; this workflow never resumes" >&2
+            exit 1
+          fi
+
+      - name: Create one draft, upload exact assets, verify, and publish once
+        id: publish
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ needs.build.outputs.tag }}
+          SDK_ARTIFACT: ${{ needs.build.outputs.artifact_name }}
+          SDK_VERSION: ${{ needs.build.outputs.version }}
+        run: |
+          set -euo pipefail
+          assets=("${SDK_ARTIFACT}" infinity-context-sdk-release-manifest.json)
+          gh release create "${RELEASE_TAG}" \
+            --repo "${GITHUB_REPOSITORY}" \
+            --draft --latest=false --notes-from-tag \
+            --title "Infinity Context TypeScript SDK ${SDK_VERSION}" --verify-tag
+          for asset in "${assets[@]}"; do
+            gh release upload "${RELEASE_TAG}" "release-bundle/${asset}" \
+              --repo "${GITHUB_REPOSITORY}"
+          done
+          draft="$(gh api -H "Accept: application/vnd.github+json" \
+            "repos/${GITHUB_REPOSITORY}/releases/tags/${RELEASE_TAG}")"
+          test "$(jq -r '.draft' <<<"${draft}")" = true
+          expected="$(printf '%s\n' "${assets[@]}" | sort)"
+          test "$(jq -r '.assets[].name' <<<"${draft}" | sort)" = "${expected}"
+          cold_dir="$(mktemp -d)"
+          for asset in "${assets[@]}"; do
+            gh release download "${RELEASE_TAG}" --repo "${GITHUB_REPOSITORY}" \
+              --pattern "${asset}" --dir "${cold_dir}"
+            cmp "release-bundle/${asset}" "${cold_dir}/${asset}"
+          done
+          gh release edit "${RELEASE_TAG}" --repo "${GITHUB_REPOSITORY}" --draft=false
+          for attempt in 1 2 3 4 5 6; do
+            published="$(gh api -H "Accept: application/vnd.github+json" \
+              "repos/${GITHUB_REPOSITORY}/releases/tags/${RELEASE_TAG}")"
+            if [ "$(jq -r '.immutable' <<<"${published}")" = true ]; then
+              break
+            fi
+            if [ "${attempt}" -eq 6 ]; then
+              echo "Published release did not become immutable" >&2
+              exit 1
+            fi
+            sleep 5
+          done
+          test "$(jq -r '.draft' <<<"${published}")" = false
+          test "$(jq -r '.immutable' <<<"${published}")" = true
+          test "$(jq -r '.assets[].name' <<<"${published}" | sort)" = "${expected}"
+          gh release verify "${RELEASE_TAG}" --repo "${GITHUB_REPOSITORY}"
+          for asset in "${assets[@]}"; do
+            gh release verify-asset "${RELEASE_TAG}" "${cold_dir}/${asset}" \
+              --repo "${GITHUB_REPOSITORY}"
+          done
+          mkdir verification-receipt
+          cp "${cold_dir}/"* verification-receipt/
+          printf '%s\n' "${published}" >verification-receipt/release.json
+          echo "url=$(jq -r '.html_url' <<<"${published}")" >>"${GITHUB_OUTPUT}"
+
+      - name: Create non-release verification receipt
+        shell: bash
+        env:
+          RELEASE_TAG: ${{ needs.build.outputs.tag }}
+        run: |
+          set -euo pipefail
+          node packages/infinity_context_ts_sdk/scripts/sdk-release-receipt.mjs \
+            --asset-attestations-verified \
+            --asset-dir "${GITHUB_WORKSPACE}/verification-receipt" \
+            --output "${GITHUB_WORKSPACE}/verification-receipt/infinity-context-sdk-release-verification-receipt.json" \
+            --output-root "${GITHUB_WORKSPACE}/verification-receipt" \
+            --release-attestation-verified \
+            --release-json "${GITHUB_WORKSPACE}/verification-receipt/release.json" \
+            --repository "${GITHUB_REPOSITORY}" \
+            --run-attempt "${GITHUB_RUN_ATTEMPT}" \
+            --run-id "${GITHUB_RUN_ID}" \
+            --tag "${RELEASE_TAG}"
+
+      - name: Retain verification receipt for Discord and operations custody
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: typescript-sdk-release-verification-${{ needs.build.outputs.tag }}
+          path: verification-receipt/infinity-context-sdk-release-verification-receipt.json
+          if-no-files-found: error
+          include-hidden-files: false
+          overwrite: false
+          retention-days: 90
