@@ -44,8 +44,12 @@ async def _assert_pr57_history_upgrade(database_url: str) -> None:
         engine = build_async_engine(database.app_url)
         try:
             upgrade = await upgrade_schema(engine)
-            assert upgrade.applied == ("0052_document_scope_listing_indexes",)
-            assert upgrade.current == "0052_document_scope_listing_indexes"
+            assert upgrade.applied == (
+                "0052_document_scope_listing_indexes",
+                "0052_reconciliation_outbox_binding_index",
+            )
+            assert upgrade.current == "0052_reconciliation_outbox_binding_index"
+            assert (await upgrade_schema(engine)).applied == ()
             await _assert_cleanup_plan_schema(engine)
         finally:
             await engine.dispose()
