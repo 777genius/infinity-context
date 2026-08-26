@@ -14,12 +14,8 @@ from infinity_context_server import admin, admin_retrieval_profiles
 def test_actual_admin_entry_point_requires_target_and_returns_safe_bounded_json(
     monkeypatch, capsys
 ) -> None:
-    lifecycle = _Lifecycle()
-    container = SimpleNamespace(
-        retrieval_profile_lifecycle=lifecycle,
-        clock=SimpleNamespace(now=lambda: datetime(2026, 8, 23, tzinfo=UTC)),
-        engine=SimpleNamespace(dispose=_dispose),
-    )
+    container = _Container()
+    lifecycle = container.retrieval_profile_lifecycle
     monkeypatch.setattr(admin_retrieval_profiles, "build_container", lambda settings: container)
     monkeypatch.setattr(
         admin.sys,
@@ -51,10 +47,20 @@ def test_actual_admin_entry_point_requires_target_and_returns_safe_bounded_json(
         "target": "profile-a",
     }
     assert lifecycle.phases == ["collection_deleted", "postgres_cleaned", "complete"]
+    assert container.events == ["start", "close"]
 
 
-async def _dispose() -> None:
-    return None
+class _Container:
+    def __init__(self) -> None:
+        self.events: list[str] = []
+        self.retrieval_profile_lifecycle = _Lifecycle()
+        self.clock = SimpleNamespace(now=lambda: datetime(2026, 8, 23, tzinfo=UTC))
+
+    async def start_retrieval_runtime(self) -> None:
+        self.events.append("start")
+
+    async def aclose(self) -> None:
+        self.events.append("close")
 
 
 class _Lifecycle:
