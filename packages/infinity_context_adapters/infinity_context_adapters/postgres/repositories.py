@@ -18,6 +18,7 @@ from infinity_context_core.ports.repositories import (
     ActiveAnchorKey,
     AnchorRepositoryPort,
     AnchorScopeQuery,
+    CanonicalChunkVersion,
     ChunkKeywordSearch,
     ChunkRepositoryPort,
     DocumentRepositoryPort,
@@ -395,7 +396,7 @@ class PostgresDocumentRepository(DocumentRepositoryPort):
         *,
         document_id: str,
         now: datetime,
-    ) -> tuple[MemoryDocument, tuple[str, ...]] | None:
+    ) -> tuple[MemoryDocument, tuple[CanonicalChunkVersion, ...]] | None:
         document = await self._session.get(MemoryDocumentRow, document_id)
         if document is None:
             return None
@@ -410,7 +411,13 @@ class PostgresDocumentRepository(DocumentRepositoryPort):
                 )
             ).scalars()
         )
-        deleted_chunk_ids = tuple(row.id for row in chunk_rows)
+        deleted_chunk_versions = tuple(
+            CanonicalChunkVersion(
+                chunk_id=row.id,
+                canonical_version=row.retrieval_version,
+            )
+            for row in chunk_rows
+        )
         for row in chunk_rows:
             row.status = "deleted"
             row.retrieval_version += 1
@@ -418,7 +425,7 @@ class PostgresDocumentRepository(DocumentRepositoryPort):
         if document.status != "deleted":
             document.status = "deleted"
             document.updated_at = now
-        return document_row_to_domain(document), deleted_chunk_ids
+        return document_row_to_domain(document), deleted_chunk_versions
 
 
 class PostgresChunkRepository(ChunkRepositoryPort):

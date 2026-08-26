@@ -198,7 +198,9 @@ def test_in_memory_chunk_index_upserts_latest_items_and_accepts_deletes() -> Non
     assert index.get("chunk-1") == updated_item
     assert index.list_items() == (updated_item, other_item)
 
-    delete = asyncio.run(index.delete_chunks(("missing", "chunk-2")))
+    delete = asyncio.run(
+        index.delete_chunks_if_version(("missing", "chunk-2"), canonical_version=1)
+    )
 
     assert delete.accepted_chunk_ids == ("missing", "chunk-2")
     assert delete.failed_chunk_ids == ()
@@ -357,7 +359,11 @@ def test_qdrant_chunk_index_is_explicit_placeholder() -> None:
         asyncio.run(module.QdrantDocumentChunkIndex().upsert_chunks((item,)))
 
     with pytest.raises(NotImplementedError, match="derived chunk index wiring is deferred"):
-        asyncio.run(module.create_qdrant_document_chunk_index().delete_chunks(("chunk-1",)))
+        asyncio.run(
+            module.create_qdrant_document_chunk_index().delete_chunks_if_version(
+                ("chunk-1",), canonical_version=1
+            )
+        )
 
 
 def test_extraction_seam_builds_ingestion_command_without_provider_runtime() -> None:

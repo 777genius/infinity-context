@@ -44,7 +44,9 @@ class NoopVectorMemoryAdapter:
     async def upsert_chunks(self, *_args: object, **_kwargs: object) -> VectorWriteResult:
         return VectorWriteResult.degraded("vector.disabled", retryable=False)
 
-    async def delete_chunks(self, *_args: object, **_kwargs: object) -> VectorWriteResult:
+    async def delete_chunks_if_version(
+        self, *_args: object, **_kwargs: object
+    ) -> VectorWriteResult:
         return VectorWriteResult.degraded("vector.disabled", retryable=False)
 
 

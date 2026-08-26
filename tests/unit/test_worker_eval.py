@@ -820,7 +820,9 @@ def test_vector_document_projection_indexes_document_title_with_chunk_text(
             self.upserts.append(items)
             return VectorWriteResult.ok(len(items))
 
-        async def delete_chunks(self, *_args: object, **_kwargs: object) -> VectorWriteResult:
+        async def delete_chunks_if_version(
+            self, *_args: object, **_kwargs: object
+        ) -> VectorWriteResult:
             return VectorWriteResult.ok(1)
 
     class RecordingEmbedder:
@@ -881,7 +883,9 @@ def test_unhealthy_vector_projection_retries_without_embedding_cost(tmp_path: Pa
         async def upsert_chunks(self, *_args: object, **_kwargs: object) -> VectorWriteResult:
             raise AssertionError("unhealthy vector adapter must fail before upsert")
 
-        async def delete_chunks(self, *_args: object, **_kwargs: object) -> VectorWriteResult:
+        async def delete_chunks_if_version(
+            self, *_args: object, **_kwargs: object
+        ) -> VectorWriteResult:
             raise AssertionError("delete should not be called for active chunks")
 
     class FailingEmbedder:
@@ -948,7 +952,9 @@ def test_embedding_budget_exceeded_keeps_document_canonical(tmp_path: Path) -> N
         async def upsert_chunks(self, *_args: object, **_kwargs: object) -> VectorWriteResult:
             raise AssertionError("budget-exceeded document must not be embedded or upserted")
 
-        async def delete_chunks(self, *_args: object, **_kwargs: object) -> VectorWriteResult:
+        async def delete_chunks_if_version(
+            self, *_args: object, **_kwargs: object
+        ) -> VectorWriteResult:
             return VectorWriteResult.ok(1)
 
     class FailingEmbedder:
@@ -1025,7 +1031,9 @@ def test_budget_diagnostics_omit_raw_text(tmp_path: Path) -> None:
         async def upsert_chunks(self, *_args: object, **_kwargs: object) -> VectorWriteResult:
             raise AssertionError("budget-exceeded document must not be upserted")
 
-        async def delete_chunks(self, *_args: object, **_kwargs: object) -> VectorWriteResult:
+        async def delete_chunks_if_version(
+            self, *_args: object, **_kwargs: object
+        ) -> VectorWriteResult:
             return VectorWriteResult.ok(1)
 
     async def diagnostic_payload(client: TestClient) -> dict[str, object]:

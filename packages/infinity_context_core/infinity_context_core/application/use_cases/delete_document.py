@@ -23,7 +23,8 @@ class DeleteDocumentUseCase:
             )
             if result is None:
                 raise MemoryNotFoundError("Document not found")
-            document, chunk_ids = result
+            document, chunk_versions = result
+            chunk_ids = tuple(item.chunk_id for item in chunk_versions)
             deleted_facts = await uow.facts.delete_facts_sourced_only_by_chunks(
                 space_id=str(document.space_id),
                 memory_scope_id=str(document.memory_scope_id),
@@ -37,7 +38,17 @@ class DeleteDocumentUseCase:
                         event_type="vector.delete_chunks",
                         aggregate_type="document",
                         aggregate_id=str(document.id),
-                        payload={"document_id": str(document.id), "chunk_ids": list(chunk_ids)},
+                        payload={
+                            "document_id": str(document.id),
+                            "chunk_ids": list(chunk_ids),
+                            "chunk_versions": [
+                                {
+                                    "chunk_id": item.chunk_id,
+                                    "canonical_version": item.canonical_version,
+                                }
+                                for item in chunk_versions
+                            ],
+                        },
                     )
                 )
                 await uow.outbox.enqueue(

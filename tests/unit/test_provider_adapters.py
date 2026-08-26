@@ -508,7 +508,7 @@ def test_noop_vector_adapter_contract_fails_closed_without_candidates() -> None:
                 ),
             )
         )
-        deleted = await adapter.delete_chunks(("chunk_1",))
+        deleted = await adapter.delete_chunks_if_version(("chunk_1",), canonical_version=1)
 
         assert capabilities.enabled is False
         assert capabilities.supports_search is False
@@ -760,6 +760,7 @@ class FakeQdrantClient:
         self.upsert_points: list[list[object]] = []
         self.query_calls: list[dict[str, object]] = []
         self.query_points_by_using: dict[object, list[object]] = {}
+
     async def collection_exists(self, collection_name: str) -> bool:
         return collection_name in self.collections
 
@@ -769,19 +770,23 @@ class FakeQdrantClient:
         self.collections.add(collection_name)
         self.create_collection_calls.append(kwargs)
         assert vectors_config is not None
+
     async def get_collection(self, *, collection_name: str) -> object:
         assert collection_name in self.collections
         vectors = self.create_collection_calls[-1]["vectors_config"]
         return SimpleNamespace(config=SimpleNamespace(params=SimpleNamespace(vectors=vectors)))
+
     async def upsert(self, *, collection_name: str, points: list[object], wait: bool) -> None:
         assert collection_name in self.collections
         assert points
         assert wait is True
         self.upserts += 1
         self.upsert_points.append(points)
+
     async def delete(self, **_kwargs: object) -> None:
         assert _kwargs["wait"] is True
         return None
+
     async def query_points(self, **_kwargs: object) -> object:
         self.query_calls.append(_kwargs)
         points = self.query_points_by_using.get(_kwargs.get("using"))

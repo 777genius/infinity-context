@@ -298,26 +298,6 @@ class QdrantVectorMemoryAdapter:
         finally:
             await _close_client(client)
 
-    async def delete_chunks(self, chunk_ids: tuple[str, ...]) -> VectorWriteResult:
-        if not chunk_ids:
-            return VectorWriteResult.ok(0)
-        client = None
-        try:
-            client, models = await self._client()
-            if not await client.collection_exists(self._collection_name):
-                return VectorWriteResult.ok(0)
-            point_ids = [qdrant_point_id_for_chunk(chunk_id) for chunk_id in chunk_ids]
-            await client.delete(
-                collection_name=self._collection_name,
-                points_selector=models.PointIdsList(points=point_ids),
-                wait=True,
-            )
-            return VectorWriteResult.ok(len(chunk_ids))
-        except Exception:
-            return VectorWriteResult.degraded("qdrant.delete_failed", retryable=True)
-        finally:
-            await _close_client(client)
-
     async def delete_chunks_if_version(
         self,
         chunk_ids: tuple[str, ...],

@@ -389,10 +389,13 @@ class _ChunkIndex:
             accepted_chunk_ids=tuple(item.chunk_id for item in items)
         )
 
-    async def delete_chunks(
+    async def delete_chunks_if_version(
         self,
         chunk_ids: tuple[str, ...],
+        *,
+        canonical_version: int,
     ) -> public.DocumentIndexingResult:
+        del canonical_version
         return public.DocumentIndexingResult(accepted_chunk_ids=chunk_ids)
 
 

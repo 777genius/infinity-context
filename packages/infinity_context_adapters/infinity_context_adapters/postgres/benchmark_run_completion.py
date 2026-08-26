@@ -296,16 +296,49 @@ def _require_vector_jobs(
         raise MemoryConflictError("Benchmark vector cleanup outbox proof conflicted")
     if not ids:
         return
-    _require_job(
-        by_id[ids[0]],
-        event_type="vector.delete_chunks",
-        aggregate_id=record.run_id_sha256,
-        payload={
-            "chunk_ids": chunk_ids,
-            "space_id": record.space_id,
-            "cleanup_run_id_sha256": record.run_id_sha256,
-        },
-    )
+    _require_versioned_vector_job(by_id[ids[0]], record=record, chunk_ids=chunk_ids)
+
+
+def _require_versioned_vector_job(
+    row: MemoryOutboxRow,
+    *,
+    record: BenchmarkRunRegistryRecord,
+    chunk_ids: list[str],
+) -> None:
+    payload = row.payload_json
+    versions = payload.get("chunk_versions")
+    expected_base = {
+        "chunk_ids": chunk_ids,
+        "space_id": record.space_id,
+        "cleanup_run_id_sha256": record.run_id_sha256,
+    }
+    if (
+        row.event_type != "vector.delete_chunks"
+        or row.aggregate_type != "benchmark_run"
+        or row.aggregate_id != record.run_id_sha256
+        or {key: value for key, value in payload.items() if key != "chunk_versions"}
+        != expected_base
+        or not _valid_chunk_versions(versions, chunk_ids)
+    ):
+        raise MemoryConflictError("Benchmark cleanup outbox proof conflicted")
+
+
+def _valid_chunk_versions(value: object, chunk_ids: list[str]) -> bool:
+    if not isinstance(value, list) or len(value) != len(chunk_ids):
+        return False
+    parsed: list[str] = []
+    for item in value:
+        if (
+            not isinstance(item, dict)
+            or set(item) != {"chunk_id", "canonical_version"}
+            or not isinstance(item["chunk_id"], str)
+            or not isinstance(item["canonical_version"], int)
+            or isinstance(item["canonical_version"], bool)
+            or not 1 <= item["canonical_version"] <= 9_007_199_254_740_991
+        ):
+            return False
+        parsed.append(item["chunk_id"])
+    return parsed == chunk_ids and len(parsed) == len(set(parsed))
 
 
 def _require_graph_jobs(

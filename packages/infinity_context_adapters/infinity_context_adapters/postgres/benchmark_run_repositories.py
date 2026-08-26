@@ -241,7 +241,8 @@ class PostgresBenchmarkRunRepository:
             raise MemoryConflictError("Benchmark canonical space conflicted")
         fact_ids = await self._ids(MemoryFactRow, record.space_id)
         document_ids = await self._ids(MemoryDocumentRow, record.space_id)
-        chunk_ids = await self._ids(MemoryChunkRow, record.space_id)
+        chunk_versions = await self._chunk_versions(record.space_id)
+        chunk_ids = tuple(item["chunk_id"] for item in chunk_versions)
         episode_ids = await self._ids(MemoryEpisodeRow, record.space_id)
         thread_ids = await self._ids(MemoryThreadRow, record.space_id)
         memory_scope_ids = await self._ids(MemoryScopeRow, record.space_id)
@@ -270,6 +271,7 @@ class PostgresBenchmarkRunRepository:
                     aggregate_id=record.run_id_sha256,
                     payload={
                         "chunk_ids": list(chunk_ids),
+                        "chunk_versions": list(chunk_versions),
                         "space_id": record.space_id,
                         "cleanup_run_id_sha256": record.run_id_sha256,
                     },
@@ -433,6 +435,22 @@ class PostgresBenchmarkRunRepository:
             )
         ).scalars()
         return tuple(str(value) for value in rows)
+
+    async def _chunk_versions(self, space_id: str) -> tuple[dict[str, object], ...]:
+        rows = (
+            await self._session.execute(
+                select(MemoryChunkRow.id, MemoryChunkRow.retrieval_version)
+                .where(
+                    MemoryChunkRow.space_id == space_id,
+                    MemoryChunkRow.status == "active",
+                )
+                .order_by(MemoryChunkRow.id)
+            )
+        ).all()
+        return tuple(
+            {"chunk_id": str(chunk_id), "canonical_version": int(version)}
+            for chunk_id, version in rows
+        )
 
     async def _soft_delete(
         self,

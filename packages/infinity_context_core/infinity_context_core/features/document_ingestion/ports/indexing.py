@@ -40,8 +40,13 @@ class DocumentChunkIndexPort(Protocol):
     ) -> DocumentIndexingResult:
         """Upsert chunk payloads into a derived retrieval index."""
 
-    async def delete_chunks(self, chunk_ids: tuple[str, ...]) -> DocumentIndexingResult:
-        """Delete chunk payloads from a derived retrieval index."""
+    async def delete_chunks_if_version(
+        self,
+        chunk_ids: tuple[str, ...],
+        *,
+        canonical_version: int,
+    ) -> DocumentIndexingResult:
+        """Delete only chunk payloads carrying the exact canonical version."""
 
 
 __all__ = (

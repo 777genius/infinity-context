@@ -619,7 +619,7 @@ async def _seed_large_canonical_catalog(database, count: int) -> None:
 
 async def _run_contract() -> None:
     qdrant_url = os.environ["INFINITY_SANDBOX_QDRANT_URL"]
-    collection = f"locator_v2_{uuid4().hex}"
+    collection = f"retrieval_{uuid4().hex}"
     adapter = _adapter(qdrant_url, collection, _GENERATION)
     target = _item("chunk-target", "space-a", "scope-a", "thread-a", 1)
     foreign_scope = _item("chunk-foreign", "space-b", "scope-b", "thread-b", 2)
@@ -710,7 +710,7 @@ async def _run_contract() -> None:
             ("chunk-target",), canonical_version=2
         )
         assert current_delete.status == PortStatus.OK
-        deleted = await adapter.delete_chunks(("chunk-foreign",))
+        deleted = await adapter.delete_chunks_if_version(("chunk-foreign",), canonical_version=2)
         assert deleted.status == PortStatus.OK
         assert await adapter.locator_points_absent(("chunk-target", "chunk-foreign")) is True
     finally:

@@ -1,4 +1,4 @@
-# ADR-0011: Locator-only Retrieval V2 boundary
+# ADR-0011: Locator-only Retrieval boundary
 
 Status: accepted
 
@@ -16,7 +16,7 @@ authorization authority under ADR-0002 and ADR-0004.
 
 ## Decision
 
-Infinity Context defines an additive `context_building` Retrieval V2 contract mounted
+Infinity Context defines an additive `context_building` versioned Retrieval contract mounted
 as `POST /v1/context/retrieve` when verified service provenance is available. The
 provider-neutral core and versioned DTOs remain independent of its server and adapter
 implementations. Existing `/v1/context` and `/v1/search` behavior is unchanged.
@@ -169,21 +169,21 @@ partial candidates.
 New source is classified fail-closed in the existing feature-owned model:
 
 ```text
-context_building/domain/locator_retrieval_v2.py       domain policy and values
-context_building/domain/locator_retrieval_v2_filters.py  pair/filter/time policy
-context_building/ports/locator_retrieval_v2.py        provider/hydration/neighbor ports
-context_building/application/locator_retrieval_v2.py  generic orchestration and fusion
-contracts/features/_context_building_retrieval_v2.py  internal versioned JSON DTO implementation
-contracts/features/_context_building_retrieval_v2_validation.py  strict DTO parsing helpers
-contracts/features/_context_building_retrieval_v2_filters.py     pair/filter/time DTOs
-contracts/features/_context_building_retrieval_v2_json.py        duplicate-safe raw JSON seam
-contracts/features/_context_building_retrieval_v2_capability.py  capability and fingerprint contract
-contracts/features/_context_building_retrieval_v2_response.py    strict response parser
-contracts/features/_context_retrieval_v2_errors.py               framework-neutral error envelope
+context_building/domain/locator_retrieval.py       domain policy and values
+context_building/domain/locator_retrieval_filters.py  pair/filter/time policy
+context_building/ports/locator_retrieval.py        provider/hydration/neighbor ports
+context_building/application/locator_retrieval.py  generic orchestration and fusion
+contracts/features/_context_building_retrieval.py  internal versioned JSON DTO implementation
+contracts/features/_context_building_retrieval_validation.py  strict DTO parsing helpers
+contracts/features/_context_building_retrieval_filters.py     pair/filter/time DTOs
+contracts/features/_context_building_retrieval_json.py        duplicate-safe raw JSON seam
+contracts/features/_context_building_retrieval_capability.py  capability and fingerprint contract
+contracts/features/_context_building_retrieval_response.py    strict response parser
+contracts/features/_context_retrieval_errors.py               framework-neutral error envelope
 contracts/features/_document_retrieval_projection_v1.py          strict projection DTO
 document_ingestion/domain/retrieval_projection.py                generic projection value
 document_ingestion/ports/projection_ownership.py                  canonical ownership seam
-context_building/domain/retrieval_v2_capability.py                trusted capability values
+context_building/domain/retrieval_capability.py                trusted capability values
 ```
 
 The domain depends only on the Python standard library. Ports depend only on their own
@@ -196,7 +196,7 @@ and enforces inward layer dependency direction.
 
 Document ingestion accepts an optional `document-retrieval-projection.v1` descriptor.
 Absence preserves legacy ingestion and does not make the document eligible for
-Retrieval V2. Presence requires exactly one canonical chunk and supplies a caller-owned
+The versioned Retrieval contract. Presence requires exactly one canonical chunk and supplies a caller-owned
 locator, stable source family, generation, ordinal, actor keys, optional ordered UTC
 interval, optional ordered source-relative millisecond interval, kind, category and
 tags. Neither interval is fabricated, and a non-temporal projection may carry neither.
@@ -264,19 +264,19 @@ the added production seams as follows:
 ```text
 infinity_context_server/features/context_building/retrieval_service.py       application composition/attestation
 infinity_context_server/features/context_building/retrieval_mappers.py       contract boundary mapping
-infinity_context_server/features/context_building/retrieval_composition.py   provider composition
+infinity_context_server/retrieval_profile_composition.py                    provider composition
 infinity_context_server/api/v1/context_retrieval.py                          HTTP adapter
 infinity_context_adapters/postgres/locator_retrieval.py                      canonical read/lexical adapter
 infinity_context_adapters/postgres/projected_document_ingestion.py           canonical write adapter
 infinity_context_adapters/postgres/locator_models.py                         canonical persistence model
 infinity_context_adapters/postgres/retrieval_projection_mapping.py           fail-closed projection mapper
-infinity_context_adapters/postgres/locator_projection_maintenance.py         derived-index repair state
+infinity_context_adapters/postgres/locator_index_maintenance.py              derived-index repair state
 infinity_context_adapters/postgres/migrations/0039_locator_retrieval_attributes.sql canonical schema migration
 infinity_context_adapters/qdrant/locator_profile.py                          derived payload/schema adapter
 infinity_context_adapters/qdrant/locator_runtime.py                          derived runtime adapter
 ```
 
-`RetrieveLocatorsV2` remains the sole generic fusion, ranking, hydration and neighbor
+`RetrieveLocators` remains the sole generic fusion, ranking, hydration and neighbor
 orchestrator. PostgreSQL remains lifecycle authority; Qdrant exposes candidate signals
 only.
 
@@ -286,7 +286,7 @@ Migration `0040_locator_profile_lifecycle` adds the production lifecycle without
 changing published migration `0039`. PostgreSQL owns immutable profile/generation/
 digest/collection identity and permits at most one `building` and one `active` profile;
 prior active profiles become `retained` rollback targets. With no canonical active
-profile, composition keeps the pre-lifecycle Retrieval V2 target, so rollout remains
+profile, composition keeps the pre-lifecycle Retrieval target, so rollout remains
 inactive by default and legacy routes are unchanged.
 
 The rebuild use case reads bounded canonical eligible-chunk pages in byte-stable

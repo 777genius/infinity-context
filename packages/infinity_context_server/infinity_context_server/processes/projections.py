@@ -6,7 +6,12 @@ from datetime import UTC, datetime
 from typing import TYPE_CHECKING
 
 from infinity_context_core.application.document_text import document_chunk_retrieval_text
-from infinity_context_core.domain.entities import FactStatus, LifecycleStatus, SourceRef
+from infinity_context_core.domain.entities import (
+    FactStatus,
+    LifecycleStatus,
+    MemoryChunk,
+    SourceRef,
+)
 from infinity_context_core.ports.adapters import (
     AdapterCapabilities,
     PortDiagnostic,
@@ -77,12 +82,12 @@ class ProjectionOutboxProcess:
         async with self._container.uow_factory() as uow:
             chunk = await uow.chunks.get_by_id(chunk_id)
         if chunk is None or chunk.status != LifecycleStatus.ACTIVE:
-            await self._delete_vector_chunks((chunk_id,))
+            await self._delete_vector_chunk_from_canonical(chunk_id, chunk)
             return
         initial_space_id = str(chunk.space_id)
         async with self._container.projection_fence.hold(initial_space_id) as permit:
             if not permit.allow_upsert:
-                await self._delete_vector_chunks((chunk_id,))
+                await self._delete_vector_chunk_from_canonical(chunk_id, chunk)
                 return
             async with self._container.uow_factory() as uow:
                 chunk = await uow.chunks.get_by_id(chunk_id)
@@ -91,11 +96,11 @@ class ProjectionOutboxProcess:
                     document_chunks = await uow.documents.list_chunks(str(chunk.document_id))
                     document_token_estimate = sum(item.token_estimate for item in document_chunks)
             if chunk is None or chunk.status != LifecycleStatus.ACTIVE:
-                await self._delete_vector_chunks((chunk_id,))
+                await self._delete_vector_chunk_from_canonical(chunk_id, chunk)
                 return
             _require_same_fenced_space(str(chunk.space_id), initial_space_id)
             if not _can_embed(chunk.classification):
-                await self._delete_vector_chunks((chunk_id,))
+                await self._delete_vector_chunk_from_canonical(chunk_id, chunk)
                 return
             capabilities = await self._container.vector_index.capabilities()
             if _capability_is_disabled(capabilities):
@@ -159,38 +164,43 @@ class ProjectionOutboxProcess:
             _raise_if_degraded(result.status, "vector.upsert_chunks", result.diagnostics)
 
     async def handle_vector_delete_chunks(self, job: ClaimedOutboxJob) -> None:
-        if job.aggregate_type == "locator_chunk":
-            return
-        chunk_ids = tuple(str(value) for value in job.payload_json.get("chunk_ids", []))
         require_delete_completion = _benchmark_cleanup_requires_delete_completion(job.payload_json)
-        await self._delete_vector_chunks(
-            chunk_ids,
-            require_delete_completion=require_delete_completion,
-        )
+        for canonical_version, chunk_ids in _versioned_chunk_deletes(job):
+            await self._delete_vector_chunks_if_version(
+                chunk_ids,
+                canonical_version=canonical_version,
+                require_delete_completion=require_delete_completion,
+            )
 
     async def handle_locator_profile_upsert(self, job: ClaimedOutboxJob) -> None:
-        coordinator = getattr(self._container, "retrieval_profile_outbox", None)
-        if coordinator is None:
-            raise OutboxProjectionError(
-                "vector.upsert_locator_profile", "retrieval_profile_runtime_unavailable"
-            )
-        await coordinator.upsert(job, now=self._container.clock.now())
+        await self._container.retrieval_profile_outbox.upsert(job, now=self._container.clock.now())
 
     async def handle_locator_profile_delete(self, job: ClaimedOutboxJob) -> None:
-        coordinator = getattr(self._container, "retrieval_profile_outbox", None)
-        if coordinator is None:
-            raise OutboxProjectionError(
-                "vector.delete_locator_profile", "retrieval_profile_runtime_unavailable"
-            )
-        await coordinator.delete(job, now=self._container.clock.now())
+        await self._container.retrieval_profile_outbox.delete(job, now=self._container.clock.now())
 
-    async def _delete_vector_chunks(
+    async def _delete_vector_chunk_from_canonical(
+        self, chunk_id: str, chunk: MemoryChunk | None
+    ) -> None:
+        canonical_version = _chunk_canonical_version(chunk)
+        if canonical_version is None:
+            # A missing/ineligible canonical row cannot prove which derived
+            # version is safe to remove. Retire this cleanup branch fail closed.
+            return
+        await self._delete_vector_chunks_if_version(
+            (chunk_id,), canonical_version=canonical_version
+        )
+
+    async def _delete_vector_chunks_if_version(
         self,
         chunk_ids: tuple[str, ...],
         *,
+        canonical_version: int,
         require_delete_completion: bool = False,
     ) -> None:
-        result = await self._container.vector_index.delete_chunks(chunk_ids)
+        result = await self._container.vector_index.delete_chunks_if_version(
+            chunk_ids,
+            canonical_version=canonical_version,
+        )
         _raise_if_degraded(
             result.status,
             "vector.delete_chunks",
@@ -381,6 +391,75 @@ def _benchmark_cleanup_requires_delete_completion(payload_json: dict[str, object
             "benchmark.cleanup_run_id_sha256_invalid",
         )
     return True
+
+
+def _versioned_chunk_deletes(
+    job: ClaimedOutboxJob,
+) -> tuple[tuple[int, tuple[str, ...]], ...]:
+    raw_chunk_ids = job.payload_json.get("chunk_ids", [])
+    if not isinstance(raw_chunk_ids, list) or any(
+        not isinstance(value, str) or not value for value in raw_chunk_ids
+    ):
+        raise OutboxProjectionError("vector.delete_chunks", "vector.delete_chunk_ids_invalid")
+    chunk_ids = tuple(raw_chunk_ids)
+    if len(chunk_ids) != len(set(chunk_ids)):
+        raise OutboxProjectionError("vector.delete_chunks", "vector.delete_chunk_ids_invalid")
+    if not chunk_ids:
+        return ()
+
+    if job.aggregate_type == "locator_chunk":
+        version = _required_canonical_version(job.aggregate_version)
+        return ((version, chunk_ids),)
+
+    raw_versions = job.payload_json.get("chunk_versions")
+    if not isinstance(raw_versions, list):
+        raise OutboxProjectionError(
+            "vector.delete_chunks", "vector.delete_canonical_versions_missing"
+        )
+    versions_by_id: dict[str, int] = {}
+    for item in raw_versions:
+        if not isinstance(item, dict) or set(item) != {"chunk_id", "canonical_version"}:
+            raise OutboxProjectionError(
+                "vector.delete_chunks", "vector.delete_canonical_versions_invalid"
+            )
+        chunk_id = item["chunk_id"]
+        if not isinstance(chunk_id, str) or not chunk_id or chunk_id in versions_by_id:
+            raise OutboxProjectionError(
+                "vector.delete_chunks", "vector.delete_canonical_versions_invalid"
+            )
+        versions_by_id[chunk_id] = _required_canonical_version(item["canonical_version"])
+    if set(versions_by_id) != set(chunk_ids):
+        raise OutboxProjectionError(
+            "vector.delete_chunks", "vector.delete_canonical_versions_invalid"
+        )
+    grouped: dict[int, list[str]] = {}
+    for chunk_id in chunk_ids:
+        grouped.setdefault(versions_by_id[chunk_id], []).append(chunk_id)
+    return tuple((version, tuple(ids)) for version, ids in sorted(grouped.items()))
+
+
+def _required_canonical_version(value: object) -> int:
+    if (
+        not isinstance(value, int)
+        or isinstance(value, bool)
+        or not 1 <= value <= 9_007_199_254_740_991
+    ):
+        raise OutboxProjectionError(
+            "vector.delete_chunks", "vector.delete_canonical_version_invalid"
+        )
+    return value
+
+
+def _chunk_canonical_version(chunk: MemoryChunk | None) -> int | None:
+    if chunk is None:
+        return None
+    projection = chunk.metadata.get("_canonical_retrieval_projection")
+    if not isinstance(projection, dict):
+        return None
+    try:
+        return _required_canonical_version(projection.get("canonical_version"))
+    except OutboxProjectionError:
+        return None
 
 
 def _is_disabled_projection(diagnostics: tuple[PortDiagnostic, ...]) -> bool:

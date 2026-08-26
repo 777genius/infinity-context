@@ -152,8 +152,13 @@ class VectorMemoryPort(MemoryAdapterPort, Protocol):
     async def upsert_chunks(self, items: tuple[VectorUpsertItem, ...]) -> VectorWriteResult:
         """Upsert derived chunk vectors. Never owns canonical lifecycle."""
 
-    async def delete_chunks(self, chunk_ids: tuple[str, ...]) -> VectorWriteResult:
-        """Delete derived chunk vectors by canonical chunk ids."""
+    async def delete_chunks_if_version(
+        self,
+        chunk_ids: tuple[str, ...],
+        *,
+        canonical_version: int,
+    ) -> VectorWriteResult:
+        """Delete only vectors carrying the exact canonical chunk version."""
 
     async def search_chunks(
         self,

@@ -69,25 +69,13 @@ class OutboxWorker:
     async def start(self) -> None:
         if self._runtime_started or not _should_run_projection_maintenance(self._filter):
             return
-        start_runtime = getattr(self._container, "start_retrieval_runtime", None)
-        if start_runtime is not None:
-            await start_runtime()
-            self._runtime_started = True
-            return
-        start_runtime = getattr(self._container.locator_retrieval, "start_runtime", None)
-        if start_runtime is not None:
-            await start_runtime(now=self._container.clock.now())
+        await self._container.retrieval_runtime.start_runtime(now=self._container.clock.now())
         self._runtime_started = True
 
     async def aclose(self) -> None:
         if not self._runtime_started:
             return
-        if getattr(self._container, "start_retrieval_runtime", None) is not None:
-            self._runtime_started = False
-            return
-        close_runtime = getattr(self._container.locator_retrieval, "close_runtime", None)
-        if close_runtime is not None:
-            await close_runtime(now=self._container.clock.now())
+        await self._container.retrieval_runtime.close_runtime(now=self._container.clock.now())
         self._runtime_started = False
 
     async def run_once(self, *, limit: int = 25, concurrency: int = 1) -> int:
@@ -105,12 +93,10 @@ class OutboxWorker:
     async def _reconcile_active_retrieval_profile(self) -> None:
         if not _should_run_projection_maintenance(self._filter):
             return
-        service = self._container.locator_retrieval
-        reconcile = getattr(service, "reconcile_active", None)
-        if reconcile is None:
-            return
         try:
-            await reconcile(now=self._container.clock.now())
+            await self._container.retrieval_runtime.reconcile_active(
+                now=self._container.clock.now()
+            )
         except Exception:
             # Reconciliation itself expires/marks the canonical lease on drift.
             # Outbox processing remains available to repair the derived index.

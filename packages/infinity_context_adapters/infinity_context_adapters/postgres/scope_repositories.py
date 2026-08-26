@@ -7,6 +7,7 @@ from datetime import datetime
 from infinity_context_core.domain.entities import MemoryScope, MemorySpace, MemoryThread
 from infinity_context_core.domain.errors import MemoryConflictError, MemoryNotFoundError
 from infinity_context_core.ports.repositories import (
+    CanonicalChunkVersion,
     ResolvedScope,
     ScopeRepositoryPort,
     SessionDeleteResult,
@@ -331,38 +332,44 @@ class PostgresScopeRepository(ScopeRepositoryPort):
         memory_scope_id: str,
         thread_id: str,
     ) -> SessionDeleteResult:
-        chunk_ids = await self._soft_delete_ids(
-            MemoryChunkRow,
+        aggregate_ids = await self._aggregate_ids_for_thread(
             space_id=space_id,
             memory_scope_id=memory_scope_id,
             thread_id=thread_id,
         )
+        # Prune obsolete work before canonical mutations enqueue authoritative
+        # profile tombstones. Those new tombstones must survive this transaction.
+        jobs = await self._delete_outbox_for_aggregate_ids(aggregate_ids)
+        chunk_versions = await self._soft_delete_chunk_versions(
+            space_id=space_id,
+            memory_scope_id=memory_scope_id,
+            thread_id=thread_id,
+        )
+        chunk_ids = tuple(item.chunk_id for item in chunk_versions)
         fact_ids = await self._soft_delete_ids(
             MemoryFactRow,
             space_id=space_id,
             memory_scope_id=memory_scope_id,
             thread_id=thread_id,
         )
-        episode_ids = await self._soft_delete_ids(
+        await self._soft_delete_ids(
             MemoryEpisodeRow,
             space_id=space_id,
             memory_scope_id=memory_scope_id,
             thread_id=thread_id,
         )
-        document_ids = await self._soft_delete_ids(
+        await self._soft_delete_ids(
             MemoryDocumentRow,
             space_id=space_id,
             memory_scope_id=memory_scope_id,
             thread_id=thread_id,
-        )
-        jobs = await self._delete_outbox_for_aggregate_ids(
-            (*chunk_ids, *fact_ids, *episode_ids, *document_ids)
         )
         return SessionDeleteResult(
             deleted_chunks=len(chunk_ids),
             deleted_facts=len(fact_ids),
             deleted_jobs=jobs,
             deleted_chunk_ids=chunk_ids,
+            deleted_chunk_versions=chunk_versions,
             deleted_fact_ids=fact_ids,
         )
 
@@ -427,6 +434,40 @@ class PostgresScopeRepository(ScopeRepositoryPort):
             .values(status="deleted")
         )
         return ids
+
+    async def _soft_delete_chunk_versions(
+        self,
+        *,
+        space_id: str,
+        memory_scope_id: str,
+        thread_id: str,
+    ) -> tuple[CanonicalChunkVersion, ...]:
+        rows = list(
+            (
+                await self._session.execute(
+                    select(MemoryChunkRow)
+                    .where(
+                        MemoryChunkRow.space_id == space_id,
+                        MemoryChunkRow.memory_scope_id == memory_scope_id,
+                        MemoryChunkRow.thread_id == thread_id,
+                        MemoryChunkRow.status != "deleted",
+                    )
+                    .order_by(MemoryChunkRow.id)
+                    .with_for_update()
+                )
+            ).scalars()
+        )
+        versions = tuple(
+            CanonicalChunkVersion(
+                chunk_id=row.id,
+                canonical_version=row.retrieval_version,
+            )
+            for row in rows
+        )
+        for row in rows:
+            row.status = "deleted"
+            row.retrieval_version += 1
+        return versions
 
     async def _aggregate_ids_for_thread(
         self,

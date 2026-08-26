@@ -98,6 +98,10 @@ from infinity_context_server.retrieval_runtime_lifecycle import (
     ProviderFreeRetrievalRuntimeLifecycle,
     RetrievalRuntimeLifecycle,
 )
+from infinity_context_server.retrieval_runtime import (
+    DisabledRetrievalRuntimeLifecycle,
+    RetrievalRuntimeLifecycle as RetrievalRuntimeLifecycleCapability,
+)
 from infinity_context_server.serving_profile import (
     VerifiedServingProfile,
     build_verified_serving_profile,
@@ -198,6 +202,7 @@ class Container:
     canonical_fact_selection: memory_facts_feature.MemoryFactSelectionPort
     build_canonical_fact_context: context_building_feature.BuildContextHandler
     locator_retrieval: context_building_server.LocatorRetrievalService | None
+    retrieval_runtime: RetrievalRuntimeLifecycleCapability
     retrieval_profile_lifecycle: object
     retrieval_profile_outbox: RetrievalProfileOutboxCoordinator
     retrieval_runtime_lifecycle: (
@@ -406,6 +411,9 @@ def build_container(
         )
         if serving_profile.service_revision is not None
         else None
+    )
+    retrieval_runtime: RetrievalRuntimeLifecycleCapability = (
+        locator_retrieval if locator_retrieval is not None else DisabledRetrievalRuntimeLifecycle()
     )
     blob_storage = _build_blob_storage(resolved_settings)
     product_plan = ProductPlan.create(
@@ -855,6 +863,7 @@ def build_container(
         canonical_fact_selection=canonical_fact_selection,
         build_canonical_fact_context=build_canonical_fact_context,
         locator_retrieval=locator_retrieval,
+        retrieval_runtime=retrieval_runtime,
         retrieval_profile_lifecycle=retrieval_profile_lifecycle,
         retrieval_profile_outbox=retrieval_profile_outbox,
         retrieval_runtime_lifecycle=retrieval_runtime_lifecycle,

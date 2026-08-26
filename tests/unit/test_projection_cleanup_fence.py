@@ -138,7 +138,10 @@ class RecordingAdapters:
         await self._record_upsert("vector")
         return VectorWriteResult.ok(1)
 
-    async def delete_chunks(self, _chunk_ids) -> VectorWriteResult:
+    async def delete_chunks_if_version(
+        self, _chunk_ids, *, canonical_version: int
+    ) -> VectorWriteResult:
+        del canonical_version
         self.events.append("vector.delete")
         return VectorWriteResult.ok(1)
 
@@ -188,8 +191,10 @@ class ConfigurableProjectionDelete:
         self._result = result
         self.requests: list[tuple[str, object]] = []
 
-    async def delete_chunks(self, chunk_ids: tuple[str, ...]) -> VectorWriteResult:
-        self.requests.append(("vector", chunk_ids))
+    async def delete_chunks_if_version(
+        self, chunk_ids: tuple[str, ...], *, canonical_version: int
+    ) -> VectorWriteResult:
+        self.requests.append(("vector", (chunk_ids, canonical_version)))
         return self._result
 
     async def delete_fact(self, fact_id: str) -> VectorWriteResult:
@@ -307,7 +312,12 @@ def _job(
         "vector": (
             "vector.delete_chunks" if delete else "vector.upsert_chunk",
             "chunk-1",
-            {"chunk_ids": ["chunk-1"]} if delete else {"chunk_id": "chunk-1"},
+            {
+                "chunk_ids": ["chunk-1"],
+                "chunk_versions": [{"chunk_id": "chunk-1", "canonical_version": 1}],
+            }
+            if delete
+            else {"chunk_id": "chunk-1"},
         ),
         "graph": (
             "graph.delete_fact" if delete else "graph.upsert_fact",
@@ -500,7 +510,7 @@ def test_vector_and_graph_delete_preserve_benchmark_cleanup_semantics(
     diagnostic_code, adapter = asyncio.run(run())
 
     assert diagnostic_code == expected_diagnostic_code
-    assert adapter.requests == [(lane, ("chunk-1",) if lane == "vector" else "fact-1")]
+    assert adapter.requests == [(lane, (("chunk-1",), 1) if lane == "vector" else "fact-1")]
 
 
 @pytest.mark.parametrize("lane", ["vector", "graph", "cognee"])
@@ -545,7 +555,9 @@ def test_claimed_job_deletes_when_cleanup_wins_fence(lane: str) -> None:
 
     events = asyncio.run(run())
 
-    assert events == ["cleanup.commit", f"{lane}.delete"]
+    assert events == (
+        ["cleanup.commit"] if lane == "vector" else ["cleanup.commit", f"{lane}.delete"]
+    )
 
 
 @pytest.mark.parametrize("lane", ["vector", "graph", "cognee"])

@@ -16,10 +16,12 @@ from infinity_context_server.processes.projections import (
 class _Vector:
     def __init__(self, *, fail: bool = False) -> None:
         self.fail = fail
-        self.deleted: list[tuple[str, ...]] = []
+        self.deleted: list[tuple[tuple[str, ...], int]] = []
 
-    async def delete_chunks(self, chunk_ids: tuple[str, ...]) -> VectorWriteResult:
-        self.deleted.append(chunk_ids)
+    async def delete_chunks_if_version(
+        self, chunk_ids: tuple[str, ...], *, canonical_version: int
+    ) -> VectorWriteResult:
+        self.deleted.append((chunk_ids, canonical_version))
         if self.fail:
             return VectorWriteResult.degraded("delete.failed")
         return VectorWriteResult.ok(len(chunk_ids))
@@ -46,6 +48,7 @@ def _job(event_type: str, *, job_id: int = 1) -> ClaimedOutboxJob:
         workload_class="projection",
         fairness_key="profile:profile-a",
         payload_json={"profile_id": "profile-a", "chunk_ids": ["chunk-a"]},
+        aggregate_type="locator_chunk" if event_type == "vector.delete_chunks" else None,
     )
 
 
@@ -55,7 +58,7 @@ def test_vector_delete_uses_only_the_configured_vector_adapter() -> None:
 
     asyncio.run(process.handle_vector_delete_chunks(_job("vector.delete_chunks")))
 
-    assert vector.deleted == [("chunk-a",)]
+    assert vector.deleted == [(("chunk-a",), 4)]
 
 
 def test_vector_delete_propagates_the_configured_adapter_failure() -> None:
@@ -65,7 +68,7 @@ def test_vector_delete_propagates_the_configured_adapter_failure() -> None:
     with pytest.raises(OutboxProjectionError):
         asyncio.run(process.handle_vector_delete_chunks(_job("vector.delete_chunks")))
 
-    assert vector.deleted == [("chunk-a",)]
+    assert vector.deleted == [(("chunk-a",), 4)]
 
 
 def test_retrieval_profile_events_use_the_profile_outbox_only() -> None:

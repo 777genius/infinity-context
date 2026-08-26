@@ -37,11 +37,20 @@ class UpsertChunkResult:
 
 
 @dataclass(frozen=True)
+class CanonicalChunkVersion:
+    """Exact canonical identity required to fence a derived chunk deletion."""
+
+    chunk_id: str
+    canonical_version: int
+
+
+@dataclass(frozen=True)
 class SessionDeleteResult:
     deleted_chunks: int
     deleted_facts: int
     deleted_jobs: int
     deleted_chunk_ids: tuple[str, ...] = ()
+    deleted_chunk_versions: tuple[CanonicalChunkVersion, ...] = ()
     deleted_fact_ids: tuple[str, ...] = ()
 
 
@@ -448,8 +457,8 @@ class DocumentRepositoryPort(Protocol):
         *,
         document_id: str,
         now: datetime,
-    ) -> tuple[MemoryDocument, tuple[str, ...]] | None:
-        """Soft-delete a document and its active chunks, returning deleted chunk ids."""
+    ) -> tuple[MemoryDocument, tuple[CanonicalChunkVersion, ...]] | None:
+        """Soft-delete a document and return exact projected chunk versions to remove."""
 
 
 class ChunkRepositoryPort(Protocol):

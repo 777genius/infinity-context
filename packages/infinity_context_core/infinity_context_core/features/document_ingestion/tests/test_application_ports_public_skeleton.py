@@ -165,7 +165,7 @@ def test_document_ingestion_ports_are_protocol_boundaries() -> None:
         assert inspect.iscoroutinefunction(getattr(ports.SourceDocumentRepositoryPort, method_name))
     for method_name in ("upsert", "list_for_document"):
         assert inspect.iscoroutinefunction(getattr(ports.DocumentChunkRepositoryPort, method_name))
-    for method_name in ("upsert_chunks", "delete_chunks"):
+    for method_name in ("upsert_chunks", "delete_chunks_if_version"):
         assert inspect.iscoroutinefunction(getattr(ports.DocumentChunkIndexPort, method_name))
 
     scope = domain.DocumentIngestionScope(space_id="space-1", memory_scope_id="scope-1")

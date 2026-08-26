@@ -31,7 +31,7 @@ def test_fresh_zero_job_projection_worker_registers_before_reconcile_and_retires
         lambda _container: SimpleNamespace(handle=None),
     )
     container = SimpleNamespace(
-        locator_retrieval=Locator(),
+        retrieval_runtime=Locator(),
         clock=SimpleNamespace(now=lambda: datetime(2026, 8, 26, tzinfo=UTC)),
         settings=SimpleNamespace(asset_storage_maintenance_enabled=False),
     )
@@ -80,7 +80,7 @@ def test_cancelled_worker_scope_retires_after_cancelled_work_cleanup(monkeypatch
     )
     worker = OutboxWorker(
         SimpleNamespace(
-            locator_retrieval=Locator(),
+            retrieval_runtime=Locator(),
             clock=SimpleNamespace(now=lambda: datetime(2026, 8, 26, tzinfo=UTC)),
             settings=SimpleNamespace(asset_storage_maintenance_enabled=False),
         ),

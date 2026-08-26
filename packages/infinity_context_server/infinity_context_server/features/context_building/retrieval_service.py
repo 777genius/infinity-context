@@ -80,7 +80,7 @@ class LocatorRetrievalService:
             )
         required = tuple(lane.provider_id for lane in lanes if lane.required)
         profile_id = self.profile_id_override or (
-            f"locator-v2-{self.profile_kind}-{self.index_profile_digest}"
+            f"locator-{self.profile_kind}-{self.index_profile_digest}"
         )
         payload = {
             "endpoint": CAPABILITY_ENDPOINT,
