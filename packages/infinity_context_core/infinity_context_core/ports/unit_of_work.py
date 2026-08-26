@@ -33,6 +33,9 @@ class OutboxPort(Protocol):
     async def enqueue(self, event: OutboxEvent) -> None:
         """Persist an outbox event in the current transaction."""
 
+    async def enqueue_or_reschedule(self, event: OutboxEvent) -> None:
+        """Persist an event or make its matching unprocessed delivery ready now."""
+
 
 class UnitOfWorkPort(Protocol):
     benchmark_runs: BenchmarkRunRepositoryPort

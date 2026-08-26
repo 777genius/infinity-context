@@ -1445,6 +1445,8 @@ def test_asset_extraction_marks_failed_and_cleans_blobs_on_artifact_storage_erro
             path for path in asset_storage_dir.glob("**/extractions/**/*") if path.is_file()
         ]
         assert extraction_files == []
+        failed_outbox_row = asyncio.run(_get_asset_extract_outbox_row(client, extraction_id))
+        assert failed_outbox_row.status == "retry_pending"
 
         retry = client.post(
             f"/v1/asset-extractions/{extraction_id}/retry",
@@ -1452,6 +1454,12 @@ def test_asset_extraction_marks_failed_and_cleans_blobs_on_artifact_storage_erro
         )
         assert retry.status_code == 202, retry.text
         assert retry.json()["data"]["status"] == "pending"
+        rescheduled_outbox_row = asyncio.run(
+            _get_asset_extract_outbox_row(client, extraction_id)
+        )
+        assert rescheduled_outbox_row.id == failed_outbox_row.id
+        assert rescheduled_outbox_row.status == "pending"
+        assert rescheduled_outbox_row.attempt_count == 0
 
         retried_count = asyncio.run(OutboxWorker(client.app.state.container).run_once(limit=10))
         assert retried_count >= 1

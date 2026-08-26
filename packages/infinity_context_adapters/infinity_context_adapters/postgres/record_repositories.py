@@ -76,3 +76,32 @@ class PostgresOutbox(OutboxPort):
                 updated_at=self._now,
             )
         )
+
+    async def enqueue_or_reschedule(self, event: OutboxEvent) -> None:
+        row = (
+            await self._session.execute(
+                select(MemoryOutboxRow)
+                .where(
+                    MemoryOutboxRow.event_type == event.event_type,
+                    MemoryOutboxRow.aggregate_type == event.aggregate_type,
+                    MemoryOutboxRow.aggregate_id == event.aggregate_id,
+                    MemoryOutboxRow.status.in_(("pending", "retry_pending")),
+                )
+                .order_by(MemoryOutboxRow.created_at, MemoryOutboxRow.id)
+                .limit(1)
+                .with_for_update(skip_locked=True)
+            )
+        ).scalar_one_or_none()
+        if row is None:
+            await self.enqueue(event)
+            return
+        row.aggregate_version = event.aggregate_version
+        row.workload_class = event.workload_class
+        row.fairness_key = event.fairness_key or f"{event.aggregate_type}:{event.aggregate_id}"
+        row.payload_json = event.payload
+        row.status = "pending"
+        row.attempt_count = 0
+        row.next_attempt_at = self._now
+        row.last_safe_error = None
+        row.last_safe_diagnostic_code = None
+        row.updated_at = self._now
