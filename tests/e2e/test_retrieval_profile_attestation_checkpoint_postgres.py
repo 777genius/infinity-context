@@ -45,6 +45,7 @@ async def _assert_manifest(database_url: str) -> None:
     try:
         await upgrade_schema(engine)
         registry = PostgresRetrievalProfileRegistry(build_session_factory(engine))
+        await registry.register_runtime_incarnation(owner, now=now)
         await registry.create_building(
             RetrievalProfileIdentity("profile-a", "generation-a", "a" * 64, "collection-a"),
             now=now,

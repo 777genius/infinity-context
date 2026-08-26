@@ -11,6 +11,7 @@ from infinity_context_core.features.context_building.public import (
     ProfileActivationDecision,
     ProfileAttestationLease,
     ProfileReconciliationOperation,
+    ProfileReconciliationWriteOutcome,
     RetrievalProfileIdentity,
     RuntimeFenceOwner,
 )
@@ -63,6 +64,24 @@ def test_active_reconciliation_rejects_missing_identity_before_observation(monke
     assert registry.recorded_owner is None
     assert registry.lease.lease_id == "activation"
     assert registry.mutations == []
+
+
+def test_active_reconciliation_reports_immutable_replay_without_false_renewal(
+    monkeypatch,
+) -> None:
+    owner = _owner("generation-current")
+    registry = _Registry(owner)
+    registry.write_outcome = ProfileReconciliationWriteOutcome.REPLAYED
+    service = _service(owner, registry)
+    _accept_attestation(monkeypatch)
+
+    result = asyncio.run(service.reconcile_active(now=NOW))
+
+    assert result.complete is True
+    assert result.renewed is False
+    assert result.outcome == "replayed"
+    assert result.runtime_instance_id is None
+    assert registry.lease.lease_id == "activation"
 
 
 @pytest.mark.parametrize(
@@ -170,6 +189,7 @@ class _Registry:
         self.recorded_owner = None
         self.operation_ids = []
         self.mutations = []
+        self.write_outcome = ProfileReconciliationWriteOutcome.APPLIED
         self.lease = ProfileAttestationLease(
             "activation", "profile-active", "gen-active", "b" * 64, NOW, NOW + timedelta(seconds=5)
         )
@@ -238,9 +258,12 @@ class _Registry:
         assert mutation_epoch == 4
         self.mutations.append("record_reconciliation")
         self.recorded_owner = runtime_owner
+        if self.write_outcome is ProfileReconciliationWriteOutcome.REPLAYED:
+            return self.write_outcome
         self.lease = ProfileAttestationLease(
             operation.operation_id, "profile-active", "gen-active", "b" * 64, now, expires_at
         )
+        return self.write_outcome
 
 
 class _Projection:

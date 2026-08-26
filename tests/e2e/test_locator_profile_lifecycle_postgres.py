@@ -51,6 +51,7 @@ async def _assert_profile_lifecycle(database_url: str) -> None:
         try:
             await upgrade_schema(engine)
             registry = PostgresRetrievalProfileRegistry(build_session_factory(engine))
+            await registry.register_runtime_incarnation(owner, now=now)
             first = RetrievalProfileIdentity("profile-a", "gen-a", "a" * 64, "collection-a")
             await registry.create_building(first, now=now)
             await registry.create_building(first, now=now)
@@ -180,7 +181,10 @@ async def _assert_profile_lifecycle(database_url: str) -> None:
                 )
             with pytest.raises(RuntimeError, match="reconciliation_superseded"):
                 await registry.mark_reconciliation_drift(
-                    first.profile_id, operation=wrong_predecessor, now=now
+                    first.profile_id,
+                    operation=wrong_predecessor,
+                    runtime_owner=owner,
+                    now=now,
                 )
             await asyncio.gather(
                 registry.record_reconciliation(
@@ -215,15 +219,16 @@ async def _assert_profile_lifecycle(database_url: str) -> None:
             assert (
                 await restarted_registry.active_lease(now=now + timedelta(seconds=29)) is not None
             )
-            await registry.record_reconciliation(
-                first.profile_id,
-                reconciliation_evidence,
-                operation=operation_ids[0],
-                runtime_owner=owner,
-                now=now + timedelta(seconds=1),
-                expires_at=now + timedelta(minutes=10),
-                drifted=False,
-            )
+            with pytest.raises(RuntimeError, match="reconciliation_replay_drift"):
+                await registry.record_reconciliation(
+                    first.profile_id,
+                    reconciliation_evidence,
+                    operation=operation_ids[0],
+                    runtime_owner=owner,
+                    now=now + timedelta(seconds=1),
+                    expires_at=now + timedelta(minutes=10),
+                    drifted=False,
+                )
             exact_replay = await registry.active_lease(now=now + timedelta(seconds=29))
             assert exact_replay is not None
             assert exact_replay.expires_at == now + timedelta(seconds=30)
@@ -416,9 +421,7 @@ async def _assert_profile_lifecycle(database_url: str) -> None:
                     {"now": now},
                 )
             activation_evidence = await registry.activation_evidence(second.profile_id, now=now)
-            activation_epoch = await registry.provider_attestation_epoch(
-                second.profile_id, now=now
-            )
+            activation_epoch = await registry.provider_attestation_epoch(second.profile_id, now=now)
             activation_lease = await registry.issue_activation_lease(
                 second.profile_id,
                 activation_evidence,
@@ -458,9 +461,7 @@ async def _assert_profile_lifecycle(database_url: str) -> None:
             await blocker_transaction.commit()
             await blocker.close()
             await asyncio.wait_for(activation_task, timeout=5)
-            admitted_after_activation = await asyncio.wait_for(
-                activation_first_query, timeout=5
-            )
+            admitted_after_activation = await asyncio.wait_for(activation_first_query, timeout=5)
             assert admitted_after_activation.status == "admitted"
             assert admitted_after_activation.identity == second
             await registry.finish_profile_query(
@@ -471,13 +472,44 @@ async def _assert_profile_lifecycle(database_url: str) -> None:
             )
             await _activate(registry, first.profile_id, now, "lease-a-restore", 10)
             async with engine.begin() as connection:
-                audits = int(
-                    await connection.scalar(
-                        text("SELECT count(*) FROM memory_locator_profile_transition_audit")
-                    )
-                    or 0
+                audits = tuple(
+                    tuple(row)
+                    for row in (
+                        await connection.execute(
+                            text(
+                                "SELECT operation, lease_id, runtime_instance_id, "
+                                "runtime_generation, reconciliation_drifted FROM "
+                                "memory_locator_profile_transition_audit ORDER BY event_id"
+                            )
+                        )
+                    ).all()
                 )
-                assert audits == 3
+                assert audits == (
+                    ("activation", "lease-a", None, None, False),
+                    (
+                        "reconciliation",
+                        operation_ids[0].operation_id,
+                        owner.instance_id,
+                        owner.generation,
+                        False,
+                    ),
+                    (
+                        "reconciliation",
+                        successor.operation_id,
+                        owner.instance_id,
+                        owner.generation,
+                        False,
+                    ),
+                    (
+                        "reconciliation",
+                        query_predecessor.operation_id,
+                        owner.instance_id,
+                        owner.generation,
+                        False,
+                    ),
+                    ("activation", "lease-b", None, None, False),
+                    ("activation", "lease-a-restore", None, None, False),
+                )
             async with engine.connect() as connection:
                 transaction = await connection.begin()
                 with pytest.raises(Exception, match="append-only"):
@@ -626,7 +658,28 @@ async def _assert_profile_lifecycle(database_url: str) -> None:
                 scan_complete=True,
             )
             await restarted.mark_reconciliation_drift(
-                "profile-c", operation=drift_operation, now=now
+                "profile-c",
+                operation=drift_operation,
+                runtime_owner=owner,
+                now=now,
+            )
+            async with engine.connect() as connection:
+                drift_audit = (
+                    await connection.execute(
+                        text(
+                            "SELECT operation, lease_id, runtime_instance_id, "
+                            "runtime_generation, reconciliation_drifted FROM "
+                            "memory_locator_profile_transition_audit WHERE lease_id=:lease_id"
+                        ),
+                        {"lease_id": drift_operation.operation_id},
+                    )
+                ).one()
+            assert tuple(drift_audit) == (
+                "reconciliation_drift",
+                drift_operation.operation_id,
+                owner.instance_id,
+                owner.generation,
+                True,
             )
             after_drift = PostgresRetrievalProfileRegistry(build_session_factory(engine))
             assert await after_drift.active_lease(now=now) is None

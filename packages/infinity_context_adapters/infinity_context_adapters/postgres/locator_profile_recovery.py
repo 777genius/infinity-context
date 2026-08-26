@@ -69,6 +69,7 @@ class PostgresRetrievalProfileRecoveryMixin:
                         MemoryLocatorRuntimeIncarnationRow.acknowledged_generation
                         < maintenance_generation,
                         MemoryLocatorRuntimeIncarnationRow.sealed_dead_generation.is_(None),
+                        MemoryLocatorRuntimeIncarnationRow.retired_at.is_(None),
                     )
                 )
                 or 0
@@ -100,6 +101,8 @@ class PostgresRetrievalProfileRecoveryMixin:
             )
             if incarnation is None:
                 raise RuntimeError("retrieval_profile_runtime_incarnation_missing")
+            if incarnation.retired_at is not None:
+                raise RuntimeError("retrieval_profile_runtime_incarnation_retired")
             queries = int(
                 await session.scalar(
                     select(func.count())
@@ -146,6 +149,8 @@ class PostgresRetrievalProfileRecoveryMixin:
             )
             if incarnation is None:
                 raise RuntimeError("retrieval_profile_runtime_incarnation_missing")
+            if incarnation.retired_at is not None:
+                raise RuntimeError("retrieval_profile_runtime_incarnation_retired")
             if (
                 proof.supervisor_key_id != incarnation.supervisor_key_id
                 or proof.trust_root_sha256 != incarnation.trust_root_sha256
@@ -385,6 +390,7 @@ class PostgresRetrievalProfileRecoveryMixin:
                         MemoryLocatorRuntimeIncarnationRow.acknowledged_generation
                         < maintenance_generation,
                         MemoryLocatorRuntimeIncarnationRow.sealed_dead_generation.is_(None),
+                        MemoryLocatorRuntimeIncarnationRow.retired_at.is_(None),
                     )
                 )
                 or 0

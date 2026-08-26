@@ -56,6 +56,7 @@ async def retrieval_profile_lifecycle_command(
                     "target": target,
                     "phase": "complete" if result.complete else "in_progress",
                     "renewed": result.renewed,
+                    "reconciliation_outcome": result.outcome,
                 }
                 if result.renewed:
                     response["provenance"] = {

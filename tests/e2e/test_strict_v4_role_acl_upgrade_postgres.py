@@ -156,6 +156,7 @@ async def _scenario(database_url: str) -> None:
                 "0046_locator_profile_linearizable_fences",
                 "0047_locator_runtime_supervisor_proofs",
                 "0048_locator_lifecycle_release_identity",
+                "0049_reconciliation_runtime_generation",
             )
         finally:
             await engine.dispose()
@@ -269,9 +270,9 @@ async def _non_schema_owner_scenario(database_url: str) -> None:
         engine = build_async_engine(migrator_database.app_url)
         try:
             result = await upgrade_schema(engine)
-            assert result.current == "0048_locator_lifecycle_release_identity"
+            assert result.current == "0049_reconciliation_runtime_generation"
             assert result.applied[0] == "0001_core_facts"
-            assert result.applied[-1] == "0048_locator_lifecycle_release_identity"
+            assert result.applied[-1] == "0049_reconciliation_runtime_generation"
         finally:
             await engine.dispose()
 

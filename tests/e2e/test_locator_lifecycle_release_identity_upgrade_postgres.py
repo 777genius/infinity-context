@@ -28,10 +28,15 @@ async def _assert_transactional_rollback(database_url: str) -> None:
     await database.recreate()
     engine = build_async_engine(database.app_url)
     migrations = _load_migrations()
-    release = migrations[-1]
+    release_index = next(
+        index
+        for index, migration in enumerate(migrations)
+        if migration.migration_id == "0048_locator_lifecycle_release_identity"
+    )
+    release = migrations[release_index]
     assert release.migration_id == "0048_locator_lifecycle_release_identity"
     try:
-        for migration in migrations[:-1]:
+        for migration in migrations[:release_index]:
             async with engine.begin() as connection:
                 await _execute_script(connection, migration.sql)
         raw = await database.connect()

@@ -424,6 +424,7 @@ class MemoryLocatorRuntimeIncarnationRow(Base):
     sealed_dead_proof_sha256: Mapped[str | None] = mapped_column(String(64), nullable=True)
     sealed_dead_authority: Mapped[str | None] = mapped_column(String(120), nullable=True)
     sealed_dead_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    retired_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
 
 class MemoryLocatorProviderReconciliationReceiptRow(Base):
@@ -560,6 +561,18 @@ class MemoryLocatorProfileTransitionAuditRow(Base):
     runtime_instance_id: Mapped[str | None] = mapped_column(String(120), nullable=True)
     runtime_generation: Mapped[str | None] = mapped_column(String(120), nullable=True)
     lifecycle_identity_sha256: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    operation: Mapped[str] = mapped_column(String(32), nullable=False)
+    lease_issued_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    lease_expires_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    requested_expires_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    mutation_epoch: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
+    reconciliation_drifted: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
     occurred_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
 
 

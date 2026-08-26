@@ -14,6 +14,7 @@ from infinity_context_adapters.postgres import (
 )
 from infinity_context_core.features.context_building.public import (
     InstalledReleaseIdentity,
+    ProfileReconciliationWriteOutcome,
     RetrievalProfileIdentity,
     RuntimeFenceOwner,
 )
@@ -44,6 +45,37 @@ async def _assert_active_reconciliation_identity(database_url: str) -> None:
     try:
         await upgrade_schema(engine)
         registry = PostgresRetrievalProfileRegistry(build_session_factory(engine))
+        await registry.register_runtime_incarnation(owner, now=now)
+        competing = (
+            replace(
+                owner,
+                instance_id="simultaneous-runtime",
+                generation="generation-a",
+                launch_token="unrecoverable-simultaneous-a",
+            ),
+            replace(
+                owner,
+                instance_id="simultaneous-runtime",
+                generation="generation-b",
+                launch_token="unrecoverable-simultaneous-b",
+            ),
+        )
+
+        async def register(candidate):
+            try:
+                await PostgresRetrievalProfileRegistry(
+                    build_session_factory(engine)
+                ).register_runtime_incarnation(candidate, now=now)
+                return candidate
+            except RuntimeError as exc:
+                return str(exc)
+
+        competing_results = await asyncio.gather(*(register(item) for item in competing))
+        winners = tuple(item for item in competing_results if isinstance(item, RuntimeFenceOwner))
+        failures = tuple(item for item in competing_results if isinstance(item, str))
+        assert len(winners) == 1
+        assert failures == ("retrieval_profile_runtime_generation_competing",)
+        await registry.retire_runtime_incarnation(winners[0], now=now)
         identity = RetrievalProfileIdentity(
             "profile-active", "profile-generation", "a" * 64, "collection-active"
         )
@@ -81,7 +113,7 @@ async def _assert_active_reconciliation_identity(database_url: str) -> None:
             maximum_retained=1,
         )
         operation = await registry.reconciliation_operation(identity.profile_id)
-        await registry.record_reconciliation(
+        write_outcome = await registry.record_reconciliation(
             identity.profile_id,
             evidence,
             operation=operation,
@@ -90,6 +122,17 @@ async def _assert_active_reconciliation_identity(database_url: str) -> None:
             expires_at=now + timedelta(minutes=5),
             drifted=False,
         )
+        assert write_outcome is ProfileReconciliationWriteOutcome.APPLIED
+        replay_outcome = await registry.record_reconciliation(
+            identity.profile_id,
+            evidence,
+            operation=operation,
+            runtime_owner=owner,
+            now=now + timedelta(seconds=1),
+            expires_at=now + timedelta(minutes=5),
+            drifted=False,
+        )
+        assert replay_outcome is ProfileReconciliationWriteOutcome.REPLAYED
 
         async with engine.connect() as connection:
             audit = (
@@ -167,7 +210,18 @@ async def _assert_active_reconciliation_identity(database_url: str) -> None:
                 expires_at=now + timedelta(minutes=10),
                 drifted=False,
             )
-        with pytest.raises(RuntimeError, match="reconciliation_replay_drift"):
+        drift_operation = await registry.reconciliation_operation(identity.profile_id)
+        before_stale_drift = await _lifecycle_state(engine)
+        with pytest.raises(RuntimeError, match="runtime_generation_mismatch"):
+            await registry.mark_reconciliation_drift(
+                identity.profile_id,
+                operation=drift_operation,
+                runtime_owner=stale_generation,
+                now=now + timedelta(seconds=2),
+            )
+        assert await _lifecycle_state(engine) == before_stale_drift
+
+        with pytest.raises(RuntimeError, match="runtime_generation_mismatch"):
             await registry.record_reconciliation(
                 identity.profile_id,
                 evidence,
@@ -177,7 +231,7 @@ async def _assert_active_reconciliation_identity(database_url: str) -> None:
                 expires_at=now + timedelta(minutes=10),
                 drifted=False,
             )
-        with pytest.raises(RuntimeError, match="runtime_supervisor_conflict"):
+        with pytest.raises(RuntimeError, match="runtime_release_identity_mismatch"):
             await registry.record_reconciliation(
                 identity.profile_id,
                 evidence,
@@ -187,6 +241,22 @@ async def _assert_active_reconciliation_identity(database_url: str) -> None:
                 expires_at=now + timedelta(minutes=10),
                 drifted=False,
             )
+        for replay_now, replay_expiry, replay_epoch in (
+            (now + timedelta(seconds=2), now + timedelta(minutes=5), 0),
+            (now + timedelta(seconds=1), now + timedelta(minutes=10), 0),
+            (now + timedelta(seconds=1), now + timedelta(minutes=5), 1),
+        ):
+            with pytest.raises(RuntimeError, match="reconciliation_replay_drift"):
+                await registry.record_reconciliation(
+                    identity.profile_id,
+                    evidence,
+                    operation=operation,
+                    runtime_owner=owner,
+                    now=replay_now,
+                    expires_at=replay_expiry,
+                    drifted=False,
+                    mutation_epoch=replay_epoch,
+                )
         after_rejections = await registry.active_lease(now=now + timedelta(seconds=2))
         assert after_rejections is not None
         assert after_rejections.expires_at == rejected_expiry
@@ -196,6 +266,13 @@ async def _assert_active_reconciliation_identity(database_url: str) -> None:
             generation="generation-restarted",
             launch_token="unrecoverable-launch-restarted",
         )
+        before_competing_registration = await _lifecycle_state(engine)
+        with pytest.raises(RuntimeError, match="runtime_generation_competing"):
+            await registry.register_runtime_incarnation(
+                restarted_owner, now=now + timedelta(seconds=3)
+            )
+        assert await _lifecycle_state(engine) == before_competing_registration
+        await registry.retire_runtime_incarnation(owner, now=now + timedelta(seconds=3))
         await registry.register_runtime_incarnation(restarted_owner, now=now + timedelta(seconds=3))
         await registry.verify_registered_runtime_owner(restarted_owner)
         restart_operation = await registry.reconciliation_operation(identity.profile_id)
@@ -238,7 +315,7 @@ async def _lifecycle_state(engine) -> tuple[tuple[object, ...], ...]:
         "lifecycle_identity_sha256, occurred_at "
         "FROM memory_locator_profile_transition_audit ORDER BY lease_id",
         "SELECT instance_id, generation, last_seen_at, launch_token, "
-        "release_identity_sha256, launch_identity_sha256, sealed_dead_generation "
+        "release_identity_sha256, launch_identity_sha256, sealed_dead_generation, retired_at "
         "FROM memory_locator_runtime_incarnations ORDER BY instance_id, generation",
     )
     async with engine.connect() as connection:

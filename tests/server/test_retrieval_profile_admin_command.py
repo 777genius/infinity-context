@@ -23,6 +23,7 @@ def test_active_reconcile_operator_reports_bounded_continuation(monkeypatch) -> 
             "generation-a" if complete else None,
             "a" * 64 if complete else None,
             "b" * 64 if complete else None,
+            "applied" if complete else "skipped",
         )
 
     async def dispose():
@@ -53,10 +54,12 @@ def test_active_reconcile_operator_reports_bounded_continuation(monkeypatch) -> 
     assert first["status"] == "pending"
     assert first["phase"] == "in_progress"
     assert first["renewed"] is False
+    assert first["reconciliation_outcome"] == "skipped"
     assert "provenance" not in first
     assert second["status"] == "ok"
     assert second["phase"] == "complete"
     assert second["renewed"] is True
+    assert second["reconciliation_outcome"] == "applied"
     assert second["provenance"] == {
         "runtime_instance_id": "runtime-a",
         "runtime_generation": "generation-a",

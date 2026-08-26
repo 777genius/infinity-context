@@ -71,7 +71,7 @@ def test_published_ledger_prefix_continues_through_forward_locator_migration() -
 
     _validate_history(migrations, history)
 
-    assert migrations[-1].migration_id == "0048_locator_lifecycle_release_identity"
+    assert migrations[-1].migration_id == "0049_reconciliation_runtime_generation"
 
 
 def test_locator_indexes_are_a_separately_fenced_concurrent_phase() -> None:

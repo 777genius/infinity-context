@@ -608,6 +608,12 @@ class PostgresRetrievalProfileRegistry(
                         if runtime_owner is not None
                         else None
                     ),
+                    operation="activation",
+                    lease_issued_at=lease.issued_at,
+                    lease_expires_at=lease.expires_at,
+                    requested_expires_at=lease.expires_at,
+                    mutation_epoch=lease.mutation_epoch,
+                    reconciliation_drifted=False,
                     occurred_at=now,
                 )
             )

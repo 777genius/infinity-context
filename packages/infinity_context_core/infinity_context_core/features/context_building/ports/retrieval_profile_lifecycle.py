@@ -171,6 +171,13 @@ class ProfileReconciliationOperation:
     predecessor_drifted: bool
 
 
+class ProfileReconciliationWriteOutcome(StrEnum):
+    """Truthful result of the canonical reconciliation compare-and-swap."""
+
+    APPLIED = "applied"
+    REPLAYED = "replayed"
+
+
 @dataclass(frozen=True, slots=True)
 class ProfileAttestationPageReceipt:
     page_number: int
@@ -514,6 +521,10 @@ class RetrievalProfileRegistryPort(Protocol):
         """Verify an exact existing runtime incarnation without registering it."""
         ...
 
+    async def retire_runtime_incarnation(
+        self, owner: RuntimeFenceOwner, *, now: datetime
+    ) -> None: ...
+
     async def consumed_transition_profile(self, lease_id: str) -> str | None: ...
 
     async def attestation_checkpoint(
@@ -545,7 +556,7 @@ class RetrievalProfileRegistryPort(Protocol):
         validation_accumulator: str = "0" * 64,
         provider_epoch: int = 0,
         owner_operation_id: str | None = None,
-    ) -> None: ...
+    ) -> ProfileReconciliationWriteOutcome: ...
 
     async def record_reconciliation(
         self,
@@ -563,8 +574,13 @@ class RetrievalProfileRegistryPort(Protocol):
     async def reconciliation_operation(self, profile_id: str) -> ProfileReconciliationOperation: ...
 
     async def mark_reconciliation_drift(
-        self, profile_id: str, *, operation: ProfileReconciliationOperation, now: datetime
-    ) -> None: ...
+        self,
+        profile_id: str,
+        *,
+        operation: ProfileReconciliationOperation,
+        runtime_owner: RuntimeFenceOwner,
+        now: datetime,
+    ) -> ProfileReconciliationWriteOutcome: ...
 
     async def provider_attestation_epoch(self, profile_id: str, *, now: datetime) -> int: ...
 

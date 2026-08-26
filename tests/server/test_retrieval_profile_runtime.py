@@ -12,6 +12,7 @@ from infinity_context_core.features.context_building.public import (
     ProfileAttestationCheckpoint,
     ProfileAttestationLease,
     ProfileReconciliationOperation,
+    ProfileReconciliationWriteOutcome,
     RetrievalProfileIdentity,
     RuntimeFenceOwner,
 )
@@ -774,9 +775,11 @@ class _ReconciliationRegistry:
         self.lease = ProfileAttestationLease(
             operation.operation_id, "profile-active", "gen-active", "b" * 64, now, expires_at
         )
+        return ProfileReconciliationWriteOutcome.APPLIED
 
-    async def mark_reconciliation_drift(self, profile_id, *, operation, now):
+    async def mark_reconciliation_drift(self, profile_id, *, operation, runtime_owner, now):
         del profile_id
+        assert isinstance(runtime_owner, RuntimeFenceOwner)
         self.drifted.append((operation.operation_id, now))
         self.seed += 1
         self.lease = ProfileAttestationLease(
@@ -870,8 +873,10 @@ class _AtomicRebuildProjection:
         self.runtime_owner = RuntimeFenceOwner.unrecoverable_current(
             instance_id="atomic-rebuild-test", generation="atomic-rebuild-generation"
         )
+
     async def prepare_profile(self, identity):
         assert identity.profile_id == "profile-rebuild"
+
     async def upsert_profile(self, identity, items):
         assert identity.profile_id == "profile-rebuild"
         self.upserts.extend((item.canonical_identity, item.canonical_version) for item in items)
@@ -944,6 +949,7 @@ class _ActivationProjection:
     def adapter_for(self, identity):
         del identity
         return self
+
     async def capabilities(self):
         return SimpleNamespace(
             enabled=True,
@@ -959,6 +965,7 @@ class _ActivationProjection:
 class _HealthySessions:
     async def __aenter__(self):
         return self
+
     async def __aexit__(self, *_args):
         return None
 

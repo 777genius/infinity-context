@@ -83,7 +83,7 @@ async def _assert_receipt_and_thread_scope_upgrade(database_url: str) -> None:
         try:
             result = await upgrade_schema(engine)
             assert result.legacy_baseline is True
-            assert result.current == "0048_locator_lifecycle_release_identity"
+            assert result.current == "0049_reconciliation_runtime_generation"
             await _assert_same_thread_relation_and_not_null_keys(engine)
             await _assert_thread_scope_fks_and_append_only_receipts(engine)
         finally:

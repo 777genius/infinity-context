@@ -27,6 +27,7 @@ from infinity_context_core.features.context_building.public import (
     ProfileActivationDecision,
     ProfileAttestationPageReceipt,
     ProfileQueryAdmissionStatus,
+    ProfileReconciliationWriteOutcome,
     RetrievalProfileLifecycle,
     RetrievalProfileRetirement,
     RuntimeFenceOwner,
@@ -51,6 +52,7 @@ class ActiveReconciliationResult:
     runtime_generation: str | None = None
     release_identity_sha256: str | None = None
     lifecycle_identity_sha256: str | None = None
+    outcome: str = "skipped"
 
 
 @dataclass(frozen=True, slots=True)
@@ -214,7 +216,10 @@ class ProfileAwareLocatorRetrievalService:
                 return ActiveReconciliationResult(False, False)
             try:
                 await self.registry.mark_reconciliation_drift(
-                    active.profile_id, operation=operation, now=now
+                    active.profile_id,
+                    operation=operation,
+                    runtime_owner=owner,
+                    now=now,
                 )
             except RuntimeError as mark_exc:
                 if str(mark_exc) == "retrieval_profile_reconciliation_superseded":
@@ -244,7 +249,7 @@ class ProfileAwareLocatorRetrievalService:
         )
         evidence = await self.registry.activation_evidence(active.profile_id, now=now)
         decision = assess_profile_activation(evidence, maximum_queue_lag=timedelta(minutes=5))
-        await self.registry.record_reconciliation(
+        write_outcome = await self.registry.record_reconciliation(
             active.profile_id,
             evidence,
             operation=operation,
@@ -255,12 +260,29 @@ class ProfileAwareLocatorRetrievalService:
             mutation_epoch=mutation_epoch,
         )
         return ActiveReconciliationResult(
-            decision.accepted,
-            True,
-            owner.instance_id,
-            owner.generation,
-            owner.installed_release.digest(),
-            owner.lifecycle_identity_sha256(),
+            complete=decision.accepted,
+            renewed=write_outcome is ProfileReconciliationWriteOutcome.APPLIED,
+            runtime_instance_id=(
+                owner.instance_id
+                if write_outcome is ProfileReconciliationWriteOutcome.APPLIED
+                else None
+            ),
+            runtime_generation=(
+                owner.generation
+                if write_outcome is ProfileReconciliationWriteOutcome.APPLIED
+                else None
+            ),
+            release_identity_sha256=(
+                owner.installed_release.digest()
+                if write_outcome is ProfileReconciliationWriteOutcome.APPLIED
+                else None
+            ),
+            lifecycle_identity_sha256=(
+                owner.lifecycle_identity_sha256()
+                if write_outcome is ProfileReconciliationWriteOutcome.APPLIED
+                else None
+            ),
+            outcome=write_outcome.value,
         )
 
     async def _delegate(self) -> LocatorRetrievalService:

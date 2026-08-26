@@ -138,7 +138,7 @@ async def _assert_strict_v4_canonical_document_graph(database_url: str) -> None:
         migration_engine = build_async_engine(database.app_url)
         try:
             result = await upgrade_schema(migration_engine)
-            assert result.current == "0048_locator_lifecycle_release_identity"
+            assert result.current == "0049_reconciliation_runtime_generation"
         finally:
             await migration_engine.dispose()
 
@@ -307,7 +307,7 @@ async def _assert_strict_v4_canonical_fact_graph(database_url: str) -> None:
         migration_engine = build_async_engine(database.app_url)
         try:
             result = await upgrade_schema(migration_engine)
-            assert result.current == "0048_locator_lifecycle_release_identity"
+            assert result.current == "0049_reconciliation_runtime_generation"
         finally:
             await migration_engine.dispose()
 
@@ -562,7 +562,7 @@ async def _assert_strict_v4_writer_authority(database_url: str) -> None:
         engine = build_async_engine(database.app_url)
         try:
             result = await upgrade_schema(engine)
-            assert result.current == "0048_locator_lifecycle_release_identity"
+            assert result.current == "0049_reconciliation_runtime_generation"
         finally:
             await engine.dispose()
         canonical_role = await database.create_runtime_role(
