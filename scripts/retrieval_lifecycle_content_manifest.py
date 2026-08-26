@@ -38,12 +38,12 @@ def _git(root: Path, *args: str) -> bytes:
 
 
 def _is_private_environment_file(relative: PurePosixPath) -> bool:
-    """Exclude private dotenv inputs without opening them; public examples are source."""
+    """Identify private dotenv inputs without opening them; public examples are source."""
     name = relative.name
     return (name == ".env" or name.startswith(".env.")) and not name.endswith(".example")
 
 
-def _tracked_files(root: Path) -> tuple[list[_TrackedFile], list[str]]:
+def _tracked_files(root: Path) -> list[_TrackedFile]:
     repository_root = Path(os.fsdecode(_git(root, "rev-parse", "--show-toplevel")).strip()).resolve(
         strict=True
     )
@@ -52,7 +52,6 @@ def _tracked_files(root: Path) -> tuple[list[_TrackedFile], list[str]]:
 
     records = _git(root, "ls-files", "--cached", "--stage", "-z").split(b"\0")
     tracked: list[_TrackedFile] = []
-    excluded: list[str] = []
     for record in records:
         if not record:
             continue
@@ -65,8 +64,9 @@ def _tracked_files(root: Path) -> tuple[list[_TrackedFile], list[str]]:
         if stage != "0" or relative.is_absolute() or ".." in relative.parts:
             raise RuntimeError("retrieval lifecycle Git index is unresolved or unsafe")
         if _is_private_environment_file(relative):
-            excluded.append(relative.as_posix())
-            continue
+            raise RuntimeError(
+                f"tracked private environment file is not permitted: {relative.as_posix()}"
+            )
         if mode not in _REGULAR_MODES and mode != _SYMLINK_MODE:
             raise RuntimeError(
                 f"unsupported tracked entry {relative.as_posix()!r} with mode {mode}"
@@ -74,10 +74,9 @@ def _tracked_files(root: Path) -> tuple[list[_TrackedFile], list[str]]:
         tracked.append(_TrackedFile(mode=mode, relative=relative))
 
     tracked.sort(key=lambda item: item.relative.as_posix())
-    excluded.sort()
     if not tracked:
         raise RuntimeError("retrieval lifecycle manifest scope is empty")
-    return tracked, excluded
+    return tracked
 
 
 def _content(root: Path, tracked: _TrackedFile) -> bytes:
@@ -97,7 +96,7 @@ def _content(root: Path, tracked: _TrackedFile) -> bytes:
 
 def build_manifest(root: Path) -> dict[str, object]:
     root = root.resolve(strict=True)
-    files, excluded = _tracked_files(root)
+    files = _tracked_files(root)
     entries = []
     canonical = hashlib.sha256()
     for tracked in files:
@@ -115,7 +114,7 @@ def build_manifest(root: Path) -> dict[str, object]:
     return {
         "schema": _SCHEMA,
         "file_count": len(entries),
-        "excluded_private_environment_files": excluded,
+        "excluded_private_environment_files": [],
         "manifest_sha256": canonical.hexdigest(),
         "entries": entries,
     }

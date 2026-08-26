@@ -22,7 +22,11 @@ _FORMERLY_OMITTED_INPUTS = (
     "Dockerfile",
     "Makefile",
     ".env.example",
+    ".env.production.example",
 )
+
+_PRIVATE_ENVIRONMENT_FILES = (".env", ".env.local", "config/.env.production")
+_TRACKED_INPUTS = (*_FORMERLY_OMITTED_INPUTS, "build/.keep")
 
 
 def _git(root: Path, *args: str) -> None:
@@ -43,9 +47,11 @@ def tracked_repository(tmp_path: Path) -> Path:
     generated_placeholder = tmp_path / "build" / ".keep"
     generated_placeholder.parent.mkdir(parents=True)
     generated_placeholder.write_bytes(b"")
-    (tmp_path / ".env").write_text("MUST_NOT_BE_READ=private\n", encoding="utf-8")
-    (tmp_path / ".env.local").write_text("MUST_NOT_BE_READ=private\n", encoding="utf-8")
     _git(tmp_path, "add", "--all")
+    for relative in _PRIVATE_ENVIRONMENT_FILES:
+        private = tmp_path / relative
+        private.parent.mkdir(parents=True, exist_ok=True)
+        private.write_text("MUST_NOT_BE_READ=private\n", encoding="utf-8")
     return tmp_path
 
 
@@ -55,13 +61,14 @@ def test_manifest_includes_all_tracked_inputs_with_stable_order(
     manifest = build_manifest(tracked_repository)
 
     paths = [entry["path"] for entry in manifest["entries"]]
-    assert paths == sorted(paths)
-    assert set(_FORMERLY_OMITTED_INPUTS).issubset(paths)
-    assert "build/.keep" in paths
-    assert manifest["excluded_private_environment_files"] == [".env", ".env.local"]
+    expected = sorted(_TRACKED_INPUTS)
+    assert paths == expected
+    assert manifest["file_count"] == len(expected)
+    assert manifest["excluded_private_environment_files"] == []
+    assert manifest == build_manifest(tracked_repository)
 
 
-@pytest.mark.parametrize("relative", _FORMERLY_OMITTED_INPUTS)
+@pytest.mark.parametrize("relative", _TRACKED_INPUTS)
 def test_every_representative_tracked_input_alters_digest(
     tracked_repository: Path,
     relative: str,
@@ -75,21 +82,23 @@ def test_every_representative_tracked_input_alters_digest(
     assert after != before
 
 
-def test_private_dotenv_files_are_excluded_without_being_opened(
+@pytest.mark.parametrize("relative", _PRIVATE_ENVIRONMENT_FILES)
+def test_tracked_private_dotenv_fails_closed_before_any_content_read(
     tracked_repository: Path,
     monkeypatch: pytest.MonkeyPatch,
+    relative: str,
 ) -> None:
-    original = Path.read_bytes
+    _git(tracked_repository, "add", "--force", "--", relative)
 
-    def reject_private_environment_read(path: Path) -> bytes:
-        if path.name in {".env", ".env.local"}:
-            raise AssertionError("private environment file was read")
-        return original(path)
+    def reject_content_read(path: Path) -> bytes:
+        raise AssertionError(f"manifest input was read before fail-closed check: {path}")
 
-    monkeypatch.setattr(Path, "read_bytes", reject_private_environment_read)
+    monkeypatch.setattr(Path, "read_bytes", reject_content_read)
 
-    manifest = build_manifest(tracked_repository)
-    assert manifest["excluded_private_environment_files"] == [".env", ".env.local"]
+    with pytest.raises(RuntimeError) as error:
+        build_manifest(tracked_repository)
+
+    assert str(error.value) == f"tracked private environment file is not permitted: {relative}"
 
 
 def test_untracked_files_do_not_enter_release_manifest(tracked_repository: Path) -> None:
@@ -97,4 +106,6 @@ def test_untracked_files_do_not_enter_release_manifest(tracked_repository: Path)
     untracked.write_text("not a release input\n", encoding="utf-8")
 
     manifest = build_manifest(tracked_repository)
-    assert "runtime-secret.txt" not in {entry["path"] for entry in manifest["entries"]}
+    paths = {entry["path"] for entry in manifest["entries"]}
+    assert "runtime-secret.txt" not in paths
+    assert set(_PRIVATE_ENVIRONMENT_FILES).isdisjoint(paths)
