@@ -86,6 +86,9 @@ async def _exercise_populated_upgrade(port: int) -> None:
             for migration in migrations
             if migration.migration_id <= "0038_strict_v4_document_writer"
         )
+        expected_suffix = tuple(
+            migration.migration_id for migration in migrations[len(prefix) :]
+        )
         for migration in prefix:
             await connection.execute(migration.sql)
         await connection.execute(
@@ -183,7 +186,9 @@ async def _exercise_populated_upgrade(port: int) -> None:
             "0039_locator_retrieval_attributes",
             "0040_locator_profile_lifecycle",
         )
-        assert len(result.applied) == 10
+        assert result.applied == expected_suffix
+        assert result.current == migrations[-1].migration_id
+        assert result.applied[-1] == result.current
         async with engine.connect() as verification:
             shape = {
                 name: (data_type, is_nullable)

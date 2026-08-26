@@ -20,8 +20,15 @@ class _EmptyResult:
 
 
 class _RecordingConnection:
-    def __init__(self) -> None:
+    def __init__(
+        self,
+        events: list[str] | None = None,
+        *,
+        lock_attempts: tuple[bool, ...] = (True,),
+    ) -> None:
         self.statements: list[str] = []
+        self.events = events if events is not None else []
+        self.driver = _RecordingDriver(self.events, lock_attempts=lock_attempts)
 
     async def execute(self, statement, *_args, **_kwargs) -> _EmptyResult:
         self.statements.append(_sql(statement))
@@ -32,13 +39,47 @@ class _RecordingConnection:
         return False
 
     def begin(self) -> _Begin:
-        return _Begin(self)
+        return _Begin(self, self.events)
 
-    async def commit(self) -> None:
-        return None
+    async def get_raw_connection(self):
+        return SimpleNamespace(driver_connection=self.driver)
+
+
+class _RecordingDriver:
+    def __init__(self, events: list[str], *, lock_attempts: tuple[bool, ...]) -> None:
+        self.statements: list[str] = []
+        self._events = events
+        self._lock_attempts = iter(lock_attempts)
+
+    async def execute(self, statement: str) -> str:
+        normalized = _sql(statement)
+        self.statements.append(normalized)
+        self._events.append(f"raw:{normalized}")
+        return "OK"
+
+    async def fetchval(self, statement: str) -> bool:
+        normalized = _sql(statement)
+        self.statements.append(normalized)
+        acquired = next(self._lock_attempts)
+        self._events.append(f"raw-complete:{normalized}:{acquired}")
+        return acquired
 
 
 class _Begin:
+    def __init__(self, connection: _RecordingConnection, events: list[str]) -> None:
+        self._connection = connection
+        self._events = events
+
+    async def __aenter__(self) -> _RecordingConnection:
+        self._events.append("sqlalchemy:begin")
+        return self._connection
+
+    async def __aexit__(self, *_args) -> None:
+        self._events.append("sqlalchemy:end")
+        return None
+
+
+class _ConnectionContext:
     def __init__(self, connection: _RecordingConnection) -> None:
         self._connection = connection
 
@@ -52,11 +93,16 @@ class _Begin:
 class _Engine:
     dialect = SimpleNamespace(name="postgresql")
 
-    def __init__(self) -> None:
-        self.connection = _RecordingConnection()
+    def __init__(
+        self,
+        events: list[str] | None = None,
+        *,
+        lock_attempts: tuple[bool, ...] = (True,),
+    ) -> None:
+        self.connection = _RecordingConnection(events, lock_attempts=lock_attempts)
 
-    def connect(self) -> _Begin:
-        return _Begin(self.connection)
+    def connect(self) -> _ConnectionContext:
+        return _ConnectionContext(self.connection)
 
 
 def test_upgrade_sets_hostile_safe_search_path_before_catalog_work(monkeypatch) -> None:
@@ -78,22 +124,86 @@ def test_upgrade_sets_hostile_safe_search_path_before_catalog_work(monkeypatch) 
         events.append("apply-pending")
         return (migration.migration_id,)
 
+    async def record_backoff(delay: float) -> None:
+        assert delay == migration_runner._ADVISORY_LOCK_RETRY_SECONDS
+        events.append("backoff")
+
     monkeypatch.setattr(migration_runner, "_load_migrations", lambda: (migration,))
     monkeypatch.setattr(migration_runner, "_ensure_history_table", ensure_history)
     monkeypatch.setattr(migration_runner, "_load_history", load_history)
     monkeypatch.setattr(migration_runner, "_has_unversioned_schema", has_unversioned_schema)
     monkeypatch.setattr(migration_runner, "_apply_pending", apply_pending)
+    monkeypatch.setattr(migration_runner.asyncio, "sleep", record_backoff)
 
-    engine = _Engine()
+    engine = _Engine(events, lock_attempts=(False, True))
     result = asyncio.run(migration_runner.upgrade_schema(engine))
 
-    assert engine.connection.statements == [
+    assert engine.connection.statements == []
+    assert engine.connection.driver.statements == [
         "SET search_path = public, pg_catalog, pg_temp",
-        f"SELECT pg_catalog.pg_advisory_lock({migration_runner._ADVISORY_LOCK_ID})",
+        f"SELECT pg_catalog.pg_try_advisory_lock({migration_runner._ADVISORY_LOCK_ID})",
+        f"SELECT pg_catalog.pg_try_advisory_lock({migration_runner._ADVISORY_LOCK_ID})",
         f"SELECT pg_catalog.pg_advisory_unlock({migration_runner._ADVISORY_LOCK_ID})",
     ]
-    assert events == ["ensure-history", "load-history", "detect-legacy", "apply-pending"]
+    assert events == [
+        "raw:SET search_path = public, pg_catalog, pg_temp",
+        "raw-complete:SELECT pg_catalog.pg_try_advisory_lock"
+        f"({migration_runner._ADVISORY_LOCK_ID}):False",
+        "backoff",
+        "raw-complete:SELECT pg_catalog.pg_try_advisory_lock"
+        f"({migration_runner._ADVISORY_LOCK_ID}):True",
+        "sqlalchemy:begin",
+        "ensure-history",
+        "load-history",
+        "detect-legacy",
+        "sqlalchemy:end",
+        "apply-pending",
+        f"raw:SELECT pg_catalog.pg_advisory_unlock({migration_runner._ADVISORY_LOCK_ID})",
+    ]
     assert result.applied == (migration.migration_id,)
+
+
+def test_upgrade_cancelled_while_waiting_does_not_unlock(monkeypatch) -> None:
+    migration = migration_runner._Migration("0001_test", "a" * 64, "SELECT 1")
+
+    async def cancel_backoff(_delay: float) -> None:
+        raise asyncio.CancelledError
+
+    monkeypatch.setattr(migration_runner, "_load_migrations", lambda: (migration,))
+    monkeypatch.setattr(migration_runner.asyncio, "sleep", cancel_backoff)
+
+    engine = _Engine(lock_attempts=(False,))
+    with pytest.raises(asyncio.CancelledError):
+        asyncio.run(migration_runner.upgrade_schema(engine))
+
+    assert engine.connection.driver.statements == [
+        "SET search_path = public, pg_catalog, pg_temp",
+        f"SELECT pg_catalog.pg_try_advisory_lock({migration_runner._ADVISORY_LOCK_ID})",
+    ]
+
+
+@pytest.mark.parametrize("error_type", [RuntimeError, asyncio.CancelledError])
+def test_upgrade_releases_acquired_lock_after_application_failure(
+    monkeypatch,
+    error_type: type[BaseException],
+) -> None:
+    migration = migration_runner._Migration("0001_test", "a" * 64, "SELECT 1")
+
+    async def fail_application(_connection, _migrations, _history) -> tuple[str, ...]:
+        raise error_type("application stopped")
+
+    monkeypatch.setattr(migration_runner, "_load_migrations", lambda: (migration,))
+    monkeypatch.setattr(migration_runner, "_apply_pending", fail_application)
+
+    engine = _Engine()
+    with pytest.raises(error_type, match="application stopped"):
+        asyncio.run(migration_runner.upgrade_schema(engine))
+
+    assert engine.connection.driver.statements == [
+        "SET search_path = public, pg_catalog, pg_temp",
+        f"SELECT pg_catalog.pg_try_advisory_lock({migration_runner._ADVISORY_LOCK_ID})",
+        f"SELECT pg_catalog.pg_advisory_unlock({migration_runner._ADVISORY_LOCK_ID})",
+    ]
 
 
 def test_history_and_legacy_catalog_sql_cannot_resolve_hostile_shadows() -> None:

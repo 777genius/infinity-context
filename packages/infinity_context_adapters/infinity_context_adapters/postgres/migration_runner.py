@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 from dataclasses import dataclass
 from datetime import datetime
 from hashlib import sha256
@@ -22,6 +23,7 @@ from infinity_context_adapters.postgres.staged_locator_migrations import (
 _MIGRATIONS_DIRECTORY = Path(__file__).with_name("migrations")
 _LEGACY_BASELINE_PREFIX = "0022_"
 _ADVISORY_LOCK_ID = 4_916_625_310_112_023_308
+_ADVISORY_LOCK_RETRY_SECONDS = 0.05
 _PUBLISHED_CHECKSUM_ALIASES: dict[str, frozenset[str]] = {
     "0030_suggestion_receipt_tenant_integrity": frozenset(
         {"4d936c3d49f76028eec009a1b1e8ee2bcf214b2b4a03e7ac120bad5321aa3064"}
@@ -57,10 +59,21 @@ async def upgrade_schema(engine: AsyncEngine) -> SchemaUpgradeResult:
     migrations = _load_migrations()
     async with engine.connect() as connection:
         # A session lock remains held across the committed backfill batches.
-        await connection.execute(text("SET search_path = public, pg_catalog, pg_temp"))
-        await connection.execute(text(f"SELECT pg_catalog.pg_advisory_lock({_ADVISORY_LOCK_ID})"))
-        await connection.commit()
+        # Acquire it through asyncpg before SQLAlchemy autobegin can leave a waiter
+        # holding an open transaction that conflicts with the winner's DDL.
+        raw_connection = await connection.get_raw_connection()
+        driver_connection = raw_connection.driver_connection
+        await driver_connection.execute("SET search_path = public, pg_catalog, pg_temp")
+        lock_acquired = False
         try:
+            while not lock_acquired:
+                lock_acquired = bool(
+                    await driver_connection.fetchval(
+                        f"SELECT pg_catalog.pg_try_advisory_lock({_ADVISORY_LOCK_ID})"
+                    )
+                )
+                if not lock_acquired:
+                    await asyncio.sleep(_ADVISORY_LOCK_RETRY_SECONDS)
             async with connection.begin():
                 await _ensure_history_table(connection)
                 applied_history = await _load_history(connection)
@@ -72,10 +85,10 @@ async def upgrade_schema(engine: AsyncEngine) -> SchemaUpgradeResult:
                     applied_history = await _load_history(connection)
             applied = await _apply_pending(connection, migrations, applied_history)
         finally:
-            await connection.execute(
-                text(f"SELECT pg_catalog.pg_advisory_unlock({_ADVISORY_LOCK_ID})")
-            )
-            await connection.commit()
+            if lock_acquired:
+                await driver_connection.execute(
+                    f"SELECT pg_catalog.pg_advisory_unlock({_ADVISORY_LOCK_ID})"
+                )
     return SchemaUpgradeResult(
         applied=applied,
         legacy_baseline=legacy_baseline,
