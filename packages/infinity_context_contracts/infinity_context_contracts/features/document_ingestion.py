@@ -263,11 +263,9 @@ class ReconcileExactDocumentRequestDto:
     def to_dict(self) -> JsonObject:
         return {
             "contract_version": self.contract_version,
-            "scope": {
-                "space_id": self.space_id,
-                "memory_scope_id": self.memory_scope_id,
-                "thread_id": self.thread_id,
-            },
+            "space_id": self.space_id,
+            "memory_scope_id": self.memory_scope_id,
+            "thread_id": self.thread_id,
             "source_type": self.source_type,
             "source_external_id": self.source_external_id,
             "projection_generation": self.projection_generation,

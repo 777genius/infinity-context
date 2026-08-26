@@ -461,6 +461,14 @@ the migration runner transaction, so a failed forward application rolls back ato
 Rollback after a successful application means restoring a canonical pre-0048 backup with
 the pre-0048 binary; destructive down-migration is intentionally unsupported.
 
+Migration 0049 enforces one unretired, unsealed generation per stable runtime instance. Its
+read-only preflight reports every competing instance and all of its generations without locks,
+DDL, mutation, or winner selection. On a populated 0048 database, operators must quiesce and
+drain each listed process and use the 0048-compatible signed supervisor death-seal protocol for
+each generation proved no longer live; 0048 has no canonical clean-retirement column. Only a
+`ready` rerun permits upgrade. After 0049, a clean process drains its exact readers and writers
+before setting `retired_at`; a crash still requires the authoritative death seal.
+
 The Unix path check rejects runtime ownership of the registry file and every ancestor even
 when mode bits are read-only, rejects runtime-owned sticky directories, and rejects symlink
 components. A separately owned read-only layout is accepted. This check cannot infer POSIX

@@ -66,9 +66,27 @@ class OutboxWorker:
         self._running_heartbeat_interval = running_heartbeat_interval or RUNNING_HEARTBEAT_INTERVAL
         self._dispatcher = build_outbox_event_dispatcher(container)
         self._projection_maintenance = ProjectionOutboxProcess(container)
+        self._runtime_started = False
+
+    async def start(self) -> None:
+        if self._runtime_started or not _should_run_projection_maintenance(self._filter):
+            return
+        start_runtime = getattr(self._container.locator_retrieval, "start_runtime", None)
+        if start_runtime is not None:
+            await start_runtime(now=self._container.clock.now())
+        self._runtime_started = True
+
+    async def aclose(self) -> None:
+        if not self._runtime_started:
+            return
+        close_runtime = getattr(self._container.locator_retrieval, "close_runtime", None)
+        if close_runtime is not None:
+            await close_runtime(now=self._container.clock.now())
+        self._runtime_started = False
 
     async def run_once(self, *, limit: int = 25, concurrency: int = 1) -> int:
         normalized_limit = max(0, int(limit))
+        await self.start()
         await self._reconcile_active_retrieval_profile()
         if _should_run_suggestion_maintenance(self._filter):
             await self._container.expire_pending_suggestions.execute(limit=normalized_limit)
@@ -371,9 +389,9 @@ async def _run(args: argparse.Namespace) -> None:
     container = build_container(Settings())
     if container.settings.auto_create_schema:
         await create_schema(container.engine)
+    worker = OutboxWorker(container, worker_filter=_worker_filter_from_args(args))
     try:
-        await container.start_retrieval_runtime()
-        worker = OutboxWorker(container, worker_filter=_worker_filter_from_args(args))
+        await worker.start()
         while True:
             count = await worker.run_once(limit=args.limit, concurrency=args.concurrency)
             print({"processed": count})
@@ -381,7 +399,13 @@ async def _run(args: argparse.Namespace) -> None:
                 return
             await asyncio.sleep(args.sleep_seconds)
     finally:
-        await container.aclose()
+        try:
+            await worker.aclose()
+    finally:
+        try:
+            await worker.aclose()
+        finally:
+            await container.aclose()
 
 
 def main() -> None:

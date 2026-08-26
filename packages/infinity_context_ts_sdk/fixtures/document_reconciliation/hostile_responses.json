@@ -1,0 +1,24 @@
+{
+  "schema_version": "document-reconciliation-hostile.v1",
+  "cases": [
+    {"id": "contract_type", "path": ["contract_version"], "value": 1},
+    {"id": "state_unknown", "path": ["state"], "value": "future_state"},
+    {"id": "visibility_type", "path": ["visibility"], "value": true},
+    {"id": "space_type", "path": ["scope", "space_id"], "value": 7},
+    {"id": "memory_scope_type", "path": ["scope", "memory_scope_id"], "value": null},
+    {"id": "thread_type", "path": ["scope", "thread_id"], "value": false},
+    {"id": "source_type_shape", "path": ["source_type"], "value": ["opaque-kind"]},
+    {"id": "source_external_type", "path": ["source_external_id"], "value": {}},
+    {"id": "document_id_type", "path": ["document_id"], "value": 4},
+    {"id": "canonical_status_type", "path": ["canonical_status"], "value": false},
+    {"id": "projection_generation_type", "path": ["projection_generation"], "value": 2},
+    {"id": "profile_generation_type", "path": ["profile_generation"], "value": []},
+    {"id": "idempotency_match_type", "path": ["idempotency_key_matches"], "value": "true"},
+    {"id": "thread_missing", "path": ["scope", "thread_id"], "operation": "delete"},
+    {"id": "document_id_missing", "path": ["document_id"], "operation": "delete"},
+    {"id": "canonical_status_missing", "path": ["canonical_status"], "operation": "delete"},
+    {"id": "projection_generation_missing", "path": ["projection_generation"], "operation": "delete"},
+    {"id": "profile_generation_missing", "path": ["profile_generation"], "operation": "delete"},
+    {"id": "idempotency_match_missing", "path": ["idempotency_key_matches"], "operation": "delete"}
+  ]
+}

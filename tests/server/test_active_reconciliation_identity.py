@@ -65,6 +65,33 @@ def test_active_reconciliation_binds_exact_runtime_release_and_lifecycle_identit
     assert observed_operations == ["reconcile-1", "reconcile-3"]
 
 
+def test_runtime_start_and_clean_restart_are_generation_aware() -> None:
+    first_owner = _owner("generation-first")
+    registry = _Registry(None)
+    first = _service(first_owner, registry)
+
+    asyncio.run(first.start_runtime(now=NOW))
+    assert registry.registered_owner == first_owner
+    asyncio.run(first.close_runtime(now=NOW + timedelta(seconds=1)))
+    assert registry.retired == [first_owner]
+
+    restarted_owner = _owner("generation-restarted")
+    restarted = _service(restarted_owner, registry)
+    asyncio.run(restarted.start_runtime(now=NOW + timedelta(seconds=2)))
+    assert registry.registered_owner == restarted_owner
+
+
+def test_crashed_owner_must_be_death_sealed_before_successor_registration() -> None:
+    crashed = _owner("generation-crashed")
+    registry = _Registry(crashed)
+    successor = _service(_owner("generation-successor"), registry)
+
+    with pytest.raises(RuntimeError, match="runtime_generation_competing"):
+        asyncio.run(successor.start_runtime(now=NOW))
+
+    assert registry.registered_owner == crashed
+
+
 def test_active_reconciliation_rejects_missing_identity_before_observation(monkeypatch) -> None:
     registry = _Registry(_owner("generation-current"))
     service = _service(None, registry)
@@ -227,9 +254,23 @@ class _Registry:
         self.operation_ids = []
         self.mutations = []
         self.write_outcome = ProfileReconciliationWriteOutcome.APPLIED
+        self.retired = []
         self.lease = ProfileAttestationLease(
             "activation", "profile-active", "gen-active", "b" * 64, NOW, NOW + timedelta(seconds=5)
         )
+
+    async def register_runtime_incarnation(self, owner, *, now):
+        del now
+        if self.registered_owner is not None and self.registered_owner != owner:
+            raise RuntimeError("retrieval_profile_runtime_generation_competing")
+        self.registered_owner = owner
+
+    async def retire_runtime_incarnation(self, owner, *, now):
+        del now
+        if self.registered_owner != owner:
+            raise RuntimeError("retrieval_profile_runtime_generation_mismatch")
+        self.retired.append(owner)
+        self.registered_owner = None
 
     async def verify_registered_runtime_owner(self, owner):
         registered = self.registered_owner

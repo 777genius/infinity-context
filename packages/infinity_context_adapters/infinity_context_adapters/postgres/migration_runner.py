@@ -55,6 +55,31 @@ class SchemaUpgradeResult:
 
 
 @dataclass(frozen=True, slots=True)
+class Reconciliation0049Preflight:
+    """Read-only diagnosis of the only populated 0049 uniqueness blocker."""
+
+    status: str
+    current_migration: str | None
+    competing_instances: tuple[tuple[str, tuple[str, ...]], ...]
+
+    @property
+    def upgrade_safe(self) -> bool:
+        return self.status in {"not_applicable", "ready"}
+
+    def to_dict(self) -> dict[str, object]:
+        return {
+            "status": self.status,
+            "upgrade_safe": self.upgrade_safe,
+            "current_migration": self.current_migration,
+            "competing_instances": [
+                {"instance_id": instance_id, "generations": list(generations)}
+                for instance_id, generations in self.competing_instances
+            ],
+            "winner_selected": False,
+        }
+
+
+@dataclass(frozen=True, slots=True)
 class _Migration:
     migration_id: str
     checksum: str
@@ -408,6 +433,53 @@ async def _invalidate_connection(connection: AsyncConnection) -> None:
     invalidation.result()
     if cancellation is not None:
         raise cancellation
+
+
+async def preflight_reconciliation_0049(engine: AsyncEngine) -> Reconciliation0049Preflight:
+    """Inspect a populated pre-0049 database without locks, DDL, or writes."""
+
+    if engine.dialect.name != "postgresql":
+        raise RuntimeError("Versioned schema preflight requires PostgreSQL")
+    async with engine.connect() as connection:
+        history_exists = bool(
+            await connection.scalar(
+                text("SELECT to_regclass('public.infinity_context_schema_migrations') IS NOT NULL")
+            )
+        )
+        runtime_exists = bool(
+            await connection.scalar(
+                text("SELECT to_regclass('public.memory_locator_runtime_incarnations') IS NOT NULL")
+            )
+        )
+        current = None
+        if history_exists:
+            current = await connection.scalar(
+                text(
+                    "SELECT migration_id FROM public.infinity_context_schema_migrations "
+                    "ORDER BY migration_id DESC LIMIT 1"
+                )
+            )
+        if not runtime_exists or current is None or str(current) >= "0049_":
+            return Reconciliation0049Preflight(
+                "not_applicable", str(current) if current else None, ()
+            )
+        competing = (
+            await connection.execute(
+                text(
+                    "SELECT instance_id, array_agg(generation ORDER BY generation) "
+                    "FROM public.memory_locator_runtime_incarnations "
+                    "WHERE sealed_dead_generation IS NULL GROUP BY instance_id "
+                    "HAVING count(*) > 1 ORDER BY instance_id"
+                )
+            )
+        ).all()
+    rows = tuple(
+        (str(instance_id), tuple(str(item) for item in generations))
+        for instance_id, generations in competing
+    )
+    return Reconciliation0049Preflight(
+        "blocked_competing_generations" if rows else "ready", str(current), rows
+    )
 
 
 def _load_migrations() -> tuple[_Migration, ...]:

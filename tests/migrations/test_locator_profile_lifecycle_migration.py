@@ -257,3 +257,10 @@ def test_reconciliation_generation_migration_fences_current_owner_and_operation(
     assert "lifecycle_identity_sha256" in sql
     assert "fk_locator_reconciliation_operation_runtime" in sql
     assert "reconciliation_drift" in sql
+
+
+def test_populated_0049_operator_runbook_requires_read_only_preflight_and_no_winner() -> None:
+    readme = (Path(__file__).resolve().parents[2] / "docs/README.md").read_text()
+    assert "retrieval-profile-upgrade-preflight" in readme
+    assert "blocked_competing_generations" in readme
+    assert "never delete rows or choose" in readme

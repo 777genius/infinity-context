@@ -77,3 +77,43 @@ def test_active_reconcile_operator_reports_bounded_continuation(monkeypatch) -> 
     }
     assert len(calls) == 2
     assert lifecycle_calls == ["register", "retire", "register", "retire"]
+
+
+def test_admin_timeout_cancels_work_and_retires_registered_generation(monkeypatch) -> None:
+    cancelled = asyncio.Event()
+    lifecycle_calls = []
+
+    async def reconcile_active(*, now):
+        del now
+        try:
+            await asyncio.Event().wait()
+        finally:
+            cancelled.set()
+
+    async def start_retrieval_runtime():
+        lifecycle_calls.append("register")
+
+    async def aclose():
+        assert cancelled.is_set()
+        lifecycle_calls.append("retire")
+
+    container = SimpleNamespace(
+        locator_retrieval=SimpleNamespace(reconcile_active=reconcile_active),
+        retrieval_profile_lifecycle=object(),
+        clock=SimpleNamespace(now=lambda: datetime(2026, 8, 25, tzinfo=UTC)),
+        start_retrieval_runtime=start_retrieval_runtime,
+        aclose=aclose,
+    )
+    monkeypatch.setattr(
+        "infinity_context_server.admin_retrieval_profiles.build_container",
+        lambda _settings: container,
+    )
+
+    result = asyncio.run(
+        retrieval_profile_lifecycle_command(
+            operation="reconcile", target="active", limit=1, deadline_seconds=0.1
+        )
+    )
+
+    assert result["error_code"] == "profile_operation_deadline_exceeded"
+    assert lifecycle_calls == ["register", "retire"]

@@ -35,6 +35,7 @@ from infinity_context_server.admin_retrieval_profiles import (
     retrieval_profile_lifecycle_command,
     retrieval_profile_maintenance_command,
     retrieval_profile_recovery_command,
+    retrieval_profile_upgrade_preflight_command,
 )
 from infinity_context_server.auth_tokens import (
     create_service_token,
@@ -726,6 +727,8 @@ async def _run(args: argparse.Namespace) -> dict[str, object]:
             limit=args.limit,
             deadline_seconds=args.deadline_seconds,
         )
+    if args.command == "retrieval-profile-upgrade-preflight":
+        return await retrieval_profile_upgrade_preflight_command()
     if args.command == "retrieval-profile-recover":
         return await retrieval_profile_recovery_command(
             fence_kind=args.fence_kind,
@@ -743,7 +746,8 @@ async def _run(args: argparse.Namespace) -> dict[str, object]:
         )
     if args.command == "retrieval-profile-maintenance":
         return await retrieval_profile_maintenance_command(
-            action=args.action, reason=args.reason,
+            action=args.action,
+            reason=args.reason,
             maintenance_generation=args.maintenance_generation,
             owner_instance_id=args.owner_instance_id,
             owner_generation=args.owner_generation,
@@ -758,23 +762,24 @@ async def _run(args: argparse.Namespace) -> dict[str, object]:
             executable_sha256=args.executable_sha256,
             release_revision=args.release_revision,
             release_source_tree_sha256=args.release_source_tree_sha256,
-            release_installed_distribution_sha256=(
-                args.release_installed_distribution_sha256
-            ),
+            release_installed_distribution_sha256=(args.release_installed_distribution_sha256),
             release_runtime_modules_sha256=args.release_runtime_modules_sha256,
             exit_observation_id=args.exit_observation_id,
             exited_at=(
                 datetime.fromisoformat(args.exited_at.replace("Z", "+00:00"))
-                if args.exited_at else None
+                if args.exited_at
+                else None
             ),
             exit_code=args.exit_code,
             signature=args.signature,
-            profile_id=args.profile_id, receipt_id=args.receipt_id,
+            profile_id=args.profile_id,
+            receipt_id=args.receipt_id,
             operation_id=args.operation_id,
             mutation_epoch=args.mutation_epoch,
             stale_deadline=(
                 datetime.fromisoformat(args.stale_deadline.replace("Z", "+00:00"))
-                if args.stale_deadline else None
+                if args.stale_deadline
+                else None
             ),
         )
     if args.command == "reset-local":
@@ -888,6 +893,10 @@ def main() -> None:
     )
     profile.add_argument("--limit", type=int, default=4)
     profile.add_argument("--deadline-seconds", type=float, default=30.0)
+    sub.add_parser(
+        "retrieval-profile-upgrade-preflight",
+        help="Read-only populated-upgrade diagnostic for migration 0049",
+    )
     recovery = sub.add_parser("retrieval-profile-recover")
     recovery.add_argument("--fence-kind", required=True, choices=("reader", "provider_mutation"))
     recovery.add_argument("--profile-id", required=True)
@@ -903,7 +912,8 @@ def main() -> None:
     recovery.add_argument("--maintenance-generation", type=int, required=True)
     maintenance = sub.add_parser("retrieval-profile-maintenance")
     maintenance.add_argument(
-        "--action", required=True,
+        "--action",
+        required=True,
         choices=("begin", "acknowledge", "seal_dead", "complete", "reconcile_provider"),
     )
     maintenance.add_argument("--reason")

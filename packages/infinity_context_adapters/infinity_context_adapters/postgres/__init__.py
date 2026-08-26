@@ -21,6 +21,7 @@ __all__ = [
     "build_session_factory",
     "create_schema",
     "upgrade_schema",
+    "preflight_reconciliation_0049",
 ]
 
 
@@ -46,7 +47,7 @@ def __getattr__(name: str) -> Any:
     }:
         module = import_module("infinity_context_adapters.postgres.unit_of_work")
         return getattr(module, name)
-    if name == "upgrade_schema":
+    if name in {"upgrade_schema", "preflight_reconciliation_0049"}:
         module = import_module("infinity_context_adapters.postgres.migration_runner")
         return getattr(module, name)
     if name == "build_locator_retrieval_indexes":

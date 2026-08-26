@@ -6,7 +6,11 @@ import asyncio
 import os
 
 import pytest
-from infinity_context_adapters.postgres import build_async_engine, upgrade_schema
+from infinity_context_adapters.postgres import (
+    build_async_engine,
+    preflight_reconciliation_0049,
+    upgrade_schema,
+)
 from postgres_test_database import PostgresTestDatabase
 from sqlalchemy import text
 from test_postgres_schema_upgrade_e2e import _install_versioned_schema_through
@@ -73,6 +77,9 @@ async def _assert_populated_upgrade(database_url: str) -> None:
 
         engine = build_async_engine(database.app_url)
         try:
+            preflight = await preflight_reconciliation_0049(engine)
+            assert preflight.status == "ready"
+            assert preflight.upgrade_safe is True
             result = await upgrade_schema(engine)
             assert result.applied == (
                 "0049_reconciliation_runtime_generation",
@@ -169,6 +176,13 @@ async def _assert_competing_upgrade_refused(database_url: str) -> None:
             await raw.close()
         engine = build_async_engine(database.app_url)
         try:
+            preflight = await preflight_reconciliation_0049(engine)
+            assert preflight.status == "blocked_competing_generations"
+            assert preflight.upgrade_safe is False
+            assert preflight.competing_instances == (
+                ("competing-runtime", ("generation-a", "generation-b")),
+            )
+            assert preflight.to_dict()["winner_selected"] is False
             with pytest.raises(Exception, match="uq_locator_runtime_current_instance"):
                 await upgrade_schema(engine)
             async with engine.connect() as connection:

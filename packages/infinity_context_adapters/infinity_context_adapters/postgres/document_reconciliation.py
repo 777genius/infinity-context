@@ -7,7 +7,7 @@ from infinity_context_core.features.document_ingestion.public import (
     ExactDocumentObservation,
     ExactDocumentObservationPort,
 )
-from sqlalchemy import or_, select
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from .locator_models import (
@@ -15,6 +15,7 @@ from .locator_models import (
     MemoryLocatorProfileProjectionReceiptRow,
     MemoryLocatorProfileRow,
 )
+from .locator_profile_queryability import is_profile_canonically_queryable
 from .models import MemoryChunkRow, MemoryDocumentRow
 from .outbox_models import MemoryOutboxRow
 
@@ -114,7 +115,11 @@ async def _visibility(session, document, active_chunks, profile):
         return "not_queryable"
     if document.status != "active":
         return "unavailable"
-    if profile is not None and profile.state == "active" and active_chunks:
+    if (
+        profile is not None
+        and active_chunks
+        and await is_profile_canonically_queryable(session, profile.profile_id)
+    ):
         eligible = all(
             chunk.retrieval_locator is not None and chunk.classification in {"public", "internal"}
             for chunk in active_chunks
@@ -146,7 +151,7 @@ async def _visibility(session, document, active_chunks, profile):
                 MemoryOutboxRow.event_type.in_(
                     ("vector.upsert_chunk", "vector.upsert_locator_profile")
                 ),
-                or_(MemoryOutboxRow.status == "pending", MemoryOutboxRow.status == "running"),
+                MemoryOutboxRow.status.in_(("pending", "retry_pending", "running")),
             )
             .limit(1)
         )

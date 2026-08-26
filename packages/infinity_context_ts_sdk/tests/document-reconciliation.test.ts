@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import hostileFixture from "../fixtures/document_reconciliation/hostile_responses.json";
 import {
   EXACT_DOCUMENT_RECONCILIATION_CONTRACT_V1,
   InfinityContextClient,
@@ -105,5 +106,21 @@ describe("exact document reconciliation", () => {
     const client = new InfinityContextClient({ transport: new RecordingTransport([]) });
     await expect(client.documents.reconcileExactDocument({ ...input, sourceExternalId: `${secret}\u0000` }))
       .rejects.not.toThrow(secret);
+  });
+
+  it("rejects every shared hostile decoder fixture", async () => {
+    for (const hostile of hostileFixture.cases) {
+      const response = structuredClone(result()) as Record<string, any>;
+      let target = response.data as Record<string, any>;
+      for (const segment of hostile.path.slice(0, -1)) target = target[segment] as Record<string, any>;
+      const field = hostile.path.at(-1) as string;
+      if ("operation" in hostile && hostile.operation === "delete") delete target[field];
+      else target[field] = "value" in hostile ? hostile.value : undefined;
+      const client = new InfinityContextClient({
+        transport: new RecordingTransport([jsonResponse(response)]),
+        retryPolicy: { maxAttempts: 1 },
+      });
+      await expect(client.documents.reconcileExactDocument(input), hostile.id).rejects.toBeInstanceOf(ValueError);
+    }
   });
 });

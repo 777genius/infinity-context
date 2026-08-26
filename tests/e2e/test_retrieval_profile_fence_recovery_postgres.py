@@ -84,6 +84,29 @@ async def _assert_exact_recovery(database_url: str, qdrant_url: str) -> None:
                     "version": evidence_version,
                 },
             )
+            await connection.execute(
+                text(
+                    "INSERT INTO memory_locator_profile_lanes "
+                    "(profile_id,lane_id,required,healthy,profile_qualified,checked_at,"
+                    "observed_count,observed_digest) VALUES "
+                    "('profile-a','qdrant_dense',TRUE,TRUE,TRUE,:checked,0,:digest)"
+                ),
+                {"checked": now, "digest": hashlib.sha256(b"").hexdigest()},
+            )
+            evidence_version = int(
+                await connection.scalar(
+                    text("SELECT aggregate_version FROM memory_locator_profile_evidence_versions")
+                )
+                or 0
+            )
+            await connection.execute(
+                text(
+                    "UPDATE memory_locator_profiles SET activation_evidence_version=:version, "
+                    "activation_lease_expires_at=:expires, "
+                    "reconciliation_drifted=FALSE WHERE profile_id='profile-a'"
+                ),
+                {"version": evidence_version, "expires": now + timedelta(minutes=5)},
+            )
 
         reader_deadline = datetime.now(UTC) + timedelta(seconds=30)
         (

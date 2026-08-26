@@ -55,11 +55,15 @@
     },
     "./fixtures/context_retrieval_v2/*.json": {
       "default": "./fixtures/context_retrieval_v2/*.json"
+    },
+    "./fixtures/document_reconciliation/*.json": {
+      "default": "./fixtures/document_reconciliation/*.json"
     }
   },
   "files": [
     "dist",
     "fixtures/context_retrieval_v2",
+    "fixtures/document_reconciliation",
     "scripts/check-architecture.mjs",
     "scripts/check-consumer-install.mjs",
     "scripts/check-package-exports.mjs",

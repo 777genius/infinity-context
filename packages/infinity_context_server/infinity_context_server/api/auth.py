@@ -339,7 +339,7 @@ def _required_permission(request: Request) -> str | None:
         return _fact_required_permission(path, method)
 
     if path.startswith("/v1/documents"):
-        return _document_required_permission(method)
+        return _document_required_permission(path, method)
 
     if path.startswith("/v1/suggestions"):
         return _suggestion_required_permission(path, method)
@@ -380,7 +380,9 @@ def _fact_required_permission(path: str, method: str) -> str:
     return MEMORY_PERMISSION_READ
 
 
-def _document_required_permission(method: str) -> str:
+def _document_required_permission(path: str, method: str) -> str:
+    if path == "/v1/documents/reconcile-exact" and method == "POST":
+        return MEMORY_PERMISSION_READ
     if method == "DELETE":
         return MEMORY_PERMISSION_DELETE
     if method in {"POST", "PATCH", "PUT"}:

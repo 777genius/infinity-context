@@ -9,6 +9,14 @@ All notable public changes to Infinity Context are documented here.
 - A versioned, capability-attested, read-only exact document reconciliation API in the
   Python and TypeScript SDKs. It reports bounded canonical and indexed visibility states
   without first-page scans or consumer-specific lifecycle policy.
+- Canonical query admission and exact indexed reconciliation now share one database-time
+  queryability policy, and server, worker, and lifecycle-admin startup explicitly register
+  and drain the exact runtime generation.
+- Exact reconciliation accepts `memory:read`, exposes the same flat request wire shape in
+  public DTOs and SDKs, and the Python SDK now matches the TypeScript hostile-response
+  decoder with absolute-deadline and cancellation controls.
+- A read-only migration 0049 populated-upgrade preflight reports competing runtime
+  generations without choosing or mutating a winner.
 
 ## 0.1.0 - 2026-08-05
 

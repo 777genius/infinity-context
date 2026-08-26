@@ -18,11 +18,9 @@ def test_exact_reconciliation_contract_is_versioned_and_plain_json() -> None:
     )
     assert request.to_dict() == {
         "contract_version": EXACT_DOCUMENT_RECONCILIATION_CONTRACT_V1,
-        "scope": {
-            "space_id": "space-1",
-            "memory_scope_id": "scope-1",
-            "thread_id": "thread-1",
-        },
+        "space_id": "space-1",
+        "memory_scope_id": "scope-1",
+        "thread_id": "thread-1",
         "source_type": "opaque-kind",
         "source_external_id": "opaque-id",
         "projection_generation": "projection-2",

@@ -29,6 +29,9 @@ from infinity_context_adapters.postgres.locator_profile_mapping import (
 from infinity_context_adapters.postgres.locator_profile_mapping import (
     profile_identity as _identity,
 )
+from infinity_context_adapters.postgres.locator_profile_queryability import (
+    is_profile_canonically_queryable,
+)
 from infinity_context_adapters.postgres.locator_runtime_identity import (
     lock_runtime_instance as _lock_runtime_instance,
 )
@@ -133,27 +136,11 @@ class PostgresRetrievalProfileReconciliationMixin:
             if not rows:
                 return ProfileQueryAdmission(ProfileQueryAdmissionStatus.NO_PROFILE)
             row = next((item for item in rows if item.state == "active"), None)
-            database_now = await session.scalar(select(func.clock_timestamp()))
-            if row is None or not isinstance(database_now, datetime):
+            if row is None:
                 return ProfileQueryAdmission(ProfileQueryAdmissionStatus.UNAVAILABLE)
-            if (
-                row.reconciliation_drifted
-                or row.activation_lease_id is None
-                or row.activation_lease_expires_at is None
-                or row.activation_evidence_version <= 0
-                or database_now >= row.activation_lease_expires_at
-                or expires_at <= now
+            if expires_at <= now or not await is_profile_canonically_queryable(
+                session, row.profile_id
             ):
-                return ProfileQueryAdmission(ProfileQueryAdmissionStatus.UNAVAILABLE)
-            active_mutations = int(
-                await session.scalar(
-                    select(func.count())
-                    .select_from(MemoryLocatorProfileProviderMutationRow)
-                    .where(MemoryLocatorProfileProviderMutationRow.profile_id == row.profile_id)
-                )
-                or 0
-            )
-            if active_mutations or row.activation_mutation_epoch != row.provider_mutation_epoch:
                 return ProfileQueryAdmission(ProfileQueryAdmissionStatus.UNAVAILABLE)
             existing = await session.get(
                 MemoryLocatorProfileQueryRow, (row.profile_id, operation_id)
@@ -194,7 +181,7 @@ class PostgresRetrievalProfileReconciliationMixin:
         *,
         owner: RuntimeFenceOwner,
         activation_lease_id: str,
-    ) -> ProfileReconciliationWriteOutcome:
+    ) -> None:
         async with self.sessions() as session, session.begin():
             await _lock_maintenance(session)
             row = await session.get(

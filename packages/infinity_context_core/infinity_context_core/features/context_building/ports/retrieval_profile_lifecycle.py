@@ -532,7 +532,9 @@ class RetrievalProfileRegistryPort(Protocol):
 
     async def register_runtime_incarnation(
         self, owner: RuntimeFenceOwner, *, now: datetime
-    ) -> None: ...
+    ) -> None:
+        """Register the exact process generation before lifecycle work begins."""
+        ...
 
     async def verify_registered_runtime_owner(self, owner: RuntimeFenceOwner) -> None:
         """Verify an exact existing runtime incarnation without registering it."""

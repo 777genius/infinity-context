@@ -5,7 +5,7 @@ from __future__ import annotations
 import asyncio
 from dataclasses import asdict
 
-from infinity_context_adapters.postgres import RuntimeDeathProof
+from infinity_context_adapters.postgres import RuntimeDeathProof, preflight_reconciliation_0049
 from infinity_context_core.features.context_building.public import InstalledReleaseIdentity
 
 from infinity_context_server.composition import build_container
@@ -110,6 +110,16 @@ async def retrieval_profile_recovery_command(**request) -> dict[str, object]:
     finally:
         if container is not None:
             await container.engine.dispose()
+
+
+async def retrieval_profile_upgrade_preflight_command() -> dict[str, object]:
+    """Report populated 0049 blockers without registering a runtime or mutating storage."""
+
+    container = build_container(Settings())
+    try:
+        return (await preflight_reconciliation_0049(container.engine)).to_dict()
+    finally:
+        await container.engine.dispose()
 
 
 async def retrieval_profile_maintenance_command(**request) -> dict[str, object]:

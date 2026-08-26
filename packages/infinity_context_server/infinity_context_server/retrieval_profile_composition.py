@@ -138,6 +138,22 @@ class ProfileAwareLocatorRetrievalService:
     async def descriptor(self):
         return await (await self._delegate()).descriptor()
 
+    async def start_runtime(self, *, now: datetime) -> None:
+        """Register this exact process generation before any lifecycle operation."""
+
+        owner = self.runtime_owner
+        if not isinstance(owner, RuntimeFenceOwner):
+            raise RuntimeError("retrieval_profile_runtime_identity_missing")
+        await self.registry.register_runtime_incarnation(owner, now=now)
+
+    async def close_runtime(self, *, now: datetime) -> None:
+        """Retire only this generation after the process has drained its fences."""
+
+        owner = self.runtime_owner
+        if not isinstance(owner, RuntimeFenceOwner):
+            raise RuntimeError("retrieval_profile_runtime_identity_missing")
+        await self.registry.retire_runtime_incarnation(owner, now=now)
+
     async def execute(self, request):
         operation_id = f"profile-query-{uuid4().hex}"
         now = datetime.now(UTC)

@@ -526,6 +526,18 @@ capability, and explicitly complete a fully drained generation. See ADR-0011. Mi
 0046-0047 require draining all older binaries and do
 not support downgrade to a pre-0046 runtime.
 
+Before upgrading a populated 0048 database, run
+`infinity-context-admin retrieval-profile-upgrade-preflight`. A `ready` result permits
+the normal transactional upgrade. `blocked_competing_generations` lists only the stable
+runtime instance id and its current generation ids; it performs no locks, DDL, retirement,
+death seal, or winner selection. Quiesce every listed process and drain its reader/writer
+fences. Because 0048 has no canonical `retired_at` column, clean process exit alone cannot
+resolve a pre-0049 conflict: use the 0048-compatible maintenance protocol to record a signed,
+supervisor-observed death seal for each generation proved no longer live. Re-run the preflight
+until `ready`; never delete rows or choose the newest timestamp as an implicit winner. After
+0049, normal clean shutdown records generation-aware retirement only after drain. Preserve the
+diagnostic output and death-proof receipts with the operator change record before upgrading.
+
 `MEMORY_AGENT_BENCH_OPENAI_API_KEY` may be used for the agent model key. The
 full stack still needs `MEMORY_OPENAI_API_KEY` or `OPENAI_API_KEY` for
 embeddings. `MEMORY_AGENT_BENCH_LLM_TIMEOUT_SECONDS`,

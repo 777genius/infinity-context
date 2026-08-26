@@ -19,12 +19,16 @@ matching capability attestation, propagates cancellation, applies a bounded dead
 response bytes, validates runtime types and never includes opaque values in validation errors.
 
 The application returns only `present`, `processing`, `indexed`,
-`deleted_or_proven_absent`, `conflict`, or `unavailable`. `indexed` requires an active
-canonical retrieval profile and a current-version projection receipt for every active,
-eligible chunk. Pending/running outbox work is `processing`; canonical acceptance without
-that proof is `present`. Deleted and superseded documents are never queryable. Zero exact
-rows proves absence; two rows prove ambiguity and return `conflict`. The Postgres query reads
-at most two exact rows and does not depend on list pagination.
+`deleted_or_proven_absent`, `conflict`, or `unavailable`. `indexed` uses the same read-only
+canonical queryability predicate as real query admission: the profile is active, its lease is
+unexpired according to database time, its evidence version is positive, its binding is not
+drifted, no maintenance or provider mutation is active, its activation/provider epochs match,
+and every required provider lane remains healthy and qualified. It additionally requires a
+current-version projection receipt for every active, eligible chunk. Pending, retry-pending,
+or running outbox work is `processing`; canonical acceptance without that proof is `present`.
+Deleted and superseded documents are never queryable. Zero exact rows proves absence; two rows
+prove ambiguity and return `conflict`. The Postgres query reads at most two exact rows and does
+not depend on list pagination.
 
 The operation performs no mutation, provider call, retry, or second write. A consumer may use
 it before deciding whether to replay its original operation with the same idempotency key.
@@ -52,6 +56,11 @@ ts-sdk/document-reconciliation.ts                       official TypeScript vali
 Core imports no FastAPI, SQLAlchemy, Qdrant, Graphiti, OpenAI, SDK, or consumer application
 code. Contracts import no core or framework code. Provider state is not lifecycle authority;
 only canonical Postgres receipts may prove indexed visibility.
+
+Every server, worker, and lifecycle-admin process explicitly registers its runtime owner before
+it may admit work. Clean shutdown first drains owned query and mutation rows, then retires only
+the exact registered generation. A crashed generation remains fenced until the existing signed
+death-seal recovery protocol proves its death; restart never inherits or overwrites that owner.
 
 ## Consequences
 
