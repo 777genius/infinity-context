@@ -31,6 +31,7 @@ class _LockEngine:
 class _LockConnection:
     def __init__(self) -> None:
         self.invalidated = False
+        self.closed = False
         self.returned_alive = False
         self.isolation_level: str | None = None
 
@@ -46,6 +47,47 @@ class _LockConnection:
 
     async def invalidate(self) -> None:
         self.invalidated = True
+
+    async def close(self) -> None:
+        self.closed = True
+
+
+class _Result:
+    def __init__(self, rows: tuple[tuple[object, ...], ...]) -> None:
+        self._rows = rows
+
+    def all(self) -> tuple[tuple[object, ...], ...]:
+        return self._rows
+
+
+class _OnlineConnection:
+    def __init__(self, rows: tuple[tuple[object, ...], ...]) -> None:
+        self.rows = rows
+        self.statements: list[str] = []
+
+    async def __aenter__(self) -> _OnlineConnection:
+        return self
+
+    async def __aexit__(self, *args: object) -> None:
+        return None
+
+    async def execution_options(self, *, isolation_level: str) -> _OnlineConnection:
+        assert isolation_level == "AUTOCOMMIT"
+        return self
+
+    async def exec_driver_sql(self, statement: str) -> _Result:
+        self.statements.append(" ".join(statement.split()))
+        if "FROM pg_catalog.pg_index" in statement:
+            return _Result(self.rows)
+        return _Result(())
+
+
+class _OnlineEngine:
+    def __init__(self, connection: _OnlineConnection) -> None:
+        self.connection = connection
+
+    def connect(self) -> _OnlineConnection:
+        return self.connection
 
 
 def test_document_listing_migration_is_explicit_nontransactional_and_split() -> None:
@@ -113,10 +155,205 @@ def test_recoverable_index_directives_fail_closed(
         migration.recoverable_indexes()
 
 
+@pytest.mark.parametrize(
+    (
+        "table_schema",
+        "table_name",
+        "access_method",
+        "unique",
+        "predicate",
+        "key_expressions",
+        "include_expressions",
+    ),
+    [
+        (
+            "public",
+            "attacker_documents",
+            "btree",
+            False,
+            None,
+            ("space_id", "memory_scope_id", "status", "updated_at DESC", "id DESC"),
+            (),
+        ),
+        (
+            "public",
+            "memory_documents",
+            "btree",
+            False,
+            None,
+            ("space_id", "memory_scope_id", "status", "id DESC", "updated_at DESC"),
+            (),
+        ),
+        (
+            "public",
+            "memory_documents",
+            "btree",
+            False,
+            None,
+            ("tenant_id", "memory_scope_id", "status", "updated_at DESC", "id DESC"),
+            (),
+        ),
+        (
+            "public",
+            "memory_documents",
+            "btree",
+            False,
+            None,
+            ("space_id", "memory_scope_id", "lower(status)", "updated_at DESC", "id DESC"),
+            (),
+        ),
+        (
+            "public",
+            "memory_documents",
+            "btree",
+            False,
+            None,
+            ("space_id", "memory_scope_id", "status", "updated_at", "id DESC"),
+            (),
+        ),
+        (
+            "public",
+            "memory_documents",
+            "hash",
+            False,
+            None,
+            ("space_id", "memory_scope_id", "status", "updated_at DESC", "id DESC"),
+            (),
+        ),
+        (
+            "public",
+            "memory_documents",
+            "btree",
+            True,
+            None,
+            ("space_id", "memory_scope_id", "status", "updated_at DESC", "id DESC"),
+            (),
+        ),
+        (
+            "public",
+            "memory_documents",
+            "btree",
+            False,
+            "(status IS NOT NULL)",
+            ("space_id", "memory_scope_id", "status", "updated_at DESC", "id DESC"),
+            (),
+        ),
+        (
+            "public",
+            "memory_documents",
+            "btree",
+            False,
+            None,
+            ("space_id", "memory_scope_id", "status", "updated_at DESC", "id DESC"),
+            ("source_external_id",),
+        ),
+    ],
+)
+def test_valid_wrong_recoverable_index_definition_fails_without_drop(
+    table_schema: str,
+    table_name: str,
+    access_method: str,
+    unique: bool,
+    predicate: str | None,
+    key_expressions: tuple[str, ...],
+    include_expressions: tuple[str, ...],
+) -> None:
+    migration = next(
+        item
+        for item in migration_runner._load_migrations()
+        if item.migration_id == "0033_document_scope_listing_indexes"
+    )
+    rows = (
+        (
+            "ix_memory_documents_scope_status_page",
+            True,
+            table_schema,
+            table_name,
+            access_method,
+            unique,
+            predicate,
+            key_expressions,
+            include_expressions,
+        ),
+    )
+    connection = _OnlineConnection(rows)
+
+    with pytest.raises(RuntimeError, match="valid index with an unexpected definition"):
+        asyncio.run(
+            migration_runner._execute_nontransactional(
+                _OnlineEngine(connection),  # type: ignore[arg-type]
+                migration,
+            )
+        )
+
+    assert not any("DROP INDEX" in statement for statement in connection.statements)
+    assert not any("CREATE INDEX" in statement for statement in connection.statements)
+
+
+@pytest.mark.parametrize("invalidation_fails", [False, True])
+def test_main_upgrade_preserves_application_error_when_cleanup_fails(
+    monkeypatch: pytest.MonkeyPatch,
+    invalidation_fails: bool,
+) -> None:
+    migration = migration_runner._Migration("0001_test", "a" * 64, "SELECT 1")
+
+    class Connection(_LockConnection):
+        def __init__(self) -> None:
+            super().__init__()
+            self.scalar_calls = 0
+
+        async def scalar(self, statement: object, parameters: object) -> bool:
+            self.scalar_calls += 1
+            if self.scalar_calls == 1:
+                return True
+            raise OSError("unlock connection loss")
+
+        async def invalidate(self) -> None:
+            self.invalidated = True
+            if invalidation_fails:
+                raise OSError("invalidation connection loss")
+
+        async def close(self) -> None:
+            self.closed = True
+            raise OSError("close connection loss")
+
+    class Engine(_LockEngine):
+        def begin(self) -> Connection:
+            return self.connection  # type: ignore[return-value]
+
+    async def no_op(*_args: object, **_kwargs: object) -> None:
+        return None
+
+    async def empty_history(_connection: object) -> dict[str, str]:
+        return {}
+
+    async def no_legacy(_connection: object) -> bool:
+        return False
+
+    async def fail_migration(*_args: object, **_kwargs: object) -> tuple[str, ...]:
+        raise LookupError("original migration failure")
+
+    monkeypatch.setattr(migration_runner, "_load_migrations", lambda: (migration,))
+    monkeypatch.setattr(migration_runner, "_ensure_history_table", no_op)
+    monkeypatch.setattr(migration_runner, "_load_history", empty_history)
+    monkeypatch.setattr(migration_runner, "_has_unversioned_schema", no_legacy)
+    monkeypatch.setattr(migration_runner, "_apply_transactional_pending", fail_migration)
+    connection = Connection()
+
+    with pytest.raises(LookupError, match="original migration failure"):
+        asyncio.run(
+            migration_runner.upgrade_schema(Engine(connection))  # type: ignore[arg-type]
+        )
+
+    assert connection.invalidated is True
+    assert connection.closed is True
+
+
 def test_online_runner_uses_session_lock_autocommit_and_invalid_index_recovery() -> None:
     upgrade_source = inspect.getsource(migration_runner.upgrade_schema)
     release_source = inspect.getsource(migration_runner._release_advisory_lock)
     online_source = inspect.getsource(migration_runner._execute_nontransactional)
+    catalog_source = inspect.getsource(migration_runner._index_states)
 
     assert "_acquire_advisory_lock" in upgrade_source
     assert upgrade_source.index("try:") < upgrade_source.index("await _acquire_advisory_lock")
@@ -127,8 +364,13 @@ def test_online_runner_uses_session_lock_autocommit_and_invalid_index_recovery()
     assert "pg_try_advisory_lock" in inspect.getsource(migration_runner._acquire_advisory_lock)
     assert 'isolation_level="AUTOCOMMIT"' in online_source
     assert "DROP INDEX CONCURRENTLY IF EXISTS" in online_source
-    assert "_invalid_or_missing_indexes" in online_source
+    assert online_source.count("_index_states") == 2
+    assert online_source.count("_validate_valid_index_definitions") == 2
     assert "Online PostgreSQL migration left an invalid or missing index" in online_source
+    assert "pg_catalog.pg_am" in catalog_source
+    assert "indisunique" in catalog_source
+    assert "pg_catalog.pg_get_expr" in catalog_source
+    assert "indnkeyatts + 1" in catalog_source
 
 
 def test_advisory_lock_wait_polls_without_one_long_running_statement(
@@ -323,6 +565,31 @@ def test_unlock_success_reuses_connection_and_ambiguous_failure_invalidates_it()
             migration_runner._release_advisory_lock(ambiguous)  # type: ignore[arg-type]
         )
     assert ambiguous.invalidated is True
+    assert ambiguous.closed is True
+
+
+def test_unlock_error_survives_best_effort_discard_failures() -> None:
+    class Connection(_LockConnection):
+        async def scalar(self, statement: object, parameters: object) -> bool:
+            raise OSError("unlock connection loss")
+
+        async def invalidate(self) -> None:
+            self.invalidated = True
+            raise OSError("invalidation connection loss")
+
+        async def close(self) -> None:
+            self.closed = True
+            raise OSError("close connection loss")
+
+    connection = Connection()
+
+    with pytest.raises(OSError, match="unlock connection loss"):
+        asyncio.run(
+            migration_runner._release_advisory_lock(connection)  # type: ignore[arg-type]
+        )
+
+    assert connection.invalidated is True
+    assert connection.closed is True
 
 
 def test_cancelled_unlock_finishes_invalidation_before_propagating_cancel() -> None:

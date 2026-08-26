@@ -84,6 +84,65 @@ class _Migration:
         return names
 
 
+@dataclass(frozen=True, slots=True)
+class _RecoverableIndexSpec:
+    name: str
+    table_name: str
+    key_expressions: tuple[str, ...]
+    access_method: str = "btree"
+    unique: bool = False
+    predicate: str | None = None
+    include_expressions: tuple[str, ...] = ()
+
+
+_RECOVERABLE_INDEX_SPECS = {
+    "0033_document_scope_listing_indexes": (
+        _RecoverableIndexSpec(
+            "ix_memory_documents_scope_status_page",
+            "memory_documents",
+            ("space_id", "memory_scope_id", "status", "updated_at DESC", "id DESC"),
+        ),
+        _RecoverableIndexSpec(
+            "ix_memory_documents_scope_thread_status_page",
+            "memory_documents",
+            (
+                "space_id",
+                "memory_scope_id",
+                "thread_id",
+                "status",
+                "updated_at DESC",
+                "id DESC",
+            ),
+        ),
+        _RecoverableIndexSpec(
+            "ix_memory_documents_scope_thread_source_page",
+            "memory_documents",
+            (
+                "space_id",
+                "memory_scope_id",
+                "thread_id",
+                "source_external_id",
+                "status",
+                "updated_at DESC",
+                "id DESC",
+            ),
+        ),
+    ),
+}
+
+
+@dataclass(frozen=True, slots=True)
+class _IndexState:
+    valid: bool
+    table_schema: str
+    table_name: str
+    key_expressions: tuple[str, ...]
+    access_method: str
+    unique: bool
+    predicate: str | None
+    include_expressions: tuple[str, ...]
+
+
 async def upgrade_schema(engine: AsyncEngine) -> SchemaUpgradeResult:
     """Apply packaged migrations once, including online DDL, under one writer lock."""
 
@@ -101,6 +160,7 @@ async def upgrade_schema(engine: AsyncEngine) -> SchemaUpgradeResult:
             return await _upgrade_on_driver_connection(raw_lock_connection, migrations)
         lock_connection = await raw_lock_connection.execution_options(isolation_level="AUTOCOMMIT")
         lock_acquired = False
+        application_error: BaseException | None = None
         try:
             await _acquire_advisory_lock(lock_connection)
             lock_acquired = True
@@ -172,9 +232,15 @@ async def upgrade_schema(engine: AsyncEngine) -> SchemaUpgradeResult:
                             execution_kind="applied",
                         )
                 applied.append(migration.migration_id)
+        except BaseException as error:
+            application_error = error
+            raise
         finally:
             if lock_acquired:
-                await _release_advisory_lock(lock_connection)
+                await _release_advisory_lock(
+                    lock_connection,
+                    application_error=application_error,
+                )
             else:
                 # A cancelled/failed driver call can have acquired the session lock
                 # before control returned to us. Never let that physical connection
@@ -299,9 +365,7 @@ async def _release_advisory_lock(
                 f"SELECT pg_catalog.pg_advisory_unlock({_ADVISORY_LOCK_ID})"
             )
             if released is not True:
-                cleanup_error = RuntimeError(
-                    "PostgreSQL migration advisory lock was not released"
-                )
+                cleanup_error = RuntimeError("PostgreSQL migration advisory lock was not released")
         except BaseException as error:
             cleanup_error = error
         if cleanup_error is None:
@@ -311,6 +375,7 @@ async def _release_advisory_lock(
             raise cleanup_error
         return
 
+    cleanup_error: BaseException | None = None
     try:
         released = await connection.scalar(
             text("SELECT pg_advisory_unlock(:lock_id)"),
@@ -318,9 +383,13 @@ async def _release_advisory_lock(
         )
         if not released:
             raise RuntimeError("PostgreSQL schema migration advisory lock was not held")
-    except BaseException:
-        await _invalidate_connection(connection)
-        raise
+    except BaseException as error:
+        cleanup_error = error
+    if cleanup_error is None:
+        return
+    await _discard_connection(connection)
+    if application_error is None:
+        raise cleanup_error
 
 
 async def _invalidate_connection(connection: AsyncConnection) -> None:
@@ -603,9 +672,7 @@ async def _apply_pending(
                 f"Nontransactional migration requires online runner: {migration.migration_id}"
             )
         if migration.migration_id in STAGED_MIGRATION_IDS:
-            await apply_staged_locator_migration(
-                connection, migration_id=migration.migration_id
-            )
+            await apply_staged_locator_migration(connection, migration_id=migration.migration_id)
         async with connection.begin():
             raw_connection = await connection.get_raw_connection()
             # AsyncConnection.begin() is lazy. Force SQLAlchemy/asyncpg to start the
@@ -632,63 +699,152 @@ async def _execute_nontransactional(
     engine: AsyncEngine,
     migration: _Migration,
 ) -> None:
-    recoverable_indexes = migration.recoverable_indexes()
+    recoverable_indexes = _recoverable_index_specs(migration)
     async with engine.connect() as connection:
         autocommit = await connection.execution_options(isolation_level="AUTOCOMMIT")
         await autocommit.exec_driver_sql("SET search_path = public, pg_catalog, pg_temp")
-        invalid_indexes = await _invalid_indexes(autocommit, recoverable_indexes)
+        states = await _index_states(autocommit, recoverable_indexes)
+        _validate_valid_index_definitions(recoverable_indexes, states)
+        invalid_indexes = tuple(
+            spec.name
+            for spec in recoverable_indexes
+            if (state := states.get(spec.name)) is not None and not state.valid
+        )
         for index_name in invalid_indexes:
             await autocommit.exec_driver_sql(f'DROP INDEX CONCURRENTLY IF EXISTS "{index_name}"')
         for statement in migration.statements():
             await autocommit.exec_driver_sql(statement)
-        incomplete = await _invalid_or_missing_indexes(
-            autocommit,
-            recoverable_indexes,
+        states = await _index_states(autocommit, recoverable_indexes)
+        incomplete = tuple(
+            spec.name
+            for spec in recoverable_indexes
+            if (state := states.get(spec.name)) is None or not state.valid
         )
         if incomplete:
             raise RuntimeError(
                 f"Online PostgreSQL migration left an invalid or missing index: {incomplete[0]}"
             )
+        _validate_valid_index_definitions(recoverable_indexes, states)
 
 
-async def _invalid_indexes(
+def _recoverable_index_specs(migration: _Migration) -> tuple[_RecoverableIndexSpec, ...]:
+    names = migration.recoverable_indexes()
+    specs = _RECOVERABLE_INDEX_SPECS.get(migration.migration_id, ())
+    if names != tuple(spec.name for spec in specs):
+        raise RuntimeError(
+            f"Recoverable indexes lack an exact expected definition: {migration.migration_id}"
+        )
+    return specs
+
+
+async def _index_states(
     connection: AsyncConnection,
-    index_names: tuple[str, ...],
-) -> tuple[str, ...]:
-    states = await _index_validity(connection, index_names)
-    return tuple(name for name in index_names if states.get(name) is False)
-
-
-async def _invalid_or_missing_indexes(
-    connection: AsyncConnection,
-    index_names: tuple[str, ...],
-) -> tuple[str, ...]:
-    states = await _index_validity(connection, index_names)
-    return tuple(name for name in index_names if states.get(name) is not True)
-
-
-async def _index_validity(
-    connection: AsyncConnection,
-    index_names: tuple[str, ...],
-) -> dict[str, bool]:
-    if not index_names:
+    specs: tuple[_RecoverableIndexSpec, ...],
+) -> dict[str, _IndexState]:
+    if not specs:
         return {}
-    quoted = ", ".join(f"'{name}'" for name in index_names)
+    quoted = ", ".join(f"'{spec.name}'" for spec in specs)
     rows = (
         await connection.exec_driver_sql(
             f"""
-            SELECT index_class.relname, index_state.indisvalid
+            SELECT
+                index_class.relname,
+                index_state.indisvalid,
+                table_namespace.nspname,
+                table_class.relname,
+                access_method.amname,
+                index_state.indisunique,
+                pg_catalog.pg_get_expr(
+                    index_state.indpred,
+                    index_state.indrelid,
+                    false
+                ),
+                ARRAY(
+                    SELECT pg_catalog.pg_get_indexdef(
+                        index_state.indexrelid,
+                        key_position,
+                        false
+                    )
+                    FROM pg_catalog.generate_series(
+                        1,
+                        index_state.indnkeyatts
+                    ) AS positions(key_position)
+                    ORDER BY key_position
+                ),
+                ARRAY(
+                    SELECT pg_catalog.pg_get_indexdef(
+                        index_state.indexrelid,
+                        include_position,
+                        false
+                    )
+                    FROM pg_catalog.generate_series(
+                        index_state.indnkeyatts + 1,
+                        index_state.indnatts
+                    ) AS positions(include_position)
+                    ORDER BY include_position
+                )
             FROM pg_catalog.pg_index AS index_state
             JOIN pg_catalog.pg_class AS index_class
               ON index_class.oid = index_state.indexrelid
             JOIN pg_catalog.pg_namespace AS index_namespace
               ON index_namespace.oid = index_class.relnamespace
+            JOIN pg_catalog.pg_am AS access_method
+              ON access_method.oid = index_class.relam
+            JOIN pg_catalog.pg_class AS table_class
+              ON table_class.oid = index_state.indrelid
+            JOIN pg_catalog.pg_namespace AS table_namespace
+              ON table_namespace.oid = table_class.relnamespace
             WHERE index_namespace.nspname = 'public'
               AND index_class.relname IN ({quoted})
             """
         )
     ).all()
-    return {str(name): bool(valid) for name, valid in rows}
+    return {
+        str(name): _IndexState(
+            valid=bool(valid),
+            table_schema=str(table_schema),
+            table_name=str(table_name),
+            access_method=str(access_method),
+            unique=bool(unique),
+            predicate=None if predicate is None else str(predicate),
+            key_expressions=tuple(str(expression) for expression in key_expressions),
+            include_expressions=tuple(str(expression) for expression in include_expressions),
+        )
+        for (
+            name,
+            valid,
+            table_schema,
+            table_name,
+            access_method,
+            unique,
+            predicate,
+            key_expressions,
+            include_expressions,
+        ) in rows
+    }
+
+
+def _validate_valid_index_definitions(
+    specs: tuple[_RecoverableIndexSpec, ...],
+    states: dict[str, _IndexState],
+) -> None:
+    for spec in specs:
+        state = states.get(spec.name)
+        if state is None or not state.valid:
+            continue
+        if (
+            state.table_schema != "public"
+            or state.table_name != spec.table_name
+            or state.access_method != spec.access_method
+            or state.unique != spec.unique
+            or state.predicate != spec.predicate
+            or state.key_expressions != spec.key_expressions
+            or state.include_expressions != spec.include_expressions
+        ):
+            raise RuntimeError(
+                "Online PostgreSQL migration found a valid index with an unexpected "
+                f"definition: {spec.name}"
+            )
 
 
 async def _record_migration(
