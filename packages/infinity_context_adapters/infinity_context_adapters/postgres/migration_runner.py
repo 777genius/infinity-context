@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+from contextlib import suppress
 from dataclasses import dataclass
 from datetime import datetime
 from hashlib import sha256
@@ -15,6 +16,9 @@ from infinity_context_adapters.postgres.legacy_schema_manifest import (
     LEGACY_SCHEMA_MANIFESTS,
     LegacySchemaManifest,
 )
+from infinity_context_adapters.postgres.migration_metadata import (
+    is_compatible_migration_checksum,
+)
 from infinity_context_adapters.postgres.staged_locator_migrations import (
     STAGED_MIGRATION_IDS,
     apply_staged_locator_migration,
@@ -24,17 +28,6 @@ _MIGRATIONS_DIRECTORY = Path(__file__).with_name("migrations")
 _LEGACY_BASELINE_PREFIX = "0022_"
 _ADVISORY_LOCK_ID = 4_916_625_310_112_023_308
 _ADVISORY_LOCK_RETRY_SECONDS = 0.05
-_PUBLISHED_CHECKSUM_ALIASES: dict[str, frozenset[str]] = {
-    "0030_suggestion_receipt_tenant_integrity": frozenset(
-        {"4d936c3d49f76028eec009a1b1e8ee2bcf214b2b4a03e7ac120bad5321aa3064"}
-    ),
-    "0039_locator_retrieval_attributes": frozenset(
-        {"83f22c9e4087e6f4713294665a00ce99f7ffc981893702a2fbb3a575813c418d"}
-    ),
-    "0040_locator_profile_lifecycle": frozenset(
-        {"2b972527e5a2f6e99f5bd69b6eca9c22a51b8cb4902b1d4e13f7e0260138edaa"}
-    ),
-}
 
 
 @dataclass(frozen=True, slots=True)
@@ -65,6 +58,7 @@ async def upgrade_schema(engine: AsyncEngine) -> SchemaUpgradeResult:
         driver_connection = raw_connection.driver_connection
         await driver_connection.execute("SET search_path = public, pg_catalog, pg_temp")
         lock_acquired = False
+        application_error: BaseException | None = None
         try:
             while not lock_acquired:
                 lock_acquired = bool(
@@ -84,10 +78,15 @@ async def upgrade_schema(engine: AsyncEngine) -> SchemaUpgradeResult:
                     await _record_legacy_baseline(connection, migrations)
                     applied_history = await _load_history(connection)
             applied = await _apply_pending(connection, migrations, applied_history)
+        except BaseException as error:
+            application_error = error
+            raise
         finally:
             if lock_acquired:
-                await driver_connection.execute(
-                    f"SELECT pg_catalog.pg_advisory_unlock({_ADVISORY_LOCK_ID})"
+                await _release_advisory_lock(
+                    connection,
+                    driver_connection,
+                    application_error=application_error,
                 )
     return SchemaUpgradeResult(
         applied=applied,
@@ -154,10 +153,8 @@ def _validate_history(
     if unknown:
         raise RuntimeError(f"Unknown applied PostgreSQL migration: {unknown[0]}")
     for migration_id, checksum in history.items():
-        if known[
-            migration_id
-        ].checksum != checksum and checksum not in _PUBLISHED_CHECKSUM_ALIASES.get(
-            migration_id, frozenset()
+        if not is_compatible_migration_checksum(
+            migration_id, checksum, known[migration_id].checksum
         ):
             raise RuntimeError(f"PostgreSQL migration checksum drift: {migration_id}")
     applied_ids = tuple(history)
@@ -324,6 +321,10 @@ async def _apply_pending(
             )
         async with connection.begin():
             raw_connection = await connection.get_raw_connection()
+            # AsyncConnection.begin() is lazy. Force SQLAlchemy/asyncpg to start the
+            # physical transaction before bypassing SQLAlchemy for a multi-statement
+            # script, so the script and history insert share one commit boundary.
+            await connection.execute(text("SELECT 1"))
             await raw_connection.driver_connection.execute(migration.sql)
             await _record_migration(connection, migration, execution_kind="applied")
         applied.append(migration.migration_id)
@@ -355,6 +356,38 @@ async def _record_migration(
             "applied_at": applied_at,
         },
     )
+
+
+async def _release_advisory_lock(
+    connection: AsyncConnection,
+    driver_connection: object,
+    *,
+    application_error: BaseException | None,
+) -> None:
+    cleanup_error: BaseException | None = None
+    try:
+        unlocked = await driver_connection.fetchval(  # type: ignore[attr-defined]
+            f"SELECT pg_catalog.pg_advisory_unlock({_ADVISORY_LOCK_ID})"
+        )
+        if unlocked is not True:
+            cleanup_error = RuntimeError("PostgreSQL migration advisory lock was not released")
+    except BaseException as error:
+        cleanup_error = error
+
+    if cleanup_error is None:
+        return
+    await _discard_connection(connection)
+    if application_error is None:
+        raise cleanup_error
+
+
+async def _discard_connection(connection: AsyncConnection) -> None:
+    """Never return a session with uncertain advisory-lock state to the pool."""
+
+    with suppress(BaseException):
+        await connection.invalidate()
+    with suppress(BaseException):
+        await connection.close()
 
 
 __all__ = ("SchemaUpgradeResult", "upgrade_schema")

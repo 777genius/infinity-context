@@ -323,8 +323,21 @@ async def _stage_locator_watermark(connection: AsyncConnection) -> None:
                 SET DEFAULT nextval('public.memory_locator_commit_watermark_seq');
             ALTER TABLE public.memory_chunks
                 DROP CONSTRAINT ck_memory_chunks_locator_watermark_present;
-            DROP TRIGGER trg_memory_chunk_locator_watermark_mirror_v1 ON public.memory_chunks;
-            DROP FUNCTION public.memory_chunk_locator_watermark_mirror_v1();
+            DROP TRIGGER trg_memory_chunk_locator_watermark_mirror_v1
+                ON public.memory_chunks;
+            CREATE OR REPLACE FUNCTION public.memory_chunk_locator_watermark_mirror_v1()
+            RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN
+                NEW.retrieval_commit_watermark := CASE
+                    WHEN TG_OP = 'INSERT'
+                         OR NEW.retrieval_version IS DISTINCT FROM OLD.retrieval_version
+                        THEN nextval('public.memory_locator_commit_watermark_seq')
+                    ELSE OLD.retrieval_commit_watermark
+                END;
+                RETURN NEW;
+            END $$;
+            CREATE TRIGGER trg_zz_memory_chunk_locator_watermark_bridge_v1
+                BEFORE INSERT OR UPDATE ON public.memory_chunks FOR EACH ROW
+                EXECUTE FUNCTION public.memory_chunk_locator_watermark_mirror_v1();
             """
             + restore_guards
             + """

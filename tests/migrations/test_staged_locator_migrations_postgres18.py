@@ -11,6 +11,7 @@ from pathlib import Path
 
 import asyncpg
 import pytest
+from infinity_context_adapters.postgres import migration_runner
 from infinity_context_adapters.postgres.migration_runner import (
     _load_migrations,
     upgrade_schema,
@@ -32,7 +33,9 @@ def _docker(*args: str, check: bool = True) -> subprocess.CompletedProcess[str]:
     os.environ.get("INFINITY_CONTEXT_RUN_POSTGRES18_MIGRATION_TEST") != "1",
     reason="set INFINITY_CONTEXT_RUN_POSTGRES18_MIGRATION_TEST=1 for disposable Docker test",
 )
-def test_populated_0038_upgrade_stages_0039_and_0040_on_postgresql_18() -> None:
+def test_populated_0038_upgrade_stages_0039_and_0040_on_postgresql_18(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     """Use only the exact disposable container name and remove only what we create."""
 
     if shutil.which("docker") is None:
@@ -64,13 +67,16 @@ def test_populated_0038_upgrade_stages_0039_and_0040_on_postgresql_18() -> None:
             pytest.fail("disposable PostgreSQL 18 container did not become ready")
         published = _docker("port", _CONTAINER, "5432/tcp").stdout.strip()
         port = int(published.rsplit(":", 1)[1])
-        asyncio.run(_exercise_populated_upgrade(port))
+        asyncio.run(_exercise_populated_upgrade(port, monkeypatch))
     finally:
         if owned:
             _docker("rm", "--force", _CONTAINER, check=False)
 
 
-async def _exercise_populated_upgrade(port: int) -> None:
+async def _exercise_populated_upgrade(
+    port: int,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     dsn = f"postgresql://postgres:{_PASSWORD}@127.0.0.1:{port}/postgres"
     connection = await asyncpg.connect(dsn)
     try:
@@ -117,6 +123,30 @@ async def _exercise_populated_upgrade(port: int) -> None:
                 'seed ' || value, 'seed ' || value, 'active', value,
                 value * 10, value * 10 + 5, 2, 'internal', now(), now(), '{}'::jsonb
             FROM generate_series(0, 2000) AS value;
+            INSERT INTO memory_spaces VALUES (
+                'space-seam', 'space-seam', 'Seam', 'active', now(), now()
+            );
+            INSERT INTO memory_scopes VALUES (
+                'scope-seam', 'space-seam', 'scope-seam', 'Seam', 'active', now(), now()
+            );
+            INSERT INTO memory_documents (
+                id, space_id, memory_scope_id, title, source_type, source_external_id,
+                content_hash, classification, status, created_at, updated_at
+            ) VALUES (
+                'document-seam', 'space-seam', 'scope-seam', 'Seam', 'file',
+                'seam.txt', 'seam-document-hash', 'internal', 'active', now(), now()
+            );
+            INSERT INTO memory_chunks (
+                id, space_id, memory_scope_id, document_id, source_type,
+                source_external_id, source_hash, kind, text, normalized_text,
+                status, sequence, char_start, char_end, token_estimate,
+                classification, created_at, updated_at, metadata_json
+            ) VALUES (
+                'chunk-seam', 'space-seam', 'scope-seam', 'document-seam', 'file',
+                'seam.txt', 'seam-chunk-hash', 'text', 'ordinary seam seed',
+                'ordinary seam seed', 'active', 0, 0, 18, 3, 'internal',
+                now(), now(), '{}'::jsonb
+            );
             INSERT INTO memory_outbox (
                 event_type, aggregate_type, aggregate_id, aggregate_version,
                 payload_json, status, attempt_count, next_attempt_at, created_at, updated_at
@@ -180,6 +210,46 @@ async def _exercise_populated_upgrade(port: int) -> None:
         await connection.close()
 
     engine = create_async_engine(dsn.replace("postgresql://", "postgresql+asyncpg://"))
+    staged_apply = migration_runner.apply_staged_locator_migration
+    seam_watermarks: list[tuple[int, int, int]] = []
+
+    async def apply_with_live_write(connection, *, migration_id: str) -> None:
+        await staged_apply(connection, migration_id=migration_id)
+        if migration_id != "0040_locator_profile_lifecycle":
+            return
+        writer = await asyncpg.connect(dsn)
+        try:
+            benchmark_run_count = await writer.fetchval(
+                "SELECT count(*) FROM memory_comparison_benchmark_runs "
+                "WHERE space_id = 'space-seam'"
+            )
+            before_version, before_watermark = await writer.fetchrow(
+                "SELECT retrieval_version, retrieval_commit_watermark "
+                "FROM memory_chunks WHERE id = 'chunk-seam'"
+            )
+            assert benchmark_run_count == 0
+            assert int(before_version) == 1
+            assert int(before_watermark) > 0
+            await writer.execute(
+                "UPDATE memory_chunks SET text = text || ' seam-write' "
+                "WHERE id = 'chunk-seam'"
+            )
+            after_version, after_watermark = await writer.fetchrow(
+                "SELECT retrieval_version, retrieval_commit_watermark "
+                "FROM memory_chunks WHERE id = 'chunk-seam'"
+            )
+            seam_watermarks.append(
+                (int(before_watermark), int(after_watermark), int(after_version))
+            )
+            assert int(after_version) == int(before_version) + 1
+        finally:
+            await writer.close()
+
+    monkeypatch.setattr(
+        migration_runner,
+        "apply_staged_locator_migration",
+        apply_with_live_write,
+    )
     try:
         result = await upgrade_schema(engine)
         assert result.applied[0:2] == (
@@ -189,6 +259,9 @@ async def _exercise_populated_upgrade(port: int) -> None:
         assert result.applied == expected_suffix
         assert result.current == migrations[-1].migration_id
         assert result.applied[-1] == result.current
+        assert len(seam_watermarks) == 1
+        before_watermark, after_watermark, _after_version = seam_watermarks[0]
+        assert after_watermark > before_watermark
         async with engine.connect() as verification:
             shape = {
                 name: (data_type, is_nullable)
@@ -280,7 +353,7 @@ async def _exercise_populated_upgrade(port: int) -> None:
             )
         assert outbox_shape == (2001, 2_147_481_647, 2_147_483_647)
         assert receipt_version == 2_147_483_647
-        assert chunk_shape == (2001, 2001, 0, 20005)
+        assert chunk_shape == (2002, 2002, 0, 20005)
         assert transient_columns == 0
         assert receipt_constraint is not None
         assert "aggregate_version" in receipt_constraint

@@ -124,6 +124,12 @@ CREATE TRIGGER trg_zz_memory_chunk_locator_watermark_v2
 BEFORE INSERT OR UPDATE ON memory_chunks
 FOR EACH ROW EXECUTE FUNCTION memory_chunk_locator_watermark_v2();
 
+-- The staged online phase leaves its watermark trigger in bridge mode across
+-- its committed cutover. Replacing it with the final trigger and removing the
+-- bridge in this transaction closes the live-write seam.
+DROP TRIGGER trg_zz_memory_chunk_locator_watermark_bridge_v1 ON memory_chunks;
+DROP FUNCTION memory_chunk_locator_watermark_mirror_v1();
+
 CREATE FUNCTION memory_chunk_locator_profile_events_v2()
 RETURNS trigger LANGUAGE plpgsql AS $$
 DECLARE

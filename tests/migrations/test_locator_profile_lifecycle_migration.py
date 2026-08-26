@@ -34,7 +34,13 @@ def test_profile_lifecycle_is_forward_only_after_published_0039() -> None:
     assert "vector.upsert_locator_profile" in forward
     assert "vector.delete_locator_profile" in forward
     assert "retrieval profile identity is immutable" in forward
-    assert "DROP " not in forward.upper()
+    drop_lines = tuple(
+        line.strip() for line in forward.splitlines() if line.lstrip().upper().startswith("DROP ")
+    )
+    assert drop_lines == (
+        "DROP TRIGGER trg_zz_memory_chunk_locator_watermark_bridge_v1 ON memory_chunks;",
+        "DROP FUNCTION memory_chunk_locator_watermark_mirror_v1();",
+    )
     assert "ADD COLUMN retrieval_commit_watermark BIGINT NOT NULL" not in forward
 
 
@@ -53,6 +59,14 @@ def test_profile_watermark_uses_bounded_online_backfill_and_short_cutover() -> N
     assert "trg_00_memory_chunks_benchmark_writer_lock" in staged
     assert "trg_memory_chunks_benchmark_writer_fence" in staged
     assert "trg_memory_chunks_benchmark_document_child_fence" in staged
+    assert "NEW.retrieval_version IS DISTINCT FROM OLD.retrieval_version" in staged
+    assert "CREATE TRIGGER trg_zz_memory_chunk_locator_watermark_bridge_v1" in staged
+    forward = Path(__file__).resolve().parents[2].joinpath(
+        "packages/infinity_context_adapters/infinity_context_adapters/postgres/migrations",
+        "0040_locator_profile_lifecycle.sql",
+    ).read_text()
+    assert "CREATE TRIGGER trg_zz_memory_chunk_locator_watermark_v2" in forward
+    assert "DROP TRIGGER trg_zz_memory_chunk_locator_watermark_bridge_v1" in forward
 
 
 def test_attestation_fence_migration_is_additive_and_resumable() -> None:

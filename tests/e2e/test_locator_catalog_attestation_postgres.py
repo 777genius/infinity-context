@@ -22,6 +22,10 @@ from infinity_context_server.retrieval_composition import (
 from postgres_test_database import PostgresTestDatabase
 from sqlalchemy import text
 
+_PUBLISHED_0039_CHECKSUM = (
+    "83f22c9e4087e6f4713294665a00ce99f7ffc981893702a2fbb3a575813c418d"
+)
+
 
 def test_exact_locator_catalog_attestation_when_postgres_is_configured() -> None:
     database_url = os.getenv("INFINITY_CONTEXT_TEST_POSTGRES_URL")
@@ -40,6 +44,14 @@ async def _assert_catalog_attestation(database_url: str) -> None:
         engine = build_async_engine(database.app_url)
         try:
             await upgrade_schema(engine)
+            async with engine.begin() as connection:
+                await connection.execute(
+                    text(
+                        "UPDATE infinity_context_schema_migrations SET checksum = :checksum "
+                        "WHERE migration_id = '0039_locator_retrieval_attributes'"
+                    ),
+                    {"checksum": _PUBLISHED_0039_CHECKSUM},
+                )
             await build_locator_retrieval_indexes(engine)
             async with engine.connect() as connection:
                 version = int(await connection.scalar(text("SHOW server_version_num")))

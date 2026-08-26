@@ -12,6 +12,9 @@ from infinity_context_adapters.postgres.locator_catalog_attestation import (
     LOCATOR_CATALOG_MAINTENANCE_LOCK_ID,
     attest_locator_retrieval_v2_catalog,
 )
+from infinity_context_adapters.postgres.migration_metadata import (
+    is_compatible_migration_checksum,
+)
 
 _MIGRATION_ID = "0039_locator_retrieval_attributes"
 _MIGRATION = Path(__file__).with_name("migrations") / f"{_MIGRATION_ID}.sql"
@@ -95,7 +98,7 @@ async def _require_expand_migration(connection) -> None:
         {"migration_id": _MIGRATION_ID},
     )
     expected = sha256(_MIGRATION.read_bytes()).hexdigest()
-    if observed != expected:
+    if not is_compatible_migration_checksum(_MIGRATION_ID, observed, expected):
         raise RuntimeError("Retrieval V2 expand migration is absent or has checksum drift")
 
 

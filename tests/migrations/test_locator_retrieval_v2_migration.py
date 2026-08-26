@@ -75,18 +75,21 @@ def test_published_ledger_prefix_continues_through_forward_locator_migration() -
     assert migrations[-1].migration_id == "0049_reconciliation_runtime_generation"
 
 
-def test_pre_remediation_0039_and_0040_checksums_remain_upgrade_compatible() -> None:
+def test_published_locator_checksums_remain_upgrade_compatible() -> None:
     migrations = _load_migrations()
     history = {
         migration.migration_id: migration.checksum
         for migration in migrations
-        if migration.migration_id <= "0040_locator_profile_lifecycle"
+        if migration.migration_id <= "0046_locator_profile_linearizable_fences"
     }
     history["0039_locator_retrieval_attributes"] = (
         "83f22c9e4087e6f4713294665a00ce99f7ffc981893702a2fbb3a575813c418d"
     )
     history["0040_locator_profile_lifecycle"] = (
         "2b972527e5a2f6e99f5bd69b6eca9c22a51b8cb4902b1d4e13f7e0260138edaa"
+    )
+    history["0046_locator_profile_linearizable_fences"] = (
+        "a069a1c2707366c364206e70740b37b9f5720597a133b2d63eab1e324f85313e"
     )
 
     _validate_history(migrations, history)
