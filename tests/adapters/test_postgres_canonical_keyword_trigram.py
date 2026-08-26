@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
 import os
 from datetime import UTC, datetime, timedelta
@@ -95,11 +96,7 @@ async def _assert_real_postgres_access_path(database_url: str) -> None:
         now = datetime(2026, 1, 1, tzinfo=UTC)
         async with AsyncSession(engine, expire_on_commit=False) as session:
             semantic_rows = _semantic_rows(now)
-            session.add_all(_document_rows(semantic_rows, now))
-            session.add(_filler_document(now))
-            await session.flush()
-            session.add_all(semantic_rows)
-            await session.flush()
+            await _seed_pre_0039_corpus(session, semantic_rows, now)
             await session.execute(
                 text(
                     """
@@ -283,6 +280,90 @@ async def _install_versioned_schema_through(
         )
     finally:
         await connection.close()
+
+
+async def _seed_pre_0039_corpus(
+    session: AsyncSession,
+    chunks: list[MemoryChunkRow],
+    now: datetime,
+) -> None:
+    documents = [*_document_rows(chunks, now), _filler_document(now)]
+    await session.execute(
+        text(
+            """
+            INSERT INTO memory_documents (
+                id, space_id, memory_scope_id, thread_id, title, source_type,
+                source_external_id, content_hash, classification, status,
+                created_at, updated_at
+            ) VALUES (
+                :id, :space_id, :memory_scope_id, :thread_id, :title, :source_type,
+                :source_external_id, :content_hash, :classification, :status,
+                :created_at, :updated_at
+            )
+            """
+        ),
+        [
+            {
+                "id": document.id,
+                "space_id": document.space_id,
+                "memory_scope_id": document.memory_scope_id,
+                "thread_id": document.thread_id,
+                "title": document.title,
+                "source_type": document.source_type,
+                "source_external_id": document.source_external_id,
+                "content_hash": document.content_hash,
+                "classification": document.classification,
+                "status": document.status,
+                "created_at": document.created_at,
+                "updated_at": document.updated_at,
+            }
+            for document in documents
+        ],
+    )
+    await session.execute(
+        text(
+            """
+            INSERT INTO memory_chunks (
+                id, space_id, memory_scope_id, thread_id, document_id, episode_id,
+                source_type, source_external_id, source_hash, kind, text,
+                normalized_text, status, sequence, char_start, char_end,
+                token_estimate, classification, created_at, updated_at, metadata_json
+            ) VALUES (
+                :id, :space_id, :memory_scope_id, :thread_id, :document_id, :episode_id,
+                :source_type, :source_external_id, :source_hash, :kind, :text,
+                :normalized_text, :status, :sequence, :char_start, :char_end,
+                :token_estimate, :classification, :created_at, :updated_at,
+                CAST(:metadata_json AS JSONB)
+            )
+            """
+        ),
+        [
+            {
+                "id": chunk.id,
+                "space_id": chunk.space_id,
+                "memory_scope_id": chunk.memory_scope_id,
+                "thread_id": chunk.thread_id,
+                "document_id": chunk.document_id,
+                "episode_id": chunk.episode_id,
+                "source_type": chunk.source_type,
+                "source_external_id": chunk.source_external_id,
+                "source_hash": chunk.source_hash,
+                "kind": chunk.kind,
+                "text": chunk.text,
+                "normalized_text": chunk.normalized_text,
+                "status": chunk.status,
+                "sequence": chunk.sequence,
+                "char_start": chunk.char_start,
+                "char_end": chunk.char_end,
+                "token_estimate": chunk.token_estimate,
+                "classification": chunk.classification,
+                "created_at": chunk.created_at,
+                "updated_at": chunk.updated_at,
+                "metadata_json": json.dumps(chunk.metadata_json),
+            }
+            for chunk in chunks
+        ],
+    )
 
 
 def _semantic_rows(now: datetime) -> list[MemoryChunkRow]:

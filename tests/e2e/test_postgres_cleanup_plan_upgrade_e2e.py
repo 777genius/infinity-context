@@ -49,6 +49,12 @@ async def _assert_cleanup_plan_upgrade(database_url: str) -> None:
                 "0040_locator_profile_lifecycle",
                 "0041_locator_profile_attestation_fence",
                 "0042_locator_profile_retirement",
+                "0043_locator_profile_transition_audit",
+                "0044_locator_profile_operator_receipts",
+                "0045_locator_profile_incremental_attestation",
+                "0046_locator_profile_linearizable_fences",
+                "0047_locator_runtime_supervisor_proofs",
+                "0048_locator_lifecycle_release_identity",
             )
             await _assert_cleanup_plan_schema(engine)
             await _assert_projection_receipt_schema(engine)
