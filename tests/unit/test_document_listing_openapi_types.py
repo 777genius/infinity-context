@@ -1,14 +1,17 @@
 """Typed OpenAPI contract for document listing pages."""
 
+from pathlib import Path
+
 from fastapi.testclient import TestClient
 from infinity_context_server.config import DeployProfile, Settings
 from infinity_context_server.main import create_app
 
 
-def test_document_listing_openapi_has_typed_record_and_page_fields() -> None:
+def test_document_listing_openapi_has_typed_record_and_page_fields(tmp_path: Path) -> None:
     app = create_app(
         Settings(
             deploy_profile=DeployProfile.TEST,
+            database_url=f"sqlite+aiosqlite:///{tmp_path / 'openapi.db'}",
             qdrant_enabled=False,
             graphiti_enabled=False,
             embeddings_enabled=False,
