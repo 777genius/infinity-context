@@ -87,6 +87,7 @@ STRICT_V4_PROTECTED_SEQUENCES = (
     "memory_fact_versions_id_seq",
     "memory_outbox_id_seq",
     "memory_idempotency_records_id_seq",
+    "memory_locator_commit_watermark_seq",
 )
 
 _CAPABILITY_SQL = """
@@ -289,10 +290,19 @@ SELECT current_user = session_user AS direct_login,
        , NOT EXISTS (
            SELECT 1
            FROM protected_relations AS relation
-           CROSS JOIN LATERAL pg_catalog.unnest(ARRAY[
-               'SELECT', 'INSERT', 'UPDATE', 'DELETE',
-               'TRUNCATE', 'REFERENCES', 'TRIGGER', 'MAINTAIN'
-           ]::pg_catalog.text[]) AS privilege(name)
+           CROSS JOIN LATERAL pg_catalog.unnest(
+               ARRAY[
+                   'SELECT', 'INSERT', 'UPDATE', 'DELETE',
+                   'TRUNCATE', 'REFERENCES', 'TRIGGER'
+               ]::pg_catalog.text[]
+               || CASE
+                   WHEN pg_catalog.current_setting(
+                       'server_version_num'
+                   )::pg_catalog.int4 >= 170000
+                   THEN ARRAY['MAINTAIN']::pg_catalog.text[]
+                   ELSE ARRAY[]::pg_catalog.text[]
+               END
+           ) AS privilege(name)
            WHERE relation.relkind <> 'S'
              AND pg_catalog.has_table_privilege(
                  role.oid,

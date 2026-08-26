@@ -38,14 +38,15 @@ from postgres_test_database import PostgresTestDatabase
 from sqlalchemy import text
 
 
-def test_exact_fence_recovery_when_postgres_is_configured() -> None:
+def test_exact_fence_recovery_when_disposable_services_are_configured() -> None:
     database_url = os.getenv("INFINITY_CONTEXT_TEST_POSTGRES_URL")
-    if not database_url:
-        pytest.skip("INFINITY_CONTEXT_TEST_POSTGRES_URL is not configured")
-    asyncio.run(_assert_exact_recovery(database_url))
+    qdrant_url = os.getenv("INFINITY_SANDBOX_QDRANT_URL")
+    if not database_url or not qdrant_url:
+        pytest.skip("disposable PostgreSQL and Qdrant are not configured")
+    asyncio.run(_assert_exact_recovery(database_url, qdrant_url))
 
 
-async def _assert_exact_recovery(database_url: str) -> None:
+async def _assert_exact_recovery(database_url: str, qdrant_url: str) -> None:
     asyncpg = pytest.importorskip("asyncpg")
     database = PostgresTestDatabase.from_url(
         database_url, prefix="locator_fence_recovery", asyncpg=asyncpg
@@ -259,7 +260,7 @@ async def _assert_exact_recovery(database_url: str) -> None:
             key_id="test-unrecoverable",
         )
         projection = QdrantRetrievalProfileProjection(
-            os.environ["INFINITY_SANDBOX_QDRANT_URL"],
+            qdrant_url,
             None,
             2,
             _FixedEmbedder(),
@@ -455,7 +456,7 @@ async def _assert_exact_recovery(database_url: str) -> None:
             from qdrant_client import AsyncQdrantClient
 
             client = AsyncQdrantClient(
-                url=os.environ["INFINITY_SANDBOX_QDRANT_URL"], timeout=10, trust_env=False
+                url=qdrant_url, timeout=10, trust_env=False
             )
             try:
                 if await client.collection_exists(identity.collection_name):

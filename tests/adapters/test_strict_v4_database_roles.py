@@ -27,6 +27,7 @@ _STRICT_V4_MIGRATION = (
 )
 _STRICT_V4_FACT_MIGRATION = _POSTGRES_ROOT / "migrations/0037_strict_v4_fact_writer.sql"
 _STRICT_V4_DOCUMENT_MIGRATION = _POSTGRES_ROOT / "migrations/0038_strict_v4_document_writer.sql"
+_LOCATOR_PROFILE_MIGRATION = _POSTGRES_ROOT / "migrations/0040_locator_profile_lifecycle.sql"
 _PROVISIONING_SQL = _POSTGRES_ROOT / "provisioning/strict_v4_roles.sql"
 _MIGRATION_0035_AUTHORITY_TABLES = {
     "memory_projection_receipt_claims",
@@ -147,6 +148,8 @@ def test_capability_query_covers_schema_columns_grant_options_and_functions() ->
     assert "acl.privilege_type='usage' and not acl.is_grantable" in sql
     assert "pg_catalog.has_function_privilege" in sql
     assert "'maintain'" in sql
+    assert "'server_version_num'" in sql
+    assert ">= 170000" in sql
     assert "infinity_context_strict_v4_fact_writer" not in sql
     assert "infinity_context_strict_v4_document_writer" not in sql
 
@@ -170,6 +173,7 @@ def test_final_canonical_capability_is_the_union_of_fact_and_document_writes() -
         "memory_fact_versions_id_seq",
         "memory_outbox_id_seq",
         "memory_idempotency_records_id_seq",
+        "memory_locator_commit_watermark_seq",
     ):
         assert f"'{sequence}'" in sql
     assert "privilege.name = 'delete'" in sql
@@ -183,6 +187,7 @@ def test_final_migrations_grant_the_attested_canonical_union() -> None:
             (
                 _STRICT_V4_FACT_MIGRATION.read_text(encoding="utf-8"),
                 _STRICT_V4_DOCUMENT_MIGRATION.read_text(encoding="utf-8"),
+                _LOCATOR_PROFILE_MIGRATION.read_text(encoding="utf-8"),
             )
         )
     )
