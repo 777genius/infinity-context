@@ -530,6 +530,10 @@ class RetrievalProfileRegistryPort(Protocol):
 
     async def active_lease(self, *, now: datetime) -> ProfileAttestationLease | None: ...
 
+    async def register_runtime_incarnation(
+        self, owner: RuntimeFenceOwner, *, now: datetime
+    ) -> None: ...
+
     async def verify_registered_runtime_owner(self, owner: RuntimeFenceOwner) -> None:
         """Verify an exact existing runtime incarnation without registering it."""
         ...

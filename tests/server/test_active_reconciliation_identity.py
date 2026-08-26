@@ -41,7 +41,14 @@ def test_active_reconciliation_binds_exact_runtime_release_and_lifecycle_identit
     assert result.release_identity_sha256 == owner.installed_release.digest()
     assert result.lifecycle_identity_sha256 == owner.lifecycle_identity_sha256()
     assert registry.recorded_owner == owner
-    assert registry.lease.lease_id == "reconcile-1"
+    assert registry.lease.lease_id == "reconcile-2"
+    assert registry.mutations == [
+        "reconciliation_operation",
+        "update_lane",
+        "update_lane",
+        "reconciliation_operation",
+        "record_reconciliation",
+    ]
 
     restarted_owner = _owner("generation-restarted")
     registry.registered_owner = restarted_owner
@@ -49,8 +56,13 @@ def test_active_reconciliation_binds_exact_runtime_release_and_lifecycle_identit
     successor = asyncio.run(restarted.reconcile_active(now=NOW + timedelta(seconds=20)))
     assert successor.complete is True
     assert successor.runtime_generation == restarted_owner.generation
-    assert registry.operation_ids == ["reconcile-1", "reconcile-2"]
-    assert observed_operations == registry.operation_ids
+    assert registry.operation_ids == [
+        "reconcile-1",
+        "reconcile-2",
+        "reconcile-3",
+        "reconcile-4",
+    ]
+    assert observed_operations == ["reconcile-1", "reconcile-3"]
 
 
 def test_active_reconciliation_rejects_missing_identity_before_observation(monkeypatch) -> None:
@@ -264,6 +276,10 @@ class _Registry:
 
     async def update_lane(self, *_args, **_kwargs):
         self.mutations.append("update_lane")
+        self.lease = replace(
+            self.lease,
+            expires_at=self.lease.expires_at + timedelta(microseconds=1),
+        )
         return None
 
     async def activation_evidence(self, profile_id, *, now, **_kwargs):
@@ -287,6 +303,11 @@ class _Registry:
         assert mutation_epoch == 4
         self.mutations.append("record_reconciliation")
         self.recorded_owner = runtime_owner
+        if (
+            operation.predecessor_lease_id != self.lease.lease_id
+            or operation.predecessor_lease_expires_at != self.lease.expires_at
+        ):
+            return ProfileReconciliationWriteOutcome.STALE
         if self.write_outcome is not ProfileReconciliationWriteOutcome.APPLIED:
             return self.write_outcome
         self.lease = ProfileAttestationLease(

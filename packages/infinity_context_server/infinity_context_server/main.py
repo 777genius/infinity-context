@@ -35,13 +35,14 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
     @asynccontextmanager
     async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
-        if container.settings.auto_create_schema:
-            await create_schema(container.engine)
         try:
-            await ProjectionOutboxProcess(container).reconcile_vector_tombstones(limit=100)
-        except Exception:
-            logger.warning("projection tombstone reconciliation deferred at startup")
-        try:
+            if container.settings.auto_create_schema:
+                await create_schema(container.engine)
+            await container.start_retrieval_runtime()
+            try:
+                await ProjectionOutboxProcess(container).reconcile_vector_tombstones(limit=100)
+            except Exception:
+                logger.warning("projection tombstone reconciliation deferred at startup")
             yield
         finally:
             await container.aclose()

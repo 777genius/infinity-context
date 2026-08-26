@@ -99,6 +99,7 @@ from infinity_context_server.retrieval_profile_composition import (
     RetrievalProfileOutboxCoordinator,
     build_retrieval_profile_lifecycle,
 )
+from infinity_context_server.retrieval_runtime_lifecycle import RetrievalRuntimeLifecycle
 from infinity_context_server.serving_profile import (
     VerifiedServingProfile,
     build_verified_serving_profile,
@@ -201,6 +202,7 @@ class Container:
     locator_projection_maintenance: PostgresLocatorProjectionMaintenance
     retrieval_profile_lifecycle: object
     retrieval_profile_outbox: RetrievalProfileOutboxCoordinator
+    retrieval_runtime_lifecycle: RetrievalRuntimeLifecycle
     memory_fact_lifecycle: memory_facts_feature.MemoryFactLifecycleUseCases
     memory_fact_reads: memory_facts_feature.MemoryFactReadUseCases
     memory_fact_temporal: memory_facts_feature.MemoryFactTemporalUseCases
@@ -232,7 +234,15 @@ class Container:
     runtime_metrics: RuntimeMetrics
     provider_circuits: tuple[ProviderCircuitBreaker, ...]
 
+    async def start_retrieval_runtime(self) -> None:
+        await self.retrieval_runtime_lifecycle.start(now=self.clock.now())
+
     async def aclose(self) -> None:
+        first_error: BaseException | None = None
+        try:
+            await self.retrieval_runtime_lifecycle.close(now=self.clock.now())
+        except BaseException as exc:
+            first_error = exc
         closed: set[int] = set()
         for resource in (
             *self.adapters,
@@ -250,8 +260,18 @@ class Container:
             if resource_id in closed:
                 continue
             closed.add(resource_id)
-            await _close_resource(resource)
-        await self.engine.dispose()
+            try:
+                await _close_resource(resource)
+            except BaseException as exc:
+                if first_error is None:
+                    first_error = exc
+        try:
+            await self.engine.dispose()
+        except BaseException as exc:
+            if first_error is None:
+                first_error = exc
+        if first_error is not None:
+            raise first_error
 
 
 def build_container(
@@ -359,13 +379,15 @@ def build_container(
         query_embeddings=query_embeddings,
         diagnostics=runtime_metrics,
     )
-    retrieval_profile_lifecycle, retrieval_profile_outbox = (
-        build_retrieval_profile_lifecycle(
-            session_factory=session_factory,
-            settings=resolved_settings,
-            query_embeddings=query_embeddings,
-            diagnostics=runtime_metrics,
-        )
+    retrieval_profile_lifecycle, retrieval_profile_outbox = build_retrieval_profile_lifecycle(
+        session_factory=session_factory,
+        settings=resolved_settings,
+        query_embeddings=query_embeddings,
+        diagnostics=runtime_metrics,
+    )
+    retrieval_runtime_lifecycle = RetrievalRuntimeLifecycle(
+        retrieval_profile_outbox.registry,
+        retrieval_profile_outbox.projection.runtime_owner,
     )
     if locator_retrieval is not None:
         locator_retrieval = ProfileAwareLocatorRetrievalService(
@@ -374,6 +396,7 @@ def build_container(
             projection=retrieval_profile_outbox.projection,
             sessions=session_factory,
             query_embeddings=query_embeddings,
+            runtime_lifecycle=retrieval_runtime_lifecycle,
             runtime_owner=retrieval_profile_outbox.projection.runtime_owner,
         )
     blob_storage = _build_blob_storage(resolved_settings)
@@ -822,6 +845,7 @@ def build_container(
         locator_projection_maintenance=locator_projection_maintenance,
         retrieval_profile_lifecycle=retrieval_profile_lifecycle,
         retrieval_profile_outbox=retrieval_profile_outbox,
+        retrieval_runtime_lifecycle=retrieval_runtime_lifecycle,
         memory_fact_lifecycle=memory_fact_lifecycle,
         memory_fact_reads=memory_fact_reads,
         memory_fact_temporal=memory_fact_temporal,

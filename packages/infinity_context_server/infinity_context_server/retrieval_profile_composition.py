@@ -36,6 +36,7 @@ from infinity_context_core.features.context_building.public import (
 )
 from sqlalchemy import text
 
+from infinity_context_server.active_reconciliation import ActiveReconciliationResult
 from infinity_context_server.features.context_building.retrieval_service import (
     LocatorRetrievalService,
     RetrievalLaneRuntime,
@@ -50,17 +51,7 @@ from infinity_context_server.retrieval_profile_attestation import (
 from infinity_context_server.retrieval_profile_attestation import (
     projection_item_manifest as _projection_item_manifest,
 )
-
-
-@dataclass(frozen=True, slots=True)
-class ActiveReconciliationResult:
-    complete: bool
-    renewed: bool
-    runtime_instance_id: str | None = None
-    runtime_generation: str | None = None
-    release_identity_sha256: str | None = None
-    lifecycle_identity_sha256: str | None = None
-    outcome: str = "skipped"
+from infinity_context_server.retrieval_runtime_lifecycle import RetrievalRuntimeLifecycle
 
 
 @dataclass(frozen=True, slots=True)
@@ -136,6 +127,7 @@ class ProfileAwareLocatorRetrievalService:
     projection: QdrantRetrievalProfileProjection
     sessions: object
     query_embeddings: object
+    runtime_lifecycle: RetrievalRuntimeLifecycle | None = None
     runtime_owner: RuntimeFenceOwner = field(
         default_factory=lambda: RuntimeFenceOwner.unrecoverable_current(
             instance_id=f"retrieval-runtime-{uuid4().hex}",
@@ -149,6 +141,8 @@ class ProfileAwareLocatorRetrievalService:
     async def execute(self, request):
         operation_id = f"profile-query-{uuid4().hex}"
         now = datetime.now(UTC)
+        if self.runtime_lifecycle is not None:
+            await self.runtime_lifecycle.start(now=now)
         admission = await self.registry.begin_profile_query(
             operation_id,
             owner=self.runtime_owner,
@@ -191,6 +185,8 @@ class ProfileAwareLocatorRetrievalService:
         owner = self.runtime_owner
         if not isinstance(owner, RuntimeFenceOwner):
             raise RuntimeError("retrieval_profile_reconciliation_runtime_identity_missing")
+        if self.runtime_lifecycle is not None:
+            await self.runtime_lifecycle.start(now=now)
         await self.registry.verify_registered_runtime_owner(owner)
         active = await self.registry.active()
         if active is None:
@@ -266,6 +262,14 @@ class ProfileAwareLocatorRetrievalService:
             observed_digest=digest,
             reconciliation_operation=operation,
             runtime_owner=owner,
+        )
+        # Lane evidence is canonical evidence.  Its database trigger deliberately
+        # invalidates the active lease, so the operation captured before the
+        # authorized observations is no longer the predecessor for the final CAS.
+        # Rebind after our last evidence mutation; any later, external mutation is
+        # still detected by record_reconciliation's exact predecessor comparison.
+        operation = await self.registry.reconciliation_operation(
+            active.profile_id, runtime_owner=owner
         )
         evidence = await self.registry.activation_evidence(
             active.profile_id,

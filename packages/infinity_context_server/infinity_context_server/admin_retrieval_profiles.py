@@ -23,6 +23,7 @@ async def retrieval_profile_lifecycle_command(
         container = build_container(Settings())
         lifecycle = container.retrieval_profile_lifecycle
         async with asyncio.timeout(deadline_seconds):
+            await container.start_retrieval_runtime()
             now = container.clock.now()
             if operation == "rollback":
                 retired = await lifecycle.rollback(target, now=now)
@@ -86,7 +87,7 @@ async def retrieval_profile_lifecycle_command(
         return _failed(operation, target, "profile_operation_failed")
     finally:
         if container is not None:
-            await container.engine.dispose()
+            await container.aclose()
 
 
 async def retrieval_profile_recovery_command(**request) -> dict[str, object]:
@@ -155,9 +156,7 @@ async def retrieval_profile_maintenance_command(**request) -> dict[str, object]:
                         installed_distribution_digest_sha256=(
                             request["release_installed_distribution_sha256"]
                         ),
-                        runtime_modules_digest_sha256=(
-                            request["release_runtime_modules_sha256"]
-                        ),
+                        runtime_modules_digest_sha256=(request["release_runtime_modules_sha256"]),
                     ),
                     maintenance_generation=generation,
                     exit_observation_id=request["exit_observation_id"],

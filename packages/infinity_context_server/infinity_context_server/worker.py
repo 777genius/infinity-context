@@ -371,8 +371,9 @@ async def _run(args: argparse.Namespace) -> None:
     container = build_container(Settings())
     if container.settings.auto_create_schema:
         await create_schema(container.engine)
-    worker = OutboxWorker(container, worker_filter=_worker_filter_from_args(args))
     try:
+        await container.start_retrieval_runtime()
+        worker = OutboxWorker(container, worker_filter=_worker_filter_from_args(args))
         while True:
             count = await worker.run_once(limit=args.limit, concurrency=args.concurrency)
             print({"processed": count})

@@ -37,6 +37,27 @@ def test_profile_query_fence_spans_delegate_and_releases_on_failure(monkeypatch)
     assert events == ["begin", "execute", "finish:lease-active"]
 
 
+def test_profile_query_registers_runtime_before_admission(monkeypatch) -> None:
+    events: list[str] = []
+    registry = _QueryFenceRegistry(events)
+    service = ProfileAwareLocatorRetrievalService(
+        fallback=object(),
+        registry=registry,
+        projection=object(),
+        sessions=object(),
+        query_embeddings=object(),
+        runtime_lifecycle=_StartingRuntime(events),
+    )
+    monkeypatch.setattr(
+        ProfileAwareLocatorRetrievalService,
+        "_service_for_active",
+        lambda _self, _active: _SuccessfulQueryDelegate(),
+    )
+
+    assert asyncio.run(service.execute(object())) == "profile"
+    assert events == ["register", "begin", "finish:lease-active"]
+
+
 def test_fallback_requires_atomic_no_profile_and_unavailable_fails_closed() -> None:
     fallback = _Fallback()
     no_profile = ProfileAwareLocatorRetrievalService(
@@ -100,9 +121,7 @@ class _QueryFenceRegistry:
             ProfileQueryAdmissionStatus.ADMITTED, self.identity, "lease-active"
         )
 
-    async def finish_profile_query(
-        self, profile_id, operation_id, *, owner, activation_lease_id
-    ):
+    async def finish_profile_query(self, profile_id, operation_id, *, owner, activation_lease_id):
         assert profile_id == self.identity.profile_id
         assert owner.instance_id.startswith("retrieval-runtime-")
         assert operation_id.startswith("profile-query-")
@@ -123,6 +142,15 @@ class _FailingQueryDelegate:
 class _SuccessfulQueryDelegate:
     async def execute(self, _request):
         return "profile"
+
+
+class _StartingRuntime:
+    def __init__(self, events):
+        self.events = events
+
+    async def start(self, *, now):
+        assert now.tzinfo is not None
+        self.events.append("register")
 
 
 class _AdmissionRegistry:

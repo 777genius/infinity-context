@@ -12,6 +12,7 @@ from infinity_context_server.retrieval_profile_composition import ActiveReconcil
 
 def test_active_reconcile_operator_reports_bounded_continuation(monkeypatch) -> None:
     calls = []
+    lifecycle_calls = []
 
     async def reconcile_active(*, now):
         calls.append(now)
@@ -29,11 +30,19 @@ def test_active_reconcile_operator_reports_bounded_continuation(monkeypatch) -> 
     async def dispose():
         return None
 
+    async def start_retrieval_runtime():
+        lifecycle_calls.append("register")
+
+    async def aclose():
+        lifecycle_calls.append("retire")
+
     container = SimpleNamespace(
         locator_retrieval=SimpleNamespace(reconcile_active=reconcile_active),
         retrieval_profile_lifecycle=object(),
         clock=SimpleNamespace(now=lambda: datetime(2026, 8, 25, tzinfo=UTC)),
         engine=SimpleNamespace(dispose=dispose),
+        start_retrieval_runtime=start_retrieval_runtime,
+        aclose=aclose,
     )
     monkeypatch.setattr(
         "infinity_context_server.admin_retrieval_profiles.build_container",
@@ -67,3 +76,4 @@ def test_active_reconcile_operator_reports_bounded_continuation(monkeypatch) -> 
         "lifecycle_identity_sha256": "b" * 64,
     }
     assert len(calls) == 2
+    assert lifecycle_calls == ["register", "retire", "register", "retire"]
