@@ -25,18 +25,25 @@ GitHub's dedicated repository immutable-releases endpoint and requires its docum
 invents credentials.
 
 - Enable repository immutable releases.
+- Create a fine-grained `SDK_RELEASE_ADMIN_READ_TOKEN` secret scoped only to this
+  repository with **Administration: read-only** permission. Store it only in the
+  protected `sdk-release` environment. The workflow exposes it only to the
+  immutable-release policy preflight; checkout, tag/release writes, and artifact
+  operations use no administration token.
 - Create an active tag ruleset covering `refs/tags/sdk-v*` that restricts creation,
   update, and deletion. Release tags are existing annotated tags pointing directly to
   a commit.
 - Create the protected `sdk-release` environment with required independent review,
-  self-review prevention, and deployment restrictions for protected SDK tags.
+  self-review prevention, deployment restrictions for protected SDK tags, and access
+  to the environment secret only after approval.
 - Restrict manual Actions dispatch and tag bypass authority to release operators.
 - Keep the repository identity `777genius/infinity-context` and permit the protected
-  publish job to write contents and its separate Actions receipt.
+  publish job to write contents.
 
 The build job has `contents: read`. The protected publish job has `contents: write`
-and `actions: write` for the verification receipt. Neither job has registry, OIDC,
-provider, Discord, or service credentials.
+only; artifact upload/download, including the verification receipt, does not require
+an `actions: write` grant. Neither job has registry, OIDC, provider, Discord, or
+service credentials.
 
 ## Manifest contract
 
@@ -79,21 +86,30 @@ Dispatch only that exact tag and record the run URL:
 ```bash
 gh workflow run .github/workflows/typescript-sdk-release.yml \
   --repo 777genius/infinity-context \
-  --ref <DEFAULT_BRANCH> \
+  --ref sdk-v0.2.1 \
   -f sdk_tag=sdk-v0.2.1
 gh run list --repo 777genius/infinity-context \
   --workflow .github/workflows/typescript-sdk-release.yml --limit 1
 ```
 
+The dispatch ref and `sdk_tag` must be the same exact annotated tag. The workflow
+rejects default-branch dispatch, resolves the tag object and commit, and requires
+`github.workflow_sha` to equal that commit. Consequently the manifest hashes the
+workflow file from the same reviewed commit that GitHub executed.
+
 Approve `sdk-release` only after the build job succeeds. Both build and publish jobs
 refuse any existing release or draft for the tag; reruns do not resume or repair one.
-The publish job reconfirms the tag and immutable-release setting, rehashes and
-semantically revalidates both transported files, and first requires the installed
+After approval, the publish job uses the administration-read environment secret to
+reconfirm the immutable-release setting, rehashes and semantically revalidates both
+transported files, and first requires the installed
 `gh` to expose the exact `gh release verify [<tag>]` and
 `gh release verify-asset [<tag>] <file-path>` syntax used by the workflow, including
-`--repo`. Only then does it create one draft, upload without `--clobber`, download
-and compare both assets, publish once, and require the published release to report
-`immutable: true`. It then runs both preflighted verification commands.
+`--repo`. In the same effect step, it revalidates the exact annotated tag object,
+commit, and active creation/update/deletion ruleset immediately before draft creation
+and again immediately before draft publication. Only then does it create one draft,
+upload without `--clobber`, download and compare both assets, publish once, and
+require the published release to report `immutable: true`. It then runs both
+preflighted verification commands.
 
 ## Download, verify, and cold install
 
@@ -146,6 +162,17 @@ verification, the workflow therefore exclusively creates
 URL, exact asset IDs/digests, run ID/attempt, and successful release/asset verification.
 It is uploaded only as a separately named Actions artifact for Discord/operations
 custody; it is not a release asset and never changes the exact two-asset policy.
+
+Export the 90-day receipt from the completed run into durable operations custody
+before artifact expiry:
+
+```bash
+mkdir -p .verify/infinity-sdk-0.2.1/receipt
+gh run download <RUN_ID> --repo 777genius/infinity-context \
+  --name typescript-sdk-release-verification-sdk-v0.2.1 \
+  --dir .verify/infinity-sdk-0.2.1/receipt
+test -f .verify/infinity-sdk-0.2.1/receipt/infinity-context-sdk-release-verification-receipt.json
+```
 
 Downstream Discord release quality is a separate decision. It binds this immutable
 SDK release URL and receipt to the Infinity service/image, embedding/index,
