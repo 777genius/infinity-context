@@ -53,7 +53,7 @@ async def _assert_clean_and_legacy_upgrade(database_url: str) -> None:
             clean_results = await asyncio.gather(upgrade_schema(engine), upgrade_schema(engine))
             clean = next(result for result in clean_results if result.applied)
             assert clean.legacy_baseline is False
-            assert clean.current == "0049_reconciliation_runtime_generation"
+            assert clean.current == "0050_locator_profile_outbox_transaction_coalescing"
             assert clean.applied[0] == "0001_core_facts"
             canonical_migration_count = len(_load_migrations())
             assert sorted(len(result.applied) for result in clean_results) == [
@@ -84,7 +84,7 @@ async def _assert_clean_and_legacy_upgrade(database_url: str) -> None:
             legacy = await upgrade_schema(engine)
             assert legacy.legacy_baseline is True
             assert legacy.applied[0].startswith("0023_")
-            assert legacy.current == "0049_reconciliation_runtime_generation"
+            assert legacy.current == "0050_locator_profile_outbox_transaction_coalescing"
             await _assert_head_schema(engine)
             await _assert_cross_scope_audit_reference_rejected(engine)
         finally:

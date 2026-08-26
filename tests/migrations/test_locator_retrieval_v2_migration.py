@@ -72,7 +72,9 @@ def test_published_ledger_prefix_continues_through_forward_locator_migration() -
 
     _validate_history(migrations, history)
 
-    assert migrations[-1].migration_id == "0049_reconciliation_runtime_generation"
+    assert migrations[-1].migration_id == (
+        "0050_locator_profile_outbox_transaction_coalescing"
+    )
 
 
 def test_published_locator_checksums_remain_upgrade_compatible() -> None:

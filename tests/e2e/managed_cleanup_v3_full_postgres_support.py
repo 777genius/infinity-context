@@ -473,7 +473,7 @@ async def create_full_postgres_harness(database_url: str, work_dir: Path) -> Ful
         engine = build_async_engine(database.app_url)
         try:
             result = await upgrade_schema(engine)
-            assert result.current == "0049_reconciliation_runtime_generation"
+            assert result.current == "0050_locator_profile_outbox_transaction_coalescing"
         finally:
             await engine.dispose()
         context, authority, pages, operations = build_strict_v4_material()

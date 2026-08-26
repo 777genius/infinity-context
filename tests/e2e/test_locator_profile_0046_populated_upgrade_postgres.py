@@ -110,6 +110,7 @@ async def _assert_populated_upgrade(database_url: str) -> None:
                 "0047_locator_runtime_supervisor_proofs",
                 "0048_locator_lifecycle_release_identity",
                 "0049_reconciliation_runtime_generation",
+                "0050_locator_profile_outbox_transaction_coalescing",
             )
             registry = PostgresRetrievalProfileRegistry(build_session_factory(engine))
             blocker = await engine.connect()

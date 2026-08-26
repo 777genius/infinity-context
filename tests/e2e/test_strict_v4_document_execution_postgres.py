@@ -112,7 +112,7 @@ async def _assert_authenticated_document_execution(
         migration_engine = build_async_engine(database.app_url)
         try:
             result = await upgrade_schema(migration_engine)
-            assert result.current == "0049_reconciliation_runtime_generation"
+            assert result.current == "0050_locator_profile_outbox_transaction_coalescing"
         finally:
             await migration_engine.dispose()
         phase("schema-upgraded")
