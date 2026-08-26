@@ -3,9 +3,9 @@ from __future__ import annotations
 import base64
 import hashlib
 import os
-import pwd
 from dataclasses import replace
 from datetime import UTC, datetime, timedelta
+from pathlib import Path
 
 import infinity_context_adapters.postgres.supervisor_trust as trust_module
 import pytest
@@ -88,23 +88,20 @@ def test_runtime_owned_registry_is_rejected_before_read(tmp_path) -> None:
 def test_runtime_owned_read_only_file_and_ancestor_are_independently_rejected(
     tmp_path, monkeypatch
 ) -> None:
-    nobody = pwd.getpwnam("nobody")
-    monkeypatch.setattr(trust_module.os, "geteuid", lambda: nobody.pw_uid)
-    monkeypatch.setattr(trust_module.os, "getegid", lambda: nobody.pw_gid)
-    monkeypatch.setattr(trust_module.os, "getgroups", lambda: [])
     owned_file = tmp_path / "owned-0444.json"
     owned_file.write_text("{}")
-    os.chown(owned_file, nobody.pw_uid, nobody.pw_gid)
     owned_file.chmod(0o444)
+    _act_as_runtime_owner(monkeypatch, owned_file)
     with pytest.raises(RuntimeError, match="runtime_writable"):
         trust_module._assert_runtime_cannot_substitute(owned_file)
 
     owned_parent = tmp_path / "owned-parent"
-    owned_parent.mkdir(mode=0o555)
+    owned_parent.mkdir()
     registry = owned_parent / "registry.json"
     registry.write_text("{}")
     registry.chmod(0o444)
-    os.chown(owned_parent, nobody.pw_uid, nobody.pw_gid)
+    owned_parent.chmod(0o555)
+    _act_as_runtime_owner(monkeypatch, owned_parent)
     with pytest.raises(RuntimeError, match="runtime_writable"):
         trust_module._assert_runtime_cannot_substitute(registry)
 
@@ -112,17 +109,13 @@ def test_runtime_owned_read_only_file_and_ancestor_are_independently_rejected(
 def test_runtime_owned_sticky_directory_and_symlink_replacement_are_rejected(
     tmp_path, monkeypatch
 ) -> None:
-    nobody = pwd.getpwnam("nobody")
-    monkeypatch.setattr(trust_module.os, "geteuid", lambda: nobody.pw_uid)
-    monkeypatch.setattr(trust_module.os, "getegid", lambda: nobody.pw_gid)
-    monkeypatch.setattr(trust_module.os, "getgroups", lambda: [])
     sticky = tmp_path / "runtime-sticky"
     sticky.mkdir(mode=0o755)
     registry = sticky / "registry.json"
     registry.write_text("{}")
     registry.chmod(0o444)
-    os.chown(sticky, nobody.pw_uid, nobody.pw_gid)
     sticky.chmod(0o1777)
+    _act_as_runtime_owner(monkeypatch, sticky)
     with pytest.raises(RuntimeError, match="runtime_writable"):
         trust_module._assert_runtime_cannot_substitute(registry)
 
@@ -131,6 +124,7 @@ def test_runtime_owned_sticky_directory_and_symlink_replacement_are_rejected(
     target.chmod(0o444)
     link = tmp_path / "registry-link.json"
     link.symlink_to(target)
+    _act_as_runtime_owner(monkeypatch)
     with pytest.raises(RuntimeError, match="runtime_writable"):
         trust_module._assert_runtime_cannot_substitute(link)
 
@@ -138,15 +132,12 @@ def test_runtime_owned_sticky_directory_and_symlink_replacement_are_rejected(
 def test_separately_owned_read_only_deployment_layout_is_accepted(
     tmp_path, monkeypatch
 ) -> None:
-    nobody = pwd.getpwnam("nobody")
-    monkeypatch.setattr(trust_module.os, "geteuid", lambda: nobody.pw_uid)
-    monkeypatch.setattr(trust_module.os, "getegid", lambda: nobody.pw_gid)
-    monkeypatch.setattr(trust_module.os, "getgroups", lambda: [])
     deployment = tmp_path / "deployment"
     deployment.mkdir(mode=0o755)
     registry = deployment / "registry.json"
     registry.write_text("{}")
     registry.chmod(0o444)
+    _act_as_runtime_owner(monkeypatch)
     trust_module._assert_runtime_cannot_substitute(registry)
 
 
@@ -198,6 +189,25 @@ def _trust(
     return SupervisorTrustRegistry(
         registry_id, generation, start, end, keys, _release(), digest
     )
+
+
+def _act_as_runtime_owner(monkeypatch, *owned_paths: Path) -> None:
+    runtime_uid = -1
+    original_lstat = Path.lstat
+    owned = set(owned_paths)
+
+    def lstat(path: Path) -> os.stat_result:
+        metadata = original_lstat(path)
+        if path not in owned:
+            return metadata
+        values = list(metadata)
+        values[4] = runtime_uid
+        return os.stat_result(values)
+
+    monkeypatch.setattr(trust_module.os, "geteuid", lambda: runtime_uid)
+    monkeypatch.setattr(trust_module.os, "getegid", lambda: -1)
+    monkeypatch.setattr(trust_module.os, "getgroups", lambda: [])
+    monkeypatch.setattr(Path, "lstat", lstat)
 
 
 def _owner(
