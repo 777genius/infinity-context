@@ -2,11 +2,10 @@
 
 from __future__ import annotations
 
-import json
 import asyncio
+import json
 import time
-from threading import Event
-from threading import Thread
+from threading import Event, Thread
 
 import httpx
 from infinity_context_contracts.features.context_building import (
