@@ -116,11 +116,15 @@ async def upgrade_schema(engine: AsyncEngine) -> SchemaUpgradeResult:
                     await _record_legacy_baseline(work_connection, migrations)
                     applied_history = await _load_history(work_connection)
 
-                first_online = _first_pending_nontransactional(
+                out_of_transaction_boundary = _first_pending_out_of_transaction(
                     migrations,
                     applied_history,
                 )
-                prefix = migrations if first_online is None else migrations[:first_online]
+                prefix = (
+                    migrations[:out_of_transaction_boundary]
+                    if out_of_transaction_boundary is not None
+                    else migrations
+                )
                 applied.extend(
                     await _apply_transactional_pending(
                         work_connection,
@@ -129,7 +133,11 @@ async def upgrade_schema(engine: AsyncEngine) -> SchemaUpgradeResult:
                     )
                 )
 
-            start = len(migrations) if first_online is None else first_online
+            start = (
+                out_of_transaction_boundary
+                if out_of_transaction_boundary is not None
+                else len(migrations)
+            )
             for migration in migrations[start:]:
                 if migration.migration_id in applied_history:
                     continue
@@ -539,12 +547,14 @@ def _legacy_baseline_id(migrations: tuple[_Migration, ...]) -> str:
     return matches[0]
 
 
-def _first_pending_nontransactional(
+def _first_pending_out_of_transaction(
     migrations: tuple[_Migration, ...],
     history: dict[str, str],
 ) -> int | None:
     for index, migration in enumerate(migrations):
-        if migration.migration_id not in history and not migration.transactional:
+        if migration.migration_id in history:
+            continue
+        if not migration.transactional or migration.migration_id in STAGED_MIGRATION_IDS:
             return index
     return None
 
@@ -561,6 +571,10 @@ async def _apply_transactional_pending(
         if not migration.transactional:
             raise RuntimeError(
                 f"Nontransactional migration entered transactional phase: {migration.migration_id}"
+            )
+        if migration.migration_id in STAGED_MIGRATION_IDS:
+            raise RuntimeError(
+                f"Staged migration entered transactional phase: {migration.migration_id}"
             )
         await _execute_transactional(connection, migration)
         await _record_migration(connection, migration, execution_kind="applied")
