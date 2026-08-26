@@ -153,9 +153,10 @@ def test_every_version_bearing_transit_column_uses_bigint() -> None:
     assert "CREATE UNIQUE INDEX CONCURRENTLY" in staged
     assert "UNIQUE USING INDEX" in staged
     assert "aggregate_version INTEGER" in (migrations / "0001_core_facts.sql").read_text()
-    assert "aggregate_version INTEGER" in (
-        migrations / "0035_projection_result_receipts.sql"
-    ).read_text()
+    assert (
+        "aggregate_version INTEGER"
+        in (migrations / "0035_projection_result_receipts.sql").read_text()
+    )
     assert isinstance(MemoryOutboxRow.__table__.c.aggregate_version.type, BigInteger)
     assert isinstance(
         MemoryProjectionResultReceiptRow.__table__.c.aggregate_version.type, BigInteger
@@ -197,9 +198,7 @@ def test_sqlalchemy_locator_bounds_match_migration_constraints() -> None:
         for constraint in MemoryChunkRow.__table__.constraints
         if getattr(constraint, "sqltext", None) is not None
     }
-    assert "BETWEEN 0 AND 2147483647" in constraints[
-        "ck_memory_chunks_retrieval_ordinal_range"
-    ]
+    assert "BETWEEN 0 AND 2147483647" in constraints["ck_memory_chunks_retrieval_ordinal_range"]
     relative = constraints["ck_memory_chunks_retrieval_relative_time_range"]
     assert "BETWEEN 0 AND 9007199254740991" in relative
     assert "BETWEEN retrieval_relative_start_ms AND 9007199254740991" in relative

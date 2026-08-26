@@ -73,19 +73,19 @@ async def _assert_seeded_upgrade(database_url: str) -> None:
             assert result.applied == (
                 "0039_locator_retrieval_attributes",
                 "0040_locator_profile_lifecycle",
-                    "0041_locator_profile_attestation_fence",
-                    "0042_locator_profile_retirement",
-                    "0043_locator_profile_transition_audit",
-                    "0044_locator_profile_operator_receipts",
-                    "0045_locator_profile_incremental_attestation",
-                    "0046_locator_profile_linearizable_fences",
-                    "0047_locator_runtime_supervisor_proofs",
-                    "0048_locator_lifecycle_release_identity",
-                    "0049_reconciliation_runtime_generation",
-                    "0050_locator_profile_outbox_transaction_coalescing",
-                    "0051_locator_profile_acl_search_path_hardening",
-                    "0052_document_scope_listing_indexes",
-                )
+                "0041_locator_profile_attestation_fence",
+                "0042_locator_profile_retirement",
+                "0043_locator_profile_transition_audit",
+                "0044_locator_profile_operator_receipts",
+                "0045_locator_profile_incremental_attestation",
+                "0046_locator_profile_linearizable_fences",
+                "0047_locator_runtime_supervisor_proofs",
+                "0048_locator_lifecycle_release_identity",
+                "0049_reconciliation_runtime_generation",
+                "0050_locator_profile_outbox_transaction_coalescing",
+                "0051_locator_profile_acl_search_path_hardening",
+                "0052_document_scope_listing_indexes",
+            )
             assert len(await build_locator_retrieval_indexes(engine)) == 4
             assert len(await build_locator_retrieval_indexes(engine)) == 4
             async with engine.begin() as connection:

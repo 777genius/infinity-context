@@ -12,15 +12,9 @@ import yaml
 
 ROOT = Path(__file__).resolve().parents[2]
 WORKFLOW_PATH = ROOT / ".github/workflows/typescript-sdk-release.yml"
-PUBLISH_HELPER = (
-    ROOT / "packages/infinity_context_ts_sdk/scripts/sdk-release-publish.sh"
-)
-RECEIPT_CLI = (
-    ROOT / "packages/infinity_context_ts_sdk/scripts/sdk-release-receipt.mjs"
-)
-MANIFEST_CLI = (
-    ROOT / "packages/infinity_context_ts_sdk/scripts/sdk-release-manifest.mjs"
-)
+PUBLISH_HELPER = ROOT / "packages/infinity_context_ts_sdk/scripts/sdk-release-publish.sh"
+RECEIPT_CLI = ROOT / "packages/infinity_context_ts_sdk/scripts/sdk-release-receipt.mjs"
+MANIFEST_CLI = ROOT / "packages/infinity_context_ts_sdk/scripts/sdk-release-manifest.mjs"
 ARTIFACT = "infinity-context-sdk-0.2.1.tgz"
 MANIFEST = "infinity-context-sdk-release-manifest.json"
 COMMIT = "a" * 40
@@ -63,9 +57,7 @@ def test_workflow_is_exact_tag_manual_only_and_actions_are_pinned() -> None:
 def test_exact_annotated_tag_workflow_sha_pack_once_and_two_assets_remain_bound() -> None:
     workflow = _workflow()
     resolve = _step_run("build", "Resolve protected annotated tag and repository policy")
-    source = _step_run(
-        "build", "Revalidate clean source, repository, tag, and package identity"
-    )
+    source = _step_run("build", "Revalidate clean source, repository, tag, and package identity")
     assert '"${EXECUTED_REF}" != "refs/tags/${SDK_TAG}"' in resolve
     assert "@refs/tags/${SDK_TAG}" in resolve
     assert '"${EXECUTED_WORKFLOW_SHA}" != "${commit}"' in resolve
@@ -74,7 +66,7 @@ def test_exact_annotated_tag_workflow_sha_pack_once_and_two_assets_remain_bound(
     assert workflow.count("npm pack --json") == 1
     assert "expected exactly one pack result" in workflow
     assert (
-        'node scripts/check-consumer-install.mjs --artifact '
+        "node scripts/check-consumer-install.mjs --artifact "
         '"${{ steps.pack.outputs.artifact_name }}"'
     ) in workflow
     assert workflow.count("find release-bundle -maxdepth 1 -type f") == 2
@@ -144,10 +136,14 @@ raise SystemExit(int(os.environ["FAKE_CURL_STATUS"]))
         }
     )
     result = subprocess.run(
-        ["bash", "-c", _step_run(
-            "policy_preflight",
-            "Read immutable-release policy with isolated administration token",
-        )],
+        [
+            "bash",
+            "-c",
+            _step_run(
+                "policy_preflight",
+                "Read immutable-release policy with isolated administration token",
+            ),
+        ],
         check=False,
         env=env,
         capture_output=True,
@@ -162,8 +158,7 @@ raise SystemExit(int(os.environ["FAKE_CURL_STATUS"]))
         assert "X-GitHub-Api-Version: 2026-03-10" in args
         assert f"Authorization: Bearer {token}" in args
         assert args[-1] == (
-            "https://api.github.com/repos/777genius/infinity-context/"
-            "immutable-releases"
+            "https://api.github.com/repos/777genius/infinity-context/immutable-releases"
         )
 
 
@@ -205,9 +200,7 @@ def _release(state: str, artifact_bytes: bytes, manifest_bytes: bytes) -> dict[s
         "draft": state == "draft",
         "prerelease": False,
         "immutable": state == "published",
-        "html_url": (
-            "https://github.com/777genius/infinity-context/releases/tag/sdk-v0.2.1"
-        ),
+        "html_url": ("https://github.com/777genius/infinity-context/releases/tag/sdk-v0.2.1"),
         "assets": [
             {
                 "id": 51,
@@ -225,7 +218,7 @@ def _release(state: str, artifact_bytes: bytes, manifest_bytes: bytes) -> dict[s
 
 
 def _fake_gh_source() -> str:
-    return r'''#!/usr/bin/env python3
+    return r"""#!/usr/bin/env python3
 import json, os, shutil, sys
 from pathlib import Path
 
@@ -282,7 +275,7 @@ elif args[:2] in (["release", "verify"], ["release", "verify-asset"]):
     if os.environ.get("FAKE_VERIFY_FAIL") == "true": raise SystemExit(1)
     print(os.environ["FAKE_ATTESTATION_JSON"])
 else: raise SystemExit(f"unexpected gh invocation: {args}")
-'''
+"""
 
 
 def _attestation(artifact_bytes: bytes, manifest_bytes: bytes) -> dict[str, object]:
@@ -394,9 +387,11 @@ def _run_helper(
 
 
 def _effects(calls: list[list[str]]) -> list[list[str]]:
-    return [call for call in calls if call[:2] in (
-        ["release", "create"], ["release", "upload"], ["release", "edit"]
-    )]
+    return [
+        call
+        for call in calls
+        if call[:2] in (["release", "create"], ["release", "upload"], ["release", "edit"])
+    ]
 
 
 def test_publish_executes_hostile_preconditions_before_each_effect(tmp_path: Path) -> None:
@@ -482,15 +477,24 @@ def _receipt_fixture(tmp_path: Path) -> tuple[list[str], Path, dict[str, object]
         )
     output = asset_dir / "infinity-context-sdk-release-verification-receipt.json"
     args = [
-        "node", str(RECEIPT_CLI),
-        "--asset-dir", str(asset_dir),
-        "--output", str(output),
-        "--output-root", str(asset_dir),
-        "--release-attestation-json", str(asset_dir / "release-attestation.json"),
-        "--release-commit", COMMIT,
-        "--release-json", str(asset_dir / "release.json"),
-        "--repository", "777genius/infinity-context",
-        "--tag", "sdk-v0.2.1",
+        "node",
+        str(RECEIPT_CLI),
+        "--asset-dir",
+        str(asset_dir),
+        "--output",
+        str(output),
+        "--output-root",
+        str(asset_dir),
+        "--release-attestation-json",
+        str(asset_dir / "release-attestation.json"),
+        "--release-commit",
+        COMMIT,
+        "--release-json",
+        str(asset_dir / "release.json"),
+        "--repository",
+        "777genius/infinity-context",
+        "--tag",
+        "sdk-v0.2.1",
     ]
     return args, output, attestation
 
@@ -541,8 +545,11 @@ def test_runbook_and_retention_contract() -> None:
 
 def test_release_files_do_not_reintroduce_service_quality_or_public_api_changes() -> None:
     for forbidden in (
-        "3x240", "human adjudication", "qualification manifest",
-        "service revision", "capability fingerprint",
+        "3x240",
+        "human adjudication",
+        "qualification manifest",
+        "service revision",
+        "capability fingerprint",
     ):
         assert forbidden not in _workflow().lower()
     assert not (ROOT / "scripts/verify_retrieval_v2_release_qualification.py").exists()

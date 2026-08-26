@@ -463,9 +463,7 @@ async def _assert_exact_recovery(database_url: str, qdrant_url: str) -> None:
         if "identity" in locals():
             from qdrant_client import AsyncQdrantClient
 
-            client = AsyncQdrantClient(
-                url=qdrant_url, timeout=10, trust_env=False
-            )
+            client = AsyncQdrantClient(url=qdrant_url, timeout=10, trust_env=False)
             try:
                 if await client.collection_exists(identity.collection_name):
                     await client.delete_collection(identity.collection_name)

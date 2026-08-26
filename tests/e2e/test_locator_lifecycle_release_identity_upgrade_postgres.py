@@ -15,8 +15,9 @@ from postgres_test_database import PostgresTestDatabase
 from sqlalchemy import text
 
 
-def test_release_identity_migration_rolls_back_failed_transaction_when_postgres_configured(
-) -> None:
+def test_release_identity_migration_rolls_back_failed_transaction_when_postgres_configured() -> (
+    None
+):
     database_url = os.getenv("INFINITY_CONTEXT_TEST_POSTGRES_URL")
     if not database_url:
         pytest.skip("disposable PostgreSQL is not configured")

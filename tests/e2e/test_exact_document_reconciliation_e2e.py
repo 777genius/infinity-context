@@ -19,9 +19,7 @@ def test_reconcile_before_retry_and_deleted_visibility_over_real_http(tmp_path: 
                 "/v1/memory-scopes",
                 json={"space_id": space["id"], "external_ref": "default", "name": "Default"},
             ).json()["data"]
-            capability = client.get("/v1/capabilities").json()["documents"][
-                "exact_reconciliation"
-            ]
+            capability = client.get("/v1/capabilities").json()["documents"]["exact_reconciliation"]
             assert capability["contract_version"] == "document-reconciliation.v1"
             ingest = client.post(
                 "/v1/documents",

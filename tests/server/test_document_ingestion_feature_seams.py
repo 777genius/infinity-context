@@ -100,9 +100,7 @@ class RecordingIngestDocument:
             draft=draft,
             now=datetime(2026, 1, 2, 3, 4, 5),
         )
-        chunk_draft = document_ingestion.ChunkingPolicy().plan_chunks(
-            draft.content.text
-        )[0]
+        chunk_draft = document_ingestion.ChunkingPolicy().plan_chunks(draft.content.text)[0]
         chunk = document_ingestion.DocumentChunk.from_draft(
             chunk_id="chunk_1",
             document_id=document.identity.document_id,
@@ -491,33 +489,30 @@ def test_document_ingestion_public_seam_maps_asset_api_responses() -> None:
         storage_key_reused=True,
         blob_written=False,
     )
-    job = (
-        AssetExtractionJob.create(
-            job_id=AssetExtractionJobId("extract_1"),
-            asset_id=MemoryAssetId("asset_1"),
-            space_id=SpaceId("space_1"),
-            memory_scope_id=MemoryScopeId("scope_1"),
-            thread_id=ThreadId("thread_1"),
-            parser_profile="standard_local",
-            parser_config_hash="hash",
-            source_sha256_hex="a" * 64,
-            metadata={
-                "usage_plan_tier": "free",
-                "usage_media_analysis_seconds_requested": "12",
-                "usage_reconciled": "true",
-            },
-            now=now,
-        )
-        .mark_failed(
-            now=now,
-            code="asset_extraction.provider_failed",
-            message=f"provider failed with {raw_secret}",
-            metadata={
-                "processing_stage": f"provider {raw_secret}",
-                "progress_message": f"provider token {raw_secret}",
-                "debug_message": f"Bearer {raw_secret}",
-            },
-        )
+    job = AssetExtractionJob.create(
+        job_id=AssetExtractionJobId("extract_1"),
+        asset_id=MemoryAssetId("asset_1"),
+        space_id=SpaceId("space_1"),
+        memory_scope_id=MemoryScopeId("scope_1"),
+        thread_id=ThreadId("thread_1"),
+        parser_profile="standard_local",
+        parser_config_hash="hash",
+        source_sha256_hex="a" * 64,
+        metadata={
+            "usage_plan_tier": "free",
+            "usage_media_analysis_seconds_requested": "12",
+            "usage_reconciled": "true",
+        },
+        now=now,
+    ).mark_failed(
+        now=now,
+        code="asset_extraction.provider_failed",
+        message=f"provider failed with {raw_secret}",
+        metadata={
+            "processing_stage": f"provider {raw_secret}",
+            "progress_message": f"provider token {raw_secret}",
+            "debug_message": f"Bearer {raw_secret}",
+        },
     )
     artifact = ExtractionArtifact.create(
         artifact_id=ExtractionArtifactId("artifact_1"),
@@ -531,9 +526,7 @@ def test_document_ingestion_public_seam_maps_asset_api_responses() -> None:
         metadata={"filename": "extracted.md", "api_key": raw_secret},
         now=now,
     )
-    quota_error = MemoryQuotaExceededError(
-        f"quota blocked by provider token {raw_secret}"
-    )
+    quota_error = MemoryQuotaExceededError(f"quota blocked by provider token {raw_secret}")
 
     asset_response = server_public.asset_to_response(asset)
     deduplication_response = server_public.deduplication_to_response(deduplication)
@@ -615,9 +608,9 @@ def test_document_ingestion_server_slice_uses_only_public_feature_boundaries() -
     for path in sorted(FEATURE_ROOT.rglob("*.py")):
         for imported in _imports(path):
             rel = path.relative_to(REPO_ROOT)
-            if imported.startswith(
-                "infinity_context_core.features."
-            ) and not imported.endswith(".public"):
+            if imported.startswith("infinity_context_core.features.") and not imported.endswith(
+                ".public"
+            ):
                 violations.append(f"{rel}: imports {imported}")
             if (
                 imported == "infinity_context_core"
@@ -657,9 +650,10 @@ def test_legacy_documents_api_delegates_ingest_mapping_to_public_server_seam() -
     for imported in imports:
         if imported.startswith("infinity_context_core.features.document_ingestion"):
             violations.append(f"imports {imported}")
-        if imported.startswith(
-            "infinity_context_server.features.document_ingestion."
-        ) and imported != "infinity_context_server.features.document_ingestion.public":
+        if (
+            imported.startswith("infinity_context_server.features.document_ingestion.")
+            and imported != "infinity_context_server.features.document_ingestion.public"
+        ):
             violations.append(f"imports {imported}")
 
     assert violations == []
@@ -695,9 +689,10 @@ def test_assets_api_delegates_response_mapping_to_public_server_seam() -> None:
 
     violations: list[str] = []
     for imported in imports:
-        if imported.startswith(
-            "infinity_context_server.features.document_ingestion."
-        ) and imported != "infinity_context_server.features.document_ingestion.public":
+        if (
+            imported.startswith("infinity_context_server.features.document_ingestion.")
+            and imported != "infinity_context_server.features.document_ingestion.public"
+        ):
             violations.append(f"imports {imported}")
 
     assert violations == []
@@ -710,10 +705,7 @@ def test_server_composition_uses_document_ingestion_adapter_composition_seam() -
         "from infinity_context_adapters.features import "
         "document_ingestion as document_ingestion_adapters"
     ) in source
-    assert (
-        "document_ingestion_adapters.create_document_ingestion_extraction_components("
-        in source
-    )
+    assert "document_ingestion_adapters.create_document_ingestion_extraction_components(" in source
     assert "detector=extraction_components.detector" in source
     assert "extractor=extraction_components.extractor" in source
     assert "SimpleFileTypeDetector" not in source

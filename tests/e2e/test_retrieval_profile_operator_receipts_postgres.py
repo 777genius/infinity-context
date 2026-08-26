@@ -63,9 +63,12 @@ async def _assert_durable_receipts(database_url: str) -> None:
             # The response is now considered lost. A freshly composed repository
             # must replay the exact durable JSON without executing another phase.
             restarted = PostgresRetrievalProfileRegistry(build_session_factory(engine))
-            assert await restarted.operator_receipt(
-                idempotency_key=key, request_fingerprint=fingerprint
-            ) == result
+            assert (
+                await restarted.operator_receipt(
+                    idempotency_key=key, request_fingerprint=fingerprint
+                )
+                == result
+            )
 
         with pytest.raises(RuntimeError, match="idempotency_conflict"):
             await registry.operator_receipt(
@@ -139,12 +142,14 @@ async def _assert_rebuild_crash_atomicity(registry, now, provenance) -> None:
             crash_after_checkpoint=crash,
         )
     assert await registry.backfill_cursor(identity.profile_id) is None
-    assert await registry.operator_receipt(
-        idempotency_key=key, request_fingerprint=fingerprint
-    ) is None
-    assert await registry.operator_rebuild_plan(
-        idempotency_key=key, request_fingerprint=fingerprint
-    ) == plan
+    assert (
+        await registry.operator_receipt(idempotency_key=key, request_fingerprint=fingerprint)
+        is None
+    )
+    assert (
+        await registry.operator_rebuild_plan(idempotency_key=key, request_fingerprint=fingerprint)
+        == plan
+    )
 
     committed = await registry.commit_operator_rebuild(
         identity.profile_id,
@@ -160,9 +165,10 @@ async def _assert_rebuild_crash_atomicity(registry, now, provenance) -> None:
     )
     assert committed == result
     assert await registry.backfill_cursor(identity.profile_id) == "cursor-after-page"
-    assert await registry.operator_receipt(
-        idempotency_key=key, request_fingerprint=fingerprint
-    ) == result
+    assert (
+        await registry.operator_receipt(idempotency_key=key, request_fingerprint=fingerprint)
+        == result
+    )
 
 
 def _provenance() -> dict[str, object]:
