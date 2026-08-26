@@ -45,6 +45,10 @@ async def _assert_cleanup_plan_upgrade(database_url: str) -> None:
                 "0036_memory_comparison_strict_v4_preparations",
                 "0037_strict_v4_fact_writer",
                 "0038_strict_v4_document_writer",
+                "0039_locator_retrieval_attributes",
+                "0040_locator_profile_lifecycle",
+                "0041_locator_profile_attestation_fence",
+                "0042_locator_profile_retirement",
             )
             await _assert_cleanup_plan_schema(engine)
             await _assert_projection_receipt_schema(engine)

@@ -5,6 +5,7 @@ from __future__ import annotations
 from datetime import datetime
 
 from sqlalchemy import (
+    BigInteger,
     CheckConstraint,
     DateTime,
     ForeignKey,
@@ -252,7 +253,7 @@ class MemoryProjectionResultReceiptRow(Base):
     thread_id: Mapped[str | None] = mapped_column(String(80), nullable=True)
     aggregate_type: Mapped[str] = mapped_column(String(80), nullable=False)
     aggregate_id: Mapped[str] = mapped_column(String(80), nullable=False)
-    aggregate_version: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    aggregate_version: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
     target_authority_sha256: Mapped[str] = mapped_column(String(64), nullable=False)
     worker_authority_sha256: Mapped[str] = mapped_column(String(64), nullable=False)
     outbox_event_commitment_sha256: Mapped[str] = mapped_column(String(64), nullable=False)

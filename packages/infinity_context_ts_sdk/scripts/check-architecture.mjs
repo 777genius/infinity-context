@@ -6,8 +6,8 @@ const packageRoot = new URL("..", import.meta.url);
 const packageRootPath = fileURLToPath(packageRoot);
 const sourceRoots = ["src", "scripts"];
 const sourceExtensions = new Set([".ts", ".mjs"]);
-const targetLines = parsePositiveInteger(process.env.INFINITY_CONTEXT_SDK_TARGET_LINES) ?? 1000;
-const hardCapLines = parsePositiveInteger(process.env.INFINITY_CONTEXT_SDK_HARD_CAP_LINES) ?? 2500;
+const targetLines = parsePositiveInteger(process.env.INFINITY_CONTEXT_SDK_TARGET_LINES) ?? 900;
+const hardCapLines = parsePositiveInteger(process.env.INFINITY_CONTEXT_SDK_HARD_CAP_LINES) ?? 1000;
 
 const files = [];
 for (const root of sourceRoots) {

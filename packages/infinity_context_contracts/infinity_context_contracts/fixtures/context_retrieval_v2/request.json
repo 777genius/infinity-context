@@ -1,0 +1,63 @@
+{
+  "contract_version": "context-retrieval.v2",
+  "capability_fingerprint": "522cf13b82d20b8cf8f37b6e9fb3f4dc5752e24c9802c35b0f2fc30482083fae",
+  "profile_id": "locator-v2-pairs-relative-22222222",
+  "scope": {
+    "space_id": "space-a",
+    "memory_scope_id": "scope-a",
+    "thread_id": null
+  },
+  "queries": [
+    {
+      "query_id": "q1",
+      "query": "approved launch decision",
+      "weight_micros": 1000000
+    }
+  ],
+  "filters": {
+    "source_generations": [
+      {
+        "source_key": "source-family-a",
+        "projection_generation": "generation-a-42"
+      },
+      {
+        "source_key": "source-family-b",
+        "projection_generation": "generation-b-7"
+      }
+    ],
+    "excluded_source_keys": [],
+    "document_keys": [],
+    "kinds": ["record_block"],
+    "category": "decision",
+    "tags_any": ["approved"],
+    "tags_all": [],
+    "tags_none": ["draft"],
+    "actor_keys": ["actor-a"],
+    "time_interval": null,
+    "relative_time_interval": {
+      "start_ms": 420000,
+      "end_ms": 480000
+    }
+  },
+  "soft_preferences": {
+    "source_preferences": [
+      {"key": "source-family-a", "weight_micros": 1000000}
+    ],
+    "actor_preferences": [
+      {"key": "actor-a", "weight_micros": 1000000}
+    ],
+    "time_interval": null,
+    "relative_time_interval": {
+      "start_ms": 420000,
+      "end_ms": 480000
+    },
+    "time_weight_micros": 1000000
+  },
+  "bounds": {
+    "candidate_limit": 100,
+    "result_limit": 10,
+    "neighbor_radius": 1,
+    "response_byte_limit": 16384,
+    "deadline_ms": 900
+  }
+}

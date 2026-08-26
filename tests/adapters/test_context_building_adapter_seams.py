@@ -8,7 +8,6 @@ import importlib
 import sys
 from pathlib import Path
 
-import pytest
 from infinity_context_core.features.context_building.public import (
     FEATURE_ID,
     BuildContextHandler,
@@ -311,35 +310,32 @@ def test_postgres_candidate_provider_exposes_only_canonical_versioned_hits() -> 
     assert not hasattr(provider, "find_candidates")
 
 
-def test_placeholder_candidate_providers_are_explicit_deferred_seams() -> None:
+def test_graphiti_candidate_provider_is_versioned_bounded_and_locator_only() -> None:
     request = _request()
-    placeholders = (
-        (
-            "qdrant_candidate_provider",
-            "QdrantContextCandidateProvider",
-            "create_qdrant_context_candidate_provider",
-            "Qdrant RAG wiring is deferred",
-        ),
-        (
-            "graphiti_candidate_provider",
-            "GraphitiContextCandidateProvider",
-            "create_graphiti_context_candidate_provider",
-            "Graphiti graph recall wiring is deferred",
-        ),
+    module = importlib.import_module(
+        "infinity_context_adapters.features.context_building.graphiti_candidate_provider"
     )
+    lookup = _StaticGraphitiPointerLookup(module)
+    provider = module.create_graphiti_context_candidate_provider(lookup=lookup)
 
-    for module_name, class_name, factory_name, message in placeholders:
-        module = importlib.import_module(
-            f"infinity_context_adapters.features.context_building.{module_name}"
-        )
-        provider = getattr(module, class_name)()
-        factory_provider = getattr(module, factory_name)()
+    hits = asyncio.run(provider.find_candidate_hits(request))
 
-        assert provider.feature_id == FEATURE_ID
-        assert factory_provider.feature_id == FEATURE_ID
-        assert not hasattr(provider, "find_candidates")
-        with pytest.raises(NotImplementedError, match=message):
-            asyncio.run(provider.find_candidate_hits(request))
+    assert provider.feature_id == FEATURE_ID
+    assert not hasattr(provider, "find_candidates")
+    assert lookup.requests == [request]
+    assert tuple(
+        (hit.canonical_id, hit.canonical_version, hit.provider_id, hit.rank) for hit in hits
+    ) == (("fact-graph-1", 4, "graphiti", 1),)
+
+
+class _StaticGraphitiPointerLookup:
+    def __init__(self, module) -> None:
+        self._module = module
+        self.requests = []
+
+    async def find_candidate_pointers(self, request):
+        self.requests.append(request)
+        return (self._module.GraphitiCandidatePointer("fact-graph-1", 4, 1),)
 
 
 class _StaticProvider:

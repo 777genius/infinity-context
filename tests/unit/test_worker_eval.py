@@ -1305,9 +1305,7 @@ def test_quality_golden_eval_passes() -> None:
     assert result["metrics"]["required_case_coverage_rate"] == 1.0
     assert result["gates"]["missing_required_case_count"] is True
     assert result["gates"]["required_case_coverage_rate"] is True
-    assert result["metrics"]["memory_ability_count"] == len(
-        QUALITY_GOLDEN_MEMORY_ABILITY_CASE_IDS
-    )
+    assert result["metrics"]["memory_ability_count"] == len(QUALITY_GOLDEN_MEMORY_ABILITY_CASE_IDS)
     assert result["metrics"]["memory_ability_coverage_rate"] == 1.0
     assert result["metrics"]["missing_memory_ability_cases"] == {}
     assert result["metrics"]["failed_memory_ability_cases"] == {}
@@ -1530,9 +1528,7 @@ def test_semantic_linking_golden_eval_passes(tmp_path: Path) -> None:
     assert result["metrics"]["mentions_relation_policy_safety"] == 1.0
     assert result["metrics"]["false_positive_count"] == 0
     assert result["metrics"]["cross_scope_leak_count"] == 0
-    assert set(SEMANTIC_LINKING_REQUIRED_CASE_IDS) <= {
-        case["case_id"] for case in result["cases"]
-    }
+    assert set(SEMANTIC_LINKING_REQUIRED_CASE_IDS) <= {case["case_id"] for case in result["cases"]}
     assert payload["suite"] == "semantic-linking-golden"
     assert "Project Atlas" not in report_text
     assert "invoice threshold" not in report_text
@@ -1574,9 +1570,7 @@ def test_long_memory_golden_eval_passes() -> None:
     assert result["gates"]["memory_ability_coverage_rate"] is True
     assert result["gates"]["missing_memory_ability_cases"] is True
     assert result["gates"]["failed_memory_ability_cases"] is True
-    assert set(LONG_MEMORY_REQUIRED_CASE_IDS) <= {
-        case["case_id"] for case in result["cases"]
-    }
+    assert set(LONG_MEMORY_REQUIRED_CASE_IDS) <= {case["case_id"] for case in result["cases"]}
     assert result["metrics"]["recall_at_5"] >= 0.95
     assert result["metrics"]["precision_at_5"] >= 0.90
     assert result["metrics"]["multi_session_recall_at_5"] == 1.0

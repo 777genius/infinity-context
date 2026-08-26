@@ -13,8 +13,6 @@ from infinity_context_core.domain.entities import (
     MemorySuggestion,
 )
 from infinity_context_core.domain.errors import MemoryConflictError
-from infinity_context_core.domain.events import OutboxEvent
-from infinity_context_core.domain.idempotency import IdempotencyRecord
 from infinity_context_core.ports.captures import CaptureRepositoryPort
 from infinity_context_core.ports.repositories import (
     ActiveAnchorKey,
@@ -24,11 +22,9 @@ from infinity_context_core.ports.repositories import (
     ChunkRepositoryPort,
     DocumentRepositoryPort,
     EpisodeRepositoryPort,
-    IdempotencyRepositoryPort,
     SuggestionRepositoryPort,
     UpsertChunkResult,
 )
-from infinity_context_core.ports.unit_of_work import OutboxPort
 from sqlalchemy import case, func, or_, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -62,9 +58,14 @@ from infinity_context_adapters.postgres.models import (
     MemoryChunkRow,
     MemoryDocumentRow,
     MemoryEpisodeRow,
-    MemoryIdempotencyRecordRow,
-    MemoryOutboxRow,
+    MemoryLocatorProjectionTombstoneRow,
     MemorySuggestionRow,
+)
+from infinity_context_adapters.postgres.record_repositories import (
+    PostgresIdempotencyRepository as PostgresIdempotencyRepository,
+)
+from infinity_context_adapters.postgres.record_repositories import (
+    PostgresOutbox as PostgresOutbox,
 )
 from infinity_context_adapters.postgres.repository_helpers import (
     _canonical_chunk_visibility_conditions,
@@ -106,9 +107,7 @@ def _keyword_search_statement(
             MemoryChunkRow.id.asc(),
         )
     else:
-        statement = statement.order_by(
-            MemoryChunkRow.created_at.desc(), MemoryChunkRow.id.desc()
-        )
+        statement = statement.order_by(MemoryChunkRow.created_at.desc(), MemoryChunkRow.id.desc())
     return statement.limit(_retrieval_candidate_limit(limit)), terms
 
 
@@ -273,6 +272,7 @@ class PostgresDocumentRepository(DocumentRepositoryPort):
             MemoryDocumentRow.memory_scope_id == memory_scope_id,
             MemoryDocumentRow.content_hash == content_hash,
             MemoryDocumentRow.status == "active",
+            MemoryDocumentRow.retrieval_projected.is_(False),
         ]
         if thread_id is None:
             conditions.append(MemoryDocumentRow.thread_id.is_(None))
@@ -374,7 +374,19 @@ class PostgresDocumentRepository(DocumentRepositoryPort):
         deleted_chunk_ids = tuple(row.id for row in chunk_rows)
         for row in chunk_rows:
             row.status = "deleted"
+            row.retrieval_version += 1
             row.updated_at = now
+            if self._session.bind is not None and self._session.bind.dialect.name != "postgresql":
+                self._session.add(
+                    MemoryLocatorProjectionTombstoneRow(
+                        chunk_id=row.id,
+                        canonical_version=row.retrieval_version,
+                        legacy_deleted_at=None,
+                        locator_deleted_at=None,
+                        created_at=now,
+                        updated_at=now,
+                    )
+                )
         if document.status != "deleted":
             document.status = "deleted"
             document.updated_at = now
@@ -503,9 +515,7 @@ class PostgresChunkRepository(ChunkRepositoryPort):
     ) -> list[MemoryChunk]:
         groups = tuple(
             dict.fromkeys(
-                group.strip()
-                for group in source_external_id_groups
-                if group and group.strip()
+                group.strip() for group in source_external_id_groups if group and group.strip()
             )
         )
         if limit <= 0 or not groups:
@@ -563,9 +573,7 @@ class PostgresChunkRepository(ChunkRepositoryPort):
             query=query,
             limit=limit,
         )
-        rows = list(
-            (await self._session.execute(statement)).scalars()
-        )
+        rows = list((await self._session.execute(statement)).scalars())
         if terms:
             scored_rows = [
                 (score, index, row)
@@ -842,65 +850,4 @@ class PostgresSuggestionRepository(SuggestionRepositoryPort):
                     select(func.count()).select_from(MemorySuggestionRow).where(*conditions)
                 )
             ).scalar_one()
-        )
-
-
-class PostgresIdempotencyRepository(IdempotencyRepositoryPort):
-    def __init__(self, session: AsyncSession, now: datetime) -> None:
-        self._session = session
-        self._now = now
-
-    async def find(self, *, space_id: str, key: str) -> IdempotencyRecord | None:
-        row = (
-            await self._session.execute(
-                select(MemoryIdempotencyRecordRow).where(
-                    MemoryIdempotencyRecordRow.space_id == space_id,
-                    MemoryIdempotencyRecordRow.key == key,
-                )
-            )
-        ).scalar_one_or_none()
-        if row is None:
-            return None
-        return IdempotencyRecord(
-            space_id=row.space_id,
-            key=row.key,
-            fingerprint=row.fingerprint,
-            result_type=row.result_type,
-            result_id=row.result_id,
-        )
-
-    async def save(self, record: IdempotencyRecord) -> None:
-        self._session.add(
-            MemoryIdempotencyRecordRow(
-                space_id=record.space_id,
-                key=record.key,
-                fingerprint=record.fingerprint,
-                result_type=record.result_type,
-                result_id=record.result_id,
-                created_at=self._now,
-            )
-        )
-
-
-class PostgresOutbox(OutboxPort):
-    def __init__(self, session: AsyncSession, now: datetime) -> None:
-        self._session = session
-        self._now = now
-
-    async def enqueue(self, event: OutboxEvent) -> None:
-        self._session.add(
-            MemoryOutboxRow(
-                event_type=event.event_type,
-                aggregate_type=event.aggregate_type,
-                aggregate_id=event.aggregate_id,
-                aggregate_version=event.aggregate_version,
-                workload_class=event.workload_class,
-                fairness_key=event.fairness_key or f"{event.aggregate_type}:{event.aggregate_id}",
-                payload_json=event.payload,
-                status="pending",
-                attempt_count=0,
-                next_attempt_at=self._now,
-                created_at=self._now,
-                updated_at=self._now,
-            )
         )

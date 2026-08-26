@@ -2,6 +2,8 @@ import { describe, expect, it } from "vitest";
 import {
   InfinityContextClient,
   InfinityContextError,
+  FetchTransport,
+  HttpClient,
   parseRetryAfterMs,
 } from "../src/index.js";
 import {
@@ -12,6 +14,107 @@ import {
 } from "./fixtures.js";
 
 describe("transport, retry and errors", () => {
+  it("stops bounded byte responses before buffering beyond the limit", async () => {
+    const fetchLike = (async () => new Response("x".repeat(33))) as typeof fetch;
+    const transport = new FetchTransport(fetchLike);
+    await expect(transport.send({
+      method: "GET", url: new URL("http://memory.test/bounded"), headers: new Headers(),
+      responseType: "bytes", maxResponseBytes: 32,
+    })).rejects.toMatchObject({
+      code: "memory.response_byte_limit_exceeded", statusCode: 200, retryable: false,
+    });
+
+    const exact = await transport.send({
+      method: "GET", url: new URL("http://memory.test/bounded"), headers: new Headers(),
+      responseType: "bytes", maxResponseBytes: 33,
+    });
+    expect(exact.body).toBeInstanceOf(Uint8Array);
+    expect((exact.body as Uint8Array).byteLength).toBe(33);
+  });
+
+  it.each([
+    ["never settles", () => new Promise<void>(() => undefined)],
+    ["rejects", () => Promise.reject(new Error("cancel failed"))],
+  ] as const)("settles the typed byte-limit error promptly when reader cancellation %s", async (_name, cancel) => {
+    let cancelCalls = 0;
+    const fetchLike = (async () => new Response(new ReadableStream<Uint8Array>({
+      start(controller) {
+        controller.enqueue(new Uint8Array(33));
+      },
+      cancel() {
+        cancelCalls += 1;
+        return cancel();
+      },
+    }), { status: 403, headers: { "x-request-id": "request-cancel" } })) as typeof fetch;
+    const transport = new FetchTransport(fetchLike);
+    let timeout: ReturnType<typeof setTimeout> | undefined;
+    const outcome = await Promise.race([
+      transport.send({
+        method: "GET", url: new URL("http://memory.test/bounded"), headers: new Headers(),
+        responseType: "bytes", maxResponseBytes: 32,
+      }).then(
+        () => ({ kind: "resolved" as const }),
+        (error: unknown) => ({ kind: "rejected" as const, error }),
+      ),
+      new Promise<{ readonly kind: "timeout" }>((resolve) => {
+        timeout = setTimeout(() => resolve({ kind: "timeout" }), 100);
+      }),
+    ]);
+    if (timeout !== undefined) clearTimeout(timeout);
+
+    expect(outcome.kind).toBe("rejected");
+    expect(outcome).toMatchObject({
+      error: {
+        code: "memory.response_byte_limit_exceeded", statusCode: 403,
+        requestId: "request-cancel", retryable: false,
+      },
+    });
+    expect(cancelCalls).toBe(1);
+  });
+
+  it.each([
+    [403, "request-403"],
+    [200, "request-200"],
+  ] as const)("preserves oversized HTTP %s identity without guessing a hidden server code", async (status, requestId) => {
+    const hidden = JSON.stringify({
+      error: { code: "memory.hidden_after_bound", message: "must not be parsed", retryable: true },
+      padding: "x".repeat(128),
+    });
+    let calls = 0;
+    const fetchLike = (async () => {
+      calls += 1;
+      return new Response(hidden, { status, headers: { "x-request-id": requestId } });
+    }) as typeof fetch;
+    const client = new HttpClient({
+      transport: new FetchTransport(fetchLike),
+      retryPolicy: { maxAttempts: 2 },
+    });
+
+    await expect(client.request({
+      method: "GET", path: "/bounded",
+      responseType: "bytes", maxResponseBytes: 32,
+    })).rejects.toMatchObject({
+      code: "memory.response_byte_limit_exceeded",
+      statusCode: status,
+      requestId,
+      retryable: false,
+    });
+    expect(calls).toBe(1);
+  });
+
+  it("retains an exact normal-sized 403 server error code and non-retryable semantics", async () => {
+    const transport = new RecordingTransport([
+      jsonResponse({ error: { code: "memory.denied", message: "denied", retryable: false } }, 403, {
+        "x-request-id": "request-denied",
+      }),
+    ]);
+    const client = new InfinityContextClient({ transport, retryPolicy: { maxAttempts: 2 } });
+    await expect(client.system.capabilities()).rejects.toMatchObject({
+      code: "memory.denied", statusCode: 403, requestId: "request-denied", retryable: false,
+    });
+    expect(transport.requests).toHaveLength(1);
+  });
+
   it("sends auth, params and idempotency headers through resource clients", async () => {
     const transport = new RecordingTransport([jsonResponse({ data: { id: "fact_1" } })]);
     const client = new InfinityContextClient({

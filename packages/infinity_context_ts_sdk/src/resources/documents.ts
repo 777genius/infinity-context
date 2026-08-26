@@ -7,6 +7,11 @@ import {
 } from "../pagination.js";
 import { scopeQuery, singleScopePayload, withoutUndefined, type SingleScopeInput } from "../payload.js";
 import type { ApiEnvelope, DocumentRecord, JsonObject, SourceRef } from "../types.js";
+import {
+  documentRetrievalProjectionV1Payload,
+  type DocumentRetrievalProjectionV1Input,
+} from "../document-retrieval-projection.js";
+import { contextRetrievalV2ErrorDecoder } from "../retrieval-v2-errors.js";
 
 export interface ListDocumentChunksInput extends RequestControls {
   readonly limit?: number;
@@ -21,6 +26,7 @@ export interface IngestDocumentInput extends SingleScopeInput, RequestControls {
   readonly classification?: string;
   readonly sourceRefs?: readonly SourceRef[];
   readonly idempotencyKey?: string;
+  readonly retrievalProjection?: DocumentRetrievalProjectionV1Input | null;
 }
 
 export interface IngestEpisodeInput extends SingleScopeInput, RequestControls {
@@ -52,6 +58,10 @@ export class DocumentsClient {
       method: "POST",
       path: "/v1/documents",
       idempotencyKey: input.idempotencyKey,
+      ...(input.retrievalProjection == null ? {} : {
+        maxErrorResponseBytes: 1_048_576,
+        errorDecoder: contextRetrievalV2ErrorDecoder(1_048_576),
+      }),
       ...requestControls(input),
       json: withoutUndefined({
         ...singleScopePayload(input),
@@ -61,6 +71,9 @@ export class DocumentsClient {
         source_external_id: input.sourceExternalId,
         classification: input.classification ?? "unknown",
         source_refs: input.sourceRefs,
+        retrieval_projection: input.retrievalProjection == null
+          ? undefined
+          : documentRetrievalProjectionV1Payload(input.retrievalProjection),
       }) as JsonObject,
     });
   }

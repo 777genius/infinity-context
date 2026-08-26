@@ -369,6 +369,7 @@ class MemoryDocumentRow(Base):
     content_hash: Mapped[str] = mapped_column(String(80), nullable=False)
     classification: Mapped[str] = mapped_column(String(40), nullable=False, default="unknown")
     status: Mapped[str] = mapped_column(String(40), nullable=False, default="active")
+    retrieval_projected: Mapped[bool] = mapped_column(nullable=False, default=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     __table_args__ = (
@@ -378,8 +379,12 @@ class MemoryDocumentRow(Base):
             "memory_scope_id",
             "content_hash",
             unique=True,
-            sqlite_where=thread_id.is_(None) & (status != "deleted"),
-            postgresql_where=thread_id.is_(None) & (status != "deleted"),
+            sqlite_where=thread_id.is_(None)
+            & (status != "deleted")
+            & retrieval_projected.is_(False),
+            postgresql_where=thread_id.is_(None)
+            & (status != "deleted")
+            & retrieval_projected.is_(False),
         ),
         Index(
             "uq_document_content_hash_thread",
@@ -388,8 +393,12 @@ class MemoryDocumentRow(Base):
             "thread_id",
             "content_hash",
             unique=True,
-            sqlite_where=thread_id.is_not(None) & (status != "deleted"),
-            postgresql_where=thread_id.is_not(None) & (status != "deleted"),
+            sqlite_where=thread_id.is_not(None)
+            & (status != "deleted")
+            & retrieval_projected.is_(False),
+            postgresql_where=thread_id.is_not(None)
+            & (status != "deleted")
+            & retrieval_projected.is_(False),
         ),
         Index("ix_memory_documents_scope_status", "space_id", "memory_scope_id", "status"),
     )
@@ -498,40 +507,6 @@ class MemoryAssetExtractionArtifactRow(Base):
     byte_size: Mapped[int] = mapped_column(Integer, nullable=False)
     metadata_json: Mapped[dict[str, object]] = mapped_column(json_type(), nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
-
-
-class MemoryChunkRow(Base):
-    __tablename__ = "memory_chunks"
-    __table_args__ = (
-        UniqueConstraint("space_id", "memory_scope_id", "source_hash", name="uq_chunk_source_hash"),
-        CheckConstraint(
-            "(document_id IS NOT NULL) <> (episode_id IS NOT NULL)", name="ck_chunk_owner"
-        ),
-        Index("ix_memory_chunks_scope_status", "space_id", "memory_scope_id", "status"),
-        Index("ix_memory_chunks_thread_status", "thread_id", "status"),
-        Index("ix_memory_chunks_document", "document_id", "status", "sequence"),
-    )
-    id: Mapped[str] = mapped_column(String(80), primary_key=True)
-    space_id: Mapped[str] = mapped_column(String(80), nullable=False)
-    memory_scope_id: Mapped[str] = mapped_column(String(80), nullable=False)
-    thread_id: Mapped[str | None] = mapped_column(String(80), nullable=True)
-    document_id: Mapped[str | None] = mapped_column(String(80), nullable=True)
-    episode_id: Mapped[str | None] = mapped_column(String(80), nullable=True)
-    source_type: Mapped[str] = mapped_column(String(80), nullable=False)
-    source_external_id: Mapped[str] = mapped_column(String(240), nullable=False)
-    source_hash: Mapped[str] = mapped_column(String(80), nullable=False)
-    kind: Mapped[str] = mapped_column(String(80), nullable=False)
-    text: Mapped[str] = mapped_column(Text, nullable=False)
-    normalized_text: Mapped[str] = mapped_column(Text, nullable=False)
-    status: Mapped[str] = mapped_column(String(40), nullable=False, default="active")
-    sequence: Mapped[int] = mapped_column(Integer, nullable=False)
-    char_start: Mapped[int] = mapped_column(Integer, nullable=False)
-    char_end: Mapped[int] = mapped_column(Integer, nullable=False)
-    token_estimate: Mapped[int] = mapped_column(Integer, nullable=False)
-    classification: Mapped[str] = mapped_column(String(40), nullable=False, default="unknown")
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
-    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
-    metadata_json: Mapped[dict[str, object]] = mapped_column(json_type(), nullable=False)
 
 
 class MemorySourceRefRow(Base):
@@ -876,6 +851,30 @@ class MemoryIdempotencyRecordRow(Base):
 # Imported last to preserve the legacy public model surface.
 from infinity_context_adapters.postgres.benchmark_run_models import (  # noqa: E402
     MemoryComparisonBenchmarkRunRow,  # noqa: F401
+)
+from infinity_context_adapters.postgres.locator_models import (  # noqa: E402
+    MemoryChunkRow,  # noqa: F401
+    MemoryDocumentProjectionReceiptRow,  # noqa: F401
+    MemoryLocatorProfileAttestationCheckpointRow,  # noqa: F401
+    MemoryLocatorProfileAttestationPageRow,  # noqa: F401
+    MemoryLocatorProfileCleanupRow,  # noqa: F401
+    MemoryLocatorProfileEvidenceVersionRow,  # noqa: F401
+    MemoryLocatorProfileLaneRow,  # noqa: F401
+    MemoryLocatorProfileMaintenanceFenceRow,  # noqa: F401
+    MemoryLocatorProfileOperatorOperationRow,  # noqa: F401
+    MemoryLocatorProfileOperatorRebuildRow,  # noqa: F401
+    MemoryLocatorProfileOperatorReceiptRow,  # noqa: F401
+    MemoryLocatorProfileProjectionReceiptRow,  # noqa: F401
+    MemoryLocatorProfileProviderMutationRow,  # noqa: F401
+    MemoryLocatorProfileQueryRow,  # noqa: F401
+    MemoryLocatorProfileReconciliationOperationRow,  # noqa: F401
+    MemoryLocatorProfileRecoveryReceiptRow,  # noqa: F401
+    MemoryLocatorProfileRow,  # noqa: F401
+    MemoryLocatorProfileTombstoneRow,  # noqa: F401
+    MemoryLocatorProfileTransitionAuditRow,  # noqa: F401
+    MemoryLocatorProjectionTombstoneRow,  # noqa: F401
+    MemoryLocatorProviderReconciliationReceiptRow,  # noqa: F401
+    MemoryLocatorRuntimeIncarnationRow,  # noqa: F401
 )
 from infinity_context_adapters.postgres.outbox_models import (  # noqa: E402
     MemoryOutboxRow,  # noqa: F401

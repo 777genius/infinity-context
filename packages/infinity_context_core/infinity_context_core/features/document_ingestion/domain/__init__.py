@@ -15,10 +15,21 @@ from infinity_context_core.features.document_ingestion.domain.errors import (
     DocumentIngestionError,
     DocumentIngestionInvariantError,
     DocumentIngestionValidationError,
+    DocumentProjectionConflictError,
+    DocumentProjectionIdempotencyConflictError,
+    DocumentProjectionInvalidError,
+    DocumentProjectionLocatorConflictError,
+    DocumentProjectionOrdinalConflictError,
 )
 from infinity_context_core.features.document_ingestion.domain.feature import (
     FEATURE_ID,
     DocumentIngestionFeature,
+)
+from infinity_context_core.features.document_ingestion.domain.retrieval_projection import (
+    DOCUMENT_RETRIEVAL_PROJECTION_SCHEMA_V1,
+    DocumentRetrievalProjectionRelativeTimeIntervalV1,
+    DocumentRetrievalProjectionTimeIntervalV1,
+    DocumentRetrievalProjectionV1,
 )
 from infinity_context_core.features.document_ingestion.domain.source_document import (
     DocumentIngestionScope,
@@ -46,6 +57,15 @@ __all__ = (
     "DocumentIngestionInvariantError",
     "DocumentIngestionScope",
     "DocumentIngestionValidationError",
+    "DOCUMENT_RETRIEVAL_PROJECTION_SCHEMA_V1",
+    "DocumentProjectionConflictError",
+    "DocumentProjectionIdempotencyConflictError",
+    "DocumentProjectionInvalidError",
+    "DocumentProjectionLocatorConflictError",
+    "DocumentProjectionOrdinalConflictError",
+    "DocumentRetrievalProjectionTimeIntervalV1",
+    "DocumentRetrievalProjectionRelativeTimeIntervalV1",
+    "DocumentRetrievalProjectionV1",
     "DocumentTextRange",
     "FEATURE_ID",
     "SourceDocument",

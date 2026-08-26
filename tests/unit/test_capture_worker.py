@@ -70,6 +70,8 @@ def test_outbox_event_dispatcher_registry_is_owned_by_process_boundary() -> None
         "vector.upsert_chunk",
         "vector.upsert_chunks",
         "vector.delete_chunks",
+        "vector.upsert_locator_profile",
+        "vector.delete_locator_profile",
         "graph.upsert_fact",
         "graph.delete_fact",
         "cognee.ingest_document",
@@ -127,7 +129,6 @@ def test_capture_outbox_worker_creates_suggestion(tmp_path: Path) -> None:
             },
             headers=headers,
         )
-
     assert processed >= 1
     assert suggestions.status_code == 200
     assert "CAPTURE_WORKER_MARKER" in suggestions.text
@@ -164,7 +165,6 @@ def test_capture_outbox_retry_recovers_stuck_running_capture(tmp_path: Path) -> 
             headers=headers,
         )
         capture_id = created.json()["data"]["id"]
-
         async def simulate_recovered_outbox_retry() -> None:
             now = client.app.state.container.clock.now()
             async with client.app.state.container.uow_factory() as uow:

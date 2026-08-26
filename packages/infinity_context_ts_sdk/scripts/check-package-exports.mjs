@@ -10,6 +10,24 @@ const packageJson = JSON.parse(await readFile(new URL("../package.json", import.
 
 const expectedExports = [
   ["@infinity-context/sdk", "InfinityContextClient"],
+  ["@infinity-context/sdk", "assertContextRetrievalCapabilityV2"],
+  ["@infinity-context/sdk", "CONTEXT_RETRIEVAL_CONTRACT_V2"],
+  ["@infinity-context/sdk", "CONTEXT_RETRIEVAL_RANKING_POLICY_V2"],
+  ["@infinity-context/sdk", "decodeRetrieveContextV2Response"],
+  ["@infinity-context/sdk", "decodeRetrieveContextV2ResponseBytes"],
+  ["@infinity-context/sdk", "decodeContextRetrievalCapabilityV2"],
+  ["@infinity-context/sdk", "decodeContextRetrievalCapabilityV2Bytes"],
+  ["@infinity-context/sdk", "decodeContextRetrievalCapabilitiesResponseBytes"],
+  ["@infinity-context/sdk", "canonicalContextRetrievalCapabilityV2Bytes"],
+  ["@infinity-context/sdk", "contextRetrievalCapabilityV2Fingerprint"],
+  ["@infinity-context/sdk", "verifyContextRetrievalCapabilityV2Fingerprint"],
+  ["@infinity-context/sdk", "CONTEXT_RETRIEVAL_V2_ERROR_SPECS"],
+  ["@infinity-context/sdk", "contextRetrievalV2ErrorDecoder"],
+  ["@infinity-context/sdk", "decodeContextRetrievalV2Error"],
+  ["@infinity-context/sdk", "DOCUMENT_RETRIEVAL_PROJECTION_SCHEMA_V1"],
+  ["@infinity-context/sdk", "documentRetrievalProjectionV1Payload"],
+  ["@infinity-context/sdk", "retrievalV2RequestPayload"],
+  ["@infinity-context/sdk", "validateContextRetrievalPreflightV2"],
   ["@infinity-context/sdk/instrumentation", "noopInstrumentation"],
   ["@infinity-context/sdk/pagination", "iterateCursorItems"],
   ["@infinity-context/sdk/runtime", "assertFullMemoryReady"],
@@ -17,10 +35,31 @@ const expectedExports = [
   ["@infinity-context/sdk/proof", "runFullMemoryProof"],
   ["@infinity-context/sdk/workflows", "MemoryWorkflows"],
 ];
+const expectedTypeExports = [
+  "ContextRetrievalCapabilityV2", "ContextRetrievalV2ErrorCode",
+  "DocumentRetrievalProjectionRelativeTimeIntervalV1Input",
+  "DocumentRetrievalProjectionTimeIntervalV1Input", "DocumentRetrievalProjectionV1Input",
+  "RequiredContextRetrievalCapabilityV2", "RetrievalV2AppliedBounds", "RetrievalV2BoundsInput",
+  "RetrievalV2Candidate", "RetrievalV2CapabilityBounds", "RetrievalV2CapabilityProviderLane",
+  "RetrievalV2Contribution", "RetrievalV2DegradationReasonCode", "RetrievalV2HardFiltersInput",
+  "RetrievalV2HardFilterSignal", "RetrievalV2Neighbor", "RetrievalV2ProviderOutcome",
+  "RetrievalV2ProviderReasonCode", "RetrievalV2ProviderStatus", "RetrievalV2QueryInput",
+  "RetrievalV2RankingParameters", "RetrievalV2RawScoreKind", "RetrievalV2RelativeTimeIntervalInput", "RetrievalV2ScopeInput",
+  "RetrievalV2SoftPreferencesInput", "RetrievalV2SoftPreferenceSignal",
+  "RetrievalV2SourceGenerationInput", "RetrievalV2TimeIntervalInput", "RetrievalV2WeightedKeyInput",
+  "RetrieveContextV2Input", "RetrieveContextV2Response",
+  "BenchmarkSearchInput", "ResolveCodeRepositoryInput", "RegisterCodeScopeInput",
+  "ObserveDerivedPresenceInput", "DeleteQdrantEvidenceInput", "DeleteGraphitiEvidenceInput",
+  "ConfirmFactInput", "EndFactValidityInput", "SupersedeFactInput", "DisputeFactInput",
+  "ReinstateSupersessionInput", "RegisterMemoryComparisonRunInput", "CleanupTargetAuthorityInput",
+  "SealProjectionManifestInput", "CleanupMemoryComparisonRunInput",
+  "FinalizeMemoryComparisonCleanupInput", "FinalizeMemoryComparisonAbortInput",
+];
 const expectedBins = [
   ["infinity-context-full-memory-proof", "scripts/full-memory-proof.mjs"],
   ["infinity-context-runtime-canary", "scripts/runtime-canary.mjs"],
 ];
+const contractFixtures = ["capability.json", "cases.json", "document_projection.json", "errors.json", "request.json", "scoring_golden.json", "success.json"];
 
 for (const [specifier, exportName] of expectedExports) {
   const esm = await import(specifier);
@@ -31,6 +70,36 @@ for (const [specifier, exportName] of expectedExports) {
   const cjs = require(specifier);
   if (typeof cjs[exportName] === "undefined") {
     throw new Error(`Missing CJS export ${exportName} from ${specifier}`);
+  }
+}
+
+for (const [resource, method] of [
+  ["codeRepositories", "resolve"], ["codeRepositories", "registerScope"],
+  ["derivedEvidence", "observePresence"], ["derivedEvidence", "deleteQdrant"],
+  ["derivedEvidence", "deleteGraphiti"], ["factLifecycle", "confirm"],
+  ["factLifecycle", "endValidity"], ["factLifecycle", "supersede"],
+  ["factLifecycle", "dispute"], ["factLifecycle", "reinstateSupersession"],
+  ["memoryComparisonRuns", "register"], ["memoryComparisonRuns", "prepareCleanupTargetAuthority"],
+  ["memoryComparisonRuns", "sealProjectionManifest"], ["memoryComparisonRuns", "getCleanup"],
+  ["memoryComparisonRuns", "cleanup"], ["memoryComparisonRuns", "finalizeCleanup"],
+  ["memoryComparisonRuns", "finalizeAbort"], ["context", "benchmarkSearch"],
+]) {
+  const { InfinityContextClient } = await import("@infinity-context/sdk");
+  if (typeof new InfinityContextClient()[resource]?.[method] !== "function") {
+    throw new Error(`Missing resource method InfinityContextClient.${resource}.${method}`);
+  }
+}
+
+const declarationPath = new URL(`../${packageJson.types.replace(/^\.\//, "")}`, import.meta.url);
+const declarations = await readFile(declarationPath, "utf8");
+for (const exportName of expectedTypeExports) {
+  const directExport = new RegExp(
+    `\\bexport\\s+(?:declare\\s+)?(?:interface|type)\\s+${exportName}\\b`,
+  ).test(declarations);
+  const listedExport = [...declarations.matchAll(/export\s+(?:type\s+)?\{([^}]*)\}/gs)]
+    .some((match) => new RegExp(`\\b(?:type\\s+)?${exportName}\\b`).test(match[1]));
+  if (!directExport && !listedExport) {
+    throw new Error(`Missing type export ${exportName} from ${packageJson.types}`);
   }
 }
 
@@ -63,4 +132,17 @@ for (const [binName, targetPath] of expectedBins) {
   }
 }
 
-console.log(`Package exports ok: ${expectedExports.length} entry points, ${expectedBins.length} bins`);
+for (const name of contractFixtures) {
+  const packaged = await readFile(new URL(`../fixtures/context_retrieval_v2/${name}`, import.meta.url));
+  const specifier = `@infinity-context/sdk/fixtures/context_retrieval_v2/${name}`;
+  const esmResolved = fileURLToPath(import.meta.resolve(specifier));
+  const cjsResolved = require.resolve(specifier);
+  if (esmResolved !== cjsResolved || !packaged.equals(await readFile(esmResolved))) {
+    throw new Error(`Contract C fixture export is invalid: ${name}`);
+  }
+}
+
+console.log(
+  `Package exports ok: ${expectedExports.length} runtime entries, ${expectedTypeExports.length} type entries, ` +
+    `${expectedBins.length} bins`,
+);

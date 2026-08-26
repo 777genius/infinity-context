@@ -5,6 +5,11 @@ from __future__ import annotations
 from typing import Annotated, Any
 
 from fastapi import APIRouter, Depends, Header, Query, Response, status
+from fastapi.responses import JSONResponse
+from infinity_context_contracts.features.context_building import (
+    ContextRetrievalV2ErrorDto,
+    ContextRetrievalV2ErrorEnvelopeDto,
+)
 from infinity_context_core.application import (
     DeleteDocumentCommand,
     GetDocumentQuery,
@@ -15,6 +20,11 @@ from infinity_context_core.application import (
     IngestDocumentCommand as LegacyIngestDocumentCommand,
 )
 from infinity_context_core.domain.errors import MemoryValidationError
+from infinity_context_core.features.document_ingestion.public import (
+    DocumentProjectionIdempotencyConflictError,
+    DocumentProjectionLocatorConflictError,
+    DocumentProjectionOrdinalConflictError,
+)
 
 from infinity_context_server.api.auth import require_service_token
 from infinity_context_server.api.dependencies import get_container
@@ -70,19 +80,48 @@ async def ingest_document(
             idempotency_key=idempotency_key,
         )
     except ValueError as exc:
+        if request.retrieval_projection is not None:
+            return _projection_error(
+                "memory.document_projection_invalid",
+                "Document retrieval projection is invalid",
+            )
         raise MemoryValidationError(str(exc)) from exc
-    result = await container.ingest_document.execute(command)
+    try:
+        result = await (
+            container.projected_document_ingestion.execute(command)
+            if request.retrieval_projection is not None
+            else container.ingest_document.execute(command)
+        )
+    except DocumentProjectionLocatorConflictError:
+        return _projection_error("memory.document_projection_locator_conflict")
+    except DocumentProjectionOrdinalConflictError:
+        return _projection_error("memory.document_projection_ordinal_conflict")
+    except DocumentProjectionIdempotencyConflictError:
+        return _projection_error("memory.document_projection_idempotency_conflict")
+    except ValueError:
+        return _projection_error(
+            "memory.document_projection_invalid",
+            "Document retrieval projection is invalid",
+        )
     if result.indexing_status == "already_indexed_or_pending":
         response.status_code = status.HTTP_200_OK
-    return {
-        "data": document_ingestion_server.document_to_response(
-            result.document,
-            chunks=len(result.chunks),
-            chunk_items=result.chunks,
-            duplicate_chunks=result.duplicate_chunks,
-            indexing_status=result.indexing_status,
-        )
-    }
+    data = document_ingestion_server.document_to_response(
+        result.document,
+        chunks=len(result.chunks),
+        chunk_items=result.chunks,
+        duplicate_chunks=result.duplicate_chunks,
+        indexing_status=result.indexing_status,
+    )
+    if request.retrieval_projection is not None:
+        data["created"] = result.indexing_status != "already_indexed_or_pending"
+    return {"data": data}
+
+
+def _projection_error(
+    code: str, message: str = "Document retrieval projection conflicted"
+) -> JSONResponse:
+    envelope = ContextRetrievalV2ErrorEnvelopeDto(ContextRetrievalV2ErrorDto(code, message, False))
+    return JSONResponse(status_code=envelope.http_status, content=envelope.to_dict())
 
 
 @router.get("/{document_id}")
@@ -121,9 +160,7 @@ async def list_document_chunks(
             id=str(last.id),
         )
     return {
-        "data": [
-            document_ingestion_server.chunk_to_response(chunk) for chunk in visible_chunks
-        ],
+        "data": [document_ingestion_server.chunk_to_response(chunk) for chunk in visible_chunks],
         "next_cursor": next_cursor,
     }
 

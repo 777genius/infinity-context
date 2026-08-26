@@ -15,6 +15,14 @@ const allowedMissing = new Map([
     "GET /v1/healthz",
     "healthz is an include_in_schema=false liveness alias; SDK exposes system.health() for /v1/health.",
   ],
+  [
+    "POST /v1/internal/retrieval-profiles/operations",
+    "strict-admin include_in_schema=false operator lifecycle path is intentionally not public SDK surface.",
+  ],
+  [
+    "POST /v1/internal/retrieval-profiles/recoveries",
+    "strict-admin include_in_schema=false abandoned-fence recovery is intentionally not public SDK surface.",
+  ],
 ]);
 
 const serverEndpoints = readServerEndpoints(serverApiDir);

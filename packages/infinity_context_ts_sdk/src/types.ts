@@ -256,4 +256,7 @@ export interface InfinityContextCapabilities extends JsonObject {
   readonly enabled_adapters?: string[];
   readonly supports_qdrant?: boolean;
   readonly supports_graphiti?: boolean;
+  readonly context?: JsonObject & {
+    readonly retrieval?: JsonObject & import("./retrieval-v2-types.js").ContextRetrievalCapabilityV2;
+  };
 }

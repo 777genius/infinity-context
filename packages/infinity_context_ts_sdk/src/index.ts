@@ -5,6 +5,7 @@ export {
   type InfinityContextClientOptions,
   type RequestControls,
   type RequestExecutor,
+  type HttpErrorDecoder,
   type RequestOptions,
 } from "./client.js";
 export {
@@ -36,6 +37,69 @@ export {
   type ContextRetrievalDiagnostics,
 } from "./diagnostics.js";
 export { InfinityContextError, redactSensitiveText } from "./errors.js";
+export {
+  CONTEXT_RETRIEVAL_V2_ERROR_SPECS,
+  contextRetrievalV2ErrorDecoder,
+  decodeContextRetrievalV2Error,
+  type ContextRetrievalV2ErrorCode,
+} from "./retrieval-v2-errors.js";
+export {
+  DOCUMENT_RETRIEVAL_PROJECTION_SCHEMA_V1,
+  documentRetrievalProjectionV1Payload,
+} from "./document-retrieval-projection.js";
+export type {
+  DocumentRetrievalProjectionRelativeTimeIntervalV1Input,
+  DocumentRetrievalProjectionTimeIntervalV1Input,
+  DocumentRetrievalProjectionV1Input,
+} from "./document-retrieval-projection.js";
+export {
+  assertContextRetrievalCapabilityV2,
+  decodeContextRetrievalCapabilityV2,
+  decodeContextRetrievalCapabilityV2Bytes,
+  decodeContextRetrievalCapabilitiesResponseBytes,
+  decodeRetrieveContextV2Response,
+  decodeRetrieveContextV2ResponseBytes,
+  retrievalV2RequestPayload,
+  validateContextRetrievalPreflightV2,
+} from "./retrieval-v2.js";
+export {
+  canonicalContextRetrievalCapabilityV2Bytes,
+  contextRetrievalCapabilityV2Fingerprint,
+  verifyContextRetrievalCapabilityV2Fingerprint,
+} from "./retrieval-v2-canonical.js";
+export {
+  CONTEXT_RETRIEVAL_CONTRACT_V2,
+  CONTEXT_RETRIEVAL_RANKING_POLICY_V2,
+} from "./retrieval-v2-types.js";
+export type {
+  ContextRetrievalCapabilityV2,
+  RequiredContextRetrievalCapabilityV2,
+  RetrievalV2AppliedBounds,
+  RetrievalV2BoundsInput,
+  RetrievalV2Candidate,
+  RetrievalV2CapabilityBounds,
+  RetrievalV2CapabilityProviderLane,
+  RetrievalV2Contribution,
+  RetrievalV2DegradationReasonCode,
+  RetrievalV2HardFiltersInput,
+  RetrievalV2HardFilterSignal,
+  RetrievalV2Neighbor,
+  RetrievalV2ProviderOutcome,
+  RetrievalV2ProviderReasonCode,
+  RetrievalV2ProviderStatus,
+  RetrievalV2QueryInput,
+  RetrievalV2RankingParameters,
+  RetrievalV2RawScoreKind,
+  RetrievalV2ScopeInput,
+  RetrievalV2SoftPreferencesInput,
+  RetrievalV2SoftPreferenceSignal,
+  RetrievalV2TimeIntervalInput,
+  RetrievalV2RelativeTimeIntervalInput,
+  RetrievalV2SourceGenerationInput,
+  RetrievalV2WeightedKeyInput,
+  RetrieveContextV2Input,
+  RetrieveContextV2Response,
+} from "./retrieval-v2-types.js";
 export { runFullMemoryProof, type FullMemoryProofOptions, type FullMemoryProofReport } from "./full-memory-proof.js";
 export { InfinityContextClient } from "./infinity-context-client.js";
 export { noopInstrumentation } from "./instrumentation.js";
@@ -103,10 +167,31 @@ export type {
 } from "./resources/context-links.js";
 export type {
   BuildContextInput,
+  BenchmarkSearchInput,
   BuildDigestInput,
   BuildInsightsInput,
   ContextScopeInput,
 } from "./resources/context.js";
+export type {
+  CodeRepositoryProvider, CodeScopeAuthorization, CodeScopeLevel, InitialCodeScopeInput,
+  RegisterCodeScopeInput, RepositoryEvidenceInput, RepositoryEvidenceKind,
+  ResolveCodeRepositoryInput, ResolvedCodeRepository,
+} from "./resources/code-repositories.js";
+export type {
+  DeleteGraphitiEvidenceInput, DeleteQdrantEvidenceInput, DerivedDeleteData,
+  DerivedEvidenceScopeInput, DerivedPresenceData, GraphitiIdentityManifestInput,
+  ObserveDerivedPresenceInput,
+} from "./resources/derived-evidence.js";
+export type {
+  ConfirmFactInput, DisputeFactInput, DisputeFactResult, EndFactValidityInput,
+  FactLifecycleInput, ReinstateSupersessionInput, ReinstateSupersessionResult, SingleFactLifecycleResult,
+  SupersedeFactInput, SupersedeFactResult, TemporalDecisionRecord, TemporalEvidenceRefInput,
+} from "./resources/fact-lifecycle.js";
+export type {
+  CleanupMemoryComparisonRunInput, CleanupTargetAuthorityInput,
+  FinalizeMemoryComparisonAbortInput, FinalizeMemoryComparisonCleanupInput,
+  MemoryComparisonRunData, RegisterMemoryComparisonRunInput, SealProjectionManifestInput,
+} from "./resources/memory-comparison-runs.js";
 export type {
   ListOutboxDiagnosticsInput,
   OutboxDrainDiagnostics,

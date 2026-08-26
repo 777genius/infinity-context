@@ -127,6 +127,9 @@ infinity_context_adapters = [
   "postgres/migrations/*.sql",
   "postgres/provisioning/*.sql",
 ]
+infinity_context_contracts = [
+  "fixtures/context_retrieval_v2/*.json",
+]
 infinity_context_server = [
   "web/*.html",
   "web/assets/*.css",

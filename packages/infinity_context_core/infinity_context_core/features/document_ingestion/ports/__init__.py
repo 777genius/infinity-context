@@ -5,6 +5,11 @@ from infinity_context_core.features.document_ingestion.ports.indexing import (
     DocumentChunkIndexPort,
     DocumentIndexingResult,
 )
+from infinity_context_core.features.document_ingestion.ports.projection_ownership import (
+    DocumentProjectionOwnershipClaimV1,
+    DocumentProjectionOwnershipDecisionV1,
+    DocumentRetrievalProjectionOwnershipPortV1,
+)
 from infinity_context_core.features.document_ingestion.ports.repositories import (
     DocumentChunkRepositoryPort,
     DocumentChunkUpsertResult,
@@ -17,5 +22,8 @@ __all__ = (
     "DocumentChunkRepositoryPort",
     "DocumentChunkUpsertResult",
     "DocumentIndexingResult",
+    "DocumentProjectionOwnershipClaimV1",
+    "DocumentProjectionOwnershipDecisionV1",
+    "DocumentRetrievalProjectionOwnershipPortV1",
     "SourceDocumentRepositoryPort",
 )

@@ -8,6 +8,7 @@ from dataclasses import replace
 
 import pytest
 from infinity_context_adapters.postgres import build_async_engine, upgrade_schema
+from infinity_context_adapters.postgres.migration_runner import _load_migrations
 from postgres_test_database import PostgresTestDatabase
 from sqlalchemy.engine import make_url
 from test_postgres_schema_upgrade_e2e import _install_versioned_schema_through
@@ -75,6 +76,7 @@ SEQUENCES = (
     "memory_fact_versions_id_seq",
     "memory_outbox_id_seq",
     "memory_idempotency_records_id_seq",
+    "memory_locator_commit_watermark_seq",
 )
 
 
@@ -144,6 +146,16 @@ async def _scenario(database_url: str) -> None:
                 "0036_memory_comparison_strict_v4_preparations",
                 "0037_strict_v4_fact_writer",
                 "0038_strict_v4_document_writer",
+                "0039_locator_retrieval_attributes",
+                "0040_locator_profile_lifecycle",
+                "0041_locator_profile_attestation_fence",
+                "0042_locator_profile_retirement",
+                "0043_locator_profile_transition_audit",
+                "0044_locator_profile_operator_receipts",
+                "0045_locator_profile_incremental_attestation",
+                "0046_locator_profile_linearizable_fences",
+                "0047_locator_runtime_supervisor_proofs",
+                "0048_locator_lifecycle_release_identity",
             )
         finally:
             await engine.dispose()
@@ -257,9 +269,9 @@ async def _non_schema_owner_scenario(database_url: str) -> None:
         engine = build_async_engine(migrator_database.app_url)
         try:
             result = await upgrade_schema(engine)
-            assert result.current == "0038_strict_v4_document_writer"
+            assert result.current == "0048_locator_lifecycle_release_identity"
             assert result.applied[0] == "0001_core_facts"
-            assert result.applied[-1] == "0038_strict_v4_document_writer"
+            assert result.applied[-1] == "0048_locator_lifecycle_release_identity"
         finally:
             await engine.dispose()
 
@@ -283,11 +295,20 @@ async def _non_schema_owner_scenario(database_url: str) -> None:
                     WHERE table_schema='hostile' AND table_name='memory_spaces'
                     """
             ) == ["shadow_marker"]
-            assert await admin.fetchval(
-                """
-                SELECT count(*)=39
-                FROM public.infinity_context_schema_migrations
-                """
+            canonical_migration_ids = tuple(
+                migration.migration_id for migration in _load_migrations()
+            )
+            applied_migration_ids = tuple(
+                await admin.fetch(
+                    """
+                    SELECT migration_id
+                    FROM public.infinity_context_schema_migrations
+                    ORDER BY migration_id
+                    """
+                )
+            )
+            assert tuple(row["migration_id"] for row in applied_migration_ids) == (
+                canonical_migration_ids
             )
         finally:
             await admin.close()
@@ -404,8 +425,13 @@ async def _assert_canonical_sequence_inventory(connection) -> None:
     )
     assert [(row["table_name"], row["column_name"], row["column_default"]) for row in rows] == [
         (
+            "memory_chunks",
+            "retrieval_commit_watermark",
+            "nextval('memory_locator_commit_watermark_seq'::regclass)",
+        ),
+        (
             "memory_idempotency_records",
             "id",
             "nextval('memory_idempotency_records_id_seq'::regclass)",
-        )
+        ),
     ]

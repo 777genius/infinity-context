@@ -2,7 +2,7 @@
 
 from datetime import datetime
 
-from sqlalchemy import DateTime, Index, Integer, String
+from sqlalchemy import BigInteger, DateTime, Index, Integer, String
 from sqlalchemy.orm import Mapped, mapped_column
 
 from infinity_context_adapters.postgres.orm import Base, json_type
@@ -26,7 +26,7 @@ class MemoryOutboxRow(Base):
     event_type: Mapped[str] = mapped_column(String(120), nullable=False)
     aggregate_type: Mapped[str] = mapped_column(String(80), nullable=False)
     aggregate_id: Mapped[str] = mapped_column(String(80), nullable=False)
-    aggregate_version: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    aggregate_version: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
     workload_class: Mapped[str] = mapped_column(String(80), nullable=False, default="projection")
     fairness_key: Mapped[str | None] = mapped_column(String(160), nullable=True)
     payload_json: Mapped[dict[str, object]] = mapped_column(json_type(), nullable=False)

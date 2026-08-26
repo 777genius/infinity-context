@@ -67,6 +67,9 @@ async def assert_upgrade_normalizes_all_authority_acls(database_url: str) -> Non
                 "0036_memory_comparison_strict_v4_preparations",
                 "0037_strict_v4_fact_writer",
                 "0038_strict_v4_document_writer",
+                "0039_locator_retrieval_attributes",
+                "0040_locator_profile_lifecycle",
+                "0042_locator_profile_retirement",
             )
         finally:
             await engine.dispose()

@@ -57,6 +57,12 @@ def test_runtime_acl_is_exact_and_excludes_strict_writes() -> None:
     assert "GRANT SELECT ON TABLE" in sql
     assert "memory_comparison_strict_v4_preparations" in sql
     assert "memory_cleanup_v3_context_authorities" in sql
+    assert "memory_locator_profile_cleanups" in sql
+    assert "memory_locator_profile_projection_receipts" in sql
+    assert "memory_locator_profile_evidence_versions" in sql
+    assert "memory_locator_profile_queries" in sql
+    assert "memory_locator_profile_maintenance_fence" in sql
+    assert "memory_locator_profile_recovery_receipts" in sql
     assert "memory_comparison_is_strict_v4_canonical_writer" in sql
     assert "REVOKE ALL PRIVILEGES ON FUNCTION" in sql
     assert "rolcanlogin" in sql

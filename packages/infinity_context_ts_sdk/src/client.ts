@@ -34,7 +34,16 @@ export interface RequestOptions {
   readonly signal?: AbortSignal | undefined;
   readonly timeoutMs?: number | undefined;
   readonly responseType?: "json" | "bytes" | undefined;
+  readonly maxResponseBytes?: number | undefined;
+  readonly maxErrorResponseBytes?: number | undefined;
+  readonly errorDecoder?: HttpErrorDecoder | undefined;
 }
+
+export type HttpErrorDecoder = (
+  statusCode: number,
+  headers: Headers,
+  body: Uint8Array | string,
+) => InfinityContextError;
 
 export interface RequestExecutor {
   request<T = JsonValue>(options: RequestOptions): Promise<T>;
@@ -104,21 +113,35 @@ export class HttpClient implements RequestExecutor {
             if (!retry) {
               throw sdkError;
             }
-            await this.#retry(context, sdkError, attempt, durationMs);
+            await this.#retry(context, sdkError, attempt, durationMs, options.signal);
             continue;
           }
         }
 
-        const error = toHttpError(response.status, response.headers, response.body as string);
+        const error = options.errorDecoder === undefined
+          ? toHttpError(
+            response.status,
+            response.headers,
+            typeof response.body === "string" ? response.body : new TextDecoder().decode(response.body),
+          )
+          : options.errorDecoder(response.status, response.headers, response.body);
         lastError = error;
         const retry = shouldRetryAttempt(options, attempt, maxAttempts, error, response.status);
         await this.#notifyError(errorEvent(context, error, durationMs));
         if (!retry) {
           throw error;
         }
-        await this.#retry(context, error, attempt, durationMs);
+        await this.#retry(context, error, attempt, durationMs, options.signal);
         continue;
       } catch (error) {
+        if (options.signal?.aborted) {
+          const reason = options.signal.reason;
+          throw networkError(
+            reason instanceof Error
+              ? reason
+              : new DOMException("Request aborted", "AbortError"),
+          );
+        }
         if (error instanceof InfinityContextError && error === lastError) {
           throw error;
         }
@@ -130,7 +153,7 @@ export class HttpClient implements RequestExecutor {
         if (!retry) {
           throw sdkError;
         }
-        await this.#retry(context, sdkError, attempt, durationMs);
+        await this.#retry(context, sdkError, attempt, durationMs, options.signal);
       }
     }
 
@@ -168,6 +191,8 @@ export class HttpClient implements RequestExecutor {
         body,
         signal: timeout.signal,
         responseType: options.responseType,
+        maxResponseBytes: options.maxResponseBytes,
+        maxErrorResponseBytes: options.maxErrorResponseBytes,
       });
     } finally {
       timeout.cleanup();
@@ -179,10 +204,11 @@ export class HttpClient implements RequestExecutor {
     error: InfinityContextError,
     attemptIndex: number,
     durationMs: number,
+    signal: AbortSignal | undefined,
   ): Promise<void> {
     const delayMs = retryDelayMs(this.#retryPolicy, attemptIndex, error.retryAfterMs);
     await this.#notifyRetry({ ...errorEvent(context, error, durationMs), delayMs });
-    await this.#sleep(delayMs);
+    await abortable(this.#sleep(delayMs), signal);
   }
 
   async #notifyRequest(event: RequestStartEvent): Promise<void> {
@@ -200,6 +226,16 @@ export class HttpClient implements RequestExecutor {
   async #notifyRetry(event: RequestRetryEvent): Promise<void> {
     await notifyInstrumentation(() => this.#instrumentation?.onRetry?.(event));
   }
+}
+
+function abortable<T>(promise: Promise<T>, signal: AbortSignal | undefined): Promise<T> {
+  if (signal === undefined) return promise;
+  if (signal.aborted) return Promise.reject(signal.reason);
+  return new Promise<T>((resolve, reject) => {
+    const onAbort = () => reject(signal.reason);
+    signal.addEventListener("abort", onAbort, { once: true });
+    promise.then(resolve, reject).finally(() => signal.removeEventListener("abort", onAbort));
+  });
 }
 
 function instrumentationContext(

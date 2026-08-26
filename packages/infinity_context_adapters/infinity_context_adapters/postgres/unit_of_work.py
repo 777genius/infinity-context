@@ -52,14 +52,16 @@ from infinity_context_adapters.postgres.fact_repositories import (
     PostgresFactRelationRepository,
     PostgresFactRepository,
 )
+from infinity_context_adapters.postgres.record_repositories import (
+    PostgresIdempotencyRepository,
+    PostgresOutbox,
+)
 from infinity_context_adapters.postgres.repositories import (
     PostgresAnchorRepository,
     PostgresCaptureRepository,
     PostgresChunkRepository,
     PostgresDocumentRepository,
     PostgresEpisodeRepository,
-    PostgresIdempotencyRepository,
-    PostgresOutbox,
     PostgresSuggestionRepository,
 )
 from infinity_context_adapters.postgres.schema_registry import load_schema_metadata

@@ -1,5 +1,6 @@
 """Memory server configuration."""
 
+from datetime import UTC, datetime
 from enum import StrEnum
 
 from pydantic import Field, field_validator, model_validator
@@ -131,6 +132,12 @@ class Settings(BaseSettings):
     qdrant_url: str = "http://127.0.0.1:6333"
     qdrant_api_key: str | None = None
     qdrant_collection: str = "infinity_context_chunks_v1"
+    retrieval_profile_max_retained: int = Field(default=2, ge=0, le=100)
+    retrieval_runtime_launch_identity_json: str | None = None
+    retrieval_supervisor_trust_registry_path: str | None = None
+    retrieval_supervisor_trust_root_sha256: str | None = None
+    retrieval_supervisor_key_id: str | None = None
+    retrieval_supervisor_trust_registry_generation: int | None = Field(default=None, ge=1)
     qdrant_hybrid_sparse_enabled: bool = False
     qdrant_dense_vector_name: str = Field(default="dense", min_length=1, max_length=64)
     qdrant_sparse_vector_name: str = Field(default="bm25", min_length=1, max_length=64)
@@ -205,6 +212,57 @@ class Settings(BaseSettings):
             raise RuntimeError("MEMORY_ASSET_STORAGE_S3_BUCKET is required for S3 asset storage")
         if self.qdrant_enabled and not self.embeddings_enabled:
             raise RuntimeError("MEMORY_QDRANT_ENABLED requires MEMORY_EMBEDDINGS_ENABLED")
+        recoverable_provider_lifecycle = (
+            self.deploy_profile in {DeployProfile.CANARY, DeployProfile.SERVER}
+            and self.qdrant_enabled
+        )
+        if (
+            recoverable_provider_lifecycle
+            and not all(
+                (
+                    self.retrieval_runtime_launch_identity_json,
+                    self.retrieval_supervisor_trust_registry_path,
+                    self.retrieval_supervisor_trust_root_sha256,
+                    self.retrieval_supervisor_key_id,
+                    self.retrieval_supervisor_trust_registry_generation,
+                )
+            )
+        ):
+            raise RuntimeError(
+                "MEMORY_RETRIEVAL_RUNTIME_LAUNCH_IDENTITY_JSON and deployment-pinned "
+                "MEMORY_RETRIEVAL_SUPERVISOR_TRUST_* settings are required for recoverable "
+                "canary/server Retrieval V2 provider lifecycle fencing"
+            )
+        if self.retrieval_runtime_launch_identity_json:
+            from infinity_context_adapters.postgres.supervisor_trust import (
+                load_pinned_supervisor_trust,
+            )
+            from infinity_context_core.features.context_building.public import RuntimeFenceOwner
+
+            owner = RuntimeFenceOwner.from_launch_identity_json(
+                self.retrieval_runtime_launch_identity_json
+            )
+            owner.assert_current_process()
+            if recoverable_provider_lifecycle:
+                from infinity_context_server.build_identity import (
+                    verify_installed_build_identity,
+                )
+
+                build = verify_installed_build_identity(self.service_build_identity_path)
+                if build is None:
+                    raise RuntimeError(
+                        "recoverable Retrieval V2 lifecycle requires a verified installed build"
+                    )
+                trust = load_pinned_supervisor_trust(
+                    path=self.retrieval_supervisor_trust_registry_path or "",
+                    expected_root_sha256=self.retrieval_supervisor_trust_root_sha256 or "",
+                    expected_key_id=self.retrieval_supervisor_key_id or "",
+                    expected_generation=self.retrieval_supervisor_trust_registry_generation or 0,
+                    expected_release=build.installed_release(),
+                )
+                if owner.supervisor_key_id != self.retrieval_supervisor_key_id:
+                    raise RuntimeError("retrieval_profile_supervisor_key_id_mismatch")
+                trust.verify_launch(owner, now=datetime.now(UTC))
         if self.qdrant_hybrid_sparse_enabled and not self.qdrant_enabled:
             raise RuntimeError("MEMORY_QDRANT_HYBRID_SPARSE_ENABLED requires MEMORY_QDRANT_ENABLED")
         if (

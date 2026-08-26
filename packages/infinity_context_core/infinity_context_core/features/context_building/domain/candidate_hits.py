@@ -22,7 +22,11 @@ class CandidateHit:
         for field_name in ("canonical_id", "provider_id", "query_key"):
             if not getattr(self, field_name).strip():
                 raise ValueError(f"Candidate hit {field_name} cannot be blank")
-        if self.canonical_version < 1:
+        if (
+            not isinstance(self.canonical_version, int)
+            or isinstance(self.canonical_version, bool)
+            or not 1 <= self.canonical_version <= 9_007_199_254_740_991
+        ):
             raise ValueError("Candidate hit canonical_version must be positive")
         if self.rank < 1:
             raise ValueError("Candidate hit rank must be positive")
@@ -48,7 +52,11 @@ class HydratedContextCandidate:
     def __post_init__(self) -> None:
         if self.item.item_id != self.canonical_id:
             raise ValueError("Hydrated candidate item_id must match canonical_id")
-        if self.canonical_version < 1:
+        if (
+            not isinstance(self.canonical_version, int)
+            or isinstance(self.canonical_version, bool)
+            or not 1 <= self.canonical_version <= 9_007_199_254_740_991
+        ):
             raise ValueError("Hydrated candidate version must be positive")
 
 

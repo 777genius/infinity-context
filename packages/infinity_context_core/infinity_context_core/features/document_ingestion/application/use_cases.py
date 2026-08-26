@@ -14,15 +14,24 @@ from infinity_context_core.features.document_ingestion.domain import (
     ChunkingPolicy,
     DocumentChunk,
     DocumentChunkDraft,
+    DocumentIngestionInvariantError,
+    DocumentIngestionScope,
+    DocumentProjectionInvalidError,
     SourceDocument,
     SourceDocumentDraft,
     content_hash_for_text,
+)
+from infinity_context_core.features.document_ingestion.domain.retrieval_projection import (
+    copy_document_retrieval_projection,
 )
 from infinity_context_core.features.document_ingestion.ports import (
     DocumentChunkIndexItem,
     DocumentChunkIndexPort,
     DocumentChunkRepositoryPort,
     DocumentIndexingResult,
+    DocumentProjectionOwnershipClaimV1,
+    DocumentProjectionOwnershipDecisionV1,
+    DocumentRetrievalProjectionOwnershipPortV1,
     SourceDocumentRepositoryPort,
 )
 
@@ -72,11 +81,16 @@ class PrepareDocumentIngestionHandler:
             origin=command.origin,
             text=command.text,
             classification=command.classification,
+            retrieval_projection=command.retrieval_projection,
         )
         chunks = policy.plan_chunks(document.content.text)
         warnings: tuple[str, ...] = ()
         if not chunks:
             warnings = ("no_chunks_created",)
+        if command.retrieval_projection is not None and len(chunks) != 1:
+            raise DocumentProjectionInvalidError(
+                "projected ingestion requires exactly one canonical chunk"
+            )
         return PreparedDocumentIngestion(
             document=document,
             chunks=chunks,
@@ -105,14 +119,15 @@ class StableDocumentIngestionIdentityFactory:
     def new_document_id(self, prepared: PreparedDocumentIngestion) -> str:
         document = prepared.document
         scope = document.scope
-        seed = ":".join(
-            (
-                scope.space_id,
-                scope.memory_scope_id,
-                scope.thread_id or "",
-                document.content.content_hash,
-            )
+        seed_parts = (
+            scope.space_id,
+            scope.memory_scope_id,
+            scope.thread_id or "",
+            document.content.content_hash,
         )
+        if document.retrieval_projection is not None:
+            seed_parts = (*seed_parts, document.retrieval_projection.locator)
+        seed = ":".join(seed_parts)
         return _stable_id(self.document_prefix, seed, hash_chars=self.hash_chars)
 
     def new_chunk_id(
@@ -144,12 +159,18 @@ class IngestDocumentHandler:
     identity_factory: DocumentIngestionIdentityFactory = field(
         default_factory=StableDocumentIngestionIdentityFactory
     )
+    projection_ownership: DocumentRetrievalProjectionOwnershipPortV1 | None = None
 
     async def execute(self, command: IngestDocumentCommand) -> IngestDocumentResult:
         prepared = await self.prepare_document_ingestion.execute(command)
-        existing_document = await self.source_documents.find_active_by_content_hash(
-            scope=prepared.document.scope,
-            content_hash=prepared.document.content.content_hash,
+        projection = prepared.document.retrieval_projection
+        existing_document = (
+            await self.source_documents.find_active_by_content_hash(
+                scope=prepared.document.scope,
+                content_hash=prepared.document.content.content_hash,
+            )
+            if projection is None
+            else await self._claim_projection(prepared)
         )
         if existing_document is not None:
             existing_chunks = await self.chunks.list_for_document(
@@ -198,6 +219,57 @@ class IngestDocumentHandler:
             duplicate_chunk_count=duplicate_chunk_count,
             indexing_status=indexing_status,
             warnings=prepared.warnings + indexing_warnings,
+        )
+
+    async def _claim_projection(self, prepared: PreparedDocumentIngestion) -> SourceDocument | None:
+        projection = prepared.document.retrieval_projection
+        if projection is None:
+            return None
+        if self.projection_ownership is None:
+            raise DocumentIngestionInvariantError(
+                "projected ingestion requires a canonical ownership consumer"
+            )
+        expected_scope = DocumentIngestionScope(
+            prepared.document.scope.space_id,
+            prepared.document.scope.memory_scope_id,
+            prepared.document.scope.thread_id,
+        )
+        expected_projection = copy_document_retrieval_projection(projection)
+        expected_content_hash = str(prepared.document.content.content_hash)
+        decision = await self.projection_ownership.claim_document_projection(
+            DocumentProjectionOwnershipClaimV1(
+                scope=expected_scope,
+                projection=expected_projection,
+                content_hash=expected_content_hash,
+                idempotency_key=prepared.idempotency_key,
+            )
+        )
+        if not isinstance(decision, DocumentProjectionOwnershipDecisionV1):
+            raise DocumentIngestionInvariantError(
+                "projection ownership consumer returned an invalid decision"
+            )
+        if decision.status == "acquired":
+            return None
+        document = await self.source_documents.get(decision.document_id or "")
+        if (
+            document is None
+            or document.identity.scope != expected_scope
+            or document.content_hash != expected_content_hash
+            or document.retrieval_projection != expected_projection
+        ):
+            raise DocumentIngestionInvariantError(
+                "idempotent projection ownership did not resolve canonically"
+            )
+        return SourceDocument(
+            identity=document.identity,
+            title=document.title,
+            origin=document.origin,
+            content_hash=document.content_hash,
+            status=document.status,
+            classification=document.classification,
+            created_at=document.created_at,
+            updated_at=document.updated_at,
+            retrieval_projection=document.retrieval_projection,
         )
 
     async def _index_chunks(

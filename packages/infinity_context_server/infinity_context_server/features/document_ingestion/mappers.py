@@ -11,10 +11,12 @@ import infinity_context_core.features.document_ingestion.public as document_inge
 from infinity_context_contracts.features.document_ingestion import (
     DocumentChunkDto,
     DocumentIdentityDto,
+    DocumentRetrievalProjectionV1Dto,
     IngestDocumentRequestDto,
     IngestDocumentResultDto,
     MemoryDocumentDto,
 )
+from infinity_context_core.application.document_fragments import fragment_document_text
 
 from infinity_context_server.api.public_payload import safe_public_metadata
 from infinity_context_server.features.document_ingestion.contracts import (
@@ -87,6 +89,7 @@ def ingest_document_command_from_contract(
             default=DEFAULT_DOCUMENT_CLASSIFICATION,
         ),
         idempotency_key=_optional_text(request.idempotency_key),
+        retrieval_projection=_projection_to_core(request.retrieval_projection),
     )
 
 
@@ -110,6 +113,12 @@ def legacy_ingest_document_command_from_request(
             idempotency_key=idempotency_key,
         ).to_contract()
     )
+    projection = _projection_dto(request.retrieval_projection)
+    if projection is not None and len(fragment_document_text(request.text)) != 1:
+        raise ValueError("projected ingestion requires exactly one canonical chunk")
+    chunk_metadata = _legacy_document_chunk_metadata(request.source_refs) or {}
+    if projection is not None:
+        chunk_metadata["_retrieval_projection_contract"] = projection.to_dict()
     payload = _LegacyIngestDocumentCommandPayload(
         space_id=space_id,
         memory_scope_id=memory_scope_id,
@@ -120,9 +129,51 @@ def legacy_ingest_document_command_from_request(
         source_external_id=feature_command.origin.source_external_id,
         idempotency_key=feature_command.idempotency_key,
         classification=feature_command.classification,
-        chunk_metadata=_legacy_document_chunk_metadata(request.source_refs),
+        chunk_metadata=chunk_metadata or None,
     )
     return command_factory(**payload.to_kwargs())
+
+
+def _projection_dto(value: object | None) -> DocumentRetrievalProjectionV1Dto | None:
+    if value is None:
+        return None
+    if not isinstance(value, Mapping):
+        raise ValueError("retrieval_projection must be an object or null")
+    return DocumentRetrievalProjectionV1Dto.from_dict(value)
+
+
+def _projection_to_core(
+    value: DocumentRetrievalProjectionV1Dto | None,
+) -> document_ingestion.DocumentRetrievalProjectionV1 | None:
+    if value is None:
+        return None
+    absolute = value.time_interval
+    relative = value.relative_time_interval
+    return document_ingestion.DocumentRetrievalProjectionV1(
+        locator=value.locator,
+        source_key=value.source_key,
+        projection_generation=value.projection_generation,
+        sequence_ordinal=value.sequence_ordinal,
+        actor_keys=tuple(value.actor_keys),
+        time_interval=(
+            None
+            if absolute is None
+            else document_ingestion.DocumentRetrievalProjectionTimeIntervalV1(
+                datetime.fromisoformat(absolute.start_at.replace("Z", "+00:00")),
+                datetime.fromisoformat(absolute.end_at.replace("Z", "+00:00")),
+            )
+        ),
+        relative_time_interval=(
+            None
+            if relative is None
+            else document_ingestion.DocumentRetrievalProjectionRelativeTimeIntervalV1(
+                relative.start_ms, relative.end_ms
+            )
+        ),
+        kind=value.kind,
+        category=value.category,
+        tags=tuple(value.tags),
+    )
 
 
 def ingest_document_result_to_contract(
@@ -186,6 +237,9 @@ def document_to_response(
 def chunk_to_response(chunk: Any) -> dict[str, Any]:
     """Map the legacy chunk read model to the stable v1 HTTP response."""
 
+    metadata = dict(chunk.metadata)
+    metadata.pop("_retrieval_projection_contract", None)
+    metadata.pop("_canonical_retrieval_projection", None)
     return {
         "id": str(chunk.id),
         "document_id": str(chunk.document_id) if chunk.document_id else None,
@@ -200,7 +254,7 @@ def chunk_to_response(chunk: Any) -> dict[str, Any]:
         "status": _raw_value(chunk.status),
         "classification": chunk.classification,
         "source_refs": _source_refs_from_metadata(chunk.metadata),
-        "metadata": safe_public_metadata(chunk.metadata),
+        "metadata": safe_public_metadata(metadata),
     }
 
 
@@ -364,9 +418,7 @@ def _legacy_document_chunk_metadata(
     if not refs:
         return None
     return {
-        "source_refs": [
-            item.model_dump(exclude_none=True, mode="json") for item in refs
-        ],
+        "source_refs": [item.model_dump(exclude_none=True, mode="json") for item in refs],
         "source_ref_count": len(refs),
     }
 

@@ -6,6 +6,11 @@ from dataclasses import dataclass
 from typing import Any, Literal
 
 import httpx
+from infinity_context_contracts.features.context_building import (
+    RetrievalV2CapabilityDto,
+    RetrieveContextV2RequestDto,
+    RetrieveContextV2ResponseDto,
+)
 
 import infinity_context_sdk._payloads as _payloads
 from infinity_context_sdk.anchors import InfinityContextAnchorsMixin
@@ -20,6 +25,11 @@ from infinity_context_sdk.context import (
 from infinity_context_sdk.errors import InfinityContextError
 from infinity_context_sdk.export import InfinityContextExportMixin
 from infinity_context_sdk.http_transport import InfinityContextHttpMixin
+from infinity_context_sdk.retrieval_v2 import (
+    InfinityContextRetrievalV2ContractError,
+    InfinityContextRetrievalV2Error,
+    InfinityContextRetrievalV2Mixin,
+)
 from infinity_context_sdk.scopes import MemoryScope, ReadScope
 from infinity_context_sdk.temporal_facts import InfinityContextTemporalFactsMixin
 from infinity_context_sdk.thread_memory import InfinityContextThreadMemoryMixin
@@ -28,6 +38,7 @@ from infinity_context_sdk.thread_memory import InfinityContextThreadMemoryMixin
 @dataclass(frozen=True)
 class InfinityContextClient(
     InfinityContextHttpMixin,
+    InfinityContextRetrievalV2Mixin,
     InfinityContextAnchorsMixin,
     InfinityContextAssetsMixin,
     InfinityContextExportMixin,
@@ -37,7 +48,7 @@ class InfinityContextClient(
     base_url: str = "http://127.0.0.1:7788"
     token: str | None = None
     timeout: float = 10.0
-    transport: httpx.BaseTransport | None = None
+    transport: httpx.BaseTransport | httpx.AsyncBaseTransport | None = None
 
     def create_space(self, *, slug: str, name: str) -> dict[str, Any]:
         return self._request(
@@ -960,6 +971,11 @@ __all__ = [
     "ContextEvidenceSelection",
     "InfinityContextClient",
     "InfinityContextError",
+    "InfinityContextRetrievalV2ContractError",
+    "InfinityContextRetrievalV2Error",
+    "RetrievalV2CapabilityDto",
+    "RetrieveContextV2RequestDto",
+    "RetrieveContextV2ResponseDto",
     "MemoryScope",
     "ReadScope",
     "context_bundle_from_response",

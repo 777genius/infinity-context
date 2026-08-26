@@ -1,0 +1,108 @@
+{
+  "schema_version": "generic-retrieval-v2-dataset.v1",
+  "dataset_id": "generic-records-synthetic-v1",
+  "records": [
+    {"locator": "lx-001", "scope_id": "scope-a", "source_id": "source-guide", "occurred_on": "2026-04-01", "attributes": {"status": "active", "kind": "policy"}, "text": "Objects are retained for thirty days before automatic removal."},
+    {"locator": "lx-002", "scope_id": "scope-a", "source_id": "source-adjacent", "occurred_on": "2026-03-31", "attributes": {"status": "active", "kind": "note"}, "text": "The preceding section defines which object classes are covered."},
+    {"locator": "lx-003", "scope_id": "scope-a", "source_id": "source-guide", "occurred_on": "2026-04-02", "attributes": {"status": "active", "kind": "note"}, "text": "The following section lists the approved exception process."},
+    {"locator": "lx-004", "scope_id": "scope-a", "source_id": "source-operations", "occurred_on": "2026-05-10", "attributes": {"status": "active", "kind": "procedure"}, "text": "Rotate the access token after verifying the replacement is active."},
+    {"locator": "lx-005", "scope_id": "scope-a", "source_id": "source-operations", "occurred_on": "2026-01-10", "attributes": {"status": "retired", "kind": "procedure"}, "text": "The retired procedure rotated credentials without a verification step."},
+    {"locator": "lx-006", "scope_id": "scope-a", "source_id": "source-catalog", "occurred_on": "2026-06-01", "attributes": {"status": "active", "kind": "component"}, "text": "Orchid supports compact exports and receives priority one."},
+    {"locator": "lx-007", "scope_id": "scope-a", "source_id": "source-catalog", "occurred_on": "2026-06-01", "attributes": {"status": "active", "kind": "component"}, "text": "Quartz supports incremental exports and receives priority two."},
+    {"locator": "lx-008", "scope_id": "scope-a", "source_id": "source-catalog", "occurred_on": "2026-06-01", "attributes": {"status": "active", "kind": "component"}, "text": "Saffron supports full exports and receives priority three."},
+    {"locator": "lx-009", "scope_id": "scope-a", "source_id": "source-archive", "occurred_on": "2025-08-20", "attributes": {"status": "active", "kind": "schedule"}, "text": "The older release window begins in August 2025."},
+    {"locator": "lx-010", "scope_id": "scope-a", "source_id": "source-archive", "occurred_on": "2026-08-20", "attributes": {"status": "active", "kind": "schedule"}, "text": "The current release window begins in August 2026."},
+    {"locator": "lx-011", "scope_id": "scope-b", "source_id": "source-guide", "occurred_on": "2026-04-01", "attributes": {"status": "active", "kind": "policy"}, "text": "Objects are retained for ninety days in the separate workspace."},
+    {"locator": "lx-012", "scope_id": "scope-b", "source_id": "source-operations", "occurred_on": "2026-05-10", "attributes": {"status": "active", "kind": "procedure"}, "text": "A separate workspace uses a different credential rotation sequence."},
+    {"locator": "lx-013", "scope_id": "scope-b", "source_id": "source-catalog", "occurred_on": "2026-06-01", "attributes": {"status": "active", "kind": "component"}, "text": "Orchid has a different priority in the separate workspace."},
+    {"locator": "lx-014", "scope_id": "scope-c", "source_id": "source-decoy", "occurred_on": "2026-05-10", "attributes": {"status": "active", "kind": "procedure"}, "text": "This unrelated workspace contains intentionally similar wording about rotation."},
+    {"locator": "lx-015", "scope_id": "scope-a", "source_id": "source-unapproved", "occurred_on": "2026-04-01", "attributes": {"status": "active", "kind": "policy"}, "text": "An unapproved source claims that objects are retained indefinitely."},
+    {"locator": "lx-016", "scope_id": "scope-a", "source_id": "source-decoy", "occurred_on": "2026-07-01", "attributes": {"status": "active", "kind": "misc"}, "text": "A plausible record exists but does not answer the unsupported request."}
+  ],
+  "neighbors": [
+    {"left_locator": "lx-001", "right_locator": "lx-002"},
+    {"left_locator": "lx-001", "right_locator": "lx-003"}
+  ],
+  "cases": [
+    {
+      "case_id": "natural-base", "variation_family_id": "family-retention",
+      "queries": [{"query_id": "q-001", "text": "How long are objects kept before they are removed?"}],
+      "filters": [{"filter_id": "f-scope-a", "field": "scope_id", "value": "scope-a"}, {"filter_id": "f-source-guide", "field": "source_id", "value": "source-guide"}],
+      "neighbor_radius": 0, "gold_locators": [{"locator": "lx-001", "relevance": 3}],
+      "forbidden_scope_locators": ["lx-011", "lx-014"], "filter_excluded_locators": ["lx-015"],
+      "scenario_tags": ["generic_reuse", "natural_query_variation"]
+    },
+    {
+      "case_id": "natural-paraphrase", "variation_family_id": "family-retention",
+      "queries": [{"query_id": "q-002", "text": "When does automatic disposal happen for stored objects?"}],
+      "filters": [{"filter_id": "f-scope-a", "field": "scope_id", "value": "scope-a"}, {"filter_id": "f-source-guide", "field": "source_id", "value": "source-guide"}],
+      "neighbor_radius": 0, "gold_locators": [{"locator": "lx-001", "relevance": 3}],
+      "forbidden_scope_locators": ["lx-011", "lx-014"], "filter_excluded_locators": ["lx-015"],
+      "scenario_tags": ["generic_reuse", "natural_query_variation"]
+    },
+    {
+      "case_id": "scope-attack", "variation_family_id": "family-scope",
+      "queries": [{"query_id": "q-003", "text": "Which component has the highest export priority?"}],
+      "filters": [{"filter_id": "f-scope-a", "field": "scope_id", "value": "scope-a"}, {"filter_id": "f-source-catalog", "field": "source_id", "value": "source-catalog"}],
+      "neighbor_radius": 0, "gold_locators": [{"locator": "lx-006", "relevance": 3}],
+      "forbidden_scope_locators": ["lx-013", "lx-014"], "filter_excluded_locators": [],
+      "scenario_tags": ["hard_scope_filter", "leakage_attack", "wrong_scope_attack"]
+    },
+    {
+      "case_id": "source-exclusion", "variation_family_id": "family-source",
+      "queries": [{"query_id": "q-004", "text": "What is the approved retention period?"}],
+      "filters": [{"filter_id": "f-scope-a", "field": "scope_id", "value": "scope-a"}, {"filter_id": "f-source-guide", "field": "source_id", "value": "source-guide"}],
+      "neighbor_radius": 0, "gold_locators": [{"locator": "lx-001", "relevance": 3}],
+      "forbidden_scope_locators": ["lx-011"], "filter_excluded_locators": ["lx-015"],
+      "scenario_tags": ["hard_source_filter", "same_scope_filter_exclusion"]
+    },
+    {
+      "case_id": "temporal-exclusion", "variation_family_id": "family-temporal",
+      "queries": [{"query_id": "q-005", "text": "When does the current release window begin?"}],
+      "filters": [{"filter_id": "f-scope-a", "field": "scope_id", "value": "scope-a"}, {"filter_id": "f-date-current", "field": "occurred_on", "value": "2026-08-20"}],
+      "neighbor_radius": 0, "gold_locators": [{"locator": "lx-010", "relevance": 2}],
+      "forbidden_scope_locators": [], "filter_excluded_locators": ["lx-009"],
+      "scenario_tags": ["temporal_filter", "same_scope_filter_exclusion"]
+    },
+    {
+      "case_id": "metadata-exclusion", "variation_family_id": "family-metadata",
+      "queries": [{"query_id": "q-006", "text": "What credential rotation procedure is currently active?"}],
+      "filters": [{"filter_id": "f-scope-a", "field": "scope_id", "value": "scope-a"}, {"filter_id": "f-source-operations", "field": "source_id", "value": "source-operations"}, {"filter_id": "f-status-active", "field": "attribute:status", "value": "active"}],
+      "neighbor_radius": 0, "gold_locators": [{"locator": "lx-004", "relevance": 2}],
+      "forbidden_scope_locators": ["lx-012", "lx-014"], "filter_excluded_locators": ["lx-005"],
+      "scenario_tags": ["metadata_filter", "same_scope_filter_exclusion"]
+    },
+    {
+      "case_id": "neighbor-expansion", "variation_family_id": "family-neighbor",
+      "queries": [{"query_id": "q-007", "text": "Give the retention rule and the immediately following exception note."}],
+      "filters": [{"filter_id": "f-scope-a", "field": "scope_id", "value": "scope-a"}, {"filter_id": "f-source-guide", "field": "source_id", "value": "source-guide"}],
+      "neighbor_radius": 1, "gold_locators": [{"locator": "lx-001", "relevance": 3}, {"locator": "lx-003", "relevance": 1}],
+      "forbidden_scope_locators": ["lx-011"], "filter_excluded_locators": ["lx-015"],
+      "scenario_tags": ["multiple_golds", "neighbors"]
+    },
+    {
+      "case_id": "graded-ranking", "variation_family_id": "family-ranking",
+      "queries": [{"query_id": "q-008", "text": "Rank the available export components by stated priority."}],
+      "filters": [{"filter_id": "f-scope-a", "field": "scope_id", "value": "scope-a"}, {"filter_id": "f-source-catalog", "field": "source_id", "value": "source-catalog"}],
+      "neighbor_radius": 0, "gold_locators": [{"locator": "lx-006", "relevance": 3}, {"locator": "lx-007", "relevance": 2}, {"locator": "lx-008", "relevance": 1}],
+      "forbidden_scope_locators": ["lx-013"], "filter_excluded_locators": [],
+      "scenario_tags": ["graded_relevance", "multiple_golds"]
+    },
+    {
+      "case_id": "unsupported", "variation_family_id": "family-unsupported",
+      "queries": [{"query_id": "q-009", "text": "Which approved component supports lunar telemetry?"}],
+      "filters": [{"filter_id": "f-scope-a", "field": "scope_id", "value": "scope-a"}, {"filter_id": "f-source-catalog", "field": "source_id", "value": "source-catalog"}],
+      "neighbor_radius": 0, "gold_locators": [],
+      "forbidden_scope_locators": ["lx-013", "lx-014"], "filter_excluded_locators": ["lx-016"],
+      "scenario_tags": ["no_gold", "unsupported_no_result"]
+    },
+    {
+      "case_id": "rotation-scope-attack", "variation_family_id": "family-attack",
+      "queries": [{"query_id": "q-010", "text": "Describe the active token rotation sequence for this workspace."}],
+      "filters": [{"filter_id": "f-scope-a", "field": "scope_id", "value": "scope-a"}, {"filter_id": "f-source-operations", "field": "source_id", "value": "source-operations"}, {"filter_id": "f-status-active", "field": "attribute:status", "value": "active"}],
+      "neighbor_radius": 0, "gold_locators": [{"locator": "lx-004", "relevance": 2}],
+      "forbidden_scope_locators": ["lx-012", "lx-014"], "filter_excluded_locators": ["lx-005"],
+      "scenario_tags": ["hard_scope_filter", "leakage_attack", "wrong_scope_attack"]
+    }
+  ]
+}

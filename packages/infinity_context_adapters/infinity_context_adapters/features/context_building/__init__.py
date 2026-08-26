@@ -2,7 +2,7 @@
 
 The adapters in this package implement the feature-owned context candidate
 port without importing provider SDKs. Postgres remains the canonical source,
-while Qdrant and Graphiti are derived candidate sources behind deferred seams.
+while Qdrant and Graphiti are derived candidate sources behind explicit ports.
 """
 
 from infinity_context_core.features.context_building.public import FEATURE_ID
@@ -12,6 +12,8 @@ from infinity_context_adapters.features.context_building.candidate_provider_chai
     create_context_candidate_provider_chain,
 )
 from infinity_context_adapters.features.context_building.graphiti_candidate_provider import (
+    GraphitiCandidateLookupPort,
+    GraphitiCandidatePointer,
     GraphitiContextCandidateProvider,
     create_graphiti_context_candidate_provider,
 )
@@ -46,6 +48,8 @@ __all__ = (
     "ContextCandidateAdapterQuery",
     "ContextCandidateProviderChain",
     "ContextCandidateRecord",
+    "GraphitiCandidateLookupPort",
+    "GraphitiCandidatePointer",
     "GraphitiContextCandidateProvider",
     "InMemoryContextCandidateProvider",
     "MemoryFactContextHydrator",

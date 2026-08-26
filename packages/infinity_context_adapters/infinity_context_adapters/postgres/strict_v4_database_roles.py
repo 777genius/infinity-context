@@ -53,6 +53,7 @@ STRICT_V4_PROTECTED_RELATIONS = (
     "memory_fact_versions_id_seq",
     "memory_outbox_id_seq",
     "memory_idempotency_records_id_seq",
+    "memory_locator_commit_watermark_seq",
 )
 STRICT_V4_PROTECTED_FUNCTIONS = (
     "memory_comparison_lock_strict_v4_registration_targets",
@@ -373,7 +374,8 @@ SELECT current_user = session_user AS direct_login,
                       'memory_source_refs_id_seq',
                       'memory_fact_versions_id_seq',
                       'memory_outbox_id_seq',
-                      'memory_idempotency_records_id_seq'
+                      'memory_idempotency_records_id_seq',
+                      'memory_locator_commit_watermark_seq'
                   ))
                  AND privilege.name = 'USAGE'
              )

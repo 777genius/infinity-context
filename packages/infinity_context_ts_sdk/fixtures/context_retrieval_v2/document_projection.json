@@ -1,0 +1,18 @@
+{
+  "retrieval_projection": {
+    "schema_version": "document-retrieval-projection.v1",
+    "locator": "candidate-007",
+    "source_key": "source-family-a",
+    "projection_generation": "generation-a-42",
+    "sequence_ordinal": 7,
+    "actor_keys": ["actor-a"],
+    "time_interval": null,
+    "relative_time_interval": {
+      "start_ms": 420000,
+      "end_ms": 480000
+    },
+    "kind": "record_block",
+    "category": "decision",
+    "tags": ["approved", "launch"]
+  }
+}

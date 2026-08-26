@@ -105,6 +105,6 @@
   "tests/unit/test_quality_evidence_bundle.py": 1136,
   "tests/unit/test_sdk_contract.py": 3788,
   "tests/unit/test_suggestions_api.py": 1082,
-  "tests/unit/test_worker_eval.py": 2003,
+  "tests/unit/test_worker_eval.py": 1997,
   "tests/unit/test_worker_eval_scorecard.py": 2994
 }
