@@ -152,30 +152,6 @@ class MemoryChunkRow(Base):
     retrieval_commit_watermark: Mapped[int] = mapped_column(BigInteger, nullable=False, default=0)
 
 
-class MemoryLocatorProjectionTombstoneRow(Base):
-    __tablename__ = "memory_locator_projection_tombstones"
-    chunk_id: Mapped[str] = mapped_column(String(80), primary_key=True)
-    canonical_version: Mapped[int] = mapped_column(BigInteger, nullable=False)
-    legacy_deleted_at: Mapped[datetime | None] = mapped_column(
-        DateTime(timezone=True), nullable=True
-    )
-    locator_deleted_at: Mapped[datetime | None] = mapped_column(
-        DateTime(timezone=True), nullable=True
-    )
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
-    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
-    __table_args__ = (
-        CheckConstraint("canonical_version > 0", name="ck_locator_tombstone_version_positive"),
-        Index(
-            "ix_locator_projection_tombstones_pending",
-            "updated_at",
-            "chunk_id",
-            postgresql_where=(legacy_deleted_at.is_(None) | locator_deleted_at.is_(None)),
-            sqlite_where=(legacy_deleted_at.is_(None) | locator_deleted_at.is_(None)),
-        ),
-    )
-
-
 class MemoryDocumentProjectionReceiptRow(Base):
     __tablename__ = "memory_document_projection_receipts"
     space_id: Mapped[str] = mapped_column(String(80), primary_key=True)
@@ -664,5 +640,4 @@ __all__ = (
     "MemoryLocatorProfileProjectionReceiptRow",
     "MemoryLocatorProfileRow",
     "MemoryLocatorProfileTombstoneRow",
-    "MemoryLocatorProjectionTombstoneRow",
 )

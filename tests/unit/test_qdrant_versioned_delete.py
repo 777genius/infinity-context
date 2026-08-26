@@ -7,7 +7,10 @@ from types import SimpleNamespace
 from infinity_context_adapters.qdrant.profile_lifecycle import (
     QdrantRetrievalProfileProjection,
 )
-from infinity_context_adapters.qdrant.vector_adapter import QdrantVectorMemoryAdapter
+from infinity_context_adapters.qdrant.vector_adapter import (
+    QdrantVectorMemoryAdapter,
+    qdrant_point_id_for_chunk,
+)
 from infinity_context_core.features.context_building.public import RetrievalProfileIdentity
 from infinity_context_core.ports.adapters import PortStatus
 
@@ -28,12 +31,20 @@ class _Models:
 class _Client:
     def __init__(self) -> None:
         self.delete_calls: list[dict[str, object]] = []
+        self.current_versions: dict[str, int] = {}
 
     async def collection_exists(self, collection_name: str) -> bool:
         return collection_name == "locator"
 
     async def delete(self, **kwargs: object) -> None:
         self.delete_calls.append(kwargs)
+        selector = kwargs["points_selector"]
+        conditions = selector.kwargs["filter"].kwargs["must"]
+        point_ids = conditions[0].kwargs["has_id"]
+        version = conditions[1].kwargs["match"].kwargs["value"]
+        for point_id in point_ids:
+            if self.current_versions.get(point_id) == version:
+                del self.current_versions[point_id]
 
     async def close(self) -> None:
         return None
@@ -97,16 +108,44 @@ def test_profile_projection_versioned_delete_preserves_exact_port_arguments() ->
         )
         adapter = SimpleNamespace(delete_chunks_if_version=delete_chunks_if_version)
         projection._adapters["profile-a"] = adapter
-        identity = RetrievalProfileIdentity(
-            "profile-a", "generation-a", "a" * 64, "locator"
-        )
+        identity = RetrievalProfileIdentity("profile-a", "generation-a", "a" * 64, "locator")
 
         await projection.delete_profile_if_version(
             identity, ("chunk-2", "chunk-1"), canonical_version=7
         )
 
-        assert calls == [(('chunk-2', 'chunk-1'), 7)]
+        assert calls == [(("chunk-2", "chunk-1"), 7)]
         assert [event[0] for event in fence.events] == ["begin", "finish"]
         assert await projection.attestation_epoch(identity, now=datetime.now(UTC)) == 2
+
+    asyncio.run(run())
+
+
+def test_stale_delete_replay_and_reconciliation_cannot_remove_superseding_point() -> None:
+    async def run() -> None:
+        client = _Client()
+        adapter = QdrantVectorMemoryAdapter(
+            url="http://qdrant.test", collection_name="locator", vector_size=3
+        )
+
+        async def fake_client():
+            return client, _Models
+
+        adapter._client = fake_client  # type: ignore[method-assign]
+        point_id = qdrant_point_id_for_chunk("chunk-1")
+
+        client.current_versions[point_id] = 4
+        await adapter.delete_chunks_if_version(("chunk-1",), canonical_version=4)
+        assert point_id not in client.current_versions
+
+        # Supersession/replay restores canonical version 5. Both a delayed event
+        # and a later reconciliation pass may replay the version-4 delete.
+        client.current_versions[point_id] = 5
+        await adapter.delete_chunks_if_version(("chunk-1",), canonical_version=4)
+        await adapter.delete_chunks_if_version(("chunk-1",), canonical_version=4)
+        assert client.current_versions[point_id] == 5
+
+        await adapter.delete_chunks_if_version(("chunk-1",), canonical_version=5)
+        assert point_id not in client.current_versions
 
     asyncio.run(run())

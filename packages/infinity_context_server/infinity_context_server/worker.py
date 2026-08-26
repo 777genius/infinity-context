@@ -210,6 +210,7 @@ class OutboxWorker:
                     workload_class=row.workload_class,
                     fairness_key=row.fairness_key,
                     payload_json=dict(row.payload_json),
+                    aggregate_type=row.aggregate_type,
                 )
                 for row in rows
             ]

@@ -6,7 +6,7 @@ from sqlalchemy import text
 
 
 async def assert_locator_retrieval_schema(connection, tables: set[str]) -> None:
-    assert "memory_locator_projection_tombstones" in tables
+    assert "memory_locator_projection_tombstones" not in tables
     assert "memory_document_projection_receipts" in tables
     assert {
         "memory_locator_profiles",
@@ -65,10 +65,9 @@ async def assert_locator_retrieval_schema(connection, tables: set[str]) -> None:
             )
         ).scalars()
     )
-    assert {
-        "trg_memory_chunk_retrieval_fence_v2",
-        "trg_memory_chunk_locator_projection_events_v2",
-    } <= retrieval_objects
+    assert "trg_memory_chunk_retrieval_fence_v2" in retrieval_objects
+    assert "trg_memory_chunk_locator_profile_events_v2" in retrieval_objects
+    assert "trg_memory_chunk_locator_projection_events_v2" not in retrieval_objects
     document_columns = set(
         (
             await connection.execute(

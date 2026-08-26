@@ -40,18 +40,12 @@ CURRENT_SOURCE_ROOTS = tuple(
         REPO_ROOT / "examples",
         REPO_ROOT / "scripts",
         REPO_ROOT / "tests",
+        REPO_ROOT / "plugins",
+        REPO_ROOT / ".github",
     )
     if path.exists()
 )
-VERSIONED_RETRIEVAL_PATH_ALLOWLIST = {
-    REPO_ROOT
-    / "packages"
-    / "infinity_context_adapters"
-    / "infinity_context_adapters"
-    / "postgres"
-    / "maintenance"
-    / "locator_retrieval_v2_concurrent_indexes.sql",
-}
+VERSIONED_RETRIEVAL_PATH_ALLOWLIST: set[Path] = set()
 OLD_RETRIEVAL_IDENTIFIER = re.compile(
     r"(?:RetrievalV2|RetrieveContextV2|ContextRetrieval\w*V2|"
     r"(?:Canonical|Postgres)?Locator\w*V2|retrieve_context_v2|"
@@ -82,16 +76,31 @@ TEXT_SUFFIXES = {
     ".toml",
     ".ts",
     ".tsx",
+    ".sh",
+    ".yaml",
+    ".yml",
 }
-IMMUTABLE_V2_PATH_PREFIXES = (
-    Path("docs/adr"),
-    Path("packages/infinity_context_adapters/infinity_context_adapters/postgres/maintenance"),
-    Path("packages/infinity_context_adapters/infinity_context_adapters/postgres/migrations"),
+IMMUTABLE_V2_PATHS = {
+    Path("docs/adr/ADR-0011-locator-retrieval-v2-boundary.md"),
+    *(
+        Path("packages/infinity_context_adapters/infinity_context_adapters/postgres/migrations")
+        / name
+        for name in (
+            "0039_locator_retrieval_attributes.sql",
+            "0040_locator_profile_lifecycle.sql",
+            "0041_locator_profile_attestation_fence.sql",
+            "0042_locator_profile_retirement.sql",
+            "0043_locator_profile_transition_audit.sql",
+            "0044_locator_profile_operator_receipts.sql",
+            "0046_locator_profile_linearizable_fences.sql",
+        )
+    ),
+}
+IMMUTABLE_WIRE_PATH_PREFIXES = (
     Path(
         "packages/infinity_context_contracts/infinity_context_contracts/fixtures/context_retrieval_v2"
     ),
     Path("packages/infinity_context_ts_sdk/fixtures/context_retrieval_v2"),
-    Path("tests/migrations"),
 )
 IMMUTABLE_V2_LINE_MARKERS = {
     "ADR-0011-locator-retrieval-v2-boundary.md",
@@ -106,7 +115,6 @@ IMMUTABLE_V2_LINE_MARKERS = {
     "locator-v2-tombstone:",
     "pre-0046 Retrieval V2 writers",
 }
-IMMUTABLE_V2_IDENTIFIERS = {"context_retrieval_v2"}
 NEW_SOURCE_CLASSIFICATION = {
     CORE_FEATURE / "domain" / "locator_retrieval.py": "domain",
     CORE_FEATURE / "domain" / "locator_retrieval_filters.py": "domain_filters",
@@ -358,13 +366,15 @@ def test_retrieval_boundary_guard_catches_python_and_typescript_mutations() -> N
     mutations = {
         Path("packages/example/mutant.py"): (
             "import importlib\n"
-            "old = importlib.import_module("
-            "'infinity_context_adapters.postgres.locator_projection_maintenance')\n"
-            "locator_vector_index = object()\n"
-            "label = 'locator-V2'\n"
+            "old = importlib.import_module('infinity_context_adapters.postgres.' + "
+            "'locator_' + 'projection_maintenance')\n"
+            "legacy = getattr(object(), 'locator_' + 'vector_index')\n"
+            "label = 'locator-' + 'v2'\n"
         ),
         Path("packages/example/mutant.ts"): (
-            "const locator_projection_maintenance = {};\nconst label = 'locator-V2';\n"
+            "const old = container['locator_' + 'vector_index'];\n"
+            "const module = import('infinity_context_server.' + 'retrieval_composition');\n"
+            "const label = 'locator-' + 'v2';\n"
         ),
     }
     for relative, text in mutations.items():
@@ -373,10 +383,11 @@ def test_retrieval_boundary_guard_catches_python_and_typescript_mutations() -> N
 
 def test_retrieval_boundary_guard_allows_exact_frozen_fixture_identifier() -> None:
     samples = {
-        Path("tests/example_fixture_reference.py"): (
-            "context_retrieval_v2 = 'fixtures/context_retrieval_v2/request.json'\n"
-        ),
-        Path("packages/example_fixture_reference.ts"): (
+        Path(
+            "packages/infinity_context_contracts/infinity_context_contracts/fixtures/"
+            "context_retrieval_v2/frozen.py"
+        ): ("context_retrieval_v2 = 'fixtures/context_retrieval_v2/request.json'\n"),
+        Path("packages/infinity_context_ts_sdk/fixtures/context_retrieval_v2/frozen.ts"): (
             "const context_retrieval_v2 = 'fixtures/context_retrieval_v2/request.json';\n"
         ),
     }
@@ -411,11 +422,27 @@ def test_drained_projection_lane_cannot_be_dynamically_injected() -> None:
         workload_class="projection",
         fairness_key="chunk:chunk-a",
         payload_json={"chunk_ids": ["chunk-a"]},
+        aggregate_type="locator_chunk",
     )
 
     asyncio.run(process.handle_vector_delete_chunks(job))
+    asyncio.run(
+        process.handle_vector_upsert(
+            ClaimedOutboxJob(
+                id=2,
+                event_type="vector.upsert_chunk",
+                aggregate_id="chunk-a",
+                aggregate_version=8,
+                attempt_count=0,
+                workload_class="projection",
+                fairness_key="chunk:chunk-a",
+                payload_json={"chunk_id": "chunk-a"},
+                aggregate_type="locator_chunk",
+            )
+        )
+    )
 
-    assert vector.deleted == [("chunk-a",)]
+    assert vector.deleted == []
     assert REMOVED_PROJECTION_NAMES.isdisjoint(Container.__annotations__)
 
 
@@ -531,13 +558,19 @@ def _defined_or_referenced_names(node: ast.AST) -> tuple[str, ...]:
 
 def _source_boundary_violations(relative: Path, text: str) -> list[str]:
     violations: list[str] = []
+    lines = text.splitlines()
+    removed_modules = {
+        OLD_SERVING_MODULE,
+        REMOVED_RETRIEVAL_MODULE,
+        REMOVED_PROJECTION_MODULE,
+    }
     if "serving_identity" in relative.name:
         violations.append(f"{relative}:old serving filename")
     if (
         "retrieval_v2" in relative.name or "retrieval-v2" in relative.name
     ) and not _immutable_v2_path(relative):
         violations.append(f"{relative}:current V2 filename")
-    for line_number, line in enumerate(text.splitlines(), 1):
+    for line_number, line in enumerate(lines, 1):
         if "serving_identity" in line:
             violations.append(f"{relative}:{line_number}:old serving name")
         if any(name in line for name in REMOVED_PROJECTION_NAMES) and not _immutable_v2_path(
@@ -548,11 +581,6 @@ def _source_boundary_violations(relative: Path, text: str) -> list[str]:
             violations.append(f"{relative}:{line_number}:current V2 name")
     if relative.suffix in {".py", ".pyi"}:
         tree = ast.parse(text, filename=str(relative))
-        removed_modules = {
-            OLD_SERVING_MODULE,
-            REMOVED_RETRIEVAL_MODULE,
-            REMOVED_PROJECTION_MODULE,
-        }
         violations.extend(
             f"{relative}:{name}"
             for name in _imports(tree)
@@ -567,30 +595,69 @@ def _source_boundary_violations(relative: Path, text: str) -> list[str]:
         )
         for node in ast.walk(tree):
             for name in _defined_or_referenced_names(node):
-                if (
-                    OLD_RETRIEVAL_IDENTIFIER.search(name)
-                    and name not in IMMUTABLE_V2_IDENTIFIERS
-                    and not _immutable_v2_path(relative)
-                ):
+                if OLD_RETRIEVAL_IDENTIFIER.search(name) and not _immutable_v2_path(relative):
                     violations.append(f"{relative}:{name}")
-            if (
-                isinstance(node, ast.Constant)
-                and isinstance(node.value, str)
-                and any(module in node.value for module in removed_modules)
-            ):
-                violations.append(f"{relative}:dynamic old module string")
+            value = _static_python_string(node)
+            if value is not None:
+                source_line = lines[getattr(node, "lineno", 1) - 1]
+                if any(module in value for module in removed_modules) and not _immutable_v2_path(
+                    relative
+                ):
+                    violations.append(f"{relative}:dynamic old module string")
+                if any(name in value for name in REMOVED_PROJECTION_NAMES) and not (
+                    _immutable_v2_path(relative)
+                ):
+                    violations.append(f"{relative}:dynamic removed projection name")
+                if CURRENT_V2_NAME.search(value) and not _immutable_v2_line(relative, source_line):
+                    violations.append(f"{relative}:dynamic current V2 name")
     elif relative.suffix in {".cts", ".mts", ".ts", ".tsx"} or relative.name.endswith(
         (".d.cts", ".d.ts")
     ):
-        identifiers = re.findall(r"[A-Za-z_$][A-Za-z0-9_$]*", text)
-        violations.extend(
-            f"{relative}:{name}"
-            for name in identifiers
-            if OLD_RETRIEVAL_IDENTIFIER.search(name)
-            and name not in IMMUTABLE_V2_IDENTIFIERS
-            and not _immutable_v2_path(relative)
-        )
+        for line_number, line in enumerate(lines, 1):
+            violations.extend(
+                f"{relative}:{name}"
+                for name in re.findall(r"[A-Za-z_$][A-Za-z0-9_$]*", line)
+                if OLD_RETRIEVAL_IDENTIFIER.search(name)
+                and not _immutable_v2_path(relative)
+                and not _immutable_v2_line(relative, line)
+            )
+            for value in _typescript_static_strings(line):
+                if any(module in value for module in removed_modules) and not _immutable_v2_path(
+                    relative
+                ):
+                    violations.append(f"{relative}:{line_number}:dynamic old module string")
+                if any(name in value for name in REMOVED_PROJECTION_NAMES) and not (
+                    _immutable_v2_path(relative)
+                ):
+                    violations.append(f"{relative}:{line_number}:dynamic removed projection name")
+                if CURRENT_V2_NAME.search(value) and not _immutable_v2_line(relative, line):
+                    violations.append(f"{relative}:{line_number}:dynamic current V2 name")
     return violations
+
+
+def _static_python_string(node: ast.AST) -> str | None:
+    if isinstance(node, ast.Constant) and isinstance(node.value, str):
+        return node.value
+    if isinstance(node, ast.BinOp) and isinstance(node.op, ast.Add):
+        left = _static_python_string(node.left)
+        right = _static_python_string(node.right)
+        return None if left is None or right is None else left + right
+    return None
+
+
+def _typescript_static_strings(line: str) -> tuple[str, ...]:
+    values: list[str] = []
+    quoted = r"(?:'[^'\\]*(?:\\.[^'\\]*)*'|\"[^\"\\]*(?:\\.[^\"\\]*)*\")"
+    pattern = re.compile(quoted + r"(?:\s*\+\s*" + quoted + r")+")
+    literal = re.compile(r"'([^'\\]*(?:\\.[^'\\]*)*)'|\"([^\"\\]*(?:\\.[^\"\\]*)*)\"")
+    for match in pattern.finditer(line):
+        values.append(
+            "".join(
+                next(value for value in item.groups() if value is not None)
+                for item in literal.finditer(match.group(0))
+            )
+        )
+    return tuple(values)
 
 
 def _current_text_files() -> tuple[Path, ...]:
@@ -620,8 +687,8 @@ def _current_text_files() -> tuple[Path, ...]:
 
 
 def _immutable_v2_path(relative: Path) -> bool:
-    return any(
-        relative == prefix or prefix in relative.parents for prefix in IMMUTABLE_V2_PATH_PREFIXES
+    return relative in IMMUTABLE_V2_PATHS or any(
+        relative == prefix or prefix in relative.parents for prefix in IMMUTABLE_WIRE_PATH_PREFIXES
     )
 
 

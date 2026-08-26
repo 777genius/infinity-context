@@ -1,4 +1,4 @@
-"""Seeded executable proof for the 0038 -> 0039 locator migration."""
+"""Executable upgrade proofs for the Retrieval-default lifecycle cutover."""
 
 from __future__ import annotations
 
@@ -16,56 +16,36 @@ from sqlalchemy import text
 from test_postgres_schema_upgrade_e2e import _install_versioned_schema_through
 
 
-def test_seeded_locator_upgrade_when_postgres_is_configured() -> None:
+@pytest.mark.parametrize("starting_migration", ["0039_", "0040_"])
+def test_retrieval_cutover_upgrade_when_postgres_is_configured(starting_migration: str) -> None:
     database_url = os.getenv("INFINITY_CONTEXT_TEST_POSTGRES_URL")
     if not database_url:
         pytest.skip("INFINITY_CONTEXT_TEST_POSTGRES_URL is not configured")
-    asyncio.run(_assert_seeded_upgrade(database_url))
+    asyncio.run(_assert_cutover_upgrade(database_url, starting_migration))
 
 
-async def _assert_seeded_upgrade(database_url: str) -> None:
+async def _assert_cutover_upgrade(database_url: str, starting_migration: str) -> None:
     asyncpg = pytest.importorskip("asyncpg")
     database = PostgresTestDatabase.from_url(
-        database_url, prefix="locator_v2_upgrade", asyncpg=asyncpg
+        database_url,
+        prefix=f"retrieval_cutover_{starting_migration[:4]}",
+        asyncpg=asyncpg,
     )
     try:
         await database.recreate()
-        await _install_versioned_schema_through(database, "0038_")
+        await _install_versioned_schema_through(database, starting_migration)
         raw = await database.connect()
         try:
-            await raw.execute(
-                """
-                INSERT INTO memory_spaces
-                  (id, slug, name, status, created_at, updated_at)
-                VALUES ('space-a', 'space-a', 'Space A', 'active', now(), now());
-                INSERT INTO memory_scopes
-                  (id, space_id, external_ref, name, status, created_at, updated_at)
-                VALUES ('scope-a', 'space-a', 'scope-a', 'Scope A',
-                        'active', now(), now());
-                INSERT INTO memory_documents
-                  (id, space_id, memory_scope_id, thread_id, title, source_type,
-                   source_external_id, content_hash, classification, status,
-                   created_at, updated_at)
-                VALUES ('document-canonical-a', 'space-a', 'scope-a', NULL,
-                        'Document', 'file', 'guessable-name.txt', repeat('a', 64),
-                        'internal', 'active', now(), now());
-                INSERT INTO memory_chunks
-                  (id, space_id, memory_scope_id, thread_id, document_id, episode_id,
-                   source_type, source_external_id, source_hash, kind, text,
-                   normalized_text, status, sequence, char_start, char_end,
-                   token_estimate, classification, created_at, updated_at, metadata_json)
-                VALUES ('chunk-canonical-a', 'space-a', 'scope-a', NULL,
-                        'document-canonical-a', NULL, 'file', 'guessable-name.txt',
-                        repeat('b', 64), 'paragraph', 'First text', 'first text',
-                        'active', 0, 0, 10, 2, 'internal', now(), now(), '{}'::jsonb)
-                """
-            )
+            if starting_migration == "0040_":
+                await _seed_profile(raw)
+            await _seed_chunk_and_queued_events(raw)
         finally:
             await raw.close()
+
         engine = build_async_engine(database.app_url)
         try:
-            result = await upgrade_schema(engine)
-            assert result.applied == (
+            upgraded = await upgrade_schema(engine)
+            assert upgraded.applied == (
                 "0039_locator_retrieval_attributes",
                 "0040_locator_profile_lifecycle",
                 "0041_locator_profile_attestation_fence",
@@ -81,196 +61,159 @@ async def _assert_seeded_upgrade(database_url: str) -> None:
                 "0051_locator_profile_acl_search_path_hardening",
                 "0052_document_scope_listing_indexes",
                 "0052_reconciliation_outbox_binding_index",
+                "0053_retrieval_default_lifecycle",
             )
-            assert len(await build_locator_retrieval_indexes(engine)) == 4
-            assert len(await build_locator_retrieval_indexes(engine)) == 4
+            assert upgraded.current == "0053_retrieval_default_lifecycle"
+            assert upgraded.applied[-1] == "0053_retrieval_default_lifecycle"
+            assert len(await build_locator_retrieval_indexes(engine)) == 3
+            assert len(await build_locator_retrieval_indexes(engine)) == 3
             async with engine.begin() as connection:
-                row = (
-                    await connection.execute(
-                        text(
-                            """
-                            SELECT retrieval_locator, retrieval_source_key,
-                                   retrieval_projection_generation, retrieval_version
-                            FROM memory_chunks WHERE id = 'chunk-canonical-a'
-                            """
-                        )
+                assert (
+                    await connection.scalar(
+                        text("SELECT to_regclass('memory_locator_projection_tombstones')")
                     )
-                ).one()
-                assert tuple(row) == (None, None, None, 1)
-                rebuilds = await connection.scalar(
-                    text(
-                        "SELECT count(*) FROM memory_outbox "
-                        "WHERE aggregate_id = 'chunk-canonical-a'"
-                    )
-                )
-                assert rebuilds == 0
-                await connection.execute(
-                    text(
-                        "UPDATE memory_chunks SET retrieval_locator = 'caller-locator', "
-                        "retrieval_source_key = 'caller-source', "
-                        "retrieval_projection_generation = 'caller-generation', "
-                        "retrieval_sequence_ordinal = 7, retrieval_kind = 'record', "
-                        "retrieval_category = 'decision' "
-                        "WHERE id = 'chunk-canonical-a'"
-                    )
+                    is None
                 )
                 assert (
                     await connection.scalar(
                         text(
-                            "SELECT retrieval_version FROM memory_chunks "
-                            "WHERE id = 'chunk-canonical-a'"
+                            "SELECT to_regprocedure('memory_chunk_locator_projection_events_v2()')"
                         )
                     )
-                    == 2
+                    is None
                 )
-                await connection.execute(
-                    text(
-                        "UPDATE memory_chunks SET text = 'Second text' "
-                        "WHERE id = 'chunk-canonical-a'"
-                    )
-                )
-                await connection.execute(
-                    text(
-                        "UPDATE memory_chunks SET classification = 'restricted' "
-                        "WHERE id = 'chunk-canonical-a'"
-                    )
-                )
-                tombstone = (
-                    await connection.execute(
-                        text(
-                            "SELECT canonical_version, legacy_deleted_at, locator_deleted_at "
-                            "FROM memory_locator_projection_tombstones "
-                            "WHERE chunk_id = 'chunk-canonical-a'"
+                triggers = set(
+                    (
+                        await connection.execute(
+                            text(
+                                "SELECT tgname FROM pg_trigger "
+                                "WHERE tgrelid = 'memory_chunks'::regclass AND NOT tgisinternal"
+                            )
                         )
-                    )
-                ).one()
-                assert tuple(tombstone) == (4, None, None)
-                await connection.execute(
-                    text(
-                        "UPDATE memory_locator_projection_tombstones SET "
-                        "legacy_deleted_at = CURRENT_TIMESTAMP, "
-                        "locator_deleted_at = CURRENT_TIMESTAMP "
-                        "WHERE chunk_id = 'chunk-canonical-a'"
-                    )
+                    ).scalars()
                 )
-                tombstone_jobs = await connection.scalar(
-                    text(
-                        "SELECT count(*) FROM memory_outbox WHERE message_key LIKE "
-                        "'locator-v2-tombstone:chunk-canonical-a:%'"
-                    )
-                )
-                await connection.execute(
-                    text(
-                        "UPDATE memory_chunks SET updated_at = CURRENT_TIMESTAMP "
-                        "WHERE id = 'chunk-canonical-a'"
-                    )
-                )
-                preserved = (
-                    await connection.execute(
-                        text(
-                            "SELECT canonical_version, legacy_deleted_at IS NOT NULL, "
-                            "locator_deleted_at IS NOT NULL "
-                            "FROM memory_locator_projection_tombstones "
-                            "WHERE chunk_id = 'chunk-canonical-a'"
+                assert "trg_memory_chunk_locator_projection_events_v2" not in triggers
+                assert "trg_memory_chunk_locator_profile_events_v2" in triggers
+
+                retired = tuple(
+                    (
+                        await connection.execute(
+                            text(
+                                "SELECT status, last_safe_diagnostic_code FROM memory_outbox "
+                                "WHERE aggregate_type = 'locator_chunk' ORDER BY id"
+                            )
                         )
-                    )
-                ).one()
-                assert tuple(preserved) == (4, True, True)
-                assert (
+                    ).all()
+                )
+                assert retired
+                assert set(retired) == {("done", "retrieval.legacy_projection_retired")}
+
+                current_before = int(
                     await connection.scalar(
                         text(
-                            "SELECT count(*) FROM memory_outbox WHERE message_key LIKE "
-                            "'locator-v2-tombstone:chunk-canonical-a:%'"
+                            "SELECT count(*) FROM memory_outbox WHERE event_type LIKE "
+                            "'vector.%_locator_profile'"
                         )
                     )
-                    == tombstone_jobs
+                    or 0
                 )
-                await connection.execute(
-                    text(
-                        "UPDATE memory_chunks SET text = 'Later non-visible version' "
-                        "WHERE id = 'chunk-canonical-a'"
-                    )
-                )
-                reset = (
+                if starting_migration == "0039_":
                     await connection.execute(
                         text(
-                            "SELECT canonical_version, legacy_deleted_at, locator_deleted_at "
-                            "FROM memory_locator_projection_tombstones "
-                            "WHERE chunk_id = 'chunk-canonical-a'"
-                        )
+                            "INSERT INTO memory_locator_profiles ("
+                            "profile_id, generation, profile_digest, collection_name, state, "
+                            "backfill_complete, canonical_watermark, projected_watermark, "
+                            "expected_count, projected_count, expected_digest, projected_digest, "
+                            "created_at) VALUES ("
+                            "'profile-cutover', 'generation-cutover', :profile_digest, "
+                            "'retrieval_cutover', 'building', FALSE, 0, 0, 0, 0, "
+                            ":empty_digest, :empty_digest, now())"
+                        ),
+                        {
+                            "profile_digest": "a" * 64,
+                            "empty_digest": (
+                                "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+                            ),
+                        },
                     )
-                ).one()
-                assert tuple(reset) == (5, None, None)
-                assert (
-                    await connection.scalar(
-                        text(
-                            "SELECT count(*) FROM memory_outbox WHERE message_key = "
-                            "'locator-v2-tombstone:chunk-canonical-a:5'"
-                        )
-                    )
-                    == 1
-                )
-            async with engine.connect() as connection:
-                assert (
-                    await connection.scalar(
-                        text(
-                            "SELECT count(*) FROM memory_locator_projection_tombstones t "
-                            "LEFT JOIN memory_chunks c ON c.id = t.chunk_id "
-                            "WHERE t.chunk_id = 'chunk-canonical-a' "
-                            "AND t.canonical_version = 5 "
-                            "AND (c.id IS NULL OR (c.retrieval_version = 5 "
-                            "AND (c.status <> 'active' OR "
-                            "c.classification NOT IN ('public', 'internal'))))"
-                        )
-                    )
-                    == 1
-                )
-            async with engine.begin() as connection:
                 await connection.execute(
                     text(
                         "UPDATE memory_chunks SET classification = 'internal' "
-                        "WHERE id = 'chunk-canonical-a'"
+                        "WHERE id = 'chunk-cutover'"
                     )
                 )
-            async with engine.connect() as connection:
                 assert (
                     await connection.scalar(
                         text(
-                            "SELECT count(*) FROM memory_locator_projection_tombstones t "
-                            "JOIN memory_chunks c ON c.id = t.chunk_id "
-                            "WHERE t.chunk_id = 'chunk-canonical-a' "
-                            "AND t.canonical_version = 5 AND c.retrieval_version = 5 "
-                            "AND (c.status <> 'active' OR "
-                            "c.classification NOT IN ('public', 'internal'))"
+                            "SELECT count(*) FROM memory_outbox WHERE event_type LIKE "
+                            "'vector.%_locator_profile'"
                         )
                     )
-                    == 0
+                    == current_before + 1
                 )
-            async with engine.begin() as connection:
-                await connection.execute(
-                    text(
-                        "UPDATE memory_chunks SET classification = 'restricted' "
-                        "WHERE id = 'chunk-canonical-a'"
-                    )
-                )
-            async with engine.begin() as connection:
-                await connection.execute(
-                    text(
-                        "UPDATE memory_locator_projection_tombstones "
-                        "SET locator_deleted_at = TIMESTAMPTZ '2026-01-01T00:00:00Z' "
-                        "WHERE chunk_id = 'chunk-canonical-a' AND canonical_version = 6"
-                    )
-                )
-            async with engine.connect() as connection:
                 assert await connection.scalar(
                     text(
-                        "SELECT locator_deleted_at IS NULL "
-                        "FROM memory_locator_projection_tombstones "
-                        "WHERE chunk_id = 'chunk-canonical-a'"
+                        "SELECT count(*) FROM memory_outbox WHERE aggregate_type = 'locator_chunk'"
                     )
-                )
+                ) == len(retired)
             assert (await upgrade_schema(engine)).applied == ()
         finally:
             await engine.dispose()
     finally:
         await database.drop()
+
+
+async def _seed_profile(connection) -> None:
+    empty = "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    await connection.execute(
+        """
+        INSERT INTO memory_locator_profiles (
+            profile_id, generation, profile_digest, collection_name, state,
+            backfill_complete, canonical_watermark, projected_watermark,
+            expected_count, projected_count, expected_digest, projected_digest,
+            created_at
+        ) VALUES (
+            'profile-cutover', 'generation-cutover', $1, 'retrieval_cutover', 'building',
+            FALSE, 0, 0, 0, 0, $2, $2, now()
+        )
+        """,
+        "a" * 64,
+        empty,
+    )
+
+
+async def _seed_chunk_and_queued_events(connection) -> None:
+    await connection.execute(
+        """
+        INSERT INTO memory_spaces (id, slug, name, status, created_at, updated_at)
+        VALUES ('space-cutover', 'space-cutover', 'Cutover', 'active', now(), now());
+        INSERT INTO memory_scopes
+          (id, space_id, external_ref, name, status, created_at, updated_at)
+        VALUES ('scope-cutover', 'space-cutover', 'scope-cutover', 'Cutover',
+                'active', now(), now());
+        INSERT INTO memory_documents
+          (id, space_id, memory_scope_id, thread_id, title, source_type,
+           source_external_id, content_hash, classification, status,
+           retrieval_projected, created_at, updated_at)
+        VALUES ('document-cutover', 'space-cutover', 'scope-cutover', NULL,
+                'Document', 'file', 'document.txt', repeat('a', 64), 'internal',
+                'active', TRUE, now(), now());
+        INSERT INTO memory_chunks
+          (id, space_id, memory_scope_id, thread_id, document_id, episode_id,
+           source_type, source_external_id, source_hash, kind, text,
+           normalized_text, status, sequence, char_start, char_end,
+           token_estimate, classification, created_at, updated_at, metadata_json,
+           retrieval_locator, retrieval_source_key, retrieval_projection_generation,
+           retrieval_sequence_ordinal, retrieval_kind, retrieval_category)
+        VALUES ('chunk-cutover', 'space-cutover', 'scope-cutover', NULL,
+                'document-cutover', NULL, 'file', 'document.txt', repeat('b', 64),
+                'paragraph', 'Version four', 'version four', 'active', 0, 0, 12, 2,
+                'internal', now(), now(), '{}'::jsonb, 'cutover/0', 'document.txt',
+                'generation-cutover', 0, 'record', 'decision');
+        UPDATE memory_chunks SET text = 'Version five' WHERE id = 'chunk-cutover';
+        UPDATE memory_chunks SET classification = 'restricted' WHERE id = 'chunk-cutover';
+        """
+    )
+
+
+__all__ = ()

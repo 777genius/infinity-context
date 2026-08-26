@@ -20,12 +20,11 @@ from infinity_context_adapters.postgres.migration_metadata import (
 
 _MIGRATION_ID = "0039_locator_retrieval_attributes"
 _MIGRATION = Path(__file__).with_name("migrations") / f"{_MIGRATION_ID}.sql"
-_SQL = Path(__file__).with_name("maintenance") / "locator_retrieval_v2_concurrent_indexes.sql"
+_SQL = Path(__file__).with_name("maintenance") / "retrieval_concurrent_indexes.sql"
 _EXPECTED_INDEXES = (
     "uq_memory_chunks_retrieval_locator_owner",
     "uq_memory_chunks_retrieval_active_ordinal_owner",
     "ix_memory_chunks_locator_retrieval",
-    "ix_locator_projection_tombstones_pending",
 )
 
 

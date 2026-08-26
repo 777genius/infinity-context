@@ -125,6 +125,7 @@ infinity_context_adapters = [
   "extraction/prompts/*.md",
   "extraction/schemas/*.json",
   "postgres/migrations/*.sql",
+  "postgres/maintenance/*.sql",
   "postgres/provisioning/*.sql",
 ]
 infinity_context_contracts = [

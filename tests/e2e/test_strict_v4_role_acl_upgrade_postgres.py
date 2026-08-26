@@ -161,6 +161,7 @@ async def _scenario(database_url: str) -> None:
                 "0051_locator_profile_acl_search_path_hardening",
                 "0052_document_scope_listing_indexes",
                 "0052_reconciliation_outbox_binding_index",
+                "0053_retrieval_default_lifecycle",
             )
         finally:
             await engine.dispose()
@@ -274,9 +275,9 @@ async def _non_schema_owner_scenario(database_url: str) -> None:
         engine = build_async_engine(migrator_database.app_url)
         try:
             result = await upgrade_schema(engine)
-            assert result.current == "0052_reconciliation_outbox_binding_index"
+            assert result.current == "0053_retrieval_default_lifecycle"
             assert result.applied[0] == "0001_core_facts"
-            assert result.applied[-1] == "0052_reconciliation_outbox_binding_index"
+            assert result.applied[-1] == "0053_retrieval_default_lifecycle"
         finally:
             await engine.dispose()
 

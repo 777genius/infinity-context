@@ -71,6 +71,8 @@ class ProjectionOutboxProcess:
         }
 
     async def handle_vector_upsert(self, job: ClaimedOutboxJob) -> None:
+        if job.aggregate_type == "locator_chunk":
+            return
         chunk_id = str(job.payload_json.get("chunk_id") or job.aggregate_id)
         async with self._container.uow_factory() as uow:
             chunk = await uow.chunks.get_by_id(chunk_id)
@@ -157,6 +159,8 @@ class ProjectionOutboxProcess:
             _raise_if_degraded(result.status, "vector.upsert_chunks", result.diagnostics)
 
     async def handle_vector_delete_chunks(self, job: ClaimedOutboxJob) -> None:
+        if job.aggregate_type == "locator_chunk":
+            return
         chunk_ids = tuple(str(value) for value in job.payload_json.get("chunk_ids", []))
         require_delete_completion = _benchmark_cleanup_requires_delete_completion(job.payload_json)
         await self._delete_vector_chunks(

@@ -58,7 +58,6 @@ from infinity_context_adapters.postgres.models import (
     MemoryChunkRow,
     MemoryDocumentRow,
     MemoryEpisodeRow,
-    MemoryLocatorProjectionTombstoneRow,
     MemorySuggestionRow,
 )
 from infinity_context_adapters.postgres.record_repositories import (
@@ -416,17 +415,6 @@ class PostgresDocumentRepository(DocumentRepositoryPort):
             row.status = "deleted"
             row.retrieval_version += 1
             row.updated_at = now
-            if self._session.bind is not None and self._session.bind.dialect.name != "postgresql":
-                self._session.add(
-                    MemoryLocatorProjectionTombstoneRow(
-                        chunk_id=row.id,
-                        canonical_version=row.retrieval_version,
-                        legacy_deleted_at=None,
-                        locator_deleted_at=None,
-                        created_at=now,
-                        updated_at=now,
-                    )
-                )
         if document.status != "deleted":
             document.status = "deleted"
             document.updated_at = now

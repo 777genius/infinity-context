@@ -121,14 +121,6 @@ _INDEXES: Final = {
         ),
         "retrieval_locator IS NOT NULL",
     ),
-    "ix_locator_projection_tombstones_pending": _IndexSpec(
-        "memory_locator_projection_tombstones",
-        False,
-        ("updated_at", "chunk_id"),
-        ("pg_catalog.timestamptz_ops", "pg_catalog.text_ops"),
-        (None, "chunk_id"),
-        "legacy_deleted_at IS NULL OR locator_deleted_at IS NULL",
-    ),
 }
 
 _CONSTRAINTS: Final = {
@@ -224,13 +216,6 @@ _CONSTRAINTS: Final = {
         ("request_fingerprint_sha256",),
         "CHECK (request_fingerprint_sha256 ~ '^[0-9a-f]{64}$'::text)",
     ),
-    "ck_locator_tombstone_version_positive": _ConstraintSpec(
-        "memory_locator_projection_tombstones",
-        "c",
-        True,
-        ("canonical_version",),
-        "CHECK (canonical_version > 0)",
-    ),
 }
 
 _TRIGGERS: Final = {
@@ -241,14 +226,6 @@ _TRIGGERS: Final = {
         """CREATE TRIGGER trg_memory_chunk_retrieval_fence_v2
         BEFORE INSERT OR UPDATE ON public.memory_chunks FOR EACH ROW
         EXECUTE FUNCTION memory_chunk_retrieval_fence_v2()""",
-    ),
-    "trg_memory_chunk_locator_projection_events_v2": _TriggerSpec(
-        "memory_chunks",
-        "memory_chunk_locator_projection_events_v2",
-        21,
-        """CREATE TRIGGER trg_memory_chunk_locator_projection_events_v2
-        AFTER INSERT OR UPDATE ON public.memory_chunks FOR EACH ROW
-        EXECUTE FUNCTION memory_chunk_locator_projection_events_v2()""",
     ),
 }
 
@@ -406,8 +383,7 @@ async def lock_and_attest_locator_retrieval_catalog(connection) -> None:
     await connection.execute(
         text(
             "LOCK TABLE public.memory_chunks, "
-            "public.memory_document_projection_receipts, "
-            "public.memory_locator_projection_tombstones IN ROW EXCLUSIVE MODE"
+            "public.memory_document_projection_receipts IN ROW EXCLUSIVE MODE"
         )
     )
     (await attest_locator_retrieval_catalog(connection)).require_qualified()
