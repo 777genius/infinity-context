@@ -282,10 +282,33 @@ jobs:
 
       - name: Prepare locked environment for the disposable runtime
         run: |
+          case "$GITHUB_WORKSPACE" in
+            "$HOME"/*) ;;
+            *)
+              printf '%s\n' 'GITHUB_WORKSPACE must be a descendant of HOME' >&2
+              exit 1
+              ;;
+          esac
+          workspace_ancestor="$GITHUB_WORKSPACE"
+          while :; do
+            chmod o+x "$workspace_ancestor"
+            test "$workspace_ancestor" = "$HOME" && break
+            workspace_ancestor="$(dirname "$workspace_ancestor")"
+          done
           chmod -R o+rX "$GITHUB_WORKSPACE/.venv"
-          sudo -u nobody test -x "$GITHUB_WORKSPACE/.venv/bin/python"
-          sudo -u nobody "$GITHUB_WORKSPACE/.venv/bin/python" -c \
-            "from importlib.metadata import version; assert version('qdrant-client')"
+          if ! sudo -u nobody test -r "$GITHUB_WORKSPACE/pyproject.toml"; then
+            printf '%s\n' 'checked-out source is not readable by nobody' >&2
+            exit 1
+          fi
+          if ! sudo -u nobody test -x "$GITHUB_WORKSPACE/.venv/bin/python"; then
+            printf '%s\n' 'locked Python is not executable by nobody' >&2
+            exit 1
+          fi
+          if ! sudo -u nobody "$GITHUB_WORKSPACE/.venv/bin/python" -c \
+            "from importlib.metadata import version; assert version('qdrant-client')"; then
+            printf '%s\n' 'locked qdrant-client metadata is not readable by nobody' >&2
+            exit 1
+          fi
 
       - name: Wait for real Qdrant
         run: |

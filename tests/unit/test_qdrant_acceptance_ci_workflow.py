@@ -87,7 +87,14 @@ def test_real_qdrant_acceptance_pins_services_resources_and_test_contract() -> N
 def test_real_qdrant_acceptance_exposes_only_copied_runtime_artifacts() -> None:
     job = _workflow_job("qdrant-locator-acceptance")
 
+    assert 'case "$GITHUB_WORKSPACE" in' in job
+    assert '"$HOME"/*) ;;' in job
+    assert 'workspace_ancestor="$GITHUB_WORKSPACE"' in job
+    assert 'chmod o+x "$workspace_ancestor"' in job
+    assert 'test "$workspace_ancestor" = "$HOME" && break' in job
+    assert 'workspace_ancestor="$(dirname "$workspace_ancestor")"' in job
     assert 'chmod -R o+rX "$GITHUB_WORKSPACE/.venv"' in job
+    assert 'sudo -u nobody test -r "$GITHUB_WORKSPACE/pyproject.toml"' in job
     assert 'sudo -u nobody test -x "$GITHUB_WORKSPACE/.venv/bin/python"' in job
     assert (
         'sudo -u nobody "$GITHUB_WORKSPACE/.venv/bin/python" -c \\\n'
@@ -96,8 +103,35 @@ def test_real_qdrant_acceptance_exposes_only_copied_runtime_artifacts() -> None:
     ) in job
     assert "--link-mode copy" in job
     assert "chmod -R o+rX \"$GITHUB_WORKSPACE\"" not in job
-    assert job.index("--link-mode copy") < job.index("chmod -R o+rX")
+    assert "chmod -R o+rX \"$HOME\"" not in job
+    assert "chmod -R o+rX \"$workspace_ancestor\"" not in job
+    assert "chmod o+w" not in job
+    assert "chmod -R o+w" not in job
+    assert job.index("--link-mode copy") < job.index('case "$GITHUB_WORKSPACE" in')
+    assert job.index('chmod o+x "$workspace_ancestor"') < job.index(
+        'chmod -R o+rX "$GITHUB_WORKSPACE/.venv"'
+    )
+    assert job.index('chmod -R o+rX "$GITHUB_WORKSPACE/.venv"') < job.index(
+        'sudo -u nobody test -r "$GITHUB_WORKSPACE/pyproject.toml"'
+    )
+    assert job.index('sudo -u nobody test -r') < job.index(
+        'sudo -u nobody test -x'
+    )
+    assert job.index('sudo -u nobody test -x') < job.index(
+        'sudo -u nobody "$GITHUB_WORKSPACE/.venv/bin/python" -c'
+    )
     assert job.index("chmod -R o+rX") < job.index("Wait for real Qdrant")
+
+
+def test_real_qdrant_acceptance_preflight_is_diagnosable_without_environment_dump() -> None:
+    job = _workflow_job("qdrant-locator-acceptance")
+
+    assert "GITHUB_WORKSPACE must be a descendant of HOME" in job
+    assert "checked-out source is not readable by nobody" in job
+    assert "locked Python is not executable by nobody" in job
+    assert "locked qdrant-client metadata is not readable by nobody" in job
+    assert "printenv" not in job
+    assert " env |" not in job
 
 
 def test_real_qdrant_acceptance_scrubs_provider_credentials() -> None:
