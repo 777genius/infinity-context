@@ -184,10 +184,11 @@ class ProfileReconciliationWriteOutcome(StrEnum):
 
 @dataclass(frozen=True, slots=True)
 class ExactVersionDeletionProof:
-    """Provider observation proving one exact projected generation is absent."""
+    """Provider readback after deleting one exact observed generation."""
 
     canonical_ids: tuple[str, ...]
     canonical_version: int
+    remaining_canonical_versions: tuple[int | None, ...]
 
     def __post_init__(self) -> None:
         if (
@@ -203,25 +204,51 @@ class ExactVersionDeletionProof:
             or not 1 <= self.canonical_version <= 9_007_199_254_740_991
         ):
             raise ValueError("Exact deletion proof version is invalid")
-
-
-@dataclass(frozen=True, slots=True)
-class ProfileTombstoneDeleteAuthorization:
-    """Canonical authorization binding lifecycle and projected generations."""
-
-    identity: RetrievalProfileIdentity
-    canonical_version: int
-    delete_canonical_version: int
-
-    def __post_init__(self) -> None:
-        for name in ("canonical_version", "delete_canonical_version"):
-            value = getattr(self, name)
-            if (
+        if not isinstance(self.remaining_canonical_versions, tuple) or len(
+            self.remaining_canonical_versions
+        ) != len(self.canonical_ids):
+            raise ValueError("Exact deletion proof readback is invalid")
+        for value in self.remaining_canonical_versions:
+            if value is not None and (
                 not isinstance(value, int)
                 or isinstance(value, bool)
                 or not 1 <= value <= 9_007_199_254_740_991
             ):
-                raise ValueError(f"Profile tombstone {name} is invalid")
+                raise ValueError("Exact deletion proof readback version is invalid")
+
+
+@dataclass(frozen=True, slots=True)
+class ProjectedGenerationObservation:
+    """One provider observation aligned to an exact canonical identity."""
+
+    canonical_id: str
+    canonical_version: int | None
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.canonical_id, str) or not self.canonical_id:
+            raise ValueError("Projected generation identity is invalid")
+        if self.canonical_version is not None and (
+            not isinstance(self.canonical_version, int)
+            or isinstance(self.canonical_version, bool)
+            or not 1 <= self.canonical_version <= 9_007_199_254_740_991
+        ):
+            raise ValueError("Projected generation version is invalid")
+
+
+@dataclass(frozen=True, slots=True)
+class ProfileTombstoneDeleteAuthorization:
+    """Canonical authorization binding deletion to the current lifecycle fence."""
+
+    identity: RetrievalProfileIdentity
+    canonical_version: int
+
+    def __post_init__(self) -> None:
+        if (
+            not isinstance(self.canonical_version, int)
+            or isinstance(self.canonical_version, bool)
+            or not 1 <= self.canonical_version <= 9_007_199_254_740_991
+        ):
+            raise ValueError("Profile tombstone canonical_version is invalid")
 
 
 @dataclass(frozen=True, slots=True)
@@ -530,7 +557,8 @@ class RetrievalProfileRegistryPort(Protocol):
         chunk_id: str,
         *,
         canonical_version: int,
-        delete_canonical_version: int,
+        deleted_canonical_version: int | None,
+        provider_observed_at: datetime,
         completed_at: datetime,
     ) -> bool: ...
 
@@ -736,6 +764,13 @@ class RetrievalProfileProjectionPort(Protocol):
     ) -> ExactVersionDeletionProof:
         """Prove points carrying the exact stale canonical version are absent."""
 
+    async def observe_profile_generation(
+        self,
+        identity: RetrievalProfileIdentity,
+        canonical_id: str,
+    ) -> ProjectedGenerationObservation:
+        """Observe the actual generation stored for one deterministic point id."""
+
     async def attestation_epoch(
         self, identity: RetrievalProfileIdentity, *, now: datetime
     ) -> int: ...
@@ -835,6 +870,7 @@ __all__ = (
     "ProfileCleanup",
     "ProfileCollectionDeleteAuthorization",
     "ProfileTombstoneDeleteAuthorization",
+    "ProjectedGenerationObservation",
     "RetrievalProfileCollectionCleanupPort",
     "RetrievalProfileDiagnosticsPort",
     "RetrievalProfileProjectionPort",

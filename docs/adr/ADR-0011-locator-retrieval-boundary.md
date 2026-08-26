@@ -265,6 +265,7 @@ the added production seams as follows:
 infinity_context_server/features/context_building/retrieval_service.py       application composition/attestation
 infinity_context_server/features/context_building/retrieval_mappers.py       contract boundary mapping
 infinity_context_server/retrieval_profile_composition.py                    provider composition
+infinity_context_server/retrieval_profile_outbox.py                         outbox application coordination
 infinity_context_server/api/v1/context_retrieval.py                          HTTP adapter
 infinity_context_adapters/postgres/locator_retrieval.py                      canonical read/lexical adapter
 infinity_context_adapters/postgres/projected_document_ingestion.py           canonical write adapter
@@ -319,6 +320,14 @@ both enforce explicit page, encoded-byte and monotonic-deadline bounds, so profi
 Corrupt, missing or drifted page evidence fails closed. Exact-version stale-write cleanup
 is part of the consumer-owned projection port and cannot be weakened by adapter
 substitution.
+
+Profile tombstone cleanup observes the deterministic point id before choosing a
+generation to delete. A generation at or below the revalidated canonical tombstone
+fence is deleted with an exact-version filter and read back; a newer generation is
+preserved and cannot complete the older tombstone. PostgreSQL persists the actual
+deleted generation, provider-observation time and completion only after the same
+canonical fence is revalidated. Missing receipts, crashed upserts and historical
+completion therefore never authorize an inferred `N-1` generation.
 
 Every composed Qdrant mutation durably opens and closes a PostgreSQL-owned provider
 mutation epoch and heartbeats its exact operation/epoch while bounded provider I/O is

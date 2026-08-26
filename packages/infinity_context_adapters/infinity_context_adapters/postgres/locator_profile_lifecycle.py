@@ -814,7 +814,8 @@ class PostgresRetrievalProfileRegistry(
         chunk_id: str,
         *,
         canonical_version: int,
-        delete_canonical_version: int,
+        deleted_canonical_version: int | None,
+        provider_observed_at: datetime,
         completed_at: datetime,
     ) -> bool:
         async with self.sessions() as session, session.begin():
@@ -829,7 +830,11 @@ class PostgresRetrievalProfileRegistry(
             if (
                 row is None
                 or row.canonical_version != canonical_version
-                or row.delete_canonical_version != delete_canonical_version
+                or row.completed_at is not None
+            ):
+                return False
+            if deleted_canonical_version is not None and not (
+                1 <= deleted_canonical_version <= canonical_version
             ):
                 return False
             chunk = await session.get(MemoryChunkRow, chunk_id)
@@ -837,6 +842,8 @@ class PostgresRetrievalProfileRegistry(
                 chunk.retrieval_version != canonical_version or all(_eligible_value(chunk))
             ):
                 return False
+            row.delete_canonical_version = deleted_canonical_version
+            row.provider_observed_at = provider_observed_at
             row.completed_at = completed_at
             row.updated_at = completed_at
             await session.execute(
@@ -872,7 +879,6 @@ class PostgresRetrievalProfileRegistry(
             return ProfileTombstoneDeleteAuthorization(
                 _identity(profile),
                 tombstone.canonical_version,
-                tombstone.delete_canonical_version,
             )
 
     async def _refresh_attestation(

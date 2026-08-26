@@ -32,17 +32,18 @@ from infinity_context_core.features.context_building.ports.retrieval_profile_lif
 NOW = datetime(2026, 8, 23, tzinfo=UTC)
 
 
-def test_tombstone_authority_and_absence_proof_bind_both_exact_generations() -> None:
+def test_tombstone_authority_and_readback_proof_bind_exact_observed_generation() -> None:
     identity = RetrievalProfileIdentity("profile-a", "generation-a", "a" * 64, "locator")
-    authorization = ProfileTombstoneDeleteAuthorization(identity, 8, 7)
-    proof = ExactVersionDeletionProof(("chunk-a",), 7)
+    authorization = ProfileTombstoneDeleteAuthorization(identity, 8)
+    proof = ExactVersionDeletionProof(("chunk-a",), 7, (None,))
 
     assert authorization.canonical_version == 8
-    assert authorization.delete_canonical_version == proof.canonical_version == 7
+    assert proof.canonical_version == 7
+    assert proof.remaining_canonical_versions == (None,)
     with pytest.raises(ValueError):
-        ExactVersionDeletionProof(("chunk-a",), True)  # type: ignore[arg-type]
+        ExactVersionDeletionProof(("chunk-a",), True, (None,))  # type: ignore[arg-type]
     with pytest.raises(ValueError):
-        ExactVersionDeletionProof(("chunk-a", "chunk-a"), 7)
+        ExactVersionDeletionProof(("chunk-a", "chunk-a"), 7, (None, None))
 
 
 def test_activation_requires_every_exact_operational_gate() -> None:

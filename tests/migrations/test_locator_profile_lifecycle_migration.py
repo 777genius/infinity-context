@@ -288,15 +288,18 @@ def test_retrieval_default_cutover_retires_only_the_historical_event_lane() -> N
     assert "trg_memory_chunk_locator_profile_events_v2" not in sql
 
 
-def test_exact_delete_generation_migration_separates_authority_from_target() -> None:
+def test_exact_delete_generation_migration_requires_observed_provider_evidence() -> None:
     path = Path(__file__).resolve().parents[2] / (
         "packages/infinity_context_adapters/infinity_context_adapters/postgres/migrations/"
         "0054_locator_profile_exact_delete_generation.sql"
     )
     sql = path.read_text()
     assert "ADD COLUMN delete_canonical_version BIGINT" in sql
-    assert "OLD.retrieval_version" in sql
-    assert "delete_canonical_version = EXCLUDED.delete_canonical_version" in sql
-    assert "locator-profile-delete-v2:" in sql
+    assert "ADD COLUMN provider_observed_at TIMESTAMPTZ" in sql
+    assert "delete_canonical_version = NULL" in sql
+    assert "provider_observed_at = NULL" in sql
+    assert "locator-profile-delete-observe:" in sql
     assert "completed_at = NULL" in sql
+    assert "canonical_version - 1" not in sql
+    assert "memory_locator_profile_projection_receipts AS receipts" not in sql
     assert "CREATE OR REPLACE FUNCTION public.memory_chunk_locator_profile_events_v2()" in sql

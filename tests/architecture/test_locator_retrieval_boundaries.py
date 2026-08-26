@@ -201,6 +201,7 @@ INTEGRATION_SOURCE_CLASSIFICATION = {
     SERVER_CONTEXT_BUILDING / "retrieval_service.py": "application_composition",
     SERVER_CONTEXT_BUILDING / "retrieval_mappers.py": "contract_mapping",
     SERVER_PACKAGE / "retrieval_profile_composition.py": "provider_composition",
+    SERVER_PACKAGE / "retrieval_profile_outbox.py": "outbox_application_coordination",
     SERVER_PACKAGE / "api" / "v1" / "context_retrieval.py": "http_adapter",
     POSTGRES_ADAPTER / "locator_retrieval.py": "canonical_read_adapter",
     POSTGRES_ADAPTER / "projected_document_ingestion.py": "canonical_write_adapter",

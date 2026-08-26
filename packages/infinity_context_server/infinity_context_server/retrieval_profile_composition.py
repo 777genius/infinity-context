@@ -40,7 +40,6 @@ from infinity_context_server.features.context_building.retrieval_service import 
     LocatorRetrievalService,
     RetrievalLaneRuntime,
 )
-from infinity_context_server.processes.outbox import ClaimedOutboxJob
 from infinity_context_server.retrieval_profile_attestation import (
     attestation_in_progress as _attestation_in_progress,
 )
@@ -50,76 +49,8 @@ from infinity_context_server.retrieval_profile_attestation import (
 from infinity_context_server.retrieval_profile_attestation import (
     projection_item_manifest as _projection_item_manifest,
 )
+from infinity_context_server.retrieval_profile_outbox import RetrievalProfileOutboxCoordinator
 from infinity_context_server.retrieval_runtime_lifecycle import RetrievalRuntimeLifecycle
-
-
-@dataclass(frozen=True, slots=True)
-class RetrievalProfileOutboxCoordinator:
-    registry: PostgresRetrievalProfileRegistry
-    source: PostgresCanonicalProjectionSource
-    projection: QdrantRetrievalProfileProjection
-
-    async def upsert(self, job: ClaimedOutboxJob, *, now: datetime) -> None:
-        profile_id = _profile_id(job)
-        profile = next(
-            (item for item in await self.registry.routable() if item.profile_id == profile_id),
-            None,
-        )
-        if profile is None:
-            return
-        items = await self.source.items_by_ids((job.aggregate_id,))
-        if not items:
-            return
-        # Write current canonical state; stale queued upserts never roll derived points back.
-        await self.projection.upsert_profile(profile, items)
-        try:
-            await self.registry.record_projection(profile_id, items, projected_at=now)
-        except RuntimeError as exc:
-            if str(exc) not in {
-                "retrieval_profile_stale_projection_write",
-                "retrieval_profile_projection_digest_drift",
-            }:
-                raise
-            for version in sorted({item.canonical_version for item in items}):
-                await self.projection.delete_profile_if_version(
-                    profile,
-                    tuple(
-                        item.canonical_identity
-                        for item in items
-                        if item.canonical_version == version
-                    ),
-                    canonical_version=version,
-                )
-            raise
-
-    async def delete(self, job: ClaimedOutboxJob, *, now: datetime) -> None:
-        profile_id = _profile_id(job)
-        if job.aggregate_version is None:
-            raise RuntimeError("retrieval_profile_delete_version_missing")
-        authorization = await self.registry.authorize_tombstone(
-            profile_id,
-            job.aggregate_id,
-            canonical_version=job.aggregate_version,
-        )
-        if authorization is None:
-            return
-        proof = await self.projection.delete_profile_if_version(
-            authorization.identity,
-            (job.aggregate_id,),
-            canonical_version=authorization.delete_canonical_version,
-        )
-        if (
-            proof.canonical_ids != (job.aggregate_id,)
-            or proof.canonical_version != authorization.delete_canonical_version
-        ):
-            raise RuntimeError("retrieval_profile_delete_proof_mismatch")
-        await self.registry.complete_tombstone(
-            profile_id,
-            job.aggregate_id,
-            canonical_version=job.aggregate_version,
-            delete_canonical_version=authorization.delete_canonical_version,
-            completed_at=now,
-        )
 
 
 @dataclass(frozen=True, slots=True)
@@ -788,13 +719,6 @@ def _supervisor_trust_from_settings(settings, *, expected_release=None):
         ),
         expected_release=release,
     )
-
-
-def _profile_id(job: ClaimedOutboxJob) -> str:
-    value = job.payload_json.get("profile_id")
-    if not isinstance(value, str) or not value or value != value.strip():
-        raise RuntimeError("retrieval_profile_id_missing")
-    return value
 
 
 async def _bounded_qdrant_attestation(

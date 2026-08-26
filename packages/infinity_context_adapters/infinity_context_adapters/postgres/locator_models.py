@@ -562,8 +562,13 @@ class MemoryLocatorProfileTombstoneRow(Base):
     __table_args__ = (
         CheckConstraint("canonical_version > 0", name="ck_locator_profile_tombstone_version"),
         CheckConstraint(
-            "delete_canonical_version > 0",
+            "delete_canonical_version IS NULL OR delete_canonical_version > 0",
             name="ck_locator_profile_tombstone_delete_version",
+        ),
+        CheckConstraint(
+            "(completed_at IS NULL AND provider_observed_at IS NULL) OR "
+            "(completed_at IS NOT NULL AND provider_observed_at IS NOT NULL)",
+            name="ck_locator_profile_tombstone_observation",
         ),
         Index(
             "ix_locator_profile_tombstones_pending",
@@ -579,7 +584,10 @@ class MemoryLocatorProfileTombstoneRow(Base):
     )
     chunk_id: Mapped[str] = mapped_column(String(80), primary_key=True)
     canonical_version: Mapped[int] = mapped_column(BigInteger, nullable=False)
-    delete_canonical_version: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    delete_canonical_version: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
+    provider_observed_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
     completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)

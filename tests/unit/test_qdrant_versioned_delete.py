@@ -48,7 +48,10 @@ class _Client:
 
     async def retrieve(self, **kwargs: object) -> list[SimpleNamespace]:
         return [
-            SimpleNamespace(payload={"canonical_version": self.current_versions[point_id]})
+            SimpleNamespace(
+                id=point_id,
+                payload={"canonical_version": self.current_versions[point_id]},
+            )
             for point_id in kwargs["ids"]
             if point_id in self.current_versions
         ]
@@ -105,6 +108,9 @@ def test_profile_projection_versioned_delete_preserves_exact_port_arguments() ->
             calls.append((chunk_ids, canonical_version))
             return SimpleNamespace(status=PortStatus.OK)
 
+        async def observe_chunk_versions(chunk_ids):
+            return tuple(None for _ in chunk_ids)
+
         fence = _Fence()
         projection = QdrantRetrievalProfileProjection(
             url="http://qdrant.test",
@@ -113,7 +119,10 @@ def test_profile_projection_versioned_delete_preserves_exact_port_arguments() ->
             embedder=SimpleNamespace(),
             mutation_registry=fence,
         )
-        adapter = SimpleNamespace(delete_chunks_if_version=delete_chunks_if_version)
+        adapter = SimpleNamespace(
+            delete_chunks_if_version=delete_chunks_if_version,
+            observe_chunk_versions=observe_chunk_versions,
+        )
         projection._adapters["profile-a"] = adapter
         identity = RetrievalProfileIdentity("profile-a", "generation-a", "a" * 64, "locator")
 
@@ -124,6 +133,7 @@ def test_profile_projection_versioned_delete_preserves_exact_port_arguments() ->
         assert calls == [(("chunk-2", "chunk-1"), 7)]
         assert proof.canonical_ids == ("chunk-2", "chunk-1")
         assert proof.canonical_version == 7
+        assert proof.remaining_canonical_versions == (None, None)
         assert [event[0] for event in fence.events] == ["begin", "finish"]
         assert await projection.attestation_epoch(identity, now=datetime.now(UTC)) == 2
 
@@ -184,5 +194,50 @@ def test_stale_delete_replay_and_reconciliation_cannot_remove_superseding_point(
 
         await adapter.delete_chunks_if_version(("chunk-1",), canonical_version=5)
         assert point_id not in client.current_versions
+
+    asyncio.run(run())
+
+
+def test_qdrant_observation_reports_absent_older_equal_and_newer_generations() -> None:
+    async def run() -> None:
+        client = _Client()
+        adapter = QdrantVectorMemoryAdapter(
+            url="http://qdrant.test", collection_name="locator", vector_size=3
+        )
+
+        async def fake_client():
+            return client, _Models
+
+        adapter._client = fake_client  # type: ignore[method-assign]
+        point_id = qdrant_point_id_for_chunk("chunk-1")
+        assert await adapter.observe_chunk_versions(("chunk-1",)) == (None,)
+        for version in (1, 2, 4):
+            client.current_versions[point_id] = version
+            assert await adapter.observe_chunk_versions(("chunk-1",)) == (version,)
+
+    asyncio.run(run())
+
+
+def test_qdrant_observation_failure_is_not_absence() -> None:
+    async def run() -> None:
+        client = _Client()
+        adapter = QdrantVectorMemoryAdapter(
+            url="http://qdrant.test", collection_name="locator", vector_size=3
+        )
+
+        async def fake_client():
+            return client, _Models
+
+        async def failed_retrieve(**_kwargs):
+            raise OSError("injected observation failure")
+
+        adapter._client = fake_client  # type: ignore[method-assign]
+        client.retrieve = failed_retrieve  # type: ignore[method-assign]
+        try:
+            await adapter.observe_chunk_versions(("chunk-1",))
+        except RuntimeError as exc:
+            assert str(exc) == "qdrant.observe_canonical_version_failed"
+        else:  # pragma: no cover
+            raise AssertionError("failed provider observation was treated as absence")
 
     asyncio.run(run())

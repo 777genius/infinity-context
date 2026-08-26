@@ -12,6 +12,7 @@ from infinity_context_core.features.context_building.public import (
     CanonicalProjectionItem,
     ExactVersionDeletionProof,
     ProfileCollectionDeleteAuthorization,
+    ProjectedGenerationObservation,
     RetrievalProfileIdentity,
     RuntimeFenceOwner,
 )
@@ -117,8 +118,25 @@ class QdrantRetrievalProfileProjection:
                 )
             if result.status.value != "ok":
                 raise RuntimeError("retrieval_profile_qdrant_delete_failed")
+            remaining = await self._adapter(identity).observe_chunk_versions(canonical_ids)
             mutation.complete()
-        return ExactVersionDeletionProof(canonical_ids, canonical_version)
+        return ExactVersionDeletionProof(canonical_ids, canonical_version, remaining)
+
+    async def observe_profile_generation(
+        self,
+        identity: RetrievalProfileIdentity,
+        canonical_id: str,
+    ) -> ProjectedGenerationObservation:
+        """Observe one point without opening a mutation epoch."""
+
+        try:
+            async with asyncio.timeout(50):
+                versions = await self._adapter(identity).observe_chunk_versions((canonical_id,))
+        except Exception as exc:
+            raise RuntimeError("retrieval_profile_qdrant_observation_failed") from exc
+        if len(versions) != 1:
+            raise RuntimeError("retrieval_profile_qdrant_observation_invalid")
+        return ProjectedGenerationObservation(canonical_id, versions[0])
 
     async def attestation(self, identity: RetrievalProfileIdentity) -> tuple[int, str]:
         return await self._adapter(identity).locator_profile_attestation()

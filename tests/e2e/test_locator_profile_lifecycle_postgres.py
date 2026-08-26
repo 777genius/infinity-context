@@ -448,7 +448,8 @@ async def _assert_profile_lifecycle(database_url: str) -> None:
             async with engine.begin() as connection:
                 await connection.execute(
                     text(
-                        "UPDATE memory_locator_profile_tombstones SET completed_at = :now "
+                        "UPDATE memory_locator_profile_tombstones "
+                        "SET completed_at = :now, provider_observed_at = :now "
                         "WHERE profile_id = 'profile-a' AND chunk_id = 'deleted-chunk'"
                     ),
                     {"now": now},

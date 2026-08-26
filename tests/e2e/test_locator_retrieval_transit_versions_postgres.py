@@ -132,11 +132,10 @@ async def _scenario(database_url: str) -> None:
                 ).scalar_one()
                 assert tombstone is not None
                 assert tombstone.canonical_version == MAX_SAFE_JSON_INTEGER
-                assert tombstone.delete_canonical_version == MAX_SAFE_JSON_INTEGER - 1
+                assert tombstone.delete_canonical_version is None
+                assert tombstone.provider_observed_at is None
                 assert outbox.aggregate_version == MAX_SAFE_JSON_INTEGER
-                assert outbox.payload_json["delete_canonical_version"] == (
-                    MAX_SAFE_JSON_INTEGER - 1
-                )
+                assert "delete_canonical_version" not in outbox.payload_json
         finally:
             await engine.dispose()
     finally:
@@ -163,39 +162,72 @@ async def _aba_scenario(database_url: str) -> None:
             async with sessions() as session, session.begin():
                 await session.execute(
                     text(
-                        "UPDATE memory_chunks SET status='deleted', retrieval_version=2 "
+                        "INSERT INTO memory_locator_profile_projection_receipts "
+                        "(profile_id, chunk_id, canonical_version, canonical_watermark, "
+                        "payload_digest, projected_at) VALUES "
+                        "('profile-max', 'chunk-aba', 1, 0, :digest, :when)"
+                    ),
+                    {"digest": "f" * 64, "when": WHEN},
+                )
+                await session.execute(
+                    text(
+                        "UPDATE memory_chunks SET text='pending generation two', "
+                        "normalized_text='pending generation two', retrieval_version=2 "
+                        "WHERE id='chunk-aba'"
+                    )
+                )
+                await session.execute(
+                    text(
+                        "UPDATE memory_chunks SET classification='restricted', "
+                        "retrieval_version=3 "
                         "WHERE id='chunk-aba'"
                     )
                 )
 
             first = await registry.authorize_tombstone(
-                "profile-max", "chunk-aba", canonical_version=2
+                "profile-max", "chunk-aba", canonical_version=3
             )
             replay = await registry.authorize_tombstone(
-                "profile-max", "chunk-aba", canonical_version=2
+                "profile-max", "chunk-aba", canonical_version=3
             )
             assert first is not None and replay == first
-            assert first.delete_canonical_version == 1
-            assert not await registry.complete_tombstone(
-                "profile-max",
-                "chunk-aba",
-                canonical_version=2,
-                delete_canonical_version=2,
-                completed_at=WHEN,
-            )
+            async with engine.connect() as connection:
+                state = (
+                    await connection.execute(
+                        text(
+                            "SELECT chunks.retrieval_version AS canonical_version, "
+                            "receipts.canonical_version AS receipt_version, "
+                            "tombstones.canonical_version AS tombstone_version, "
+                            "tombstones.delete_canonical_version, "
+                            "(SELECT aggregate_version FROM memory_outbox "
+                            "WHERE aggregate_id='chunk-aba' "
+                            "AND event_type='vector.upsert_locator_profile' "
+                            "AND aggregate_version=2) AS pending_upsert_version "
+                            "FROM memory_chunks AS chunks "
+                            "JOIN memory_locator_profile_projection_receipts AS receipts "
+                            "ON receipts.chunk_id=chunks.id AND receipts.profile_id='profile-max' "
+                            "JOIN memory_locator_profile_tombstones AS tombstones "
+                            "ON tombstones.chunk_id=chunks.id "
+                            "AND tombstones.profile_id='profile-max' "
+                            "WHERE chunks.id='chunk-aba'"
+                        )
+                    )
+                ).one()
+            assert tuple(state) == (3, 1, 3, None, 2)
 
             async with sessions() as session, session.begin():
                 await session.execute(
                     text(
                         "UPDATE memory_chunks SET status='active', classification='internal', "
-                        "retrieval_version=3 WHERE id='chunk-aba'"
+                        "retrieval_version=4 WHERE id='chunk-aba'"
                     )
                 )
             assert not await registry.complete_tombstone(
                 "profile-max",
                 "chunk-aba",
-                canonical_version=2,
-                delete_canonical_version=1,
+                canonical_version=3,
+                deleted_canonical_version=1,
+                provider_observed_at=WHEN,
                 completed_at=WHEN,
             )
 
@@ -203,18 +235,38 @@ async def _aba_scenario(database_url: str) -> None:
                 await session.execute(
                     text(
                         "UPDATE memory_chunks SET classification='restricted', "
-                        "retrieval_version=4 WHERE id='chunk-aba'"
+                        "retrieval_version=5 WHERE id='chunk-aba'"
                     )
                 )
             assert (
-                await registry.authorize_tombstone("profile-max", "chunk-aba", canonical_version=2)
+                await registry.authorize_tombstone("profile-max", "chunk-aba", canonical_version=3)
                 is None
             )
             successor = await registry.authorize_tombstone(
-                "profile-max", "chunk-aba", canonical_version=4
+                "profile-max", "chunk-aba", canonical_version=5
             )
             assert successor is not None
-            assert successor.delete_canonical_version == 3
+            assert await registry.complete_tombstone(
+                "profile-max",
+                "chunk-aba",
+                canonical_version=5,
+                deleted_canonical_version=4,
+                provider_observed_at=WHEN,
+                completed_at=WHEN,
+            )
+            async with engine.connect() as connection:
+                durable = (
+                    await connection.execute(
+                        text(
+                            "SELECT delete_canonical_version, provider_observed_at, completed_at, "
+                            "(SELECT count(*) FROM memory_locator_profile_projection_receipts "
+                            "WHERE profile_id='profile-max' AND chunk_id='chunk-aba') "
+                            "AS receipt_count FROM memory_locator_profile_tombstones "
+                            "WHERE profile_id='profile-max' AND chunk_id='chunk-aba'"
+                        )
+                    )
+                ).one()
+            assert tuple(durable) == (4, WHEN, WHEN, 0)
         finally:
             await engine.dispose()
     finally:
@@ -247,7 +299,20 @@ async def _upgrade_repair_scenario(database_url: str) -> None:
             async with engine.begin() as connection:
                 await connection.execute(
                     text(
-                        "UPDATE memory_chunks SET status='deleted', retrieval_version=2 "
+                        "UPDATE memory_chunks SET classification='restricted', "
+                        "retrieval_version=2 "
+                        "WHERE id='chunk-repair'"
+                    )
+                )
+                await connection.execute(
+                    text(
+                        "DELETE FROM memory_locator_profile_projection_receipts "
+                        "WHERE profile_id='profile-max' AND chunk_id='chunk-repair'"
+                    )
+                )
+                await connection.execute(
+                    text(
+                        "UPDATE memory_chunks SET status='deleted', retrieval_version=3 "
                         "WHERE id='chunk-repair'"
                     )
                 )
@@ -266,7 +331,11 @@ async def _upgrade_repair_scenario(database_url: str) -> None:
                 tombstone = (
                     await connection.execute(
                         text(
-                            "SELECT canonical_version, delete_canonical_version, completed_at "
+                            "SELECT canonical_version, delete_canonical_version, "
+                            "provider_observed_at, completed_at, "
+                            "(SELECT count(*) FROM memory_locator_profile_projection_receipts "
+                            "WHERE profile_id='profile-max' AND chunk_id='chunk-repair') "
+                            "AS receipt_count "
                             "FROM memory_locator_profile_tombstones "
                             "WHERE profile_id='profile-max' AND chunk_id='chunk-repair'"
                         )
@@ -277,13 +346,13 @@ async def _upgrade_repair_scenario(database_url: str) -> None:
                         text(
                             "SELECT aggregate_version, payload_json "
                             "FROM memory_outbox WHERE event_type='vector.delete_locator_profile' "
-                            "AND message_key LIKE 'locator-profile-delete-v2:%'"
+                            "AND message_key LIKE 'locator-profile-delete-observe:%'"
                         )
                     )
                 ).one()
-            assert tuple(tombstone) == (2, 1, None)
-            assert repair.aggregate_version == 2
-            assert repair.payload_json["delete_canonical_version"] == 1
+            assert tuple(tombstone) == (3, None, None, None, 0)
+            assert repair.aggregate_version == 3
+            assert "delete_canonical_version" not in repair.payload_json
         finally:
             await engine.dispose()
     finally:

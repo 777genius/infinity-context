@@ -330,28 +330,39 @@ class QdrantVectorMemoryAdapter:
                 points_selector=selector,
                 wait=True,
             )
-            observed = await client.retrieve(
+            observed_versions = await _retrieve_canonical_versions(
+                client,
                 collection_name=self._collection_name,
-                ids=point_ids,
-                with_payload=["canonical_version"],
-                with_vectors=False,
+                point_ids=tuple(point_ids),
             )
-            for point in observed:
-                payload = getattr(point, "payload", None)
-                observed_version = (
-                    payload.get("canonical_version") if isinstance(payload, dict) else None
-                )
-                if (
-                    not isinstance(observed_version, int)
-                    or isinstance(observed_version, bool)
-                    or observed_version == canonical_version
-                ):
+            for observed_version in observed_versions:
+                if observed_version == canonical_version:
                     return VectorWriteResult.degraded(
                         "qdrant.delete_exact_version_unproven", retryable=True
                     )
             return VectorWriteResult.ok(len(chunk_ids))
         except Exception:
             return VectorWriteResult.degraded("qdrant.delete_failed", retryable=True)
+        finally:
+            await _close_client(client)
+
+    async def observe_chunk_versions(self, chunk_ids: tuple[str, ...]) -> tuple[int | None, ...]:
+        """Read the actual projected generation for deterministic chunk point ids."""
+
+        if not chunk_ids:
+            return ()
+        client = None
+        try:
+            client, _ = await self._client()
+            if not await client.collection_exists(self._collection_name):
+                return tuple(None for _ in chunk_ids)
+            return await _retrieve_canonical_versions(
+                client,
+                collection_name=self._collection_name,
+                point_ids=tuple(qdrant_point_id_for_chunk(item) for item in chunk_ids),
+            )
+        except Exception as exc:
+            raise RuntimeError("qdrant.observe_canonical_version_failed") from exc
         finally:
             await _close_client(client)
 
@@ -901,3 +912,32 @@ async def _close_client(client: object | None) -> None:
         if inspect.isawaitable(result):
             await result
         return
+
+
+async def _retrieve_canonical_versions(
+    client: object,
+    *,
+    collection_name: str,
+    point_ids: tuple[str, ...],
+) -> tuple[int | None, ...]:
+    observed = await client.retrieve(
+        collection_name=collection_name,
+        ids=list(point_ids),
+        with_payload=["canonical_version"],
+        with_vectors=False,
+    )
+    versions: dict[str, int] = {}
+    for point in observed:
+        point_id = str(getattr(point, "id", ""))
+        payload = getattr(point, "payload", None)
+        version = payload.get("canonical_version") if isinstance(payload, dict) else None
+        if (
+            point_id not in point_ids
+            or point_id in versions
+            or not isinstance(version, int)
+            or isinstance(version, bool)
+            or not 1 <= version <= 9_007_199_254_740_991
+        ):
+            raise RuntimeError("qdrant.canonical_version_observation_invalid")
+        versions[point_id] = version
+    return tuple(versions.get(point_id) for point_id in point_ids)
